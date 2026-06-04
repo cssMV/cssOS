@@ -481,8 +481,9 @@
     var personRow = el("div", { class: "uhp-person-row" }, []);
     (data.top_persons || []).forEach(function (p) {
       personRow.appendChild(el("div", { class: "uhp-person-card", onclick: function () { close(); openCodex(p.person_id); } }, [
-        el("strong", {}, [p.name_zh || p.name_en]),
-        el("span", {}, [p.civilization + " · " + (p.mv_count || 0) + " MVs"]),
+        // en-first: tr() returns en by default, zh only when locale is zh.
+        el("strong", {}, [tr(p.name_en || p.name_zh || "", p.name_zh || p.name_en || "")]),
+        el("span", {}, [(globalThis.civDisplayName ? globalThis.civDisplayName(p.civilization || "") : (p.civilization || "")) + " · " + (p.mv_count || 0) + " MVs"]),
       ]));
     });
     if (!(data.top_persons || []).length) {
@@ -492,7 +493,7 @@
 
     // Followers / Following tabs (collapsed: only render on tab click)
     inner.appendChild(el("h2", { class: "uhp-section" }, ["👥 " + tr("Followers / Following", "粉丝 / 关注")]));
-    var tabs = el("div", { class: "uhp-tabs", "data-segmented": "2" }, []);
+    var tabs = el("div", { class: "uhp-tabs", "data-segmented": "2", "data-pill-bar": "" }, []);
     var listHost = el("div", { class: "uhp-follow-list" }, []);
     var btnFollowers = el("button", {}, [tr("Followers", "粉丝") + " (" + fc.followers + ")"]);
     var btnFollowing = el("button", {}, [tr("Following", "关注中") + " (" + fc.following + ")"]);

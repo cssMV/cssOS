@@ -166,7 +166,9 @@ function attachReportQueueJumpHandlersModule() {
 async function renderDeliveryReportBodyModule(response) {
   if (!deliveryReportBody) return;
   if (deliveryReportState.loading && !response) {
-    deliveryReportBody.innerHTML = `<div class="report-empty">${escapeHtml(t("reports.loading"))}</div>`;
+    deliveryReportBody.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+      ? globalThis.cssosSkeletonRowsMarkup(4, t("reports.loading"))
+      : `<div class="report-empty">${escapeHtml(t("reports.loading"))}</div>`);
     return;
   }
   const data = response?.data || null;

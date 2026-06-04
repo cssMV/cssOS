@@ -39,9 +39,14 @@
       "max-width:88vw;text-align:center;";
     toastEl.textContent = msg;
     document.body.appendChild(toastEl);
+    // CSSOS_WAVE_445c 20260527 — capture local ref before async rAF fires.
+    // If showToast() is called again before the rAF fires, the module-scoped
+    // `toastEl` gets replaced → this rAF would see null → TypeError on .style.
+    var el = toastEl;
     requestAnimationFrame(function () {
-      toastEl.style.opacity = "1";
-      toastEl.style.transform = "translateX(-50%) translateY(0)";
+      if (!el) return;
+      el.style.opacity = "1";
+      el.style.transform = "translateX(-50%) translateY(0)";
     });
     var ttl = kind === "error" ? 4000 : 2000;
     setTimeout(function () {

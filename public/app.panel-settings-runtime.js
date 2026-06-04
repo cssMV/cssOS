@@ -332,6 +332,7 @@ function collectPanelSettingsRuntimeBridge({
     commercePayoutSweepMinutesInput: settings.querySelector('[data-setting="commerce-payout-sweep-minutes"]'),
     commerceMinTipUsdInput: settings.querySelector('[data-setting="commerce-min-tip-usd"]'),
     previewModeInput: settings.querySelector('[data-setting="preview-mode"]'),
+    autoEnterMvInput: settings.querySelector('[data-setting="auto-enter-mv"]'),
     foryouHoldInput: settings.querySelector('[data-setting="foryou-hold-ms"]'),
     foryouCompactInput: settings.querySelector('[data-setting="foryou-compact-after-lyrics"]'),
     foryouAutoWatchInput: settings.querySelector('[data-setting="foryou-auto-watch-ms"]'),
@@ -372,6 +373,23 @@ function collectPanelSettingsRuntimeBridge({
   runtime.blurInput.value = panel.dataset.panelBlur;
   runtime.widthInput.value = panel.dataset.panelWidth;
   runtime.heightInput.value = panel.dataset.panelHeight;
+  // CSSOS_WAVE_479 20260527 — Jing「MV 面板设置区可重设『进入平台时』偏好」: 三选项
+  // (每次问 / 总是欣赏 / 不自动进), 接 autoplay-feed 暴露的 cssosReadAutoEnterMvPref /
+  // cssosSetAutoEnterMvPref。「在哪用就在哪改」—— 入场自动进 MV 的开关就放在 MV 面板设置里。
+  if (runtime.autoEnterMvInput) {
+    try {
+      runtime.autoEnterMvInput.value =
+        (typeof globalThis.cssosReadAutoEnterMvPref === "function")
+          ? globalThis.cssosReadAutoEnterMvPref() : "ask";
+    } catch (_e) {}
+    runtime.autoEnterMvInput.addEventListener("change", () => {
+      try {
+        if (typeof globalThis.cssosSetAutoEnterMvPref === "function") {
+          globalThis.cssosSetAutoEnterMvPref(runtime.autoEnterMvInput.value || "ask");
+        }
+      } catch (_e) {}
+    });
+  }
   if (runtime.previewModeInput) {
     runtime.previewModeInput.value = globalThis.getForyouPreviewModeModule?.() || FORYOU_PREVIEW_MODES.AUTO;
     runtime.previewModeInput.addEventListener("change", () => {

@@ -507,7 +507,9 @@ async function runUserAdminSearchModule(query) {
     results.innerHTML = `<div class="works-note">${escapeHtml(loginCopy("Enter an email or user id first."))}</div>`;
     return false;
   }
-  results.innerHTML = `<div class="works-note">${escapeHtml(loginCopy("Searching users..."))}</div>`;
+  results.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+    ? globalThis.cssosSkeletonRowsMarkup(4, loginCopy("Searching users..."))
+    : `<div class="works-note">${escapeHtml(loginCopy("Searching users..."))}</div>`);
   try {
     const url = `/api/admin/users/search?q=${encodeURIComponent(q)}`;
     const res = await fetch(url, { credentials: "include" });

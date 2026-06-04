@@ -99,7 +99,15 @@ body[data-theme="light"] .bg {
   opacity: calc(0.14 + var(--bg-intensity) * 0.46);
   filter: blur(calc(32px + var(--bg-intensity) * 48px));
   transform: translate3d(0, 0, 0);
-  animation: bgFloat calc(34s - var(--bg-motion-scale) * 12s) ease-in-out infinite alternate;
+  /* CSSOS_WAVE_449 20260526 — Jing「所有面板都闪, 继续深挖」根因(实锤): 每个 .panel
+   * 都是 backdrop-filter:blur(18px) 磨砂玻璃, 而它们身后这层 .bg-blob 在无限 bgFloat
+   * 漂移。backdrop-filter 必须在背景内容每帧变化时【重新采样并重新模糊整块面板】→
+   * 全应用面板每帧重绘 = 通用闪烁(鼠标一动合成器失效更明显)。与 MV 那次同类: 持续
+   * 动画强迫被滤镜层每帧重绘。修法: 让 blob 静止(保留全部色彩氛围, 只去掉缓慢漂移)
+   * → 背景静止 → 磨砂面板只栅格化一次 → 彻底不再每帧重模糊。
+   * (如更想保留漂移, 备选是去掉面板 backdrop-filter 改静态半透明; 先按"保留观感、
+   *  去抖动"处理。) */
+  animation: none;
 }
 
 .bg-blob-a {
@@ -247,6 +255,20 @@ body[data-background-mode="ink"] .bg::after {
   animation: bgDrift calc(62s - var(--bg-motion-scale) * 12s) ease-in-out infinite alternate-reverse;
 }
 
+/* CSSOS_WAVE_638b 20260604 — App/移动端 OOM 釜底(续): 背景层 .bg::before/::after 的【无限大模糊动画】
+ * (blur 42~76px + bgDrift/bgRibbonSweep/bgWatercolor infinite)即便被全屏面板盖住也每帧动 →
+ * 持续烧 GPU + 逼可见面板的 backdrop-filter 每帧重采样重绘。原生 App(苹果审核环境)与移动端一律
+ * 【冻结背景动画】: 全部色彩氛围保留(静止), 只去掉漂移 → GPU 不再每帧重绘背景。桌面网页保留观感。
+ * (与 W449 让 .bg-blob 静止同理, 推广到所有背景层 + 别再背后捣乱。) */
+html.cssos-app .bg::before,
+html.cssos-app .bg::after,
+html.cssos-app .bg-blob {
+  animation: none !important;
+}
+@media (max-width: 768px) {
+  .bg::before, .bg::after, .bg-blob { animation: none !important; }
+}
+
 @keyframes bgFloat {
   from { transform: translate3d(-1.5%, -1%, 0) scale(0.98); }
   to { transform: translate3d(1.5%, 1%, 0) scale(1.02); }
@@ -297,16 +319,30 @@ body[data-background-mode="ink"] .bg::after {
   position: fixed;
   top: calc(16px + env(safe-area-inset-top));
   left: calc(16px + env(safe-area-inset-left));
-  z-index: 50;
+  z-index: 10;
+  opacity: 0.3;
+  transition: opacity 180ms ease;
+}
+.version-switch:hover,
+.version-switch:focus-within {
+  opacity: 1;
 }
 
 .theme-switch {
   position: fixed;
   top: calc(16px + env(safe-area-inset-top));
   right: calc(16px + env(safe-area-inset-right));
-  z-index: 50;
+  z-index: 10; /* panels start at z-index 11 and rise — always float above this */
   display: grid;
   justify-items: end;
+  /* Unobtrusive at rest — only the ◐ icon visible at 30% opacity.
+   * Full opacity on hover / keyboard focus so it doesn't disappear. */
+  opacity: 0.3;
+  transition: opacity 180ms ease;
+}
+.theme-switch:hover,
+.theme-switch:focus-within {
+  opacity: 1;
 }
 
 .version-toggle {
@@ -326,14 +362,14 @@ body[data-background-mode="ink"] .bg::after {
 }
 
 .theme-toggle {
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   border-radius: 0;
   border: none;
   background: transparent;
   box-shadow: none;
   color: var(--text);
-  font-size: 15px;
+  font-size: 11px;
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -345,9 +381,12 @@ body[data-background-mode="ink"] .bg::after {
 }
 
 .theme-toggle:hover {
-  transform: translateY(-1px);
-  color: rgba(232, 253, 244, 0.96);
+  transform: none;
   opacity: 1;
+  background: rgba(4, 10, 8, 0.82);
+  color: rgba(232, 253, 244, 0.96);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(232, 253, 244, 0.18);
 }
 
 .theme-toggle:focus-visible {
@@ -360,74 +399,49 @@ html[data-theme="light"] .theme-toggle {
   color: rgba(28, 25, 20, 0.86);
 }
 
+/* W461b — Theme-quick menu: horizontal pill bar (Light ☀ | System ◐ | Dark ☾).
+ * Problems solved:
+ *   1. .is-hidden must beat data-segmented's display:grid !important →
+ *      .theme-menu.is-hidden { display:none !important }
+ *   2. nth-child color cycle makes Dark pill purple → override ALL active
+ *      states to brand green for this menu.
+ *   3. "System" text cut off → wider min-width.
+ *   4. Pills must be readable in both dark and light OS themes.
+ */
 .theme-menu {
-  margin-top: 8px;
-  width: 118px;
-  padding: 6px;
-  border-radius: 16px;
-  border: 1px solid rgba(0, 245, 160, 0.14);
-  background:
-    linear-gradient(180deg, rgba(4, 16, 12, 0.96), rgba(2, 7, 5, 0.94)),
-    radial-gradient(circle at top right, rgba(11, 247, 255, 0.12), transparent 38%);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  display: grid;
-  gap: 4px;
+  margin: 6px 0 0 !important;
+  min-width: 226px !important;     /* ☀ Light (62) + ◐ System (80) + ☾ Dark (62) + borders/margins */
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.30);
+}
+
+/* HIDDEN state beats the constitution's display:grid !important.
+ * Belt-and-suspenders: ID selector (1,1,0) beats [data-segmented] (0,1,0). */
+.theme-menu.is-hidden,
+#theme-quick-menu.is-hidden {
+  display: none !important;
 }
 
 .theme-menu-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  color: rgba(232, 253, 244, 0.86);
-  font-size: 12px;
-  text-align: left;
+  color: rgba(218, 255, 238, 0.86);   /* always light text (menu floats on dark bg) */
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.theme-menu-item::after {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: transparent;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  flex: 0 0 7px;
+/* Active pill: always brand green (override nth-child purple/blue/etc.) */
+.theme-menu > .theme-menu-item.active,
+.theme-menu > .theme-menu-item.is-active {
+  background: hsla(155, 68%, 36%, 0.90) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
 }
 
-.theme-menu-item.is-active {
-  border-color: rgba(0, 245, 160, 0.24);
-  background: rgba(0, 245, 160, 0.08);
-  color: #f5fff9;
-}
-
-.theme-menu-item.is-active::after {
-  background: linear-gradient(180deg, var(--emerald), var(--blue));
-  box-shadow: 0 0 12px rgba(11, 247, 255, 0.34);
-}
-
-body[data-theme="light"] .theme-menu,
-html[data-theme="light"] .theme-menu {
-  border-color: rgba(72, 97, 82, 0.14);
-  background:
-    linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(248, 242, 234, 0.94)),
-    radial-gradient(circle at top right, rgba(45, 140, 255, 0.08), transparent 36%);
-  box-shadow: 0 16px 32px rgba(111, 84, 47, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.45);
-}
-
-body[data-theme="light"] .theme-menu-item,
-html[data-theme="light"] .theme-menu-item {
-  background: rgba(255, 255, 255, 0.56);
-  color: rgba(28, 25, 20, 0.84);
-}
-
-body[data-theme="light"] .theme-menu-item::after,
-html[data-theme="light"] .theme-menu-item::after {
-  box-shadow: inset 0 0 0 1px rgba(28, 25, 20, 0.14);
+/* Hover for inactive */
+.theme-menu > .theme-menu-item:not(.active):not(.is-active):hover {
+  background: rgba(0, 245, 160, 0.14) !important;
+  color: #daffee !important;
 }
 /*
 body[data-theme="light"] .dock,
@@ -437,18 +451,6 @@ html[data-theme="light"] .dock {
   box-shadow: 0 18px 36px rgba(111, 84, 47, 0.12);
 }
 */
-body[data-theme="light"] .dock-icon,
-html[data-theme="light"] .dock-icon {
-  background: rgba(13, 143, 103, 0.12);
-  color: rgba(13, 143, 103, 0.96);
-}
-
-body[data-theme="light"] .dock-label,
-html[data-theme="light"] .dock-label {
-  background: rgba(255, 252, 247, 0.82);
-  border-color: rgba(72, 97, 82, 0.12);
-  color: rgba(28, 25, 20, 0.84);
-}
 
 .version-menu {
   margin-top: 10px;
@@ -765,7 +767,16 @@ html[data-theme="light"] .dock-label {
 .panel.hidden {
   opacity: 0;
   pointer-events: none;
-  filter: blur(8px) saturate(140%);
+  /* CSSOS_WAVE_638 20260604 — App 端/移动端 OOM 崩溃("A problem repeatedly occurred")釜底抽薪:
+   * 隐藏面板【看不见, 却仍在合成】—— 23 个 .panel 各带 backdrop-filter:blur(18px) + 这里的
+   * filter:blur(8px), 每个都让浏览器开一块【全屏 GPU 缓冲】并【每帧重采样身后漂移的 .bg-blob】。
+   * 22 个隐藏面板的磨砂/模糊全屏缓冲叠起来 = 几百 MB GPU 内存 → 手机 GPU 内存爆 → 页面被杀 → 崩溃。
+   * 隐藏时一律【关掉所有滤镜 + backdrop-filter】: opacity:0 上的模糊本就看不见, 零视觉损失, 省海量内存。
+   * 只有【当前显示】的那 1 个面板保留磨砂观感。content-visibility:hidden 进一步让浏览器跳过渲染其子树。 */
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  content-visibility: hidden;
 }
 
 .panel-bar {
@@ -1116,11 +1127,11 @@ body.longpress-guard * {
   content: "";
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at 18% 22%, rgba(11, 247, 255, 0.12), transparent 28%),
-    radial-gradient(circle at 76% 26%, rgba(0, 245, 160, 0.16), transparent 32%),
-    radial-gradient(circle at 54% 78%, rgba(255, 209, 102, 0.08), transparent 24%),
-    linear-gradient(180deg, rgba(3, 8, 7, 0.68), rgba(0, 0, 0, 0.88));
+  /* CSSOS_WAVE_456 20260526 — Jing「上面卡片背景深色, 下面正常, 统一成浅色」根因: 这层
+   * 是 position:absolute; inset:0 的深色渐变, 在 overflow 滚动容器里【只覆盖首屏高度的
+   * 内容并随之上滚消失】→ 顶部卡片压在深色上、下方卡片在浅色面板上, 中间出现硬边界。
+   * 去掉深色叠加, 让所有卡片统一坐在 W453 的浅色面板表面上。 */
+  background: transparent;
   opacity: 1;
   transform: none;
   transition: none;
@@ -1991,9 +2002,14 @@ body.longpress-guard * {
   color: var(--muted);
 }
 
+/* CSSOS_WAVE_458 20260527 — Jing: login-body grid was stretching its rows to fill
+ * the full panel height (align-content defaults to normal/stretch in CSS grid when
+ * the grid is taller than its content). Result: big empty white gap above the
+ * compact-summary and provider pills. Fix: align-content: start packs items tightly. */
 .login-body {
   display: grid;
   gap: 8px;
+  align-content: start;
 }
 
 .login-status {
@@ -2014,15 +2030,43 @@ body.longpress-guard * {
   gap: 12px;
 }
 
-/* W306e — login-grid horizontal pill bar: 5 platform pills in one row,
- * matching the 凸嵌凹 constitution exactly like Genre/Mood/Instrument. */
+/* CSSOS_WAVE_459 20260527 — Jing: 胶囊宪法 full 凸嵌凹 cascade on login pills.
+ * W420 拆掉了互锁解决了点击死区。W426 只做了激活胶囊±1邻居互锁。
+ * 现要全量级联，完全对标 seed-script-tabs 的 v28 凸嵌凹实现。
+ * 可行原因：JS 会把激活胶囊居中滚入视口 → 手机窄屏上可见的始终是
+ * "1个左邻 + 激活 + 1个右邻"，不相邻的非激活互压死区不在可见区内。
+ *
+ * 实现要点（对齐 seed-script-tabs）：
+ *   - 容器: pill-track 外框（background + border + border-radius）
+ *   - 激活胶囊: z-index:2, 两侧1px边框, 全圆角, 品牌绿填充
+ *   - 左侧非激活 (:has(~.active)): margin-right:-20px + mask at right → 凹向右(激活)
+ *   - 右侧非激活 (.active~*): margin-left:-20px + mask at left → 凹向左(激活)
+ *   - 无激活时: 所有胶囊右侧1px边框 (末尾胶囊除外)
+ * ============================================================ */
+
+/* --- Container: pill-track box --- */
 .login-grid.cssmv-pill-bar {
-  /* let constitution handle horizontal flex, height 40px, border, radius */
-  height: 40px !important;
-  min-height: 40px !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none;
+  height: 42px !important;
+  min-height: 42px !important;
+  align-items: stretch !important;
+  background: rgba(0, 245, 160, 0.10) !important;
+  border: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  margin: 4px 0 !important;
+  padding: 0 !important;
+  position: relative;
+  max-width: 100% !important;
 }
+.login-grid.cssmv-pill-bar::-webkit-scrollbar { display: none; }
+
+/* --- All login-card children: base pill style (transparent, full-round) --- */
 .login-grid.cssmv-pill-bar > .login-card {
-  /* Compact pill child — icon + name, no tall grid layout */
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -2030,27 +2074,81 @@ body.longpress-guard * {
   height: 40px !important;
   min-height: 40px !important;
   max-height: 40px !important;
-  padding: 0 14px !important;
-  flex: 1 1 0 !important;
+  padding: 0 20px !important;
+  flex: 0 0 auto !important;
   min-width: max-content !important;
   width: auto !important;
+  margin: 0 !important;
   border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  pointer-events: auto !important;
   line-height: 40px !important;
   white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
+  overflow: visible !important;
+  box-sizing: border-box !important;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
 }
-/* Current session card: prominent highlight */
+
+/* --- Active pill: 凸 full-round, colored fill, z on top --- */
 .login-grid.cssmv-pill-bar > .login-card.active {
   font-weight: 700 !important;
+  color: #fff !important;
+  z-index: 2 !important;
+  border: 0 !important;
+  border-left:  1px solid rgba(0, 245, 160, 0.30) !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28) !important;
+  background: hsla(155, 68%, 36%, 0.90) !important;
 }
-/* In compact pill mode: hide subtitle and unlink button — only icon + name */
+
+/* --- Inactive AFTER active (right side): 凹 bite on LEFT, facing active --- */
+.login-grid.cssmv-pill-bar > .login-card.active ~ .login-card {
+  margin-left: -20px !important;
+  padding: 0 16px 0 24px !important;
+  border: 0 !important;
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 0 999px 999px 0 !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  mask-image:         radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
+  z-index: 1 !important;
+}
+
+/* --- Inactive BEFORE active (left side): 凹 bite on RIGHT, facing active --- */
+html.cssos-pill-cascade .login-grid.cssmv-pill-bar > .login-card:has(~ .login-card.active) {
+  margin-right: -20px !important;
+  padding: 0 24px 0 16px !important;
+  border: 0 !important;
+  border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
+  border-radius: 999px 0 0 999px !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px) !important;
+  mask-image:         radial-gradient(circle 20px at 100% 20px, transparent 19.5px, #000 20px) !important;
+  z-index: 1 !important;
+}
+
+/* --- No-active state: right border on all pills (except last) for click-boundary preview --- */
+html.cssos-pill-cascade .login-grid.cssmv-pill-bar:not(:has(> .login-card.active)) > .login-card {
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+}
+html.cssos-pill-cascade .login-grid.cssmv-pill-bar:not(:has(> .login-card.active)) > .login-card:last-child {
+  border-right: 0 !important;
+}
+
+/* --- Inner elements: hide subtitle / unlink in pill mode, icon+name only --- */
 .login-grid.cssmv-pill-bar > .login-card .login-action-tag,
 .login-grid.cssmv-pill-bar > .login-card .login-unlink-btn {
   display: none !important;
 }
 .login-grid.cssmv-pill-bar > .login-card .login-title-wrap {
-  display: contents !important; /* flatten so login-title is a direct flex child */
+  display: contents !important;
 }
 .login-grid.cssmv-pill-bar > .login-card .login-icon {
   flex-shrink: 0;
@@ -2931,6 +3029,12 @@ html[lang^="zh"] .panel-filter-pills.is-empty::before {
   background: rgba(0, 0, 0, 0.28);
   min-height: 92px;
   cursor: default;
+  /* CSSOS_WAVE_639 20260604 — Jing「作品中心也经常崩溃」釜底抽薪: 列表越滚越长(分页累积)、
+   * 每张卡封面图都解码常驻 → 内存无上限增长 → OOM。content-visibility:auto 让浏览器【跳过渲染
+   * 离屏卡片及其封面解码】, 近屏才渲染 → 内存被钉死上限, 无论多少作品、滚多远都不爆。
+   * contain-intrinsic-size 给离屏卡片占位(用真实高度记忆, 兜底 92px), 防滚动跳动。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 92px;
 }
 
 .work-cover {
@@ -3686,10 +3790,36 @@ html[data-theme="light"] .works-fp-optin-desc {
     radial-gradient(circle at 62% 40%, rgba(0, 255, 224, 0.55), rgba(0, 0, 0, 0) 55%),
     radial-gradient(circle at 45% 65%, rgba(255, 74, 158, 0.42), rgba(0, 0, 0, 0) 58%),
     radial-gradient(circle at 68% 68%, rgba(255, 214, 74, 0.38), rgba(0, 0, 0, 0) 60%);
-  filter: saturate(1.4) brightness(1.12);
+  filter: saturate(1.5) brightness(1.16);
   mix-blend-mode: screen;
   pointer-events: none;
-  animation: mirrorCoreHue 24s linear infinite, mirrorCorePulse 7s ease-in-out infinite;
+  /* CSSOS_WAVE_485f 20260528 — Jing「彻底捉闪烁鬼」: 真凶 = 这里曾叠加的 mirrorCoreHue
+   * 无限动画(filter: saturate/brightness/hue-rotate)。它强制 iOS WKWebView 每帧重新
+   * 栅格化整个 logo 核 → GPU 内容进程崩溃 → 黑屏 → 原生重载 → 又崩 = 主界面"一直闪"
+   * (全新安装也闪, 因为是 CSS 与缓存无关)。W436 当年修了 mirrorBreath 的 filter 却漏掉
+   * 本条 —— 直接违反 compositor 安全铁律(永不无限动画 filter/box-shadow/backdrop-filter)。
+   * 修复: 删 mirrorCoreHue, 仅留 mirrorCorePulse(opacity+transform, GPU 合成安全);
+   * 静态 filter 保留鲜艳质感。 */
+  animation: mirrorCorePulse 7s ease-in-out infinite;
+  contain: paint;
+}
+
+/* CSSOS_WAVE_436 20260526 — Jing「深挖到根因」: the home-logo mirror's infinite
+ * hue-rotate filter keeps REPAINTING even when the logo panel is hidden behind the
+ * watch (or any) panel — invisible churn that bleeds flicker onto the active media
+ * frame in Chrome. Pause the HOME-logo mirror's animations whenever it isn't the
+ * front content. Scoped to #logo-panel so buffering-spinner mirrors elsewhere
+ * (.cssos-buffering-mirror / .mirror-stage) keep spinning. */
+body.cssos-nonlogo-front #logo-panel .mirror,
+body.cssos-nonlogo-front #logo-panel .mirror-core,
+body.cssos-nonlogo-front #logo-panel .mirror-img,
+body.cssos-nonlogo-front #logo-panel .mirror,
+body.cssos-nonlogo-front #logo-panel .mirror-core,
+body.cssos-nonlogo-front #logo-panel .mirror-img,
+body.cssos-cinema-mode #logo-panel .mirror,
+body.cssos-cinema-mode #logo-panel .mirror-core,
+body.cssos-cinema-mode #logo-panel .mirror-img {
+  animation-play-state: paused !important;
 }
 
 .mirror:focus,
@@ -3701,7 +3831,13 @@ html[data-theme="light"] .works-fp-optin-desc {
 }
 
 .logo-panel.lyric-spellcast .mirror {
-  animation: mirrorSpellcastBreath 0.42s ease-in-out infinite;
+  /* CSSOS_WAVE_391 20260524 — Jing「主界面总是闪烁着残影」: the IDLE mirror sits
+     in .lyric-spellcast permanently, and a 0.42s (~2.4Hz) infinite breath was
+     strobing the logo panel non-stop → afterimage/ghosting + compositor thrash
+     in Chrome. Slow the idle breath to a calm ~3.2s ambient pulse. The explicit
+     rapid "--breath" cast mode below keeps its fast 0.26s feel for users who
+     opt into it during active spellcasting. */
+  animation: mirrorSpellcastBreath 3.2s ease-in-out infinite;
 }
 
 /* CSSOS_WAVE_149 20260514 — Jing: "logo 太大，静默时可以这么大，但是
@@ -3727,7 +3863,8 @@ html[data-theme="light"] .works-fp-optin-desc {
     0 0 calc(26px * var(--spellcast-glow-scale, 0.18)) var(--lyric-spellcast-secondary),
     inset 0 0 calc(10px * var(--spellcast-glow-scale, 0.18)) var(--lyric-spellcast-glow);
   pointer-events: none;
-  animation: mirrorSpellcastHalo 0.42s ease-in-out infinite;
+  /* CSSOS_WAVE_391 — calm idle halo ring pulse (was 0.42s ~2.4Hz strobe). */
+  animation: mirrorSpellcastHalo 3.2s ease-in-out infinite;
   transform: scale(var(--spellcast-ring-scale, 1));
   transform-origin: center;
   z-index: var(--spellcast-ring-z, 0);
@@ -6307,7 +6444,8 @@ html[data-theme="light"] .works-fp-optin-desc {
   max-height: min(76vh, 820px);
   min-height: 320px;
   margin-inline: auto;
-  border-radius: 16px;
+  /* CSSOS_WAVE_454 20260527 — Jing: 媒体框圆角与面板边框圆角对齐(同为 --radius = 40px) */
+  border-radius: var(--radius);
   background: radial-gradient(circle at top, rgba(0, 245, 160, 0.2), transparent 60%),
     linear-gradient(120deg, rgba(0, 0, 0, 0.2), rgba(0, 245, 160, 0.12));
   display: grid;
@@ -6412,6 +6550,69 @@ html.cssos-app #watch-panel .watch-frame {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+/* CSSOS_WAVE_452 20260526 — Jing「MV 面板整个面板绿(每帧重绘)」根因: 上面去掉
+ * backdrop-filter 的规则被限定在 html.cssos-app(已安装 PWA)里; 浏览器/桌面 web 没有
+ * cssos-app, 于是 #watch-panel 仍继承 .panel 的 backdrop-filter:blur(18px)。watch 面板
+ * 是不透明媒体铺满, 身后(舞台/魔镜)还在动 → 磨砂层每帧重新模糊整块面板 = 整面板闪绿。
+ * 而这层模糊还被媒体完全盖住, 肉眼根本看不见 = 纯负担。Web 端也一并去掉, 与 PWA 一致。 */
+#watch-panel,
+#watch-panel.panel-front,
+#watch-panel.panel-active,
+#watch-panel .watch-pane,
+#watch-panel .watch-pane.active,
+#watch-panel .watch-frame,
+#watch-panel .watch-screen {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* CSSOS_WAVE_453 20260526 — Jing「所有面板都绿」彻底结构性根治: 逐个冻结面板背后的动画
+ * 是打地鼠(W449/450/451 都只解决一部分, 仍全绿)。真正的结构性元凶是 .panel 自身的
+ * 【backdrop-filter: blur(18px) 实时模糊】—— 只要面板背后有任何一个像素在动(魔镜/媒体/
+ * dock 脉动/WAAPI 动画…), Chrome 就必须每帧重新模糊整块面板 = 全面板重绘闪烁, 无法靠
+ * 冻结某个动画根治。关键认知: 只有 backdrop-FILTER 会强制重绘; 而【半透明背景(无模糊)】
+ * 不会 —— 合成器只做廉价的 alpha 混合, 面板内容只栅格化一次。因此把所有面板的【实时模糊】
+ * 换成【静态主题半透明表面(--panel-strong, alpha 0.86)】: 观感仍是通透玻璃, 但永不再每帧
+ * 重模糊 = 彻底告别所有面板闪烁。watch 面板(媒体铺满)与 logo-panel(魔镜需透出)除外。 */
+.panel:not(#watch-panel):not(.logo-panel),
+.panel.flow:not(#watch-panel):not(.logo-panel) {
+  --panel-alpha: 0.86;
+  background: var(--panel-strong) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* CSSOS_WAVE_459 20260526 — Jing「数据加载时先显示占位骨架, 到位后变真实内容」: 通用
+ * 骨架屏。扫光微光【只用 transform 平移】(GPU 合成, 符合 W450 铁律, 不每帧重绘)。 */
+.cssos-skel-wrap { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; }
+.cssos-skel-card {
+  display: flex; gap: 14px; padding: 14px; border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-strong, rgba(8,16,13,0.5)) 60%, transparent);
+  border: 1px solid rgba(127, 200, 170, 0.10);
+}
+.cssos-skel-lines { flex: 1; display: flex; flex-direction: column; gap: 9px; padding-top: 8px; }
+.cssos-skel-row {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-strong, rgba(8,16,13,0.5)) 50%, transparent);
+  border: 1px solid rgba(127, 200, 170, 0.08);
+}
+.cssos-skel {
+  position: relative; overflow: hidden; border-radius: 8px;
+  background: rgba(127, 200, 170, 0.10);
+}
+.cssos-skel::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(200, 255, 232, 0.16), transparent);
+  animation: cssosSkelShimmer 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes cssosSkelShimmer { to { transform: translateX(100%); } }
+.cssos-skel-cover { width: 92px; height: 92px; flex: none; border-radius: 12px; }
+.cssos-skel-line { height: 12px; }
+.cssos-skel-line.w90 { width: 90%; } .cssos-skel-line.w70 { width: 70%; }
+.cssos-skel-line.w55 { width: 55%; } .cssos-skel-line.w40 { width: 40%; }
+html[data-theme="light"] .cssos-skel { background: rgba(15, 58, 42, 0.08); }
+html[data-theme="light"] .cssos-skel::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent); }
 /* CSSOS_WAVE_297 20260521 — Jing: 内缩 20px 破坏画面, 撤销. 进度环回到【贴边
  * inset:0】走 MV 面板真正的边框, 四角不再缩进; 改为让圆角矩形的圆角半径 =
  * 设备屏幕圆角(见 app.watch-stage-bars.js 的 APP 半径), 这样四角顺着设备圆角
@@ -6465,10 +6666,10 @@ body.cssos-cinema-mode #cssos-activity-bar,
 body.cssos-cinema-mode #cssos-schools-row,
 body.cssos-cinema-mode #cssos-activity-bar-tooltip,
 body.cssos-cinema-mode #cssos-schools-close,
-html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-activity-bar,
-html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-schools-row,
-html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-activity-bar-tooltip,
-html.cssos-app:has(#watch-panel:not(.hidden)) #cssos-schools-close {
+html.cssos-app.cssos-watch-open #cssos-activity-bar,
+html.cssos-app.cssos-watch-open #cssos-schools-row,
+html.cssos-app.cssos-watch-open #cssos-activity-bar-tooltip,
+html.cssos-app.cssos-watch-open #cssos-schools-close {
   display: none !important;
 }
 /* 视频/封面填满整屏(cover: 溢出裁切, 竖屏 MV 在竖屏 App 里正好铺满)。
@@ -6498,9 +6699,112 @@ html.cssos-app #watch-panel .watch-svg {
   z-index: 1 !important;
 }
 
+/* CSSOS_WAVE_434 20260526 — Jing「Chrome 主界面/媒体框总是闪闪烁烁(画面撕裂、人脸重影)」.
+ * Chrome compositing-tear root cause: the <video> + the slideshow <img> share the
+ * frame, while continuously-animating layers (the .panel-front::before rainbow
+ * perimeter `borderFlow infinite`, the body `bg*` blob loops, backdrop-filters on
+ * capsules) sit on top — Chrome re-composites the video region every animation
+ * frame and double-buffers it incorrectly → torn / ghosted faces + flicker.
+ * Fix A: promote the media to their OWN GPU layers so overlapping animation never
+ * forces the video to re-raster (translateZ + backface-visibility:hidden + contain).
+ * Safari already handled this; this aligns Chrome. */
+#watch-panel .watch-video,
+#watch-panel .watch-svg {
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-transform-style: flat;
+  contain: paint;
+}
+#watch-panel .watch-screen {
+  /* isolate the frame as its own stacking/compositing context so the animated
+   * perimeter border + bg blobs don't bleed repaints into the video. */
+  isolation: isolate;
+  will-change: auto;
+}
+/* Fix B: while the watch panel is the active cinema surface, STOP the continuous
+ * perimeter rainbow border from flowing over the video (keep it as a static glow,
+ * not an every-frame masked-gradient repaint). The border still shows; it just
+ * doesn't churn the compositor over the playing media. */
+#watch-panel.cssmv-cinema.panel-front::before,
+#watch-panel.cssmv-cinema.panel-active::before,
+#watch-panel.is-cssmv-fullscreen.panel-front::before,
+#watch-panel.is-cssmv-fullscreen.panel-active::before {
+  animation: none !important;
+  background-position: 0% 50% !important;
+}
+/* Fix C: pause the body background blob/ribbon/watercolor loops while a fullscreen
+ * cinema media frame covers them — they repaint for nothing behind opaque media and
+ * add to Chrome's churn. They resume the moment cinema mode ends. */
+body.cssos-cinema-mode .bg,
+body.cssos-cinema-mode .bg::before,
+body.cssos-cinema-mode .bg::after,
+body.cssos-cinema-mode [class^="bg-blob"],
+body.cssos-cinema-mode [class*=" bg-blob"] {
+  animation-play-state: paused !important;
+}
+
 /* Portrait viewport: allow the preview to shrink vertically so a 16:9 output
  * doesn't hog the whole screen, and let 9:16 output take up to 78vh. */
 @media (orientation: portrait), (max-width: 820px) {
+  /* CSSOS_WAVE_439 20260526 — Jing「手机模拟底部黑块, 删掉」根因: the black block is the
+   * panel background showing below the media frame. The full-screen fill was scoped
+   * to the installed PWA (html.cssos-app) ONLY — so mobile WEB users (and DevTools
+   * device mode) fell back to the 16:9 aspect box capped at 78vh → black block below.
+   * Make the OPEN watch panel fill the viewport on mobile web too (mirror the app):
+   * media frame = 100% of a full-viewport panel, object-fit:cover, no aspect cap. */
+  #watch-panel:not(.hidden) {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: auto;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    z-index: 10050;
+  }
+  /* W439b — height:100% depended on the frame/pane/flex height chain (only ~75%
+   * tall → black block below). Mirror the PWA fix EXACTLY: pin .watch-screen to
+   * the VIEWPORT with position:fixed; inset:0, bypassing the parent height chain
+   * so the media truly fills to the bottom. */
+  #watch-panel:not(.hidden) .watch-pane,
+  #watch-panel:not(.hidden) .watch-pane.active,
+  #watch-panel:not(.hidden) .watch-frame {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  /* CSSOS_WAVE_443 20260526 — Jing「黑块依然在」根因(实锤): 在窄屏(≤820px)
+   * 全屏影院模式下, 本组 viewport-pin 规则与后面 #watch-panel.is-cssmv-fullscreen
+   * .watch-screen{height:100% !important}(行~10759)同特异度, 但那条带 !important
+   * → 覆盖本处 height/position, 使 .watch-screen 回到「靠父级高度链」, 链条只撑到
+   * ~71% → 媒体按自然高度顶部对齐, 下方露出黑色面板背景(=黑块)。修复: 本组 fill
+   * 链全部加 !important, 把 .watch-screen 真正钉死到视口, 媒体 cover 铺满到底。 */
+  #watch-panel:not(.hidden) .watch-screen {
+    position: fixed !important;
+    inset: 0 !important;
+    aspect-ratio: auto !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+  }
+  #watch-panel:not(.hidden) .watch-video,
+  #watch-panel:not(.hidden) .watch-svg {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+  }
+  /* hide the dock / app badges while the mobile-web watch fills the screen */
+  #watch-panel:not(.hidden) ~ .dock,
+  .cssos-watch-fullscreen .dock,
+  .cssos-watch-fullscreen .app-badges { display: none !important; }
+  /* Any OTHER .watch-screen instance (e.g. inline creation preview) keeps a cap. */
   .watch-screen {
     max-height: min(78vh, 920px);
   }
@@ -6559,7 +6863,13 @@ html.cssos-app #watch-panel .watch-svg {
   min-height: 240px;
   /* P2-29: cover fills the media frame without letterbox/pillarbox; crop preserves aspect without distortion. */
   object-fit: cover;
-  background: #000;
+  /* CSSOS_WAVE_469 20260527 — Jing「所有 MV 进面板全黑」根因(实锤, 镜像+探针确认): 当作品
+   * 视频源未解析(watch-video.src 为空, readyState 0)时, 这个【不透明黑底】video 仍以
+   * z-index 叠在封面图(.watch-svg, z 更低)之上 → 整屏黑, 封面被盖死。W342 的分层设计本意
+   * 是「视频有内容才盖住封面, 无内容时透明让封面透出」, 但 background:#000 把空 video 变成
+   * 不透明黑 = 破坏该设计 = 全局黑屏。改为透明: 空/缓冲中的 video 透出下方封面(海报效果),
+   * 视频真有帧时 object-fit:cover 自然铺满盖住封面 —— 正是设计本意。 */
+  background: transparent;
   opacity: 0.95;
   filter: saturate(1.1) brightness(1.05);
   position: absolute;
@@ -6573,17 +6883,44 @@ html.cssos-app #watch-panel .watch-svg {
   min-height: 240px;
   /* P2-29: cover fills the media frame without letterbox/pillarbox; crop preserves aspect without distortion. */
   object-fit: cover;
-  background: #000;
+  /* CSSOS_WAVE_455 20260527 — Jing: 去掉 background:#000. watch-svg 显示 display:block 前
+   * (即图片 src 还在加载/失败期间)不再出现黑块遮住 watch-screen 渐变背景. 图片加载失败时
+   * 见到的是品牌绿渐变背景而不是死黑. 同 watch-video 的 W469 transparent 修复同理. */
+  background: transparent;
   position: absolute;
   inset: 0;
   display: none;
   z-index: 0;
 }
 
+/* CSSOS_WAVE_457 20260527 — Jing: watch-pane / watch-frame were inheriting pure black
+ * (rgb(0,0,0)) backgrounds from panel-body. During the 0-1s before backdrop image loads
+ * and before cover SVG shows, the screen looked dead-black — Apple Review blocker.
+ * Fix: give both a solid dark-teal base so the loading state is branded, not black. */
+html.cssos-app #watch-panel .watch-pane,
+html.cssos-app #watch-panel .watch-frame {
+  background-color: rgb(5, 12, 9) !important;
+}
+
+/* CSSOS_WAVE_455b 20260527 — Jing: audio-fallback mode: video goes nearly invisible
+ * so the cover/backdrop shows through. Class is added by app.watch-ui.js W473b path.
+ * This was previously only in style.watch.css (not loaded); moved here so it takes effect. */
+.watch-screen.watch-screen-audio-fallback .watch-video {
+  opacity: 0.1 !important;
+  pointer-events: none;
+}
+
 .watch-svg.glow {
+  /* CSSOS_WAVE_448 20260526 — Jing「鼠标一滑也闪烁; 彻底解决」根因(Paint flashing
+   * 实锤: 整块媒体区每帧重绘): 这里给铺满整框的幻灯图叠了双层 drop-shadow 滤镜,
+   * 又叠 svgGlow 的 opacity 脉动 → Chrome 每帧都要重新栅格化整张带阴影的图(opacity
+   * 变化触发滤镜结果重算)= 全区重绘闪烁。而且图已铺满全框, drop-shadow 根本看不见
+   * → 纯负担。与 W436 修魔镜同理: 去掉滤镜脉动, 只留 GPU 合成的 transform/opacity
+   * 呼吸(肉眼无差), 并 contain:paint 隔离该层, 重绘不外溢。 */
   animation: svgGlow 6.5s ease-in-out infinite;
-  filter: drop-shadow(0 0 18px rgba(0, 245, 160, 0.55))
-    drop-shadow(0 0 42px rgba(0, 245, 160, 0.28));
+  filter: none;
+  will-change: transform;
+  contain: paint;
 }
 
 .watch-overlay-play {
@@ -7538,34 +7875,21 @@ html[data-panel-transparent="true"] .logo-panel {
 }
 /* CSSOS_PHASE1_MAXIMIZE_FULLSCREEN_END */
 
-.dock {
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
-  padding: 10px 14px;
-  max-width: calc(100% - 32px);
-  overflow-x: auto;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  border-radius: 999px;
-  backdrop-filter: blur(16px);
-  transition: opacity 0.4s ease, transform 0.4s ease, box-shadow 0.28s ease, border-color 0.28s ease;
-  z-index: 10020;
+/* Dock — positioning only. cssosMakePillBar owns all visual (background/border/padding/height).
+ * #dock ID selector (1,0,0) definitively beats [data-pill-bar] (0,1,0) from pill-bar.js. */
+#dock {
+  position: fixed !important;
+  left: 50% !important;
+  bottom: max(13px, calc(env(safe-area-inset-bottom, 5px) + 8px)) !important;
+  transform: translateX(-50%) !important;
+  z-index: 10020 !important;
   pointer-events: auto;
+  max-width: calc(100% - 32px);
   --dock-scale: 1;
   transform-origin: center bottom;
-}
-
-.dock::-webkit-scrollbar {
-  height: 0;
-}
-
-.dock {
-  scrollbar-width: none;
+  /* fallback layout in case pill-bar.js hasn't run yet */
+  display: flex;
+  flex-wrap: nowrap;
 }
 
 /* W331 20260522 — Jing: AI助理面板打开时隐藏 Dock，两者不打架.
@@ -7579,12 +7903,12 @@ body.cssos-agent-open .dock {
 
 .dock.hidden {
   opacity: 0;
-  transform: translateX(-50%) translateY(20px) scale(var(--dock-scale));
+  transform: translateX(-50%) translateY(20px) scale(var(--dock-scale)) !important;
   pointer-events: none;
 }
 
 .dock:not(.hidden) {
-  transform: translateX(-50%) scale(var(--dock-scale));
+  transform: translateX(-50%) scale(var(--dock-scale)) !important;
 }
 
 .dock[data-dock-position="left"] {
@@ -7624,13 +7948,6 @@ body.cssos-agent-open .dock {
 
 .dock-item {
   position: relative;
-  display: grid;
-  place-items: center;
-  gap: 4px;
-  width: 42px;
-  min-width: 42px;
-  min-height: 42px;
-  color: var(--muted);
   cursor: pointer;
   user-select: none;
   touch-action: manipulation;
@@ -7642,11 +7959,6 @@ body.cssos-agent-open .dock {
   opacity: 0.6;
   transform: scale(0.94);
   cursor: grabbing;
-}
-
-.dock-icon {
-  cursor: pointer;
-  pointer-events: none;
 }
 
 #logo-panel,
@@ -7694,39 +8006,11 @@ body.cssos-agent-open .dock {
   pointer-events: auto;
 }
 
-.dock-item:hover,
-.dock-icon:hover {
-  cursor: pointer;
-}
-
 [data-drag-handle="true"] {
   cursor: grab;
 }
 .dock-item.is-hidden {
   display: none;
-}
-
-.dock-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 13px;
-  background: rgba(0, 245, 160, 0.12);
-  display: grid;
-  place-items: center;
-  color: var(--green);
-  font-size: 24px;
-}
-
-.dock-item[data-action="mic"] .dock-icon {
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.dock-item[data-action="mic"] {
-  gap: 0;
-  width: 64px;
-  min-width: 64px;
 }
 
 .dock-notification-badge {
@@ -7765,12 +8049,21 @@ body.cssos-agent-open .dock {
   object-fit: cover;
 }
 
+/* CSSOS_WAVE_490 20260529 — Jing: 话筒大图标用负 translateY 探出顶部, 升进轨道顶部
+ * 14px 透明留白(在 padding box 内, 不被 overflow 裁)。纵向裁剪由下方 mic 例外规则的
+ * overflow:visible + mask-clip:no-clip 解开; 话筒侧向【仍参与凹凸镶嵌】(见下方注释)。
+ * 图标 50px、上移 8px 撑出其它 40px 胶囊上沿。脉冲动画仍只动 transform/opacity。 */
+/* CSSOS_WAVE_494 20260529 — Jing「话筒图标离标签太远; 把方形图裁成竖长方形, 再缩小」。
+ * 话筒 PNG 已重裁为 116×192 竖长方形(去掉两侧各 ~38px 透明留白, 见 assets/*.square.bak)。
+ * 盒子按新比例(116:192≈0.6)收到 28×46 并缩小一档, object-fit:contain 即铺满贴合 →
+ * 麦克风紧贴"Mic"标签, 与其它胶囊一致。height 46 > 40px 胶囊 → 仍探出(translateY 上移)。 */
 .dock-mic-icon {
   position: relative;
-  width: 64px;
-  height: 64px;
-  transform: translateY(-8px);
+  width: 28px;
+  height: 46px;
+  transform: translateY(-6px);
   overflow: visible;
+  z-index: 3;
 }
 
 .dock-mic-img {
@@ -7781,22 +8074,19 @@ body.cssos-agent-open .dock {
   object-fit: contain;
   transform-origin: center center;
 }
+/* W494: PNG now tightly cropped to the mic → contain fills the box flush, mic hugs label. */
+.dock-mic-icon .dock-mic-img { object-fit: contain !important; }
 
+/* CSSOS_WAVE_492 20260529 — Jing「取消话筒顶部半透明背景」: 去掉大半径外发光
+ * drop-shadow(它在图标四周(含顶部)晕出一圈半透明雾, 正是"顶部背景"的一部分)。
+ * 保留 brightness/saturate 让话筒本体仍清亮。脉冲动画仍只动 transform/opacity。 */
 .dock-mic-a {
-  filter:
-    brightness(2.1)
-    saturate(0)
-    drop-shadow(0 0 6px rgba(255, 255, 255, 0.38))
-    drop-shadow(0 0 10px rgba(214, 255, 248, 0.22));
+  filter: brightness(2.1) saturate(0);
   animation: dockMicPulseA 4.2s ease-in-out infinite;
 }
 
 .dock-mic-b {
-  filter:
-    brightness(1.05)
-    saturate(1.08)
-    drop-shadow(0 0 8px rgba(0, 245, 160, 0.28))
-    drop-shadow(0 0 14px rgba(57, 176, 255, 0.22));
+  filter: brightness(1.05) saturate(1.08);
   animation: dockMicPulseB 4.2s ease-in-out infinite;
 }
 
@@ -7821,34 +8111,6 @@ body.cssos-agent-open .dock {
   50% { opacity: 0.95; transform: scale(1.02); }
 }
 
-.dock-item.active .dock-icon {
-  background: rgba(0, 245, 160, 0.28);
-  box-shadow: 0 0 14px rgba(0, 245, 160, 0.5);
-}
-
-.dock-label {
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translateX(-50%) translateY(6px);
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 160ms ease, transform 160ms ease;
-}
-
-.dock.dock-labels-hidden .dock-label {
-  display: none;
-}
 
 .advanced-panel-settings {
   margin-top: 20px;
@@ -8046,6 +8308,16 @@ body.cssos-agent-open .dock {
   margin: 2px 0 8px;
 }
 
+/* CSSOS_WAVE_497/498 20260529 — Jing「无图标加图标 + 胶囊宽度 = 高度×3」。通用胶囊高
+ * 40px → 120px。可靠做法是把【列宽下限】钉成 120px(单靠子项 min-width 配
+ * minmax(max-content,1fr) 不可靠 → 短标签会挤)。逐 bar 加, 不全局。 */
+.permission-overview-filters[data-pill-bar] {
+  grid-auto-columns: minmax(120px, 1fr) !important;
+}
+.permission-overview-filters[data-pill-bar] > [data-pill-key] {
+  min-width: 120px !important;
+}
+
 .permission-overview-summary {
   display: flex;
   flex-wrap: wrap;
@@ -8163,6 +8435,201 @@ body.cssos-agent-open .dock {
   line-height: 1.5;
   color: rgba(228, 250, 240, 0.8);
 }
+
+/* ── CSSOS_WAVE_464 — Dock pill-bar mode overrides ──────────────────────────
+ * These rules fire when app.dock-pill.js stamps data-pill-bar on #dock.
+ * Written in style.css (not JS-injected) so they survive caching cleanly.  */
+
+/* Ghost preview: always hidden until explicitly shown by app.dock-pill.js */
+#dock-snap-ghost {
+  display: none !important;
+  opacity: 0;
+}
+
+/* ── Wave 465: Dock pill bar — ZERO-FOUC, Grid-based 凸嵌凹.
+ *
+ * KEY INSIGHT: data-segmented uses CSS Grid. In a grid cell, 100% = CELL width,
+ * so calc(100%+20px) = cell+20px → correct 凸嵌凹 bite.
+ * In Flexbox, 100% = CONTAINER width → each inactive pill = full dock width → 通栏.
+ * Solution: dock uses display:grid (like data-segmented), not flex.
+ * grid-auto-flow:column + grid-auto-columns:minmax(max-content,auto) gives
+ * equal-width columns when fit, max-content + scroll when overflow.
+ * style.css (specificity 1,x,0) beats pill-bar.js injected style (0,x,0). */
+
+/* Track — Grid (mirrors app.pill-bar.js exactly, applied from frame 0) */
+#dock[data-pill-bar] {
+  display: grid !important;
+  grid-auto-flow: column !important;
+  grid-auto-columns: minmax(max-content, 1fr) !important;
+  gap: 0 !important;
+  /* CSSOS_WAVE_489 20260529 — Jing「还是被削去头部」。Safari 不认混合轴的
+   * overflow-clip-margin(overflow-x:auto 时纵向 clip 的 margin 被忽略), 话筒仍被裁。
+   * 改用跨浏览器可靠的【透明留白】: 轨道高 54px = 底部 40px 胶囊 + 顶部 14px 留白。
+   * 留白在 padding box 内 → 不被 overflow 裁, 话筒升进来即完整可见。关键: 绿色背景
+   * 用渐变只填【底部 40px】, 顶部 14px 透明 → 其它胶囊上方【不会】出现绿条; 用
+   * 绿色胶囊轮廓靠渐变填充本身定义(背景画在元素自身、不随内容横向滚动, 可靠);
+   * 不画整框 border, 否则会在 54px 全框(含透明留白)描出一圈, 又成"绿条"。 */
+  padding: 14px 0 0 0 !important;
+  margin: 0 !important;
+  height: 54px !important;
+  min-height: 54px !important;
+  /* CSSOS_WAVE_492c 20260529 — Jing「轨道左上角还有隐隐约约的方角, 彻底去掉」。
+   * 绿色轨道只占底部 40px(y14..54), 它的顶边(y14)与左/右边成直角 = 方角; 盒子的
+   * border-radius 在留白区(y0..14)管不到 y14。用径向渐变把【绿色区域自身】的左上/
+   * 右上角磨圆(半径 14px): 4 层 = 左上圆角 + 右上圆角 + 顶部中段 + 主体; 底部圆角
+   * 仍由盒子 border-radius(20px)裁出。既不填留白(无绿条), 又消除方角。 */
+  background:
+    radial-gradient(circle 14px at 100% 100%, rgba(0,245,160,0.10) 14px, transparent 14.5px) 0px 14px / 14px 14px no-repeat,
+    radial-gradient(circle 14px at 0% 100%, rgba(0,245,160,0.10) 14px, transparent 14.5px) 100% 14px / 14px 14px no-repeat,
+    linear-gradient(rgba(0,245,160,0.10), rgba(0,245,160,0.10)) 14px 14px / calc(100% - 28px) 14px no-repeat,
+    linear-gradient(rgba(0,245,160,0.10), rgba(0,245,160,0.10)) 0px 28px / 100% calc(100% - 28px) no-repeat !important;
+  border: 0 !important;
+  /* CSSOS_WAVE_492 20260529 — Jing「激活胶囊左边没右边圆」。根因: dock 为给话筒留白
+   * 加高到 54px, 999px 圆角变 27px, 把第一颗(激活)胶囊的左上角裁掉。修法: 顶部圆角
+   * 收进 14px 留白内(不碰 y≥14 的胶囊), 底部圆角 = 胶囊 20px(弧心重合 → 不裁胶囊角)。 */
+  border-radius: 14px 14px 20px 20px !important;
+  overflow-x: auto !important;
+  overflow-y: clip !important;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  align-items: end !important;
+  position: relative;
+  transition: background 260ms ease;
+}
+#dock[data-pill-bar]::-webkit-scrollbar { display: none; }
+
+/* Every pill — width:100% = grid cell width (NOT container width) */
+#dock[data-pill-bar] > [data-pill-key] {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 100% !important;
+  /* CSSOS_WAVE_490 20260529 — Jing「限制胶囊最小宽度防误触, 宽度 = 高度×3」。
+   * 40px 高 × 3 = 120px 最小宽。极短标签胶囊不再窄到难点中; 配合每颗都有图标(锚点),
+   * 形成稳定的最小点击靶。空间富余时仍由 grid 1fr 撑开。仅 Dock 范围(Jing 定)。 */
+  min-width: 120px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  line-height: 40px !important;
+  padding: 0 16px !important;
+  border: 0 !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+  background: rgba(0, 245, 160, 0.09) !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  font-size: 22px;      /* emoji / icon size — labels scaled down via child span rule */
+  font-weight: 500;
+  gap: 5px !important;  /* space between emoji and text label */
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  color: var(--text, rgba(14,40,28,0.88)) !important;
+  text-align: center !important;
+  position: relative !important;
+  z-index: 1 !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* Label text inside each pill — smaller than the emoji/icon */
+#dock[data-pill-bar] > [data-pill-key] > span:not(.dock-mic-icon):not(.dock-icon-media):not(.dock-notification-badge) {
+  font-size: 11px !important;
+  line-height: 1 !important;
+}
+
+/* Active pill — 凸 full pill */
+#dock[data-pill-bar] > [data-pill-key].active {
+  border-radius: 999px !important;
+  font-weight: 700 !important;
+  color: #fff !important;
+  z-index: 2 !important;
+  border: 0 !important;
+  background: rgba(0, 200, 120, 0.85) !important;
+  box-shadow: 0 0 14px rgba(0,200,120,0.50), 0 2px 10px rgba(0,0,0,0.22) !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+
+/* 活跃右侧所有胶囊 (~ 通用兄弟) — 左平右圆，凹向左，每对相邻都咬合 */
+#dock[data-pill-bar] > [data-pill-key].active ~ [data-pill-key] {
+  border-radius: 0 999px 999px 0 !important;
+  margin-left: -20px !important;
+  width: calc(100% + 20px) !important;
+  padding-left: 36px !important;
+  z-index: 0 !important;
+  border-right: 1px solid hsla(var(--ph, 155), 100%, 65%, 0.32) !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0px 50%, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 0px 50%, transparent 19.5px, #000 20px) !important;
+}
+
+/* 活跃左侧所有胶囊 (~ 通用兄弟) — 左圆右平，凹向右，每对相邻都咬合 */
+html.cssos-pill-cascade #dock[data-pill-bar] > [data-pill-key]:has(~ [data-pill-key].active) {
+  border-radius: 999px 0 0 999px !important;
+  margin-right: -20px !important;
+  width: calc(100% + 20px) !important;
+  padding-right: 36px !important;
+  z-index: 0 !important;
+  border-left: 1px solid hsla(var(--ph, 155), 100%, 65%, 0.32) !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 100% 50%, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 100% 50%, transparent 19.5px, #000 20px) !important;
+}
+/* Hover — 随机色 via --ph assigned by cssosMakePillBar */
+#dock[data-pill-bar] > [data-pill-key]:not(.active):hover {
+  background: hsla(var(--ph, 155), 65%, 52%, 0.28) !important;
+}
+
+/* CSSOS_WAVE_492 20260529 — Jing「①取消话筒顶部半透明背景 ②左右一样圆 ③非激活时也要
+ * 凹向左(宪法)」。终极方案 = 把【胶囊形状】与【图标】拆开:
+ *   • 形状(填充 + 凹口 mask + 凸侧 border)放到 ::before 上 —— ::before 裁到自己
+ *     40px 盒子里, 凹口正常显示且不向上外溢;
+ *   • 真正的图标放在【元素本体】, 本体【永不上 mask】→ 图标在任何位置(激活/非激活)
+ *     都完整纵向探出, 不再被 mask 裁掉顶部(根治 Safari 下 mask-clip:no-clip 不可靠)。
+ * box-shadow:none 去激活光晕(避免顶部雾)。 */
+/* 本体: 去 mask / 透明底 / 去光晕; 第二条选择器(带 .active ~)specificity ≥ 兄弟 mask
+ * 规则, 确保非激活时也能压掉兄弟规则加到本体上的 mask。 */
+#dock[data-pill-bar] > [data-pill-key="mic"],
+#dock[data-pill-bar] > [data-pill-key="mic"].active,
+#dock[data-pill-bar] > [data-pill-key].active ~ [data-pill-key="mic"] {
+  overflow: visible !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+  padding-left: 16px !important;
+  padding-right: 16px !important;
+}
+/* ::before = 胶囊形状层(在本体背后, 裁到自己盒内) */
+#dock[data-pill-bar] > [data-pill-key="mic"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(0, 245, 160, 0.09);
+  z-index: -1;
+  pointer-events: none;
+}
+/* 激活态: ::before = 整颗绿胶囊 */
+#dock[data-pill-bar] > [data-pill-key="mic"].active::before {
+  background: rgba(0, 200, 120, 0.85) !important;
+  border-radius: 999px !important;
+}
+/* 非激活且在激活项右侧: ::before 凹向左 + 右侧凸边(凹凸镶嵌, 遵守宪法) */
+#dock[data-pill-bar] > [data-pill-key].active ~ [data-pill-key="mic"]::before {
+  border-radius: 0 999px 999px 0 !important;
+  border-right: 1px solid hsla(var(--ph, 155), 100%, 65%, 0.32) !important;
+  -webkit-mask-image: radial-gradient(circle 20px at 0px 50%, transparent 19.5px, #000 20px) !important;
+  mask-image: radial-gradient(circle 20px at 0px 50%, transparent 19.5px, #000 20px) !important;
+}
+/* ── end Wave 465 ────────────────────────────────────────────────────── */
 
 .dock-dock-preview {
   position: fixed;
@@ -8330,17 +8797,6 @@ body.cssos-agent-open .dock {
   }
 }
 
-.dock-item:hover .dock-label,
-.dock-item:focus-within .dock-label {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-@media (hover: none), (pointer: coarse) {
-  .dock-label {
-    display: none !important;
-  }
-}
 
 .toast {
   position: fixed;
@@ -8372,17 +8828,69 @@ body.cssos-agent-open .dock {
    instead (above the dock + AI fab), and make it smaller so it never
    blocks chrome. */
 @media (max-width: 480px) and (orientation: portrait) {
+  /* CSSOS_WAVE_475 20260527 — Jing「底部浮层互相遮挡, 重新设计」: 瞬时提示(加载/卡顿
+   * 等 toast)改走【顶部居中通道】(搜索框下方), 不再钉在 bottom:178px —— 那里正好压住
+   * UP NEXT 候播条 / 字幕 / 胶囊。顶部 toast 淡入淡出, 绝不遮挡底部任何常驻控件。 */
   .toast {
-    top: auto;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 178px);
-    transform: translateX(-50%) translateY(20px);
+    top: calc(env(safe-area-inset-top, 0px) + 76px);
+    bottom: auto;
+    transform: translateX(-50%) translateY(-16px);
     font-size: 13px;
     line-height: 1.4;
     max-width: 86vw;
+    z-index: 10080; /* above media + bottom controls, below modals */
   }
   .toast.show {
     transform: translateX(-50%) translateY(0);
   }
+}
+
+/* CSSOS_WAVE_477 20260527 — Jing 指定的底部浮层【精确分层栈】, Dock 隐藏时从下到上:
+ *   层0 价格条/打赏(做成胶囊) → 层1 CTA"Want an MV" → 层2 左下信息胶囊 + 右下 AI 助理
+ *   (同一行高) → 层3 情绪字幕 → 层4 多歌词/声线胶囊。加载提示已移到顶部(W475)。
+ * 每层固定层高 54px + 间距, 用 bottom 钉位, 互不重叠。Dock 让位高度(--cssos-dock-clear:
+ * Dock 可见 104px / 全屏 watch 隐藏时 0)算进【栈基准】→ Dock 一显示, 整栈一起上移让位,
+ * 绝不压住任何信息。只覆盖 bottom, 不动各自 left/right/transform 的横向锚点。 */
+html {
+  --cssos-dock-clear: 104px;
+  --cssos-stk-gap: 54px;
+  --cssos-stk-base: calc(env(safe-area-inset-bottom, 0px) + 14px + var(--cssos-dock-clear, 0px));
+}
+@media (orientation: portrait), (max-width: 820px) {
+  html.cssos-watch-open { --cssos-dock-clear: 0px; } /* 全屏 watch → Dock 隐藏, 不让位 */
+}
+/* 层0 — 价格条/打赏, 做成胶囊 */
+#watch-panel .watch-commerce-actions {
+  bottom: var(--cssos-stk-base) !important;
+  border-radius: 999px !important;
+}
+/* 层1 — CTA "Want an MV" */
+#watch-panel .cssos-create-cta,
+.cssos-create-cta {
+  bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap)) !important;
+}
+/* 层2 — 左下信息胶囊 + 右下 AI 助理(同一行高) */
+#watch-pill-row-bl,
+#cssos-agent-fab {
+  bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap) * 2) !important;
+}
+/* 层3 — 情绪字幕 */
+#watch-panel .watch-subtitle {
+  bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap) * 3) !important;
+}
+/* 层4 — 多歌词/声线胶囊 */
+#watch-panel .cssmv-language-pill,
+#watch-panel #cssmv-language-pill,
+#watch-panel .cssmv-take-toggle,
+#watch-panel .watch-take-toggle {
+  bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap) * 4) !important;
+}
+/* 右侧角控制列(全屏/信息/stem/风格)非栈成员, 仅随 Dock 让位上移, 保持各自基准。 */
+#watch-panel .cssmv-fs-btn,
+#watch-panel .cssmv-info-btn,
+#watch-panel .cssmv-stem-toggle,
+#watch-panel #watch-style-shift {
+  margin-bottom: var(--cssos-dock-clear, 0px) !important;
 }
 
 @keyframes drift {
@@ -8438,30 +8946,56 @@ body.cssos-agent-open .dock {
 }
 
 @keyframes borderFlow {
-  0% {
-    background-position: 0% 50%;
-    opacity: 0.8;
-  }
-  50% {
-    background-position: 100% 50%;
-    opacity: 1;
-  }
-  100% {
-    background-position: 0% 50%;
-    opacity: 0.85;
-  }
+  /* CSSOS_WAVE_485g 20260528 — Jing「扫漏网之鬼」: 铁律禁止无限动画 background-position
+   * (强制大面积重栅格 → iOS WKWebView GPU 压力)。.panel-front::before 是当前面板的边框
+   * 光晕, 开着面板就常驻满屏。改为只脉冲 opacity(GPU 合成安全), 渐变保持静态。 */
+  0%, 100% { opacity: 0.82; }
+  50% { opacity: 1; }
+}
+
+/* CSSOS_WAVE_450 20260526 — Jing「面板闪到无法使用, 全面排查还有哪些面板在闪」根因
+ * (彻底版): 每个 .panel 都是 backdrop-filter:blur(18px) 磨砂玻璃。任何位于面板【背后】
+ * 或面板【自身】上、且无限循环改 background-position / transform / filter 的动画, 都会
+ * 强迫 Chrome 每帧重新栅格化整块面板(重新模糊背景 / 重画描边)= 通用面板闪烁。W449 只
+ * 静止了一层(bg-blob/bgFloat), 但背景还有 7 层(bgDrift×4 / bgRibbonSweep×2 /
+ * bgWatercolor×2)在各 background-mode 下漂移, 且【活动面板的彩虹描边 borderFlow 在动
+ * background-position = 每帧重绘整圈边】。这里统一【冻结运动、保留全部色彩与描边】:
+ *   • 所有 .bg 背景装饰层动画 → none
+ *   • 活动/前置面板的 borderFlow 描边动画 → none(渐变边框静止保留, 不再每帧重画)
+ * 媒体播放区(<video>)本就该每帧绘制, 不在此列。 */
+body[data-background-mode] .bg::before,
+body[data-background-mode] .bg::after,
+.bg-blob {
+  animation: none !important;
+}
+.panel-front::before,
+.panel-active::before {
+  animation: none !important;
+}
+
+/* CSSOS_WAVE_451 20260526 — Jing「为你创作面板滑鼠标整个闪绿」根因(深挖续): 面板本身
+ * 是 backdrop-filter:blur(18px); 其【背后】的 魔镜(#logo-panel)有 mirrorCoreHue(无限
+ * filter:hue-rotate)+ mirrorCorePulse/HaloPulse(opacity/transform)。backdrop-filter 的
+ * 铁律: 只要背后像素每帧在变(哪怕只是 opacity/hue), 就必须每帧重新模糊整块面板 → 整个
+ * 面板闪绿。而当任何【非 logo 面板】前置覆盖舞台时, 魔镜本就被盖住看不见 → 此时把魔镜
+ * 的所有 idle 动画暂停, 背后像素静止, 面板不再每帧重模糊。裸首页的活魔镜完全保留。
+ * (用 :has() — Chrome 早已支持; 覆盖 panel-front / panel-active 两种前置态。) */
+body.cssos-nonlogo-front #logo-panel,
+body.cssos-nonlogo-front #logo-panel *,
+body.cssos-nonlogo-front #logo-panel,
+body.cssos-nonlogo-front #logo-panel * {
+  animation-play-state: paused !important;
 }
 
 @keyframes mirrorBreath {
+  /* CSSOS_WAVE_436 20260526 — Jing「深挖到根因为止」: the breath used to animate
+   * `filter: brightness` infinitely, which forces Chrome to REPAINT the whole
+   * mirror layer every single frame (Safari is lazier, so it only showed on
+   * Chrome = the residual main-interface flicker). Drop the filter pulse; keep
+   * only the GPU-composited transform:scale breath (no repaint, identical feel). */
   0%,
-  100% {
-    transform: scale(1);
-    filter: brightness(1);
-  }
-  50% {
-    transform: scale(1.04);
-    filter: brightness(1.12);
-  }
+  100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
 }
 
 @keyframes mirrorSpellcastBreath {
@@ -8850,11 +9384,6 @@ body.cssos-agent-open .dock {
 
   .dock {
     width: calc(100% - 32px);
-    justify-content: space-between;
-  }
-
-  .dock-item {
-    width: 40px;
   }
 }
 
@@ -8876,52 +9405,6 @@ body.cssos-agent-open .dock {
   }
 }
 
-/* ===== Dock + Panel mobile fixes ===== */
-.dock {
-  gap: 10px !important;
-  padding: 10px 14px !important;
-}
-
-.dock-item {
-  margin: 0 !important;
-}
-
-.dock-label,
-.dock .label,
-.dock .dock-text {
-  display: none !important;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .dock-item {
-    position: relative;
-  }
-
-  .dock-item::after {
-    content: attr(data-label);
-    position: absolute;
-    bottom: calc(100% + 10px);
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 6px 10px;
-    border-radius: 10px;
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 120ms ease;
-    background: rgba(0, 0, 0, 0.55);
-    border: 1px solid rgba(0, 245, 160, 0.25);
-    color: rgba(255, 255, 255, 0.92);
-    backdrop-filter: blur(10px);
-  }
-
-  .dock-item:hover::after,
-  .dock-item:focus-within::after {
-    opacity: 1;
-  }
-}
 
 @media (max-width: 768px) {
   .panel {
@@ -8947,7 +9430,11 @@ body.cssos-agent-open .dock {
 
 #version-toggle:hover,
 .version-toggle:hover {
-  background: transparent !important;
+  background: rgba(4, 10, 8, 0.82) !important;
+  color: rgba(232, 253, 244, 0.96) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 0 0 1px rgba(232, 253, 244, 0.18) !important;
+  opacity: 1 !important;
 }
 
 /* ===== About / API panels ===== */
@@ -9423,6 +9910,11 @@ body.cssos-agent-open .dock {
 #subscription-panel.maximized .subscription-body {
   max-height: none;
 }
+
+/* CSSOS_WAVE_506 20260530 — 回滚 W499 的 #person-mv-panel.maximized 覆盖。它让"自动
+ * 最大化"加的 .maximized 真的全屏 → 人物MV 一打开就全屏崩。回滚后恢复原始: 面板自带
+ * width:!important 把 .maximized 压成窗口(原本就如此, 面板正常打开)。人物MV 的"真·最大化"
+ * 以后单独、谨慎重做。 */
 /* CSSOS_SUBSCRIPTION_PANEL_SCROLL_END */
 
 /* CSSOS_PAY_METHODS_BEGIN — 20260419
@@ -10177,8 +10669,10 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-titlebar {
 .work-card.is-unplayed .work-cover-played-dot { opacity: 1; }
 .work-card.is-played   .work-cover-played-dot { opacity: 0; }
 @keyframes cssos-played-dot-pulse {
-  0%, 100% { transform: scale(1);   filter: brightness(1); }
-  50%      { transform: scale(1.18); filter: brightness(1.3); }
+  /* CSSOS_WAVE_485g 20260528 — 去掉 filter:brightness(逐帧重栅格, 作品列表里一卡一个数量多),
+   * 用 opacity 表达亮度脉冲(合成安全)。 */
+  0%, 100% { transform: scale(1);    opacity: 0.78; }
+  50%      { transform: scale(1.18); opacity: 1; }
 }
 /* CSSOS_PHASE2_PLAYED_NO_DIM 20260505 — Jing
    "为你创作第一个卡片为什么颜色那么深？请修复，让他和所有的卡片一样
@@ -10396,6 +10890,21 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-titlebar {
   .watch-screen #watch-style-shift  { bottom: 182px !important; right: 14px !important; top: auto !important; }
   .watch-screen .cssmv-take-toggle,
   .watch-screen .watch-take-toggle  { bottom: 238px !important; right: 14px !important; top: auto !important; }
+}
+/* CSSOS_WAVE_448 20260527 — Jing: iPad layout fix (Guideline 4.0).
+   On iPad Air 11" (820pt, pointer:coarse), .watch-commerce-actions is
+   754px wide centered, reaching within 33px of each edge. The right-side
+   cluster buttons (right:14px) overlap it horizontally, and cssmv-info-btn
+   (bottom:70px) overlaps it vertically (commerce zone starts ~bottom:54px).
+   Fix: on wide coarse-pointer screens (≥600px = tablets) shift the cluster
+   buttons left and higher so they clear the commerce-actions bar. */
+@media (pointer: coarse) and (min-width: 600px) {
+  .watch-screen .cssmv-fs-btn       { bottom: 14px !important;  right: 72px !important; }
+  .watch-screen .cssmv-info-btn     { bottom: 130px !important; right: 72px !important; }
+  .watch-screen .cssmv-stem-toggle  { bottom: 186px !important; right: 72px !important; }
+  .watch-screen #watch-style-shift  { bottom: 242px !important; right: 72px !important; }
+  .watch-screen .cssmv-take-toggle,
+  .watch-screen .watch-take-toggle  { bottom: 298px !important; right: 72px !important; }
 }
 @keyframes cssos-overflow-pop {
   0%   { transform: translateY(8px) scale(0.85); opacity: 0; }
@@ -10704,6 +11213,46 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-pane.active,
   margin: 0 !important;
   padding: 0 !important;
 }
+/* CSSOS_WAVE_444 20260526 — Jing「黑块真顽固」实锤(DOM 探针): 全屏影院下黑块 =
+ * 媒体下方约 220px 的 #watch-panel 黑底透出。根因不在媒体(svg h887 / video h880
+ * 均 object-fit:cover 已铺满), 而在容器高度链塌缩: .watch-body 仅 h712(absolute +
+ * overflow 裁切)→ 把 pane/frame/screen/媒体一律裁到 712, 面板剩余 ~220px 露黑。
+ * 此前 W439/W443 用 #watch-panel:not(.hidden)(1 id+2 类)去钉, 与后面的
+ * #watch-panel.is-cssmv-fullscreen .watch-screen{...!important}(同特异度)打平,
+ * 源码顺序在后者 → 输。本波用 #watch-panel.is-cssmv-fullscreen.maximized(1 id+3 类)
+ * 提高特异度 + 放在文件末尾(源码顺序也在最后), 把整条链(panel-body→watch-body→
+ * pane→frame→screen)与两个媒体全部钉到视口 100dvh, 彻底消除塌缩与裁切。 */
+#watch-panel.is-cssmv-fullscreen.maximized .panel-body,
+#watch-panel.is-cssmv-fullscreen.maximized .watch-body,
+#watch-panel.is-cssmv-fullscreen.maximized .watch-pane,
+#watch-panel.is-cssmv-fullscreen.maximized .watch-pane.active,
+#watch-panel.is-cssmv-fullscreen.maximized .watch-frame,
+#watch-panel.is-cssmv-fullscreen.maximized .watch-screen {
+  position: absolute !important;
+  inset: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  aspect-ratio: auto !important;
+}
+#watch-panel.is-cssmv-fullscreen.maximized .watch-svg,
+#watch-panel.is-cssmv-fullscreen.maximized .watch-video {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
 /* CSSOS_WAVE_243 20260520 — Jing: 候播条 (#cssos-up-next-strip) 本来就是
  * position:fixed 底部半透明浮层, 且只在播放结束前 ~10s 淡入 (JS 控制),
  * 不占布局 → 不是黑块来源, 保留不动. 真全屏只隐藏纯装饰浮层
@@ -10739,8 +11288,8 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
    foregrounded. Login / dock / etc render on top of nothing, as
    intended. Logo comes back when the user closes the active panel. */
 @media (max-width: 480px) {
-  body:has(.panel.panel-front:not(#logo-panel)) #logo-panel,
-  body:has(.panel.panel-active:not(#logo-panel)) #logo-panel {
+  body.cssos-nonlogo-front #logo-panel,
+  body.cssos-nonlogo-front #logo-panel {
     visibility: hidden;
     pointer-events: none;
   }
@@ -11253,10 +11802,10 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 }
 
 /* Inactive BEFORE active: extends 20px RIGHT, concave bite on right */
-[data-segmented] > *:has(~ .active),
-[data-segmented] > *:has(~ [aria-selected="true"]),
-.cssmv-pill-bar > *:has(~ .active),
-.cssmv-pill-bar > *:has(~ [aria-selected="true"]) {
+html.cssos-pill-cascade [data-segmented] > *:has(~ .active),
+html.cssos-pill-cascade [data-segmented] > *:has(~ [aria-selected="true"]),
+html.cssos-pill-cascade .cssmv-pill-bar > *:has(~ .active),
+html.cssos-pill-cascade .cssmv-pill-bar > *:has(~ [aria-selected="true"]) {
   margin-right: -20px !important;
   width: calc(100% + 20px) !important;
   padding-right: 36px !important;
@@ -11279,6 +11828,43 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   [data-segmented] > *:last-child { border-radius: 0 999px 999px 0 !important; }
 }
 /* ── End Tab-Pill Constitution v28 ─────────────────────────── */
+
+/* W461 — Person-MV action-bar button colours (global, works in both the
+ * card-click view AND the codex view).  .pmv-codex-prefixed rules in the
+ * injected style take precedence inside the codex; these serve as the
+ * fallback for the simpler card-click render path.
+ *
+ * Using var(--text) + semi-transparent green surfaces means both dark and
+ * light themes are handled automatically without explicit theme overrides. */
+.pmv-action-bar.cssmv-pill-bar {
+  /* Constitution applies track bg/border; just add a touch of shadow. */
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  margin: 0 0 12px !important;
+}
+.pmv-cinema {
+  background: linear-gradient(135deg, #00f5a0, #00c280) !important;
+  color: #001008 !important;
+  font-weight: 800 !important;
+}
+.pmv-cinema:hover { filter: brightness(1.08); }
+.pmv-secondary {
+  background: rgba(0, 245, 160, 0.12);
+  color: var(--text, rgba(218, 255, 238, 0.88));
+}
+.pmv-back {
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text, rgba(218, 255, 238, 0.80));
+}
+html[data-theme="light"] .pmv-secondary,
+body[data-theme="light"] .pmv-secondary {
+  background: rgba(0, 160, 100, 0.12);
+  color: rgba(10, 35, 22, 0.85);
+}
+html[data-theme="light"] .pmv-back,
+body[data-theme="light"] .pmv-back {
+  background: rgba(0, 60, 35, 0.06);
+  color: rgba(10, 35, 22, 0.80);
+}
 
 /* Step 1 — Jing: .creation-tabs is the constitution track.
  * Step 5: grid equal columns so all pills share the track width. */
@@ -11375,8 +11961,8 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 
 /* Inactive BEFORE active: extends 20px RIGHT into its right neighbor's
  * cell, concave bite on right edge receives that neighbor's convex. */
-.creation-tabs > .creation-tab:has(~ .active),
-.creation-tabs > .creation-tab:has(~ .creation-tab.active) {
+html.cssos-pill-cascade .creation-tabs > .creation-tab:has(~ .active),
+html.cssos-pill-cascade .creation-tabs > .creation-tab:has(~ .creation-tab.active) {
   padding: 0 24px 0 16px;
   margin-right: -20px;
   width: calc(100% + 20px);
@@ -11473,8 +12059,8 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px);
   z-index: 1;
 }
-.creation-chips > .creation-chip:has(~ .active),
-.creation-chips > .creation-chip:has(~ .creation-chip.active) {
+html.cssos-pill-cascade .creation-chips > .creation-chip:has(~ .active),
+html.cssos-pill-cascade .creation-chips > .creation-chip:has(~ .creation-chip.active) {
   padding: 0 22px 0 12px;
   margin-right: -20px;
   width: calc(100% + 20px);
@@ -11589,8 +12175,8 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 }
 
 /* Inactive BEFORE active */
-.seed-script-tabs > button:has(~ button.active),
-.msrc-tabbar > .msrc-tab:has(~ .msrc-tab.active) {
+html.cssos-pill-cascade .seed-script-tabs > button:has(~ button.active),
+html.cssos-pill-cascade .msrc-tabbar > .msrc-tab:has(~ .msrc-tab.active) {
   padding: 0 24px 0 16px !important;
   margin-right: -20px !important;
   width: calc(100% + 20px) !important;
@@ -11638,10 +12224,10 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   border: 0 !important;
   border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
 }
-.creation-tabs > .creation-tab:has(~ .creation-tab.active),
-.creation-chips > .creation-chip:has(~ .creation-chip.active),
-.seed-script-tabs > button:has(~ button.active),
-.msrc-tabbar > .msrc-tab:has(~ .msrc-tab.active) {
+html.cssos-pill-cascade .creation-tabs > .creation-tab:has(~ .creation-tab.active),
+html.cssos-pill-cascade .creation-chips > .creation-chip:has(~ .creation-chip.active),
+html.cssos-pill-cascade .seed-script-tabs > button:has(~ button.active),
+html.cssos-pill-cascade .msrc-tabbar > .msrc-tab:has(~ .msrc-tab.active) {
   border: 0 !important;
   border-left: 1px solid rgba(0, 245, 160, 0.30) !important;
 }
@@ -11651,17 +12237,17 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
  * pill gets a 1px right convex border (right convex side click-boundary
  * preview). Same UX rule as active-state borders.
  * ================================================================= */
-.creation-tabs:not(:has(> .creation-tab.active)) > .creation-tab,
-.creation-chips:not(:has(> .creation-chip.active)) > .creation-chip,
-.seed-script-tabs:not(:has(> button.active)) > button,
-.msrc-tabbar:not(:has(> .msrc-tab.active)) > .msrc-tab {
+html.cssos-pill-cascade .creation-tabs:not(:has(> .creation-tab.active)) > .creation-tab,
+html.cssos-pill-cascade .creation-chips:not(:has(> .creation-chip.active)) > .creation-chip,
+html.cssos-pill-cascade .seed-script-tabs:not(:has(> button.active)) > button,
+html.cssos-pill-cascade .msrc-tabbar:not(:has(> .msrc-tab.active)) > .msrc-tab {
   border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
 }
 /* Last child sits on the track's right edge — no own right border. */
-.creation-tabs:not(:has(> .creation-tab.active)) > .creation-tab:last-child,
-.creation-chips:not(:has(> .creation-chip.active)) > .creation-chip:last-child,
-.seed-script-tabs:not(:has(> button.active)) > button:last-child,
-.msrc-tabbar:not(:has(> .msrc-tab.active)) > .msrc-tab:last-child {
+html.cssos-pill-cascade .creation-tabs:not(:has(> .creation-tab.active)) > .creation-tab:last-child,
+html.cssos-pill-cascade .creation-chips:not(:has(> .creation-chip.active)) > .creation-chip:last-child,
+html.cssos-pill-cascade .seed-script-tabs:not(:has(> button.active)) > button:last-child,
+html.cssos-pill-cascade .msrc-tabbar:not(:has(> .msrc-tab.active)) > .msrc-tab:last-child {
   border-right: 0 !important;
 }
 
@@ -11747,7 +12333,7 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   mask-image: radial-gradient(circle 20px at 0 20px, transparent 19.5px, #000 20px) !important;
   z-index: 1;
 }
-.palette-presets > button:has(~ button.active) {
+html.cssos-pill-cascade .palette-presets > button:has(~ button.active) {
   padding: 0 24px 0 16px !important;
   margin-right: -20px !important;
   width: calc(100% + 20px) !important;
@@ -11759,10 +12345,10 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   z-index: 1;
 }
 /* no-active state: every non-last pill gets right convex border. */
-.palette-presets:not(:has(> button.active)) > button {
+html.cssos-pill-cascade .palette-presets:not(:has(> button.active)) > button {
   border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
 }
-.palette-presets:not(:has(> button.active)) > button:last-child {
+html.cssos-pill-cascade .palette-presets:not(:has(> button.active)) > button:last-child {
   border-right: 0 !important;
 }
 /* Hover hues. */
@@ -11898,7 +12484,7 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
  * cup TOWARD the active pill from both sides — not uniformly leftward.
  * Gate this rule behind :not(:has(.active)) so it stops clobbering the
  * active-relative ones (same specificity, later source). */
-.palette-presets:not(:has(.active)) > button:not(:first-child) {
+html.cssos-pill-cascade .palette-presets:not(:has(.active)) > button:not(:first-child) {
   margin-left: -20px !important;
   width: calc(100% + 20px) !important;
   padding-left: 36px !important;
@@ -11908,7 +12494,7 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 
 /* Palette color cards: re-assert no-active 凸凹 (in case any earlier
  * rule clobbered the step-33 declaration). */
-.palette-color-tabs:not(:has(.active)) > .palette-color-card:not(:first-child) {
+html.cssos-pill-cascade .palette-color-tabs:not(:has(.active)) > .palette-color-card:not(:first-child) {
   margin-left: -20px !important;
   width: calc(100% + 20px) !important;
   padding-left: 36px !important;
@@ -11983,23 +12569,38 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 .cssos-lang-picker-head {
   font: 700 12px/1.2 ui-monospace, monospace;
   letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--text, #111); margin-bottom: 4px;
+  color: rgba(218, 255, 238, 0.90); margin-bottom: 4px;
 }
 .cssos-lang-picker-sub {
-  font-size: 11px; line-height: 1.4; color: var(--text, #111);
-  margin-bottom: 10px; opacity: 0.7;
+  font-size: 11px; line-height: 1.4; color: rgba(218, 255, 238, 0.65);
+  margin-bottom: 10px;
 }
+/* CSSOS_WAVE_418 20260524 — Jing「胶囊宪法」: the multilingual picker is a MULTI-select
+ * (checkbox per language), so it must NOT borrow the single-select tab-pill interlock
+ * (negative-margin overlap + radial-gradient 凹咬 masks) — those masks carved the cell
+ * TEXT away and the overlap detached the checkbox (blank capsules bug). Instead: a clean
+ * ONE-TRACK horizontal-scroll row of self-contained capsules. Each capsule = full 999px
+ * pill holding [checkbox · name · badge] inline on ONE line; the row scrolls left↔right
+ * when languages don't fit. 永远一行, 永远一条轨道, 不换行. */
 .cssos-lang-picker-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 8px;
+  display: flex; flex-wrap: nowrap; gap: 8px;
+  overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  padding-bottom: 2px;
 }
+.cssos-lang-picker-grid::-webkit-scrollbar { display: none; }
 .cssos-lang-cell {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; border-radius: 12px;
+  display: inline-flex; align-items: center; gap: 8px;
+  flex: 0 0 auto; min-width: max-content; white-space: nowrap;
+  padding: 8px 14px; border-radius: 999px;   /* full capsule */
   border: 1px solid rgba(0, 245, 160, 0.22);
   background: rgba(0, 245, 160, 0.05);
   cursor: pointer; transition: background 160ms ease, border-color 160ms ease;
   font-size: 13px; user-select: none;
+  /* W461b — explicit light text; lang pickers live in dark panels (pipeline,
+   * person-MV codex).  The advanced-settings light-mode override below
+   * reverts to dark text for the one context that has a light bg. */
+  color: rgba(218, 255, 238, 0.88);
 }
 .cssos-lang-cell:hover { background: rgba(0, 245, 160, 0.10); }
 .cssos-lang-cell.is-selected {
@@ -12010,8 +12611,11 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   background: rgba(0, 245, 160, 0.24);
   border-color: rgba(0, 245, 160, 0.8);
 }
-.cssos-lang-cell input[type="checkbox"] { accent-color: #00f5a0; width: 15px; height: 15px; }
-.cssos-lang-name { flex: 1; font-weight: 500; }
+.cssos-lang-cell.is-locked { cursor: default; }
+/* CSSOS_WAVE_587 — 算力闸: 选满 5 个后未选中行置灰禁选(土豪要全部, 分批来)。 */
+.cssos-lang-cell.is-capped { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
+.cssos-lang-cell input[type="checkbox"] { accent-color: #00f5a0; width: 15px; height: 15px; flex: 0 0 auto; margin: 0; }
+.cssos-lang-name { flex: 0 0 auto; font-weight: 500; white-space: nowrap; }
 .cssos-lang-badge {
   font: 600 9px/1 ui-monospace, monospace; letter-spacing: 0.04em;
   text-transform: uppercase; padding: 3px 6px; border-radius: 999px;
@@ -12020,9 +12624,53 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 .cssos-lang-badge-paid { background: rgba(255, 196, 0, 0.28); color: #5a4200; }
 .cssos-lang-picker-price {
   margin-top: 10px; font: 600 12px/1.4 ui-monospace, monospace;
-  color: var(--text, #111);
+  color: rgba(218, 255, 238, 0.80);
 }
 .cssos-lang-picker-price.is-insufficient { color: #d9534f; }
+
+/* W461b — Lang picker context-scoped colour overrides.
+ *
+ * Default is light text (for dark-bg panels: MV Pipeline, Person codex).
+ * The Advanced Settings panel (#creation-language-picker) sits inside a
+ * .panel that gets a warm/light bg in System/Light theme — only that
+ * context needs dark text.
+ */
+
+/* Advanced Settings panel: dark text in light mode */
+html[data-theme="light"] #creation-language-picker .cssos-lang-cell,
+body[data-theme="light"] #creation-language-picker .cssos-lang-cell {
+  color: rgba(14, 40, 28, 0.88);
+  border-color: rgba(0, 140, 90, 0.28);
+  background: rgba(0, 180, 110, 0.07);
+}
+html[data-theme="light"] #creation-language-picker .cssos-lang-cell:hover,
+body[data-theme="light"] #creation-language-picker .cssos-lang-cell:hover {
+  background: rgba(0, 180, 110, 0.14);
+}
+html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-selected,
+body[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-selected {
+  background: rgba(0, 160, 100, 0.18);
+  border-color: rgba(0, 140, 90, 0.60);
+}
+html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-default,
+body[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-default {
+  background: rgba(0, 150, 95, 0.26);
+  border-color: rgba(0, 130, 85, 0.85);
+  color: #002a1a;
+}
+html[data-theme="light"] #creation-language-picker .cssos-lang-picker-head,
+body[data-theme="light"] #creation-language-picker .cssos-lang-picker-head {
+  color: rgba(14, 40, 28, 0.90);
+}
+html[data-theme="light"] #creation-language-picker .cssos-lang-picker-sub,
+body[data-theme="light"] #creation-language-picker .cssos-lang-picker-sub {
+  color: rgba(14, 40, 28, 0.60);
+}
+html[data-theme="light"] .cssos-lang-badge,
+body[data-theme="light"] .cssos-lang-badge {
+  background: rgba(0, 180, 110, 0.22);
+  color: #00361f;
+}
 
 /* CSSOS_TIER_C_MULTILINGUAL C5 — 🌐 language pill bar on the watch
  * screen. Uses .cssmv-pill-bar (tab-pill constitution) for the 凸嵌凹
@@ -12082,10 +12730,19 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 .foryou-market-lang-chips.cssmv-pill-bar {
   margin: 8px 0 14px !important;
   height: 36px; min-height: 36px;
+  /* CSSOS_WAVE_414 20260524 — Jing「胶囊宪法：轨道只能一条，左右滑动」: no matter
+   * how many languages the catalog grows to (8 → 9 → N), the chips stay on ONE
+   * track and scroll horizontally — never wrap to a second row. */
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
 }
 .foryou-market-lang-chips.cssmv-pill-bar > button {
   height: 34px !important; min-height: 34px !important;
   padding: 0 16px !important; font-size: 12px !important;
+  flex: 0 0 auto !important;        /* don't shrink — keep each label one line */
+  white-space: nowrap !important;
+  min-width: max-content !important;
 }
 
 /* CSSOS_WAVE_270 20260521 — TikTok-style create CTA (last N seconds of
@@ -12094,7 +12751,7 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   position: fixed;
   left: 50%;
   /* CSSOS_WAVE_376 — 抬到 UP NEXT 条上方, fixed + 视口底距, 同参考系不打架. */
-  bottom: calc(186px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(186px + env(safe-area-inset-bottom, 0px)); /* CSSOS_WAVE_571: base only — app.watch-bottom-stack 协调器用 inline !important 覆盖, 让 CTA 在 Dock/价格条之上礼让, 不再打架 */
   transform: translate(-50%, 16px);
   /* W376 — fixed-on-body 否则在全屏媒体(z~10060)之下(z:40)→ 不可见; 抬到 UP NEXT 之下. */
   z-index: 2147483644;
@@ -12104,11 +12761,12 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
   max-width: min(560px, 88vw);
   padding: 12px 14px 12px 18px;
   border-radius: 16px;
-  /* CSSOS_WAVE_375 — 卡片基本透明(极淡 scrim) + 文字阴影, 浮在全屏媒体上, 不是黑块. */
-  background: rgba(8, 18, 16, 0.28);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border: 1px solid rgba(0, 245, 160, 0.30);
+  /* CSSOS_WAVE_442 — Chrome 上 backdrop-filter:blur 在媒体未铺满时把身后的
+   * 黑色区域采样成"不透明模糊黑块"(Safari 惰性合成→透明). 彻底去掉
+   * backdrop-filter 与 scrim 背景, CTA 完全透明只靠文字阴影浮在媒体上,
+   * 任何引擎都不再出现黑块. */
+  background: transparent;
+  border: 0;
   box-shadow: none;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
   opacity: 0;
@@ -12199,11 +12857,115 @@ html.cssos-upnext-visible .cssos-create-cta {
  * panel is maximized / fullscreen (cinema or otherwise), hide them so
  * the panel's own chrome owns those corners. :has() — iOS 16.4+ / all
  * modern engines. */
-body:has(.panel.maximized) #version-switch,
-body:has(.panel.maximized) #theme-quick-toggle,
-body:has(#watch-panel.cssmv-cinema) #version-switch,
-body:has(#watch-panel.cssmv-cinema) #theme-quick-toggle,
+body.cssos-panel-max #version-switch,
+body.cssos-panel-max #theme-quick-toggle,
+body.cssos-panel-max #theme-switch,
+body.cssos-panel-max #version-switch,
+body.cssos-panel-max #theme-quick-toggle,
+body.cssos-panel-max #theme-switch,
 body.cssos-cinema-mode #version-switch,
-body.cssos-cinema-mode #theme-quick-toggle {
+body.cssos-cinema-mode #theme-quick-toggle,
+body.cssos-cinema-mode #theme-switch {
   display: none !important;
 }
+
+/* WAVE_445c 20260526 — Instant landscape gate on phones.
+ *
+ * CSS applies the moment the stylesheet is parsed — before any JS runs
+ * and before the browser has painted the first frame of body content.
+ * So a phone that opens the app already in landscape sees a blank dark
+ * screen immediately, not a flash of sideways UI.
+ *
+ * Conditions: coarse pointer (touch device) + short edge ≤ 540px
+ * (phones; excludes iPads and desktop monitors even in portrait).
+ * The #cssos-rotate-overlay element is created by app.orientation-lock.js;
+ * it is exempted from the hide rule and forced to flex so it appears
+ * the moment JS injects it into the DOM.
+ *
+ * We hide via opacity+pointer-events rather than display:none so the
+ * layout is preserved and elements don't reflow when rotating back.
+ */
+@media (orientation: landscape) and (pointer: coarse) and (max-height: 540px) {
+  body > *:not(#cssos-rotate-overlay) {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    user-select: none !important;
+  }
+  #cssos-rotate-overlay {
+    display: flex !important;
+    opacity: 1 !important;
+  }
+}
+
+/* CSSOS_WAVE_490 20260529 — Jing「登录后还是闪, App 审核中」最终根因(诊断探针实锤):
+ * 主屏【同时有 48+ 个元素在跑无限 CSS 动画】(背景漂移/缎带/水彩层 ×8、镜像呼吸/核心/
+ * 淡入/光晕、面板边框流光、dock 脉冲、played-dot…)。每个动画元素被合成器提升为独立 GPU
+ * 图层 → 48+ 图层在 iPhone XS Max(A12, 4GB)上把 GPU 图层内存顶爆 → WebKit 内容进程崩 →
+ * 黑屏/重载 → 反复崩(Safari 报 "A problem repeatedly occurred")。登录后内容更多 → 动画
+ * 元素更多 → 更易崩。诊断: dom 不涨(非泄漏)、vid/aud 无 src(非视频)、canvas=0、anim=48+。
+ * 修复(静默模式): 在移动端(≤820px, 覆盖手机 Safari + App)与 App 内, 冻结【装饰性 idle
+ * 无限动画】, 图层塌缩、GPU 内存释放; 保留功能性动画(骨架 shimmer / spinner / 生成时
+ * spellcast / 播放进度)。观感: 背景与 logo 变为静态(仍是同样的渐变与魔镜), 不再每帧合成。 */
+@media (max-width: 820px) {
+  body[data-background-mode] .bg::before,
+  body[data-background-mode] .bg::after,
+  .mirror,
+  .mirror-core,
+  .mirror-img,
+  .panel-front::before,
+  .panel-active::before,
+  .watch-svg.glow,
+  .dock-mic-a,
+  .dock-mic-b,
+  .dock-dock-preview.is-visible,
+  .work-cover-played-dot,
+  .drag-trail.star::before {
+    animation: none !important;
+  }
+  /* 背景层去掉大半径模糊(全屏 blur buffer 在低端 GPU 很贵), 保留颜色氛围 */
+  body[data-background-mode] .bg::before,
+  body[data-background-mode] .bg::after {
+    filter: none !important;
+  }
+}
+html.cssos-app body[data-background-mode] .bg::before,
+html.cssos-app body[data-background-mode] .bg::after,
+html.cssos-app .mirror,
+html.cssos-app .mirror-core,
+html.cssos-app .mirror-img,
+html.cssos-app .panel-front::before,
+html.cssos-app .panel-active::before,
+html.cssos-app .watch-svg.glow,
+html.cssos-app .dock-mic-a,
+html.cssos-app .dock-mic-b,
+html.cssos-app .dock-dock-preview.is-visible,
+html.cssos-app .work-cover-played-dot,
+html.cssos-app .drag-trail.star::before {
+  animation: none !important;
+}
+html.cssos-app body[data-background-mode] .bg::before,
+html.cssos-app body[data-background-mode] .bg::after {
+  filter: none !important;
+}
+
+/* CSSOS_WAVE_490g 20260529 — Jing「登录后 ~1.5s deterministic 秒崩, App 审核中」决定性根治:
+ * 多个全屏遮罩/弹窗(登录弹窗 .provider-login-modal blur(18px)、自动提示遮罩、支付选择
+ * .css-pay-picker-backdrop、dock 设置浮层、面板设置…)用 backdrop-filter 实时模糊, 一旦盖在
+ * 已渲染的整个重型主屏(含 3 个 bg-blob 大模糊)之上, WebKit 必须【对整页重新采样+模糊】→
+ * iPhone XS Max(A12/4GB)GPU 瞬间触顶 → 内容进程崩溃→静默重载循环(无 beforeunload, 与诊断
+ * 每轮只发 400/800/1500ms 三帧即崩吻合)。这正是 compositor 铁律最核心的一条。
+ * 修复: 移动端(≤820px)与 App 内【全局禁用 backdrop-filter】, 改由各元素自身的半透明背景
+ * 呈现"玻璃感"(合成器只做廉价 alpha 混合, 不重绘整页)。桌面端保留模糊。同时把 bg-blob 的
+ * 巨型静态模糊在移动端去掉(466px×3 的 blur backing store 对老机 GPU 是纯负担)。 */
+@media (max-width: 820px) {
+  *, *::before, *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .bg-blob { filter: none !important; }
+}
+html.cssos-app *, html.cssos-app *::before, html.cssos-app *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html.cssos-app .bg-blob { filter: none !important; }

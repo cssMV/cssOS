@@ -530,7 +530,7 @@ function bindHoldTargets() {
         forceResetHoldRing();
       }
       micHoldState.pointerId = e.pointerId;
-      const origin = el.closest(".dock-item") ? "dock" : "logo";
+      const origin = el.closest("[data-pill-key]") ? "dock" : "logo";
       micHoldStart(origin);
     });
 
@@ -552,7 +552,7 @@ function bindHoldTargets() {
     el.addEventListener("pointerup", (e) => finish(e, "release"));
     el.addEventListener("pointercancel", (e) => finish(e, "cancel"));
     el.addEventListener("lostpointercapture", (e) => finish(e, "cancel"));
-    if (!el.closest(".dock-item") && !el.closest("#logo-panel")) {
+    if (!el.closest("[data-pill-key]") && !el.closest("#logo-panel")) {
       el.addEventListener("click", (e) => {
         if (Date.now() < Number(micHoldState.suppressClickUntil || 0)) {
           e.preventDefault();

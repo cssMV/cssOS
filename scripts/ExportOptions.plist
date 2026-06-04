@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CSSOS_WAVE_172 20260515 — Jing
+     Export options used by scripts/ios-testflight.sh when calling
+     `xcodebuild -exportArchive`. App Store distribution method =
+     produces an .ipa signed for TestFlight / App Store upload. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>teamID</key><string>QBG9PRVBYZ</string>
+  <key>uploadBitcode</key><false/>
+  <key>uploadSymbols</key><true/>
+  <key>signingStyle</key><string>automatic</string>
+  <key>destination</key><string>export</string>
+  <key>stripSwiftSymbols</key><true/>
+</dict>
+</plist>

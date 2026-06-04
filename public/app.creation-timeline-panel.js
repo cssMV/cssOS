@@ -117,7 +117,8 @@
       case "stage_done":  return "stage_done " + (p.stage || "?") + (p.ms ? " (" + p.ms + "ms)" : "");
       case "engine_select": return "engine " + (p.engine || "?") + (p.tier ? " · " + p.tier : "");
       case "style_pick": return "style " + (p.style || p.label || "?");
-      case "person_pick": return "person " + (p.name_zh || p.name_en || p.person_id || "?");
+      // en-first: tr() returns en by default, zh only when locale is zh.
+      case "person_pick": return "person " + tr(p.name_en || p.name_zh || p.person_id || "?", p.name_zh || p.name_en || p.person_id || "?");
       case "tier_change": return "tier → " + (p.tier || "?");
       case "edit_lyrics": return "edited lyrics" + (p.length ? " (" + p.length + " ch)" : "");
       case "submit": return "submit · " + (p.prompt ? String(p.prompt).slice(0, 60) : (p.style || ""));
@@ -218,7 +219,9 @@
     var root = document.getElementById("creation-timeline-panel");
     if (!root) return;
     var body = root.querySelector(".cssos-ct-body");
-    if (body) body.innerHTML = '<div class="cssos-ct-empty">' + escHtml(tr("Loading…", "加载中…")) + '</div>';
+    if (body) body.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+      ? globalThis.cssosSkeletonRowsMarkup(5, tr("Loading…", "加载中…"))
+      : '<div class="cssos-ct-empty">' + escHtml(tr("Loading…", "加载中…")) + '</div>');
     return fetch("/api/user/creation-history?limit=100", { credentials: "include" })
       .then(function (r) { return r.json(); })
       .then(function (j) {

@@ -1,17 +1,19 @@
+// 防御: 经 globalThis 访问 app.js 的 creationTouchedFields(同一 Set 对象), 不再裸引用 —
+// 部署窗口缓存错位时 app.js 若未定义, 优雅降级为 no-op 而非 ReferenceError(自愈 06-03)。
 function markCreationFieldTouchedModule(field) {
-  if (field) creationTouchedFields.add(String(field));
+  var _s = globalThis.creationTouchedFields; if (field && _s) _s.add(String(field));
 }
 
 function clearCreationFieldTouchedModule(field) {
-  if (field) creationTouchedFields.delete(String(field));
+  var _s = globalThis.creationTouchedFields; if (field && _s) _s.delete(String(field));
 }
 
 function hasCreationFieldTouchedModule(field) {
-  return creationTouchedFields.has(String(field));
+  var _s = globalThis.creationTouchedFields; return !!_s && _s.has(String(field));
 }
 
 function resetCreationTouchedFieldsModule() {
-  creationTouchedFields.clear();
+  var _s = globalThis.creationTouchedFields; if (_s) _s.clear();
 }
 
 function readExplicitCreationLanguageModule() {
@@ -57,7 +59,43 @@ function getPrimaryCreationLanguageModule() {
   return normalizeCreationLanguageCodeModule(resolveCreationLanguageValue()) || resolveUiPrimaryLanguageModule() || "en";
 }
 
+// CSSOS_WAVE_415 20260524 — Jing「高级设置 = 万能入口的语言真源」: a SINGLE persisted
+// multilingual preference. The Advanced Settings picker writes it; zero-input
+// universal entries (logo / mic / play / 一键MV) read it so they too output the
+// user's chosen languages/voice lanes. localStorage-backed so it survives reload.
+var CSSOS_LANG_PREF_KEY = "cssos.lang.pref.v1";
+function cssosSetLanguagePreferenceModule(langs) {
+  var seen = {};
+  var clean = (Array.isArray(langs) ? langs : [])
+    .map(function (v) { return normalizeCreationLanguageCodeModule(v); })
+    .filter(function (v) { return v && !seen[v] && (seen[v] = true); });
+  creationState.languagePreference = clean;
+  try { localStorage.setItem(CSSOS_LANG_PREF_KEY, JSON.stringify(clean)); } catch (_e) {}
+  return clean;
+}
+function cssosGetLanguagePreferenceModule() {
+  if (Array.isArray(creationState.languagePreference) && creationState.languagePreference.length) {
+    return creationState.languagePreference.slice();
+  }
+  try {
+    var raw = localStorage.getItem(CSSOS_LANG_PREF_KEY);
+    if (raw) {
+      var arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length) { creationState.languagePreference = arr; return arr.slice(); }
+    }
+  } catch (_e) {}
+  return [];
+}
+
 function getSelectedCreationLanguagesModule() {
+  // W415 — the persisted preference (set by the Advanced Settings picker) is the
+  // authoritative multilingual selection when present; its first entry is the
+  // free default/output language, the rest are paid extra tracks. This is what
+  // makes the picker actually DRIVE generation (and lets zero-input entries
+  // inherit the same choice). Falls back to the legacy primary+extra logic when
+  // the user has never touched the picker.
+  var pref = cssosGetLanguagePreferenceModule();
+  if (pref.length) return pref;
   const primary = getPrimaryCreationLanguageModule();
   const seen = new Set();
   return [
@@ -150,6 +188,8 @@ Object.assign(globalThis, {
   normalizeCreationVoiceTrackCodeModule,
   getPrimaryCreationLanguageModule,
   getSelectedCreationLanguagesModule,
+  cssosSetLanguagePreferenceModule,
+  cssosGetLanguagePreferenceModule,
   getSelectedCreationVoiceTracksModule,
   getCreationLyricLanguageCatalogModule,
   getCreationVoiceTrackCatalogModule,

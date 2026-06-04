@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>CSS Studio</title>
+<style>
+  :root { --bg:#0a0b0f; --card:#14161d; --ink:#eef0f6; --muted:#9aa1b2; --line:#242838; --accent:#7c5cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:860px; margin:0 auto; padding:48px 22px 96px; }
+  .gate { max-width:420px; margin:18vh auto; text-align:center; }
+  .gate input { width:100%; padding:14px 16px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:16px; }
+  .gate button { margin-top:12px; width:100%; padding:14px; border:0; border-radius:12px; background:var(--accent); color:#fff; font-size:16px; font-weight:600; cursor:pointer; }
+  .hidden { display:none !important; }
+  h1 { font-size:30px; line-height:1.25; margin:0 0 8px; letter-spacing:-.5px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:1.5px; color:var(--accent); margin:38px 0 10px; }
+  .lede { color:var(--muted); font-size:18px; margin:0 0 26px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px 22px; margin:14px 0; }
+  table { width:100%; border-collapse:collapse; font-size:14.5px; }
+  th,td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+  .stat b { display:block; font-size:24px; }
+  .stat span { color:var(--muted); font-size:13px; }
+  .demo { aspect-ratio:16/9; background:#000 url('about:blank'); border:1px solid var(--line); border-radius:16px; display:flex; align-items:center; justify-content:center; color:var(--muted); margin:8px 0 6px; }
+  ul { padding-left:20px; } li { margin:6px 0; }
+  .muted { color:var(--muted); font-size:13px; }
+  a { color:#a892ff; }
+  .foot { margin-top:42px; color:var(--muted); font-size:12.5px; border-top:1px solid var(--line); padding-top:16px; }
+</style>
+</head>
+<body>
+  <!-- Lightweight obscurity gate (share-link style, not security). Change KEY before sharing. -->
+  <div id="gate" class="gate">
+    <h1 style="font-size:22px;">CSS&nbsp;Studio</h1>
+    <p class="muted">Private brief. Enter access key.</p>
+    <input id="key" type="password" placeholder="access key" autocomplete="off" />
+    <button onclick="tryKey()">Enter</button>
+  </div>
+
+  <div id="doc" class="wrap hidden">
+    <h1>CSS Studio</h1>
+    <p class="lede">The first zero-friction <b>watch&nbsp;+&nbsp;create</b> platform for AI music videos —
+      open the app and a fully-produced MV plays, with sound, instantly; then create your own,
+      in any language and voice, without leaving the cinema.</p>
+
+    <!-- CSSOS_WAVE_626 — set DEMO_URL (below in script) to your recorded 60-sec clip.
+         Until then, this shows a "Watch it live" CTA into the real audible app. -->
+    <video id="demoVideo" class="demo hidden" controls playsinline preload="metadata" style="width:100%;"></video>
+    <a id="demoLive" class="demo" href="https://cssstudio.app" target="_blank" rel="noopener"
+       style="text-decoration:none; color:var(--ink); flex-direction:column; gap:6px;">
+      <span style="font-size:34px;">▶</span>
+      <span style="font-weight:600;">Watch it live — opens the real app</span>
+      <span class="muted">Full-screen, audible, a music video plays the moment it loads</span>
+    </a>
+    <p class="muted">Live app: <a href="https://cssstudio.app">cssstudio.app</a></p>
+
+    <h2>The wedge</h2>
+    <div class="card">
+      <table>
+        <tr><th></th><th>Music-only (Suno)</th><th>Video-only (Sora)</th><th>CSS Studio</th></tr>
+        <tr><td>Output</td><td>audio</td><td>silent clip</td><td><b>audio + video + lyrics, layered</b></td></tr>
+        <tr><td>Experience</td><td>a file</td><td>a file</td><td><b>audible full-screen cinema</b></td></tr>
+        <tr><td>Create</td><td>separate tool</td><td>separate tool</td><td><b>in-cinema, one line</b></td></tr>
+        <tr><td>Multi-language/voice</td><td>no</td><td>no</td><td><b>yes, one tap</b></td></tr>
+      </table>
+    </div>
+    <p>The moat: <b>never burn lyrics/audio/video together.</b> Kept as separate layers, every
+      work is infinitely re-voiceable and re-languageable.</p>
+
+    <h2>Status — product-complete, pre-launch</h2>
+    <div class="grid">
+      <div class="stat"><b>2,153</b><span>works created (720 in last 30d)</span></div>
+      <div class="stat"><b>1,534</b><span>multi-language / voice tracks</span></div>
+      <div class="stat"><b>1,270</b><span>independent audio stems</span></div>
+      <div class="stat"><b>66,700</b><span>slideshow frames generated</span></div>
+      <div class="stat"><b>66 / 29</b><span>payment intents / paid orders (pre-marketing)</span></div>
+      <div class="stat"><b>♾ → film</b><span>roadmap: MV → short-drama → series → 3D film</span></div>
+    </div>
+    <p class="muted">Honest: ~20 registered users, growth not yet started. This is a pre-seed
+      raise sold on product + founder + wedge — not on user metrics.</p>
+
+    <h2>Business model</h2>
+    <ul>
+      <li>Credits / pay-per-create · paid background-generation tier</li>
+      <li>In-panel works marketplace · per-work "add a language" upsell</li>
+      <li>Subscription · (future) ad-tier, creator rev-share, long-form IP licensing</li>
+    </ul>
+
+    <h2>The ask</h2>
+    <div class="card">
+      <p style="margin:0 0 6px;"><b>$0.5–1.5M pre-seed (SAFE)</b> — ~18 months runway.</p>
+      <p class="muted" style="margin:0;">Launch · prove D1/D7/D30 retention · ship one long-form
+        format. Non-dilutive first: $100–350k cloud/model credits + an accelerator.</p>
+    </div>
+
+    <h2>Contact</h2>
+    <p>Jing — <a href="mailto:hello@cssstudio.app">hello@cssstudio.app</a> · <a href="https://cssstudio.app">cssstudio.app</a></p>
+
+    <div class="foot">Confidential working document. Not investment advice; figures as of 2026-06-04 and subject to diligence.</div>
+  </div>
+
+<script>
+  // Obscurity gate only — keep the URL private. Change this key before sharing.
+  var KEY = "css-cinema-2026";
+  // Paste your recorded demo URL here (e.g. an R2/CDN link). Leave "" to show the live CTA.
+  var DEMO_URL = "https://cssstudio.app/artifacts/mv/demo_investor.mp4"; // W630 — Jing's 87s screen demo
+  (function(){
+    if (!DEMO_URL) return;
+    var v = document.getElementById('demoVideo'), live = document.getElementById('demoLive');
+    if (!v) return;
+    v.src = DEMO_URL; v.classList.remove('hidden');
+    if (live) live.classList.add('hidden');
+  })();
+  function reveal(){ document.getElementById('gate').classList.add('hidden'); document.getElementById('doc').classList.remove('hidden'); }
+  function tryKey(){ var v=(document.getElementById('key').value||'').trim(); if(v===KEY){ try{sessionStorage.setItem('inv_ok','1')}catch(e){} reveal(); } else { document.getElementById('key').value=''; document.getElementById('key').placeholder='try again'; } }
+  document.getElementById('key').addEventListener('keydown',function(e){ if(e.key==='Enter') tryKey(); });
+  // allow ?k=KEY direct link + remember within tab
+  (function(){ try{ var q=new URLSearchParams(location.search); if(q.get('k')===KEY||sessionStorage.getItem('inv_ok')==='1') reveal(); }catch(e){} })();
+</script>
+</body>
+</html>

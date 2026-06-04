@@ -146,6 +146,15 @@
       cleanSubtitleText,
       "cssmvSubclean"
     );
+    // CSSOS_WAVE_419 20260525 — Jing #34: the dual-language 2nd subtitle line
+    // (added by the 🌐 language pill) was NOT being cleaned → [Verse]/[Chorus]
+    // tags leaked onto the second line. Strip it too. (Tags MUST stay in the
+    // stored lyrics — Suno uses them for song structure — so this is display-only.)
+    attachObserver(
+      document.getElementById("watch-karaoke-line-2"),
+      cleanSubtitleText,
+      "cssmvSubclean"
+    );
     const titleCandidates = [
       document.querySelector(".cssmv-mv-title"),
       document.getElementById("mv-title")

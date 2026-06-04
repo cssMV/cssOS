@@ -30,7 +30,7 @@
       dock = document.querySelector(".dock");
       if (!dock) return;
     }
-    var items = Array.prototype.slice.call(dock.querySelectorAll('.dock-item'));
+    var items = Array.prototype.slice.call(dock.querySelectorAll('[data-pill-key]'));
     if (!items.length) return;
 
     /* Build a quick lookup of action → element. */

@@ -103,20 +103,44 @@
        * 高级设置「音乐来源上传」子 Tab 一致的【分段胶囊】: 整条是一个药丸轨道,
        * 激活项变成完整药丸(两头凸/着色), 相邻未激活项朝激活项凹陷
        * (前者右端切平、后者左端切平). 等同 .msrc-tabbar 的"胶囊宪法". */
-      /* W306b — unified scrollable pill track wraps the cssmv-pill-bar */
       "#person-mv-panel .civ-mv-toprow{padding:10px 12px 0;}" +
-      /* The track itself: constitution handles bg/border/radius; just reset margin */
-      "#person-mv-panel .civ-mv-tabs{margin:0 !important;}" +
-      /* All children share the same pill-child look */
-      "#person-mv-panel .civ-mv-tabs > *{" +
-        "all:unset;flex:0 0 auto;min-width:max-content;display:inline-flex;" +
-        "align-items:center;justify-content:center;gap:5px;box-sizing:border-box;" +
-        "cursor:pointer;padding:6px 14px;border:0;" +
-        "color:rgba(218,255,238,0.78);font:600 12px/1.2 -apple-system,system-ui,sans-serif;" +
-        "white-space:nowrap;transition:background .15s ease,color .15s ease;" +
+      /* CSSOS_WAVE_499b 20260530 — Jing「去掉段间分隔线, 头顶头; 修上下摇晃」。一条横向
+       * 滚动的行装 5 个独立 data-pill-bar 段, gap:0 头顶头、无分隔线。固定行高 46px +
+       * align center + overflow-y:hidden → 段不上下窜, 不再摇晃。整行一起左右滚动。 */
+      "#person-mv-panel .civ-mv-tabs-row{" +
+        "display:flex;align-items:center;gap:0;height:46px;box-sizing:border-box;" +
+        "overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;" +
       "}" +
-      "#person-mv-panel .civ-mv-tabs > *:hover:not(.active){background:rgba(0,245,160,0.14)!important;color:#daffee;}" +
-      "#person-mv-panel .civ-mv-tabs > *.active{color:#fff!important;font-weight:700;}" +
+      "#person-mv-panel .civ-mv-tabs-row::-webkit-scrollbar{display:none;}" +
+      /* Each segment = its own single-active v28 switcher. flex:0 0 auto → natural
+       * width (no internal scroll); 列宽下限 120px(=高度×3); margin reset; 固定 42px 高. */
+      "#person-mv-panel .civ-mv-seg[data-pill-bar]{" +
+        "flex:0 0 auto !important;width:auto !important;margin:0 !important;" +
+        "height:42px !important;min-height:42px !important;overflow:visible !important;" +
+        "grid-auto-columns:minmax(120px,max-content) !important;" +
+      "}" +
+      "#person-mv-panel .civ-mv-seg[data-pill-bar] > [data-pill-key]{min-width:120px !important;}" +
+      /* CSSOS_WAVE_500 — V2 两级 master-detail. 一级分类栏默认隐藏(V1), master 模式显示;
+       * master 下二级只显示带 .is-shown 的当前段, 其余隐藏。V1(segmented)不受影响。 */
+      "#person-mv-panel .civ-mv-l1{display:none;}" +
+      "#person-mv-panel .civ-mv-toprow.pmv-master .civ-mv-l1{display:grid;}" +
+      /* CSSOS_WAVE_503 20260530 — Jing「一级 7 段均宽(胶囊宪法: 放得下就均分)」。满宽容器
+       * + grid-auto-columns:minmax(120px,1fr) → 能放下时 7 列等宽均分; 放不下才滚动(floor 120)。 */
+      "#person-mv-panel .civ-mv-l1[data-pill-bar]{" +
+        "width:100% !important;margin:0 0 8px 0 !important;" +
+        "height:42px !important;min-height:42px !important;overflow-x:auto !important;overflow-y:hidden !important;" +
+        "grid-auto-columns:minmax(120px,1fr) !important;" +
+      "}" +
+      "#person-mv-panel .civ-mv-l1[data-pill-bar]::-webkit-scrollbar{display:none;}" +
+      "#person-mv-panel .civ-mv-l1[data-pill-bar] > [data-pill-key]{min-width:120px !important;}" +
+      "#person-mv-panel .civ-mv-toprow.pmv-master .civ-mv-tabs-row{overflow-x:auto;}" +
+      "#person-mv-panel .civ-mv-toprow.pmv-master .civ-mv-seg{display:none !important;}" +
+      /* 二级单段也满宽均分(放得下就 1fr 等宽), 与一级一致。 */
+      "#person-mv-panel .civ-mv-toprow.pmv-master .civ-mv-seg.is-shown{display:grid !important;width:100% !important;flex:1 1 auto !important;grid-auto-columns:minmax(120px,1fr) !important;}" +
+      "#person-mv-panel .person-mv-layout-btn{" +
+        "flex:0 0 auto;background:rgba(0,245,160,0.10);border:1px solid rgba(0,245,160,0.30);" +
+        "border-radius:8px;padding:6px 10px;cursor:pointer;font-size:14px;line-height:1;" +
+      "}" +
       "#person-mv-panel .person-mv-toolbar{" +
         "display:flex;flex-wrap:wrap;gap:8px;padding:4px 12px 10px;align-items:center;" +
         "border-bottom:1px solid rgba(0,245,160,0.18);" +
@@ -124,12 +148,22 @@
       "#person-mv-panel .person-mv-search{" +
         "flex:1 1 200px;background:rgba(8,18,16,0.55);" +
         "border:1px solid rgba(0,245,160,0.18);border-radius:8px;" +
-        "padding:6px 10px;color:#daffee;font:500 12px/1.2 ui-monospace,monospace;" +
+        "padding:6px 10px;color:var(--text,#daffee);font:500 12px/1.2 ui-monospace,monospace;" +
+      "}" +
+      "html[data-theme=light] #person-mv-panel .person-mv-search," +
+      "body[data-theme=light] #person-mv-panel .person-mv-search{" +
+        "background:rgba(255,255,255,0.70);color:rgba(10,35,22,0.88);" +
+        "border-color:rgba(0,140,90,0.30);" +
       "}" +
       "#person-mv-panel .person-mv-civ-select{" +
         "background:rgba(8,18,16,0.55);border:1px solid rgba(0,245,160,0.18);" +
-        "border-radius:8px;padding:6px 10px;color:#daffee;" +
+        "border-radius:8px;padding:6px 10px;color:var(--text,#daffee);" +
         "font:500 12px/1.2 ui-monospace,monospace;" +
+      "}" +
+      "html[data-theme=light] #person-mv-panel .person-mv-civ-select," +
+      "body[data-theme=light] #person-mv-panel .person-mv-civ-select{" +
+        "background:rgba(255,255,255,0.70);color:rgba(10,35,22,0.88);" +
+        "border-color:rgba(0,140,90,0.30);" +
       "}" +
       "#person-mv-panel .person-mv-grid{" +
         "display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));" +
@@ -352,9 +386,9 @@
   function ensureDockItem() {
     var dock = document.querySelector(".dock");
     if (!dock) return false;
-    if (dock.querySelector('.dock-item[data-action="person-mv"]')) return true;
+    if (dock.querySelector('[data-action="person-mv"]')) return true;
     var item = document.createElement("div");
-    item.className = "dock-item";
+    item.setAttribute("data-pill-key", item.dataset.action);
     item.setAttribute("data-action", "person-mv");
     item.setAttribute("data-actions", "click,dblclick,longpress");
     item.tabIndex = 0;
@@ -371,8 +405,7 @@
     item.style.webkitUserDrag = "none";
     item.style.userSelect = "none";
     item.innerHTML =
-      '<div class="dock-icon">🏛</div>' +
-      '<div class="dock-label">' + (tt("People MV", "人物MV")) + '</div>';
+      '🏛 <span>' + (tt("People MV", "人物MV")) + '</span>';
     /* Cancel native dragstart so even if some module sets
      * draggable=true later, the OS won't initiate a drag. This is
      * cheaper than a MutationObserver loop and can't recurse. */
@@ -412,6 +445,20 @@
       lastFire = now;
       console.info("[person-mv] dock fire via", label);
       try { open(); } catch (err) { console.warn("[person-mv] open threw", err); }
+      // stopPropagation blocks cssosMakePillBar's delegated handler —
+      // activate the dock pill directly here instead.
+      try {
+        if (typeof globalThis.handleGlobalAction === "function") {
+          globalThis.handleGlobalAction("person-mv");
+        }
+        var d = document.getElementById("dock");
+        if (d) {
+          d.querySelectorAll("[data-pill-key].active").forEach(function(el){ el.classList.remove("active"); });
+          item.classList.add("active");
+          var hue = item.style.getPropertyValue("--ph");
+          if (hue) d.style.setProperty("--th", hue);
+        }
+      } catch (_e) {}
     }
     item.addEventListener("pointerup", function (e) {
       if (e.button && e.button !== 0) return;
@@ -428,8 +475,8 @@
       }
     });
     // Insert just after MV PIPELINE (or at beginning).
-    var anchor = dock.querySelector('.dock-item[data-action="mv-pipeline"]')
-              || dock.querySelector('.dock-item[data-action="watch"]');
+    var anchor = dock.querySelector('[data-action="mv-pipeline"]')
+              || dock.querySelector('[data-action="watch"]');
     if (anchor && anchor.nextSibling) dock.insertBefore(item, anchor.nextSibling);
     else dock.appendChild(item);
     return true;
@@ -482,6 +529,14 @@
      * Renamed panel title to "Civilization MV" and added two tabs:
      * People (existing) / Landmarks (new). Same panel hosts both
      * via state.mode = "people" | "landmarks". */
+    /* CSSOS_WAVE_500 20260530 — Jing 两版筛选布局, 用户可选:
+     *   "segmented" (V1) = 7 段并排一条连续轨道(默认);
+     *   "master"    (V2) = 两级 master-detail(一级 7 类胶囊 + 二级当前类的选项)。
+     * 偏好存 localStorage["pmv.filter_layout"], 顶栏 🔀 按钮切换。默认 segmented 不破坏。 */
+    var pmvFilterLayout = "segmented";
+    try { pmvFilterLayout = localStorage.getItem("pmv.filter_layout") || "segmented"; } catch (_e) {}
+    var pmvMaster = pmvFilterLayout === "master";
+    var pmvActiveCat = "style"; // default-expanded level-1 category in master mode
     panelEl.innerHTML =
       '<div class="panel-bar">' +
         '<div class="panel-icon">🏛</div>' +
@@ -493,29 +548,66 @@
         '</div>' +
       '</div>' +
       '<div class="panel-body">' +
-        /* W306f — one unified scrollable pill track, all filters */
-        '<div class="civ-mv-toprow">' +
-          '<div class="civ-mv-tabs cssmv-pill-bar" role="tablist">' +
-            '<button class="civ-mv-tab active" data-civ-mode="people" type="button">👤 ' + escapeText(tt("People", "人物")) + '</button>' +
-            '<button class="civ-mv-tab" data-civ-mode="landmarks" type="button">🏛 ' + escapeText(tt("Landmarks", "名迹")) + '</button>' +
-            '<button class="person-mv-style-btn" data-style-tab="leaderboard" type="button">🏆 ' + escapeText(tt("Top", "排行榜")) + '</button>' +
-            '<button class="person-mv-style-btn" data-style-tab="schools"     type="button">🏛 ' + escapeText(tt("Schools", "流派")) + '</button>' +
-            '<button class="person-mv-style-btn" data-style-tab="epic"        type="button">⚔️ '  + escapeText(tt("Epic", "史诗")) + '</button>' +
-            '<button class="person-mv-style-btn" data-style-tab="tang"        type="button">🐉 ' + escapeText(tt("Tang", "唐风")) + '</button>' +
-            '<button class="person-mv-style-btn" data-style-tab="ambient"     type="button">🌫️ ' + escapeText(tt("Ambient", "氛围")) + '</button>' +
-            '<button class="person-mv-style-btn" data-style-tab="cinematic"   type="button">🎬 ' + escapeText(tt("Cinematic", "电影感")) + '</button>' +
-            '<button class="person-mv-style-btn" data-style-tab="rock"        type="button">🎸 ' + escapeText(tt("Rock", "摇滚")) + '</button>' +
-            '<button class="person-mv-tier-btn active" data-tier="1" type="button">' + tt("Influence", "影响力") + '</button>' +
-            '<button class="person-mv-tier-btn" data-tier="2" type="button">' + tt("Civilization", "文明") + '</button>' +
-            '<button class="person-mv-ctier-btn active" data-ctier="S" title="' + tt("Global consensus", "全球公认") + '">S</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="A" title="' + tt("Civilization rep", "文明代表") + '">A</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="B" title="' + tt("Domain rep", "领域代表") + '">B</button>' +
-            '<button class="person-mv-ctier-btn" data-ctier="all" title="' + tt("All tiers", "全部") + '">' + tt("All", "全") + '</button>' +
-            '<button class="person-mv-realm-btn active" data-realm="all"          title="' + tt("All realms",          "全部位面") + '">🌐 ' + tt("All",      "全")  + '</button>' +
-            '<button class="person-mv-realm-btn"        data-realm="historical"   title="' + tt("Real history",        "真实历史") + '">📜 ' + tt("History",  "历史") + '</button>' +
-            '<button class="person-mv-realm-btn"        data-realm="mythological" title="' + tt("Myth & gods",         "神话与诸神") + '">⚡ ' + tt("Myth",    "神话") + '</button>' +
-            '<button class="person-mv-realm-btn"        data-realm="literary"     title="' + tt("Literary characters", "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
-            '<button class="person-mv-realm-btn"        data-realm="folkloric"    title="' + tt("Folk tales",          "民间传说") + '">🏮 ' + tt("Folk",     "民间") + '</button>' +
+        /* CSSOS_WAVE_499 20260530 — Jing「分段胶囊轨道(宪法扩展)」。5 个互相独立的单选
+         * 筛选维度(mode/style/tier/ctier/realm)各自一个 data-pill-bar 段, 并排成一条
+         * 连续轨道, 段间细分隔线。每段内部仍是纯 v28 凸嵌凹、各有一个激活、两头凸 →
+         * 根治"一条 bar 5 个激活、凸嵌凹错乱"。按钮 class/data-* 不变, 现有 handler 照常。 */
+        '<div class="civ-mv-toprow' + (pmvMaster ? " pmv-master" : "") + '" data-pmv-cat="' + pmvActiveCat + '">' +
+          /* ── LEVEL-1 category bar (V2 master mode only; hidden in segmented) ── */
+          '<div class="civ-mv-l1 cssmv-pill-bar" role="tablist" data-pill-bar data-pill-text="dark" aria-label="' + escapeAttr(tt("Category", "分类")) + '">' +
+            '<button class="civ-mv-l1-btn' + (pmvActiveCat==="mode"?" active":"") + '"    data-pmv-cat="mode"    type="button">🎭 ' + escapeText(tt("Type", "类型")) + '</button>' +
+            '<button class="civ-mv-l1-btn' + (pmvActiveCat==="style"?" active":"") + '"   data-pmv-cat="style"   type="button">🎨 ' + escapeText(tt("Style", "风格")) + '</button>' +
+            '<button class="civ-mv-l1-btn' + (pmvActiveCat==="top"?" active":"") + '"     data-pmv-cat="top"     type="button">🏆 ' + escapeText(tt("Top", "排行榜")) + '</button>' +
+            '<button class="civ-mv-l1-btn' + (pmvActiveCat==="schools"?" active":"") + '" data-pmv-cat="schools" type="button">🏛 ' + escapeText(tt("Schools", "流派")) + '</button>' +
+            '<button class="civ-mv-l1-btn' + (pmvActiveCat==="ranking"?" active":"") + '" data-pmv-cat="ranking" type="button">⭐ ' + escapeText(tt("Ranking", "排名")) + '</button>' +
+            '<button class="civ-mv-l1-btn' + (pmvActiveCat==="tier"?" active":"") + '"    data-pmv-cat="tier"    type="button">🎖 ' + escapeText(tt("Tier", "评级")) + '</button>' +
+            '<button class="civ-mv-l1-btn' + (pmvActiveCat==="realm"?" active":"") + '"   data-pmv-cat="realm"   type="button">🌐 ' + escapeText(tt("Realm", "位面")) + '</button>' +
+          '</div>' +
+          /* ── Segmented row: 7 segments. V1 shows all in one track; V2 shows only the active level-1 ── */
+          '<div class="civ-mv-tabs-row" role="group" aria-label="' + escapeAttr(tt("Filters", "筛选")) + '">' +
+            /* SEG mode */
+            '<div class="civ-mv-seg cssmv-pill-bar" data-pmv-cat="mode" role="tablist" data-pill-bar data-pill-text="dark" aria-label="' + escapeAttr(tt("Type", "类型")) + '">' +
+              '<button class="civ-mv-tab active" data-civ-mode="people" type="button">👤 ' + escapeText(tt("People", "人物")) + '</button>' +
+              '<button class="civ-mv-tab" data-civ-mode="landmarks" type="button">🏛 ' + escapeText(tt("Landmarks", "名迹")) + '</button>' +
+            '</div>' +
+            /* SEG style (Top/Schools split out into their own segments below) */
+            '<div class="civ-mv-seg cssmv-pill-bar" data-pmv-cat="style" role="tablist" data-pill-bar data-pill-text="dark" aria-label="' + escapeAttr(tt("Style", "风格")) + '">' +
+              '<button class="person-mv-style-btn active" data-style-tab="epic"        type="button">⚔️ '  + escapeText(tt("Epic", "史诗")) + '</button>' +
+              '<button class="person-mv-style-btn" data-style-tab="tang"        type="button">🐉 ' + escapeText(tt("Tang", "唐风")) + '</button>' +
+              '<button class="person-mv-style-btn" data-style-tab="ambient"     type="button">🌫️ ' + escapeText(tt("Ambient", "氛围")) + '</button>' +
+              '<button class="person-mv-style-btn" data-style-tab="cinematic"   type="button">🎬 ' + escapeText(tt("Cinematic", "电影感")) + '</button>' +
+              '<button class="person-mv-style-btn" data-style-tab="rock"        type="button">🎸 ' + escapeText(tt("Rock", "摇滚")) + '</button>' +
+            '</div>' +
+            /* SEG top (view: clicking opens leaderboard, fig.1) */
+            '<div class="civ-mv-seg cssmv-pill-bar" data-pmv-cat="top" role="tablist" data-pill-bar data-pill-text="dark" aria-label="' + escapeAttr(tt("Top", "排行榜")) + '">' +
+              '<button class="person-mv-style-btn" data-style-tab="leaderboard" type="button">🏆 ' + escapeText(tt("Top", "排行榜")) + '</button>' +
+            '</div>' +
+            /* SEG schools (view: clicking shows dynamic school chips, fig.2) */
+            '<div class="civ-mv-seg cssmv-pill-bar" data-pmv-cat="schools" role="tablist" data-pill-bar data-pill-text="dark" aria-label="' + escapeAttr(tt("Schools", "流派")) + '">' +
+              '<button class="person-mv-style-btn" data-style-tab="schools" type="button">🏛 ' + escapeText(tt("Schools", "流派")) + '</button>' +
+            '</div>' +
+            /* SEG ranking */
+            '<div class="civ-mv-seg cssmv-pill-bar" data-pmv-cat="ranking" role="tablist" data-pill-bar data-pill-text="dark" aria-label="' + escapeAttr(tt("Ranking", "排名")) + '">' +
+              '<button class="person-mv-tier-btn active" data-tier="1" type="button">⭐ ' + tt("Influence", "影响力") + '</button>' +
+              '<button class="person-mv-tier-btn" data-tier="2" type="button">🏛 ' + tt("Civilization", "文明") + '</button>' +
+            '</div>' +
+            /* SEG tier (full words instead of S/A/B). CSSOS_WAVE_501 20260530 — Jing:
+             * 默认 All 放轨道第一位(与 realm 的 All-首位统一; state.curationTier 默认本就是
+             * "all", 之前 markup 误把 S 标 active); 也消除"两个 All 头顶头"。 */
+            '<div class="civ-mv-seg cssmv-pill-bar" data-pmv-cat="tier" role="tablist" data-pill-bar data-pill-text="dark" aria-label="' + escapeAttr(tt("Tier", "评级")) + '">' +
+              '<button class="person-mv-ctier-btn active" data-ctier="all" title="' + tt("All tiers", "全部") + '">🎖 ' + tt("All", "全部") + '</button>' +
+              '<button class="person-mv-ctier-btn" data-ctier="S" title="' + tt("Global consensus", "全球公认") + '">🥇 ' + tt("Global", "全球") + '</button>' +
+              '<button class="person-mv-ctier-btn" data-ctier="A" title="' + tt("Civilization rep", "文明代表") + '">🥈 ' + tt("Civilization", "文明") + '</button>' +
+              '<button class="person-mv-ctier-btn" data-ctier="B" title="' + tt("Domain rep", "领域代表") + '">🥉 ' + tt("Domain", "领域") + '</button>' +
+            '</div>' +
+            /* SEG realm */
+            '<div class="civ-mv-seg cssmv-pill-bar" data-pmv-cat="realm" role="tablist" data-pill-bar data-pill-text="dark" aria-label="' + escapeAttr(tt("Realm", "位面")) + '">' +
+              '<button class="person-mv-realm-btn active" data-realm="all"          title="' + tt("All realms",          "全部位面") + '">🌐 ' + tt("All",      "全部")  + '</button>' +
+              '<button class="person-mv-realm-btn"        data-realm="historical"   title="' + tt("Real history",        "真实历史") + '">📜 ' + tt("History",  "历史") + '</button>' +
+              '<button class="person-mv-realm-btn"        data-realm="mythological" title="' + tt("Myth & gods",         "神话与诸神") + '">⚡ ' + tt("Myth",    "神话") + '</button>' +
+              '<button class="person-mv-realm-btn"        data-realm="literary"     title="' + tt("Literary characters", "文学虚构") + '">📚 ' + tt("Literary", "文学") + '</button>' +
+              '<button class="person-mv-realm-btn"        data-realm="folkloric"    title="' + tt("Folk tales",          "民间传说") + '">🏮 ' + tt("Folk",     "民间") + '</button>' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="person-mv-toolbar">' +
@@ -525,6 +617,8 @@
             tt("All civilizations", "全部文明") + '</option></select>' +
           '<button class="person-mv-random-btn" title="' +
             tt("Surprise me", "随机给我一个") + '">🎲</button>' +
+          '<button class="person-mv-layout-btn" title="' +
+            tt("Switch filter layout (segmented / two-level)", "切换筛选布局(分段 / 两级)") + '">🔀</button>' +
         '</div>' +
         '<div class="person-mv-create-anybody">' +
           tt("+ Create an MV for any person — even Aunt Mary or yourself.",
@@ -540,7 +634,11 @@
      * the wrong place. Hoist to main when present. */
     var mainStage = document.querySelector("main.stage") || document.querySelector("main");
     (mainStage || document.body).appendChild(panelEl);
-    bindPanelEvents();
+    /* CSSOS_WAVE_507 20260530 — Jing「人物MV还是打不开」。bindPanelEvents 一旦抛错,
+     * ensurePanel 就不 return → open() 异常 → .hidden 不被移除 → 面板打不开。套 try/catch:
+     * 即使某条接线失败, 面板也照常返回并打开(失败处仅告警, 不再连累整个面板)。 */
+    try { bindPanelEvents(); }
+    catch (err) { try { console.warn("[person-mv] bindPanelEvents threw", err); } catch (_e) {} }
     /* CSSOS_PERSON_MV_BRIDGES 20260507 — Jing
      * Every shared bridge is a forEach over .panel that ran ONCE on
      * init. Items appended later miss them. Fire all four so my
@@ -670,6 +768,8 @@
         panelEl.classList.toggle("panel-collapsed");
       }
     });
+    /* CSSOS_WAVE_506 20260530 — 回滚 W502 内联最大化(它配合 W499 CSS 覆盖, 导致打开即全屏
+     * → 面板崩)。恢复原始: 调用全局 togglePanelMaximize。 */
     wireChromeBtn(maxBtn, function () {
       if (typeof globalThis.togglePanelMaximize === "function") {
         globalThis.togglePanelMaximize(panelEl);
@@ -787,6 +887,49 @@
         } finally {
           randomBtn.disabled = false;
         }
+      });
+    }
+
+    /* CSSOS_WAVE_500 20260530 — Jing 两级 master-detail(V2) 接线 + 🔀 布局切换。
+     * 一级分类点击 → 展开对应二级段(.is-shown); Top/Schools 还顺手触发其视图按钮。
+     * 现有二级 handler(style/tier/ctier/realm) 不变, 照常工作。 */
+    var toprowEl = panelEl.querySelector(".civ-mv-toprow");
+    function pmvShowCat(cat) {
+      if (!toprowEl || !cat) return;
+      toprowEl.setAttribute("data-pmv-cat", cat);
+      panelEl.querySelectorAll(".civ-mv-l1-btn").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-pmv-cat") === cat);
+      });
+      panelEl.querySelectorAll(".civ-mv-seg").forEach(function (seg) {
+        seg.classList.toggle("is-shown", seg.getAttribute("data-pmv-cat") === cat);
+      });
+    }
+    panelEl.querySelectorAll(".civ-mv-l1-btn").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var cat = b.getAttribute("data-pmv-cat");
+        pmvShowCat(cat);
+        /* Top / Schools are VIEW categories — also trigger their view button. */
+        if (cat === "top" || cat === "schools") {
+          var tab = cat === "top" ? "leaderboard" : "schools";
+          var viewBtn = panelEl.querySelector('.person-mv-style-btn[data-style-tab="' + tab + '"]');
+          if (viewBtn) viewBtn.click();
+        }
+      });
+    });
+    /* Initialise the shown segment when starting in master mode. */
+    if (toprowEl && toprowEl.classList.contains("pmv-master")) {
+      pmvShowCat(toprowEl.getAttribute("data-pmv-cat") || "style");
+    }
+    /* 🔀 layout toggle — flip segmented(V1) ↔ master(V2) by toggling the class
+     * (no re-render needed: both the level-1 bar and all segments are already in
+     * the DOM, CSS shows/hides per .pmv-master). Persist the choice. */
+    var layoutBtn = panelEl.querySelector(".person-mv-layout-btn");
+    if (layoutBtn && toprowEl) {
+      layoutBtn.addEventListener("click", function () {
+        var goMaster = !toprowEl.classList.contains("pmv-master");
+        toprowEl.classList.toggle("pmv-master", goMaster);
+        try { localStorage.setItem("pmv.filter_layout", goMaster ? "master" : "segmented"); } catch (_e) {}
+        if (goMaster) pmvShowCat(toprowEl.getAttribute("data-pmv-cat") || "style");
       });
     }
     /* Card open — pointerup capture on the whole panel so no
@@ -1050,9 +1193,9 @@
       })
       .catch(function (err) {
         console.warn("[landmark-mv] delete failed", err);
-        if (typeof globalThis.showToast === "function") {
-          globalThis.showToast(tt("Delete failed (network).", "删除失败（网络）。"));
-        }
+        // CSSOS_WAVE_588 — 引导式: 删除失败(网络) → [↻ 重试]。
+        if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tt("Delete failed (network).", "删除失败（网络）。"), function () { confirmLandmarkDelete(landmark); });
+        else if (typeof globalThis.showToast === "function") globalThis.showToast(tt("Delete failed (network).", "删除失败（网络）。"));
       });
   }
 
@@ -1097,9 +1240,9 @@
       })
       .catch(function (err) {
         console.warn("[landmark-mv] patch failed", err);
-        if (typeof globalThis.showToast === "function") {
-          globalThis.showToast(tt("Save failed (network).", "保存失败（网络）。"));
-        }
+        // CSSOS_WAVE_588 — 引导式: 保存失败(网络) → 进 digest + 一致弹窗(重试句柄为深层闭包, 暂不强接)。
+        if (typeof globalThis.cssosGuidedToast === "function") globalThis.cssosGuidedToast(tt("Save failed (network).", "保存失败（网络）。"), { kind: "error", code: "network_save" });
+        else if (typeof globalThis.showToast === "function") globalThis.showToast(tt("Save failed (network).", "保存失败（网络）。"));
       });
   }
 
@@ -1295,7 +1438,7 @@
     if (!body) return;
     var toolbar = body.querySelector(".person-mv-toolbar");
     var grid = body.querySelector(".person-mv-grid");
-    var tabs = body.querySelector(".civ-mv-tabs");
+    var tabs = body.querySelector(".civ-mv-tabs-row");
     var createTip = body.querySelector(".person-mv-create-anybody");
     if (toolbar) toolbar.style.display = "none";
     if (grid) grid.style.display = "none";
@@ -1342,7 +1485,8 @@
       }
       var latin = l.name_latin || (l.name_en && l.name_en !== primary ? l.name_en : "");
       var locText = l.location || "";
-      var civText = l.civilization || "";
+      var _civRaw = l.civilization || "";
+      var civText = (typeof globalThis.civDisplayName === "function") ? globalThis.civDisplayName(_civRaw) : _civRaw;
       var eraText = l.era || "";
       var foundedYear = l.founded_year;
       var influence = Math.max(0, Math.min(100, Number(l.influence_score || 0)));
@@ -1384,7 +1528,7 @@
       '</div>';
 
       // Action bar — Enter Cinema (if MVs exist) + Create New + Back
-      h += '<div class="pmv-action-bar cssmv-pill-bar">';
+      h += '<div class="pmv-action-bar cssmv-pill-bar" data-pill-bar>';
       if (mvs.length) {
         h += '<button class="pmv-cinema">🎬 ' + escTxt(tt("Enter Cinema", "进入影院")) + ' (' + mvs.length + ')</button>';
       }
@@ -1637,7 +1781,7 @@
       host.style.display = "none";
       var body = panelEl && panelEl.querySelector(".panel-body");
       if (!body) return;
-      var tabs = body.querySelector(".civ-mv-tabs");
+      var tabs = body.querySelector(".civ-mv-tabs-row");
       var toolbar = body.querySelector(".person-mv-toolbar");
       var grid = body.querySelector(".person-mv-grid");
       var createTip = body.querySelector(".person-mv-create-anybody");
@@ -1659,7 +1803,7 @@
     var primary = isZh ? (l.name_zh || l.name_en) : (l.name_en || l.name_zh);
     var secondary = isZh ? (l.name_en || "") : (l.name_zh || "");
     if (secondary === primary) secondary = "";
-    var meta = [l.civilization, l.era, l.location].filter(Boolean).join(" · ");
+    var meta = (globalThis.civMetaText ? globalThis.civMetaText([l.civilization, l.era, l.location], null, " · ") : [l.civilization, l.era, l.location].filter(Boolean).join(" · "));
     var card = document.createElement("article");
     card.className = "pmv-portrait-card";
     card.style.position = "relative";
@@ -1778,8 +1922,14 @@
     if (!sel) return;
     var current = sel.value;
     var civs = Array.from(new Set(state.persons.map(function (p) { return p.civilization; }).filter(Boolean))).sort();
+    // i18n 铁律: value 保留原始 civ(分组/过滤的 join 键), 但【显示文字】过 civDisplayName 本地化
+    // → 非中文用户绝不看到"印度文明"等中文(回退英文 "Indian Civilization")。
+    var _civLoc = (document.documentElement.lang || navigator.language || "");
+    var _civDisp = function (c) {
+      return (typeof globalThis.civDisplayName === "function") ? globalThis.civDisplayName(c, _civLoc) : c;
+    };
     sel.innerHTML = '<option value="">' + tt("All civilizations", "全部文明") + '</option>' +
-      civs.map(function (c) { return '<option value="' + escapeAttr(c) + '">' + escapeText(c) + '</option>'; }).join("");
+      civs.map(function (c) { return '<option value="' + escapeAttr(c) + '">' + escapeText(_civDisp(c)) + '</option>'; }).join("");
     if (current) sel.value = current;
   }
 
@@ -2213,9 +2363,9 @@
       })
       .catch(function (err) {
         console.warn("[person-mv] delete failed", err);
-        if (typeof globalThis.showToast === "function") {
-          globalThis.showToast(tt("Delete failed (network).", "删除失败（网络）。"));
-        }
+        // CSSOS_WAVE_588 — 引导式: 删除失败(网络) → [↻ 重试]。
+        if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tt("Delete failed (network).", "删除失败（网络）。"), function () { confirmDelete(person); });
+        else if (typeof globalThis.showToast === "function") globalThis.showToast(tt("Delete failed (network).", "删除失败（网络）。"));
       });
   }
 
@@ -2264,9 +2414,9 @@
       })
       .catch(function (err) {
         console.warn("[person-mv] patch failed", err);
-        if (typeof globalThis.showToast === "function") {
-          globalThis.showToast(tt("Save failed (network).", "保存失败（网络）。"));
-        }
+        // CSSOS_WAVE_588 — 引导式: 保存失败(网络) → 进 digest + 一致弹窗。
+        if (typeof globalThis.cssosGuidedToast === "function") globalThis.cssosGuidedToast(tt("Save failed (network).", "保存失败（网络）。"), { kind: "error", code: "network_save" });
+        else if (typeof globalThis.showToast === "function") globalThis.showToast(tt("Save failed (network).", "保存失败（网络）。"));
       });
   }
 
@@ -2356,7 +2506,7 @@
   function buildHallCard(p) {
     var primary = localizedName(p);
     var secondary = secondaryName(p);
-    var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+    var meta = (globalThis.civMetaText ? globalThis.civMetaText([p.civilization, p.era], null, " · ") : [p.civilization, p.era].filter(Boolean).join(" · "));
     var portrait = p.portrait_url || p.cover_image_url || "";
     var card = document.createElement("article");
     card.className = "pmv-hall-card";
@@ -2442,7 +2592,7 @@
      * Used for Notable persons that have a portrait_url. */
     var primary = localizedName(p);
     var secondary = secondaryName(p);
-    var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+    var meta = (globalThis.civMetaText ? globalThis.civMetaText([p.civilization, p.era], null, " · ") : [p.civilization, p.era].filter(Boolean).join(" · "));
     var portrait = p.portrait_url || p.cover_image_url || "";
     var card = document.createElement("article");
     card.className = "pmv-portrait-card";
@@ -2466,7 +2616,7 @@
   function buildNotableTextCard(p) {
     /* Original text-only card for A-tier persons that haven't yet
      * had a portrait generated. */
-    var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+    var meta = (globalThis.civMetaText ? globalThis.civMetaText([p.civilization, p.era], null, " · ") : [p.civilization, p.era].filter(Boolean).join(" · "));
     var primary = localizedName(p);
     var secondary = secondaryName(p);
     var card = document.createElement("div");
@@ -2541,7 +2691,7 @@
   function buildCompendiumRow(p) {
     var primary = localizedName(p);
     var secondary = secondaryName(p);
-    var meta = [p.civilization, p.era].filter(Boolean).join(" · ");
+    var meta = (globalThis.civMetaText ? globalThis.civMetaText([p.civilization, p.era], null, " · ") : [p.civilization, p.era].filter(Boolean).join(" · "));
     var row = document.createElement("div");
     row.className = "pmv-compendium-row";
     row.setAttribute("data-person-id", p.person_id || "");
@@ -2647,19 +2797,46 @@
    * intentionally soft: caller-set selections persist via
    * cssmvEngines.setSelection so the user's manual gear-pick wins
    * if they've touched it. We only set when the user hasn't. */
+  // W360b — Japanese and other non-Latin-script civilizations MUST use
+  // a capable model (openai/anthropic). Small models (groq/cerebras) can't
+  // reliably write Japanese / Korean / Arabic / etc. and silently fall back
+  // to English, producing the generic template lyrics the user reported.
   var CIV_ENGINE_HINTS = {
-    "中华文明":      { llm: "deepseek",  llm_alt: "cerebras",  music: "suno"     },
-    "古希腊文明":    { llm: "groq",      llm_alt: "anthropic", music: "elevenlabs" },
-    "古罗马文明":    { llm: "groq",      llm_alt: "anthropic", music: "elevenlabs" },
-    "印度文明":      { llm: "gemini",    llm_alt: "together",  music: "suno"     },
-    "现代印度":      { llm: "gemini",    llm_alt: "together",  music: "suno"     },
-    "文艺复兴欧洲":  { llm: "anthropic", llm_alt: "groq",      music: "elevenlabs" },
-    "欧洲文明":      { llm: "anthropic", llm_alt: "groq",      music: "elevenlabs" },
-    "近代欧洲":      { llm: "anthropic", llm_alt: "groq",      music: "elevenlabs" },
+    "中华文明":      { llm: "deepseek",  llm_alt: "openai",    music: "suno"     },
+    // ── East Asian — require capable model for non-Latin scripts ──
+    "日本古典":      { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "日本":          { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "战国":          { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "江户":          { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "朝鲜":          { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "韩国":          { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    // ── Middle East / South Asia — capable model for Arabic/Urdu/Persian ──
+    "古埃及":        { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "奥斯曼":        { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "波斯":          { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "莫卧儿":        { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "印度文明":      { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    "现代印度":      { llm: "openai",    llm_alt: "anthropic", music: "suno"     },
+    // ── European civilizations ──
+    "古希腊文明":    { llm: "anthropic", llm_alt: "openai",    music: "elevenlabs" },
+    "古罗马文明":    { llm: "anthropic", llm_alt: "openai",    music: "elevenlabs" },
+    "文艺复兴欧洲":  { llm: "anthropic", llm_alt: "openai",    music: "elevenlabs" },
+    "欧洲文明":      { llm: "anthropic", llm_alt: "openai",    music: "elevenlabs" },
+    "近代欧洲":      { llm: "anthropic", llm_alt: "openai",    music: "elevenlabs" },
+    "启蒙":          { llm: "anthropic", llm_alt: "openai",    music: "elevenlabs" },
     "近现代科学":    { llm: "anthropic", llm_alt: "openai",    music: "suno"     },
   };
   function applyCivHints(civ) {
+    // Exact key first, then substring match (handles civ label variations).
     var hints = CIV_ENGINE_HINTS[civ];
+    if (!hints) {
+      var lower = String(civ || "").toLowerCase();
+      for (var k in CIV_ENGINE_HINTS) {
+        if (lower.indexOf(k.toLowerCase()) !== -1 || k.toLowerCase().indexOf(lower) !== -1) {
+          hints = CIV_ENGINE_HINTS[k]; break;
+        }
+      }
+    }
     if (!hints) return;
     try {
       if (!globalThis.cssmvEngines || typeof globalThis.cssmvEngines.setSelection !== "function") return;
@@ -2676,6 +2853,15 @@
   }
 
   function jumpIntoPipeline(person, lore) {
+    // CSSOS_WAVE_438 — clear stale lyrics before new pipeline starts.
+    try {
+      if (globalThis.state && globalThis.state.songSeed) globalThis.state.songSeed.lyrics = "";
+      var _le = document.getElementById("watch-lyrics-editor");
+      if (_le && "value" in _le) _le.value = "";
+      var _kl = document.getElementById("watch-karaoke-line");
+      if (_kl) _kl.textContent = "";
+      if (globalThis.watchKaraokeTimelineCache) { globalThis.watchKaraokeTimelineCache.data = null; globalThis.watchKaraokeTimelineCache.runId = ""; }
+    } catch (_e) {}
     var seed = buildSeed(person, lore);
     applyCivHints(person.civilization);
     if (typeof globalThis.openMvPipelinePanel === "function") {
@@ -2756,6 +2942,10 @@
       "html[data-theme=\"light\"] .pmv-codex .pmv-hero-name-native{color:#f0fff7;text-shadow:0 1px 8px rgba(0,0,0,0.8);}" +
       "html[data-theme=\"light\"] .pmv-codex .pmv-hero-name-latin{color:#daffe9;text-shadow:0 1px 6px rgba(0,0,0,0.75);}" +
       ".pmv-codex .pmv-chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}" +
+      /* CSSOS_WAVE_497 20260529 — Jing「平台特色胶囊风格」: 给所有 .pmv-chip 只读徽章
+       * (hero/codex/...) 统一的绿胶囊外观(圆角+绿描边)。它们是只读徽章、不是切换器,
+       * 故只取胶囊【外观】, 不加 凸嵌凹 交互镶嵌(遵守宪法对'显示徽章'的定位)。 */
+      "#person-mv-panel .pmv-chip{background:rgba(0,245,160,0.15);border:1px solid rgba(0,245,160,0.35);border-radius:999px;padding:3px 10px;font:600 11px/1.4 -apple-system,system-ui,sans-serif;color:#daffee;white-space:nowrap;}" +
       ".pmv-codex .pmv-chip{background:rgba(0,245,160,0.15);border:1px solid rgba(0,245,160,0.35);border-radius:999px;padding:3px 10px;font:600 11px/1.4 ui-monospace,monospace;color:#daffee;}" +
       ".pmv-codex .pmv-chip-fallback{font-size:42px;letter-spacing:8px;opacity:.5;}" +
       ".pmv-codex .pmv-action-bar{display:flex;gap:10px;margin:0 12px 12px;flex-wrap:wrap;}" +
@@ -2962,7 +3152,7 @@
       var lore = data.lore || {};
       var portrait = data.portrait_url || "";
       var symbols = (p.visual_symbols || []).join(" ");
-      var meta = [p.lifespan, p.civilization, p.era].filter(Boolean).join(" · ");
+      var meta = (globalThis.civMetaText ? globalThis.civMetaText([p.lifespan, p.civilization, p.era], null, " · ") : [p.lifespan, p.civilization, p.era].filter(Boolean).join(" · "));
       var influence = Math.max(0, Math.min(100, Number(p.influence_score || 0)));
 
       var heroBg = portrait
@@ -3054,7 +3244,11 @@
         heroAttr +
       '</div>';
 
-      h += '<div class="pmv-action-bar cssmv-pill-bar">' +
+      // CSSOS_WAVE_483 — 管理员可在人物档案页【全平台置顶】此人物(如孔子), 之后搜索该
+      // 文明/关键词时此人物先出。仅管理员显示; 反映当前置顶态。
+      var _pmvIsAdmin = String((globalThis.authState && globalThis.authState.role) || "").toLowerCase() === "admin";
+      var _pmvPinned = !!(p && p.admin_pinned_at);
+      h += '<div class="pmv-action-bar cssmv-pill-bar" data-pill-bar>' +
         '<button class="pmv-cinema">🎬 ' + escTxt(tt("Enter Cinema", "进入影院")) + '</button>' +
         '<button class="pmv-secondary pmv-create-mv">✨ ' + escTxt(tt("Create New Version", "创作新版本")) + '</button>' +
         // CSSOS_WAVE_338 — 仅当该人物【已有作品】时才出现"重新生成"(它才会弹"新生/覆盖"窗).
@@ -3062,8 +3256,18 @@
           ? '<button class="pmv-secondary pmv-regen">↻ ' + escTxt(tt("Regenerate", "重新生成")) + '</button>'
           : '') +
         '<button class="pmv-secondary pmv-compare">🔀 ' + escTxt(tt("Compare with another", "与他人对比")) + '</button>' +
+        (_pmvIsAdmin
+          ? '<button class="pmv-secondary pmv-pin" data-person-id="' + escTxt(personId) + '" data-pinned="' + (_pmvPinned ? "1" : "0") + '">📌 ' + escTxt(_pmvPinned ? tt("Pinned platform-wide", "已全平台置顶") : tt("Pin platform-wide", "全平台置顶")) + '</button>'
+          : '') +
         '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>' +
       '</div>';
+
+      // CSSOS_WAVE_404 20260524 — Jing「人物MV 多语言声线轨」: 母语锁定首轨(免费) +
+      // 可选 8 语言(各一条付费重唱声线)。8 + 母语 = 最多 9 语言。选择写进 seed.languages,
+      // 进影院创作时带给管线/后端走多声线轨。
+      h += '<div class="pmv-section pmv-lang-section">' +
+        '<h3>🌐 ' + escTxt(tt("Languages · mother tongue + optional voices", "语言 · 母语必选 + 可选声线")) + '</h3>' +
+        '<div id="pmv-lang-picker-host"></div></div>';
 
       // CSSOS_PERSON_MV_WAVE16 20260508 — Jing — schools/groups chips.
       var groups = Array.isArray(data.groups) ? data.groups : [];
@@ -3089,7 +3293,7 @@
           '<div class="pmv-dialogue-list">' +
             relLand.map(function (l) {
               var nm = locZ ? (l.name_zh || l.name_en) : (l.name_en || l.name_zh);
-              var meta = [l.era, l.location].filter(Boolean).join(" · ");
+              var meta = (globalThis.civMetaText ? globalThis.civMetaText([l.era, l.location], null, " · ") : [l.era, l.location].filter(Boolean).join(" · "));
               return '<div class="pmv-dialogue-row" data-landmark-id="' + escAttr(l.landmark_id) + '">' +
                 '<button class="pmv-chip pmv-related-landmark" data-landmark-id="' + escAttr(l.landmark_id) + '">' +
                   '🏛 ' + escTxt(nm) + (meta ? ' · ' + escTxt(meta) : "") +
@@ -3302,7 +3506,7 @@
             contemp.map(function(c){
               return '<div class="pmv-mini" data-codex-jump="' + escAttr(c.person_id) + '">' +
                 '<div class="pmv-mini-name">' + escTxt(c.name_zh || c.name_en) + '</div>' +
-                '<div class="pmv-mini-meta">' + escTxt([c.civilization, c.era].filter(Boolean).join(" · ")) + '</div>' +
+                '<div class="pmv-mini-meta">' + escTxt((globalThis.civMetaText ? globalThis.civMetaText([c.civilization, c.era], null, " · ") : [c.civilization, c.era].filter(Boolean).join(" · "))) + '</div>' +
               '</div>';
             }).join("") +
           '</div></div>';
@@ -3315,7 +3519,7 @@
             lineage.map(function(c){
               return '<div class="pmv-mini" data-codex-jump="' + escAttr(c.person_id) + '">' +
                 '<div class="pmv-mini-name">' + escTxt(c.name_zh || c.name_en) + '</div>' +
-                '<div class="pmv-mini-meta">' + escTxt([c.civilization, c.era].filter(Boolean).join(" · ")) + '</div>' +
+                '<div class="pmv-mini-meta">' + escTxt((globalThis.civMetaText ? globalThis.civMetaText([c.civilization, c.era], null, " · ") : [c.civilization, c.era].filter(Boolean).join(" · "))) + '</div>' +
               '</div>';
             }).join("") +
           '</div></div>';
@@ -3323,6 +3527,25 @@
 
       host.innerHTML = h;
       wireBack(host);
+
+      // CSSOS_WAVE_404 — mount the multilingual voice-track picker with the
+      // persona's mother tongue pre-selected + LOCKED as the default (free)
+      // track. enterCinemaForPerson() reads its selection into seed.languages.
+      var __pmvLangHandle = null;
+      try {
+        var __pmHost = host.querySelector("#pmv-lang-picker-host");
+        if (__pmHost && typeof globalThis.cssosMountLanguagePicker === "function") {
+          var __motherLang = "";
+          try {
+            __motherLang = (globalThis.civToLanguageModule
+              ? globalThis.civToLanguageModule(p.civilization || "")
+              : "") || "";
+          } catch (_e) {}
+          __pmvLangHandle = globalThis.cssosMountLanguagePicker(__pmHost, {
+            lockedFirst: __motherLang || "en",
+          });
+        }
+      } catch (_e) {}
 
       /* CSSOS_PERSON_MV_CINEMA_FIRST 20260507 — Jing
        * Unified cinema entry. Both 🎬 and ✨ "Create New Version" /
@@ -3349,6 +3572,25 @@
           return;
         }
         var seed = buildSeed(p, lore);
+        // CSSOS_WAVE_404 — carry the selected voice-track languages (mother
+        // tongue first = default/free, extras = paid re-sung lanes) into the
+        // pipeline seed. Primary language stays the mother tongue.
+        try {
+          if (__pmvLangHandle && typeof __pmvLangHandle.getSelected === "function") {
+            var __langs = __pmvLangHandle.getSelected();
+            if (Array.isArray(__langs) && __langs.length) {
+              seed.languages = __langs;
+              if (__langs[0]) seed.language = __langs[0];
+              // CSSOS_WAVE_413 20260524 — Jing「接通多语言生成触发」: stash the picked
+              // languages so the freshly-created work's 🌐 pill mount fires the
+              // paid extra tracks (mother tongue stays the free main MV). One-shot,
+              // timestamped; consumed + cleared by cssosMountLanguagePill.
+              if (__langs.length > 1) {
+                globalThis.__cssosPendingLangTracks = { languages: __langs.slice(), ts: Date.now() };
+              }
+            }
+          }
+        } catch (_e) {}
         // CSSOS_WAVE_327 20260522 — Jing「典故」: 指定了典故故事 → 用它替换随机 theme,
         // 歌词据此典故创作(theme/__storyAngle 是后端歌词的故事种子).
         if (opts && opts.storyAngle) {
@@ -3402,6 +3644,30 @@
          * one. Backend caps at 24 + randomizes per-call. Empty pool
          * (first MV) → pipeline falls back to cover-stage output. */
         var coverPool = (data && Array.isArray(data.cover_pool)) ? data.cover_pool : [];
+        // CSSOS_WAVE_438 20260525 — Jing「切人物时清旧歌词」:
+        // When a new person-MV pipeline starts, the previous work's lyrics
+        // (e.g. Jerusalem) linger in state.songSeed.lyrics and the watch-lyrics
+        // editor and render on-screen during the new generation. Clear them now
+        // so the new work starts with a blank slate — the pipeline will fill them
+        // in as Lyrics stage completes.
+        try {
+          if (globalThis.state && globalThis.state.songSeed) {
+            globalThis.state.songSeed.lyrics = "";
+          }
+          var _le = document.getElementById("watch-lyrics-editor");
+          if (_le && "value" in _le) _le.value = "";
+          // Also clear the karaoke overlay and subtitle so no old text bleeds through.
+          var _kl = document.getElementById("watch-karaoke-line");
+          if (_kl) _kl.textContent = "";
+          var _kl2 = document.getElementById("watch-karaoke-line-2");
+          if (_kl2) _kl2.textContent = "";
+          // Invalidate the karaoke timeline cache so the old sync data is discarded.
+          if (globalThis.watchKaraokeTimelineCache) {
+            globalThis.watchKaraokeTimelineCache.data = null;
+            globalThis.watchKaraokeTimelineCache.runId = "";
+          }
+        } catch (_clearErr) { /* best-effort */ }
+
         if (typeof globalThis.openMvPipelinePanel === "function") {
           globalThis.openMvPipelinePanel({
             cinema: true,
@@ -3580,6 +3846,32 @@
           openCompareModal(p.person_id, data);
         });
       }
+      // CSSOS_WAVE_483 — 管理员全平台置顶此人物。点击切换 admin_pinned_at; 超限提示。
+      var pinBtn = host.querySelector(".pmv-pin");
+      if (pinBtn) {
+        pinBtn.addEventListener("click", async function () {
+          var pid = pinBtn.getAttribute("data-person-id") || personId;
+          var nowPinned = pinBtn.getAttribute("data-pinned") !== "1";
+          pinBtn.disabled = true;
+          try {
+            var r = await fetch("/api/person-mv/" + encodeURIComponent(pid) + "/pin", {
+              method: "POST", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pinned: nowPinned }),
+            });
+            var j = await r.json().catch(function () { return {}; });
+            if (r.status === 409) {
+              if (typeof globalThis.showToast === "function") globalThis.showToast(tt("You can pin up to " + (j.limit || 12) + " persons.", "最多全平台置顶 " + (j.limit || 12) + " 个人物。"));
+              pinBtn.disabled = false; return;
+            }
+            if (r.ok) {
+              pinBtn.setAttribute("data-pinned", nowPinned ? "1" : "0");
+              pinBtn.textContent = "📌 " + (nowPinned ? tt("Pinned platform-wide", "已全平台置顶") : tt("Pin platform-wide", "全平台置顶"));
+            }
+          } catch (_e) {}
+          pinBtn.disabled = false;
+        });
+      }
       // Leaderboard ribbon — fetch top creators async, render into placeholder.
       try {
         var lbHost = host.querySelector('[data-leaderboard-host="1"]');
@@ -3693,7 +3985,7 @@
         : '');
       return head +
         '<h4>' + escTxt(nameMain) + (nameAlt ? ' <span style="font:500 12px ui-monospace,monospace;color:#9ad6c0">(' + escTxt(nameAlt) + ')</span>' : '') + '</h4>' +
-        '<div style="font:500 11px ui-monospace,monospace;color:#9ad6c0">' + escTxt([pp.civilization, pp.era, pp.lifespan].filter(Boolean).join(" · ")) + '</div>' +
+        '<div style="font:500 11px ui-monospace,monospace;color:#9ad6c0">' + escTxt((globalThis.civMetaText ? globalThis.civMetaText([pp.civilization, pp.era, pp.lifespan], null, " · ") : [pp.civilization, pp.era, pp.lifespan].filter(Boolean).join(" · "))) + '</div>' +
         '<h5>🌟 ' + escTxt(tt("Contributions", "贡献")) + '</h5>' +
         '<ul>' + contribs.map(function(c){ return '<li>' + escTxt(c) + '</li>'; }).join("") + '</ul>' +
         '<h5>⚠️ ' + escTxt(tt("Controversies", "争议")) + '</h5>' +
@@ -3725,7 +4017,9 @@
     }
 
     async function loadAndRender(targetId, paneEl) {
-      paneEl.innerHTML = escTxt(tt("Loading…", "加载中…"));
+      paneEl.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+        ? globalThis.cssosSkeletonRowsMarkup(5, tt("Loading…", "加载中…"))
+        : escTxt(tt("Loading…", "加载中…")));
       try {
         var r = await fetch("/api/person-mv/persons/" + encodeURIComponent(targetId) + "/codex", {
           credentials: "include",
@@ -3892,7 +4186,7 @@
       var members = Array.isArray(d.members) ? d.members : [];
       var mvs = Array.isArray(d.collective_mvs) ? d.collective_mvs : [];
       var icon = (g.visual_theme && g.visual_theme.icon) ? String(g.visual_theme.icon) : "🏛";
-      var meta = [g.era, g.civilization].filter(Boolean).join(" · ");
+      var meta = (globalThis.civMetaText ? globalThis.civMetaText([g.era, g.civilization], null, " · ") : [g.era, g.civilization].filter(Boolean).join(" · "));
       var description = g.description_zh || g.description_en || "";
       var color = (g.visual_theme && g.visual_theme.color) ? String(g.visual_theme.color) : "#00f5a0";
 
@@ -3908,7 +4202,7 @@
         '</div>' +
       '</div>';
 
-      h += '<div class="pmv-action-bar cssmv-pill-bar">' +
+      h += '<div class="pmv-action-bar cssmv-pill-bar" data-pill-bar>' +
         '<button class="pmv-back">← ' + escTxt(tt("Back", "返回")) + '</button>' +
       '</div>';
 
@@ -4053,15 +4347,39 @@
      * cinema / create). The auth check below is a no-op for the
      * landing view; guard rails live in the click handlers per
      * action. */
-    var p = ensurePanel();
-    /* Reverse the close-time hide so re-opening fully reveals. */
-    p.classList.remove("hidden");
-    p.style.display = "";
-    p.style.pointerEvents = "";
-    if (typeof globalThis.bringPanelToFrontBridge === "function") {
-      try { globalThis.bringPanelToFrontBridge(p, { repeatPasses: 3 }); } catch (_e) {}
-    }
-    if (!state.persons.length) load();
+    /* CSSOS_WAVE_510 20260530 — Jing「人物MV必须能打开」。绝对防弹: 任何环节抛错都不阻断
+     * 显示。ensurePanel 抛错就回退到 DOM 里已有的面板; 再强制清成【干净窗口态】(去掉
+     * 可能卡住的 .maximized / 异常 inline 尺寸)并显示到屏幕中央。 */
+    var p = null;
+    try { p = ensurePanel(); }
+    catch (e) { try { console.warn("[person-mv] ensurePanel threw — falling back", e); } catch (_e) {} }
+    if (!p) p = document.getElementById("person-mv-panel");
+    if (!p) { try { console.warn("[person-mv] no panel element to open"); } catch (_e) {} return; }
+    try {
+      /* Reverse close-time hide + any stuck maximize/inline box → clean windowed. */
+      p.classList.remove("hidden", "maximized");
+      delete p.dataset.maximized;
+      delete p.dataset.maximizeMode;
+      p.dataset.minimized = "false";
+      p.style.display = "";
+      p.style.pointerEvents = "";
+      p.style.height = "";
+      p.style.maxHeight = "";
+      if (typeof globalThis.bringPanelToFrontBridge === "function") {
+        try { globalThis.bringPanelToFrontBridge(p, { repeatPasses: 3 }); } catch (_e) {}
+      }
+      /* bringPanelToFront → focusPanel auto-maximizes (clears inline pos). Undo it
+       * AFTER, then set a centered windowed box so it's never off-screen/fullscreen. */
+      p.classList.remove("maximized");
+      delete p.dataset.maximized;
+      delete p.dataset.maximizeMode;
+      p.style.height = "";
+      p.style.maxHeight = "";
+      p.style.left = "50%";
+      p.style.top = "7%";
+      p.style.transform = "translateX(-50%)";
+      if (!state.persons.length) load();
+    } catch (e2) { try { console.warn("[person-mv] reveal threw", e2); } catch (_e) {} }
   }
 
   /* CSSOS_PERSON_MV_DOC_CAPTURE 20260507 — Jing
@@ -4076,7 +4394,7 @@
     globalThis.__cssosPersonMvDocBound = true;
     function isMyDockItem(target) {
       return target && typeof target.closest === "function" &&
-        target.closest('.dock-item[data-action="person-mv"]');
+        target.closest('[data-action="person-mv"]');
     }
     function dockFire(label, e) {
       var now = Date.now();
@@ -4143,7 +4461,7 @@
   /* Diagnose dock item presence + listener wiring. */
   globalThis.cssosPersonMvDiag = function () {
     var dock = document.querySelector(".dock");
-    var item = dock && dock.querySelector('.dock-item[data-action="person-mv"]');
+    var item = dock && dock.querySelector('[data-action="person-mv"]');
     console.info("[person-mv] diag", {
       dock_exists: !!dock,
       item_exists: !!item,

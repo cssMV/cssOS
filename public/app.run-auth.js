@@ -242,6 +242,10 @@ async function runLyricsGenerateBridge(mode, options = {}) {
     style: styleInput?.value?.trim() || state.style || "",
     voice: voiceInput?.value?.trim() || state.voice || "",
     language: preferredLanguage,
+    // W360b — carry civilization from the person-MV seed so the backend can
+    // authoritatively derive the mother-tongue lyric language (civToLanguageServer).
+    // Without this, a Japanese-civilization person always got English lyrics.
+    civilization: String(state.songSeed?.__civilization || "").trim() || null,
     variation_nonce: `${Date.now()}_${songSeedVariationCounter}_${mode}`,
     constraints,
     queue_priority: queuePriority,
@@ -280,8 +284,11 @@ async function runLyricsGenerateBridge(mode, options = {}) {
         // through so the backend prompts honor Advanced Settings.
         work_type: String(payload.work_type || payload.workType || "single"),
         section_form: String(payload.section_form || payload.sectionForm || ""),
-        civilization: null,
-        cultural_frame: null,
+        // CSSOS_WAVE_401 20260524 — Jing「人物母语歌词」: 此前硬编码 null, 人物文明
+        // 从不传到歌词后端 → 雅典娜(古希腊)被写成英文。现在透传 civilization, 后端
+        // 据此【权威路由】到人物母语(古希腊→el…), 真正交付母语歌词。
+        civilization: payload.civilization || payload.civ || payload.personCiv || null,
+        cultural_frame: payload.cultural_frame || null,
         voice: payload.voice || ""
       };
       res = await fetch("/api/mv/lyrics", {
@@ -543,6 +550,19 @@ async function createRunBridge({ title, uiLang, tier, voice, lyricsText = "", jo
     "en";
   const selectedLanguages = globalThis.getSelectedCreationLanguages?.() || [generationLang];
   const selectedVoiceTracks = globalThis.getSelectedCreationVoiceTracks?.() || ["lead_default"];
+  // CSSOS_WAVE_415 20260524 — Jing「一键MV等万能入口也按高级设置的偏好出多语言」:
+  // stash the chosen languages so the freshly-created work's 🌐 pill fires the
+  // paid extra tracks (mother-tongue/1st stays free). This is the UNIVERSAL hook
+  // for every entry that funnels through here (incl. zero-input logo/mic/play).
+  // Do NOT clobber a stash that the Person-MV panel just set (mother tongue must
+  // win there) — respect any stash younger than 30s.
+  try {
+    const _existing = globalThis.__cssosPendingLangTracks;
+    const _fresh = _existing && _existing.ts && (Date.now() - _existing.ts) < 30000;
+    if (!_fresh && Array.isArray(selectedLanguages) && selectedLanguages.length > 1) {
+      globalThis.__cssosPendingLangTracks = { languages: selectedLanguages.slice(), ts: Date.now() };
+    }
+  } catch (_e) {}
   const lyricDrafts =
     creationState.lyricDrafts && typeof creationState.lyricDrafts === "object"
       ? Object.fromEntries(

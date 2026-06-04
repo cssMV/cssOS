@@ -172,7 +172,8 @@
           : `Balance ${fmtUsd(detail.balanceUsd)}, Hybrid needs ~${fmtUsd(detail.neededUsd)}. Switch to Lite to save credit, or confirm to continue.`)
       : (zh
           ? "所有三档都是「无价之宝」 —— 只卖观看权，不卖买断。选中后可以随时在面板上切换。"
-          : "All three tiers are 无价之宝 — Watching Rights only, no buyout. You can switch tiers from the panel at any time.");
+          // CSSOS_WAVE_484 — i18n 铁律: 英文文案不得硬编码中文「无价之宝」, 用 priceless。
+          : "All three tiers are priceless — Watching Rights only, no buyout. You can switch tiers from the panel at any time.");
 
     const primaryCopy = lowBalance
       ? (zh ? "就用当前档次生成" : "Generate with current tier")
@@ -193,7 +194,7 @@
         '</div>' +
         '<div class="mvp-tier-modal-actions" data-segmented="2">' +
           '<button type="button" class="mvp-tier-modal-secondary" data-tier-modal-cancel>' + escapeHtml(closeCopy) + '</button>' +
-          '<button type="button" class="mvp-tier-modal-primary" data-tier-modal-primary>' + escapeHtml(primaryCopy) + '</button>' +
+          '<button type="button" class="mvp-tier-modal-primary active" data-tier-modal-primary>' + escapeHtml(primaryCopy) + '</button>' +
         '</div>' +
       '</div>'
     );

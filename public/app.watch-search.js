@@ -134,9 +134,18 @@
         var pnl = document.getElementById("watch-panel");
         try { document.dispatchEvent(new CustomEvent("cssos:watch-close")); } catch (_e) {}
         try { window.dispatchEvent(new CustomEvent("cssos:watch-close")); } catch (_e) {}
+        // CSSOS_WAVE_445b 20260527 — Skip webkitExitFullscreen on iOS entirely.
+        // On iOS (Capacitor + Safari), calling webkitExitFullscreen can trigger
+        // a page reload (WebKit bug). The Watch panel uses CSS fullscreen on iOS
+        // (position:fixed; 100dvh) — class removal below handles the visual exit.
+        // Only call exitFullscreen on non-iOS desktop browsers.
         try {
-          if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
-          else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+          var _isIos = /iphone|ipod|ipad/i.test(navigator.userAgent) ||
+            (/macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+          if (!_isIos) {
+            if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+          }
         } catch (_e) {}
         try { if (pnl) pnl.classList.remove("is-cssmv-fullscreen", "cssmv-cinema"); } catch (_e) {}
         try { document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle"); } catch (_e) {}
@@ -245,7 +254,14 @@
     input.addEventListener("input", function () {
       clearTimeout(debTimer);
       var v = String(input.value || "").trim();
-      debTimer = setTimeout(function () { runSearch(v); }, 300);
+      // CSSOS_WAVE_423 20260525 — Jing「每输入一个字母就异步显示, 永不等整词」:
+      // 150ms 防抖(够快又不抖); 空 = 浏览最新.
+      debTimer = setTimeout(function () { runSearch(v); }, 150);
+    });
+    // CSSOS_WAVE_423 — 激活(聚焦)即零输入 → 立刻展示 10 条最新作品(从新到旧),
+    // 上滑无限加载. 不必等用户输入.
+    input.addEventListener("focus", function () {
+      if (!String(input.value || "").trim()) runSearch("");
     });
     // Esc / 清空 → 收起
     input.addEventListener("keydown", function (e) {
@@ -299,13 +315,18 @@
     state.q = q; state.offset = 0; state.exhausted = false;
     if (!results) return;
     results.innerHTML = "";
-    if (!q) { results.style.display = "none"; return; }
+    // CSSOS_WAVE_423 20260525 — Jing: 空查询不再收起, 而是【浏览最新 10 条】(从新到旧),
+    // 上滑续拉. q="" 时后端按 created_at desc 返回最新作品(默认 feed 顺序).
     results.style.display = "flex";
-    results.innerHTML = '<div style="padding:18px;text-align:center;color:rgba(218,255,238,0.6);font:500 13px ui-monospace,monospace;">' + esc(tr("Searching…", "搜索中…")) + "</div>";
+    var loadingCopy = q ? tr("Searching…", "搜索中…") : tr("Latest works…", "最新作品…");
+    results.innerHTML = (globalThis.cssosSkeletonListMarkup
+      ? globalThis.cssosSkeletonListMarkup(5, loadingCopy, "card")
+      : '<div style="padding:18px;text-align:center;color:rgba(218,255,238,0.6);font:500 13px ui-monospace,monospace;">' + esc(loadingCopy) + "</div>");
     fetchPage(true);
   }
   function loadMore() {
-    if (state.loading || state.exhausted || !state.q) return;
+    // W423 — infinite scroll works for BOTH browse(empty) and search(non-empty).
+    if (state.loading || state.exhausted) return;
     fetchPage(false);
   }
 
@@ -342,14 +363,24 @@
       // (每次搜索/启动都不同, 像幻灯); 没有池才退回主封面 cover_image. 池里的
       // 临时图(replicate/fal)若过期 404, onerror 再回退到稳定 cover_image 保底.
       var stable = String(w.cover_image || w.cover_url || w.preview_image_url || "").trim();
-      var pool = (Array.isArray(w.cover_slides) ? w.cover_slides : [])
+      var rawPool = (Array.isArray(w.cover_slides) ? w.cover_slides : [])
         .map(function (u) { return String(u || "").trim(); })
         .filter(Boolean);
-      var primary = pool.length ? pool[Math.floor(Math.random() * pool.length)] : stable;
+      // W354 — only persisted (cssstudio.app) frames to avoid 404 flashes
+      var persistedPool = rawPool.filter(function(u) {
+        return /(^|\/\/|\.)cssstudio\.app\//.test(u) || u.startsWith("data:");
+      });
+      var pool = persistedPool.length ? persistedPool : [];
+      var startIdx = pool.length ? Math.floor(Math.random() * pool.length) : 0;
+      var primary = pool.length ? pool[startIdx] : stable;
       // CSSOS_WAVE_320 — 56px 缩略图: 走缩放代理(w=160, 含视网膜), 别再下 1.3MB 全图.
       var thumb = (typeof globalThis.cssosThumb === "function") ? globalThis.cssosThumb : function (u) { return u; };
       var cover = esc(thumb(primary || stable, 160));
       var fallback = esc(thumb(stable, 160));
+      // W354 — embed data-slides so the shared slideshow ticker advances the frame
+      var slidesAttr = pool.length >= 2
+        ? ' data-slides="' + esc(JSON.stringify(pool)) + '" data-slide-idx="' + startIdx + '"'
+        : "";
       var title = esc(w.title || tr("Untitled", "未命名"));
       var owner = esc(w.owner_name || "");
       // CSSOS_WAVE_359 20260522 — Jing: 凡有作品卡片处都显示时长. 搜索列表此前缺.
@@ -363,7 +394,8 @@
       card.innerHTML =
         '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +
-          (fallback && fallback !== cover ? ' onerror="this.onerror=null;this.src=\'' + fallback + '\';"' : "") + ">" : "") +
+          slidesAttr +
+          (fallback ? ' data-stable="' + fallback + '" onerror="if(this.dataset.stable&&this.src!==this.dataset.stable){this.src=this.dataset.stable;}"' : "") + ">" : "") +
         (durTxt ? '<span style="position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.66);color:#fff;font:600 9px/1 ui-monospace,monospace;padding:2px 4px;border-radius:4px;">' + durTxt + "</span>" : "") +
         "</div>" +
         '<div style="flex:1;min-width:0;">' +

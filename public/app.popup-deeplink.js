@@ -59,13 +59,13 @@
     tryAction(
       function () {
         return typeof globalThis.openSubscriptionPanelModule === "function" ||
-               !!document.querySelector('.dock-item[data-action="subscription"]');
+               !!document.querySelector('[data-action="subscription"]');
       },
       function () {
         if (typeof globalThis.openSubscriptionPanelModule === "function") {
           globalThis.openSubscriptionPanelModule();
         } else {
-          var btn = document.querySelector('.dock-item[data-action="subscription"]');
+          var btn = document.querySelector('[data-action="subscription"]');
           if (btn) btn.click();
         }
         stripParam("cssOpen");
@@ -77,11 +77,11 @@
   function openLogin() {
     tryAction(
       function () {
-        return !!document.querySelector('.dock-item[data-action="login"]') ||
+        return !!document.querySelector('[data-action="login"]') ||
                !!document.getElementById("login-panel");
       },
       function () {
-        var btn = document.querySelector('.dock-item[data-action="login"]');
+        var btn = document.querySelector('[data-action="login"]');
         if (btn) {
           btn.click();
         } else {

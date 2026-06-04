@@ -345,63 +345,15 @@
     // required). Reads through globalThis.__cssosWatchTakeSwitcher so
     // the click handlers stay correct even after the music handler
     // swaps in its closure-bound switcher.
-    if (!globalThis.__cssosInjectTakeToggle) {
-      globalThis.__cssosInjectTakeToggle = function(opts) {
-        const altUrl = String(opts?.altAudioUrl || "").trim();
-        const watchScreen =
-          document.querySelector(".watch-frame .watch-screen") ||
-          document.getElementById("watch-panel");
-        if (!watchScreen) return;
-        let toggle = document.getElementById("watch-take-toggle");
-        if (!altUrl) {
-          if (toggle && toggle.parentNode) toggle.parentNode.removeChild(toggle);
-          return;
-        }
-        if (!toggle) {
-          toggle = document.createElement("div");
-          toggle.id = "watch-take-toggle";
-          toggle.style.cssText =
-            "position:absolute;top:12px;right:12px;display:flex;gap:4px;" +
-            "background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);" +
-            "border:1px solid rgba(255,255,255,0.18);border-radius:999px;" +
-            "padding:3px;z-index:30;font-size:12px;font-weight:600;letter-spacing:.04em;";
-          const mkBtn = (label, take) => {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.dataset.take = String(take);
-            b.textContent = label;
-            b.style.cssText =
-              "background:transparent;color:rgba(255,255,255,0.65);" +
-              "border:none;padding:6px 14px;border-radius:999px;" +
-              "cursor:pointer;transition:all .15s ease;";
-            b.addEventListener("click", () => {
-              try {
-                const sw = globalThis.__cssosWatchTakeSwitcher;
-                if (typeof sw === "function") sw(take);
-              } catch (e) { console.warn("[take-toggle]", e); }
-            });
-            b.addEventListener("contextmenu", (ev) => {
-              ev.preventDefault();
-              try {
-                const cyc = globalThis.__cssosWatchLoopCycler;
-                if (typeof cyc === "function") cyc(take);
-              } catch (e) { console.warn("[take-loop]", e); }
-            });
-            return b;
-          };
-          toggle.appendChild(mkBtn("♪ 1", 1));
-          toggle.appendChild(mkBtn("♪ 2", 2));
-          watchScreen.style.position = watchScreen.style.position || "relative";
-          watchScreen.appendChild(toggle);
-        }
-        const active = Number(opts?.currentTake || 1);
-        toggle.querySelectorAll("button").forEach((b) => {
-          const isActive = Number(b.dataset.take) === active;
-          b.style.background = isActive ? "rgba(0,245,160,0.25)" : "transparent";
-          b.style.color = isActive ? "#00f5a0" : "rgba(255,255,255,0.65)";
-        });
-      };
-    }
+    // CSSOS_WAVE_439 20260525 — Jing: 「删掉右上角的胶囊切换歌」
+    // The ♪1/♪2 take toggle is retired. Takes are now surfaced through the
+    // unified language pill ([母语1][母语2][EN1][EN2]…) in the bottom-right.
+    // Replace the injector with a pure remover so every call-site that
+    // tries to show it silently cleans it up instead.
+    globalThis.__cssosInjectTakeToggle = function() {
+      var el = document.getElementById("watch-take-toggle");
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    };
     if (!globalThis.__cssosWatchTakeSwitcher) {
       globalThis.__cssosWatchTakeSwitcher = function(take) {
         const url = take === 2 ? state.altAudioUrl : state.audioUrl;
@@ -1584,7 +1536,7 @@
           escapeHtml(copy("Cover images", "封面图数量")) + '</label>' +
           '<div style="display:flex;align-items:center;gap:8px;">' +
             '<input type="number" min="1" max="8" step="1" value="' +
-              ((globalThis.localStorage && localStorage.getItem("cssos_mvp_param_cover_count")) || "1") +
+              ((globalThis.localStorage && localStorage.getItem("cssos_mvp_param_cover_count")) || "3") +
               '" id="mvp-stage-cover-count-inline" style="background:rgba(8,18,16,0.55);border:1px solid rgba(0,245,160,0.18);border-radius:6px;padding:4px 8px;color:#daffee;font:600 12px/1 ui-monospace,monospace;width:72px;" />' +
             '<span id="mvp-stage-cover-count-hint" style="font:500 10px/1 ui-monospace,monospace;color:rgba(0,245,160,0.7);">' +
               escapeHtml(copy("max 8 · stays cheaper than Hybrid", "最多 8 张 · 总价低于 Hybrid")) +
@@ -1834,7 +1786,7 @@
      * Hydrate state from localStorage on mount so runAll() sees them
      * even if user never opens the gear. */
     try {
-      state.coverCount = Number(localStorage.getItem("cssos_mvp_param_cover_count")) || 1;
+      state.coverCount = Number(localStorage.getItem("cssos_mvp_param_cover_count")) || 3;
       state.hybridMixPct = Number(localStorage.getItem("cssos_mvp_param_hybrid_mix_pct")) || 30;
       state.cinematicRes = localStorage.getItem("cssos_mvp_param_cinematic_res") || "1080p";
     } catch (_e) {}
@@ -2147,7 +2099,7 @@
     ];
     host.innerHTML =
       '<div class="cinema-hero-progress" data-mvp-progress>' +
-        '<div class="cinema-hero-progress-stages" data-mvp-progress-stages></div>' +
+        '<div class="cinema-hero-progress-stages" data-mvp-progress-stages data-pill-bar data-pill-equal data-pill-compact></div>' +
         '<div class="cinema-hero-progress-bar"><div class="cinema-hero-progress-fill" data-mvp-progress-fill></div></div>' +
         '<div class="cinema-hero-progress-pct" data-mvp-progress-pct>0%</div>' +
       '</div>';
@@ -4317,11 +4269,14 @@
             }
           } catch (_e) { /* ignore */ }
           if (_coverTierId !== "lite") {
-            const variationSuffixesZh = ["，特写", "，广角", "，侧光", "，柔雾"];
-            const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze"];
-            const variationSuffixes = (globalThis.currentLocale === "zh")
-              ? variationSuffixesZh
-              : variationSuffixesEn;
+            // CSSOS_WAVE_622 — Jing「封面数控件 3→8 真正接到生成」: 之前变体数写死 4, 无视 state.coverCount。
+            // 现在按用户设置的封面数(默认 3, max 8)生成: 主封面已出 1 张, 再出 coverCount-1 张变体 →
+            // 总共正好 coverCount 张, 全部进幻灯帧池(cssmvAddCoverSlide)。变体后缀池扩到 8 个角度。
+            const _coverCount = Math.max(1, Math.min(8, Number(state.coverCount) || 3));
+            const variationSuffixesZh = ["，特写", "，广角", "，侧光", "，柔雾", "，逆光剪影", "，俯拍", "，黄金时刻", "，雨夜霓虹"];
+            const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze", ", backlit silhouette", ", high-angle shot", ", golden hour", ", rainy neon night"];
+            const variationSuffixes = ((globalThis.currentLocale === "zh") ? variationSuffixesZh : variationSuffixesEn)
+              .slice(0, Math.max(0, _coverCount - 1));
             variationSuffixes.forEach(function (suffix) {
               postJson(
                 "/api/mv/cover",
@@ -6616,17 +6571,31 @@
             audioEl.muted = false;
             audioEl.volume = 1;
             audioEl.playsInline = true;
-            audioEl.play().catch(function (err) {
-              // If unmuted autoplay was somehow denied (e.g. cross-origin
-              // gesture loss), fall back to muted-autoplay so playback
-              // still starts. The first subsequent user input unmutes.
-              console.warn(
-                "[mv-pipeline][3stream] unmuted autoplay denied — falling back to muted:", err
-              );
-              audioEl.muted = true;
-              audioEl.play().catch(function (err2) {
-                console.warn("[mv-pipeline][3stream] muted autoplay also blocked:", err2);
-              });
+            audioEl.play().then(function () {
+              globalThis.__cssosAudioUnlocked = true; globalThis.__cssosWatchAudioUnlocked = true;
+            }).catch(function (err) {
+              // CSSOS_WAVE_627 20260604 — Jing「新作品也必须自动有声, 进面板的点击就是手势」根治。
+              // 旧逻辑被拒就【退静音】(= "必须再点一下" 的根源)。但被拒绝大多是【生成完才起播,
+              // 进面板的手势上下文已过期】, 不是真无权限。改为: 在 canplay 时【带声】重试;
+              // 已解锁过(进面板那一下就解锁了)→ 绝不退静音, 真放不出就回退视频原声;
+              // 仅【从未解锁】才万不得已静音陪跑(首触解锁)。
+              console.warn("[mv-pipeline][3stream] unmuted play deferred → canplay retry:", err);
+              var _retryAudible = function () {
+                audioEl.muted = false; try { audioEl.volume = 1; } catch (_e) {}
+                var pr = audioEl.play && audioEl.play();
+                if (pr && pr.then) pr.then(function () {
+                  globalThis.__cssosAudioUnlocked = true; globalThis.__cssosWatchAudioUnlocked = true;
+                }).catch(function () {
+                  if (globalThis.__cssosWatchAudioUnlocked || globalThis.__cssosAudioUnlocked) {
+                    if (typeof globalThis.cssosFallbackToVideoAudio === "function") globalThis.cssosFallbackToVideoAudio("3stream-rejected");
+                    return;
+                  }
+                  try { audioEl.muted = true; var pm = audioEl.play && audioEl.play(); if (pm && pm.catch) pm.catch(function () {}); globalThis.__cssosWatchPendingUnmute = true; } catch (_e) {}
+                });
+              };
+              var _onCP = function () { audioEl.removeEventListener("canplay", _onCP); _retryAudible(); };
+              audioEl.addEventListener("canplay", _onCP);
+              setTimeout(function () { if (audioEl.paused || audioEl.muted) _retryAudible(); }, 300);
             });
           }
           // Wire video<->audio sync (idempotent — install once per session)
@@ -7714,6 +7683,14 @@
       try {
         var _langs = Array.isArray(state.selectedLanguages) ? state.selectedLanguages : [];
         var _committedWid = resp && (resp.work_id || resp.workId || resp.id);
+        // CSSOS_WAVE_622 — 主作品也按 coverCount 持久化封面池(镜像 Take 2)→ "UI 改几张就生成几张"名副其实。
+        // 后端 /cover-pool 生成 count 张并写进 slideshow_frame; 与 W619 的 60 帧池合并 → 海量变体。
+        try {
+          var _mainPoolCount = Math.max(1, Math.min(8, Number(state.coverCount) || 3));
+          if (_committedWid && _mainPoolCount > 1) {
+            void postJson("/api/works/" + encodeURIComponent(_committedWid) + "/cover-pool", { count: _mainPoolCount }).catch(function () {});
+          }
+        } catch (_cpErr) { /* non-fatal */ }
         if (_committedWid && _langs.length > 1) {
           var _extras = _langs.slice(1);
           void postJson("/api/works/" + encodeURIComponent(_committedWid) + "/language-tracks", {
@@ -7872,7 +7849,7 @@
        * Fire-and-forget. */
       try {
         if (committedBWid) {
-          let _poolCount = Number(state.coverCount) || 1;
+          let _poolCount = Number(state.coverCount) || 3; // CSSOS_WAVE_622 — 默认 3 张(与主封面一致)
           if (_poolCount > 1) {
             void postJson("/api/works/" + encodeURIComponent(committedBWid) + "/cover-pool", {
               count: _poolCount,
@@ -8866,7 +8843,7 @@
           : '') +
         '<div class="cinema-hero-status-line">' + esc(subtitle) + '</div>' +
         '<div class="cinema-hero-progress" data-cinema-progress>' +
-          '<div class="cinema-hero-progress-stages" data-cinema-progress-stages></div>' +
+          '<div class="cinema-hero-progress-stages" data-cinema-progress-stages data-pill-bar data-pill-equal data-pill-compact></div>' +
           '<div class="cinema-hero-progress-bar"><div class="cinema-hero-progress-fill" data-cinema-progress-fill></div></div>' +
           '<div class="cinema-hero-progress-pct" data-cinema-progress-pct>0%</div>' +
         '</div>' +
@@ -8946,8 +8923,11 @@
         if (cls === "active") {
           const hue = String(_hueFor2(s.id));
           if (el.style.getPropertyValue("--chip-hue") !== hue) el.style.setProperty("--chip-hue", hue);
+          /* bridge to pill-bar constitution so --ph-driven borders/glow match */
+          if (el.style.getPropertyValue("--ph") !== hue) el.style.setProperty("--ph", hue);
         } else if (el.style.getPropertyValue("--chip-hue")) {
           el.style.removeProperty("--chip-hue");
+          el.style.removeProperty("--ph");
         }
       });
       /* CSSOS_WAVE_223 — active 居中: 直接计算 scrollLeft. 只在 active 真的

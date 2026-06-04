@@ -61,7 +61,7 @@
     var st = document.createElement("style");
     st.id = "cssos-agent-style";
     st.textContent = [
-      "#cssos-agent-fab{position:fixed;right:18px;bottom:18px;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:24px;cursor:pointer;z-index:9800;box-shadow:0 6px 22px rgba(0,245,160,0.32);transition:transform 160ms ease;}",
+      "#cssos-agent-fab{position:fixed;right:18px;bottom:max(18px,calc(env(safe-area-inset-bottom,0px)+12px));width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:24px;cursor:pointer;z-index:9800;box-shadow:0 6px 22px rgba(0,245,160,0.32);transition:transform 160ms ease;}" /* WAVE_444c */,
       "#cssos-agent-fab:hover{transform:scale(1.06);}",
       "#cssos-agent-fab[data-active='1']{background:linear-gradient(135deg,#ff9a3c,#ff6b6b);}",
       "#cssos-agent-panel{position:fixed;right:18px;bottom:84px;width:min(420px,calc(100vw - 36px));height:min(620px,calc(100vh - 120px));background:#0d1117;color:#e6e8ee;border:1px solid rgba(255,255,255,0.12);border-radius:16px;display:none;flex-direction:column;z-index:9801;box-shadow:0 12px 40px rgba(0,0,0,0.55);overflow:hidden;}",
@@ -102,7 +102,25 @@
       "#cssos-agent-suggestions{padding:8px 12px 0;display:flex;flex-wrap:wrap;gap:6px;}",
       ".cssos-agent-suggestion{padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);color:#daffee;font-size:11.5px;cursor:pointer;}",
       ".cssos-agent-suggestion:hover{background:rgba(0,245,160,0.12);border-color:rgba(0,245,160,0.32);}",
-      "@media (max-width: 540px){#cssos-agent-panel{right:9px;bottom:78px;width:calc(100vw - 18px);height:calc(100vh - 100px);}#cssos-agent-fab{right:12px;bottom:12px;}}",
+      /* W334 — AI panel = true fullscreen (like MV panel) on the NATIVE APP and
+       * small screens. CSSOS_WAVE_590 — Jing: 桌面宽屏没必要全屏 → 限定全屏只在
+       * html.cssos-app(原生) 或 ≤768px(移动); 桌面宽屏保留基础浮窗(右下 420×620)。 */
+      "html.cssos-app #cssos-agent-panel[data-open='1']{" +
+        "position:fixed!important;inset:0!important;width:100dvw!important;height:100dvh!important;" +
+        "max-height:none!important;max-width:none!important;border-radius:0!important;border:none!important;" +
+        "right:0!important;left:0!important;bottom:0!important;top:0!important;}",
+      "@media (max-width:768px){#cssos-agent-panel[data-open='1']{" +
+        "position:fixed!important;inset:0!important;width:100dvw!important;height:100dvh!important;" +
+        "max-height:none!important;max-width:none!important;border-radius:0!important;border:none!important;" +
+        "right:0!important;left:0!important;bottom:0!important;top:0!important;}}",
+      /* W334b — header/input flush to edges (only when actually fullscreen). */
+      "html.cssos-app #cssos-agent-panel[data-open='1'] header{padding-top:0!important;}",
+      "@media (max-width:768px){#cssos-agent-panel[data-open='1'] header{padding-top:0!important;}}",
+      "html.cssos-app #cssos-agent-panel[data-open='1'] #cssos-agent-input-row{padding-bottom:env(safe-area-inset-bottom,0px)!important;}",
+      "@media (max-width:768px){#cssos-agent-panel[data-open='1'] #cssos-agent-input-row{padding-bottom:env(safe-area-inset-bottom,0px)!important;}}",
+      /* FAB: hide when panel is open (panel IS the interface) */
+      "#cssos-agent-panel[data-open='1'] ~ #cssos-agent-fab," +
+      "body.cssos-agent-open #cssos-agent-fab{display:none!important;}",
     ].join("\n");
     document.head.appendChild(st);
   }
@@ -143,6 +161,12 @@
       '</div>',
     ].join("");
     document.body.appendChild(panel);
+
+    /* W334 — panel is true fullscreen (position:fixed;inset:0;height:100dvh).
+     * The Visual Viewport / keyboard-offset handler from W332 is retired:
+     * it set inline bottom styles that fought the inset:0 CSS and created
+     * a top gap. 100dvh already shrinks to the visual viewport height
+     * (above keyboard) on iOS Safari, so keyboard avoidance is free. */
 
     panel.querySelector('[data-act="close"]').addEventListener("click", togglePanel);
     panel.querySelector('[data-act="clear"]').addEventListener("click", clearConversation);
@@ -271,29 +295,68 @@
     var host = document.getElementById("cssos-agent-suggestions");
     if (!host) return;
     var loc = uiLocale();
+    // CSSOS_WAVE_598 — 内置「三部曲模板」信息包: 短 chip 标签 + 完整 prompt(京典 10 节 / intro 无词 /
+    // required hooks 逐字钉进副歌)。seeds 支持字符串(标签即 prompt)或 {label, prompt} 对象。
+    var TRILOGY_PROMPT = [
+      "用京典模板(10 节歌词结构,intro 不要有歌词)创作三部曲《朋友兄弟》,主题:兄弟情深、朋友厚谊。work_type: triptych(三部曲,3 部各一首)。语言:中文。风格:大气、深情、男声合唱,适合战友/老友重逢。",
+      "【硬性要求】每首的高潮副歌(chorus)必须逐字包含以下四句(required hooks):",
+      "我们一起扛过枪",
+      "我们一起下过乡",
+      "我们一起同过窗",
+      "那些一起战斗过的地方",
+      "三部递进:Ⅰ《少年的火》— 相识、并肩、青春热血;Ⅱ《风雨同舟》— 患难、扶持、岁月磨砺;Ⅲ《白发未忘》— 重逢、回望、情义不改。"
+    ].join("\n");
+    var trilogyTpl = {
+      label: (loc.indexOf("zh") === 0) ? "🎬 三部曲模板《朋友兄弟》" : "🎬 Trilogy template 《朋友兄弟》",
+      prompt: TRILOGY_PROMPT
+    };
+    // CSSOS_WAVE_605/606 — 内置「长相思(李煜)」三部曲模板: 忠于南唐后主李煜《长相思》原词
+    // (一重山,两重山…非"万重山")。第三部《人未还》取自"塞雁高飞人未还", 全词情感顶点。
+    var LIYU_PROMPT = [
+      "用京典模板(10 节歌词结构,intro 不要有歌词)改编南唐后主李煜《长相思》为三部曲《长相思》。work_type: triptych(三部曲,3 部各一首)。语言:中文。文明:中华文明。朝代:南唐。",
+      "原词:一重山,两重山。山远天高烟水寒,相思枫叶丹。菊花开,菊花残。塞雁高飞人未还,一帘风月闲。",
+      "风格:婉约清冷、悠远缠绵;古筝、箫、弦乐铺底,亡国之君的相思离愁、家国之思。男声或女声皆可。",
+      "【硬性要求】每首的高潮副歌(chorus)必须逐字化用李煜原句(required hooks),且必须保留括号注音不要删:",
+      "一重山,两重山,山远天高烟水寒,相思枫叶丹",
+      "菊花开,菊花残,塞雁高飞人未还(huán),一帘风月闲",
+      "【发音提示】「还」是多音字,此处「人未还」意为「人未归来」,必须念 huán(归来),不要念 hái。歌词里保留(huán)注音以确保 Suno 演唱发音正确;其它多音字若有歧义也照此在字后加括号拼音。",
+      "三部递进(忠于原词,不要臆造'万重山'):Ⅰ《一重山》— 初山含愁,枫叶相思,愁绪初起;Ⅱ《二重山》— 山远天高,烟水微寒,愁深一层;Ⅲ《风月闲》— 菊开菊残,塞雁高飞人未还(huán),一帘风月闲,孤帘冷月、相思余韵悠长。"
+    ].join("\n");
+    var liyuTpl = {
+      label: (loc.indexOf("zh") === 0) ? "🎴 三部曲模板《长相思》(李煜)" : "🎴 Trilogy template 《长相思》(Li Yu)",
+      prompt: LIYU_PROMPT
+    };
     var seeds = loc.indexOf("zh") === 0 ? [
+      trilogyTpl,
+      liyuTpl,
       "为我做一首孔子 × 杏坛的歌剧",
       "拿破仑 × 凯旋门，单曲就行",
       "Beethoven × Musikverein，三部曲",
       "孙悟空 × 凌霄宝殿，唐风",
     ] : loc.indexOf("ja") === 0 ? [
+      trilogyTpl,
+      liyuTpl,
       "紫式部 × 源氏物語の単曲",
       "葛飾北斎 × 富士山",
       "Beethoven × Musikverein, opera",
     ] : [
+      trilogyTpl,
+      liyuTpl,
       "Confucius × Apricot Altar, opera",
       "Napoleon × Arc de Triomphe, single",
       "Beethoven × Musikverein, triptych",
       "Sun Wukong × Lingxiao Palace",
     ];
     host.innerHTML = seeds.map(function (s) {
-      return '<button type="button" class="cssos-agent-suggestion">' + esc(s) + '</button>';
+      var label = (s && typeof s === "object") ? s.label : s;
+      var prompt = (s && typeof s === "object") ? s.prompt : s;
+      return '<button type="button" class="cssos-agent-suggestion" data-prompt="' + esc(prompt) + '">' + esc(label) + '</button>';
     }).join("");
     host.querySelectorAll(".cssos-agent-suggestion").forEach(function (b) {
       b.addEventListener("click", function () {
         var input = document.getElementById("cssos-agent-input");
         if (input) {
-          input.value = b.textContent;
+          input.value = b.getAttribute("data-prompt") || b.textContent;
           input.focus();
           sendCurrent();
         }
@@ -339,6 +402,8 @@
     if (open) {
       panel.setAttribute("data-open", "0");
       fab.setAttribute("data-active", "0");
+      /* W331 — agent closed: restore dock */
+      document.body.classList.remove("cssos-agent-open");
     } else {
       // CSSOS_WAVE_184 — guests can't open the assistant.
       if (!viewerIsSignedIn()) {
@@ -347,6 +412,8 @@
       }
       panel.setAttribute("data-open", "1");
       fab.setAttribute("data-active", "1");
+      /* W331 — agent open: hide dock so they don't fight */
+      document.body.classList.add("cssos-agent-open");
       hydrateSessionFromServer();
       var input = document.getElementById("cssos-agent-input");
       if (input) setTimeout(function () { input.focus(); }, 50);
@@ -638,6 +705,21 @@
     messages.appendChild(card);
     messages.scrollTop = messages.scrollHeight;
 
+    // CSSOS_WAVE_597 — Jing「一切都在 MV 面板里」: 若用户【已在真全屏影院】, 后台静默出片 —
+    // 不重开面板、不打断当前播放; 完成后经 cssmv:run-finish 自动加入影院队列接着播。
+    try {
+      var _inCinema = !!(document.body && document.body.dataset && document.body.dataset.cinema === "true");
+      if (_inCinema && typeof globalThis.cssmvRunPipeline === "function") {
+        var lbl = card.querySelector(".label");
+        if (lbl) lbl.textContent = "🎬 " + tr(
+          "Creating in the background — it will join your cinema queue.",
+          "正在后台创作 —— 完成后自动加入影院队列接着播。"
+        );
+        try { globalThis.cssmvRunPipeline({ seed: seed, fresh: true }); } catch (_e) {}
+        return; // 留在影院, 不开面板
+      }
+    } catch (_e) {}
+
     // Fire-and-forget: open the cinema panel + auto-run pipeline.
     // The seed object already carries everything the pipeline needs.
     try {
@@ -675,11 +757,16 @@
     var wrap = document.createElement("div");
     wrap.className = "cssos-agent-work-cards" + (cards.length > 1 ? " is-multi" : "");
     cards.forEach(function (c) {
-      var bg = c.cover_url
-        ? 'background-image:url(' + esc(String(c.cover_url)) + ');'
+      // CSSOS_WAVE_596 — 防御式读封面(字段漂移也不空卡): cover_url → cover_image → preview_image_url → portrait_url。
+      var _cover = c.cover_url || c.cover_image || c.preview_image_url || c.portrait_url || "";
+      var bg = _cover
+        ? 'background-image:url(' + esc(String(_cover)) + ');'
         : 'background:linear-gradient(135deg,#012019,rgba(0,245,160,0.18));';
-      var meta = [c.work_type, c.style, c.civilization, c.language]
-        .filter(Boolean).join(" · ");
+      // CSSOS_WAVE_593 — civilization 是 taxonomy, 经 civMetaText 本地化(非中文用户绝不见中文);
+      // work_type/style/language 非中文映射会原样返回, 无害。
+      var meta = globalThis.civMetaText
+        ? globalThis.civMetaText([c.work_type, c.style, c.civilization, c.language])
+        : [c.work_type, c.style, c.civilization, c.language].filter(Boolean).join(" · ");
       var card = document.createElement("article");
       card.className = "cssos-agent-work-card";
       card.innerHTML = [
@@ -761,16 +848,15 @@
             } else {
               genAudioBtn.disabled = false;
               genAudioBtn.textContent = orig;
-              if (typeof globalThis.showToast === "function") {
-                globalThis.showToast(tr("Music generation failed: ", "音乐生成失败：") + (j.error || r.status));
-              }
+              // CSSOS_WAVE_588 — 引导式: 音乐生成失败 → [重新生成](重触按钮)。
+              if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tr("Music generation failed: ", "音乐生成失败：") + (j.error || r.status), function () { genAudioBtn.click(); });
+              else if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Music generation failed: ", "音乐生成失败：") + (j.error || r.status));
             }
           } catch (err) {
             genAudioBtn.disabled = false;
             genAudioBtn.textContent = orig;
-            if (typeof globalThis.showToast === "function") {
-              globalThis.showToast(tr("Music error: ", "音乐错误：") + (err && err.message || err));
-            }
+            if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tr("Music error.", "音乐生成出错。"), function () { genAudioBtn.click(); });
+            else if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Music error: ", "音乐错误：") + (err && err.message || err));
           }
         });
       }
@@ -797,19 +883,28 @@
             } else {
               genVideoBtn.disabled = false;
               genVideoBtn.textContent = orig;
-              if (typeof globalThis.showToast === "function") {
-                globalThis.showToast(tr("Video generation failed: ", "视频生成失败：") + (j.error || r.status));
-              }
+              // CSSOS_WAVE_588 — 引导式: 视频生成失败 → [重新生成](重触按钮)。
+              if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tr("Video generation failed: ", "视频生成失败：") + (j.error || r.status), function () { genVideoBtn.click(); });
+              else if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Video generation failed: ", "视频生成失败：") + (j.error || r.status));
             }
           } catch (err) {
             genVideoBtn.disabled = false;
             genVideoBtn.textContent = orig;
-            if (typeof globalThis.showToast === "function") {
-              globalThis.showToast(tr("Video error: ", "视频错误：") + (err && err.message || err));
-            }
+            if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tr("Video error.", "视频生成出错。"), function () { genVideoBtn.click(); });
+            else if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Video error: ", "视频错误：") + (err && err.message || err));
           }
         });
       }
+      // CSSOS_WAVE_614 — 多部作品(三部曲/歌剧/连续剧/电影/短剧)挂【后台生成进度角标】,
+      // 用户看得到 ready/total 进度, 不傻等。完成自动消失。
+      try {
+        var _wtp = String(c.work_type || "").toLowerCase();
+        var _wid2 = c.work_id || c.id;
+        if (_wid2 && /triptych|opera|series|film|shortplay/.test(_wtp) && typeof globalThis.cssosMountGenProgress === "function") {
+          var _infoEl = card.querySelector(".info") || card;
+          globalThis.cssosMountGenProgress(_wid2, _infoEl);
+        }
+      } catch (_e) {}
       wrap.appendChild(card);
     });
     messages.appendChild(wrap);
@@ -1107,6 +1202,18 @@
           }, []);
       if (liveCards && liveCards.length) {
         try { renderWorkCards(liveCards); } catch (err) { console.warn("[agent-chat] work-card render failed", err); }
+        // CSSOS_WAVE_600 — Jing「点信息包直接进 MV 面板实时输出」: 多部作品新建后, 自动把第一部
+        // 送进 MV 面板播放/续跑(realtime); 卡片已持久化(后端 session + hydrate), 用户下次回到
+        // AI 助理仍能看到这几张卡片。仅在【不在影院】时自动进(在影院则后台续播, 不打断)。
+        try {
+          var _inCine = !!(document.body && document.body.dataset && document.body.dataset.cinema === "true");
+          var _first = liveCards.find(function (c) { return c && (c.work_id || c.id); });
+          var _wid = _first && (_first.work_id || _first.id);
+          if (!_inCine && _wid) {
+            // 稍候一拍, 让卡片先渲染、用户瞥见结果, 再进 MV 面板。
+            setTimeout(function () { try { openWorkById(_wid); } catch (_e) {} }, 900);
+          }
+        } catch (_e) {}
       }
       // CSSOS_WAVE_138 — surface insufficient-credit hints inline.
       var insufficient = (j.tool_calls || []).find(function (t) {

@@ -659,7 +659,7 @@
       var icon = (g.visual_theme && g.visual_theme.icon) ? String(g.visual_theme.icon) : "🏛";
       var color = (g.visual_theme && g.visual_theme.color) ? String(g.visual_theme.color) : "#00f5a0";
       var name = isZh ? (g.name_zh || g.name_en || g.group_id) : (g.name_en || g.name_zh || g.group_id);
-      var meta = [g.era, g.civilization].filter(Boolean).join(" · ");
+      var meta = (globalThis.civMetaText ? globalThis.civMetaText([g.era, g.civilization], null, " · ") : [g.era, g.civilization].filter(Boolean).join(" · "));
       var stats = "👥 " + (g.member_count || 0) + " · 🎼 " + (g.mv_count || 0);
       var coverStyle = "background:linear-gradient(135deg,#012019," + color + "55);";
       return (

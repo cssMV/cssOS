@@ -183,6 +183,10 @@ function normalizeSongSeedModule(seed) {
     styleTags: Array.isArray(data?.style_tags)
       ? data.style_tags.map((x) => String(x || "").trim()).filter(Boolean)
       : [],
+    // W360b — pass through seed.language so the person-MV civilization→language
+    // routing (civToLanguageModule → "ja"/"ko"/etc.) reaches applySongSeedToSettings.
+    // Without this, normalizeSongSeed strips it and creationState.language stays "en".
+    language: String(data?.language || "").trim(),
     workType: inferStructuredWorkType(
       String(data?.title || "").trim(),
       rawWorkType || creationState.workType,

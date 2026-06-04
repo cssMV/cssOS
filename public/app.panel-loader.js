@@ -36,21 +36,33 @@
 
   function loadOne(name) {
     if (cache.has(name)) return cache.get(name);
-    const tag = document.querySelector(
-      `script[type="cssos-lazy"][data-panel="${CSS.escape(name)}"]`,
-    );
-    if (!tag) {
-      const err = new Error(`cssosLoadPanel: no <script type="cssos-lazy" data-panel="${name}"> found`);
-      console.warn(err.message);
-      const rejected = Promise.reject(err);
-      // Don't cache failures — the tag might appear later via DOM injection
-      return rejected;
-    }
-    const src = tag.getAttribute("src");
+    // CSSOS_WAVE_524 — src 真相源 = app.panel-manifest.js 的 CSSOS_PANEL_SRC[name]。
+    // index.html 不再保留任何面板 <script>(连惰性标签也删了)。仅为向后兼容, 清单缺失时
+    // 才回退去查残留的 <script type="cssos-lazy"> 标签。
+    let src = (globalThis.CSSOS_PANEL_SRC && globalThis.CSSOS_PANEL_SRC[name]) || null;
     if (!src) {
-      const err = new Error(`cssosLoadPanel: lazy tag for "${name}" has no src`);
+      const tag = document.querySelector(
+        `script[type="cssos-lazy"][data-panel="${CSS.escape(name)}"]`,
+      );
+      if (tag) src = tag.getAttribute("src");
+    }
+    if (!src) {
+      const err = new Error(`cssosLoadPanel: no manifest entry / lazy tag for "${name}"`);
+      console.warn(err.message);
+      // Don't cache failures — the manifest/tag might appear later.
       return Promise.reject(err);
     }
+    // CSSOS_WAVE_525 — 先注入面板专用 CSS(若清单登记了, 且尚未注入)。index.html 不再 eager 引入面板样式表。
+    try {
+      const cssHref = globalThis.CSSOS_PANEL_CSS && globalThis.CSSOS_PANEL_CSS[name];
+      if (cssHref && !document.querySelector(`link[data-cssos-panel-css="${CSS.escape(name)}"]`)) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = cssHref;
+        link.setAttribute("data-cssos-panel-css", name);
+        document.head.appendChild(link);
+      }
+    } catch (_cssErr) { /* 非致命: CSS 注入失败不挡 JS 加载 */ }
     // Show a tiny progress toast on first load so the user knows
     // something is happening on slow networks.
     let toastShown = false;
@@ -69,7 +81,18 @@
       s.src = src;
       s.async = false; // preserve execution-order semantics within a panel
       s.dataset.cssosPanel = name;
-      s.onload = () => { clearTimeout(slowTimer); resolve(); };
+      s.onload = () => {
+        clearTimeout(slowTimer);
+        // CSSOS_WAVE_527 — 面板加载完, 按需连带加载其声明的卫星模块(也已移出首屏)。Fire-and-forget,
+        // 不阻塞本面板 resolve; 卫星失败不影响主面板。
+        try {
+          const deps = (globalThis.CSSOS_PANEL_DEPS && globalThis.CSSOS_PANEL_DEPS[name]) || null;
+          if (deps && deps.length) {
+            deps.forEach((d) => { try { loadOne(d).catch(() => {}); } catch (_e) {} });
+          }
+        } catch (_e) {}
+        resolve();
+      };
       s.onerror = (e) => {
         clearTimeout(slowTimer);
         cache.delete(name); // allow retry
@@ -135,24 +158,11 @@
   // Wave 117 Step 2 Phase 1: notifications-panel (cleanest island).
   globalThis.cssosRegisterLazyShim("openNotificationsPanelModule", "notifications");
 
-  // Wave 117 Step 2 Phase 2: market-commerce (184 KB). Touched by many
-  // surfaces (price-strip Listen/Buyout/Tip, foryou panel, watch
-  // queue preview, works-center pricing). Each shimmed function
-  // lazy-loads the whole module on first call; subsequent calls hit
-  // the real fn directly (shim overwritten by the real export). The
-  // first call sees a Promise — most callers fire-and-forget, the
-  // one sync caller (works-center pricing filter) falls back to
-  // direct work.* fields for that first render and self-heals.
-  [
-    "dispatchMarketWorkPayment",
-    "renderForyouMarketplace",
-    "loadPublicMarketWorks",
-    "openMarketWorkPreview",
-    "resolveDisplayedWorkPricingModule",
-    "startNihaoPayTipFromButton",
-    "buildWorksCardDeepDetailsMarkupModule",
-    "buildWorksCardEngineBreakdownMarkupModule",
-  ].forEach((fn) => globalThis.cssosRegisterLazyShim(fn, "market"));
+  // CSSOS_WAVE_129 20260514 — the market-commerce lazy-shim block was
+  // REMOVED. app.market-commerce.js is back to eager loading: it's not
+  // an island (33+ functions bare-called from 14+ files) and partial
+  // shimming caused a ReferenceError crash storm. See index.html
+  // CSSOS_WAVE_129 note. mv-pipeline-panel (a true island) stays lazy.
 
   // CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js bootstrap.
   // The 444 KB script only adds UI to the MV Pipeline panel (cinema /

@@ -2,6 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- CSSOS_WAVE_518 20260530 — bootprobe 诊断探针已移除(崩溃排查完成, 不留在生产)。 -->
+    <!-- CSSOS_WAVE_460 20260527 — Jing: WKWebView ignores HTTP Cache-Control: no-store
+         for in-memory cache. HTML meta http-equiv tags are always honoured by WebKit.
+         These three lines force fresh HTML + asset fetches on every load, eliminating
+         the "old CSS on refresh" flip-flop seen in the iOS Capacitor app. -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <!-- CSSOS_WAVE_284 20260521 — Jing: 标记 App/standalone 上下文 → <html.cssos-app>.
          App 端(Capacitor iOS UA=cssos-ios / PWA standalone / iOS 主屏 standalone)据此
          隐藏 watch 标题栏并让媒体框充满全屏; 桌面浏览器不加此 class, 维持原样.
@@ -26,6 +34,8 @@
          cinema canvas during normal browsing. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- CSSOS_WAVE_437 — standard meta (Chrome deprecated the apple- prefix). -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#000000" />
     <!-- CSSOS_PERSON_MV_WAVE32 20260508 — Jing: PWA manifest, maskable icons, SW registration. -->
@@ -71,10 +81,60 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260523-w380-mediafill" />
-    <link rel="stylesheet" href="style.mv-pipeline.css?v=20260522-w346-progressbar" />
+    <link rel="stylesheet" href="style.css?v=20260531-w587b-cap" />
+    <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
+    <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
+    <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
+
   </head>
   <body>
+    <!-- CSSOS_WAVE_491 20260529 — Jing「启动: 魔镜 logo 接力到主界面, 中间不要黑屏」.
+         原生闪屏 launchShowDuration=1200ms 后固定消失, 但此时网页主界面常还没渲染好 →
+         露出黑色 WKWebView 空档。这个网页端启动遮罩用【同一个魔镜 logo】从首帧就盖住屏幕,
+         与原生闪屏无缝衔接; 主界面就绪后(或兜底超时)淡出 → 直接显示主界面, 全程无黑屏。
+         内联样式 + 内联脚本: 不依赖 style.css / app.js, 首字节即生效, 即使主程序崩溃/慢加载
+         也照常显示 logo。背景跟随系统深/浅色, 与主界面 --bg 对齐, 淡出不跳色。 -->
+    <div id="cssos-launch-splash" aria-hidden="true">
+      <img src="assets/mirror-1.webp" alt="" decoding="async" />
+    </div>
+    <style>
+      #cssos-launch-splash{position:fixed;inset:0;z-index:2147483600;display:flex;
+        align-items:center;justify-content:center;background:#020302;
+        transition:opacity .42s ease;opacity:1;}
+      #cssos-launch-splash img{width:42vw;max-width:170px;height:auto;
+        animation:cssosSplashBreath 2.4s ease-in-out infinite;
+        filter:drop-shadow(0 6px 28px rgba(0,245,160,0.28));}
+      @keyframes cssosSplashBreath{0%,100%{transform:scale(0.965);opacity:.82}
+        50%{transform:scale(1.035);opacity:1}}
+      @media (prefers-color-scheme: light){#cssos-launch-splash{background:#f6efe4;}}
+      #cssos-launch-splash.cssos-splash-hide{opacity:0;pointer-events:none;}
+    </style>
+    <script>
+      (function(){
+        var s=document.getElementById("cssos-launch-splash");
+        if(!s)return;
+        var done=false,start=Date.now();
+        function hide(){if(done)return;done=true;
+          s.classList.add("cssos-splash-hide");
+          setTimeout(function(){try{s.parentNode&&s.parentNode.removeChild(s);}catch(_e){}},480);}
+        // 主界面就绪信号: 模块初始化完成会派发 cssos:ready(若有); 否则用 DOM 就绪 + 帧。
+        function ready(){
+          // 至少撑到原生闪屏消失后(~1300ms), 避免"网页先于原生闪屏淡出"再露黑。
+          var wait=Math.max(0,1300-(Date.now()-start));
+          setTimeout(hide,wait);
+        }
+        try{document.addEventListener("cssos:ready",hide,{once:true});}catch(_e){}
+        if(document.readyState==="interactive"||document.readyState==="complete"){
+          requestAnimationFrame(function(){requestAnimationFrame(ready);});
+        }else{
+          document.addEventListener("DOMContentLoaded",function(){
+            requestAnimationFrame(function(){requestAnimationFrame(ready);});
+          });
+        }
+        // 兜底: 无论如何 6s 后必淡出, 绝不把用户钉在 logo 上。
+        setTimeout(hide,6000);
+      })();
+    </script>
     <div class="bg">
       <div class="bg-blob bg-blob-a"></div>
       <div class="bg-blob bg-blob-b"></div>
@@ -109,15 +169,15 @@
         data-i18n-aria="theme.quick.title"
         aria-label="Theme"
       >◐</button>
-      <div class="theme-menu is-hidden" id="theme-quick-menu">
-        <button class="theme-menu-item" type="button" data-theme-mode="system" data-i18n="theme.quick.system">System</button>
-        <button class="theme-menu-item" type="button" data-theme-mode="light" data-i18n="theme.quick.light">Light</button>
-        <button class="theme-menu-item" type="button" data-theme-mode="dark" data-i18n="theme.quick.dark">Dark</button>
+      <div class="theme-menu is-hidden" id="theme-quick-menu" data-segmented="3">
+        <button class="theme-menu-item" type="button" data-theme-mode="light"  data-i18n="theme.quick.light">☀ Light</button>
+        <button class="theme-menu-item" type="button" data-theme-mode="system" data-i18n="theme.quick.system">◐ System</button>
+        <button class="theme-menu-item" type="button" data-theme-mode="dark"   data-i18n="theme.quick.dark">☾ Dark</button>
       </div>
     </div>
 
     <main class="stage">
-      <section class="panel logo-panel flow" id="logo-panel">
+      <section class="panel logo-panel flow" id="logo-panel" data-lru-keep="1">
         <div class="panel-body logo-body">
           <div class="mirror-stage" data-drag-handle="true">
             <div class="mirror" id="mirror">
@@ -256,7 +316,7 @@
           </div>
         </div>
         <div class="panel-body watch-body">
-          <div class="watch-tabs cssmv-pill-bar" role="tablist">
+          <div class="watch-tabs cssmv-pill-bar" role="tablist" data-pill-bar>
             <button class="watch-tab active" id="watch-tab-mv" type="button" data-watch-tab="mv" data-i18n="watch.tab.mv">MV</button>
             <button class="watch-tab" id="watch-tab-music" type="button" data-watch-tab="music" data-i18n="watch.tab.music">Music</button>
             <button class="watch-tab" id="watch-tab-lyrics" type="button" data-watch-tab="lyrics" data-i18n="watch.tab.lyrics">Lyrics</button>
@@ -279,7 +339,15 @@
                      short final_mv.mp4 to repeat indefinitely on top of
                      legacy audio. MV Pipeline runs are linear; no loop. -->
                 <video id="watch-video" class="watch-video" autoplay muted playsinline></video>
-                <img id="watch-svg" class="watch-svg" alt="MV preview" crossorigin="anonymous" />
+                <!-- CSSOS_WAVE_437 20260526 — Jing「DevTools 手机模式 CORS 报错」: dropped
+                     crossorigin. Frames/covers now live on cdn.cssstudio.app (R2), whose
+                     custom-domain serving does NOT echo Access-Control-Allow-Origin, so a
+                     crossorigin <img> was CORS-BLOCKED (net::ERR_FAILED) → frame fails to
+                     load → black/flicker. Nothing reads #watch-svg into a canvas (the
+                     first-frame/color sampler reads the <video>, which keeps its own
+                     crossorigin), so the attribute is unnecessary here. Without it the
+                     image loads normally, no CORS gate. -->
+                <img id="watch-svg" class="watch-svg" alt="MV preview" />
                 <button id="watch-style-shift" class="watch-style-shift" type="button" aria-label="Shuffle title style">✦</button>
                 <button id="watch-overlay-play" class="watch-overlay-play" type="button" data-i18n-aria="action.watch" aria-label="Watch">
                   <span class="watch-overlay-play-ring"></span>
@@ -396,7 +464,7 @@
           </div>
         </div>
         <div class="panel-body about-body">
-          <div class="about-tabs" role="tablist" data-segmented="3">
+          <div class="about-tabs" role="tablist" data-segmented="3" data-pill-bar>
             <button class="about-tab active" type="button" data-tab="whitepaper" data-i18n="about.tab.whitepaper">
               Whitepaper
             </button>
@@ -1112,6 +1180,11 @@
               placeholder=""
             ></textarea>
           </label>
+          <!-- CSSOS_WAVE_415 20260524 — Jing「放自定义歌词上方」: multilingual
+               picker mount point (Advanced Settings). Mounted by app.creation-flow
+               with freeFirst=true; its selection persists as the canonical
+               language preference read by every entry (incl. zero-input 一键MV). -->
+          <div id="creation-language-picker"></div>
           <label class="field-shell field-shell-rich">
             <span class="field-label-row">
               <span data-i18n="settings.customLyrics">Custom Lyrics</span>
@@ -1296,10 +1369,6 @@
             <div class="creation-meta">
               <span id="creation-style-count">0/2000</span>
             </div>
-            <!-- CSSOS_TIER_C_MULTILINGUAL C3 20260520 — language picker
-                 mount point (Advanced Settings). Populated by
-                 app.boot.js once the panel is shown. freeFirst=true. -->
-            <div id="creation-language-picker"></div>
             <div class="row">
               <label>
                 <span data-i18n="settings.tempoBpm">Tempo (BPM)</span>
@@ -1330,18 +1399,13 @@
                      "DURATION (SEC)（不要默认180秒，反人类反音乐的）" —
                      placeholder shows "auto · 文明智能" so user knows the
                      lyrics engine will derive the real duration. -->
-                <input id="creation-duration" type="number" min="30" max="600" step="5" placeholder="auto · 文明智能" />
-              </label>
-              <label>
-                <span data-i18n="settings.language">Language</span>
-                <select id="creation-language">
-                  <option value="" selected data-i18n="lang.auto">Auto</option>
-                  <option value="zh" data-i18n="lang.zh">Chinese</option>
-                  <option value="en" data-i18n="lang.en">English</option>
-                  <option value="ja" data-i18n="lang.ja">Japanese</option>
-                </select>
+                <input id="creation-duration" type="number" min="30" max="600" step="5" data-i18n-placeholder="settings.durationPlaceholder" placeholder="auto" />
               </label>
             </div>
+            <!-- CSSOS_WAVE_431 20260525 — Jing: #creation-language dropdown removed;
+                 language is controlled exclusively by #creation-language-picker above.
+                 Keeping a hidden stub so legacy JS reads don't throw on getElementById. -->
+            <select id="creation-language" hidden aria-hidden="true"></select>
             <div class="row">
               <label>
                 <span>Work Type</span>
@@ -1544,7 +1608,7 @@
             <div class="creation-summary" id="creation-summary"></div>
             <div class="creation-universe-card" id="creation-universe-card"></div>
             <div class="creation-actions">
-              <button id="creation-set-defaults" class="cta ghost tiny" type="button" hidden>设为默认</button>
+              <button id="creation-set-defaults" class="cta ghost tiny" type="button" data-i18n="settings.panel.setDefault" hidden>Set as Default</button>
               <button id="creation-clear" class="cta ghost tiny" type="button" data-i18n="action.clearAll">Clear All</button>
             </div>
           </div>
@@ -1572,7 +1636,7 @@
             type="button"
             data-i18n="action.randomPalette"
           >
-            随机水彩配色
+            Random Palette
           </button>
           <div class="palette-presets scroll-peek" role="tablist" aria-label="Palette presets" data-scroll-peek>
             <button class="cta ghost tiny" type="button" data-palette-preset="mono-green" data-i18n="settings.palettePreset.green">Emerald</button>
@@ -1584,7 +1648,7 @@
           <button id="apply-settings" class="cta" data-i18n="action.applyRender">
             Apply & Render
           </button>
-          <button id="advanced-panel-settings-toggle" class="cta ghost tiny" type="button">面板参数中心</button>
+          <button id="advanced-panel-settings-toggle" class="cta ghost tiny" type="button" data-i18n="settings.panel.advancedHub">Advanced Panel Settings</button>
           <div class="advanced-panel-settings" id="advanced-panel-settings"></div>
         </div>
         <div class="resize-handle"></div>
@@ -1662,7 +1726,7 @@
           <div class="profile-grid">
             <div class="profile-row">
               <div class="profile-label" data-i18n="profile.passkey">Passkey</div>
-              <div class="profile-actions" data-segmented="2">
+              <div class="profile-actions" data-segmented="2" data-pill-bar>
                 <button class="cta tiny" id="passkey-enable" type="button" data-action="passkey.enable" data-i18n="profile.passkeyEnable">Enable</button>
                 <button class="cta tiny" id="passkey-login" type="button" data-action="passkey.login" data-i18n="profile.passkeyLogin">Login</button>
               </div>
@@ -1690,7 +1754,7 @@
         <div class="panel-body notifications-body">
           <div class="panel-label" data-i18n="notifications.subtitle">Background completions · watch reminders · recovery alerts</div>
           <div class="notifications-meta" id="notifications-meta"></div>
-          <div class="notifications-actions" data-segmented="3">
+          <div class="notifications-actions" data-segmented="3" data-pill-bar>
             <button class="cta ghost" id="notifications-enable" type="button" data-i18n="notifications.enableAlerts">Enable browser alerts</button>
             <button class="cta ghost" id="notifications-mark-all" type="button" data-i18n="notifications.markAll">Mark all read</button>
             <button class="cta ghost" id="notifications-clear" type="button" data-i18n="notifications.clear">Clear</button>
@@ -1829,7 +1893,7 @@
                     </span>
                   </div>
                 </div>
-                <div class="work-actions" data-segmented="2">
+                <div class="work-actions" data-segmented="2" data-pill-bar>
                   <button class="mini-btn ghost" type="button" data-i18n="works.action.manage">
                     Manage
                   </button>
@@ -1856,7 +1920,7 @@
                     </span>
                   </div>
                 </div>
-                <div class="work-actions" data-segmented="2">
+                <div class="work-actions" data-segmented="2" data-pill-bar>
                   <button class="mini-btn ghost" type="button" data-i18n="works.action.manage">
                     Manage
                   </button>
@@ -1877,7 +1941,7 @@
                   <span>2m</span>
                 </div>
                 <div class="comment-text">Amazing mirror glow. Can you drop stems?</div>
-                <div class="comment-actions" data-segmented="3">
+                <div class="comment-actions" data-segmented="3" data-pill-bar>
                   <button class="mini-btn ghost" type="button" data-i18n="works.action.hide">
                     Hide
                   </button>
@@ -1895,7 +1959,7 @@
                   <span>12m</span>
                 </div>
                 <div class="comment-text">Bought the MV. The camera flow is insane.</div>
-                <div class="comment-actions" data-segmented="3">
+                <div class="comment-actions" data-segmented="3" data-pill-bar>
                   <button class="mini-btn ghost" type="button" data-i18n="works.action.hide">
                     Hide
                   </button>
@@ -1934,7 +1998,7 @@
       <section class="panel flow hidden" id="seller-panel">
         <div class="panel-bar">
           <div class="panel-icon">💸</div>
-          <div class="panel-title">经营中心</div>
+          <div class="panel-title" data-i18n="panel.seller">Seller Desk</div>
           <div class="panel-actions cssmv-pill-bar">
             <button class="icon-btn" aria-label="settings">⚙</button>
             <button class="icon-btn" aria-label="minimize">—</button>
@@ -1960,7 +2024,7 @@
       </section>
     </main>
 
-    <footer class="dock" id="dock">
+    <footer class="dock" id="dock" data-pill-bar data-pill-compact>
       <!-- CSSOS_WAVE_163 20260515 — Jing: "自从加入了 🌌 System MVs，
            MV PIPELINE 面板就丢失了，请找回来". The MV Pipeline dock item
            had gone missing from index.html — DOCK_DEFAULT_ORDER lists
@@ -1969,270 +2033,161 @@
            item is silently dropped. Restored here as a first-class
            static dock entry; buildBuiltinDockActionMap() carries the
            matching "mv-pipeline" → openMvPipelinePanel() handler. -->
-      <div class="dock-item" data-action="mv-pipeline" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🎞️</div>
-        <div class="dock-label" data-i18n="dock.mvPipeline">MV Pipeline</div>
+      <!-- CSSOS_WAVE_489 20260529 — Jing「话筒默认就在第一位, 别先渲染别处再飞过去」。
+           话筒 = 默认激活项, 而激活项跳第一(W487)。把它放在静态 HTML 第一个, 这样
+           JS/pill-bar 还没跑时, 用户进来话筒就已经在第一位, 不会看到它从别处飞来。
+           DOCK_DEFAULT_ORDER 与 DOCK_FRONT_PINNED 也同步把 mic 排到最前。 -->
+      <!-- Dock order: Mic → MV Pipeline → (person-mv injected here) → For You → rest -->
+      <div data-action="mic" data-pill-key="mic" data-hold="mic" class="active">
+        <span class="dock-mic-icon dock-icon-media">
+          <img class="dock-mic-img dock-mic-a" src="assets/dock-mic-1.webp?v=20260529-w495-webp" alt="" aria-hidden="true" />
+          <img class="dock-mic-img dock-mic-b" src="assets/dock-mic-2.webp?v=20260529-w495-webp" alt="" aria-hidden="true" />
+        </span>
+        <span data-i18n="dock.mic">Mic</span>
       </div>
-      <div class="dock-item" data-action="mic" data-actions="click,dblclick,longpress" data-hold="mic">
-        <div class="dock-icon dock-icon-media dock-mic-icon">
-          <img class="dock-mic-img dock-mic-a" src="assets/dock-mic-1.png" alt="" aria-hidden="true" />
-          <img class="dock-mic-img dock-mic-b" src="assets/dock-mic-2.png" alt="" aria-hidden="true" />
-        </div>
-        <div class="dock-label" data-i18n="dock.mic">Mic</div>
-      </div>
-      <div class="dock-item" data-action="foryou" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">✨</div>
-        <div class="dock-label" data-i18n="dock.foryou">For You</div>
-      </div>
-      <div class="dock-item" data-action="cssmv" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🎬</div>
-        <div class="dock-label" data-i18n="dock.cssmv">CSS MV</div>
-      </div>
-      <div class="dock-item" data-action="lyrics" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">📝</div>
-        <div class="dock-label" data-i18n="dock.lyrics">Lyrics</div>
-      </div>
-      <div class="dock-item" data-action="music" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🎼</div>
-        <div class="dock-label" data-i18n="dock.music">Music</div>
-      </div>
-      <div class="dock-item" data-action="video" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">📽</div>
-        <div class="dock-label" data-i18n="dock.video">Video</div>
-      </div>
-      <div class="dock-item" data-action="watch" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">▶</div>
-        <div class="dock-label" data-i18n="dock.watch">MV</div>
-      </div>
-      <div class="dock-item" data-action="notifications" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🔔</div>
-        <div class="dock-notification-badge" id="dock-notification-badge" hidden>0</div>
-        <div class="dock-label" data-i18n="dock.notifications">Notifications</div>
-      </div>
-      <div class="dock-item" data-action="about" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">ℹ</div>
-        <div class="dock-label" data-i18n="dock.about">About</div>
-      </div>
-      <div class="dock-item" data-action="api" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">⌁</div>
-        <div class="dock-label" data-i18n="dock.api">API</div>
-      </div>
-      <div class="dock-item" data-action="reports" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">📊</div>
-        <div class="dock-label" data-i18n="dock.reports">Reports</div>
-      </div>
-      <div class="dock-item" data-action="delivery-ops" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🛰</div>
-        <div class="dock-label" data-i18n="dock.deliveryOps">Delivery Ops</div>
-      </div>
-      <div class="dock-item" data-action="system-mvs" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🌌</div>
-        <div class="dock-label" data-i18n="dock.systemMvs">System MVs</div>
-      </div>
-      <div class="dock-item" data-action="login" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🔐</div>
-        <div class="dock-label" data-i18n="dock.login">Login</div>
-      </div>
-      <div class="dock-item" data-action="subscription" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">💎</div>
-        <div class="dock-label" data-i18n="dock.subscription">Subscription</div>
-      </div>
-      <div class="dock-item" data-action="credit" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">💳</div>
-        <div class="dock-label" data-i18n="dock.credit">Credit</div>
-      </div>
-      <div class="dock-item" data-action="workspaces" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🗂</div>
-        <div class="dock-label" data-i18n="dock.workspaces">Workspaces</div>
-      </div>
-      <div class="dock-item" data-action="user-admin" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🧑‍💼</div>
-        <div class="dock-label" data-i18n="dock.userAdmin">User</div>
-      </div>
-      <div class="dock-item" data-action="works" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🗂</div>
-        <div class="dock-label" data-i18n="dock.works">Works</div>
-      </div>
-      <div class="dock-item" data-action="seller" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">💸</div>
-        <div class="dock-label">卖家</div>
-      </div>
-      <div class="dock-item" data-action="language" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🌐</div>
-        <div class="dock-label" data-i18n="dock.language">Language</div>
-      </div>
-      <div class="dock-item" data-action="settings" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">⚙</div>
-        <div class="dock-label" data-i18n="dock.settings">Settings</div>
-      </div>
-      <div class="dock-item" data-action="engines" data-actions="click,dblclick,longpress" title="AI Engine Preferences">
-        <div class="dock-icon">🧠</div>
-        <div class="dock-label" data-i18n="dock.engines">Engines</div>
-      </div>
-      <div class="dock-item" data-action="passkey" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">🔐</div>
-        <div class="dock-label" data-i18n="action.passkeyLogin">Passkey</div>
-      </div>
-      <div class="dock-item" data-action="profile" data-actions="click,dblclick,longpress">
-        <div class="dock-icon">👤</div>
-        <div class="dock-label" data-i18n="action.profile">Profile</div>
-      </div>
+      <div data-action="mv-pipeline" data-pill-key="mv-pipeline">🎞️ <span data-i18n="dock.mvPipeline">MV Pipeline</span></div>
+      <div data-action="foryou" data-pill-key="foryou">✨ <span data-i18n="dock.foryou">For You</span></div>
+      <div data-action="works" data-pill-key="works">🗂 <span data-i18n="dock.works">Works</span></div>
+      <!-- CSSOS_WAVE_486 20260529 — Jing: 删除 🎬 CSS MV dock 项。它和 🎞️ MV
+           Pipeline 打开同一个面板(WAVE_147 起被重指向管线), 纯重复, 还导致
+           "点 CSS MV 却激活 MV 管线"。交付仪表盘仍可经 Reports / Delivery Ops
+           进入。cssmv-panel 与其 handler 保留, 仅移除这颗重复的 dock 胶囊。 -->
+      <div data-action="lyrics" data-pill-key="lyrics">📝 <span data-i18n="dock.lyrics">Lyrics</span></div>
+      <div data-action="music" data-pill-key="music">🎼 <span data-i18n="dock.music">Music</span></div>
+      <div data-action="video" data-pill-key="video">📽 <span data-i18n="dock.video">Video</span></div>
+      <div data-action="watch" data-pill-key="watch">▶ <span data-i18n="dock.watch">MV</span></div>
+      <div data-action="notifications" data-pill-key="notifications">🔔 <span class="dock-notification-badge" id="dock-notification-badge" hidden>0</span><span data-i18n="dock.notifications">Notifications</span></div>
+      <div data-action="about" data-pill-key="about">ℹ <span data-i18n="dock.about">About</span></div>
+      <div data-action="api" data-pill-key="api">⌁ <span data-i18n="dock.api">API</span></div>
+      <div data-action="subscription" data-pill-key="subscription">💎 <span data-i18n="dock.subscription">Subscription</span></div>
+      <div data-action="credit" data-pill-key="credit">💳 <span data-i18n="dock.credit">Credit</span></div>
+      <div data-action="workspaces" data-pill-key="workspaces">🗂 <span data-i18n="dock.workspaces">Workspaces</span></div>
+      <div data-action="user-admin" data-pill-key="user-admin">🧑‍💼 <span data-i18n="dock.userAdmin">User</span></div>
+      <div data-action="settings" data-pill-key="settings">⚙ <span data-i18n="dock.settings">Settings</span></div>
+      <div data-action="reports" data-pill-key="reports">📊 <span data-i18n="dock.reports">Reports</span></div>
+      <div data-action="delivery-ops" data-pill-key="delivery-ops">🛰 <span data-i18n="dock.deliveryOps">Delivery Ops</span></div>
+      <div data-action="system-mvs" data-pill-key="system-mvs">🌌 <span data-i18n="dock.systemMvs">System MVs</span></div>
+      <div data-action="login" data-pill-key="login">🔐 <span data-i18n="dock.login">Login</span></div>
+      <div data-action="seller" data-pill-key="seller">💸 <span data-i18n="dock.seller">Seller</span></div>
+      <div data-action="language" data-pill-key="language">🌐 <span data-i18n="dock.language">Language</span></div>
+      <div data-action="engines" data-pill-key="engines" title="AI Engine Preferences">🧠 <span data-i18n="dock.engines">Engines</span></div>
+      <div data-action="passkey" data-pill-key="passkey">🔐 <span data-i18n="action.passkeyLogin">Passkey</span></div>
+      <div data-action="profile" data-pill-key="profile">👤 <span data-i18n="action.profile">Profile</span></div>
     </footer>
-
-    <div class="app-badges" style="display:flex;gap:12px;justify-content:center;padding:16px;font-size:13px;opacity:0.7;">
-      <a href="https://apps.apple.com/app/cssos" target="_blank" rel="noopener">Download on the App Store</a>
-      <a href="https://play.google.com/store/apps/details?id=app.cssstudio.app" target="_blank" rel="noopener">Get it on Google Play</a>
-    </div>
 
     <div class="toast" id="toast" data-i18n="toast.awakened">CSS awakened · 流流流</div>
 
     <!-- CSSOS_WAVE_117_STEP_1 — Crash guard. MUST load BEFORE everything
          else so window.onerror / onunhandledrejection / location.reload
          instrumentation catches errors thrown by every later script. -->
-    <script src="app.crash-guard.js?v=20260519-wave233-vip-not-admin"></script>
+    <!-- CSSOS_WAVE_393 — build stamp + auto-update guard (App↔desktop parity).
+         Keep window.__CSSOS_BUILD and public/build.txt bumped to the SAME value
+         on every deploy so a stale device auto-reloads to the latest build. -->
+    <script>window.__CSSOS_BUILD = "20260604-w639";</script>
+    <!-- CSSOS_WAVE_513 — neutralize JS-injected :has() (iOS/macOS WebKit crash). MUST be first. -->
+    <script src="bundle.app1.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_518 — diag probe removed (crash investigation done). -->
+
+    <!-- CSSOS_WAVE_490k — :has() storm fix: maintain document-level state classes in JS. -->
+    <script src="bundle.app2.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_365 20260523 — Jing: 重新挂回内存遥测探针(此前未在 index.html
          引用 → 5/18 起没有任何样本, OOM 排查完全失明, 尤其 iOS 一条样本都没有).
          每 30s + pagehide/visibility sendBeacon 到 /api/telemetry/memory, 极轻量.
          恢复后才能"边改边看遥测的 dom_nodes/images", 据此决定 OOM 第二刀砍哪里. -->
-    <script src="app.memory-probe.js?v=20260523-w365-rearm"></script>
+    <script src="bundle.app3.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_249 20260520 — Jing: 极早定义 compactLyricLines 全局,
          根治播放时每帧轮询抛 ReferenceError 压垮 webview 看门狗 →
          强刷返回主界面的崩溃. 必须早于所有调用方(watch-audio-polling 等). -->
-    <script src="app.lyric-utils.js?v=20260521-w272-cachebust"></script>
+    <script src="bundle.app4.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_255 — 相同输入重生成: 覆盖旧作品 vs 输出新作品 的选择+记忆.
          独立模块, 高级设置面板回滚动荡时也能用; 暴露 cssosResolveRegenOutputMode(). -->
-    <script src="app.regen-output-mode.js?v=20260522-w351-zindex"></script>
+    <script src="bundle.app5.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_259 — 钱漏#3 接线: 给 mv 生成注入 reuse_ok(重试/续跑复用),
          用户主动重生成时开"求新窗口"强制出新. 必须早加载以包好 fetch. -->
-    <script src="app.mv-reuse-flag.js?v=20260521-w272-cachebust"></script>
-    <script src="app.ios-app-store-hardening.js?v=20260519-wave233-ios-harden"></script>
+    <script src="bundle.app6.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
          nav, dead-anchor reloads, double-tap fires. Must load early so
          CSS rules apply before any panel renders. -->
-    <script src="app.touch-hardening.js?v=20260513-wave117-touch"></script>
+    <script src="bundle.app7.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_192 — on first user gesture, request true fullscreen
          on the document so iOS hides the top time bar + auto-hides the
          home indicator after a few seconds of no touch. Touch devices
          only; PWA / standalone skipped (already chrome-less). -->
-    <script src="app.app-fullscreen-immersive.js?v=20260521-w314-noappfs"></script>
+    <script src="bundle.app8.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_194 — lock the app to portrait. Three layers:
          manifest "orientation":"portrait" handles PWA, screen.orientation
          .lock("portrait") covers Chrome Android, and an iOS Safari
          rotate-back overlay covers what Apple won't let us lock. -->
-    <script src="app.orientation-lock.js?v=20260522-w351-zindex"></script>
+    <script src="bundle.app9.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_195 — Screen Wake Lock: keep display awake while
          any media element is playing OR the MV pipeline is running.
          Auto-releases when everything goes idle so battery survives. -->
-    <script src="app.wake-lock.js?v=20260516-wave195-wake-lock"></script>
+    <script src="bundle.app10.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_196 — civilization → lyric-language map. Loads
          BEFORE person-mv-panel.js so seed-builders can call into it. -->
-    <script src="app.civ-language-map.js?v=20260522-w360-mothertongue"></script>
+    <script src="bundle.app11.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
-    <script src="app.work-id-binding.js?v=20260516-wave207-clear-title"></script>
+    <script src="bundle.app12.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_123 — injects civilization/era/gender into /api/mv/music
          POSTs so Suno differentiates per culture instead of defaulting
          every figure to a soft female ballad. -->
-    <script src="app.music-civ-inject.js?v=20260514-wave123"></script>
+    <script src="bundle.app13.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
-    <script src="app.panel-loader.js?v=20260514-wave129-unlazy-market"></script>
+    <!-- CSSOS_WAVE_524 — 面板源清单(name→src): 内核动态注入的唯一真相源. 必须在 panel-loader 之前. -->
+    <script src="bundle.app14.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_499 — 通用面板路由(内核动态注入按需加载的地基). -->
+    <script src="bundle.app15.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_520 — 内核「关谁销毁谁」: 面板关闭即回收 video/audio 解码缓冲 + blob + 停常驻循环. -->
+    <script src="bundle.app16.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_526 — 内核 LRU: 同时最多 5 面板, 开第6个淘汰最久未用者并回收内存; 播放中的MV面板豁免. -->
+    <script src="bundle.app17.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->
     <script defer src="app.ios-statusbar-cinema.js?v=20260513-wave117-always"></script>
     <!-- CSSOS_WAVE_115 — iOS native payment gate. MUST load FIRST so it
          sets html[data-ios-native] before any payment surface renders. -->
-    <script src="app.ios-native-gate.js?v=20260513-wave123-hide-stripe-paths"></script>
-    <script src="app.iap-native.js?v=20260513-wave118-native"></script>
-    <script src="app.ios-deeplink-handler.js?v=20260513-wave123-oauth"></script>
-    <script src="app.ios-subscription-iap-button.js?v=20260513-wave123-applepay"></script>
-    <script src="app.ios-manage-subscription.js?v=20260513-wave127"></script>
+    <script src="bundle.app18.w637-20260604.js"></script>
     <script src="/i18n/constants.js"></script>
     <script src="/i18n/catalog.js"></script>
     <script src="/i18n/dict.js?v=20260518-w220a-v28-step34"></script>
     <script src="/i18n/platforms.js?v=20260509-wave107c-coming-soon"></script>
     <script src="/i18n/index.js?v=20260518-w220a-v28-step42-chip-active-full-convex"></script>
     <script src="/i18n/runtime.js?v=20260424-p2-92-breaker-localstorage-1"></script>
-    <script src="app.dom-globals.js?v=20260521-w320-thumb"></script>
-    <script src="app.input-guardrails.js?v=20260420-p2-84-input-guardrails-1"></script>
-    <script src="app.runtime-shell-bridges.js?v=20260417-ui-recovery-1"></script>
-    <script src="app.panel-settings-actions.js?v=20260416-ui-recovery-2"></script>
-    <script src="app.aspect-ratio.js?v=20260516-wave189-live-orientation"></script>
-    <script src="app.creation-duration.js?v=20260426-membership-preset-guard-136"></script>
-    <script src="app.creation-accessors.js?v=20260423-p2-86-lang-auto-empty-1"></script>
-    <script src="app.watch-audio-polling.js?v=20260504-stop-404-poll"></script>
-    <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
-    <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
-    <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
-    <script src="app.context-menu.js?v=20260522-w351-zindex"></script>
-    <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
-    <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
+    <script src="bundle.app19.w637-20260604.js"></script>
     <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
          Share-link router parses ?cssMV=<id> on boot and opens the MV
          panel via openMarketWorkPreview. Loaded BEFORE app.js so the
          fetch is in flight before the rest of boot. The router waits
          for openMarketWorkPreview to be defined before invoking, so
          load-order timing isn't critical — this is just the head start. -->
-    <script src="app.share-link-router.js?v=20260521-w314-noappfs"></script>
-    <script src="app.share-dialog.js?v=20260506-share-link"></script>
-    <script src="app.download-menu.js?v=20260506-phase-b"></script>
-    <script src="app.mv-language-picker.js?v=20260520-tierc-c3"></script>
-    <script src="app.mv-language-pill.js?v=20260520-tierc-c5c-syncsub"></script>
-    <script src="app.up-next-strip.js?v=20260523-w377-exclusive"></script>
+    <script src="bundle.app20.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
-    <script src="app.watch-search.js?v=20260522-w359-searchdur"></script>
+    <script src="bundle.app21.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_294 — 可复用苹果风浮层搜索: 自动接管 [data-search-float="swipe"]
          的搜索壳(Works Center 等), 下滑显示/上滑隐藏. -->
-    <script src="app.floating-search.js?v=20260521-w294-floatsearch"></script>
-    <script src="app.create-cta.js?v=20260521-w283-inplace"></script>
-    <script src="app.preview-cap.js?v=20260506-a11y"></script>
-    <script src="app.tab-title-sync.js?v=20260506-tab-sync"></script>
-    <script src="app.shortcuts-overlay.js?v=20260506-cheatsheet-snap"></script>
-    <script src="app.dock-now-playing.js?v=20260506-dock-pulse"></script>
-    <script src="app.resume-progress.js?v=20260506-resume"></script>
-    <script src="app.pip-button.js?v=20260506-pip-diag"></script>
-    <script src="app.volume-memory.js?v=20260506-vol-mem"></script>
-    <script src="app.mv-keys.js?v=20260506-mv-keys-snap"></script>
-    <script src="app.playback-speed.js?v=20260506-speed-noclash"></script>
-    <script src="app.loop-toggle.js?v=20260521-w295-onerow"></script>
-    <script src="app.media-session.js?v=20260506-mediasession"></script>
-    <script src="app.double-tap-seek.js?v=20260506-dts"></script>
-    <script src="app.title-copy-share.js?v=20260506-titlecopy"></script>
-    <script src="app.media-error-toast.js?v=20260506-errtoast"></script>
-    <script src="app.popup-deeplink.js?v=20260506-deeplink-auth"></script>
-    <script src="app.engine-picker.js?v=20260507-real-models"></script>
-    <script src="app.face-safe-overlay.js?v=20260514-wave125-cover-face"></script>
-    <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
-    <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
-    <script src="app.js?v=20260523-w353-market-pagination"></script>
+    <script src="bundle.app22.w637-20260604.js"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
          by app.delivery-digest-ui.js, which loads further along. -->
-    <script src="app.creation-language.js?v=20260423-p2-86-lang-auto-empty-1"></script>
+    <script src="bundle.app23.w637-20260604.js"></script>
     <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
          dropdown + setLocale event dispatch + auto-mirror locale into
          the dropdown so language-panel picks show up here. -->
-    <script src="app.creation-language-options.js?v=20260425-p2-100-lang-options-1"></script>
+    <script src="bundle.app24.w637-20260604.js"></script>
     <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: dynamic title placeholder
          + clear hardcoded Chinese GuFeng / Feminine pre-roll labels. -->
-    <script src="app.civilization-ui-hints.js?v=20260424-p2-94-civ-ui-hints-1"></script>
+    <script src="bundle.app25.w637-20260604.js"></script>
     <!-- CSSMV_CREATION_CIV_DEFAULTS 20260425 #101 — Jing: civ-derived
          random fills for BPM/key/workType/vocalStyle/instrumentation/
          ensembleStyle in Advanced Settings. Re-rolls on locale flip. -->
-    <script src="app.creation-civ-defaults.js?v=20260429-empty-defaults-181"></script>
-    <script src="app.advanced-panel-settings-render.js?v=20260504-blank-and-fill"></script>
-    <script src="app.watch-audio.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.voice-seed.js?v=20260504-longpress-to-mv"></script>
+    <script src="bundle.app26.w637-20260604.js"></script>
     <!-- CSSOS_PHASE2_UNIVERSAL_ENTRY_VOICE 20260427 #161 — Jing
          app.voice-submit.js was previously untracked / never loaded; the
          browser silently fell back to the legacy createRun path because
          submitVoiceOrFallbackTitleModule was undefined. Wiring it now so
          voice-entry routes through MV Pipeline runAll. -->
-    <script src="app.voice-submit.js?v=20260430-universal-entries-230"></script>
-    <script src="app.creation-flow.js?v=20260520-tierc-c3-advsettings"></script>
-    <script src="app.color-name-labels.js?v=20260518-w220a-v28-step31"></script>
-    <script src="app.creation-bridges.js?v=20260327-creation-bridges-split-1"></script>
-    <script src="app.song-seed-ui.js?v=20260430-wand-bypass-215"></script>
-    <script src="app.work-sync.js?v=20260523-w350-pipeline-assets"></script>
+    <script src="bundle.app27.w637-20260604.js"></script>
     <!-- CSSOS_PHASE2_WATCH_FONT_MANIFEST_WIRED 20260420 — Jing (#80):
          "随机中文字体好像没有明显变化 ... 我点击星星按钮，也闪了一下，但是好像字体都一样"
          Root cause: this script was missing from index.html, so
@@ -2242,25 +2197,24 @@
          to system-ui for every token — so every font looked the same.
          Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
          see the manifest on first call. -->
-    <script src="app.watch-font-manifest.js?v=20260506-quiet"></script>
-    <script src="app.playlists.js?v=20260521-w272-cachebust"></script>
-    <script src="app.watch-ui.js?v=20260523-w369-noflicker"></script>
+    <script src="bundle.app28.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
+    <script src="bundle.app29.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_581 20260531 — Jing — 给现有作品加语言的弹窗(选语言→报价→提交). -->
+    <script src="bundle.app30.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_584 20260531 — Jing — 多声线: 给现有作品加声线(同语言换音色重唱). -->
+    <script src="bundle.app31.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
-    <script src="app.autoplay-feed.js?v=20260523-w366-respect-exit"></script>
-    <script src="app.watch-price-strip.js?v=20260512-wave111c-fp-chip"></script>
-    <script src="app.anthropic-health-banner.js?v=20260512-wave111d-vision-health"></script>
+    <script src="bundle.app32.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
-    <script src="app.crash-log-dashboard.js?v=20260521-w272-cachebust"></script>
+    <script src="bundle.app33.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_120C — Admin-only "see-a-bug → tell-me" inbox FAB. -->
-    <script src="app.bug-capture.js?v=20260515-wave163-alias"></script>
-    <script src="app.client-transcode.js?v=20260511-wave111b-b2"></script>
-    <script src="app.cost-breakdown-accum.js?v=20260511-wave113k-accum"></script>
-    <script src="app.mv-import.js?v=20260511-wave111b-predecode"></script>
-    <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
-    <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
-    <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="bundle.app34.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_527 — app.mv-import.js 已移除: mv-pipeline 的"导入"子功能, 随 mv-pipeline 按需加载(见 app.panel-manifest.js CSSOS_PANEL_DEPS). 回退: 改回普通 src. -->
+
+    <script src="bundle.app35.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_129 20260514 — REVERTED to eager load. The Wave 117
          lazy-load experiment caused a crash storm: 33+ functions in this
          module are bare-called from 14+ other files (loadWatchCommerce,
@@ -2269,67 +2223,39 @@
          the market panel loaded (crash-guard logged 35 hits/session).
          market-commerce is NOT an island; it must load eagerly. The
          mv-pipeline-panel lazy-load (a true island) stays. -->
-    <script src="app.market-commerce.js?v=20260523-w353-offset-pagination"></script>
+    <script src="bundle.app36.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_576 20260531 — Jing — 通用【左凹向激活】兜底(宪法 :has 在 iOS 被剥, 左凹失效). -->
+    <script src="bundle.app37.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_220A 20260519 — Jing: title edit/refine button was
          implemented but never loaded. Wiring it in now. -->
-    <script src="app.title-edit-refine.js?v=20260519-w220a-title-edit"></script>
+    <script src="bundle.app38.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_544 20260531 — Jing — 作品中心编辑基础+展示信息(标题/风格/歌词/封面/画幅/定价). -->
+    <script src="bundle.app39.w637-20260604.js"></script>
     <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
-    <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
+    <script src="bundle.app40.w637-20260604.js"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
-    <script src="app.cinema-translate.js?v=20260508-wave53"></script>
-    <script src="app.profile-panel.js?v=20260516-wave205-delete-account"></script>
-    <script src="app.gift-inbox-panel.js?v=20260515-wave164-fresh-palette"></script>
-    <script src="app.language-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.login-panel.js?v=20260519T2050-wave236c-allowlist"></script>
-    <script src="app.works-center.js?v=20260521-w291-advsearch"></script>
-    <script src="app.api-billing.js?v=20260503-boost-prompt-i18n"></script>
-    <script src="app.agent-chat.js?v=20260516-wave184-auth-gate"></script>
-    <script src="app.agent-overflow-menu.js?v=20260515-wave163-bugfix"></script>
-    <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>
-    <script src="app.chat-rooms.js?v=20260514-wave139a"></script>
-    <script src="app.credits-topup-modal.js?v=20260514-wave139b"></script>
-    <script src="app.media-buffering-mirror.js?v=20260522-w355-mutedskip"></script>
-    <script src="app.provider-health-dashboard.js?v=20260514-wave139c"></script>
-    <script src="app.today-in-history-shelf.js?v=20260514-wave153c"></script>
-    <script src="app.today-festival-shelf.js?v=20260514-wave153c"></script>
-    <script src="app.upcoming-shelf.js?v=20260513-wave125"></script>
-    <script src="app.system-mv-archive.js?v=20260513-wave128"></script>
-    <script src="app.system-mvs-panel.js?v=20260513-wave125"></script>
-    <script src="app.engine-accounts.js?v=20260424-p2-92-breaker-localstorage-1"></script>
-    <script src="app.payments-checkout.js?v=20260513-wave116-wallets"></script>
-    <script src="app.music-input-panel.js?v=20260518-w220a-v28-step19"></script>
-    <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-layout.js?v=20260511-wave113b1-fullscreen"></script>
-    <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
-    <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.delivery-reports-panel.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.delivery-export-helpers.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.delivery-report-ui.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.delivery-digest-ui.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.subscription-panel.js?v=20260513-wave123-ios-iap"></script>
-    <script src="app.subscription-celebration.js?v=20260501-celebrate-265"></script>
-    <script src="app.subscription-watcher.js?v=20260501-celebrate-265"></script>
+    <script src="bundle.app41.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_546 20260531 — Jing — 作品中心: 标注未完成草稿 + 继续合成/编辑补救. -->
+    <script src="bundle.app42.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
+
+    <script src="bundle.app43.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_523 — system-mvs-panel (15KB) 按需加载: 通用 panel-router, dock 按钮 data-action="system-mvs" 触发. 回退: 改回普通 src. -->
+    <!-- CSSOS_WAVE_531 — app.engine-accounts.js 已移除: 自建HTML+CSS共享。market 渲染计费面板调 renderEngineAccountsCard(桩)→ 按需加载渲染卡片. 回退: 改回普通 src. -->
+
+    <script src="bundle.app44.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_534 — app.subscription-panel.js 已移除: user-admin 同款安全图案(handleGlobalAction 有 subscription case + 静态HTML壳 + ?.()守卫). 由通用 router 桩 openSubscriptionPanelModule 按需加载. HTML 壳暂留(dom-globals 抓引用). 回退: 改回普通 src. -->
+
+    <script src="bundle.app45.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_117_LAZY 20260513 — notifications-panel is the first
          panel migrated to true on-demand loading. Inert <script type=...>
          tag (browser ignores it). Real script injected by cssosLoadPanel()
          on first call to openNotificationsPanelModule (shim in app.panel-
          loader.js handles the call-through). Saves 52KB from first paint. -->
-    <script type="cssos-lazy" data-panel="notifications" src="app.notifications-panel.js?v=20260429-no-runall-184"></script>
-    <script src="app.credit-panel.js?v=20260412-ui-recovery-5"></script>
-    <script src="app.workspaces-panel.js?v=20260412-ui-recovery-5"></script>
-    <script src="app.user-admin-panel.js?v=20260412-ui-recovery-5"></script>
-    <script src="app.admin-errors-panel.js?v=20260508-wave82"></script>
-    <script src="app.admin-ops-panel.js?v=20260521-w272-cachebust"></script>
-    <script src="app.foryou-seed-preview.js?v=20260523-w348-imgthumb-proxy"></script>
-    <script src="app.mv-engines-catalog.js?v=20260419-p2-57d-anon-silent-1"></script>
-    <script src="app.mv-tiers-catalog.js?v=20260419-p2-mv-naming-1"></script>
-    <script src="app.mv-tier-picker-modal.js?v=20260419-p2-mv-naming-1"></script>
-    <script src="app.cssmv-seed-bank.js?v=20260521-w272-cachebust"></script>
-    <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
+    <!-- CSSOS_WAVE_535 — credit-panel + workspaces-panel 已移除: user-admin 同款安全图案(handleGlobalAction 有 credit/workspaces case + 静态壳 + ?.()守卫). 通用 router 桩 openX 按需加载. 回退: 改回普通 src. -->
+    <!-- CSSOS_WAVE_522 — user-admin-panel (49KB) 按需加载: 通用 panel-router 桩入口+dock动作, 点击才载.
+         孤岛已实测(全 ?.() 调用/无渲染期裸调); 管理员专属, 对用户/审核零影响. 回退: 改回普通 src. -->
+    <script src="bundle.app46.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js (444 KB) is pure
          UI for the MV Pipeline panel: cinema/storm mode, stage badges,
          tier label. It does NOT call any /api/mv/* endpoint — the real
@@ -2337,117 +2263,91 @@
          So we can safely lazy-load it on first interaction with the
          MV Pipeline dock icon ([data-action="mv-pipeline"]) instead of
          on every page load. Saves ~444 KB from first-paint on mobile. -->
-    <script src="app.mv-pipeline-open-shim.js?v=20260521-w272-cachebust"></script>
-    <script type="cssos-lazy" data-panel="mv-pipeline" src="app.mv-pipeline-panel.js?v=20260523-w363-assets"></script>
-    <script src="app.person-mv-panel.js?v=20260522-w361-lazycover"></script>
-    <script src="app.person-mv-discover-shelf.js?v=20260522-w321-thumb"></script>
-    <script src="app.person-mv-groups-shelf.js?v=20260508-wave16"></script>
-    <script src="app.person-mv-today-shelf.js?v=20260522-w321-thumb"></script>
-    <script src="app.person-mv-style-shelf.js?v=20260508-wave21"></script>
-    <script src="app.person-mv-recommendations-shelf.js?v=20260522-w321-thumb"></script>
-    <script src="app.person-mv-leaderboard.js?v=20260508-wave19"></script>
-    <script src="app.home-shelves-position.js?v=20260508-dock-aware"></script>
-    <script src="app.global-search.js?v=20260508-wave25"></script>
-    <script src="app.feed-panel.js?v=20260508-wave26"></script>
+    <script src="bundle.app47.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_533 — person-mv 还原为普通 eager 模块(Jing 决定): 懒加载方式反复打不开(W511/W532),
+         其余 7 个模块懒加载均正常。person-mv 自建 HTML + 自注入 CSS(显示)+ JS(动作)= 完整自包含模块,
+         eager 一次性加载即可靠工作。代价: 237KB 留在首屏, 换取 People MV 稳定可开。 -->
+    <script src="bundle.app48.w637-20260604.js"></script>
     <!-- CSSOS_PERSON_MV_WAVE69 20260508 — Jing — TikTok-style content plaza. -->
-    <script src="app.person-mv-plaza.js?v=20260508-wave69"></script>
-    <script src="app.user-homepage.js?v=20260508-wave105"></script>
+    <script src="bundle.app49.w637-20260604.js"></script>
     <!-- CSSOS_PERSON_MV_WAVE71 20260508 — Jing — personal stats deep page. -->
-    <script src="app.user-stats-page.js?v=20260508-wave71"></script>
+    <script src="bundle.app50.w637-20260604.js"></script>
     <!-- CSSOS_PERSON_MV_WAVE64+65 20260508 — Jing — UI surface for waves 51/54/55 + shortcuts cheatsheet. -->
-    <script src="app.creation-timeline-panel.js?v=20260508-wave64"></script>
-    <script src="app.rating-badges.js?v=20260508-wave64"></script>
-    <script src="app.shortcuts-cheatsheet.js?v=20260508-wave65"></script>
-    <script src="app.person-mv-comments-share.js?v=20260508-wave12"></script>
-    <script src="app.person-mv-festival-shelf.js?v=20260522-w321-thumb"></script>
-    <script src="app.person-mv-ai-chat.js?v=20260508-wave24"></script>
-    <script src="app.person-mv-civ-era-pages.js?v=20260508-wave72"></script>
-    <script src="app.tutorials.js?v=20260508-wave74"></script>
-    <script src="app.cover-slideshow.js?v=20260430-slideshow-intensity-200"></script>
-    <script src="app.watch-stage-bars.js?v=20260523-w378-notch"></script>
-    <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
-    <script src="app.watch-media-chrome.js?v=20260506-pip-allow"></script>
-    <script src="app.watch-media-overlays.js?v=20260522-w351-zindex"></script>
-    <script src="app.watch-media-layout-p2100.js?v=20260522-w351-zindex"></script>
+    <script src="bundle.app51.w637-20260604.js"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
-    <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>
+    <script src="bundle.app52.w637-20260604.js"></script>
     <!-- CSSMV_NO_FALLBACK_TITLE 20260425 #109 — Jing: no "Untitled" /
          "CSS MV" / "未标题" placeholder; kick lyrics engine when title
          is missing. -->
-    <script src="app.no-fallback-title.js?v=20260425-p2-109-no-fallback-title-1"></script>
+    <script src="bundle.app53.w637-20260604.js"></script>
     <!-- CSSMV_PANEL_DOCK_ORDER 20260425 #116 — Jing: light-theme paint
          for .panel-settings + per-panel dock-order option (admin sets
          default, regular users override their own). -->
-    <script src="app.panel-dock-order.js?v=20260425-p2-116-dock-order-1"></script>
+    <script src="bundle.app54.w637-20260604.js"></script>
     <!-- CSSMV_CONSOLE_NOISE 20260425 #118 — Jing: silence cover-webp
          404 noise + transient endpoint NetworkError rejections; load
          early so it catches everything from boot. -->
-    <script src="app.console-noise-cleanup.js?v=20260425-p2-118-noise-1"></script>
+    <script src="bundle.app55.w637-20260604.js"></script>
     <!-- CSSMV_CONTEXT_MENU_FALLBACKS 20260425 #111 — Jing: dead-link
          recovery for right-click menu entries. -->
-    <script src="app.context-menu-fallbacks.js?v=20260425-p2-111-ctx-menu-1"></script>
+    <script src="bundle.app56.w637-20260604.js"></script>
     <!-- CSSMV_SUBTITLE_CLEANER 20260425 #113 — Jing: strip section
          markers (**Verse 1**, [Chorus], …) and "/" separators from
          rendered subtitles + titles. Lyrics editor stays raw. -->
-    <script src="app.subtitle-cleaner.js?v=20260425-p2-113-subtitle-cleaner-1"></script>
-    <script src="app.mv-title-sync.js?v=20260503-mv-title-sync-1"></script>
+    <script src="bundle.app57.w637-20260604.js"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505c — Jing
          These 19 helpers must load AFTER all the file-level helpers above
          (especially app.delivery-digest-ui.js which defines
          renderDeliveryDigestSummaryModule that app.cssmv-governance.js
          calls at top-level), but BEFORE app.boot.js so the bridges are
          present when boot wires up event handlers. -->
-    <script src="app.panel-shell-actions.js?v=20260509-wave109e-viewport-clamp"></script>
-    <script src="app.panel-drag.js?v=20260505c-end"></script>
-    <script src="app.panel-focus.js?v=20260505c-end"></script>
-    <script src="app.i18n-hierarchy-defaults.js?v=20260505c-end"></script>
-    <script src="app.theme-quick-toggle.js?v=20260505c-end"></script>
-    <script src="app.delivery-copy.js?v=20260505c-end"></script>
-    <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
-    <script src="app.final-audio-artifacts.js?v=20260505c-end"></script>
-    <script src="app.song-creation-payload.js?v=20260505c-end"></script>
-    <script src="app.structure-planning.js?v=20260505c-end"></script>
-    <script src="app.run-auth.js?v=20260505c-end"></script>
-    <script src="app.logo-panel-actions.js?v=20260505c-end"></script>
-    <script src="app.panel-stack.js?v=20260505c-end"></script>
-    <script src="app.panel-shortcuts.js?v=20260505c-end"></script>
-    <script src="app.panel-settings-markup.js?v=20260505c-end"></script>
-    <script src="app.panel-settings-runtime.js?v=20260505c-end"></script>
-    <script src="app.panel-settings-behavior-bindings.js?v=20260505c-end"></script>
-    <script src="app.panel-settings-tail.js?v=20260505c-end"></script>
-    <script src="app.webhooks-panel.js?v=20260508-wave57"></script>
+    <script src="bundle.app58.w637-20260604.js"></script>
     <!-- cssmv-governance MUST load LAST in this group: its top-level call
          to renderDeliveryDigestSummaryModule() must run after that fn is
          defined (delivery-digest-ui.js loads earlier in the file). -->
-    <script src="app.cssmv-governance.js?v=20260505c-end"></script>
-    <script src="app.notifications-bell.js?v=20260508-wave20-bell"></script>
-    <script src="app.dm-panel.js?v=20260522-w351-zindex"></script>
-    <script src="app.contest-llm.js?v=20260508-wave68-judge"></script>
-    <script src="app.premium-modal.js?v=20260508-wave76-77"></script>
-    <script src="app.ab.js?v=20260508-wave27-ab"></script>
-    <script src="app.templates-panel.js?v=20260508-wave28-templates"></script>
+    <script src="bundle.app59.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_530 — app.dm-panel.js 已移除: 完整三件套自包含模块, #dm hash + cssosOpenDmWith 按需加载. eager 仅留 💌 stub. 回退: 改回普通 src. -->
+    <script src="bundle.app60.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_529 — app.premium-modal.js 已移除: 完整三件套自包含模块, 仅 #premium hash 触发, 由通用 router(hash 能力)按需注入. 回退: 改回普通 src. -->
+
+    <script src="bundle.app61.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_107 20260509 — iOS native OAuth handoff listener.
          Must load before app.boot.js so the appUrlOpen listener is
          armed before any first-frame work begins. -->
-    <script src="app.ios-handoff.js?v=20260509-wave107"></script>
+    <script src="bundle.app62.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_108 20260509 — global tap-vs-swipe guard.
          Must load BEFORE app.home-activity-bar.js so the bar can
          delegate via cssosTapGuard.bindDelegated. Other panels can
          opt-in to the same swipe immunity at any time. -->
-    <script src="app.tap-guard.js?v=20260509-wave108"></script>
+    <script src="bundle.app63.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_108B 20260509 — playback staging.
          "Don't yank the user out of what they're watching" — taps
          during playback are queued and fired on `ended`. Must load
          BEFORE the activity bar so the bar can route through it. -->
-    <script src="app.playback-stage.js?v=20260509-wave108b"></script>
-    <script src="app.home-activity-bar.js?v=20260515-wave169-close-capsule-all"></script>
+    <script src="bundle.app64.w637-20260604.js"></script>
     <!-- CSSOS_WAVE_108B 20260509 — pin MV Pipeline + Person MV
          to dock positions 1 and 2 (per Jing — they were getting
          clipped at the back). Loaded after app.boot.js below so
          the dynamic Person-MV injector has a chance to run first. -->
     <script src="app.dock-priority-order.js?v=20260509-wave108b" defer></script>
-    <script src="app.boot.js?v=20260514-wave151-panel-clamp"></script>
+    <!-- CSSOS_WAVE_445 20260526 — horizontal swipe cycles main panels -->
+    <script src="app.panel-swipe-nav.js?v=20260529-w496-swipe" defer></script>
+    <!-- CSSOS_WAVE_463 20260528 — Panel Constitution execution layer
+         Articles 5 (swipe-up=close), 6 (titlebar-swipe-down=minimize),
+         8 (5-panel LRU limit). Deferred so app.js globals are ready. -->
+    <script src="app.panel-manager.js?v=20260529-w496-limit" defer></script>
+    <!-- CSSOS_WAVE_464 20260528 — Dock 凸嵌凹 pill bar conversion.
+         Stamps data-pill-bar on #dock, syncs active state, snap ghost,
+         4-direction support (vertical for left/right), mic hero protrusion.
+         Default: "pill"; fallback: "icon" (Advanced Settings → Dock). -->
+    <script src="app.dock-pill.js?v=20260529-w487-activefirst" defer></script>
+    <!-- CSSOS_WAVE_588 — 轻量崩溃探针: 打点 DOM/图/幻灯/堆 + 最后动作, 崩溃重载后回显趋势(用数据定位)。 -->
+    <script src="bundle.app65.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_588 — 引导式 toast: 失败提示带 CTA(去充值/登录/重试), 不让用户卡死。 -->
+    <script src="bundle.app66.w637-20260604.js"></script>
+    <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 统一空态助手 cssosEmptyState。 -->
+    <script src="bundle.app67.w637-20260604.js"></script>
     <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
          Self-diagnosing version. Stamps the document so you can verify
          from console that this script actually ran. On every click on a
@@ -2580,6 +2480,12 @@
                   var aa = document.getElementById("watch-audio-preview");
                   if (vv) { vv.pause(); vv.removeAttribute("src"); vv.load && vv.load(); }
                   if (aa) { aa.pause(); aa.removeAttribute("src"); aa.load && aa.load(); }
+                } catch (_e) {}
+                // CSSOS_WAVE_450: restore background videos freed on MV open
+                try {
+                  if (typeof globalThis.restoreBgVideosForMvModule === "function") {
+                    globalThis.restoreBgVideosForMvModule();
+                  }
                 } catch (_e) {}
                 if (typeof minimizeToDock === "function") minimizeToDock(panel);
                 return;
@@ -2725,32 +2631,73 @@
           ["pointermove","pointerdown","wheel","keydown","touchstart"].forEach(function (ev) {
             window.addEventListener(ev, wake, { capture: true, passive: true });
           });
+          /* CSSOS_WAVE_392 20260524 — Jing「多首歌同时播放, 一片交响乐」根治:
+           * 单一可闻音源裁判。#watch-audio-preview 是【有声那条】(canonical 音轨),
+           * #watch-video 是【画面】。之前 forceUnmuteAndPlay 把【两条都 unmute 并
+           * play】→ 视频自带音轨 + 预览 mp3(再加队列切歌竞态/看门狗重启的残留元素)
+           * 叠在一起 = 交响乐。现在: 任一时刻【只有一条可闻】—— 有 audio-preview
+           * 有 src 就以它为音源(视频静音播放只做画面); 否则视频出声。 */
+          function cssosPickSoundEl() {
+            var v = document.getElementById("watch-video");
+            var a = document.getElementById("watch-audio-preview");
+            var aHasSrc = a && String(a.currentSrc || a.src || "").trim();
+            return aHasSrc ? a : v;
+          }
+          function cssosEnforceSingleAudio() {
+            // CSSOS_WAVE_407 20260524 — Jing「断断续续, 每隔几秒静音」根治: 此前本
+            // 裁判在【每个 play 事件】上对 video+audio-preview 重设 .muted, 和
+            // app.watch-ui(W406: video.muted=hasAudioElSrc)互相抢 → 周期性静音/恢复、
+            // 歌词被跳过。现在: 当前作品的 canonical 对(video + audio-preview)的静音
+            // 状态【完全交给 watch-ui】, 本裁判只负责【静音并暂停杂散元素】
+            // (mic-capture / foryou-thumb / mirror / 重复元素), 绝不碰那一对。
+            try {
+              var v = document.getElementById("watch-video");
+              document.querySelectorAll("audio, video").forEach(function (el) {
+                if (el === v || el.id === "watch-audio-preview") return; // owned by watch-ui
+                try {
+                  el.muted = true;
+                  el.setAttribute("muted", "");
+                  if (!el.paused) el.pause();
+                } catch (_e) {}
+              });
+            } catch (_e) {}
+          }
+          // Global referee: whenever ANY media starts, collapse back to one
+          // audible source — kills overlaps from queue races / duplicate plays.
+          try {
+            document.addEventListener("play", function () {
+              setTimeout(cssosEnforceSingleAudio, 0);
+            }, true);
+          } catch (_e) {}
+          globalThis.cssosEnforceSingleAudio = cssosEnforceSingleAudio;
+
+          // CSSOS_WAVE_406 20260524 — removed the duplicate W396 "🔊 Tap for sound"
+          // pill (#cssos-sound-hint): app.watch-ui.js already ships #watch-sound-hint
+          // ("🔇 Tap for sound") via showWatchSoundHintModule(), so the page was
+          // showing TWO hints at once (Jing: "两个 Tap for sound, 一个红色的"). Keep
+          // the single existing one.
+
           function forceUnmuteAndPlay() {
+            // CSSOS_WAVE_407 20260524 — Jing「断断续续」根治: 简化为【一次性】解锁声音
+            // + 起播, 不再在每个 canplay/loadeddata 上反复重设 .muted(那是周期性静音的
+            // 元凶之一)。静音状态归 watch-ui(W406)管: 它已把视频静音、把 <audio> 设为
+            // 唯一音源。这里只在手势/解锁时确保【音源不静音】并 play(); 杂散元素交给裁判。
             try {
               var v = document.getElementById("watch-video");
               var a = document.getElementById("watch-audio-preview");
+              var sound = cssosPickSoundEl();
+              if (sound) {
+                try { sound.muted = false; sound.removeAttribute("muted"); sound.volume = 1; } catch (_e) {}
+              }
               [v, a].forEach(function (el) {
-                if (!el) return;
-                el.muted = false;
-                el.removeAttribute("muted");
-                try { el.volume = 1; } catch (_e) {}
-                if (el.play) el.play().catch(function () {});
-                // CSSOS_AUTO_PLAY_RETRY 20260505 — Jing
-                // "有些MV还是需要用户操作一下". Some media streams aren't
-                // ready at click-time so the first play() rejects. Retry
-                // the moment the element fires loadedmetadata / canplay.
-                ["loadedmetadata", "canplay", "loadeddata"].forEach(function (ev) {
-                  if (el.dataset.cssosAutoplayBound) return;
-                  el.addEventListener(ev, function () {
-                    if (!document.body.classList.contains("cssos-cinema-mode")) return;
-                    el.muted = false;
-                    el.removeAttribute("muted");
-                    try { el.volume = 1; } catch (_e) {}
-                    if (el.play) el.play().catch(function () {});
-                  }, { once: false, passive: true });
+                if (!el || !el.play) return;
+                el.play().catch(function () {
+                  // Desktop blocks UNMUTED autoplay → fall back to muted so the
+                  // picture still plays; sound resumes on the next gesture / hint.
+                  try { el.muted = true; if (el.play) el.play().catch(function () {}); } catch (_e2) {}
                 });
-                el.dataset.cssosAutoplayBound = "1";
               });
+              cssosEnforceSingleAudio(); // silence/pause only stray elements
             } catch (_e) {}
           }
           /* CSSOS_WAVE_374 20260523 — Jing「自动播放别停, 不要让用户点」: build 16 已
@@ -2779,6 +2726,9 @@
                   if (now - lastReplay < 900) return;
                   lastReplay = now;
                   if (el.play) el.play().catch(function () {});
+                  // CSSOS_WAVE_398 — after resuming, re-assert the single-audio
+                  // rule so a watchdog-resumed element can't become a 2nd voice.
+                  try { cssosEnforceSingleAudio(); } catch (_e) {}
                 } catch (_e) {}
               }
               ["pause", "stalled", "waiting", "suspend"].forEach(function (ev) {

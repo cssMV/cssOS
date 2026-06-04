@@ -271,6 +271,14 @@ function buildSubscriptionPanelMarkupModule() {
               </button>
             </div>
           ` : ""}
+          <!-- CSSOS_WAVE_537 — Apple 3.1.2(c) 合规: App 内订阅页须含 自动续订声明 + 使用条款(EULA) + 隐私政策 功能性链接. -->
+          <div class="subscription-legal" style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.14);font-size:12px;line-height:1.55;opacity:0.85;">
+            <p style="margin:0 0 8px;">${escapeHtml(tr("Subscriptions are auto-renewable. Each plan's name, length, and price are shown above. Payment is charged to your Apple ID at confirmation of purchase. It renews automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple ID account settings."))}</p>
+            <p style="margin:0;display:flex;gap:16px;flex-wrap:wrap;">
+              <a href="/terms.html" target="_blank" rel="noopener" style="color:#7fd1ff;text-decoration:underline;">${escapeHtml(tr("Terms of Use (EULA)"))}</a>
+              <a href="/privacy.html" target="_blank" rel="noopener" style="color:#7fd1ff;text-decoration:underline;">${escapeHtml(tr("Privacy Policy"))}</a>
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -793,9 +801,10 @@ async function renderSubscriptionPanelModule() {
         try {
           await createCreatorBoostCheckout(kind, quantity, button);
         } catch (_err) {
-          if (typeof showToast === "function") {
-            showToast(tr("Stripe checkout failed to open. Please try again."));
-          }
+          // CSSOS_WAVE_588 — 引导式: 结账打不开 → [重试](重触该按钮)。
+          if (typeof globalThis.cssosToastRetry === "function")
+            globalThis.cssosToastRetry(tr("Stripe checkout failed to open.", "Stripe 结账打不开。"), function () { try { button && button.click && button.click(); } catch (_e) {} });
+          else if (typeof showToast === "function") showToast(tr("Stripe checkout failed to open. Please try again."));
         }
       }
     });

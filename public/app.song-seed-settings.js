@@ -158,7 +158,8 @@ function applySongSeedToSettingsModule(seed) {
 
   if (title && !preserveTitle) setSongSeedTitleValue(title, { userEdited: false });
   if (lyricsInput && lyrics) lyricsInput.value = lyrics;
-  if (styleInput && musicStyleText && !preserveStyle) styleInput.value = musicStyleText;
+  // v28 step 17 — Jing: never auto-fill MUSIC STYLE textarea.
+  // (was: if (styleInput && musicStyleText && !preserveStyle) styleInput.value = musicStyleText;)
   if (lyricsSourceInput) lyricsSourceInput.value = references.join("\n");
   if (musicStructureInput) {
     const rendered = [

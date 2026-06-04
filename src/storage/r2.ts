@@ -14,7 +14,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
 const ACCOUNT_ID = process.env.R2_ACCOUNT_ID || "";
 const ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || "";
@@ -94,6 +94,53 @@ export async function uploadToR2(
   } catch (e) {
     console.warn("[r2] upload failed:", remotePath, (e as Error)?.message);
     return null;
+  }
+}
+
+// CSSOS_WAVE_440 20260525 — Upload a Buffer directly to R2 (no local file
+// needed). Used for JSON files (lyrics.json / subtitle-take{n}.json) which
+// are built in memory. Cache-Control is intentionally short (no immutable)
+// because these files are appended to as new language tracks complete.
+export async function uploadBufferToR2(
+  buffer: Buffer,
+  remotePath: string,
+  contentType: string,
+): Promise<string | null> {
+  const c = client();
+  if (!c) return null;
+  try {
+    const key = remotePath.replace(/^\/+/, "");
+    await c.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+      CacheControl: "public, max-age=60, stale-while-revalidate=30",
+    }));
+    return r2PublicUrl(key);
+  } catch (e) {
+    console.warn("[r2] buffer upload failed:", remotePath, (e as Error)?.message);
+    return null;
+  }
+}
+
+// CSSOS_WAVE_440 20260525 — Download a JSON file from R2 directly (bypasses
+// CDN cache) so append-upsert always sees the latest version.
+export async function downloadJsonFromR2(remotePath: string): Promise<unknown | null> {
+  const c = client();
+  if (!c) return null;
+  try {
+    const key = remotePath.replace(/^\/+/, "");
+    const res = await c.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    if (!res.Body) return null;
+    // Node 20: Body is a Readable stream.
+    const chunks: Buffer[] = [];
+    for await (const chunk of res.Body as AsyncIterable<Uint8Array>) {
+      chunks.push(Buffer.from(chunk));
+    }
+    return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+  } catch {
+    return null; // file doesn't exist yet — caller treats null as "start fresh"
   }
 }
 

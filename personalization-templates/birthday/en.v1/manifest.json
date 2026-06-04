@@ -18,7 +18,7 @@
 
   "emotional_tone": "warm",
   "max_name_chars": 24,
-  "active": true,
+  "active": false,
 
   "notes": "Placeholder v1. Synthesised pad + warm gradient still. Replace with real composition + visuals when the creative team is ready, then bump to birthday.en.v2."
 }

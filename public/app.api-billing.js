@@ -201,7 +201,11 @@ function consumeLocalUsageModule() {
   const limit = getDailyLimit(tier);
   if (limit !== Infinity && data.count >= limit) {
     const tierLabel = describeMembershipTier(tier);
-    showToast(loginCopy(`${tierLabel} monthly limit reached.`));
+    // CSSOS_WAVE_588 — 引导式: 额度用尽 → [⬆ 升级]。转化关键。
+    if (typeof globalThis.cssosGuidedToast === "function") {
+      globalThis.cssosGuidedToast(loginCopy(`${tierLabel} monthly limit reached.`), { kind: "error", code: "tier_limit",
+        actions: [{ label: "⬆ " + loginCopy("Upgrade", "升级"), onClick: function () { openSubscriptionPanelModule?.(); } }] });
+    } else showToast(loginCopy(`${tierLabel} monthly limit reached.`));
     return false;
   }
   data.count += 1;
@@ -239,8 +243,12 @@ async function consumeGeneration() {
 }
 
 function openLoginForCreationModule(message) {
-  safeShowToast(message || loginCopy("Sign in to start creating."));
-  if (loginPanel) openPanel(loginPanel);
+  const msg = message || loginCopy("Sign in to start creating.");
+  // CSSOS_WAVE_588 — 引导式: 未登录 → [🔑 登录] 按钮(用户自主点, 不再 toast 后突兀自动弹面板)。
+  if (typeof globalThis.cssosGuidedToast === "function") {
+    globalThis.cssosGuidedToast(msg, { kind: "error", code: "auth_required",
+      actions: [{ label: "🔑 " + loginCopy("Sign in", "登录"), onClick: function () { if (loginPanel) openPanel(loginPanel); } }] });
+  } else { safeShowToast(msg); if (loginPanel) openPanel(loginPanel); }
 }
 
 function showMembershipUpsellModule(targetTier, reason) {
@@ -248,10 +256,11 @@ function showMembershipUpsellModule(targetTier, reason) {
   const message = reason
     ? `${reason} ${loginCopy(`Upgrade to ${tierLabel} to continue.`)}`
     : loginCopy(`Upgrade to ${tierLabel} to continue.`);
-  safeShowToast(message);
-  setTimeout(() => {
-    openSubscriptionPanelModule?.();
-  }, 120);
+  // CSSOS_WAVE_588 — 引导式: 需会员 → [⬆ 升级] 按钮 → 订阅面板。转化关键。
+  if (typeof globalThis.cssosGuidedToast === "function") {
+    globalThis.cssosGuidedToast(message, { kind: "error", code: "tier_required",
+      actions: [{ label: "⬆ " + loginCopy("Upgrade", "升级"), onClick: function () { openSubscriptionPanelModule?.(); } }] });
+  } else { safeShowToast(message); setTimeout(() => { openSubscriptionPanelModule?.(); }, 120); }
 }
 
 function showCreatorBoostPromptModule(kind, count) {
@@ -469,7 +478,11 @@ async function consumeBillableActionModule(actionKey, options = {}) {
       const tier = normalizeAccessTier(data?.tier || getAccessTier());
       if (normalized === "video_generate") {
         if (tier === "free") {
-          showToast(loginCopy("Free membership includes 3 creations per month. Upgrade to Starter or Pro to continue."));
+          // CSSOS_WAVE_588 — 引导式: 免费额度用尽 → [⬆ 升级]。转化关键。
+          if (typeof globalThis.cssosGuidedToast === "function") {
+            globalThis.cssosGuidedToast(loginCopy("Free plan: 3 creations / month used up.", "免费方案每月 3 次已用完。"), { kind: "error", code: "free_limit",
+              actions: [{ label: "⬆ " + loginCopy("Upgrade", "升级"), onClick: function () { openSubscriptionPanelModule?.(); } }] });
+          } else showToast(loginCopy("Free membership includes 3 creations per month. Upgrade to Starter or Pro to continue."));
         } else if (tier === "starter") {
           await showGenerationBoostPromptModule(tier, data);
         } else if (tier === "pro") {

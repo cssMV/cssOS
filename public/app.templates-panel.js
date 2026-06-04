@@ -128,7 +128,9 @@
   }
 
   async function loadList(sort, container) {
-    container.innerHTML = `<div class="cssos-tpl-empty">${T("Loading…", "加载中…")}</div>`;
+    container.innerHTML = (globalThis.cssosSkeletonListMarkup
+      ? globalThis.cssosSkeletonListMarkup(6, T("Loading…", "加载中…"), "card")
+      : `<div class="cssos-tpl-empty">${T("Loading…", "加载中…")}</div>`);
     const j = await api(`/api/person-mv/templates?sort=${encodeURIComponent(sort)}&limit=40`);
     if (!j || !j.ok) {
       container.innerHTML = `<div class="cssos-tpl-empty">${T("Could not load templates.", "模板加载失败。")}</div>`;

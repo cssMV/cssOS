@@ -69,18 +69,23 @@
    a dark theme and white-on-cream text was invisible. Force a dark
    translucent card with light text so the panel reads correctly
    regardless of the parent's surface color. */
+/* CSSOS_WAVE_164 20260515 — Jing: "请换一种清爽的色调，请带上封面图".
+   Swapped the muddy dark-purple card for a clean cream + amber palette
+   that matches the 🎁 gift badge (Wave 135). When the work has no
+   cover image, fall back to a soft amber gradient with a centered 🎁
+   emoji instead of an empty dark square. */
 .gift-inbox-card {
-  border: 1px solid rgba(80, 60, 130, 0.18);
+  border: 1px solid rgba(220, 170, 70, 0.32);
   border-radius: 16px;
-  background: linear-gradient(180deg, rgba(26, 13, 46, 0.92), rgba(26, 13, 46, 0.86));
-  color: #f7f3ff;
+  background: linear-gradient(180deg, #fffaf0 0%, #fff5e0 100%);
+  color: #3a2a10;
   overflow: hidden;
-  box-shadow: 0 6px 24px rgba(26, 13, 46, 0.18);
+  box-shadow: 0 6px 24px rgba(180, 130, 40, 0.12);
 }
 .gift-inbox-header {
   display: flex; align-items: baseline; justify-content: space-between;
   padding: 14px 18px;
-  border-bottom: 1px solid rgba(247, 243, 255, 0.10);
+  border-bottom: 1px solid rgba(180, 130, 40, 0.14);
 }
 .gift-inbox-header > h3 {
   margin: 0;
@@ -88,11 +93,11 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: 600;
-  color: #f7f3ff;
+  color: #6a4a10;
 }
 .gift-inbox-header > .gift-inbox-meta {
-  font-size: 12px; opacity: 0.7;
-  color: #f7f3ff;
+  font-size: 12px; opacity: 0.75;
+  color: #8a6a20;
 }
 .gift-inbox-list {
   display: flex; flex-direction: column;
@@ -102,22 +107,27 @@
   padding: 12px 18px;
   cursor: pointer;
   transition: background 0.15s ease;
-  border-top: 1px solid rgba(247, 243, 255, 0.08);
-  color: #f7f3ff;
+  border-top: 1px solid rgba(180, 130, 40, 0.10);
+  color: #3a2a10;
 }
 .gift-inbox-row:first-child { border-top: 0; }
-.gift-inbox-row:hover { background: rgba(255, 255, 255, 0.06); }
+.gift-inbox-row:hover { background: rgba(255, 200, 90, 0.14); }
 .gift-inbox-cover {
   width: 56px; height: 56px; border-radius: 10px; flex: none;
-  background: linear-gradient(135deg, #ff7a59, #aa4cf0) center/cover no-repeat;
+  background: linear-gradient(135deg, #ffd28d 0%, #ffb060 100%) center/cover no-repeat;
   position: relative;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
 }
+.gift-inbox-cover.has-image { background-color: #fff5e0; }
+.gift-inbox-cover.has-image .gift-inbox-cover-emoji { display: none; }
 .gift-inbox-cover::after {
   /* Tiny dot in the corner when the gift hasn't been viewed yet. */
   content: ""; position: absolute; top: -3px; right: -3px;
   width: 10px; height: 10px; border-radius: 50%;
-  background: #ffd28d; box-shadow: 0 0 8px rgba(255, 210, 141, 0.7);
-  border: 2px solid var(--cssos-surface-2, #1a0d2e);
+  background: #ff8c42; box-shadow: 0 0 8px rgba(255, 140, 66, 0.7);
+  border: 2px solid #fffaf0;
 }
 .gift-inbox-row.is-viewed .gift-inbox-cover::after { display: none; }
 .gift-inbox-body {
@@ -126,19 +136,20 @@
 }
 .gift-inbox-title {
   font-size: 14px; font-weight: 600;
-  color: #f7f3ff;
+  color: #3a2a10;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .gift-inbox-meta-line {
-  font-size: 11px; opacity: 0.7;
+  font-size: 11px; opacity: 0.75;
   display: flex; gap: 8px;
+  color: #6a4a10;
 }
 .gift-inbox-trigger-pill {
   display: inline-block;
   padding: 1px 8px; border-radius: 999px;
   font-size: 10px; letter-spacing: 0.04em;
-  background: rgba(255, 122, 89, 0.18);
-  color: #ffb097;
+  background: rgba(255, 160, 60, 0.22);
+  color: #a55a00;
 }
 .gift-inbox-empty,
 .gift-inbox-loading,
@@ -261,21 +272,34 @@
   /** @param {HTMLElement} mount @param {GiftInboxItem[]} items */
   function renderList(mount, items) {
     if (!items.length) { renderEmpty(mount); return; }
-    const unviewed = items.filter((g) => !g.viewed_at).length;
+    // CSSOS_WAVE_164 — only count as "new" if unviewed AND delivered
+    // within the last 7 days. An 11-day-old welcome MV shouldn't keep
+    // shouting "1 new" forever.
+    const FRESH_MS = 7 * 86400000;
+    const now = Date.now();
+    const isFresh = (g) => {
+      if (g.viewed_at) return false;
+      const t = new Date(g.delivered_at || g.dispatched_at || 0).getTime();
+      return Number.isFinite(t) && t > 0 && (now - t) < FRESH_MS;
+    };
+    const unviewed = items.filter(isFresh).length;
+    const total = items.length;
     const headerMeta = unviewed > 0
       ? loginCopy(`${unviewed} new`, `${unviewed} 份未看`)
-      : loginCopy("all viewed", "全部已查看");
+      : loginCopy(`${total} ${total === 1 ? "gift" : "gifts"}`, `${total} 份礼物`);
     const rowsHtml = items
       .map((g) => {
         const cover = g.cover_image || g.preview_image_url || "";
-        const coverStyle = cover
-          ? `background: #1a0d2e center/cover no-repeat; background-image: url("${escapeHtml(cover)}");`
+        const hasImg = !!cover;
+        const coverStyle = hasImg
+          ? `background-image: url("${escapeHtml(cover)}");`
           : "";
+        const showDot = isFresh(g);
         return `
-          <div class="gift-inbox-row${g.viewed_at ? " is-viewed" : ""}"
+          <div class="gift-inbox-row${showDot ? "" : " is-viewed"}"
                data-gift-audit-id="${escapeHtml(g.audit_id)}"
                data-gift-work-id="${escapeHtml(g.work_id || "")}">
-            <div class="gift-inbox-cover" style="${coverStyle}"></div>
+            <div class="gift-inbox-cover${hasImg ? " has-image" : ""}" style="${coverStyle}"><span class="gift-inbox-cover-emoji">🎁</span></div>
             <div class="gift-inbox-body">
               <div class="gift-inbox-title">${escapeHtml(g.title || loginCopy("Untitled gift", "无题礼物"))}</div>
               <div class="gift-inbox-meta-line">
@@ -351,30 +375,53 @@
       work_type: "single",
       structure_role: "gift",
     };
-    // Hand off to the existing market-preview path.
-    try {
-      if (typeof globalThis.openMarketWorkPreview === "function") {
-        globalThis.openMarketWorkPreview(hydratedWork);
-        return;
-      }
-    } catch (_e) {}
-    // Fallback: nudge the watch panel directly with what we have.
-    try {
-      const watchVideo = document.getElementById("watch-video");
-      const watchPanel = document.getElementById("watch-panel");
-      if (watchVideo && hydratedWork.preview_video_url) {
-        watchVideo.src = hydratedWork.preview_video_url;
-        watchVideo.load?.();
-        watchVideo.play?.().catch(() => { /* autoplay may block */ });
-      }
-      if (watchPanel) {
-        watchPanel.classList.remove("hidden");
-        watchPanel.dataset.minimized = "false";
-      }
-      if (typeof globalThis.cssmvRenderMvArtTitle === "function" && hydratedWork.title) {
-        globalThis.cssmvRenderMvArtTitle(hydratedWork.title);
-      }
-    } catch (_e) { /* nothing else to do */ }
+    // CSSOS_WAVE_136 20260515 — Jing: "收件箱里的欢迎MV无法打开,或者
+    // 极难打开". Root cause: the old path handed openMarketWorkPreview a
+    // `hydratedWork` built from the INBOX ROW's cached fields. But after
+    // Wave 132 the gift is upgraded in the background — the real music /
+    // lyrics / slideshow land in work_assets + user_works, while the
+    // inbox row still carries the stale placeholder URLs (often empty).
+    // Result: blank watch frame → "can't open" / flaky.
+    //
+    // Fix: route through cssosOpenWorkById (Wave 121/126) — it fetches
+    // /api/works/public/:id for the CANONICAL data, binds the work-id
+    // contract (flushes stale caches), then opens. The hydratedWork is
+    // passed only as a last-resort fallback if the fetch fails.
+    // CSSOS_WAVE_164 — await cssosOpenWorkById so that if the
+    // canonical fetch rejects (gift works aren't always in the public
+    // market index), we can fall through to the hydrated-work path
+    // instead of silently failing.
+    (async () => {
+      try {
+        if (typeof globalThis.cssosOpenWorkById === "function") {
+          const ok = await globalThis.cssosOpenWorkById(workId, hydratedWork);
+          if (ok !== false) return;
+        }
+      } catch (_e) { /* fall through */ }
+      try {
+        if (typeof globalThis.cssosBindToWorkId === "function") {
+          globalThis.cssosBindToWorkId(hydratedWork);
+        }
+        if (typeof globalThis.openMarketWorkPreview === "function") {
+          globalThis.openMarketWorkPreview(hydratedWork);
+          return;
+        }
+      } catch (_e) {}
+      // Last-resort: open the watch panel directly with hydrated URLs.
+      try {
+        const watchVideo = document.getElementById("watch-video");
+        const watchPanel = document.getElementById("watch-panel");
+        if (watchVideo && hydratedWork.preview_video_url) {
+          watchVideo.src = hydratedWork.preview_video_url;
+          watchVideo.load?.();
+          watchVideo.play?.().catch(() => {});
+        }
+        if (watchPanel) {
+          watchPanel.classList.remove("hidden");
+          watchPanel.dataset.minimized = "false";
+        }
+      } catch (_e) {}
+    })();
   }
 
   async function fetchInbox() {

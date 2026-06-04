@@ -64,7 +64,7 @@
     modal.innerHTML = ''
       + '<div class="panel">'
       + '  <h2>📥 ' + escapeHtml(tr("Import your own lyrics or audio", "导入自定义歌词或音乐")) + '</h2>'
-      + '  <div class="tabs" data-segmented="2">'
+      + '  <div class="tabs" data-segmented="2" data-pill-bar>'
       + '    <button type="button" class="tab active" data-tab="lyrics">' + escapeHtml(tr("Lyrics", "歌词")) + '</button>'
       + '    <button type="button" class="tab" data-tab="audio">' + escapeHtml(tr("Audio file", "音频文件")) + '</button>'
       + '  </div>'

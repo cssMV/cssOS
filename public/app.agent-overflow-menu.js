@@ -40,6 +40,9 @@
          selector let the 🪲 ladybug keep floating on the bottom-left
          despite W135's intent. */
       "#cssos-bug-fab,#cssos-crash-fab,#cssos-crash-dash-btn{display:none!important;}",
+      // CSSOS_WAVE_595 — 仅 DM 💌 与 内存监控 🧠 收进 ⋯ 菜单 → 隐藏这两个浮标。
+      // (版本/主题两个小面板 Jing 要求保留, 不隐藏。)
+      "#cssos-dm-stub-btn,#cssos-pmm-fab{display:none!important;}",
       ".cssos-agent-overflow-menu{position:absolute;top:48px;right:12px;background:#0f1219;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:6px 0;z-index:10001;min-width:200px;box-shadow:0 8px 24px rgba(0,0,0,0.4);}",
       ".cssos-agent-overflow-menu[hidden]{display:none;}",
       ".cssos-agent-overflow-menu .item{display:flex;align-items:center;gap:8px;padding:9px 14px;font:500 13px/1.2 -apple-system,system-ui,sans-serif;color:#e6e8ee;cursor:pointer;border:0;background:transparent;width:100%;text-align:left;}",
@@ -96,9 +99,16 @@
           + '</button>'
         : '',
       '<hr/>',
-      '<button class="item disabled" data-act="dm" title="W136">'
-        + '<span class="glyph">📩</span><span>' + esc(tr("Direct messages (coming soon)", "私信（即将上线）")) + '</span>'
+      // CSSOS_WAVE_594 — DM 💌 入口整合进来(原右上角浮标已隐藏), 启用。
+      '<button class="item" data-act="dm-open">'
+        + '<span class="glyph">💌</span><span>' + esc(tr("Direct messages", "私信")) + '</span>'
         + '</button>',
+      // CSSOS_WAVE_594 — 内存监控 🧠(admin) 整合进来(原右上角浮标已隐藏)。
+      admin
+        ? '<button class="item" data-act="mem-monitor">'
+          + '<span class="glyph">🧠</span><span>' + esc(tr("Panel memory monitor", "面板内存监控")) + '</span>'
+          + '</button>'
+        : '',
     ].filter(Boolean).join("");
 
     menu.addEventListener("click", function (e) {
@@ -125,6 +135,13 @@
         var crashFab = document.getElementById("cssos-crash-dash-btn")
           || document.getElementById("cssos-crash-fab");
         if (crashFab && typeof crashFab.click === "function") crashFab.click();
+      } else if (act === "dm-open") {
+        // CSSOS_WAVE_594 — 转发到隐藏的 DM 浮标(保留其按需加载逻辑); 兜底直接设 #dm。
+        var dmb = document.getElementById("cssos-dm-stub-btn");
+        if (dmb && typeof dmb.click === "function") dmb.click();
+        else { try { location.hash = "#dm"; } catch (_e) {} }
+      } else if (act === "mem-monitor") {
+        if (typeof globalThis.cssosOpenPanelMemoryMonitor === "function") globalThis.cssosOpenPanelMemoryMonitor();
       }
     });
   }

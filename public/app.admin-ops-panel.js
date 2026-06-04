@@ -238,7 +238,9 @@ html[data-theme="light"] #cssos-admin-ops-card .ao-fail{color:#a82424;}
   async function loadCrashReport() {
     const el = document.getElementById("cssos-admin-crash-body");
     if (!el) return;
-    el.innerHTML = `<div class="ao-status">${esc(tr("Loading…", "加载中…"))}</div>`;
+    el.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+      ? globalThis.cssosSkeletonRowsMarkup(4, tr("Loading…", "加载中…"))
+      : `<div class="ao-status">${esc(tr("Loading…", "加载中…"))}</div>`);
     try {
       const r = await fetch("/api/admin/crash-log/report?hours=48", { credentials: "include" });
       const j = await r.json();

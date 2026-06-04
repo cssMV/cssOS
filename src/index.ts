@@ -29,7 +29,7 @@ import { getDatabaseUrl, getPool, withClient } from "./db";
 import { runMigrations } from "./db/migrate";
 import { rateLimitCheck, rateLimitCleanup } from "./lib/rate-limit";
 import { optimizeAndUploadAsync } from "./storage/image-optimize";
-import { uploadToR2Async } from "./storage/r2";
+import { uploadToR2Async, uploadToR2, r2Enabled, uploadBufferToR2, downloadJsonFromR2, r2PublicUrl } from "./storage/r2";
 import {
   inferStructureTreeFromSongSeed,
   normalizeStructuredWorkType,
@@ -631,6 +631,51 @@ const CSSOS_INTERNAL_TOKEN = (
   process.env.CSSOS_INTERNAL_TOKEN || ""
 ).trim();
 const RUST_MV_HOST = (process.env.RUST_MV_HOST || "127.0.0.1").trim();
+
+// CSSOS_WAVE_444 20260525 — Jing「铁律：屏幕宽高比」
+// IRON RULE: NEVER output 16:9 or 9:16 (stretched).
+//   Desktop / landscape → Anamorphic 2.39:1 (classic cinema scope)
+//   Mobile  / portrait  → Phone Fullscreen device-fit (9:19.5 ≈ 1170×2532)
+//
+// All image/video/ffmpeg generation paths use these constants.
+// Provider-specific rounding happens inside callImageGen / callVideoGen.
+const CINEMA_LANDSCAPE = Object.freeze({
+  key:     "2.39:1",
+  w:       1920,
+  h:       804,               // 1920/804 = 2.388 ≈ 2.39:1 — divisible by 4
+  size:    "1920x804",        // passed to callImageGen
+  ffmpeg:  "1920:804",        // used in scale/pad ffmpeg filters
+  framing: "ultra-wide anamorphic 2.39:1 cinematic composition, subject framed for widescreen scope, " +
+           "environment visible on both sides, horizontal letterbox bars absent, " +
+           "classic cinema aspect ratio",
+  label:   "Anamorphic 2.39:1",
+});
+const PHONE_FULLSCREEN = Object.freeze({
+  key:     "9:19.5",
+  w:       1170,
+  h:       2532,              // matches iPhone 12-14 native (1170×2532)
+  size:    "1170x2532",
+  ffmpeg:  "1170:2532",
+  framing: "phone fullscreen device-fit portrait composition, " +
+           "fills device screen edge-to-edge without letterboxing, " +
+           "subject centred head-to-torso, face clearly visible, no half-face crop",
+  label:   "Phone Fullscreen (device-fit)",
+});
+// Master aspect-ratio → pixel-size map used by every endpoint.
+// "16:9" and "9:16" entries are kept for backward compat with older
+// clients but redirect to the correct cinema/phone sizes.
+const ASPECT_SIZE_MAP: Record<string, string> = {
+  "2.39:1": CINEMA_LANDSCAPE.size,
+  "anamorphic": CINEMA_LANDSCAPE.size,
+  "9:19.5": PHONE_FULLSCREEN.size,
+  "device-fit": PHONE_FULLSCREEN.size,
+  // Legacy keys — remap to compliant sizes rather than 16:9/9:16 pixels
+  "16:9":  CINEMA_LANDSCAPE.size,   // desktop legacy → cinema
+  "9:16":  PHONE_FULLSCREEN.size,   // mobile legacy → device-fit
+  "1:1":   "1080x1080",
+  "21:9":  "2520x1080",
+  "4:5":   "1080x1350",
+};
 const RUST_MV_PORT = Number(process.env.RUST_MV_PORT || 8081);
 // Runway video can take a while; give the pipeline plenty of headroom.
 const MV_PROXY_TIMEOUT_MS = Number(
@@ -818,14 +863,32 @@ type MvLanguage = { code: string; native: string; en: string };
 // a JSON array). Both are merged on top of this base, deduped by code.
 // Shape: [{ "code": "it", "native": "Italiano", "en": "Italian" }, …]
 const MV_BASE_LANGUAGES: ReadonlyArray<MvLanguage> = [
-  { code: "en", native: "English", en: "English" },
-  { code: "zh", native: "中文", en: "Chinese" },
-  { code: "ja", native: "日本語", en: "Japanese" },
-  { code: "ko", native: "한국어", en: "Korean" },
-  { code: "fr", native: "Français", en: "French" },
-  { code: "de", native: "Deutsch", en: "German" },
-  { code: "es", native: "Español", en: "Spanish" },
-  { code: "pt", native: "Português", en: "Portuguese" },
+  { code: "en",  native: "English",    en: "English" },
+  { code: "zh",  native: "中文",       en: "Chinese" },
+  { code: "ja",  native: "日本語",     en: "Japanese" },
+  { code: "ko",  native: "한국어",     en: "Korean" },
+  { code: "fr",  native: "Français",   en: "French" },
+  { code: "de",  native: "Deutsch",    en: "German" },
+  { code: "es",  native: "Español",    en: "Spanish" },
+  { code: "pt",  native: "Português",  en: "Portuguese" },
+  // CSSOS_WAVE_433 20260525 — languages driven by civilization linkage
+  { code: "el",  native: "Ελληνικά",   en: "Greek" },
+  { code: "la",  native: "Latina",     en: "Latin" },
+  { code: "ar",  native: "العربية",    en: "Arabic" },
+  { code: "fa",  native: "فارسی",      en: "Persian" },
+  { code: "peo", native: "𐎠𐎭𐎷𐎴𐎡𐎹", en: "Old Persian (Achaemenid cuneiform)" },
+  { code: "sa",  native: "संस्कृतम्",  en: "Sanskrit" },
+  { code: "hi",  native: "हिन्दी",     en: "Hindi" },
+  { code: "ru",  native: "Русский",    en: "Russian" },
+  { code: "it",  native: "Italiano",   en: "Italian" },
+  { code: "tr",  native: "Türkçe",     en: "Turkish" },
+  { code: "he",  native: "עברית",      en: "Hebrew" },
+  { code: "is",  native: "Íslenska",   en: "Icelandic" },
+  { code: "sv",  native: "Svenska",    en: "Swedish" },
+  { code: "sw",  native: "Kiswahili",  en: "Swahili" },
+  { code: "vi",  native: "Tiếng Việt", en: "Vietnamese" },
+  { code: "bo",  native: "བོད་སྐད་",   en: "Tibetan" },
+  { code: "ur",  native: "اردو",       en: "Urdu" },
 ];
 function loadMvLanguages(): MvLanguage[] {
   const merged = new Map<string, MvLanguage>();
@@ -923,15 +986,24 @@ app.post("/api/mv/language-tracks/quote", express.json({ limit: "4kb" }), async 
     });
   }
   const raw = Array.isArray(req.body?.languages) ? req.body.languages : [];
-  const supported = mvSupportedLanguageCodes();
+  // CSSOS_WAVE_412 20260524 — Jing「只有第一音轨免费，2+ 收费」: do NOT drop codes
+  // that aren't in the 8-language base catalog. A persona's mother tongue (e.g.
+  // Sanskrit `sa`, Greek `el`, Latin `la`) is injected client-side (W404) and is
+  // a real, generatable track — it MUST occupy the free first slot. Previously
+  // the `supported.has(code)` filter silently discarded it, so the first PAID
+  // language (English) slid into the free slot → "太大方还免费". Now we count any
+  // distinct, well-formed language code; the first is free, every extra is paid.
   const seen = new Set<string>();
   const languages: string[] = [];
   for (const item of raw) {
     const code = String(item || "").trim().toLowerCase();
-    if (supported.has(code) && !seen.has(code)) {
+    // accept ISO-ish codes / mother-tongue codes (letters, optional region),
+    // 2–12 chars; just enough validation to keep junk out of the billing count.
+    if (/^[a-z]{2,12}(-[a-z0-9]{2,8})?$/.test(code) && !seen.has(code)) {
       seen.add(code);
       languages.push(code);
     }
+    if (languages.length >= 16) break; // sane upper bound
   }
   const freeFirst = req.body?.free_first === false ? false : true;
   const quote = quoteMvLanguageTracks(languages.length, freeFirst);
@@ -961,6 +1033,12 @@ const MV_LANG_TRACK_CONCURRENCY = Math.max(
 const MV_LANG_TRACK_MAX_RETRIES = Math.max(
   0, Number(process.env.MV_LANG_TRACK_MAX_RETRIES || 4),
 );
+// CSSOS_WAVE_587 20260531 — Jing「语言×声线二维交叉会产生很多版本; 每次输出不能超过
+// 服务器算力能承受的范围, 必须定个数」。决定: 单次提交最多 5 个新 cell(语言或声线),
+// 管线同时真正在跑 ≤ MV_LANG_TRACK_CONCURRENCY(=2)。两道闸: 这里卡批量, mvLangAcquire 卡并发。
+const MV_TRACK_MAX_BATCH = Math.max(
+  1, Number(process.env.MV_TRACK_MAX_BATCH || 5),
+);
 let _mvLangInFlight = 0;
 const _mvLangWaiters: Array<() => void> = [];
 async function mvLangAcquire(): Promise<void> {
@@ -980,23 +1058,576 @@ async function transcreateLyrics(
   baseLyrics: string, fromLangHint: string, toLang: string,
 ): Promise<string> {
   const langName = (mvSupportedLanguages().find((l) => l.code === toLang)?.en) || toLang;
+  // CSSOS_WAVE_582 20260531 — Jing 铁律「加语言 = 用该语言【全新创作】, 不是翻译」:
+  // 保留原作的意境/情感/主题/叙事, 但用目标语言的【母语诗人思维】从头写一首歌 ——
+  // 遵循该语言自己的韵律体系、押韵格式、自然断句、惯用意象与文化语感; 绝不逐字直译、
+  // 绝不保留来源语言的语法腔。结构(段落/大致行数)可为该语言的歌唱自然而适度调整。
   const sys =
-    "You are a master lyricist doing TRANSCREATION (singable adaptation), " +
-    "NOT literal translation. Re-write the song lyrics so they can be SUNG " +
-    "naturally in " + langName + ": preserve the emotional meaning, imagery, " +
-    "and section structure (keep the same number of lines per section), make " +
-    "it rhyme and scan for singing in " + langName + ". Output ONLY the " +
-    "re-sung lyrics text — no notes, no language labels, no romanization.";
+    "You are a NATIVE master songwriter and poet writing ORIGINAL song lyrics in " + langName + ". " +
+    "You are NOT a translator. A user gives you an existing song in another language; your job is to " +
+    "WRITE A BRAND-NEW SONG in " + langName + " that captures the SAME mood, theme, emotional arc, " +
+    "imagery and story — but composed natively, as if a great " + langName + " songwriter wrote it from scratch. " +
+    "STRICT RULES: (1) Think and compose in " + langName + " — never word-for-word translate, never carry over " +
+    "the source language's grammar, idioms, or phrasing. (2) Obey " + langName + "'s OWN prosody, natural rhythm, " +
+    "syllable/meter conventions and rhyme system (use the rhyme scheme native singers actually use in " + langName + "). " +
+    "(3) Use idioms, metaphors and cultural references that feel native to " + langName + " speakers. " +
+    "(4) It must RHYME and SCAN so it can be SUNG naturally. (5) Keep the section structure (Verse/Chorus/etc.) and " +
+    "roughly the same line count per section, but adjust wording freely for natural, beautiful " + langName + ". " +
+    "Output ONLY the finished " + langName + " lyrics — no notes, no translations, no language labels, no romanization.";
+  // CSSOS_WAVE_433 — premium models only (cheap models translate literally / break non-Latin scripts).
   const result = await callLlm({
     messages: [
       { role: "system", content: sys },
-      { role: "user", content: "Original lyrics (source language: " + (fromLangHint || "auto") + "):\n\n" + baseLyrics.slice(0, 6000) },
+      { role: "user", content:
+        "Here is the existing song (source language: " + (fromLangHint || "auto") + "). " +
+        "Absorb its meaning, mood and imagery, then WRITE A NEW NATIVE " + langName + " SONG that conveys the same — " +
+        "do not translate it line by line:\n\n" + baseLyrics.slice(0, 6000) },
     ],
-    max_tokens: 1200,
-    temperature: 0.85,
+    max_tokens: 1400,
+    temperature: 0.95,
+    prefer: ["anthropic", "openai"],
   });
   if (!result.ok) throw new Error("transcreate_llm_failed: " + (result.error || ""));
   return result.content.trim();
+}
+
+// ── CSSOS_WAVE_440 20260525 — Jing「两个JSON文件·情绪字幕架构」────────────────
+//
+// TWO files per work on cdn.cssstudio.app:
+//
+//   works/{workId}/lyrics.json          — 生歌词 (raw, from LLM / lyrics engine)
+//                                         ALL languages, append-on-new-track
+//   works/{workId}/subtitle-take1.json  — 熟字幕 (cooked, per-char timestamps
+//   works/{workId}/subtitle-take2.json    + emotion from Whisper+LLM)
+//                                         ALL languages, append-on-new-track
+//
+// DB (user_works): three new columns store the CDN URLs:
+//   lyrics_json_url, subtitle_take1_json_url, subtitle_take2_json_url
+//
+// "生歌词" = what the LLM wrote (sections + lines, no timing).
+// "熟字幕" = what the music contains (per-char timestamps, emotion,
+//             volume, beat — Phase 1: Whisper + LLM emotion; Phase 2:
+//             Python beat/volume/pitch service).
+//
+// Design principles:
+//   • Append, never replace — each new language is added to the existing file.
+//   • Per-workId mutex prevents race conditions when multiple tracks finish
+//     concurrently.
+//   • CacheControl: short TTL (60s) so front-end sees new languages quickly.
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface LyricsSection { tag: string; lines: string[]; }
+interface LyricsJsonLang {
+  lang: string; is_native: boolean; title: string; sections: LyricsSection[];
+}
+interface LyricsJson {
+  v: 1; work_id: string; updated_at: string; languages: LyricsJsonLang[];
+}
+
+interface SubToken {
+  char: string;
+  t_start: number;   // ms — 0 = unknown (Phase 1 placeholder)
+  t_end: number;     // ms
+  beat: number | null;           // Phase 2
+  beat_strength: string | null;  // Phase 2: "strong"|"weak"|"off-beat"|"syncopated"
+  rhythm: string | null;         // Phase 2
+  volume: number | null;         // Phase 2: 0.0–1.0 RMS
+  pitch_hz: number | null;       // Phase 2
+  emotion: string;               // Phase 1: LLM-annotated from lyrics context
+  emotion_intensity: number;     // 0.0–1.0
+}
+interface SubLine {
+  text: string; t_start: number; t_end: number; tokens: SubToken[];
+}
+interface SubSection {
+  tag: string; t_start: number; t_end: number; emotion: string; lines: SubLine[];
+}
+interface SubJsonLang {
+  lang: string; analyzed_at: string; sections: SubSection[];
+}
+interface SubtitleJson {
+  v: 1; work_id: string; take: number; updated_at: string; languages: SubJsonLang[];
+}
+
+// ── Per-workId write mutex (prevent concurrent append races) ──────────────────
+const _jsonMutexChain = new Map<string, Promise<void>>();
+async function withJsonMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = _jsonMutexChain.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const lock = new Promise<void>((r) => { release = r; });
+  _jsonMutexChain.set(key, prev.then(() => lock, () => lock));
+  await prev.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (_jsonMutexChain.get(key) === lock) _jsonMutexChain.delete(key);
+  }
+}
+
+// ── Parse raw lyrics text → sections/lines ────────────────────────────────────
+function parseLyricsToSections(text: string): LyricsSection[] {
+  const sections: LyricsSection[] = [];
+  let tag = "";
+  let lines: string[] = [];
+  for (const raw of text.split("\n")) {
+    const m = raw.match(/^\[(.+?)\]/);
+    if (m) {
+      if (tag) sections.push({ tag, lines: lines.filter((l) => l.trim()) });
+      tag = (m[1] ?? "").trim();
+      lines = [];
+    } else {
+      lines.push(raw);
+    }
+  }
+  if (tag) sections.push({ tag, lines: lines.filter((l) => l.trim()) });
+  // If no section tags found, treat whole text as one unlabelled section
+  if (!sections.length && text.trim()) {
+    sections.push({ tag: "Verse 1", lines: text.split("\n").filter((l) => l.trim()) });
+  }
+  return sections;
+}
+
+// ── LLM emotion annotation (per section, Phase 1 substitute for audio ML) ────
+interface EmoAnnotation { tag: string; emotion: string; intensity: number; peak_chars: string[]; }
+async function annotateEmotions(sections: LyricsSection[], lang: string): Promise<EmoAnnotation[]> {
+  try {
+    const preview = sections.map((s) =>
+      `[${s.tag}]\n${s.lines.slice(0, 3).join("\n")}`).join("\n\n").slice(0, 2000);
+    const result = await callLlm({
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a music emotion analyst. Given song lyric sections, return a JSON array.\n" +
+            "For EACH section return: {\"tag\":\"...\",\"emotion\":\"...\",\"intensity\":0.0,\"peak_chars\":[\"...\"]}\n" +
+            "Emotions (pick one): joy | melancholy | intense | tender | ecstatic | longing | " +
+            "triumphant | haunting | serene | grief | rage | hope\n" +
+            "peak_chars: up to 4 words/chars carrying the most emotion in that section.\n" +
+            "Return ONLY valid JSON array, no other text.",
+        },
+        { role: "user", content: `Language: ${lang}\n\n${preview}` },
+      ],
+      max_tokens: 600,
+      temperature: 0.2,
+      prefer: ["anthropic", "openai"],
+    });
+    if (!result.ok) return [];
+    const raw = result.content.trim();
+    const jsonStr = raw.startsWith("[") ? raw : (raw.match(/\[[\s\S]*\]/)?.[0] ?? "[]");
+    return JSON.parse(jsonStr) as EmoAnnotation[];
+  } catch {
+    return [];
+  }
+}
+
+// ── Build subtitle token list from Whisper timeline + emotion annotations ─────
+//
+// Strategy (Phase 1):
+//   1. Flatten lyric lines → ordered "lyric units" (words for Latin, chars for CJK/Arab).
+//   2. Flatten Whisper timeline → ordered timed tokens.
+//   3. Sequential assignment: unit[i] ← whisper[i] (proportional fallback for overflow).
+//   4. Group back into sections/lines with t_start/t_end derived from their tokens.
+//
+function buildSubtitleSections(
+  lyrics: string,
+  whisperTimeline: Array<{ word: string; start: number; end: number }> | null | undefined,
+  emoAnnotations: EmoAnnotation[],
+): SubSection[] {
+  const sections = parseLyricsToSections(lyrics);
+  const emoMap = new Map<string, EmoAnnotation>(
+    emoAnnotations.map((e) => [e.tag.toLowerCase().trim(), e]),
+  );
+
+  // Helper: is this language char-level (CJK/Arabic/Devanagari etc.)
+  const isCjkChar = (c: string) =>
+    /[一-鿿぀-ヿ가-힯؀-ۿऀ-ॿͰ-Ͽ]/.test(c);
+
+  // Flatten all lyric units in order, tracking their origin
+  type LUnit = { text: string; sIdx: number; lIdx: number; };
+  const units: LUnit[] = [];
+  sections.forEach((sec, si) =>
+    sec.lines.forEach((line, li) => {
+      if (!line.trim()) return;
+      // Use char-level if line contains CJK/Arabic, else word-level
+      const hasCjk = [...line].some(isCjkChar);
+      if (hasCjk) {
+        [...line].forEach((ch) => { if (ch.trim()) units.push({ text: ch, sIdx: si, lIdx: li }); });
+      } else {
+        line.split(/\s+/).forEach((w) => { if (w) units.push({ text: w, sIdx: si, lIdx: li }); });
+      }
+    }),
+  );
+
+  // Normalize Whisper tokens (seconds → ms, strip leading space)
+  const wt = (whisperTimeline ?? []).map((w) => ({
+    text: (w.word ?? "").replace(/^\s+/, ""),
+    t0: Math.round((w.start ?? 0) * 1000),
+    t1: Math.round((w.end ?? 0) * 1000),
+  })).filter((w) => w.text);
+
+  // Sequential match: pair units[i] ↔ wt[i]. For overflow units use linear interpolation.
+  const paired: Array<{ text: string; t0: number; t1: number }> = units.map((u, i) => {
+    const wti = wt[i];
+    if (i < wt.length && wti) {
+      return { text: u.text, t0: wti.t0, t1: wti.t1 };
+    }
+    const last = wt.length > 0 ? (wt[wt.length - 1]?.t1 ?? 0) : 0;
+    const gap = 300;
+    return { text: u.text, t0: last + gap * (i - wt.length), t1: last + gap * (i - wt.length + 1) };
+  });
+
+  // Re-group into SubSection/SubLine/SubToken
+  const result: SubSection[] = sections.map((sec, si) => {
+    const emo = emoMap.get(sec.tag.toLowerCase().trim())
+      ?? { emotion: "neutral", intensity: 0.5, peak_chars: [] };
+    const peakSet = new Set((emo.peak_chars ?? []).map((c) => c.toLowerCase()));
+
+    const lines: SubLine[] = sec.lines.filter((l) => l.trim()).map((_line, li) => {
+      const lineUnits = units
+        .map((u, i) => ({ u, i }))
+        .filter(({ u }) => u.sIdx === si && u.lIdx === li);
+      const tokens: SubToken[] = lineUnits.map(({ i }) => {
+        const p = paired[i] ?? { text: "", t0: 0, t1: 0 };
+        const isPeak = peakSet.has(p.text.toLowerCase());
+        return {
+          char: p.text,
+          t_start: p.t0,
+          t_end: p.t1,
+          beat: null,
+          beat_strength: null,
+          rhythm: null,
+          volume: null,
+          pitch_hz: null,
+          emotion: emo.emotion,
+          emotion_intensity: isPeak ? Math.min(1, (emo.intensity ?? 0.5) + 0.3) : (emo.intensity ?? 0.5),
+        };
+      });
+      return {
+        text: _line,
+        t_start: tokens[0]?.t_start ?? 0,
+        t_end: tokens[tokens.length - 1]?.t_end ?? 0,
+        tokens,
+      };
+    });
+
+    return {
+      tag: sec.tag,
+      t_start: lines[0]?.t_start ?? 0,
+      t_end: lines[lines.length - 1]?.t_end ?? 0,
+      emotion: emo.emotion,
+      lines,
+    };
+  });
+
+  return result;
+}
+
+// ── Upsert lyrics.json on R2 (append or create) ───────────────────────────────
+async function upsertLyricsJson(
+  workId: string,
+  lang: string,
+  isNative: boolean,
+  title: string,
+  lyrics: string,
+): Promise<string | null> {
+  if (!r2Enabled()) return null;
+  const remotePath = `works/${workId}/lyrics.json`;
+  return withJsonMutex(`lyrics:${workId}`, async () => {
+    // Fetch existing (or start fresh)
+    let doc = (await downloadJsonFromR2(remotePath)) as LyricsJson | null;
+    if (!doc || doc.v !== 1) {
+      doc = { v: 1, work_id: workId, updated_at: new Date().toISOString(), languages: [] };
+    }
+    // Remove existing entry for this lang (will be replaced)
+    doc.languages = doc.languages.filter((l) => l.lang !== lang);
+    // Parse raw lyrics into sections
+    const sections = parseLyricsToSections(lyrics);
+    doc.languages.push({ lang, is_native: isNative, title, sections });
+    // Sort: native first, then by lang code
+    doc.languages.sort((a, b) =>
+      a.is_native === b.is_native ? a.lang.localeCompare(b.lang) : a.is_native ? -1 : 1,
+    );
+    doc.updated_at = new Date().toISOString();
+    const buf = Buffer.from(JSON.stringify(doc), "utf-8");
+    const url = await uploadBufferToR2(buf, remotePath, "application/json");
+    if (url) {
+      // Persist URL back to user_works
+      await withClient((c) => c.query(
+        `UPDATE user_works SET lyrics_json_url=$2, updated_at=now() WHERE id=$1::uuid`,
+        [workId, url],
+      )).catch(() => {});
+    }
+    return url;
+  });
+}
+
+// ── Upsert subtitle-take{n}.json on R2 (append or create) ─────────────────────
+async function upsertSubtitleJson(
+  workId: string,
+  lang: string,
+  take: 1 | 2,
+  sections: SubSection[],
+): Promise<string | null> {
+  if (!r2Enabled()) return null;
+  const remotePath = `works/${workId}/subtitle-take${take}.json`;
+  return withJsonMutex(`subtitle:${workId}:take${take}`, async () => {
+    let doc = (await downloadJsonFromR2(remotePath)) as SubtitleJson | null;
+    if (!doc || doc.v !== 1) {
+      doc = { v: 1, work_id: workId, take, updated_at: new Date().toISOString(), languages: [] };
+    }
+    doc.languages = doc.languages.filter((l) => l.lang !== lang);
+    doc.languages.push({ lang, analyzed_at: new Date().toISOString(), sections });
+    doc.updated_at = new Date().toISOString();
+    const buf = Buffer.from(JSON.stringify(doc), "utf-8");
+    const url = await uploadBufferToR2(buf, remotePath, "application/json");
+    if (url) {
+      const col = take === 1 ? "subtitle_take1_json_url" : "subtitle_take2_json_url";
+      await withClient((c) => c.query(
+        `UPDATE user_works SET ${col}=$2, updated_at=now() WHERE id=$1::uuid`,
+        [workId, url],
+      )).catch(() => {});
+    }
+    return url;
+  });
+}
+
+// ── CSSOS_WAVE_441 20260525 — Python audio analysis integration ───────────────
+//
+// After Whisper gives us word timestamps, call the Python service at
+// localhost:7891/analyze to enrich each token with:
+//   beat, beat_strength, rhythm  (librosa beat_track)
+//   volume                       (RMS per word window)
+//   pitch_hz                     (pyin fundamental frequency)
+//
+// If the service is unavailable (not yet installed, or crashed), we silently
+// fall back to Phase 1 data (emotion only, nulls for beat/volume/pitch).
+// This makes the service completely optional and zero-downtime.
+
+const AUDIO_ANALYSIS_URL =
+  `http://127.0.0.1:${process.env.AUDIO_ANALYSIS_PORT || 7891}`;
+
+// Enrich a Whisper timeline via the Python audio analysis service.
+// Returns an enriched token array or null if service unavailable.
+async function enrichTimelineViaAudioAnalysis(
+  audioUrl: string,
+  timeline: Array<{ word: string; start: number; end: number }>,
+): Promise<Array<{
+  word: string; t_start: number; t_end: number;
+  beat: number | null; beat_strength: string | null; rhythm: string | null;
+  volume: number | null; pitch_hz: number | null;
+}> | null> {
+  if (!audioUrl || !timeline.length) return null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 120_000); // 2 min max
+    const resp = await fetch(`${AUDIO_ANALYSIS_URL}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio_url: audioUrl, timeline }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const data = await resp.json() as { ok: boolean; tokens?: any[] };
+    if (!data.ok || !Array.isArray(data.tokens)) return null;
+    return data.tokens;
+  } catch {
+    // Service not running or timed out — Phase 1 fallback
+    return null;
+  }
+}
+
+// Merge audio-analysis enrichment into subtitle sections built in Phase 1.
+// For each token, if the Python service returned data for that word index,
+// overwrite the null fields: beat, beat_strength, rhythm, volume, pitch_hz.
+function mergeAudioEnrichment(
+  sections: SubSection[],
+  enriched: Array<{
+    word: string; t_start: number; t_end: number;
+    beat: number | null; beat_strength: string | null; rhythm: string | null;
+    volume: number | null; pitch_hz: number | null;
+  }>,
+): SubSection[] {
+  if (!enriched.length) return sections;
+  // Flatten all tokens across sections/lines to match sequentially
+  let idx = 0;
+  return sections.map((sec) => ({
+    ...sec,
+    lines: sec.lines.map((line) => ({
+      ...line,
+      tokens: line.tokens.map((tok) => {
+        const e = enriched[idx++];
+        if (!e) return tok;
+        return {
+          ...tok,
+          // Timestamps from audio analysis are more precise than Whisper → update
+          t_start: e.t_start ?? tok.t_start,
+          t_end:   e.t_end   ?? tok.t_end,
+          beat:          e.beat,
+          beat_strength: e.beat_strength,
+          rhythm:        e.rhythm,
+          volume:        e.volume,
+          pitch_hz:      e.pitch_hz,
+        };
+      }),
+    })),
+  }));
+}
+
+// ── End CSSOS_WAVE_441 ─────────────────────────────────────────────────────────
+
+// ── CSSOS_WAVE_587 — RVC 声纹库 + 换嗓(同旋律/时值/歌词, 只换音色)──────────────
+// voice_id → 训练好的 RVC v2 模型(.zip URL)。文件 /srv/cssos/shared/rvc-voices.json
+// 可热加(加通用声线 / 用户个人声纹无需改代码)。jing = 创始人声线(内置, 免费)。
+// pitch: 显式 pitch_change 覆盖(no-change/female-to-male/male-to-female); semitones: pitch_change_all 整体升降调
+// (如 Jing 男高音 = 同声纹 + semitones:+3)。
+type RvcVoice = { model_url: string; gender?: "m" | "f" | "child" | undefined; pitch?: string | undefined; semitones?: number | undefined };
+function loadRvcVoices(): Record<string, RvcVoice> {
+  const base: Record<string, RvcVoice> = {
+    jing: { model_url: "https://cssstudio.app/artifacts/mv/rvc_model_jing_voice.zip", gender: "m" },
+  };
+  try {
+    const p = process.env.RVC_VOICES_FILE || "/srv/cssos/shared/rvc-voices.json";
+    if (fs.existsSync(p)) Object.assign(base, JSON.parse(fs.readFileSync(p, "utf8")) || {});
+  } catch (e) { console.warn("[rvc-voices] load skipped:", e instanceof Error ? e.message : String(e)); }
+  return base;
+}
+// zsxkib/realistic-voice-cloning(AICoverGen): 内部分离伴奏→RVC换音色→混音, 一个端点全包。
+const REPLICATE_RVC_COVER_VERSION = "0a9c7c558af4c0f20667c1bd1260ce32a2879944a0b9e44e1398660c077b1550";
+function rvcPitchChange(origin: string | undefined, target: "m" | "f" | "child" | undefined): string {
+  const og = /^m/i.test(String(origin)) ? "m" : "f";   // 原唱性别(默认按女声)
+  const tg = target === "m" ? "m" : "f";               // 目标声纹性别(child 当 f)
+  if (og === tg) return "no-change";
+  return og === "f" ? "female-to-male" : "male-to-female";
+}
+async function callRvcCover(opts: { songUrl: string; modelUrl: string; pitchChange: string; pitchChangeAll?: number | undefined }):
+  Promise<{ ok: boolean; audio_url?: string; error?: string }> {
+  const tok = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim();
+  if (!tok) return { ok: false, error: "no_replicate_key" };
+  const hdr = { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" };
+  let id = "";
+  try {
+    const input: Record<string, unknown> = {
+      song_input: opts.songUrl, rvc_model: "CUSTOM", custom_rvc_model_download_url: opts.modelUrl,
+      pitch_change: opts.pitchChange, pitch_detection_algorithm: "rmvpe", output_format: "mp3",
+    };
+    if (Number.isFinite(opts.pitchChangeAll) && opts.pitchChangeAll !== 0) input.pitch_change_all = opts.pitchChangeAll;
+    const r = await fetch("https://api.replicate.com/v1/predictions", {
+      method: "POST", headers: hdr,
+      body: JSON.stringify({ version: REPLICATE_RVC_COVER_VERSION, input }),
+    });
+    const j: any = await r.json().catch(() => null);
+    if (!r.ok || !j?.id) return { ok: false, error: `rvc_submit_${r.status}` };
+    id = String(j.id);
+  } catch (e) { return { ok: false, error: `rvc_net_${(e as Error)?.message}` }; }
+  const deadline = Date.now() + 420_000;
+  while (Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, 6000));
+    try {
+      const st = await fetch(`https://api.replicate.com/v1/predictions/${id}`, { headers: hdr });
+      const j: any = await st.json().catch(() => null);
+      const status = String(j?.status || "");
+      if (status === "succeeded" && j?.output) return { ok: true, audio_url: String(j.output) };
+      if (status === "failed" || status === "canceled") return { ok: false, error: `rvc_${status}` };
+    } catch { /* keep polling */ }
+  }
+  return { ok: false, error: "rvc_timeout" };
+}
+
+// CSSOS_WAVE_587 — 解析声纹: 先查静态库(通用/创始人 jing), 再查 user_voice_models(个人声纹)。
+async function resolveRvcVoice(voice: string): Promise<RvcVoice | undefined> {
+  const v = String(voice || "").trim();
+  if (!v) return undefined;
+  const stat = loadRvcVoices()[v];
+  if (stat) return stat;
+  try {
+    const r = await withClient((c) => c.query<{ model_url: string; gender: string }>(
+      `SELECT model_url, gender FROM user_voice_models WHERE voice_key=$1 AND status='ready' AND model_url IS NOT NULL LIMIT 1`, [v]));
+    if (r.rows[0]?.model_url) return { model_url: r.rows[0].model_url, gender: (r.rows[0].gender as RvcVoice["gender"]) || undefined };
+  } catch { /* ignore */ }
+  return undefined;
+}
+
+// 小工具: 把 spawn 包成 Promise(成功 resolve, 退出码≠0 reject)。
+function _spawnP(cmd: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args);
+    let err = "";
+    p.stderr?.on("data", (b) => { err += b.toString().slice(0, 500); });
+    p.on("error", reject);
+    p.on("close", (code) => code === 0 ? resolve() : reject(new Error(`${cmd}_exit_${code}: ${err.slice(0, 200)}`)));
+  });
+}
+// 通用 Replicate 跑一次(提交 + 轮询), 返回 output(字符串 URL)。
+async function _replicateRun(version: string, input: Record<string, unknown>, timeoutMs: number): Promise<string | null> {
+  const tok = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim();
+  if (!tok) return null;
+  const hdr = { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" };
+  let id = "";
+  try {
+    const r = await fetch("https://api.replicate.com/v1/predictions", { method: "POST", headers: hdr, body: JSON.stringify({ version, input }) });
+    const j: any = await r.json().catch(() => null);
+    if (!r.ok || !j?.id) return null;
+    id = String(j.id);
+  } catch { return null; }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, 8000));
+    try {
+      const st = await fetch(`https://api.replicate.com/v1/predictions/${id}`, { headers: hdr });
+      const j: any = await st.json().catch(() => null);
+      const status = String(j?.status || "");
+      if (status === "succeeded" && j?.output) return String(j.output);
+      if (status === "failed" || status === "canceled") return null;
+    } catch { /* keep polling */ }
+  }
+  return null;
+}
+const REPLICATE_RVC_TRAIN_VERSION = "0397d5e28c9b54665e1e5d29d5cf4f722a7b89ec20e9dbf31487235305b1a101";
+// 「用我的声音唱」训练编排: 本地音频 → 切片 → 打包 → 托管 → 训练 RVC → 持久化模型 → 个人声纹 ready。
+async function trainUserVoiceModel(rowId: number, voiceKey: string, localAudioPath: string): Promise<void> {
+  const setRow = (status: string, extra: Record<string, unknown> = {}) =>
+    withClient((c) => c.query(
+      `UPDATE user_voice_models SET status=$2${Object.keys(extra).map((k, i) => `, ${k}=$${i + 3}`).join("")}, updated_at=now() WHERE id=$1`,
+      [rowId, status, ...Object.values(extra)])).catch(() => {});
+  const work = path.join(os.tmpdir(), `uv_${voiceKey}`);
+  const dsDir = path.join(work, "dataset", voiceKey);
+  try {
+    await setRow("training");
+    try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* */ }
+    fs.mkdirSync(dsDir, { recursive: true });
+    // 切成 10s 单声道 48k wav 片段
+    await _spawnP("ffmpeg", ["-y", "-loglevel", "error", "-i", localAudioPath, "-ac", "1", "-ar", "48000",
+      "-f", "segment", "-segment_time", "10", "-reset_timestamps", "1", path.join(dsDir, "split_%d.wav")]);
+    const zipPath = path.join(work, `ds.zip`);
+    await _spawnP("python3", ["-c",
+      `import zipfile,glob,os;z=zipfile.ZipFile(${JSON.stringify(zipPath)},'w',zipfile.ZIP_DEFLATED);[z.write(f,os.path.relpath(f,${JSON.stringify(work)})) for f in glob.glob(${JSON.stringify(path.join(dsDir, "*.wav"))})];z.close()`]);
+    // 托管数据集(公网可达供 Replicate 拉取)
+    const dsName = `rvc_ds_${voiceKey}.zip`;
+    const dsHosted = path.join(MV_AUDIO_ARTIFACTS_DIR, dsName);
+    fs.copyFileSync(zipPath, dsHosted); try { fs.chmodSync(dsHosted, 0o644); } catch { /* */ }
+    const dsUrl = `${publicArtifactsBase()}/artifacts/audio/${dsName}`;
+    await setRow("training", { dataset_url: dsUrl });
+    // 训练(~20–40min)
+    const modelOut = await _replicateRun(REPLICATE_RVC_TRAIN_VERSION, {
+      dataset_zip: dsUrl, epoch: 150, version: "v2", f0method: "rmvpe_gpu", batch_size: "7", sample_rate: "48k",
+    }, 50 * 60 * 1000);
+    if (!modelOut) { await setRow("failed", { error: "train_failed_or_timeout" }); return; }
+    // 持久化模型 zip 到我们存储
+    const modelName = `rvc_model_${voiceKey}.zip`;
+    const modelPath = path.join(MV_AUDIO_ARTIFACTS_DIR, modelName);
+    const dl = await fetch(modelOut, { redirect: "follow" });
+    if (!dl.ok) { await setRow("failed", { error: `model_dl_${dl.status}` }); return; }
+    fs.writeFileSync(modelPath, Buffer.from(await dl.arrayBuffer())); try { fs.chmodSync(modelPath, 0o644); } catch { /* */ }
+    const modelUrl = `${publicArtifactsBase()}/artifacts/audio/${modelName}`;
+    await setRow("ready", { model_url: modelUrl });
+  } catch (e) {
+    await setRow("failed", { error: String((e as Error)?.message || e).slice(0, 200) });
+  } finally {
+    try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* */ }
+    try { fs.rmSync(localAudioPath, { force: true }); } catch { /* */ }
+  }
 }
 
 // Render ONE language track end-to-end: transcreate → Suno voice →
@@ -1005,27 +1636,110 @@ async function renderLanguageTrack(opts: {
   workId: string; userId: string; lang: string; trackOrder: number;
   baseLyrics: string; baseTitle: string; baseStyle: string;
   fromLangHint: string; chargedCents: number; durationSecs?: number | null;
+  // CSSOS_WAVE_584 — 多声线: voice='auto'(默认/原声) 或 feminine/masculine/... ; 仅换声线时不重写歌词。
+  voice?: string;
+  // CSSOS_WAVE_585 — 多语言=同声线不同语言(一个人唱多语言)→ 加语言轨须沿用【原作声线】, 否则变成别人唱。
+  // originVoice 仅作音乐引擎的声线提示, 不进 DB 轨键(语言轨的 voice 列仍是 'auto')。
+  originVoice?: string;
 }): Promise<void> {
   const { workId, userId, lang, chargedCents } = opts;
+  const voice = String(opts.voice || "auto").trim().toLowerCase() || "auto";
+  // CSSOS_WAVE_584 — 所有状态/进度更新必须用 (work_id, lang, voice) 三元组定位, 否则多声线互相覆盖。
   const setStatus = (status: string, extra: Record<string, unknown> = {}) =>
     withClient((c) => c.query(
-      `UPDATE work_language_tracks SET status=$3, updated_at=now()
-         ${Object.keys(extra).map((k, i) => `, ${k}=$${i + 4}`).join("")}
-       WHERE work_id=$1::uuid AND lang=$2`,
-      [workId, lang, status, ...Object.values(extra)],
+      `UPDATE work_language_tracks SET status=$4, updated_at=now()
+         ${Object.keys(extra).map((k, i) => `, ${k}=$${i + 5}`).join("")}
+       WHERE work_id=$1::uuid AND lang=$2 AND voice=$3`,
+      [workId, lang, voice, status, ...Object.values(extra)],
     ));
+  // CSSOS_WAVE_433 — push REAL per-stage progress.
+  const setProgress = (stage: string, pct: number) =>
+    withClient((c) => c.query(
+      `UPDATE work_language_tracks SET stage=$4, progress_pct=$5, updated_at=now()
+       WHERE work_id=$1::uuid AND lang=$2 AND voice=$3`,
+      [workId, lang, voice, stage, Math.max(0, Math.min(100, Math.round(pct)))],
+    )).catch(() => {});
+  // CSSOS_WAVE_584 — 多声线(voice!=auto)= 同语言、同歌词, 只换声线重唱; 不调 transcreate(歌词不变)。
+  // 调性(key)交给音乐引擎按新声线自然音域适配(voice 提示传入 prompt)。
+  const isVoiceVariant = voice !== "auto" && opts.fromLangHint === lang;
+  // CSSOS_WAVE_585 — 声线提示来源: 多声线轨用它自己的 voice; 多语言轨(voice='auto')沿用【原作声线】originVoice。
+  var voiceForHint = (voice !== "auto") ? voice : String(opts.originVoice || "").trim().toLowerCase();
+  const voicePromptHint = (function () {
+    var m: Record<string, string> = {
+      feminine: "female vocals", masculine: "male vocals", childlike: "child-like youthful vocals",
+      duet: "male and female duet vocals", androgynous: "androgynous vocals",
+      polyphonic_choir: "full polyphonic choir vocals",
+      raspy: "raspy gritty vocals", operatic: "operatic bel-canto vocals",
+      whisper: "soft breathy whisper vocals", robotic: "vocoder robotic vocals",
+    };
+    return m[voiceForHint] || "";
+  })();
+  // CSSOS_WAVE_587 — 同旋律换嗓/换语言: 用本作品【原曲】(is_default ready 轨)的 audio_url 作 Suno Cover 源,
+  // 保留旋律重新演唱。只接受公网 http(s) 且非视频的音频 URL(视频里烧录的不能当 cover 源, <8min 由时长保证)。
+  // vocalGender: 男声→m, 女声/童声→f, 其余靠 style 提示。语言轨(voice=auto)用 originVoice 决定性别 → 同一个人换语言。
+  let coverSrc = "";
+  let originGender = String(opts.originVoice || "").trim().toLowerCase();
+  try {
+    const _src = await withClient((c) => c.query<{ audio_url: string; voice_gender: string }>(
+      `SELECT lt.audio_url, w.voice_gender FROM work_language_tracks lt
+         JOIN user_works w ON w.id = lt.work_id
+        WHERE lt.work_id=$1::uuid AND lt.is_default=true AND lt.status='ready' AND lt.audio_url IS NOT NULL
+        ORDER BY lt.track_order ASC LIMIT 1`, [workId]));
+    coverSrc = String(_src.rows[0]?.audio_url || "").trim();
+    if (!originGender) originGender = String(_src.rows[0]?.voice_gender || "").trim().toLowerCase();
+  } catch { /* no source → fall back to generate */ }
+  const coverOk = /^https?:\/\//i.test(coverSrc) && !/\.(mp4|webm|mov|mkv)(\?|$)/i.test(coverSrc)
+    && Number(opts.durationSecs || 0) <= 480; // upload-cover 上限 8 分钟
+  const coverGender: "m" | "f" | undefined =
+    voiceForHint === "masculine" ? "m"
+      : (voiceForHint === "feminine" || voiceForHint === "childlike") ? "f"
+        : undefined;
   let attempt = 0;
   for (;;) {
     await mvLangAcquire();
     try {
       await setStatus("rendering");
-      const reLyrics = await transcreateLyrics(opts.baseLyrics, opts.fromLangHint, lang);
-      const music = await callMusicGen({
-        prompt: [opts.baseTitle, opts.baseStyle].filter(Boolean).join(" — "),
-        lyrics: reLyrics,
+      let reLyrics: string;
+      if (isVoiceVariant) {
+        await setProgress("music", 25);           // voice variant: reuse lyrics, straight to music
+        reLyrics = opts.baseLyrics;               // 同歌词
+      } else {
+        await setProgress("lyrics", 10);          // transcreating lyrics (new language)
+        reLyrics = await transcreateLyrics(opts.baseLyrics, opts.fromLangHint, lang);
+        await setProgress("music", 25);
+      }
+      // CSSOS_WAVE_587 — strip 段落标记(【主歌一 Verse 1】/[Chorus]…)再发给引擎。
+      // 否则 Suno 会把结构标记当歌词唱出来(男声轨实测出现 "ither/Har" 英文碎片 + 词被篡改)。
+      const cleanLyrics = String(reLyrics || "")
+        .replace(/【[^】]*】/g, "")
+        .replace(/\[[^\]]*\]/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      // CSSOS_WAVE_587 — 声线变体优先走 RVC(同旋律/时值/歌词 100% 保留, 只换音色), 比 Suno cover 忠实得多。
+      // 仅当: 是声线变体(同语同词换嗓)+ 该声线有训练好的 RVC 声纹 + 有合格源音频。否则回落 Suno cover/generate。
+      let music: { ok?: boolean; audio_url?: string; duration_s?: number | null; timeline?: any; alt_audio_url?: string; alt_duration_s?: number | null; provider?: string; error?: string } | null = null;
+      const _rvcModel = isVoiceVariant ? await resolveRvcVoice(voice) : undefined;
+      if (isVoiceVariant && _rvcModel && coverOk) {
+        await setProgress("music", 30);
+        const pitch = String(_rvcModel.pitch || rvcPitchChange(originGender, _rvcModel.gender));
+        const rvc = await callRvcCover({ songUrl: coverSrc, modelUrl: _rvcModel.model_url, pitchChange: pitch, pitchChangeAll: _rvcModel.semitones });
+        if (rvc.ok && rvc.audio_url) {
+          music = { ok: true, audio_url: rvc.audio_url, duration_s: Number(opts.durationSecs) > 1 ? Number(opts.durationSecs) : null };
+        } else {
+          console.warn(`[rvc] cover failed (${rvc.error}); fall back to Suno for ${workId}/${lang}/${voice}`);
+        }
+      }
+      if (!music) music = await callMusicGen({
+        prompt: [opts.baseTitle, opts.baseStyle, voicePromptHint].filter(Boolean).join(" — "),
+        lyrics: cleanLyrics,
         title: opts.baseTitle,
         language: lang,
         duration_secs: Number(opts.durationSecs) > 1 ? Number(opts.durationSecs) : 200,
+        // CSSOS_WAVE_587 — 保旋律: 有合格源音频就走 Suno Cover(同旋律换嗓/换语言), 否则全新谱曲。
+        // Cover 仅 suno(kie)支持 → 强制 prefer:['suno'], 否则 router 可能先用别的 provider 全新谱曲(旋律变了)。
+        coverUrl: coverOk ? coverSrc : undefined,
+        vocalGender: coverOk ? coverGender : undefined,
+        prefer: coverOk ? ["suno"] : undefined,
       } as MusicGenRequest);
       if (!music || !music.ok || !music.audio_url) {
         const detail = String((music as any)?.error || "");
@@ -1035,11 +1749,13 @@ async function renderLanguageTrack(opts: {
           await _mvLangSleep(Math.min(16000, 2000 * 2 ** (attempt - 1)));
           continue;
         }
-        await setStatus("failed", { voice_meta: JSON.stringify({ error: detail || "music_gen_failed" }) });
+        await setStatus("failed", { stage: "failed", voice_meta: JSON.stringify({ error: detail || "music_gen_failed" }) });
         return; // no debit on failure
       }
+      await setProgress("align", 70);             // music ready → aligning subtitles
       let timeline: any[] | undefined;
       try { timeline = await alignWordsViaWhisper(music.audio_url, lang); } catch { /* keep null */ }
+      await setProgress("persist", 85);           // aligned → re-hosting to R2
       // CSSOS_TIER_C_MULTILINGUAL #4 — Suno occasionally omits duration
       // (e.g. ko). ffprobe the remote audio URL as a fallback so the
       // track's progress bar / card chip has a real length.
@@ -1065,15 +1781,115 @@ async function renderLanguageTrack(opts: {
       if (chargedCents > 0) {
         await debitCredits(userId, chargedCents, "mv_language_track", { work_id: workId, lang });
       }
+      // CSSOS_WAVE_413 20260524 — Jing「反对浪费」: Suno returns TWO takes per
+      // call. Persist Take 2 (alt_audio_url) instead of discarding it — the
+      // engine already spent the compute, and Take 2 is sometimes the better
+      // sing. Each take has its own length, so keep alt_duration_secs too.
+      let altUrl = String((music as any).alt_audio_url || "").trim() || null;
+      const altDur = Number((music as any).alt_duration_s) > 1
+        ? Math.round(Number((music as any).alt_duration_s)) : null;
+      // CSSOS_WAVE_414 20260524 — Jing「入库要完整，否则切换音轨失声」: the Suno URL
+      // (aiquickdraw.com/r/…) is a TEMP link that 404s in a few days. The main
+      // work already re-hosts to stable /artifacts/audio/ (W371); language tracks
+      // never did → multilingual tracks would go silent on replay. Re-host BOTH
+      // takes to our own domain NOW, while the temp link is still alive, so a
+      // track switch always has real bytes behind it.
+      let primaryUrl = String(music.audio_url || "");
+      try {
+        if (primaryUrl) primaryUrl = await persistRemoteAudioToStable(primaryUrl);
+        if (altUrl) altUrl = await persistRemoteAudioToStable(altUrl);
+      } catch (_persistErr) { /* keep temp url rather than fail the whole track */ }
       await setStatus("ready", {
-        audio_url: music.audio_url,
+        stage: "ready",
+        progress_pct: 100,
+        audio_url: primaryUrl,
         duration_secs: durSecs,
+        alt_audio_url: altUrl,
+        alt_duration_secs: altDur,
         lyrics: reLyrics,
         voice_meta: JSON.stringify({
           provider: music.provider || "suno",
           timeline: Array.isArray(timeline) ? timeline : null,
+          take1_audio_url: primaryUrl || null,
+          take2_audio_url: altUrl,
         }),
       });
+
+      // CSSOS_WAVE_440/441 20260525 — Generate lyrics.json + subtitle JSON files.
+      // Fire-and-forget; runs after is_default assignment below.
+      void (async () => {
+        try {
+          // 1. Lyrics JSON — upsert raw lyrics for this language
+          const isNativeTrack = (opts.trackOrder === 1);
+          await upsertLyricsJson(workId, lang, isNativeTrack, opts.baseTitle, reLyrics);
+
+          // 2. Emotion annotation (Phase 1: LLM from lyrics context)
+          const lyricSections = parseLyricsToSections(reLyrics);
+          const emoAnnotations = await annotateEmotions(lyricSections, lang);
+
+          // 3. Build Phase 1 subtitle sections (Whisper timestamps + emotion)
+          const whisperTl = Array.isArray(timeline) ? timeline : null;
+          let take1Sections = buildSubtitleSections(reLyrics, whisperTl, emoAnnotations);
+
+          // 4. WAVE_441 — Enrich Take 1 via Python audio analysis service.
+          //    If service unavailable → silent Phase 1 fallback (nulls for beat/vol/pitch).
+          if (primaryUrl && whisperTl && whisperTl.length > 0) {
+            const enriched = await enrichTimelineViaAudioAnalysis(primaryUrl, whisperTl);
+            if (enriched) {
+              take1Sections = mergeAudioEnrichment(take1Sections, enriched);
+              console.log("[wave441] enriched take1 subtitle for", workId, lang,
+                `(${enriched.length} tokens)`);
+            }
+          }
+          await upsertSubtitleJson(workId, lang, 1, take1Sections);
+
+          // 5. Take 2 — run separate Whisper + audio analysis on alt audio URL.
+          //    Falls back to take1 sections if no alt audio or analysis fails.
+          if (altUrl) {
+            let take2Timeline: any[] | null = null;
+            try {
+              const _t2 = await alignWordsViaWhisper(altUrl, lang);
+              take2Timeline = _t2 ?? null;
+            } catch { /* keep null */ }
+            let take2Sections = buildSubtitleSections(
+              reLyrics, take2Timeline, emoAnnotations,
+            );
+            if (altUrl && take2Timeline && take2Timeline.length > 0) {
+              const enriched2 = await enrichTimelineViaAudioAnalysis(altUrl, take2Timeline);
+              if (enriched2) {
+                take2Sections = mergeAudioEnrichment(take2Sections, enriched2);
+                console.log("[wave441] enriched take2 subtitle for", workId, lang);
+              }
+            }
+            await upsertSubtitleJson(workId, lang, 2, take2Sections);
+          }
+        } catch (_jsonErr) {
+          console.warn("[wave440/441] JSON generation failed for", workId, lang, _jsonErr);
+        }
+      })();
+
+      // CSSOS_WAVE_439 20260525 — is_default must follow track_order, NOT
+      // whichever track finishes first. Mother tongue (track_order=1) wins
+      // always; other tracks only claim default if nothing else has it yet.
+      await withClient((c) => c.query(
+        `UPDATE work_language_tracks t
+         SET is_default = true
+         WHERE t.work_id = $1::uuid AND t.lang = $2
+           AND (
+             -- Always default if this is the lowest-ordered track for the work
+             t.track_order = (
+               SELECT MIN(t3.track_order) FROM work_language_tracks t3
+               WHERE t3.work_id = $1::uuid
+             )
+             OR
+             -- Fallback: claim default only if no track has it yet
+             NOT EXISTS (
+               SELECT 1 FROM work_language_tracks t2
+               WHERE t2.work_id = $1::uuid AND t2.is_default = true
+             )
+           )`,
+        [workId, lang],
+      )).catch(() => {});
       return;
     } catch (err) {
       if (attempt < MV_LANG_TRACK_MAX_RETRIES && /429|throttl|rate|timeout|network/i.test(String((err as Error)?.message || ""))) {
@@ -1093,6 +1909,295 @@ async function renderLanguageTrack(opts: {
     }
   }
 }
+
+// CSSOS_WAVE_413 20260524 — Jing「断点续传 / 反对浪费」: language tracks are fired
+// fire-and-forget (void renderLanguageTrack). If the process restarts or
+// crashes mid-batch, in-flight rows are stranded in pending/rendering forever
+// and the user paid (or queued) for a track that never finishes. On boot, and
+// periodically, pick up any track stuck past a grace window and re-fire it.
+// Billing is exactly-once: debitCredits runs ONLY at the moment a track flips
+// to 'ready'. A stuck row (pending/rendering) never reached 'ready', so it was
+// never debited — resume therefore passes the row's own charged_cents so the
+// finished track bills exactly once. (A row that already reached 'ready' is not
+// selected by this sweep, so there is no double-charge path.)
+const MV_LANG_TRACK_STUCK_MINUTES = Math.max(
+  2, Number(process.env.MV_LANG_TRACK_STUCK_MINUTES || 4),
+);
+let _mvLangResumeRunning = false;
+async function resumeStuckLanguageTracks(): Promise<number> {
+  if (_mvLangResumeRunning) return 0;
+  _mvLangResumeRunning = true;
+  try {
+    const stuck = await withClient((c) => c.query<{
+      work_id: string; lang: string; voice: string; track_order: number; charged_cents: number;
+      user_id: string; title: string; style: string; lyrics_preview: string;
+      duration_secs: number; voice_gender: string | null;
+      default_lang: string | null; default_lyrics: string | null;
+    }>(
+      // CSSOS_WAVE_587 — resume MUST be voice-aware: select t.voice + w.voice_gender(原声线),
+      // 否则多声线轨被当普通语言轨重跑 → 丢声线(渲染成原声)。
+      `SELECT t.work_id, t.lang, t.voice, t.track_order, t.charged_cents,
+              w.user_id, w.title, w.style, w.lyrics_preview, w.duration_secs, w.voice_gender,
+              (SELECT d.lang   FROM work_language_tracks d
+                WHERE d.work_id = t.work_id AND d.is_default = true AND d.status = 'ready'
+                ORDER BY d.track_order ASC LIMIT 1) AS default_lang,
+              (SELECT d.lyrics FROM work_language_tracks d
+                WHERE d.work_id = t.work_id AND d.is_default = true AND d.status = 'ready'
+                ORDER BY d.track_order ASC LIMIT 1) AS default_lyrics
+         FROM work_language_tracks t
+         JOIN user_works w ON w.id = t.work_id
+        WHERE t.status IN ('pending','rendering')
+          AND t.updated_at < now() - ($1 || ' minutes')::interval
+        ORDER BY t.updated_at ASC
+        LIMIT 50`,
+      [String(MV_LANG_TRACK_STUCK_MINUTES)]));
+    let kicked = 0;
+    for (const r of stuck.rows) {
+      const voice = String(r.voice || "auto");
+      const isVoiceVariant = voice !== "auto";
+      // Re-stamp updated_at so a second sweep doesn't double-fire — key on the FULL
+      // (work_id, lang, voice) triple so sibling voice rows aren't disturbed.
+      await withClient((c) => c.query(
+        `UPDATE work_language_tracks SET status='pending', updated_at=now()
+           WHERE work_id=$1::uuid AND lang=$2 AND voice=$3`, [r.work_id, r.lang, voice])).catch(() => {});
+      // CSSOS_WAVE_436: use default track lyrics as source; fall back to lyrics_preview.
+      // CSSOS_WAVE_587: voice variant(voice!=='auto') → fromLangHint=lang(复用歌词, 不重写),
+      // 并带 voice + originVoice(=作品原声线 voice_gender) 让管线渲染对的声线。
+      void renderLanguageTrack({
+        workId: r.work_id, userId: String(r.user_id), lang: r.lang,
+        trackOrder: r.track_order,
+        baseLyrics: String(r.default_lyrics || r.lyrics_preview || ""),
+        baseTitle: String(r.title || ""),
+        baseStyle: String(r.style || ""),
+        fromLangHint: isVoiceVariant ? r.lang : String(r.default_lang || "").toLowerCase(),
+        voice,
+        originVoice: String(r.voice_gender || "").trim().toLowerCase(),
+        chargedCents: Number(r.charged_cents) || 0, durationSecs: r.duration_secs,
+      });
+      kicked++;
+    }
+    if (kicked) console.log("[mv-lang-resume] re-fired %d stuck language track(s)", kicked);
+    return kicked;
+  } catch (err) {
+    console.warn("[mv-lang-resume] sweep failed:", err instanceof Error ? err.message : String(err));
+    return 0;
+  } finally {
+    _mvLangResumeRunning = false;
+  }
+}
+
+// CSSOS_WAVE_414 20260524 — Jing「入库要完整，否则切换音轨失声」: language tracks
+// rendered BEFORE the W414 re-host fix stored raw Suno temp URLs (aiquickdraw.com)
+// that will 404 in days. Re-host their bytes to our stable /artifacts/audio/ ONCE,
+// WITHOUT regenerating (no waste — we just download the existing audio while the
+// temp link is still alive). Idempotent: once a URL is on cssstudio.app it is
+// skipped, so the sweep is a no-op after everything is migrated.
+let _mvLangRehostRunning = false;
+// Migrate ONE audio URL onto R2/cdn.cssstudio.app, returning the new URL.
+// - already on cdn.cssstudio.app → unchanged.
+// - local cssstudio.app/artifacts/audio/<f> → read the on-disk file, push to R2,
+//   delete the local copy (reclaim api-vm disk), return the CDN URL.
+// - any other http(s) (Suno temp etc.) → persistRemoteAudioToStable downloads it
+//   and (post-W415) stores it straight on R2.
+async function rehostAudioUrlToR2(url: string): Promise<string> {
+  const u = String(url || "").trim();
+  if (!u || !/^https?:\/\//i.test(u)) return u;
+  let host = "";
+  try { host = new URL(u).hostname.toLowerCase(); } catch { return u; }
+  if (host === "cdn.cssstudio.app") return u; // already on R2/CDN
+  if (host === "cssstudio.app" && u.includes("/artifacts/audio/")) {
+    if (!r2Enabled()) return u; // nothing to migrate to
+    const filename = (u.split("/artifacts/audio/")[1] || "").split(/[?#]/)[0];
+    if (!filename) return u;
+    const filePath = path.join(MV_AUDIO_ARTIFACTS_DIR, filename);
+    if (!fs.existsSync(filePath)) return u; // local gone already — leave as-is
+    const r2url = await uploadToR2(filePath, `artifacts/audio/${filename}`, "audio/mpeg").catch(() => null);
+    if (r2url) { try { fs.unlinkSync(filePath); } catch { /* reclaim best-effort */ } return r2url; }
+    return u;
+  }
+  // third-party temp link → download + store on R2
+  return persistRemoteAudioToStable(u).catch(() => u);
+}
+
+async function backfillTempLanguageTrackAudio(): Promise<number> {
+  if (_mvLangRehostRunning) return 0;
+  _mvLangRehostRunning = true;
+  try {
+    // W415 — migrate ANY audio not yet on cdn.cssstudio.app: legacy Suno temp
+    // links AND local /artifacts/audio copies (free the api-vm disk).
+    const rows = await withClient((c) => c.query<{
+      id: string; audio_url: string | null; alt_audio_url: string | null;
+    }>(
+      `SELECT id, audio_url, alt_audio_url
+         FROM work_language_tracks
+        WHERE status='ready'
+          AND ( (audio_url IS NOT NULL AND audio_url LIKE 'http%' AND audio_url NOT LIKE '%cdn.cssstudio.app%')
+             OR (alt_audio_url IS NOT NULL AND alt_audio_url LIKE 'http%' AND alt_audio_url NOT LIKE '%cdn.cssstudio.app%') )
+        LIMIT 500`));
+    let fixed = 0;
+    for (const r of rows.rows) {
+      const a = String(r.audio_url || "");
+      const b = String(r.alt_audio_url || "");
+      const newA = a ? await rehostAudioUrlToR2(a) : a;
+      const newB = b ? await rehostAudioUrlToR2(b) : b;
+      if (newA !== a || newB !== b) {
+        await withClient((c) => c.query(
+          `UPDATE work_language_tracks SET audio_url=$2, alt_audio_url=$3, updated_at=now() WHERE id=$1`,
+          [r.id, newA || null, newB || null])).catch(() => {});
+        fixed++;
+      }
+    }
+    if (fixed) console.log("[mv-lang-rehost] migrated audio for %d language track(s) to R2", fixed);
+    return fixed;
+  } catch (err) {
+    console.warn("[mv-lang-rehost] backfill failed:", err instanceof Error ? err.message : String(err));
+    return 0;
+  } finally {
+    _mvLangRehostRunning = false;
+  }
+}
+
+// CSSOS_WAVE_458 20260526 — Jing「封面持久化到 R2 (根治封面过期)」: 第三方生图源
+// (replicate.delivery / fal.media / fal.run) 的 URL 约 24h 后过期 → 市场卡封面 404。
+// 根因是这些 works 的 cover_image 当初直接存了临时 URL, 没走转存。这里一次性把所有
+// 仍指向过期源的 cover_image 下载并转存到稳定存储(persistRemoteImageToStable → 本域
+// /artifacts/mv-fallback + 镜像 R2), 回填 DB → 封面永不再 404。开机跑一次 + 不阻塞启动。
+let _coverRehostRunning = false;
+async function backfillTempWorkCovers(): Promise<number> {
+  if (_coverRehostRunning) return 0;
+  _coverRehostRunning = true;
+  try {
+    const rows = await withClient((c) => c.query<{ id: string; cover_image: string | null }>(
+      `SELECT id, cover_image
+         FROM user_works
+        WHERE cover_image IS NOT NULL
+          AND cover_image ~* '(replicate\\.delivery|fal\\.media|fal\\.run)'
+        LIMIT 5000`));
+    let fixed = 0;
+    for (const r of rows.rows) {
+      const cur = String(r.cover_image || "");
+      if (!cur) continue;
+      const next = await persistRemoteImageToStable(cur).catch(() => cur);
+      if (next && next !== cur) {
+        await withClient((c) => c.query(
+          `UPDATE user_works SET cover_image=$2 WHERE id=$1`, [r.id, next])).catch(() => {});
+        fixed++;
+      }
+    }
+    if (fixed) console.log("[cover-rehost] persisted %d expiring work cover(s) to stable storage", fixed);
+    return fixed;
+  } catch (err) {
+    console.warn("[cover-rehost] backfill failed:", err instanceof Error ? err.message : String(err));
+    return 0;
+  } finally {
+    _coverRehostRunning = false;
+  }
+}
+
+// CSSOS_WAVE_612 — Jing「3 小时多线程电影 / 50 幕歌剧必须分批」: 后台生成队列。
+// W611 给大型多部作品的【超出同步上限的叶子】写入"[seed] <焦点>"占位; 这个后台 worker 周期扫描这些
+// 种子叶子, 小批量并发补全【完整京典歌词】, 写回 lyrics_preview。这样 create_work 秒返回完整结构,
+// 1500 首歌在后台慢慢补齐, 永不卡请求。极轻量、可逆、失败只记日志。
+let _seedLyricsRunning = false;
+async function backfillSeedLyrics(): Promise<number> {
+  if (_seedLyricsRunning) return 0;
+  _seedLyricsRunning = true;
+  let done = 0;
+  try {
+    // 取一小批种子叶子(每轮最多 8 个候选, 过权益门槛后实际跑前几个)。
+    const rows = await withClient((c) => c.query<{
+      id: string; user_id: string; title: string | null; style: string | null;
+      civilization: string | null; lyrics_preview: string | null;
+    }>(
+      `SELECT id, user_id, title, style, civilization, lyrics_preview
+         FROM user_works
+        WHERE lyrics_preview LIKE '[seed]%'
+          AND status <> 'deleted'
+        ORDER BY created_at ASC
+        LIMIT 8`,
+    ));
+    if (!rows.rows.length) return 0;
+    // CSSOS_WAVE_613 — 付费门槛: 后台生成是付费功能。只补【staff/admin 或 拥有可用 background_job 后台位】
+    // 的作品(免费用户结构在、需在订阅面板买后台位才会后台补全)。按 owner 缓存判定, 每轮一次。
+    const _entCache = new Map<string, boolean>();
+    async function ownerEntitled(uid: string): Promise<boolean> {
+      const u = String(uid || "");
+      if (!u) return false;
+      if (_entCache.has(u)) return _entCache.get(u) as boolean;
+      let ok = false;
+      try {
+        ok = await isCreditExempt(u);
+        if (!ok) {
+          const ents = await listActiveEntitlements(u);
+          ok = summarizeBoostEntitlements(ents).background_job.available > 0;
+        }
+      } catch (_e) { ok = false; }
+      _entCache.set(u, ok);
+      return ok;
+    }
+    const eligible: typeof rows.rows = [];
+    for (const w of rows.rows) {
+      if (eligible.length >= 4) break;            // 每轮最多实跑 4 个
+      if (await ownerEntitled(w.user_id)) eligible.push(w);
+    }
+    if (!eligible.length) return 0;
+    await mapWithConcurrency(eligible, 2, async (w) => {
+      try {
+        const focus = String(w.lyrics_preview || "").replace(/^\[seed\]\s*/, "").trim();
+        const civ = String(w.civilization || "");
+        const probe = focus + " " + String(w.title || "");
+        const lang = /[一-鿿]/.test(probe) ? "zh" : /[぀-ヿ]/.test(probe) ? "ja" : "en";
+        const sys = buildJingdianSystemPrompt(lang, "single", "", civ);
+        const user = buildJingdianUserPrompt(lang, String(w.style || ""), focus || String(w.title || ""), "single", "", civ);
+        const r = await callLlm({
+          messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+          prefer: ["anthropic", "openai"],
+          max_tokens: 3600,
+          temperature: 0.85,
+        });
+        const text = (r && r.ok && r.content) ? r.content.trim() : "";
+        if (text && text.length > 400) {
+          await withClient((c) => c.query(
+            `UPDATE user_works SET lyrics_preview = $2, updated_at = now() WHERE id = $1::uuid`,
+            [w.id, text],
+          ));
+          done += 1;
+        }
+      } catch (_one) { /* per-leaf best-effort */ }
+    });
+    if (done) console.log("[seed-lyrics] backfilled %d seed leaf(s) with full lyrics", done);
+    return done;
+  } catch (err) {
+    console.warn("[seed-lyrics] backfill failed:", err instanceof Error ? err.message : String(err));
+    return done;
+  } finally {
+    _seedLyricsRunning = false;
+  }
+}
+
+// CSSOS_WAVE_613 — 后台生成进度: 给一个多部作品的 root 返回 {total, ready, pending} 叶子计数,
+// 供前端卡片显示「X/N 已就绪」进度角标。pending = 还是 "[seed]" 占位的叶子(后台队列待补)。
+app.get("/api/works/:id/generation-progress", async (req, res) => {
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  try {
+    const r = await withClient((c) => c.query<{ total: string; pending: string }>(
+      `SELECT COUNT(*)::text AS total,
+              COUNT(*) FILTER (WHERE lyrics_preview LIKE '[seed]%')::text AS pending
+         FROM user_works
+        WHERE (root_work_id = $1::uuid OR id = $1::uuid)
+          AND structure_role IN ('part', 'scene', 'episode')
+          AND status <> 'deleted'`,
+      [workId],
+    ));
+    const total = Number(r.rows[0]?.total || 0);
+    const pending = Number(r.rows[0]?.pending || 0);
+    return res.json({ ok: true, total, ready: Math.max(0, total - pending), pending, generating: pending > 0 });
+  } catch (err) {
+    console.warn("[generation-progress] failed:", err instanceof Error ? err.message : String(err));
+    return res.status(500).json({ ok: false, error: "progress_failed" });
+  }
+});
 
 // POST /api/works/:id/language-tracks — add language tracks to an EXISTING
 // work. Body: { languages: string[] }  (codes, selection order; the work's
@@ -1118,8 +2223,26 @@ app.post("/api/works/:id/language-tracks", express.json({ limit: "4kb" }), async
   const workId = String(req.params.id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
   // Ownership.
-  const owns = await withClient((c) => c.query<{ user_id: string; title: string; style: string; lyrics_preview: string; duration_secs: number }>(
-    `SELECT user_id, title, style, lyrics_preview, duration_secs FROM user_works WHERE id=$1::uuid LIMIT 1`,
+  // CSSOS_WAVE_436 20260525 — Jing「歌词源头修正」: baseLyrics MUST come from
+  // the default work_language_tracks row (is_default=true), NOT lyrics_preview.
+  // lyrics_preview is a short/stale column that can contain previous-run
+  // contamination (e.g. Jerusalem lyrics bleeding into a Darius MV).
+  // The default track's .lyrics field was written by the generation pipeline
+  // and is the authoritative mother-tongue source for transcreation.
+  // Fall back to lyrics_preview only when no ready default track exists yet.
+  const owns = await withClient((c) => c.query<{
+    user_id: string; title: string; style: string; lyrics_preview: string;
+    duration_secs: number; default_lyrics: string | null; default_lang: string | null;
+    voice_gender: string | null;
+  }>(
+    `SELECT w.user_id, w.title, w.style, w.lyrics_preview, w.duration_secs, w.voice_gender,
+            (SELECT lt.lyrics  FROM work_language_tracks lt
+              WHERE lt.work_id = w.id AND lt.is_default = true AND lt.status = 'ready'
+              ORDER BY lt.track_order ASC LIMIT 1) AS default_lyrics,
+            (SELECT lt.lang    FROM work_language_tracks lt
+              WHERE lt.work_id = w.id AND lt.is_default = true AND lt.status = 'ready'
+              ORDER BY lt.track_order ASC LIMIT 1) AS default_lang
+     FROM user_works w WHERE w.id=$1::uuid LIMIT 1`,
     [workId]));
   const w = owns.rows[0];
   if (!w) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
@@ -1148,6 +2271,11 @@ app.post("/api/works/:id/language-tracks", express.json({ limit: "4kb" }), async
     if (supported.has(code) && !have.has(code) && !seen.has(code)) { seen.add(code); fresh.push(code); }
   }
   if (!fresh.length) return res.status(400).json({ ok: false, code: "NO_NEW_LANGUAGES" });
+  // CSSOS_WAVE_587 — 算力硬闸: 单次提交最多 MV_TRACK_MAX_BATCH 个新 cell。超出直接拒,
+  // 让前端提示「一次最多 N 个」(语言×声线交叉会爆量, 必须卡死单批)。
+  if (fresh.length > MV_TRACK_MAX_BATCH) {
+    return res.status(400).json({ ok: false, code: "BATCH_TOO_LARGE", max: MV_TRACK_MAX_BATCH, requested: fresh.length });
+  }
   // Existing work already has its default → every new language is paid.
   const quote = quoteMvLanguageTracks(fresh.length, false);
   const balance = await getCreditBalance(user.id);
@@ -1160,18 +2288,27 @@ app.post("/api/works/:id/language-tracks", express.json({ limit: "4kb" }), async
   for (const lang of fresh) {
     order++;
     await withClient((c) => c.query(
-      `INSERT INTO work_language_tracks (work_id, lang, track_order, is_default, charged_cents, status)
-       VALUES ($1::uuid, $2, $3, false, $4, 'pending')
-       ON CONFLICT (work_id, lang) DO NOTHING`,
+      // CSSOS_WAVE_587 — 唯一键已从 (work_id,lang) 迁到 (work_id,lang,voice)(为多声线); 旧约束已删,
+      // 这里的 ON CONFLICT 必须用新三元组(语言轨 voice 默认 'auto'), 否则 Postgres 找不到约束 → 500。
+      `INSERT INTO work_language_tracks (work_id, lang, voice, track_order, is_default, charged_cents, status)
+       VALUES ($1::uuid, $2, 'auto', $3, false, $4, 'pending')
+       ON CONFLICT (work_id, lang, voice) DO NOTHING`,
       [workId, lang, order, quote.perCents]));
   }
-  const fromLangHint = String(req.body?.source_lang || "").trim().toLowerCase();
+  // CSSOS_WAVE_436: prefer default-track lyrics; fall back to lyrics_preview.
+  const _baseLyrics = String(w.default_lyrics || w.lyrics_preview || "");
+  // source_lang from client is the mother tongue code; if the default track
+  // has a lang we know, that's more authoritative than the client hint.
+  const fromLangHint = String(w.default_lang || req.body?.source_lang || "").trim().toLowerCase();
+  // CSSOS_WAVE_585 — 多语言=同声线不同语言: 加语言轨沿用原作声线(w.voice_gender)作 originVoice 提示。
+  const _originVoice = String(w.voice_gender || "").trim().toLowerCase();
   for (const lang of fresh) {
     void renderLanguageTrack({
       workId, userId: String(user.id), lang, trackOrder: ++maxOrder,
-      baseLyrics: String(w.lyrics_preview || ""), baseTitle: String(w.title || ""),
+      baseLyrics: _baseLyrics, baseTitle: String(w.title || ""),
       baseStyle: String(w.style || ""), fromLangHint,
       chargedCents: quote.perCents, durationSecs: w.duration_secs,
+      originVoice: _originVoice,
     });
   }
   return res.json({
@@ -1186,15 +2323,186 @@ app.get("/api/works/:id/language-tracks", async (req, res) => {
   const workId = String(req.params.id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
   const rows = await withClient((c) => c.query(
-    `SELECT lang, track_order, is_default, status, audio_url, duration_secs,
-            subtitle_url, charged_cents, lyrics,
-            -- CSSOS_TIER_C_MULTILINGUAL C5b — surface the Whisper word
-            -- timeline so the 🌐 dual-subtitle (≤2) can render the second
-            -- language line time-aligned to the active media clock.
-            (voice_meta->'timeline') AS timeline
-       FROM work_language_tracks WHERE work_id=$1::uuid ORDER BY track_order ASC`,
+    `SELECT lt.lang, lt.voice, lt.track_order, lt.is_default, lt.status,
+            -- CSSOS_WAVE_433 — real per-stage progress for the watch UI.
+            lt.stage, lt.progress_pct,
+            lt.audio_url, lt.duration_secs,
+            lt.alt_audio_url, lt.alt_duration_secs,
+            lt.subtitle_url, lt.charged_cents, lt.lyrics,
+            (lt.voice_meta->'timeline') AS timeline,
+            -- CSSOS_WAVE_440 — JSON file URLs (source of truth for lyrics/subtitles)
+            w.lyrics_json_url, w.subtitle_take1_json_url, w.subtitle_take2_json_url,
+            -- CSSOS_WAVE_587 — 作品原声线(用于把 voice='auto' 那颗标成真实声线名, 如「女声」)。
+            w.voice_gender
+       FROM work_language_tracks lt
+       JOIN user_works w ON w.id = lt.work_id
+       WHERE lt.work_id=$1::uuid ORDER BY lt.track_order ASC`,
     [workId]));
-  return res.json({ ok: true, work_id: workId, tracks: rows.rows });
+  // CSSOS_WAVE_433 — cover-pool progress: how many slideshow frames are in vs the
+  // target pool, so the watch UI can show "3/60 covers…" while they generate.
+  let coverDone = 0;
+  try {
+    const cov = await withClient((c) => c.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM work_assets WHERE work_id=$1 AND asset_type='slideshow_frame'`,
+      [workId]));
+    coverDone = Number(cov.rows[0]?.n || 0) || 0;
+  } catch { /* best-effort */ }
+  return res.json({
+    ok: true, work_id: workId, tracks: rows.rows,
+    origin_voice: String((rows.rows[0] as any)?.voice_gender || ""),
+    cover_done: coverDone, cover_total: SLIDESHOW_POOL_SIZE,
+  });
+});
+
+// ── CSSOS_WAVE_588 — 平台免疫系统: 错误遥测(采集→归类去重→digest) ──────────────
+// Jing「自我康复/净化/修复」: 客户端失败/报错 beacon 到这里, 按指纹聚合, 供 dev/自愈代理读 digest。
+function cssosClassifyErrorDomain(msg: string, code: string): string {
+  const t = (String(msg) + " " + String(code)).toLowerCase();
+  if (/pay|checkout|topup|stripe|nihaopay|balance|credit|insufficient|结账|支付|充值|余额/.test(t)) return "payment";
+  if (/generat|render|music|video|lyric|suno|rvc|生成|渲染|音乐|视频|歌词|声线/.test(t)) return "generation";
+  if (/auth|sign|login|401|403|tier|unauthor|登录|未登录|权限|会员/.test(t)) return "auth";
+  if (/network|fetch|timeout|offline|5\d\d|网络|超时|连接/.test(t)) return "network";
+  if (/undefined|null|nan|parse|json|cannot read|is not a function|数据/.test(t)) return "data";
+  return "ui";
+}
+app.post("/api/telemetry/error", express.json({ limit: "8kb" }), async (req, res) => {
+  try {
+    const b = (req.body || {}) as Record<string, unknown>;
+    const message = String(b.message || "").slice(0, 400).replace(/\s+/g, " ").trim();
+    if (!message) return res.json({ ok: true, skipped: "empty" });
+    const code = String(b.code || "").slice(0, 80);
+    const domain = cssosClassifyErrorDomain(message, code);
+    // 归一化: 去掉数字/uuid/url, 让"同类不同实例"落到同一指纹。
+    const norm = message.replace(/[0-9a-f]{8,}|https?:\/\/\S+|\d+/gi, "#");
+    const fingerprint = crypto.createHash("sha1").update(domain + "|" + norm + "|" + code).digest("hex").slice(0, 24);
+    await withClient((c) => c.query(
+      `INSERT INTO error_reports (fingerprint, domain, message, code, sample_action, sample_panel, build, ua_short)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (fingerprint) DO UPDATE SET
+         count = error_reports.count + 1, last_seen = now(),
+         sample_action = COALESCE(NULLIF(EXCLUDED.sample_action,''), error_reports.sample_action),
+         status = CASE WHEN error_reports.status='fixed' THEN 'new' ELSE error_reports.status END`,
+      [fingerprint, domain, message, code,
+        String(b.action || "").slice(0, 80), String(b.panel || "").slice(0, 40),
+        String(b.build || "").slice(0, 40), String(req.headers["user-agent"] || "").slice(0, 60)],
+    ));
+    return res.json({ ok: true });
+  } catch { return res.json({ ok: true, skipped: "error" }); } // 遥测绝不能反过来报错打扰用户
+});
+app.get("/api/admin/error-digest", async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_ONLY" });
+  const rows = await withClient((c) => c.query(
+    `SELECT fingerprint, domain, left(message,120) AS message, code, count, status,
+            sample_action, sample_panel, build,
+            to_char(last_seen,'MM-DD HH24:MI') AS last_seen
+       FROM error_reports WHERE status NOT IN ('fixed','wontfix')
+      ORDER BY count DESC, last_seen DESC LIMIT 30`));
+  const byDomain = await withClient((c) => c.query(
+    `SELECT domain, SUM(count)::int AS hits, COUNT(*)::int AS kinds
+       FROM error_reports WHERE status NOT IN ('fixed','wontfix') GROUP BY domain ORDER BY hits DESC`));
+  return res.json({ ok: true, top: rows.rows, by_domain: byDomain.rows });
+});
+
+// CSSOS_WAVE_584 20260531 — Jing「多声线」: POST /api/works/:id/voice-tracks
+// Body: { voices: string[] }  —— 给现有作品(默认语言)加【不同声线】的演唱轨。
+// 同语言、同歌词, 旋律不变, 换声线重唱, 调性由音乐引擎按新声线音域自动适配。
+// 价格与多语言一致(quoteMvLanguageTracks)。owner-only(同加语言)。
+const CSSOS_SUPPORTED_VOICES = new Set([
+  "feminine", "masculine", "childlike", "duet", "androgynous", "polyphonic_choir",
+  "raspy", "operatic", "whisper", "robotic",
+  "jing",       // CSSOS_WAVE_587 — 创始人 Jing 真人声纹(RVC), 供平台免费使用
+  "jing_tenor", // 同声纹 + 整体升调 = Jing 男高音版
+]);
+app.post("/api/works/:id/voice-tracks", express.json({ limit: "4kb" }), async (req, res) => {
+  const adminTokenExpected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const isAdminToken = !!adminTokenExpected && String(req.headers["x-admin-token"] || "").trim() === adminTokenExpected;
+  let user: any = null;
+  if (!isAdminToken) {
+    user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const profile = await resolveUserAccessProfile(user);
+    if (profile.tier === "guest" || profile.tier === "free") {
+      return res.status(402).json({ ok: false, code: "TIER_REQUIRED", required: "starter" });
+    }
+  }
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+  // Authoritative source = the default (mother-tongue) ready track: its lang + lyrics + duration.
+  const owns = await withClient((c) => c.query<{
+    user_id: string; title: string; style: string; lyrics_preview: string;
+    duration_secs: number; default_lyrics: string | null; default_lang: string | null;
+  }>(
+    `SELECT w.user_id, w.title, w.style, w.lyrics_preview, w.duration_secs,
+            (SELECT lt.lyrics FROM work_language_tracks lt
+              WHERE lt.work_id=w.id AND lt.is_default=true AND lt.status='ready'
+              ORDER BY lt.track_order ASC LIMIT 1) AS default_lyrics,
+            (SELECT lt.lang FROM work_language_tracks lt
+              WHERE lt.work_id=w.id AND lt.is_default=true AND lt.status='ready'
+              ORDER BY lt.track_order ASC LIMIT 1) AS default_lang
+     FROM user_works w WHERE w.id=$1::uuid LIMIT 1`, [workId]));
+  const w = owns.rows[0];
+  if (!w) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+  if (isAdminToken) user = { id: w.user_id, email: "admin@cssstudio.app" };
+  else if (String(w.user_id) !== String(user.id)) return res.status(403).json({ ok: false, code: "AUTHOR_ONLY" });
+
+  // The voice variants attach to the work's default language.
+  const baseLang = String(w.default_lang || req.body?.lang || "").trim().toLowerCase();
+  if (!baseLang) return res.status(409).json({ ok: false, code: "NO_BASE_TRACK", hint: "work has no ready default track yet" });
+  const baseLyrics = String(w.default_lyrics || w.lyrics_preview || "");
+
+  // Existing voices for this (work, baseLang) — dedup + 'auto' is the original, never re-add.
+  const existing = await withClient((c) => c.query<{ voice: string; track_order: number }>(
+    `SELECT voice, track_order FROM work_language_tracks WHERE work_id=$1::uuid AND lang=$2`, [workId, baseLang]));
+  const have = new Set(existing.rows.map((r) => r.voice));
+  let maxOrder = existing.rows.reduce((m, r) => Math.max(m, r.track_order), 0);
+  const seen = new Set<string>();
+  const fresh: string[] = [];
+  // CSSOS_WAVE_587 — 也接受【本人已就绪的个人声纹】(u_*); 渲染时 resolveRvcVoice 会查到模型走 RVC。
+  let personalKeys = new Set<string>();
+  try {
+    const pv = await withClient((c) => c.query<{ voice_key: string }>(
+      `SELECT voice_key FROM user_voice_models WHERE user_id=$1::uuid AND status='ready'`, [String(user.id)]));
+    personalKeys = new Set(pv.rows.map((r) => String(r.voice_key)));
+  } catch { /* ignore */ }
+  for (const item of (Array.isArray(req.body?.voices) ? req.body.voices : [])) {
+    const v = String(item || "").trim().toLowerCase();
+    if ((CSSOS_SUPPORTED_VOICES.has(v) || personalKeys.has(v)) && !have.has(v) && !seen.has(v)) { seen.add(v); fresh.push(v); }
+  }
+  if (!fresh.length) return res.status(400).json({ ok: false, code: "NO_NEW_VOICES" });
+  // CSSOS_WAVE_587 — 同一道算力硬闸: 单次最多 MV_TRACK_MAX_BATCH 个新声线 cell。
+  if (fresh.length > MV_TRACK_MAX_BATCH) {
+    return res.status(400).json({ ok: false, code: "BATCH_TOO_LARGE", max: MV_TRACK_MAX_BATCH, requested: fresh.length });
+  }
+
+  const quote = quoteMvLanguageTracks(fresh.length, false); // 同价
+  const balance = await getCreditBalance(user.id);
+  const exempt = isCssosAdminEmail((user as any).email);
+  if (!exempt && balance < quote.totalCents) {
+    return res.status(402).json({ ok: false, code: "INSUFFICIENT_BALANCE", need_cents: quote.totalCents, balance_cents: balance });
+  }
+  let order = maxOrder;
+  for (const voice of fresh) {
+    order++;
+    await withClient((c) => c.query(
+      `INSERT INTO work_language_tracks (work_id, lang, voice, track_order, is_default, charged_cents, status)
+       VALUES ($1::uuid, $2, $3, $4, false, $5, 'pending')
+       ON CONFLICT (work_id, lang, voice) DO NOTHING`,
+      [workId, baseLang, voice, order, quote.perCents]));
+  }
+  for (const voice of fresh) {
+    void renderLanguageTrack({
+      workId, userId: String(user.id), lang: baseLang, trackOrder: ++maxOrder,
+      baseLyrics, baseTitle: String(w.title || ""), baseStyle: String(w.style || ""),
+      fromLangHint: baseLang, // fromLangHint===lang → renderLanguageTrack 判定为 voice variant(不重写歌词)
+      chargedCents: quote.perCents, durationSecs: w.duration_secs, voice,
+    });
+  }
+  return res.json({
+    ok: true, work_id: workId, lang: baseLang, queued: fresh,
+    per_cents: quote.perCents, total_cents: quote.totalCents,
+  });
 });
 
 // CSSOS_PHASE2_COVER_FALLBACK_DIR 20260507 — Jing
@@ -1761,6 +3069,8 @@ const CIV_LANGUAGE_ENTRIES: ReadonlyArray<{ match: ReadonlyArray<string>; lang: 
   { match: ["佛教神话", "Buddhist Myth"],                                   lang: "sa" },
   { match: ["现代印度", "Modern India"],                                     lang: "hi" },
   { match: ["印度", "India", "Indian"],                                     lang: "hi" },
+  // CSSOS_WAVE_433 20260525 — 阿契美尼德 → Old Persian (peo); must precede generic 波斯 entry.
+  { match: ["阿契美尼德", "Achaemenid", "居鲁士", "Cyrus", "Darius", "大流士", "薛西斯", "Xerxes"], lang: "peo" },
   { match: ["波斯", "Persia", "Persian", "Iran", "Iranian"],                 lang: "fa" },
   { match: ["古埃及", "Ancient Egypt", "Egyptian Myth"],                     lang: "ar" },
   { match: ["美索不达米亚", "Mesopotam"],                                   lang: "ar" },
@@ -1799,6 +3109,73 @@ function civToLanguageServer(civilization: string): string {
   return "";
 }
 
+// CSSOS_WAVE_443 20260525 — Jing「古典方言」
+// When a civilization has a HISTORICAL dialect that differs from the
+// modern language code, return a detailed note that overrides the
+// generic language name in the 京典 prompt. This allows the LLM to
+// write in, e.g., Classical Attic Greek (not modern ελληνικά),
+// Classical Latin prose (not modern Italian), Old Persian (not Farsi).
+// Returns empty string when no dialect override is needed.
+interface CivDialectNote {
+  langDisplay: string;    // shown in LANGUAGE DIRECTIVE ("Classical Attic Greek")
+  bodyNote: string;       // injected as an extra instruction block
+  ritualNote: string;     // override for the ancestral/ritual line description
+}
+const CIV_DIALECT_MAP: Array<{ match: string[]; note: CivDialectNote }> = [
+  {
+    match: ["古希腊", "ancient greek", "hellenic", "greek myth"],
+    note: {
+      langDisplay: "Classical Attic Greek (ancient)",
+      bodyNote:
+        "DIALECT: Write ALL body lines in Classical Attic Greek as Plato, Sophocles, and Thucydides wrote — " +
+        "4th–5th century BCE orthography and vocabulary. Use the ancient alphabet (Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω) " +
+        "with proper polytonic diacritics (ά ή ί ό ύ ώ ἀ ἁ ἄ ἅ ἐ ἑ ἔ ἦ ᾁ etc.). " +
+        "DO NOT write modern Greek (post-1453 monotonic). " +
+        "Vocabulary must be Attic, not Ionic or Doric. Favour short singable lines (7–11 syllables).",
+      ritualNote:
+        "The ritual incantation line must be in Homeric / Epic Greek dialect — " +
+        "an archaic hexameter-flavoured phrase invoking the Muses or the cosmos " +
+        "(e.g. from Hesiod's Theogony or Homeric Hymns style). Label it [Ἀρχαίη ὠδή].",
+    },
+  },
+  {
+    match: ["古罗马", "ancient roman", "roman empire"],
+    note: {
+      langDisplay: "Classical Latin (ancient)",
+      bodyNote:
+        "DIALECT: Write ALL body lines in Classical Latin as Virgil, Cicero, and Ovid wrote — " +
+        "1st century BCE / CE. Avoid Vulgar Latin or Church Latin. " +
+        "Use classical orthography (no J/W). Prefer quantitative metre-friendly vocabulary.",
+      ritualNote:
+        "The ritual line must quote or echo Virgil's Aeneid or an augur formula — " +
+        "archaic formulaic Latin. Label it [Carmen Sacrum].",
+    },
+  },
+  {
+    match: ["阿契美尼德", "achaemenid"],
+    note: {
+      langDisplay: "Old Persian (Achaemenid)",
+      bodyNote:
+        "DIALECT: Write ALL body lines in Old Persian (𐎠𐎼𐎹 / romanised Avestan-influenced form " +
+        "as seen in Darius's Behistun Inscription). Romanise with standard Old Persian transliteration " +
+        "(a i u, θ, š, x, č, z, etc.). If Unicode cuneiform is feasible, add it in parentheses.",
+      ritualNote:
+        "The ritual line must be in Avestan — a sacred Zoroastrian prayer phrase. Label it [Ahura Mazda].",
+    },
+  },
+];
+
+function civToLangDialectNote(civilization: string): CivDialectNote | null {
+  const lower = String(civilization || "").toLowerCase();
+  if (!lower) return null;
+  for (const e of CIV_DIALECT_MAP) {
+    for (const key of e.match) {
+      if (lower.indexOf(key) !== -1) return e.note;
+    }
+  }
+  return null;
+}
+
 function languageNameFromCode(code: string): string {
   const c = String(code || "").toLowerCase().trim();
   if (c.startsWith("zh")) return "Chinese (Simplified, 简体中文)";
@@ -1824,6 +3201,8 @@ function languageNameFromCode(code: string): string {
   if (c.startsWith("bo")) return "Tibetan (བོད་སྐད་)";
   if (c.startsWith("sv")) return "Swedish (Svenska)";
   if (c.startsWith("sw")) return "Swahili (Kiswahili)";
+  // CSSOS_WAVE_433 20260525 — Achaemenid Old Persian cuneiform
+  if (c === "peo" || c.startsWith("peo")) return "Old Persian (𐎠𐎭𐎷𐎴𐎡𐎹 — Achaemenid cuneiform script, e.g. 𐎤𐎢𐎽𐎢𐏁 = Kūruš). Write lyrics using the Old Persian cuneiform Unicode block (U+103A0–U+103DF). Transliterate in the next line with hyphens: ku-ru-uš, da-a-ra-ya-va-u-š, etc. You are Claude / GPT-4o — you CAN write Old Persian cuneiform. Do it.";
   return "English";
 }
 
@@ -1875,7 +3254,29 @@ function loreLangMismatch(text: string, lang: string): boolean {
  * (free-text — user's Advanced Settings field). When absent we fall
  * back to the canonical 10-section 京典 template.
  */
-function buildJingdianSystemPrompt(language: string, workType: string = "single", sectionForm: string = ""): string {
+// CSSOS_WAVE_618 — Jing「印度歌却出亚洲脸」根治: 文明 → 封面图的【族裔/服饰/场景】英文视觉锚定。
+// 图像模型对中文文明标签("古印度文明")理解差 → 默认出泛亚洲脸。把文明翻成明确的英文视觉描述
+// 注入封面 prompt, 让印度作品出印度长相、希腊出地中海、埃及出法老等, 不再张冠李戴。
+function civVisualHint(civilization: string): string {
+  const c = String(civilization || "").toLowerCase();
+  const has = (...keys: string[]) => keys.some((k) => c.includes(k));
+  if (has("印度", "吠陀", "莫卧儿", "india", "vedic", "mughal", "hindu")) return "South Asian Indian people, Indian classical attire (sari / dhoti / sherwani), Indian temple and palace aesthetic";
+  if (has("日本", "japan", "edo", "meiji", "samurai", "和风")) return "Japanese East Asian people, kimono, Japanese classical aesthetic";
+  if (has("朝鲜", "韩国", "korea", "joseon")) return "Korean East Asian people, hanbok, Korean classical aesthetic";
+  if (has("中华", "中国", "华夏", "汉", "唐", "宋", "元", "明", "清", "秦", "藏", "china", "chinese", "tibet")) return "East Asian Chinese people, traditional Chinese hanfu attire, Chinese ink-painting and palace aesthetic";
+  if (has("希腊", "hellen", "greek")) return "ancient Greek Mediterranean people, chiton, Hellenic marble temple aesthetic";
+  if (has("罗马", "roman", "rome", "拜占庭", "byzan")) return "ancient Roman / Mediterranean people, toga, Roman classical architecture";
+  if (has("埃及", "egypt", "pharaoh")) return "ancient Egyptian people, pharaonic attire, Egyptian temple and desert aesthetic";
+  if (has("波斯", "persia", "iran")) return "Persian Middle Eastern people, Persian classical attire and architecture";
+  if (has("阿拉伯", "伊斯兰", "奥斯曼", "arab", "islam", "ottoman")) return "Arab / Middle Eastern people, Islamic classical attire and architecture";
+  if (has("非洲", "africa", "mali", "nubia")) return "African people, traditional African attire and setting";
+  if (has("玛雅", "阿兹特克", "印加", "maya", "aztec", "inca", "mesoameric")) return "Mesoamerican / Andean indigenous people, traditional attire";
+  if (has("北欧", "维京", "norse", "viking", "scandinav")) return "Norse Scandinavian people, Viking-era attire";
+  if (has("中世纪", "文艺复兴", "欧洲", "medieval", "renaissance", "europe", "英", "法", "德", "俄", "britain", "france", "german", "russia")) return "European people, period-appropriate medieval / Renaissance / European attire";
+  return "";
+}
+
+function buildJingdianSystemPrompt(language: string, workType: string = "single", sectionForm: string = "", civilization: string = ""): string {
   const langName = languageNameFromCode(language);
   const wt = String(workType || "single").toLowerCase();
   // CSSOS_WAVE_179 — Jing's clarification: 短剧 episodes are DRAMA
@@ -1922,7 +3323,9 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
   const workTypeBlock = (() => {
     if (wt === "triptych") {
       return [
-        `WORK TYPE: triptych (三部曲) — produce THREE separate songs in this single response. Separate them with an empty line followed by "[Part II]" / "[Part III]" markers. Each part follows its own complete section template below.`,
+        // CSSOS_WAVE_603 — Jing「三部曲少了第三部 / part 命名是 (N/2) 而非乐章名」根因 + 修复:
+        // 强制 EXACTLY THREE 部(别只出 2), 且每部 marker 里【带上乐章标题】→ split 后 part 名就是乐章名。
+        `WORK TYPE: triptych (三部曲) — produce EXACTLY THREE complete songs (Part I, Part II, Part III) in this single response — never two, never one. Do NOT stop after two parts. Open EACH part with its own marker line carrying the movement title: "[Part I · <movement title>]" / "[Part II · <movement title>]" / "[Part III · <movement title>]". If the user gave movement titles (e.g. 少年的火 / 风雨同舟 / 白发未忘), use them VERBATIM in the markers; otherwise invent a distinct evocative title per part. Each part follows its own complete section template below.`,
       ].join("\n");
     }
     // CSSOS_WAVE_176 — marker words match the create_work hierarchy
@@ -1942,34 +3345,56 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
     }
     return `WORK TYPE: single song (单曲) — one complete song following the section template.`;
   })();
+  // CSSOS_WAVE_443 — dialect override for historical civilizations
+  const dialectNote = civToLangDialectNote(civilization);
+  const effectiveLangName = dialectNote ? dialectNote.langDisplay : langName;
+
   return [
     `LANGUAGE DIRECTIVE (highest priority):`,
-    `All lyric BODY lines MUST be written in ${langName}. Do not switch languages mid-song, do not translate to Chinese, do not "localize" Western personas to Chinese. The body language is fixed by this directive regardless of who the song is about.`,
-    // CSSOS_WAVE_358 20260522 — Jing「i18n 铁律」: the theme / prompt / persona
-    // notes may arrive in ANOTHER language (often Chinese seed text). Treat any
-    // such text as SEMANTIC SEED ONLY — render its meaning, but output strictly
-    // in ${langName}. NEVER emit Chinese unless ${langName} is itself Chinese.
-    `IMPORTANT: the prompt or theme text may be written in a different language (e.g. Chinese). Use it only as a semantic hint — still write the entire song in ${langName}. If ${langName} is not Chinese, the lyrics must contain NO Chinese at all.`,
+    `All lyric BODY lines MUST be written in ${effectiveLangName}. Do not switch languages mid-song, do not translate to Chinese, do not "localize" Western personas to Chinese. The body language is fixed by this directive regardless of who the song is about.`,
+    // CSSOS_WAVE_358 20260522 — Jing「i18n 铁律」
+    `IMPORTANT: the prompt or theme text may be written in a different language (e.g. Chinese). Use it only as a semantic hint — still write the entire song in ${effectiveLangName}. If ${effectiveLangName} does not include Chinese, the lyrics must contain NO Chinese at all.`,
+    // CSSOS_WAVE_443 — inject dialect-specific body instruction when applicable
+    dialectNote ? dialectNote.bodyNote : "",
     ``,
-    `LINE COUNT PER SECTION: each section should have 4 body lines in ${langName} plus 1 ritual line in the civilization's ancestral / sacred language (Latin for Roman, Classical Greek for Hellenic, Sanskrit for Vedic, Classical Chinese 文言文 for ancient Chinese, Old Egyptian/Coptic for Egyptian, etc.) used as an incantation / refrain. If the civilization has no distinct ancestral language, write 4 body lines and skip the ritual line. Target total: 40–50 lyric lines per single song so the music engine renders 5+ minutes.`,
+    `LINE COUNT PER SECTION: each section should have 4 body lines in ${effectiveLangName} plus 1 ritual/ancestral line. ${
+      dialectNote
+        ? dialectNote.ritualNote
+        : "The ritual line uses the civilization's ancestral / sacred language (Latin for Roman, Classical Greek for Hellenic, Sanskrit for Vedic, Classical Chinese 文言文 for ancient Chinese, Old Egyptian/Coptic for Egyptian, etc.) as an incantation / refrain. If the civilization has no distinct ancestral language, write 4 body lines and skip the ritual line."
+    } Target total: 40–50 lyric lines per single song so the music engine renders 5+ minutes.`,
     ``,
     workTypeBlock,
     ``,
-    `${useCustomForm ? `SECTION TEMPLATE (user-specified via Advanced Settings → SECTION FORM — use this exact form, do not substitute the default 10-section template):` : `You write singable lyrics in the CSS Studio 京典 (Jing-Dian) 10-section template. Output EXACTLY these 10 sections in this exact order, each label on its own line wrapped in square brackets, each followed by 4 lyric body lines + 1 ancestral-language ritual line:`}`,
+    `${useCustomForm ? `SECTION TEMPLATE (user-specified via Advanced Settings → SECTION FORM — use this exact form, do not substitute the default 10-section template):` : `You write singable lyrics in the CSS Studio 京典 (Jing-Dian) 10-section template. Output EXACTLY these 10 sections in this exact order:`}`,
     sectionListBlock,
     ``,
+    // CSSOS_WAVE_443 — 京典 section subtitle rule (user-mandated)
+    `SECTION SUBTITLES: every section label MUST include a poetic subtitle separated by " · ".`,
+    `  Format: [Verse 1 · <subtitle in ${effectiveLangName}>]  or  [Chorus 1 · <subtitle in ${effectiveLangName}>]`,
+    `  For triptych: subtitle reflects each part's theme. For opera: subtitle = scene title. For series: subtitle = episode title.`,
+    `  The subtitle is inside the brackets so Suno treats it as a meta-tag (not sung). Keep subtitles to 2–5 words.`,
+    ``,
+    `TITLE BLOCK (non-sung, at the very top before [Verse 1]):`,
+    `  Output a 3-line title block in square brackets before the first section:`,
+    `  [Title: <title in ${effectiveLangName}> / <English title> / <Chinese title>]`,
+    `  [Style: <music style tag string>]`,
+    `  [Source: <1-line citation — allusion / wiki / historical origin of the theme>]`,
+    `  These are non-sung meta lines. They will be stripped before sending to the music engine.`,
+    ``,
     `ABSOLUTE RULES — violating any of these breaks the music engine downstream (Suno will literally sing the violation as a lyric):`,
-    `1. The 10 labels above are FIXED ENGLISH TOKENS. NEVER translate them. NEVER write [第一节] / [副歌] / [サビ] / [Estrofa] / [Couplet] — only [Verse 1], [Verse 2], [Chorus 1], etc. This rule overrides the language directive — labels stay English even when the body is Chinese / Japanese / etc.`,
-    `2. Brackets MUST be ASCII square brackets [ and ]. DO NOT use full-width Chinese brackets 【】, 〔〕, 《》, Japanese ｢｣, parentheses (), curly braces {}, markdown ##, bold **, or any other delimiter. Only [ and ].`,
-    `3. Only the lyric BODY lines are written in ${langName}. Labels stay English.`,
+    `1. The 10 section labels (Verse / Chorus / Bridge / Outro) are FIXED ENGLISH TOKENS. NEVER translate them. NEVER write [第一节] / [副歌] / [サビ] / [Estrofa] / [Couplet] — only [Verse 1 · subtitle], [Chorus 1 · subtitle], etc. This rule overrides the language directive — labels stay English even when the body is ${effectiveLangName}.`,
+    `2. Brackets MUST be ASCII square brackets [ and ]. DO NOT use full-width brackets 【】, 〔〕, 《》, ｢｣, parentheses (), curly braces {}, markdown ##, bold **, or any other delimiter. Only [ and ].`,
+    `3. Only the lyric BODY lines are written in ${effectiveLangName}. Section labels and subtitles stay with English keywords (Verse/Chorus/Bridge/Outro); subtitles may be in ${effectiveLangName}.`,
     `4. Chorus 1/2/3/4 share the same hook melody — body lyrics may vary slightly but the recognizable refrain returns each time.`,
-    `5. Output the FINAL lyrics only. NO drafts, NO "Here is version 2", NO commentary, NO markdown headings, NO disclaimers, NO explanations, NO meta-text. Begin with the first section header and end with the last line of the last section.`,
+    `5. Output the FINAL lyrics only. NO drafts, NO "Here is version 2", NO commentary, NO markdown headings, NO disclaimers, NO explanations, NO meta-text outside the title block. Begin with [Title: …] and end with the last line of [Outro · …].`,
     `6. Produce ALL requested sections in a single pass. Do not stop early. For single song: do not re-output the song after finishing. For triptych / opera / multi-scene works: produce all parts in this same response, separated by [Part II] / [Scene N] / [Episode N] markers as appropriate.`,
-  ].join("\n");
+  ].filter(s => s !== null && s !== undefined).join("\n");
 }
 
-function buildJingdianUserPrompt(language: string, style: string, prompt: string, workType: string = "single", sectionForm: string = ""): string {
+function buildJingdianUserPrompt(language: string, style: string, prompt: string, workType: string = "single", sectionForm: string = "", civilization: string = ""): string {
   const langName = languageNameFromCode(language);
+  const dialectNote = civToLangDialectNote(civilization);
+  const effectiveLangName = dialectNote ? dialectNote.langDisplay : langName;
   const wt = String(workType || "single").toLowerCase();
   const wtLabel = wt === "triptych" ? "TRIPTYCH (three songs, 三部曲)"
     : wt === "opera" ? "OPERA (歌剧 — all scenes of the act)"
@@ -1977,14 +3402,21 @@ function buildJingdianUserPrompt(language: string, style: string, prompt: string
     : wt === "series" || wt === "tv_series" ? "TV SERIES (电视连续剧 — by episode)"
     : wt === "film" || wt === "movie" ? "FILM (电影 — scene cues)"
     : "SINGLE SONG (单曲)";
+  // CSSOS_WAVE_443 / 609 — civilization-aware music & vocal style hints.
+  // Jing「别让《长相思》唱 j-pop、《孔子》唱 k-pop」: 改为【无条件】注入 —— 即使给了风格, 也必须
+  // 把演唱/唱腔/配乐【锚定到该文明最具代表性的传统】, 并显式禁止文明错配。
+  const civStyleHint = civilization
+    ? `Civilization context: "${civilization}". MANDATORY: the singing/vocal style AND the backing music MUST be the most representative, most popular tradition of THIS civilization — even if a style is otherwise given, the vocal tradition & instrumentation must stay native to "${civilization}". Examples: 中华/中国 → Chinese classical & 民乐 (guzheng / erhu / 箫 / pipa), 戏曲/古风/民族唱法; 古希腊 → aulos–lyre modal music + tragic chorus; 吠陀印度 → Carnatic ragas + classical bhajan vocal; 中世纪罗马/欧洲 → Gregorian chant + polyphonic choir; 日本古典 → gagaku / shamisen / Noh vocal. ⚠️ NEVER use a foreign idiom that clashes with the civilization — e.g. NO j-pop / k-pop / Western pop for a Chinese or ancient figure (a 南唐 ci like 《长相思》 must sound 婉约 with 古筝/箫/弦乐, NOT j-pop; Confucius must NOT sound like k-pop). Only Japanese personas may use j-pop/演歌, only Korean personas k-pop.`
+    : "";
   return [
     `Write the FULL lyrics for: ${wtLabel}.`,
-    `Body language: ${langName} (language code "${language}"). Add 1 ancestral-language ritual line per section where applicable.`,
+    `Body language: ${effectiveLangName} (language code "${language}"). Add 1 ancestral/ritual line per section where applicable.`,
     style ? `Musical style: ${style}.` : "",
+    civStyleHint,
     `Subject / scene: ${prompt || "an evocative scene"}.`,
     sectionForm ? `User-specified section form (override default): ${sectionForm}` : "",
     ``,
-    `Reminder: every section label uses ASCII square brackets [ ] in English (Verse / Chorus / Bridge / Outro / Part / Scene / Episode / Cue). Body in ${langName}. No drafts, no commentary. Target: 4 body lines + 1 ancestral line per section so the song runs 5+ minutes.`,
+    `Reminder: every section label uses ASCII square brackets [ ] with English keyword + subtitle (e.g. [Verse 1 · subtitle]). Body in ${effectiveLangName}. Include [Title: … / … / …], [Style: …], [Source: …] before [Verse 1]. No drafts, no commentary. Target: 4 body lines + 1 ritual line per section so the song runs 5+ minutes.`,
   ].filter(Boolean).join("\n");
 }
 
@@ -2323,7 +3755,7 @@ app.post("/api/mv/lyrics/parse", express.json({ limit: "1mb" }), async (req, res
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const body = (req.body && typeof req.body === "object") ? req.body : {};
-  const rawText = String((body as any).text || (body as any).content || "").slice(0, 200_000); // 200 KB
+  const rawText = String((body as any).text || (body as any).content || "").slice(0, 1_000_000); // CSSOS_WAVE_633 1 MB — 支撑整本《圣经》级超大粘贴结构(数千场 marker)
   const explicitWorkType = String((body as any).work_type || "").trim().toLowerCase() || null;
   const titleHint = String((body as any).title || "").trim();
   if (!rawText.trim()) {
@@ -3343,6 +4775,79 @@ app.post("/api/works/:id/title", express.json({ limit: "2kb" }), async (req, res
   }
 });
 
+/* CSSOS_WAVE_544 20260531 — Jing「作品中心要让用户编辑自己作品的基础+展示信息,
+ * 否则改不了笔误」。owner-only 通用编辑端点。白名单字段 + 逐项校验, 动态 SET。
+ * 仅 user_works 列(基础展示+画幅+建议定价); 不触碰已生成的音视频本体。 */
+app.post("/api/works/:id/edit", express.json({ limit: "16kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) {
+    return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  }
+  const body = (req.body || {}) as Record<string, unknown>;
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  const push = (col: string, val: unknown) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
+
+  if (typeof body.title === "string") {
+    const v = body.title.trim().slice(0, 80);
+    if (!v) return res.status(400).json({ ok: false, error: "title_required" });
+    push("title", v);
+  }
+  if (typeof body.style === "string") push("style", body.style.trim().slice(0, 200) || null);
+  if (typeof body.lyrics_preview === "string") push("lyrics_preview", body.lyrics_preview.slice(0, 8000) || null);
+  if (typeof body.cover_image === "string") {
+    const v = body.cover_image.trim();
+    // 只接受 http(s) 或站内相对路径, 防注入 javascript:/data: 等
+    if (v && !/^(https?:\/\/|\/)/i.test(v)) return res.status(400).json({ ok: false, error: "invalid_cover_url" });
+    push("cover_image", v || null);
+  }
+  if (typeof body.aspect_ratio === "string") {
+    const v = body.aspect_ratio.trim().slice(0, 32);
+    if (v && !/^[0-9]+(\.[0-9]+)?\s*[:x\/]\s*[0-9]+(\.[0-9]+)?$/i.test(v)) {
+      return res.status(400).json({ ok: false, error: "invalid_aspect_ratio" });
+    }
+    push("aspect_ratio", v || null);
+  }
+  if (typeof body.orientation === "string") {
+    const v = body.orientation.trim().toLowerCase();
+    if (v && !["ultra-wide", "landscape", "square", "portrait"].includes(v)) {
+      return res.status(400).json({ ok: false, error: "invalid_orientation" });
+    }
+    push("orientation", v || null);
+  }
+  for (const col of ["suggested_listen_price_cents", "suggested_buyout_price_cents"] as const) {
+    if (body[col] != null) {
+      const n = Number(body[col]);
+      if (!Number.isFinite(n) || n < 0 || n > 100000000) {
+        return res.status(400).json({ ok: false, error: `invalid_${col}` });
+      }
+      push(col, Math.round(n));
+    }
+  }
+  if (!sets.length) return res.status(400).json({ ok: false, error: "no_editable_fields" });
+  vals.push(workId); const widIdx = vals.length;
+  vals.push(userId); const uidIdx = vals.length;
+  try {
+    const r = await withClient((c) =>
+      c.query(
+        `UPDATE user_works SET ${sets.join(", ")}, updated_at = now()
+         WHERE id = $${widIdx}::uuid AND user_id = $${uidIdx}::uuid
+         RETURNING id, title, style, lyrics_preview, cover_image, aspect_ratio, orientation,
+                   suggested_listen_price_cents, suggested_buyout_price_cents`,
+        vals,
+      ),
+    );
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: "not_found_or_not_owner" });
+    return res.json({ ok: true, work: row });
+  } catch (err) {
+    console.warn("[works/edit] failed:", (err as Error).message);
+    return res.status(500).json({ ok: false, error: "update_failed" });
+  }
+});
+
 /* CSSOS_WAVE_363 20260523 — Jing「全新作品落库完整性」根治.
  * 审计发现: 自 5 月 20 日 work_assets 的唯一索引改成【部分索引】
  *   UNIQUE (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
@@ -3447,16 +4952,15 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
         );
         const take2Id = sib.rows[0]?.id;
         if (take2Id) {
-          const _w = written.length;
-          await upsertAsset(take2Id, "final_mv", finalMvUrl, {
-            kind: "third_party_pipeline", take_index: 2, sibling_work_id: workId,
-            duration_secs: altDurationSecs || durationSecs,
-            lyrics_full: b.lyrics_full ?? null, aligned_lyrics: b.aligned_lyrics ?? null,
-          });
-          // Take 2's PRIMARY audio is the alt track.
-          await upsertAsset(take2Id, "audio_track_1", altAudioUrl, { kind: "audio_track", take: 2, duration_secs: altDurationSecs });
-          await upsertAsset(take2Id, "subtitle_srt", subtitleSrtUrl, {});
-          take2 = written.splice(_w);
+          // CSSOS_WAVE_602 — 方案 A(Jing「take = 同一作品的 2 条音轨, 不再成兄弟作品」):
+          // 主作品已含 audio_track_1(Take 1) + audio_track_2(Take 2 = alt 音轨, 见上方 upsert),
+          // 播放器 Take1/Take2 切换器读的就是它。Rust 自动建的 Take 2 兄弟作品因此【冗余】→ 软删除它,
+          // 让树形/目录干净: 一首/一部 = 一个作品(含 2 take 可切换), 不再多出 (1/2)/(2/2) 兄弟卡。
+          // (与 Jing 早先「请在后台去掉这些 Take 2」一致; 软删除可逆。)
+          await withClient((c) => c.query(
+            `UPDATE user_works SET status = 'deleted' WHERE id = $1::uuid AND user_id = $2::uuid`,
+            [take2Id, userId],
+          ));
         }
       }
     } catch (_sibErr) { /* sibling backfill best-effort */ }
@@ -4418,7 +5922,8 @@ async function runAgentTool(
           `SELECT name_zh, name_en, civilization, era,
                   coalesce(music_style_hint,'') AS music_style_hint,
                   coalesce(tone,'') AS tone,
-                  coalesce(core_theme,'') AS core_theme
+                  coalesce(core_theme,'') AS core_theme,
+                  admin_pinned_at
              FROM person_profiles WHERE person_id = $1 LIMIT 1`,
           [pid],
         ),
@@ -4526,7 +6031,19 @@ async function runAgentTool(
         ? inp.required_hooks.map((s: any) => String(s || "").trim()).filter(Boolean)
         : [];
       const validWorkTypes = new Set(["single","triptych","opera","shortplay","series","film"]);
-      const wt = validWorkTypes.has(workType) ? workType : "single";
+      // CSSOS_WAVE_632 20260604 — Jing「信息包含 opera/series/film, AI 助理却降级成单曲」根治:
+      // 服务端【确定性兜底】。扫 标题+theme+prompt+信息包 的关键词(detectWorkTypeFromText), 若检出
+      // 比 LLM 所给更"高阶"的多部类型(opera/series/film/triptych/shortplay)→ 强制升级。关键词决定结构,
+      // 不再听任 LLM 漏判。(只升不降: 用户明确给了多部类型时不会被关键词误降为 single。)
+      const _detectedWt = detectWorkTypeFromText(
+        [title, theme, String(inp.prompt || ""), String(inp.info_pack || inp.infopack || inp.source || "")].join("\n"),
+      );
+      const _wtRank: Record<string, number> = { single: 0, triptych: 1, shortplay: 1, opera: 2, series: 2, film: 2 };
+      const _effectiveWt = ((_wtRank[_detectedWt] || 0) > (_wtRank[workType] || 0)) ? _detectedWt : workType;
+      if (_effectiveWt !== workType) {
+        console.info("[create_work] work_type upgraded by keyword: %s → %s (title=%s)", workType, _effectiveWt, title);
+      }
+      const wt = validWorkTypes.has(_effectiveWt) ? _effectiveWt : "single";
 
       // CSSOS_WAVE_138 Part B — cost meter.
       const debitCost = costForCreateWork(wt);
@@ -4606,10 +6123,10 @@ async function runAgentTool(
 
       // Build lyricist prompt (re-use the user-facing endpoint's helpers).
       const sysPrompt = (typeof buildJingdianSystemPrompt === "function")
-        ? buildJingdianSystemPrompt(lang, wt, "")
+        ? buildJingdianSystemPrompt(lang, wt, "", civilization)
         : "Write 10-section 京典 lyric (Verse 1..Outro), 4 body + 1 ritual line each, ≥40 lines.";
       let userPrompt = (typeof buildJingdianUserPrompt === "function")
-        ? buildJingdianUserPrompt(lang, style, theme || title, wt, "")
+        ? buildJingdianUserPrompt(lang, style, theme || title, wt, "", civilization)
         : `Title: ${title}\nStyle: ${style}\nTheme: ${theme || title}\nWork type: ${wt}`;
       if (requiredHooks.length) {
         userPrompt += `\n\nMANDATORY chorus lines (must appear verbatim across Chorus 1/2/3/4, the user has demanded these exact lines — do not paraphrase or translate):\n` +
@@ -4618,6 +6135,118 @@ async function runAgentTool(
 
       let lyricsText: string | null = null;
       let lyricsProvider = "";
+
+      // CSSOS_WAVE_610/611 — Jing「分批稳妥, 为歌剧/连续剧/电影/短剧铺路」: 把【逐部并发生成】从三部曲
+      // 泛化到所有多部类型。歌剧可达 50+ 幕、30+ 场, 绝不能单次大调用(必 504/截断)。架构:
+      //   1) 一次【结构规划】产出树(flat: N 个 part; nested: acts→scenes);
+      //   2) 叶子(每片=一首)【并发】生成完整京典, 同步只跑前 MAX_SYNC 个(成本/时间可控, 不超时);
+      //   3) 组装成 [Outer N — t] / [Inner M — t] marker → 交下游 splitHierarchy 切成树;
+      //   4) 超出 MAX_SYNC 的叶子留【一行种子】→ 结构先入库, 歌词由 needsLyrics 懒补全(播放时再生成)。
+      // lyricsText 一旦设值, 下方原"单次大调用"的 while(!lyricsText) 自然跳过。
+      const HWORDS_LOCAL: Record<string, { outer: string; inner: string | null }> = {
+        triptych:  { outer: "Part",    inner: null },
+        opera:     { outer: "Act",     inner: "Scene" },
+        shortplay: { outer: "Episode", inner: null },
+        series:    { outer: "Season",  inner: "Episode" },
+        film:      { outer: "Chapter", inner: "Scene" },
+      };
+      const _hw = HWORDS_LOCAL[wt];
+      if (_hw) {
+        try {
+          const nested = !!_hw.inner;
+          const langName = lang === "zh" ? "Chinese" : lang === "ja" ? "Japanese" : (lang === "en" ? "English" : lang);
+          const MAX_SYNC = 6;       // 同步生成完整歌词的叶子上限(并发一批, ~40s 内, 不超时)
+          // CSSOS_WAVE_633 20260604 — Jing「冲数千场(整部《圣经》66 卷所有幕所有场)」: 架构是【懒加载】——
+          // 1 次规划 LLM 调用 + 仅 MAX_SYNC 场即时歌词 + 其余仅"种子行"入库, 播放时才逐场补全歌词/音视频。
+          // 所以数千场的【结构】理论上几乎零成本(不预生成音乐)。把上限从 200 提到 5000, 每幕从 40 提到 120。
+          // 规划 LLM 只列【幕标题 + 每幕场数】(紧凑, max_tokens 已够列上百幕), 场节点由后端本地展开 → 撑得起数千。
+          // 注: 若单部超大且需 LLM 逐幕细化标题, 走【粘贴结构】路径(/api/mv/lyrics/parse, 见 W633b)更稳——
+          // 用户已用 OpenAI 改编好的整本结构直接粘贴, splitHierarchy 解析任意多 marker, 不受此 LLM 规划上限约束。
+          const MAX_STRUCT = 5000;  // 树结构纳入的叶子上限(懒加载 → 仅 1 plan + 6 即时, 其余种子, 撑数千场)
+          const MAX_SCENES_PER = 120; // 每幕场数上限(放宽; 仍防单幕失控)
+          const roman = (n: number) => ["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX"][n] || String(n + 1);
+          let outerPlan: Array<{ title?: string; focus?: string; sceneCount?: number; scenes?: Array<{ title?: string; focus?: string }> }> = [];
+          try {
+            const wantCount = wt === "triptych" ? "EXACTLY 3" : "the appropriate number of";
+            // CSSOS_WAVE_614 — 分段规划: nested 类型(歌剧/连续剧/电影)只让 LLM 给【幕标题 + 每幕场数 sceneCount】
+            // (紧凑, 一次能描述几十幕), 场节点由后端本地展开 → 突破单次规划的体量上限, 支撑大型作品。
+            const shape = nested
+              ? `[{"title":"<${_hw.outer} title>","focus":"<act one-line>","sceneCount":<integer number of ${(_hw.inner as string).toLowerCase()}s in this ${_hw.outer.toLowerCase()}, typically 3-12>}]`
+              : `[{"title":"<${_hw.outer} title>","focus":"<one-line>"}]`;
+            const planUser =
+              `Plan the structure of a ${wt} titled 《${title}》. Overall theme: ${theme || title}. Civilization: ${civilization || "—"}. ` +
+              `Output ${wantCount} ${_hw.outer.toLowerCase()}s` + (nested ? `, each with its ${(_hw.inner as string).toLowerCase()}s` : ``) + `, ` +
+              `as a JSON array; all titles in ${langName}, forming a clear dramatic progression. If the user's text already names the ` +
+              `parts/acts/scenes/episodes, reuse them VERBATIM. Stay faithful to the source. Format strictly: ${shape}\n\nUser context:\n${theme || title}`;
+            const pr = await callLlm({
+              messages: [
+                { role: "system", content: "You are a libretto / concept-album structure planner. Output ONLY a compact JSON array, no prose." },
+                { role: "user", content: planUser },
+              ],
+              prefer: ["anthropic", "openai"],
+              max_tokens: 6000, // CSSOS_WAVE_633 — 列上百幕(幕标题+每幕场数, 紧凑)留足空间
+              temperature: 0.6,
+            });
+            const mm = (pr && pr.ok ? String(pr.content || "") : "").match(/\[[\s\S]*\]/);
+            if (mm) outerPlan = JSON.parse(mm[0]);
+          } catch (_planErr) { /* best-effort */ }
+          if (wt === "triptych" && (!Array.isArray(outerPlan) || outerPlan.length < 3)) {
+            outerPlan = Array.from({ length: 3 }, (_v, i) => ({ title: String(i + 1), focus: theme || title }));
+          }
+          if (Array.isArray(outerPlan) && outerPlan.length) {
+            type Leaf = { outerIdx: number; outerTitle: string; innerIdx: number; leafTitle: string; focus: string };
+            const leaves: Leaf[] = [];
+            outerPlan.forEach((o, oi) => {
+              const oTitle = String(o.title || roman(oi));
+              if (nested) {
+                // 分段规划: 优先用 LLM 给的 scenes; 否则按 sceneCount 本地展开成"<幕> · 第N场"(标题由 backfill/播放时可细化)。
+                let scenes: Array<{ title?: string; focus?: string }>;
+                if (Array.isArray(o.scenes) && o.scenes.length) {
+                  scenes = o.scenes;
+                } else {
+                  const cnt = Math.max(1, Math.min(MAX_SCENES_PER, Math.round(Number(o.sceneCount) || 1)));
+                  scenes = Array.from({ length: cnt }, (_v, k) => ({ title: `${oTitle} · ${_hw.inner} ${k + 1}`, focus: String(o.focus || theme || title) }));
+                }
+                scenes.forEach((sc, si) => leaves.push({ outerIdx: oi, outerTitle: oTitle, innerIdx: si, leafTitle: String(sc.title || (si + 1)), focus: String(sc.focus || sc.title || theme || title) }));
+              } else {
+                leaves.push({ outerIdx: oi, outerTitle: oTitle, innerIdx: 0, leafTitle: oTitle, focus: String(o.focus || o.title || theme || title) });
+              }
+            });
+            const capped = leaves.slice(0, MAX_STRUCT);
+            const genCount = Math.min(MAX_SYNC, capped.length);
+            const genTexts = await mapWithConcurrency(capped.slice(0, genCount), 6, async (lf) => {
+              const pSys = buildJingdianSystemPrompt(lang, "single", "", civilization);
+              let pUser = buildJingdianUserPrompt(lang, style, `${lf.focus} —— 《${lf.leafTitle}》${nested ? ` (${_hw.outer} 《${lf.outerTitle}》)` : ""} of ${wt} 《${title}》`, "single", "", civilization);
+              if (requiredHooks.length) pUser += `\n\nMANDATORY chorus lines (verbatim, do not paraphrase or translate):\n` + requiredHooks.map((h, i) => `${i + 1}. ${h}`).join("\n");
+              const r = await callLlm({ messages: [{ role: "system", content: pSys }, { role: "user", content: pUser }], prefer: ["anthropic", "openai"], max_tokens: 3600, temperature: 0.85 });
+              return (r && r.ok && r.content) ? r.content.trim() : "";
+            });
+            const out: string[] = [];
+            let lastOuter = -1;
+            capped.forEach((lf, idx) => {
+              if (nested && lf.outerIdx !== lastOuter) {
+                out.push(`\n[${_hw.outer} ${roman(lf.outerIdx)} — ${lf.outerTitle}]`);
+                lastOuter = lf.outerIdx;
+              }
+              const innerWord = nested ? (_hw.inner as string) : _hw.outer;
+              const innerNum = nested ? (lf.innerIdx + 1) : roman(lf.outerIdx);
+              const body = (idx < genCount) ? String(genTexts[idx] || "").trim() : "";
+              // 未同步生成的叶子: 放一行种子, 由 needsLyrics 懒补全(播放时再生成完整歌词)。
+              const bodyOrSeed = body || `[seed] ${lf.focus}`;
+              out.push(`\n[${innerWord} ${innerNum} — ${lf.leafTitle}]\n${bodyOrSeed}`);
+            });
+            const assembled = out.join("\n").trim();
+            const markerCount = (assembled.match(/\[\s*(Part|Act|Scene|Episode|Season|Chapter)\s+/gi) || []).length;
+            if (assembled && markerCount >= 2) {
+              lyricsText = assembled;
+              lyricsProvider = "anthropic-or-openai/part-by-part";
+            }
+          }
+        } catch (_pbpErr) {
+          console.warn("[create_work] multi-part part-by-part failed; fall back to single call:", (_pbpErr as Error)?.message);
+        }
+      }
+
       // CSSOS_WAVE_142 20260514 — Jing: nginx timed out create_work at
       // 5min because LLM tier-sweep × 3 retries × multi-provider stacked
       // past the deadline. Cap total wall time at 90s via Promise.race;
@@ -4635,7 +6264,11 @@ async function runAgentTool(
           // Sonnet 4.5 specifically: best long-form coherence among the
           // available LLMs, ~10–15 ep capacity per call, sound character
           // voice. Pin the provider AND the model for this call only.
-          const llmPrefer = wt === "shortplay" ? ["anthropic"] : undefined;
+          // CSSOS_WAVE_599 — Jing「直接用 OpenAI/Claude 出歌词, 别再被免费层限流 504」:
+          // 所有重型多部(三部曲/歌剧/连续剧/电影/短剧)歌词都钉到能力强、稳定的 anthropic→openai,
+          // 不再走 free→cheap 路由(那是 504「整点恢复」的根因)。
+          const _heavyMulti = wt === "shortplay" || wt === "opera" || wt === "triptych" || wt === "series" || wt === "film";
+          const llmPrefer = _heavyMulti ? ["anthropic", "openai"] : undefined;
           const llmPreferModel = wt === "shortplay" ? { anthropic: "claude-sonnet-4-5" } : undefined;
           const r = await Promise.race([
             callLlm({
@@ -4649,8 +6282,10 @@ async function runAgentTool(
               // each ep is ~12 lines but the COUNT pushes total tokens.
               // Series/film also need headroom for multi-season/chapter
               // outputs. Cap is per-LLM-call, validated downstream.
-              max_tokens: wt === "triptych"  ? 7200
-                        : wt === "opera"     ? 9000
+              // CSSOS_WAVE_603 — Jing「三部曲少了第三部」根因: 3 份完整京典(各 10 节)≈ 远超 7200 tokens,
+              // 第 3 部被截断 → 只剩 2 部。提高 triptych 上限到 12000(Claude/OpenAI 单次足够装 3 部)。
+              max_tokens: wt === "triptych"  ? 12000
+                        : wt === "opera"     ? 12000
                         : wt === "shortplay" ? 9000
                         : wt === "series"    ? 9000
                         : wt === "film"      ? 9000
@@ -4864,11 +6499,22 @@ async function runAgentTool(
           operaActs = split.acts;
         } else if (split && split.kind === "flat") {
           split.flat.forEach((seg, idx) => {
-            // Keep the triptych's nice "(N/M)" convention for that wt only;
-            // every other flat type uses the header label as-is.
-            const partTitle = wt === "triptych"
-              ? `${title} (${idx + 1}/${split.flat.length})`
-              : `${title} · ${seg.title}`;
+            // CSSOS_WAVE_604 — Jing「分部要显示乐章名(少年的火), 不要 (N/3)」:
+            // splitHierarchy 给的 seg.title 形如 "Part I · 少年的火"(LLM 写了副标题时)→ 取 · 后的乐章名
+            // → "朋友兄弟 · 少年的火"。LLM 没给副标题(只 "Part I")时才回退到 "(N/M)"。
+            // 其它多部类型(opera/series…)沿用 header label。
+            let partTitle: string;
+            if (wt === "triptych") {
+              const segT = String(seg.title || "");
+              const movement = segT.includes("·") ? segT.split("·").slice(1).join("·").trim() : "";
+              // 排除把通用 "Part I" 当乐章名(movement 必须不是纯 "Part/Roman/数字")。
+              const isGeneric = /^(part\s+)?[ivx0-9]+$/i.test(movement);
+              partTitle = (movement && !isGeneric)
+                ? `${title} · ${movement}`
+                : `${title} (${idx + 1}/${split.flat.length})`;
+            } else {
+              partTitle = `${title} · ${seg.title}`;
+            }
             const segEntry: SceneNode = { title: partTitle, lyrics: seg.lyrics };
             if (wt === "shortplay") segEntry.role = "episode";
             parts.push(segEntry);
@@ -4900,18 +6546,44 @@ async function runAgentTool(
       // to keep big-batch shortplays from melting the image router.
       const renderCover = async (label: string): Promise<string> => {
         try {
-          const img = await callImageGen({
-            prompt: [label, style, theme, civilization, "cinematic album cover, dramatic lighting, no text"]
-              .filter(Boolean).join(" — "),
-            size: "1024x1024",
-          });
+          // CSSOS_WAVE_599 — 每张封面最多等 8s: 图像 provider 慢/限流就秒退到渐变占位(下方),
+          // 杜绝多部作品 N×封面 同步堆叠 → 拖过 nginx → 504。真实封面会在该部曲进管线播放时再生成。
+          const img = await Promise.race([
+            callImageGen({
+              // CSSOS_WAVE_620 — Jing: 不要方图/16:9, 用 2.39:1 电影超宽; 杜绝丑陋/畸形脸, 按规格构图。
+              prompt: [label, style, theme, civilization, civVisualHint(civilization),
+                "cinematic ultra-wide poster, dramatic lighting", CINEMA_LANDSCAPE.framing,
+                "beautiful tasteful premium, well-proportioned natural faces, NO ugly or deformed or distorted faces, no text, no watermark"]
+                .filter(Boolean).join(" — "),
+              size: CINEMA_LANDSCAPE.size,
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+          ]);
           if (img && img.ok) {
-            return img.image_url
-              ? img.image_url
-              : (img.image_b64 ? persistBase64Cover(img.image_b64, ctx.userId) : "");
+            if (img.image_url) {
+              // CSSOS_WAVE_604 — Jing「分部封面空白」根因: 图像 provider 返回的是 replicate.delivery/
+              // fal.media 临时链接, 会过期 404 → 缩略图变空白。这里【转存到稳定存储(cssstudio.app)】,
+              // 封面永不过期。转存失败则回退原链接(周期性 cover-rehost 任务兜底)。
+              const stable = await persistRemoteImageToStable(img.image_url).catch(() => img.image_url);
+              if (stable) return stable;
+              return img.image_url;
+            }
+            if (img.image_b64) {
+              const u = await persistBase64Cover(img.image_b64, ctx.userId);
+              if (u) return u;
+            }
           }
-        } catch (_) { /* cover is optional */ }
-        return "";
+        } catch (_) { /* cover gen failed — fall through to gradient placeholder */ }
+        // CSSOS_WAVE_596 — Jing「AI 助理三部曲卡片只剩链接、空占位」根因: renderCover 失败时返回空串,
+        // provider 一抖动/限流 → 所有封面全空 → 空卡。这里改为【永不返回空】: 失败也生成一张
+        // 渐变 SVG 占位封面(转 webp, 与 /api/mv/cover 同款), 卡片始终有图。
+        try {
+          const seedStr = String(label || "") + "|" + String(style || "");
+          let hue = 180;
+          for (let i = 0; i < seedStr.length; i++) hue = (hue * 31 + seedStr.charCodeAt(i)) % 360;
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="hsl(${hue},70%,32%)"/><stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#g)"/></svg>`;
+          return await svgToWebpFallbackUrl(svg, 1024, 1024, "cover");
+        } catch (_) { return ""; }
       };
       let covers: string[];
       const coverTargets: { title: string; lyrics: string; role?: string }[] = operaActs
@@ -4928,7 +6600,26 @@ async function runAgentTool(
       // making them wait MUCH longer on the wall clock (network is
       // usually the bottleneck, not local CPU).
       const COVER_CONCURRENCY = 3;
-      if (wt === "shortplay" && coverTargets.length > LARGE_BATCH) {
+      // CSSOS_WAVE_614 — Jing「歌剧/电影几十~上千片, 封面不能同步全生成(48 张 × 8s 也超时)」:
+      // 秒级渐变封面(不调图像 provider), 用于大型作品的"溢出"叶子。
+      const MAX_SYNC_COVERS = 6;
+      const quickGradientCover = async (label: string): Promise<string> => {
+        try {
+          const seedStr = String(label || "") + "|" + String(style || "");
+          let hue = 180;
+          for (let i = 0; i < seedStr.length; i++) hue = (hue * 31 + seedStr.charCodeAt(i)) % 360;
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="hsl(${hue},70%,32%)"/><stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#g)"/></svg>`;
+          return await svgToWebpFallbackUrl(svg, 1024, 1024, "cover");
+        } catch { return ""; }
+      };
+      if (coverTargets.length > MAX_SYNC_COVERS) {
+        // 大型作品: 仅前 MAX_SYNC_COVERS 片生成【真封面】; 其余【秒给渐变占位】(永不空白, 不拖垮请求)。
+        const head = coverTargets.slice(0, MAX_SYNC_COVERS);
+        const tail = coverTargets.slice(MAX_SYNC_COVERS);
+        const headCovers = await mapWithConcurrency(head, COVER_CONCURRENCY, (part) => renderCover(part.title));
+        const tailCovers = await Promise.all(tail.map((part) => quickGradientCover(part.title)));
+        covers = headCovers.concat(tailCovers);
+      } else if (wt === "shortplay" && coverTargets.length > LARGE_BATCH) {
         // Big-batch safety: one cover per (role) — one shared for all
         // episodes, individual for each theme/interlude/ending.
         const sharedEpCover = await renderCover(title);
@@ -4973,7 +6664,7 @@ async function runAgentTool(
                    (work_id, owner_user_id, visibility, current_listen_price_cents,
                     current_buyout_price_cents, buyout_enabled, tips_enabled,
                     rights_scope, created_at, updated_at)
-                  VALUES ($1::uuid, $2::uuid, 'private', 100, 0, false, true,
+                  VALUES ($1::uuid, $2::uuid, 'public', 100, 0, false, true,
                           'personal_use', now(), now())
                   ON CONFLICT (work_id) DO NOTHING`,
                 [rootId, ctx.userId],
@@ -5153,7 +6844,7 @@ async function runAgentTool(
                    (work_id, owner_user_id, visibility, current_listen_price_cents,
                     current_buyout_price_cents, buyout_enabled, tips_enabled,
                     rights_scope, created_at, updated_at)
-                  VALUES ($1::uuid, $2::uuid, 'private', 100, 0, false, true,
+                  VALUES ($1::uuid, $2::uuid, 'public', 100, 0, false, true,
                           'personal_use', now(), now())
                   ON CONFLICT (work_id) DO NOTHING`,
                 [workId, ctx.userId],
@@ -5243,7 +6934,15 @@ function buildAgentSystemPrompt(uiLocale: string): string {
     `  • One title per seed. No subtitle, no "—", no parenthetical.`,
     ``,
     `DIRECT CREATION via create_work (multi-part works only):`,
-    `  ONLY use the create_work tool for multi-part work_types — triptych / opera / shortplay / series / film — where the user explicitly wants N persisted siblings as a unit ("三部曲《朋友兄弟》", "歌剧《凌霄》", "5-act opera about Mulan"). For a SINGLE work, prefer the SEED FORMAT path above so the user drops straight into the cinema-hero instead of waiting on a card. Parse title from quotes / 《》, infer work_type, pass any mandatory chorus lines into required_hooks verbatim. The tool returns work_cards which the frontend renders. Your wrap-up is one short sentence ("做好了 — 三部曲《朋友兄弟》已创作完成，点击任意封面进 MV 面板") then stop.`,
+    `  ★★ KEYWORD → WORK_TYPE (CSSOS_WAVE_632 — MANDATORY, OVERRIDES YOUR JUDGMENT): If the user's message OR the info-pack contains ANY of these words, the work is MULTI-PART and you MUST use the create_work tool (NEVER a single cssos-seed):`,
+    `     · 歌剧 / opera / cantata / oratorio → work_type="opera"`,
+    `     · 三部曲 / trilogy → work_type="triptych"`,
+    `     · 短剧 / short play / sketch → work_type="shortplay"`,
+    `     · 连续剧 / 电视剧 / TV series / series / episodes → work_type="series"`,
+    `     · 电影 / film / movie → work_type="film"`,
+    `   The KEYWORD DECIDES — do NOT downgrade an opera/series/film into a single song just because one good song would suffice or the brief looks short. Example that MUST become an opera: info-pack "Confucius × Apricot Altar, opera" → call create_work(title="孔子杏坛…", work_type="opera"). The backend then builds all acts/scenes. Missing this keyword is a bug.`,
+    `  ONLY use the create_work tool for multi-part work_types — triptych / opera / shortplay / series / film. For a genuinely SINGLE work (no multi-part keyword), prefer the SEED FORMAT path above so the user drops straight into the cinema-hero instead of waiting on a card. Parse title from quotes / 《》, infer work_type, pass any mandatory chorus lines into required_hooks verbatim. The tool returns work_cards which the frontend renders. Your wrap-up is one short sentence ("做好了 — 三部曲《朋友兄弟》已创作完成，点击任意封面进 MV 面板") then stop.`,
+    `  ⚠️ STRUCTURE — ONE CALL PER WORK, NOT PER PART (W601): A trilogy/三部曲 (or opera/series/film) is ONE work made of N parts → call create_work EXACTLY ONCE with the ROOT title (e.g. title="朋友兄弟", work_type="triptych"). The backend itself generates the N movement-parts (e.g. 少年的火 / 风雨同舟 / 白发未忘) as children of that single root. NEVER call create_work once per movement, and NEVER pass a movement name (少年的火) as the title — that wrongly produces N separate root works instead of 1 root + N parts. The movement titles belong INSIDE the single work as parts, which the backend derives automatically. One trilogy = one create_work call = one root + N part children.`,
     ``,
     `SAFETY: Never propose RAGE / hate / extremist content. Historical figures should be treated respectfully — risk_notes in the codex flag sensitive cases (e.g. modern political figures).`,
     ``,
@@ -5390,7 +7089,37 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
   }
 
   const history = await getAgentSession(userId, sessionId);
-  const messages: AgentMessage[] = history.slice();
+  // CSSOS_WAVE_615 — Jing「agent_failed: unexpected tool_use_id in tool_result」根治:
+  // 上一轮 create_work 超时/中断 → 会话历史里留下【孤立 tool_result】(对应 tool_use 丢失) 或
+  // 历史以 tool_result 开头 → Anthropic 400。发送前消毒: 只保留 tool_use 已出现过的 tool_result,
+  // 丢掉空消息, 并裁掉开头的非-user / tool_result-开头的消息(对话必须从 user 文本开始)。
+  function sanitizeAgentHistory(msgs: AgentMessage[]): AgentMessage[] {
+    const seenToolUse = new Set<string>();
+    const cleaned: AgentMessage[] = [];
+    for (const m of Array.isArray(msgs) ? msgs : []) {
+      const content: any = (m as any)?.content;
+      if (Array.isArray(content)) {
+        for (const b of content) { if (b && b.type === "tool_use" && b.id) seenToolUse.add(String(b.id)); }
+        const filtered = content.filter((b: any) => {
+          if (b && b.type === "tool_result") return seenToolUse.has(String(b.tool_use_id));
+          return true;
+        });
+        if (filtered.length === 0) continue; // 整条只剩孤立 tool_result → 丢弃
+        cleaned.push({ ...(m as any), content: filtered });
+      } else {
+        cleaned.push(m);
+      }
+    }
+    // 对话必须从 user 文本开头, 且首块不能是 tool_result。
+    const startsWithToolResult = (m: AgentMessage) => Array.isArray((m as any)?.content) && (m as any).content[0] && (m as any).content[0].type === "tool_result";
+    while (cleaned.length) {
+      const first = cleaned[0] as AgentMessage;
+      if ((first as any).role === "user" && !startsWithToolResult(first)) break;
+      cleaned.shift();
+    }
+    return cleaned;
+  }
+  const messages: AgentMessage[] = sanitizeAgentHistory(history.slice());
 
   // CSSOS_WAVE_167 20260515 — Jing: "请开放权限，让用户可以粘贴图片
   // 进去." Accept an optional images[] array; each entry is a base64
@@ -5526,12 +7255,29 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
   }
 
   // Parse seed block out of finalText if present.
+  // CSSOS_WAVE_596 — Jing「AI 助理 prompt→自动出片别再失效」: 加固解析, 容忍 LLM 格式漂移。
+  //   1. 容忍 ```cssos-seed / ```cssos_seed / ``` cssos seed / 标签后带额外字符 / 缺尾换行。
+  //   2. 回退: 若无 cssos-seed 块, 但有普通 ```json 块且像 seed(含 title + prompt/style/work_type), 也采纳。
+  // 任一命中即自动启动 cinema 管线 → "用户输入提示词, 助理直接出片"始终生效。
   let seed: any = null;
-  const seedMatch = finalText.match(/```cssos-seed\s*\n([\s\S]*?)\n```/);
+  let seedBlockRaw = "";
+  const seedMatch = finalText.match(/```\s*cssos[-_ ]?seed[^\n]*\n([\s\S]*?)```/i);
   if (seedMatch && seedMatch[1]) {
-    try {
-      seed = JSON.parse(seedMatch[1]);
-    } catch (_) { seed = null; }
+    seedBlockRaw = seedMatch[0];
+    try { seed = JSON.parse(seedMatch[1].trim()); } catch (_) { seed = null; }
+  }
+  if (!seed) {
+    // Fallback: a plain fenced JSON object that looks like a seed.
+    const jsonBlock = finalText.match(/```(?:json)?\s*\n(\{[\s\S]*?\})\s*```/i);
+    if (jsonBlock && jsonBlock[1]) {
+      try {
+        const o = JSON.parse(jsonBlock[1].trim());
+        if (o && typeof o === "object" && typeof o.title === "string" && (o.prompt || o.style || o.work_type)) {
+          seed = o;
+          seedBlockRaw = jsonBlock[0];
+        }
+      } catch (_) { /* not a seed-shaped JSON block */ }
+    }
   }
   // CSSOS_WAVE_220 — title sanitizer: if the LLM ignored the title rules
   // and emitted a long scene/description, trim it into a punchy song-title.
@@ -5555,7 +7301,12 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
   }
   // Remove the fenced seed block from the user-facing reply (we render
   // it auto-launches the cinema panel via renderSeedCard, W174).
-  const reply = finalText.replace(/```cssos-seed[\s\S]*?```/g, "").trim();
+  // CSSOS_WAVE_596 — strip the tolerant cssos-seed variants AND the exact block we adopted (json fallback).
+  let reply = finalText.replace(/```\s*cssos[-_ ]?seed[\s\S]*?```/gi, "");
+  if (seedBlockRaw && reply.indexOf(seedBlockRaw) !== -1) {
+    reply = reply.split(seedBlockRaw).join("");
+  }
+  reply = reply.trim();
 
   // Persist memory + meter.
   // Last user msg is already in messages from initial push; assistant
@@ -5632,6 +7383,10 @@ app.post("/api/agent/work/:work_id/generate-audio", async (req, res) => {
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const workId = String(req.params.work_id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  // CSSOS_WAVE_451 20260527 — Jing: per-work in-flight 锁防并发双计费 (多标签/agent重试).
+  if (__mvDedupGuard("agent-audio", userId, workId, res)) {
+    return res.status(409).json({ ok: false, error: "duplicate_in_flight" });
+  }
   let work: any;
   try {
     const r = await withClient((c) =>
@@ -5685,6 +7440,10 @@ app.post("/api/agent/work/:work_id/generate-video", async (req, res) => {
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const workId = String(req.params.work_id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  // CSSOS_WAVE_451 20260527 — Jing: per-work in-flight 锁防并发双计费.
+  if (__mvDedupGuard("agent-video", userId, workId, res)) {
+    return res.status(409).json({ ok: false, error: "duplicate_in_flight" });
+  }
   let work: any;
   try {
     const r = await withClient((c) =>
@@ -5714,7 +7473,7 @@ app.post("/api/agent/work/:work_id/generate-video", async (req, res) => {
     const tier = await callVideoGen({
       prompt: [work.title, work.style, "cinematic, no text"].filter(Boolean).join(", "),
       duration_secs: 5,
-      aspect_ratio: "16:9",
+      aspect_ratio: "2.39:1", // WAVE_444 iron rule: never 16:9
       image_url: work.cover_image || undefined,
     });
     if (!tier || !tier.ok || !tier.video_url) {
@@ -5971,24 +7730,393 @@ async function mvStagePreflight(
 }
 
 // Post-call debit. Charges the EXACT cents the vendor billed us. If
-// the user is staff this is a no-op (debitCredits handles the exempt
-// path and writes a staff_exempt audit row). Errors are swallowed so
-// a billing hiccup never corrupts the user-facing vendor response —
-// the credit_events audit table is the source of truth.
+// CSSOS_WAVE_452 20260527 — Jing: 延迟结算.
+// chargeMvStageActual 不再立即扣费; 改为把实际成本累加到 mv_pipeline_runs 行.
+// 只有当客户端调用 POST /api/mv/pipeline-run/:run_id/complete 时才一次性扣费.
+// 如果管线中断 / 24h 未完成 → 不扣费, 对用户友好.
+// 兜底: run_id 未传 / 无 checkpoint 行 → 退化到立即扣费 (原行为), 不影响
+//        旧路径或极端情况下的计费正确性.
 async function chargeMvStageActual(
   userId: string,
   stage: MvStageKey,
   actualCents: number,
   provider: string | null | undefined,
+  runId?: string | null,
 ): Promise<void> {
   try {
     const cents = Math.max(0, Math.round(Number(actualCents) || 0));
     if (cents <= 0) return;
+    const safeRunId = String(runId || "").trim();
+    if (safeRunId) {
+      // Try to accumulate into the pipeline run record (deferred billing).
+      const updated = await withClient((c) =>
+        c.query(
+          `UPDATE mv_pipeline_runs
+              SET accumulated_cost_cents = accumulated_cost_cents + $2,
+                  updated_at = now()
+            WHERE run_id = $1 AND user_id = $3::uuid AND status = 'in_progress'`,
+          [safeRunId, cents, userId],
+        ),
+      );
+      if ((updated as any).rowCount > 0) return; // successfully deferred
+      // Fall through: no active pipeline_run row → immediate debit as fallback.
+    }
     await debitCredits(userId, cents, `mv_${stage}`, { provider: provider || null, stage });
   } catch (e) {
     console.error(`[mv-billing] debit failed stage=${stage}`, (e as Error)?.message);
   }
 }
+
+// ─── CSSOS_WAVE_452: Pipeline checkpoint / resume / deferred billing API ────
+
+/* POST /api/mv/pipeline-run/checkpoint
+ * Called by frontend after each stage completes. Upserts the run record.
+ * Body: { run_id, params?, stage_done?, stage_result?, cost_cents? }
+ */
+app.post("/api/mv/pipeline-run/checkpoint", express.json({ limit: "64kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const userId = (req.session as any)?.user_id;
+    if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const body = (req.body && typeof req.body === "object") ? req.body : {};
+    const runId = String(body.run_id || "").trim();
+    if (!runId) return res.status(400).json({ ok: false, error: "run_id_required" });
+    const stageDone = String(body.stage_done || "").trim() || null;
+    const stageCost = Math.max(0, Math.round(Number(body.cost_cents) || 0));
+    const stageResult = body.stage_result && typeof body.stage_result === "object" ? body.stage_result : null;
+    const params = body.params && typeof body.params === "object" ? body.params : null;
+
+    await withClient(async (c) => {
+      // Upsert the run row. On conflict (same run_id), update stage progress.
+      await c.query(
+        `INSERT INTO mv_pipeline_runs (user_id, run_id, params, stages_done, stage_results, accumulated_cost_cents)
+         VALUES ($1::uuid, $2, $3::jsonb, $4::text[], $5::jsonb, $6)
+         ON CONFLICT (run_id) DO UPDATE
+           SET stages_done = (
+                 CASE WHEN $7 IS NOT NULL AND NOT (mv_pipeline_runs.stages_done @> ARRAY[$7])
+                      THEN mv_pipeline_runs.stages_done || ARRAY[$7]
+                      ELSE mv_pipeline_runs.stages_done
+                 END
+               ),
+               stage_results = CASE WHEN $8::jsonb IS NOT NULL AND $7 IS NOT NULL
+                                    THEN mv_pipeline_runs.stage_results || jsonb_build_object($7, $8)
+                                    ELSE mv_pipeline_runs.stage_results
+                               END,
+               accumulated_cost_cents = mv_pipeline_runs.accumulated_cost_cents + $6,
+               params = COALESCE(mv_pipeline_runs.params || $3::jsonb, mv_pipeline_runs.params),
+               updated_at = now()
+           WHERE mv_pipeline_runs.user_id = $1::uuid`,
+        [
+          userId,
+          runId,
+          JSON.stringify(params || {}),
+          stageDone ? [stageDone] : [],
+          JSON.stringify(stageResult ? { [stageDone!]: stageResult } : {}),
+          stageCost,
+          stageDone,
+          stageResult ? JSON.stringify(stageResult) : null,
+        ],
+      );
+    });
+    return res.json({ ok: true, run_id: runId });
+  } catch (e) {
+    console.error("[pipeline-checkpoint] error", (e as Error)?.message);
+    return res.status(500).json({ ok: false, error: "checkpoint_failed" });
+  }
+});
+
+/* GET /api/mv/pipeline-run/pending
+ * Returns the most recent in_progress run for this user (< 24h old).
+ * Frontend calls this on MV panel open to offer resume.
+ */
+app.get("/api/mv/pipeline-run/pending", async (req, res) => {
+  noStore(res);
+  try {
+    const userId = (req.session as any)?.user_id;
+    if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const r = await withClient((c) =>
+      c.query<any>(
+        `SELECT id::text, run_id, params, stages_done, stage_results,
+                accumulated_cost_cents, status,
+                extract(epoch from (now() - updated_at)) AS stale_seconds
+           FROM mv_pipeline_runs
+          WHERE user_id = $1::uuid
+            AND status = 'in_progress'
+            AND updated_at > now() - interval '24 hours'
+          ORDER BY updated_at DESC
+          LIMIT 1`,
+        [userId],
+      ),
+    );
+    const run = r.rows[0] || null;
+    return res.json({ ok: true, run });
+  } catch (e) {
+    console.error("[pipeline-pending] error", (e as Error)?.message);
+    return res.status(500).json({ ok: false, error: "lookup_failed" });
+  }
+});
+
+/* POST /api/mv/pipeline-run/:run_id/complete
+ * Mark pipeline as complete and debit all accumulated costs in one shot.
+ */
+app.post("/api/mv/pipeline-run/:run_id/complete", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const userId = (req.session as any)?.user_id;
+    if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const runId = String(req.params.run_id || "").trim();
+    if (!runId) return res.status(400).json({ ok: false, error: "run_id_required" });
+
+    // Atomic: flip status + read accumulated cost only if still in_progress.
+    const r = await withClient((c) =>
+      c.query<{ accumulated_cost_cents: number }>(
+        `UPDATE mv_pipeline_runs
+            SET status = 'complete', updated_at = now()
+          WHERE run_id = $1 AND user_id = $2::uuid AND status = 'in_progress'
+          RETURNING accumulated_cost_cents`,
+        [runId, userId],
+      ),
+    );
+    if (!r.rows[0]) {
+      // Already complete or not found — idempotent.
+      return res.json({ ok: true, already_complete: true });
+    }
+    const totalCents = Number(r.rows[0].accumulated_cost_cents || 0);
+    if (totalCents > 0) {
+      await debitCredits(userId, totalCents, "mv_pipeline_complete", { run_id: runId });
+    }
+    return res.json({ ok: true, charged_cents: totalCents });
+  } catch (e) {
+    console.error("[pipeline-complete] error", (e as Error)?.message);
+    return res.status(500).json({ ok: false, error: "complete_failed" });
+  }
+});
+
+/* POST /api/mv/pipeline-run/:run_id/abandon
+ * User explicitly abandons (or auto-abandoned on new pipeline start).
+ * No charge is made.
+ */
+app.post("/api/mv/pipeline-run/:run_id/abandon", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const userId = (req.session as any)?.user_id;
+    if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const runId = String(req.params.run_id || "").trim();
+    await withClient((c) =>
+      c.query(
+        `UPDATE mv_pipeline_runs SET status = 'abandoned', updated_at = now()
+          WHERE run_id = $1 AND user_id = $2::uuid AND status = 'in_progress'`,
+        [runId, userId],
+      ),
+    );
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("[pipeline-abandon] error", (e as Error)?.message);
+    return res.status(500).json({ ok: false, error: "abandon_failed" });
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_551 20260531 — Phase B「精确断点续跑」Node 侧脚手架(供 Rust 接上)。
+ *
+ * 设计: 半成品作品中断后, 已产出的阶段(歌词/封面/音乐/视频/字幕)应被复用, 只续跑【缺失阶段】+ 合成。
+ * 计费本就延迟到 complete 才一次性扣(checkpoint 只累加), 所以续跑天然"只补差额"。
+ *
+ * 真正跑各阶段的是 Rust(/api/mv/* 被代理到 Rust)。本仓只提供【作品维度】的续跑状态与编排桩:
+ *   GET  /api/works/:work_id/resume-state — owner-only, 只读: 已完成/缺失阶段 + 已产出资产 + run 快照。
+ *   POST /api/works/:work_id/resume       — owner-only: 确保有 in_progress 的 mv_pipeline_runs 行
+ *        (无则按【已产出资产】回填 stages_done/stage_results 后新建), 回传续跑计划。Rust/前端据此
+ *        只跑 missing_stages, 用同一 run_id checkpoint, 最后 complete。绝不在此执行 Rust 阶段。
+ *
+ * 规范阶段顺序(与 cost_breakdown / engine_meta 的键一致):
+ *   lyrics → cover → music → video → subtitles → compose
+ * ───────────────────────────────────────────────────────────────────────── */
+const CSSOS_MV_STAGE_ORDER = ["lyrics", "cover", "music", "video", "subtitles", "compose"] as const;
+type CssosMvStage = (typeof CSSOS_MV_STAGE_ORDER)[number];
+
+async function deriveWorkResumeStateModule(workId: string, userId: string) {
+  return await withClient(async (c) => {
+    const wq = await c.query<any>(
+      `SELECT id, user_id, source_run_id, status, title, style, work_type,
+              lyrics_preview, language, civilization, cover_image,
+              tempo_bpm, musical_key, voice_gender, vocal_style, instrumentation,
+              section_form, make_instrumental, video_outline, section_prompts,
+              aspect_ratio, frame_width, frame_height, orientation,
+              lyrics_json_url, subtitle_take1_json_url
+         FROM user_works WHERE id = $1::uuid AND user_id = $2::uuid LIMIT 1`,
+      [workId, userId],
+    );
+    const w = wq.rows[0];
+    if (!w) return { ok: false as const, error: "not_found_or_not_owner" };
+
+    // 已产出资产
+    const aq = await c.query<{ asset_type: string; n: string }>(
+      `SELECT asset_type, count(*)::text AS n FROM work_assets WHERE work_id = $1::uuid GROUP BY asset_type`,
+      [workId],
+    );
+    const assetCount: Record<string, number> = {};
+    for (const r of aq.rows) assetCount[r.asset_type] = Number(r.n) || 0;
+    const has = (t: string) => (assetCount[t] || 0) > 0;
+    const existingAssets = {
+      final_mv: has("final_mv"),
+      audio_track_1: has("audio_track_1"),
+      audio_track_2: has("audio_track_2"),
+      subtitle_srt: has("subtitle_srt"),
+      slideshow_frames: assetCount["slideshow_frame"] || 0,
+      cover: !!(w.cover_image && !/^data:image\/svg/i.test(String(w.cover_image))),
+    };
+
+    // 关联的 pipeline run(若有)
+    const runId = String(w.source_run_id || "").trim();
+    let run: any = null;
+    if (runId) {
+      const rq = await c.query<any>(
+        `SELECT run_id, params, stages_done, stage_results, accumulated_cost_cents, status,
+                extract(epoch from (now() - updated_at)) AS stale_seconds
+           FROM mv_pipeline_runs WHERE run_id = $1 AND user_id = $2::uuid LIMIT 1`,
+        [runId, userId],
+      );
+      run = rq.rows[0] || null;
+    }
+
+    // 推导"已完成阶段" = run.stages_done ∪ 资产隐含的阶段(覆盖无 run 记录的 Rust 旧作品)
+    const doneSet = new Set<string>(Array.isArray(run?.stages_done) ? run.stages_done : []);
+    if (w.lyrics_preview || w.lyrics_json_url) doneSet.add("lyrics");
+    if (existingAssets.cover || existingAssets.slideshow_frames > 0) doneSet.add("cover");
+    if (existingAssets.audio_track_1) doneSet.add("music");
+    if (existingAssets.final_mv) doneSet.add("video");
+    if (existingAssets.subtitle_srt || w.subtitle_take1_json_url) doneSet.add("subtitles");
+    // compose 仅当真正成片(有 final_mv)且作品已 ready/published
+    if (existingAssets.final_mv && ["ready", "published"].includes(String(w.status))) doneSet.add("compose");
+
+    const derivedStagesDone = CSSOS_MV_STAGE_ORDER.filter((s) => doneSet.has(s));
+    const missingStages = CSSOS_MV_STAGE_ORDER.filter((s) => !doneSet.has(s));
+    // 续跑种子(供 Rust/前端重建 params)
+    const seed = {
+      work_id: w.id,
+      title: w.title || "",
+      style: w.style || "",
+      work_type: w.work_type || "single",
+      lyrics: w.lyrics_preview || "",
+      language: w.language || "",
+      civilization: w.civilization || "",
+      tempo_bpm: w.tempo_bpm, musical_key: w.musical_key, voice_gender: w.voice_gender,
+      vocal_style: w.vocal_style, instrumentation: w.instrumentation, section_form: w.section_form,
+      make_instrumental: w.make_instrumental, video_outline: w.video_outline, section_prompts: w.section_prompts,
+      aspect_ratio: w.aspect_ratio, frame_width: w.frame_width, frame_height: w.frame_height, orientation: w.orientation,
+    };
+    return {
+      ok: true as const,
+      work_id: w.id,
+      status: w.status,
+      source_run_id: runId || null,
+      canonical_stages: CSSOS_MV_STAGE_ORDER,
+      stages_done: derivedStagesDone,
+      missing_stages: missingStages,
+      existing_assets: existingAssets,
+      run: run
+        ? {
+            run_id: run.run_id,
+            stages_done: run.stages_done || [],
+            stage_results: run.stage_results || {},
+            accumulated_cost_cents: Number(run.accumulated_cost_cents) || 0,
+            status: run.status,
+            stale_seconds: Number(run.stale_seconds) || 0,
+          }
+        : null,
+      seed,
+      // 可续跑 = 还有缺失阶段 且 作品未删除
+      resumable: missingStages.length > 0 && String(w.status) !== "deleted",
+    };
+  });
+}
+
+/* GET /api/works/:work_id/resume-state — owner-only, 只读续跑状态。 */
+app.get("/api/works/:work_id/resume-state", async (req, res) => {
+  noStore(res);
+  try {
+    const userId = (req.session as any)?.user_id;
+    if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const workId = String(req.params.work_id || "").trim();
+    if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+    const state = await deriveWorkResumeStateModule(workId, userId);
+    if (!state.ok) return res.status(404).json(state);
+    return res.json(state);
+  } catch (e) {
+    console.error("[works/resume-state] error", (e as Error)?.message);
+    return res.status(500).json({ ok: false, error: "resume_state_failed" });
+  }
+});
+
+/* POST /api/works/:work_id/resume — owner-only 编排桩。
+ * 确保有 in_progress 的 mv_pipeline_runs(无则按已产出资产回填后新建), 回传续跑计划。
+ * 不在此执行 Rust 阶段; Rust/前端据 missing_stages 续跑 → checkpoint(同 run_id)→ complete。 */
+app.post("/api/works/:work_id/resume", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const userId = (req.session as any)?.user_id;
+    if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const workId = String(req.params.work_id || "").trim();
+    if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+    const state = await deriveWorkResumeStateModule(workId, userId);
+    if (!state.ok) return res.status(404).json(state);
+    if (!state.resumable) {
+      return res.json({ ok: true, already_complete: true, work_id: workId, missing_stages: [] });
+    }
+
+    // run_id: 复用作品已有的, 否则新建一个并回填到 user_works.source_run_id。
+    let runId = String(state.source_run_id || "").trim();
+    const mintedRun = !runId;
+    if (!runId) runId = crypto.randomUUID();
+
+    // stage_results 种子: 把【已产出阶段】的资产 URL 喂进去, 供 Rust 复用而不重跑。
+    const stageResults: Record<string, unknown> = (state.run && state.run.stage_results) || {};
+
+    await withClient(async (c) => {
+      // 确保/新建 in_progress run 行。stages_done = 推导出的已完成阶段(资产隐含), 复用 stage_results。
+      await c.query(
+        `INSERT INTO mv_pipeline_runs (user_id, run_id, params, stages_done, stage_results, accumulated_cost_cents, status)
+         VALUES ($1::uuid, $2, $3::jsonb, $4::text[], $5::jsonb, 0, 'in_progress')
+         ON CONFLICT (run_id) DO UPDATE
+           SET status = 'in_progress',
+               stages_done = (SELECT ARRAY(SELECT DISTINCT unnest(mv_pipeline_runs.stages_done || $4::text[]))),
+               params = COALESCE(mv_pipeline_runs.params || $3::jsonb, mv_pipeline_runs.params),
+               updated_at = now()
+           WHERE mv_pipeline_runs.user_id = $1::uuid`,
+        [userId, runId, JSON.stringify(state.seed || {}), state.stages_done, JSON.stringify(stageResults)],
+      );
+      if (mintedRun) {
+        await c.query(
+          `UPDATE user_works SET source_run_id = $2, updated_at = now()
+            WHERE id = $1::uuid AND user_id = $3::uuid AND COALESCE(source_run_id,'') = ''`,
+          [workId, runId, userId],
+        );
+      }
+    });
+
+    return res.json({
+      ok: true,
+      work_id: workId,
+      run_id: runId,
+      minted_run: mintedRun,
+      canonical_stages: state.canonical_stages,
+      stages_done: state.stages_done,
+      missing_stages: state.missing_stages,
+      existing_assets: state.existing_assets,
+      seed: state.seed,
+      // 给前端/Rust 的契约: 用 run_id 逐个跑 missing_stages → POST /api/mv/pipeline-run/checkpoint
+      // (stage_done + cost_cents + stage_result) → 全部完成后 POST /api/mv/pipeline-run/:run_id/complete。
+      next: {
+        checkpoint_url: "/api/mv/pipeline-run/checkpoint",
+        complete_url: `/api/mv/pipeline-run/${encodeURIComponent(runId)}/complete`,
+        abandon_url: `/api/mv/pipeline-run/${encodeURIComponent(runId)}/abandon`,
+      },
+    });
+  } catch (e) {
+    console.error("[works/resume] error", (e as Error)?.message);
+    return res.status(500).json({ ok: false, error: "resume_failed" });
+  }
+});
 
 /* GET /api/agent/cost-rates — public; frontend shows fee preview. */
 app.get("/api/agent/cost-rates", (_req, res) => {
@@ -7062,6 +9190,70 @@ const videoUploader = multer({
       cb(new Error(`unsupported_mime:${mt}`));
     }
   },
+});
+
+// ── CSSOS_WAVE_587 — 「用我的声音唱」: 个人声纹 录音→同意→训练→入库 ──────────────
+// POST /api/voice-models  (multipart: audio + consent + label[+gender]) → 起训, 返回 voice_key
+// GET  /api/voice-models  → 本人(+公开)声纹列表
+// DELETE /api/voice-models/:key → 删除本人声纹(隐私)
+app.post("/api/voice-models", (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  audioUploader.single("audio")(req as any, res as any, async (err: unknown) => {
+    if (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const tooBig = /file too large|LIMIT_FILE_SIZE/i.test(msg);
+      return res.status(tooBig ? 413 : 400).json({ ok: false, error: tooBig ? "file_too_large" : "upload_failed" });
+    }
+    const file = (req as any).file;
+    if (!file?.path) return res.status(400).json({ ok: false, error: "no_audio" });
+    // 同意护栏: 必须明确勾选「这是我本人声音, 我授权使用」, 否则拒绝并删文件。
+    const consent = String((req.body?.consent ?? "")).toLowerCase();
+    if (consent !== "true" && consent !== "1" && consent !== "yes") {
+      try { fs.rmSync(file.path, { force: true }); } catch { /* */ }
+      return res.status(400).json({ ok: false, error: "consent_required" });
+    }
+    const label = String(req.body?.label || "My Voice").slice(0, 40).trim() || "My Voice";
+    const gender = ((g) => (g === "m" || g === "f" || g === "child") ? g : null)(String(req.body?.gender || "").trim().toLowerCase());
+    const voiceKey = `u_${String(userId).replace(/-/g, "").slice(0, 8)}_${crypto.randomBytes(3).toString("hex")}`;
+    try {
+      const ins = await withClient((c) => c.query<{ id: string }>(
+        `INSERT INTO user_voice_models (user_id, voice_key, label, gender, status, consent_at)
+         VALUES ($1::uuid, $2, $3, $4, 'pending', now()) RETURNING id`,
+        [userId, voiceKey, label, gender]));
+      const rowId = Number(ins.rows[0]?.id);
+      // 起训(异步, 不阻塞响应)。
+      void trainUserVoiceModel(rowId, voiceKey, String(file.path));
+      return res.json({ ok: true, voice_key: voiceKey, status: "training" });
+    } catch (e) {
+      try { fs.rmSync(file.path, { force: true }); } catch { /* */ }
+      return res.status(500).json({ ok: false, error: String((e as Error)?.message || e).slice(0, 120) });
+    }
+  });
+});
+
+app.get("/api/voice-models", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  try {
+    const r = await withClient((c) => c.query(
+      `SELECT voice_key, label, gender, status, is_public, (model_url IS NOT NULL) AS ready, error, created_at
+         FROM user_voice_models
+        WHERE ($1::uuid IS NOT NULL AND user_id = $1::uuid) OR is_public = true
+        ORDER BY created_at DESC LIMIT 100`, [userId || null]));
+    return res.json({ ok: true, voices: r.rows });
+  } catch (e) { return res.status(500).json({ ok: false, error: String((e as Error)?.message || e).slice(0, 120) }); }
+});
+
+app.delete("/api/voice-models/:key", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const key = String(req.params.key || "").trim();
+  try {
+    const r = await withClient((c) => c.query(
+      `DELETE FROM user_voice_models WHERE voice_key=$1 AND user_id=$2::uuid RETURNING voice_key`, [key, userId]));
+    if (!r.rows.length) return res.status(404).json({ ok: false, error: "not_found" });
+    return res.json({ ok: true, deleted: key });
+  } catch (e) { return res.status(500).json({ ok: false, error: String((e as Error)?.message || e).slice(0, 120) }); }
 });
 
 app.post("/api/mv/video/upload", (req, res, next) => {
@@ -8251,9 +10443,28 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
 
   const body = (req.body && typeof req.body === "object") ? req.body : {};
   const bodyStr = Object.keys(body).length > 0 ? JSON.stringify(body) : "";
+  // CSSOS_WAVE_451 20260527 — Jing: 补上 lyrics 的后端 in-flight 去重锁,
+  // 与 music/video 的 __mvDedupGuard 完全一致. 防双标签页/网络重试触发双计费.
+  if (__mvDedupGuard("lyrics", userId, bodyStr, res)) {
+    return res.status(409).json({ ok: false, error: "duplicate_in_flight", hint: "lyrics already generating" });
+  }
+  // CSSOS_WAVE_452: pipeline_run_id for deferred billing.
+  const _lyricsPipelineRunId = String((body as any).pipeline_run_id || "").trim() || null;
   const prompt = String((body as any).prompt || (body as any).title || "").trim();
   const style = String((body as any).style || "").trim();
-  const language = String((body as any).language || "en").trim();
+  // CSSOS_WAVE_401 20260524 — Jing「文明智能联动: 人物母语歌词」: 文明(civilization)
+  // 对歌词语言是【权威】的 —— 文档早已写明"后端按人物母语路由歌词语言, 与 UI 语言
+  // 无关"。但此前 /api/mv/lyrics 只读 body.language(客户端总传 UI 语言 en), 从不从
+  // civilization 推导 → 雅典娜(古希腊)被写成英文。现在: 只要带了 civilization, 就用
+  // civToLanguageServer 推导母语并【覆盖】传入的语言(古希腊→el, 古罗马→la, 古埃及→ar…),
+  // 真正用强模型写出人物母语歌词。未带 civilization 时维持原 body.language 行为。
+  const _civForLang = String((body as any).civilization || (body as any).civ || "").trim();
+  let language = String((body as any).language || "").trim();
+  if (_civForLang) {
+    const _civLang = civToLanguageServer(_civForLang);
+    if (_civLang) language = _civLang; // civilization is authoritative
+  }
+  if (!language) language = "en";
   const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
   // CSSOS_WAVE_113I 20260511 — Jing
   // "如果用户在高级设置面板里 SECTION FORM 设置不是10节歌词呢? …
@@ -8274,9 +10485,13 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   // CSSOS_WAVE_360 20260522 — Jing「直接用 openAI/Claude 写母语歌词」: 小模型写不了
   // 波斯/希腊/拉丁/梵/冰岛/斯瓦希里等母语(会退化成乱码或英文). 目标语言不在主流集合
   // 时, 歌词直接走强模型(anthropic→openai), 真正交付该人物的母语. 主流语言仍走便宜链.
-  const MAINSTREAM_LYRIC_LANGS = new Set(["en", "zh", "es", "fr", "de", "it", "pt", "ja", "ko", "ru", "ar", "hi"]);
-  const _lyricLang2 = String(language || "").toLowerCase().slice(0, 2);
-  const lyricsNeedsCapable = !!_lyricLang2 && !MAINSTREAM_LYRIC_LANGS.has(_lyricLang2);
+  // CSSOS_WAVE_433 20260525 — Jing: "以后先用openAI/Claude输出歌词，忍受不了小型LLM了"
+  // Lyrics ALWAYS go to Anthropic → OpenAI. Small models (groq/cerebras llama-3.1-8b)
+  // silently fall back to Chinese or produce broken output for non-Latin scripts
+  // (Old Persian cuneiform, Sanskrit, Tibetan, etc.). The cost delta is
+  // charged to the user's wallet (pay-as-you-go) anyway — the UX gain is worth it.
+  // Removed: MAINSTREAM_LYRIC_LANGS tiering and lyricsNeedsCapable conditional.
+  const lyricsNeedsCapable = true; // always
   if (!userForcedPremiumLlm) {
     // CSSOS_PHASE2_LYRICS_KEEPALIVE 20260507 — Jing
     // callLlm sweeps up to 10 providers; cumulative p99 can hit 60s+ which
@@ -8294,10 +10509,13 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
     try {
       const tier = await callLlm({
         messages: [
-          { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm) },
-          { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm) },
+          { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang) },
+          { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang) },
         ],
-        max_tokens: 2600,
+        // W360b — raised from 2600 → 3600: a full 10-section 京典 lyric in
+        // Japanese / Korean / Arabic can use more tokens than English.
+        // 2600 was causing mid-sentence truncation for non-Latin scripts.
+        max_tokens: 3600,
         temperature: 0.7,
         // CSSOS_WAVE_360 — exotic mother tongue → capable model directly.
         ...(lyricsNeedsCapable ? { prefer: ["anthropic", "openai"] } : {}),
@@ -8306,7 +10524,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
       const __lyricsCostCents = estimateEngineCostCents("lyrics", tier?.provider, (tier?.content || "").length / 4);
       recordEngineCall(tier?.provider || "llm-router", Date.now() - __lyricsT0, __lyricsCostCents, !!(tier && tier.ok && tier.content));
       // CSSOS_WAVE_218 — real-dollar debit on actual vendor cost.
-      if (tier && tier.ok && tier.content) { await chargeMvStageActual(userId, "lyrics", __lyricsCostCents, tier?.provider); }
+      if (tier && tier.ok && tier.content) { await chargeMvStageActual(userId, "lyrics", __lyricsCostCents, tier?.provider, _lyricsPipelineRunId); }
       if (tier && tier.ok && tier.content && tier.content.trim()) {
         console.log(`[mv-lyrics] tier sweep WIN: provider=${tier.provider} model=${tier.model}`);
         res.write(JSON.stringify({
@@ -8371,8 +10589,8 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   try {
     llm = await callLlm({
       messages: [
-        { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm) },
-        { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm) },
+        { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang) },
+        { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang) },
       ],
       max_tokens: 2600,
       temperature: 0.7,
@@ -8546,6 +10764,8 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
       message: "这首歌正在生成中，已忽略重复请求以避免重复扣费。/ Already generating — duplicate ignored.",
     });
   }
+  // CSSOS_WAVE_452: pipeline_run_id for deferred billing.
+  const _musicPipelineRunId = String((body as any).pipeline_run_id || "").trim() || null;
   // CSSOS_WAVE_258 — 重试/续跑复用 (opt-in via reuse_ok); 默认 no-op. 否则记录结果.
   {
     const __reuse = __mvReuseLookup("music", userId, body);
@@ -8590,7 +10810,7 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
       clearInterval(heartbeat);
       const __musicCostCents = estimateEngineCostCents("music", tier?.provider, Number((req.body as any)?.duration_secs) || 180);
       // CSSOS_WAVE_218 — real-dollar debit on actual vendor cost.
-      if (tier && tier.ok) { await chargeMvStageActual(userId, "music", __musicCostCents, tier?.provider); }
+      if (tier && tier.ok) { await chargeMvStageActual(userId, "music", __musicCostCents, tier?.provider, _musicPipelineRunId); }
       recordEngineCall(tier?.provider || "music-router", Date.now() - __musicT0, __musicCostCents, !!(tier && tier.ok));
       if (tier && tier.ok) {
         const audioUrl = tier.audio_url
@@ -8803,6 +11023,8 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
       message: "这段视频正在生成中，已忽略重复请求以避免重复扣费。/ Already generating — duplicate ignored.",
     });
   }
+  // CSSOS_WAVE_452: pipeline_run_id for deferred billing.
+  const _videoPipelineRunId = String((body as any).pipeline_run_id || "").trim() || null;
   // CSSOS_WAVE_258 — 重试/续跑复用 (opt-in via reuse_ok); 默认 no-op. 否则记录结果.
   {
     const __reuse = __mvReuseLookup("video", userId, body);
@@ -8810,9 +11032,12 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
     __mvInstallResultCapture("video", userId, body, res);
   }
   const prompt = String((body as any).prompt || "").trim();
-  const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "16:9").trim();
-  const aspect: "16:9" | "9:16" | "1:1" =
-    aspectRaw === "9:16" ? "9:16" : aspectRaw === "1:1" ? "1:1" : "16:9";
+  // WAVE_444: accept any valid ratio; default → cinema 2.39:1 (never 16:9)
+  const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "2.39:1").trim();
+  // Normalise to a canonical key; portrait variants → "9:16" for provider compat
+  const aspect = (aspectRaw === "9:16" || aspectRaw === "9:19.5") ? "9:16"
+    : aspectRaw === "1:1" ? "1:1"
+    : "2.39:1";
   const duration = Number((body as any).duration_secs || (body as any).duration || 5) || 5;
   const imageUrl = String((body as any).image_url || (body as any).cover_url || "").trim();
   const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
@@ -8840,13 +11065,13 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
     };
     if (tier === "lite") {
       console.log(`[mv-video] tier=lite — skipping AI video, returning still+ken-burns flag`);
-      const sizeMap: Record<string, string> = { "16:9": "1024x576", "9:16": "576x1024", "1:1": "1024x1024" };
+      const sizeMap = ASPECT_SIZE_MAP; // WAVE_444: central map, never 16:9/9:16 pixels
       let stillUrl = imageUrl;
       if (!stillUrl) {
         try {
           const still = await callImageGen({
             prompt: prompt || "cinematic music video still, dramatic lighting",
-            size: sizeMap[aspect] || "1024x576",
+            size: sizeMap[aspectRaw] || CINEMA_LANDSCAPE.size,
           });
           if (still.ok) {
             stillUrl = still.image_url
@@ -8858,7 +11083,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
       if (!stillUrl) {
         let hue = 200;
         for (let i = 0; i < prompt.length; i++) hue = (hue * 31 + prompt.charCodeAt(i)) % 360;
-        const [w, h] = (sizeMap[aspect] || "1024x576").split("x").map(Number);
+        const [w, h] = (sizeMap[aspectRaw] || CINEMA_LANDSCAPE.size).split("x").map(Number);
         const svg =
           `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">` +
           `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
@@ -8893,7 +11118,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
       });
       const __videoCostCents = estimateEngineCostCents("video", tierVid?.provider, Number((req.body as any)?.duration_secs) || 10);
       // CSSOS_WAVE_218 — real-dollar debit on actual vendor cost.
-      if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) { await chargeMvStageActual(userId, "video", __videoCostCents, tierVid?.provider); }
+      if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) { await chargeMvStageActual(userId, "video", __videoCostCents, tierVid?.provider, _videoPipelineRunId); }
       recordEngineCall(tierVid?.provider || "video-router", Date.now() - __videoT0, __videoCostCents, !!(tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)));
       if (tierVid && tierVid.ok && (tierVid.video_url || tierVid.poll_url)) {
         console.log(`[mv-video] tier sweep WIN: provider=${tierVid.provider}`);
@@ -8986,7 +11211,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
   try {
     still = await callImageGen({
       prompt: prompt || "cinematic music video still, dramatic lighting",
-      size: sizeMap[aspect] || "1024x576",
+      size: sizeMap[aspectRaw] || CINEMA_LANDSCAPE.size,
     });
   } catch (err) {
     stillErr = err instanceof Error ? err.message : String(err);
@@ -9003,7 +11228,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
     // Synthesize an SVG gradient still as ultimate fallback.
     let hue = 200;
     for (let i = 0; i < prompt.length; i++) hue = (hue * 31 + prompt.charCodeAt(i)) % 360;
-    const [w, h] = (sizeMap[aspect] || "1024x576").split("x").map(Number);
+    const [w, h] = (sizeMap[aspectRaw] || CINEMA_LANDSCAPE.size).split("x").map(Number);
     const svg =
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">` +
       `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
@@ -9449,12 +11674,27 @@ app.get("/api/img-thumb", async (req, res) => {
       res.type("image/webp");
       return res.sendFile(cachePath);
     }
+    // CSSOS_WAVE_449 20260527 — Jing: 1×1 透明 WebP 占位图 (base64).
+    // 上游 404 时返回它而不传递 404 — 消灭浏览器控制台红条。
+    // replicate.delivery / fal.media 等签名 URL 过期后走这里；cssosThumb (前端)
+    // 已经过滤掉这些域名，但服务端依然需要兜底。
+    const THUMB_PLACEHOLDER_WEBP = Buffer.from(
+      "UklGRlYAAABXRUJQVlA4IEoAAADQAQCdASoBAAEAAUAmJYgCdAEO/gHOAAD++P//////////////" +
+      "//////8A",
+      "base64",
+    );
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 8000);
     let buf: Buffer;
     try {
       const r = await fetch(src, { signal: ctrl.signal, redirect: "follow" });
-      if (!r.ok) return res.status(r.status).send(`upstream ${r.status}`);
+      if (!r.ok) {
+        // For expired/404 upstream URLs return a silent transparent placeholder
+        // instead of propagating the error code — eliminates console 404 storms.
+        res.setHeader("Cache-Control", "public, max-age=300");
+        res.type("image/webp");
+        return res.send(THUMB_PLACEHOLDER_WEBP);
+      }
       buf = Buffer.from(await r.arrayBuffer());
     } finally { clearTimeout(to); }
     if (buf.length > 25 * 1024 * 1024) return res.status(413).send("too large");
@@ -10596,6 +12836,7 @@ function requestRawBody(req: express.Request) {
   return ((req as any).rawBody as Buffer | undefined) || Buffer.alloc(0);
 }
 
+// CSSOS_WAVE_549 20260531 — Jing 定调: 聆听/观赏价统一 $0.99; 买断价按系统建议分类价。用户可改。
 function defaultListenPriceCents() {
   const parsed = Number.parseInt(
     String(process.env.CSSMV_DEFAULT_LISTEN_PRICE_CENTS || "99"),
@@ -10606,10 +12847,10 @@ function defaultListenPriceCents() {
 
 function defaultBuyoutPriceCents() {
   const parsed = Number.parseInt(
-    String(process.env.CSSMV_DEFAULT_BUYOUT_PRICE_CENTS || "299"),
+    String(process.env.CSSMV_DEFAULT_BUYOUT_PRICE_CENTS || "599"),
     10,
   );
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 299;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 599;
 }
 
 type CssmvWorkType = "single" | "triptych" | "opera";
@@ -10629,16 +12870,17 @@ function workTypeDisplayLabel(workType: CssmvWorkType) {
   return "single";
 }
 
+// CSSOS_WAVE_549 — 聆听价统一 $0.99; 买断价系统建议分类价(单曲 $5.99 / 三部曲 $9.99 / 歌剧 $19.99)。用户可改。
 function pricingPresetForWorkType(workType: CssmvWorkType) {
   if (workType === "opera") {
-    return { listenCents: 99, buyoutCents: 999, label: "opera" };
+    return { listenCents: 99, buyoutCents: 1999, label: "opera" };
   }
   if (workType === "triptych") {
-    return { listenCents: 99, buyoutCents: 499, label: "triptych" };
+    return { listenCents: 99, buyoutCents: 999, label: "triptych" };
   }
   return {
-    listenCents: defaultListenPriceCents(),
-    buyoutCents: defaultBuyoutPriceCents(),
+    listenCents: defaultListenPriceCents(),  // 99
+    buyoutCents: defaultBuyoutPriceCents(),  // 599
     label: "single",
   };
 }
@@ -10673,9 +12915,9 @@ function defaultCreationPanelTemplate() {
       work_type: "single",
     },
     pricing_by_type: {
-      single: { listen_cents: 99, buyout_cents: 299 },
-      triptych: { listen_cents: 99, buyout_cents: 499 },
-      opera: { listen_cents: 99, buyout_cents: 999 },
+      single: { listen_cents: 99, buyout_cents: 599 },
+      triptych: { listen_cents: 99, buyout_cents: 999 },
+      opera: { listen_cents: 99, buyout_cents: 1999 },
     },
   };
 }
@@ -15912,11 +18154,20 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
     const requestedSize = String(
       req.body?.size || process.env.OPENAI_IMAGE_SIZE || "1024x1024",
     ).trim();
-    const size = ["1024x1024", "1024x1536", "1536x1024", "auto"].includes(
-      requestedSize,
-    )
-      ? requestedSize
-      : "1024x1024";
+    // CSSOS_WAVE_631 — Jing 铁律「桌面 2.39:1 横 / 手机 device-fit, 禁 16:9·9:16, 别压成方图变形」。
+    // OpenAI gpt-image 只支持 1024²/1536×1024/1024×1536 三种。旧逻辑把任何非白名单尺寸(如
+    // 2.39:1 的 1920×804、device-fit 的 1170×2532)一律回退【1024×1024 方图】→ 前端按宽/竖显示
+    // 时拉伸变形。改为【按长宽比取最近的横构图/竖构图, 绝不回退方图】: 宽→1536×1024(横),
+    // 竖→1024×1536(竖); 前端再 object-fit:cover 裁到 2.39:1 / device-fit, 永不变形。
+    const size = (function pickOpenAiSize(s: string): string {
+      if (["1024x1024", "1024x1536", "1536x1024", "auto"].includes(s)) return s;
+      const m = s.match(/^(\d+)\s*[x×]\s*(\d+)$/);
+      if (!m) return "1536x1024"; // 未知 → 默认电影横构图(不是方图)
+      const wv = Number(m[1]) || 1, hv = Number(m[2]) || 1;
+      if (wv > hv * 1.05) return "1536x1024";  // 横(含 2.39:1)→ 最宽横构图
+      if (hv > wv * 1.05) return "1024x1536";  // 竖(含 device-fit)→ 最高竖构图
+      return "1024x1024";
+    })(requestedSize);
     const requestedQuality = String(
       req.body?.quality || process.env.OPENAI_IMAGE_QUALITY || "medium",
     ).trim();
@@ -15963,13 +18214,22 @@ app.post("/api/cssmv/thumbnail", async (req, res) => {
     // CSSOS_IMAGE_ROUTER 20260506 — through the unified image router so
     // we get fal.ai Flux schnell first (free/cheap, fast), OpenAI as
     // fallback. Same response envelope; front-end is unchanged.
-    const result = await callImageGen({
-      prompt,
-      size,
-      quality,
-      output_format: outputFormat,
-      background,
-    });
+    // CSSOS_WAVE_438 20260526 — Jing「POST /api/cssmv/thumbnail 504 Gateway Time-out」:
+    // image generation can take 30–60s; nginx's proxy timeout fires first → a hard
+    // 504 reaches the client (bad UX, and the computed timeoutMs wasn't even passed
+    // to callImageGen). Race the generation against a budget SHORTER than nginx's
+    // gateway timeout so this handler ALWAYS responds in time with a graceful
+    // soft-empty (generated:false → client falls back to the abundant frame pool /
+    // cover) instead of a 504. A late-finishing image is simply discarded.
+    const HANDLER_BUDGET_MS = Math.max(
+      8000, Math.min(timeoutMs, Number(process.env.CSSMV_THUMBNAIL_BUDGET_MS || 25000)),
+    );
+    const result = await Promise.race([
+      callImageGen({ prompt, size, quality, output_format: outputFormat, background }),
+      new Promise<ImageGenResponse>((resolve) =>
+        setTimeout(() => resolve({ ok: false, error: "handler_timeout_soft_empty" } as ImageGenResponse), HANDLER_BUDGET_MS),
+      ),
+    ]);
     if (!result.ok) {
       console.warn(
         "[cssmv/thumbnail] image-router failed: %s — soft-empty response",
@@ -16173,6 +18433,13 @@ app.post("/api/cssmv/song-seed", async (req, res) => {
   noStore(res);
   try {
     const user = await getSessionUser(req);
+    // CSSOS_WAVE_451 20260527 — Jing: song-seed 后端 in-flight 去重锁, 与 lyrics/music/video 一致.
+    {
+      const _seedBodyStr = req.body && typeof req.body === "object" ? JSON.stringify(req.body) : "";
+      if (__mvDedupGuard("seed", user?.id, _seedBodyStr, res)) {
+        return res.status(409).json({ ok: false, error: "duplicate_in_flight", hint: "seed already generating" });
+      }
+    }
     const access = await resolveUserAccessProfile(user);
     const queueLane = queueLaneForTier(access.tier);
     const mode = String(req.body?.mode || "music_video").trim();
@@ -17166,6 +19433,20 @@ async function persistRemoteAudioToStable(url: string): Promise<string> {
       const filePath = path.join(MV_AUDIO_ARTIFACTS_DIR, filename);
       try {
         if (!fs.existsSync(filePath)) { fs.writeFileSync(filePath, buf); fs.chmodSync(filePath, 0o644); }
+        // CSSOS_WAVE_415 20260524 — Jing「体积大的媒体及时放资产服务器，别撑满 api-vm」:
+        // cdn.cssstudio.app is now bound to the R2 bucket (Cloudflare-proxied,
+        // verified HTTP/2 200), so R2 is a PUBLIC SERVING source — not just a
+        // backup. Push the audio to R2, and once it's safely there DELETE the local
+        // copy so the api-vm disk stays lean (audio mp3s are 5–12 MB each). R2 is
+        // durable + CDN-cached, so the CDN URL is the source of truth. If R2 is
+        // disabled/fails we fall back to serving the local copy via nginx.
+        if (r2Enabled()) {
+          const r2url = await uploadToR2(filePath, `artifacts/audio/${filename}`, "audio/mpeg");
+          if (r2url) {
+            try { fs.unlinkSync(filePath); } catch { /* best-effort disk reclaim */ }
+            return r2url;
+          }
+        }
         return `${publicArtifactsBase()}/artifacts/audio/${filename}`;
       } catch (we) {
         console.warn("[rehost-audio] write failed, keep url:", (we as Error)?.message || we);
@@ -17177,8 +19458,13 @@ async function persistRemoteAudioToStable(url: string): Promise<string> {
   return u;
 }
 
+const _slideshowGenInflight = new Set<string>();
 async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
   if (!workId) return;
+  // CSSOS_WAVE_619 — 防重入: 同一作品的池生成进行中时, 后续触发(如每次播放调 GET /slideshow)直接跳过,
+  // 避免并发重复生成。生成完成或失败后释放。
+  if (_slideshowGenInflight.has(workId)) return;
+  _slideshowGenInflight.add(workId);
   try {
     const pool = getPool();
     const existing = await pool.query<{ n: string }>(
@@ -17187,7 +19473,19 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
       [workId],
     );
     const have = Number(existing.rows[0]?.n || 0);
-    if (have >= SLIDESHOW_POOL_SIZE) return;
+    if (have >= SLIDESHOW_POOL_SIZE) { _slideshowGenInflight.delete(workId); return; }
+    // CSSOS_WAVE_444e 20260526 — Admin-curated slideshow guard.
+    // If ANY existing frame carries meta->>'source' (set by admin regen
+    // scripts), the pool is intentionally curated and must NOT be padded
+    // with auto-generated life-arc portraits. This protects works like
+    // Jerusalem whose slideshow was hand-picked to show temple imagery.
+    const adminCheck = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM work_assets
+         WHERE work_id = $1 AND asset_type = 'slideshow_frame'
+           AND meta->>'source' IS NOT NULL`,
+      [workId],
+    );
+    if (Number(adminCheck.rows[0]?.n || 0) > 0) return;
     const workRow = await pool.query<{
       title: string; civilization: string | null;
     }>(
@@ -17200,7 +19498,7 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
     const basePrompt = [
       work.title ? `Cinematic scene about "${work.title}"` : "Cinematic scene",
       work.civilization ? `set in the ${work.civilization} cultural frame` : "",
-      "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, no text, no watermark",
+      "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, well-proportioned natural face, NO ugly or deformed or distorted faces, no extra limbs, no text, no watermark",
     ].filter(Boolean).join(", ");
     const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
     // CSSOS_WAVE_127 20260514 — Jing: "桌面端电影超宽屏幕，手机端 9:16,
@@ -17210,17 +19508,17 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
     // portrait (9:16, mobile fullscreen). Each frame's meta records its
     // `orientation` so /slideshow can filter. We alternate orientation
     // per index → even split, both fill at the same rate.
-    //   landscape 1344×768  (composed for wide cinema framing)
-    //   portrait  768×1344  (composed for 9:16 mobile fullscreen)
+    //   landscape 1920×804  (Anamorphic 2.39:1 — WAVE_444 iron rule)
+    //   portrait  1170×2532 (Phone Fullscreen device-fit — WAVE_444 iron rule)
     // Combined with the Wave 126 `object-fit: cover !important` guard,
     // the figure is correctly proportioned with minimal edge crop —
     // never the old square-then-stretch squash.
     const ORIENT = (idx: number): { size: string; orientation: string; framing: string } =>
       idx % 2 === 0
-        ? { size: "1344x768", orientation: "landscape",
-            framing: "wide cinematic 16:9 composition, subject framed with cinematic headroom, environment visible on both sides" }
-        : { size: "768x1344", orientation: "portrait",
-            framing: "vertical 9:16 composition, subject centered head-to-chest, full face clearly visible, no half-face crop" };
+        ? { size: CINEMA_LANDSCAPE.size, orientation: "landscape",
+            framing: CINEMA_LANDSCAPE.framing }
+        : { size: PHONE_FULLSCREEN.size, orientation: "portrait",
+            framing: PHONE_FULLSCREEN.framing };
     const BATCH = 4;
     const INTER_BATCH_SLEEP_MS = 1200;
     for (let i = 0; i < need; i += BATCH) {
@@ -17265,7 +19563,66 @@ async function enqueueSlideshowPoolGeneration(workId: string): Promise<void> {
     console.info(`[slideshow] pool seeded for ${workId} (target ${SLIDESHOW_POOL_SIZE}, dual-orientation)`);
   } catch (err) {
     console.warn("[slideshow] enqueueSlideshowPoolGeneration failed:", err);
+  } finally {
+    _slideshowGenInflight.delete(workId); // CSSOS_WAVE_619 — 释放防重入标志
   }
+}
+
+// CSSOS_WAVE_623 — Jing「为旗舰款 Jerusalem 补『同主题』海量帧」: 追加式生成器。
+// 与通用 enqueueSlideshowPoolGeneration 不同: ①用【作品标题/风格/歌词】做主题 prompt(Jerusalem→圣城/
+// 圣殿 场景, 不强加 full-face 人像); ②【追加】不删旧帧(保护手挑精选); ③2.39:1 + 质量 + 双朝向;
+// ④标 meta.source='admin-theme-pool'(精选, 受自动池保护闸保护)。可对任意作品扩成同主题海量帧池。
+const _themedFrameInflight = new Set<string>();
+async function generateThemedFramePool(workId: string, addCount: number): Promise<{ ok: boolean; added: number }> {
+  if (!workId || _themedFrameInflight.has(workId)) return { ok: false, added: 0 };
+  _themedFrameInflight.add(workId);
+  let added = 0;
+  try {
+    const pool = getPool();
+    const wr = await pool.query<{ title: string; style: string; lyrics_preview: string }>(
+      `SELECT title, style, lyrics_preview FROM user_works WHERE id = $1::uuid LIMIT 1`, [workId]);
+    const work = wr.rows[0];
+    if (!work) return { ok: false, added: 0 };
+    const theme = [work.title, work.style, String(work.lyrics_preview || "").slice(0, 160)].filter(Boolean).join(" — ");
+    const angles = [
+      "wide cinematic establishing shot, warm key light", "intimate detail close-up, shallow depth of field, cool rim light",
+      "high-angle dramatic composition, golden hour", "moody low-key chiaroscuro, single source light",
+      "vibrant saturated graphic poster style", "soft pastel dreamlike haze, bloom",
+      "stark high-contrast monochrome with one accent color", "epic god-rays through architecture",
+      "night scene with sacred glow and starlight", "aerial sweeping panorama at dawn",
+      "weathered ancient stone texture, reverent stillness", "storm-light drama over the skyline",
+    ];
+    const ORIENT = (i: number) => i % 2 === 0
+      ? { size: CINEMA_LANDSCAPE.size, orientation: "landscape", framing: CINEMA_LANDSCAPE.framing }
+      : { size: PHONE_FULLSCREEN.size, orientation: "portrait", framing: PHONE_FULLSCREEN.framing };
+    const BATCH = 4;
+    for (let i = 0; i < addCount; i += BATCH) {
+      const slice: Promise<void>[] = [];
+      for (let j = i; j < Math.min(i + BATCH, addCount); j++) {
+        const orient = ORIENT(j);
+        const prompt = `${theme}. ${angles[j % angles.length]}. ${orient.framing}. cinematic on-theme scene faithful to the subject, beautiful tasteful premium, well-proportioned natural face if any person, NO ugly or deformed or distorted faces, no text, no watermark.`;
+        slice.push((async () => {
+          try {
+            const img = await callImageGen({ prompt, size: orient.size, output_format: "webp",
+              prefer: ["fal", "replicate", "deepinfra", "huggingface", "pollinations"] });
+            if (!img?.ok) return;
+            const url = img.image_url ? await persistRemoteImageToStable(img.image_url)
+              : (img.image_b64 ? persistBase64Cover(img.image_b64, "themed-pool") : "");
+            if (!url) return;
+            await pool.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1,'slideshow_frame',$2,$3::jsonb) ON CONFLICT DO NOTHING`,
+              [workId, url, JSON.stringify({ source: "admin-theme-pool", themed: true, orientation: orient.orientation, provider: img.provider || "unknown" })]);
+            added++;
+          } catch (_) { /* per-frame non-fatal */ }
+        })());
+      }
+      await Promise.all(slice);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    console.info(`[themed-pool] ${workId} added ${added} themed frames`);
+    return { ok: true, added };
+  } catch (e) { console.warn("[themed-pool] failed:", e); return { ok: false, added }; }
+  finally { _themedFrameInflight.delete(workId); }
 }
 
 // CSSOS_WAVE_132 20260514 — Jing: "重新设计用户欢迎MV…让画面至少使用
@@ -17556,7 +19913,7 @@ const LLM_PROVIDER_DEFAULTS = {
   deepseek:    { url: "https://api.deepseek.com/v1/chat/completions",                                   model: "deepseek-chat",                                 keyEnv: "DEEPSEEK_API_KEY",    dialect: "openai" },
   // Anthropic Claude — different schema (messages, system field
   // separate, x-api-key header). Adapter handles the translation.
-  anthropic:   { url: "https://api.anthropic.com/v1/messages",                                          model: "claude-3-5-haiku-latest",                       keyEnv: "ANTHROPIC_API_KEY",   dialect: "anthropic" },
+  anthropic:   { url: "https://api.anthropic.com/v1/messages",                                          model: "claude-haiku-4-5",                              keyEnv: "ANTHROPIC_API_KEY",   dialect: "anthropic" },
   // HuggingFace Inference API — OpenAI-compatible router endpoint.
   // Free but slow / occasionally cold; good last-resort free tier.
   huggingface: { url: "https://router.huggingface.co/v1/chat/completions",                              model: "meta-llama/Llama-3.3-70B-Instruct",             keyEnv: "HUGGINGFACE_API_KEY", dialect: "openai" },
@@ -17972,6 +20329,12 @@ type MusicGenRequest = {
    * need audio — they leave this false so they never pay the Whisper
    * tax. Defaults to false; only /api/mv/music sets it true. */
   want_word_timeline?: boolean;
+  /* CSSOS_WAVE_587 — 同旋律换嗓/换语言: 走 Suno Cover(kie upload-cover)。
+   * coverUrl = 原曲音频(<8min, 公网可达), 引擎保留旋律重新演唱;
+   * vocalGender = 'm'|'f' 换男女声; audioWeight 越高越贴原旋律。
+   * 设了 coverUrl → suno 分支走 /generate/upload-cover, 否则走 /generate(全新谱曲)。 */
+  coverUrl?: string;
+  vocalGender?: "m" | "f";
 };
 /* CSSOS_WAVE_156 — word/line-level lyric timeline returned by singing
  * engines (Suno via kie.ai). Each entry is the actual sung word/line
@@ -18020,7 +20383,56 @@ function musicProviderOrder(prefer?: string[]): string[] {
     (MUSIC_PROVIDERS as readonly string[]).includes(p));
   return (prefer && prefer.length) ? list : tierSortProviders(list);
 }
+// CSSOS_WAVE_430 20260525 — Jing「音乐引擎反馈: 一次性歌词超过 5000 字符就被退回(连只勾
+// 两种语言也撞上)」. Suno/kie.ai 的歌词输入硬上限是 5000 字符. 每首歌(=每种语言一次调用)
+// 必须确保歌词 ≤ 上限. 这里在【唯一的音乐出口 callMusicGen】集中钳制: 留安全余量(4800),
+// 并【按整行截断】(在 ≤上限 的最后一个换行处切), 既不超限也不在句中/词中断开. 段落标签
+// [Verse]/[Chorus] 这类结构标记尽量保留(它们短). 这样无论用户勾几种语言、每种语言多长,
+// 每次送进引擎的都是一首合法长度的歌词 —— 分批(每语言一次)+ 每次钳制, 双保险.
+// CSSOS_WAVE_430b 20260525 — Jing「纯歌词几乎不会破 5000, 撑爆的是夹带的元数据。喂 Suno 前
+// 只剥元数据(Title/Style/Source 头块 + 段落小标题), 留裸 [Verse 1] + 纯歌词, 一行不砍。
+// 宁可让歌词引擎重写更短, 也不牺牲歌词完整性。」
+// Suno 编排只需要【裸结构标签 + 歌词正文】。所以喂引擎前:
+//   1. 删 [Title:]/[Style:]/[Source:]/[Cover:]/[Mood:]/[Instrument:]/[Language:]… 非歌词头块行;
+//   2. 段落标签去掉小标题: [Verse 1 · 月下独酌] → [Verse 1]; [Chorus: rise] → [Chorus];
+//   3. 歌词正文【一字不动】。
+// 仅当剥完仍 >上限(极罕见)才整行截断兜底 —— 正常剥完远在 5000 以下, 到不了这步。
+const MUSIC_LYRICS_MAX_CHARS = Math.max(
+  1000, Math.min(5000, Number(process.env.MUSIC_LYRICS_MAX_CHARS || 4900)),
+);
+function sanitizeLyricsForMusicEngine(lyrics: string): string {
+  let s = String(lyrics || "");
+  // 1) Drop non-lyric metadata header lines.
+  s = s.replace(/^\s*\[(?:title|style|source|cover|mood|instrument[s]?|language|lang|duration|bpm|key|tempo|genre|tags?|prompt)\s*:[^\]]*\]\s*$/gim, "");
+  // 2) Collapse section labels to their bare structural tag (drop subtitles).
+  s = s.replace(/\[([^\]\n:·\-–—]+?)\s*(?:[:·\-–—][^\]\n]*)?\]/g, (m, head) => {
+    const h = String(head).trim();
+    return /^(intro|verse|pre-?chorus|chorus|bridge|hook|refrain|outro|coda|interlude|breakdown|drop|build|ritual|chant|incantation)(\s*\d+)?$/i.test(h)
+      ? `[${h}]` : m;
+  });
+  // 3) Tidy the blank lines left behind.
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return s;
+}
+function clampLyricsForEngine(lyrics: string): string {
+  const sanitized = sanitizeLyricsForMusicEngine(lyrics);
+  if (sanitized.length <= MUSIC_LYRICS_MAX_CHARS) return sanitized; // full lyrics, no cut
+  // Last-resort safety only (should be unreachable after metadata strip): a
+  // complete-but-truncated song beats outright engine rejection. Upstream should
+  // have the lyric model rewrite shorter rather than relying on this.
+  const head = sanitized.slice(0, MUSIC_LYRICS_MAX_CHARS);
+  const lastNl = head.lastIndexOf("\n");
+  const cut = lastNl > MUSIC_LYRICS_MAX_CHARS * 0.5 ? head.slice(0, lastNl) : head;
+  console.warn("[music-lyrics] sanitized STILL %d > %d → last-resort line-clamp to %d (lyric rewrite recommended upstream)",
+    sanitized.length, MUSIC_LYRICS_MAX_CHARS, cut.length);
+  return cut.trim();
+}
+
 async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
+  // CSSOS_WAVE_430 — never exceed the engine's 5000-char lyrics cap.
+  if (req && typeof req.lyrics === "string") {
+    req = { ...req, lyrics: clampLyricsForEngine(req.lyrics) };
+  }
   // CSSOS_WAVE_202 — 180s timeout wrapper (Suno/ElevenLabs can be slow).
   // eslint-disable-next-line @typescript-eslint/no-shadow
   const fetch = makeTimeoutFetch(MUSIC_ROUTER_TIMEOUT_MS);
@@ -18365,29 +20777,60 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
           "Content-Type": "application/json",
         };
         const wantInstrumental = req.instrumental === true || !req.lyrics;
-        const sunoBody: Record<string, unknown> = {
-          // customMode=true lets us pass explicit lyrics + style + title.
-          customMode: true,
-          instrumental: wantInstrumental,
-          model: "V4",
-          style: String(req.prompt || (req.tags || []).join(", ") || "cinematic").slice(0, 200),
-          title: String(req.title || "cssOS").slice(0, 80),
-          // kie.ai rejects the request (422) without a callBackUrl. We
-          // don't actually need the callback — we poll record-info —
-          // but the field is mandatory. Point it at a real no-op
-          // endpoint so kie.ai's URL validation passes.
-          callBackUrl: `${String(process.env.APP_BASE_URL || "https://cssstudio.app").replace(/\/+$/, "")}/api/webhooks/kie-suno`,
-        };
+        // CSSOS_WAVE_587 — 有 coverUrl → 走 Suno Cover(保旋律换嗓/换语言), 否则全新谱曲。
+        const isCover = !!String(req.coverUrl || "").trim();
+        // CSSOS_WAVE_608 — Jing「给 Suno 配贴切的音乐风格」: Suno 的 style 字段不该含【歌曲标题】
+        // (prompt 格式是 "标题 — 风格 — 声线"; 标题混进 style 会让 Suno 跑偏/念标题)。这里优先用
+        // 干净的 tags, 否则把 prompt 开头的标题前缀剥掉, 只留风格/声线描述 → Suno 拿到贴切的 genre/mood。
+        const sunoStyle = (() => {
+          let s = String((Array.isArray(req.tags) && req.tags.length) ? req.tags.join(", ") : (req.prompt || "")).trim();
+          const t = String(req.title || "").trim();
+          if (t && s.indexOf(t) === 0) {
+            s = s.slice(t.length).replace(/^\s*[—\-:·,，、|/]+\s*/, "").trim();
+          }
+          return (s || "cinematic, emotional").slice(0, 1000);
+        })();
+        const callBackUrl = `${String(process.env.APP_BASE_URL || "https://cssstudio.app").replace(/\/+$/, "")}/api/webhooks/kie-suno`;
+        const sunoBody: Record<string, unknown> = isCover
+          ? {
+              // Cover: 拿原曲当参考, 保留旋律重新演唱。
+              uploadUrl: String(req.coverUrl).trim(),
+              customMode: true,
+              instrumental: wantInstrumental,
+              model: "V4_5",                       // V4_5 支持 vocalGender / audioWeight
+              style: sunoStyle,
+              title: String(req.title || "cssOS").slice(0, 80),
+              audioWeight: 0.95,                    // CSSOS_WAVE_587 — 拉到 0.95, 尽量锁住原旋律/时值(0.8 时跑偏)
+              callBackUrl,
+            }
+          : {
+              // customMode=true lets us pass explicit lyrics + style + title.
+              customMode: true,
+              instrumental: wantInstrumental,
+              model: "V4",
+              style: sunoStyle.slice(0, 200),
+              title: String(req.title || "cssOS").slice(0, 80),
+              // kie.ai rejects the request (422) without a callBackUrl. We
+              // don't actually need the callback — we poll record-info —
+              // but the field is mandatory. Point it at a real no-op
+              // endpoint so kie.ai's URL validation passes.
+              callBackUrl,
+            };
         if (!wantInstrumental && req.lyrics) {
-          sunoBody.prompt = String(req.lyrics).slice(0, 4000);
+          sunoBody.prompt = String(req.lyrics).slice(0, isCover ? 5000 : 4000);
+        }
+        if (isCover && (req.vocalGender === "m" || req.vocalGender === "f")) {
+          sunoBody.vocalGender = req.vocalGender;
         }
         let taskId = "";
         try {
-          const gen = await fetch("https://api.kie.ai/api/v1/generate", {
-            method: "POST",
-            headers: kieHeaders,
-            body: JSON.stringify(sunoBody),
-          });
+          const gen = await fetch(
+            isCover ? "https://api.kie.ai/api/v1/generate/upload-cover" : "https://api.kie.ai/api/v1/generate",
+            {
+              method: "POST",
+              headers: kieHeaders,
+              body: JSON.stringify(sunoBody),
+            });
           const genJson: any = await gen.json().catch(() => null);
           if (!gen.ok || !genJson) {
             lastErr = `suno_generate_${gen.status}: ${JSON.stringify(genJson || {}).slice(0, 160)}`;
@@ -18546,7 +20989,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
 type VideoGenRequest = {
   prompt: string;
   duration_secs?: number;
-  aspect_ratio?: "16:9" | "9:16" | "1:1";
+  aspect_ratio?: "2.39:1" | "9:19.5" | "16:9" | "9:16" | "1:1" | "21:9" | "4:5"; // WAVE_444
   image_url?: string; // image-to-video starting frame
   prefer?: string[];
   /* Per-provider model override (from cookie cssos_video_<provider>_model). */
@@ -18594,9 +21037,11 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         // Defaults: ray-2 model, 5s duration. Aspect ratio mapped from
         // VideoGenRequest's "16:9"/"9:16"/"1:1" → Luma's same-string
         // values. duration_secs ≤ 5 → "5s", else "9s".
-        const aspect = req.aspect_ratio === "9:16" ? "9:16"
+        // WAVE_444: map all ratio keys to provider-accepted values
+        // 2.39:1/16:9 → landscape; 9:19.5/9:16 → portrait; else landscape
+        const aspect = (req.aspect_ratio === "9:16" || req.aspect_ratio === "9:19.5") ? "9:16"
           : req.aspect_ratio === "1:1" ? "1:1"
-          : "16:9";
+          : "16:9"; // providers use 16:9 internally; output is composed to 2.39:1 by ffmpeg
         const dur = (req.duration_secs && req.duration_secs > 5) ? "9s" : "5s";
         const lumaModel = await resolveEngineModel("video", "luma", req, process.env.LUMA_MODEL, "ray-2");
         const body: Record<string, unknown> = {
@@ -18668,9 +21113,11 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
           sk,
           { algorithm: "HS256", header: { alg: "HS256", typ: "JWT" } },
         );
-        const aspect = req.aspect_ratio === "9:16" ? "9:16"
+        // WAVE_444: map all ratio keys to provider-accepted values
+        // 2.39:1/16:9 → landscape; 9:19.5/9:16 → portrait; else landscape
+        const aspect = (req.aspect_ratio === "9:16" || req.aspect_ratio === "9:19.5") ? "9:16"
           : req.aspect_ratio === "1:1" ? "1:1"
-          : "16:9";
+          : "16:9"; // providers use 16:9 internally; output is composed to 2.39:1 by ffmpeg
         const dur = (req.duration_secs && req.duration_secs > 5) ? "10" : "5";
         const klingModel = await resolveEngineModel("video", "kling", req, process.env.KLING_MODEL, "kling-v1");
         const body: Record<string, unknown> = {
@@ -18751,9 +21198,11 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         const fallback = req.image_url ? "ali-vilab/i2vgen-xl" : "minimax/video-01";
         const envKey = req.image_url ? process.env.REPLICATE_VIDEO_MODEL_I2V : process.env.REPLICATE_VIDEO_MODEL_T2V;
         const model = await resolveEngineModel("video", "replicate", req, envKey, fallback);
-        const aspect = req.aspect_ratio === "9:16" ? "9:16"
+        // WAVE_444: map all ratio keys to provider-accepted values
+        // 2.39:1/16:9 → landscape; 9:19.5/9:16 → portrait; else landscape
+        const aspect = (req.aspect_ratio === "9:16" || req.aspect_ratio === "9:19.5") ? "9:16"
           : req.aspect_ratio === "1:1" ? "1:1"
-          : "16:9";
+          : "16:9"; // providers use 16:9 internally; output is composed to 2.39:1 by ffmpeg
         const dur = req.duration_secs && req.duration_secs > 5 ? 9 : 5;
         const input: Record<string, unknown> = {
           prompt: req.prompt,
@@ -20957,6 +23406,32 @@ async function ensurePersonMvTables() {
       CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx
         ON webhook_deliveries (webhook_id, delivered_at DESC);
 
+      -- CSSOS_WAVE_452 20260527 — Jing — MV pipeline checkpoint / resume / deferred billing.
+      -- One row per pipeline execution. Stages completed so far are stored as a JSONB
+      -- array; stage results (URLs / text) in stage_results JSONB; accumulated vendor
+      -- cost in accumulated_cost_cents. Billing is deferred: chargeMvStageActual writes
+      -- cost here instead of debiting immediately. Only when status flips to 'complete'
+      -- does a single debitCredits call charge the wallet. If the run is abandoned or
+      -- expires (updated_at > 24h and status = 'in_progress'), no charge is made.
+      CREATE TABLE IF NOT EXISTS mv_pipeline_runs (
+        id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id                UUID NOT NULL,
+        run_id                 TEXT NOT NULL,
+        params                 JSONB NOT NULL DEFAULT '{}'::jsonb,
+        stages_done            TEXT[] NOT NULL DEFAULT '{}',
+        stage_results          JSONB NOT NULL DEFAULT '{}'::jsonb,
+        accumulated_cost_cents INTEGER NOT NULL DEFAULT 0,
+        status                 TEXT NOT NULL DEFAULT 'in_progress',
+        created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT mv_pipeline_runs_status_chk
+          CHECK (status IN ('in_progress','complete','abandoned'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS mv_pipeline_runs_run_id_uidx
+        ON mv_pipeline_runs (run_id);
+      CREATE INDEX IF NOT EXISTS mv_pipeline_runs_user_status_idx
+        ON mv_pipeline_runs (user_id, status, updated_at DESC);
+
       -- CSSOS_PERSON_MV_WAVE51 20260508 — Jing — creation timeline.
       -- Append-only event log of every user action during MV creation
       -- so users can replay their own decisions. Indexed by user (for
@@ -22505,14 +24980,16 @@ async function runDailyAnniversaryAutoMv(adminUserId: string): Promise<{
       // when users actually click to play; today we land the row so
       // the "Today in History" shelf has content.
       const workId = crypto.randomUUID();
-      const personName = m.name_zh || m.name_en;
+      // en-first: platform default is English; zh name used only for Chinese-civilization persons.
+      const personName = m.civilization?.startsWith("中") ? (m.name_zh || m.name_en) : (m.name_en || m.name_zh);
       const angleLabel = m.event_type === "birth"
         ? (m.civilization.startsWith("中") ? `${personName} 诞辰纪念` : `${personName} · Birthday Remembrance`)
         : (m.civilization.startsWith("中") ? `${personName} 忌辰纪念` : `${personName} · In Memoriam`);
       const lyricsPreview = m.core_theme
         ? `${angleLabel}\n${m.core_theme}`
         : angleLabel;
-      const style = m.music_style_hint || "古风纪念 / 弦乐与钢琴 / 缅怀";
+      // en-first fallback: "古风纪念…" is Chinese-only; non-Chinese persons get English style hint.
+      const style = m.music_style_hint || (m.civilization?.startsWith("中") ? "古风纪念 / 弦乐与钢琴 / 缅怀" : "orchestral tribute / strings & piano / in memoriam");
 
       await withClient(async (client) => {
         await client.query("BEGIN");
@@ -22521,10 +24998,12 @@ async function runDailyAnniversaryAutoMv(adminUserId: string): Promise<{
             `INSERT INTO user_works (
                 id, user_id, title, style, work_type, lyrics_preview, status,
                 suggested_listen_price_cents, suggested_buyout_price_cents,
-                system_origin, created_at, updated_at
+                system_origin, language, civilization, created_at, updated_at
              ) VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
-                       0, 0, 'system_anniversary', now(), now())`,
-            [workId, adminUserId, angleLabel, style, lyricsPreview],
+                       0, 0, 'system_anniversary', $6, $7, now(), now())`,
+            [workId, adminUserId, angleLabel, style, lyricsPreview,
+             civToLanguageServer(m.civilization || ""),
+             m.civilization || null],
           );
           // Lock marketplace knobs via work_market_profiles.
           await client.query(
@@ -22717,10 +25196,12 @@ async function runDailyFestivalAutoMv(adminUserId: string): Promise<{
             `INSERT INTO user_works (
                 id, user_id, title, style, work_type, lyrics_preview, status,
                 suggested_listen_price_cents, suggested_buyout_price_cents,
-                system_origin, created_at, updated_at
+                system_origin, language, civilization, created_at, updated_at
              ) VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
-                       0, 0, 'system_festival', now(), now())`,
-            [workId, adminUserId, title, style, lyricsPreview],
+                       0, 0, 'system_festival', $6, $7, now(), now())`,
+            [workId, adminUserId, title, style, lyricsPreview,
+             civToLanguageServer(m.civilization || ""),
+             m.civilization || null],
           );
           await client.query(
             `INSERT INTO work_market_profiles (
@@ -23050,11 +25531,13 @@ async function backfillSystemWorkMedia(
       const seed = String(work.lyrics_preview || work.title || "").slice(0, 800);
       const isZh = /[一-鿿]/.test(seed);
       const lang = isZh ? "zh" : "en";
+      // CSSOS_WAVE_609 — 传入 work.civilization, 让歌词补全也带上【文明感知唱腔/配乐】锚定(防 j-pop 错配)。
+      const __civ = String((work as any).civilization || "");
       const userPrompt = (typeof buildJingdianUserPrompt === "function")
-        ? buildJingdianUserPrompt(lang, String(work.style || ""), seed, "single", "")
+        ? buildJingdianUserPrompt(lang, String(work.style || ""), seed, "single", "", __civ)
         : `Title: ${work.title || ""}\nStyle: ${work.style || ""}\nSeed:\n${seed}`;
       const systemPrompt = (typeof buildJingdianSystemPrompt === "function")
-        ? buildJingdianSystemPrompt(lang, "single", "")
+        ? buildJingdianSystemPrompt(lang, "single", "", __civ)
         : "Write a complete 10-section 京典 lyric: Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro. Each section 4 body lines + 1 ritual-language line. Total ≥40 lines.";
 
       let attempt = 0;
@@ -23152,7 +25635,7 @@ async function backfillSystemWorkMedia(
           prompt: [work.title || "", work.style || "", "cinematic, no text"]
             .filter(Boolean).join(", "),
           duration_secs: 5,
-          aspect_ratio: "16:9",
+          aspect_ratio: "2.39:1", // WAVE_444 iron rule: never 16:9
           image_url: coverUrl || work.cover_image || undefined,
         });
         if (v && v.ok && v.video_url) {
@@ -23568,22 +26051,28 @@ async function runAnniversaryGenerateForDate(adminUserId: string, runDate: Date)
       );
       if (seen.rows[0]) { summary.skipped += 1; continue; }
       const workId = crypto.randomUUID();
-      const personName = m.name_zh || m.name_en;
+      // en-first: platform default is English; zh name used only for Chinese-civilization persons.
+      const personName = m.civilization?.startsWith("中") ? (m.name_zh || m.name_en) : (m.name_en || m.name_zh);
       const angleLabel = m.event_type === "birth"
         ? (m.civilization.startsWith("中") ? `${personName} 诞辰纪念` : `${personName} · Birthday Remembrance`)
         : (m.civilization.startsWith("中") ? `${personName} 忌辰纪念` : `${personName} · In Memoriam`);
       const lyricsPreview = m.core_theme ? `${angleLabel}\n${m.core_theme}` : angleLabel;
-      const style = m.music_style_hint || "古风纪念 / 弦乐与钢琴 / 缅怀";
+      const style = m.music_style_hint || (m.civilization?.startsWith("中") ? "古风纪念 / 弦乐与钢琴 / 缅怀" : "orchestral tribute / strings & piano / in memoriam");
       await withClient(async (client) => {
         await client.query("BEGIN");
         try {
           await client.query(
             `INSERT INTO user_works (id, user_id, title, style, work_type, lyrics_preview, status,
                 suggested_listen_price_cents, suggested_buyout_price_cents,
-                system_origin, created_at, updated_at)
+                system_origin, language, civilization, created_at, updated_at,
+                aspect_ratio, orientation)
              VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
-                       0, 0, 'system_anniversary', $6::timestamptz, $6::timestamptz)`,
-            [workId, adminUserId, angleLabel, style, lyricsPreview, runDateIso + "T04:00:00Z"],
+                       0, 0, 'system_anniversary', $6, $7, $8::timestamptz, $8::timestamptz,
+                       '2.39:1', 'ultra-wide')`,
+            [workId, adminUserId, angleLabel, style, lyricsPreview,
+             civToLanguageServer(m.civilization || ""),
+             m.civilization || null,
+             runDateIso + "T04:00:00Z"],
           );
           await client.query(
             `INSERT INTO work_market_profiles (work_id, visibility, current_listen_price_cents,
@@ -23660,10 +26149,13 @@ async function runFestivalGenerateForDate(adminUserId: string, runDate: Date): P
           await client.query(
             `INSERT INTO user_works (id, user_id, title, style, work_type, lyrics_preview, status,
                 suggested_listen_price_cents, suggested_buyout_price_cents,
-                system_origin, created_at, updated_at)
+                system_origin, language, civilization, created_at, updated_at)
              VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
-                       0, 0, 'system_festival', $6::timestamptz, $6::timestamptz)`,
-            [workId, adminUserId, title, style, lyricsPreview, runDateIso + "T04:05:00Z"],
+                       0, 0, 'system_festival', $6, $7, $8::timestamptz, $8::timestamptz)`,
+            [workId, adminUserId, title, style, lyricsPreview,
+             civToLanguageServer(m.civilization || ""),
+             m.civilization || null,
+             runDateIso + "T04:05:00Z"],
           );
           await client.query(
             `INSERT INTO work_market_profiles (work_id, visibility, current_listen_price_cents,
@@ -27819,6 +30311,8 @@ type WorkTreeRow = {
   status: string;
   created_at: string;
   updated_at: string;
+  pinned_at?: string | null;
+  admin_pinned_at?: string | null;
   parent_work_id: string | null;
   root_work_id: string | null;
   structure_role: string | null;
@@ -28243,6 +30737,8 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
          w.cover_image,
          w.preview_image_url,
          w.preview_video_url,
+         w.language,
+         w.civilization,
          u.display_name AS owner_name,
          u.email AS owner_email,
          u.avatar_url AS owner_avatar_url,
@@ -28303,6 +30799,8 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          w.cover_image,
          w.preview_image_url,
          w.preview_video_url,
+         w.language,
+         w.civilization,
          u.display_name AS owner_name,
          u.email AS owner_email,
          u.avatar_url AS owner_avatar_url,
@@ -28392,9 +30890,11 @@ app.get("/api/works/mine", async (req, res) => {
     const q: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
         `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
+                w.pinned_at, w.admin_pinned_at,
                 w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
                 w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.cost_breakdown, w.fingerprint_hash, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
                 w.cover_image, w.preview_image_url, w.preview_video_url,
+                w.aspect_ratio, w.orientation, w.frame_width, w.frame_height, w.mood, w.ambience,
                 COALESCE(w.duration_secs, (final_mv_asset.meta->>'duration_secs')::float, (audio_track_1_asset.meta->>'duration_secs')::float) AS duration_secs,
                 mp.visibility,
                 COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
@@ -28427,7 +30927,7 @@ app.get("/api/works/mine", async (req, res) => {
            ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
          WHERE user_id = $1
            AND w.parent_work_id IS NULL
-         ORDER BY w.created_at DESC
+         ORDER BY COALESCE(w.pinned_at, w.admin_pinned_at) DESC NULLS LAST, w.created_at DESC
          LIMIT $2`,
         [user.id, limit],
       ),
@@ -28443,9 +30943,11 @@ app.get("/api/works/mine", async (req, res) => {
     const giftQ: QueryResult<Row> = await withClient((client) =>
       client.query<Row>(
         `SELECT w.id, w.title, w.style, w.work_type, w.lyrics_preview, w.status, w.created_at, w.updated_at,
+                w.pinned_at, w.admin_pinned_at,
                 w.parent_work_id, w.root_work_id, w.structure_role, w.sequence_index, w.structure_plan,
                 w.source_run_id, w.compute_units_estimate, w.compute_cost_cents_estimate, w.cost_breakdown, w.fingerprint_hash, w.suggested_listen_price_cents, w.suggested_buyout_price_cents,
                 w.cover_image, w.preview_image_url, w.preview_video_url,
+                w.aspect_ratio, w.orientation, w.frame_width, w.frame_height, w.mood, w.ambience,
                 COALESCE(w.duration_secs, (final_mv_asset.meta->>'duration_secs')::float, (audio_track_1_asset.meta->>'duration_secs')::float) AS duration_secs,
                 mp.visibility,
                 COALESCE(listen_product.amount_cents, mp.current_listen_price_cents) AS current_listen_price_cents,
@@ -28545,6 +31047,109 @@ app.get("/api/works/mine", async (req, res) => {
   }
 });
 
+// CSSOS_WAVE_480/481 20260527 — Jing「分层置顶」: 普通用户置顶 = 仅对自己有效(pinned_at,
+// 只影响其 /api/works/mine 排序, 且只能置顶自己的作品, 上限 3); 系统管理员置顶 = 全平台全用户
+// 有效(admin_pinned_at, 影响 /api/works/market + 全局搜索 + 为你创作 feed, 可置顶任意作品,
+// 上限 12)。POST /api/works/:id/pin { pinned } —— 服务端按调用者角色自动路由到对应字段。
+const CSSOS_MAX_PINNED_WORKS = 3;
+const CSSOS_MAX_ADMIN_PINNED_WORKS = 12;
+app.post("/api/works/:id/pin", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const workId = String(req.params.id || "").trim();
+    if (!workId) return res.status(400).json({ ok: false, code: "BAD_ID" });
+    const wantPinned = req.body?.pinned !== false; // default true
+    // Determine caller role → admin pins platform-wide, others pin personally.
+    const roleRow = await withClient((c) => c.query<{ role: string | null }>(
+      `SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [user.id]));
+    const isAdmin = String(roleRow.rows[0]?.role || "").toLowerCase() === "admin"
+      || isCssosAdminEmail((user as any).email);
+
+    if (isAdmin) {
+      // 管理员: 全平台置顶, 可对任意作品(不限本人), 写 admin_pinned_at, 上限 12。
+      const exists = await withClient((c) => c.query<{ id: string }>(
+        `SELECT id FROM user_works WHERE id = $1::uuid LIMIT 1`, [workId]));
+      if (!exists.rows[0]) return res.status(404).json({ ok: false, code: "NO_WORK" });
+      if (wantPinned) {
+        const cnt = await withClient((c) => c.query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM user_works WHERE admin_pinned_at IS NOT NULL AND id <> $1::uuid`,
+          [workId]));
+        if (Number(cnt.rows[0]?.n || 0) >= CSSOS_MAX_ADMIN_PINNED_WORKS) {
+          return res.status(409).json({ ok: false, code: "PIN_LIMIT", scope: "platform", limit: CSSOS_MAX_ADMIN_PINNED_WORKS });
+        }
+        await withClient((c) => c.query(`UPDATE user_works SET admin_pinned_at = now() WHERE id = $1::uuid`, [workId]));
+      } else {
+        await withClient((c) => c.query(`UPDATE user_works SET admin_pinned_at = NULL WHERE id = $1::uuid`, [workId]));
+      }
+      return res.json(okData({ id: workId, pinned: wantPinned, scope: "platform", limit: CSSOS_MAX_ADMIN_PINNED_WORKS }));
+    }
+
+    // 普通用户: 只能置顶自己的作品, 写 pinned_at, 仅影响自己, 上限 3。
+    const own = await withClient((c) => c.query<{ id: string }>(
+      `SELECT id FROM user_works WHERE id = $1::uuid AND user_id = $2::uuid LIMIT 1`,
+      [workId, user.id]));
+    if (!own.rows[0]) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    if (wantPinned) {
+      const cnt = await withClient((c) => c.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM user_works WHERE user_id = $1::uuid AND pinned_at IS NOT NULL AND id <> $2::uuid`,
+        [user.id, workId]));
+      if (Number(cnt.rows[0]?.n || 0) >= CSSOS_MAX_PINNED_WORKS) {
+        return res.status(409).json({ ok: false, code: "PIN_LIMIT", scope: "self", limit: CSSOS_MAX_PINNED_WORKS });
+      }
+      await withClient((c) => c.query(
+        `UPDATE user_works SET pinned_at = now() WHERE id = $1::uuid AND user_id = $2::uuid`,
+        [workId, user.id]));
+    } else {
+      await withClient((c) => c.query(
+        `UPDATE user_works SET pinned_at = NULL WHERE id = $1::uuid AND user_id = $2::uuid`,
+        [workId, user.id]));
+    }
+    return res.json(okData({ id: workId, pinned: wantPinned, scope: "self", limit: CSSOS_MAX_PINNED_WORKS }));
+  } catch (err) {
+    console.warn("[work-pin] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PIN_FAILED" });
+  }
+});
+
+// CSSOS_WAVE_482 20260527 — Jing「置顶扩到人物 codex」: 管理员可全平台置顶【人物】(如孔子),
+// 搜索该文明/关键词时置顶人物先出。仅管理员; 写 person_profiles.admin_pinned_at; 上限 12。
+// POST /api/person-mv/:personId/pin { pinned }.
+app.post("/api/person-mv/:personId/pin", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const roleRow = await withClient((c) => c.query<{ role: string | null }>(
+      `SELECT role FROM users WHERE id = $1::uuid LIMIT 1`, [user.id]));
+    const isAdmin = String(roleRow.rows[0]?.role || "").toLowerCase() === "admin"
+      || isCssosAdminEmail((user as any).email);
+    if (!isAdmin) return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    const personId = String(req.params.personId || "").trim();
+    if (!personId) return res.status(400).json({ ok: false, code: "BAD_ID" });
+    const wantPinned = req.body?.pinned !== false;
+    const exists = await withClient((c) => c.query<{ person_id: string }>(
+      `SELECT person_id FROM person_profiles WHERE person_id = $1 LIMIT 1`, [personId]));
+    if (!exists.rows[0]) return res.status(404).json({ ok: false, code: "NO_PERSON" });
+    if (wantPinned) {
+      const cnt = await withClient((c) => c.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM person_profiles WHERE admin_pinned_at IS NOT NULL AND person_id <> $1`,
+        [personId]));
+      if (Number(cnt.rows[0]?.n || 0) >= CSSOS_MAX_ADMIN_PINNED_WORKS) {
+        return res.status(409).json({ ok: false, code: "PIN_LIMIT", scope: "person", limit: CSSOS_MAX_ADMIN_PINNED_WORKS });
+      }
+      await withClient((c) => c.query(`UPDATE person_profiles SET admin_pinned_at = now() WHERE person_id = $1`, [personId]));
+    } else {
+      await withClient((c) => c.query(`UPDATE person_profiles SET admin_pinned_at = NULL WHERE person_id = $1`, [personId]));
+    }
+    return res.json(okData({ person_id: personId, pinned: wantPinned, scope: "person", limit: CSSOS_MAX_ADMIN_PINNED_WORKS }));
+  } catch (err) {
+    console.warn("[person-pin] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PIN_FAILED" });
+  }
+});
+
 // CSSOS_PHASE2_WATCH_QUEUE 20260430 #208b — Jing
 // "Watch MV 面板先连播自己最新 2 首再播别人的." Returns a flat,
 // playback-ready cursor-paginated list of MVs:
@@ -28640,7 +31245,7 @@ app.get("/cssapi/v1/mv", async (req, res) => {
                     a1.url AS audio_track_1_url,
                     a2.url AS audio_track_2_url,
                     ss.url AS subtitle_srt_url,
-                    COALESCE((fm.meta->>'duration_secs')::float, NULL) AS duration_secs,
+                    COALESCE((fm.meta->>'duration_secs')::float, w.duration_secs::float, NULL) AS duration_secs,
                     fm.meta->>'sibling_work_id' AS sibling_work_id,
                     COALESCE((fm.meta->>'take_index')::int, NULL) AS take_index
                FROM user_works w
@@ -28714,7 +31319,7 @@ app.get("/cssapi/v1/mv", async (req, res) => {
                   a1.url AS audio_track_1_url,
                   a2.url AS audio_track_2_url,
                   ss.url AS subtitle_srt_url,
-                  COALESCE((fm.meta->>'duration_secs')::float, NULL) AS duration_secs,
+                  COALESCE((fm.meta->>'duration_secs')::float, w.duration_secs::float, NULL) AS duration_secs,
                   fm.meta->>'sibling_work_id' AS sibling_work_id,
                   COALESCE((fm.meta->>'take_index')::int, NULL) AS take_index
              FROM user_works w
@@ -29078,18 +31683,25 @@ async function generateCoverPoolForWork(
     "stark high-contrast monochrome with one accent color",
   ];
   const slides: string[] = [];
+  const orientByUrl: Record<string, string> = {};
   for (let i = 0; i < count; i++) {
+    // CSSOS_WAVE_631 — Jing 铁律: 桌面/横屏 2.39:1 · 手机/竖屏 device-fit, 禁方图/16:9/9:16(否则变形)。
+    // 旧版 size:"1024x1024" 方图 → 宽屏 cover 显示时大量裁切/比例不符。改为交替输出两种朝向,
+    // 让桌面与手机各有贴合的帧; 朝向写进 meta 供 /slideshow 按设备筛选。
+    const orient = (i % 2 === 0)
+      ? { size: CINEMA_LANDSCAPE.size, orientation: "landscape", framing: CINEMA_LANDSCAPE.framing }
+      : { size: PHONE_FULLSCREEN.size, orientation: "portrait", framing: PHONE_FULLSCREEN.framing };
     try {
       const img = await callImageGen({
-        prompt: `${basePrompt}. ${angles[i % angles.length]}. album cover art, no text.`,
-        size: "1024x1024",
+        prompt: `${basePrompt}. ${angles[i % angles.length]}. ${orient.framing}. album cover art, no text, no warped or distorted faces.`,
+        size: orient.size,
         output_format: "webp",
       });
       if (img?.ok) {
         const url = img.image_url
           ? await persistRemoteImageToStable(img.image_url) // CSSOS_WAVE_339 转存稳定
           : (img.image_b64 ? persistBase64Cover(img.image_b64, "system") : "");
-        if (url) slides.push(url);
+        if (url) { slides.push(url); orientByUrl[url] = orient.orientation; }
       }
     } catch (e) {
       console.warn("[cover-pool] gen %d failed: %s", i, e instanceof Error ? e.message : String(e));
@@ -29108,7 +31720,7 @@ async function generateCoverPoolForWork(
       await c.query(
         `INSERT INTO work_assets (work_id, asset_type, url, meta)
          VALUES ($1::uuid, 'slideshow_frame', $2, $3::jsonb)`,
-        [workId, slides[i], JSON.stringify({ source, idx: i })],
+        [workId, slides[i], JSON.stringify({ source, idx: i, orientation: orientByUrl[slides[i] ?? ""] || "landscape" })],
       );
     }
   });
@@ -29340,7 +31952,7 @@ app.post("/api/admin/engine/test", async (req, res) => {
       const videoReq: VideoGenRequest = {
         prompt: String(req.body?.prompt || "drifting clouds over mountains, cinematic, slow zoom"),
         duration_secs: 5,
-        aspect_ratio: "16:9",
+        aspect_ratio: "2.39:1", // WAVE_444 iron rule: never 16:9
         prefer_model: userPreferredModelMap(req as any, "video"),
       };
       if (provider) videoReq.prefer = [provider];
@@ -29914,9 +32526,9 @@ async function buildUserRecommendations(userId: string, limit: number): Promise<
         ),
       );
       for (const row of r.rows) {
-        const reason = row.name_zh
-          ? `因为你喜欢 ${row.name_zh}`
-          : `Because you like ${row.name_en || row.person_id}`;
+        // en-first: recommendation reason always in English; zh name only for Chinese-civilization persons.
+        const recName = row.civilization?.startsWith("中") ? (row.name_zh || row.name_en) : (row.name_en || row.name_zh);
+        const reason = `Because you like ${recName || row.person_id}`;
         add(row, reason, 100);
       }
     } catch { /* ignore */ }
@@ -31172,8 +33784,11 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
     // real reference imagery when available.
     let portraitUrl: string | null = person.portrait_url || null;
     if (refresh || !portraitUrl) {
+      // W360b — en_original first: zh.wiki lead image is sometimes a seal/kao/stamp
+      // rather than a real face portrait (e.g. Tokugawa Ieyasu). en.wiki is more
+      // reliably a photograph or painted portrait.
       const wikiPortrait =
-        wiki.zh_original || wiki.en_original || wiki.zh_thumb || wiki.en_thumb || null;
+        wiki.en_original || wiki.zh_original || wiki.en_thumb || wiki.zh_thumb || null;
       if (wikiPortrait) {
         portraitUrl = wikiPortrait;
         try {
@@ -31187,7 +33802,7 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
           const portraitPrompt = `Cinematic hero portrait of ${person.name_zh} (${person.name_en}), ` +
             `${person.civilization} civilization, ${person.era || ""}, ` +
             `${(person.visual_symbols || []).join(" ")}, painterly, dramatic lighting, no text, 16:9`;
-          const img = await callImageGen({ prompt: portraitPrompt, size: "1024x576" });
+          const img = await callImageGen({ prompt: portraitPrompt, size: CINEMA_LANDSCAPE.size }); // WAVE_444
           if (img.ok && img.image_url) {
             // CSSOS_WAVE_353 20260522 — Jing「孔子封面图没有一张能用」根因: AI 生成的
             // 头像存的是 replicate.delivery 临时链接, 过期即 404 → 人物卡常年灰底.
@@ -32104,19 +34719,25 @@ async function runHeadlessPipeline(
     }
   };
 
-  const name = String(person.name_zh || person.name_en || person.person_id);
+  // en-first: AI cover-prompt pipeline uses English; en name is always correct here.
+  const name = String(person.name_en || person.name_zh || person.person_id);
   const lore = person.lore && typeof person.lore === "object" ? person.lore : {};
   const bio = String(lore?.bio || "").split(/[。.!?！？]/)[0] || person.core_theme || "";
   const style = person.music_style_hint || "cinematic";
   const styleHint = person.tone || "";
+  // CSSOS_WAVE_618 — 注入文明视觉锚定(族裔/服饰/场景), 印度人物出印度长相而非泛亚洲脸。
+  const _civVis = civVisualHint(String((person as any).civilization || ""));
   const coverPrompt =
     `${name} · ${bio}` +
     (styleHint ? ` · ${styleHint}` : "") +
-    ` · cinematic music video poster, dramatic lighting, 16:9`;
+    (_civVis ? ` · ${_civVis}` : "") +
+    // CSSOS_WAVE_620 — Jing: 不要 16:9, 用 2.39:1 电影超宽; 杜绝丑陋/畸形脸, 按规格构图。
+    ` · cinematic music video poster, dramatic lighting, ${CINEMA_LANDSCAPE.framing}` +
+    ` · beautiful tasteful premium portrait, well-proportioned natural face, NO ugly or deformed or distorted faces, no extra limbs, no text, no watermark`;
 
   // 1) Cover
   const coverUrl = await stage("cover", async () => {
-    const img = await callImageGen({ prompt: coverPrompt, size: "1024x576" });
+    const img = await callImageGen({ prompt: coverPrompt, size: CINEMA_LANDSCAPE.size }); // WAVE_444
     if (!img.ok) throw new Error(img.error || "cover_failed");
     const url = img.image_url
       ? img.image_url
@@ -32206,7 +34827,7 @@ async function runHeadlessPipeline(
       const outAbs = path.join(MV_FALLBACK_ARTIFACTS_DIR, outName);
       const vfParts: string[] = [];
       if (srtPath) vfParts.push(`subtitles='${srtPath.replace(/'/g, "\\'")}'`);
-      vfParts.push(`scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2`);
+      vfParts.push(`scale=1920:804:force_original_aspect_ratio=decrease,pad=1920:804:(ow-iw)/2:(oh-ih)/2`);
       vfParts.push(`zoompan=z='min(zoom+0.0015,1.5)':d=${durationSec * 30}:s=1280x720`);
       const args = [
         "-y",
@@ -32316,7 +34937,8 @@ async function generatePersonSamplesBatch(
   for (const row of candidates.rows) {
     try {
       const result = await runHeadlessPipeline(row, { systemUserId });
-      const name = String(row.name_zh || row.name_en || row.person_id);
+      // en-first: AI prompt pipeline uses English; en name is always correct here.
+      const name = String(row.name_en || row.name_zh || row.person_id);
       const style = row.music_style_hint || "cinematic";
       const scenarioSeed = String(row.core_theme || name).slice(0, 500);
 
@@ -32957,8 +35579,9 @@ async function runDialoguePipeline(
     }
   };
 
-  const aName = String(a.name_zh || a.name_en || a.person_id);
-  const bName = String(b.name_zh || b.name_en || b.person_id);
+  // en-first: AI duet prompts are in English; en name is always correct here.
+  const aName = String(a.name_en || a.name_zh || a.person_id);
+  const bName = String(b.name_en || b.name_zh || b.person_id);
   const durationSec = 36;
 
   // 1) Cover — hstack portraits.
@@ -33035,7 +35658,7 @@ async function runDialoguePipeline(
       const outAbs = path.join(MV_FALLBACK_ARTIFACTS_DIR, outName);
       const vfParts: string[] = [];
       if (srtPath) vfParts.push(`subtitles='${srtPath.replace(/'/g, "\\'")}'`);
-      vfParts.push(`scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2`);
+      vfParts.push(`scale=1920:804:force_original_aspect_ratio=decrease,pad=1920:804:(ow-iw)/2:(oh-ih)/2`);
       const args = [
         "-y",
         "-loop", "1",
@@ -33134,9 +35757,10 @@ app.post("/api/person-mv/dialogue", express.json({ limit: "4kb" }), async (req, 
     }
 
     const workId = crypto.randomUUID();
-    const aName = String(a.name_zh || a.name_en || a.person_id);
-    const bName = String(b.name_zh || b.name_en || b.person_id);
-    const title = `${aName} ↔ ${bName} · 对话 MV`.slice(0, 200);
+    // en-first: work title is English by default; zh name only for Chinese-civilization persons.
+    const aName = String(a.civilization?.startsWith("中") ? (a.name_zh || a.name_en) : (a.name_en || a.name_zh) || a.person_id);
+    const bName = String(b.civilization?.startsWith("中") ? (b.name_zh || b.name_en) : (b.name_en || b.name_zh) || b.person_id);
+    const title = `${aName} ↔ ${bName} · Dialogue MV`.slice(0, 200);
     const style = [a.music_style_hint, b.music_style_hint].filter(Boolean).join(" / ") || "cinematic";
 
     let mvId = "";
@@ -33149,8 +35773,9 @@ app.post("/api/person-mv/dialogue", express.json({ limit: "4kb" }), async (req, 
             ? JSON.stringify({ duration_secs: Math.round(result.duration_secs) })
             : "{}";
           await client.query(
-            `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image, duration_secs)
-             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, $6)`,
+            `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image, duration_secs,
+                aspect_ratio, orientation)
+             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, $6, '2.39:1', 'ultra-wide')`,
             [workId, String(user.id), title, style, result.cover_url, result.duration_secs ? Math.round(result.duration_secs) : null],
           );
           if (result.mv_url) {
@@ -33332,7 +35957,7 @@ async function composeGroupCover(
   }
   const inputsRef = valid.map((_, i) => `[v${i}]`).join("");
   filters.push(`${inputsRef}xstack=inputs=${n}:layout=${layoutCells.join("|")}:fill=black[xs]`);
-  filters.push(`[xs]pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black[out]`);
+  filters.push(`[xs]pad=1920:804:(ow-iw)/2:(oh-ih)/2:color=black[out]`); // WAVE_444
 
   const outName = `group-cover-${Date.now()}-${crypto.randomBytes(3).toString("hex")}.png`;
   const outAbs = path.join(outDir, outName);
@@ -33454,7 +36079,7 @@ async function runHeadlessGroupPipeline(
       const outAbs = path.join(MV_FALLBACK_ARTIFACTS_DIR, outName);
       const vfParts: string[] = [];
       if (srtPath) vfParts.push(`subtitles='${srtPath.replace(/'/g, "\\'")}'`);
-      vfParts.push(`scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2`);
+      vfParts.push(`scale=1920:804:force_original_aspect_ratio=decrease,pad=1920:804:(ow-iw)/2:(oh-ih)/2`);
       const args = [
         "-y",
         "-loop", "1",
@@ -33568,8 +36193,9 @@ app.post("/api/admin/person-mv/groups/:group_id/generate-collective-mv", express
         await client.query("BEGIN");
         try {
           await client.query(
-            `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image)
-             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5)`,
+            `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image,
+                aspect_ratio, orientation)
+             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, '2.39:1', 'ultra-wide')`,
             [workId, systemUserId, title, style, result.cover_url],
           );
           if (result.mv_url) {
@@ -34528,7 +37154,7 @@ app.post("/api/admin/pipeline/dry-run", async (req, res) => {
     const vidReq: VideoGenRequest = {
       prompt,
       duration_secs: 5,
-      aspect_ratio: "16:9",
+      aspect_ratio: "2.39:1", // WAVE_444 iron rule: never 16:9
       prefer: ["kling"],
     };
     if (img.ok && img.image_url) vidReq.image_url = img.image_url;
@@ -34675,6 +37301,8 @@ app.get("/api/works/public/:id", async (req, res) => {
            w.cover_image,
            w.preview_image_url,
            w.preview_video_url,
+           w.language,
+           w.civilization,
            u.display_name AS owner_name,
            u.email AS owner_email,
            u.avatar_url AS owner_avatar_url,
@@ -34688,12 +37316,16 @@ app.get("/api/works/public/:id", async (req, res) => {
            audio_track_1_asset.url AS audio_track_1_url,
            audio_track_2_asset.url AS audio_track_2_url,
            whisper_words_asset.meta AS whisper_words_meta,
-           COALESCE((final_mv_asset.meta->>'duration_secs')::float, NULL) AS duration_secs,
-           -- CSSOS_WAVE_220A_COVER_POOL 20260519 — the cover pool lives in
-           -- multiple slideshow_frame rows (dedicated non-unique index).
-           (SELECT array_agg(sf.url ORDER BY (sf.meta->>'idx')::int NULLS LAST, sf.created_at)
-              FROM work_assets sf
-             WHERE sf.work_id = w.id AND sf.asset_type = 'slideshow_frame') AS cover_slides
+           -- W360 — fall back to user_works.duration_secs (written by W166/W367)
+           -- when final_mv_asset is absent (works without a packaged final_mv).
+           COALESCE((final_mv_asset.meta->>'duration_secs')::float, w.duration_secs::float, NULL) AS duration_secs,
+           -- W357 — random 15 from pool (C(60,15)=6500亿种组合; $0 per query).
+           -- Every API call returns a different subset so each user/reload
+           -- sees a fresh sequence of frames without generating anything new.
+           (SELECT array_agg(sf.url)
+              FROM (SELECT sf2.url FROM work_assets sf2
+                     WHERE sf2.work_id = w.id AND sf2.asset_type = 'slideshow_frame'
+                     ORDER BY random() LIMIT 15) sf) AS cover_slides
          FROM user_works w
          JOIN users u ON u.id = w.user_id
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -35040,11 +37672,11 @@ app.get("/api/works/market", async (req, res) => {
            a1_asset.url AS audio_track_1_url,
            a2_asset.url AS audio_track_2_url,
            ss_asset.url AS subtitle_srt_url,
-           -- CSSOS_WAVE_220A_COVER_POOL 20260519 — cover pool for random
-           -- card thumbnails (frontend picks one at render time).
-           (SELECT array_agg(sf.url ORDER BY (sf.meta->>'idx')::int NULLS LAST, sf.created_at)
-              FROM work_assets sf
-             WHERE sf.work_id = w.id AND sf.asset_type = 'slideshow_frame') AS cover_slides,
+           -- W357 — random 15 from pool; same logic as market query above.
+           (SELECT array_agg(sf.url)
+              FROM (SELECT sf2.url FROM work_assets sf2
+                     WHERE sf2.work_id = w.id AND sf2.asset_type = 'slideshow_frame'
+                     ORDER BY random() LIMIT 15) sf) AS cover_slides,
            -- CSSOS_TIER_C_MULTILINGUAL C6 — which languages this work has
            -- as READY voice tracks (for card badges + language filter UI).
            (SELECT array_agg(wlt.lang ORDER BY wlt.track_order)
@@ -35074,19 +37706,57 @@ app.get("/api/works/market", async (req, res) => {
            ON ss_asset.work_id = w.id
           AND ss_asset.asset_type = 'subtitle_srt'
          WHERE COALESCE(mp.visibility, 'public') <> 'private'
-           AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, $2) > 0
+           -- CSSOS_WAVE_545 20260531 — Jing「作品中心有、能搜到, 却不在『为你创作』」根因:
+           -- For-You 只认 status='published', 但 Rust 管线提交资产后把作品设为 'ready'
+           -- (全平台 887 个 ready vs 仅 62 个 published) → 几乎所有用户成品都被挡在外面。
+           -- 'ready' = 资产已提交 = 可播放, 正该出现在 For-You。'draft' 仍排除(未完成)。
+           AND w.status IN ('published', 'ready')
            AND w.parent_work_id IS NULL
-           AND ($3 = '' OR EXISTS (
+           -- CSSOS_IRON_RULE 20260525: For You feed = ALL public published
+           -- works, free or paid. Admin works are free (price=0) and always
+           -- visible. User works require price > 0 to appear (must be listed).
+           AND (
+             -- Admin / staff works: always show, always free
+             (u.role = 'admin' OR u.email LIKE '%@cssstudio.app' OR u.email = 'jingdudc@gmail.com')
+             OR
+             -- User works: must be actively priced
+             COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, 0) > 0
+           )
+           AND ($2 = '' OR EXISTS (
                  SELECT 1 FROM work_language_tracks wf
-                  WHERE wf.work_id = w.id AND wf.lang = $3 AND wf.status = 'ready'))
+                  WHERE wf.work_id = w.id AND wf.lang = $2 AND wf.status = 'ready'))
            -- CSSOS_WAVE_285 — 文本搜索: q 为空则不过滤
-           AND ($4 = '' OR w.title ILIKE '%' || $4 || '%'
-                        OR u.display_name ILIKE '%' || $4 || '%'
-                        OR COALESCE(w.style, '') ILIKE '%' || $4 || '%'
-                        OR COALESCE(w.lyrics_preview, '') ILIKE '%' || $4 || '%')
-         ORDER BY w.updated_at DESC, w.created_at DESC
-         LIMIT $1 OFFSET $5`,
-        [limit, defaultListenPriceCents(), langFilter, searchQ, offset],
+           AND ($3 = '' OR w.title ILIKE '%' || $3 || '%'
+                        OR u.display_name ILIKE '%' || $3 || '%'
+                        OR COALESCE(w.style, '') ILIKE '%' || $3 || '%'
+                        OR COALESCE(w.lyrics_preview, '') ILIKE '%' || $3 || '%')
+         -- CSSOS_WAVE_425 20260525 — Jing「死媒体降权: 让活媒体作品优先推」: works
+         -- whose primary media (final_mv / audio_track_1) lives on our own domain
+         -- (cssstudio.app local or cdn.cssstudio.app R2) are guaranteed to play;
+         -- works still pointing at expired third-party temp links (replicate.delivery
+         -- / *.fal.media / aiquickdraw / suno tempfiles) likely 404 → black/placeholder.
+         -- Rank live-media works FIRST (0), dead/unknown LAST (1), THEN by recency.
+         -- De-rank only — nothing is hidden, so historical works still reachable.
+         -- CSSOS_WAVE_588 — Jing「用户未搜索时默认按【最新】从新到旧, 别老把置顶的德川家康顶在最前」:
+         -- 主序 = 可播媒体优先(护栏: 死链作品别顶在前) → 然后 created_at DESC(最新优先)。
+         -- 置顶(admin_pinned_at)降为【次要 tiebreaker】, 不再压过新作品。
+         -- CSSOS_WAVE_601 20260603 — Jing「新作品出不来, 总被有媒体的老作品压着」根因:
+         -- 媒体优先(W425/W588 防死链)把【刚创作、还没渲染出成品媒体】的新作品也判成"非活媒体(1)"→
+         -- 沉到所有老成品之后。但新作品不是死链, 是正在生成 → 给它【3 天宽限】, 与活媒体并列顶层(0),
+         -- 再按 created_at DESC → 新作品正常冒头。真正的死链/老的无媒体作品仍降权(1)。
+         -- CSSOS_WAVE_621 20260604 — Jing「保留旗舰爆款 Jerusalem 置顶在『为你创作』最前(唯一一首)」:
+         -- 把 admin 置顶升回【主序第一档】—— 现在置顶是【刻意、稀少】的(清空后仅 Jerusalem 1 首),
+         -- 与 W588 当初"一堆陈旧自动置顶霸屏"的情形不同, 故置顶优先是对的。置顶 → 活媒体/新作 → 最新。
+         ORDER BY
+           (CASE WHEN w.admin_pinned_at IS NOT NULL THEN 0 ELSE 1 END) ASC,
+           w.admin_pinned_at DESC NULLS LAST,
+           (CASE WHEN COALESCE(fm_asset.url, a1_asset.url, a2_asset.url, '') LIKE '%cssstudio.app%'
+                   OR (COALESCE(fm_asset.url, a1_asset.url, a2_asset.url, '') = ''
+                       AND w.created_at > now() - interval '3 days')
+                 THEN 0 ELSE 1 END) ASC,
+           w.created_at DESC, w.updated_at DESC
+         LIMIT $1 OFFSET $4`,
+        [limit, langFilter, searchQ, offset],
       ),
     );
     const rootIds = q.rows.map((row) => row.id);
@@ -35206,36 +37876,65 @@ app.get("/api/works/market", async (req, res) => {
       type CountRow = {
         users_total: string | number;
         works_total: string | number;
-        published_total: string | number;
+        visible_total: string | number;   // all public works incl. free admin
+        for_sale_total: string | number;  // user works with price > 0 only
       };
       const counts = await withClient((client) =>
         client.query<CountRow>(
           `SELECT
              (SELECT COUNT(*) FROM users) AS users_total,
              (SELECT COUNT(*) FROM user_works) AS works_total,
+             -- CSSOS_IRON_RULE 20260525: visible = all public published works
+             -- (admin free + user priced). This drives the For You feed.
              (
                SELECT COUNT(*)
                FROM user_works w
+               JOIN users u ON u.id = w.user_id
                LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
                LEFT JOIN work_access_products listen_product
                  ON listen_product.work_id = w.id
                 AND listen_product.product_kind = 'listen'
                 AND listen_product.active = true
                WHERE COALESCE(mp.visibility, 'public') <> 'private'
-                 AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, $1) > 0
+                 -- CSSOS_WAVE_545 20260531 — Jing「作品中心有、能搜到, 却不在『为你创作』」根因:
+           -- For-You 只认 status='published', 但 Rust 管线提交资产后把作品设为 'ready'
+           -- (全平台 887 个 ready vs 仅 62 个 published) → 几乎所有用户成品都被挡在外面。
+           -- 'ready' = 资产已提交 = 可播放, 正该出现在 For-You。'draft' 仍排除(未完成)。
+           AND w.status IN ('published', 'ready')
                  AND w.parent_work_id IS NULL
-             ) AS published_total`,
-          [defaultListenPriceCents()],
+                 AND (
+                   (u.role = 'admin' OR u.email LIKE '%@cssstudio.app' OR u.email = 'jingdudc@gmail.com')
+                   OR COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, 0) > 0
+                 )
+             ) AS visible_total,
+             -- for_sale = only non-admin works with a real price
+             (
+               SELECT COUNT(*)
+               FROM user_works w
+               JOIN users u ON u.id = w.user_id
+               LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+               LEFT JOIN work_access_products listen_product
+                 ON listen_product.work_id = w.id
+                AND listen_product.product_kind = 'listen'
+                AND listen_product.active = true
+               WHERE COALESCE(mp.visibility, 'public') <> 'private'
+                 AND COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, 0) > 0
+                 AND w.parent_work_id IS NULL
+                 AND NOT (u.role = 'admin' OR u.email LIKE '%@cssstudio.app' OR u.email = 'jingdudc@gmail.com')
+             ) AS for_sale_total`,
+          [],
         ),
       );
       const row = counts.rows[0];
       const usersTotal = Number(row?.users_total || 0);
       const worksTotal = Number(row?.works_total || 0);
-      const publishedTotal = Number(row?.published_total || 0);
+      const publishedTotal = Number(row?.visible_total || 0);
+      const forSaleTotal = Number(row?.for_sale_total || 0);
       marketState = {
         users_total: usersTotal,
         works_total: worksTotal,
         published_total: publishedTotal,
+        for_sale_total: forSaleTotal,
         reason:
           usersTotal <= 0 && worksTotal <= 0
             ? "empty_database"
@@ -35286,7 +37985,8 @@ app.get("/api/works/market", async (req, res) => {
         ...(debugTree ? { debug_tree: debugPayload } : {}),
       }),
     );
-  } catch {
+  } catch (err) {
+    console.error("[market] WORKS_MARKET_FAILED:", (err as Error)?.message, (err as Error)?.stack?.slice(0, 500));
     return res.status(500).json({ ok: false, code: "WORKS_MARKET_FAILED" });
   }
 });
@@ -35417,6 +38117,77 @@ app.post("/api/works", async (req, res) => {
       Boolean(requestedRootWorkId || parentWorkId) &&
       (inheritedRootType === "opera" || inheritedRootType === "triptych");
     const workId = crypto.randomUUID();
+    // CSSOS_WAVE_431 20260525 — Jing: "所有关于这首MV的信息，全部，完整，准确入库"
+    // All advanced-settings fields now flow frontend → POST /api/works → user_works.
+    const workLanguage       = String(req.body?.language || "").trim().toLowerCase() || null;
+    const workCivilization   = String(req.body?.civilization || "").trim() || null;
+    const workTempoBpm       = Number(req.body?.tempo_bpm) || null;
+    const workMusicalKey     = String(req.body?.musical_key || "").trim() || null;
+    const workVoiceGender    = String(req.body?.voice_gender || "").trim() || null;
+    const workVocalStyle     = String(req.body?.vocal_style || "").trim() || null;
+    const workInstrumentation = String(req.body?.instrumentation || "").trim() || null;
+    const workEnsembleStyle  = String(req.body?.ensemble_style || "").trim() || null;
+    const workArrangementDensity = (() => {
+      const v = Number(req.body?.arrangement_density);
+      return Number.isFinite(v) && v > 0 ? Math.min(1, Math.max(0.2, v)) : null;
+    })();
+    const workDynamicsCurve  = String(req.body?.dynamics_curve || "").trim() || null;
+    const workSectionForm    = String(req.body?.section_form || "").trim() || null;
+    const workArticulationBias = String(req.body?.articulation_bias || "").trim() || null;
+    const workVoicingRegister = String(req.body?.voicing_register || "").trim() || null;
+    const workPercussionActivity = (() => {
+      const v = Number(req.body?.percussion_activity);
+      return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+    })();
+    const workExpressionCcBias = String(req.body?.expression_cc_bias || "").trim() || null;
+    const workHumanization   = (() => {
+      const v = Number(req.body?.humanization);
+      return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+    })();
+    const workInspirationNotes = String(req.body?.inspiration_notes || "").slice(0, 1000) || null;
+    const workLicensedStylePack = String(req.body?.licensed_style_pack || "").trim() || null;
+    const workExternalAudioAdapter = String(req.body?.external_audio_adapter || "").trim() || null;
+    const workMakeInstrumental = Boolean(req.body?.make_instrumental);
+    const workLyricsSource   = String(req.body?.lyrics_source || "").trim() || null;
+    const workVideoOutline   = String(req.body?.video_outline || "").trim() || null;
+    const workSectionPrompts = String(req.body?.section_prompts || "").trim() || null;
+    const workBgColors       = (() => {
+      const c = req.body?.bg_colors;
+      if (!Array.isArray(c) || !c.length) return null;
+      return JSON.stringify(c.slice(0, 4).map((v: unknown) => String(v || "").trim()).filter(Boolean));
+    })();
+    // CSSOS_WAVE_544 20260531 — Jing「画幅信息必须入库, 否则回放退回 16:9 / App 拉伸」:
+    // 持久化 MV 管线的宽高比 / 分辨率 / 朝向 + mood/ambience。默认电影超宽 2.39:1。
+    const workAspectRatio = String(req.body?.aspect_ratio || req.body?.ratio || "2.39:1").trim() || null;
+    const workFrameWidth = (() => {
+      const n = Number(req.body?.frame_width || req.body?.width);
+      return Number.isFinite(n) && n > 0 ? Math.min(8192, Math.round(n)) : null;
+    })();
+    const workFrameHeight = (() => {
+      const n = Number(req.body?.frame_height || req.body?.height);
+      return Number.isFinite(n) && n > 0 ? Math.min(8192, Math.round(n)) : null;
+    })();
+    const workOrientation = (() => {
+      const raw = String(req.body?.orientation || "").trim().toLowerCase();
+      if (["ultra-wide", "landscape", "square", "portrait"].includes(raw)) return raw;
+      // 没给朝向时从宽高比/分辨率推断
+      if (workFrameWidth && workFrameHeight) {
+        const r = workFrameWidth / workFrameHeight;
+        if (r >= 2.2) return "ultra-wide";
+        if (r > 1.1) return "landscape";
+        if (r >= 0.9) return "square";
+        return "portrait";
+      }
+      if (workAspectRatio) {
+        if (/2\.[0-9]+:1|2\.39|anamorphic|ultra/i.test(workAspectRatio)) return "ultra-wide";
+        if (/9:16|portrait|vertical/i.test(workAspectRatio)) return "portrait";
+        if (/1:1|square/i.test(workAspectRatio)) return "square";
+        return "landscape";
+      }
+      return "ultra-wide"; // 桌面默认电影超宽
+    })();
+    const workMood = String(req.body?.mood || "").trim().slice(0, 200) || null;
+    const workAmbience = String(req.body?.ambience || "").trim().slice(0, 200) || null;
     // CSSOS_WAVE_166 20260515 — Jing: accept duration_secs from the
     // pipeline payload so the column is populated at create time and
     // card SQL doesn't have to dig into asset meta. Clamps to a sane
@@ -35439,33 +38210,87 @@ app.post("/api/works", async (req, res) => {
       try {
         await client.query(
           `INSERT INTO user_works (
-             id, user_id, title, style, work_type, lyrics_preview, status, parent_work_id, root_work_id, structure_role, sequence_index, structure_plan,
-             source_run_id, compute_units_estimate, compute_cost_cents_estimate, suggested_listen_price_cents, suggested_buyout_price_cents,
-             cover_image, preview_image_url, preview_video_url, cost_breakdown, duration_secs
+             id, user_id, title, style, work_type, lyrics_preview, status,
+             parent_work_id, root_work_id, structure_role, sequence_index, structure_plan,
+             source_run_id, compute_units_estimate, compute_cost_cents_estimate,
+             suggested_listen_price_cents, suggested_buyout_price_cents,
+             cover_image, preview_image_url, preview_video_url, cost_breakdown,
+             duration_secs, language, civilization,
+             tempo_bpm, musical_key, voice_gender, vocal_style, instrumentation,
+             ensemble_style, arrangement_density, dynamics_curve, section_form,
+             articulation_bias, voicing_register, percussion_activity,
+             expression_cc_bias, humanization, inspiration_notes,
+             licensed_style_pack, external_audio_adapter, make_instrumental,
+             lyrics_source, video_outline, section_prompts, bg_colors,
+             aspect_ratio, frame_width, frame_height, orientation, mood, ambience
            )
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, 'draft', $7::uuid, $8::uuid, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21)`,
+           VALUES (
+             $1::uuid, $2, $3, $4, $5, $6, 'draft',
+             $7::uuid, $8::uuid, $9, $10, $11::jsonb,
+             $12, $13, $14,
+             $15, $16,
+             $17, $18, $19, $20::jsonb,
+             $21, $22, $23,
+             $24, $25, $26, $27, $28,
+             $29, $30, $31, $32,
+             $33, $34, $35,
+             $36, $37, $38,
+             $39, $40, $41,
+             $42, $43, $44, $45::jsonb,
+             $46, $47, $48, $49, $50, $51
+           )`,
           [
-            workId,
-            user.id,
-            title,
-            style,
-            workType,
-            lyricsPreview,
-            parentWorkId,
-            requestedRootWorkId,
-            structureRole,
-            sequenceIndex,
-            structurePlan ? JSON.stringify(structurePlan) : null,
-            sourceRunId,
-            computeUnitsEstimate,
-            computeCostCentsEstimate,
-            suggestedListenPriceCents,
-            suggestedBuyoutPriceCents,
-            persistedAssets.coverImage,
-            persistedAssets.previewImageUrl,
-            persistedAssets.storedPreviewVideoRef,
-            JSON.stringify(costBreakdownPayload),
-            bodyDurationSecs,
+            workId,            // $1
+            user.id,           // $2
+            title,             // $3
+            style,             // $4
+            workType,          // $5
+            lyricsPreview,     // $6
+            parentWorkId,      // $7
+            requestedRootWorkId, // $8
+            structureRole,     // $9
+            sequenceIndex,     // $10
+            structurePlan ? JSON.stringify(structurePlan) : null, // $11
+            sourceRunId,       // $12
+            computeUnitsEstimate,     // $13
+            computeCostCentsEstimate, // $14
+            suggestedListenPriceCents, // $15
+            suggestedBuyoutPriceCents, // $16
+            persistedAssets.coverImage,          // $17
+            persistedAssets.previewImageUrl,     // $18
+            persistedAssets.storedPreviewVideoRef, // $19
+            JSON.stringify(costBreakdownPayload), // $20
+            bodyDurationSecs,  // $21
+            workLanguage,      // $22
+            workCivilization,  // $23
+            workTempoBpm,      // $24
+            workMusicalKey,    // $25
+            workVoiceGender,   // $26
+            workVocalStyle,    // $27
+            workInstrumentation, // $28
+            workEnsembleStyle, // $29
+            workArrangementDensity, // $30
+            workDynamicsCurve, // $31
+            workSectionForm,   // $32
+            workArticulationBias, // $33
+            workVoicingRegister, // $34
+            workPercussionActivity, // $35
+            workExpressionCcBias, // $36
+            workHumanization,  // $37
+            workInspirationNotes, // $38
+            workLicensedStylePack, // $39
+            workExternalAudioAdapter, // $40
+            workMakeInstrumental, // $41
+            workLyricsSource,  // $42
+            workVideoOutline,  // $43
+            workSectionPrompts, // $44
+            workBgColors,      // $45
+            workAspectRatio,   // $46
+            workFrameWidth,    // $47
+            workFrameHeight,   // $48
+            workOrientation,   // $49
+            workMood,          // $50
+            workAmbience,      // $51
           ],
         );
         const resolvedRootWorkId = requestedRootWorkId || workId;
@@ -39359,7 +42184,14 @@ app.post("/api/stripe/payment-intent/create", async (req, res) => {
     const intentParams: Stripe.PaymentIntentCreateParams = {
       amount: grossAmountCents,
       currency: product.currency.toLowerCase(),
-      automatic_payment_methods: { enabled: true },
+      // CSSOS_WAVE_464 20260526 — Jing「Stripe 之前能收款, 加了中国支付方式后才坏」根因:
+      // automatic_payment_methods:{enabled:true} 会自动纳入【账户上启用的所有支付方式】。
+      // 配置中国支付时在 Stripe 后台启用了 Alipay/WeChat Pay 等【跳转类(redirect)】方式,
+      // 于是 create 把它们也带进来 → 因币种/跳转配置约束而创建失败。中国支付本就走独立的
+      // NIHAOPAY 通道, 不该混进 Stripe。这里 allow_redirects:"never" → 只保留【非跳转类】
+      // (银行卡 + Google/Apple Pay, 即弹窗"INTERNATIONAL"那两项), 排除跳转类中国方式,
+      // 恢复此前可正常收款的行为。
+      automatic_payment_methods: { enabled: true, allow_redirects: "never" },
       description: `${product.title} (${orderKind})`,
       metadata: {
         order_id: orderId,
@@ -39389,8 +42221,17 @@ app.post("/api/stripe/payment-intent/create", async (req, res) => {
       currency: product.currency,
     }));
   } catch (err) {
+    // CSSOS_WAVE_464 20260526 — Jing「上次说修复了, 打赏仍 STRIPE_PAYMENT_INTENT_CREATE_FAILED」:
+    // 之前 catch 不打日志, 真实 Stripe 原因看不见。这里把完整错误打到服务日志, 并把 Stripe
+    // 的 type/code/decline 透传给前端, 让"为什么失败"一眼可见(便于定位是账户/金额/支付方式)。
+    const se = err as any;
+    console.error("[tip-intent] stripe paymentIntents.create failed:",
+      se?.type || "", se?.code || "", se?.statusCode || "", se?.message || String(err), se?.raw?.message || "");
     return res.status(500).json({
-      ok: false, code: "STRIPE_PAYMENT_INTENT_CREATE_FAILED", message: String(err),
+      ok: false, code: "STRIPE_PAYMENT_INTENT_CREATE_FAILED",
+      stripe_type: se?.type || null,
+      stripe_code: se?.code || se?.raw?.code || null,
+      message: se?.message || se?.raw?.message || String(err),
     });
   }
 });
@@ -42771,7 +45612,8 @@ async function runCommentSummary(mvId: string): Promise<{ ok: boolean; summary?:
   const count = bodies.length;
   if (count < 10) return { ok: false, reason: "TOO_FEW", count };
   if (count === ctx.comment_summary_count) return { ok: false, reason: "UNCHANGED", count };
-  const personName = ctx.name_zh || ctx.name_en || "this person";
+  // en-first: AI comment-summary prompt is in English; en name is always correct here.
+  const personName = ctx.name_en || ctx.name_zh || "this person";
   const joined = bodies
     .map((b, i) => `${i + 1}. ${b.slice(0, 200)}`)
     .join("\n")
@@ -43169,7 +46011,8 @@ app.get("/codex/:person_id", async (req, res) => {
     );
     if (!r.rowCount) return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Person not found.</p>");
     const p = r.rows[0]!;
-    const name = p.name_zh || p.name_en || "Person";
+    // en-first: OG share page is global; en name shown to all visitors.
+    const name = p.name_en || p.name_zh || "Person";
     const lore = (p.lore && typeof p.lore === "object") ? p.lore : {};
     const bio = String((lore as any)?.bio || "").split(/[。.!?！？]/)[0] || p.core_theme || "";
     const portrait = absolutizeCover(p.portrait_url) || "";
@@ -43324,7 +46167,11 @@ app.get("/api/person-mv/search", async (req, res) => {
                   COALESCE(pp.core_theme, pp.civilization, '')::text AS snippet
              FROM person_profiles pp
             WHERE ${ppMatch}
-            ORDER BY score DESC LIMIT $2`,
+            -- CSSOS_WAVE_482 — 管理员全平台置顶人物(admin_pinned_at)在命中关键词里排最前:
+            -- 例如置顶「孔子」, 搜索「中华文明」时孔子先出。
+            ORDER BY (CASE WHEN pp.admin_pinned_at IS NOT NULL THEN 0 ELSE 1 END) ASC,
+                     pp.admin_pinned_at DESC NULLS LAST,
+                     score DESC LIMIT $2`,
           [queryArg, limit],
         ),
       );
@@ -46156,6 +49003,33 @@ async function start() {
       await runMigrations();
       await ensureAuthIdentityTable();
       await ensureOAuthTokensTable();
+      // CSSOS_WAVE_413 20260524 — Jing「断点续传」: recover language tracks that
+      // were stranded mid-render by a previous restart, then keep sweeping so a
+      // future crash self-heals. Best-effort; never blocks boot.
+      void resumeStuckLanguageTracks();
+      // W414 — one-shot rehost of legacy temp-URL language-track audio.
+      void backfillTempLanguageTrackAudio();
+      // W458 — one-shot rehost of expiring work covers (replicate/fal) → stable
+      // storage so marketplace covers never 404. Re-sweep hourly to catch any
+      // new work whose cover slipped through with a temp URL.
+      void backfillTempWorkCovers();
+      const runCoverRehostLoop = async () => {
+        try { await backfillTempWorkCovers(); } catch (_e) { /* logged inside */ }
+        finally { setTimeout(runCoverRehostLoop, Number(process.env.MV_COVER_REHOST_SWEEP_MS || 3600000)); }
+      };
+      setTimeout(runCoverRehostLoop, Number(process.env.MV_COVER_REHOST_SWEEP_MS || 3600000));
+      // CSSOS_WAVE_612 — 后台生成队列: 周期补全大型多部作品(歌剧/连续剧/电影)的"[seed]"叶子歌词。
+      // create_work 秒返回结构, 1500 首在后台慢慢补齐, 永不卡请求。每 ~90s 一小批, 无种子则秒退。
+      const runSeedLyricsLoop = async () => {
+        try { await backfillSeedLyrics(); } catch (_e) { /* logged inside */ }
+        finally { setTimeout(runSeedLyricsLoop, Number(process.env.MV_SEED_LYRICS_SWEEP_MS || 90000)); }
+      };
+      setTimeout(runSeedLyricsLoop, Number(process.env.MV_SEED_LYRICS_SWEEP_MS || 90000));
+      const runLangResumeLoop = async () => {
+        try { await resumeStuckLanguageTracks(); } catch (_e) { /* logged inside */ }
+        finally { setTimeout(runLangResumeLoop, Number(process.env.MV_LANG_RESUME_SWEEP_MS || 120000)); }
+      };
+      setTimeout(runLangResumeLoop, Number(process.env.MV_LANG_RESUME_SWEEP_MS || 120000));
       await processMatureSellerPayouts();
       const runPayoutSweepLoop = async () => {
         try {
@@ -46854,6 +49728,14 @@ async function start() {
     try { startHandoffGcLoop(); } catch (err) {
       console.warn("[handoff-gc] failed to start loop:", err);
     }
+    // CSSOS_WAVE_545 20260531 — Jing「作品中心有、却不在『为你创作』」自愈:
+    // Rust 管线提交资产后把作品设为 'ready', 但给市场档案写 visibility='private'
+    // (Rust 服务不在本仓, 改不了)。平台策略 = 完成的作品默认公开。这里在 Node 侧
+    // 定期把 ready/published 作品的 private 档案翻成 public, 并为缺档案的补建 public 档案,
+    // 让任何入口(含 Rust)生成的成品都能进 For-You。开机跑一次 + 每 10 分钟自愈。
+    try { startForYouVisibilityReconcileLoop(); } catch (err) {
+      console.warn("[foryou-reconcile] failed to start loop:", err);
+    }
     // Tier-fallback sanity log — surfaces misconfigured order at boot.
     const fmt = (ps: string[]) => ps.map((p) => `${p}(${providerTier(p)})`).join(" → ");
     console.log(`[engines] image order: ${fmt(imageProviderOrder())}`);
@@ -46862,6 +49744,58 @@ async function start() {
     console.log(`[engines] llm   order: ${fmt(llmProviderOrder() as string[])}`);
     console.log(`[engines] tts   order: ${fmt(ttsProviderOrder())}`);
   });
+}
+
+/* CSSOS_WAVE_545 20260531 — Jing「完成的作品默认公开, 自愈进 For-You」。
+ * Rust 管线提交后作品=ready 但档案=private → For-You 看不到。定期把 ready/published
+ * 的 private 档案翻 public + 为缺档案者补建 public 档案。幂等、轻量(走 status+visibility 过滤)。 */
+let __foryouReconcileRunning = false;
+async function reconcileForYouVisibilityOnce(): Promise<void> {
+  if (__foryouReconcileRunning) return;
+  __foryouReconcileRunning = true;
+  try {
+    await withClient(async (client) => {
+      const flip = await client.query(
+        `UPDATE work_market_profiles mp
+            SET visibility='public', updated_at=now()
+           FROM user_works w
+          WHERE mp.work_id = w.id
+            AND mp.visibility='private'
+            AND w.status IN ('ready','published')`,
+      );
+      const seed = await client.query(
+        `INSERT INTO work_market_profiles
+           (work_id, owner_user_id, visibility, current_listen_price_cents,
+            current_buyout_price_cents, buyout_enabled, tips_enabled, rights_scope, created_at, updated_at)
+         SELECT w.id, w.user_id, 'public',
+                -- CSSOS_WAVE_549: 聆听价统一 $0.99; 买断价按系统建议分类价; admin 作品免费(0)。
+                CASE WHEN (u.role='admin' OR u.email LIKE '%@cssstudio.app' OR u.email='jingdudc@gmail.com') THEN 0 ELSE 99 END,
+                CASE WHEN (u.role='admin' OR u.email LIKE '%@cssstudio.app' OR u.email='jingdudc@gmail.com') THEN 0
+                     WHEN w.work_type='opera' THEN 1999 WHEN w.work_type='triptych' THEN 999 ELSE 599 END,
+                false, true, 'personal_use', now(), now()
+           FROM user_works w
+           JOIN users u ON u.id = w.user_id
+           LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+          WHERE mp.work_id IS NULL
+            AND w.status IN ('ready','published')
+         ON CONFLICT (work_id) DO NOTHING`,
+      );
+      const flipped = flip.rowCount || 0;
+      const seeded = seed.rowCount || 0;
+      if (flipped || seeded) {
+        console.log(`[foryou-reconcile] visibility public: flipped=${flipped} seeded=${seeded}`);
+      }
+    });
+  } catch (err) {
+    console.warn("[foryou-reconcile] pass failed (non-fatal):", (err as Error)?.message || err);
+  } finally {
+    __foryouReconcileRunning = false;
+  }
+}
+function startForYouVisibilityReconcileLoop(): void {
+  // 开机延迟 20s 跑一次(让 DB/连接就绪), 之后每 2 分钟自愈 —— 让刚输出的成品快速上架。
+  setTimeout(() => { void reconcileForYouVisibilityOnce(); }, 20_000);
+  setInterval(() => { void reconcileForYouVisibilityOnce(); }, 2 * 60 * 1000);
 }
 
 /* CSSOS_PERSON_MV_WAVE35 20260508 — Jing
@@ -47517,6 +50451,26 @@ app.post("/api/works/:id/upscale", express.json({ limit: "2kb" }), async (req, r
     const sourceUrl = srcRes.rows[0]?.url || "";
     if (!sourceUrl) return res.status(409).json({ ok: false, code: "NO_SOURCE_VIDEO" });
 
+    // CSSOS_WAVE_451 20260527 — Jing: 防同分辨率重复任务 (双标签页/多设备同时触发).
+    // 先查 pending/processing 任务; 有则返回 409 + 已有 job_id 供前端轮询.
+    const existingJob = await withClient((c) =>
+      c.query<{ job_id: string }>(
+        `SELECT job_id::text FROM upscale_jobs
+          WHERE work_id = $1::uuid AND target_resolution = $2
+            AND status IN ('pending', 'processing')
+          LIMIT 1`,
+        [id, target],
+      ),
+    );
+    if (existingJob.rows.length > 0) {
+      return res.status(409).json({
+        ok: false,
+        code: "ALREADY_QUEUED",
+        job_id: existingJob.rows[0]?.job_id,
+        hint: "upscale job already pending — poll /api/upscale-jobs/:job_id",
+      });
+    }
+
     // CSSOS_PERSON_MV_WAVE76 — Premium: 4K upscale free, no credit deduction.
     const premium = await isPremium(user.id);
     const effectiveCost = premium ? 0 : cost;
@@ -47782,7 +50736,7 @@ app.post("/api/works/:id/products", express.json({ limit: "4kb" }), async (req, 
 //     for unlimited fresh-feeling replays. Net win.
 // ════════════════════════════════════════════════════════════════════
 
-const SLIDESHOW_POOL_SIZE = Number(process.env.SLIDESHOW_POOL_SIZE || 30);
+const SLIDESHOW_POOL_SIZE = Number(process.env.SLIDESHOW_POOL_SIZE || 60);  // W357 30→60
 const SLIDESHOW_PICK_SIZE = Number(process.env.SLIDESHOW_PICK_SIZE || 15);
 
 /* POST /api/works/:id/slideshow/generate — owner / admin only.
@@ -47875,6 +50829,77 @@ app.post(
   },
 );
 
+// CSSOS_WAVE_623 — admin: 给某作品【追加】生成 N 张『同主题』海量帧(不删旧, 2.39:1, 受精选保护)。
+// 用于旗舰款(如 Jerusalem)铺真·海量帧池。鉴权: x-admin-token 或 x-cssos-internal。后台异步执行。
+app.post("/api/admin/works/:id/theme-frames", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || "").trim();
+  const internalHdr = String(req.headers["x-cssos-internal"] || "").trim();
+  const isInternal = !!CSSOS_INTERNAL_TOKEN && internalHdr === CSSOS_INTERNAL_TOKEN;
+  if (!isInternal && !(expected && provided === expected)) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+  const id = String(req.params.id || "").trim();
+  if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+  const count = Math.max(1, Math.min(80, Number(req.body?.count) || 24));
+  void generateThemedFramePool(id, count)
+    .then((r) => console.info("[themed-pool] %s requested %d added %d", id, count, r.added))
+    .catch((e) => console.warn("[themed-pool] %s failed: %s", id, e?.message || e));
+  return res.json({ ok: true, status: "queued", work_id: id, count });
+});
+
+// ── CSSOS_WAVE_625 — 把 demux 抽出的本地 .m4a 持久化到 R2/CDN ──────────────────
+// W625 抽轨把音频写在本地 /var/lib/cssos/mv/aud_*.a1.m4a(经 /artifacts/mv alias 服务),
+// 重建机器会丢。这里把它们推上 R2(cdn.cssstudio.app),并把三处引用全换成 CDN URL:
+//   work_assets.audio_track_1 / user_works.preview_audio_url / work_language_tracks.audio_url。
+// 不删本地文件(留作回滚保险; 磁盘回收留到确认后再清)。幂等: 只处理仍指向 /artifacts/mv 的。
+let _rehostDemuxRunning = false;
+async function rehostDemuxAudioToR2(limit: number): Promise<{ migrated: number; failed: number; scanned: number }> {
+  if (_rehostDemuxRunning) return { migrated: 0, failed: 0, scanned: 0 };
+  _rehostDemuxRunning = true;
+  try {
+    if (!r2Enabled()) return { migrated: 0, failed: 0, scanned: 0 };
+    const rows = await withClient((c) => c.query<{ wid: string; url: string }>(
+      `SELECT work_id::text AS wid, url FROM work_assets
+        WHERE asset_type='audio_track_1' AND meta->>'source'='demux-from-final-mv'
+          AND url LIKE '/artifacts/mv/%' LIMIT $1`, [Math.max(1, Math.min(1000, limit))]));
+    let migrated = 0, failed = 0;
+    for (const r of rows.rows) {
+      const oldUrl = String(r.url || "");
+      const file = (oldUrl.split("/").pop() || "").split(/[?#]/)[0];
+      if (!file) { failed++; continue; }
+      const filePath = path.join(MV_ARTIFACTS_DIR, file);
+      if (!fs.existsSync(filePath)) { failed++; continue; }
+      const cdn = await uploadToR2(filePath, `artifacts/audio/${file}`, "audio/mp4").catch(() => null);
+      if (!cdn) { failed++; continue; }
+      await withClient((c) => c.query(
+        `UPDATE work_assets SET url=$2 WHERE work_id=$1::uuid AND asset_type='audio_track_1'`, [r.wid, cdn])).catch(() => {});
+      await withClient((c) => c.query(
+        `UPDATE user_works SET preview_audio_url=$2, updated_at=now() WHERE id=$1::uuid AND preview_audio_url=$3`, [r.wid, cdn, oldUrl])).catch(() => {});
+      await withClient((c) => c.query(
+        `UPDATE work_language_tracks SET audio_url=$2, updated_at=now() WHERE work_id=$1::uuid AND audio_url=$3`, [r.wid, cdn, oldUrl])).catch(() => {});
+      migrated++;
+    }
+    console.info("[rehost-demux] scanned=%d migrated=%d failed=%d", rows.rows.length, migrated, failed);
+    return { migrated, failed, scanned: rows.rows.length };
+  } finally {
+    _rehostDemuxRunning = false;
+  }
+}
+app.post("/api/admin/rehost-demux-audio", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || "").trim();
+  const internalHdr = String(req.headers["x-cssos-internal"] || "").trim();
+  const isInternal = !!CSSOS_INTERNAL_TOKEN && internalHdr === CSSOS_INTERNAL_TOKEN;
+  if (!isInternal && !(expected && provided === expected)) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+  if (!r2Enabled()) return res.json({ ok: false, code: "R2_DISABLED" });
+  const limit = Math.max(1, Math.min(1000, Number(req.body?.limit) || 1000));
+  void rehostDemuxAudioToR2(limit)
+    .then((r) => console.info("[rehost-demux] done migrated=%d failed=%d", r.migrated, r.failed))
+    .catch((e) => console.warn("[rehost-demux] failed: %s", e?.message || e));
+  return res.json({ ok: true, status: "queued", limit });
+});
+
 /* GET /api/works/:id/slideshow — public.
  * Returns a randomly-shuffled subset (default 15) of the pool. Each
  * call returns a different ordering so playback sessions feel fresh.
@@ -47941,6 +50966,10 @@ app.get("/api/works/:id/slideshow", async (req, res) => {
       rows = any.rows;
     }
     const urls = rows.map((r) => r.url).filter(Boolean);
+    // CSSOS_WAVE_619 — Jing「海量帧池没真正接入: 每首只有一张静态老照片」根治: 播放读帧时【后台触发】
+    // 该作品的 60 帧池生成(自愈式接入)。函数自带"已满则跳过"+ 防重入, 所以每次播放调用都安全 —
+    // 第一次播放铺池, 之后每次播放随机取帧(ORDER BY random)→ 几乎不重复。admin 精选池不被打扰。
+    void enqueueSlideshowPoolGeneration(id).catch(() => {});
     return res.json({
       ok: true,
       work_id: id,

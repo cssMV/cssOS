@@ -86,6 +86,17 @@
     return n;
   }
 
+  // 统一空态(线4视觉内核): 有 helper 用统一卡片, 否则回退到原 .cssos-cep-empty 文字。
+  function cepEmpty(icon, title, sub) {
+    var ems = globalThis.cssosEmptyStateMarkup;
+    if (ems) {
+      var box = el("div", "cssos-cep-empty");
+      box.innerHTML = ems({ icon: icon, title: title, sub: sub });
+      return box;
+    }
+    return el("div", "cssos-cep-empty", title);
+  }
+
   function getOrMakeRoot() {
     var root = document.getElementById("cssos-civ-era-page");
     if (root) return root;
@@ -140,7 +151,7 @@
     var pgrid = el("div", "cssos-cep-grid");
     var persons = Array.isArray(payload.persons) ? payload.persons : [];
     if (!persons.length) {
-      pgrid.appendChild(el("div", "cssos-cep-empty", tt("No members yet.", "暂无成员。")));
+      pgrid.appendChild(cepEmpty("👤", tt("No members yet.", "暂无成员。"), tt("Figures from this era will appear here.", "这个时代的人物会出现在这里。")));
     } else {
       persons.forEach(function (p) {
         var card = el("div", "cssos-cep-card");
@@ -163,7 +174,7 @@
     var mgrid = el("div", "cssos-cep-grid");
     var mvs = Array.isArray(payload.mvs) ? payload.mvs : [];
     if (!mvs.length) {
-      mgrid.appendChild(el("div", "cssos-cep-empty", tt("No MVs yet.", "暂无作品。")));
+      mgrid.appendChild(cepEmpty("🎬", tt("No MVs yet.", "暂无作品。"), tt("Be the first to create one for this era.", "来为这个时代创作第一支吧。")));
     } else {
       mvs.forEach(function (m) {
         var card = el("div", "cssos-cep-card");

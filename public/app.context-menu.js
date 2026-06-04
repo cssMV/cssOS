@@ -226,7 +226,7 @@
   }
 
   function closestDockItem(target) {
-    return target?.closest?.(".dock-item") || null;
+    return target?.closest?.("[data-pill-key]") || null;
   }
 
   function closestPanel(target) {
@@ -248,7 +248,7 @@
         "[data-watch-tab]",
         "[data-tab]",
         "[data-profile-nav]",
-        ".dock-item",
+        "[data-pill-key]",
         ".icon-btn",
         ".watch-tab",
         ".about-tab",
@@ -1109,7 +1109,57 @@
           showEmptyToast: true,
           allowDemoFallback: true
         })
-      }
+      },
+      // CSSOS_WAVE_544 20260531 — Jing「作品中心让用户编辑自己作品的基础+展示信息」。
+      // 仅在【自己的作品面板】里出现(避免在别人的市场卡片上显示); 后端 owner-only 再兜一层。
+      ...(() => {
+        const inOwnPanel = !!card.closest("#works-panel, #works-body, [data-works-panel]")
+          || card.dataset.isOwn === "1" || card.dataset.isOwn === "true";
+        if (!inOwnPanel) return [];
+        var wid = card.getAttribute("data-work-id") || card.dataset.workId || "";
+        var items = [];
+        if (typeof global.openWorkEditPanel === "function") {
+          items.push({
+            icon: "✏️",
+            label: menuCopy("Edit work info", "编辑作品信息"),
+            run: () => {
+              var work = (global.latestResolvedWorksCollection || [])
+                .find((w) => String(w && w.id) === String(wid)) || { id: wid };
+              global.openWorkEditPanel(work);
+            }
+          });
+        }
+        // CSSOS_WAVE_586 20260531 — Jing「作品中心也要有加语言/加声线入口」: 作者本人右键/长按自己作品。
+        // 多语言=同声线不同语言; 多声线=同语言不同声线。复用 watch 面板同款弹窗。
+        if (typeof global.cssosOpenAddLanguageModal === "function") {
+          items.push({
+            icon: "🌐",
+            label: menuCopy("Add language", "添加语言"),
+            run: () => { try { global.cssosOpenAddLanguageModal(wid); } catch (_e) {} }
+          });
+        }
+        if (typeof global.cssosOpenAddVoiceModal === "function") {
+          items.push({
+            icon: "🎤",
+            label: menuCopy("Add voice", "添加声线"),
+            run: () => { try { global.cssosOpenAddVoiceModal(wid); } catch (_e) {} }
+          });
+        }
+        // CSSOS_WAVE_587 — 「用我的声音唱」: 训练/管理个人声纹(全局, 不绑某首歌)。
+        if (typeof global.cssosOpenMyVoicesModal === "function" || typeof global.cssosOpenVoiceCloneModal === "function") {
+          items.push({
+            icon: "🎙️",
+            label: menuCopy("Sing in my voice", "用我的声音唱"),
+            run: () => {
+              try {
+                if (typeof global.cssosOpenMyVoicesModal === "function") global.cssosOpenMyVoicesModal();
+                else global.cssosOpenVoiceCloneModal();
+              } catch (_e) {}
+            }
+          });
+        }
+        return items;
+      })()
     ];
   }
 

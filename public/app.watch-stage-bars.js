@@ -285,6 +285,53 @@ html.cssos-app .cssmv-border-bar.is-viewport {
   transition: none !important;
   filter: drop-shadow(0 0 6px hsl(var(--cssmv-bar-hue, 210), 82%, 58%));
 }
+/* CSSOS_WAVE_386 — desktop ⛶ true-fullscreen toggle (web only). */
+.cssmv-fs-btn {
+  position: absolute;
+  top: 12px;
+  right: 60px;
+  z-index: 30;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(8,18,16,0.42);
+  color: rgba(255,255,255,0.92);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: auto;
+}
+.watch-screen:hover .cssmv-fs-btn,
+.cssmv-fs-btn:focus-visible { opacity: 1; }
+/* When the watch panel is the browser-fullscreen element, fill the whole
+   screen with a black cinema mat; the media letterboxes inside (ultrawide
+   → top/bottom black bars are expected). The ring (is-viewport) traces the
+   real screen edge from inside the fullscreened panel. */
+#watch-panel:fullscreen,
+#watch-panel:-webkit-full-screen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  inset: 0 !important;
+  border-radius: 0 !important;
+  background: #000 !important;
+}
+#watch-panel:fullscreen .watch-screen,
+#watch-panel:-webkit-full-screen .watch-screen {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0 !important;
+  background: #000 !important;
+}
+#watch-panel:fullscreen .cssmv-fs-btn { opacity: 0.6; }
 `;
     document.head.appendChild(st);
   }
@@ -371,24 +418,16 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     dot.setAttribute("r", String(TRAIL_STROKE_PX * 1.4));
     svg.appendChild(dot);
 
-    // CSSOS_WAVE_372 — App 全屏: 进度环挂到 document.body 并标记 is-viewport,
-    // 几何用视口尺寸(见 computeGeometry) → 沿真·屏幕边走, 不受面板未铺满底部影响.
-    // 桌面: 仍挂在面板里、沿面板边框走(面板是可拖动的浮窗).
-    const isApp = document.documentElement.classList.contains("cssos-app");
-    state.viewport = isApp;
-    if (isApp) {
-      svg.classList.add("is-viewport");
-      document.body.appendChild(svg);
-    } else {
-      panel.appendChild(svg);
-    }
-
     state.panel = panel;
     state.svg = svg;
     state.trail = trail;
     state.dot = dot;
     state.gradientId = gradientId;
     state.wired = true;
+
+    // CSSOS_WAVE_372/386 — decide the ring's attach point + viewport mode.
+    // App 全屏 OR 桌面浏览器真·全屏 → 沿真·屏幕边走(绕刘海); 桌面普通浮窗 → 沿面板边框.
+    attachSvgForMode();
 
     // Seed the stops with cover's hue so day-zero paint isn't black.
     applyStageHue(STAGE_HUE[STAGES[0]]);
@@ -399,17 +438,89 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     });
     ro.observe(panel);
     state.resizeObserver = ro;
-    // CSSOS_WAVE_372 — viewport mode also re-fits on window resize / rotation.
-    if (state.viewport) {
-      const onVp = () => { resize(); render(); };
-      window.addEventListener("resize", onVp, { passive: true });
-      window.addEventListener("orientationchange", onVp, { passive: true });
-      state._vpResize = onVp;
-    }
+    // Always re-fit on window resize / rotation (viewport mode needs it; cheap otherwise).
+    const onVp = () => { resize(); render(); };
+    window.addEventListener("resize", onVp, { passive: true });
+    window.addEventListener("orientationchange", onVp, { passive: true });
+    state._vpResize = onVp;
+
+    // CSSOS_WAVE_386 20260523 — Jing「桌面端也要真·全屏 + 进度条沿屏幕边框走 + 绕刘海」:
+    // 监听浏览器全屏切换, 进/出全屏时重新决定挂载点(全屏时 SVG 必须挂在被全屏的
+    // 元素内部才可见)并按视口几何重算, 让进度环贴着真屏幕边(顶边自动下移到刘海下沿)。
+    const onFs = () => { attachSvgForMode(); resize(); render(); };
+    document.addEventListener("fullscreenchange", onFs);
+    document.addEventListener("webkitfullscreenchange", onFs);
+    state._fsHandler = onFs;
+
+    // Desktop-only ⛶ button to enter/exit true browser fullscreen.
+    ensureFullscreenButton(panel);
 
     resize();
     render();
     wireMediaSources();
+  }
+
+  // CSSOS_WAVE_386 — fullscreen helpers ------------------------------------
+  function fullscreenElementSafe() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+  function isViewportMode() {
+    if (document.documentElement.classList.contains("cssos-app")) return true;
+    const fsEl = fullscreenElementSafe();
+    if (!fsEl || !state.panel) return false;
+    // Desktop fullscreen counts as viewport mode only when the watch panel is
+    // (or contains, or is contained by) the fullscreened element.
+    return fsEl === state.panel || fsEl.contains(state.panel) || state.panel.contains(fsEl);
+  }
+  function attachSvgForMode() {
+    if (!state.svg) return;
+    const vp = isViewportMode();
+    state.viewport = vp;
+    if (vp) {
+      state.svg.classList.add("is-viewport");
+      // In browser fullscreen ONLY the fullscreened element's subtree renders,
+      // so the ring must live inside it. In app mode the whole page shows, so
+      // document.body is fine.
+      const fsEl = fullscreenElementSafe();
+      let host = document.body;
+      if (fsEl) host = (state.panel && fsEl.contains(state.panel)) ? state.panel : fsEl;
+      if (state.svg.parentNode !== host) host.appendChild(state.svg);
+    } else {
+      state.svg.classList.remove("is-viewport");
+      if (state.panel && state.svg.parentNode !== state.panel) state.panel.appendChild(state.svg);
+    }
+  }
+  function toggleDesktopFullscreen(panel) {
+    try {
+      if (fullscreenElementSafe()) {
+        (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document);
+        return;
+      }
+      const req = panel.requestFullscreen || panel.webkitRequestFullscreen;
+      if (req) {
+        const r = req.call(panel, { navigationUI: "hide" });
+        if (r && typeof r.catch === "function") r.catch(function () {});
+      }
+    } catch (_e) { /* non-fatal */ }
+  }
+  function ensureFullscreenButton(panel) {
+    // The iOS app is already edge-to-edge true fullscreen; only desktop web
+    // needs an explicit toggle (browser chrome otherwise stays visible).
+    if (document.documentElement.classList.contains("cssos-app")) return;
+    const screen = panel.querySelector(".watch-screen") || panel;
+    if (!screen || screen.querySelector(".cssmv-fs-btn")) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cssmv-fs-btn";
+    btn.setAttribute("aria-label", "Toggle fullscreen");
+    btn.title = "Fullscreen";
+    btn.textContent = "⛶";
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      toggleDesktopFullscreen(panel);
+    });
+    screen.appendChild(btn);
   }
 
   // Rewrite the six gradient stops with a new hue seed. Called on every
@@ -452,9 +563,15 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     const h = state.viewport ? window.innerHeight : state.panel.clientHeight;
     if (!w || !h) return null;
     const inset = TRAIL_STROKE_PX / 2;
-    // W378 — only the TOP edge is pushed below the notch; sides + bottom stay at
-    // the screen edges. So the ring frames the usable area, top line unbroken.
-    const topPad = safeTopPx();
+    // CSSOS_WAVE_394 20260524 — Jing: revert the W378 notch-avoidance top-drop.
+    // Pushing the WHOLE top edge below the notch (env safe-area-inset-top) left
+    // a black gap above the bar — "与留着时间栏/顶部黑块有啥区别". The accurate
+    // "绕着刘海拐弯" path (图2) needs the notch WIDTH, which no web API exposes
+    // (env() gives height only) — so we can't draw it reliably. Per Jing's call,
+    // fall back to TRUE fullscreen: the ring hugs the real screen edge (y≈0),
+    // no drop, no black gap. (On a physical notch the very center may clip a hair,
+    // which Jing explicitly accepts over the dropped-down look.)
+    const topPad = 0;
     const top = inset + topPad;
     const rw = Math.max(0, w - TRAIL_STROKE_PX);
     const rh = Math.max(0, h - TRAIL_STROKE_PX - topPad);

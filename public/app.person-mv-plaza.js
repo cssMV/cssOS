@@ -145,7 +145,8 @@
   function cardHtml(it) {
     var poster = it.cover_image || "";
     var video  = it.final_mv_url || "";
-    var personName = it.person && (it.person.name_zh || it.person.name_en) || "";
+    // en-first: tr() returns en by default, zh only when locale is zh.
+    var personName = it.person ? tr(it.person.name_en || it.person.name_zh || "", it.person.name_zh || it.person.name_en || "") : "";
     var creator = it.creator && (it.creator.display_name || it.creator.handle) || "";
     var subParts = [];
     if (personName) subParts.push(personName);
@@ -185,10 +186,18 @@
     var feed = document.getElementById(FEED_ID);
     if (!feed) return;
     if (!feed.children.length && (!items || !items.length)) {
-      feed.innerHTML = '<div class="plaza-empty">' + escHtml(tr(
-        "No MVs in the plaza yet. Create one and it will appear here.",
-        "广场暂无作品。创建一支 MV 即可出现在这里。"
-      )) + '</div>';
+      var _ems = globalThis.cssosEmptyStateMarkup;
+      feed.innerHTML = _ems
+        ? _ems({
+            icon: "🎬",
+            title: tr("The plaza is quiet", "广场还很安静"),
+            sub: tr("No MVs here yet — create one and it appears right here.",
+                    "广场暂无作品 —— 创建一支 MV,它就会出现在这里。")
+          })
+        : '<div class="plaza-empty">' + escHtml(tr(
+            "No MVs in the plaza yet. Create one and it will appear here.",
+            "广场暂无作品。创建一支 MV 即可出现在这里。"
+          )) + '</div>';
       return;
     }
     var frag = document.createElement("div");

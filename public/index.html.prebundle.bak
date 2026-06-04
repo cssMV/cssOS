@@ -1,0 +1,3079 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- CSSOS_WAVE_518 20260530 — bootprobe 诊断探针已移除(崩溃排查完成, 不留在生产)。 -->
+    <!-- CSSOS_WAVE_460 20260527 — Jing: WKWebView ignores HTTP Cache-Control: no-store
+         for in-memory cache. HTML meta http-equiv tags are always honoured by WebKit.
+         These three lines force fresh HTML + asset fetches on every load, eliminating
+         the "old CSS on refresh" flip-flop seen in the iOS Capacitor app. -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <!-- CSSOS_WAVE_284 20260521 — Jing: 标记 App/standalone 上下文 → <html.cssos-app>.
+         App 端(Capacitor iOS UA=cssos-ios / PWA standalone / iOS 主屏 standalone)据此
+         隐藏 watch 标题栏并让媒体框充满全屏; 桌面浏览器不加此 class, 维持原样.
+         必须最早执行(在 CSS 应用前打上 class, 避免布局闪)。 -->
+    <script>
+      (function () {
+        try {
+          var ua = String(navigator.userAgent || "").toLowerCase();
+          var isApp = /cssos-ios/.test(ua)
+            || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
+            || navigator.standalone === true;
+          if (isApp) document.documentElement.classList.add("cssos-app");
+        } catch (e) {}
+      })();
+    </script>
+    <!-- CSSOS_PHASE2_TRUE_FULLSCREEN 20260505 — Jing
+         "手机端的MV面板能否让面板真全屏充满手机屏幕". viewport-fit=cover
+         lets the page extend UNDER the notch + home-indicator. The
+         apple-mobile-web-app-capable meta lets users "Add to Home
+         Screen" for genuine standalone (iOS hides its own chrome
+         entirely). theme-color=black blends Safari's UI with our
+         cinema canvas during normal browsing. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- CSSOS_WAVE_437 — standard meta (Chrome deprecated the apple- prefix). -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#000000" />
+    <!-- CSSOS_PERSON_MV_WAVE32 20260508 — Jing: PWA manifest, maskable icons, SW registration. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <base href="/" />
+    <title>CSS Studio</title>
+    <script>
+      // Pre-paint theme resolver — applies user's saved theme BEFORE any CSS loads
+      // to prevent flash-of-unstyled-theme (FOUT). Must stay in sync with
+      // PANEL_BEHAVIOR_SETTINGS_KEY / appearance.theme_mode in app.panel-behavior-core.js.
+      (function () {
+        try {
+          var raw = localStorage.getItem("cssos.panelBehaviorSettings") || "{}";
+          var parsed = {};
+          try { parsed = JSON.parse(raw) || {}; } catch (_) { parsed = {}; }
+          var mode = (parsed && parsed.appearance && parsed.appearance.theme_mode) || "system";
+          if (mode !== "system" && mode !== "dark" && mode !== "light") mode = "system";
+          var eff = mode;
+          if (mode === "system") {
+            try {
+              eff = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+            } catch (_) { eff = "dark"; }
+          }
+          var el = document.documentElement;
+          el.dataset.theme = eff;
+          el.dataset.themeMode = mode;
+          el.dataset.themeIcon = eff === "dark" ? "☾" : "☀";
+          el.style.colorScheme = eff;
+          // Also propagate to body as soon as it exists (some CSS keys off body[data-theme]).
+          var applyToBody = function () {
+            if (!document.body) return;
+            document.body.dataset.theme = eff;
+            document.body.dataset.themeMode = mode;
+          };
+          if (document.body) {
+            applyToBody();
+          } else if (document.addEventListener) {
+            document.addEventListener("DOMContentLoaded", applyToBody, { once: true });
+          }
+        } catch (_) {
+          // swallow — defaults take over
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="style.css?v=20260531-w587b-cap" />
+    <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
+    <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
+    <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
+
+  </head>
+  <body>
+    <!-- CSSOS_WAVE_491 20260529 — Jing「启动: 魔镜 logo 接力到主界面, 中间不要黑屏」.
+         原生闪屏 launchShowDuration=1200ms 后固定消失, 但此时网页主界面常还没渲染好 →
+         露出黑色 WKWebView 空档。这个网页端启动遮罩用【同一个魔镜 logo】从首帧就盖住屏幕,
+         与原生闪屏无缝衔接; 主界面就绪后(或兜底超时)淡出 → 直接显示主界面, 全程无黑屏。
+         内联样式 + 内联脚本: 不依赖 style.css / app.js, 首字节即生效, 即使主程序崩溃/慢加载
+         也照常显示 logo。背景跟随系统深/浅色, 与主界面 --bg 对齐, 淡出不跳色。 -->
+    <div id="cssos-launch-splash" aria-hidden="true">
+      <img src="assets/mirror-1.webp" alt="" decoding="async" />
+    </div>
+    <style>
+      #cssos-launch-splash{position:fixed;inset:0;z-index:2147483600;display:flex;
+        align-items:center;justify-content:center;background:#020302;
+        transition:opacity .42s ease;opacity:1;}
+      #cssos-launch-splash img{width:42vw;max-width:170px;height:auto;
+        animation:cssosSplashBreath 2.4s ease-in-out infinite;
+        filter:drop-shadow(0 6px 28px rgba(0,245,160,0.28));}
+      @keyframes cssosSplashBreath{0%,100%{transform:scale(0.965);opacity:.82}
+        50%{transform:scale(1.035);opacity:1}}
+      @media (prefers-color-scheme: light){#cssos-launch-splash{background:#f6efe4;}}
+      #cssos-launch-splash.cssos-splash-hide{opacity:0;pointer-events:none;}
+    </style>
+    <script>
+      (function(){
+        var s=document.getElementById("cssos-launch-splash");
+        if(!s)return;
+        var done=false,start=Date.now();
+        function hide(){if(done)return;done=true;
+          s.classList.add("cssos-splash-hide");
+          setTimeout(function(){try{s.parentNode&&s.parentNode.removeChild(s);}catch(_e){}},480);}
+        // 主界面就绪信号: 模块初始化完成会派发 cssos:ready(若有); 否则用 DOM 就绪 + 帧。
+        function ready(){
+          // 至少撑到原生闪屏消失后(~1300ms), 避免"网页先于原生闪屏淡出"再露黑。
+          var wait=Math.max(0,1300-(Date.now()-start));
+          setTimeout(hide,wait);
+        }
+        try{document.addEventListener("cssos:ready",hide,{once:true});}catch(_e){}
+        if(document.readyState==="interactive"||document.readyState==="complete"){
+          requestAnimationFrame(function(){requestAnimationFrame(ready);});
+        }else{
+          document.addEventListener("DOMContentLoaded",function(){
+            requestAnimationFrame(function(){requestAnimationFrame(ready);});
+          });
+        }
+        // 兜底: 无论如何 6s 后必淡出, 绝不把用户钉在 logo 上。
+        setTimeout(hide,6000);
+      })();
+    </script>
+    <div class="bg">
+      <div class="bg-blob bg-blob-a"></div>
+      <div class="bg-blob bg-blob-b"></div>
+      <div class="bg-blob bg-blob-c"></div>
+      <div class="bg-grid"></div>
+    </div>
+
+    <div class="version-switch" id="version-switch">
+      <button class="version-toggle" id="version-toggle" aria-label="Versions">⋯</button>
+      <div class="version-menu is-hidden" id="version-menu">
+        <div class="version-title" data-i18n="versions.title">Versions</div>
+        <div class="version-current" id="version-current"></div>
+        <div class="version-hero" id="version-hero"></div>
+        <div class="version-highlights" id="version-highlights"></div>
+        <details class="version-details">
+          <summary id="version-tech-summary">Technical details</summary>
+          <div class="version-list" id="version-list"></div>
+        </details>
+        <div class="version-divider"></div>
+        <div class="version-actions">
+          <button class="cta tiny" type="button" data-action="passkey.login" data-i18n="action.passkeyLogin">
+            Passkey
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="theme-switch" id="theme-switch">
+      <button
+        class="theme-toggle"
+        id="theme-quick-toggle"
+        data-i18n-aria="theme.quick.title"
+        aria-label="Theme"
+      >◐</button>
+      <div class="theme-menu is-hidden" id="theme-quick-menu" data-segmented="3">
+        <button class="theme-menu-item" type="button" data-theme-mode="light"  data-i18n="theme.quick.light">☀ Light</button>
+        <button class="theme-menu-item" type="button" data-theme-mode="system" data-i18n="theme.quick.system">◐ System</button>
+        <button class="theme-menu-item" type="button" data-theme-mode="dark"   data-i18n="theme.quick.dark">☾ Dark</button>
+      </div>
+    </div>
+
+    <main class="stage">
+      <section class="panel logo-panel flow" id="logo-panel" data-lru-keep="1">
+        <div class="panel-body logo-body">
+          <div class="mirror-stage" data-drag-handle="true">
+            <div class="mirror" id="mirror">
+              <img class="mirror-img mirror-a" src="assets/mirror-1.webp" alt="CSS magic mirror" />
+              <img class="mirror-img mirror-b" src="assets/mirror-2.webp" alt="CSS magic mirror" />
+              <video class="mirror-video" autoplay muted loop playsinline></video>
+              <div class="mirror-core" aria-hidden="true"></div>
+              <div class="mirror-text">
+                <div class="mirror-title">CSS</div>
+                <div class="mirror-subtitle" data-i18n="logo.subtitle">Studio</div>
+              </div>
+              <div class="hold-ring" id="hold-ring" aria-hidden="true">
+                <svg viewBox="0 0 100 100" class="hold-ring-svg">
+                  <circle class="hold-ring-bg" cx="50" cy="50" r="46"></circle>
+                  <circle class="hold-ring-fg" cx="50" cy="50" r="46"></circle>
+                </svg>
+              </div>
+            </div>
+            <div class="mirror-slogan" id="mirror-slogan" data-i18n-html="logo.slogan">Just say <span class="spell">CSS</span>, witness the miracle!</div>
+            <div class="mic-capture-status" id="mic-capture-status" aria-live="polite" hidden>
+              <div class="mic-capture-kicker" id="mic-capture-kicker">Mic status</div>
+              <div class="mic-capture-title" id="mic-capture-title">Ready</div>
+              <div class="mic-capture-meta" id="mic-capture-meta">Tap the mirror to reuse lyric magic. Hold to record and confirm here.</div>
+              <div class="mic-capture-debug" id="mic-capture-transcript-segments" hidden></div>
+              <div class="mic-capture-debug" id="mic-capture-title-candidates" hidden></div>
+              <audio id="mic-capture-audio" class="mic-capture-audio" controls preload="metadata" hidden></audio>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CSSOS_PERSON_MV_HOME_SHELVES 20260508 — Jing
+           Discovery shelves moved OUT of #logo-panel into a body-level
+           container so they don't squish the fixed-width logo panel.
+           Renders BELOW the logo-panel (or above foryou-panel). Each shelf
+           hides itself when its API returns nothing, so empty rows = no
+           visual cost. Style: full viewport width, horizontal scroll inside
+           each shelf row. -->
+      <!-- CSSOS_WAVE_108 20260509 — Jing
+           The 5-shelf stack is replaced by the compact activity bar
+           (#cssos-activity-bar) and schools row (#cssos-schools-row),
+           both injected into <body> by app.home-activity-bar.js.
+           Container kept (display:none) so the shelf modules can
+           still mount their data layer, in case a deep link or
+           future feature needs them. -->
+      <div id="cssos-home-shelves" class="cssos-home-shelves" data-wave108-hidden="1" style="position:relative; z-index:1; padding:0 12px; margin:16px auto; max-width:min(100vw,1280px); display:none; flex-direction:column; gap:8px;">
+        <section class="cssos-festival-shelf" id="person-mv-festival-shelf" data-shelf="person-mv-festival" hidden></section>
+        <section class="cssos-discover-shelf" id="person-mv-discover-shelf" data-shelf="person-mv" hidden>
+          <header class="cssos-discover-header">
+            <h2>🏛 文明热门 MV</h2>
+            <a href="#person-mv" class="cssos-discover-all" id="person-mv-discover-all">查看全部 →</a>
+          </header>
+          <div class="cssos-discover-row" data-discover-row="person-mv" id="person-mv-discover-row"></div>
+        </section>
+        <section class="cssos-discover-shelf" id="person-mv-groups-shelf" data-shelf="person-mv-groups" hidden>
+          <header class="cssos-discover-header">
+            <h2>🏛 文明流派</h2>
+          </header>
+          <div class="cssos-discover-row" data-discover-row="person-mv-groups" id="person-mv-groups-row"></div>
+        </section>
+        <section class="cssos-style-shelf" id="person-mv-style-shelf" data-shelf="person-mv-style" hidden>
+          <header class="cssos-style-header">
+            <h2>🎨 风格电台</h2>
+          </header>
+          <div class="cssos-style-row" id="person-mv-style-row"></div>
+        </section>
+        <section class="cssos-today-shelf" id="person-mv-today-shelf" data-shelf="person-mv-today" hidden>
+          <header class="cssos-today-header">
+            <h2>📅 今日历史</h2>
+            <span class="cssos-today-sub" id="person-mv-today-sub"></span>
+          </header>
+          <div class="cssos-today-row" id="person-mv-today-row"></div>
+        </section>
+        <section class="cssos-recs-shelf" id="person-mv-recs-shelf" data-shelf="person-mv-recs" hidden>
+          <header class="cssos-recs-header">
+            <h2 data-i18n="recs.personMv.title">✨ 为你推荐</h2>
+          </header>
+          <div class="cssos-recs-row" id="person-mv-recs-row"></div>
+        </section>
+      </div>
+
+      <section class="panel flow hidden" id="foryou-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">♫</div>
+          <div class="panel-title" data-i18n="panel.foryou">For You</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" type="button" data-i18n-aria="action.settings" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="foryou-compact">
+            <div class="works-list foryou-works-list">
+              <div class="work-card foryou-card">
+                <div class="work-cover foryou-thumb">
+                  <video id="foryou-thumb-video" class="foryou-thumb-video" autoplay muted loop playsinline></video>
+                  <img id="foryou-thumb-image" class="foryou-thumb-image" alt="For You preview" />
+                  <div id="foryou-thumb-fallback" class="foryou-thumb-fallback">♪</div>
+                </div>
+                <div class="work-info foryou-meta">
+                  <div class="work-title foryou-title" id="foryou-title">CSS MV</div>
+                  <div class="work-tags foryou-style" id="foryou-style">Future Ballad</div>
+                  <div class="foryou-tags" id="foryou-tags"></div>
+                  <div class="foryou-seed-copy" id="foryou-seed-copy"></div>
+                </div>
+                <div class="work-actions foryou-actions">
+                  <button class="mini-btn ghost" id="watch-btn" type="button">Enjoy</button>
+                </div>
+              </div>
+              <div class="foryou-structure" id="foryou-structure"></div>
+              <section class="foryou-selection" id="foryou-selection" hidden>
+                <div class="foryou-selection-kicker" id="foryou-selection-kicker"></div>
+                <div class="foryou-selection-title" id="foryou-selection-title"></div>
+                <pre class="foryou-selection-lyrics" id="foryou-selection-lyrics"></pre>
+              </section>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="watch-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">▶</div>
+          <div class="panel-title" data-i18n="panel.watch">MV Panel</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" data-i18n-aria="action.settings" aria-label="Settings">⚙</button>
+            <button class="icon-btn" data-i18n-aria="action.minimize" aria-label="Minimize">—</button>
+            <button class="icon-btn" data-i18n-aria="action.lock" aria-label="Lock panel">⛶</button>
+            <button class="icon-btn" data-i18n-aria="action.close" aria-label="Close">×</button>
+          </div>
+          <div class="panel-progress-line watch-panel-progress" id="watch-panel-progress-line" hidden>
+            <span id="watch-panel-progress-fill"></span>
+          </div>
+        </div>
+        <div class="panel-body watch-body">
+          <div class="watch-tabs cssmv-pill-bar" role="tablist" data-pill-bar>
+            <button class="watch-tab active" id="watch-tab-mv" type="button" data-watch-tab="mv" data-i18n="watch.tab.mv">MV</button>
+            <button class="watch-tab" id="watch-tab-music" type="button" data-watch-tab="music" data-i18n="watch.tab.music">Music</button>
+            <button class="watch-tab" id="watch-tab-lyrics" type="button" data-watch-tab="lyrics" data-i18n="watch.tab.lyrics">Lyrics</button>
+            <button class="watch-tab" id="watch-tab-script" type="button" data-watch-tab="script" data-i18n="watch.tab.script">Script</button>
+            <button class="watch-tab" id="watch-tab-comments" type="button" data-watch-tab="comments" data-i18n="watch.tab.comments">Comments</button>
+            <button class="watch-tab" id="watch-tab-revenue" type="button" data-watch-tab="revenue" data-i18n="watch.tab.revenue">Revenue</button>
+            <button class="watch-tab" id="watch-tab-ownership" type="button" data-watch-tab="ownership" data-i18n="watch.tab.ownership">Ownership</button>
+          </div>
+          <div class="watch-pane active" id="watch-pane-mv" data-watch-pane="mv">
+            <div class="engine-progress-shell" id="kara-progress-shell" data-engine-progress="kara" hidden>
+              <div class="engine-progress-title" data-i18n="status.karaokeSync">Karaoke Sync</div>
+              <div class="engine-progress-bar"><span id="kara-progress"></span></div>
+              <div class="engine-progress-detail" id="kara-progress-detail"></div>
+            </div>
+            <div class="watch-frame">
+              <div class="watch-screen">
+                <div id="watch-screen-backdrop" class="watch-screen-backdrop"></div>
+                <!-- CSSOS_PHASE2_NO_VIDEO_LOOP 20260428 #166 — Jing:
+                     "新的媒体1分钟反反复复播放" — loop attribute caused
+                     short final_mv.mp4 to repeat indefinitely on top of
+                     legacy audio. MV Pipeline runs are linear; no loop. -->
+                <video id="watch-video" class="watch-video" autoplay muted playsinline></video>
+                <!-- CSSOS_WAVE_437 20260526 — Jing「DevTools 手机模式 CORS 报错」: dropped
+                     crossorigin. Frames/covers now live on cdn.cssstudio.app (R2), whose
+                     custom-domain serving does NOT echo Access-Control-Allow-Origin, so a
+                     crossorigin <img> was CORS-BLOCKED (net::ERR_FAILED) → frame fails to
+                     load → black/flicker. Nothing reads #watch-svg into a canvas (the
+                     first-frame/color sampler reads the <video>, which keeps its own
+                     crossorigin), so the attribute is unnecessary here. Without it the
+                     image loads normally, no CORS gate. -->
+                <img id="watch-svg" class="watch-svg" alt="MV preview" />
+                <button id="watch-style-shift" class="watch-style-shift" type="button" aria-label="Shuffle title style">✦</button>
+                <button id="watch-overlay-play" class="watch-overlay-play" type="button" data-i18n-aria="action.watch" aria-label="Watch">
+                  <span class="watch-overlay-play-ring"></span>
+                  <span class="watch-overlay-play-icon">▶</span>
+                </button>
+                <div class="watch-karaoke-line" id="watch-karaoke-line"></div>
+                <div class="watch-subtitle" id="watch-subtitle" data-i18n="status.composing">
+                  CSS is composing...
+                </div>
+                <div class="watch-commerce-actions" id="watch-commerce-actions" hidden></div>
+              </div>
+              <div class="watch-frame-progress" id="watch-frame-progress" hidden>
+                <div class="watch-frame-progress-line"><span id="watch-frame-progress-fill"></span></div>
+                <div class="watch-frame-progress-copy" id="watch-frame-progress-copy"></div>
+              </div>
+            </div>
+            <div class="watch-engine-grid" id="watch-engine-grid"></div>
+            <div class="kara-runtime-board" id="kara-runtime-board"></div>
+          </div>
+            <div class="watch-pane" id="watch-pane-music" data-watch-pane="music">
+              <div class="watch-info-card">
+                <div class="watch-music-stage" id="watch-music-stage">
+                  <div class="watch-frame-progress watch-music-frame-progress" id="watch-music-frame-progress" hidden>
+                    <div class="watch-frame-progress-line"><span id="watch-music-frame-progress-fill"></span></div>
+                    <div class="watch-frame-progress-copy" id="watch-music-frame-progress-copy"></div>
+                  </div>
+                  <button id="watch-music-style-shift" class="watch-style-shift watch-music-style-shift" type="button" aria-label="Shuffle title style">✦</button>
+                  <div class="watch-music-aura"></div>
+                  <div class="watch-music-ring" id="watch-music-ring">
+                    <div class="watch-music-disc" id="watch-music-disc">
+                    <div class="watch-music-art" id="watch-music-art"></div>
+                    <div class="watch-music-hole"></div>
+                  </div>
+                </div>
+                <!-- CSSOS_PHASE2_MUSIC_TAB_SUBTITLE 20260426 #131 — Jing
+                     "Music标签页，除了黑胶唱片之外，其余可以复用MV标签页的很多元素"
+                     Mirror karaoke + subtitle text from the MV pane so the
+                     Music tab also shows the active lyric line at the
+                     bottom-center of the music stage. The mirror watcher
+                     lives in app.watch-media-layout-p2100.js. -->
+                <div class="watch-karaoke-line watch-music-karaoke-line" id="watch-music-karaoke-line"></div>
+                <div class="watch-subtitle watch-music-subtitle" id="watch-music-subtitle"></div>
+                <button id="watch-music-play" class="watch-music-play" type="button" data-i18n-aria="action.listen" aria-label="Listen">
+                  <span id="watch-music-play-icon">▶</span>
+                </button>
+              </div>
+              <input id="watch-music-art-blur" type="checkbox" hidden>
+              <div class="watch-seed-copy" id="watch-seed-copy"></div>
+              <audio id="watch-audio-preview" class="watch-audio-preview" preload="none"></audio>
+              <div class="watch-audio-debug" id="watch-audio-debug" hidden>
+                <div class="watch-audio-debug-line" id="watch-audio-debug-source"></div>
+                <div class="watch-audio-debug-line" id="watch-audio-debug-path"></div>
+                <div class="watch-audio-debug-line" id="watch-audio-debug-state"></div>
+              </div>
+              <div class="watch-mic-capture-card" id="watch-mic-capture-card"></div>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-lyrics" data-watch-pane="lyrics">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.lyrics.kicker">Lyrics</div>
+              <textarea id="watch-lyrics-editor" class="watch-editor" spellcheck="false"></textarea>
+              <div class="watch-info-kicker" data-i18n="watch.lyrics.style">Music Style</div>
+              <input id="watch-lyrics-music-style" class="watch-editor watch-editor-short" type="text" />
+              <div class="watch-info-kicker" data-i18n="watch.lyrics.wiki">Wiki Source</div>
+              <input id="watch-lyrics-wiki-source" class="watch-editor watch-editor-short" type="text" />
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-script" data-watch-pane="script">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.script.outline">Video Outline</div>
+              <textarea id="watch-outline-editor" class="watch-editor watch-editor-short" spellcheck="false"></textarea>
+              <div class="watch-info-kicker" data-i18n="watch.script.prompts">Section Prompts</div>
+              <textarea id="watch-script-editor" class="watch-editor" spellcheck="false"></textarea>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-comments" data-watch-pane="comments">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.comments.kicker">Comments</div>
+              <div class="watch-meta-copy" id="watch-comments-copy" data-i18n="watch.comments.empty">No comments yet.</div>
+              <div class="watch-activity" id="watch-comments-list"></div>
+              <form class="watch-comment-form" id="watch-comment-form">
+                <input id="watch-comment-input" class="watch-comment-input" type="text" placeholder="Say something..." />
+                <button id="watch-comment-submit" class="watch-comment-submit" type="submit">Send</button>
+              </form>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-revenue" data-watch-pane="revenue">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.revenue.kicker">Revenue</div>
+              <div class="watch-meta-grid" id="watch-revenue-grid"></div>
+              <div class="watch-activity" id="watch-revenue-activity"></div>
+            </div>
+          </div>
+          <div class="watch-pane" id="watch-pane-ownership" data-watch-pane="ownership">
+            <div class="watch-info-card">
+              <div class="watch-info-kicker" data-i18n="watch.ownership.kicker">Ownership</div>
+              <div class="watch-meta-copy" id="watch-ownership-copy"></div>
+              <div class="watch-activity" id="watch-ownership-list"></div>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="about-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">ℹ</div>
+          <div class="panel-title" data-i18n="panel.about">About</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body about-body">
+          <div class="about-tabs" role="tablist" data-segmented="3" data-pill-bar>
+            <button class="about-tab active" type="button" data-tab="whitepaper" data-i18n="about.tab.whitepaper">
+              Whitepaper
+            </button>
+            <button class="about-tab" type="button" data-tab="about" data-i18n="about.tab.about">About</button>
+            <button class="about-tab" type="button" data-tab="contact" data-i18n="about.tab.contact">
+              Contact
+            </button>
+          </div>
+
+          <div class="about-content">
+            <section class="about-tab-content active" data-tab="whitepaper">
+              <div class="panel-label" data-i18n="whitepaper.title">
+                CSS Studio Media Generation Engine — Technical Architecture Statement v1.0
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.audio.title">Audio Generation Layer</h3>
+                <p data-i18n="whitepaper.section.audio.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.visual.title">Visual &amp; Video Generation Layer</h3>
+                <p data-i18n="whitepaper.section.visual.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.philosophy.title">Engineering Philosophy</h3>
+                <p data-i18n="whitepaper.section.philosophy.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="whitepaper.section.cloud.title">Cloud Infrastructure</h3>
+                <p data-i18n="whitepaper.section.cloud.body"></p>
+              </div>
+            </section>
+
+            <section class="about-tab-content" data-tab="about">
+              <div class="about-section">
+                <h3 data-i18n="about.who.title">Who We Are</h3>
+                <p data-i18n="about.who.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.what.title">What We Do</h3>
+                <p data-i18n="about.what.body"></p>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.mission.title">Our Mission</h3>
+                <p data-i18n="about.mission.body"></p>
+              </div>
+            </section>
+
+            <section class="about-tab-content" data-tab="contact">
+              <div class="about-section">
+                <h3 data-i18n="about.contact.title">Contact</h3>
+                <div class="about-contact">
+                  <div><span data-i18n="about.contact.email">Email</span>: <a href="mailto:admin@cssstudio.app">admin@cssstudio.app</a></div>
+                  <div><span data-i18n="about.contact.website">Website</span>: <a href="https://cssstudio.app" target="_blank" rel="noopener">cssstudio.app</a></div>
+                </div>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.contact.social">Social</h3>
+                <ul class="about-social">
+                  <li><a href="https://x.com/cssstudioapp" target="_blank" rel="noopener">X</a></li>
+                  <li><a href="https://bsky.app/profile/cssstudio.bsky.social" target="_blank" rel="noopener">Bluesky</a></li>
+                  <li><a href="https://www.tiktok.com/@cssstudioapp" target="_blank" rel="noopener">TikTok</a></li>
+                </ul>
+              </div>
+              <div class="about-section">
+                <h3 data-i18n="about.legal.title">Legal &amp; Transparency</h3>
+                <ul class="about-legal-links" style="list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:10px;">
+                  <li><a href="/business.html" target="_blank" rel="noopener" data-i18n="about.legal.business">Business Model</a></li>
+                  <li><a href="/privacy.html" target="_blank" rel="noopener" data-i18n="about.legal.privacy">Privacy Policy</a></li>
+                  <li><a href="/terms.html" target="_blank" rel="noopener" data-i18n="about.legal.terms">Terms of Service</a></li>
+                  <li><a href="/data-flow.html" target="_blank" rel="noopener" data-i18n="about.legal.dataflow">Data Flow</a></li>
+                </ul>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="api-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">⌁</div>
+          <div class="panel-title" data-i18n="panel.api">API</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body api-body">
+          <div class="api-section">
+            <h3 data-i18n="api.overview.title">API Overview</h3>
+            <p data-i18n="api.overview.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.endpoint.title">Endpoint</h3>
+            <div class="api-endpoint">POST /generate/mv</div>
+            <p data-i18n="api.endpoint.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.examples.title">Examples</h3>
+            <div class="api-code">
+              <div class="api-code-title" data-i18n="api.examples.request">Request</div>
+              <pre data-i18n="api.examples.requestBody"></pre>
+            </div>
+            <div class="api-code">
+              <div class="api-code-title" data-i18n="api.examples.response">Response</div>
+              <pre data-i18n="api.examples.responseBody"></pre>
+            </div>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.pricing.title">Pricing</h3>
+            <p data-i18n="api.pricing.body"></p>
+          </div>
+          <div class="api-section">
+            <h3 data-i18n="api.billing.title">Billing</h3>
+            <div class="billing-grid">
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.balance">Credit Balance</div>
+                <div class="billing-value" id="api-credit-balance">$0.00</div>
+                <button class="cta tiny" id="api-add-funds-btn" type="button" data-i18n="api.billing.addFunds">
+                  Add Funds
+                </button>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.paymentMethod">Payment Method</div>
+                <select id="api-payment-method" class="billing-select">
+                  <option value="card" data-i18n="api.billing.method.card">Card •••• 4242</option>
+                  <option value="bank" data-i18n="api.billing.method.bank">Bank Transfer</option>
+                </select>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.autoRecharge">Auto Recharge</div>
+                <label class="billing-toggle">
+                  <input type="checkbox" id="api-auto-recharge" />
+                  <span data-i18n="api.billing.autoRechargeHint">Recharge when low</span>
+                </label>
+              </div>
+              <div class="billing-card">
+                <div class="billing-label" data-i18n="api.billing.monthlyLimit">Monthly Limit</div>
+                <input
+                  id="api-monthly-limit"
+                  class="billing-input"
+                  type="number"
+                  min="0"
+                  placeholder="$2000"
+                  data-i18n-placeholder="api.billing.monthlyLimitPlaceholder"
+                />
+              </div>
+            </div>
+            <div class="billing-history">
+              <div class="billing-label" data-i18n="api.billing.history">Billing History</div>
+              <ul class="billing-list">
+                <li data-i18n="api.billing.historyPlaceholder">No billing events yet.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="cssmv-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🎬</div>
+          <div class="panel-title" data-i18n="panel.cssmv">CSS MV</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="panel-label" data-i18n="label.autoWatch">Auto Watch Pipeline</div>
+          <section class="mv-digest-pulse" id="mv-digest-pulse">
+            <div class="mv-pulse-header">
+              <div>
+                <div class="mv-pulse-kicker" data-i18n="cssmv.digest.kicker">Delivery Digest</div>
+                <div class="mv-pulse-title" data-i18n="cssmv.digest.title">Daily delivery snapshot for dashboard and ops review</div>
+              </div>
+              <div class="mv-pulse-version" id="mv-digest-status" data-i18n="cssmv.digest.waitingStatus">Waiting for delivery digest.</div>
+            </div>
+            <div class="mv-workspace-strip">
+              <div class="mv-workspace-title" id="mv-digest-title" data-i18n="cssmv.digest.waitingTitle">Waiting for daily delivery digest</div>
+              <div class="mv-workspace-summary" id="mv-digest-summary" data-i18n="cssmv.digest.waitingSummary">Open CSS MV to load the latest delivery dashboard summary.</div>
+            </div>
+            <div class="mv-digest-metrics" id="mv-digest-metrics">
+              <div class="mv-digest-metric is-waiting">
+                <span data-i18n="cssmv.digest.metrics.escalated">Escalated</span>
+                <strong>--</strong>
+              </div>
+              <div class="mv-digest-metric is-waiting">
+                <span data-i18n="cssmv.digest.metrics.manualIntervention">Manual</span>
+                <strong>--</strong>
+              </div>
+              <div class="mv-digest-metric is-waiting">
+                <span data-i18n="cssmv.digest.metrics.retry">Retry</span>
+                <strong>--</strong>
+              </div>
+              <div class="mv-digest-metric is-waiting">
+                <span data-i18n="cssmv.digest.metrics.resolutionChange">Resolution</span>
+                <strong>--</strong>
+              </div>
+            </div>
+            <div class="mv-pulse-grid mv-digest-grid">
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.digest.queueTitle">Queue Counts</div>
+                <div class="mv-digest-queue-list" id="mv-digest-inbox-counts">
+                  <button class="mv-digest-queue is-waiting" type="button">
+                    <span data-i18n="cssmv.digest.waitingQueue">Waiting for queue counts.</span>
+                  </button>
+                </div>
+                <div class="mv-digest-preview" id="mv-digest-preview">
+                  <div class="mv-digest-preview-empty" data-i18n="cssmv.digest.waitingPreview">Select a queue to inspect live preview items.</div>
+                </div>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.digest.alertTitle">Alert Headlines</div>
+                <div class="mv-digest-alert-list" id="mv-digest-alerts">
+                  <div class="mv-digest-alert is-waiting">
+                    <span class="mv-digest-alert-copy" data-i18n="cssmv.digest.waitingAlerts">Waiting for alert headlines.</span>
+                  </div>
+                </div>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.digest.highlightTitle">Highlights</div>
+                <ul class="mv-pulse-list" id="mv-digest-highlights">
+                  <li data-i18n="cssmv.digest.waitingHighlights">Waiting for digest highlights.</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+          <div class="mv-hero">
+            <div>
+              <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: static demo title
+                   "嫦娥奔月" removed; app.civilization-ui-hints.js fills this
+                   from the current UI locale's civilization titleHints. -->
+              <div class="mv-title" id="mv-title"></div>
+              <div class="mv-sub" id="mv-sub" data-i18n="label.mvSub">
+                3 Scene · 12 Shots · Live Karaoke
+              </div>
+            </div>
+            <button class="cta tiny" id="enter-watch" data-i18n="action.enterWatch">
+              Enter Watch
+            </button>
+          </div>
+          <div class="tag-row" id="mv-tags"></div>
+          <div class="stat-grid" id="mv-stats"></div>
+          <section class="mv-governance-pulse" id="mv-governance-pulse">
+            <div class="mv-pulse-header">
+              <div>
+                <div class="mv-pulse-kicker" data-i18n="cssmv.governance.kicker">Delivery Governance Pulse</div>
+                <div class="mv-pulse-title" data-i18n="cssmv.governance.title">Inspector visibility wired to live backend payloads</div>
+              </div>
+              <div class="mv-pulse-version" id="mv-policy-version" data-i18n="cssmv.governance.waitingPolicyVersion">Waiting for live policy version</div>
+            </div>
+            <div class="mv-workspace-strip">
+              <div class="mv-workspace-title" id="mv-workspace-title" data-i18n="cssmv.workspace.waitingTitle">Waiting for live delivery workspace</div>
+              <div class="mv-workspace-summary" id="mv-workspace-summary" data-i18n="cssmv.workspace.waitingSummary">Waiting for live delivery workspace summary.</div>
+            </div>
+            <div class="mv-actions-strip">
+              <div class="mv-pulse-label" data-i18n="cssmv.actions.title">Available Actions</div>
+              <div class="mv-actions-list" id="mv-actions-list">
+                <span class="mv-action-chip is-waiting" data-i18n="cssmv.actions.waiting">Waiting for live delivery actions.</span>
+              </div>
+            </div>
+            <div class="mv-actions-strip">
+              <div class="mv-pulse-label" data-i18n="cssmv.actionLog.title">Recent Action Log</div>
+              <div class="mv-action-log-list" id="mv-action-log-list">
+                <div class="mv-action-log-item is-waiting" data-i18n="cssmv.actionLog.waiting">Waiting for live delivery action logs.</div>
+              </div>
+            </div>
+            <div class="mv-trust-strip">
+              <div class="mv-trust-badge" id="mv-trust-badge" data-i18n="cssmv.governance.waitingTrustBadge">Trust waiting</div>
+              <div class="mv-trust-summary" id="mv-trust-summary" data-i18n="cssmv.governance.waitingTrustState">Waiting for live delivery trust state.</div>
+            </div>
+            <div class="mv-risk-strip">
+              <div class="mv-risk-badge" id="mv-risk-badge" data-i18n="cssmv.governance.waitingRiskBadge">Risk waiting</div>
+              <div class="mv-risk-summary" id="mv-risk-summary" data-i18n="cssmv.governance.waitingRiskState">Waiting for live delivery risk state.</div>
+            </div>
+            <div class="mv-assurance-strip">
+              <div class="mv-assurance-badge" id="mv-assurance-badge" data-i18n="cssmv.governance.waitingAssuranceBadge">Assurance waiting</div>
+              <div class="mv-assurance-summary" id="mv-assurance-summary" data-i18n="cssmv.governance.waitingAssuranceState">Waiting for live delivery assurance state.</div>
+            </div>
+            <div class="mv-resolution-strip">
+              <div class="mv-resolution-badge" id="mv-resolution-badge" data-i18n="cssmv.governance.waitingResolutionBadge">Resolution waiting</div>
+              <div class="mv-resolution-summary" id="mv-resolution-summary" data-i18n="cssmv.governance.waitingResolutionState">Waiting for live delivery resolution state.</div>
+            </div>
+            <div class="mv-pulse-grid">
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.decisionReasons">Decision Reasons</div>
+                <ul class="mv-pulse-list" id="mv-decision-reasons">
+                  <li data-i18n="cssmv.governance.waitingDecisionReasons">Waiting for live delivery governance data.</li>
+                </ul>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.riskFactors">Risk Factors</div>
+                <ul class="mv-pulse-list" id="mv-risk-factors">
+                  <li data-i18n="cssmv.governance.waitingRiskFactors">Waiting for live delivery risk factors.</li>
+                </ul>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.assuranceMeasures">Assurance Measures</div>
+                <ul class="mv-pulse-list" id="mv-assurance-measures">
+                  <li data-i18n="cssmv.governance.waitingAssuranceMeasures">Waiting for live delivery assurance measures.</li>
+                </ul>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.resolutionReasons">Resolution Reasons</div>
+                <ul class="mv-pulse-list" id="mv-resolution-reasons">
+                  <li data-i18n="cssmv.governance.waitingResolutionReasons">Waiting for live delivery resolution reasons.</li>
+                </ul>
+              </div>
+              <div class="mv-pulse-card">
+                <div class="mv-pulse-label" data-i18n="cssmv.governance.recentPolicyAudits">Recent Policy Audits</div>
+                <ul class="mv-pulse-list" id="mv-policy-audits">
+                  <li data-i18n="cssmv.governance.waitingPolicyAudits">No policy audit stream connected yet.</li>
+                </ul>
+              </div>
+            </div>
+            <div class="mv-timeline-pulse">
+              <div class="mv-pulse-label" data-i18n="cssmv.timeline.title">Delivery Timeline</div>
+              <div class="mv-timeline-summary" id="mv-timeline-summary" data-i18n="cssmv.timeline.waitingSummary">Waiting for live delivery timeline.</div>
+              <div class="mv-timeline-list" id="mv-timeline-list">
+                <div class="mv-timeline-item is-waiting">
+                  <div class="mv-timeline-dot"></div>
+                  <div class="mv-timeline-copy" data-i18n="cssmv.timeline.waitingNode">Waiting for live delivery timeline nodes.</div>
+                </div>
+              </div>
+            </div>
+            <div class="mv-timeline-pulse">
+              <div class="mv-pulse-label" data-i18n="cssmv.timelineMerged.title">Merged Delivery Timeline</div>
+              <div class="mv-timeline-summary" id="mv-merged-timeline-summary" data-i18n="cssmv.timelineMerged.waitingSummary">Waiting for live merged delivery timeline.</div>
+              <div class="mv-timeline-list" id="mv-merged-timeline-list">
+                <div class="mv-timeline-item is-waiting">
+                  <div class="mv-timeline-dot"></div>
+                  <div class="mv-timeline-copy" data-i18n="cssmv.timelineMerged.waitingNode">Waiting for live merged delivery timeline events.</div>
+                </div>
+              </div>
+            </div>
+            <div class="mv-timeline-pulse">
+              <div class="mv-pulse-label" data-i18n="cssmv.timelineExplain.title">Timeline Explain</div>
+              <div class="mv-timeline-summary" id="mv-timeline-explain-summary" data-i18n="cssmv.timelineExplain.waitingSummary">Waiting for live timeline explain.</div>
+              <div class="mv-timeline-list" id="mv-timeline-explain-list">
+                <div class="mv-timeline-item is-waiting">
+                  <div class="mv-timeline-dot"></div>
+                  <div class="mv-timeline-copy" data-i18n="cssmv.timelineExplain.waitingNode">Waiting for live timeline explain key events.</div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <div class="camera-board" id="camera-board"></div>
+          <div class="scene-list" id="scene-list"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="delivery-reports-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">📊</div>
+          <div class="panel-title" data-i18n="panel.deliveryReports">Delivery Reports</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body report-panel-body">
+          <div class="panel-label" data-i18n="reports.subtitle">Unified delivery reporting surface for ops, management, and notifications.</div>
+          <div class="report-tabs" id="delivery-report-tabs"></div>
+          <section class="report-shell">
+            <div class="report-header">
+              <div>
+                <div class="report-kicker" data-i18n="reports.kicker">cssCase Delivery API</div>
+                <div class="report-title" id="delivery-report-title">Waiting for delivery report</div>
+              </div>
+              <div class="report-meta" id="delivery-report-meta">kind=briefing_pack</div>
+            </div>
+            <div class="report-summary" id="delivery-report-summary" data-i18n="reports.waiting">Open Delivery Reports to load a unified report bundle.</div>
+            <div class="report-body" id="delivery-report-body">
+              <div class="report-empty" data-i18n="reports.waiting">Open Delivery Reports to load a unified report bundle.</div>
+            </div>
+            <section class="report-export-shell">
+              <div class="report-export-header">
+                <div>
+                  <div class="report-section-title">Music Delivery Dashboard</div>
+                  <div class="report-card-copy" id="delivery-dashboard-meta">Bind a run ID to inspect live music delivery receipts.</div>
+                </div>
+                <div class="report-export-actions">
+                  <input
+                    id="delivery-dashboard-run-id"
+                    class="billing-input"
+                    type="text"
+                    placeholder="Run ID"
+                  />
+                  <button class="cta ghost tiny" id="delivery-dashboard-refresh" type="button">Refresh</button>
+                </div>
+              </div>
+              <div class="report-summary" id="delivery-dashboard-summary">Waiting for a music delivery dashboard feed.</div>
+              <div class="report-grid">
+                <article class="report-card">
+                  <div class="report-section-title">Live Status</div>
+                  <div class="report-list" id="delivery-dashboard-body">
+                    <div class="report-empty">Create or select a run to inspect live music delivery receipts.</div>
+                  </div>
+                </article>
+              </div>
+            </section>
+            <section class="report-export-shell">
+              <div class="report-export-header">
+                <div>
+                  <div class="report-section-title" data-i18n="reports.export.title">Export Actions</div>
+                  <div class="report-card-copy" id="delivery-export-target" data-i18n="reports.export.waitingTarget">Select a report tab to prepare an export target.</div>
+                </div>
+                <div class="report-export-status" id="delivery-export-status" data-i18n="reports.export.waitingStatus">No export run yet.</div>
+              </div>
+              <div class="report-export-sources" id="delivery-export-sources"></div>
+              <div class="report-export-formats" id="delivery-export-formats"></div>
+              <div class="report-grid">
+                <article class="report-card">
+                  <div class="report-section-title" data-i18n="reports.export.preview">Export Preview</div>
+                  <div class="report-list" id="delivery-export-preview">
+                    <div class="report-empty" data-i18n="reports.export.waitingPreview">Choose a format to preview file name and payload.</div>
+                  </div>
+                </article>
+                <article class="report-card">
+                  <div class="report-section-title" data-i18n="reports.export.result">Export Result</div>
+                  <div class="report-export-actions" id="delivery-export-actions"></div>
+                  <div class="report-export-actions" id="delivery-export-preview-actions"></div>
+                  <div class="report-list" id="delivery-export-result">
+                    <div class="report-empty" data-i18n="reports.export.waitingResult">Run an export to see content preview and response metadata.</div>
+                  </div>
+                </article>
+              </div>
+              <article class="report-card">
+                <div class="report-export-header">
+                  <div class="report-section-title" data-i18n="reports.export.history">Recent Exports</div>
+                  <div class="report-export-actions" id="delivery-export-history-toolbar"></div>
+                </div>
+                <div class="report-export-sources" id="delivery-export-history-filters"></div>
+                <input
+                  id="delivery-export-history-search"
+                  class="billing-input"
+                  type="text"
+                  placeholder="Search export history"
+                />
+                <div class="report-list" id="delivery-export-history">
+                  <div class="report-empty" data-i18n="reports.export.historyEmpty">No export history yet.</div>
+                </div>
+              </article>
+            </section>
+          </section>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="delivery-ops-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🛰</div>
+          <div class="panel-title" data-i18n="panel.deliveryOps">Delivery Ops</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body report-panel-body">
+          <div class="panel-label" data-i18n="deliveryOps.subtitle">Track subscriptions and their delivery execution history.</div>
+          <section class="report-shell">
+            <div class="report-header">
+              <div>
+                <div class="report-kicker" data-i18n="deliveryOps.kicker">cssCase Delivery Subscriptions + Logs</div>
+                <div class="report-title" data-i18n="deliveryOps.title">Delivery subscription control room</div>
+              </div>
+              <div class="report-meta" id="delivery-ops-meta" data-i18n="deliveryOps.metaWaiting">Waiting for delivery ops data.</div>
+            </div>
+            <div class="report-summary" id="delivery-ops-summary" data-i18n="deliveryOps.waiting">Open Delivery Ops to load subscriptions and execution history.</div>
+            <div class="report-grid" id="delivery-ops-console-overview">
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.overview">Ops Overview</div>
+                <div class="report-empty" data-i18n="deliveryOps.emptyConsole">Open Delivery Ops to load the live ops console.</div>
+              </article>
+            </div>
+            <div class="delivery-ops-grid">
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.executionStatus">Execution Status</div>
+                <div class="report-list" id="delivery-ops-execution-status">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyExecutionStatus">Select a subscription to inspect the latest execution status.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.retryResult">Retry Result</div>
+                <div class="report-list" id="delivery-ops-retry-result">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRetryResult">Run a retry action to inspect the latest retry result.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.recovery">Recovery Board</div>
+                <div class="report-list" id="delivery-ops-recovery-summary">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.priorityQueue">Priority Queue</div>
+                <div class="report-list" id="delivery-ops-recovery-priority">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-export-header">
+                  <div class="report-section-title" data-i18n="deliveryOps.subscriptions">Subscriptions</div>
+                  <div class="report-export-actions" id="delivery-ops-actions"></div>
+                </div>
+                <div class="report-list" id="delivery-ops-subscriptions">
+                  <div class="report-empty" data-i18n="deliveryOps.emptySubscriptions">No subscriptions loaded yet.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.logs">Recent Delivery Logs</div>
+                <div class="report-list" id="delivery-ops-logs">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyLogs">No delivery logs loaded yet.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.alerts">Alerts</div>
+                <div class="report-list" id="delivery-ops-alerts">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyAlerts">No live delivery alerts yet.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.pendingRecovery">Pending Recovery</div>
+                <div class="report-list" id="delivery-ops-recovery-pending">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.recovered">Recovered</div>
+                <div class="report-list" id="delivery-ops-recovery-recovered">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.stillFailing">Still Failing</div>
+                <div class="report-list" id="delivery-ops-recovery-failing">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyRecovery">Open Delivery Ops to load recovery queues.</div>
+                </div>
+              </article>
+              <article class="report-card">
+                <div class="report-section-title" data-i18n="deliveryOps.actions">Suggested Actions</div>
+                <div class="report-list" id="delivery-ops-console-actions">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyActions">No suggested actions yet.</div>
+                </div>
+                <div class="report-section-title" data-i18n="deliveryOps.statusFeed">Recent Status Feed</div>
+                <div class="report-list" id="delivery-ops-console-statuses">
+                  <div class="report-empty" data-i18n="deliveryOps.emptyStatuses">No recent status items yet.</div>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="lyrics-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">📝</div>
+          <div class="panel-title" data-i18n="panel.lyrics">Lyrics Engine</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="engine-progress-shell" id="lyrics-progress-shell" data-engine-progress="lyrics" hidden>
+            <div class="engine-progress-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
+            <div class="engine-progress-bar"><span id="lyrics-progress"></span></div>
+            <div class="engine-progress-detail" id="lyrics-progress-detail"></div>
+          </div>
+          <div class="panel-label" data-i18n="label.sceneMap">Scene Map · Flowing Typewriter</div>
+          <div class="engine-grid" id="lyrics-grid"></div>
+          <pre class="lyrics engine-lyrics" id="lyrics"></pre>
+          <div class="lyric-flow" id="lyric-flow"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="music-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🎼</div>
+          <div class="panel-title" data-i18n="panel.music">Music Engine</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="engine-progress-shell" id="music-progress-shell" data-engine-progress="music" hidden>
+            <div class="engine-progress-title" data-i18n="status.audioEngine">Audio Engine</div>
+            <div class="engine-progress-bar"><span id="music-progress"></span></div>
+            <div class="engine-progress-detail" id="music-progress-detail"></div>
+          </div>
+          <div class="panel-label" data-i18n="label.waveform">Waveform · Style Render</div>
+          <div class="engine-meta">
+            <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: removed hardcoded
+                 "Chinese GuFeng" / "Feminine" pre-roll labels; start empty
+                 (—) and let the random-roll / work loader populate them. -->
+            <div><span data-i18n="label.style">Style</span> <span id="music-style">—</span></div>
+            <div><span data-i18n="label.voice">Voice</span> <span id="voice-style">—</span></div>
+          </div>
+          <div class="tag-row" id="music-tags"></div>
+          <div class="music-runtime-board" id="music-runtime-board"></div>
+          <div class="waveform" id="waveform">
+            <span style="--i: 1; --h: 30%"></span>
+            <span style="--i: 2; --h: 60%"></span>
+            <span style="--i: 3; --h: 45%"></span>
+            <span style="--i: 4; --h: 70%"></span>
+            <span style="--i: 5; --h: 38%"></span>
+            <span style="--i: 6; --h: 78%"></span>
+            <span style="--i: 7; --h: 55%"></span>
+            <span style="--i: 8; --h: 88%"></span>
+            <span style="--i: 9; --h: 50%"></span>
+            <span style="--i: 10; --h: 72%"></span>
+            <span style="--i: 11; --h: 40%"></span>
+            <span style="--i: 12; --h: 86%"></span>
+            <span style="--i: 13; --h: 48%"></span>
+            <span style="--i: 14; --h: 64%"></span>
+            <span style="--i: 15; --h: 30%"></span>
+            <span style="--i: 16; --h: 76%"></span>
+            <span style="--i: 17; --h: 52%"></span>
+            <span style="--i: 18; --h: 84%"></span>
+            <span style="--i: 19; --h: 44%"></span>
+            <span style="--i: 20; --h: 70%"></span>
+            <span style="--i: 21; --h: 36%"></span>
+            <span style="--i: 22; --h: 90%"></span>
+            <span style="--i: 23; --h: 46%"></span>
+            <span style="--i: 24; --h: 68%"></span>
+          </div>
+          <div class="track-list" id="music-track-list">
+            <div class="track-row">
+              <div class="track-label" data-i18n="track.leadVocal">Lead Vocal</div>
+              <div class="track-bar"><span style="width: 78%"></span></div>
+            </div>
+            <div class="track-row">
+              <div class="track-label" data-i18n="track.harmony">Harmony</div>
+              <div class="track-bar"><span style="width: 62%"></span></div>
+            </div>
+            <div class="track-row">
+              <div class="track-label" data-i18n="track.strings">Strings</div>
+              <div class="track-bar"><span style="width: 70%"></span></div>
+            </div>
+          </div>
+          <div class="mix-grid" id="mix-grid"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="video-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">📽</div>
+          <div class="panel-title" data-i18n="panel.video">Video Engine</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="engine-progress-shell" id="video-progress-shell" data-engine-progress="video" hidden>
+            <div class="engine-progress-title" data-i18n="status.videoEngine">Video Engine</div>
+            <div class="engine-progress-bar"><span id="video-progress"></span></div>
+            <div class="engine-progress-detail" id="video-progress-detail"></div>
+          </div>
+          <div class="panel-label" data-i18n="label.storyboard">Storyboard · Camera Flow</div>
+          <div class="tag-row" id="video-tags"></div>
+          <div class="video-runtime-board" id="video-runtime-board"></div>
+          <div class="storyboard" id="storyboard">
+            <div class="story-frame" data-i18n="shot.01">Shot 01</div>
+            <div class="story-frame" data-i18n="shot.02">Shot 02</div>
+            <div class="story-frame" data-i18n="shot.03">Shot 03</div>
+            <div class="story-frame" data-i18n="shot.04">Shot 04</div>
+            <div class="story-frame" data-i18n="shot.05">Shot 05</div>
+            <div class="story-frame" data-i18n="shot.06">Shot 06</div>
+          </div>
+          <div class="camera-list" id="camera-list"></div>
+          <div class="video-script" id="video-script" data-i18n="label.videoScript">
+            Auto script loaded · 3 scenes ready
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="settings-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">⚙</div>
+          <div class="panel-title" data-i18n="panel.settings">Advanced Settings</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" data-i18n-aria="action.settings" aria-label="Settings">⚙</button>
+            <button class="icon-btn" data-i18n-aria="action.minimize" aria-label="Minimize">—</button>
+            <button class="icon-btn" data-i18n-aria="action.lock" aria-label="Lock panel">⛶</button>
+            <button class="icon-btn" data-i18n-aria="action.close" aria-label="Close">×</button>
+          </div>
+        </div>
+        <div class="panel-body settings-body">
+          <label>
+            <span data-i18n="settings.titleOrPrompt">Title / Prompt</span>
+            <!-- v28 step 34 — Jing: align with MV PIPELINE panel. Accept
+                 either a finished title OR a free-form theme/prompt;
+                 backend extracts the title. textarea (rows=3) so user
+                 has room to write a sentence, not just a few words.
+                 placeholder is dynamically populated by
+                 app.civilization-ui-hints.js from the UI locale's
+                 civilization titleHints. -->
+            <textarea
+              id="title-input"
+              rows="3"
+              placeholder=""
+            ></textarea>
+          </label>
+          <!-- CSSOS_WAVE_415 20260524 — Jing「放自定义歌词上方」: multilingual
+               picker mount point (Advanced Settings). Mounted by app.creation-flow
+               with freeFirst=true; its selection persists as the canonical
+               language preference read by every entry (incl. zero-input 一键MV). -->
+          <div id="creation-language-picker"></div>
+          <label class="field-shell field-shell-rich">
+            <span class="field-label-row">
+              <span data-i18n="settings.customLyrics">Custom Lyrics</span>
+              <!-- CSSOS_PHASE2_DUAL_WAND 20260429 #192/#195 — Jing
+                   两个魔法棒。
+                   🪄 (lyrics-regenerate, this row, right side):
+                       generate title + lyrics + ALL params from scratch
+                       using UI language + civilization linkage.
+                   🪄 (style-regenerate, on Music Style row below):
+                       reused as "derive params only from existing
+                       title+lyrics" — see CSSOS_deriveParamsFromLyrics.
+                       The wand image stays the same; the handler now
+                       routes based on whether lyrics are present.
+                   -->
+              <button
+                id="lyrics-regenerate"
+                class="field-action-btn"
+                type="button"
+                data-i18n-aria="action.regenerateLyrics"
+                aria-label="Regenerate title + lyrics + all params (civilization-linked)"
+                title="新随机一首：标题+歌词+所有参数"
+                onpointerdown="return window.CSSOS_forceLyricsRegenerate ? window.CSSOS_forceLyricsRegenerate(event) : true;"
+              >
+                🪄
+              </button>
+            </span>
+            <div class="seed-script-tabs lyrics-input-tabs scroll-peek" data-scroll-peek>
+              <button class="cta ghost tiny active" type="button" data-lyrics-input-tab="editor">Custom Lyrics</button>
+              <button class="cta ghost tiny" type="button" data-lyrics-input-tab="uploads">Music Source Uploads</button>
+            </div>
+            <div class="seed-script-panes lyrics-input-panes">
+              <div class="seed-script-pane active" id="lyrics-input-pane-editor">
+                <textarea
+                  id="lyrics-input"
+                  rows="6"
+                  placeholder="Drop your own verses or a full opera..."
+                  data-i18n-placeholder="settings.lyricsPlaceholder"
+                ></textarea>
+                <div id="lyrics-debug-status" class="field-debug-status" aria-live="polite" data-i18n="settings.lyricsDebugIdle" hidden>
+                  Click the wand to view lyric generation status.
+                </div>
+              </div>
+              <div class="seed-script-pane lyrics-input-upload-pane" id="lyrics-input-pane-uploads">
+                <div id="lyrics-music-upload-tab-root"></div>
+              </div>
+            </div>
+          </label>
+          <div class="row row-single">
+            <label>
+              <span data-i18n="settings.voiceGender">Voice Gender</span>
+              <!-- CSSOS_PHASE2_NO_HARDCODED_VOICE_DEFAULT 20260427 #162 — Jing
+                   "Feminine"是硬编码默认；改成 "Auto" 让 derived_settings 在
+                   lyrics 阶段按文明 × 歌词代词智能填充，用户没显式选择前
+                   一律走 auto 路径。空 value 让前端跳过提交而 derived_settings
+                   能补齐。 -->
+              <select id="voice-input">
+                <option value="" selected data-i18n="creation.option.vocalGender.auto">Auto · 文明智能填充</option>
+                <option value="feminine" data-i18n="creation.option.vocalGender.feminine">Feminine</option>
+                <option value="masculine" data-i18n="creation.option.vocalGender.masculine">Masculine</option>
+                <option value="childlike" data-i18n="creation.option.vocalGender.childlike">Childlike</option>
+                <option value="duet" data-i18n="creation.option.vocalGender.duet">Duet</option>
+                <option value="androgynous" data-i18n="creation.option.vocalGender.androgynous">Androgynous</option>
+                <option value="polyphonic_choir" data-i18n="creation.option.vocalGender.polyphonic_choir">Polyphonic Choir</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            <span data-i18n="settings.sources">Sources / Story Links</span>
+            <textarea
+              id="lyrics-source-input"
+              rows="3"
+              placeholder="Related references / source pages / story links..."
+              data-i18n-placeholder="settings.sourcesPlaceholder"
+            ></textarea>
+          </label>
+          <div class="seed-script-panel">
+            <div class="seed-script-tabs scroll-peek" data-scroll-peek>
+              <button class="cta ghost tiny active" type="button" id="seed-tab-music" data-seed-tab="music" data-i18n="settings.musicStructure">Music Structure</button>
+              <button class="cta ghost tiny" type="button" id="seed-tab-outline" data-seed-tab="outline" data-i18n="settings.videoOutline">Video Outline</button>
+              <button class="cta ghost tiny" type="button" id="seed-tab-scenes" data-seed-tab="scenes" data-i18n="settings.sectionPrompts">Section Scene Prompts</button>
+            </div>
+            <div class="seed-script-panes">
+              <div class="seed-script-pane active" id="seed-pane-music">
+                <div class="field-label-row seed-pane-label-row">
+                  <span data-i18n="settings.musicStructure">Music Structure</span>
+                  <button
+                    id="music-structure-regenerate"
+                    class="field-action-btn"
+                    type="button"
+                    data-i18n-aria="action.regenerateMusicStructure"
+                    aria-label="Regenerate music structure"
+                  >
+                    🪄
+                  </button>
+                </div>
+                <textarea
+                  id="music-structure-input"
+                  rows="7"
+                  placeholder="Section-by-section beat map and arrangement arc..."
+                  data-i18n-placeholder="settings.musicStructurePlaceholder"
+                ></textarea>
+              </div>
+              <div class="seed-script-pane" id="seed-pane-outline">
+                <div class="field-label-row seed-pane-label-row">
+                  <span data-i18n="settings.videoOutline">Video Outline</span>
+                  <button
+                    id="video-outline-regenerate"
+                    class="field-action-btn"
+                    type="button"
+                    data-i18n-aria="action.regenerateVideoOutline"
+                    aria-label="Regenerate video outline"
+                  >
+                    🪄
+                  </button>
+                </div>
+                <textarea
+                  id="video-outline-input"
+                  rows="6"
+                  placeholder="Overall MV visual outline..."
+                  data-i18n-placeholder="settings.videoOutlinePlaceholder"
+                ></textarea>
+              </div>
+              <div class="seed-script-pane" id="seed-pane-scenes">
+                <div class="field-label-row seed-pane-label-row">
+                  <span data-i18n="settings.sectionPrompts">Section Scene Prompts</span>
+                  <button
+                    id="section-prompts-regenerate"
+                    class="field-action-btn"
+                    type="button"
+                    data-i18n-aria="action.regenerateSectionPrompts"
+                    aria-label="Regenerate section prompts"
+                  >
+                    🪄
+                  </button>
+                </div>
+                <textarea
+                  id="section-prompts-input"
+                  rows="10"
+                  placeholder="One section prompt per section..."
+                  data-i18n-placeholder="settings.sectionPromptsPlaceholder"
+                ></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="creation-console" id="creation-console">
+            <div class="creation-tabs scroll-peek" id="creation-tabs" data-scroll-peek></div>
+            <div class="creation-chips scroll-peek" id="creation-chips" data-scroll-peek></div>
+            <label class="field-shell creation-style-shell">
+              <span class="field-label-row">
+                <span data-i18n="settings.musicStyle">Music Style</span>
+                <!-- CSSOS_PHASE2_DUAL_WAND 20260429 #192/#195 — Jing
+                     This is the SECOND wand. Originally a Music Style-only
+                     regenerator; repurposed to "derive ALL other params
+                     from existing title + lyrics" (BPM/key/voice gender/
+                     vocal style/instrumentation/ensemble/percussion/
+                     arrangement density/dynamics/articulation/register/
+                     section form/inspiration/...). Civilization-anchored
+                     by UI language. The first wand (above, in CUSTOM
+                     LYRICS row) regenerates title+lyrics+everything from
+                     scratch; this one preserves the user's title+lyrics
+                     and only fills the other knobs. -->
+                <button
+                  id="style-regenerate"
+                  class="field-action-btn"
+                  type="button"
+                  data-i18n-aria="action.deriveParamsFromLyrics"
+                  aria-label="Derive params only from current title + lyrics (civilization-linked)"
+                  title="保留歌词，只随机其他参数（BPM/调式/声线/乐器/编制…）"
+                  onpointerdown="return window.CSSOS_deriveParamsFromLyrics ? window.CSSOS_deriveParamsFromLyrics(event) : true;"
+                >
+                  🪄
+                </button>
+              </span>
+              <textarea
+                id="style-input"
+                rows="3"
+                maxlength="2000"
+                placeholder=""
+                data-i18n-placeholder="settings.musicStylePlaceholder"
+              ></textarea>
+            </label>
+            <div class="creation-meta">
+              <span id="creation-style-count">0/2000</span>
+            </div>
+            <div class="row">
+              <label>
+                <span data-i18n="settings.tempoBpm">Tempo (BPM)</span>
+                <input id="creation-tempo" type="number" min="40" max="220" step="1" placeholder="—" />
+              </label>
+              <label>
+                <span data-i18n="settings.key">Key</span>
+                <!-- CSSOS_PHASE2_NO_HARDCODED_KEY_DEFAULT 20260427 #162 — Jing
+                     Hardcoded "C" first-option was the implicit default;
+                     replaced with empty "Auto" so derived_settings drives the
+                     final key based on civilization × language × mood. -->
+                <select id="creation-key">
+                  <option value="" selected data-i18n="creation.option.key.auto">Auto · 智能填充</option>
+                  <option value="C">C</option>
+                  <option value="D">D</option>
+                  <option value="E">E</option>
+                  <option value="F">F</option>
+                  <option value="G">G</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                </select>
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span data-i18n="settings.durationSec">Duration (sec)</span>
+                <!-- CSSOS_PHASE2_NO_HARDCODED_180 20260427 #162 — Jing:
+                     "DURATION (SEC)（不要默认180秒，反人类反音乐的）" —
+                     placeholder shows "auto · 文明智能" so user knows the
+                     lyrics engine will derive the real duration. -->
+                <input id="creation-duration" type="number" min="30" max="600" step="5" data-i18n-placeholder="settings.durationPlaceholder" placeholder="auto" />
+              </label>
+            </div>
+            <!-- CSSOS_WAVE_431 20260525 — Jing: #creation-language dropdown removed;
+                 language is controlled exclusively by #creation-language-picker above.
+                 Keeping a hidden stub so legacy JS reads don't throw on getElementById. -->
+            <select id="creation-language" hidden aria-hidden="true"></select>
+            <div class="row">
+              <label>
+                <span>Work Type</span>
+                <!-- CSSOS_PHASE2_NO_HARDCODED_WORK_TYPE 20260427 #162 — Jing
+                     "Single" was first-option default; let lyrics-stage
+                     derived_settings infer (single / triptych / opera /
+                     short_drama / series / film) from section-form. -->
+                <select id="creation-work-type">
+                  <option value="" selected data-i18n="creation.option.workType.auto">Auto · 智能判断</option>
+                  <option value="single">Single</option>
+                  <option value="triptych">Triptych</option>
+                  <option value="opera">Opera</option>
+                  <option value="short_drama">Short Drama</option>
+                  <option value="series">Series</option>
+                  <option value="film">Film</option>
+                </select>
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Instrumentation</span>
+                <input
+                  id="creation-instrumentation"
+                  type="text"
+                  maxlength="400"
+                  placeholder="e.g. guzheng, dizi, low strings, taiko, analog bass"
+                />
+              </label>
+              <label>
+                <span data-i18n="creation.vocalStyle">Vocal Style</span>
+                <input
+                  id="creation-vocal-style"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. airy bel canto, chesty soul, close-mic whisper"
+                  data-i18n-placeholder="creation.vocalStylePlaceholder"
+                />
+              </label>
+            </div>
+            <!-- CSSOS_PHASE2_MAKE_INSTRUMENTAL_TOGGLE 20260429 #188 — Jing
+                 "make_instrumental 请在高级设置面板才参数开关,
+                  有时候需要生成纯音乐". When checked, the music engine
+                 ignores lyrics and generates instrumental-only audio. -->
+            <div class="row">
+              <label class="row-checkbox">
+                <input id="creation-make-instrumental" type="checkbox" />
+                <span data-i18n="creation.makeInstrumental">Instrumental only (skip vocals & lyrics)</span>
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span data-i18n="creation.ensembleStyle">Ensemble Style</span>
+                <input
+                  id="creation-ensemble-style"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. chamber strings, festival drums, synth-pop band"
+                  data-i18n-placeholder="creation.ensembleStylePlaceholder"
+                />
+              </label>
+              <label>
+                <span data-i18n="creation.licensedStylePack">Licensed Style Pack</span>
+                <input
+                  id="creation-licensed-style-pack"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. orchestra.core.v1"
+                  data-i18n-placeholder="creation.licensedStylePackPlaceholder"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span data-i18n="creation.externalAudioAdapter">External Audio Adapter</span>
+                <input
+                  id="creation-external-audio-adapter"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. kontakt, spitfire, eastwest, custom://orchestra"
+                  data-i18n-placeholder="creation.externalAudioAdapterPlaceholder"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span data-i18n="creation.arrangementDensity">Arrangement Density</span>
+                <input
+                  id="creation-arrangement-density"
+                  type="range"
+                  min="0.2"
+                  max="1"
+                  step="0.05"
+                  value="0.6"
+                />
+              </label>
+              <label>
+                <span data-i18n="creation.dynamicsCurve">Dynamics Curve</span>
+                <input
+                  id="creation-dynamics-curve"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. rising arc, soft verse / explosive chorus"
+                  data-i18n-placeholder="creation.dynamicsCurvePlaceholder"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span data-i18n="creation.sectionForm">Section Form</span>
+                <input
+                  id="creation-section-form"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. intro, verse, pre-chorus, chorus, bridge, chorus, outro"
+                  data-i18n-placeholder="creation.sectionFormPlaceholder"
+                />
+              </label>
+              <label>
+                <span data-i18n="creation.articulationBias">Articulation Bias</span>
+                <input
+                  id="creation-articulation-bias"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. legato lead, staccato pulse, pizzicato bridge"
+                  data-i18n-placeholder="creation.articulationBiasPlaceholder"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span data-i18n="creation.voicingRegister">Voicing Register</span>
+                <input
+                  id="creation-voicing-register"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. low cinematic bed, mid vocal pocket, bright high lead"
+                  data-i18n-placeholder="creation.voicingRegisterPlaceholder"
+                />
+              </label>
+              <label>
+                <span data-i18n="creation.percussionActivity">Percussion Activity</span>
+                <input
+                  id="creation-percussion-activity"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.45"
+                />
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                <span>Expression CC Bias</span>
+                <input
+                  id="creation-expression-cc-bias"
+                  type="text"
+                  maxlength="240"
+                  placeholder="e.g. swell into chorus, breathing verse, restrained intro"
+                />
+              </label>
+              <label>
+                <span>Humanization</span>
+                <input
+                  id="creation-humanization"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.35"
+                />
+              </label>
+            </div>
+            <label class="field-shell">
+              <span>Inspiration Notes</span>
+              <textarea
+                id="creation-inspiration-notes"
+                rows="3"
+                maxlength="1000"
+                placeholder="Use high-level references, eras, regions, instrumentation, emotional pacing, and legally licensed packs. Avoid requesting a direct clone of a specific artist or recording."
+              ></textarea>
+            </label>
+            <div class="creation-reference-library">
+              <div class="panel-label">Reference Atlas</div>
+              <div class="creation-reference-note">
+                Use these as broad musical inspirations and ensemble references, not as a request to clone a specific living artist or copyrighted recording.
+              </div>
+              <div id="creation-reference-library"></div>
+            </div>
+            <div class="row creation-defaults-row" id="creation-defaults-row" hidden>
+              <label>
+                <span>Default Listen Price</span>
+                <input id="creation-default-listen" type="number" min="0.01" step="0.01" value="0.99" />
+              </label>
+              <label>
+                <span>Default Buyout Price</span>
+                <input id="creation-default-buyout" type="number" min="0" step="0.01" value="2.99" />
+              </label>
+            </div>
+            <div class="creation-summary" id="creation-summary"></div>
+            <div class="creation-universe-card" id="creation-universe-card"></div>
+            <div class="creation-actions">
+              <button id="creation-set-defaults" class="cta ghost tiny" type="button" data-i18n="settings.panel.setDefault" hidden>Set as Default</button>
+              <button id="creation-clear" class="cta ghost tiny" type="button" data-i18n="action.clearAll">Clear All</button>
+            </div>
+          </div>
+          <div class="palette-color-tabs scroll-peek" id="palette-color-tabs" data-scroll-peek>
+            <label class="palette-color-card">
+              <span data-color-name-for="bg-color-1">—</span>
+              <input id="bg-color-1" type="color" value="#00f5a0" />
+            </label>
+            <label class="palette-color-card">
+              <span data-color-name-for="bg-color-2">—</span>
+              <input id="bg-color-2" type="color" value="#040a08" />
+            </label>
+            <label class="palette-color-card">
+              <span data-color-name-for="bg-color-3">—</span>
+              <input id="bg-color-3" type="color" value="#008c64" />
+            </label>
+            <label class="palette-color-card">
+              <span data-color-name-for="bg-color-4">—</span>
+              <input id="bg-color-4" type="color" value="#010302" />
+            </label>
+          </div>
+          <button
+            id="random-palette"
+            class="cta ghost"
+            type="button"
+            data-i18n="action.randomPalette"
+          >
+            Random Palette
+          </button>
+          <div class="palette-presets scroll-peek" role="tablist" aria-label="Palette presets" data-scroll-peek>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-green" data-i18n="settings.palettePreset.green">Emerald</button>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-red" data-i18n="settings.palettePreset.red">Crimson</button>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-blue" data-i18n="settings.palettePreset.blue">Azure</button>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-purple" data-i18n="settings.palettePreset.purple">Violet</button>
+            <button class="cta ghost tiny" type="button" data-palette-preset="mono-gold" data-i18n="settings.palettePreset.gold">Gold</button>
+          </div>
+          <button id="apply-settings" class="cta" data-i18n="action.applyRender">
+            Apply & Render
+          </button>
+          <button id="advanced-panel-settings-toggle" class="cta ghost tiny" type="button" data-i18n="settings.panel.advancedHub">Advanced Panel Settings</button>
+          <div class="advanced-panel-settings" id="advanced-panel-settings"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="language-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🌐</div>
+          <div class="panel-title" data-i18n="panel.language">Language</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body language-body">
+          <div class="panel-label" data-i18n="language.subtitle">Interface Language</div>
+          <div class="language-current" id="language-current"></div>
+          <div class="language-grid" id="language-list"></div>
+          <button class="cta ghost tiny" id="language-more" type="button" data-i18n="language.more">
+            More languages
+          </button>
+          <div class="language-grid is-hidden" id="language-list-more"></div>
+          <div class="language-status" id="language-status" data-i18n="language.ready">
+            Ready
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="login-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🔐</div>
+          <div class="panel-title" data-i18n="panel.login">Login</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" type="button" data-i18n-aria="action.settings" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body login-body">
+          <div class="panel-label" data-i18n="login.subtitle">
+            Social Login Gateways
+          </div>
+          <div class="login-status" id="login-status" data-i18n="login.statusGuest">
+            Guest
+          </div>
+          <div class="login-user" id="login-user"></div>
+          <div id="login-summary-host"></div>
+          <div class="login-grid cssmv-pill-bar" id="login-list"></div>
+          <button class="cta ghost tiny" id="login-logout" type="button" data-i18n="login.logout">
+            Log out
+          </button>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="profile-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">👤</div>
+          <div class="panel-title" data-i18n="profile.title">Profile</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <!-- CSSOS_PHASE2_PROFILE_CHROME 20260505 — Jing
+                 "profile面板，应该做成普通面板，右上角三按钮，最大化
+                  状态启动". Standard three-button cluster, matching
+                 every other panel. -->
+            <button class="icon-btn" type="button" data-i18n-aria="action.minimize" aria-label="Minimize">—</button>
+            <button class="icon-btn" type="button" data-i18n-aria="action.lock" aria-label="Lock panel">⛶</button>
+            <button class="icon-btn" type="button" data-action="profile.close" data-i18n-aria="action.close" aria-label="Close">×</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="profile-grid">
+            <div class="profile-row">
+              <div class="profile-label" data-i18n="profile.passkey">Passkey</div>
+              <div class="profile-actions" data-segmented="2" data-pill-bar>
+                <button class="cta tiny" id="passkey-enable" type="button" data-action="passkey.enable" data-i18n="profile.passkeyEnable">Enable</button>
+                <button class="cta tiny" id="passkey-login" type="button" data-action="passkey.login" data-i18n="profile.passkeyLogin">Login</button>
+              </div>
+            </div>
+            <div class="profile-hint" id="profile-hint"></div>
+          </div>
+          <!-- CSSOS_PHASE2_PERSONALIZATION_INBOX 20260502 #271 — Jing.
+               cssOS · Curator drops every system gift MV here. Mounted by
+               public/app.gift-inbox-panel.js when the user signs in. -->
+          <div id="gift-inbox-mount" class="gift-inbox-mount"></div>
+        </div>
+      </section>
+
+      <section class="panel flow hidden" id="notifications-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🔔</div>
+          <div class="panel-title" data-i18n="panel.notifications">Notifications</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body notifications-body">
+          <div class="panel-label" data-i18n="notifications.subtitle">Background completions · watch reminders · recovery alerts</div>
+          <div class="notifications-meta" id="notifications-meta"></div>
+          <div class="notifications-actions" data-segmented="3" data-pill-bar>
+            <button class="cta ghost" id="notifications-enable" type="button" data-i18n="notifications.enableAlerts">Enable browser alerts</button>
+            <button class="cta ghost" id="notifications-mark-all" type="button" data-i18n="notifications.markAll">Mark all read</button>
+            <button class="cta ghost" id="notifications-clear" type="button" data-i18n="notifications.clear">Clear</button>
+          </div>
+          <div class="notifications-list" id="notifications-list"></div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="subscription-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">💎</div>
+          <div class="panel-title" data-i18n="panel.subscription">Subscription</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body subscription-body" id="subscription-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="credit-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">💳</div>
+          <div class="panel-title" data-i18n="panel.credit">Credit</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body credit-body" id="credit-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="workspaces-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🧱</div>
+          <div class="panel-title" data-i18n="panel.workspaces">Workspaces</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body workspaces-body" id="workspaces-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <!-- CSSOS_WAVE_125 20260513 — System MV monitor panel.
+           Admin-only at the API layer; non-admins get a friendly message. -->
+      <section class="panel flow hidden" id="system-mvs-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🌌</div>
+          <div class="panel-title" data-i18n="panel.systemMvs">System MVs</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body" id="system-mvs-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="user-admin-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🧑‍💼</div>
+          <div class="panel-title" data-i18n="panel.userAdmin">User Admin</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body user-admin-body" id="user-admin-panel-content"></div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="works-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">🗂</div>
+          <div class="panel-title" data-i18n="panel.works">Works Center</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body works-body">
+          <div class="panel-label" data-i18n="works.subtitle">Creator Works Center</div>
+          <div class="works-hero">
+            <div class="works-avatar">CS</div>
+            <div class="works-meta">
+              <div class="works-name">CSS Studio</div>
+              <div class="works-role" data-i18n="works.profileRole">Creator Studio</div>
+              <div class="works-badges">
+                <span class="badge">
+                  <span data-i18n="works.followers">Followers</span> · 28.4k
+                </span>
+                <span class="badge">
+                  <span data-i18n="works.circles">Circles</span> · 128
+                </span>
+                <span class="badge">
+                  <span data-i18n="works.blocked">Blocked</span> · 3
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="works-section">
+            <div class="section-title" data-i18n="works.yourWorks">Your Works</div>
+            <div class="works-list">
+              <article class="work-card">
+                <div class="work-cover">MV</div>
+                <div class="work-info">
+                  <div class="work-title">Moon of Chang'e</div>
+                  <div class="work-tags">GuFeng · 3 scenes · 12 shots</div>
+                  <div class="work-pricing">
+                    <span class="price-chip">
+                      <span data-i18n="works.price.access">View/Listen</span> · $6
+                    </span>
+                    <span class="price-chip">
+                      <span data-i18n="works.price.buyout">Buyout</span> · $180
+                    </span>
+                    <span class="price-chip">
+                      <span data-i18n="works.price.tip">Tip</span> · $2
+                    </span>
+                  </div>
+                </div>
+                <div class="work-actions" data-segmented="2" data-pill-bar>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.action.manage">
+                    Manage
+                  </button>
+                  <button class="mini-btn" type="button" data-i18n="works.action.price">
+                    Set Price
+                  </button>
+                </div>
+              </article>
+
+              <article class="work-card">
+                <div class="work-cover">LP</div>
+                <div class="work-info">
+                  <div class="work-title">Neon Opera</div>
+                  <div class="work-tags">Electro · Live render</div>
+                  <div class="work-pricing">
+                    <span class="price-chip">
+                      <span data-i18n="works.price.access">View/Listen</span> · $4
+                    </span>
+                    <span class="price-chip">
+                      <span data-i18n="works.price.buyout">Buyout</span> · $120
+                    </span>
+                    <span class="price-chip">
+                      <span data-i18n="works.price.tip">Tip</span> · $1
+                    </span>
+                  </div>
+                </div>
+                <div class="work-actions" data-segmented="2" data-pill-bar>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.action.manage">
+                    Manage
+                  </button>
+                  <button class="mini-btn" type="button" data-i18n="works.action.price">
+                    Set Price
+                  </button>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div class="works-grid">
+            <div class="works-section">
+              <div class="section-title" data-i18n="works.comments">Comments</div>
+              <div class="comment-card">
+                <div class="comment-meta">
+                  <span>@luna</span>
+                  <span>2m</span>
+                </div>
+                <div class="comment-text">Amazing mirror glow. Can you drop stems?</div>
+                <div class="comment-actions" data-segmented="3" data-pill-bar>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.action.hide">
+                    Hide
+                  </button>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.action.delete">
+                    Delete
+                  </button>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.action.block">
+                    Block
+                  </button>
+                </div>
+              </div>
+              <div class="comment-card">
+                <div class="comment-meta">
+                  <span>@nova</span>
+                  <span>12m</span>
+                </div>
+                <div class="comment-text">Bought the MV. The camera flow is insane.</div>
+                <div class="comment-actions" data-segmented="3" data-pill-bar>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.action.hide">
+                    Hide
+                  </button>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.action.delete">
+                    Delete
+                  </button>
+                  <button class="mini-btn ghost" type="button" data-i18n="works.action.follow">
+                    Follow
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="works-section">
+              <div class="section-title" data-i18n="works.monetization">Monetization</div>
+              <div class="stat-grid">
+                <div class="stat-card">
+                  <div class="stat-label" data-i18n="works.subscription">Subscription</div>
+                  <div class="stat-value" data-i18n="works.status.connected">API connected</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label" data-i18n="works.platformShare">Platform Share</div>
+                  <div class="stat-value">—%</div>
+                </div>
+              </div>
+              <div class="works-note" data-i18n="works.fundsFlow">
+                All payments route through the platform account first, then are distributed to
+                creators.
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+
+      <section class="panel flow hidden" id="seller-panel">
+        <div class="panel-bar">
+          <div class="panel-icon">💸</div>
+          <div class="panel-title" data-i18n="panel.seller">Seller Desk</div>
+          <div class="panel-actions cssmv-pill-bar">
+            <button class="icon-btn" aria-label="settings">⚙</button>
+            <button class="icon-btn" aria-label="minimize">—</button>
+            <button class="icon-btn" aria-label="maximize">⤢</button>
+            <button class="icon-btn" aria-label="close">×</button>
+          </div>
+        </div>
+        <div class="panel-body seller-body">
+          <div class="panel-label">创作者订单 / 收入</div>
+          <div class="seller-metrics" id="seller-metrics"></div>
+          <div class="works-grid seller-grid">
+            <div class="works-section">
+              <div class="section-title">订单</div>
+              <div class="seller-list" id="seller-orders-list"></div>
+            </div>
+            <div class="works-section">
+              <div class="section-title">收入</div>
+              <div class="seller-list" id="seller-ledger-list"></div>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+      </section>
+    </main>
+
+    <footer class="dock" id="dock" data-pill-bar data-pill-compact>
+      <!-- CSSOS_WAVE_163 20260515 — Jing: "自从加入了 🌌 System MVs，
+           MV PIPELINE 面板就丢失了，请找回来". The MV Pipeline dock item
+           had gone missing from index.html — DOCK_DEFAULT_ORDER lists
+           "mv-pipeline" first, but restoreDockOrder() only renders
+           actions that have a matching STATIC .dock-item, so a missing
+           item is silently dropped. Restored here as a first-class
+           static dock entry; buildBuiltinDockActionMap() carries the
+           matching "mv-pipeline" → openMvPipelinePanel() handler. -->
+      <!-- CSSOS_WAVE_489 20260529 — Jing「话筒默认就在第一位, 别先渲染别处再飞过去」。
+           话筒 = 默认激活项, 而激活项跳第一(W487)。把它放在静态 HTML 第一个, 这样
+           JS/pill-bar 还没跑时, 用户进来话筒就已经在第一位, 不会看到它从别处飞来。
+           DOCK_DEFAULT_ORDER 与 DOCK_FRONT_PINNED 也同步把 mic 排到最前。 -->
+      <!-- Dock order: Mic → MV Pipeline → (person-mv injected here) → For You → rest -->
+      <div data-action="mic" data-pill-key="mic" data-hold="mic" class="active">
+        <span class="dock-mic-icon dock-icon-media">
+          <img class="dock-mic-img dock-mic-a" src="assets/dock-mic-1.webp?v=20260529-w495-webp" alt="" aria-hidden="true" />
+          <img class="dock-mic-img dock-mic-b" src="assets/dock-mic-2.webp?v=20260529-w495-webp" alt="" aria-hidden="true" />
+        </span>
+        <span data-i18n="dock.mic">Mic</span>
+      </div>
+      <div data-action="mv-pipeline" data-pill-key="mv-pipeline">🎞️ <span data-i18n="dock.mvPipeline">MV Pipeline</span></div>
+      <div data-action="foryou" data-pill-key="foryou">✨ <span data-i18n="dock.foryou">For You</span></div>
+      <div data-action="works" data-pill-key="works">🗂 <span data-i18n="dock.works">Works</span></div>
+      <!-- CSSOS_WAVE_486 20260529 — Jing: 删除 🎬 CSS MV dock 项。它和 🎞️ MV
+           Pipeline 打开同一个面板(WAVE_147 起被重指向管线), 纯重复, 还导致
+           "点 CSS MV 却激活 MV 管线"。交付仪表盘仍可经 Reports / Delivery Ops
+           进入。cssmv-panel 与其 handler 保留, 仅移除这颗重复的 dock 胶囊。 -->
+      <div data-action="lyrics" data-pill-key="lyrics">📝 <span data-i18n="dock.lyrics">Lyrics</span></div>
+      <div data-action="music" data-pill-key="music">🎼 <span data-i18n="dock.music">Music</span></div>
+      <div data-action="video" data-pill-key="video">📽 <span data-i18n="dock.video">Video</span></div>
+      <div data-action="watch" data-pill-key="watch">▶ <span data-i18n="dock.watch">MV</span></div>
+      <div data-action="notifications" data-pill-key="notifications">🔔 <span class="dock-notification-badge" id="dock-notification-badge" hidden>0</span><span data-i18n="dock.notifications">Notifications</span></div>
+      <div data-action="about" data-pill-key="about">ℹ <span data-i18n="dock.about">About</span></div>
+      <div data-action="api" data-pill-key="api">⌁ <span data-i18n="dock.api">API</span></div>
+      <div data-action="subscription" data-pill-key="subscription">💎 <span data-i18n="dock.subscription">Subscription</span></div>
+      <div data-action="credit" data-pill-key="credit">💳 <span data-i18n="dock.credit">Credit</span></div>
+      <div data-action="workspaces" data-pill-key="workspaces">🗂 <span data-i18n="dock.workspaces">Workspaces</span></div>
+      <div data-action="user-admin" data-pill-key="user-admin">🧑‍💼 <span data-i18n="dock.userAdmin">User</span></div>
+      <div data-action="settings" data-pill-key="settings">⚙ <span data-i18n="dock.settings">Settings</span></div>
+      <div data-action="reports" data-pill-key="reports">📊 <span data-i18n="dock.reports">Reports</span></div>
+      <div data-action="delivery-ops" data-pill-key="delivery-ops">🛰 <span data-i18n="dock.deliveryOps">Delivery Ops</span></div>
+      <div data-action="system-mvs" data-pill-key="system-mvs">🌌 <span data-i18n="dock.systemMvs">System MVs</span></div>
+      <div data-action="login" data-pill-key="login">🔐 <span data-i18n="dock.login">Login</span></div>
+      <div data-action="seller" data-pill-key="seller">💸 <span data-i18n="dock.seller">Seller</span></div>
+      <div data-action="language" data-pill-key="language">🌐 <span data-i18n="dock.language">Language</span></div>
+      <div data-action="engines" data-pill-key="engines" title="AI Engine Preferences">🧠 <span data-i18n="dock.engines">Engines</span></div>
+      <div data-action="passkey" data-pill-key="passkey">🔐 <span data-i18n="action.passkeyLogin">Passkey</span></div>
+      <div data-action="profile" data-pill-key="profile">👤 <span data-i18n="action.profile">Profile</span></div>
+    </footer>
+
+    <div class="toast" id="toast" data-i18n="toast.awakened">CSS awakened · 流流流</div>
+
+    <!-- CSSOS_WAVE_117_STEP_1 — Crash guard. MUST load BEFORE everything
+         else so window.onerror / onunhandledrejection / location.reload
+         instrumentation catches errors thrown by every later script. -->
+    <!-- CSSOS_WAVE_393 — build stamp + auto-update guard (App↔desktop parity).
+         Keep window.__CSSOS_BUILD and public/build.txt bumped to the SAME value
+         on every deploy so a stale device auto-reloads to the latest build. -->
+    <script>window.__CSSOS_BUILD = "20260604-w622";</script>
+    <!-- CSSOS_WAVE_513 — neutralize JS-injected :has() (iOS/macOS WebKit crash). MUST be first. -->
+    <script src="app.has-neutralizer.js?v=20260530-w515-backdrop"></script>
+    <!-- CSSOS_WAVE_518 — diag probe removed (crash investigation done). -->
+
+    <!-- CSSOS_WAVE_490k — :has() storm fix: maintain document-level state classes in JS. -->
+    <script src="app.has-class-bridge.js?v=20260529-w490k-hasbridge"></script>
+    <script src="app.build-guard.js?v=20260530-w516b-clean"></script>
+    <script src="app.crash-guard.js?v=20260530-w536-quiet"></script>
+    <!-- CSSOS_WAVE_365 20260523 — Jing: 重新挂回内存遥测探针(此前未在 index.html
+         引用 → 5/18 起没有任何样本, OOM 排查完全失明, 尤其 iOS 一条样本都没有).
+         每 30s + pagehide/visibility sendBeacon 到 /api/telemetry/memory, 极轻量.
+         恢复后才能"边改边看遥测的 dom_nodes/images", 据此决定 OOM 第二刀砍哪里. -->
+    <script src="app.memory-probe.js?v=20260530-w536-quiet"></script>
+    <script src="app.panel-memory-monitor.js?v=20260604-w636-basebreakdown"></script>
+    <!-- CSSOS_WAVE_249 20260520 — Jing: 极早定义 compactLyricLines 全局,
+         根治播放时每帧轮询抛 ReferenceError 压垮 webview 看门狗 →
+         强刷返回主界面的崩溃. 必须早于所有调用方(watch-audio-polling 等). -->
+    <script src="app.lyric-utils.js?v=20260521-w272-cachebust"></script>
+    <!-- CSSOS_WAVE_255 — 相同输入重生成: 覆盖旧作品 vs 输出新作品 的选择+记忆.
+         独立模块, 高级设置面板回滚动荡时也能用; 暴露 cssosResolveRegenOutputMode(). -->
+    <script src="app.regen-output-mode.js?v=20260522-w351-zindex"></script>
+    <!-- CSSOS_WAVE_259 — 钱漏#3 接线: 给 mv 生成注入 reuse_ok(重试/续跑复用),
+         用户主动重生成时开"求新窗口"强制出新. 必须早加载以包好 fetch. -->
+    <script src="app.mv-reuse-flag.js?v=20260521-w272-cachebust"></script>
+    <script src="app.ios-app-store-hardening.js?v=20260519-wave233-ios-harden"></script>
+    <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
+         nav, dead-anchor reloads, double-tap fires. Must load early so
+         CSS rules apply before any panel renders. -->
+    <script src="app.touch-hardening.js?v=20260530-w536-quiet"></script>
+    <!-- CSSOS_WAVE_192 — on first user gesture, request true fullscreen
+         on the document so iOS hides the top time bar + auto-hides the
+         home indicator after a few seconds of no touch. Touch devices
+         only; PWA / standalone skipped (already chrome-less). -->
+    <script src="app.app-fullscreen-immersive.js?v=20260526-w438-fsguard"></script>
+    <!-- CSSOS_WAVE_194 — lock the app to portrait. Three layers:
+         manifest "orientation":"portrait" handles PWA, screen.orientation
+         .lock("portrait") covers Chrome Android, and an iOS Safari
+         rotate-back overlay covers what Apple won't let us lock. -->
+    <script src="app.orientation-lock.js?v=20260522-w351-zindex"></script>
+    <!-- CSSOS_WAVE_195 — Screen Wake Lock: keep display awake while
+         any media element is playing OR the MV pipeline is running.
+         Auto-releases when everything goes idle so battery survives. -->
+    <script src="app.wake-lock.js?v=20260516-wave195-wake-lock"></script>
+    <!-- CSSOS_WAVE_196 — civilization → lyric-language map. Loads
+         BEFORE person-mv-panel.js so seed-builders can call into it. -->
+    <script src="app.civ-language-map.js?v=20260603-w593-civmeta"></script>
+    <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
+         asset caches first to prevent 张冠李戴. -->
+    <script src="app.work-id-binding.js?v=20260604-w630-rootid"></script>
+    <!-- CSSOS_WAVE_123 — injects civilization/era/gender into /api/mv/music
+         POSTs so Suno differentiates per culture instead of defaulting
+         every figure to a soft female ballad. -->
+    <script src="app.music-civ-inject.js?v=20260603-w593-civmeta"></script>
+    <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
+    <!-- CSSOS_WAVE_524 — 面板源清单(name→src): 内核动态注入的唯一真相源. 必须在 panel-loader 之前. -->
+    <script src="app.panel-manifest.js?v=20260531-w537"></script>
+    <script src="app.panel-loader.js?v=20260530-w527-deps"></script>
+    <!-- CSSOS_WAVE_499 — 通用面板路由(内核动态注入按需加载的地基). -->
+    <script src="app.panel-router.js?v=20260530-w535-cw"></script>
+    <!-- CSSOS_WAVE_520 — 内核「关谁销毁谁」: 面板关闭即回收 video/audio 解码缓冲 + blob + 停常驻循环. -->
+    <script src="app.panel-reclaim.js?v=20260530-w520-reclaim"></script>
+    <!-- CSSOS_WAVE_526 — 内核 LRU: 同时最多 5 面板, 开第6个淘汰最久未用者并回收内存; 播放中的MV面板豁免. -->
+    <script src="app.panel-lru.js?v=20260530-w526-lru"></script>
+    <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->
+    <script defer src="app.ios-statusbar-cinema.js?v=20260513-wave117-always"></script>
+    <!-- CSSOS_WAVE_115 — iOS native payment gate. MUST load FIRST so it
+         sets html[data-ios-native] before any payment surface renders. -->
+    <script src="app.ios-native-gate.js?v=20260513-wave123-hide-stripe-paths"></script>
+    <script src="app.iap-native.js?v=20260513-wave118-native"></script>
+    <script src="app.ios-deeplink-handler.js?v=20260527-wave446-handoff-guard"></script>
+    <script src="app.ios-subscription-iap-button.js?v=20260513-wave123-applepay"></script>
+    <script src="app.ios-manage-subscription.js?v=20260513-wave127"></script>
+    <script src="/i18n/constants.js"></script>
+    <script src="/i18n/catalog.js"></script>
+    <script src="/i18n/dict.js?v=20260518-w220a-v28-step34"></script>
+    <script src="/i18n/platforms.js?v=20260509-wave107c-coming-soon"></script>
+    <script src="/i18n/index.js?v=20260518-w220a-v28-step42-chip-active-full-convex"></script>
+    <script src="/i18n/runtime.js?v=20260424-p2-92-breaker-localstorage-1"></script>
+    <script src="app.dom-globals.js?v=20260527-w449-skip-expired-cdn"></script>
+    <script src="app.input-guardrails.js?v=20260420-p2-84-input-guardrails-1"></script>
+    <script src="app.runtime-shell-bridges.js?v=20260417-ui-recovery-1"></script>
+    <script src="app.panel-settings-actions.js?v=20260416-ui-recovery-2"></script>
+    <script src="app.aspect-ratio.js?v=20260516-wave189-live-orientation"></script>
+    <script src="app.creation-duration.js?v=20260426-membership-preset-guard-136"></script>
+    <script src="app.creation-accessors.js?v=20260423-p2-86-lang-auto-empty-1"></script>
+    <script src="app.watch-audio-polling.js?v=20260504-stop-404-poll"></script>
+    <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
+    <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
+    <script src="app.context-menu.js?v=20260602-w587p-myvoice"></script>
+    <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
+    <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
+         Share-link router parses ?cssMV=<id> on boot and opens the MV
+         panel via openMarketWorkPreview. Loaded BEFORE app.js so the
+         fetch is in flight before the rest of boot. The router waits
+         for openMarketWorkPreview to be defined before invoking, so
+         load-order timing isn't critical — this is just the head start. -->
+    <script src="app.share-link-router.js?v=20260525-w424-tieredcta"></script>
+    <script src="app.share-dialog.js?v=20260506-share-link"></script>
+    <script src="app.download-menu.js?v=20260506-phase-b"></script>
+    <script src="app.mv-language-picker.js?v=20260531-w587b-cap"></script>
+    <script src="app.mv-language-pill.js?v=20260604-w630-rootid"></script>
+    <script src="app.up-next-strip.js?v=20260523-w377-exclusive"></script>
+    <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
+    <script src="app.watch-search.js?v=20260526-w462-skeleton-universal"></script>
+    <!-- CSSOS_WAVE_294 — 可复用苹果风浮层搜索: 自动接管 [data-search-float="swipe"]
+         的搜索壳(Works Center 等), 下滑显示/上滑隐藏. -->
+    <script src="app.floating-search.js?v=20260521-w294-floatsearch"></script>
+    <script src="app.create-cta.js?v=20260521-w283-inplace"></script>
+    <script src="app.preview-cap.js?v=20260506-a11y"></script>
+    <script src="app.tab-title-sync.js?v=20260506-tab-sync"></script>
+    <script src="app.shortcuts-overlay.js?v=20260506-cheatsheet-snap"></script>
+    <script src="app.dock-now-playing.js?v=20260506-dock-pulse"></script>
+    <script src="app.resume-progress.js?v=20260506-resume"></script>
+    <script src="app.pip-button.js?v=20260506-pip-diag"></script>
+    <script src="app.volume-memory.js?v=20260506-vol-mem"></script>
+    <script src="app.mv-keys.js?v=20260506-mv-keys-snap"></script>
+    <script src="app.playback-speed.js?v=20260506-speed-noclash"></script>
+    <script src="app.loop-toggle.js?v=20260521-w295-onerow"></script>
+    <script src="app.media-session.js?v=20260506-mediasession"></script>
+    <script src="app.double-tap-seek.js?v=20260506-dts"></script>
+    <script src="app.title-copy-share.js?v=20260506-titlecopy"></script>
+    <script src="app.media-error-toast.js?v=20260506-errtoast"></script>
+    <script src="app.popup-deeplink.js?v=20260506-deeplink-auth"></script>
+    <script src="app.engine-picker.js?v=20260507-real-models"></script>
+    <script src="app.face-safe-overlay.js?v=20260524-w355-no-cors-taint"></script>
+    <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
+    <script src="app.emotion-subtitle-engine.js?v=20260525-w442-emo-sub"></script>
+    <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
+    <script src="app.js?v=20260603-w589-bgvideo"></script>
+    <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
+         (just before app.boot.js) so app.cssmv-governance.js's top-level
+         renderDeliveryDigestSummaryModule() call sees the function defined
+         by app.delivery-digest-ui.js, which loads further along. -->
+    <script src="app.creation-language.js?v=20260603-w588w-selfheal"></script>
+    <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
+         dropdown + setLocale event dispatch + auto-mirror locale into
+         the dropdown so language-panel picks show up here. -->
+    <script src="app.creation-language-options.js?v=20260425-p2-100-lang-options-1"></script>
+    <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: dynamic title placeholder
+         + clear hardcoded Chinese GuFeng / Feminine pre-roll labels. -->
+    <script src="app.civilization-ui-hints.js?v=20260424-p2-94-civ-ui-hints-1"></script>
+    <!-- CSSMV_CREATION_CIV_DEFAULTS 20260425 #101 — Jing: civ-derived
+         random fills for BPM/key/workType/vocalStyle/instrumentation/
+         ensembleStyle in Advanced Settings. Re-rolls on locale flip. -->
+    <script src="app.creation-civ-defaults.js?v=20260429-empty-defaults-181"></script>
+    <script src="app.advanced-panel-settings-render.js?v=20260603-w588w-selfheal"></script>
+    <script src="app.watch-audio.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.voice-seed.js?v=20260504-longpress-to-mv"></script>
+    <!-- CSSOS_PHASE2_UNIVERSAL_ENTRY_VOICE 20260427 #161 — Jing
+         app.voice-submit.js was previously untracked / never loaded; the
+         browser silently fell back to the legacy createRun path because
+         submitVoiceOrFallbackTitleModule was undefined. Wiring it now so
+         voice-entry routes through MV Pipeline runAll. -->
+    <script src="app.voice-submit.js?v=20260430-universal-entries-230"></script>
+    <script src="app.creation-flow.js?v=20260524-w417-pickermount"></script>
+    <script src="app.color-name-labels.js?v=20260518-w220a-v28-step31"></script>
+    <script src="app.creation-bridges.js?v=20260327-creation-bridges-split-1"></script>
+    <script src="app.song-seed-ui.js?v=20260525-w360b-lang-passthru"></script>
+    <script src="app.work-sync.js?v=20260524-w417-alivecover"></script>
+    <!-- CSSOS_PHASE2_WATCH_FONT_MANIFEST_WIRED 20260420 — Jing (#80):
+         "随机中文字体好像没有明显变化 ... 我点击星星按钮，也闪了一下，但是好像字体都一样"
+         Root cause: this script was missing from index.html, so
+         globalThis.CSSOS_WATCH_FONT_MANIFEST was undefined and the @font-face
+         declarations for 386 bundled fonts (incl. 143 CJK) were never
+         injected. Inline `font-family:"ZihunXxx"` strings silently fell back
+         to system-ui for every token — so every font looked the same.
+         Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
+         see the manifest on first call. -->
+    <script src="app.watch-font-manifest.js?v=20260506-quiet"></script>
+    <script src="app.playlists.js?v=20260524-w390-foryou-retry"></script>
+    <script src="app.watch-ui.js?v=20260604-w626-never-silent"></script>
+    <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
+    <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
+    <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
+    <script src="app.watch-bottom-stack.js?v=20260531-w575-gap14"></script>
+    <script src="app.lang-flag-pills.js?v=20260602-w588h-laftunify"></script>
+    <!-- CSSOS_WAVE_581 20260531 — Jing — 给现有作品加语言的弹窗(选语言→报价→提交). -->
+    <script src="app.add-language-modal.js?v=20260602-w588t-tokens"></script>
+    <!-- CSSOS_WAVE_584 20260531 — Jing — 多声线: 给现有作品加声线(同语言换音色重唱). -->
+    <script src="app.add-voice-modal.js?v=20260602-w588t-tokens"></script>
+    <script src="app.voice-clone-modal.js?v=20260602-w588t-tokens"></script>
+    <script src="app.my-voice-entry.js?v=20260602-w587y-langrow"></script>
+    <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
+         上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
+    <script src="app.autoplay-feed.js?v=20260529-w490g-nobackdrop"></script>
+    <script src="app.watch-price-strip.js?v=20260602-w588f-icons"></script>
+    <script src="app.anthropic-health-banner.js?v=20260512-wave111d-vision-health"></script>
+    <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
+         button bottom-left + slide-in right panel. Hidden for non-admin. -->
+    <script src="app.crash-log-dashboard.js?v=20260526-w463-skeleton-admin"></script>
+    <!-- CSSOS_WAVE_120C — Admin-only "see-a-bug → tell-me" inbox FAB. -->
+    <script src="app.bug-capture.js?v=20260515-wave163-alias"></script>
+    <script src="app.client-transcode.js?v=20260511-wave111b-b2"></script>
+    <script src="app.cost-breakdown-accum.js?v=20260511-wave113k-accum"></script>
+    <!-- CSSOS_WAVE_527 — app.mv-import.js 已移除: mv-pipeline 的"导入"子功能, 随 mv-pipeline 按需加载(见 app.panel-manifest.js CSSOS_PANEL_DEPS). 回退: 改回普通 src. -->
+
+    <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
+    <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
+    <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
+    <!-- CSSOS_WAVE_129 20260514 — REVERTED to eager load. The Wave 117
+         lazy-load experiment caused a crash storm: 33+ functions in this
+         module are bare-called from 14+ other files (loadWatchCommerce,
+         loadCreatorBoostState, renderSellerPanel, buildWorks*Markup, …)
+         and only 8 got lazy-shims — the rest threw ReferenceError before
+         the market panel loaded (crash-guard logged 35 hits/session).
+         market-commerce is NOT an island; it must load eagerly. The
+         mv-pipeline-panel lazy-load (a true island) stays. -->
+    <script src="app.pill-bar.js?v=20260528-w466-all"></script>
+    <!-- CSSOS_WAVE_576 20260531 — Jing — 通用【左凹向激活】兜底(宪法 :has 在 iOS 被剥, 左凹失效). -->
+    <script src="app.pill-left-concave.js?v=20260602-w588h-rightmost"></script>
+    <script src="app.market-commerce.js?v=20260603-w590-coveronce"></script>
+    <!-- CSSOS_WAVE_220A 20260519 — Jing: title edit/refine button was
+         implemented but never loaded. Wiring it in now. -->
+    <script src="app.title-edit-refine.js?v=20260603-w588w-selfheal"></script>
+    <!-- CSSOS_WAVE_544 20260531 — Jing — 作品中心编辑基础+展示信息(标题/风格/歌词/封面/画幅/定价). -->
+    <script src="app.work-edit-panel.js?v=20260531-w544-work-edit"></script>
+    <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
+    <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
+    <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
+    <script src="app.cinema-translate.js?v=20260508-wave53"></script>
+    <script src="app.profile-panel.js?v=20260603-w588w-selfheal"></script>
+    <script src="app.gift-inbox-panel.js?v=20260515-wave164-fresh-palette"></script>
+    <script src="app.language-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.login-panel.js?v=20260531-w541-platforms-fallback"></script>
+    <script src="app.works-center.js?v=20260603-w597-tree"></script>
+    <!-- CSSOS_WAVE_546 20260531 — Jing — 作品中心: 标注未完成草稿 + 继续合成/编辑补救. -->
+    <script src="app.draft-rescue-badge.js?v=20260531-w551-resume-api"></script>
+    <script src="app.api-billing.js?v=20260602-w588o-authupsell"></script>
+    <script src="app.agent-chat.js?v=20260604-w616-huan"></script>
+    <script src="app.generation-progress-badge.js?v=20260604-w614"></script>
+    <script src="app.agent-overflow-menu.js?v=20260603-w595b-restore"></script>
+    <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>
+    <script src="app.chat-rooms.js?v=20260602-w588v-empty"></script>
+    <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
+
+    <script src="app.media-buffering-mirror.js?v=20260522-w355-mutedskip"></script>
+    <script src="app.provider-health-dashboard.js?v=20260514-wave139c"></script>
+    <script src="app.today-in-history-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.today-festival-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.upcoming-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.system-mv-archive.js?v=20260603-w593-civmeta"></script>
+    <!-- CSSOS_WAVE_523 — system-mvs-panel (15KB) 按需加载: 通用 panel-router, dock 按钮 data-action="system-mvs" 触发. 回退: 改回普通 src. -->
+    <!-- CSSOS_WAVE_531 — app.engine-accounts.js 已移除: 自建HTML+CSS共享。market 渲染计费面板调 renderEngineAccountsCard(桩)→ 按需加载渲染卡片. 回退: 改回普通 src. -->
+
+    <script src="app.payments-checkout.js?v=20260526-w465-nowechat"></script>
+    <script src="app.music-input-panel.js?v=20260603-w592-civi18n"></script>
+    <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.panel-layout.js?v=20260528-w464f-restore-clamp"></script>
+    <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
+    <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-reports-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-export-helpers.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-report-ui.js?v=20260526-w462-skeleton-universal"></script>
+    <script src="app.delivery-digest-ui.js?v=20260325-live-unfreeze-2"></script>
+    <!-- CSSOS_WAVE_534 — app.subscription-panel.js 已移除: user-admin 同款安全图案(handleGlobalAction 有 subscription case + 静态HTML壳 + ?.()守卫). 由通用 router 桩 openSubscriptionPanelModule 按需加载. HTML 壳暂留(dom-globals 抓引用). 回退: 改回普通 src. -->
+
+    <script src="app.subscription-celebration.js?v=20260501-celebrate-265"></script>
+    <script src="app.subscription-watcher.js?v=20260501-celebrate-265"></script>
+    <!-- CSSOS_WAVE_117_LAZY 20260513 — notifications-panel is the first
+         panel migrated to true on-demand loading. Inert <script type=...>
+         tag (browser ignores it). Real script injected by cssosLoadPanel()
+         on first call to openNotificationsPanelModule (shim in app.panel-
+         loader.js handles the call-through). Saves 52KB from first paint. -->
+    <!-- CSSOS_WAVE_535 — credit-panel + workspaces-panel 已移除: user-admin 同款安全图案(handleGlobalAction 有 credit/workspaces case + 静态壳 + ?.()守卫). 通用 router 桩 openX 按需加载. 回退: 改回普通 src. -->
+    <!-- CSSOS_WAVE_522 — user-admin-panel (49KB) 按需加载: 通用 panel-router 桩入口+dock动作, 点击才载.
+         孤岛已实测(全 ?.() 调用/无渲染期裸调); 管理员专属, 对用户/审核零影响. 回退: 改回普通 src. -->
+    <script src="app.admin-errors-panel.js?v=20260508-wave82"></script>
+    <script src="app.admin-ops-panel.js?v=20260526-w463-skeleton-admin"></script>
+    <script src="app.foryou-seed-preview.js?v=20260523-w348-imgthumb-proxy"></script>
+    <script src="app.mv-engines-catalog.js?v=20260419-p2-57d-anon-silent-1"></script>
+    <script src="app.mv-tiers-catalog.js?v=20260419-p2-mv-naming-1"></script>
+    <script src="app.mv-tier-picker-modal.js?v=20260528-w465-tier-pill"></script>
+    <script src="app.cssmv-seed-bank.js?v=20260521-w272-cachebust"></script>
+    <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
+    <!-- CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js (444 KB) is pure
+         UI for the MV Pipeline panel: cinema/storm mode, stage badges,
+         tier label. It does NOT call any /api/mv/* endpoint — the real
+         pipeline runs from app.js / app.mv-import.js / app.run-auth.js.
+         So we can safely lazy-load it on first interaction with the
+         MV Pipeline dock icon ([data-action="mv-pipeline"]) instead of
+         on every page load. Saves ~444 KB from first-paint on mobile. -->
+    <script src="app.mv-pipeline-open-shim.js?v=20260521-w272-cachebust"></script>
+    <!-- CSSOS_WAVE_533 — person-mv 还原为普通 eager 模块(Jing 决定): 懒加载方式反复打不开(W511/W532),
+         其余 7 个模块懒加载均正常。person-mv 自建 HTML + 自注入 CSS(显示)+ JS(动作)= 完整自包含模块,
+         eager 一次性加载即可靠工作。代价: 237KB 留在首屏, 换取 People MV 稳定可开。 -->
+    <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-groups-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-today-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-style-shelf.js?v=20260529-w490f-litehome"></script>
+    <script src="app.person-mv-recommendations-shelf.js?v=20260529-w490f-litehome"></script>
+    <script src="app.person-mv-leaderboard.js?v=20260603-w593-civmeta"></script>
+    <script src="app.home-shelves-position.js?v=20260508-dock-aware"></script>
+    <script src="app.global-search.js?v=20260527-w482-personpin"></script>
+    <script src="app.feed-panel.js?v=20260508-wave26"></script>
+    <!-- CSSOS_PERSON_MV_WAVE69 20260508 — Jing — TikTok-style content plaza. -->
+    <script src="app.person-mv-plaza.js?v=20260602-w588v-empty"></script>
+    <script src="app.user-homepage.js?v=20260603-w593-civmeta"></script>
+    <!-- CSSOS_PERSON_MV_WAVE71 20260508 — Jing — personal stats deep page. -->
+    <script src="app.user-stats-page.js?v=20260508-wave71"></script>
+    <!-- CSSOS_PERSON_MV_WAVE64+65 20260508 — Jing — UI surface for waves 51/54/55 + shortcuts cheatsheet. -->
+    <script src="app.creation-timeline-panel.js?v=20260526-w462-skeleton-universal"></script>
+    <script src="app.rating-badges.js?v=20260508-wave64"></script>
+    <script src="app.shortcuts-cheatsheet.js?v=20260508-wave65"></script>
+    <script src="app.person-mv-comments-share.js?v=20260508-wave12"></script>
+    <script src="app.person-mv-festival-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-ai-chat.js?v=20260508-wave24"></script>
+    <script src="app.person-mv-civ-era-pages.js?v=20260602-w588v-empty"></script>
+    <script src="app.tutorials.js?v=20260508-wave74"></script>
+    <script src="app.cover-slideshow.js?v=20260604-w617-poolclear"></script>
+    <script src="app.watch-stage-bars.js?v=20260525-w358-fs-btn-offset"></script>
+    <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
+    <script src="app.watch-media-chrome.js?v=20260506-pip-allow"></script>
+    <script src="app.watch-media-overlays.js?v=20260526-w447-reflow"></script>
+    <script src="app.watch-deadmedia-fallback.js?v=20260525-w421-deadmedia"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260601-w587k-sepaudio"></script>
+    <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
+         for popups + clear lingering toast/info popover on watch close. -->
+    <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>
+    <!-- CSSMV_NO_FALLBACK_TITLE 20260425 #109 — Jing: no "Untitled" /
+         "CSS MV" / "未标题" placeholder; kick lyrics engine when title
+         is missing. -->
+    <script src="app.no-fallback-title.js?v=20260425-p2-109-no-fallback-title-1"></script>
+    <!-- CSSMV_PANEL_DOCK_ORDER 20260425 #116 — Jing: light-theme paint
+         for .panel-settings + per-panel dock-order option (admin sets
+         default, regular users override their own). -->
+    <script src="app.panel-dock-order.js?v=20260425-p2-116-dock-order-1"></script>
+    <!-- CSSMV_CONSOLE_NOISE 20260425 #118 — Jing: silence cover-webp
+         404 noise + transient endpoint NetworkError rejections; load
+         early so it catches everything from boot. -->
+    <script src="app.console-noise-cleanup.js?v=20260425-p2-118-noise-1"></script>
+    <!-- CSSMV_CONTEXT_MENU_FALLBACKS 20260425 #111 — Jing: dead-link
+         recovery for right-click menu entries. -->
+    <script src="app.context-menu-fallbacks.js?v=20260425-p2-111-ctx-menu-1"></script>
+    <!-- CSSMV_SUBTITLE_CLEANER 20260425 #113 — Jing: strip section
+         markers (**Verse 1**, [Chorus], …) and "/" separators from
+         rendered subtitles + titles. Lyrics editor stays raw. -->
+    <script src="app.subtitle-cleaner.js?v=20260525-w419-dualclean"></script>
+    <script src="app.mv-title-sync.js?v=20260503-mv-title-sync-1"></script>
+    <!-- CSSOS_MV_FLOW_RESTORE 20260505c — Jing
+         These 19 helpers must load AFTER all the file-level helpers above
+         (especially app.delivery-digest-ui.js which defines
+         renderDeliveryDigestSummaryModule that app.cssmv-governance.js
+         calls at top-level), but BEFORE app.boot.js so the bridges are
+         present when boot wires up event handlers. -->
+    <script src="app.panel-shell-actions.js?v=20260529-w486-clamp-observer"></script>
+    <script src="app.panel-drag.js?v=20260505c-end"></script>
+    <script src="app.panel-focus.js?v=20260530-w506-revert"></script>
+    <script src="app.i18n-hierarchy-defaults.js?v=20260505c-end"></script>
+    <script src="app.theme-quick-toggle.js?v=20260527-w461-pill-bar"></script>
+    <script src="app.delivery-copy.js?v=20260505c-end"></script>
+    <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
+    <script src="app.final-audio-artifacts.js?v=20260505c-end"></script>
+    <script src="app.song-creation-payload.js?v=20260505c-end"></script>
+    <script src="app.structure-planning.js?v=20260505c-end"></script>
+    <script src="app.run-auth.js?v=20260525-w360b-civ-payload"></script>
+    <script src="app.logo-panel-actions.js?v=20260505c-end"></script>
+    <script src="app.panel-stack.js?v=20260505c-end"></script>
+    <script src="app.panel-shortcuts.js?v=20260505c-end"></script>
+    <script src="app.panel-settings-markup.js?v=20260527-w479-autoentersetting"></script>
+    <script src="app.panel-settings-runtime.js?v=20260527-w479-autoentersetting"></script>
+    <script src="app.panel-settings-behavior-bindings.js?v=20260525-w431-settingsfix"></script>
+    <script src="app.panel-settings-tail.js?v=20260505c-end"></script>
+    <script src="app.webhooks-panel.js?v=20260508-wave57"></script>
+    <!-- cssmv-governance MUST load LAST in this group: its top-level call
+         to renderDeliveryDigestSummaryModule() must run after that fn is
+         defined (delivery-digest-ui.js loads earlier in the file). -->
+    <script src="app.cssmv-governance.js?v=20260505c-end"></script>
+    <script src="app.notifications-bell.js?v=20260602-w588v-empty"></script>
+    <!-- CSSOS_WAVE_530 — app.dm-panel.js 已移除: 完整三件套自包含模块, #dm hash + cssosOpenDmWith 按需加载. eager 仅留 💌 stub. 回退: 改回普通 src. -->
+    <script src="app.dm-open-shim.js?v=20260530-w530-shim"></script>
+    <script src="app.contest-llm.js?v=20260526-w462-skeleton-universal"></script>
+    <!-- CSSOS_WAVE_529 — app.premium-modal.js 已移除: 完整三件套自包含模块, 仅 #premium hash 触发, 由通用 router(hash 能力)按需注入. 回退: 改回普通 src. -->
+
+    <script src="app.ab.js?v=20260508-wave27-ab"></script>
+    <script src="app.templates-panel.js?v=20260526-w462-skeleton-universal"></script>
+    <!-- CSSOS_WAVE_107 20260509 — iOS native OAuth handoff listener.
+         Must load before app.boot.js so the appUrlOpen listener is
+         armed before any first-frame work begins. -->
+    <script src="app.ios-handoff.js?v=20260509-wave107"></script>
+    <!-- CSSOS_WAVE_108 20260509 — global tap-vs-swipe guard.
+         Must load BEFORE app.home-activity-bar.js so the bar can
+         delegate via cssosTapGuard.bindDelegated. Other panels can
+         opt-in to the same swipe immunity at any time. -->
+    <script src="app.tap-guard.js?v=20260509-wave108"></script>
+    <!-- CSSOS_WAVE_108B 20260509 — playback staging.
+         "Don't yank the user out of what they're watching" — taps
+         during playback are queued and fired on `ended`. Must load
+         BEFORE the activity bar so the bar can route through it. -->
+    <script src="app.playback-stage.js?v=20260509-wave108b"></script>
+    <script src="app.home-activity-bar.js?v=20260603-w593-civmeta"></script>
+    <!-- CSSOS_WAVE_108B 20260509 — pin MV Pipeline + Person MV
+         to dock positions 1 and 2 (per Jing — they were getting
+         clipped at the back). Loaded after app.boot.js below so
+         the dynamic Person-MV injector has a chance to run first. -->
+    <script src="app.dock-priority-order.js?v=20260509-wave108b" defer></script>
+    <!-- CSSOS_WAVE_445 20260526 — horizontal swipe cycles main panels -->
+    <script src="app.panel-swipe-nav.js?v=20260529-w496-swipe" defer></script>
+    <!-- CSSOS_WAVE_463 20260528 — Panel Constitution execution layer
+         Articles 5 (swipe-up=close), 6 (titlebar-swipe-down=minimize),
+         8 (5-panel LRU limit). Deferred so app.js globals are ready. -->
+    <script src="app.panel-manager.js?v=20260529-w496-limit" defer></script>
+    <!-- CSSOS_WAVE_464 20260528 — Dock 凸嵌凹 pill bar conversion.
+         Stamps data-pill-bar on #dock, syncs active state, snap ghost,
+         4-direction support (vertical for left/right), mic hero protrusion.
+         Default: "pill"; fallback: "icon" (Advanced Settings → Dock). -->
+    <script src="app.dock-pill.js?v=20260529-w487-activefirst" defer></script>
+    <!-- CSSOS_WAVE_588 — 轻量崩溃探针: 打点 DOM/图/幻灯/堆 + 最后动作, 崩溃重载后回显趋势(用数据定位)。 -->
+    <script src="app.crash-probe.js?v=20260603-w594-diag"></script>
+    <script src="app.i18n-leak-probe.js?v=20260603-w594"></script>
+    <!-- CSSOS_WAVE_588 — 引导式 toast: 失败提示带 CTA(去充值/登录/重试), 不让用户卡死。 -->
+    <script src="app.guided-toast.js?v=20260602-w588n-report"></script>
+    <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 统一空态助手 cssosEmptyState。 -->
+    <script src="app.core-ui.js?v=20260602-w588s-empty2"></script>
+    <script src="app.boot.js?v=20260603-w588w-selfheal"></script>
+    <script src="app.lazy-panels.js?v=20260604-w635-kernel"></script>
+    <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
+         Self-diagnosing version. Stamps the document so you can verify
+         from console that this script actually ran. On every click on a
+         panel-actions button it also flashes a small badge in the
+         top-right corner so you can see WITHOUT devtools whether the
+         click was intercepted. Runs at window-capture (earlier than any
+         document-level handler) with stopImmediatePropagation so nothing
+         else can preempt. Calls top-level globals from app.js. -->
+    <script>
+      (function () {
+        // Self-stamp: from devtools console run
+        //   document.documentElement.dataset.panel3btn
+        // → should print "armed-842d260b" if this script ran.
+        document.documentElement.dataset.panel3btn = "armed-842d260b";
+
+        // Debug flash badge — only enabled if localStorage.cssos_debug_3btn = "1".
+        // (Hidden by default now that user has confirmed buttons work.)
+        var DEBUG_3BTN = false;
+        try { DEBUG_3BTN = localStorage.getItem("cssos_debug_3btn") === "1"; } catch (_e) {}
+        function flash(msg) {
+          if (!DEBUG_3BTN) return;
+          var b = document.getElementById("panel-3btn-debug-badge");
+          if (!b) {
+            b = document.createElement("div");
+            b.id = "panel-3btn-debug-badge";
+            b.style.cssText =
+              "position:fixed;top:8px;right:8px;z-index:2147483647;" +
+              "padding:6px 10px;border-radius:8px;font:600 11px/1 ui-monospace,monospace;" +
+              "background:rgba(0,245,160,0.95);color:#001b14;pointer-events:none;" +
+              "box-shadow:0 4px 14px rgba(0,0,0,0.4);transition:opacity .25s;opacity:0;";
+            document.body.appendChild(b);
+          }
+          b.textContent = msg;
+          b.style.opacity = "1";
+          clearTimeout(flash._t);
+          flash._t = setTimeout(function () { b.style.opacity = "0"; }, 1500);
+        }
+
+        function classify(btn) {
+          var raw = ((btn.dataset && btn.dataset.action) || btn.getAttribute("aria-label") || btn.getAttribute("data-i18n-aria") || btn.textContent || "").trim().toLowerCase();
+          if (raw.indexOf("setting") >= 0) return "settings";
+          if (raw === "—" || raw.indexOf("minimize") >= 0 || raw.indexOf("min") === 0) return "minimize";
+          if (raw === "⤢" || raw === "⛶" || raw.indexOf("maximize") >= 0 || raw.indexOf("max") >= 0 || raw.indexOf("lock") >= 0 || raw.indexOf("full") >= 0 || raw.indexOf("expand") >= 0) return "maximize";
+          if (raw === "×" || raw === "x" || raw.indexOf("close") >= 0) return "close";
+          return "";
+        }
+
+        // Window-level capture — fires before any document/element handler.
+        // pointerdown gives us first crack; we still also handle click so
+        // text-only browsers / synthetic events work.
+        function handle(event) {
+          var t = event.target;
+          if (!(t instanceof Element)) return;
+          var btn = t.closest(".panel-actions .icon-btn");
+          if (!btn) return;
+          var panel = btn.closest(".panel");
+          if (!panel) return;
+          var kind = classify(btn);
+          if (!kind) return;
+          flash("3btn FIRE: " + kind + " (" + (panel.id || "panel") + ")");
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+          // Only act on click, not pointerdown (pointerdown is reserved
+          // so the drag handler doesn't grab the button).
+          if (event.type !== "click") return;
+          try { if (typeof focusPanel === "function") focusPanel(panel); } catch (_e) {}
+          var isMv = panel.id === "watch-panel";
+          try {
+            if (isMv) {
+              // CSSOS_MV_PANEL_3BTN 20260505 — Jing
+              // MV panel buttons get cinema-aware behavior:
+              //   minimize → toggle .mv-body-collapsed (hide media frame, pause)
+              //   maximize → exit cinema fullscreen → user's manual size
+              //   close    → exit cinema + clear media + minimize to dock
+              if (kind === "minimize") {
+                var collapsed = panel.classList.toggle("mv-body-collapsed");
+                var v = document.getElementById("watch-video");
+                var a = document.getElementById("watch-audio-preview");
+                try {
+                  if (collapsed) { v && v.pause && v.pause(); a && a.pause && a.pause(); }
+                  else { v && v.play && v.play().catch(function () {}); a && a.play && a.play().catch(function () {}); }
+                } catch (_e) {}
+                return;
+              }
+              if (kind === "maximize") {
+                /* CSSOS_MV_MAXIMIZE_TOGGLE 20260505 — Jing
+                 * "面板右上角的最大化按钮（无法再进入影院模式，甚至无法再
+                 *  进入MV面板，请修复）"
+                 * Old behavior: only exited cinema. Clicking once when out
+                 * of cinema did nothing. Now a true toggle. */
+                var isInCinema = panel.classList.contains("is-cssmv-fullscreen") ||
+                                 document.body.classList.contains("cssos-cinema-mode");
+                if (isInCinema) {
+                  // EXIT path
+                  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (_e) {}
+                  panel.classList.remove("is-cssmv-fullscreen");
+                  document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle");
+                  if (typeof restorePanel === "function" && panel.dataset.maximized === "true") {
+                    try { restorePanel(panel); } catch (_e) {}
+                  }
+                } else {
+                  // ENTER path — full cinema with browser fullscreen.
+                  if (panel.classList.contains("hidden")) panel.classList.remove("hidden");
+                  panel.dataset.minimized = "false";
+                  try {
+                    if (typeof globalThis.cssosEnterCinemaLayout === "function") {
+                      globalThis.cssosEnterCinemaLayout();
+                    } else {
+                      panel.classList.add("is-cssmv-fullscreen");
+                      document.body.classList.add("cssos-cinema-mode");
+                    }
+                  } catch (_e) {}
+                  try {
+                    if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
+                      globalThis.cssosRequestBrowserFullscreen();
+                    }
+                  } catch (_e) {}
+                }
+                return;
+              }
+              if (kind === "close") {
+                // Pure-cinema cleanup: exit fullscreen, drop classes, stop media,
+                // then hand off to the regular minimize-to-dock flow.
+                try { if (document.fullscreenElement) document.exitFullscreen(); } catch (_e) {}
+                panel.classList.remove("is-cssmv-fullscreen", "mv-body-collapsed");
+                document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle");
+                try {
+                  var vv = document.getElementById("watch-video");
+                  var aa = document.getElementById("watch-audio-preview");
+                  if (vv) { vv.pause(); vv.removeAttribute("src"); vv.load && vv.load(); }
+                  if (aa) { aa.pause(); aa.removeAttribute("src"); aa.load && aa.load(); }
+                } catch (_e) {}
+                // CSSOS_WAVE_450: restore background videos freed on MV open
+                try {
+                  if (typeof globalThis.restoreBgVideosForMvModule === "function") {
+                    globalThis.restoreBgVideosForMvModule();
+                  }
+                } catch (_e) {}
+                if (typeof minimizeToDock === "function") minimizeToDock(panel);
+                return;
+              }
+            }
+            if (kind === "minimize" && typeof togglePanelCollapse === "function") togglePanelCollapse(panel);
+            else if (kind === "maximize" && typeof togglePanelMaximize === "function") togglePanelMaximize(panel);
+            else if (kind === "close" && typeof minimizeToDock === "function") minimizeToDock(panel);
+            else if (kind === "settings" && typeof togglePanelSettings === "function") togglePanelSettings(panel);
+            else flash("3btn STUB: " + kind + " fn missing");
+          } catch (err) {
+            console.error("[panel-3btn]", kind, err);
+            flash("3btn ERROR: " + kind);
+          }
+        }
+        window.addEventListener("pointerdown", handle, true);
+        window.addEventListener("click", handle, true);
+
+        /* CSSOS_PURE_CINEMA_IDLE 20260505c — Jing
+         * "图1，还是标题栏和右下角信息没有隐藏"
+         *
+         * Some chrome was leaking through every CSS-based hide attempt
+         * because something else was setting opacity/display via inline
+         * style or a higher-specificity rule we couldn't pin down. Switch
+         * to JS-driven inline-style hiding: when cinema turns on we record
+         * each chrome element's original `display` value and force it to
+         * `none` via element.style. On exit / wake we restore the original.
+         * Inline style beats every CSS rule short of `!important` on the
+         * same element — and even `!important` is overridden because we
+         * also set the inline style with priority "important".
+         *
+         * Force-unmute the video on cinema entry too: "有些媒体静音自动
+         * 播放，需要用户再动一下". The previous restore-snapshot path was
+         * preserving an initial muted=true state, so the user landed in
+         * silent autoplay. The MV open click IS user activation, so we
+         * can promote video.muted = false synchronously and call play().
+         */
+        (function () {
+          var idleTimer = null;
+          // CSSOS_WAVE_296 20260521 — Jing: "10秒，没有特殊强调，都是10秒".
+          // Single unified idle window for ALL watch chrome (top trio +
+          // bottom dock) so they reveal/hide as ONE unit, never staggered.
+          var IDLE_MS = 10000;
+          // Selectors to forcibly hide while cinema is on AND user is idle.
+          // Subtitle (#watch-subtitle, #watch-karaoke-line, .watch-lyric-line)
+          // intentionally NOT in this list — those are part of the cinema
+          // experience, not chrome.
+          var CHROME_SELECTORS = [
+            // CSSOS_WAVE_220C 20260521 — Jing: title bar (.panel-bar) must
+            // STAY RESIDENT in cinema. Hiding it on idle made the media
+            // frame jump up/down (layout reflow) every wake/idle cycle.
+            // Removed from the force-hide list. (.panel-actions buttons
+            // below still auto-hide — only the bar shell stays.)
+            "#watch-panel .panel-actions",
+            "#watch-panel .panel-toolbar",
+            "#watch-panel .watch-toolbar",
+            "#watch-panel #watch-pill-row-bl",
+            "#watch-panel #watch-pill-row-br",
+            "#watch-panel #watch-aspect-pill",
+            "#watch-panel #watch-take-toggle",
+            "#watch-panel #watch-immersive-pill",
+            "#watch-panel #watch-author-avatar",
+            "#watch-panel .watch-author-avatar",
+            "#watch-panel .watch-media-action",
+            "#watch-panel .watch-style-shift",
+            // Right-bottom corner cluster (♪ ✦ i ⛶) — same fade as the
+            // title bar and left subtitle so chrome hides as one unit.
+            // Per Jing 2026-05-05: 彩虹条 (.cssmv-border-bar) and 进度条
+            // (.panel-progress-line) are intentionally NOT hidden — they
+            // are part of the cinema viewing experience.
+            "#watch-panel .cssmv-fr-btn",
+            "#watch-panel .cssmv-info-btn",
+            "#watch-panel .cssmv-fs-btn",
+            "#watch-panel .cssmv-stem-toggle",
+            // CSSOS_WAVE_296/311 — top floating search box + exit-cinema ✕ join
+            // the SAME hide unit as the dock so the top row (avatar/search/✕)
+            // and bottom dock show/hide TOGETHER, step-consistent (Jing: 步调
+            // 一致 — 不能一个显一个不显).
+            "#watch-search-box",
+            "#watch-exit-cinema",
+            "#dock",
+            // W356 20260523 — Jing: 歌词随 UI 一起在 10s 后隐藏, 不在播放时
+            // 常驻. watch-karaoke-line / watch-subtitle 与其他控件步调一致.
+            "#watch-panel #watch-karaoke-line",
+            "#watch-panel #watch-subtitle"
+          ];
+          var hidden = []; // [{el, prevDisplay, prevPriority}]
+          function inCinema() {
+            return document.body && document.body.classList.contains("cssos-cinema-mode");
+          }
+          function hideChrome() {
+            if (!inCinema()) return;
+            CHROME_SELECTORS.forEach(function (sel) {
+              document.querySelectorAll(sel).forEach(function (el) {
+                if (el.dataset.cssosCinemaHidden === "1") return;
+                hidden.push({ el: el, prev: el.style.display, prevPriority: el.style.getPropertyPriority("display") });
+                el.dataset.cssosCinemaHidden = "1";
+                el.style.setProperty("display", "none", "important");
+              });
+            });
+            document.body.style.setProperty("cursor", "none", "important");
+          }
+          function showChrome() {
+            hidden.forEach(function (rec) {
+              try {
+                rec.el.dataset.cssosCinemaHidden = "";
+                if (rec.prev) rec.el.style.setProperty("display", rec.prev, rec.prevPriority || "");
+                else rec.el.style.removeProperty("display");
+              } catch (_e) {}
+            });
+            hidden = [];
+            document.body.style.removeProperty("cursor");
+          }
+          function sleep() {
+            if (!inCinema()) return;
+            // CSSOS_WAVE_296 — don't hide mid-search: if the floating search
+            // input is focused or has text, re-arm instead of hiding so the
+            // user can keep reading results.
+            try {
+              var si = document.getElementById("watch-search-input");
+              if (si && (document.activeElement === si || String(si.value || "").trim())) {
+                if (idleTimer) clearTimeout(idleTimer);
+                idleTimer = setTimeout(sleep, IDLE_MS);
+                return;
+              }
+            } catch (_e) {}
+            hideChrome();
+          }
+          function wake() {
+            if (!inCinema()) {
+              showChrome();
+              if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+              return;
+            }
+            showChrome();
+            /* W335 20260522 — first user gesture in cinema → try to unblock
+             * audio. iOS Safari blocks autoplay on load; this is the earliest
+             * moment we have a real user-gesture context to call play(). */
+            forceUnmuteAndPlay();
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(sleep, IDLE_MS);
+          }
+          ["pointermove","pointerdown","wheel","keydown","touchstart"].forEach(function (ev) {
+            window.addEventListener(ev, wake, { capture: true, passive: true });
+          });
+          /* CSSOS_WAVE_392 20260524 — Jing「多首歌同时播放, 一片交响乐」根治:
+           * 单一可闻音源裁判。#watch-audio-preview 是【有声那条】(canonical 音轨),
+           * #watch-video 是【画面】。之前 forceUnmuteAndPlay 把【两条都 unmute 并
+           * play】→ 视频自带音轨 + 预览 mp3(再加队列切歌竞态/看门狗重启的残留元素)
+           * 叠在一起 = 交响乐。现在: 任一时刻【只有一条可闻】—— 有 audio-preview
+           * 有 src 就以它为音源(视频静音播放只做画面); 否则视频出声。 */
+          function cssosPickSoundEl() {
+            var v = document.getElementById("watch-video");
+            var a = document.getElementById("watch-audio-preview");
+            var aHasSrc = a && String(a.currentSrc || a.src || "").trim();
+            return aHasSrc ? a : v;
+          }
+          function cssosEnforceSingleAudio() {
+            // CSSOS_WAVE_407 20260524 — Jing「断断续续, 每隔几秒静音」根治: 此前本
+            // 裁判在【每个 play 事件】上对 video+audio-preview 重设 .muted, 和
+            // app.watch-ui(W406: video.muted=hasAudioElSrc)互相抢 → 周期性静音/恢复、
+            // 歌词被跳过。现在: 当前作品的 canonical 对(video + audio-preview)的静音
+            // 状态【完全交给 watch-ui】, 本裁判只负责【静音并暂停杂散元素】
+            // (mic-capture / foryou-thumb / mirror / 重复元素), 绝不碰那一对。
+            try {
+              var v = document.getElementById("watch-video");
+              document.querySelectorAll("audio, video").forEach(function (el) {
+                if (el === v || el.id === "watch-audio-preview") return; // owned by watch-ui
+                try {
+                  el.muted = true;
+                  el.setAttribute("muted", "");
+                  if (!el.paused) el.pause();
+                } catch (_e) {}
+              });
+            } catch (_e) {}
+          }
+          // Global referee: whenever ANY media starts, collapse back to one
+          // audible source — kills overlaps from queue races / duplicate plays.
+          try {
+            document.addEventListener("play", function () {
+              setTimeout(cssosEnforceSingleAudio, 0);
+            }, true);
+          } catch (_e) {}
+          globalThis.cssosEnforceSingleAudio = cssosEnforceSingleAudio;
+
+          // CSSOS_WAVE_406 20260524 — removed the duplicate W396 "🔊 Tap for sound"
+          // pill (#cssos-sound-hint): app.watch-ui.js already ships #watch-sound-hint
+          // ("🔇 Tap for sound") via showWatchSoundHintModule(), so the page was
+          // showing TWO hints at once (Jing: "两个 Tap for sound, 一个红色的"). Keep
+          // the single existing one.
+
+          function forceUnmuteAndPlay() {
+            // CSSOS_WAVE_407 20260524 — Jing「断断续续」根治: 简化为【一次性】解锁声音
+            // + 起播, 不再在每个 canplay/loadeddata 上反复重设 .muted(那是周期性静音的
+            // 元凶之一)。静音状态归 watch-ui(W406)管: 它已把视频静音、把 <audio> 设为
+            // 唯一音源。这里只在手势/解锁时确保【音源不静音】并 play(); 杂散元素交给裁判。
+            try {
+              var v = document.getElementById("watch-video");
+              var a = document.getElementById("watch-audio-preview");
+              var sound = cssosPickSoundEl();
+              if (sound) {
+                try { sound.muted = false; sound.removeAttribute("muted"); sound.volume = 1; } catch (_e) {}
+              }
+              [v, a].forEach(function (el) {
+                if (!el || !el.play) return;
+                el.play().catch(function () {
+                  // Desktop blocks UNMUTED autoplay → fall back to muted so the
+                  // picture still plays; sound resumes on the next gesture / hint.
+                  try { el.muted = true; if (el.play) el.play().catch(function () {}); } catch (_e2) {}
+                });
+              });
+              cssosEnforceSingleAudio(); // silence/pause only stray elements
+            } catch (_e) {}
+          }
+          /* CSSOS_WAVE_374 20260523 — Jing「自动播放别停, 不要让用户点」: build 16 已
+           * 允许免手势 play(), 但没有"卡住自动续播"的看门狗 —— iOS/缓冲一旦把媒体
+           * 暂停, 在下次手势前没人重启它, 用户就得点一下才继续(进度条才走). 这里给
+           * 有声那条(#watch-audio-preview)+ 视频装一个看门狗: 只要 watch 面板还开着、
+           * 媒体没播完、有 src, pause/stalled/waiting/suspend 时就自动 play() 续上。
+           * 限速 900ms 防抖, 不和"播完→队列连播"打架(ended 不重启)。 */
+          function installAutoplayWatchdogOnce() {
+            ["watch-audio-preview", "watch-video"].forEach(function (id) {
+              var el = document.getElementById(id);
+              if (!el || el.dataset.cssosWatchdog) return;
+              el.dataset.cssosWatchdog = "1";
+              var lastReplay = 0;
+              function watchOpen() {
+                var wp = document.getElementById("watch-panel");
+                return wp && !wp.classList.contains("hidden") &&
+                  getComputedStyle(wp).display !== "none";
+              }
+              function resume() {
+                try {
+                  if (!watchOpen()) return;
+                  if (el.ended) return;
+                  if (!String(el.currentSrc || el.src || "").trim()) return;
+                  var now = Date.now();
+                  if (now - lastReplay < 900) return;
+                  lastReplay = now;
+                  if (el.play) el.play().catch(function () {});
+                  // CSSOS_WAVE_398 — after resuming, re-assert the single-audio
+                  // rule so a watchdog-resumed element can't become a 2nd voice.
+                  try { cssosEnforceSingleAudio(); } catch (_e) {}
+                } catch (_e) {}
+              }
+              ["pause", "stalled", "waiting", "suspend"].forEach(function (ev) {
+                el.addEventListener(ev, function () { setTimeout(resume, 120); }, { passive: true });
+              });
+              /* CSSOS_WAVE_379 20260523 — Jing「自动播又不动了」根因不是 CSS, 是这支
+               * 作品的音频是过期第三方链接(Mubert 死得最快)→ 404 → play() 永远失败,
+               * 看门狗 re-play 一个 404 = 死循环卡住。对【有声那条】加 error 处理:
+               * 音频 404/解码失败 → 自动【跳下一首】(死链作品自动跳过), autoplay 永不卡死。
+               * 计数上限 8, 防全库死链时无限跳。 */
+              if (id === "watch-audio-preview") {
+                el.addEventListener("error", function () {
+                  try {
+                    if (!watchOpen()) return;
+                    window.__cssosAudioSkips = (window.__cssosAudioSkips || 0) + 1;
+                    if (window.__cssosAudioSkips > 8) return;
+                    var now = Date.now();
+                    if (now - lastReplay < 1200) return;
+                    lastReplay = now;
+                    if (typeof globalThis.cssosWatchQueueAdvance === "function") {
+                      globalThis.cssosWatchQueueAdvance(1);
+                    }
+                  } catch (_e) {}
+                }, { passive: true });
+              }
+            });
+          }
+          try { installAutoplayWatchdogOnce(); } catch (_e) {}
+          var observer = new MutationObserver(function () {
+            try { installAutoplayWatchdogOnce(); } catch (_e) {}
+            if (inCinema()) {
+              forceUnmuteAndPlay();
+              sleep();
+            } else {
+              showChrome();
+              if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+            }
+          });
+          observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+          /* CSSOS_AUTO_RE_ENTER_CINEMA 20260505 — Jing
+           * "退出影院模式之后，再次进入，影院模式丢失了". Watch every
+           * transition of #watch-panel from .hidden to visible and re-fire
+           * cssosEnterCinemaLayout so cinema is the default on every open,
+           * regardless of which open path the user took (logo / mic / play
+           * / right-click / Apply&Render / dock click / restored session). */
+          (function () {
+            var wp = document.getElementById("watch-panel");
+            if (!wp) {
+              // watch-panel may not exist yet on early DOMContentLoaded.
+              document.addEventListener("DOMContentLoaded", arguments.callee);
+              return;
+            }
+            var wasHidden = wp.classList.contains("hidden");
+            new MutationObserver(function () {
+              var nowHidden = wp.classList.contains("hidden");
+              if (wasHidden && !nowHidden) {
+                // Panel just opened — force cinema, force-unmute, force-play.
+                try { if (typeof globalThis.cssosEnterCinemaLayout === "function") globalThis.cssosEnterCinemaLayout(); } catch (_e) {}
+                setTimeout(forceUnmuteAndPlay, 100);
+                setTimeout(forceUnmuteAndPlay, 600);
+              }
+              wasHidden = nowHidden;
+            }).observe(wp, { attributes: true, attributeFilter: ["class"] });
+          })();
+
+          if (inCinema()) sleep();
+        })();
+      })();
+    </script>
+    <style>
+      /* CSSOS_PURE_CINEMA_CSS 20260505b — Jing
+         "不管主题色是白天还是晚上，进入MV面板欣赏MV，就默认是真全屏影院模式。"
+         When cinema is on, force a pure-black canvas regardless of light/dark
+         theme, kill ALL panel chrome (border, perimeter rainbow ring, info
+         pills), and gate panel-bar/dock visibility behind cssos-watch-idle.
+         Idle is added IMMEDIATELY on cinema enter (see script above) so the
+         baseline is "hidden chrome, pure media". Activity reveals chrome for
+         1.5s. */
+
+      /* Force black everywhere cinema can leak through, regardless of theme. */
+      body.cssos-cinema-mode,
+      body.cssos-cinema-mode #watch-panel,
+      body.cssos-cinema-mode #watch-panel .panel-body,
+      body.cssos-cinema-mode #watch-panel .watch-body,
+      body.cssos-cinema-mode #watch-panel .watch-pane,
+      body.cssos-cinema-mode #watch-panel .watch-pane.active,
+      body.cssos-cinema-mode #watch-panel .watch-frame,
+      body.cssos-cinema-mode #watch-panel .watch-screen {
+        background: #000 !important;
+      }
+
+      /* Per Jing 2026-05-05: keep the rainbow perimeter chase ring
+         (.cssmv-border-bar) visible — it's part of the cinema viewing
+         experience, not chrome to hide. */
+
+      /* Strip the green panel border and any glow shadow. */
+      body.cssos-cinema-mode #watch-panel {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+      }
+
+      /* Smooth fade for the elements we hide. */
+      body.cssos-cinema-mode #watch-panel .panel-bar,
+      body.cssos-cinema-mode #dock,
+      body.cssos-cinema-mode #toast,
+      body.cssos-cinema-mode #panel-3btn-debug-badge,
+      body.cssos-cinema-mode #watch-panel .watch-aspect-pill,
+      body.cssos-cinema-mode #watch-panel #watch-pill-row-bl,
+      body.cssos-cinema-mode #watch-panel #watch-take-toggle,
+      body.cssos-cinema-mode #watch-panel .watch-media-action,
+      body.cssos-cinema-mode #watch-panel .watch-author-avatar {
+        transition: opacity .35s ease;
+      }
+
+      /* When idle (default once cinema turns on, until user moves):
+         HARD hide chrome with display:none — opacity:0 was being beaten
+         by some other rule on the user's screen. Higher-specificity
+         multi-anchor selector covers both .panel-bar and .panel-title-bar
+         naming conventions, and adds #watch-pill-row-br + immersive pill
+         + every standalone watch-* button I could find injected by
+         app.watch-ui.js. */
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-toolbar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .panel-actions,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-toolbar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-pill-row-bl,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-pill-row-br,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-aspect-pill,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-take-toggle,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-immersive-pill,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel #watch-author-avatar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-author-avatar,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-media-action,
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-panel .watch-style-shift,
+      html body.cssos-cinema-mode.cssos-watch-idle #dock,
+      html body.cssos-cinema-mode.cssos-watch-idle #panel-3btn-debug-badge {
+        display: none !important;
+      }
+      /* (cssmv-border-bar rainbow ring is intentionally preserved in cinema.) */
+      body.cssos-cinema-mode.cssos-watch-idle {
+        cursor: none;
+      }
+
+      /* MV panel "minimize" → keep only the panel-bar, hide the body. */
+      #watch-panel.mv-body-collapsed .panel-body,
+      #watch-panel.mv-body-collapsed .watch-body,
+      #watch-panel.mv-body-collapsed .watch-frame,
+      #watch-panel.mv-body-collapsed .watch-screen {
+        display: none !important;
+      }
+      #watch-panel.mv-body-collapsed {
+        height: auto !important;
+        min-height: 0 !important;
+      }
+    </style>
+    <!-- CSSOS_PERSON_MV_WAVE32 20260508 — Jing: register service worker for offline + push. -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("/sw.js").catch(function (err) {
+            console.warn("[sw] register failed:", err && err.message);
+          });
+        });
+      }
+    </script>
+    <!-- CSSOS_WAVE80 20260508 — Jing: Sentry browser init (server injects
+         window.__cssosSentryDsn via SENTRY_DSN_PUBLIC) + web-vitals reporter.
+         Both are best-effort; missing DSN is a clean no-op. -->
+    <script>
+      (function () {
+        var dsn = window.__cssosSentryDsn || "";
+        if (!dsn) return;
+        var s = document.createElement("script");
+        s.src = "https://browser.sentry-cdn.com/7.119.0/bundle.min.js";
+        s.crossOrigin = "anonymous";
+        s.onload = function () {
+          try {
+            if (window.Sentry && typeof window.Sentry.init === "function") {
+              window.Sentry.init({ dsn: dsn, tracesSampleRate: 0.1 });
+            }
+          } catch (_e) {}
+        };
+        document.head.appendChild(s);
+      })();
+    </script>
+    <script src="/app.webvitals.js" defer></script>
+  </body>
+</html>

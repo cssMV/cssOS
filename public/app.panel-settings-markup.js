@@ -399,6 +399,14 @@ function buildPanelSettingsMarkupBridge({
         </select>
       </label>
       <label>
+        ${loginCopy("On entering the platform", "进入平台时")}
+        <select data-setting="auto-enter-mv">
+          <option value="ask">${loginCopy("Ask every time", "每次询问")}</option>
+          <option value="always">${loginCopy("Always watch MV", "总是欣赏")}</option>
+          <option value="never">${loginCopy("Don’t auto-enter", "不自动进入")}</option>
+        </select>
+      </label>
+      <label>
         ${loginCopy("Hold after completion (ms)")}
         <input type="number" min="0" max="30000" step="1000" data-setting="foryou-hold-ms" />
       </label>

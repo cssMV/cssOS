@@ -1,0 +1,64 @@
+/* CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 单一视觉真理源(设计令牌 + 复用表面/对话框/空态)。
+ * additive: 老内联样式照常工作; 新组件/迁移逐步采用这些类。compositor-safe(不在移动内容上做 backdrop-filter)。 */
+:root {
+  --cssos-accent: hsl(155, 66%, 46%);
+  --cssos-accent-soft: hsla(155, 68%, 46%, 0.16);
+  --cssos-surface: rgba(12, 22, 18, 0.97);      /* 大表面用近不透明(遮罩已暗化背景, 不做 backdrop-filter 省重绘) */
+  --cssos-surface-2: rgba(255, 255, 255, 0.05);
+  --cssos-overlay: rgba(0, 0, 0, 0.58);
+  --cssos-border: hsla(155, 100%, 65%, 0.28);
+  --cssos-text: #eafff6;
+  --cssos-text-muted: #9fdcc6;
+  --cssos-radius: 18px;
+  --cssos-radius-pill: 999px;
+  --cssos-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* 全屏遮罩(对话框背板) */
+.cssos-overlay {
+  position: fixed; inset: 0; z-index: 2147483646;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--cssos-overlay);
+}
+
+/* 标准对话框表面 */
+.cssos-dialog {
+  width: min(560px, 92vw); max-height: 86vh; overflow: auto;
+  background: var(--cssos-surface);
+  border: 1px solid var(--cssos-border);
+  border-radius: var(--cssos-radius);
+  box-shadow: var(--cssos-shadow);
+  color: var(--cssos-text);
+  padding: 20px;
+  position: relative;
+}
+/* 未来感: 顶部一条极细的渐变高光线(静态, 不动画 → 合规) */
+.cssos-dialog::before {
+  content: ""; position: absolute; left: 16px; right: 16px; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cssos-accent), transparent);
+  opacity: 0.7; pointer-events: none;
+}
+.cssos-dialog h3 { margin: 0 0 6px; font-size: 17px; font-weight: 700; }
+.cssos-dialog .cssos-dialog-sub { font-size: 12.5px; color: var(--cssos-text-muted); margin-bottom: 14px; line-height: 1.4; }
+
+/* 统一空态(图标 + 标题 + 说明 + 可选 CTA) —— 每个空态都引导, 呼应引导式 UX 铁律 */
+.cssos-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: 8px; padding: 32px 18px; color: var(--cssos-text-muted);
+}
+.cssos-empty .cssos-empty-icon { font-size: 38px; line-height: 1; opacity: 0.55; }
+.cssos-empty .cssos-empty-title { font-size: 14px; font-weight: 700; color: var(--cssos-text); }
+.cssos-empty .cssos-empty-sub { font-size: 12.5px; max-width: 34ch; line-height: 1.45; }
+.cssos-empty .cssos-empty-cta {
+  margin-top: 6px; display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 18px; border: 0; border-radius: var(--cssos-radius-pill);
+  background: var(--cssos-accent); color: #04130c; font-weight: 700; font-size: 12.5px; cursor: pointer;
+  text-decoration: none;
+}
+.cssos-empty .cssos-empty-cta:hover { filter: brightness(1.08); }
+
+/* 白天主题: 空态文字加深 */
+html[data-theme="light"] .cssos-empty,
+body[data-theme="light"] .cssos-empty { color: #4a6b5e; }
+html[data-theme="light"] .cssos-empty .cssos-empty-title,
+body[data-theme="light"] .cssos-empty .cssos-empty-title { color: #0a3d2a; }

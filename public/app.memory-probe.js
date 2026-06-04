@@ -221,5 +221,5 @@
     isIOS, isCapacitor,
   };
 
-  console.log("[memory-probe] W220.A armed. Sample every", SAMPLE_MS, "ms; beacon every", BEACON_MS, "ms.");
+  // CSSOS_WAVE_536 — 静音启动 install 日志(保持控制台干净)。
 })();

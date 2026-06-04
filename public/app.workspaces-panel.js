@@ -221,7 +221,9 @@ function openWorkspaceFromPanelModule(workId) {
 async function renderWorkspacesPanelModule() {
   const content = document.getElementById("workspaces-panel-content");
   if (!(content instanceof HTMLElement)) return false;
-  content.innerHTML = `<div class="works-note">${escapeHtml(t("workspaces.loading"))}</div>`;
+  content.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+    ? globalThis.cssosSkeletonRowsMarkup(4, t("workspaces.loading"))
+    : `<div class="works-note">${escapeHtml(t("workspaces.loading"))}</div>`);
   const snapshot = await loadWorkspacePanelSnapshotModule();
   content.innerHTML = buildWorkspacesPanelMarkupModule(snapshot);
   globalThis.bindOperaScoreJumpTargetsModule?.(content);

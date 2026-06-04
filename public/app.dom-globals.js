@@ -1,6 +1,10 @@
 /* CSSOS_WAVE_320 20260521 — Jing: 全局缩略图助手. 把大封面 URL 换成后端缩放代理
  * /api/img-thumb?u=…&w=… (sharp 缩放 + 缓存). 列表/卡片/背景/poster 统一用它, 把
- * 1.3MB 全图降到几十 KB. data:/svg/已是缩略图/相对路径 一律原样返回. */
+ * 1.3MB 全图降到几十 KB. data:/svg/已是缩略图/相对路径 一律原样返回.
+ * CSSOS_WAVE_449 20260527 — Jing: replicate.delivery / fal.media / fal.run 是
+ * 第三方临时签名 URL，通常数小时/数天后失效 → 404。用它们走 img-thumb 代理只会刷屏
+ * "Failed to load resource: 404"。这类 URL 直接跳过代理返回空字符串；调用方应降级
+ * 到 cdn.cssstudio.app 封面或占位图，避免无意义的网络请求。 */
 globalThis.cssosThumb = function (url, w) {
   try {
     var s = String(url == null ? "" : url).trim();
@@ -9,6 +13,13 @@ globalThis.cssosThumb = function (url, w) {
     if (/\.svg(\?|$)/i.test(s)) return s;
     if (s.indexOf("/api/img-thumb") !== -1) return s;
     if (!/^https?:\/\//i.test(s)) return s;
+    // CSSOS_WAVE_449: skip expired third-party temp CDN URLs — they 404 silently
+    // and generate console storms. Return "" so callers fall back to cdn.cssstudio.app
+    // or a placeholder. The DB backfill (backfillTempWorkCovers) migrates these to R2.
+    try {
+      var _h = new URL(s).hostname.toLowerCase();
+      if (/(?:^|\.)(?:replicate\.delivery|fal\.media|fal\.run)$/.test(_h)) return "";
+    } catch (_u) {}
     var ww = Math.max(48, Math.min(parseInt(w, 10) || 400, 1024));
     return "/api/img-thumb?u=" + encodeURIComponent(s) + "&w=" + ww;
   } catch (_e) { return url; }

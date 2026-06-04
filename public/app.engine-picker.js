@@ -384,7 +384,7 @@
 
   // Auto-bind a dock action for "engines" if present.
   function tryBindDock() {
-    var btn = document.querySelector('.dock-item[data-action="engines"]');
+    var btn = document.querySelector('[data-action="engines"]');
     if (btn && !btn.dataset.cssosEngineBound) {
       btn.dataset.cssosEngineBound = "1";
       btn.addEventListener("click", function (e) {

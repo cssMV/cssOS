@@ -77,6 +77,9 @@
   }
 
   function detectViaLuma(video) {
+    // W355 — video streams through the Rust proxy are cross-origin; skip
+    // getImageData to avoid SecurityError console noise.
+    if (!isSafeForPixelRead(video)) return null;
     var c = getCanvas(GRID_W, GRID_H);
     var ctx = c.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
@@ -129,6 +132,114 @@
     if (zone) applyZone(zone);
   }
 
+  /* CSSOS_WAVE_125 20260514 — Jing: "桌面端/横屏端也好，手机端/移动端也好,
+   * 就算不变形，也要检测人物脸部，要显示完整的人物脸部，不要遮遮掩掩".
+   *
+   * The cover / slideshow still image (.watch-svg) is object-fit:cover —
+   * so when the figure's face sits near an edge, `cover` cropping eats
+   * half the face. Detect the face on the IMG and drive `object-position`
+   * so the face is always pulled into frame, AND set the face-zone so the
+   * title anchors away from it. Runs on every img src change.
+   */
+  // W355 — before reading pixels, verify the image won't taint the canvas.
+  // Cross-origin imgs without crossOrigin="anonymous" (or same-origin CORS)
+  // taint the canvas on getImageData, flooding the console with SecurityErrors
+  // even though we catch them. Check origin upfront and bail if unsafe.
+  function isSafeForPixelRead(img) {
+    try {
+      var src = img.currentSrc || img.src || "";
+      if (!src || src.startsWith("data:") || src.startsWith("blob:")) return true;
+      var u = new URL(src, window.location.href);
+      if (u.origin === window.location.origin) return true;
+      // Cross-origin: only safe if crossOrigin="anonymous" is set AND the element
+      // has already loaded successfully in that mode (naturalWidth > 0).
+      if (img.crossOrigin === "anonymous" && img.naturalWidth > 0) return true;
+      return false;
+    } catch (_e) { return false; }
+  }
+
+  async function detectFaceOnImage(img) {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return null;
+    // W355 — skip pixel reads on cross-origin images; avoids SecurityError flood.
+    if (!isSafeForPixelRead(img)) return null;
+    var w = 320;
+    var h = Math.round(w * (img.naturalHeight / Math.max(1, img.naturalWidth)));
+    if (h < 16) return null;
+    var c = getCanvas(w, h);
+    var ctx = c.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    try { ctx.drawImage(img, 0, 0, w, h); } catch (_e) { return null; }
+    // 1. FaceDetector API (Chromium)
+    if (faceDetector) {
+      try {
+        var faces = await faceDetector.detect(c);
+        if (faces && faces.length) {
+          var f = faces[0].boundingBox || {};
+          var cx = (f.x || 0) + (f.width || 0) / 2;
+          var cy = (f.y || 0) + (f.height || 0) / 2;
+          return { cx: cx / w, cy: cy / h, zone: zoneFromBox(cx, cy, w, h) };
+        }
+      } catch (_e) {}
+    }
+    // 2. Luma-blob fallback on the same downsample
+    var gx = GRID_W, gy = GRID_H;
+    var gc = getCanvas(gx, gy);
+    var gctx = gc.getContext("2d", { willReadFrequently: true });
+    if (!gctx) return null;
+    try { gctx.drawImage(img, 0, 0, gx, gy); } catch (_e) { return null; }
+    var data;
+    try { data = gctx.getImageData(0, 0, gx, gy).data; } catch (_e) { return null; }
+    var bestL = -1, bx = 0, by = 0;
+    for (var y = 0; y < gy; y++) {
+      for (var x = 0; x < gx; x++) {
+        var i = (y * gx + x) * 4;
+        var L = 0.2126 * (data[i] || 0) + 0.7152 * (data[i + 1] || 0) + 0.0722 * (data[i + 2] || 0);
+        if (L > bestL) { bestL = L; bx = x; by = y; }
+      }
+    }
+    return {
+      cx: (bx + 0.5) / gx,
+      cy: (by + 0.5) / gy,
+      zone: zoneFromBox(bx + 0.5, by + 0.5, gx, gy),
+    };
+  }
+
+  /* Translate a normalised face center (0..1) into an object-position
+   * that keeps the face inside the cropped frame. With object-fit:cover,
+   * object-position picks WHICH part survives the crop. We bias toward
+   * the face but clamp so we never over-pan past the image edge. */
+  function objectPositionForFace(cx, cy) {
+    // Pull the crop window's focal point toward the face. Clamp 15..85%
+    // so a face dead in a corner still leaves headroom and we don't pin
+    // the image to a hard edge (which looks worse than a slight offset).
+    var px = Math.max(15, Math.min(85, Math.round(cx * 100)));
+    var py = Math.max(15, Math.min(85, Math.round(cy * 100)));
+    return px + "% " + py + "%";
+  }
+
+  var __imgFaceBound = new WeakSet();
+  async function analyzeCoverImage(img) {
+    if (!img) return;
+    var res = await detectFaceOnImage(img);
+    if (!res) return;
+    try {
+      img.style.objectPosition = objectPositionForFace(res.cx, res.cy);
+    } catch (_e) {}
+    if (res.zone) applyZone(res.zone);
+  }
+  function bindCoverImage() {
+    var img = document.querySelector("#watch-panel .watch-svg, #watch-svg");
+    if (!(img instanceof HTMLImageElement)) return;
+    if (__imgFaceBound.has(img)) {
+      // Already bound — if it has a fresh src and is loaded, re-analyze.
+      if (img.complete && img.naturalWidth) void analyzeCoverImage(img);
+      return;
+    }
+    __imgFaceBound.add(img);
+    img.addEventListener("load", function () { void analyzeCoverImage(img); }, { passive: true });
+    if (img.complete && img.naturalWidth) void analyzeCoverImage(img);
+  }
+
   var loopTimer = 0;
   function startLoop() {
     if (loopTimer) return;
@@ -142,16 +253,20 @@
 
   function bindLifecycle() {
     var v = document.getElementById("watch-video");
-    if (!v || v.dataset.cssosFaceSafeBound === "1") return;
-    v.dataset.cssosFaceSafeBound = "1";
-    v.addEventListener("playing", startLoop, { passive: true });
-    v.addEventListener("pause", stopLoop, { passive: true });
-    v.addEventListener("ended", stopLoop, { passive: true });
-    v.addEventListener("emptied", function () {
-      stopLoop();
-      var p = document.getElementById("watch-panel");
-      if (p) { delete p.dataset.faceZone; delete p.dataset.faceTitleAnchor; }
-    }, { passive: true });
+    if (v && v.dataset.cssosFaceSafeBound !== "1") {
+      v.dataset.cssosFaceSafeBound = "1";
+      v.addEventListener("playing", startLoop, { passive: true });
+      v.addEventListener("pause", stopLoop, { passive: true });
+      v.addEventListener("ended", stopLoop, { passive: true });
+      v.addEventListener("emptied", function () {
+        stopLoop();
+        var p = document.getElementById("watch-panel");
+        if (p) { delete p.dataset.faceZone; delete p.dataset.faceTitleAnchor; }
+      }, { passive: true });
+    }
+    // CSSOS_WAVE_125 — also bind the cover/slideshow still image so its
+    // face drives object-position (no half-face crop) + title anchor.
+    bindCoverImage();
   }
 
   function init() { bindLifecycle(); }
@@ -172,5 +287,20 @@
     },
     /** Forced zone for testing / overrides. */
     setZone: applyZone,
+    /** CSSOS_WAVE_125 — re-run face detection on the cover image now
+     *  (call after swapping #watch-svg src). */
+    refreshCover: function () { bindCoverImage(); },
   };
+
+  // CSSOS_WAVE_125 — the slideshow frame loop swaps #watch-svg.src
+  // without a fresh `load` listener registration; re-analyze whenever
+  // Wave 121's work-id binding fires (new work) or slideshow loads.
+  try {
+    window.addEventListener("cssos:slideshow-loaded", function () {
+      setTimeout(bindCoverImage, 120);
+    });
+    window.addEventListener("cssos:work-id-changed", function () {
+      setTimeout(bindCoverImage, 200);
+    });
+  } catch (_e) {}
 })();

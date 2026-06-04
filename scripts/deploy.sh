@@ -53,11 +53,19 @@ build_and_restart() {
 }
 
 sync_public() {
-  say "snapshot ${REMOTE_STATIC} on ${TARGET}"
+  # CSSOS_WAVE_503 20260530 — Jing: 防止部署快照堆满磁盘(曾累积 31×2.5G=75G → 盘满)。
+  #   1) 快照排除大运行时目录(artifacts/uploads/works/secure — 它们本就不部署);
+  #   2) 部署前先清理旧快照, 只保留最近 1 份。
+  say "snapshot ${REMOTE_STATIC} on ${TARGET} (lightweight, pruning old)"
   ssh "${TARGET}" "
     set -euo pipefail
+    # Prune old snapshots — keep only the most recent one (|| true so 'no match' is fine).
+    { ls -1dt ${REMOTE_STATIC}.bak.* 2>/dev/null || true; } | tail -n +2 | sudo xargs -r rm -rf
     if [ -d ${REMOTE_STATIC} ]; then
-      sudo cp -a ${REMOTE_STATIC} ${REMOTE_STATIC}.bak.${STAMP}
+      sudo rsync -a --delete \
+        --exclude 'artifacts/' --exclude 'uploads/' --exclude 'works/' --exclude 'secure/' \
+        --exclude '*.bak.*' \
+        ${REMOTE_STATIC}/ ${REMOTE_STATIC}.bak.${STAMP}/
     fi
   "
 

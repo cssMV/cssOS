@@ -11,12 +11,15 @@
   // CSSOS_PHASE2_SLIDESHOW_INTENSITY 20260430 #200 — Jing
   // "幻灯片强度滑块." User-tunable speed via globalThis.cssmvSetSlideshowIntensity(0..1).
   //   0.0 = ultra-slow (60s per frame, contemplative cinema)
-  //   0.5 = default (15s per frame, current behaviour)
+  //   0.5 = default (15s per frame)
+  //   0.85 = near-video (≈4.5s per frame) — WAVE_444d new default
   //   1.0 = fast (3s per frame, energetic music-video)
   // Persisted to localStorage. Reads back on init so the user's last
   // preference survives reloads.
   const STORAGE_KEY = "cssmv.slideshow.intensity";
-  let intensity = 0.5;
+  // WAVE_444d 20260526: raised default from 0.5→0.85 for near-video feel.
+  // Users who previously saved a preference keep theirs (localStorage wins).
+  let intensity = 0.85;
   try {
     const v = parseFloat(localStorage.getItem(STORAGE_KEY) || "");
     if (Number.isFinite(v) && v >= 0 && v <= 1) intensity = v;
@@ -67,7 +70,37 @@
     if (document.getElementById("cssmv-cover-slideshow-styles")) return;
     const st = document.createElement("style");
     st.id = "cssmv-cover-slideshow-styles";
+    // WAVE_444e 20260526 — 12 Ken Burns variants for near-video feel:
+    //   0-3  zoom-in  to the four corners
+    //   4-7  zoom-out FROM the four corners (特写→全图)
+    //   8-9  horizontal pan L→R / R→L
+    //   10-11 vertical pan  U→D / D→U
+    // Each slide picks variant = __kbCounter % 12 so adjacent frames
+    // never repeat the same motion.
+    const totalMs = FADE_IN_MS + MAIN_MS + FADE_OUT_MS;
     st.textContent = `
+/* --- zoom-in to corner --- */
+@keyframes cssmv-kb-0  { from{transform:scale(1.00)translate( 0%,  0%)} to{transform:scale(1.14)translate(-3%,-3%)} }
+@keyframes cssmv-kb-1  { from{transform:scale(1.00)translate( 0%,  0%)} to{transform:scale(1.14)translate( 3%,-3%)} }
+@keyframes cssmv-kb-2  { from{transform:scale(1.00)translate( 0%,  0%)} to{transform:scale(1.14)translate(-3%, 3%)} }
+@keyframes cssmv-kb-3  { from{transform:scale(1.00)translate( 0%,  0%)} to{transform:scale(1.14)translate( 3%, 3%)} }
+/* --- zoom-out from corner (特写→全图) --- */
+@keyframes cssmv-kb-4  { from{transform:scale(1.16)translate(-4%,-4%)} to{transform:scale(1.00)translate( 0%,  0%)} }
+@keyframes cssmv-kb-5  { from{transform:scale(1.16)translate( 4%,-4%)} to{transform:scale(1.00)translate( 0%,  0%)} }
+@keyframes cssmv-kb-6  { from{transform:scale(1.16)translate(-4%, 4%)} to{transform:scale(1.00)translate( 0%,  0%)} }
+@keyframes cssmv-kb-7  { from{transform:scale(1.16)translate( 4%, 4%)} to{transform:scale(1.00)translate( 0%,  0%)} }
+/* --- horizontal pan --- */
+@keyframes cssmv-kb-8  { from{transform:scale(1.07)translate( 3%, 0%)} to{transform:scale(1.07)translate(-3%,  0%)} }
+@keyframes cssmv-kb-9  { from{transform:scale(1.07)translate(-3%, 0%)} to{transform:scale(1.07)translate( 3%,  0%)} }
+/* --- vertical pan --- */
+@keyframes cssmv-kb-10 { from{transform:scale(1.07)translate(0%,  3%)} to{transform:scale(1.07)translate(  0%,-3%)} }
+@keyframes cssmv-kb-11 { from{transform:scale(1.07)translate(0%, -3%)} to{transform:scale(1.07)translate(  0%, 3%)} }
+/* --- WAVE_446: focal-point smart zoom (transform-origin set per-element) --- */
+/* zoom-in: wide → 特写 (pull viewer toward subject) */
+@keyframes cssmv-kb-focal-in  { from{transform:scale(1.00)} to{transform:scale(1.26)} }
+/* zoom-out: 特写 → wide (cinematic reveal, "real video" feel) */
+@keyframes cssmv-kb-focal-out { from{transform:scale(1.26)} to{transform:scale(1.00)} }
+
 .cssmv-cover-slide {
   position: absolute;
   inset: 0;
@@ -79,8 +112,28 @@
   pointer-events: none;
   border-radius: inherit;
   z-index: 0;
+  will-change: transform, opacity;
 }
-.cssmv-cover-slide.is-visible { opacity: 1; }
+.cssmv-cover-slide.is-visible {
+  opacity: 1;
+  animation-duration: ${totalMs}ms;
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: both;
+}
+.cssmv-cover-slide.cssmv-kb-0.is-visible  { animation-name: cssmv-kb-0;  }
+.cssmv-cover-slide.cssmv-kb-1.is-visible  { animation-name: cssmv-kb-1;  }
+.cssmv-cover-slide.cssmv-kb-2.is-visible  { animation-name: cssmv-kb-2;  }
+.cssmv-cover-slide.cssmv-kb-3.is-visible  { animation-name: cssmv-kb-3;  }
+.cssmv-cover-slide.cssmv-kb-4.is-visible  { animation-name: cssmv-kb-4;  }
+.cssmv-cover-slide.cssmv-kb-5.is-visible  { animation-name: cssmv-kb-5;  }
+.cssmv-cover-slide.cssmv-kb-6.is-visible  { animation-name: cssmv-kb-6;  }
+.cssmv-cover-slide.cssmv-kb-7.is-visible  { animation-name: cssmv-kb-7;  }
+.cssmv-cover-slide.cssmv-kb-8.is-visible  { animation-name: cssmv-kb-8;  }
+.cssmv-cover-slide.cssmv-kb-9.is-visible  { animation-name: cssmv-kb-9;  }
+.cssmv-cover-slide.cssmv-kb-10.is-visible { animation-name: cssmv-kb-10; }
+.cssmv-cover-slide.cssmv-kb-11.is-visible { animation-name: cssmv-kb-11; }
+.cssmv-cover-slide.cssmv-kb-focal-in.is-visible  { animation-name: cssmv-kb-focal-in;  }
+.cssmv-cover-slide.cssmv-kb-focal-out.is-visible { animation-name: cssmv-kb-focal-out; }
 .cssmv-cover-slide.is-fading-out { transition: opacity ${FADE_OUT_MS}ms ease-in-out; opacity: 0; }
 #watch-music-art.cssmv-slideshow-host,
 #watch-music-disc.cssmv-slideshow-host {
@@ -102,9 +155,20 @@
       .filter((u) => !!u);
     // de-dup while preserving order
     const seen = new Set();
-    state.slides = cleaned.filter((u) => (seen.has(u) ? false : (seen.add(u), true)));
-    if (!state.slides.length) return;
-    // Immediately render current frame on whichever host is active.
+    const newSlides = cleaned.filter((u) => (seen.has(u) ? false : (seen.add(u), true)));
+    if (!newSlides.length) return;
+    /* W335 20260522 — skip re-render if slides are identical to avoid the
+     * flash caused by multiple callers (pre-paint + media-layout render)
+     * each injecting a new slide on top of the existing one. */
+    const same = newSlides.length === state.slides.length &&
+      newSlides.every((u, i) => u === state.slides[i]);
+    if (same) return;
+    state.slides = newSlides;
+    // WAVE_446: kick off background focal-point detection so it is cached
+    // by the time each slide is displayed.
+    _prefetchFocal(newSlides);
+    // Only re-render current frame when the slideshow is already running —
+    // if it hasn't started yet, startMv/startMusic will render frame 0.
     if (state.mvActive) renderMvFrame(state.mvIndex % state.slides.length);
     if (state.musicActive) renderMusicFrame(state.musicIndex % state.slides.length);
   };
@@ -119,6 +183,15 @@
       if (state.mvActive) renderMvFrame(0);
       if (state.musicActive) renderMusicFrame(0);
     }
+  };
+
+  // CSSOS_WAVE_617 — Jing「幻灯帧池串台: 上一首/最新封面混进别的歌」根治: 加【清空池】API。
+  // 此前 cssmvSetCoverSlides([]) 因 !newSlides.length 直接 return, 根本清不掉池 → 切到无帧作品时
+  // 旧帧残留。切作品时(work-id-binding flush)调本函数, 保证每首只用自己的帧(严格按 ID)。
+  globalThis.cssmvClearCoverSlides = function cssmvClearCoverSlides() {
+    state.slides = [];
+    state.mvIndex = 0;
+    state.musicIndex = 0;
   };
 
   globalThis.cssmvStartCoverSlideshow = function cssmvStartCoverSlideshow(opts = {}) {
@@ -240,6 +313,150 @@
 
   // ---------- slide injection (5s fade-in / 5s main / 5s fade-out) ----------
 
+  let __kbCounter = 0; // WAVE_444d: cycles through 0-3 Ken Burns variants
+
+  // ── WAVE_446 20260526 Smart focal-point Ken Burns ────────────────────────
+  // Detect the visual centre-of-interest for each cover image and use it as
+  // transform-origin so the Ken Burns zoom-in/out motion is anchored to the
+  // subject rather than a fixed corner.
+  //
+  // Detection pipeline (two strategies, whichever succeeds first):
+  //   1. FaceDetector API — face bounding-box centre (no CORS needed)
+  //   2. Canvas pixel analysis — find 8×8 grid cell with highest saliency
+  //      (weighted sum of brightness + colour saturation)
+  //   Fallback: upper-centre rule-of-thirds (50%, 38%).
+  //
+  // Results are cached by URL so repeated frames have zero extra cost.
+  // Detection is kicked off eagerly when cssmvSetCoverSlides() is called
+  // (background prefetch) so by the time injectSlide() needs the value it is
+  // almost always already in the cache.  injectSlide() itself stays
+  // synchronous — it reads from cache and falls back to the default if the
+  // async work has not yet completed.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const focalCache = new Map(); // url → {x, y}  (0–100 each)
+  const FOCAL_DEFAULT = { x: 50, y: 38 }; // upper-centre, rule of thirds
+
+  function _focalClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  async function _detectFocalPoint(url) {
+    if (focalCache.has(url)) return focalCache.get(url);
+
+    // CSSOS_WAVE_440 20260526 — Jing「DevTools: CORS 报错 + net::ERR_FAILED」: covers now
+    // live on cdn.cssstudio.app (R2), whose custom-domain serving does NOT send
+    // Access-Control-Allow-Origin. A crossOrigin Image of a cross-origin cover is
+    // CORS-blocked (the catch already falls back, but it spams the console + wastes a
+    // fetch). Cross-origin images can't be read into a canvas anyway, so skip focal
+    // detection for them entirely → center default, no error, no extra request.
+    try {
+      if (new URL(url, location.href).origin !== location.origin) {
+        focalCache.set(url, FOCAL_DEFAULT);
+        return FOCAL_DEFAULT;
+      }
+    } catch (_e) {}
+
+    // Load image ONCE for both strategies.
+    // crossOrigin="anonymous" is required for canvas getImageData().
+    // If the URL is already cached by the browser without CORS headers (because
+    // CSS backgroundImage loaded it first), the browser re-fetches it — acceptable
+    // one-time cost.  If the server refuses CORS entirely, img.onerror fires and
+    // we go straight to FOCAL_DEFAULT.
+    let img;
+    try {
+      img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    } catch (_) {
+      focalCache.set(url, FOCAL_DEFAULT);
+      return FOCAL_DEFAULT;
+    }
+
+    // --- Strategy 1: FaceDetector (reuses already-loaded img, no extra fetch) ---
+    if (typeof FaceDetector !== "undefined") {
+      try {
+        const det = new FaceDetector({ maxDetectedFaces: 1, fastMode: true });
+        const faces = await det.detect(img);
+        if (faces.length > 0) {
+          const b = faces[0].boundingBox;
+          const x = _focalClamp(Math.round(((b.x + b.width  * 0.5) / img.naturalWidth)  * 100), 10, 90);
+          const y = _focalClamp(Math.round(((b.y + b.height * 0.4) / img.naturalHeight) * 100), 10, 85);
+          const result = { x, y };
+          focalCache.set(url, result);
+          return result;
+        }
+      } catch (_) { /* API unsupported or blocked — fall through */ }
+    }
+
+    // --- Strategy 2: Canvas local-contrast saliency ---
+    // Bug-fix vs first draft: instead of "find brightest+most-saturated cell"
+    // (which latches onto skies and light sources), we measure each cell's
+    // LOCAL CONTRAST — how much its average colour deviates from the whole-image
+    // mean.  The most-deviating cell is where the eye naturally goes.
+    // A small centre-weighting bias nudges ties toward the compositional centre.
+    try {
+      const SIZE = 32, GRID = 8, CELL = SIZE / GRID;
+      const canvas = document.createElement("canvas");
+      canvas.width = SIZE; canvas.height = SIZE;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, SIZE, SIZE);
+      const { data } = ctx.getImageData(0, 0, SIZE, SIZE); // throws if CORS-tainted
+
+      // Compute whole-image mean luminance and mean saturation.
+      let sumL = 0, sumS = 0;
+      const N = SIZE * SIZE;
+      for (let i = 0; i < N * 4; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        sumL += (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        sumS += (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+      }
+      const meanL = sumL / N;
+      const meanS = sumS / N;
+
+      let maxSal = -1, bx = GRID >> 1, by = GRID >> 1;
+      for (let gy = 0; gy < GRID; gy++) {
+        for (let gx = 0; gx < GRID; gx++) {
+          // Cell mean
+          let cL = 0, cS = 0;
+          for (let py = 0; py < CELL; py++) {
+            for (let px = 0; px < CELL; px++) {
+              const i = ((gy * CELL + py) * SIZE + (gx * CELL + px)) * 4;
+              const r = data[i], g = data[i + 1], b = data[i + 2];
+              cL += (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+              cS += (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+            }
+          }
+          cL /= CELL * CELL;
+          cS /= CELL * CELL;
+          // Local contrast = deviation from whole-image mean
+          const contrast = Math.abs(cL - meanL) * 0.6 + Math.abs(cS - meanS) * 0.4;
+          // Centre-proximity bonus: cells closer to (cx, cy) get +0.08 max
+          const cx = (GRID - 1) / 2, cy = (GRID - 1) / 2;
+          const dist = Math.sqrt((gx - cx) ** 2 + (gy - cy) ** 2) / (GRID * 0.7);
+          const sal = contrast + 0.08 * Math.max(0, 1 - dist);
+          if (sal > maxSal) { maxSal = sal; bx = gx; by = gy; }
+        }
+      }
+      const x = _focalClamp(Math.round(((bx + 0.5) / GRID) * 100), 5, 95);
+      const y = _focalClamp(Math.round(((by + 0.5) / GRID) * 100), 5, 95);
+      const result = { x, y };
+      focalCache.set(url, result);
+      return result;
+    } catch (_) { /* CORS-tainted canvas or unsupported */ }
+
+    // Fallback: upper-centre rule-of-thirds
+    focalCache.set(url, FOCAL_DEFAULT);
+    return FOCAL_DEFAULT;
+  }
+
+  // Kick off background detection for a list of URLs without blocking callers.
+  function _prefetchFocal(urls) {
+    for (const url of urls) {
+      if (!focalCache.has(url)) {
+        _detectFocalPoint(url).catch(() => {});
+      }
+    }
+  }
+
   function injectSlide(host, url) {
     // CSSMV_SLIDESHOW_STIFF_FIX 20260420 — Jing: previously we only
     // self-faded when slides.length <= 1 and relied on the next tick to
@@ -250,16 +467,31 @@
     // FADE_OUT_MS (5s) of clean empty-canvas before the next TICK_MS
     // rolls and the next slide fades in. That yields the user's spec
     // exactly: 5s fade-in + 5s stay + 5s fade-out per slide.
-    // Fade out existing top slide(s) — only used if a new slide arrives
-    // before self-fade fires (e.g. manual set on an active host).
-    const existing = Array.from(host.querySelectorAll(".cssmv-cover-slide.is-visible"));
-    existing.forEach((el) => {
-      el.classList.remove("is-visible");
-      el.classList.add("is-fading-out");
-      setTimeout(() => { try { el.remove(); } catch (_e) {} }, FADE_OUT_MS + 200);
+    // WAVE_445e: Remove ALL existing slides (visible + fading-out) to prevent
+    // GPU layer accumulation on rapid work-switches. At intensity 0.85 (~4.5s
+    // frames) rapid switching desynchronises self-fade timers and orphaned
+    // .is-fading-out slides with will-change:transform pile up invisible in DOM.
+    host.querySelectorAll(".cssmv-cover-slide").forEach((el) => {
+      try { el.remove(); } catch (_e) {}
     });
     const next = document.createElement("div");
-    next.className = "cssmv-cover-slide";
+
+    // WAVE_446: use focal-point animation when we have a cached focal point;
+    // fall back to the classic 12-variant cycling otherwise.
+    // Alternate focal-in / focal-out every other frame for cinematic variety.
+    const focal = focalCache.get(url) || null;
+    let kbClass;
+    if (focal) {
+      // Even counter → zoom-out (特写→全图, most "real video" feel)
+      // Odd counter  → zoom-in  (wide→特写)
+      kbClass = (__kbCounter % 2 === 0) ? "cssmv-kb-focal-out" : "cssmv-kb-focal-in";
+      next.style.transformOrigin = `${focal.x}% ${focal.y}%`;
+    } else {
+      kbClass = "cssmv-kb-" + (__kbCounter % 12);
+    }
+    __kbCounter++;
+
+    next.className = "cssmv-cover-slide " + kbClass;
     next.style.backgroundImage = `url("${url.replace(/"/g, '\\"')}")`;
     host.appendChild(next);
     // Force reflow then mark visible so the 5s opacity transition runs.

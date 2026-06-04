@@ -1,0 +1,31 @@
+{
+  "id": "first_subscriber.en.v2",
+  "trigger_key": "first_subscriber",
+  "language": "en",
+  "version": 2,
+  "label": "First Subscriber MV — English v2 (real-asset slot, currently fallback)",
+
+  "base_video": "base.mp4",
+  "base_audio": "base.mp3",
+  "base_cover": "cover.png",
+  "duration_secs": 45,
+  "aspect_ratio": "16:9",
+
+  "title_template": "Founding Subscriber — {name}",
+  "subtitle_template": "From cssOS · Curator",
+
+  "plain_lyrics_file": "lyrics.txt.tpl",
+
+  "emotional_tone": "majestic",
+  "max_name_chars": 24,
+  "active": true,
+
+  "creative_brief": {
+    "music_style": "cinematic neoclassical orchestral pop, soft string ensemble, solo cello lead, gentle timpani heartbeat, mixed choir 'ah' backing, 70 BPM, D major, single emotional swell at 30s mark",
+    "instrumentation": "string quartet, solo cello, soft timpani, grand piano, harp glissando into chorus, no drums",
+    "vocal": "androgynous lead + 4-voice mixed choir backing on chorus",
+    "video": "horizontal 16:9 cinematic. Vast dark library at twilight — towering wooden bookshelves, single moonbeam from tall window. Slow dolly forward. At 12s a leather-bound book floats from shelf to marble pedestal center. Opens itself to blank page. At 22s an ink quill writes '{name}' in copperplate calligraphy — visible in real time. At 30s (music swell) name glows soft gold, dust-particle stars drift up. Final 10s pull back to warmly-lit library, book closed on pedestal. Deep navy / warm gold / parchment cream. NO faces, NO modern objects, NO text except calligraphy. Renaissance library atmosphere."
+  },
+
+  "notes": "v2 awaiting real Suno+Kling output. base.mp3/mp4/cover.png are temporarily copied from v1 placeholder. Drop real assets at this path when ready — no other code change needed. v1 retired (active: false)."
+}

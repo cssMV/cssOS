@@ -178,11 +178,29 @@
       }
     }
   }
+  // CSSOS_WAVE_390 20260524 — Jing QA: the heavy limit=1000 market query can
+  // 500 (timeout) under concurrent boot DB load — it succeeds in isolation.
+  // Retry transient 5xx/network failures a few times with backoff so a flaky
+  // first attempt doesn't leave the For-You queue empty.
+  async function fetchWorksWithRetry(url, tries) {
+    tries = tries || 3;
+    for (let i = 0; i < tries; i += 1) {
+      try {
+        const r = await fetch(url, { credentials: "include" });
+        if (r.ok) return await r.json().catch(() => null);
+        if (r.status < 500) return null; // 4xx → don't bother retrying
+      } catch (_e) { /* network blip → retry */ }
+      await new Promise((res) => setTimeout(res, 400 * (i + 1)));
+    }
+    return null;
+  }
+
   async function fetchForYou(list) {
     if (list.loading || list.exhausted) return;
     list.loading = true;
     const have = new Set(list.items.map((it) => it.id));
     const loggedIn = !!(globalThis.authState && globalThis.authState.user);
+    let anySuccess = false;
     try {
       // 1 · 登录用户: 先放自己的作品 (最新→最旧)
       if (loggedIn) {
@@ -190,26 +208,34 @@
           // CSSOS_WAVE_253 20260520 — Jing: 拉满 (服务端上限 1000), 不要默认
           // 的 20 条 —— 否则队列被截断, loop_all 在末尾早早回头. 要播完
           // 全部可播放作品(normaliseItem 已过滤无媒体的)才按模式回头.
-          const r = await fetch("/api/works/mine?limit=1000", { credentials: "include" });
-          const p = await r.json().catch(() => null);
-          const mineFlat = flattenWorksTree(p?.data?.works || p?.works || []);
-          mineFlat.sort((a, b) =>
-            (Date.parse(String(b?.created_at || "")) || 0) -
-            (Date.parse(String(a?.created_at || "")) || 0));
-          pushUnique(list, have, mineFlat, true);
+          const p = await fetchWorksWithRetry("/api/works/mine?limit=1000");
+          if (p) {
+            anySuccess = true;
+            const mineFlat = flattenWorksTree(p?.data?.works || p?.works || []);
+            mineFlat.sort((a, b) =>
+              (Date.parse(String(b?.created_at || "")) || 0) -
+              (Date.parse(String(a?.created_at || "")) || 0));
+            pushUnique(list, have, mineFlat, true);
+          }
         } catch (_e) { /* mine fetch failed — fall through to market */ }
       }
       // 2 · 追加平台精选 feed (所有人), 去重 — 永远有内容连播
       try {
-        const r = await fetch("/api/works/market?limit=1000", { credentials: "include" });
-        const p = await r.json().catch(() => null);
-        const mktFlat = flattenWorksTree(p?.data?.works || p?.works || []);
-        // market 已按服务端顺序 (热门/最新), 不再二次排序; 仅追加在自己作品之后.
-        pushUnique(list, have, mktFlat, null);
+        const p = await fetchWorksWithRetry("/api/works/market?limit=1000");
+        if (p) {
+          anySuccess = true;
+          const mktFlat = flattenWorksTree(p?.data?.works || p?.works || []);
+          // market 已按服务端顺序 (热门/最新), 不再二次排序; 仅追加在自己作品之后.
+          pushUnique(list, have, mktFlat, null);
+        }
       } catch (_e) {}
     } catch (_e) {}
     finally {
-      list.exhausted = true; // 两个源都是一次性全量返回
+      // CSSOS_WAVE_390 — only mark exhausted when a source actually responded.
+      // Previously this was set unconditionally, so a transient double-failure
+      // pinned the For-You queue EMPTY for the whole session (fetchForYou
+      // early-returns when exhausted). Now a flaky boot lets a later trigger retry.
+      list.exhausted = anySuccess;
       list.loading = false;
       notify();
     }

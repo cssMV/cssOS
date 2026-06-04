@@ -537,8 +537,77 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
   box-shadow: 0 12px 40px rgba(0,0,0,0.6);
 }
 .cssmv-info-popover-fixed.is-open { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+/* WAVE_445 20260526 — Portrait / mobile subtitle safe-zone fix.
+ * On a 390px phone, min(62%, 720px) = 241px — far too narrow. Most
+ * subtitle lines exceed that and get clipped by text-overflow:ellipsis,
+ * making it look like words dropped off. Fix: use almost the full screen
+ * width. Font-size auto-fit is handled by the JS fitSubtitleFont() below. */
+@media (orientation: portrait), (max-width: 540px) {
+  #watch-panel #watch-subtitle {
+    max-width: calc(100vw - 48px) !important;
+    /* left is 32px (style.css anchor); right clearance 16px */
+    font-size: clamp(11px, 3.8vw, 16px) !important;
+  }
+}
 `;
   document.head.appendChild(st);
+
+  // ========================================================================
+  // WAVE_445 20260526 — Subtitle font auto-fit for portrait / mobile.
+  // After every text change in #watch-subtitle, shrink font-size in steps
+  // until scrollWidth <= offsetWidth (no overflow). Stops at 10px minimum.
+  // This ensures single-line display on any screen width without cutting
+  // words with ellipsis or wrapping to a second line.
+  (function wireSubtitleAutoFit() {
+    var FONT_STEPS = [18, 16, 15, 14, 13, 12, 11, 10]; // px, largest→smallest
+    var raf = null;
+
+    function fitSubtitleFont() {
+      var el = document.getElementById("watch-subtitle");
+      if (!el) return;
+      // Only auto-fit in portrait or narrow viewports
+      var isNarrow = window.matchMedia &&
+        (window.matchMedia("(orientation: portrait)").matches ||
+         window.matchMedia("(max-width: 540px)").matches);
+      if (!isNarrow) {
+        el.style.removeProperty("font-size");
+        return;
+      }
+      // Clear any previous inline font-size so CSS clamp applies first
+      el.style.removeProperty("font-size");
+      // If it still overflows, step down
+      for (var i = 0; i < FONT_STEPS.length; i++) {
+        if (el.scrollWidth <= el.offsetWidth + 2) break; // +2px tolerance
+        el.style.fontSize = FONT_STEPS[i] + "px";
+      }
+    }
+
+    function schedFit() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(function() { raf = null; fitSubtitleFont(); });
+    }
+
+    // Observe text/DOM changes inside #watch-subtitle
+    function attachObserver() {
+      var target = document.getElementById("watch-subtitle");
+      if (!target) return;
+      var obs = new MutationObserver(schedFit);
+      obs.observe(target, { childList: true, characterData: true, subtree: true });
+      schedFit(); // initial fit
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", attachObserver, { once: true });
+    } else {
+      attachObserver();
+    }
+    // Also re-fit on orientation change
+    window.addEventListener("orientationchange", function() {
+      setTimeout(schedFit, 200);
+    }, { passive: true });
+    window.addEventListener("resize", schedFit, { passive: true });
+  })();
 
   // ========================================================================
   // FONT FIX — actually this time.
@@ -870,24 +939,33 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     }
 
     // Helper: shrink title font-size if it overflows the frame.
+    // CSSOS_WAVE_382 20260523 — Jing「字幕标题/字幕内容都不得溢出屏幕外」:
+    // 之前只按【高度】缩放(scrollHeight vs 86% 屏高), 完全没管【宽度】溢出 →
+    // 长单词/大字号(.cssmv-w-heavy 7vh)在窄屏上横向冲出屏幕边缘(实测刘海屏
+    // 标题左右出血)。这里同时按宽、高两个方向取较小缩放比, 谁先溢出谁说了算,
+    // 标题永远收进屏幕内。
     function fitTitleToFrame() {
       if (!el.classList.contains("cssmv-mv-title")) return;
       const screen = el.closest(".watch-screen");
       if (!screen) return;
       const screenH = screen.clientHeight || 600;
-      // If the title element's natural height exceeds 86% of frame, scale
-      // down proportionally via inline transform.
+      const screenW = screen.clientWidth || 360;
       requestAnimationFrame(function () {
         try {
-          const used = el.scrollHeight || el.offsetHeight || 0;
-          const cap = Math.floor(screenH * 0.86);
-          if (used > cap && cap > 80) {
-            const scale = Math.max(0.4, cap / used);
+          // Reset any prior transform so we measure the natural box.
+          el.style.transform = "";
+          el.style.transformOrigin = "";
+          const usedH = el.scrollHeight || el.offsetHeight || 0;
+          const usedW = el.scrollWidth || el.offsetWidth || 0;
+          const capH = Math.floor(screenH * 0.86);
+          const capW = Math.floor(screenW * 0.96);
+          let scale = 1;
+          if (usedH > capH && capH > 80) scale = Math.min(scale, capH / usedH);
+          if (usedW > capW && capW > 80) scale = Math.min(scale, capW / usedW);
+          scale = Math.max(0.4, scale);
+          if (scale < 0.999) {
             el.style.transform = "scale(" + scale.toFixed(3) + ")";
             el.style.transformOrigin = "center center";
-          } else {
-            el.style.transform = "";
-            el.style.transformOrigin = "";
           }
         } catch (_) {}
       });
@@ -1156,12 +1234,16 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       }, 100);
     });
     // Resize: re-apply aspect-ratio so it picks up any picker change
-    window.addEventListener("resize", function () {
-      const panel = document.getElementById("watch-panel");
-      if (panel && panel.classList.contains("is-cssmv-fullscreen")) {
-        applyScreenAspectRatio();
-      }
-    });
+    // WAVE_445e: guard — installButtons() may retry; avoid duplicate listeners.
+    if (!window.__cssmvResizeAspectBound) {
+      window.__cssmvResizeAspectBound = true;
+      window.addEventListener("resize", function () {
+        const panel = document.getElementById("watch-panel");
+        if (panel && panel.classList.contains("is-cssmv-fullscreen")) {
+          applyScreenAspectRatio();
+        }
+      }, { passive: true });
+    }
     document.addEventListener("fullscreenchange", function () {
       const panel = document.getElementById("watch-panel");
       if (panel && !document.fullscreenElement) panel.classList.remove("is-cssmv-fullscreen");
@@ -1198,7 +1280,18 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         // × 不在我们 DOM 里、删不掉、点了只退出全屏却不退影院, 纯属误会. App 里影院
         // 全屏完全由 CSS(position:fixed;inset:0;100dvh, 见 style.css W288)实现, 无需
         // 原生全屏 → 也就没有那个原生 ×. 桌面浏览器仍走原生全屏(它没这问题).
+        // CSSOS_WAVE_445b 20260527 — Jing: W314 only guarded Capacitor (cssos-app
+        // class). iOS Safari browser also triggers a page reload when
+        // webkitExitFullscreen() is called after native fullscreen entry — same
+        // root bug. Extend the guard to ALL iOS devices so the CSS-fullscreen
+        // path (position:fixed; 100dvh) is the ONLY mechanism on iOS.
         try { if (document.documentElement.classList.contains("cssos-app")) return; } catch (_e) {}
+        try {
+          const _ua = String(navigator?.userAgent || "").toLowerCase();
+          if (/iphone|ipod|ipad/.test(_ua)) return;
+          // iPadOS 13+ reports as Mac; detect via touch
+          if (/macintosh/.test(_ua) && typeof navigator?.maxTouchPoints === "number" && navigator.maxTouchPoints > 1) return;
+        } catch (_e) {}
         if (document.fullscreenElement) return;
         // Snapshot audio state so the fullscreen reflow can't mute us.
         const v = document.getElementById("watch-video");
@@ -1482,11 +1575,15 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       globalThis.__cssosWatchToggleLockUntil = __now + 350;
       try {
         if (primary.paused || primary.ended) {
-          try { primary.muted = false; } catch (_e) {}
+          // CSSOS_WAVE_587 — 画音分层: 有独立音轨(a.src)时, 视频是【纯画面】必须静音, 声音只来自 a。
+          // 否则点面板播放会把视频里烧录的(中文)音频又放出来盖过所选语言 → 点啥都中文。
+          var __hasSepAudio = (primary === v && a && a.src);
+          try { primary.muted = __hasSepAudio ? true : false; } catch (_e) {}
           const p = primary.play();
           if (p && typeof p.catch === "function") p.catch(function () {});
-          if (primary === v && a && a.src) {
+          if (__hasSepAudio) {
             try { a.muted = false; a.play().catch(function () {}); } catch (_e) {}
+            if (typeof globalThis.cssosAudioReferee === "function") { try { globalThis.cssosAudioReferee(a); } catch (_e) {} }
           }
         } else {
           primary.pause();
@@ -1854,7 +1951,9 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
   }, true);   // capture phase so we run BEFORE existing handlers
 
   // Detect pipeline start/end by intercepting fetch() to known endpoints.
+  // WAVE_445e: guard idempotency — prevent double-wrap on re-navigation.
   try {
+    if (!window.fetch.__cssmvPipelineWrapped) {
     const origFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
       const url = typeof input === "string" ? input : (input && input.url) || "";
@@ -1872,6 +1971,8 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       }
       return promise;
     };
+    window.fetch.__cssmvPipelineWrapped = true;
+    } // end idempotency guard
   } catch (_) { /* noop */ }
 
   // Safety: auto-unlock after 5 minutes regardless (in case a stage fails
@@ -2091,19 +2192,31 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
                  * 多源回退: currentResolvedWatchArtworkDataUrl → currentPreviewFrameDataUrl
                  * → currentStructuredWatchQueue 的首作品封面 → video poster. */
                 try {
-                  let stableCover =
-                    String(globalThis.currentResolvedWatchArtworkDataUrl ||
-                           globalThis.currentPreviewFrameDataUrl || "").trim();
-                  if (!stableCover) {
-                    const sq = globalThis.currentStructuredWatchQueue;
-                    const w0 = sq?.items?.[0];
-                    stableCover = String(
-                      w0?.cover_image || w0?.preview_image_url || w0?.cover_url ||
-                      w0?.cover_slides?.[0] || v?.poster || ""
-                    ).trim();
-                  }
-                  if (stableCover && typeof globalThis.cssmvSetCoverSlides === "function") {
-                    globalThis.cssmvSetCoverSlides([stableCover]);
+                  // W356 — use the full persisted cover pool (30 cdn.cssstudio.app
+                  // frames) so the slideshow cycles while video is blocked.
+                  // Fall back to single stable frame for legacy works.
+                  const sq = globalThis.currentStructuredWatchQueue;
+                  const w0 = sq?.items?.[0];
+                  const rawSlides = Array.isArray(w0?.cover_slides) ? w0.cover_slides : [];
+                  const persistedPool = rawSlides
+                    .map((u) => (typeof u === "string" ? u.trim() : ""))
+                    .filter((u) => u && (/(^|\/\/|\.)cssstudio\.app\//.test(u) || u.startsWith("data:")));
+                  if (persistedPool.length >= 2 && typeof globalThis.cssmvSetCoverSlides === "function") {
+                    const shuffled = persistedPool.slice().sort(() => Math.random() - 0.5);
+                    globalThis.cssmvSetCoverSlides(shuffled);
+                  } else {
+                    let stableCover =
+                      String(globalThis.currentResolvedWatchArtworkDataUrl ||
+                             globalThis.currentPreviewFrameDataUrl || "").trim();
+                    if (!stableCover) {
+                      stableCover = String(
+                        w0?.cover_image || w0?.preview_image_url || w0?.cover_url ||
+                        w0?.cover_slides?.[0] || v?.poster || ""
+                      ).trim();
+                    }
+                    if (stableCover && typeof globalThis.cssmvSetCoverSlides === "function") {
+                      globalThis.cssmvSetCoverSlides([stableCover]);
+                    }
                   }
                 } catch (_ecov) {}
                 globalThis.cssmvStartCoverSlideshow?.({ mv: true, music: false });

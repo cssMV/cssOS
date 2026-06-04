@@ -6,6 +6,11 @@
  * UTC date rolls over. Vanilla JS, no deps. */
 (function () {
   "use strict";
+  /* CSSOS_WAVE_490f 20260529 — Jing「App 审核中, 登录后秒崩」决定性基线瘦身: 诊断探针实锤
+   * 认证态主屏在 iPhone XS Max(4GB)累积过重(~9 发现 shelf + feed + 海量 JS)→ WebKit 内容
+   * 进程崩溃→静默重载(无 beforeunload)循环。装饰性"发现 shelf"在手机/App 上是最可削的负担:
+   * 关掉它们 → 主屏只剩 logo+dock+用户作品+核心 feed, 大幅降内存。桌面端保留全部。 */
+  try { if (document.documentElement.classList.contains("cssos-app") || (window.matchMedia && window.matchMedia("(max-width: 820px)").matches)) return; } catch (_e) {}
   function tr(en, zh) {
     if (typeof globalThis.CSSOS_I18N?.tr === "function") {
       try { return String(globalThis.CSSOS_I18N.tr(en)); } catch (_e) {}
@@ -84,8 +89,9 @@
     if (sub && date) sub.textContent = date.replace("-", "/");
     var html = rows.map(function (p) {
       var cover = p.portrait_url || "";
-      var civ = [p.civilization || "", p.era || ""].filter(Boolean).join(" · ");
-      var name = p.name_zh || p.name_en || p.person_id;
+      var civ = (globalThis.civMetaText ? globalThis.civMetaText([p.civilization || "", p.era || ""], null, " · ") : [p.civilization || "", p.era || ""].filter(Boolean).join(" · "));
+      // en-first: tr() returns en by default, zh only when locale is zh.
+      var name = tr(p.name_en || p.name_zh || p.person_id, p.name_zh || p.name_en || p.person_id);
       return (
         '<article class="cssos-today-card" data-person-id="' + escapeHtml(p.person_id) + '"' +
           (p.sample_work_id ? ' data-work-id="' + escapeHtml(p.sample_work_id) + '"' : "") +

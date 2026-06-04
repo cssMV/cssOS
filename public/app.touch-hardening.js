@@ -158,8 +158,5 @@
     window.addEventListener("orientationchange", tagMobile);
   } catch (_) {}
 
-  console.info(
-    "%c[touch-hardening] Wave 117 installed (5 defenses)",
-    "color:#0a0;font-weight:bold",
-  );
+  // CSSOS_WAVE_536 — 静音启动 install 日志(保持控制台干净)。
 })();

@@ -59,7 +59,17 @@ function renderWorksPanelModule() {
   });
   ensureWorksInfinitePaging();
   ensureWorksCommercePreload();
-  void loadMyWorksModule();
+  // CSSOS_WAVE_220A 20260517 — Jing: "作品中心还是loading，搜索框输入
+  // 任何内容（哪怕空格）内容才刷得出来". Root cause empirically isolated:
+  // the limit=30 initial fetch path doesn't paint, but the limit=1000
+  // force-refetch path (the one search inputs trigger via
+  // ensureFullCorpusThenFilter at line ~469) does. Until we land
+  // the proper diagnosis in W220.B with telemetry data, mirror the
+  // search-triggered path on first open so users never get stuck on
+  // "Loading works...". A ~200ms cost on first paint vs. permanently
+  // stuck is a no-brainer trade.
+  globalThis.__cssosWorksFetchLimit = 1000;
+  void loadMyWorksModule({ resetVisible: true, force: true });
 }
 
 function openWorksPanelModule() {
@@ -114,6 +124,9 @@ let __cssosLoadMyWorksInflight = null;
 async function loadMyWorksModule(options = {}) {
   const list = document.getElementById("works-list-dynamic");
   if (!list) return;
+  // W460 — a forced reload (retry button / panel re-open) must never be blocked
+  // by a stuck inflight promise; clear it so the fetch always re-fires.
+  if (options?.force) { __cssosLoadMyWorksInflight = null; }
   // CSSOS_PHASE2_LOADING_STUCK_FIX 20260505 — Jing
   // "作品中心一直在loading，很久很久都无法loading出内容". The
   // function previously returned silently if authState.user wasn't
@@ -122,34 +135,15 @@ async function loadMyWorksModule(options = {}) {
   // a retry, so the "Loading works..." text from the shell markup
   // sat forever. Retry once auth lands; show a tappable retry chip
   // if the network fetch fails.
-  if (!authState.user) {
-    if (!list.dataset.cssosAuthWaitBound) {
-      list.dataset.cssosAuthWaitBound = "1";
-      const retry = () => {
-        if (!authState.user) return;
-        list.dataset.cssosAuthWaitBound = "";
-        document.removeEventListener("cssos:auth-state-changed", retry);
-        document.removeEventListener("cssos:auth_ready", retry);
-        void loadMyWorksModule(options);
-      };
-      document.addEventListener("cssos:auth-state-changed", retry);
-      document.addEventListener("cssos:auth_ready", retry);
-      // Short polling fallback in case neither event fires (some
-      // legacy auth paths).
-      let polls = 0;
-      const pollIv = setInterval(() => {
-        if (authState.user) {
-          clearInterval(pollIv);
-          retry();
-        } else if (++polls > 30) {
-          clearInterval(pollIv);
-          // 15s × 1s = give up. Surface a sign-in prompt instead of
-          // leaving the user stuck on "Loading...".
-          list.innerHTML = `<div class="works-note">${loginCopy("Sign in to see your works.")}</div>`;
-        }
-      }, 500);
-    }
-    return;
+  // CSSOS_WAVE_460 20260526 — Jing「作品中心大部分时候无法 loading 数据, 彻底修复」根因:
+  // 之前只要客户端 authState.user 还没 hydrate 就【硬 return】, 把请求挡住, 卡在 shell
+  // 的 "Loading works..." 死文字。但 /api/works/mine 是用 credentials:include(会话 cookie)
+  // 鉴权的 —— 即便客户端 authState.user 因水合时序还是 null, 只要 cookie 有效, 请求就能成
+  // 功。所以这里【不再硬挡】: 先铺骨架(让用户看到在加载), 直接尝试 cookie 鉴权的 fetch;
+  // 只有服务器真的返回 401 时才退回到"请登录"。彻底消除水合竞态导致的永久卡死。
+  if (!authState.user && !list.querySelector(".work-card, [data-work-id]")) {
+    try { list.innerHTML = buildWorksLoadingMarkup(); } catch (_e) {}
+    // continue — the cookie-authenticated fetch below decides the outcome.
   }
   const resetVisible = options?.resetVisible !== false;
   if (resetVisible) {
@@ -213,45 +207,78 @@ async function loadMyWorksModule(options = {}) {
   if (localWorks.length) {
     renderWorksList(localWorks);
   } else {
-    list.innerHTML = buildWorksLoadingMarkup();
-    // CSSOS_PHASE2_LOADING_HARD_TIMEOUT 20260505 — Jing
-    // "作品中心还是在loading". Defensive net so the panel never sits on
-    // "Loading works..." forever even if some downstream renderer throws
-    // silently or auth races with the inflight fetch. After 12s replace
-    // the loading text with a normal empty/failed state — whichever the
-    // inflight task settles on will overwrite this anyway when it lands.
+    // CSSOS_WAVE_220A 20260517 — Jing: ALWAYS show a visible retry
+    // button next to the loading text. Previous attempts (W111E, W211,
+    // PHASE2_LOADING_*) all relied on setTimeout safety nets — but on
+    // iOS WKWebView under memory pressure, setTimeout itself gets
+    // throttled / dropped, so the timer never fires and the abort
+    // controller's 8s never triggers, and the panel sits on "Loading…"
+    // forever. The only escape that does NOT depend on timers firing
+    // correctly is a user-triggered retry. The button is wired below
+    // (works-list-retry-btn) and always present.
+    list.innerHTML = `
+      <div class="works-note" style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;">
+        <div>${loginCopy("Loading works...")}</div>
+        <button type="button" id="works-list-retry-btn"
+                style="appearance:none;border:1px solid currentColor;background:transparent;color:inherit;padding:6px 14px;border-radius:999px;font:inherit;cursor:pointer;opacity:.7;">
+          ${loginCopy("Tap to retry")}
+        </button>
+      </div>`;
+    var retryBtn = list.querySelector("#works-list-retry-btn");
+    if (retryBtn) {
+      retryBtn.addEventListener("click", function () {
+        // Force-reset every guard so a stuck inflight can't block us.
+        __cssosLoadMyWorksInflight = null;
+        latestResolvedWorksCollection = null;
+        try { globalThis.cssmemProbe && globalThis.cssmemProbe.beacon("works_retry_clicked"); } catch (_) {}
+        list.innerHTML = buildWorksLoadingMarkup();
+        void loadMyWorksModule({ force: true, resetVisible: true });
+      });
+    }
+    // Tightened safety net (7s — fail-fast). Best-effort only; the
+    // visible retry button is the real escape hatch.
     var hardTimeout = setTimeout(function () {
       try {
-        // CSSOS_WAVE_111E 20260512 — Jing
-        // "应该有一段时间了，YOUR WORKS Loading works... 一直在 Loading
-        //  works... 都没有 Loading 完". Root cause: the previous escape
-        //  hatch checked list.textContent.indexOf("oading") — English
-        //  only. Chinese-locale users see "正在加载作品..." which doesn't
-        //  contain "oading", so the timeout's safety net never fired.
-        //  New check is locale-neutral: still in placeholder state iff
-        //  the list has exactly one .works-note placeholder AND zero
-        //  real .work-card elements. Also handles the case where the
-        //  inflight fetch resolved but rendered zero cards correctly.
         if (!list) return;
         var hasPlaceholder = !!list.querySelector(".works-note");
         var hasCards = !!list.querySelector(".work-card, .work-row, [data-work-id]");
         if (hasPlaceholder && !hasCards) {
-          if (typeof buildWorksEmptyNoteMarkup === "function") {
-            list.innerHTML = buildWorksEmptyNoteMarkup();
-          } else if (typeof buildWorksLoadFailedMarkup === "function") {
-            list.innerHTML = buildWorksLoadFailedMarkup();
-          } else {
-            list.innerHTML = '<div class="works-note">No works yet.</div>';
+          // Beacon the failure so we know it happened (telemetry survives
+          // even if timer fires late — we still want the data point).
+          try { globalThis.cssmemProbe && globalThis.cssmemProbe.beacon("works_load_stuck_7s"); } catch (_) {}
+          // Show "Failed to load works" + an obvious retry button.
+          list.innerHTML = `
+            <div class="works-note" style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;">
+              <div>${loginCopy("Failed to load works.")}</div>
+              <button type="button" id="works-list-retry-btn-late"
+                      style="appearance:none;border:1px solid currentColor;background:transparent;color:inherit;padding:6px 14px;border-radius:999px;font:inherit;cursor:pointer;">
+                ${loginCopy("Retry")}
+              </button>
+            </div>`;
+          var lateBtn = list.querySelector("#works-list-retry-btn-late");
+          if (lateBtn) {
+            lateBtn.addEventListener("click", function () {
+              __cssosLoadMyWorksInflight = null;
+              latestResolvedWorksCollection = null;
+              list.innerHTML = buildWorksLoadingMarkup();
+              void loadMyWorksModule({ force: true, resetVisible: true });
+            });
           }
         }
       } catch (_e) {}
-    }, 12000);
+    }, 7000);
     list.dataset.cssosLoadingTimeoutId = String(hardTimeout);
   }
   __cssosLoadMyWorksInflight = (async () => {
     try {
       const resolved = await loadResolvedWorksCollection(localWorks);
       if (!resolved.ok && !resolved.usedLocalFallback) {
+        // W460 — only a real 401 means "signed out"; everything else gets the
+        // retry affordance (buildWorksLoadFailedMarkup carries a retry path).
+        if (resolved.needsAuth) {
+          try { list.innerHTML = `<div class="works-note">${loginCopy("Sign in to see your works.")}</div>`; } catch (_e) {}
+          return;
+        }
         try { list.innerHTML = buildWorksLoadFailedMarkup(); } catch (_e) {
           list.innerHTML = `<div class="works-note">Failed to load works.</div>`;
         }
@@ -624,7 +651,7 @@ function buildVisibleWorks(works = [], options = {}) {
   const sortMode = String(options.sortMode || "newest");
   const priceMode = String(options.priceMode || "all");
   const timeMode = String(options.timeMode || "all");
-  return sortWorkCollection(filterWorkCollection(filterDisplayWorkRoots(buildWorkHierarchy(works)), filterMode), sortMode)
+  const _result = sortWorkCollection(filterWorkCollection(filterDisplayWorkRoots(buildWorkHierarchy(works)), filterMode), sortMode)
     .filter((work) => {
       if (!query) return true;
       const haystack = [
@@ -668,6 +695,15 @@ function buildVisibleWorks(works = [], options = {}) {
       if (timeMode === "month") return age <= 30 * 24 * 60 * 60 * 1000;
       return true;
     });
+  // CSSOS_WAVE_480 20260527 — Jing「置顶」: pinned_at 非空的作品浮到最前(按 pinned_at 倒序),
+  // 其余保持原排序(JS sort 稳定)。置顶在「最新/搜索结果」之上, 搜索时也是命中关键词里的置顶在前。
+  const _pinTs = (w) => {
+    const v = w && (w.pinned_at || w.admin_pinned_at);
+    return v ? (Date.parse(v) || 1) : 0;
+  };
+  _result.sort((a, b) => _pinTs(b) - _pinTs(a)); // pinned (个人或全平台) 浮顶; 新置顶在前
+
+  return _result;
 }
 
 function readWorksRenderContext() {
@@ -751,6 +787,7 @@ function finalizeWorksListRender(list, sortedWorks, context = {}) {
     }
     list.dataset.renderedCount = String(sortedWorks.length);
     void hydrateWorksCardThumbnails(list, tail);
+    injectWorksPinButtons(resultsContainer, tail);
     if (canEditAnyWorkSetting) bindInlineChipEditors(resultsContainer);
     bindWorksCardExpandToggle(resultsContainer);
     bindWorksCardActionButtons(resultsContainer, tail, {
@@ -784,6 +821,7 @@ function finalizeWorksListRender(list, sortedWorks, context = {}) {
   `;
   list.dataset.renderedCount = String(sortedWorks.length);
   void hydrateWorksCardThumbnails(list, sortedWorks);
+  injectWorksPinButtons(list, sortedWorks);
   globalThis.bindOperaScoreJumpTargetsModule?.(list);
   if (canEditAnyWorkSetting) bindInlineChipEditors(list);
   bindWorksCardExpandToggle(list);
@@ -799,18 +837,108 @@ function finalizeWorksListRender(list, sortedWorks, context = {}) {
   });
 }
 
+// CSSOS_WAVE_480 20260527 — Jing「作品置顶 pin(最多 3 个)」: 渲染后给每张作品卡注入一个
+// 📌 置顶/取消按钮(右上角)。置顶作品由 buildVisibleWorks 排到最前(pinned_at 优先);后端
+// /api/works/:id/pin 强制上限 3。点击 → 调接口 → 成功后重载列表更新顺序;超限提示。
+function injectWorksPinButtons(container, worksArr) {
+  try {
+    if (!(container instanceof Element)) return;
+    const byId = new Map();
+    (Array.isArray(worksArr) ? worksArr : []).forEach((w) => {
+      const id = String((w && (w.id || w.work_id)) || "").trim();
+      if (id) byId.set(id, w);
+    });
+    container.querySelectorAll(".work-card[data-work-id]").forEach((card) => {
+      if (card.querySelector("[data-work-pin]")) return; // idempotent
+      const id = String(card.dataset.workId || "").trim();
+      if (!id) return;
+      const w = byId.get(id);
+      // CSSOS_WAVE_481 — 分层置顶: 管理员可对任意作品全平台置顶; 普通用户只能置顶自己的作品。
+      const _isAdmin = String((globalThis.authState && globalThis.authState.role) || "").toLowerCase() === "admin";
+      if (!_isAdmin && w && (w.is_received_gift || w.owned === false)) return; // 非管理员: 礼物/他人作品不可置顶
+      const pinned = !!(w && (w.pinned_at || w.admin_pinned_at));
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("data-work-pin", id);
+      btn.setAttribute("data-pinned", pinned ? "1" : "0");
+      btn.setAttribute("aria-label", pinned ? loginCopy("Unpin", "取消置顶") : loginCopy("Pin to top", "置顶"));
+      btn.title = _isAdmin
+        ? (pinned ? loginCopy("Platform-pinned — tap to unpin", "全平台置顶,点按取消") : loginCopy("Pin platform-wide (admin)", "全平台置顶(管理员)"))
+        : (pinned ? loginCopy("Pinned — tap to unpin", "已置顶,点按取消") : loginCopy("Pin to top (max 3)", "置顶(最多 3 个)"));
+      btn.textContent = "📌";
+      btn.style.cssText =
+        "position:absolute;top:8px;left:8px;z-index:6;width:30px;height:30px;border-radius:999px;" +
+        "display:grid;place-items:center;font-size:15px;line-height:1;cursor:pointer;border:1px solid " +
+        (pinned ? "rgba(0,245,160,0.85);background:rgba(0,245,160,0.22);" : "rgba(255,255,255,0.22);background:rgba(0,0,0,0.42);") +
+        "filter:" + (pinned ? "none" : "grayscale(1) opacity(0.7)") + ";transition:filter .15s ease;";
+      const cover = card.querySelector(".work-cover") || card;
+      if (getComputedStyle(cover).position === "static") cover.style.position = "relative";
+      cover.appendChild(btn);
+    });
+  } catch (_e) { /* non-fatal */ }
+}
+
+// One-time delegated handler for pin toggle.
+(function installWorksPinHandler() {
+  if (typeof document === "undefined" || globalThis.__cssosWorksPinInstalled) return;
+  globalThis.__cssosWorksPinInstalled = true;
+  document.addEventListener("click", async (ev) => {
+    const btn = ev.target instanceof Element ? ev.target.closest("[data-work-pin]") : null;
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const id = String(btn.getAttribute("data-work-pin") || "").trim();
+    if (!id) return;
+    const wantPinned = btn.getAttribute("data-pinned") !== "1";
+    btn.disabled = true;
+    try {
+      const r = await fetch("/api/works/" + encodeURIComponent(id) + "/pin", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: wantPinned }),
+      });
+      if (r.status === 409) {
+        const j = await r.json().catch(() => ({}));
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(loginCopy("You can pin up to " + (j.limit || 3) + " works — unpin one first.", "最多置顶 " + (j.limit || 3) + " 个作品,请先取消一个。"));
+        }
+        btn.disabled = false;
+        return;
+      }
+      if (!r.ok) { btn.disabled = false; return; }
+      // Success → reload so pinned-first order + button states refresh.
+      if (typeof loadMyWorksModule === "function") {
+        loadMyWorksModule({ force: true, resetVisible: false });
+      }
+    } catch (_e) { btn.disabled = false; }
+  }, true);
+})();
+
+// CSSOS_WAVE_597 — Jing「作品中心也要显示三部曲/歌剧的树形」: 之前过滤用的
+// isOperaRootWorkModule【从未定义】→ 此区永远空 = 全是散卡。这里补上【多部根】判定
+// (opera/triptych/series/film/shortplay 的根, 排除子节点 act/scene/part/episode),
+// 并泛化标题(不止歌剧)。全程 guarded: 缺渲染器/单卡抛错都只是少一个 section, 不崩。
+function isMultiPartRootWorkLocalModule(work) {
+  if (!work) return false;
+  var role = String(work.structure_role || "").trim().toLowerCase();
+  var wt = String(work.work_type || "").trim().toLowerCase();
+  var multi = ["opera", "triptych", "series", "film", "shortplay"].indexOf(wt) !== -1;
+  return multi && role !== "act" && role !== "scene" && role !== "part" && role !== "episode";
+}
 function buildWorksScoreOverviewMarkupModule(works = []) {
-  const operaRoots = (Array.isArray(works) ? works : []).filter((work) =>
-    globalThis.isOperaRootWorkModule?.(work)
+  const roots = (Array.isArray(works) ? works : []).filter((work) =>
+    (typeof globalThis.isOperaRootWorkModule === "function")
+      ? globalThis.isOperaRootWorkModule(work)
+      : isMultiPartRootWorkLocalModule(work)
   );
-  if (!operaRoots.length || typeof globalThis.buildOperaScoreOverviewMarkupModule !== "function") {
+  if (!roots.length || typeof globalThis.buildOperaScoreOverviewMarkupModule !== "function") {
     return "";
   }
   return `
     <div class="works-section">
-      <div class="section-title">${escapeHtml(loginCopy("Opera Full Score"))}</div>
+      <div class="section-title">${escapeHtml(loginCopy("Multi-part works · opera · triptych · series"))}</div>
       <div class="workspace-grid">
-        ${operaRoots.map((work) => globalThis.buildOperaScoreOverviewMarkupModule(work)).join("")}
+        ${roots.map((work) => { try { return globalThis.buildOperaScoreOverviewMarkupModule(work); } catch (_e) { return ""; } }).join("")}
       </div>
     </div>
   `;
@@ -823,7 +951,7 @@ async function loadResolvedWorksCollection(localWorks = []) {
       void loadWatchCommerce(true).catch(() => null);
     }
     const controller = typeof AbortController === "function" ? new AbortController() : null;
-    const timeoutId = controller ? window.setTimeout(() => controller.abort(), 8000) : null;
+    const timeoutId = controller ? window.setTimeout(() => controller.abort(), 6000) : null;
     // CSSOS_PHASE2_PROGRESSIVE_LOAD 20260505 — Jing
     // "loading太久，是不是载入太多了？请载入10卡片即可，再拖动，再
     //  加载10卡片". Start with a small batch (30) so the panel paints
@@ -831,10 +959,31 @@ async function loadResolvedWorksCollection(localWorks = []) {
     // requested limit by another batch via ensureWorksInfinitePaging.
     // The server caps at 1000 so we never exceed that.
     const fetchLimit = Math.max(30, Math.min(1000, Number(globalThis.__cssosWorksFetchLimit || 30)));
-    const res = await fetch("/api/works/mine?limit=" + fetchLimit, {
+    // CSSOS_WAVE_220A 20260517 — Jing: belt-and-suspenders timeout.
+    // AbortController.setTimeout can be throttled on iOS WKWebView
+    // under memory pressure, leaving the fetch hung indefinitely.
+    // Promise.race with a hard reject guarantees we never await past
+    // 7s even if setTimeout fires late — the race resolves on whichever
+    // settles first. The fetch promise that "loses" the race is left
+    // to be GC'd (the response, if it ever lands, is ignored).
+    const fetchP = fetch("/api/works/mine?limit=" + fetchLimit, {
       credentials: "include",
       signal: controller?.signal
     });
+    const hardKillP = new Promise(function (_resolve, reject) {
+      window.setTimeout(function () {
+        reject(new Error("fetch_hard_timeout_7s"));
+      }, 7000);
+    });
+    let res;
+    try {
+      res = await Promise.race([fetchP, hardKillP]);
+    } catch (raceErr) {
+      // Hard-timeout path. Tell the caller we failed; the panel will
+      // show the retry button.
+      try { controller?.abort(); } catch (_) {}
+      throw raceErr;
+    }
     if (timeoutId) {
       window.clearTimeout(timeoutId);
     }
@@ -842,6 +991,8 @@ async function loadResolvedWorksCollection(localWorks = []) {
     if (!res.ok || payload?.ok === false) {
       return {
         ok: false,
+        status: res?.status || 0,
+        needsAuth: res?.status === 401,
         works: safeLocalWorks,
         usedLocalFallback: safeLocalWorks.length > 0
       };
@@ -880,10 +1031,24 @@ async function loadResolvedWorksCollection(localWorks = []) {
    chain rejected unhandled, and the panel sat on "Loading works..."
    forever. */
 function buildWorksLoadFailedMarkup() {
-  return `<div class="works-note">${loginCopy("Failed to load works.", "加载作品失败。")}</div>`;
+  // W460 — failure must always carry a visible retry (previously plain text =
+  // dead end). The click handler resets guards and re-fetches.
+  return `
+    <div class="works-note" style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;">
+      <div>${loginCopy("Failed to load works.", "加载作品失败。")}</div>
+      <button type="button" id="works-list-retry-btn-fail"
+              style="appearance:none;border:1px solid currentColor;background:transparent;color:inherit;padding:6px 14px;border-radius:999px;font:inherit;cursor:pointer;"
+              onclick="(function(){var l=document.getElementById('works-list-dynamic');if(l&&typeof cssosSkeletonListMarkup==='function')l.innerHTML=cssosSkeletonListMarkup(5,'Loading…');if(typeof loadMyWorksModule==='function')loadMyWorksModule({force:true,resetVisible:true});})()">
+        ${loginCopy("Retry", "重试")}
+      </button>
+    </div>`;
 }
 
 function buildWorksLoadingMarkup() {
+  // W459/W460 — unified skeleton placeholder while works load.
+  if (typeof globalThis.cssosSkeletonListMarkup === "function") {
+    return globalThis.cssosSkeletonListMarkup(5, loginCopy("Loading works..."));
+  }
   return `<div class="works-note">${loginCopy("Loading works...")}</div>`;
 }
 
@@ -916,6 +1081,13 @@ function ensureWorksInfinitePaging() {
     // fetch returned exactly what was requested, the server probably
     // has more — bump the limit and re-fetch (preserving the
     // visible-count so the user doesn't snap back to the top).
+    /* CSSOS_WAVE_211 ROLLBACK 20260516 — Jing: works-center stuck on
+     * "Loading works…". My over-eager `lastFetched < 1000` gate caused
+     * a fetch storm at panel mount: scroll-near-bottom triggered as
+     * soon as the initial 10 fit the viewport, bumping limit to 60 →
+     * 90 → ... → 1000 with full refetch each step. Restored the
+     * original gate (`have >= lastFetched`) which only paginates after
+     * the user has actually seen everything cached locally. */
     const lastFetched = Number(globalThis.__cssosWorksFetchLimit || 30);
     if (have >= lastFetched) {
       globalThis.__cssosWorksFetchLimit = Math.min(1000, lastFetched + 30);

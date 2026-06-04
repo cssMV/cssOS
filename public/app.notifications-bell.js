@@ -230,7 +230,9 @@
   async function openPanel(host) {
     const panel = host.querySelector(".cssos-notif-bell-panel");
     panel.hidden = false;
-    panel.innerHTML = `<div class="cssos-notif-empty">${T("Loading…", "加载中…")}</div>`;
+    panel.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+      ? globalThis.cssosSkeletonRowsMarkup(5, T("Loading…", "加载中…"))
+      : `<div class="cssos-notif-empty">${T("Loading…", "加载中…")}</div>`);
     const j = await api("/api/notifications?limit=20");
     if (!j || !j.ok) {
       panel.innerHTML = `<div class="cssos-notif-empty">${T("Sign in to see notifications.", "登录后查看通知。")}</div>`;
@@ -239,7 +241,10 @@
     const items = j.notifications || [];
     const banner = pushBannerHtml();
     if (!items.length) {
-      panel.innerHTML = banner + `<div class="cssos-notif-empty">${T("No notifications yet.", "暂无通知。")}</div>`;
+      const _ems = globalThis.cssosEmptyStateMarkup;
+      panel.innerHTML = banner + (_ems
+        ? _ems({ icon: "🔔", title: T("No notifications yet.", "暂无通知。"), sub: T("Tips, gifts and replies will show up here.", "提示、礼物和回复都会出现在这里。") })
+        : `<div class="cssos-notif-empty">${T("No notifications yet.", "暂无通知。")}</div>`);
     } else {
       panel.innerHTML = banner + items.map((n) => {
         const line = payloadLine(n);

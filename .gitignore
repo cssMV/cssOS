@@ -13,6 +13,12 @@ build
 DerivedData/
 .env
 .env.local
+
+# CSSOS_WAVE_171 — App Store Connect API key (.p8) + other local secrets.
+# NEVER commit. Re-issuance requires revoking the live key on App Store
+# Connect (only one chance to download the .p8 per generation).
+secure/
+*.p8
 *.log
 npm-debug.log*
 yarn-debug.log*

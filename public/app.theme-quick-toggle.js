@@ -64,10 +64,9 @@
     toggle.setAttribute("aria-label", label);
     toggle.setAttribute("title", label);
     menu.querySelectorAll("[data-theme-mode]").forEach((button) => {
-      button.classList.toggle(
-        "is-active",
-        String(button.getAttribute("data-theme-mode") || "").trim() === themeMode,
-      );
+      const isActive = String(button.getAttribute("data-theme-mode") || "").trim() === themeMode;
+      button.classList.toggle("is-active", isActive); // legacy
+      button.classList.toggle("active", isActive);    // pill constitution
     });
     previousRefresh?.(settings, effectiveThemeOverride);
   }

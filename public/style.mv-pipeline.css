@@ -80,86 +80,110 @@
       Clear  → red-grey (destructive-ish)
       Cost   → blue (info)
     Visual: single pill bar instead of multiple buttons. */
+/* CSSOS_WAVE_241 20260520 — Jing 胶囊宪法 (终版, 对齐图3 Audio/Video tab):
+ * 一条圆角"轨道"均分 4 段. 激活段 START = 实心绿胶囊, 四周 3px margin
+ * 镶嵌进轨道 (轨道色从缝隙透出 → "套着"它). 其余 3 段透明扁平, 段间
+ * 细发丝线分隔. 所有屏宽统一此样式, 单排不换行. */
 #mv-pipeline-panel .mvp-actions {
   display: flex;
-  gap: 0;                      /* no gaps — divider stripe handles separation */
+  gap: 0;
   align-items: stretch;
-  flex-wrap: wrap;
-  padding: 4px;
-  border-radius: 14px;
-  background: rgba(8, 18, 16, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: nowrap;
+  padding: 0;                  /* 轨道无内边距; 激活段自己留 margin */
+  border-radius: 999px;
+  background: rgba(120, 150, 135, 0.30);   /* 轨道色: 灰绿, 跟图3一致 */
+  border: 1px solid rgba(255, 255, 255, 0.10);
   position: relative;
+  /* CSSOS_WAVE_243 20260520 — Jing 胶囊宪法: tier 文案太长不挤压, 改为
+   * 整条左右滑动 (overflow-x:auto). 段保持自然宽度 (flex:1 0 auto +
+   * min-width:max-content): 有空间时撑满, 不够时横向滚动. 隐藏滚动条. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
+#mv-pipeline-panel .mvp-actions::-webkit-scrollbar { display: none; }
 
-#mv-pipeline-panel .mvp-actions > .cta {
-  flex: 1 1 0;
-  min-width: 120px;
-  border-radius: 10px;
+#mv-pipeline-panel .mvp-actions > .cta,
+#mv-pipeline-panel .mvp-actions > .mvp-tier-label {
+  flex: 1 0 auto;
+  min-width: max-content;
+  border-radius: 999px;
   position: relative;
   border: 0;
   background: transparent;
   margin: 0;
+  padding: 13px 16px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.72);
 }
 
-/* "/" divider between segments — pseudo-element on every segment
-   except the first one. Vertical line, subtle dim grey. */
+/* 发丝分隔线 — 只在相邻"未激活"段之间 (激活段两侧不需要, 它的 margin
+   缝隙已经形成分隔). */
 #mv-pipeline-panel .mvp-actions > .cta + .cta::before,
 #mv-pipeline-panel .mvp-actions > .cta + .mvp-tier-label::before,
 #mv-pipeline-panel .mvp-actions > .mvp-tier-label + .cta::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 25%;
-  bottom: 25%;
+  top: 28%;
+  bottom: 28%;
   width: 1px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
 }
 
-/* Background tints per segment */
+/* 激活段 START: 实心绿胶囊, 3px margin 镶嵌 (轨道色透出 = 套着它) */
 #mv-pipeline-panel .mvp-actions > #mvp-run {
-  flex: 2 1 200px;
-  background: linear-gradient(135deg, rgba(0, 200, 130, 0.55), rgba(0, 245, 160, 0.85));
+  margin: 3px;
+  background: linear-gradient(135deg, #00c882, #00f5a0);
   color: #001b14;
-  font-weight: 700;
+  font-weight: 800;
+  box-shadow: 0 1px 6px rgba(0, 245, 160, 0.35);
 }
 #mv-pipeline-panel .mvp-actions > #mvp-run:hover {
-  background: linear-gradient(135deg, rgba(0, 220, 145, 0.7), rgba(20, 255, 175, 0.95));
+  background: linear-gradient(135deg, #12d894, #1bffb0);
 }
-#mv-pipeline-panel .mvp-actions > #mvp-surprise {
-  background: rgba(255, 200, 80, 0.16);
-  color: #ffe9b6;
-}
-#mv-pipeline-panel .mvp-actions > #mvp-surprise:hover {
-  background: rgba(255, 200, 80, 0.28);
-}
-#mv-pipeline-panel .mvp-actions > #mvp-clear {
-  background: rgba(255, 120, 120, 0.10);
-  color: #ffcdcd;
-}
-#mv-pipeline-panel .mvp-actions > #mvp-clear:hover {
-  background: rgba(255, 120, 120, 0.20);
-}
+/* 激活段左侧不画发丝线 (它有 margin 缝隙了) */
+#mv-pipeline-panel .mvp-actions > #mvp-run::before { display: none; }
+#mv-pipeline-panel .mvp-actions > #mvp-run + .cta::before,
+#mv-pipeline-panel .mvp-actions > #mvp-run + .mvp-tier-label::before { display: none; }
 
 #mv-pipeline-panel .mvp-actions .cta[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
-/* CSSOS_PHASE2_HORIZONTAL_ACTIONS 20260504 — Jing prefers all three
-   buttons (Start / Surprise / Clear) on one row to save vertical space.
-   Allow each to shrink below 120px on narrow panels. */
+/* W461 — Light-mode: white text on the translucent grey-green track is
+ * invisible.  Switch to dark-green text so Surprise / Clear / tier label
+ * are readable in System/Light theme. */
+html[data-theme="light"] #mv-pipeline-panel .mvp-actions > .cta,
+html[data-theme="light"] #mv-pipeline-panel .mvp-actions > .mvp-tier-label,
+body[data-theme="light"] #mv-pipeline-panel .mvp-actions > .cta,
+body[data-theme="light"] #mv-pipeline-panel .mvp-actions > .mvp-tier-label {
+  color: rgba(4, 30, 20, 0.82);
+}
+html[data-theme="light"] #mv-pipeline-panel .mvp-actions > .cta::before,
+body[data-theme="light"] #mv-pipeline-panel .mvp-actions > .cta::before {
+  background: rgba(0, 100, 60, 0.18);
+}
+
+/* CSSOS_WAVE_240 20260520 — Jing 胶囊宪法: 凸凹镶嵌单排分段控件 (如图3
+ * Audio/Video/MIDI tab bar). 4 段一排不换行: 外层是一条圆角"轨道",
+ * 激活段 (START) = 实心绿胶囊镶嵌在轨道里 (四周留 margin → 轨道边框
+ * 像"套着"它), 其余 3 段 (SURPRISE / CLEAR / tier) = 透明扁平段, 段间
+ * 细发丝线分隔. 整条 nowrap, 窄屏字号自适应缩小. */
 @media (max-width: 520px) {
-  #mv-pipeline-panel .mvp-actions {
-    flex-wrap: nowrap;
-  }
+  /* W241 统一样式已是单排分段; 窄屏只缩字号. */
   #mv-pipeline-panel .mvp-actions > .cta,
-  #mv-pipeline-panel .mvp-actions > #mvp-run {
-    flex: 1 1 0;
-    min-width: 0;
-    font-size: 11px;
-    padding: 10px 6px;
-    letter-spacing: 0.04em;
+  #mv-pipeline-panel .mvp-actions > .mvp-tier-label {
+    font-size: 10.5px;
+    padding: 12px 4px;
+    letter-spacing: 0.01em;
   }
 }
 
@@ -174,18 +198,18 @@
    the unified bar, blue tinted (info role). Drop the auto-margin
    that pushed it to its own row. */
 #mv-pipeline-panel .mvp-tier-label {
-  flex: 1 1 200px;
+  flex: 1 1 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9px 12px;
-  border-radius: 10px;
+  padding: 13px 8px;
+  border-radius: 999px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  color: #d1e8ff;
-  background: rgba(80, 140, 220, 0.14);
+  color: rgba(255, 255, 255, 0.72);   /* W241: 跟其他段一致, 不再蓝色 */
+  background: transparent;             /* W241: 扁平透明段 */
   border: 0;
   cursor: pointer;
   user-select: none;
@@ -196,10 +220,9 @@
     background 0.18s ease,
     color 0.18s ease,
     box-shadow 0.18s ease;
-  max-width: 100%;
+  max-width: none;            /* W243: 不截断, 跟随整条横滑 */
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
 }
 
 #mv-pipeline-panel .mvp-tier-label:hover,
@@ -791,49 +814,34 @@
   margin: 0;
 }
 
+/* CSSOS_WAVE_465 20260528 — Jing: 胶囊宪法 for tier-modal action row.
+ * The container already carries data-segmented="2" data-pill-bar so the
+ * global pill-bar constitution handles layout, equal-width, active state,
+ * and the 凸嵌凹 interlock.  We only need to:
+ *   1. Reset the flex overrides so the constitution's grid wins.
+ *   2. Kill the per-button border/bg/radius so children obey the constitution.
+ *   3. Tighten the vertical margin so it doesn't look bloated inside a modal footer.
+ */
 .mvp-tier-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
+  margin-top: 8px !important;
+  margin-bottom: 0 !important;
+  /* constitution supplies display:grid, gap:0, border, border-radius */
 }
 
+/* Neutralise the old hand-rolled button styles — let the pill-bar
+   constitution's [data-segmented] > * rules take full ownership. */
 .mvp-tier-modal-secondary,
 .mvp-tier-modal-primary {
   font: inherit;
   font-size: 13px;
-  padding: 8px 14px;
-  border-radius: 10px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 16px !important;
+  box-shadow: none !important;
+  outline: none !important;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.mvp-tier-modal-secondary {
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(232, 244, 236, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-}
-
-.mvp-tier-modal-secondary:hover,
-.mvp-tier-modal-secondary:focus-visible {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.28);
-  color: #f3fff8;
-  outline: none;
-}
-
-.mvp-tier-modal-primary {
-  background: rgba(0, 245, 160, 0.18);
-  color: #dfffee;
-  border: 1px solid rgba(0, 245, 160, 0.55);
-}
-
-.mvp-tier-modal-primary:hover,
-.mvp-tier-modal-primary:focus-visible {
-  background: rgba(0, 245, 160, 0.28);
-  border-color: rgba(0, 245, 160, 0.85);
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(0, 245, 160, 0.22);
+  color: var(--text, rgba(232, 244, 236, 0.82));
 }
 
 /* CSSOS_PHASE2_SURPRISE_ME 20260504 — flash highlight when "Surprise me ✨"
@@ -854,63 +862,84 @@
  * 「音乐来源上传」子 Tab 一致的【分段胶囊】: 整条是一个药丸轨道, 当前阶段(active)
  * 鼓成完整药丸并按 --chip-hue 着色, 已完成(done)填青, 未开始(pending)淡显; active
  * 两侧的相邻段朝它凹陷(前者右端切平、后者左端切平), 读起来是一条连贯的胶囊带. */
+/* W356 20260523 — Jing「凸嵌凹胶囊宪法」: 6 个进度胶囊套用真 凸嵌凹.
+ * 整条宽度与总进度条对齐 (max-width:720px, width:100%).
+ * 高度固定 40px (mask 半径 = 20px = 半高).
+ * done 胶囊右侧向 active 凹入 (mask radial-gradient 切圆弧);
+ * active 右侧第一个 pending 胶囊左侧向 active 凹入.
+ * active 用 z-index:10 压在两侧之上, 凸边完整可见. */
 .cinema-hero-progress-stages {
   display: flex;
   gap: 0;
   align-items: stretch;
-  padding: 3px;
+  padding: 0;
   margin: 0 auto;
-  max-width: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 720px;
+  height: 40px;
+  overflow: hidden;
   background: rgba(0, 245, 160, 0.10);
   border: 1px solid rgba(0, 245, 160, 0.30);
   border-radius: 999px;
+  box-sizing: border-box;
 }
-.cinema-hero-progress-stages::-webkit-scrollbar { display: none; }
 .cinema-hero-progress-chip {
-  flex: 1 1 auto;
-  min-width: max-content;
+  flex: 1 1 0;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
   box-sizing: border-box;
-  padding: 7px 13px;
+  height: 40px;
+  padding: 0 13px;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: rgba(218, 255, 238, 0.55);
   font: 600 11px/1 -apple-system, system-ui, sans-serif;
   white-space: nowrap;
-  transition: background .18s ease, color .18s ease, border-radius .18s ease;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  transition: background .18s ease, color .18s ease;
 }
-/* 已完成: 填青, 打勾色. */
+/* 已完成: 填青色 — !important beats pill-bar's generic inactive tint */
 .cinema-hero-progress-chip.done {
-  background: rgba(0, 245, 160, 0.42);
-  color: #00140d;
+  background: rgba(0, 245, 160, 0.42) !important;
+  color: #00140d !important;
+  /* 向右延伸 20px 入 active 区, mask 在延伸端切出圆弧凹口 */
+  /* pill-bar already sets margin-right:-20px via :has(~.active) — kept as fallback */
+  margin-right: -20px !important;
+  padding-right: 33px !important; /* 13px normal + 20px overlap */
+  -webkit-mask-image: radial-gradient(circle 20px at 100% center, transparent 19.5px, black 20px) !important;
+  mask-image: radial-gradient(circle 20px at 100% center, transparent 19.5px, black 20px) !important;
+  z-index: 5 !important;
 }
-/* 进行中: 鼓成完整药丸 + 随机色相 + 轻微脉冲. */
+/* 进行中: 完整药丸 + 随机色相(--ph 与 --chip-hue 同步) + 呼吸脉冲 */
 .cinema-hero-progress-chip.active {
   border-radius: 999px !important;
+  /* --ph is kept in sync with --chip-hue by renderStages() */
   background: hsl(var(--chip-hue, 150), 72%, 52%) !important;
-  color: #fff;
-  font-weight: 700;
-  box-shadow: 0 0 14px hsla(var(--chip-hue, 150), 72%, 52%, 0.55);
-  animation: cssosChipPulse 1.4s ease-in-out infinite;
+  color: #fff !important;
+  font-weight: 700 !important;
+  z-index: 10 !important;
+  box-shadow: 0 0 18px hsla(var(--chip-hue, 150), 72%, 55%, 0.65),
+              0 2px 8px rgba(0,0,0,0.25) !important;
+  animation: cssosChipPulse 1.4s ease-in-out infinite !important;
 }
 @keyframes cssosChipPulse {
   0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.18); }
+  50% { filter: brightness(1.22); }
 }
-/* 相邻段朝 active 凹陷: active 之前的右端切平, 之后的左端切平. */
-.cinema-hero-progress-stages > .cinema-hero-progress-chip:has(~ .cinema-hero-progress-chip.active) {
-  border-radius: 999px 0 0 999px;
-}
-.cinema-hero-progress-stages > .cinema-hero-progress-chip.active ~ .cinema-hero-progress-chip {
-  border-radius: 0 999px 999px 0;
+/* active 右侧第一个 pending 胶囊: 左侧向 active 凹入 (mask 圆弧).
+   pill-bar handles this via .active~[data-pill-key] — these rules are
+   kept as backup for browsers where pill-bar hasn't stamped yet. */
+.cinema-hero-progress-stages > .cinema-hero-progress-chip.active + .cinema-hero-progress-chip {
+  margin-left: -20px;
+  padding-left: 33px; /* 13px normal + 20px overlap */
+  -webkit-mask-image: radial-gradient(circle 20px at 0% center, transparent 19.5px, black 20px);
+  mask-image: radial-gradient(circle 20px at 0% center, transparent 19.5px, black 20px);
 }
 /* CSSOS_WAVE_346 20260522 — Jing: 找回总进度条. .cinema-hero-progress-bar / -fill
  * 一直没 CSS → 0 高度看不见(只剩 % 文字). 补回那条好看的青绿渐变填充条 + 居中百分比. */

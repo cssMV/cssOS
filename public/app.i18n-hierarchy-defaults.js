@@ -44,8 +44,8 @@ function applyI18nModule() {
     }
   });
 
-  document.querySelectorAll(".dock-item").forEach((item) => {
-    const labelEl = item.querySelector(".dock-label, .label, .dock-text");
+  document.querySelectorAll("[data-pill-key]").forEach((item) => {
+    const labelEl = item.querySelector("[data-i18n], .label, .dock-text");
     const label = labelEl ? labelEl.textContent.trim() : "";
     if (label) item.setAttribute("data-label", label);
     if (!item.hasAttribute("tabindex")) item.tabIndex = 0;

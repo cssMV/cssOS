@@ -139,12 +139,15 @@
   // 给 admin / @cssstudio.app 显示, 其他人完全静默. Beacon 和
   // preventDefault 都保留不变, 所以服务端 journalctl 依然记录每一次
   // 异常, 系统看门狗依然被骗过去不会强刷.
-  const ADMIN_EMAIL_DOMAINS = ["cssstudio.app"];
+  /* CSSOS_WAVE_233 20260519 — Jing: Apple 审核员用的就是 vip@cssstudio.app,
+   * 之前 VIP 在管理员名单 + 域名通配, 看见了所有 admin-only 调试 UI.
+   * 收紧: 只有真正的 admin 邮箱有调试权限, 不再放宽域名通配. VIP 是
+   * 付费等级测试账号, 不应有调试视图. */
+  const ADMIN_EMAIL_DOMAINS = [];
   const ADMIN_EMAIL_EXACT = new Set([
     "admin@cssstudio.app",
     "jingdudc@gmail.com",
     "jing@cssstudio.app",
-    "vip@cssstudio.app",
   ]);
   function viewerIsAdminCrashGuard() {
     try {
@@ -280,11 +283,31 @@
     }
   } catch (_) { /* Storage prototype access blocked — bail */ }
 
+  // CSSOS_WAVE_389 20260524 — Jing: crash-log de-noise. Opaque cross-origin
+  // "Script error." (no stack, masked at :0:0 — from 3rd-party/WKWebView-injected
+  // scripts we can't de-opaque) carried ZERO actionable detail yet flooded the
+  // crash-log (57 in 6h), drowning real signals like the W388 Works crash. Keep
+  // a few as evidence, then drop; also dedup any identical signature so one
+  // recurring error can't spam the beacon. Sharper signal = better App-stability
+  // monitoring (parity with desktop observability).
+  let __opaqueSent = 0;
+  const __sigCounts = Object.create(null);
+  function shouldBeacon(message, stack, filename) {
+    const opaque = !stack && !filename &&
+      (message === "Script error." || message === "Script error");
+    if (opaque) { __opaqueSent += 1; return __opaqueSent <= 3; }
+    const sig = String(message).slice(0, 120) + "|" + String(stack).slice(0, 160);
+    const n = (__sigCounts[sig] = (__sigCounts[sig] || 0) + 1);
+    return n <= 3 || n % 25 === 0; // first 3, then 1-in-25, per signature
+  }
+
   window.addEventListener("error", (ev) => {
     const msg = String(ev.message || ev.error?.message || "unknown_error");
     const stack = String(ev.error?.stack || "").slice(0, 2000);
     const src = `${ev.filename || ""}:${ev.lineno || 0}:${ev.colno || 0}`;
-    beacon({ kind: "window.error", message: msg, stack, source: src });
+    if (shouldBeacon(msg, stack, ev.filename)) {
+      beacon({ kind: "window.error", message: msg, stack, source: src });
+    }
     // CSSOS_WAVE_184 — auto-recover from localStorage quota errors.
     if (/QuotaExceededError|quota.*exceeded|exceeded.*quota|NS_ERROR_DOM_QUOTA/i.test(msg)) {
       const freed = pruneCssosStorage();
@@ -296,18 +319,25 @@
         return;
       }
     }
-    showFriendlyToast("出错了，但已被拦截；输入内容已自动保存。 / Something glitched but was caught — your input is auto-saved.");
+    /* CSSOS_WAVE_238 20260520 — Jing: 这条 sync-error toast 一律不再
+     * 弹给任何人 (含 admin), 会吓到用户. 只 console.warn, beacon 仍记录,
+     * preventDefault 仍骗过看门狗. 跟 W221 的 async 处理对齐. */
+    try { console.warn("[cssos-crash-guard][silent-sync]", msg); } catch (_e) {}
     // Prevent webview watchdog from treating as fatal
     ev.preventDefault?.();
   });
   window.addEventListener("unhandledrejection", (ev) => {
     const reason = ev.reason instanceof Error ? ev.reason : new Error(String(ev.reason));
-    beacon({
-      kind: "unhandledrejection",
-      message: String(reason.message || "").slice(0, 500),
-      stack: String(reason.stack || "").slice(0, 2000),
-    });
-    showFriendlyToast("后台异步出错；已被拦截。 / Async error caught.");
+    const rMsg = String(reason.message || "").slice(0, 500);
+    const rStack = String(reason.stack || "").slice(0, 2000);
+    if (shouldBeacon(rMsg, rStack, "rejection")) {
+      beacon({ kind: "unhandledrejection", message: rMsg, stack: rStack });
+    }
+    // CSSOS_WAVE_221 20260517 — Jing: 异步错误的 toast 即使对 admin
+     // 也不再弹了, 太频繁、太分散注意力. Beacon + preventDefault 保留,
+     // 服务端日志仍有记录, 看门狗仍被骗过. 控制台 console.warn 也保留,
+     // 方便 DevTools 排查. 视觉上完全静默.
+    try { console.warn("[cssos-crash-guard][silent-async]", String(reason.message || reason)); } catch (_) {}
     ev.preventDefault?.();
   });
 
@@ -331,6 +361,19 @@
       console.warn("[crash-guard] location.assign → " + url + " from:", stack);
       beacon({ kind: "location.assign", target: String(url), stack: stack.slice(0, 2000) });
       return _assign(url, ...rest);
+    };
+  } catch (_) {}
+  // CSSOS_WAVE_519 20260530 — Jing「iPhone 主界面几秒后 navType=navigate 重新加载真凶」:
+  // navType=navigate(非 reload)只可能来自 location.replace / href= 赋值。assign/reload 已插桩,
+  // 唯独 replace(login-panel / ios-handoff 用的就是它)是盲区。补上 → 下一次真机一加载,
+  // 谁在跳 "/" 立刻带堆栈上报 crash-log。轻量, 仅一次包裹, 无 DOM 扫描(区别于已移除的重探针)。
+  try {
+    const _replace = location.replace.bind(location);
+    location.replace = function patched_replace(url, ...rest) {
+      const stack = new Error("location.replace called").stack || "";
+      console.warn("[crash-guard] location.replace → " + url + " from:", stack);
+      beacon({ kind: "location.replace", target: String(url), stack: stack.slice(0, 2000) });
+      return _replace(url, ...rest);
     };
   } catch (_) {}
 
@@ -359,6 +402,19 @@
     });
   });
 
+  // CSSOS_WAVE_519 — 极轻心跳(纯字符串, 无 DOM 扫描)。稳定页面会留下 alive-5s;
+  // 重载循环的页面只会反复 beforeunload 而永远到不了 alive-5s → 一眼判定循环 vs 稳定。
+  try {
+    setTimeout(function () {
+      beacon({ kind: "alive-5s", navType: (function () {
+        try {
+          var nav = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || null;
+          return (nav && nav.type) || (performance.navigation && performance.navigation.type) || "?";
+        } catch (_) { return "?"; }
+      })() });
+    }, 5000);
+  } catch (_) {}
+
   // Boot order: form persistence after DOMContentLoaded
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", startFormPersist);
@@ -372,5 +428,5 @@
     clearPersistence: globalThis.cssosClearFormPersistence,
   });
 
-  console.info("%c[cssos-crash-guard] Wave 117 Step 1 installed", "color:#0a0;font-weight:bold");
+  // CSSOS_WAVE_536 — 静音启动 install 日志(保持控制台干净)。
 })();

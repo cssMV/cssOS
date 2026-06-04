@@ -158,8 +158,8 @@ if (bootLyricsMusicUploadTabRoot) {
   globalThis.mountMusicSourceUploadTabInSettings?.(bootLyricsMusicUploadTabRoot);
 }
 document.querySelectorAll("[data-scroll-peek]").forEach((scroller) => {
-  scroller.addEventListener("scroll", () => callCreationFlowModule("syncScrollPeekModule", scroller), { passive: true });
-  callCreationFlowModule("syncScrollPeekModule", scroller);
+  scroller.addEventListener("scroll", () => { if (typeof callCreationFlowModule === "function") callCreationFlowModule("syncScrollPeekModule", scroller); }, { passive: true });
+  if (typeof callCreationFlowModule === "function") callCreationFlowModule("syncScrollPeekModule", scroller);
 });
 bootWatchTabButtons.forEach((btn) => {
   btn.addEventListener("click", () => bootActivateWatchTab(btn.dataset.watchTab));
@@ -399,7 +399,15 @@ const runBootInitQueue = (entries) => {
       if (now - start > 8) break;
     }
     if (index < entries.length) {
-      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      // CSSOS_WAVE_385 20260523 — Jing QA: requestAnimationFrame is PAUSED in
+      // hidden/background tabs, so the rAF-chunked boot queue would stall
+      // partway (observed: stuck at index 8 → fetchMe/auth + later inits never
+      // run → a signed-in user is stranded as "guest" until the tab is
+      // foregrounded). When the document is hidden, drive the next chunk with
+      // setTimeout (which keeps firing in background) so boot always completes;
+      // keep rAF for the visible case so on-screen work stays jank-free.
+      const hidden = (typeof document !== "undefined" && document.hidden);
+      if (!hidden && typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
         window.requestAnimationFrame(runChunk);
       } else {
         setTimeout(runChunk, 16);
@@ -415,17 +423,54 @@ const runBootInitQueue = (entries) => {
   runChunk();
 };
 
+// CSSOS_WAVE_220A 20260517 — Jing: "浏览器加载进度条卡顿". Root cause:
+// scheduleNonCriticalBoot used to kick off non-critical work (fetchMe,
+// fetchBillingStatus, fetchAuthProviders, renderApiBillingPanel, …) as
+// soon as the first paint completed (requestAnimationFrame + setTimeout
+// 0). Those fetches kept the browser's "still loading" progress bar
+// spinning for the user, even though main UI was visually ready —
+// hence the perceived "pause then main interface appears". The window
+// can't enter the resting/idle state until in-flight fetches finish.
+//
+// Fix: wait for window.load BEFORE the non-critical queue runs. The
+// progress bar settles the moment `load` fires, THEN fetches happen
+// in the background without affecting the loading indicator. If
+// `load` already fired by the time we register (which can happen on
+// fast caches), run immediately on next tick.
 const scheduleNonCriticalBoot = (fn, timeout = 180) => {
   if (typeof fn !== "function") return;
-  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-    window.requestIdleCallback(() => fn(), { timeout });
+  const runAfterIdle = () => {
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(() => fn(), { timeout });
+      return;
+    }
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => window.setTimeout(fn, 0));
+      return;
+    }
+    setTimeout(fn, 0);
+  };
+  // Wait for window.load → progress indicator settles first.
+  if (typeof window === "undefined") {
+    setTimeout(fn, 0);
     return;
   }
-  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-    window.requestAnimationFrame(() => window.setTimeout(fn, 0));
+  if (document.readyState === "complete") {
+    // Already loaded (cache fast-path). Run on next idle tick.
+    runAfterIdle();
     return;
   }
-  setTimeout(fn, 0);
+  let fired = false;
+  const fireOnce = () => {
+    if (fired) return;
+    fired = true;
+    runAfterIdle();
+  };
+  window.addEventListener("load", fireOnce, { once: true });
+  // Safety: if load never fires within 8s (e.g., a stuck sub-resource
+  // or background tab), kick anyway so user-visible work doesn't
+  // stall forever.
+  setTimeout(fireOnce, 8000);
 };
 
 [
@@ -487,7 +532,18 @@ scheduleNonCriticalBoot(() => {
     // 函数内部再判深链接, 有深链则不抢.
     {
       name: "autoOpenWatchFeed",
-      fn: () => setTimeout(() => { try { globalThis.cssosAutoOpenWatchFeed?.(); } catch (_e) {} }, 1500),
+      // CSSOS_WAVE_490h 20260529 — Jing「登录后 ~1.5s deterministic 秒崩, App 审核中」: 诊断实锤
+      // 崩溃点恰在 1500ms 之后, 而这里正是 1500ms 触发自动进 MV/弹提示。移动端(≤820px)与 App
+      // 上【彻底禁用启动自动触发】—— 不在 1.5s 做任何重操作(开影院/弹全屏遮罩), 排除该时刻的
+      // 崩溃源。桌面端保留。用户想看 MV 直接点 dock 即可。这是定位+止血二合一(若崩溃停=确认本因)。
+      fn: () => {
+        try {
+          var _mobile = (window.matchMedia && window.matchMedia("(max-width: 820px)").matches)
+            || document.documentElement.classList.contains("cssos-app");
+          if (_mobile) return;
+        } catch (_e) {}
+        setTimeout(() => { try { globalThis.cssosAutoOpenWatchFeed?.(); } catch (_e) {} }, 1500);
+      },
     }
   ]);
 });
@@ -502,6 +558,10 @@ if (loginLogout) {
     authState.role = DEFAULT_ROLE;
     authState.tier = DEFAULT_ROLE;
     authState.linkedProviders = [];
+    // CSSOS_WAVE_383 20260523 — clear the optimistic session hint so the next
+    // boot correctly treats this browser as a guest and shows login again.
+    try { localStorage.removeItem("cssos.session.hint"); } catch (_h) { /* non-fatal */ }
+    try { globalThis.__cssosLoginAutoShown = false; } catch (_f) { /* non-fatal */ }
     watchCommerceState.loaded = false;
     watchCommerceState.loading = false;
     watchCommerceState.payload = null;
@@ -662,6 +722,10 @@ window.addEventListener("visibilitychange", () => {
     }
   } else {
     ensureMusicDeliveryDashboardPolling();
+    // CSSOS_WAVE_485d 20260528 — 撤掉 W485c 在此处新增的 build 自愈: 它与既有
+    // app.build-guard.js(W393)功能重复, 且【缺少 alreadyTried 防循环守卫】(只有 30s 防抖)——
+    // 一旦 build.txt 与已加载版本不一致(如 SW 供旧 index), 会每次回前台都 reload, 反而制造/
+    // 加剧重载闪烁循环。版本自愈统一交给 build-guard(它每个目标 build 每会话只 reload 一次)。
   }
 });
 window.addEventListener("blur", () => {

@@ -14,6 +14,11 @@
  *   - No price/buyout buttons rendered — only Listen + Tip
  */
 (function () {
+  /* CSSOS_WAVE_490f 20260529 — Jing「App 审核中, 登录后秒崩」决定性基线瘦身: 诊断探针实锤
+   * 认证态主屏在 iPhone XS Max(4GB)累积过重(~9 发现 shelf + feed + 海量 JS)→ WebKit 内容
+   * 进程崩溃→静默重载(无 beforeunload)循环。装饰性"发现 shelf"在手机/App 上是最可削的负担:
+   * 关掉它们 → 主屏只剩 logo+dock+用户作品+核心 feed, 大幅降内存。桌面端保留全部。 */
+  try { if (document.documentElement.classList.contains("cssos-app") || (window.matchMedia && window.matchMedia("(max-width: 820px)").matches)) return; } catch (_e) {}
   if (globalThis.__cssosTodayInHistoryWired) return;
   globalThis.__cssosTodayInHistoryWired = true;
 
@@ -108,7 +113,7 @@
       var name = isZh
         ? (it.name_zh || it.name_en || it.person_id)
         : (it.name_en || it.name_zh || it.person_id);
-      var meta = [it.civilization, it.era].filter(Boolean).join(" · ");
+      var meta = (globalThis.civMetaText ? globalThis.civMetaText([it.civilization, it.era], null, " · ") : [it.civilization, it.era].filter(Boolean).join(" · "));
       var coverUrl = String(it.cover_image || it.portrait_url || "").trim();
       var coverStyle = coverUrl
         ? 'background-image:url(' + esc(coverUrl) + ');'
@@ -172,12 +177,14 @@
     var tick = setInterval(function () {
       attempts++;
       if (document.getElementById("foryou-market-section")) {
+        // CSSOS_WAVE_490d — render ONCE when section appears, then stop the 3s rebuild loop
+        // (was re-rendering innerHTML every 3s for 30s → DOM thrash → XS Max flicker/crash).
         fetchAndRender();
+        clearInterval(tick);
+        return;
       }
       if (attempts >= 10) {
         clearInterval(tick);
-        // After initial 30s, only re-fetch when foryou panel opens
-        // (intersection or focus event).
       }
     }, 3000);
     // Re-fetch on hash/cssMV change (after a purchase navigation)

@@ -251,8 +251,9 @@
       toast("支付类型错误 / Invalid payment kind");
       return null;
     }
-    if (!["alipay", "wechatpay", "unionpay"].includes(vendor)) {
-      toast("请选择支付宝、微信支付或银联 / Pick Alipay, WeChat Pay, or UnionPay");
+    if (!["alipay", "unionpay"].includes(vendor)) {
+      // CSSOS_WAVE_465 — 微信支付暂不支持; 仅支付宝 + 银联。
+      toast("请选择支付宝或银联 / Pick Alipay or UnionPay");
       return null;
     }
     if (!amountCents || amountCents <= 0) {
@@ -611,11 +612,10 @@
         tr("payments.picker.cn", "China · NihaoPay"),
         '</span></div>',
         '<div class="pay-group-body">',
+        // CSSOS_WAVE_465 20260526 — Jing「中国支付目前支持银联、支付宝, 暂不支持微信支付」:
+        // 移除微信支付按钮, 只保留支付宝 + 银联(待微信通道接通后再恢复)。
         '  <button type="button" class="mini-btn pay-vendor alipay" data-pay-nihao="alipay">',
         VENDOR_COPY.alipay.label_en, ' / ', VENDOR_COPY.alipay.label_zh,
-        '  </button>',
-        '  <button type="button" class="mini-btn pay-vendor wechatpay" data-pay-nihao="wechatpay">',
-        VENDOR_COPY.wechatpay.label_en, ' / ', VENDOR_COPY.wechatpay.label_zh,
         '  </button>',
         '  <button type="button" class="mini-btn pay-vendor unionpay" data-pay-nihao="unionpay">',
         VENDOR_COPY.unionpay.label_en, ' / ', VENDOR_COPY.unionpay.label_zh,

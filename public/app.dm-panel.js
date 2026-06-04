@@ -333,7 +333,10 @@
       return;
     }
     if (!j.threads || !j.threads.length) {
-      list.innerHTML = `<div class="cssos-dm-empty" style="padding:20px">${T("No conversations yet.", "还没有对话。")}</div>`;
+      const _ems = globalThis.cssosEmptyStateMarkup;
+      list.innerHTML = _ems
+        ? _ems({ icon: "💬", title: T("No conversations yet.", "还没有对话。"), sub: T("Message a creator from their profile to start one.", "在创作者主页上私信 TA,即可开始对话。") })
+        : `<div class="cssos-dm-empty" style="padding:20px">${T("No conversations yet.", "还没有对话。")}</div>`;
       return;
     }
     list.innerHTML = j.threads.map((t) => {
@@ -487,7 +490,9 @@
       head.innerHTML = `${avatarHtml(other || {})}<span>${safe(otherName)}</span>`;
     }
     const list = ov.querySelector(".cssos-dm-msgs");
-    list.innerHTML = `<div class="cssos-dm-empty">${T("Loading…", "加载中…")}</div>`;
+    list.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+      ? globalThis.cssosSkeletonRowsMarkup(5, T("Loading…", "加载中…"))
+      : `<div class="cssos-dm-empty">${T("Loading…", "加载中…")}</div>`);
     const input = ov.querySelector(".cssos-dm-input");
     const sendBtn = ov.querySelector(".cssos-dm-send");
     input.disabled = false; sendBtn.disabled = false; input.value = "";
@@ -602,7 +607,7 @@
         <input class="ng-title" type="text" maxlength="120" placeholder="${T("Team chat", "群聊")}" />
         <label>${T("Members (comma-separated handles)", "成员（用逗号分隔的用户名）")}</label>
         <input class="ng-members" type="text" placeholder="alice, bob" />
-        <div class="cssos-dm-modal-actions" data-segmented="2">
+        <div class="cssos-dm-modal-actions" data-segmented="2" data-pill-bar>
           <button class="ghost" type="button">${T("Cancel", "取消")}</button>
           <button class="primary" type="button">${T("Create", "创建")}</button>
         </div>

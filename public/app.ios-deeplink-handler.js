@@ -58,17 +58,29 @@
       var url = String(event && event.url || "");
       if (!url) return;
       console.log("[ios-deeplink] appUrlOpen:", url);
-      // Close any open SFSafariViewController overlay so the user is
-      // back in the app webview, then navigate the webview to the
-      // return path so the existing /auth/return JS / redirect can run.
+      // Always close any open SFSafariViewController overlay first so
+      // the user is back in the app webview.
       var Browser = getBrowser();
       if (Browser && typeof Browser.close === "function") {
         try { Browser.close(); } catch (_) {}
       }
+      // CSSOS_WAVE_446 20260527 — Jing: OAuth handoff guard.
+      // /auth/return?handoff=TOKEN URLs are handled by app.ios-handoff.js
+      // which POSTs to /api/auth/handoff/exchange to set the session cookie.
+      // Do NOT navigate the WebView here — a location.href assignment would
+      // reload the page and cancel the in-flight fetch before the token is
+      // exchanged, which is exactly the "Connect 又被拒了" bug.
+      // We already closed the Browser overlay above; ios-handoff.js takes
+      // it from here.
       try {
-        // Strip scheme+host; we always want to land on a relative path
-        // inside the app's own webview (cssstudio.app is loaded as the
-        // server.url root).
+        var uCheck = new URL(url);
+        if (uCheck.pathname.startsWith("/auth/return") && uCheck.searchParams.has("handoff")) {
+          console.log("[ios-deeplink] handoff URL — deferring to ios-handoff.js");
+          return;
+        }
+      } catch (_) {}
+      // For all other deep links: strip scheme+host and navigate as before.
+      try {
         var u = new URL(url);
         var rel = u.pathname + u.search + u.hash;
         // Don't double-navigate if already on the path.

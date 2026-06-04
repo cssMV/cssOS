@@ -1,7 +1,80 @@
+// W353 — true offset pagination; every scroll near-bottom fetches the NEXT
+// page from the server (limit=10 &offset=N) and appends. No more full
+// re-fetches with a growing limit cap that eventually hits limit=1000.
 const FORYOU_MARKET_PAGE_SIZE = 10;
 let foryouMarketVisibleCount = FORYOU_MARKET_PAGE_SIZE;
 let latestVisibleMarketWorks = [];
 let foryouMarketAutoPagingBound = false;
+
+// W354 — Card slideshow ticker.
+// All cards with data-slides cycle their cover image every SLIDE_INTERVAL_MS.
+// One shared interval drives all visible cards — no per-card timers.
+const SLIDE_INTERVAL_MS = 700; // CSSOS_WAVE_588 — 放慢(原 420)降低图像解码频率, 防 WKWebView 内存暴涨。
+let _cardSlideshowTimer = null;
+let _slideCursor = 0;            // 轮换游标: 每 tick 只换有限张(封顶), 跨 tick 轮流, 解码压力恒定。
+const SLIDE_MAX_PER_TICK = 6;    // 每 tick 最多换 6 张(无论页面有多少卡)→ 杜绝"卡多→解码爆→崩"。
+function _isPersistedSlideUrl(u) {
+  return /(^|\/\/|\.)cssstudio\.app\//.test(u) || u.startsWith("data:");
+}
+// CSSOS_WAVE_486 20260529 — Jing「登录后还是闪, 用户无法使用」根因(实锤): 认证态主屏卡片多
+// (Your works + for-you feed + 排行榜), 而本轮播每 420ms 给【页面上每一张 data-slides 封面】
+// 换 src → 几十张图每秒解码 ~2.4 次 → 在 iPhone XS Max(4GB)上持续图像解码内存暴涨 →
+// WKWebView 内容进程被 iOS 杀掉 → 黑屏 → 重载 → 又加载 → 又崩 = "登录后一直闪"。游客主屏几乎
+// 没有这种卡 → 稳定, 完美吻合。修复: (1) 原生 App【完全停用】卡片轮播(静态封面, UX 无损,
+// 审核最稳, 杜绝 OOM); (2) 网页端也只轮换【视口内】卡片, 大幅削减解码。
+function _isCssosNativeApp() {
+  try {
+    if (document.documentElement.classList.contains("cssos-app")) return true;
+    if (typeof navigator !== "undefined" && navigator.standalone === true) return true;
+    var cap = globalThis.Capacitor;
+    if (cap && (cap.isNativePlatform ? cap.isNativePlatform() : cap.isNative)) return true;
+  } catch (_e) {}
+  return false;
+}
+function _imgInViewport(img) {
+  try {
+    var r = img.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return false; // not laid out / hidden
+    var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    var margin = 120; // small pre-roll so just-offscreen cards stay fresh
+    return r.bottom > -margin && r.top < vh + margin && r.right > -margin && r.left < vw + margin;
+  } catch (_e) { return true; }
+}
+// CSSOS_WAVE_589 — Jing: 不再每 ~700ms 永续换图(常驻解码=内存无底洞)。
+// 改为【每张卡进入时随机挑一帧、只换一次】→ "每次进入面板都是新的不同封面", 但零常驻解码。
+// 单卡 guard(data-slideShuffled)防止滚动追加/重渲染时把已洗过的卡再解码一遍;
+// 重新打开面板会渲染【全新的卡元素】(无 flag)→ 自然又是一批新随机封面。
+function _shuffleCardCoversOnce() {
+  if (typeof document !== "undefined" && document.hidden) return;
+  const thumb = globalThis.cssosThumb || ((u) => u);
+  const all = [].slice.call(document.querySelectorAll("img[data-slides]:not([data-slide-shuffled])"));
+  if (!all.length) return;
+  all.forEach((img) => {
+    try {
+      img.setAttribute("data-slide-shuffled", "1"); // 标记: 本元素生命周期内只换这一次
+      const raw = JSON.parse(img.dataset.slides);
+      if (!Array.isArray(raw) || raw.length < 2) return;
+      const slides = raw.filter(_isPersistedSlideUrl); // 只用持久(不过期)帧
+      if (slides.length < 2) return;
+      // 随机挑一帧, 尽量与当前不同 → 每次进入"焕然一新"。
+      let idx = Math.floor(Math.random() * slides.length);
+      const cur = Number(img.dataset.slideIdx);
+      if (slides.length > 1 && idx === cur) idx = (idx + 1) % slides.length;
+      img.dataset.slideIdx = idx;
+      const url = thumb(slides[idx], 400);
+      if (url && img.src !== url) img.src = url;
+    } catch (_e) { /* malformed JSON — ignore */ }
+  });
+}
+// 兼容旧调用名: 不再启动常驻 interval, 改为执行一次随机洗牌。
+function ensureCardSlideshowTicker() {
+  _shuffleCardCoversOnce();
+}
+function stopCardSlideshowTicker() {
+  // 旧版可能遗留的常驻定时器一并清掉(防御)。
+  if (_cardSlideshowTimer) { clearInterval(_cardSlideshowTimer); _cardSlideshowTimer = null; }
+}
 
 function getPayoutReminderPresentation(connectedAccount) {
   const hasAccount = Boolean(connectedAccount?.stripe_account_id);
@@ -241,34 +314,54 @@ function renderSellerPanel() {
   }
 }
 
+// W353 — reset state and fetch page 0 (called on first load, lang-filter
+// change, or search-query change that requires a full server-side re-query).
 async function loadPublicMarketWorks(force = false) {
   if (publicMarketState.loading) return publicMarketState.works;
   if (!force && publicMarketState.loaded) return publicMarketState.works;
+  // Reset to page 0
   publicMarketState.loading = true;
   publicMarketState.error = null;
   publicMarketState.marketState = null;
+  publicMarketState.works = [];
+  publicMarketState.offset = 0;
+  publicMarketState.exhausted = false;
   renderForyouMarketplace();
   try {
-    // CSSOS_PHASE2_PROGRESSIVE_LOAD 20260505 — Jing
-    // Start small (30) so first paint is fast on mobile; the scroll
-    // handler bumps the limit by 30 each time the user reaches the
-    // end of the loaded set, all the way up to the 1000 server cap.
-    const fetchLimit = Math.max(30, Math.min(1000, Number(globalThis.__cssosMarketFetchLimit || 30)));
-    // CSSOS_TIER_C_MULTILINGUAL C6 — language filter ("find Japanese MVs").
     const _lf = String(globalThis.__cssosMarketLangFilter || "").trim();
-    const res = await fetch(
-      "/api/works/market?limit=" + fetchLimit + (_lf ? "&lang=" + encodeURIComponent(_lf) : ""),
-      { credentials: "include" });
-    const payload = await res.json().catch(() => null);
-    const data = getApiData(payload);
-    if (!res.ok || payload?.ok === false) {
-      throw new Error(`market_load_failed:${res.status}`);
+    const _q = String(globalThis.__cssosMarketSearchQ || "").trim();
+    const url = "/api/works/market?limit=" + FORYOU_MARKET_PAGE_SIZE
+      + "&offset=0"
+      + (_lf ? "&lang=" + encodeURIComponent(_lf) : "")
+      + (_q ? "&q=" + encodeURIComponent(_q) : "");
+    // CSSOS_WAVE_435 20260526 — Jing「Marketplace is temporarily unavailable」根因:
+    // 单次瞬时失败(网络抖动 / 冷启动 / 偶发 5xx)就被钉成错误页, 从不自动重试 ——
+    // 服务端其实健康(实测 HTTP 200)。改成【瞬时失败自动重试】(3 次, 指数退避),
+    // 全部失败才显示"暂不可用"。绝大多数情况第 2 次就恢复, 用户无感。
+    let res = null, payload = null, data = null, lastErr = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        res = await fetch(url, { credentials: "include" });
+        payload = await res.json().catch(() => null);
+        data = getApiData(payload);
+        if (res.ok && payload?.ok !== false) { lastErr = null; break; }
+        lastErr = new Error("market_load_failed:" + (res ? res.status : "?"));
+      } catch (e) { lastErr = e; }
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 600 * attempt)); // 600ms, 1.2s
     }
-    publicMarketState.works = Array.isArray(data?.works) ? data.works : [];
+    if (lastErr) throw lastErr;
+    // CSSOS_WAVE_588 — 丢弃过期响应: 这次请求发出后用户又改了搜索词 → 当前词 ≠ 本次 _q → 本次结果作废,
+    // 不覆盖更新的查询(根治"乱序响应覆盖正确结果")。
+    if (String(globalThis.__cssosMarketSearchQ || "").trim() !== _q) {
+      return publicMarketState.works;
+    }
+    const page = Array.isArray(data?.works) ? data.works : [];
+    publicMarketState.works = page;
+    publicMarketState.offset = page.length;
+    publicMarketState.exhausted = page.length < FORYOU_MARKET_PAGE_SIZE;
     publicMarketState.marketState =
       data?.market_state && typeof data.market_state === "object"
-        ? data.market_state
-        : null;
+        ? data.market_state : null;
     publicMarketState.loaded = true;
     return publicMarketState.works;
   } catch (err) {
@@ -283,6 +376,38 @@ async function loadPublicMarketWorks(force = false) {
   }
 }
 
+// W353 — fetch the next page and APPEND; called from scroll handler.
+async function loadMoreMarketWorks() {
+  if (publicMarketState.loading || publicMarketState.exhausted) return;
+  publicMarketState.loading = true;
+  renderForyouMarketplace();
+  try {
+    const _lf = String(globalThis.__cssosMarketLangFilter || "").trim();
+    const _q = String(globalThis.__cssosMarketSearchQ || "").trim();
+    const url = "/api/works/market?limit=" + FORYOU_MARKET_PAGE_SIZE
+      + "&offset=" + publicMarketState.offset
+      + (_lf ? "&lang=" + encodeURIComponent(_lf) : "")
+      + (_q ? "&q=" + encodeURIComponent(_q) : "");
+    const res = await fetch(url, { credentials: "include" });
+    const payload = await res.json().catch(() => null);
+    const data = getApiData(payload);
+    if (!res.ok || payload?.ok === false) return;
+    const page = Array.isArray(data?.works) ? data.works : [];
+    // Dedup by id
+    const have = new Set(publicMarketState.works.map((w) => w.id));
+    const fresh = page.filter((w) => !have.has(w.id));
+    publicMarketState.works = publicMarketState.works.concat(fresh);
+    publicMarketState.offset += page.length;
+    publicMarketState.exhausted = page.length < FORYOU_MARKET_PAGE_SIZE;
+  } catch (_e) {
+    // non-fatal; user can scroll again
+  } finally {
+    publicMarketState.loading = false;
+    foryouMarketVisibleCount = publicMarketState.works.length;
+    renderForyouMarketplace({ resetVisible: false });
+  }
+}
+
 function getPublicMarketEmptyCopy() {
   const reason = String(publicMarketState.marketState?.reason || "")
     .trim()
@@ -294,15 +419,50 @@ function getPublicMarketEmptyCopy() {
   }
   if (reason === "no_published_works") {
     return loginCopy(
-      "Works exist, but none have been published to the marketplace yet.",
+      "The marketplace is open — be the first to publish your work.",
     );
   }
-  return loginCopy("No public works available yet.");
+  return loginCopy("No works available yet.");
 }
 
 function buildMarketLoadingNoteMarkup() {
-  return `<div class="works-note">${loginCopy("Loading marketplace...")}</div>`;
+  // CSSOS_WAVE_459 20260526 — Jing「像很多平台那样: 数据未到先显示占位骨架, 数据到位
+  // 后占位变成真实内容」: 用骨架卡(skeleton)替代纯文字"Loading", 让用户清楚系统正在
+  // 加载。扫光微光只用 transform 平移(GPU 合成, 符合 W450 合成器安全铁律, 不每帧重绘)。
+  // renderForyouMarketplace() 拿到数据后会整体替换 innerHTML → 骨架自动变成真实卡片。
+  return cssosSkeletonListMarkup(5, loginCopy("Loading marketplace..."));
 }
+
+// CSSOS_WAVE_459/460 — shared skeleton-list markup, reused across panels
+// (marketplace / works-center / search / lyrics) for a unified 占位→数据 体验.
+// CSSOS_WAVE_462 20260526 — Jing「凡是需要加载数据的目标, 都先骨架再显示数据」: 全平台
+// 统一的占位骨架生成器。variant: "card"(封面方块+多行, 用于作品/市场卡列表) | "rows"
+// (纯多行, 用于通知/私信/排行榜/列表等文本型加载)。微光只用 transform(合成器安全)。
+function cssosSkeletonListMarkup(count, label, variant) {
+  var n = Math.max(1, Math.min(12, Number(count) || 5));
+  var cardSkel = `
+    <div class="cssos-skel-card" aria-hidden="true">
+      <div class="cssos-skel cssos-skel-cover"></div>
+      <div class="cssos-skel-lines">
+        <div class="cssos-skel cssos-skel-line w70"></div>
+        <div class="cssos-skel cssos-skel-line w40"></div>
+        <div class="cssos-skel cssos-skel-line w90"></div>
+        <div class="cssos-skel cssos-skel-line w55"></div>
+      </div>
+    </div>`;
+  var rowSkel = `
+    <div class="cssos-skel-row" aria-hidden="true">
+      <div class="cssos-skel cssos-skel-line w90"></div>
+      <div class="cssos-skel cssos-skel-line w55"></div>
+    </div>`;
+  var skel = variant === "rows" ? rowSkel : cardSkel;
+  return `<div class="cssos-skel-wrap" role="status" aria-label="${String(label || "Loading…")}">${skel.repeat(n)}</div>`;
+}
+globalThis.cssosSkeletonListMarkup = cssosSkeletonListMarkup;
+// Convenience: row-style skeleton for text lists (notifications / DM / leaderboard…).
+globalThis.cssosSkeletonRowsMarkup = function (count, label) {
+  return cssosSkeletonListMarkup(count, label, "rows");
+};
 
 function buildMarketErrorNoteMarkup() {
   return `<div class="works-note">${loginCopy("Marketplace is temporarily unavailable. Please refresh and try again.")}</div>`;
@@ -390,13 +550,17 @@ function bindMarketSearchControls() {
   // beyond the progressively-loaded window. On first keystroke,
   // bump the fetch ceiling to the server cap (1000) and force one
   // full reload; subsequent keystrokes filter the corpus in-memory.
+  // W353 — search/filter changes re-fetch from offset 0 (server-side query).
+  // CSSOS_WAVE_588 — 搜索竞态根治: 每键即查 + 响应乱序 → 早期宽泛查询(如"J")最后回来覆盖正确结果
+  // → "输完 Jerusalem 还出现一堆不相关"。改: 防抖 220ms(少发请求) + 丢弃过期响应(见 loadPublicMarketWorks)。
   const ensureMarketFullCorpusThenFilter = () => {
-    if (Number(globalThis.__cssosMarketFetchLimit || 30) < 1000) {
-      globalThis.__cssosMarketFetchLimit = 1000;
+    const q = String(searchInput?.value || authorInput?.value || "").trim();
+    globalThis.__cssosMarketSearchQ = q;
+    if (globalThis.__cssosMarketSearchDebounce) clearTimeout(globalThis.__cssosMarketSearchDebounce);
+    globalThis.__cssosMarketSearchDebounce = setTimeout(function () {
+      globalThis.__cssosMarketSearchDebounce = null;
       void loadPublicMarketWorks(true).then(() => renderForyouMarketplace({ resetVisible: true }));
-    } else {
-      renderForyouMarketplace({ resetVisible: true });
-    }
+    }, 220);
   };
   if (searchInput)
     searchInput.oninput = ensureMarketFullCorpusThenFilter;
@@ -483,7 +647,10 @@ async function populateMarketLangChips() {
     const b = document.createElement("button");
     b.type = "button";
     b.textContent = label;
-    if ((code || "") === active) b.classList.add("active");
+    // CSSOS_WAVE_414 — mark the active capsule both ways so the tab-pill
+    // constitution paints it 两头凸 and bites its neighbors 凹 (the interlock
+    // selectors key off .active / [aria-selected="true"]).
+    if ((code || "") === active) { b.classList.add("active"); b.setAttribute("aria-selected", "true"); }
     b.addEventListener("click", () => {
       globalThis.__cssosMarketLangFilter = code;
       populateMarketLangChips();
@@ -618,8 +785,27 @@ async function openMarketWorkPreview(work = {}, options = {}) {
   // short-circuit (#137) adopts THIS work's MV instead of kicking a new
   // pipeline run with random lyrics.
   try {
-    const finalMvUrl =
+    let finalMvUrl =
       String(targetWork?.final_mv_url || targetWork?.preview_video_url || "").trim();
+    // CSSOS_WAVE_399 20260524 — Jing「歌2音轨找不到画面 → 黑屏」根治: 拆分双 take 后,
+    // take2 是独立 sibling, 若它自己的视频缺失就黑屏。这里: 本作品【有音频却没有
+    // 自己的视频】时, 借用 sibling(原 take1)的视频做画面 —— 而不是把它误当成"草稿"
+    // 去重新生成。旧作品(无音频的草稿)不受影响, 仍走原 draft 路径。
+    try {
+      const selfAudio = String(
+        targetWork?.audio_track_1_url || targetWork?.preview_audio_url || ""
+      ).trim();
+      const sibId = String(
+        targetWork?.sibling_work_id || targetWork?.final_mv_meta?.sibling_work_id || ""
+      ).trim();
+      if (!finalMvUrl && selfAudio && sibId) {
+        const r = await fetch(`/api/works/${encodeURIComponent(sibId)}`, { credentials: "include" });
+        const pj = await r.json().catch(() => null);
+        const sib = pj?.data?.work || pj?.data || pj?.work || null;
+        const sibVid = sib && String(sib.final_mv_url || sib.preview_video_url || "").trim();
+        if (sibVid) finalMvUrl = sibVid; // borrow primary take's picture
+      }
+    } catch (_e) { /* sibling-video fallback best-effort */ }
     // CSSOS_PHASE2_DRAFT_HYDRATION 20260430 #216 — Jing
     // "找回旧作品的歌词/脚本/音频/视频等完整的作品信息，如果缺少哪项就补上."
     // 498 of the user's saved works are pre-MV-pipeline drafts: they have
@@ -1131,7 +1317,13 @@ async function openMarketWorkPreview(work = {}, options = {}) {
       ? globalThis.cssosMvPipelinePanelState()
       : null;
     const audioUrl = String(ps?.audioUrl || "").trim();
-    if (audioEl && audioUrl) {
+    // CSSOS_WAVE_453 20260527 — Jing: 视频缓冲时音频被静音 bugfix.
+    // 原来的 "silent prime" 用 audioUrl (Take 1) 做 audioEl.src + muted=true.
+    // 但 W473b 模式下 audioEl 本身就是 Take 1 的活跃声音源; 对它 muted=true
+    // 会直接静音用户正在听的音频, 在缓冲恢复时最为明显.
+    // 修复: 只在 audioEl 当前处于暂停/空闲状态 (非活跃播放) 时才做 silent prime,
+    // 避免打断 W473b 正在输出的声音.
+    if (audioEl && audioUrl && (audioEl.paused || !audioEl.currentTime)) {
       // CSSOS_PHASE2_NEXT_PAIR_UNMUTED 20260501 #262 — Jing
       // "下一对歌曲还是被静音，请修复为开启."
       // Prime <audio> SILENTLY (muted) so it's user-activated for the
@@ -1175,7 +1367,15 @@ async function openMarketWorkPreview(work = {}, options = {}) {
       try { return localStorage.getItem("cssos:noAutoFullscreen") === "1"; }
       catch (_e) { return false; }
     })();
-    if (!isApp314c && !skip && !userOptOut && !document.fullscreenElement
+    // CSSOS_WAVE_440 20260526 — Jing「#person-mv/codex 仍报 requestFullscreen ... user
+    // gesture」: cinema-enter can run from a programmatic flow (person-MV auto-open),
+    // not a tap → the browser rejects fullscreen AND logs a console warning. Gate on
+    // transient user-activation; without an active gesture, skip native fullscreen
+    // (the CSS cinema/immersive layout still applies — on mobile W440 already fills
+    // the viewport, so nothing visual is lost).
+    var _uaC = (typeof navigator !== "undefined" && navigator.userActivation);
+    var _gestureActive = !(_uaC && _uaC.isActive === false);
+    if (_gestureActive && !isApp314c && !skip && !userOptOut && !document.fullscreenElement
         && !document.webkitFullscreenElement) {
       const frame = document.querySelector("#watch-panel .watch-frame")
         || document.getElementById("watch-frame");
@@ -1446,6 +1646,9 @@ function renderForyouMarketplace(options = {}) {
     void hydrateMarketCardThumbnails(list, tail);
     bindMarketCardExpandToggle(resultsContainer);
     bindMarketCardActionButtons(resultsContainer, tail);
+    ensureCardSlideshowTicker(); // W354 — start/keep slideshow cycling
+    // CSSOS_WAVE_432 — refresh observer so new cards get observed too
+    bindScrollAutoplay(list, pageWorks);
     return;
   }
   list.innerHTML = `
@@ -1458,6 +1661,9 @@ function renderForyouMarketplace(options = {}) {
   void hydrateMarketCardThumbnails(list, pageWorks);
   bindMarketCardExpandToggle(list);
   bindMarketCardActionButtons(list, pageWorks);
+  ensureCardSlideshowTicker(); // W354 — start/keep slideshow cycling
+  // CSSOS_WAVE_432 20260525 — Jing: zero-click autoplay for For You feed.
+  bindScrollAutoplay(list, pageWorks);
 }
 
 function readMarketListViewOptions() {
@@ -1661,28 +1867,10 @@ function ensureForyouInfinitePaging() {
   // pile up dozens of re-renders + thumbnail re-hydrations in 1s.
   let scrollDebounce = null;
   const tryLoadMore = () => {
-    // CSSOS_PHASE2_PROGRESSIVE_LOAD 20260505 — same two-case logic
-    // as Works Center: expand the local slice first, then bump the
-    // server fetch limit if local cache is exhausted.
-    const have = latestVisibleMarketWorks.length;
-    if (have > foryouMarketVisibleCount) {
-      const remaining = have - foryouMarketVisibleCount;
-      foryouMarketVisibleCount += Math.min(FORYOU_MARKET_PAGE_SIZE, remaining);
-      renderForyouMarketplace({ resetVisible: false });
-      return;
-    }
-    /* CSSOS_WAVE_211 ROLLBACK 20260516 — restored original gate
-     * (`have >= lastFetched`). My eager "server-cache size" gate
-     * caused a fetch storm at panel mount (10 visible → triggers
-     * scroll-near-bottom → bumps limit). Revert to safer post-filter
-     * size check; the "search query freezes pagination" edge case
-     * needs server-side search support (separate wave). */
-    const lastFetched = Number(globalThis.__cssosMarketFetchLimit || 30);
-    if (have >= lastFetched) {
-      globalThis.__cssosMarketFetchLimit = Math.min(1000, lastFetched + 30);
-      foryouMarketVisibleCount += FORYOU_MARKET_PAGE_SIZE;
-      void loadPublicMarketWorks(true).then(() => renderForyouMarketplace({ resetVisible: false }));
-    }
+    // W353 — true offset pagination: fetch the next page from the server.
+    // No more re-fetching from offset 0 with a growing limit.
+    if (publicMarketState.exhausted || publicMarketState.loading) return;
+    void loadMoreMarketWorks();
   };
   body.addEventListener(
     "scroll",
@@ -1745,9 +1933,18 @@ function buildMarketCardsMarkup(works = []) {
         globalThis.resolveWorkCardThumbnailImageModule?.(work) ||
         resolveWorkCoverImage(work) || "",
       ).trim();
+      // W354 — slideshow: start on a random frame so cards open diversely,
+      // then cycle through all frames via ensureCardSlideshowTicker().
+      const _slideStartIdx = _coverPool.length
+        ? Math.floor(Math.random() * _coverPool.length) : 0;
       const coverImage = _coverPool.length
-        ? _coverPool[Math.floor(Math.random() * _coverPool.length)]
+        ? _coverPool[_slideStartIdx]
         : _stableCover;
+      // Only embed persisted (cssstudio.app) frames — expired replicate links would 404.
+      const _persistedSlides = _coverPool.filter((u) => /(^|\/\/|\.)cssstudio\.app\//.test(u) || u.startsWith("data:"));
+      const _slidesAttr = _persistedSlides.length >= 2
+        ? ` data-slides="${escapeHtml(JSON.stringify(_persistedSlides))}" data-slide-idx="${_slideStartIdx % _persistedSlides.length}"`
+        : "";
       const listenCents = Number(
         work?.current_listen_price_cents || work?.listen_price_cents || 0,
       );
@@ -1854,7 +2051,7 @@ function buildMarketCardsMarkup(works = []) {
       return `
         <article class="work-card market-card foryou-shelf-card ${_playedClass}${_isAdminOwned ? " is-admin-public" : ""}" data-market-work-id="${escapeHtml(workId)}" data-work-id="${escapeHtml(workId)}" data-work-expand data-lyrics-preview="${escapeHtml(_previewRaw.slice(0, 4000))}">
           <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-action="open-watch" role="button" tabindex="0" aria-label="${escapeHtml(loginCopy("Play MV"))}">
-            ${coverImage ? `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(coverImage, 400))}" alt="${title}" loading="lazy" decoding="async" ${_stableCover && _stableCover !== coverImage ? `data-stable="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(_stableCover, 400))}" onerror="if(this.dataset.stable&&this.src!==this.dataset.stable){this.src=this.dataset.stable;}"` : ""} />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
+            ${coverImage ? `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(coverImage, 400))}" alt="${title}" loading="lazy" decoding="async"${_slidesAttr} ${_stableCover ? `data-stable="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(_stableCover, 400))}" onerror="if(this.dataset.stable&&this.src!==this.dataset.stable){this.src=this.dataset.stable;}"` : ""} />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
             ${_fpBadge}
             ${_durOverlay}
             <span class="work-cover-played-dot" aria-hidden="true"></span>
@@ -1876,7 +2073,7 @@ function buildMarketCardsMarkup(works = []) {
             ${(!_isAdminOwned && canTransact) ? `<button class="mini-btn ghost" type="button" data-market-action="listen" ${listenDisabled ? "disabled" : ""}>${marketActionCopy("listen", orderState)}</button>` : ""}
             ${(!_isAdminOwned && canTransact && !workIsWholeBuyoutChildModule(work)) ? `<button class="mini-btn ghost" type="button" data-market-action="buyout" ${buyoutDisabled || !buyoutEnabled ? "disabled" : ""}>${wholeBuyoutOnly ? escapeHtml(loginCopy("Whole buyout")) : marketActionCopy("buyout", orderState)}</button>` : ""}
             ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost" type="button" data-market-action="tip" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $"))}" data-market-tip-input="${escapeHtml(workId)}" hidden /></span>` : ""}
-            ${(canTransact && tipsEnabled) ? `<button class="mini-btn ghost" type="button" data-market-action="tip-nihaopay" data-market-nihaopay-creator="${escapeHtml(String(work?.owner_user_id || ""))}" data-market-nihaopay-work="${escapeHtml(workId)}" title="${escapeHtml(loginCopy("Tip via Alipay / WeChat Pay"))}">${escapeHtml(loginCopy("Tip · 支付宝/微信"))}</button>` : ""}
+            ${(canTransact && tipsEnabled) ? `<button class="mini-btn ghost" type="button" data-market-action="tip-nihaopay" data-market-nihaopay-creator="${escapeHtml(String(work?.owner_user_id || ""))}" data-market-nihaopay-work="${escapeHtml(workId)}" title="${escapeHtml(loginCopy("Tip via Alipay / UnionPay"))}">${escapeHtml(loginCopy("Tip · 支付宝/银联"))}</button>` : ""}
             <button class="mini-btn ghost" type="button" data-market-action="share" title="${escapeHtml(loginCopy("Share this MV"))}">${loginCopy("Share")}</button>
             <button class="mini-btn ghost" type="button" data-market-action="download" title="${escapeHtml(loginCopy("Download · MP3 free, WAV/MP4 Pro+"))}">${loginCopy("Download")}</button>
           </div>
@@ -1975,6 +2172,19 @@ function bindMarketCardActionButtons(list, works = []) {
       const card = button.closest(
         "[data-market-work-id], .work-hierarchy-item",
       );
+      // CSSOS_WAVE_447 20260527 — Jing: On iOS native the inline number
+      // input is too small / visually ambiguous (Apple review: "no further
+      // action"). Skip straight to the payment picker with a default $2
+      // tip so the user sees an immediate, obvious response.
+      if (typeof isIosNativeAppModule === "function" && isIosNativeAppModule()) {
+        const workId = String(
+          card?.getAttribute("data-market-work-id") || ""
+        ).trim();
+        if (workId) {
+          void dispatchMarketWorkPayment(workId, "tip", button);
+          return;
+        }
+      }
       toggleMarketTipInput(card, true);
     });
   });
@@ -2335,10 +2545,30 @@ function buildWorksListShellMarkup() {
 }
 
 function buildWorksEmptyNoteMarkup() {
+  // CSSOS_WAVE_588 线4 — 统一空态 + 引导 CTA(去创作)。
+  if (typeof globalThis.cssosEmptyStateMarkup === "function") {
+    return globalThis.cssosEmptyStateMarkup({
+      icon: "🎬",
+      title: loginCopy("No works yet", "还没有作品"),
+      sub: loginCopy("Create your first MV — it'll show up right here.", "创作你的第一支 MV —— 完成后就出现在这里。"),
+      ctaLabel: "✨ " + loginCopy("Create", "去创作"),
+      ctaOnclick: "(globalThis.invokeUniversalCreationEntry||globalThis.openMvPipelinePanel||function(){})({origin:'works-empty',preferredTab:'mv'})",
+    });
+  }
   return `<div class="works-note">${loginCopy("No works yet. Create one to see it here.")}</div>`;
 }
 
 function buildWorksLoadFailedMarkup() {
+  // CSSOS_WAVE_588 线4 — 统一空态 + 引导 CTA(重试)。
+  if (typeof globalThis.cssosEmptyStateMarkup === "function") {
+    return globalThis.cssosEmptyStateMarkup({
+      icon: "⚠️",
+      title: loginCopy("Couldn't load your works", "作品加载失败"),
+      sub: loginCopy("Check your connection and try again.", "请检查网络后重试。"),
+      ctaLabel: "↻ " + loginCopy("Retry", "重试"),
+      ctaOnclick: "(globalThis.loadWorksCenter||globalThis.refreshWorksCenter||function(){location.reload();})()",
+    });
+  }
   return `<div class="works-note">${loginCopy("Failed to load works.")}</div>`;
 }
 
@@ -2412,10 +2642,15 @@ function buildWorksCardInfoMarkup(options = {}) {
   const title =
     String(options.title || "").trim() || loginCopy("Untitled");
   const style = String(options.style || "").trim();
+  // CSSOS_WAVE_388 20260524 — Jing QA: this referenced `workId` which was never
+  // declared in THIS function (it's a local of the caller buildWorksCardMarkup) →
+  // ReferenceError thrown on the first card → Array.map aborts → the whole "My
+  // Works" list rendered EMPTY. Derive it from options like the caller does.
+  const workId = String(options.workId || "").trim();
   return `
     <div class="work-info">
       <div class="work-title" data-work-toggle data-editable-title>${escapeHtml(title)}</div>
-      <div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.42);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(String(workId).slice(0, 8))}</div>
+      ${workId ? `<div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.42);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(workId.slice(0, 8))}</div>` : ""}
       <div class="work-tags" title="${escapeHtml((style || loginCopy("Style not set")).replace(/"/g, "&quot;"))}">${escapeHtml(style || loginCopy("Style not set"))}</div>
       ${buildWorksCardPricingMarkup(options)}
     </div>
@@ -3220,6 +3455,184 @@ function buildWorksCardCommerceDetailsMarkup(options = {}) {
 // panel) that want to reuse the layout without the owner-only fields.
 globalThis.buildWorksCardDeepDetailsMarkupModule = buildWorksCardDeepDetailsMarkup;
 globalThis.buildWorksCardEngineBreakdownMarkupModule = buildWorksCardEngineBreakdownMarkup;
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_432 20260525 — Jing: Zero-click autoplay for For You feed.
+ *
+ * "有什么办法，不要再让用户进行任何点击，真正零门槛用户体验，
+ *  现在是每播放一首歌，都要点击一下。"
+ *
+ * Strategy — same as TikTok / Instagram Reels / YouTube Shorts:
+ *
+ *   1. PAGE LOAD  → first card plays MUTED immediately (iOS allows muted autoplay).
+ *   2. FIRST GESTURE (scroll / touch / key) → AudioContext unlocked → unmute.
+ *      The user never has to explicitly "tap to play"; the natural scroll IS
+ *      the gesture iOS requires.
+ *   3. SCROLL → IntersectionObserver watches every .foryou-shelf-card.
+ *      When a card is ≥ 55% visible → openMarketWorkPreview() fires.
+ *      When it drops below → nothing (queue auto-advances naturally).
+ *   4. DEBOUNCE 350ms — rapid flicks don't spam openMarketWorkPreview().
+ *   5. RE-OBSERVE on new page appends (ensureForYouScrollAutoplay public API).
+ *
+ * Browser support: IntersectionObserver is universal (Safari 12.1+, 2019).
+ * ───────────────────────────────────────────────────────────────────────── */
+
+let _scrollAutoplayObserver = null;
+let _scrollAutoplayUnlocked = false;
+let _scrollAutoplayDebounceTimer = null;
+let _scrollAutoplayLastWorkId = null;
+
+/** Called once on first real user gesture to unlock audio on iOS Safari. */
+function unlockAudioScrollAutoplay() {
+  if (_scrollAutoplayUnlocked) return;
+  _scrollAutoplayUnlocked = true;
+  // Resume any suspended AudioContext.
+  try {
+    const ac = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (ac) {
+      const ctx = new ac();
+      ctx.resume().catch(() => {});
+      // Tiny silent buffer — the standard iOS unlock trick.
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    }
+  } catch (_) {}
+  // Unmute any currently playing media elements.
+  document.querySelectorAll("audio[data-scroll-autoplay], video[data-scroll-autoplay]").forEach((el) => {
+    el.muted = false;
+  });
+}
+
+/** Wire one-time gesture listeners to unlock audio. */
+function installAudioUnlockListeners() {
+  const handler = () => {
+    unlockAudioScrollAutoplay();
+    window.removeEventListener("scroll", handler, { passive: true });
+    window.removeEventListener("touchstart", handler, { passive: true });
+    window.removeEventListener("pointerdown", handler, { passive: true });
+    window.removeEventListener("keydown", handler);
+  };
+  window.addEventListener("scroll", handler, { passive: true });
+  window.addEventListener("touchstart", handler, { passive: true });
+  window.addEventListener("pointerdown", handler, { passive: true });
+  window.addEventListener("keydown", handler);
+}
+
+/**
+ * IntersectionObserver callback — fires openMarketWorkPreview when a
+ * For You card scrolls ≥ 55% into view.
+ */
+function _onCardIntersect(entries, works) {
+  // Find the most-visible card that just crossed the threshold.
+  let best = null;
+  let bestRatio = 0;
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue;
+    if (entry.intersectionRatio > bestRatio) {
+      bestRatio = entry.intersectionRatio;
+      best = entry.target;
+    }
+  }
+  if (!best) return;
+
+  const workId = String(best.dataset.marketWorkId || best.dataset.workId || "").trim();
+  if (!workId) return;
+  // Skip if already playing this card.
+  if (workId === _scrollAutoplayLastWorkId) return;
+
+  // Debounce — user might be mid-scroll flicking past several cards.
+  clearTimeout(_scrollAutoplayDebounceTimer);
+  const capturedId = workId;
+  const capturedCard = best;
+  const capturedWorks = works;
+  _scrollAutoplayDebounceTimer = setTimeout(() => {
+    // Re-check it's still mostly visible before firing.
+    const rect = capturedCard.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const visible = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
+    const ratio = visible / rect.height;
+    if (ratio < 0.45) return;
+
+    _scrollAutoplayLastWorkId = capturedId;
+
+    // CSSOS_WAVE_455 20260526 — Jing「滚动只播卡片内联小预览, 不拉起全屏 MV 面板; 或完全
+    // 手动点击才播」: 此前滚动到某卡就 openMarketWorkPreview() 直接拉起【全屏 MV 面板】并
+    // 自动播放 = 强制接管 + 视频持续重绘。改为: 滚动【不再拉起全屏面板】, 只触发该卡【内联
+    // 小预览】(卡片自带的静音小视频预览, 若存在); 全屏 MV 面板仅在用户【主动点击卡片】时
+    // 才打开(卡片 click 处理仍在)。两全其美: 内联预览保留, 全屏改为手动。 */
+    try {
+      if (typeof globalThis.cssosPlayForyouCardInlinePreview === "function") {
+        globalThis.cssosPlayForyouCardInlinePreview(capturedCard, capturedId);
+      }
+    } catch (_e) {}
+    // (不再 openMarketWorkPreview —— 全屏面板只在主动点击时打开。)
+  }, 350);
+}
+
+/**
+ * Set up (or refresh) the IntersectionObserver for a given list element.
+ * Called after every render of the For You feed.
+ */
+function bindScrollAutoplay(list, works) {
+  if (!(list instanceof Element)) return;
+  if (!Array.isArray(works) || !works.length) return;
+  if (typeof IntersectionObserver === "undefined") return;
+
+  // Install audio unlock listeners once.
+  if (!_scrollAutoplayUnlocked) installAudioUnlockListeners();
+
+  // Disconnect old observer before re-wiring (list may have new cards).
+  if (_scrollAutoplayObserver) {
+    _scrollAutoplayObserver.disconnect();
+    _scrollAutoplayObserver = null;
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => _onCardIntersect(entries, works),
+    {
+      // 55% of the card must be visible — avoids firing when only a
+      // sliver peeks above the fold.
+      threshold: 0.55,
+      // rootMargin: slight top shrink so the address bar doesn't count.
+      rootMargin: "-48px 0px 0px 0px",
+    },
+  );
+
+  list.querySelectorAll(".foryou-shelf-card[data-market-work-id]").forEach((card) => {
+    observer.observe(card);
+  });
+
+  _scrollAutoplayObserver = observer;
+
+  // CSSOS_WAVE_454 20260526 — Jing「进主界面已自动起 MV 自动播放了, 不要进入『为你创作』
+  // 面板再自动拉起 MV 面板自动播放」: 移除"打开 feed 即自动开播第一张卡"的入场自动启动。
+  // 原因: (1) 与主界面入场自动播放重复; (2) For You 是浏览列表场景, 后挂一个自动播放视频 =
+  // 持续重绘(用户看到的"绿")+ 耗电耗算力, 纯负担; (3) 用户进 For You 是想"逛"而非被强制播放。
+  // 保留 IntersectionObserver 的"滚动到某卡再播"(需用户主动滚动 = 有意图), 只砍掉入场即播。
+  // (如需恢复入场自动播, 把下方块解注释即可。)
+  //
+  // const firstCard = list.querySelector(".foryou-shelf-card[data-market-work-id]");
+  // if (firstCard && !_scrollAutoplayLastWorkId) {
+  //   const firstWorkId = String(firstCard.dataset.marketWorkId || "").trim();
+  //   if (firstWorkId) {
+  //     setTimeout(() => {
+  //       if (_scrollAutoplayLastWorkId) return;
+  //       const rootWork = findRootWorkForPlaybackModule(works, firstWorkId);
+  //       if (!rootWork) return;
+  //       _scrollAutoplayLastWorkId = firstWorkId;
+  //       void openMarketWorkPreview({ ...rootWork, __cssosOpenedFrom: "for-you-autostart" });
+  //     }, 600);
+  //   }
+  // }
+}
+
+/** Public API — call after appending more cards (infinite scroll page-add). */
+globalThis.ensureForYouScrollAutoplay = function (list, works) {
+  bindScrollAutoplay(list, works);
+};
 
 function buildWorksCardActionsMarkup(options = {}) {
   const canWatchWorks = options.canWatchWorks === true;
@@ -4892,3 +5305,28 @@ async function regenerateWorkPreviewVideo(work, trigger = null) {
     setButtonBusy(trigger, false);
   }
 }
+
+// CSSOS_WAVE_457 20260526 — Jing「有些封面图缺失, 顺手补一下」: 卡片封面源(常见为
+// replicate.delivery, ~24h 过期)失效时, 之前要么露破图图标、要么无兜底。这里加一个
+// 全局【capture 阶段】图片错误兜底: 任何 .work-cover 内的封面图加载失败 → 隐藏破图,
+// 退化为与"无封面卡片"一致的首字母占位(复用 .work-cover-fallback 样式), 永不露破图。
+// (真正"恢复原封面"需服务端把封面在创建时持久化到 R2, 属另一项工作; 这里先保观感。)
+(function installCssosCoverErrorFallback() {
+  if (typeof document === "undefined" || globalThis.__cssosCoverFallbackInstalled) return;
+  globalThis.__cssosCoverFallbackInstalled = true;
+  document.addEventListener("error", function (e) {
+    var img = e && e.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    var cover = img.closest && img.closest(".work-cover");
+    if (!cover) return;
+    // Let the inline data-stable onerror swap try first; only act once that also fails.
+    if (img.dataset && img.dataset.stable && img.src !== img.dataset.stable) return;
+    img.style.display = "none";
+    if (cover.querySelector(".work-cover-fallback")) return;
+    var initials = (img.getAttribute("alt") || "").trim().slice(0, 2).toUpperCase() || "♪";
+    var f = document.createElement("div");
+    f.className = "work-cover-fallback";
+    f.textContent = initials;
+    cover.appendChild(f);
+  }, true);
+})();

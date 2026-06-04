@@ -3,7 +3,11 @@
  * for /api/*, plus web push handlers so notifications fire even
  * when the tab is closed. */
 
-const CACHE = "cssos-static-v29-w381";
+// CSSOS_WAVE_485k 20260528 — Jing「App 卡崩溃循环、拉不到修复版」系统级破局: bump 缓存名
+// → 旧 SW 缓存的【崩溃版 CSS】在 activate 时被全部清除(skipWaiting+clients.claim 已就位),
+// 卡死设备下次崩溃重载(=导航, 会重新拉 sw.js)即换新 SW → 清缓存 → 取到修复版 style.css,
+// 无需用户重装。每次有"必须送达所有客户端"的静态资源修复时, 都应顺手 bump 此版本号。
+const CACHE = "cssos-static-v148-w639";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -37,6 +41,30 @@ self.addEventListener("fetch", (event) => {
   // 导致串台), 彻底消除该路径的 null。
   if (url.pathname.startsWith("/api/")) {
     return; // pass through to network; SW does not intercept dynamic APIs
+  }
+
+  // CSSOS_WAVE_395 20260524 — Jing「App 端卡在旧缓存版本」根治: 导航请求(应用外壳/
+  // index.html)一律【网络优先】。此前一份缓存住的旧外壳把 iOS App 钉死在旧 build,
+  // 冷启动都刷不掉。现在每次导航都取最新, 只有真正离线才回退到缓存的外壳副本 —— 让
+  // 任何未来的 SW 缓存状态都能自愈, 不再版本滞后。
+  if (req.mode === "navigate" ||
+      (req.headers.get("accept") || "").includes("text/html")) {
+    event.respondWith(
+      fetch(req).then((res) => {
+        try {
+          if (res && res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then((c) => c.put("/__shell__", clone)).catch(() => {});
+          }
+        } catch (_e) {}
+        return res;
+      }).catch(() =>
+        caches.open(CACHE)
+          .then((c) => c.match("/__shell__"))
+          .then((h) => h || new Response("", { status: 504, statusText: "offline" })),
+      ),
+    );
+    return;
   }
 
   if (isStatic(url)) {

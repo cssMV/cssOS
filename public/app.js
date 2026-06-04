@@ -1,3 +1,16 @@
+// CSSOS_WAVE_220A_TDZ_HOIST 20260519 — Jing: hoist four declarations
+// that other scripts read during boot. Their original declaration
+// lines (4897/4953/6076/6371) are 1000+ lines into app.js, so cross-
+// file readers (app.watch-ui.js RAF loop, app.creation-language.js,
+// app.theme-quick-toggle.js) hit a TDZ ReferenceError storm on iOS
+// WKWebView whenever boot order is even slightly off. Originals
+// kept as no-ops (re-assignment of same value) for source-line
+// stability.
+let typingState = { paused: false, canceled: false, completed: false };
+const DEFAULT_SPELL = "CSS";
+const creationTouchedFields = new Set();
+let activePipelineRunId = "";
+
 const dock = document.getElementById("dock");
 const toast = document.getElementById("toast");
 const logoPanel = document.getElementById("logo-panel");
@@ -197,6 +210,27 @@ const styleRegenerate = document.getElementById("style-regenerate");
 const musicStructureRegenerate = document.getElementById("music-structure-regenerate");
 const videoOutlineRegenerate = document.getElementById("video-outline-regenerate");
 const sectionPromptsRegenerate = document.getElementById("section-prompts-regenerate");
+// CSSOS_WAVE_220A 20260517 — Jing: unified wand. One click fires all
+// three pane-level wand handlers in sequence so user gets a coherent
+// three-pane refresh (music structure + video outline + section
+// scene prompts) instead of having to mash three buttons. Civilization
+// linkage flows naturally because each handler already reads the same
+// global civilization context.
+const seedAllRegenerate = document.getElementById("seed-all-regenerate");
+if (seedAllRegenerate) {
+  seedAllRegenerate.addEventListener("click", function (e) {
+    e.preventDefault();
+    // Fire each existing handler programmatically. If a handler is
+    // missing or throws, we keep going — partial refresh is better
+    // than nothing.
+    try { musicStructureRegenerate?.click(); } catch (_) {}
+    try { videoOutlineRegenerate?.click(); } catch (_) {}
+    try { sectionPromptsRegenerate?.click(); } catch (_) {}
+    if (typeof globalThis.showToast === "function") {
+      globalThis.showToast("Regenerating music structure, video outline, and scene prompts...");
+    }
+  });
+}
 const voiceInput = document.getElementById("voice-input");
 const musicStructureInput = document.getElementById("music-structure-input");
 const videoOutlineInput = document.getElementById("video-outline-input");
@@ -231,6 +265,8 @@ const creationPercussionActivity = document.getElementById("creation-percussion-
 const creationExpressionCcBias = document.getElementById("creation-expression-cc-bias");
 const creationHumanization = document.getElementById("creation-humanization");
 const creationInspirationNotes = document.getElementById("creation-inspiration-notes");
+/* CSSOS_WAVE_431 20260525 — Jing: previously unbound advanced-settings fields */
+const creationMakeInstrumental = document.getElementById("creation-make-instrumental");
 const creationDefaultsRow = document.getElementById("creation-defaults-row");
 const creationDefaultListen = document.getElementById("creation-default-listen");
 const creationDefaultBuyout = document.getElementById("creation-default-buyout");
@@ -370,11 +406,18 @@ const DOCK_ORDER_KEY = "cssos.dockOrder";
 // CSSOS_PHASE2_DOCK_MV_FIRST 20260505 — Jing
 // "请把MV PIPELINE面板图标，在Dock上移动到第一个位置". MV Pipeline
 // is the platform's primary creation surface, so it leads the dock.
+// CSSOS_WAVE_486 20260529 — Jing: 前5固定 = MV管线/人物MV/话筒/为你创作/高级设置。
+// 「高级设置」(settings) 提到第5位。删除 cssmv(与 mv-pipeline 重复, 见 index.html)。
+// 真正的固定由 restoreDockOrder() 的 pinFront() 强制, 覆盖任何旧的 localStorage 顺序。
+// CSSOS_WAVE_489 20260529 — Jing「话筒默认在第一位, 不要先渲染别处再飞过去」: mic
+// 提到最前(它是默认激活项, 而激活项跳第一 W487)。加载即在位, 无"飞行"。
+const DOCK_FRONT_PINNED = ["mic", "mv-pipeline", "person-mv", "foryou", "settings"];
 const DOCK_DEFAULT_ORDER = [
-  "mv-pipeline",
   "mic",
-  "settings",
+  "mv-pipeline",
+  "person-mv",   // 人物MV — 动态注入，restoreDockOrder 会保留位置
   "foryou",
+  "settings",    // 高级设置 — 提到前5
   "works",
   "lyrics",
   "music",
@@ -387,7 +430,6 @@ const DOCK_DEFAULT_ORDER = [
   "credit",
   "workspaces",
   "user-admin",
-  "cssmv"
 ];
 const FORYOU_PREVIEW_MODES = {
   AUTO: "auto",
@@ -442,9 +484,16 @@ const VERSION_RELEASE_NOTES = {
   }
 };
 
-const { languageCatalog } = window.CSSOS_I18N_CATALOG;
+// CSSOS_WAVE_486b 20260529 — Jing「登录后还是闪」二次根因(crash-log 实锤): 在低内存
+// iPhone XS Max 上, 崩溃会中断依赖脚本(CSSOS_I18N_CATALOG / CSSOS_I18N_DICT)的加载
+// ("Load failed") → 此处【顶层硬解构 undefined】抛 "Right side of assignment cannot be
+// destructured" → 整个 app.js 全局初始化当场中断 → 后面所有 let/const 模块变量永不初始化
+// → 全线 "Cannot access uninitialized variable"(theme-toggle / delivery-digest / watch-ui …)
+// → App 彻底 brick、无法恢复 = 持续闪。修复: 防御性兜底, 依赖缺失时降级为空对象, 让 app.js
+// 继续初始化(英文兜底 i18n), 打断"崩溃→腐化加载→彻底 brick"的恶性循环。
+const { languageCatalog } = (window.CSSOS_I18N_CATALOG || { languageCatalog: {} });
 
-const { I18N } = window.CSSOS_I18N_DICT;
+const { I18N } = (window.CSSOS_I18N_DICT || { I18N: {} });
 
 if (!I18N.en) I18N.en = {};
 Object.assign(I18N.en, {
@@ -540,6 +589,12 @@ Object.assign(I18N.en, {
   "dock.about": "About",
   "dock.api": "API",
   "dock.mic": "Mic",
+  // CSSOS_WAVE_487 20260529 — Jing「有些标签带有 dock 前缀, 请去掉」。这三个键
+  // 在生成字典里没有 English 条目, 缺失时 t() 直接回退成原始键名 → UI 漏出
+  // "dock.mvPipeline" 等。补上 English(SSOT), 其余 locale 由运行时翻译覆盖。
+  "dock.mvPipeline": "MV Pipeline",
+  "dock.engines": "Engines",
+  "dock.systemMvs": "System MVs",
   "api.overview.title": "API Overview",
   "api.overview.body": "Generate CSS MV payloads, queue renders, and receive delivery-ready report bundles from one API surface.",
   "api.endpoint.title": "Endpoint",
@@ -638,6 +693,8 @@ Object.assign(I18N.en, {
   "settings.panel.mirrorVideo": "Mirror Video",
   "settings.panel.setDefault": "Set as Default",
   "settings.panel.reset": "Reset",
+  "settings.panel.advancedHub": "Advanced Panel Settings",
+  "action.randomPalette": "Random Palette",
   "settings.foryou.previewMode": "For You Preview",
   "settings.foryou.previewMode.auto": "Auto",
   "settings.foryou.previewMode.image": "Image",
@@ -960,6 +1017,8 @@ Object.assign(I18N.zh, {
   "settings.panel.mirrorVideo": "镜像视频",
   "settings.panel.setDefault": "设为默认",
   "settings.panel.reset": "重置",
+  "settings.panel.advancedHub": "面板参数中心",
+  "action.randomPalette": "随机水彩配色",
   "settings.foryou.previewMode": "For You 预览",
   "settings.foryou.previewMode.auto": "自动",
   "settings.foryou.previewMode.image": "图片",
@@ -1418,8 +1477,8 @@ function applyI18n() {
     }
   });
 
-  document.querySelectorAll(".dock-item").forEach((item) => {
-    const labelEl = item.querySelector(".dock-label, .label, .dock-text");
+  document.querySelectorAll("[data-pill-key]").forEach((item) => {
+    const labelEl = item.querySelector("[data-i18n], .label, .dock-text");
     const label = labelEl ? labelEl.textContent.trim() : "";
     if (label) item.setAttribute("data-label", label);
     if (!item.hasAttribute("tabindex")) item.tabIndex = 0;
@@ -1581,7 +1640,28 @@ function syncCreationStateToLegacyInputs() {
   const ensembleStyle = creationState.ensembleStyle || "";
   const styleText = [genre, mood, instrument, instrumentation, ensembleStyle].filter(Boolean).join(" · ");
   setSelectValueSafe(styleInput, styleText || genre);
-  setSelectValueSafe(voiceInput, creationState.selections.vocalGender || "");
+  // CSSOS_WAVE_220A 20260517 — Jing: Voice Gender must default to Auto.
+  // Previous behaviour leaked any stale `vocalGender` from creationState
+  // (which can be hydrated from localStorage on cold boot) so users saw
+  // "Feminine" even on first visit if a past session had touched it.
+  // Rule: only honor the current value if the user has explicitly
+  // touched the field in THIS session; otherwise force the empty
+  // (=Auto · 文明智能填充) option per the W196/W197 civilization-linked
+  // smart-fill principle.
+  //
+  // Extended in same wave to cover four more "auto-default" fields:
+  // creation-key, creation-work-type, creation-instrumentation,
+  // creation-vocal-style. User complaint: "请报纸这些输入框/下拉菜单
+  // 为空或者自动" — text inputs showed stale "gushing, dizi" / "soul"
+  // from past sessions, selects showed unresolved i18n key literals.
+  const __touched = (typeof hasCreationFieldTouched === "function")
+    ? hasCreationFieldTouched
+    : function () { return false; };
+  setSelectValueSafe(voiceInput, __touched("vocalGender") ? (creationState.selections.vocalGender || "") : "");
+  if (creationKey && !__touched("key")) creationKey.value = "";
+  if (creationWorkType && !__touched("workType")) creationWorkType.value = "";
+  if (creationInstrumentation && !__touched("instrumentation")) creationInstrumentation.value = "";
+  if (creationVocalStyle && !__touched("vocalStyle")) creationVocalStyle.value = "";
 }
 
 function normalizeWorkTypeClient(value) {
@@ -2870,6 +2950,12 @@ function buildAdvancedPanelSettingsMarkup(settings) {
             <option value="top" ${current.dock.dock_position === "top" ? "selected" : ""}>${escapeHtml(loginCopy("Top"))}</option>
           </select>
         </label>
+        <label><span>${escapeHtml(loginCopy("Dock style"))}</span>
+          <select data-advanced-setting="dock-style" onchange="globalThis.cssosSetDockStyle?.(this.value)">
+            <option value="pill" ${(globalThis.cssosGetDockStyle?.() ?? "pill") === "pill" ? "selected" : ""}>${escapeHtml(loginCopy("Pill (chromatic)"))}</option>
+            <option value="icon" ${(globalThis.cssosGetDockStyle?.() ?? "pill") === "icon" ? "selected" : ""}>${escapeHtml(loginCopy("Icon (classic)"))}</option>
+          </select>
+        </label>
         <button class="cta ghost tiny" type="button" data-advanced-dock-reset>${escapeHtml(loginCopy("Reset to bottom center"))}</button>
         ${admin ? `<button class="cta ghost tiny" type="button" data-advanced-save="dock">${escapeHtml(t("settings.panel.setDefault"))}</button>` : ""}
       </section>
@@ -3002,25 +3088,29 @@ function buildAdvancedPanelSettingsMarkup(settings) {
                 <span>${escapeHtml(loginCopy(`Showing ${filteredActionMatrixRows.length} actions`))}</span>
                 <button class="report-export-action is-muted" type="button" data-permission-filter-reset>${escapeHtml(loginCopy("Clear all filters"))}</button>
               </div>
-              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Permission overview filters"))}">
-                <button class="report-export-source ${permissionOverviewFilter === "all" ? "is-active" : ""}" type="button" data-permission-filter="all">${escapeHtml(loginCopy("All"))}</button>
-                <button class="report-export-source ${permissionOverviewFilter === "delivery" ? "is-active" : ""}" type="button" data-permission-filter="delivery">delivery</button>
+              <!-- CSSOS_WAVE_497 20260529 — Jing: 套用平台签名胶囊风格(data-pill-bar).
+                   每颗加 data-pill-key + 与 is-active 同步的 active 类(v28 凸嵌凹用 .active). -->
+              <!-- CSSOS_WAVE_497 20260529 — Jing: 套签名胶囊(data-pill-bar) + 每颗带图标
+                   + min-width=高度×3=120px(防误触, 见 .permission-overview-filters 规则). -->
+              <div class="permission-overview-filters" role="group" data-pill-bar data-pill-text="dark" aria-label="${escapeHtml(loginCopy("Permission overview filters"))}">
+                <button class="report-export-source ${permissionOverviewFilter === "all" ? "is-active active" : ""}" data-pill-key="all" type="button" data-permission-filter="all">📋 ${escapeHtml(loginCopy("All"))}</button>
+                <button class="report-export-source ${permissionOverviewFilter === "delivery" ? "is-active active" : ""}" data-pill-key="delivery" type="button" data-permission-filter="delivery">🚚 delivery</button>
               </div>
-              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Permission requirement filters"))}">
-                <button class="report-export-source ${permissionOverviewRequirementFilter === "all" ? "is-active" : ""}" type="button" data-permission-requirement-filter="all">${escapeHtml(loginCopy("All Thresholds"))}</button>
-                <button class="report-export-source ${permissionOverviewRequirementFilter === "basic" ? "is-active" : ""}" type="button" data-permission-requirement-filter="basic">Basic+</button>
-                <button class="report-export-source ${permissionOverviewRequirementFilter === "pro" ? "is-active" : ""}" type="button" data-permission-requirement-filter="pro">Pro+</button>
-                <button class="report-export-source ${permissionOverviewRequirementFilter === "enterprise" ? "is-active" : ""}" type="button" data-permission-requirement-filter="enterprise">Enterprise+</button>
-                <button class="report-export-source ${permissionOverviewRequirementFilter === "vip" ? "is-active" : ""}" type="button" data-permission-requirement-filter="vip">VIP+</button>
-                <button class="report-export-source ${permissionOverviewRequirementFilter === "admin" ? "is-active" : ""}" type="button" data-permission-requirement-filter="admin">Admin</button>
+              <div class="permission-overview-filters" role="group" data-pill-bar data-pill-text="dark" aria-label="${escapeHtml(loginCopy("Permission requirement filters"))}">
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "all" ? "is-active active" : ""}" data-pill-key="rq-all" type="button" data-permission-requirement-filter="all">📊 ${escapeHtml(loginCopy("All Thresholds"))}</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "basic" ? "is-active active" : ""}" data-pill-key="rq-basic" type="button" data-permission-requirement-filter="basic">🟢 Basic+</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "pro" ? "is-active active" : ""}" data-pill-key="rq-pro" type="button" data-permission-requirement-filter="pro">⭐ Pro+</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "enterprise" ? "is-active active" : ""}" data-pill-key="rq-ent" type="button" data-permission-requirement-filter="enterprise">🏢 Enterprise+</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "vip" ? "is-active active" : ""}" data-pill-key="rq-vip" type="button" data-permission-requirement-filter="vip">💎 VIP+</button>
+                <button class="report-export-source ${permissionOverviewRequirementFilter === "admin" ? "is-active active" : ""}" data-pill-key="rq-admin" type="button" data-permission-requirement-filter="admin">🛡 Admin</button>
               </div>
-              <div class="permission-overview-filters" role="group" aria-label="${escapeHtml(loginCopy("Delivery domain filters"))}">
-                <button class="report-export-source ${permissionOverviewDomainFilter === "all" ? "is-active" : ""}" type="button" data-permission-domain-filter="all">${escapeHtml(loginCopy("All Domains"))}</button>
-                <button class="report-export-source ${permissionOverviewDomainFilter === "watch" ? "is-active" : ""}" type="button" data-permission-domain-filter="watch">watch</button>
-                <button class="report-export-source ${permissionOverviewDomainFilter === "rewrite" ? "is-active" : ""}" type="button" data-permission-domain-filter="rewrite">rewrite</button>
-                <button class="report-export-source ${permissionOverviewDomainFilter === "compliance" ? "is-active" : ""}" type="button" data-permission-domain-filter="compliance">compliance</button>
-                <button class="report-export-source ${permissionOverviewDomainFilter === "probe" ? "is-active" : ""}" type="button" data-permission-domain-filter="probe">probe</button>
-                <button class="report-export-source ${permissionOverviewDomainFilter === "publish" ? "is-active" : ""}" type="button" data-permission-domain-filter="publish">publish</button>
+              <div class="permission-overview-filters" role="group" data-pill-bar data-pill-text="dark" aria-label="${escapeHtml(loginCopy("Delivery domain filters"))}">
+                <button class="report-export-source ${permissionOverviewDomainFilter === "all" ? "is-active active" : ""}" data-pill-key="dm-all" type="button" data-permission-domain-filter="all">🌐 ${escapeHtml(loginCopy("All Domains"))}</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "watch" ? "is-active active" : ""}" data-pill-key="dm-watch" type="button" data-permission-domain-filter="watch">▶ watch</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "rewrite" ? "is-active active" : ""}" data-pill-key="dm-rewrite" type="button" data-permission-domain-filter="rewrite">✏️ rewrite</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "compliance" ? "is-active active" : ""}" data-pill-key="dm-compliance" type="button" data-permission-domain-filter="compliance">✅ compliance</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "probe" ? "is-active active" : ""}" data-pill-key="dm-probe" type="button" data-permission-domain-filter="probe">🔍 probe</button>
+                <button class="report-export-source ${permissionOverviewDomainFilter === "publish" ? "is-active active" : ""}" data-pill-key="dm-publish" type="button" data-permission-domain-filter="publish">📤 publish</button>
               </div>
               <div class="permission-overview-table" role="table" aria-label="${escapeHtml(loginCopy("Action permission matrix"))}">
                 <div class="permission-overview-header" role="row">
@@ -3218,6 +3308,41 @@ async function renderAdvancedPanelSettings(options = {}) {
     advancedPanelSettings.dataset.needsRender = "true";
   }
 }
+
+// CSSOS_WAVE_217 20260517 — Jing: restore "Clear all parameters" button in
+// Advanced Settings panel. Mirrors #mvp-clear in MV PIPELINE — wipes every
+// [data-advanced-setting] input/select/checkbox back to its baseline so the
+// user can start fresh without reloading the page.
+(function wireAdvancedPanelClearAll() {
+  const btn = document.getElementById("advanced-panel-clear-all");
+  if (!btn || btn.dataset.wired === "1") return;
+  btn.dataset.wired = "1";
+  btn.addEventListener("click", function () {
+    const root = document.getElementById("advanced-panel-settings");
+    if (!root) return;
+    const nodes = root.querySelectorAll("[data-advanced-setting]");
+    nodes.forEach(function (el) {
+      const tag = (el.tagName || "").toLowerCase();
+      const type = (el.type || "").toLowerCase();
+      try {
+        if (type === "checkbox" || type === "radio") {
+          el.checked = false;
+        } else if (tag === "select") {
+          el.selectedIndex = -1;
+          if (el.options && el.options.length) el.selectedIndex = 0;
+        } else {
+          el.value = "";
+        }
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      } catch (_e) {}
+    });
+    try { renderAdvancedPanelSettings({ force: true }); } catch (_e) {}
+    if (typeof globalThis.showToast === "function") {
+      globalThis.showToast("All advanced parameters cleared.");
+    }
+  });
+})();
 
 function randomizeCreationForLyricsRefresh(title) {
   // P2-41 Jing 2026-04-18: civilization-coherent randomizer. Reads the civ
@@ -3601,9 +3726,10 @@ window.CSSOS_deriveParamsFromLyrics = async function deriveParamsFromLyrics(even
   writeDom("voice-input", d.voice_gender || d.voice);
   writeDom("creation-voice-gender", d.voice_gender || d.voice);
   writeDom("creation-language", d.language || uiLang);
-  writeDom("creation-style", d.music_style || d.genre);
-  writeDom("style-input", d.music_style || d.genre);
-  writeDom("mvp-style", d.music_style || d.genre);
+  // v28 step 17 — Jing: stop auto-filling MUSIC STYLE.
+  // writeDom("creation-style", d.music_style || d.genre);
+  // writeDom("style-input", d.music_style || d.genre);
+  // writeDom("mvp-style", d.music_style || d.genre);
   writeDom("creation-tempo", d.tempo || d.bpm);
   writeDom("creation-key", d.key);
   writeDom("creation-duration", d.duration_secs);
@@ -3919,6 +4045,30 @@ function canBypassPreviewLimit(user = authState.user, work = currentWatchPreview
       ""
   ).trim();
   const authorEmail = String(work?.owner_email || work?.author_email || "").trim().toLowerCase();
+  // CSSOS_WAVE_220A 20260519 — Jing: share-link visitors get full
+  // playback of the linked MV (after which the watch panel nudges
+  // them to sign in / subscribe). Scoped to the exact work id the
+  // share-link router opened, so guests can't bypass the 30s cap on
+  // other works.
+  const workId = String(
+    work?.id || work?.work_id || work?.market_work_id || ""
+  ).trim();
+  const shareLinkWorkId = String(
+    globalThis.__cssosShareLinkWorkId || ""
+  ).trim();
+  const isShareLinkEntry =
+    !!shareLinkWorkId && !!workId && workId === shareLinkWorkId;
+  // CSSOS_WAVE_424 20260525 — Jing「免费作品没有真正免费, 被 30 秒墙卡住, 防火防盗
+  // 防主人」根因: 30 秒 buyer-preview 闸是给【收费(有听歌价)】作品的, 但之前不分青
+  // 红皂白对【免费作品】也套了闸. 免费作品(listen price = 0)应当人人(含游客)完整
+  // 欣赏, 没有 30 秒墙. 收费作品(price > 0)才走 buyer preview. 价格字段缺省 = 0 = 免费.
+  const listenCents = Number(
+    work?.current_listen_price_cents ??
+      work?.listen_price_cents ??
+      work?.listenPriceCents ??
+      0
+  ) || 0;
+  const isFreeToWatch = listenCents <= 0;
   return Boolean(
     user?.isAdmin ||
       isAdminUser() ||
@@ -3926,7 +4076,9 @@ function canBypassPreviewLimit(user = authState.user, work = currentWatchPreview
       normalizedTier === "vip" ||
       normalizedTier === "admin" ||
       (viewerId && authorId && viewerId === authorId) ||
-      (viewerEmail && authorEmail && viewerEmail === authorEmail)
+      (viewerEmail && authorEmail && viewerEmail === authorEmail) ||
+      isShareLinkEntry ||
+      isFreeToWatch
   );
 }
 
@@ -4275,6 +4427,65 @@ async function fetchMyWorkHierarchy(limit = 200) {
   }
 }
 
+/* CSSOS_WAVE_431 20260525 — Jing: "所有关于这首MV的信息，全部，完整，准确入库"
+ * Single source of truth for all advanced-settings fields that flow into
+ * POST /api/works. Reads from DOM first (user may have typed after last
+ * applyCreationDefaults call), falls back to creationState (set by LLM fill). */
+function gatherAdvancedCreationFields(state) {
+  const civ = String(state?.songSeed?.__civilization || "").trim() || null;
+  const lang = (
+    globalThis.resolveCreationLanguageValue?.({ title: "" }) ||
+    creationState.language ||
+    ""
+  ).trim() || null;
+  return {
+    language:                lang,
+    civilization:            civ,
+    tempo_bpm:               Number(creationTempo?.value) || null,
+    musical_key:             creationKey?.value?.trim() || null,
+    voice_gender:            voiceInput?.value?.trim() || null,
+    vocal_style:             creationVocalStyle?.value?.trim() || creationState.vocalStyle || null,
+    instrumentation:         creationInstrumentation?.value?.trim() || creationState.instrumentation || null,
+    ensemble_style:          creationEnsembleStyle?.value?.trim() || creationState.ensembleStyle || null,
+    arrangement_density:     Number(creationArrangementDensity?.value) || creationState.arrangementDensity || null,
+    dynamics_curve:          creationDynamicsCurve?.value?.trim() || creationState.dynamicsCurve || null,
+    section_form:            creationSectionForm?.value?.trim() || creationState.sectionForm || null,
+    articulation_bias:       creationArticulationBias?.value?.trim() || creationState.articulationBias || null,
+    voicing_register:        creationVoicingRegister?.value?.trim() || creationState.voicingRegister || null,
+    percussion_activity:     Number(creationPercussionActivity?.value) || creationState.percussionActivity || null,
+    expression_cc_bias:      creationExpressionCcBias?.value?.trim() || creationState.expressionCcBias || null,
+    humanization:            Number(creationHumanization?.value) || creationState.humanization || null,
+    inspiration_notes:       (creationInspirationNotes?.value?.trim() || creationState.inspirationNotes || null),
+    licensed_style_pack:     creationLicensedStylePack?.value?.trim() || creationState.licensedStylePack || null,
+    external_audio_adapter:  creationExternalAudioAdapter?.value?.trim() || creationState.externalAudioAdapter || null,
+    make_instrumental:       Boolean(creationMakeInstrumental?.checked || creationState.makeInstrumental),
+    lyrics_source:           lyricsSourceInput?.value?.trim() || creationState.lyricsSource || null,
+    video_outline:           videoOutlineInput?.value?.trim() || creationState.videoOutline || null,
+    section_prompts:         sectionPromptsInput?.value?.trim() || creationState.sectionPrompts || null,
+    bg_colors:               bgColorInputs?.length
+                               ? bgColorInputs.map((i) => i?.value || "").filter(Boolean)
+                               : null,
+    // CSSOS_WAVE_544 20260531 — Jing「画幅信息必须入库」: 把当前选定的宽高比/分辨率/朝向随
+    // 创建请求发出, 后端入库 → 回放/编辑可还原(不再退回 16:9 / App 拉伸)。mood/ambience 同送。
+    ..._cssosCreationAspectBodyW544(),
+    mood:                    document.getElementById("creation-mood")?.value?.trim() || null,
+    ambience:                document.getElementById("creation-ambience")?.value?.trim() || null,
+  };
+}
+function _cssosCreationAspectBodyW544() {
+  try {
+    var a = (typeof globalThis.resolveCreationAspectRatio === "function")
+      ? globalThis.resolveCreationAspectRatio() : null;
+    if (!a) return {};
+    return {
+      aspect_ratio: a.presetKey || a.cssAspect || null,
+      frame_width: Number(a.width) || null,
+      frame_height: Number(a.height) || null,
+      orientation: a.orientation || null,
+    };
+  } catch (_e) { return {}; }
+}
+
 async function createWorkNodeRecord(payload) {
   const res = await fetch("/api/works", {
     method: "POST",
@@ -4335,7 +4546,17 @@ async function createStructuredWorkNodes(nodes, style, pricingDefaults, parentWo
       suggested_buyout_price_cents: economics.suggestedBuyoutPriceCents,
       cover_image: String(node?.cover_image || "").trim(),
       preview_image_url: "",
-      preview_video_url: ""
+      preview_video_url: "",
+      // CSSOS_WAVE_168 20260515 — Jing: triptych/opera nodes also need
+      // duration_secs stamped at insert time. Pull from the node seed if
+      // present, else from pipeline state, else 0 (server keeps NULL).
+      duration_secs: Number(
+        node?.duration_secs
+          || globalThis.cssmvState?.duration
+          || 0
+      ) || 0,
+      // CSSOS_WAVE_431 20260525 — all advanced-settings fields into DB
+      ...gatherAdvancedCreationFields(state),
     });
     const createdNode = {
       ...node,
@@ -4586,7 +4807,14 @@ async function createMyWorkRecord(title, lines, options = {}) {
   const pricingDefaults = workTypePricingDefaults(workType);
   const economics = estimateCreationEconomics();
   const style = styleInput ? styleInput.value : "";
-  const assetSnapshot = collectCurrentWorkAssetSnapshot();
+  // W351 — do NOT capture stale preview-work cover/video at creation time.
+  // At this point currentWatchPreviewWork and watchVideo still reflect whatever
+  // the user was browsing before; storing that data under the new work ID is the
+  // "random/wrong data" bug.  We only need duration_secs from the pipeline state
+  // (if already known); cover and video URLs are written later by
+  // schedulePersistCurrentWorkAssets / schedulePersistPipelineWorkAssets once
+  // the new pipeline's actual outputs land.
+  const _creationAssetSnapshot = { cover_image: null, preview_image_url: null, preview_video_url: null, preview_video_asset_key: null, duration_secs: null };
   const localRecord = upsertLocalWorkRecord({
     local_id: options.localWorkId || undefined,
     title: String(title || "").trim(),
@@ -4600,8 +4828,8 @@ async function createMyWorkRecord(title, lines, options = {}) {
           ? buildTriptychStructurePlan(null, state.songSeed, String(title || "").trim())
           : null,
     cover_image: currentWorkCoverImage(title, lines),
-    preview_image_url: assetSnapshot.preview_image_url || "",
-    preview_video_url: assetSnapshot.preview_video_url || "",
+    preview_image_url: _creationAssetSnapshot.preview_image_url || "",
+    preview_video_url: _creationAssetSnapshot.preview_video_url || "",
     status: "generating",
     created_at: new Date().toISOString(),
     lyrics_text: Array.isArray(lines) ? lines.join("\n") : "",
@@ -4644,9 +4872,28 @@ async function createMyWorkRecord(title, lines, options = {}) {
           ? globalThis.cssosPeekCostBreakdown() : [],
         suggested_listen_price_cents: economics.suggestedListenPriceCents,
         suggested_buyout_price_cents: economics.suggestedBuyoutPriceCents,
-        cover_image: assetSnapshot.cover_image || currentWorkCoverImage(title, lines),
-        preview_image_url: assetSnapshot.preview_image_url || "",
-        preview_video_url: assetSnapshot.preview_video_url || ""
+        // W351 — never seed new work with stale cover/video from previous
+        // preview work. cover_image uses only the generation-time thumbnail;
+        // preview_video_url starts empty and is filled by the post-pipeline
+        // schedulePersistCurrentWorkAssets / schedulePersistPipelineWorkAssets hooks.
+        cover_image: currentWorkCoverImage(title, lines),
+        preview_image_url: "",
+        preview_video_url: "",
+        // CSSOS_WAVE_166 20260515 — Jing: thread duration into save so
+        // user_works.duration_secs is populated at insert time. Pulls
+        // from the pipeline state (set when music capsule resolves) so
+        // the column lands non-null on first save instead of waiting
+        // for the asset-meta mirror.
+        duration_secs: Number(
+          globalThis.cssmvState?.duration
+            || 0
+        ) || 0,
+        // W359 — forward person_id from the song seed so the backend can
+        // insert a person_mvs row (Wave 146 link). Without this the person
+        // codex gallery always shows 0 even after the user creates an MV.
+        person_id: String(state.songSeed?.__personId || "").trim() || undefined,
+        // CSSOS_WAVE_431 20260525 — all advanced-settings fields into DB
+        ...gatherAdvancedCreationFields(state),
       });
     }
     if (created?.id) {
@@ -4784,7 +5031,7 @@ function setLocale(locale) {
   }, delay);
 }
 
-const DEFAULT_SPELL = "CSS";
+/* CSSOS_WAVE_220A_TDZ_HOIST 20260519 — DEFAULT_SPELL hoisted to top. */
 
 const LOCAL_FALLBACK_MP4 =
   "data:video/mp4;base64,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";
@@ -4840,7 +5087,7 @@ let lastRequestedVideoDurationSec = 0;
 let typingTimer;
 let progressTimer;
 let pipelineStatusTimer = null;
-let activePipelineRunId = "";
+/* CSSOS_WAVE_220A_TDZ_HOIST 20260519 — activePipelineRunId hoisted to top. */
 let topZ = 10;
 let lyricSpellcastDepth = 0;
 let lyricSpellcastColorTimer = null;
@@ -5963,7 +6210,7 @@ async function uploadLogoMediaFile(file, slot, trigger = null) {
 let lastTrailPoint = null;
 let watchTriggered = false;
 let cssmvTriggered = false;
-let typingState = { paused: false, canceled: false, completed: false };
+/* CSSOS_WAVE_220A_TDZ_HOIST 20260519 — typingState hoisted to top. */
 let sceneRows = [];
 let videoJobId = null;
 let videoJobPoll = null;
@@ -6250,15 +6497,22 @@ const creationState = {
         typeof window !== "undefined" &&
         ((window.matchMedia && window.matchMedia("(orientation: portrait)").matches) ||
           (window.innerHeight && window.innerWidth && window.innerHeight > window.innerWidth));
-      return isPortrait ? "9:16" : "2.39:1";
+      return isPortrait ? "9:19.5" : "2.39:1"; // WAVE_444: phone → device-fit, never 9:16 stretch
     } catch (_e) {
       return "2.39:1";
     }
   })(),
   customWidth: null,
-  customHeight: null
+  customHeight: null,
+  /* CSSOS_WAVE_431 20260525 — Jing: fields that were in the panel but
+     not in creationState → never reached the engine or DB. */
+  makeInstrumental: false,
+  lyricsSource: "",
+  videoOutline: "",
+  sectionPrompts: "",
+  bgColors: null,  // null = use palette defaults; set to ["#rrggbb", ...] when user picks
 };
-const creationTouchedFields = new Set();
+/* CSSOS_WAVE_220A_TDZ_HOIST 20260519 — creationTouchedFields hoisted to top. */
 
 function markCreationFieldTouched(field) {
   if (field) creationTouchedFields.add(String(field));
@@ -6374,6 +6628,8 @@ let permissionOverviewDomainFilter = "all";
 const publicMarketState = {
   loading: false,
   loaded: false,
+  exhausted: false, // W353 — true when server returned < PAGE_SIZE (no more pages)
+  offset: 0,        // W353 — next fetch offset
   error: null,
   works: [],
   marketState: null
@@ -6432,8 +6688,13 @@ const dockByPanel = {
   "api-panel": "api",
   "delivery-reports-panel": "reports",
   "delivery-ops-panel": "delivery-ops",
-  "system-mvs-panel": "system-mvs"
+  "system-mvs-panel": "system-mvs",
+  "mv-pipeline-panel": "mv-pipeline",
+  "person-mv-panel": "person-mv",
+  "engines-panel": "engines",
+  "passkey-panel": "passkey",
 };
+globalThis.dockByPanel = dockByPanel;
 const MIN_PANEL_WIDTH = 320;
 const MIN_PANEL_HEIGHT = 240;
 const MAX_PANEL_WIDTH = 1400;
@@ -6702,7 +6963,10 @@ async function startStripeCheckoutForWork(workId, orderKind, trigger, options = 
       showToast(loginCopy("Tips are not enabled for this work."));
       return;
     }
-    showToast(loginCopy("Checkout failed. Please try again."));
+    // CSSOS_WAVE_588 — 引导式: 结账失败 → [重试](重触发起按钮)。
+    if (typeof globalThis.cssosToastRetry === "function")
+      globalThis.cssosToastRetry(loginCopy("Checkout failed.", "结账失败。"), function () { try { trigger && trigger.click && trigger.click(); } catch (_e) {} });
+    else showToast(loginCopy("Checkout failed. Please try again."));
   } finally {
     checkoutLocks.delete(lockKey);
     setButtonBusy(trigger, false);
@@ -6816,7 +7080,10 @@ function applySongSeedToSettings(seed) {
   const preserveStyle = hasCreationFieldTouched("styleText") && String(styleInput?.value || "").trim();
   const explicitLanguage = String(creationLanguage?.value || creationState.language || "").trim().toLowerCase();
   const uiDefaultForLegacy = globalThis.resolveUiPrimaryLanguageModule?.() || globalThis.resolveUiDefaultCreationLanguageModule?.() || "en";
-  const inferredLanguage = explicitLanguage || inferLanguageFromTitleText(title) || uiDefaultForLegacy;
+  // W360b — seed.language carries the civilization→mother-tongue code (e.g. "ja" for 日本古典).
+  // Prefer it over UI default when set; only fall through to UI/title-inference for normal path.
+  const seedLanguage = String(data?.language || "").trim().toLowerCase();
+  const inferredLanguage = explicitLanguage || seedLanguage || inferLanguageFromTitleText(title) || uiDefaultForLegacy;
 
   if (title && !preserveTitle) setSongSeedTitleValue(title, { userEdited: false });
   if (lyricsInput && lyrics) lyricsInput.value = lyrics;
@@ -8683,18 +8950,11 @@ function collectAudioArtifactCandidates(statusPayload) {
   return ranked.sort((a, b) => b.rank - a.rank);
 }
 
-async function probeFinalAudioArtifact(runId, artifactPath) {
-  const url = finalAudioArtifactUrl(runId, artifactPath);
-  if (!url) return "";
-  try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: { Range: "bytes=0-1" }
-    });
-    if (res.status === 200 || res.status === 206) return url;
-  } catch (_err) {
-    return "";
-  }
+async function probeFinalAudioArtifact(_runId, _artifactPath) {
+  // W352 — suppress 1-byte Range probe. Artifact URLs must be advertised
+  // by the statusPayload (statusPayloadHasAudioCandidate path) or by the
+  // MV pipeline result; we no longer probe blind and paint red 404s.
+  // Mirrors CSSOS_PHASE2_NO_ARTIFACT_PROBE in app.final-audio-artifacts.js.
   return "";
 }
 
@@ -8938,6 +9198,32 @@ function focusPanel(panel) {
   setTimeout(() => panel.classList.remove("panel-active"), 600);
 }
 
+// CSSOS_WAVE_589 — 与 openPanel 的"盖住 watch 暂停其视频"配对的【还原】: 关闭/收起覆盖面板后,
+// 若 watch 重新回到前台(未隐藏且无其它最大化面板覆盖), 重启 #watch-video 并对齐到音频当前秒,
+// 避免"画面卡住、声音在放"。可逆、低风险, 全 try/catch。
+function resumeWatchBackgroundVideoIfFrontModule() {
+  try {
+    if (typeof watchPanel === "undefined" || !watchPanel || watchPanel.classList.contains("hidden")) return;
+    var covering = document.querySelector('.panel:not(.hidden)[data-maximized="true"]');
+    if (covering && covering !== watchPanel) return; // 仍被别的全屏面板盖着 → 不还原
+    var v = document.getElementById("watch-video");
+    if (!v || !v.paused) return;
+    if (!(v.getAttribute("src") || v.currentSrc)) return; // 没源不强行 play
+    try {
+      var a = document.getElementById("watch-audio-preview");
+      if (a && a.duration > 0 && isFinite(a.currentTime) && a.currentTime < (v.duration || Infinity)) {
+        v.currentTime = a.currentTime;
+      }
+    } catch (_e) {}
+    var p = v.play(); if (p && p.catch) p.catch(function () {});
+  } catch (_e) { /* non-fatal */ }
+}
+try {
+  document.addEventListener("cssos:panelclose", function () {
+    (globalThis.requestAnimationFrame || function (f) { setTimeout(f, 16); })(resumeWatchBackgroundVideoIfFrontModule);
+  }, false);
+} catch (_e) {}
+
 function openPanel(panel, options = {}) {
   const shouldFocus = options.focus !== false;
   const shouldLayout = options.layout !== false;
@@ -8952,8 +9238,22 @@ function openPanel(panel, options = {}) {
   // still open the panel so signed-in users can switch / unlink providers
   // or sign out. The dock-runtime now passes { userInitiated: true }.
   try {
-    if (panel === loginPanel && authState && authState.user && !options.userInitiated) {
-      return;
+    if (panel === loginPanel && !options.userInitiated) {
+      // CSSOS_WAVE_383 20260523 — Jing「已登录用户(含 admin)不应再弹出登录面板」:
+      // 旧守卫只看 authState.user, 但启动时 fetchMe(/api/me) 是异步的, 自动开
+      // 登录面板的调用早于 user 落地 → 守卫漏过 → 已登录用户(含管理员)每次进
+      // 平台都被弹登录。这里加【乐观会话提示】: 上次 /api/me 命中用户时写入
+      // localStorage 标记, 启动即同步读取, 命中则抑制自动弹出(零闪烁)。若提示
+      // 过期(实际是游客), fetchMe 落地为 guest 后会补开登录面板
+      // (见 app.login-panel.js fetchMeModule)。
+      let optimisticSignedIn = false;
+      try {
+        optimisticSignedIn = (typeof localStorage !== "undefined" &&
+          localStorage.getItem("cssos.session.hint") === "1");
+      } catch (_h) { /* storage blocked — fall back to authState only */ }
+      if ((authState && authState.user) || optimisticSignedIn) {
+        return;
+      }
     }
   } catch (_e) { /* non-fatal */ }
   // CSSOS_WAVE_267 reverted 20260521 — the idempotency early-return skipped
@@ -8962,6 +9262,19 @@ function openPanel(panel, options = {}) {
   // Restored original behavior; the panelReveal-restart concern is handled by
   // W266 (pointer-events in keyframes) instead.
   if (!guardPanelAccess(panel.id)) return;
+  // CSSOS_WAVE_589 — 内存黑洞修复(作品中心/App 崩溃同源): 打开一个全屏面板会【盖住】watch 面板,
+  // 但 watch 从未"关闭"(panelclose 不触发 → W520 回收不跑) → 后台 #watch-video 仍逐帧解码,
+  // iOS WKWebView 解码缓冲堆积 → "开着 works-center 不动几分钟就 OOM 崩"。盖住 watch 时暂停其视频
+  // (静音画面, 暂停零声损; 声音在独立 #watch-audio-preview, 不受影响; 重回 watch 时
+  // openWatchPanelShellModule 会重启播放)。可逆、低风险。
+  try {
+    if (panel !== watchPanel) {
+      var _bgWatchVideo = document.getElementById("watch-video");
+      if (_bgWatchVideo && !_bgWatchVideo.paused && !_bgWatchVideo.hasAttribute("data-keep-media")) {
+        _bgWatchVideo.pause();
+      }
+    }
+  } catch (_e) { /* non-fatal */ }
   const restoredLayout = applyStoredPanelLayout(panel);
   if (panel === watchPanel) {
     callWatchUiModule("openWatchPanelShellModule", restoredLayout);
@@ -9036,6 +9349,14 @@ function openPanel(panel, options = {}) {
   }
   if (panel === loginPanel) {
     loginPanel.dataset.panelDensity = readPanelBehaviorSettingsLocal().login.panel_density;
+    // CSSOS_WAVE_383 20260523 — record whether this open was automatic (boot
+    // "guide" call) vs a real user click (dock 🔐 / context-menu). fetchMe uses
+    // this to safely auto-close a panel it should never have popped for a
+    // signed-in user, without touching panels the user opened on purpose.
+    loginPanel.dataset.autoOpened = options.userInitiated ? "0" : "1";
+    if (!options.userInitiated) {
+      try { globalThis.__cssosLoginAutoShown = true; } catch (_f) { /* non-fatal */ }
+    }
   }
   if (panel === profilePanel) {
     profilePanel.dataset.panelDensity = readPanelBehaviorSettingsLocal().profile.panel_density;
@@ -30583,7 +30904,8 @@ async function runLyricsGenerate(mode, options = {}) {
     // CSSOS_WAVE_113I 20260511 — thread Advanced Settings into lyrics body.
     work_type: String(payload.work_type || creationState.workType || "single"),
     section_form: String(payload.section_form || creationState.sectionForm || ""),
-    civilization: null,
+    // W360b — carry civilization from the person-MV seed for mother-tongue routing.
+    civilization: payload.civilization || String(state.songSeed?.__civilization || "").trim() || null,
     cultural_frame: null,
     voice: payload.voice || ""
   };
@@ -30663,8 +30985,9 @@ async function runLyricsGenerate(mode, options = {}) {
       writeDom("voice-input", d.voice_gender || d.voice);
       writeDom("creation-voice-gender", d.voice_gender || d.voice);
       writeDom("creation-language", d.language || lyricsBody.language);
-      writeDom("creation-style", d.music_style || d.genre);
-      writeDom("mvp-style", d.music_style || d.genre);
+      // v28 step 17 — Jing: stop auto-filling MUSIC STYLE.
+      // writeDom("creation-style", d.music_style || d.genre);
+      // writeDom("mvp-style", d.music_style || d.genre);
       writeDom("creation-tempo", d.tempo || d.bpm);
       writeDom("creation-key", d.key);
       writeDom("creation-duration", d.duration_secs);
@@ -31111,6 +31434,27 @@ async function createRun({ title, uiLang, tier, voice, lyricsText = "", jobId = 
 
 function buildBuiltinDockActionMap() {
   return {
+  // CSSOS_WAVE_163 20260515 — Jing: "MV PIPELINE 面板丢失了，请找回来".
+  // The "mv-pipeline" dock item (restored as a static element in
+  // index.html) needs its action handler here, else clicks no-op.
+  // openMvPipelinePanel is the lazy-shim → heavy-module opener chain.
+  "mv-pipeline": {
+    click: () => {
+      if (typeof globalThis.openMvPipelinePanel === "function") {
+        globalThis.openMvPipelinePanel({ origin: "dock-mv-pipeline" });
+      } else if (typeof cssmvPanel !== "undefined" && cssmvPanel) {
+        openPanel(cssmvPanel);
+      }
+    },
+    dblclick: () => {
+      if (typeof globalThis.openMvPipelinePanel === "function") {
+        globalThis.openMvPipelinePanel({ origin: "dock-mv-pipeline", autoStart: false });
+      }
+    },
+    longpress: () => {
+      if (typeof cssmvPanel !== "undefined" && cssmvPanel) openPanelSettings(cssmvPanel);
+    },
+  },
   mic: {
     click: () => invokeMicClickAction("dock"),
     dblclick: () => openCreationAdvancedSettingsPanel(),
@@ -31348,6 +31692,16 @@ function handleDockAction(action, type) {
         return true;
       case "watch":
         ensureWatchCentered();
+        /* W307 — dock-click on MV: after opening the shell, trigger
+         * auto-play of the user's latest owned work. deferred by one
+         * rAF so the panel renders before the media request fires. */
+        requestAnimationFrame(() => {
+          void openWatchPreviewFlow({
+            preferLatestOwned: true,
+            preferredTab: "mv",
+            clearLimit: true,
+          });
+        });
         return true;
       case "notifications":
         if (type === "dblclick") {
@@ -31432,6 +31786,13 @@ function handleDockAction(action, type) {
     setDockDebugStatus("Dock action", `Error in ${normalizedAction}/${type}`, summarizeError(error));
     throw error;
   }
+  // Sync dock active pill after every action — reliable regardless of
+  // observer timing (openPanel uses local binding, not globalThis).
+  requestAnimationFrame(() => {
+    if (typeof globalThis.cssosDockSyncActive === "function") {
+      globalThis.cssosDockSyncActive();
+    }
+  });
 }
 
 function handleDockActionDirect(action, type = "click") {
@@ -31454,6 +31815,13 @@ function handleDockActionDirect(action, type = "click") {
       return false;
   }
 }
+
+// CSSOS_WAVE_496 20260529 — Jing「确认左右滑动切换面板」: 暴露完整的 handleDockAction
+// 给 app.panel-swipe-nav.js。此前它只能拿到未暴露的 handleDockActionDirect(仅覆盖少数
+// 工具面板, 内容面板 return false 不开), 实际退回 el.click() 兜底, 对 pointer 事件的
+// dock 不一定生效 → 滑动切内容面板失效。挂上完整 handler: 已打开则切前台, 未打开则启动。
+globalThis.handleDockAction = handleDockAction;
+globalThis.handleDockActionDirect = handleDockActionDirect;
 
 function handleGlobalAction(action) {
   if (!action) return;
@@ -31487,6 +31855,14 @@ function handleGlobalAction(action) {
     globalThis.openUserAdminPanelModule?.() || openPanel(userAdminPanel);
     return;
   }
+  // CSSOS_WAVE_532 — Jing「People MV 老样子打不开」根治: person-mv 懒加载后, eager 时代它自带的
+  // dock-fire 监听不复存在, 而 dock pill 一律经 handleGlobalAction(data-action) 派发, 这里却独缺
+  // person-mv case → 点 People MV pill 静默无反应。补上(镜像 user-admin): 调入口桩(person-mv-open-shim
+  // 装的 openPersonMvPanel)→ 按需加载重模块 → 真函数打开面板。
+  if (action === "person-mv") {
+    (globalThis.openPersonMvPanel || globalThis.openPersonMvCodex)?.();
+    return;
+  }
   if (action === "credit") {
     globalThis.openCreditPanelModule?.() || openPanel(creditPanel);
     return;
@@ -31502,7 +31878,7 @@ function handleGlobalAction(action) {
 
 function getDockItems() {
   if (!(dock instanceof Element)) return [];
-  return Array.from(dock.querySelectorAll(".dock-item"));
+  return Array.from(dock.querySelectorAll("[data-pill-key]"));
 }
 
 function saveDockOrder() {
@@ -31548,7 +31924,15 @@ function restoreDockOrder() {
   let orderedActions = normalizedStored.length
     ? [...new Set([...normalizedStored, ...DOCK_DEFAULT_ORDER, ...Array.from(current.keys())])]
     : [...new Set([...DOCK_DEFAULT_ORDER, ...Array.from(current.keys())])];
-  orderedActions = promoteToFront(orderedActions, "mv-pipeline");
+  // CSSOS_WAVE_486 20260529 — Jing: 强制前5固定顺序, 覆盖旧 localStorage(此前
+  // CSS MV 被存成第一就是因为旧顺序优先)。同时清掉已删除的 cssmv 项。
+  // pinFront: 把 DOCK_FRONT_PINNED 里存在的项, 按该精确顺序提到最前面。
+  const pinFront = (arr, pins) => {
+    const rest = arr.filter((a) => a !== "cssmv" && !pins.includes(a));
+    const head = pins.filter((a) => arr.includes(a) || current.has(a));
+    return [...head, ...rest];
+  };
+  orderedActions = pinFront(orderedActions, DOCK_FRONT_PINNED);
   orderedActions.forEach((action) => {
     const item = current.get(action);
     if (item) dock.appendChild(item);
@@ -31576,7 +31960,7 @@ function attachDockReorder() {
     item.addEventListener("dragover", (event) => {
       event.preventDefault();
       if (!(event.currentTarget instanceof HTMLElement) || event.currentTarget.classList.contains("is-dragging")) return;
-      const dragging = dock.querySelector(".dock-item.is-dragging");
+      const dragging = dock.querySelector("[data-pill-key].is-dragging");
       if (!(dragging instanceof HTMLElement) || dragging === event.currentTarget) return;
       const rect = event.currentTarget.getBoundingClientRect();
       const insertBefore = event.clientX < rect.left + rect.width / 2;
@@ -31668,18 +32052,18 @@ globalThis.buildMicDebugBoardMarkup =
 
 bindCriticalStageInteractionsImmediately();
 
+/* CSSOS_WAVE_506 20260530 — Jing「删掉那个很久很久以前的旧虚框」。旧的 .dock-dock-preview
+ * (边缘 96px 条 / 640px 框)已被新的 #dock-snap-ghost(与 Dock 实际同尺寸, 见 app.dock-pill.js)
+ * 取代。这里把旧预览函数改成 no-op(保留函数名: app.dock-pill.js 用 _origShow=showDockPreview
+ * 包裹来驱动新 ghost, 删函数会让包裹器 undefined)。旧 .dock-dock-preview 元素不再创建/显示。 */
 function ensureDockPreviewEl() {
-  if (dockDockPreviewEl) return dockDockPreviewEl;
-  dockDockPreviewEl = document.createElement("div");
-  dockDockPreviewEl.className = "dock-dock-preview";
-  document.body.appendChild(dockDockPreviewEl);
-  return dockDockPreviewEl;
+  /* legacy dock-dock-preview removed — clean up any stray element from old sessions */
+  if (dockDockPreviewEl) { try { dockDockPreviewEl.remove(); } catch (_e) {} dockDockPreviewEl = null; }
+  return null;
 }
 
 function hideDockPreview() {
-  if (!dockDockPreviewEl) return;
-  dockDockPreviewEl.classList.remove("is-visible");
-  delete dockDockPreviewEl.dataset.position;
+  if (dockDockPreviewEl) { try { dockDockPreviewEl.remove(); } catch (_e) {} dockDockPreviewEl = null; }
 }
 
 function dockPreviewRect(position) {
@@ -31712,32 +32096,60 @@ function resetDockDragFollow() {
 }
 
 function showDockPreview(position) {
-  const preview = ensureDockPreviewEl();
-  const rect = dockPreviewRect(position);
-  preview.style.left = `${rect.left}px`;
-  preview.style.top = `${rect.top}px`;
-  preview.style.width = `${rect.width}px`;
-  preview.style.height = `${rect.height}px`;
-  preview.dataset.position = position;
-  preview.classList.add("is-visible");
+  /* CSSOS_WAVE_506 — 旧 .dock-dock-preview 已删。保留此函数名: app.dock-pill.js 包裹它
+   * 来驱动新的 #dock-snap-ghost(与 Dock 同尺寸)。这里本体不再画旧虚框。 */
+  void position;
 }
 
 function attachDockDocking() {
   if (!(dock instanceof HTMLElement)) return;
   let dragging = false;
   let nextPosition = DOCK_POSITION;
+  /* CSSOS_WAVE_508/509 20260530 — Jing「按住激活胶囊(不触发点击)启动 Dock 拖拽到 4 边」。
+   * 做成胶囊轨道后没有空白处了, 必须用激活胶囊当临时拖拽手柄。 */
+  let holdTimer = null, holdX = 0, holdY = 0, holdPointerId = null, heldPill = null;
+  const cancelHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } };
+  const restoreHeldPill = () => {
+    if (heldPill) { try { heldPill.draggable = true; } catch (_e) {} heldPill = null; }
+  };
   dock.addEventListener("pointerdown", (event) => {
     if (!DOCK_DOCKING_ENABLED) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest(".dock-item")) return;
+    const pill = target.closest("[data-pill-key]");
+    if (pill) {
+      /* 仅【激活胶囊】+【长按 350ms(< 项自身 longpress 600ms, 先触发)】进入 dock 拖拽。
+       * __dockHoldDrag 让项的 longpress(面板设置)跳过; dockSuppressUntil 抑制随后的点击。 */
+      if (!pill.classList.contains("active")) return;
+      holdX = event.clientX; holdY = event.clientY; holdPointerId = event.pointerId;
+      cancelHold();
+      heldPill = pill;
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        dragging = true;
+        nextPosition = DOCK_POSITION;
+        globalThis.__dockHoldDrag = true;
+        dockSuppressUntil = Date.now() + 1200;
+        /* W509 关键修复: 临时禁掉该胶囊的 HTML5 原生拖拽(draggable, 用于重排), 否则一移动
+         * 就触发原生 dragstart 劫持指针 → dock 拖拽收不到 pointermove → "拖不动"。 */
+        try { pill.draggable = false; } catch (_e) {}
+        dock.classList.add("is-snapping");
+        try { dock.setPointerCapture?.(holdPointerId); } catch (_e) {}
+      }, 350);
+      return;
+    }
     dragging = true;
     nextPosition = DOCK_POSITION;
-    showDockPreview(nextPosition);
+    /* CSSOS_WAVE_505 — 不在按下就显示吸附预览, 只在拖到边缘时显示(见 pointermove)。 */
     dock.setPointerCapture?.(event.pointerId);
     event.preventDefault();
   });
   dock.addEventListener("pointermove", (event) => {
+    /* 长按计时未到就移动 → 是滑动(切面板/滚动), 取消 hold, 不进入 dock 拖拽。 */
+    if (holdTimer) {
+      if (Math.abs(event.clientX - holdX) > 10 || Math.abs(event.clientY - holdY) > 10) { cancelHold(); heldPill = null; }
+      return;
+    }
     if (!dragging || !DOCK_DOCKING_ENABLED) return;
     const resolved = resolveDockPositionFromPointer(event.clientX, event.clientY);
     updateDockDragFollow(event.clientX, event.clientY);
@@ -31752,11 +32164,17 @@ function attachDockDocking() {
     dock.classList.add("is-snapping");
   });
   const finish = (event) => {
-    if (!dragging) return;
+    cancelHold();
+    restoreHeldPill();
+    if (!dragging) { globalThis.__dockHoldDrag = false; return; }
     dragging = false;
+    /* clear hold-drag flag + any leftover long-press guard (pointer was captured
+     * by the dock, so the item's own pointerup cleanup may not have fired). */
+    setTimeout(() => { globalThis.__dockHoldDrag = false; }, 60);
+    try { document.body.classList.remove("longpress-guard", "holding-mic"); } catch (_e) {}
     hideDockPreview();
     resetDockDragFollow();
-    dock.releasePointerCapture?.(event.pointerId);
+    try { dock.releasePointerCapture?.(event.pointerId); } catch (_e) {}
     dock.classList.add("is-snapping");
     setTimeout(() => dock.classList.remove("is-snapping"), 520);
     updatePanelBehaviorSettings((current) => ({
@@ -31769,6 +32187,12 @@ function attachDockDocking() {
     resetDockDragFollow();
     finish(event);
   });
+  /* CSSOS_WAVE_505 — 兜底: 任何 pointerup/cancel(即使没被 dock 捕获到)都强制隐藏吸附预览,
+   * 杜绝"卡住的虚框"。并在初始化时清一次任何遗留的可见预览。 */
+  ["pointerup", "pointercancel"].forEach((ev) => {
+    window.addEventListener(ev, () => { dragging = false; cancelHold(); restoreHeldPill(); globalThis.__dockHoldDrag = false; hideDockPreview(); }, true);
+  });
+  hideDockPreview();
 }
 
 function attachDockEvents() {
@@ -31780,11 +32204,19 @@ function attachDockEvents() {
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (target.closest(".dock-settings-popover")) return;
-    if (target.closest('.dock-item[data-action="settings"]')) return;
+    if (target.closest('[data-action="settings"]')) return;
     globalThis.hideDockSettingsPopoverModule?.();
   });
   window.addEventListener("resize", () => {
     globalThis.positionDockSettingsPopoverModule?.();
+    /* CSSOS_WAVE_228 20260518 — Jing: 面板宪法.
+     * 窗口尺寸变化时, 强制把所有面板 clamp 回视口, 防止旋转屏幕/
+     * 缩窗口后面板跑出去拖不回来. 特别照顾 MV PIPELINE 注入式面板. */
+    try { globalThis.clampAllPanelsInViewport?.(); } catch (_e) {}
+  });
+  /* CSSOS_WAVE_228 — 旋转触发 orientationchange; 也定期巡检一次. */
+  window.addEventListener("orientationchange", () => {
+    setTimeout(() => { try { globalThis.clampAllPanelsInViewport?.(); } catch (_e) {} }, 200);
   });
   // P2-40: horizontal/vertical finger travel above this (px) is a swipe,
   // not a tap — suppress the click so Tesla/phone gestures don't accidentally
@@ -31808,7 +32240,7 @@ function attachDockEvents() {
       try {
         const target = event.target;
         if (!(target instanceof Element)) return;
-        if (!target.closest(".dock, .dock-item")) return;
+        if (!target.closest(".dock, [data-pill-key]")) return;
         // Only treat clearly lateral motion as "swipe over dock" — a normal
         // vertical page scroll passing under the dock should not block taps
         // a moment later.
@@ -31818,7 +32250,7 @@ function attachDockEvents() {
     },
     { passive: true, capture: true },
   );
-  dock.querySelectorAll(".dock-item").forEach((item) => {
+  dock.querySelectorAll("[data-pill-key]").forEach((item) => {
     const action = item.dataset.action;
     item.tabIndex = 0;
     let suppressClick = false;
@@ -31849,6 +32281,9 @@ function attachDockEvents() {
       }
       setLongpressGuard(true);
       longPressId = setTimeout(() => {
+        /* CSSOS_WAVE_508 — 若按住激活胶囊已进入 Dock 拖拽(__dockHoldDrag), 则跳过本项的
+         * longpress(面板设置), 让"按住激活胶囊拖 Dock"独占该手势。 */
+        if (globalThis.__dockHoldDrag) { suppressClick = true; setLongpressGuard(false); return; }
         suppressClick = true;
         triggerAction("longpress");
       }, LONGPRESS_MS);
@@ -31951,7 +32386,7 @@ function attachGlobalActionDispatcher() {
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest(".dock-item")) return;
+    if (target.closest("[data-pill-key]")) return;
     const actionEl = target.closest("[data-action]");
     if (!actionEl) return;
     if (actionEl.getAttribute("data-hold") === "mic") return;
@@ -32065,6 +32500,9 @@ function attachPanelDrag() {
         minimizeToDock(panel);
         return;
       }
+      /* CSSOS_WAVE_228 — 拖拽结束立即 clamp, 防止用户把面板拖出屏幕外
+       * 再也找不回. */
+      try { globalThis.clampPanelInViewport?.(panel); } catch (_e) {}
       persistPanelLayout(panel);
     };
 
@@ -32241,7 +32679,7 @@ function minimizeToDock(panel) {
   updateDockVisibility();
   const action = dockByPanel[panel.id];
   if (!action) return;
-  const dockItem = document.querySelector(`.dock-item[data-action=\"${action}\"]`);
+  const dockItem = document.querySelector(`[data-action=\"${action}\"]`);
   if (!dockItem) return;
 }
 

@@ -218,7 +218,7 @@ html[data-theme="light"] .cssmv-dock-order-admin-default {
     _reorderScheduled = false;
     const dock = document.getElementById("dock") || document.querySelector(".dock");
     if (!dock) return;
-    const items = Array.from(dock.querySelectorAll(".dock-item"));
+    const items = Array.from(dock.querySelectorAll("[data-pill-key]"));
     if (!items.length) return;
     items.forEach((el, i) => {
       el.dataset.cssmvOrigIndex = String(i);

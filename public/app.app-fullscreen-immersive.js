@@ -52,6 +52,18 @@
   let fired = false;
   function enterFullscreen() {
     if (fired) return;
+    // CSSOS_WAVE_438 20260526 — Jing「DevTools 手机模式: requestFullscreen can only be
+    // initiated by a user gesture(×3)」: some auto-flow (panel-open / cinema-enter)
+    // calls this OUTSIDE a gesture → the browser rejects it AND logs a console error.
+    // Gate on transient user-activation: if there's no active gesture, skip silently
+    // (don't even call the API → no error). Real taps still pass. Browsers without
+    // the userActivation API fall through to the old best-effort path.
+    try {
+      if (typeof navigator !== "undefined" && navigator.userActivation &&
+          navigator.userActivation.isActive === false) {
+        return; // no active gesture → do not attempt (avoids the console error)
+      }
+    } catch (_) {}
     fired = true;
     try {
       const el = document.documentElement;

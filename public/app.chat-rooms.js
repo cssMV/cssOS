@@ -141,7 +141,18 @@
       }
       var rooms = j.rooms || [];
       if (!rooms.length) {
-        listEl.innerHTML = '<div class="cssos-rooms-empty">' + esc(tr("No rooms yet — create one below.","还没有讨论室——下面新建一个吧。")) + '</div>';
+        var _ems = globalThis.cssosEmptyStateMarkup;
+        if (_ems) {
+          listEl.innerHTML = _ems({
+            icon: "💭",
+            title: tr("No rooms yet", "还没有讨论室"),
+            sub: tr("Start the first one and invite others to join.", "开第一个讨论室,邀请大家加入。"),
+            ctaLabel: tr("Create a room", "新建讨论室"),
+            ctaOnclick: "var b=this.closest('.cssos-rooms,[data-rooms-panel]')||document;var x=b.querySelector('[data-act=create]');if(x)x.click();"
+          });
+        } else {
+          listEl.innerHTML = '<div class="cssos-rooms-empty">' + esc(tr("No rooms yet — create one below.","还没有讨论室——下面新建一个吧。")) + '</div>';
+        }
         return;
       }
       listEl.innerHTML = rooms.map(function (rm) {

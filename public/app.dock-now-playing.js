@@ -1,7 +1,7 @@
 /* CSSOS_DOCK_NOW_PLAYING 20260506 — Jing
  *
  * When the MV panel is minimized to the dock, mark its dock icon
- * (`.dock-item[data-action="watch"]`) as "now playing":
+ * (`[data-action="watch"]`) as "now playing":
  *   - emerald dot pulses on the icon
  *   - hover tooltip shows the current work title
  *   - on click, the panel un-minimizes (existing dock click handler)
@@ -49,12 +49,12 @@
     var s = document.createElement("style");
     s.id = "cssos-dock-now-playing-style";
     s.textContent =
-      ".dock-item[data-cssos-now-playing='1']{position:relative;}" +
-      ".dock-item[data-cssos-now-playing='1']::after{" +
+      "[data-cssos-now-playing='1']{position:relative;}" +
+      "[data-cssos-now-playing='1']::after{" +
       "content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;" +
       "background:#00f5a0;box-shadow:0 0 0 0 rgba(0,245,160,0.65);" +
       "animation:cssos-dock-pulse 1.6s ease-out infinite;pointer-events:none;z-index:5;}" +
-      ".dock-item[data-cssos-now-playing='1'].is-paused::after{" +
+      "[data-cssos-now-playing='1'].is-paused::after{" +
       "background:rgba(218,255,238,0.6);animation:none;}" +
       "@keyframes cssos-dock-pulse{" +
       "0%{box-shadow:0 0 0 0 rgba(0,245,160,0.65);}" +
@@ -64,7 +64,7 @@
   }
 
   function refresh() {
-    var item = document.querySelector('.dock-item[data-action="watch"]');
+    var item = document.querySelector('[data-action="watch"]');
     if (!item) return;
     ensureStyles();
 

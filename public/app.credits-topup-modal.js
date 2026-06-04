@@ -47,8 +47,8 @@
     var st = document.createElement("style");
     st.id = "cssos-topup-style";
     st.textContent = [
-      ".cssos-topup-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.62);backdrop-filter:blur(4px);z-index:10600;display:flex;align-items:center;justify-content:center;padding:14px;}",
-      ".cssos-topup-modal{max-width:440px;width:100%;background:#0f1219;border:1px solid rgba(255,255,255,0.12);border-radius:14px;color:#e6e8ee;display:flex;flex-direction:column;max-height:84vh;overflow:hidden;}",
+      ".cssos-topup-backdrop{position:fixed;inset:0;background:var(--cssos-overlay);backdrop-filter:blur(4px);z-index:10600;display:flex;align-items:center;justify-content:center;padding:14px;}",
+      ".cssos-topup-modal{max-width:440px;width:100%;background:var(--cssos-surface);border:1px solid var(--cssos-border);border-radius:14px;color:#e6e8ee;display:flex;flex-direction:column;max-height:84vh;overflow:hidden;}",
       ".cssos-topup-modal .head{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.08);}",
       ".cssos-topup-modal .head .title{font:700 15px/1.2 -apple-system,system-ui,sans-serif;color:#fff;flex:1;}",
       ".cssos-topup-modal .head .balance{font:700 12px/1 ui-monospace,monospace;color:#5effc9;background:rgba(0,245,160,0.16);padding:5px 10px;border-radius:999px;}",
@@ -160,15 +160,14 @@
               row.classList.remove("disabled");
             } else {
               row.classList.remove("disabled");
-              if (typeof globalThis.showToast === "function") {
-                globalThis.showToast(tr("Payment failed: ", "支付失败：") + (result?.error || "unknown"));
-              }
+              // CSSOS_WAVE_588 — 引导式: 支付失败 → [重试](重触该信用包)。不再死胡同。
+              if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tr("Payment failed: ", "支付失败：") + (result?.error || "unknown"), function () { row.click(); });
+              else if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Payment failed: ", "支付失败：") + (result?.error || "unknown"));
             }
           } catch (err) {
             row.classList.remove("disabled");
-            if (typeof globalThis.showToast === "function") {
-              globalThis.showToast(String(err && err.message || err));
-            }
+            if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tr("Payment error.", "支付出错。"), function () { row.click(); });
+            else if (typeof globalThis.showToast === "function") globalThis.showToast(String(err && err.message || err));
           }
         } else {
           // Web Stripe path.
@@ -183,15 +182,14 @@
               window.location.href = js.checkout_url;
             } else {
               row.classList.remove("disabled");
-              if (typeof globalThis.showToast === "function") {
-                globalThis.showToast(tr("Couldn't start checkout: ", "结账启动失败：") + (js.error || rs.status));
-              }
+              // CSSOS_WAVE_588 — 引导式: 结账启动失败 → [重试]。
+              if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tr("Couldn't start checkout: ", "结账启动失败：") + (js.error || rs.status), function () { row.click(); });
+              else if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Couldn't start checkout: ", "结账启动失败：") + (js.error || rs.status));
             }
           } catch (err) {
             row.classList.remove("disabled");
-            if (typeof globalThis.showToast === "function") {
-              globalThis.showToast(String(err && err.message || err));
-            }
+            if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(tr("Network error starting checkout.", "结账网络错误。"), function () { row.click(); });
+            else if (typeof globalThis.showToast === "function") globalThis.showToast(String(err && err.message || err));
           }
         }
       });

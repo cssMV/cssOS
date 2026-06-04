@@ -2417,37 +2417,53 @@ function currentLyricsProgressPercentModule() {
   // 定时器/旋转器反复调用, 原来每次都跑重的歌词解析(hasCanonicalLyricsBody
   // Lines + isWatchLyricsReady→compactLyricLines, 解析全文). 用便宜的输入指纹
   // 缓存: 输入未变就直接返回上次结果, 跳过重算 —— 长时间连播 / 低端机更顺.
-  const sig =
-    (typingState.completed ? 1 : 0) + "|" +
-    String(state.songSeed?.lyrics || "").length + "|" +
-    (Array.isArray(state.lines) ? state.lines.length : 0) + "|" +
-    (watchLyricsEditor?.value || "").length + "|" +
-    (lyricsInput?.value || "").length + "|" +
-    (lyricsEl?.textContent?.length || 0) + "|" +
-    (lyricsTargetLength || 0) + "|" +
-    (globalThis.lyricsSeedRequestState?.pending ? 1 : 0) + "|" +
-    String(state.songSeed?.title || state.title || "").length;
-  if (__cssosLyricsPctCache.sig === sig) return __cssosLyricsPctCache.val;
-  const requestState = globalThis.lyricsSeedRequestState || {};
-  const hasSeedLyrics =
-    (globalThis.hasCanonicalLyricsBodyLinesModule?.(
-      String(state.songSeed?.title || state.title || "").trim(),
-      state.songSeed?.lyrics || watchLyricsEditor?.value || lyricsInput?.value || "",
-      2
-    ) ?? false);
-  let val;
-  if (typingState.completed || isWatchLyricsReadyModule() || hasSeedLyrics) {
-    val = 100;
-  } else {
-    const current = lyricsEl?.textContent?.length || 0;
-    if (requestState.pending && !lyricsTargetLength && current <= 0) {
-      val = 0;
+  //
+  // CSSOS_WAVE_428 20260525 — Jing「平台动辄刷新返回主界面, 哪个代码在作妖」根因:
+  // 崩溃日志 /api/admin/crash-log 里 112 次(压倒性第一)是
+  //   "Uncaught ReferenceError: state is not defined" @ app.watch-ui.js
+  //   ← readProgress (app.watch-media-layout-p2100.js) 进度循环每 tick 调用本函数.
+  // 这是【热循环里抛未捕获异常】—— 在某些时序(页面切换/卸载/teardown)下 `state`
+  // 词法绑定不可达, 整个循环报错刷屏, 拖垮 watch UI、配合 beforeunload 触发"回主界面".
+  // 铁律: 热循环函数【永不抛异常】. 这里 (1) 安全取 state(typeof 永不抛), (2) 整体
+  // try/catch, 出错返回上次缓存值, 绝不把异常冒泡到 rAF/定时器。
+  try {
+    var st = (typeof state !== "undefined" && state) ? state : (globalThis.state || {});
+    const sig =
+      (typingState.completed ? 1 : 0) + "|" +
+      String(st.songSeed?.lyrics || "").length + "|" +
+      (Array.isArray(st.lines) ? st.lines.length : 0) + "|" +
+      (watchLyricsEditor?.value || "").length + "|" +
+      (lyricsInput?.value || "").length + "|" +
+      (lyricsEl?.textContent?.length || 0) + "|" +
+      (lyricsTargetLength || 0) + "|" +
+      (globalThis.lyricsSeedRequestState?.pending ? 1 : 0) + "|" +
+      String(st.songSeed?.title || st.title || "").length;
+    if (__cssosLyricsPctCache.sig === sig) return __cssosLyricsPctCache.val;
+    const requestState = globalThis.lyricsSeedRequestState || {};
+    const hasSeedLyrics =
+      (globalThis.hasCanonicalLyricsBodyLinesModule?.(
+        String(st.songSeed?.title || st.title || "").trim(),
+        st.songSeed?.lyrics || watchLyricsEditor?.value || lyricsInput?.value || "",
+        2
+      ) ?? false);
+    let val;
+    if (typingState.completed || isWatchLyricsReadyModule() || hasSeedLyrics) {
+      val = 100;
     } else {
-      val = lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
+      const current = lyricsEl?.textContent?.length || 0;
+      if (requestState.pending && !lyricsTargetLength && current <= 0) {
+        val = 0;
+      } else {
+        val = lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
+      }
     }
+    __cssosLyricsPctCache = { sig, val };
+    return val;
+  } catch (_e) {
+    // Hot loop: never throw. Return the last good value (or 0).
+    return (__cssosLyricsPctCache && typeof __cssosLyricsPctCache.val === "number")
+      ? __cssosLyricsPctCache.val : 0;
   }
-  __cssosLyricsPctCache = { sig, val };
-  return val;
 }
 
 function syncWatchEngineGridModule() {
@@ -3061,6 +3077,32 @@ async function openLatestOwnedWorkPreviewModule() {
     await loadWatchCommerceStateModule?.().catch(() => null);
   }
   let queue = getLatestOwnedPlaybackQueueModule();
+  // CSSOS_WAVE_471 20260527 — Jing「桌面进主界面自动进 MV, 自动播放【最新作品】」根因:
+  // owned 播放队列(commerce state)为空时, 之前直接退到 /api/works/market, 而 market 按
+  // 「封面在CDN优先 + updated_at DESC」排序, 取 [0] 往往是某个被策展/最近更新的作品(如
+  // Εὐκλείδης), 并非真正最新创建的作品 → 没播到「最新作品」。修复: 在退到 market 之前,
+  // 先用 /api/works/mine 取【登录用户按 created_at 倒序的最新一首】(有可播媒体的), 命中
+  // 即作为自动播放的"最新作品"。仅当确无自有作品时才退到 market。
+  if (!queue?.items?.length && authState.user) {
+    try {
+      const _mineRes = await fetch("/api/works/mine?limit=50", { credentials: "include" });
+      if (_mineRes.ok) {
+        const _minePayload = await _mineRes.json().catch(() => null);
+        const _mineWorks = _minePayload?.data?.works || _minePayload?.works || [];
+        const _flat = [];
+        const _visit = (w) => { if (!w) return; _flat.push(w); if (Array.isArray(w.children)) w.children.forEach(_visit); };
+        _mineWorks.forEach(_visit);
+        const _playable = _flat.filter((w) => {
+          if (Number(w?.take_index || 0) === 2) return false; // Take1 carries both audios
+          return !!String(w?.final_mv_url || w?.preview_video_url || w?.audio_track_1_url || w?.audio_track_2_url || "").trim();
+        });
+        _playable.sort((a, b) => (Date.parse(String(b?.created_at || "")) || 0) - (Date.parse(String(a?.created_at || "")) || 0));
+        if (_playable.length) {
+          queue = { rootWork: { title: loginCopy("Latest works") }, items: _playable, index: 0 };
+        }
+      }
+    } catch (_e) { /* non-fatal → market fallback below */ }
+  }
   // W345 20260523 — Jing: commerce state 为空(未登录或未加载)时, 改从
   // /api/works/market 取最新作品. market API 每次都返回新鲜的签名 URL,
   // 不会因本地缓存过期而 403. 最多取 3 首, 取第一首即最新作品.
@@ -3083,8 +3125,33 @@ async function openLatestOwnedWorkPreviewModule() {
   }
   if (!queue?.items?.length) return false;
   globalThis.currentStructuredWatchQueue = queue;
-  const latestWork = queue.items[0];
+  let latestWork = queue.items[0];
+  // CSSOS_WAVE_472 20260527 — Jing「只有幻灯画面、声音/视频没跟来」根因: 自动播放选中的
+  // 作品对象常来自 commerce 队列/market, 这些来源【缺少 audio_track_1_url / final_mv_url】
+  // → 进面板只挂了封面(幻灯), 音频元素 src 为空、视频也没源 → 有画无声/无视频。修复: 渲染前
+  // 用 /api/works/mine 按 id(或最新)补全该作品的完整媒体 URL, 保证音频+视频一起就位。
+  try {
+    var _needAudio = !String(latestWork && latestWork.audio_track_1_url || "").trim();
+    var _needVideo = !String(latestWork && (latestWork.final_mv_url || latestWork.preview_video_url) || "").trim();
+    if ((_needAudio || _needVideo) && authState.user) {
+      var _enRes = await fetch("/api/works/mine?limit=50", { credentials: "include" });
+      if (_enRes.ok) {
+        var _enP = await _enRes.json().catch(function () { return null; });
+        var _enWorks = (_enP && _enP.data && _enP.data.works) || (_enP && _enP.works) || [];
+        var _enFlat = [];
+        (function _v(arr) { arr.forEach(function (w) { _enFlat.push(w); if (Array.isArray(w.children)) _v(w.children); }); })(_enWorks);
+        var _id = String((latestWork && (latestWork.id || latestWork.work_id)) || "").trim();
+        var _match = _id ? _enFlat.find(function (w) { return String(w.id || w.work_id || "") === _id; }) : null;
+        if (!_match) {
+          _enFlat.sort(function (a, b) { return (Date.parse(String(b.created_at || "")) || 0) - (Date.parse(String(a.created_at || "")) || 0); });
+          _match = _enFlat[0];
+        }
+        if (_match) { latestWork = Object.assign({}, latestWork, _match); queue.items[0] = latestWork; }
+      }
+    }
+  } catch (_enErr) { /* non-fatal: enrichment best-effort */ }
   currentWatchPreviewWork = latestWork;
+  try { applyStoredWorkAspectModule(latestWork); } catch (_eAsp) {} // W544: 入库画幅优先还原, 不退回 16:9
   // CSSOS_WAVE_330 20260522 — Jing: 进入即【绑定最新作品标题】(不要显示面板名 "Watch")
   // + 【锁定单张封面】(把 artwork 变体池设为这一张 → 进场不再多图乱闪/随机轮播).
   try {
@@ -3101,8 +3168,12 @@ async function openLatestOwnedWorkPreviewModule() {
       // 临时链接过期也照常显示) → 背景图稳定常驻, 前景/幻灯怎么变都不影响这一张.
       const _bd = document.getElementById("watch-screen-backdrop");
       if (_bd) {
+        // CSSOS_WAVE_454 20260527 — Jing: cssosThumb 对 replicate.delivery/fal.media
+        // 返回 "" (WAVE_449 跳过临时链接), 若直接用 url("") 设背景 → 黑屏。
+        // 修复: _stable 为空时退回原始 URL, 确保封面总能显示(即使临时链接已过期
+        // 也好过纯黑; 后续 DB backfill 会把这类 URL 迁到 R2)。
         const _stable = (typeof globalThis.cssosThumb === "function")
-          ? globalThis.cssosThumb(_cov, 800) : _cov;
+          ? (globalThis.cssosThumb(_cov, 800) || _cov) : _cov;
         _bd.style.backgroundImage = `url("${String(_stable).replace(/"/g, '\\"')}")`;
         _bd.style.backgroundSize = "cover";
         _bd.style.backgroundPosition = "center";
@@ -3126,31 +3197,111 @@ async function openLatestOwnedWorkPreviewModule() {
     seed: buildMarketPreviewSeed(latestWork),
     previewUnlimited: canBypassPreviewLimit(authState.user, latestWork)
   });
-  // CSSOS_WAVE_341 20260522 — Jing: 进入只挂了封面/标题, 却没挂音频 → "音乐没跟着来".
-  // 这里把作品音轨挂到 watch-audio-preview 并尝试自动播放: 先尝试带声(若浏览器允许),
-  // 被自动播放策略拦截 → 静音重试 + 标 pending-unmute(用户首触即解锁声音, W279)+ 提示.
+  // CSSOS_WAVE_473b 20260527 — Jing「浏览器不支持直接自动播放视频, 降级为自动播放
+  // 『幻灯 + 歌曲音轨』」: 自动播放(人物 MV 入场)时优先走【幻灯封面 + 歌曲音轨】, 而不是
+  // 5MB+ 的 final_mv 视频 —— 音频更轻、配合"首触解锁声音", 体验顺滑; 幻灯封面立即出画。
+  // 逻辑: 只要作品有独立歌曲音轨(audio_track) → 停掉/清空视频(让 W469 透明 video 透出
+  // 幻灯), 确保幻灯在跑, 播放音轨(带声试播→被拦则静音重试+标 pending-unmute+提示)。
+  // 仅当【没有独立音轨、只有视频】时才退回播视频(其自带音轨)。绝不双声打架。
   try {
     const _aEl = document.getElementById("watch-audio-preview");
+    const _vEl = document.getElementById("watch-video");
     const _a1 = String(latestWork?.audio_track_1_url || latestWork?.audio_track_2_url || "").trim();
-    if (_aEl && _a1 && !/^data:/i.test(_a1)) {
-      if (String(_aEl.getAttribute("src") || "") !== _a1) {
-        _aEl.src = _a1; _aEl.preload = "auto"; if (typeof _aEl.load === "function") _aEl.load();
+    const _hasSongAudio = !!_a1 && !/^data:/i.test(_a1);
+    if (_hasSongAudio) {
+      // 1) 停掉视频 → 幻灯透出(W469 video 透明; 清 src 后彻底不抢)。
+      // CSSOS_WAVE_626 — 剥离前先把视频源【存到 data-fallback-src】: 若独立音频死链/放不出,
+      // cssosFallbackToVideoAudio 可恢复视频原声, 永不留静音。
+      if (_vEl) {
+        try {
+          const _vsrcNow = String(_vEl.currentSrc || _vEl.getAttribute("src") || "").trim();
+          const _vFallback = _vsrcNow || String(latestWork?.preview_video_url || latestWork?.final_mv_url || "").trim();
+          if (_vFallback && !/^data:image\/svg/i.test(_vFallback)) _vEl.setAttribute("data-fallback-src", _vFallback);
+        } catch (_eStash) {}
+        try { _vEl.pause && _vEl.pause(); _vEl.removeAttribute("src"); _vEl.load && _vEl.load(); } catch (_eV) {}
       }
-      _aEl.muted = false;
-      const _pp = _aEl.play && _aEl.play();
-      if (_pp && typeof _pp.catch === "function") {
-        _pp.catch(function () {
-          try {
-            _aEl.muted = true;
-            globalThis.__cssosWatchPendingUnmute = true;
-            const _p2 = _aEl.play && _aEl.play();
-            if (_p2 && typeof _p2.catch === "function") _p2.catch(function () {});
-            if (typeof globalThis.showWatchSoundHintModule === "function") globalThis.showWatchSoundHintModule();
-          } catch (_e2) {}
-        });
+      // CSSOS_WAVE_455 20260527 — Jing: 进入音频模式时, 把 watch-screen-audio-fallback
+      // 加到 .watch-screen → CSS 把 .watch-video 设为 opacity:0.1 → 即使 background 未清
+      // 也不会遮住封面/backdrop. (style.watch.css 的 W455 修复已把背景改 transparent;
+      // 这里加 class 是双保险, 同时触发其他 audio-fallback 布局调整.)
+      try {
+        const _ws = document.querySelector(".watch-screen");
+        if (_ws) _ws.classList.add("watch-screen-audio-fallback");
+      } catch (_eC) {}
+      // 2) 确保幻灯/封面在显示。
+      try { syncWatchPlaceholderFromCurrentState(); } catch (_eS) {}
+      // 3) 播放歌曲音轨(带声→拦截则静音重试 + 首触解锁)。
+      if (_aEl) {
+        if (String(_aEl.getAttribute("src") || "") !== _a1) {
+          // CSSOS_WAVE_454 20260527 — Jing: iOS WKWebView 上 _aEl.load() 会重置媒体元素
+          // 的「用户激活」状态(即使 W474 首触已激活), 导致后续 play() 因无手势上下文而被拦。
+          // 修复: 只改 src, 不调 load() —— play() 会自动触发缓冲/加载; iOS 保留激活状态。
+          _aEl.src = _a1; _aEl.preload = "auto";
+          /* 不调 _aEl.load() — 见上方注释 */
+          // CSSOS_WAVE_626 — 永不静音: 独立音频死链/加载失败 → 回退播视频原声。
+          _aEl.addEventListener("error", function onWAErr() {
+            _aEl.removeEventListener("error", onWAErr);
+            if (typeof globalThis.cssosFallbackToVideoAudio === "function") globalThis.cssosFallbackToVideoAudio("watch-audio-error");
+          }, { once: true });
+        }
+        _aEl.muted = false;
+        const _pp = _aEl.play && _aEl.play();
+        if (_pp && typeof _pp.then === "function") {
+          // CSSOS_WAVE_624 — 独立音频带声播成功 = 本会话已出声: 标记解锁 + 清 pendingUnmute +
+          // 收起「轻触出声」提示。否则视频层(纯画面静音)设的 pendingUnmute 会误显提示, 让有声也像没声。
+          _pp.then(function () {
+            try {
+              globalThis.__cssosWatchAudioUnlocked = true;
+              globalThis.__cssosWatchPendingUnmute = false;
+              if (typeof globalThis.hideWatchSoundHintModule === "function") globalThis.hideWatchSoundHintModule();
+            } catch (_eOk) {}
+          });
+        }
+        if (_pp && typeof _pp.catch === "function") {
+          _pp.catch(function () {
+            // CSSOS_WAVE_624 20260603 — Jing「几乎每首歌都要点一下才有声」根治。
+            // 旧逻辑致命缺陷: 带声 canplay 重试【只在已解锁时】才走; 第一首歌(尚未手势解锁)
+            // 一旦 play() 被拒就【直接静音】(旧 3261 行)。而 play() 被拒【绝大多数是加载竞态】
+            // (源还没 canplay), 不是自动播放策略 —— 尤其原生 App(MainViewController 零手势开关已开,
+            // mediaTypesRequiringUserActionForPlayback=[])本就允许带声自动播放。结果: 每首新歌第一次
+            // 都被错误静音 → 要求用户点一下。
+            // 新逻辑【无论是否解锁】: 总是先【带声在 canplay 重试】(+300ms 兜底)。
+            //   - 原生 App / 已授权浏览器 → canplay 带声成功, 新歌第一首也直接出声, 不再要点击。
+            //   - 真被策略拦的浏览器 → 带声重试也失败, 此时【仅当从未解锁】才退静音 + 提示一次。
+            //   - 已解锁过的会话 → 绝不退静音(_mutedLastResort 内部自带 guard)。
+            var _mutedLastResort = function () {
+              if (globalThis.__cssosWatchAudioUnlocked || globalThis.__cssosAudioUnlocked) return;
+              try {
+                _aEl.muted = true;
+                globalThis.__cssosWatchPendingUnmute = true;
+                var _p2 = _aEl.play && _aEl.play();
+                if (_p2 && typeof _p2.catch === "function") _p2.catch(function () {});
+                if (typeof globalThis.showWatchSoundHintModule === "function") globalThis.showWatchSoundHintModule();
+                try {
+                  if (!globalThis.__cssosAutoplayMutedReported && typeof globalThis.cssosReportError === "function") {
+                    globalThis.__cssosAutoplayMutedReported = true;
+                    globalThis.cssosReportError("Autoplay muted — sound waits for first tap.", "autoplay_muted");
+                  }
+                } catch (_eRep) {}
+              } catch (_e2) {}
+            };
+            var _retryWithSound = function () {
+              _aEl.muted = false;
+              var _pr = _aEl.play && _aEl.play();
+              if (_pr && typeof _pr.then === "function") {
+                _pr.then(function () { globalThis.__cssosWatchAudioUnlocked = true; }).catch(function () { _mutedLastResort(); });
+              }
+            };
+            // 永远先带声在 canplay 重试 —— 不再按「是否解锁」分叉。
+            var _onCP = function () { _aEl.removeEventListener("canplay", _onCP); _retryWithSound(); };
+            _aEl.addEventListener("canplay", _onCP);
+            setTimeout(function () { if (_aEl.paused || _aEl.muted) _retryWithSound(); }, 300);
+          });
+        }
       }
     }
-  } catch (_e) { /* non-fatal: 音乐挂载尽力而为 */ }
+    // 无独立音轨、只有视频时, 不动: renderMarketWorkPreviewIntoWatchModule 已挂视频(自带音轨)。
+  } catch (_e) { /* non-fatal: 媒体挂载尽力而为 */ }
   return true;
 }
 
@@ -3826,15 +3977,33 @@ async function ensureWatchMusicVisualizerModule() {
   if (watchMusicAudioContext.state === "suspended") {
     await watchMusicAudioContext.resume().catch(() => {});
   }
-  if (!watchMusicSourceNode) {
-    watchMusicSourceNode = watchMusicAudioContext.createMediaElementSource(watchAudioPreview);
-    watchMusicAnalyser = watchMusicAudioContext.createAnalyser();
-    watchMusicAnalyser.fftSize = 128;
-    watchMusicSourceNode.connect(watchMusicAnalyser);
-    watchMusicAnalyser.connect(watchMusicAudioContext.destination);
-  }
-  if (!watchMusicAnalyserFrame) {
-    tickWatchMusicVisualizerModule();
+  // CSSOS_WAVE_486 20260529 — Jing「登录后还是闪」加固: createMediaElementSource 对同一个
+  // <audio> 元素【一辈子只能调一次】。原守卫只看 watchMusicSourceNode(模块级变量), 若它被
+  // 重置而 audio 元素被复用(换歌/面板重建/登录后重进影院), 第二次调用就抛
+  // "Media element is already associated with an audio source node" —— 未捕获 rejection
+  // 会在低内存 App 上叠加成不稳定。修法: 把 source 节点【挂到元素本身】上做幂等复用 +
+  // 整段 try/catch 优雅降级(可视化失败 ≠ 崩溃, 音频照常播放)。
+  try {
+    if (!watchMusicSourceNode) {
+      if (watchAudioPreview.__cssosMediaSourceNode) {
+        // 该元素此前已建过 source(同一 AudioContext) → 直接复用, 绝不二次创建。
+        watchMusicSourceNode = watchAudioPreview.__cssosMediaSourceNode;
+      } else {
+        watchMusicSourceNode = watchMusicAudioContext.createMediaElementSource(watchAudioPreview);
+        try { watchAudioPreview.__cssosMediaSourceNode = watchMusicSourceNode; } catch (_e) {}
+      }
+      watchMusicAnalyser = watchMusicAudioContext.createAnalyser();
+      watchMusicAnalyser.fftSize = 128;
+      watchMusicSourceNode.connect(watchMusicAnalyser);
+      watchMusicAnalyser.connect(watchMusicAudioContext.destination);
+    }
+    if (!watchMusicAnalyserFrame) {
+      tickWatchMusicVisualizerModule();
+    }
+  } catch (_e) {
+    // 可视化建立失败(如元素已被其它 context 占用)→ 放弃可视化, 不抛异常、不影响播放。
+    try { if (typeof console !== "undefined" && console.warn) console.warn("[watch-visualizer] degraded:", _e && _e.message); } catch (_e2) {}
+    watchMusicAnalyser = null;
   }
 }
 
@@ -4583,6 +4752,7 @@ function applyWatchQueueItemModule(item) {
     const audioEl = document.getElementById("watch-audio-preview");
     const videoEl = document.getElementById("watch-video");
     const url = String(item.final_mv_url || item.preview_video_url || "").trim();
+    try { applyStoredWorkAspectModule(item); } catch (_eAsp) {} // W544: 切歌也按入库画幅还原
     // CSSOS_PHASE2_AUTOPLAY_AFTER_SWIPE 20260430 #232b — Jing
     // "切换了就要自动播放呀。" Decide ONCE per item whether the audio
     // element is the source of truth (modern works with audio_track_1)
@@ -4600,15 +4770,19 @@ function applyWatchQueueItemModule(item) {
       // — that's the user's explicit choice, persists across queue moves.
       try {
         const frame = document.querySelector("#watch-panel .watch-frame");
-        if (frame) delete frame.dataset.sourceAspect;
+        if (frame) { delete frame.dataset.sourceAspect; delete frame.dataset.storedAspect; } // W544
       } catch (_e) {}
+      cssosBeginWatchVideoSwap(); // W543: 切歌时隐藏旧首帧, 新视频 playing 后再淡入
       videoEl.src = url;
       videoEl.load && videoEl.load();
-      // CSSOS_PHASE2_PRIME_NO_MUTE 20260501 #256 — never preemptively
-      // mute the video. Take 1 audio is baked in; the user hears it.
-      // switchToTake(2) is the ONE path that mutes video + unmutes
-      // <audio> with a fresh gesture context.
-      videoEl.muted = false;
+      // CSSOS_WAVE_406 20260524 — Jing「两首歌抢着播放 / 断断续续」根治: 当存在
+      // 独立音轨(audio_track_1, hasAudioElSrc)时, final_mv 视频里【已经烘焙了同一
+      // 条 Take 1 音频】。若视频也 unmute, 它就和 <audio> 播【同一首歌】(略微错位)
+      // → 双声叠加打架 + 断断续续。回到 #232b 的既定设计: 有独立音轨就【静音视频】
+      // (画面归画面, 声音归 <audio>, 卡拉OK按 audio.currentTime 同步); 只有没有独立
+      // 音轨的旧作品才让视频出声(烘焙音轨)。switchToTake(2) 仍走自己的手势路径。
+      // (#256 的"永不静音视频"在引入独立音轨后就成了双声源, 这里纠正。)
+      videoEl.muted = hasAudioElSrc;
       if (videoEl.play) {
         videoEl.play().catch((err) => {
           // CSSOS_PHASE2_VIDEO_FALLBACK 20260501 #249 — Jing
@@ -4641,8 +4815,43 @@ function applyWatchQueueItemModule(item) {
       if (audioEl.play) {
         audioEl.play().catch((err) => {
           console.warn("[watch-queue] audio.play() rejected:", err);
+          // CSSOS_WAVE_624 — 切歌被拒【绝大多数是加载竞态】(新 src 还没 canplay), 不是策略。
+          // 先带声在 canplay 自动重试(原生 App / 已授权浏览器 → 直接出声, 无需点击);
+          // 只有重试也失败【且从未解锁】才退到「提示 + 等手势」。
+          var _swipeRetry = function () {
+            try { audioEl.muted = false; audioEl.volume = 1; } catch (_e) {}
+            var _rp = audioEl.play && audioEl.play();
+            if (_rp && _rp.then) _rp.then(function () {
+              globalThis.__cssosAudioUnlocked = true; globalThis.__cssosWatchAudioUnlocked = true;
+              globalThis.__cssosWatchPendingUnmute = false;
+              if (typeof globalThis.hideWatchSoundHintModule === "function") globalThis.hideWatchSoundHintModule();
+            }).catch(function () { _swipeFallback(); });
+          };
+          var _onSwipeCP = function () { audioEl.removeEventListener("canplay", _onSwipeCP); _swipeRetry(); };
+          var _swipeFallbackDone = false;
+          var _swipeFallback = function () {
+            if (_swipeFallbackDone) return; _swipeFallbackDone = true;
+            // 已解锁过的会话绝不再提示/静默 — async 上下文过期不该惩罚用户。
+            if (globalThis.__cssosWatchAudioUnlocked || globalThis.__cssosAudioUnlocked) return;
+            // CSSOS_WAVE_588x/y — 任意手势恢复后带声续播并收起提示。
+            globalThis.__cssosWatchPendingUnmute = true;
+            if (typeof globalThis.showWatchSoundHintModule === "function") globalThis.showWatchSoundHintModule();
+            try {
+              if (!globalThis.__cssosAutoplayMutedReported && typeof globalThis.cssosReportError === "function") {
+                globalThis.__cssosAutoplayMutedReported = true;
+                globalThis.cssosReportError("Autoplay muted on swipe — sound waits for first tap.", "autoplay_muted");
+              }
+            } catch (_eRep) {}
+            document.addEventListener("click", recover, true);
+          };
+          audioEl.addEventListener("canplay", _onSwipeCP);
+          setTimeout(function () { if (audioEl.paused) _swipeRetry(); }, 300);
           const recover = () => {
+            try { audioEl.muted = false; audioEl.volume = 1; } catch (_e) {}
             audioEl.play && audioEl.play().catch(() => {});
+            globalThis.__cssosAudioUnlocked = true; globalThis.__cssosWatchAudioUnlocked = true;
+            globalThis.__cssosWatchPendingUnmute = false;
+            if (typeof globalThis.hideWatchSoundHintModule === "function") globalThis.hideWatchSoundHintModule();
             document.removeEventListener("click", recover, true);
           };
           document.addEventListener("click", recover, true);
@@ -6131,7 +6340,7 @@ function wireWatchSwipeOnceModule() {
           ev.target &&
           ev.target.closest &&
           ev.target.closest(
-            "button, input, textarea, select, [role=button], #watch-pill-row-bl, #watch-take-toggle, #watch-aspect-pill, .watch-media-action, .watch-author-avatar"
+            "button, input, textarea, select, [role=button], #watch-pill-row-bl, #watch-take-toggle, #watch-aspect-pill, .watch-media-action, .watch-author-avatar, .cssmv-capsule, .cssmv-capsule-menu"
           )
         ) {
           return;
@@ -6158,7 +6367,10 @@ function wireWatchSwipeOnceModule() {
           target.webkitEnterFullscreen ||
           target.mozRequestFullScreen ||
           target.msRequestFullscreen;
-        if (enter) {
+        // CSSOS_WAVE_438 — only attempt fullscreen inside an active user gesture;
+        // a non-gesture call would still emit a console warning even though caught.
+        var _ua = (typeof navigator !== "undefined" && navigator.userActivation);
+        if (enter && !(_ua && _ua.isActive === false)) {
           try {
             const result = enter.call(target);
             if (result && typeof result.then === "function") await result;
@@ -6173,7 +6385,7 @@ function wireWatchSwipeOnceModule() {
     let priorMode = null;
     frame.addEventListener("contextmenu", (ev) => {
       // Don't intercept right-click on pills / buttons / inputs.
-      if (ev.target && ev.target.closest && ev.target.closest("button, input, [role=button], #watch-pill-row-bl, #watch-take-toggle, #watch-aspect-pill")) return;
+      if (ev.target && ev.target.closest && ev.target.closest("button, input, [role=button], #watch-pill-row-bl, #watch-take-toggle, #watch-aspect-pill, .cssmv-capsule, .cssmv-capsule-menu")) return;
       if (!globalThis.cssosPlaylists) return;
       ev.preventDefault();
       const cur = globalThis.cssosPlaylists.getMode();
@@ -6327,6 +6539,23 @@ function buildMediaActionsModule() {
       }
     },
   });
+  // CSSOS_WAVE_387 20260524 — Jing「胶囊宪法」: 信息浮层 + 人声/伴奏分轨从媒体框
+  // 上的独立角标按钮收进 ⋯ 菜单(其余留在三点里), 让媒体框只剩一个右下角胶囊。
+  // 这两项直接复用被隐藏的原按钮节点(仍保留其全部事件), 点击即触发其原逻辑。
+  const _infoBtn = document.querySelector("#watch-panel .cssmv-info-btn");
+  if (_infoBtn) {
+    actions.push({
+      icon: "ℹ️", label: loginCopy("Track info", "作品信息"),
+      onClick: () => { try { _infoBtn.click(); } catch (_e) {} },
+    });
+  }
+  const _stemBtn = document.getElementById("cssmv-stem-toggle");
+  if (_stemBtn) {
+    actions.push({
+      icon: "🎤", label: loginCopy("Vocals / Instrumental", "人声 / 伴奏"),
+      onClick: () => { try { _stemBtn.click(); } catch (_e) {} },
+    });
+  }
   // CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
   // Replaced navigator.share() (which Jing called "太苹果") with a
   // custom dialog that builds /?cssMV=<id> share links and offers
@@ -6451,6 +6680,8 @@ function buildMediaActionsModule() {
   }
   return actions;
 }
+// CSSOS_WAVE_555 20260531 — 导出动作构建器, 供左下控制胶囊【摊平 ⋯】生成胶囊段。
+globalThis.buildMediaActionsModule = buildMediaActionsModule;
 
 function showMediaActionsMenuModule(anchor) {
   const old = document.getElementById("watch-actions-menu");
@@ -6622,22 +6853,26 @@ function activateVideoBlockedFallbackModule(item, videoEl) {
       videoEl.style.opacity = "0";
       videoEl.style.pointerEvents = "none";
     }
-    // CSSOS_WAVE_220A_COVER_POOL 20260519 — Jing: feed the real 5-image
-    // cover pool, shuffled per panel-open so every viewing differs. Falls
-    // back to [cover ×4] Ken-Burns when no pool exists (legacy works).
+    // W354/W356 — feed the full persisted cover pool (cdn.cssstudio.app frames,
+    // 30 frames per work) so the slideshow actually cycles. Filter to persisted
+    // URLs only (never-expiring); fall back to a single stable frame for legacy
+    // works that only have third-party temporary links.
     const cover = String(item?.cover_url || item?.cover_image || item?.preview_image_url || "").trim();
     const poolRaw = Array.isArray(item?.cover_slides) ? item.cover_slides : [];
     const pool = poolRaw
       .map((u) => (typeof u === "string" ? u.trim() : ""))
       .filter(Boolean);
-    // CSSOS_WAVE_278 20260521 — Jing: 进场 / 视频被浏览器拦住等待首次点击时,
-    // 封面只显示【一张稳定的主封面】, 不再洗牌循环整个封面池. 之前循环多张
-    // 封面 + 0.7 高强度 → "闪过很多画面", 用户点了还在闪、眼花. 现在: 稳定
-    // 一帧 + 视频已预加载, 用户一点击即顺利播放. (封面池的 ken-burns 切换
-    // 留给真正的 lite 播放路径, 与本"等待播放"态无关.)
+    // Only use frames from our own CDN — replicate/fal links expire and cause 404.
+    const persistedPool = pool.filter((u) => /(^|\/\/|\.)cssstudio\.app\//.test(u) || u.startsWith("data:"));
     if (typeof globalThis.cssmvSetCoverSlides === "function") {
-      const stable = cover || pool[0] || "";
-      if (stable) globalThis.cssmvSetCoverSlides([stable]);
+      if (persistedPool.length >= 2) {
+        // Shuffle so each open starts on a different frame (视觉新鲜感).
+        const shuffled = persistedPool.slice().sort(() => Math.random() - 0.5);
+        globalThis.cssmvSetCoverSlides(shuffled);
+      } else {
+        const stable = cover || pool[0] || "";
+        if (stable) globalThis.cssmvSetCoverSlides([stable]);
+      }
     }
   } catch (_e) {}
 }
@@ -6681,6 +6916,9 @@ function ensureCinemaAutoHideModule() {
 #watch-panel.cssmv-cinema #watch-take-toggle,
 /* W335 20260522 — ✕ and search box join the same opacity fade as avatar */
 #watch-panel.cssmv-cinema #watch-exit-cinema,
+/* CSSOS_WAVE_587 20260531 — Jing「有操作必显多语言/多声线胶囊」: 语言/声线选择器(#cssos-lang-fold)
+   随影院 chrome 一起 idle 淡出 / 操作淡入(桌面 hover、App 轻触都会加 .is-hovering)。 */
+#watch-panel.cssmv-cinema #cssos-lang-fold,
 #watch-panel.cssmv-cinema #watch-search-box {
   opacity: 0;
   pointer-events: none;
@@ -6699,6 +6937,7 @@ function ensureCinemaAutoHideModule() {
 #watch-panel.cssmv-cinema.is-hovering #watch-author-avatar,
 #watch-panel.cssmv-cinema.is-hovering #watch-take-toggle,
 #watch-panel.cssmv-cinema.is-hovering #watch-exit-cinema,
+#watch-panel.cssmv-cinema.is-hovering #cssos-lang-fold,
 #watch-panel.cssmv-cinema.is-hovering #watch-search-box {
   opacity: 1;
   pointer-events: auto;
@@ -6753,6 +6992,26 @@ function ensureCinemaAutoHideModule() {
 #watch-panel.cssmv-cinema.is-cssmv-fullscreen {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
+}
+/* CSSOS_WAVE_538/540 20260531 — Jing 铁律: 情绪字幕 + 价格条绝不随 10s 无操作隐藏。
+   ★情绪字幕 = 底部 #watch-subtitle(带 data-emotion 配色、跟随歌词实时显示, 本平台全球首创)——
+   影院 + idle 下【永远可见、实时显示直到播放结束】。它是只显示不挡点击的覆盖层 → pointer-events:none。
+   注意: #watch-karaoke-line 是【歌曲标题】, 每次随机换字体时闪现 10 秒(W332 设计, 正确行为),
+   绝不在此常驻 —— 否则标题会一直挂着、不再随字体闪现。 */
+#watch-panel.cssmv-cinema .watch-subtitle,
+#watch-panel.cssmv-cinema:not(.is-hovering) .watch-subtitle {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+  transition: none !important;
+}
+/* 价格条永远可见且可点击(保障交易/收入); 不强制 display, "无价格数据由 JS 设 display:none" 仍生效。 */
+#watch-panel.cssmv-cinema #cssos-watch-price-strip,
+#watch-panel.cssmv-cinema:not(.is-hovering) #cssos-watch-price-strip {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transition: none !important;
 }
 `;
     document.head.appendChild(st);
@@ -7051,7 +7310,12 @@ function ensureAuthorAvatarModule() {
         const img = document.createElement("img");
         img.src = ownerAvatar;
         img.alt = ownerName || "author";
-        img.style.cssText = "width:100%;height:100%;object-fit:cover;";
+        // WAVE_445d 20260526 — fix avatar squish on iOS.
+        // The button is display:flex; height:100% on an img inside flex
+        // doesn't resolve to the button's 40px height, so the image was
+        // compressed horizontally. Use absolute fill instead so the img
+        // always covers the full 40×40 circle regardless of flex context.
+        img.style.cssText = "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;";
         avatar.appendChild(img);
         // 有头像图 → 还原默认深色底(图会盖住, 但保持干净).
         try { avatar.style.removeProperty("background"); } catch (_e) {}
@@ -7624,9 +7888,13 @@ function ensureBottomLeftPillRowModule() {
   // so clicks on gaps / dividers / non-button children also skip the
   // pause-on-click handler.
   row.dataset.noFrameToggle = "1";
+  // WAVE_444c: align with the AI assistant FAB (fixed bottom:18px).
+  // Use CSS env(safe-area-inset-bottom) so both land on the same visual row
+  // on iPhone (home indicator) and Android nav bar.
   row.style.cssText =
-    "position:absolute;left:12px;bottom:12px;display:flex;align-items:center;" +
-    "gap:8px;z-index:30;flex-wrap:wrap;";
+    "position:absolute;left:12px;" +
+    "bottom:max(18px,calc(env(safe-area-inset-bottom,0px) + 12px));" +
+    "display:flex;align-items:center;gap:8px;z-index:30;flex-wrap:wrap;";
   screen.style.position = screen.style.position || "relative";
   screen.appendChild(row);
   return row;
@@ -7806,7 +8074,9 @@ function applyWatchFrameOrientationModule() {
     // loadedmetadata handler in applyVideoSourceAspectModule), use them
     // verbatim. Otherwise fall back to the device-orientation default.
     // user-pill override beats both.
-    if (!frame.dataset.userOverrodeAspect && !frame.dataset.sourceAspect) {
+    // CSSOS_WAVE_544 — Jing: 若作品已入库画幅(aspect_ratio/分辨率)→ storedAspect 优先,
+    // 不再退回设备默认 16:9。仅当既无用户覆盖、无视频真实尺寸、也无入库画幅时才用设备默认。
+    if (!frame.dataset.userOverrodeAspect && !frame.dataset.sourceAspect && !frame.dataset.storedAspect) {
       __cssosAspectIdx = isPortraitDevice ? 1 : 0;
       const a = __cssosAspectCycle[__cssosAspectIdx];
       frame.style.aspectRatio = a.css;
@@ -7874,6 +8144,85 @@ function applyVideoSourceAspectModule() {
     else videoEl.addEventListener("loadedmetadata", apply, { once: true });
   } catch (_e) {}
 }
+
+// CSSOS_WAVE_544 20260531 — Jing「桌面默认电影超宽 2.39:1, 但回放全变 16:9 / App 拉伸成 9:16」
+// 根因: 画幅信息(aspect_ratio/frame_width/frame_height/orientation)此前从不入库 → 回放无从还原。
+// 现已入库, 这里在【加载作品时】用入库画幅设定 watch-frame 比例, 让纯音频幻灯作品也能正确显示
+// 真实比例(不再退回设备默认 16:9)。视频作品的真实尺寸 loadedmetadata 仍会进一步精修(更准)。
+function applyStoredWorkAspectModule(work) {
+  try {
+    if (!work || typeof work !== "object") return;
+    const frame = document.querySelector("#watch-panel .watch-frame");
+    if (!frame) return;
+    if (frame.dataset.userOverrodeAspect) return; // 用户手动覆盖优先
+    var w = Number(work.frame_width || 0);
+    var h = Number(work.frame_height || 0);
+    var ratio = 0;
+    if (w >= 8 && h >= 8) {
+      ratio = w / h;
+    } else {
+      // 从 aspect_ratio 字符串解析: "2.39:1" / "16:9" / "9:16" / "1:1"
+      var ar = String(work.aspect_ratio || "").trim();
+      var m = ar.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*[:x\/]\s*([0-9]+(?:\.[0-9]+)?)\s*$/i);
+      if (m) {
+        var a = parseFloat(m[1]), b = parseFloat(m[2]);
+        if (a > 0 && b > 0) ratio = a / b;
+      } else if (/anamorphic|ultra|2\.39/i.test(ar)) {
+        ratio = 2.39;
+      }
+    }
+    if (!(ratio > 0)) return;
+    frame.style.aspectRatio = (w >= 8 && h >= 8) ? `${w} / ${h}` : `${ratio.toFixed(4)} / 1`;
+    frame.dataset.storedAspect = (w >= 8 && h >= 8) ? `${w}x${h}` : `r${ratio.toFixed(3)}`;
+    var orient = String(work.orientation || "").trim().toLowerCase();
+    if (ratio >= 2.2) { frame.style.maxHeight = "55vh"; orient = orient || "ultra-wide"; frame.dataset.aspect = ratio >= 3.4 ? "32x9" : (ratio >= 2.2 ? "2.39x1" : "21x9"); }
+    else if (ratio >= 1.5) { frame.style.maxHeight = "65vh"; orient = orient || "landscape"; frame.dataset.aspect = "16x9"; }
+    else if (ratio >= 0.95 && ratio <= 1.05) { frame.style.maxHeight = "75vh"; orient = orient || "square"; frame.dataset.aspect = "1x1"; }
+    else { frame.style.maxHeight = "85vh"; orient = orient || "portrait"; frame.dataset.aspect = "9x16"; }
+    frame.dataset.orientation = orient;
+  } catch (_e) {}
+}
+globalThis.applyStoredWorkAspectModule = applyStoredWorkAspectModule;
+
+// CSSOS_WAVE_558 20260531 — Jing: 媒体规格 📐【点击循环】比例: 适配 → 2.39:1 → 16:9 → 1:1 → 9:16。
+// 自包含全局(此前 __cssosCycleAspect 从未定义 → 📐 不出现/不工作)。设 watch-frame 的 aspect-ratio +
+// 标 userOverrodeAspect, 让 W544 的入库画幅还原让位用户手选。
+(function () {
+  var CYCLE = [
+    { id: "fit",   label: "Fit",     ar: "" },          // 适配设备(清除强制比例)
+    { id: "2.39x1",label: "2.39:1",  ar: "2.39 / 1" },
+    { id: "16x9",  label: "16:9",    ar: "16 / 9" },
+    { id: "1x1",   label: "1:1",     ar: "1 / 1" },
+    { id: "9x16",  label: "9:16",    ar: "9 / 16" }
+  ];
+  globalThis.__cssosCycleAspect = function () {
+    try {
+      var frame = document.querySelector("#watch-panel .watch-frame");
+      if (!frame) return;
+      var cur = String(frame.dataset.aspectCycleId || "fit");
+      var i = CYCLE.findIndex(function (c) { return c.id === cur; });
+      var next = CYCLE[(i + 1) % CYCLE.length];
+      frame.dataset.aspectCycleId = next.id;
+      frame.dataset.userOverrodeAspect = "1"; // 用户手选优先于入库画幅/设备默认
+      if (next.ar) {
+        frame.style.aspectRatio = next.ar;
+        frame.dataset.aspect = next.id;
+        var r = next.ar.split("/").map(function (n) { return parseFloat(n); });
+        var ratio = (r[0] && r[1]) ? r[0] / r[1] : 1;
+        frame.dataset.orientation = ratio >= 2.2 ? "ultra-wide" : ratio > 1.1 ? "landscape" : ratio >= 0.95 ? "square" : "portrait";
+        frame.style.maxHeight = ratio >= 2.2 ? "55vh" : ratio > 1.1 ? "65vh" : ratio >= 0.95 ? "75vh" : "85vh";
+      } else {
+        // 适配: 清除强制比例, 让设备/视频真实尺寸接管。
+        frame.style.aspectRatio = "";
+        delete frame.dataset.userOverrodeAspect;
+        try { if (typeof applyVideoSourceAspectModule === "function") applyVideoSourceAspectModule(); } catch (_e) {}
+      }
+      if (typeof globalThis.showToast === "function") {
+        globalThis.showToast((typeof loginCopy === "function" ? loginCopy("Aspect", "媒体规格") : "Aspect") + " " + next.label);
+      }
+    } catch (_e) {}
+  };
+})();
 globalThis.applyVideoSourceAspectModule = applyVideoSourceAspectModule;
 
 function refreshTransformPillModule() {
@@ -8056,14 +8405,220 @@ function wireWatchOrientationOnceModule() {
   window.addEventListener("resize", applyWatchFrameOrientationModule, { passive: true });
 }
 
+// CSSOS_WAVE_450 20260527 — Jing: iOS WKWebView jetsam 修复.
+// 根因: DOM 里同时存在 mirror-video(login) + foryou-thumb-video(ForYou) +
+// watch-video(MV) 三个视频解码器 + 两个 audio, iOS 一旦进入 MV 面板加载大视频时
+// 内存超限 → 系统 jetsam 强杀 WKWebView 进程 → 整个 app 黑屏/闪退(无 beforeunload).
+// 修复: 进入 MV 面板时把其余背景视频的 src 清空, 释放解码器; 关闭面板时恢复.
+// 只在 iOS native (Capacitor) 下触发, 桌面浏览器不受影响.
+const __cssosBgVideoIdsForMv = ["foryou-thumb-video", "mirror-video"];
+function suspendBgVideosForMvModule() {
+  if (!document.documentElement.classList.contains("cssos-app")) return;
+  __cssosBgVideoIdsForMv.forEach((id) => {
+    const v = document.getElementById(id);
+    if (!v) return;
+    if (!v.__cssosMvSuspendedSrc) {
+      v.__cssosMvSuspendedSrc = v.src || v.currentSrc || "";
+      v.__cssosMvSuspendedSrcs = Array.from(v.querySelectorAll("source")).map((s) => ({ el: s, src: s.src }));
+    }
+    try { v.pause(); } catch (_e) {}
+    v.src = "";
+    v.load();
+  });
+}
+function restoreBgVideosForMvModule() {
+  if (!document.documentElement.classList.contains("cssos-app")) return;
+  __cssosBgVideoIdsForMv.forEach((id) => {
+    const v = document.getElementById(id);
+    if (!v || !v.__cssosMvSuspendedSrc) return;
+    const was = v.__cssosMvSuspendedSrc;
+    v.__cssosMvSuspendedSrc = null;
+    if (was) { v.src = was; v.load(); try { v.play().catch(() => {}); } catch (_e) {} }
+  });
+}
+
+// ─── CSSOS_WAVE_452 20260527 — Jing: MV 管线断点续跑 + 延迟扣费客户端 ─────────
+// 每个阶段完成后 checkpointMvPipelineRun() → 累计到 DB.
+// 全部完成后 completeMvPipelineRun() → 一次性扣费.
+// 开新管线时 abandonMvPipelineRun() → 旧 run 不扣费.
+// 面板打开时 checkPendingMvPipelineRunModule() → 检查未完成 run → 提示续跑.
+
+let __cssosMvPipelineRunId = "";
+let __cssosMvResumeCheckDone = false;
+
+globalThis.startMvPipelineRun = function(runId) {
+  __cssosMvPipelineRunId = String(runId || "").trim() || ("run_" + Date.now().toString(36));
+  try { sessionStorage.setItem("cssos_mv_run_id", __cssosMvPipelineRunId); } catch (_) {}
+  return __cssosMvPipelineRunId;
+};
+
+globalThis.getCurrentMvPipelineRunId = function() {
+  if (!__cssosMvPipelineRunId) {
+    try { __cssosMvPipelineRunId = sessionStorage.getItem("cssos_mv_run_id") || ""; } catch (_) {}
+  }
+  return __cssosMvPipelineRunId;
+};
+
+globalThis.checkpointMvPipelineRun = async function(stageDone, stageResult, costCents) {
+  const runId = globalThis.getCurrentMvPipelineRunId();
+  if (!runId) return;
+  try {
+    await fetch("/api/mv/pipeline-run/checkpoint", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        run_id: runId,
+        stage_done: stageDone || null,
+        stage_result: stageResult || null,
+        cost_cents: costCents || 0,
+      }),
+    });
+  } catch (_) {}
+};
+
+globalThis.completeMvPipelineRun = async function() {
+  const runId = globalThis.getCurrentMvPipelineRunId();
+  if (!runId) return;
+  __cssosMvPipelineRunId = "";
+  try { sessionStorage.removeItem("cssos_mv_run_id"); } catch (_) {}
+  try {
+    const r = await fetch(`/api/mv/pipeline-run/${encodeURIComponent(runId)}/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    const j = await r.json().catch(() => ({}));
+    if (j && j.charged_cents > 0) {
+      console.log(`[mv-pipeline] billed ${j.charged_cents}¢ for run ${runId}`);
+    }
+  } catch (_) {}
+};
+
+globalThis.abandonMvPipelineRun = async function(runId) {
+  const id = String(runId || globalThis.getCurrentMvPipelineRunId() || "").trim();
+  if (!id) return;
+  if (!runId) {
+    __cssosMvPipelineRunId = "";
+    try { sessionStorage.removeItem("cssos_mv_run_id"); } catch (_) {}
+  }
+  try {
+    await fetch(`/api/mv/pipeline-run/${encodeURIComponent(id)}/abandon`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+  } catch (_) {}
+};
+
+// Inject pipeline_run_id into every /api/mv/{lyrics,music,video,cover} POST.
+(function __patchMvFetchForPipelineRunId() {
+  if (globalThis.__cssosMvPipelineRunIdPatchWired) return;
+  globalThis.__cssosMvPipelineRunIdPatchWired = true;
+  const _orig = globalThis.fetch;
+  if (typeof _orig !== "function") return;
+  const MV_ENDPOINTS = ["/api/mv/lyrics", "/api/mv/music", "/api/mv/video", "/api/mv/cover"];
+  globalThis.fetch = function(input, init) {
+    try {
+      const url = typeof input === "string" ? input : ((input && input.url) || "");
+      const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+      if (method === "POST" && MV_ENDPOINTS.some((e) => url.indexOf(e) !== -1) && init && typeof init.body === "string") {
+        const runId = globalThis.getCurrentMvPipelineRunId();
+        if (runId) {
+          try {
+            const obj = JSON.parse(init.body);
+            if (obj && typeof obj === "object" && !obj.pipeline_run_id) {
+              obj.pipeline_run_id = runId;
+              init = Object.assign({}, init, { body: JSON.stringify(obj) });
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return _orig.call(this, input, init);
+  };
+})();
+
+async function checkPendingMvPipelineRunModule() {
+  if (__cssosMvResumeCheckDone) return;
+  __cssosMvResumeCheckDone = true;
+  try {
+    const r = await fetch("/api/mv/pipeline-run/pending");
+    if (!r.ok) return;
+    const j = await r.json().catch(() => ({}));
+    const run = j && j.run;
+    if (!run || !run.run_id) return;
+    const stages = Array.isArray(run.stages_done) ? run.stages_done : [];
+    if (stages.length === 0) return;
+    const stageLabels = { lyrics: "Lyrics", cover: "Cover", music: "Music", video: "Video", kara: "Final" };
+    const doneList = stages.map((s) => stageLabels[s] || s).join(", ");
+    const staleMin = Math.round(Number(run.stale_seconds || 0) / 60);
+    const timeAgo = staleMin < 1 ? tr("pipeline.resume.justNow") || "just now"
+                  : staleMin < 60 ? `${staleMin} ${tr("pipeline.resume.minutesAgo") || "min ago"}`
+                  : `${Math.round(staleMin / 60)} ${tr("pipeline.resume.hoursAgo") || "hr ago"}`;
+    const msg = (tr("pipeline.resume.prompt") ||
+      "Previous generation interrupted ({stages}, {time}). Resume?")
+      .replace("{stages}", doneList)
+      .replace("{time}", timeAgo);
+    showWatchResumeToastModule(run, msg);
+  } catch (_) {}
+}
+
+function showWatchResumeToastModule(run, msg) {
+  const existing = document.getElementById("mv-pipeline-resume-toast");
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = "mv-pipeline-resume-toast";
+  toast.style.cssText = [
+    "position:absolute", "bottom:88px", "left:50%", "transform:translateX(-50%)",
+    "background:rgba(0,0,0,0.88)", "color:#fff",
+    "border:1px solid rgba(0,245,160,0.35)", "border-radius:14px",
+    "padding:12px 16px", "display:flex", "flex-direction:column", "gap:10px",
+    "z-index:9999", "max-width:320px", "width:90%",
+    "font-size:13px", "line-height:1.4",
+    "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
+  ].join(";");
+  const msgEl = document.createElement("div");
+  msgEl.textContent = msg;
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end";
+  const discardBtn = document.createElement("button");
+  discardBtn.textContent = tr("pipeline.resume.discard") || "Discard";
+  discardBtn.style.cssText = "background:transparent;border:1px solid rgba(255,255,255,0.25);color:rgba(255,255,255,0.7);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer";
+  discardBtn.addEventListener("click", () => {
+    toast.remove();
+    globalThis.abandonMvPipelineRun(run.run_id);
+  });
+  const resumeBtn = document.createElement("button");
+  resumeBtn.textContent = tr("pipeline.resume.continue") || "Continue";
+  resumeBtn.style.cssText = "background:rgba(0,245,160,0.22);border:1px solid rgba(0,245,160,0.45);color:#00f5a0;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600";
+  resumeBtn.addEventListener("click", () => {
+    toast.remove();
+    __cssosMvPipelineRunId = run.run_id;
+    try { sessionStorage.setItem("cssos_mv_run_id", run.run_id); } catch (_) {}
+    // Broadcast resume event so the pipeline orchestrator can skip done stages.
+    document.dispatchEvent(new CustomEvent("cssos:mv-pipeline-resume", {
+      detail: { run_id: run.run_id, stages_done: run.stages_done || [], stage_results: run.stage_results || {}, params: run.params || {} },
+      bubbles: true,
+    }));
+  });
+  btnRow.append(discardBtn, resumeBtn);
+  toast.append(msgEl, btnRow);
+  (document.getElementById("watch-panel") || document.body).appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 30000);
+}
+
 function openWatchPanelShellModule(restoredLayout = false) {
   if (!watchPanel) return;
+  // CSSOS_WAVE_450: free background video decoders before loading MV content.
+  suspendBgVideosForMvModule();
   watchPanel.classList.remove("hidden");
   watchPanel.dataset.minimized = "false";
   prepareWatchPanelForOpen(restoredLayout);
   wireWatchSwipeOnceModule();
   wireWatchOrientationOnceModule();
   ensureTransformPillModule();
+  // CSSOS_WAVE_452: check for incomplete pipeline run once per session.
+  setTimeout(checkPendingMvPipelineRunModule, 800);
   // CSSOS_PHASE2_AUTO_CINEMA 20260504 — Jing
   // "无论从哪个入口进入MV面板，都默认是全屏…影院模式".
   // CSSOS_PHASE2_CINEMA_NO_MUTE 20260504 — Jing follow-up:
@@ -8140,9 +8695,18 @@ function openWatchPanelShellModule(restoredLayout = false) {
   // (a) progress for in-flight runs is visible alongside playback and
   // (b) historical MVs show which engines/cost they used in the matrix
   //     view. We open the panel non-modally — Watch keeps focus.
+  // CSSOS_WAVE_454 20260527 — Jing: 手机/平板上 pipeline panel 自动弹出会遮挡
+  // Watch 面板整块黑屏 → 用户看不到内容。移动端只在管线「正在运行」时才弹；
+  // 桌面端保持原行为(每次进入都弹, 方便查看历史矩阵)。
   try {
     const pipelinePanel = document.getElementById("mv-pipeline-panel");
-    if (pipelinePanel && pipelinePanel.classList.contains("hidden")) {
+    const _isMobile = isMobileWatchEnvironmentModule?.() ?? false;
+    const _hasActiveRun = !!(
+      globalThis.activePipelineRunId ||
+      globalThis.__cssosMvPipelineRunId ||
+      (pipelinePanel && pipelinePanel.dataset.pipelineActive === "true")
+    );
+    if (pipelinePanel && pipelinePanel.classList.contains("hidden") && (!_isMobile || _hasActiveRun)) {
       pipelinePanel.classList.remove("hidden");
       pipelinePanel.dataset.minimized = "false";
       // Don't focus it (Watch is foreground), but ensure it's positioned
@@ -8368,18 +8932,23 @@ async function handleWatchPlaybackSurfaceClick(ev) {
   // event.target → 点媒体区内的任何控件(头像/⋯/✦/take/aspect/沉浸胶囊/菜单/
   // tab/字体选择器…)都冒泡进来 toggle 暂停 = "一操作就停". 修正: 只有点
   // 【媒体空白区】或【▶/⏸ 播放按钮本身】才切换暂停; 点其它控件直接放行不暂停.
+  // CSSOS_WAVE_556 20260531 — Jing 铁律「MV 面板里任何操作都不暂停正在播放的媒体, 哪怕遮住画面」。
+  // 旧逻辑是【黑名单】(列举所有控件)→ 每加一个新覆盖层/弹窗就得补名单, 漏一个就误暂停。
+  // 改为【正向白名单】: 只有点到【裸媒体面】(屏幕空白/视频/封面/背景)或【▶/⏸ 播放按钮本身】
+  // 才允许往下走切换播放; 其它任何东西(控件/胶囊/菜单/弹窗/任意覆盖层)一律 return 不暂停 →
+  // 以后新增浮层自动安全, 无需维护名单。
   try {
     const t = ev && ev.target;
-    if (t && typeof t.closest === "function" && !t.closest(".watch-overlay-play")) {
-      if (t.closest(
-        "button, a, input, textarea, select, [role=button], [data-watch-tab], " +
-        ".watch-author-avatar, #watch-author-avatar, #watch-actions-pill, " +
-        "#watch-immersive-pill, #watch-style-shift, #watch-pill-row-bl, " +
-        "#watch-take-toggle, #watch-aspect-pill, .watch-media-action, " +
-        ".cssos-author-menu, .cssos-gift-modal, .watch-font-picker, " +
-        ".watch-commerce-actions, .watch-share-info"
-      )) {
-        return; // 点的是控件 → 照常操作, 不打断播放
+    if (t && typeof t.closest === "function") {
+      const isPlayBtn = !!t.closest(".watch-overlay-play");
+      const isBareSurface =
+        t === ev.currentTarget ||
+        (typeof t.matches === "function" && t.matches(
+          ".watch-screen, #watch-video, .watch-video, #watch-svg, .watch-svg, " +
+          "#watch-screen-backdrop, .watch-screen-backdrop"
+        ));
+      if (!isPlayBtn && !isBareSurface) {
+        return; // 不是裸媒体面、也不是播放按钮 → 是某个控件/浮层 → 不打断播放
       }
     }
   } catch (_e) { /* fail-open: 任何异常都按原逻辑走 */ }
@@ -8724,7 +9293,9 @@ async function regenerateLyricsForWatchModule() {
     }
     return true;
   } catch (_err) {
-    showToast(t("watch.toast.regenerateLyricsFailed"));
+    // CSSOS_WAVE_588 — 引导式: 歌词生成失败 → [重新生成](重调本函数)。
+    if (typeof globalThis.cssosToastRetry === "function") globalThis.cssosToastRetry(t("watch.toast.regenerateLyricsFailed"), function () { regenerateLyricsForWatchModule(); });
+    else showToast(t("watch.toast.regenerateLyricsFailed"));
     return false;
   }
 }
@@ -9254,10 +9825,17 @@ function initWatchMusicControlsModule() {
     watchAudioPreview.addEventListener(eventName, handleWatchAudioPreviewTimelineUpdate);
   });
   watchMusicPlay?.addEventListener("click", handleWatchMusicPlayClick);
+  // CSSOS_WAVE_556 20260531 — Jing: ✦ 小星星【点击 = 弹出字体/风格设置小窗口】(不再直接循环切字体)。
+  // 锚定在按钮自身位置打开菜单。原"循环切字体"行为保留给程序内部/其它入口, 不再绑在点击上。
   watchStyleShift?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    cycleWatchTypographyPresetModule();
+    try {
+      const r = watchStyleShift.getBoundingClientRect();
+      openWatchStyleMenuModule(Math.round(r.left), Math.round(r.top), "all");
+    } catch (_e) {
+      try { openWatchStyleMenuModule(event.clientX, event.clientY, "all"); } catch (_e2) {}
+    }
   });
   watchStyleShift?.addEventListener("contextmenu", (event) => {
     event.preventDefault();
@@ -9334,6 +9912,46 @@ function shouldUseEffectiveWatchPreviewVideo() {
   );
 }
 
+// CSSOS_WAVE_543 20260531 — Jing「切歌时上一首的首帧(封面)总要先闪一下才播新媒体」:
+// video 元素换 src 时, 解码前会残留显示【上一首的首帧】。修法: 换 src 前先隐藏 video
+// (.cssos-video-swapping → opacity:0, 底下稳定封面 backdrop 透出 → 不黑屏、不闪旧帧),
+// 等新视频真正 playing(或 4s 兜底)再淡入。幂等; 含安全兜底防止永久隐藏。
+function cssosEnsureWatchVideoSwapStyle() {
+  if (globalThis.__cssosVideoSwapStyleInstalled || typeof document === "undefined") return;
+  globalThis.__cssosVideoSwapStyleInstalled = true;
+  try {
+    // 注: style.watch.css 实际未被加载, 故规则在此注入, 确保生效(与 W538 影院规则同款)。
+    var st = document.createElement("style");
+    st.id = "cssos-video-swap-style";
+    st.textContent =
+      "#watch-video.watch-video{transition:opacity .26s ease;}" +
+      "#watch-video.cssos-video-swapping{opacity:0 !important;}";
+    (document.head || document.documentElement).appendChild(st);
+  } catch (_e) {}
+}
+function cssosBeginWatchVideoSwap() {
+  cssosEnsureWatchVideoSwapStyle();
+  var v = (typeof watchVideo !== "undefined" && watchVideo) || document.getElementById("watch-video");
+  if (!v) return;
+  try {
+    v.classList.add("cssos-video-swapping");
+    if (v.__cssosSwapTimer) { clearTimeout(v.__cssosSwapTimer); v.__cssosSwapTimer = null; }
+    var reveal = function () {
+      try {
+        v.classList.remove("cssos-video-swapping");
+        v.removeEventListener("playing", reveal);
+        v.removeEventListener("loadeddata", reveal);
+        if (v.__cssosSwapTimer) { clearTimeout(v.__cssosSwapTimer); v.__cssosSwapTimer = null; }
+      } catch (_e) {}
+    };
+    v.addEventListener("playing", reveal);   // 真正出动画帧才淡入
+    v.addEventListener("loadeddata", reveal); // 静音/无 playing 时也兜底淡入(已有真实帧)
+    // 安全兜底: 4s 内若都没触发(加载失败/纯音频隐藏 video), 也撤掉隐藏避免永久空白。
+    v.__cssosSwapTimer = setTimeout(reveal, 4000);
+  } catch (_e) {}
+}
+globalThis.cssosBeginWatchVideoSwap = cssosBeginWatchVideoSwap;
+
 function setWatchVideoFromArtifact(uri, options = {}) {
   if (!watchVideo || !uri) return false;
   const isLocalFallback = uri === LOCAL_FALLBACK_MP4;
@@ -9343,6 +9961,7 @@ function setWatchVideoFromArtifact(uri, options = {}) {
   globalThis.currentPreviewVideoSourceKind = sourceKind;
   globalThis.currentPreviewVideoHasUsableFrame = false;
   syncWatchPlaceholderFromCurrentState();
+  cssosBeginWatchVideoSwap(); // W543: 隐藏旧首帧, playing 后再淡入
   if (!uri.startsWith("data:")) {
     watchVideo.src = uri;
     watchVideo.muted = false;
@@ -9432,20 +10051,59 @@ function showWatchFramePlaceholderModule(uri) {
       } catch (_e2) {}
       // CSSOS_WAVE_336 20260522 — Jing: 稳定封面也加载失败(replicate 临时图 404 过期)
       // → 生成一张【标题卡占位】顶上, 绝不留黑屏. 实在生成不了才隐藏.
+      // CSSOS_WAVE_456 20260527 — Jing: W336 调 requestThumbnailDataUrl API 要 3-5s,
+      // 期间 watchSvg.style.display 仍是 none → 只见暗色渐变(好过黑屏, 但仍不理想).
+      // 修复: 先用本地 canvas 瞬间生成品牌色占位图(≤1ms), 立即展示; 再异步升级到 API
+      // 生成的高质量缩略图. 合计: 黑屏 → 即时品牌占位 → (异步)API 质量封面.
       try {
         var ttl = String((currentWatchPreviewWork && currentWatchPreviewWork.title) || state.title || "").trim();
-        if (typeof globalThis.requestThumbnailDataUrl === "function" && !watchSvg.dataset.cssosPlaceholderFell) {
+        if (!watchSvg.dataset.cssosPlaceholderFell) {
           watchSvg.dataset.cssosPlaceholderFell = "1";
-          globalThis.requestThumbnailDataUrl(ttl || loginCopy("CSS MV"), "", []).then(function (durl) {
-            if (durl) {
-              watchSvg.src = durl;
-              watchSvg.style.display = "block";
-              if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = `url("${String(durl).replace(/"/g, '\\"')}")`;
-            } else {
-              watchSvg.style.display = "none";
-              if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = "";
+          // Step 1: instant local canvas placeholder (brand dark-teal title card)
+          try {
+            var _cvs = document.createElement("canvas");
+            _cvs.width = 720; _cvs.height = 405;
+            var _cx = _cvs.getContext("2d");
+            if (_cx) {
+              var _bg = _cx.createLinearGradient(0, 0, 720, 405);
+              _bg.addColorStop(0, "#050f0a"); _bg.addColorStop(1, "#0a1f14");
+              _cx.fillStyle = _bg; _cx.fillRect(0, 0, 720, 405);
+              var _glow = _cx.createRadialGradient(360, 0, 0, 360, 0, 320);
+              _glow.addColorStop(0, "rgba(0,245,160,0.22)"); _glow.addColorStop(1, "transparent");
+              _cx.fillStyle = _glow; _cx.fillRect(0, 0, 720, 405);
+              // CSS logo ring (simple circle)
+              _cx.strokeStyle = "rgba(0,245,160,0.45)"; _cx.lineWidth = 2;
+              _cx.beginPath(); _cx.arc(360, 160, 36, 0, Math.PI * 2); _cx.stroke();
+              _cx.fillStyle = "rgba(0,245,160,0.7)"; _cx.font = "bold 32px system-ui,sans-serif";
+              _cx.textAlign = "center"; _cx.textBaseline = "middle";
+              _cx.fillText("CSS", 360, 160);
+              if (ttl) {
+                _cx.fillStyle = "rgba(255,255,255,0.82)"; _cx.font = "bold 28px system-ui,sans-serif";
+                var _w = 680, _lh = 36, _y0 = 230;
+                // simple word-wrap
+                var _words = ttl.split(" "), _line = "", _lines = [];
+                _words.forEach(function(_w2) { var _t = _line ? _line + " " + _w2 : _w2; if (_cx.measureText(_t).width > _w) { _lines.push(_line); _line = _w2; } else { _line = _t; } });
+                if (_line) _lines.push(_line);
+                _lines.slice(0, 3).forEach(function(_l, _i) { _cx.fillText(_l, 360, _y0 + _i * _lh); });
+              }
+              var _localDurl = _cvs.toDataURL("image/webp", 0.75);
+              if (_localDurl && _localDurl.length > 100) {
+                watchSvg.src = _localDurl;
+                watchSvg.onload = function () { watchSvg.style.display = "block"; watchSvg.dataset.cssosCoverFellBack = ""; };
+                if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = "url(\"" + _localDurl.replace(/"/g, '\\"') + "\")";
+              }
             }
-          }).catch(function () { watchSvg.style.display = "none"; });
+          } catch (_ec) {}
+          // Step 2: async upgrade to API thumbnail (replaces local placeholder when ready)
+          if (typeof globalThis.requestThumbnailDataUrl === "function") {
+            globalThis.requestThumbnailDataUrl(ttl || loginCopy("CSS MV"), "", []).then(function (durl) {
+              if (durl) {
+                watchSvg.src = durl;
+                watchSvg.style.display = "block";
+                if (watchScreenBackdrop) watchScreenBackdrop.style.backgroundImage = "url(\"" + durl.replace(/"/g, '\\"') + "\")";
+              }
+            }).catch(function () {});
+          }
           return;
         }
       } catch (_e3) {}
@@ -9455,7 +10113,18 @@ function showWatchFramePlaceholderModule(uri) {
     watchSvg.onload = function () { watchSvg.dataset.cssosCoverFellBack = ""; watchSvg.style.display = "block"; };
   } catch (_e) {}
   watchSvg.src = uri;
-  watchSvg.style.display = "block";
+  // CSSOS_WAVE_455 20260527 — Jing: 之前在图片加载前就把 display:block 打开 →
+  // 若 URI 是过期的 fal.media 链接(大概率), watchSvg.background:#000 立刻盖住
+  // watch-screen 渐变背景 → 黑屏持续到 onerror+thumbnail API 完成(3-5s). 修复:
+  // 不在此处设 display:block, 让 onload 回调负责; onerror 中 thumbnail 就绪后
+  // 也已经设了 display:block. 图片正在加载时, display 保持 none → 渐变背景透出,
+  // 视觉上是"有内容的暗色面板"而不是死黑. glow 动画同样推迟到 onload 后开始.
+  // 注意: watchSvg.style.display 此时可能是 "none"(CSS 默认) 或上一次留下的 "block".
+  // 若上次成功加载过一张图, 旧图仍显示(src 已切换到新 uri, 加载完毕后 onload 自动刷新).
+  // 若从 display:none 状态进来, 维持 none 直到 onload/thumbnail 回调.
+  if (watchSvg.style.display !== "block") {
+    // no-op: keep current (hidden) state until load completes
+  }
   watchSvg.classList.add("glow");
   // W342 20260523 — Jing: 不再注入 display:none 到 watchVideo.
   // 封面图和视频通过 z-index 叠放(video z-index:2, img z-index:1).
@@ -9563,10 +10232,29 @@ async function playWatchOverlayFeedbackToneModule(mode = "generate") {
  * want it to overlap with the real audio when it finally arrives).
  * The actual audio path is unaffected — `watchAudioPreview` keeps its
  * own src; the video is just visual filler. */
+// CSSOS_WAVE_473 20260527 — Jing「找出恐怖音频/木头人画面, 彻底删除, 换上丰富优美的 demo」:
+// 旧池里有 "Back-to-the-Westworld"(机械仿生人 = 木头人, 且氛围阴森)。改为一组【精挑的优美
+// demo】, 明确剔除阴森标题的(Westworld/The.Curse/Register.of.Souls/Seraph's-Fall/
+// Where-the-Fallen-Lie/We-Never-Return/Monitoring-the-Maze)与那个 46 字节坏档, 随机取一支
+// 作为兜底, 用户失败时也看到丰富优美的画面。
 const W212_DEMO_FALLBACK_VIDEOS = [
   "/examples/AI_Media_FCGM-lZPD_8_002_720p.mp4",
-  "/examples/Back-to-the-Westworld-12_Media_QltXwpK6l4k_002_720p.mp4",
-  "/examples/Cybertruck_Media_C9pLehCkDk8_002_720p%20%281%29.mp4",
+  "/examples/Cybertruck_Media_C9pLehCkDk8_002_720p.mp4",
+  "/examples/Venus-Eternal-Flame-4_Media_yN9f9NYUDHA_002_720p.mp4",
+  "/examples/Synthetic-Sunsets-14_Media_iV8VOn9IZUk_002_720p.mp4",
+  "/examples/Sweetwater-s-Song-30_Media_yWKkKUfty8Q_001_720p.mp4",
+  "/examples/Real-Frontier-17_Media_mFGFzCP_fYM_002_720p.mp4",
+  "/examples/Media_64rKUNq2e3s_002_720p.mp4",
+  "/examples/Media_D43mSSeBhnc_002_720p.mp4",
+  "/examples/Media_DwSgwV2f_gA_002_720p.mp4",
+  "/examples/Media_N1Q5i-wp70g_002_720p.mp4",
+  "/examples/Media_Tv1sHLskx_w_002_720p.mp4",
+  "/examples/Media_dKWwe0hbKvc_002_720p.mp4",
+  "/examples/Media_fIG7N67AGiw_002_720p.mp4",
+  "/examples/Media_kAs1h6VUUBY_002_720p.mp4",
+  "/examples/Media_pKnnjgJTwhU_002_720p.mp4",
+  "/examples/Media_voxGz0V9mGk_002_720p.mp4",
+  "/examples/Media_y1EBKVq5N9Q_002_720p.mp4",
 ];
 function pickW212DemoVideo() {
   return W212_DEMO_FALLBACK_VIDEOS[
@@ -9731,7 +10419,10 @@ function attemptWatchVideoPlaybackModule(options = {}) {
       watchVideo.playsInline = true;
       // 仅在本会话尚未被用户解锁声音前强制静音; 一旦解锁(首次轻触), 后续
       // 切歌就带声音自动播, 不再每首都要求重新点一下.
-      if (!globalThis.__cssosWatchAudioUnlocked) {
+      // CSSOS_WAVE_453 20260527 — Jing: 视频缓冲恢复后 canplay 再次触发此函数,
+      // 不能重复静音 — 只在首帧前 (currentTime < 0.5) 才做初始静音压制.
+      const _isInitialPlay = !watchVideo.currentTime || watchVideo.currentTime < 0.5;
+      if (!globalThis.__cssosWatchAudioUnlocked && _isInitialPlay) {
         watchVideo.muted = true;
         globalThis.__cssosWatchPendingUnmute = true;
       }
@@ -9742,6 +10433,31 @@ function attemptWatchVideoPlaybackModule(options = {}) {
       .then(() => {
         clearWatchPlaybackRetryModule();
         globalThis.watchManualPlayHinted = false;
+        // CSSOS_WAVE_624 — 视频自带音轨(无独立 #watch-audio-preview)时, 强制静音会吞掉唯一的声音。
+        // 视觉已用静音播放绕过策略 → 现在【带声重试】: 原生 App / 已授权浏览器直接出声, 不再等点击。
+        // 仅当确无独立音轨且视频仍静音时尝试; 失败(纯浏览器策略拦)保持静音+等首触(pendingUnmute 已设)。
+        try {
+          var _hasAltAudio = String(watchAudioPreview?.currentSrc || watchAudioPreview?.src || "").trim();
+          if (!_hasAltAudio && watchVideo && watchVideo.muted) {
+            var _unmuteVid = function () {
+              try {
+                watchVideo.muted = false;
+                var _vp = watchVideo.play && watchVideo.play();
+                if (_vp && _vp.then) _vp.then(function () {
+                  globalThis.__cssosWatchAudioUnlocked = true;
+                  globalThis.__cssosWatchPendingUnmute = false;
+                  if (typeof globalThis.hideWatchSoundHintModule === "function") globalThis.hideWatchSoundHintModule();
+                }).catch(function () { try { watchVideo.muted = true; } catch (_e0) {} });
+              } catch (_e1) {}
+            };
+            if (globalThis.__cssosWatchAudioUnlocked) { _unmuteVid(); }
+            else {
+              var _onVCP = function () { watchVideo.removeEventListener("canplay", _onVCP); _unmuteVid(); };
+              watchVideo.addEventListener("canplay", _onVCP);
+              setTimeout(function () { if (watchVideo && watchVideo.muted) _unmuteVid(); }, 250);
+            }
+          }
+        } catch (_eVid) {}
       })
       .catch(() => {
         globalThis.watchPlaybackRetry += 1;
@@ -9865,31 +10581,82 @@ function clearWatchFrameLoopModule() {
     clearInterval(globalThis.watchFrameLoopTimer);
     globalThis.watchFrameLoopTimer = null;
   }
+  // CSSOS_WAVE_547 20260531 — Jing「切歌不清内存→崩溃」: 释放上一首预载的幻灯位图,
+  // 把 src 置空提示 WKWebView 丢弃解码缓存, 断引用助 GC, 避免切歌累积 OOM。
+  try {
+    const imgs = globalThis.__cssosFramePreloadImgs;
+    if (Array.isArray(imgs)) {
+      imgs.forEach((im) => { try { im.src = ""; } catch (_e) {} });
+    }
+    globalThis.__cssosFramePreloadImgs = null;
+  } catch (_e) {}
 }
 
 function startWatchFrameLoopModule(frames) {
-  if (!watchSvg || !Array.isArray(frames) || !frames.length) return false;
+  if (!watchSvg || !Array.isArray(frames)) return false;
+  // CSSOS_WAVE_440 20260526 — Jing「DevTools: replicate.delivery out-0.png 404 刷屏」:
+  // old works' slideshow frames are expired third-party temp links (replicate/fal).
+  // Preloading the FULL sequence fires a 404 storm + churns the fallback. Keep only
+  // frames hosted on our own domain (cssstudio.app local / cdn.cssstudio.app R2 /
+  // data:) — those never 404. If a work has no persisted frames, the loop no-ops and
+  // the single-cover fallback takes over (W429).
+  frames = frames.filter((u) => {
+    const s = String(u || "");
+    return /(^|\/\/|\.)cssstudio\.app\//.test(s) || s.startsWith("data:");
+  });
+  if (!frames.length) return false;
   clearWatchFrameLoopModule();
-  let index = 0;
+  let lastIndex = -1;
   watchSvg.src = frames[0];
-  // CSSOS_WAVE_369 20260523 — Jing「图1 闪帧消除」: 进平台/自动开面板时, 这个循环
-  // 每 420ms 换 watchSvg.src → 待播状态(还没开播)下疯狂闪帧, 而且每次换源都要重新
-  // 加载→空白闪一下. 三处根治:
-  //   1) 预加载所有帧 → 切换瞬时, 无空白闪.
-  //   2) 只有【真正在播放】时才切帧; 加载/待播/暂停一律停在当前帧(稳定不闪).
-  //   3) 节奏从 420ms 放慢到 2200ms → "缓慢闪动", 不再"闪来闪去".
-  frames.forEach((f) => { try { const im = new Image(); im.decoding = "async"; im.src = f; } catch (_e) {} });
-  globalThis.watchFrameLoopTimer = setInterval(() => {
+  // CSSOS_WAVE_369 20260523 — Jing「图1 闪帧消除」: 预加载帧 → 切换瞬时无空白闪;
+  // 只有真正在播放时才切帧(待播/加载/暂停停在当前帧).
+  // CSSOS_WAVE_547 20260531 — Jing「切歌崩溃 = 内存满」根治(其一): 此前每次切歌都 new Image()
+  // 强制解码【全部 15~30 帧】, 且 clearWatchFrameLoopModule 只清定时器、从不释放这些位图 →
+  // WKWebView 解码缓存随切歌累积 → OOM 崩溃(reload 页)。修法: ①只预解码前 6 帧(够消除切换闪,
+  // 其余在 loop 设 watchSvg.src 时按需加载); ②把预载 Image 句柄存起来, 切歌/清理时把 src 置空
+  // 以提示尽快回收解码位图。
+  try {
+    const _old = globalThis.__cssosFramePreloadImgs;
+    if (Array.isArray(_old)) { _old.forEach((im) => { try { im.src = ""; } catch (_e) {} }); }
+  } catch (_e) {}
+  const _preloadImgs = [];
+  frames.slice(0, 6).forEach((f) => {
+    try { const im = new Image(); im.decoding = "async"; im.src = f; _preloadImgs.push(im); } catch (_e) {}
+  });
+  globalThis.__cssosFramePreloadImgs = _preloadImgs;
+  // CSSOS_WAVE_416 20260524 — Jing「每 take 一套自己的幻灯时间轴, 铺满不借用」(approach A):
+  // the displayed frame is now a PURE FUNCTION of the active media clock's PROGRESS
+  // (currentTime / duration), not a wall-clock interval. So the SAME shared frame
+  // pool is dynamically re-cut to whatever track is playing — switch language or
+  // Take 1↔2 (each with its own duration) and the picture instantly re-syncs to the
+  // new clock: one full pass spread across the WHOLE track. No "长音轨幻灯不够 /
+  // 短音轨幻灯太长", no wasted compute/disk (one pool, N timelines). Falls back to a
+  // gentle ~2.2s/frame loop only until the media reports its duration.
+  const PER_FRAME_S = 2.2;
+  const tick = () => {
     if (!watchSvg || !watchSvg.style || watchSvg.style.display === "none") return;
     var v = document.getElementById("watch-video");
     var a = document.getElementById("watch-audio-preview");
-    var playing =
-      (v && !v.paused && !v.ended && v.currentTime > 0) ||
-      (a && !a.paused && !a.ended && a.currentTime > 0);
-    if (!playing) return; // 待播/加载/暂停 → 停在当前帧, 不闪
-    index = (index + 1) % frames.length;
-    watchSvg.src = frames[index];
-  }, 2200);
+    // The clock is whichever element is the active sound/timeline source.
+    var clockEl = (a && a.src && !a.paused && !a.ended && a.currentTime > 0) ? a
+      : (v && !v.paused && !v.ended && v.currentTime > 0) ? v : null;
+    if (!clockEl) return; // 待播/加载/暂停 → 停在当前帧, 不闪
+    var t = clockEl.currentTime || 0;
+    var dur = clockEl.duration;
+    var idx;
+    if (isFinite(dur) && dur > 1) {
+      // duration-proportional: frame i shown over [i, i+1) * (dur / N).
+      idx = Math.floor((t / dur) * frames.length);
+      if (idx >= frames.length) idx = frames.length - 1;
+      if (idx < 0) idx = 0;
+    } else {
+      idx = Math.floor(t / PER_FRAME_S) % frames.length; // pre-metadata fallback
+    }
+    if (idx !== lastIndex) { lastIndex = idx; watchSvg.src = frames[idx]; }
+  };
+  // 400ms cadence keeps frame changes punctual on short tracks without thrashing
+  // src (we only swap when the computed index actually changes).
+  globalThis.watchFrameLoopTimer = setInterval(tick, 400);
   return true;
 }
 
@@ -10953,16 +11720,26 @@ async function renderMarketWorkPreviewIntoWatchModule({
 }
 
 function syncWatchPlaceholderFromCurrentState() {
+  // CSSOS_WAVE_429 20260525 — Jing「海量帧池, 幻灯却一张老脸撑到底, 接入不了」根因:
+  // 帧池其实已被 work-id-binding 拉取并 startWatchFrameLoopModule 跑起来了, 但本函数
+  // (各种 state 同步/切 tab 时被调用)把【单张持久封面】排在最前 → clearWatchFrameLoopModule()
+  // 杀掉正在转的帧循环 + 钉死一张静态封面 → 单张封面抢占了海量帧池 = "老脸撑到底".
+  // 修法: 【多帧池优先】—— 只要有 ≥2 帧的池, 就跑幻灯循环; 单张持久封面只在【无池】时兜底。
+  const cachedSequence = (globalThis.currentPreviewFrameSequence && globalThis.currentPreviewFrameSequence.length)
+    ? globalThis.currentPreviewFrameSequence
+    : getCachedWatchFrameSequenceModule();
+  if (cachedSequence && cachedSequence.length >= 2) {
+    showWatchFramePlaceholderModule(cachedSequence[0]);
+    startWatchFrameLoopModule(cachedSequence);   // 海量帧池转起来, 不再被单封面preempt
+    return true;
+  }
   const persistedCoverImage = String(resolveWorkCoverImage(currentWatchPreviewWork || {}) || "").trim();
   if (persistedCoverImage && !isSyntheticWorkCoverImage(persistedCoverImage)) {
     clearWatchFrameLoopModule();
     setForyouBackgroundImage(persistedCoverImage);
     return showWatchFramePlaceholderModule(persistedCoverImage);
   }
-  const cachedSequence = globalThis.currentPreviewFrameSequence.length
-    ? globalThis.currentPreviewFrameSequence
-    : getCachedWatchFrameSequenceModule();
-  if (cachedSequence.length) {
+  if (cachedSequence && cachedSequence.length) {
     showWatchFramePlaceholderModule(cachedSequence[0]);
     startWatchFrameLoopModule(cachedSequence);
     return true;
@@ -11004,6 +11781,62 @@ const buildExampleAssetProxyUrl = (name) => {
 globalThis.getForyouPreviewModeModule = getForyouPreviewModeModule;
 globalThis.buildForyouThumbSvgModule = buildForyouThumbSvgModule;
 globalThis.buildForyouThumbSvg = globalThis.buildForyouThumbSvg || buildForyouThumbSvgModule;
+
+// CSSOS_WAVE_474 20260527 — Jing「切歌不要每次都 tap for sound; App 启动后任意一次手势之后,
+// 不再要求用户任何操作」: 注册一个全局【首次手势解锁】监听。用户在 App/页面里做的任何第一次
+// 手势(点/触/键)即把本会话标记为【已授权声音】, 解除当前音频静音并续播、收起提示。之后切歌
+// 由 W473b 检测到 __cssosWatchAudioUnlocked 直接带声自动播, 永不再提示。注: 旧的"首触解锁"
+// 只在【有视频在播】时触发(行 8734), 幻灯+音轨模式没有视频 → 从不解锁 → 每次切歌都提示。
+(function installCssosFirstGestureAudioUnlock() {
+  if (typeof document === "undefined" || globalThis.__cssosAudioUnlockInstalled) return;
+  globalThis.__cssosAudioUnlockInstalled = true;
+  // CSSOS_WAVE_542 20260531 — Jing「切歌总要再点一下才有声, 尤其没幻灯/视频时」根因:
+  // W474 的 unlockAudioOnce 只在元素【已有 src】时才 play() 去激活(bless)。但用户的
+  // 第一次手势往往发生在歌还没加载时(开面板/滑动)→ audio 元素没 src → 跳过 bless →
+  // 该元素【从未被手势激活】。之后切到纯音轨歌(无视频)、程序化 play() 时, iOS 因
+  // "元素从未经手势激活"拦截 → 又要 tap。修法: 首次手势【无条件】激活 audio+video 元素
+  // (没真 src 就塞一段静音 WAV, 静音 play 一下再清掉), 元素被永久 bless, 此后切歌带声自动播。
+  var _SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+  function _blessMediaEl(el) {
+    if (!el) return;
+    try {
+      var hasReal = String(el.currentSrc || el.src || "").trim();
+      if (hasReal) {
+        // 真歌已就位 → 直接解除静音并续播。
+        el.muted = false;
+        var pr = el.play && el.play(); if (pr && pr.catch) pr.catch(function () {});
+        return;
+      }
+      // 无 src → 用静音 WAV 在手势内激活该元素, 随即暂停并清掉, 元素保持 blessed。
+      el.muted = true;
+      el.src = _SILENT_WAV;
+      var p = el.play && el.play();
+      var cleanup = function () {
+        try { el.pause && el.pause(); } catch (_c) {}
+        try {
+          if (String(el.currentSrc || el.src || "") === _SILENT_WAV) {
+            el.removeAttribute("src");
+            el.load && el.load();
+          }
+        } catch (_c2) {}
+        try { el.muted = false; } catch (_c3) {}
+      };
+      if (p && p.then) p.then(cleanup, cleanup); else cleanup();
+    } catch (_e) {}
+  }
+  function unlockAudioOnce() {
+    if (globalThis.__cssosWatchAudioUnlocked) return;
+    globalThis.__cssosWatchAudioUnlocked = true;   // 本会话已授权 → W473b 之后直接带声
+    globalThis.__cssosWatchPendingUnmute = false;
+    try { if (typeof hideWatchSoundHintModule === "function") hideWatchSoundHintModule(); } catch (_e) {}
+    _blessMediaEl(document.getElementById("watch-audio-preview"));
+    _blessMediaEl(document.getElementById("watch-video"));
+  }
+  globalThis.cssosUnlockWatchAudio = unlockAudioOnce;
+  ["pointerdown", "touchstart", "mousedown", "keydown", "click"].forEach(function (ev) {
+    try { document.addEventListener(ev, unlockAudioOnce, { capture: true, passive: true }); } catch (_e) {}
+  });
+})();
 globalThis.syncForyouThumbFromLyricsModule = syncForyouThumbFromLyricsModule;
 globalThis.stopWatchBackgroundWorkModule = stopWatchBackgroundWorkModule;
 

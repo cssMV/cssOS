@@ -34,10 +34,110 @@
   let __currentWork = null;
 
   function flushAllAssetCaches() {
+    /* CSSOS_WAVE_204 20260516 — Jing: "关闭MV面板之后，从'为你创作'面板
+     * 想再打开，标题/歌词/音频全乱套了，三个不同作品的数据混在一起，
+     * 只有封面正确". Root cause: flushing DOM caches alone isn't enough
+     * — the cssosMvPipelinePanelState singleton retains title/lyrics/
+     * audioUrl/etc from the LAST pipeline run. When the watch path
+     * re-opens a different work, half the surfaces read from the
+     * freshly-set cssmvPipelineLastResult (correct) and the other half
+     * still read from the stale pipelineState (the previous work's
+     * data). Result: mixed-source split-brain UI.
+     *
+     * Fix: every work-switch also wipes the 25+ pipeline state output
+     * fields, so downstream readers re-hydrate purely from the new
+     * work's payload. */
+    try {
+      const ps = (typeof globalThis.cssosMvPipelinePanelState === "function")
+        ? globalThis.cssosMvPipelinePanelState()
+        : null;
+      if (ps) {
+        ps.title = "";
+        ps.lyrics = "";
+        ps.sections = null;
+        ps.shotScripts = null;
+        ps.derivedSettings = null;
+        ps.derived_settings = null;
+        ps.workType = null;
+        ps.voiceGender = null;
+        ps.tempoBpm = null;
+        ps.musicKey = null;
+        ps.genre = null;
+        ps.mood = null;
+        ps.instrument = null;
+        ps.ambience = null;
+        ps.vocalStyle = null;
+        ps.ensembleStyle = null;
+        ps.instrumentation = null;
+        ps.sectionForm = null;
+        ps.articulationBias = null;
+        ps.voicingRegister = null;
+        ps.expressionCcBias = null;
+        ps.inspirationNotes = null;
+        ps.referenceArtists = null;
+        ps.audioUrl = "";
+        ps.audioUrlBackendOnly = null;
+        ps.altAudioUrl = "";
+        ps.duration = 0;
+        ps.altDuration = 0;
+        ps.alignedLyrics = null;
+        ps.karaJson = null;
+        ps.targetDurationSecs = 0;
+        ps.videoUrl = null;
+        ps.videoSegments = null;
+        ps.videoDurSecs = 0;
+        ps.subtitlesSrt = null;
+        ps.subtitlesAss = null;
+        ps.engines = {};
+        ps._lastPipelineLyrics = "";
+        ps._lastPipelineTitle = "";
+      }
+    } catch (_e) {}
+    /* CSSOS_WAVE_204 — also clear the global "last result" cache that
+     * universal-entry freshness checks read from. cssmvPipelineLastResult
+     * carries title/lyrics/audioUrl etc — same split-brain risk if it
+     * stays populated with a previous work's data past a work-switch. */
+    try { globalThis.cssmvPipelineLastResult = null; } catch (_e) {}
+    /* CSSOS_WAVE_207 20260516 — Jing: "Du Fu × Yueyang Tower" 妖怪.
+     * The in-frame art title overlay (cssmv-mv-title) is rehydrated
+     * from a module-scoped mvTitleCachedText when the watch frame
+     * remounts. If a previous work's title is still in that cache and
+     * the new work hasn't had a chance to call cssmvRenderMvArtTitle
+     * yet, the stale text shows up — and our 10s auto-hide didn't apply
+     * to the rehydrate path. Hard-clear the overlay on every bind
+     * (passing "" explicitly nukes the cache via the W207 fix above). */
+    try {
+      if (typeof globalThis.cssmvRenderMvArtTitle === "function") {
+        globalThis.cssmvRenderMvArtTitle("");
+      } else if (typeof globalThis.cssmvHideMvArtTitle === "function") {
+        globalThis.cssmvHideMvArtTitle();
+      }
+    } catch (_e) {}
     // Frame caches
     try { globalThis.currentPreviewFrameDataUrl = ""; } catch (_) {}
     try { globalThis.currentPreviewFrameSequence = []; } catch (_) {}
     try { globalThis.currentForyouThumbFallbackDataUrl = ""; } catch (_) {}
+    // CSSOS_WAVE_550 20260531 — Jing「按 ID 读取却张冠李戴」根治: 此前 flush 漏清了
+    // 【封面/画作变体池】两个全局 → 上一首的封面/幻灯池残留到下一首(尤其新作品无 slideshow
+    // 时, 旧池继续显示)= 张冠李戴。这里一并清掉 + 清常驻背景层 + 释放 motion clip + 重置视频帧标志。
+    try { globalThis.currentResolvedWatchArtworkDataUrl = ""; } catch (_) {}
+    try { globalThis.currentWatchArtworkVariantPool = []; } catch (_) {}
+    // CSSOS_WAVE_617 — Jing「幻灯帧池串台」根治: 同时清掉 cover-slideshow 内部的 state.slides,
+    // 否则切到无帧作品时上一首/最新封面的帧会残留 → 张冠李戴。每首只用自己的帧(严格按 ID)。
+    try { if (typeof globalThis.cssmvClearCoverSlides === "function") globalThis.cssmvClearCoverSlides(); } catch (_) {}
+    try { globalThis.currentPreviewVideoSourceKind = "none"; } catch (_) {}
+    try { globalThis.currentPreviewVideoHasUsableFrame = false; } catch (_) {}
+    try {
+      if (globalThis.currentPreviewMotionClipUrl) {
+        URL.revokeObjectURL(globalThis.currentPreviewMotionClipUrl);
+        globalThis.currentPreviewMotionClipUrl = "";
+      }
+    } catch (_) {}
+    // 常驻背景层(W333 稳定封面 backdrop)— 清掉旧封面, 由 bind 后用新作品封面立即重绘(见 cssosBindToWorkId)。
+    try {
+      const bd = document.getElementById("watch-screen-backdrop");
+      if (bd) bd.style.backgroundImage = "";
+    } catch (_) {}
     // Video element
     try {
       const v = document.querySelector("#watch-panel video, .watch-screen video");
@@ -83,6 +183,18 @@
   globalThis.cssosCurrentWorkId = function () { return __currentWorkId; };
   globalThis.cssosCurrentWork = function () { return __currentWork; };
 
+  // CSSOS_WAVE_630 20260604 — Jing「孔子杏坛说教 无声 + 封面串台」根因: 多部作品的【合成部件】
+  // id 形如 `<rootuuid>__part_3`(buildFallbackHierarchyChildren), 拿去请求 /api/works/:id/
+  // {language-tracks,slideshow} 时, 非 36 位 uuid → 后端 400 → 没音轨(无声) + 没帧(串用上一首封面)。
+  // 这些合成部件本就是【同一首歌的歌词分段视图】, 应当复用 root 的音轨+帧。统一把 id 归一到 root。
+  globalThis.cssosRootWorkId = function (id) {
+    var s = String(id || "").trim();
+    if (!s) return s;
+    // 去掉合成后缀 __part_N / __act_N / 任意 __xxx; 取第一段。
+    var root = s.split("__")[0].trim();
+    return root || s;
+  };
+
   globalThis.cssosBindToWorkId = function (idOrWork, maybeWork) {
     // Accept either (id, work) or (work).
     let id, work;
@@ -96,6 +208,8 @@
       return false;
     }
     if (!id) return false;
+    // 归一到 root: 合成部件(…__part_N)复用 root 的音轨/帧, 避免 400 → 无声/封面串台。
+    id = globalThis.cssosRootWorkId(id);
     if (id === __currentWorkId) {
       // Same work — just update the work object if a fresher one arrived
       if (work) __currentWork = work;
@@ -106,6 +220,19 @@
     flushAllAssetCaches();
     __currentWorkId = id;
     __currentWork = work || null;
+    // CSSOS_WAVE_550 — flush 清空了 backdrop; 立刻用【新作品】封面重绘, 避免黑屏闪 + 杜绝旧封面残留。
+    try {
+      const cov = String((work && (work.cover_image || work.cover_url || work.preview_image_url)) || "").trim();
+      const bd = document.getElementById("watch-screen-backdrop");
+      if (bd && cov && !/^data:image\/svg/i.test(cov)) {
+        const stable = (typeof globalThis.cssosThumb === "function") ? (globalThis.cssosThumb(cov, 800) || cov) : cov;
+        bd.style.backgroundImage = 'url("' + String(stable).replace(/"/g, '\\"') + '")';
+        bd.style.backgroundSize = "cover";
+        bd.style.backgroundPosition = "center";
+        globalThis.currentResolvedWatchArtworkDataUrl = cov;
+        globalThis.currentWatchArtworkVariantPool = [cov];
+      }
+    } catch (_) {}
     try {
       const wp = document.getElementById("watch-panel");
       if (wp) wp.dataset.activeWorkId = id;
@@ -125,31 +252,53 @@
     // server returns 0 frames (pool not yet generated), we silently
     // fall back to whatever the existing single-cover logic produces.
     // The draw is per-bind, so every replay sees a new visual mix.
-    fetchSlideshow(id).then((urls) => {
-      // Ownership check: a faster work-switch may have happened while
-      // this fetch was in-flight; only apply if still bound to id.
-      if (__currentWorkId !== id) return;
-      if (!urls || urls.length === 0) return;
-      try {
-        globalThis.currentPreviewFrameSequence = urls;
-        if (urls[0]) globalThis.currentPreviewFrameDataUrl = urls[0];
-        // Re-trigger the watch frame loop with the new pool
-        if (typeof globalThis.startWatchFrameLoopModule === "function") {
-          globalThis.startWatchFrameLoopModule(urls);
+    // CSSOS_WAVE_587 — Jing「纯幻灯作品要循环几遍才出画面」根因:
+    // 帧池服务端是异步生成的, 首次 bind 时常返回 0 帧 → 旧代码直接 return 放弃,
+    // 什么都不显示, 只能等下一次循环重新 bind 才碰巧拿到 → "循环几遍才出"。
+    // 修复: 返回 0 帧 = 池子还没就绪 → 有界重试(带退避), 拿到就立即挂载。
+    (function loadSlideshowWithRetry(attempt) {
+      fetchSlideshow(id).then((urls) => {
+        if (__currentWorkId !== id) return; // 归属校验: 用户已切到别的作品 → 丢弃
+        if (!urls || urls.length === 0) {
+          if (attempt < 6) setTimeout(function () { loadSlideshowWithRetry(attempt + 1); }, 1400 + attempt * 800);
+          return; // 重试用尽 → 回落 legacy 单封面
         }
-        window.dispatchEvent(new CustomEvent("cssos:slideshow-loaded", {
-          detail: { workId: id, count: urls.length },
-        }));
-      } catch (_) {}
-    }).catch(() => { /* no-op — fall back to legacy single-cover path */ });
+        try {
+          globalThis.currentPreviewFrameSequence = urls;
+          if (urls[0]) globalThis.currentPreviewFrameDataUrl = urls[0];
+          if (typeof globalThis.startWatchFrameLoopModule === "function") {
+            globalThis.startWatchFrameLoopModule(urls);
+          }
+          // WAVE_444d — feed full pool into the cover slideshow so it always runs (music + MV tabs).
+          if (typeof globalThis.cssmvSetCoverSlides === "function") globalThis.cssmvSetCoverSlides(urls);
+          if (typeof globalThis.cssmvStartCoverSlideshow === "function") globalThis.cssmvStartCoverSlideshow({ mv: true, music: true });
+          window.dispatchEvent(new CustomEvent("cssos:slideshow-loaded", { detail: { workId: id, count: urls.length } }));
+        } catch (_) {}
+      }).catch(function () {
+        if (__currentWorkId === id && attempt < 6) setTimeout(function () { loadSlideshowWithRetry(attempt + 1); }, 1400 + attempt * 800);
+      });
+    })(0);
     return true;
   };
 
   async function fetchSlideshow(workId) {
     try {
-      const r = await fetch(`/api/works/${encodeURIComponent(workId)}/slideshow`, {
-        credentials: "include",
-      });
+      workId = globalThis.cssosRootWorkId(workId); // W630 — 合成部件归一到 root, 否则 400 取不到帧
+      // CSSOS_WAVE_127 — request the device-correct orientation. Desktop
+      // / landscape viewport → cinema 16:9 frames; phone / portrait
+      // viewport → 9:16 frames composed for mobile fullscreen. The
+      // server tops up with the other orientation if the pool is short.
+      var portrait = false;
+      try {
+        portrait = window.matchMedia &&
+          window.matchMedia("(orientation: portrait)").matches &&
+          window.innerWidth <= 900;
+      } catch (_) {}
+      const orient = portrait ? "portrait" : "landscape";
+      const r = await fetch(
+        `/api/works/${encodeURIComponent(workId)}/slideshow?orientation=${orient}`,
+        { credentials: "include" },
+      );
       if (!r.ok) return [];
       const j = await r.json();
       return Array.isArray(j?.urls) ? j.urls.filter(Boolean) : [];
@@ -199,5 +348,5 @@
     }
   }, 8000);
 
-  console.info("%c[work-id-binding] Wave 121 installed", "color:#0a0;font-weight:bold");
+  // CSSOS_WAVE_536 — 静音启动 install 日志(保持控制台干净)。
 })();

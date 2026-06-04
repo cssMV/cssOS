@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>cssOS Studio</string>
+	<string>cssOS</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -41,22 +41,35 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
+	<!-- WAVE_445e 20260526 — Jing: UIRequiresFullScreen 让 iPad 退出 Split View/Slide Over
+	     多任务模式，从而允许限定竖屏方向而不触发 Apple 的"必须支持全部4方向"校验。
+	     没有这个 key，Info.plist 里缺少 LandscapeLeft/Right 会导致上传报错 90474。 -->
+	<key>UIRequiresFullScreen</key>
+	<true/>
+	<!-- WAVE_445c 20260526 — Jing: 固定竖屏，禁止横屏。
+	     iPhone: Portrait only (no Landscape).
+	     iPad: Portrait + PortraitUpsideDown only (no Landscape).
+	     This is the system-level lock — takes effect from App launch,
+	     before any JS/CSS orientation code runs. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+	<!-- CSSOS_WAVE_244 20260520 — Jing: 真全屏沉浸. 状态栏(时间/信号)从
+	     App 启动就永久隐藏; Home 指示条交给 ViewController 的
+	     prefersHomeIndicatorAutoHidden (iOS 无操作 ~2s 自动淡隐). -->
+	<key>UIStatusBarHidden</key>
+	<true/>
+	<key>UIStatusBarHidden~ipad</key>
 	<true/>
 </dict>
 </plist>

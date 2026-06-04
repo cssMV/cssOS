@@ -23,7 +23,10 @@
     "web:check": "tsc --noEmit -p web/tsconfig.json",
     "web:preview": "vite preview",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "testflight:ios": "bash scripts/ios-testflight.sh",
+    "iap:sync": "node scripts/iap-sync.mjs",
+    "iap:sync:dry": "node scripts/iap-sync.mjs --dry-run"
   },
   "keywords": [],
   "author": "",

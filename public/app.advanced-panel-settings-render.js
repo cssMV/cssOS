@@ -8,6 +8,14 @@
 // into creationState in app.js, and various render paths splat them
 // into the DOM); a fixed-up sweep is the simplest way to be the last
 // writer wins. User-typed values are preserved via dataset flag.
+
+// CSSOS_WAVE_485d 20260528 — Jing「彻底捉闪烁鬼」: crash-log 实锤每次 boot 都抛
+// "Can't find variable: advancedPanelSettingsHeavyFrame"(renderAdvancedPanelSettingsBridge
+// → renderAdvancedPanelSettings → app.boot.js:207)。该变量在 944/947 行被读写却【从未声明】,
+// deferHeavy 为真时读取即 ReferenceError → boot 路径抛出未捕获异常 → App 启动不稳定。
+// 修复: 在模块作用域声明它(rAF 句柄, 0 表示无挂起帧)。
+let advancedPanelSettingsHeavyFrame = 0;
+
 const ADVANCED_BLANK_FIELD_IDS = [
   "creation-instrumentation",
   "creation-vocal-style",
@@ -277,10 +285,10 @@ async function renderAdvancedPanelSettingsBridge(options = {}) {
   advancedPanelSettings.hidden = wasHidden;
   advancedPanelSettings.dataset.needsRender = "false";
   advancedPanelSettings.querySelectorAll("[data-scroll-peek]").forEach((scroller) => {
-    scroller.addEventListener("scroll", () => callCreationFlowModule("syncScrollPeekModule", scroller), {
+    scroller.addEventListener("scroll", () => { if (typeof callCreationFlowModule === "function") callCreationFlowModule("syncScrollPeekModule", scroller); }, {
       passive: true
     });
-    callCreationFlowModule("syncScrollPeekModule", scroller);
+    if (typeof callCreationFlowModule === "function") callCreationFlowModule("syncScrollPeekModule", scroller);
   });
   advancedPanelSettings.querySelectorAll("[data-advanced-nav]").forEach((button) => {
     button.addEventListener("click", () => {

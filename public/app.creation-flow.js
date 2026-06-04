@@ -710,13 +710,20 @@ function creationTabLabelModule(tabKey) {
 }
 
 function creationChipLabelModule(tabKey, value) {
-  const key = `creation.option.${tabKey}.${String(value || "")
+  const raw = String(value || "");
+  const key = `creation.option.${tabKey}.${raw
     .replace(/&/g, "and")
     .replace(/\s+/g, "_")
     .replace(/[^\w]/g, "")
     .toLowerCase()}`;
   const translated = t(key);
-  return translated || value;
+  // If translation missing (t() returns the key itself), humanize raw value.
+  if (!translated || translated === key) {
+    return raw
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return translated;
 }
 
 function syncCreationTabsDomModule(tabDefs = []) {
@@ -740,7 +747,12 @@ function syncCreationTabsDomModule(tabDefs = []) {
       button.dataset.creationTab = key;
     }
     button.textContent = creationTabLabelModule(key);
-    button.classList.toggle("active", creationState.activeTab === key);
+    // v28 step 14 — Jing: only mark .active after the user clicks.
+    const hasUserInteracted = !!creationState.userInteractedTabs;
+    button.classList.toggle(
+      "active",
+      hasUserInteracted && creationState.activeTab === key
+    );
     const currentChild = creationTabs.children[index];
     if (currentChild !== button) {
       creationTabs.insertBefore(button, currentChild || null);
@@ -771,7 +783,9 @@ function syncCreationChipsDomModule(items = [], selected = "") {
       button.dataset.creationChip = value;
     }
     button.textContent = creationChipLabelModule(creationState.activeTab, value);
-    button.classList.toggle("active", selected === value);
+    // v28 step 16 — chip .active suppressed until user interacts.
+    const hasUserInteracted = !!creationState.userInteractedChips;
+    button.classList.toggle("active", hasUserInteracted && selected === value);
     const currentChild = creationChips.children[index];
     if (currentChild !== button) {
       creationChips.insertBefore(button, currentChild || null);
@@ -981,6 +995,11 @@ function initCreationConsoleModule() {
     const key = target.dataset.creationTab;
     if (!key) return;
     creationState.activeTab = key;
+    creationState.userInteractedTabs = true;
+    // v28 step 29 — Jing: force re-sync even when activeTab didn't
+    // change (first click on the pre-seeded "genre" still has to
+    // flip the .active class on).
+    creationConsoleViewStateModule.activeTab = "__force_resync__";
     renderCreationConsoleModule();
   });
   creationTabs.addEventListener("scroll", () => syncScrollPeekModule(creationTabs), { passive: true });
@@ -993,6 +1012,7 @@ function initCreationConsoleModule() {
     if (!chip) return;
     const key = creationState.activeTab;
     markCreationFieldTouched(key);
+    creationState.userInteractedChips = true;
     creationState.selections[key] = creationState.selections[key] === chip ? "" : chip;
     syncCreationStateToLegacyInputs();
     renderCreationConsoleModule();
@@ -1262,10 +1282,78 @@ function describeCreationRandomizationModule() {
   ].join(" · ");
 }
 
+// CSSOS_WAVE_417 20260524 — Jing「多语言选择器没部署到高级设置」根因: the picker was
+// only mounted inside openCreationConsoleModule(), so opening Advanced Settings via
+// the gear icon (or any other path) left #creation-language-picker EMPTY. Make the
+// mount idempotent + trigger it on EVERY way the panel can appear: openConsole, boot,
+// and a visibility observer. freeFirst=true; first checked language = free default,
+// extras paid; selection persists as the canonical language preference (read by every
+// entry incl. zero-input 一键MV).
+function ensureLanguagePickerMountedModule() {
+  try {
+    const lpEl = document.getElementById("creation-language-picker");
+    if (!lpEl || typeof globalThis.cssosMountLanguagePicker !== "function") return;
+    if (lpEl.children && lpEl.children.length > 0) return; // already mounted
+    const savedPref = (typeof globalThis.cssosGetLanguagePreferenceModule === "function")
+      ? globalThis.cssosGetLanguagePreferenceModule() : [];
+    creationState.languagePicker = globalThis.cssosMountLanguagePicker(lpEl, {
+      freeFirst: true,
+      initialSelected: savedPref,
+      onChange: function (st) {
+        creationState.selectedLanguages = (st && st.languages) || [];
+        if (creationState.selectedLanguages.length) {
+          creationState.outputLanguage = creationState.selectedLanguages[0];
+        }
+        if (typeof globalThis.cssosSetLanguagePreferenceModule === "function") {
+          globalThis.cssosSetLanguagePreferenceModule(creationState.selectedLanguages);
+        }
+      },
+    });
+  } catch (_lpErr) { /* additive — never block the panel */ }
+}
+globalThis.ensureLanguagePickerMountedModule = ensureLanguagePickerMountedModule;
+// Mount as soon as the scripts + DOM are ready (the div is static in index.html),
+// so the picker is populated no matter HOW Advanced Settings is opened. Idempotent.
+try {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () {
+      setTimeout(ensureLanguagePickerMountedModule, 0);
+    }, { once: true });
+  } else {
+    setTimeout(ensureLanguagePickerMountedModule, 0);
+  }
+  // Safety net: if the panel is revealed later and the picker is somehow still
+  // empty, a one-shot observer remounts it the first time it becomes visible.
+  const _lpDiv = document.getElementById("creation-language-picker");
+  if (_lpDiv && "IntersectionObserver" in globalThis) {
+    const _io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) ensureLanguagePickerMountedModule(); });
+    });
+    _io.observe(_lpDiv);
+  }
+} catch (_bootErr) { /* additive */ }
+
 function openCreationConsoleModule() {
   openPanel(settingsPanel);
+  // v28 step 14 — Jing: keep activeTab="genre" for chip catalog
+  // lookup, but suppress .active class until first user click.
   creationState.activeTab = "genre";
+  creationState.userInteractedTabs = false;
+  creationState.userInteractedChips = false;
+  if (creationState && creationState.selections) {
+    Object.keys(creationState.selections).forEach((k) => {
+      creationState.selections[k] = "";
+    });
+  }
+  // v28 step 16 — Jing: clear the seeded MUSIC STYLE textarea.
+  const styleInputEl = document.getElementById("creation-style-input");
+  if (styleInputEl) styleInputEl.value = "";
+  if (state.songSeed) {
+    state.songSeed.musicStyle = "";
+    if (state.songSeed.creativeSummary) state.songSeed.creativeSummary.compact = "";
+  }
   renderCreationConsoleModule();
+  ensureLanguagePickerMountedModule();
   const box = document.getElementById("creation-console");
   box?.scrollIntoView({ behavior: "smooth", block: "center" });
 }

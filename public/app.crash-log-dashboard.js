@@ -252,7 +252,9 @@
   async function loadReport(hours) {
     const list = document.querySelector("#cssos-crash-dash-panel [data-cd-list]");
     if (!list) return;
-    list.innerHTML = `<div style="padding:32px 16px;text-align:center;color:rgba(218,255,238,0.5);font:500 12px/1.4 ui-monospace,monospace;">Loading report…</div>`;
+    list.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+      ? globalThis.cssosSkeletonRowsMarkup(5, "Loading report…")
+      : `<div style="padding:32px 16px;text-align:center;color:rgba(218,255,238,0.5);font:500 12px/1.4 ui-monospace,monospace;">Loading report…</div>`);
     let j = null;
     try {
       const r = await fetch(`/api/admin/crash-log/report?hours=${Number(hours) || 48}`, { credentials: "include" });

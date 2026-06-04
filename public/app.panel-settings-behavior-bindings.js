@@ -143,8 +143,13 @@ function bindPanelSettingsBehaviorInputsBridge({
   // index. On change, find the dock-item paired with this panel and
   // reinsert it at the requested 0-based index, then persist the new
   // dock order to localStorage so the choice survives reloads.
-  const panelDockSlotInput = settings.querySelector('[data-setting="panel-dock-slot"]');
-  const panelDockSlotReadout = settings.querySelector('[data-setting-readout="panel-dock-slot-current"]');
+  // CSSOS_WAVE_431 20260525 — Jing「平台动辄刷新返回主界面」崩溃日志对比发现的同族 bug:
+  // 这里直接引用了未定义的全局 `settings` → ReferenceError(和 W428 的 `state is not
+  // defined` 同一类), 一打开面板设置(⚙)就抛 → 整页可能被错误处理器拉回主界面。根因:
+  // 本函数只解构了 `panel`, 从没拿到 settings 容器。从 panel 安全派生 + 可选链兜底, 永不抛。
+  const settings = (panel && (panel.querySelector(".settings-body, .panel-settings") || panel)) || null;
+  const panelDockSlotInput = settings ? settings.querySelector('[data-setting="panel-dock-slot"]') : null;
+  const panelDockSlotReadout = settings ? settings.querySelector('[data-setting-readout="panel-dock-slot-current"]') : null;
   const refreshDockSlotReadout = () => {
     if (!panelDockSlotReadout) return;
     const action = resolveDockActionForPanel(panel);
@@ -153,7 +158,7 @@ function bindPanelSettingsBehaviorInputsBridge({
       panelDockSlotReadout.textContent = "";
       return;
     }
-    const items = Array.from(dock.querySelectorAll(".dock-item"));
+    const items = Array.from(dock.querySelectorAll("[data-pill-key]"));
     const idx = items.findIndex((it) => (it.getAttribute("data-action") || "") === action);
     panelDockSlotReadout.textContent = idx >= 0
       ? loginCopy(`Currently at slot ${idx}`)
@@ -173,7 +178,7 @@ function bindPanelSettingsBehaviorInputsBridge({
     const action = resolveDockActionForPanel(panel);
     const dock = document.querySelector(".dock");
     if (dock && action) {
-      const items = Array.from(dock.querySelectorAll(".dock-item"));
+      const items = Array.from(dock.querySelectorAll("[data-pill-key]"));
       const idx = items.findIndex((it) => (it.getAttribute("data-action") || "") === action);
       panelDockSlotInput.value = idx >= 0 ? String(idx) : "";
     }
@@ -185,7 +190,7 @@ function bindPanelSettingsBehaviorInputsBridge({
       const raw = String(panelDockSlotInput.value || "").trim();
       if (!raw) { refreshDockSlotReadout(); return; }
       const target = Math.max(0, Math.min(64, parseInt(raw, 10) || 0));
-      const items = Array.from(dock.querySelectorAll(".dock-item"));
+      const items = Array.from(dock.querySelectorAll("[data-pill-key]"));
       const item = items.find((it) => (it.getAttribute("data-action") || "") === action);
       if (!item) return;
       // Move into position. If target >= length, append.
@@ -198,7 +203,7 @@ function bindPanelSettingsBehaviorInputsBridge({
       // Persist the new order to localStorage so the choice survives
       // reloads (uses the same key restoreDockOrder reads from).
       try {
-        const newOrder = Array.from(dock.querySelectorAll(".dock-item"))
+        const newOrder = Array.from(dock.querySelectorAll("[data-pill-key]"))
           .map((it) => it.getAttribute("data-action") || "")
           .filter(Boolean);
         localStorage.setItem("cssos.dockOrder", JSON.stringify(newOrder));

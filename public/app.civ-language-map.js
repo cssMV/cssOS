@@ -67,6 +67,10 @@
     { match: ["现代印度", "Modern India"],                                lang: "hi" },
     { match: ["印度", "India", "Indian"],                                lang: "hi" },
     // ── Persian / Iranian ──
+    // CSSOS_WAVE_433 20260525 — 阿契美尼德 (Achaemenid) → Old Persian (peo).
+    // Cyrus/Darius/Xerxes used cuneiform 𐎤𐎢𐎽𐎢𐏁, not modern Farsi.
+    // Must be listed BEFORE the generic 波斯/Persia entry (first match wins).
+    { match: ["阿契美尼德", "Achaemenid", "居鲁士", "Cyrus", "Darius", "大流士", "薛西斯", "Xerxes"], lang: "peo" },
     { match: ["波斯", "Persia", "Persian", "Iran", "Iranian"],            lang: "fa" },
     /* CSSOS_WAVE_229 — 古埃及→ar (当代受众期待阿拉伯语). */
     { match: ["古埃及", "Ancient Egypt", "Egyptian Myth", "托勒密", "Ptolemaic"], lang: "ar" },
@@ -115,8 +119,111 @@
     return ""; // unknown → caller falls back to UI default
   }
 
+  // ---------------------------------------------------------------------------
+  // civDisplayName(civ, locale) — returns a human-readable English (or locale)
+  // display name for a civilization string. Used wherever the raw Chinese
+  // civilization label needs to appear in the UI.
+  // ---------------------------------------------------------------------------
+  var CIV_DISPLAY_NAMES = {
+    // Chinese
+    "中华文明":    "Chinese Civilization",
+    "中国古代":    "Ancient China",
+    "中华民国":    "Republic of China",
+    "中华人民共和国": "People's Republic of China",
+    "先秦":       "Pre-Qin China",
+    "秦朝":       "Qin Dynasty",
+    "汉朝":       "Han Dynasty",
+    "三国":       "Three Kingdoms",
+    "唐朝":       "Tang Dynasty",
+    "宋朝":       "Song Dynasty",
+    "元朝":       "Yuan Dynasty",
+    "明朝":       "Ming Dynasty",
+    "清朝":       "Qing Dynasty",
+    "近代中国":    "Modern China",
+    // Japan
+    "日本古典":    "Classical Japan",
+    "日本":       "Japan",
+    "日本近代":    "Modern Japan",
+    "江户时代":    "Edo Period",
+    "明治时代":    "Meiji Era",
+    // Other Asia
+    "朝鲜":       "Korea",
+    "韩国":       "Korea",
+    "越南":       "Vietnam",
+    "印度":       "India",
+    "印度文明":    "Indian Civilization",
+    "印度古典":    "Classical India",
+    "波斯":       "Persia",
+    "奥斯曼":     "Ottoman Empire",
+    "阿拉伯":     "Arab Civilization",
+    "蒙古":       "Mongol Empire",
+    "藏族":       "Tibetan",
+    "藏族文明":    "Tibetan Civilization",
+    "古罗马文明":  "Ancient Roman Civilization",
+    // Western
+    "古希腊":      "Ancient Greece",
+    "古希腊文明":  "Ancient Greek Civilization",
+    "古罗马":      "Ancient Rome",
+    "古埃及":      "Ancient Egypt",
+    "古埃及文明":  "Ancient Egyptian Civilization",
+    "拜占庭":      "Byzantine Empire",
+    "中世纪欧洲":  "Medieval Europe",
+    "文艺复兴":    "Renaissance",
+    "近代欧洲":    "Modern Europe",
+    "英国":        "Britain",
+    "法国":        "France",
+    "德国":        "Germany",
+    "美国":        "United States",
+    "俄国":        "Russia",
+    "苏联":        "Soviet Union",
+    // Africa & Americas
+    "非洲":        "Africa",
+    "玛雅":        "Maya Civilization",
+    "阿兹特克":    "Aztec Empire",
+    "印加":        "Inca Empire",
+    // Generic
+    "现代":        "Modern Era",
+    "当代":        "Contemporary",
+    "古代":        "Ancient",
+  };
+
+  /**
+   * Returns an English display name for a civilization string.
+   * Falls back to the original string if no mapping found.
+   * @param {string} civ  - raw civilization string (e.g. "日本古典")
+   * @param {string} [locale] - optional locale; if "zh" returns civ as-is
+   */
+  function civDisplayName(civ, locale) {
+    if (!civ) return "";
+    if (locale && locale.startsWith("zh")) return civ;
+    // exact match
+    if (CIV_DISPLAY_NAMES[civ]) return CIV_DISPLAY_NAMES[civ];
+    // substring match (e.g. "中华文明-汉朝" → "Han Dynasty" via "汉朝")
+    for (var k in CIV_DISPLAY_NAMES) {
+      if (civ.indexOf(k) !== -1) return CIV_DISPLAY_NAMES[k];
+    }
+    // if no Chinese characters found, return as-is (already English)
+    if (!/[一-鿿]/.test(civ)) return civ;
+    // last resort: return as-is (unknown Chinese civ)
+    return civ;
+  }
+
+  // CSSOS_WAVE_593 — 共享: 把一组 meta 字段(civilization/era/location/dynasty…)逐个本地化后用分隔符拼接。
+  // 每个元素过 civDisplayName(覆盖文明 + 朝代/era; 未知词原样返回), locale 默认取文档语言 →
+  // 非中文用户绝不看到"印度文明/唐朝"等中文(回退英文)。彻底替代散落各处的 [a,b,c].join(" · ")。
+  function civMetaText(parts, locale, sep) {
+    if (!Array.isArray(parts)) parts = [parts];
+    locale = locale || (function () {
+      try { return document.documentElement.lang || navigator.language || ""; } catch (_e) { return ""; }
+    })();
+    sep = (sep == null) ? " · " : sep;
+    return parts.filter(Boolean).map(function (x) { return civDisplayName(String(x), locale); }).join(sep);
+  }
+
   Object.assign(globalThis, {
     civToLanguageModule,
     civToLanguage: civToLanguageModule,
+    civDisplayName,
+    civMetaText,
   });
 })();

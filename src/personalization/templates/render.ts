@@ -163,6 +163,7 @@ export async function renderTemplateGift(
          ($1, 'final_mv',      $2, $4::jsonb),
          ($1, 'audio_track_1', $3, $4::jsonb)
        ON CONFLICT (work_id, asset_type)
+         WHERE asset_type <> 'slideshow_frame'
          DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
       [
         workId,

@@ -1,0 +1,31 @@
+{
+  "id": "welcome.en.v2",
+  "trigger_key": "welcome",
+  "language": "en",
+  "version": 2,
+  "label": "Welcome MV — English v2 (real-asset slot, currently fallback)",
+
+  "base_video": "base.mp4",
+  "base_audio": "base.mp3",
+  "base_cover": "cover.png",
+  "duration_secs": 30,
+  "aspect_ratio": "9:16",
+
+  "title_template": "Welcome, {name}",
+  "subtitle_template": "From cssOS · Curator",
+
+  "plain_lyrics_file": "lyrics.txt.tpl",
+
+  "emotional_tone": "warm",
+  "max_name_chars": 24,
+  "active": true,
+
+  "creative_brief": {
+    "music_style": "warm acoustic folk-pop, soft piano lead, brushed snare, muted bass, breathy intimate female vocal, 80 BPM, major key, no drop, gentle crescendo only",
+    "instrumentation": "upright piano, brushed snare, upright bass, single acoustic guitar fingerpick, soft strings pad in last 8 bars",
+    "vocal": "feminine, breathy, close-mic, slight whisper texture",
+    "video": "vertical 9:16 cinematic. Closed wooden studio door, warm under-light spilling. Slow push-in 4s. Door opens silently to empty warmly-lit room: vintage upright piano left, single mic stand center, soft curtains, dust particles in late-afternoon sun. Glide forward through doorway, low angle. At 18s a thin handwritten card on mic reads 'for {name}' — focus rack 3s. Final 6s pull back, room dims, end on glowing card. Warm amber / dusty rose / deep walnut palette. NO faces, NO people, NO text overlays except the handwritten card."
+  },
+
+  "notes": "v2 awaiting real Suno+Kling output. base.mp3/mp4/cover.png are temporarily copied from v1 placeholder so the trigger keeps working. When real assets arrive, drop them in-place at this path — no other code change needed. v1 has been retired (active: false)."
+}

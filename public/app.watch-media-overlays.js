@@ -34,9 +34,12 @@
     // before overflow shows.
     MV_TITLE_FONT_SIZE_RATIO: 0.072,   // of min(frame.width, frame.height)
     MV_TITLE_MAX_WIDTH_RATIO: 0.88,
-    MV_TITLE_MAX_LINES: 3,             // was 5; clip to 3 to prevent overflow
+    // CSSOS_WAVE_445 20260526 — Jing「标题不掉行」: 单行硬约束(配合 white-space:nowrap)。
+    // 收缩循环只按【媒体框宽】缩字号, 不再允许 2~3 行。min 字号下探到 13px 以便长名
+    // (如 "JERUSALEM") 也能一行塞进窄框。
+    MV_TITLE_MAX_LINES: 1,             // single line; never wrap
     MV_TITLE_LINE_HEIGHT: 1.12,
-    MV_TITLE_MIN_FONT_PX: 18,
+    MV_TITLE_MIN_FONT_PX: 13,
     MV_TITLE_MAX_FONT_PX: 84,
     MV_TITLE_APPEAR_DELAY_MS: 120,
 
@@ -139,13 +142,25 @@
   z-index: 6;
   opacity: 0;
   letter-spacing: 0.01em;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  /* CSSOS_WAVE_419 20260525 — Jing「真机游客视角:标题被拆词换行(Welcom/e、
+     Jerusal/em)很丑」根因: overflow-wrap:anywhere 让浏览器把每个词拆成竖排碎片
+     来填满宽度 → scrollWidth 永远不溢出 → 下面那个【按宽度收缩字号】的循环永远
+     不触发, 于是字号巨大 + 词被拆碎竖排. 改成 normal: 拉丁词整词只在空格处换行,
+     单词太宽时 scrollWidth 溢出 → 触发收缩循环把字号缩到整词刚好放下. CJK 仍按字
+     换行(word-break:normal). 永不再拆词. */
+  word-break: keep-all;
+  overflow-wrap: normal;
   transition: opacity 0.36s ease-in-out;
   /* CSSOS_PHASE2_NO_TITLE_SAFE_ZONE 20260504 — drop the 4% inner
      padding; the anchor rule pins us to the frame edge directly. */
   padding: 0;
-  white-space: normal;
+  /* CSSOS_WAVE_445 20260526 — Jing「标题不要掉行; 安全区=媒体框宽; 按框宽自动缩小」
+     根因: 此前 white-space:normal + MAX_LINES:3 允许标题在词/字之间换行(JERU/SALE/M
+     竖排碎片), 收缩循环只要塞进 3 行就停手, 字号没真正按【单行宽度】缩。改为
+     white-space:nowrap → 整个标题强制单行(无论 per-word/per-char 包装), scrollWidth
+     = 整行真实宽度 → 下面 fitMvTitleFontSize 以【媒体框宽】为唯一安全区, 把字号缩到
+     刚好放进一行。彻底告别掉行。 */
+  white-space: nowrap;
   /* No max-width safe-zone either — the media frame is the bound. */
   max-width: 100%;
 }
@@ -174,6 +189,10 @@
   animation-fill-mode: both;
 }
 .cssmv-anim-glyph.is-space { display: inline; }
+/* CSSOS_WAVE_426 20260525 — Jing: word wrapper keeps a word's per-letter glyphs
+   ATOMIC (never wrap mid-word like "Welco/me"); line breaks happen only between
+   words (at the spaces). */
+.cssmv-anim-word { display: inline-block; white-space: nowrap; vertical-align: baseline; }
 
 @keyframes cssmvEntryFall {
   0%   { opacity: 0; transform: translateY(-1.1em) rotate(-8deg); filter: blur(4px); }
@@ -795,24 +814,28 @@
     }
 
     const fonts = pickFontsForTokens(pieces, preset, mode);
-    return pieces
-      .map((piece, idx) => {
-        const delay = Math.min(idx, cap) * CONFIG.ENTRY_STAGGER_MS;
-        const isSpace = /^\s+$/.test(piece);
-        const cls = [
-          "cssmv-anim-glyph",
-          `cssmv-anim-${use}`,
-          isSpace ? "is-space" : "",
-        ].filter(Boolean).join(" ");
-        const safe = escapeHtml(piece);
-        if (isSpace) return safe;
-        const fam = fonts[idx] || "";
-        const famCss = fam
-          ? `font-family:"${String(fam).replace(/"/g, "\\\"")}", var(--watch-title-font-family, inherit);`
-          : "";
-        return `<span class="${cls}" style="animation-delay:${delay}ms;${famCss}">${safe}</span>`;
-      })
-      .join("");
+    // CSSOS_WAVE_426 20260525 — Jing「Welcome 绝对放得下, 不许拆词换行」根因: 标题被拆成
+    // 【每字母一个 inline-block glyph】, 浏览器在相邻 inline-block 之间换行(字母间) →
+    // "Welco/me". word-break 对独立 inline-block 无效. 修法: 把同一个【单词】的所有字母
+    // glyph 包进一个 .cssmv-anim-word(inline-block + white-space:nowrap)→ 单词成原子,
+    // 只在【空格】处换行. 配合 fitMvTitleFontSize 按最长单词宽度缩字号, 整词永不被拆.
+    const out = [];
+    let wordOpen = false;
+    const closeWord = () => { if (wordOpen) { out.push("</span>"); wordOpen = false; } };
+    pieces.forEach((piece, idx) => {
+      const delay = Math.min(idx, cap) * CONFIG.ENTRY_STAGGER_MS;
+      const isSpace = /^\s+$/.test(piece);
+      if (isSpace) { closeWord(); out.push(escapeHtml(piece)); return; }
+      if (!wordOpen) { out.push('<span class="cssmv-anim-word">'); wordOpen = true; }
+      const cls = ["cssmv-anim-glyph", `cssmv-anim-${use}`].join(" ");
+      const fam = fonts[idx] || "";
+      const famCss = fam
+        ? `font-family:"${String(fam).replace(/"/g, "\\\"")}", var(--watch-title-font-family, inherit);`
+        : "";
+      out.push(`<span class="${cls}" style="animation-delay:${delay}ms;${famCss}">${escapeHtml(piece)}</span>`);
+    });
+    closeWord();
+    return out.join("");
   }
   function escapeHtml(str) {
     return String(str)
@@ -881,11 +904,14 @@
         }
       });
       observed.set(el, { lastText: rawTxt, lastAt: now });
+      try { fitSubtitleFontSize(el); } catch (_e) {}
       return;
     }
     // Plain subtitle text: re-wrap as glyphs
     el.innerHTML = wrapGlyphs(rawTxt);
     observed.set(el, { lastText: rawTxt, lastAt: now });
+    // CSSOS_WAVE_446 — 每次字幕重渲染后按框宽缩字号(单行不掉行)。
+    try { fitSubtitleFontSize(el); } catch (_e) {}
   }
   function attachObservers() {
     const subtitle = document.getElementById(IDS.subtitle);
@@ -976,15 +1002,83 @@
     let px = Math.round(basis * CONFIG.MV_TITLE_FONT_SIZE_RATIO);
     px = Math.max(CONFIG.MV_TITLE_MIN_FONT_PX, Math.min(CONFIG.MV_TITLE_MAX_FONT_PX, px));
     el.style.fontSize = px + "px";
-    // If it overflows vertically past MAX_LINES, scale down until it fits
+    // CSSOS_WAVE_382 20260523 — Jing「字幕标题/字幕内容都不得溢出屏幕外」:
+    // 之前只按【高度】(scrollHeight>maxHeight) 收缩字号, 完全没管【宽度】溢出。
+    // 大字号下的不可断词(.cssmv-w-heavy/.cssmv-w-light 为 inline-block, 词内
+    // 不换行, 如 "theatre")会横向冲出 frame 右/左边缘 → 标题出血到屏幕外。
+    // 这里把收缩条件改为【高 OR 宽】任一溢出就缩, 谁先到边谁触发, 直到两个
+    // 方向都收进 frame 内。maxWidth 留 4px 安全边。
     const maxHeight = px * CONFIG.MV_TITLE_LINE_HEIGHT * CONFIG.MV_TITLE_MAX_LINES + 2;
+    const maxWidth = Math.max(40, (rect.width || basis) - 4);
     let guard = 0;
-    while (el.scrollHeight > maxHeight && px > CONFIG.MV_TITLE_MIN_FONT_PX && guard < 40) {
+    while (
+      (el.scrollHeight > maxHeight || el.scrollWidth > maxWidth) &&
+      px > CONFIG.MV_TITLE_MIN_FONT_PX &&
+      guard < 40
+    ) {
       px = Math.max(CONFIG.MV_TITLE_MIN_FONT_PX, Math.round(px * 0.94));
       el.style.fontSize = px + "px";
       guard += 1;
     }
   }
+
+  // CSSOS_WAVE_446 20260526 — Jing「永不掉行 + 按框宽自动缩放, 难点: 定时随机切字体,
+  // 同字不同宽」: 普通字幕(歌词)此前没有任何宽度自适应, 且字体在定时器里随机切换后
+  // 没有重新 fit → 新字体更宽就掉行/溢出, 或字体未加载完 → 字形不可见(出现 "je ___
+  // la lumière" 那种空洞)。这里给字幕加一个【单行 + 按可用宽收缩】的通用 fit, 并在
+  // (a) 渲染后 (b) 字体 shuffle 后 (c) document.fonts 加载完成后 三处都重跑。 */
+  function fitSubtitleFontSize(el) {
+    if (!(el instanceof HTMLElement) || !el.isConnected) return;
+    const frame = qFrame();
+    const frameRect = frame ? frame.getBoundingClientRect() : null;
+    const frameW = (frameRect && frameRect.width) || el.parentElement?.clientWidth || 320;
+    // 字幕左下锚定, 安全区 = 框宽 - 左右内缩(约 64px); 同时尊重它自身 max-width。
+    const avail = Math.max(80, frameW - 64);
+    // CSSOS_WAVE_447 20260526 — 防强制重排风暴: enhanceIfPlainText 在卡拉OK每次
+    // timeupdate(~5×/秒)都会调到这里, 若每次都跑 scrollWidth 收缩循环(每次最多 48 次
+    // 同步重排)→ ~240 reflow/秒, 自身就会引起闪烁/卡顿。缓存 (文本+框宽+字体签名),
+    // 三者都没变就直接跳过, 只在真正需要时才重算。 */
+    const sig = (el.textContent || "").trim() + "|" + Math.round(avail) + "|" +
+      (el.style.fontFamily || getComputedStyle(el).fontFamily || "").slice(0, 40);
+    if (el.__cssmvFitSig === sig) return;
+    el.__cssmvFitSig = sig;
+    // 强制单行(覆盖换行), 让 scrollWidth = 整行真实宽度。
+    el.style.whiteSpace = "nowrap";
+    el.style.maxWidth = avail + "px";
+    // 起始字号: 取计算字号(clamp 结果)做上界, 逐步收缩到放进 avail。
+    let px = parseFloat(getComputedStyle(el).fontSize) || 20;
+    const MAXP = 26, MINP = 11;
+    px = Math.max(MINP, Math.min(MAXP, px));
+    el.style.fontSize = px + "px";
+    let guard = 0;
+    while (el.scrollWidth > avail && px > MINP && guard < 48) {
+      px = Math.max(MINP, Math.round((px * 0.94) * 10) / 10);
+      el.style.fontSize = px + "px";
+      guard += 1;
+    }
+  }
+  globalThis.cssmvFitSubtitleFontSize = fitSubtitleFontSize;
+
+  // Re-fit title + subtitle whenever fonts finish loading (a shuffled font that
+  // wasn't yet downloaded renders at the wrong width / invisibly until ready).
+  function refitOverlaysAfterFonts() {
+    try {
+      const frame = qFrame();
+      if (mvTitleEl && mvTitleLastText && frame) fitMvTitleFontSize(mvTitleEl, frame);
+      const sub = document.getElementById(IDS.subtitle);
+      if (sub) fitSubtitleFontSize(sub);
+      const kara = document.getElementById(IDS.karaoke);
+      if (kara) fitSubtitleFontSize(kara);
+    } catch (_e) {}
+  }
+  globalThis.cssmvRefitOverlaysAfterFonts = refitOverlaysAfterFonts;
+  try {
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(refitOverlaysAfterFonts).catch(() => {});
+      document.fonts.addEventListener?.("loadingdone", refitOverlaysAfterFonts);
+    }
+  } catch (_e) {}
+
   let mvTitleLastText = "";
   function renderMvArtTitle(text) {
     const frame = qFrame();
@@ -1126,6 +1220,13 @@
     if (frame.__cssmvMvTitleRO) return;
     const ro = new ResizeObserver(() => {
       if (mvTitleEl && mvTitleLastText) fitMvTitleFontSize(mvTitleEl, frame);
+      // CSSOS_WAVE_446 — 框尺寸变化(进入全屏/旋转)时, 字幕也按新框宽重缩。
+      try {
+        const sub = document.getElementById(IDS.subtitle);
+        if (sub) fitSubtitleFontSize(sub);
+        const kara = document.getElementById(IDS.karaoke);
+        if (kara) fitSubtitleFontSize(kara);
+      } catch (_e) {}
     });
     ro.observe(frame);
     frame.__cssmvMvTitleRO = ro;
@@ -1488,7 +1589,15 @@
       }
       // Reset debounce so enhanceIfPlainText doesn't revert us
       observed.set(el, { lastText: txt, lastAt: Date.now() });
+      // CSSOS_WAVE_446 — 换字体后立刻按框宽重新缩字号(单行不掉行), 并在新字体
+      // 加载完成后再缩一次(同字不同宽 / 字形迟到)。
+      try { fitSubtitleFontSize(el); } catch (_e) {}
     });
+    try {
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => { try { refitOverlaysAfterFonts(); } catch (_e) {} }).catch(() => {});
+      }
+    } catch (_e) {}
 
     // CSSMV_FONT_SHUFFLE_FORCE 20260423 #93 — re-paint the per-word karaoke
     // spans. These are rendered by renderWatchKaraokeOverlayModule and

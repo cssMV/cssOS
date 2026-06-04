@@ -18,7 +18,7 @@
 
   "emotional_tone": "warm",
   "max_name_chars": 24,
-  "active": true,
+  "active": false,
 
   "notes": "Placeholder v1. All assets synthesised by regenerate.sh — sine-wave C-major ambient pad (no melody, no copyright concerns) + warm dark-purple gradient still + first-frame cover. Replace base.mp3 / base.mp4 / cover.png with real composition + visuals when the creative team is ready, then bump to welcome.en.v2."
 }

@@ -6,6 +6,11 @@
  * codex's default behaviour). */
 (function () {
   "use strict";
+  /* CSSOS_WAVE_490f 20260529 — Jing「App 审核中, 登录后秒崩」决定性基线瘦身: 诊断探针实锤
+   * 认证态主屏在 iPhone XS Max(4GB)累积过重(~9 发现 shelf + feed + 海量 JS)→ WebKit 内容
+   * 进程崩溃→静默重载(无 beforeunload)循环。装饰性"发现 shelf"在手机/App 上是最可削的负担:
+   * 关掉它们 → 主屏只剩 logo+dock+用户作品+核心 feed, 大幅降内存。桌面端保留全部。 */
+  try { if (document.documentElement.classList.contains("cssos-app") || (window.matchMedia && window.matchMedia("(max-width: 820px)").matches)) return; } catch (_e) {}
   var STYLE_ID = "cssos-person-mv-recs-shelf-style";
   function injectStyle() {
     if (document.getElementById(STYLE_ID)) return;
@@ -42,7 +47,9 @@
     if (!rows || !rows.length) { shelf.hidden = true; return; }
     row.innerHTML = rows.map(function (p) {
       var cover = p.portrait_url || "";
-      var name = p.name_zh || p.name_en || p.person_id;
+      // en-first: platform default is English; zh name only when locale is zh.
+      var _zhLocale = /^zh/i.test(String((globalThis.CSSOS_I18N && globalThis.CSSOS_I18N.getCurrentLocale && globalThis.CSSOS_I18N.getCurrentLocale()) || "en"));
+      var name = _zhLocale ? (p.name_zh || p.name_en || p.person_id) : (p.name_en || p.name_zh || p.person_id);
       return (
         '<article class="cssos-recs-card" data-person-id="' + escapeHtml(p.person_id) + '" tabindex="0" role="button" aria-label="' + escapeHtml(name) + '">' +
           '<div class="cover"' + (cover ? ' style="background-image:url(\'' + String((globalThis.cssosThumb || function (u) { return u; })(cover, 400)).replace(/'/g, "%27") + '\')"' : "") + '></div>' +

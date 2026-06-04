@@ -1,4 +1,4 @@
-/* CSSOS_WAVE_125 20260513 — Jing
+/* CSSOS_WAVE_125 20260513 — Jing  |  W360b 20260525 — badge/panel fixes
  *
  * "Coming Up" shelf — next 7 days of festivals + anniversaries.
  * Sits below the Today's Festival shelf (W122) and Today in History
@@ -10,6 +10,11 @@
  * teaser. Future: add "Notify me" CTA → Web Push.
  */
 (function () {
+  /* CSSOS_WAVE_490f 20260529 — Jing「App 审核中, 登录后秒崩」决定性基线瘦身: 诊断探针实锤
+   * 认证态主屏在 iPhone XS Max(4GB)累积过重(~9 发现 shelf + feed + 海量 JS)→ WebKit 内容
+   * 进程崩溃→静默重载(无 beforeunload)循环。装饰性"发现 shelf"在手机/App 上是最可削的负担:
+   * 关掉它们 → 主屏只剩 logo+dock+用户作品+核心 feed, 大幅降内存。桌面端保留全部。 */
+  try { if (document.documentElement.classList.contains("cssos-app") || (window.matchMedia && window.matchMedia("(max-width: 820px)").matches)) return; } catch (_e) {}
   if (globalThis.__cssosUpcomingShelfWired) return;
   globalThis.__cssosUpcomingShelfWired = true;
 
@@ -92,10 +97,18 @@
       ".upcoming-card{flex:0 0 150px;scroll-snap-align:start;background:rgba(8,12,22,0.55);border:1px solid rgba(140,160,220,0.28);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;cursor:default;}",
       ".upcoming-card .cover{position:relative;width:100%;aspect-ratio:1/1;background:linear-gradient(135deg,#0a1428,rgba(140,160,220,0.18));display:flex;align-items:center;justify-content:center;}",
       ".upcoming-card .cover .glyph{font-size:48px;text-shadow:0 1px 6px rgba(0,0,0,0.4);}",
-      ".upcoming-card .cover .when{position:absolute;bottom:6px;left:6px;right:6px;text-align:center;padding:3px 6px;border-radius:999px;background:rgba(8,12,22,0.7);backdrop-filter:blur(8px);color:#cfd8f5;font:700 10px/1 ui-monospace,monospace;letter-spacing:.04em;}",
+      /* W360b — .when bottom-left, .mv-cta top-right — no shared row, no clash */
+      ".upcoming-card .cover .when{position:absolute;bottom:6px;left:6px;padding:3px 6px;border-radius:999px;background:rgba(8,12,22,0.7);backdrop-filter:blur(8px);color:#cfd8f5;font:700 10px/1 ui-monospace,monospace;letter-spacing:.04em;z-index:1;}",
+      ".upcoming-card .cover .mv-cta{position:absolute;top:6px;right:6px;padding:3px 7px;border-radius:999px;background:rgba(0,245,160,0.82);color:#001a10;font:700 10px/1 ui-monospace,monospace;letter-spacing:.04em;z-index:1;}",
       ".upcoming-card .info{padding:8px 10px;display:flex;flex-direction:column;gap:3px;}",
       ".upcoming-card .name{font:600 12.5px/1.25 -apple-system,system-ui,sans-serif;color:#dde6ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
       ".upcoming-card .meta{font:500 10px/1.3 ui-monospace,monospace;color:rgba(221,230,255,0.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+      /* W360 — person birthday cards are clickable */
+      ".upcoming-card-person{cursor:pointer;transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease;}",
+      ".upcoming-card-person:hover{transform:translateY(-3px);border-color:rgba(0,245,160,0.6);box-shadow:0 8px 22px rgba(0,0,0,0.4);}",
+      ".upcoming-card-person:focus-visible{outline:2px solid rgba(0,245,160,0.8);outline-offset:2px;}",
+      /* cover with portrait gets a gradient overlay so text stays readable */
+      ".upcoming-card-person .cover::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,0.7) 100%);}",
       "@media (max-width: 480px){.upcoming-card{flex-basis:124px;}.upcoming-card .cover .glyph{font-size:40px;}}",
     ].join("\n");
     document.head.appendChild(st);
@@ -147,7 +160,7 @@
         sort: f.greg_date,
         glyph: FESTIVAL_GLYPH[f.festival_id] || "🎊",
         name: isZh() ? (f.name_zh || f.name_en) : (f.name_en || f.name_zh),
-        meta: [f.civilization, f.core_theme].filter(Boolean).join(" · "),
+        meta: (globalThis.civMetaText ? globalThis.civMetaText([f.civilization, f.core_theme], null, " · ") : [f.civilization, f.core_theme].filter(Boolean).join(" · ")),
       });
     });
     anniversaries.forEach(function (a) {
@@ -166,7 +179,10 @@
         sort: ymd,
         glyph: a.event_type === "death" ? "🕯️" : "🎂",
         name: isZh() ? (a.name_zh || a.name_en) : (a.name_en || a.name_zh),
-        meta: [a.civilization, a.era].filter(Boolean).join(" · "),
+        meta: (globalThis.civMetaText ? globalThis.civMetaText([a.civilization, a.era], null, " · ") : [a.civilization, a.era].filter(Boolean).join(" · ")),
+        // W360 — carry person_id + portrait so card is clickable → codex.
+        personId: String(a.person_id || "").trim(),
+        portrait: String(a.portrait_url || "").trim(),
       });
     });
     items.sort(function (x, y) { return x.sort < y.sort ? -1 : x.sort > y.sort ? 1 : 0; });
@@ -179,11 +195,28 @@
     if (!track) return;
     track.innerHTML = items.map(function (it) {
       var when = daysFromTodayLabel(it.date);
+      // W360 — anniversary cards with a person_id are clickable → person codex.
+      var isClickable = it.kind === "anniversary" && !!it.personId;
+      var hasPortrait = !!(it.portrait && isClickable);
+      var coverBg = hasPortrait
+        ? ' style="background-image:url(' + esc(it.portrait) + ');background-size:cover;background-position:center 20%;"'
+        : '';
+      // W360b — hidden probe img: if the portrait 404s/errors, reveal the glyph fallback.
+      var portraitProbe = hasPortrait
+        ? '<img src="' + esc(it.portrait) + '" alt="" aria-hidden="true"'
+          + ' style="display:none;position:absolute;"'
+          + ' onerror="var c=this.closest(\'.cover\');if(c){c.style.backgroundImage=\'\';var g=c.querySelector(\'.glyph\');if(g)g.style.display=\'\';}this.remove();"'
+          + '>'
+        : '';
       return ''
-        + '<article class="upcoming-card">'
-        + '  <div class="cover">'
-        + '    <span class="glyph">' + it.glyph + '</span>'
+        + '<article class="upcoming-card' + (isClickable ? ' upcoming-card-person' : '') + '"'
+        + (isClickable ? ' data-person-id="' + esc(it.personId) + '" role="button" tabindex="0" title="' + esc(tr("Open person page · Create MV", "打开人物专页 · 为TA创作MV")) + '"' : '')
+        + '>'
+        + '  <div class="cover"' + coverBg + '>'
+        + portraitProbe
+        + '    <span class="glyph"' + (hasPortrait ? ' style="display:none;"' : '') + '>' + it.glyph + '</span>'
         + (when ? '    <div class="when">' + esc(when) + '</div>' : '')
+        + (isClickable ? '    <div class="mv-cta">✨ MV</div>' : '')
         + '  </div>'
         + '  <div class="info">'
         + '    <div class="name">' + esc(it.name || "—") + '</div>'
@@ -191,6 +224,48 @@
         + '  </div>'
         + '</article>';
     }).join("");
+    // W360 — wire click handlers after DOM is set.
+    track.querySelectorAll(".upcoming-card-person[data-person-id]").forEach(function (card) {
+      function handleOpen() {
+        var pid = card.getAttribute("data-person-id");
+        if (!pid) return;
+        // W360b — always activate the panel first so it's visible and in front,
+        // then navigate to the person's codex.  The dock action wires up visibility,
+        // z-index, and focus; openPersonMvCodex alone won't unhide a closed panel.
+        var dockAction = globalThis.__cssosDockActionMap?.["person-mv"];
+        var panelEl = document.getElementById("person-mv-panel");
+        var panelVisible = panelEl && panelEl.offsetParent !== null
+          && getComputedStyle(panelEl).display !== "none"
+          && !panelEl.hidden;
+        if (!panelVisible) {
+          // Open the panel via dock action (handles show + z-index + active state).
+          if (typeof dockAction?.click === "function") {
+            try { dockAction.click(); } catch (_e) {}
+          } else if (panelEl) {
+            panelEl.hidden = false;
+            panelEl.style.display = "";
+          }
+          // Let the panel animate open before navigating into codex.
+          setTimeout(function () {
+            if (typeof globalThis.openPersonMvCodex === "function") {
+              try { globalThis.openPersonMvCodex(pid); } catch (_e) {}
+            }
+          }, 350);
+        } else {
+          // Panel already open — bring it to front then navigate immediately.
+          if (typeof dockAction?.click === "function") {
+            try { dockAction.click(); } catch (_e) {}
+          }
+          if (typeof globalThis.openPersonMvCodex === "function") {
+            try { globalThis.openPersonMvCodex(pid); } catch (_e) {}
+          }
+        }
+      }
+      card.addEventListener("click", handleOpen);
+      card.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleOpen(); }
+      });
+    });
   }
 
   var fetchInflight = false;
@@ -216,7 +291,11 @@
     var tick = setInterval(function () {
       attempts++;
       if (document.getElementById("foryou-market-section")) {
+        // CSSOS_WAVE_490d — render ONCE when section appears, then stop the 3s rebuild loop
+        // (was rebuilding innerHTML every 3s for 30s → DOM thrash → XS Max flicker/crash).
         fetchAndRender();
+        clearInterval(tick);
+        return;
       }
       if (attempts >= 10) clearInterval(tick);
     }, 3000);

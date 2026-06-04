@@ -89,6 +89,15 @@
         missing.add(missKey);
         console.warn(`Missing i18n key: ${key} (${locale})`);
       }
+      // v28 step 20 — Jing: never leak "creation.option.*" or any
+      // dotted i18n key to the UI. Humanize the last segment so a
+      // missing translation falls back to a readable label.
+      if (typeof key === "string" && /^creation\.option\./.test(key)) {
+        const last = key.split(".").pop() || "";
+        return last
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+      }
       return key;
     }
     return interpolate(template, vars);

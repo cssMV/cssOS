@@ -42,7 +42,21 @@
       }
     }
     var artist = String(work.artist || work.creator_name || work.author || "CSS Studio").trim();
-    var artwork = String(work.cover_image || work.cover || work.thumbnail || "").trim();
+    // WAVE_444c: check all field aliases + fall back to video poster / <meta og:image>
+    var artwork = String(
+      work.cover_image || work.cover || work.thumbnail ||
+      work.cover_url || work.image_url || work.coverImage || ""
+    ).trim();
+    if (!artwork) {
+      // Try the video element's poster (set during MV playback)
+      var vid = document.getElementById("watch-video");
+      if (vid && vid.poster) artwork = vid.poster;
+    }
+    if (!artwork) {
+      // Try og:image meta tag (set by SSR for shareable work pages)
+      var og = document.querySelector('meta[property="og:image"]');
+      if (og && og.content) artwork = og.content;
+    }
     return { title: title || "CSS Studio", artist: artist, artwork: artwork };
   }
 

@@ -84,14 +84,21 @@
     function section(label, icon, rows) {
       if (!rows.length) return;
       html += '<div class="gs-group">' + escHtml(label) + "</div>";
+      // CSSOS_WAVE_482 — 管理员可在人物搜索结果里【全平台置顶】该人物(如孔子), 之后搜索
+      // 该文明/关键词时置顶人物先出。仅管理员、仅 person 行显示 📌。
+      var _isAdmin = String((globalThis.authState && globalThis.authState.role) || "").toLowerCase() === "admin";
       rows.forEach(function (r) {
+        var pinBtn = (_isAdmin && r.type === "person" && (r.person_id || r.id))
+          ? '<button type="button" class="gs-pin" data-pin-person="' + escHtml(r.person_id || r.id) + '" title="全平台置顶此人物(管理员)" aria-label="Pin person platform-wide" style="margin-left:auto;flex:none;width:30px;height:30px;border-radius:999px;border:1px solid rgba(0,245,160,0.5);background:rgba(0,0,0,0.4);color:#9fffdf;cursor:pointer;font-size:14px;">📌</button>'
+          : "";
         html += [
-          '<div class="gs-row" data-type="' + escHtml(r.type) + '" data-id="' + escHtml(r.id) + '" data-person="' + escHtml(r.person_id || "") + '" data-mv-url="' + escHtml(r.mv_url || "") + '">',
+          '<div class="gs-row" data-type="' + escHtml(r.type) + '" data-id="' + escHtml(r.id) + '" data-person="' + escHtml(r.person_id || "") + '" data-mv-url="' + escHtml(r.mv_url || "") + '" style="display:flex;align-items:center;gap:10px;">',
           '  <div class="icon">' + icon + "</div>",
-          '  <div class="body">',
+          '  <div class="body" style="flex:1;min-width:0;">',
           '    <div class="title">' + escHtml(r.title) + "</div>",
           '    <div class="snippet">' + escHtml(r.snippet) + "</div>",
           "  </div>",
+          pinBtn,
           "</div>",
         ].join("");
       });
@@ -100,6 +107,28 @@
     section("MVs",      "🎬", groups.mv);
     section("Comments", "💬", groups.comment);
     res.innerHTML = html;
+    // CSSOS_WAVE_482 — 人物置顶按钮(管理员): 点击调 /api/person-mv/:id/pin, 不触发打开 codex。
+    Array.prototype.forEach.call(res.querySelectorAll("[data-pin-person]"), function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault(); ev.stopPropagation();
+        var pid = btn.getAttribute("data-pin-person");
+        if (!pid) return;
+        btn.disabled = true;
+        fetch("/api/person-mv/" + encodeURIComponent(pid) + "/pin", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pinned: true }),
+        }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; }); })
+          .then(function (o) {
+            if (o.r.status === 409) {
+              if (typeof globalThis.showToast === "function") globalThis.showToast("最多全平台置顶 " + (o.j.limit || 12) + " 个人物。");
+              btn.disabled = false; return;
+            }
+            if (o.r.ok) { btn.style.background = "rgba(0,245,160,0.28)"; btn.textContent = "✅"; btn.title = "已全平台置顶"; }
+            else btn.disabled = false;
+          }).catch(function () { btn.disabled = false; });
+      });
+    });
     Array.prototype.forEach.call(res.querySelectorAll(".gs-row"), function (row) {
       row.addEventListener("click", function () {
         var type = row.getAttribute("data-type");
@@ -116,11 +145,27 @@
 
   function runSearch(q) {
     if (!q || !q.trim()) { render([]); return; }
-    fetch("/api/person-mv/search?q=" + encodeURIComponent(q.trim()) + "&limit=20", {
+    // CSSOS_WAVE_461 20260526 — Jing「骨架推广到搜索结果」: 结果到达前先铺统一骨架,
+    // 让用户知道正在搜索; 失败则显示可读提示, 不再静默空白。
+    var res = document.getElementById("cssos-global-search-results");
+    if (res && typeof globalThis.cssosSkeletonListMarkup === "function") {
+      res.innerHTML = globalThis.cssosSkeletonListMarkup(4, "Searching…");
+    } else if (res) {
+      res.innerHTML = '<div class="gs-empty">Searching…</div>';
+    }
+    var reqQ = q.trim();
+    fetch("/api/person-mv/search?q=" + encodeURIComponent(reqQ) + "&limit=20", {
       credentials: "same-origin",
     }).then(function (r) { return r.json(); }).then(function (j) {
+      // Guard against out-of-order responses overwriting a newer query.
+      var cur = document.querySelector("#" + ROOT_ID + " .gs-input");
+      if (cur && cur.value && cur.value.trim() !== reqQ) return;
       if (j && j.ok) render(j.results || []);
-    }).catch(function () { /* swallow — overlay stays empty */ });
+      else { var e = document.getElementById("cssos-global-search-results"); if (e) e.innerHTML = '<div class="gs-empty">No matches.</div>'; }
+    }).catch(function () {
+      var e = document.getElementById("cssos-global-search-results");
+      if (e) e.innerHTML = '<div class="gs-empty">Search failed. Try again.</div>';
+    });
   }
 
   document.addEventListener("DOMContentLoaded", function () {

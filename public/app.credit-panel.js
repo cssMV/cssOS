@@ -187,7 +187,9 @@ function getCreditPanelModule() {
 async function renderCreditPanelModule() {
   const content = document.getElementById("credit-panel-content");
   if (!(content instanceof HTMLElement)) return false;
-  content.innerHTML = `<div class="works-note">${escapeHtml(loginCopy("Loading credit panel..."))}</div>`;
+  content.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+    ? globalThis.cssosSkeletonRowsMarkup(4, loginCopy("Loading credit panel..."))
+    : `<div class="works-note">${escapeHtml(loginCopy("Loading credit panel..."))}</div>`);
   const snapshot = await loadCreditPanelSnapshotModule();
   content.innerHTML = buildCreditPanelMarkupModule(snapshot);
   content.querySelector("[data-credit-open-login]")?.addEventListener("click", () => openPanel?.(loginPanel));

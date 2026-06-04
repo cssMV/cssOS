@@ -2320,6 +2320,7 @@ Rules:
   • Each section MUST have AT LEAST 4 sung lines. The whole song MUST be AT LEAST 40 sung lines total (markers and blank lines do not count).
   • The 4 Chorus sections share the SAME hook text (a chorus repeats) — that is correct and expected, still write it out in full each time.
   • All sung lines MUST be in the requested target language ONLY. A figure from a Western civilization sings in their own language, NOT Chinese; a Chinese figure sings in Chinese. Do not mix scripts within the lyric body.
+  • ★ CSSOS_WAVE_197 LANGUAGE FALLBACK CONTRACT (MANDATORY): If you cannot write fluent, singable lyrics in the requested target language (rare languages like Ancient Greek, Latin, Sanskrit, Old Norse, Tibetan, Quechua, Swahili, Vietnamese, Persian, Urdu — i.e. languages with little training-data coverage), you MUST fall back to ENGLISH. NEVER fall back to Chinese as a default. Fallback to English is acceptable; fallback to Chinese when neither the requested target nor the user's UI is Chinese is UNACCEPTABLE and will be treated as a regression bug.
   • Put a blank line between sections for readability.
 - "lines" arrays contain ONLY sung text. NEVER include "[Verse 1]" or "**Chorus**" inside a line — those go ONLY in the top-level "lyrics" field as section markers.
 - "kind" values: intro, verse_1, verse_2, verse_3, ..., chorus, bridge, hook, outro. Use snake_case. The "sections" array SHOULD mirror the 10-section contract above (verse_1, verse_2, chorus_1, verse_3, verse_4, chorus_2, bridge, chorus_3, chorus_4, outro).
@@ -2803,7 +2804,7 @@ async fn lyrics_inner(
     let user_id = require_user(&auth).await?;
 
     // Resolve engine+version from body, falling back to registry default.
-    let (engine, version) = match (body.engine.clone(), body.version.clone()) {
+    let (mut engine, mut version) = match (body.engine.clone(), body.version.clone()) {
         (Some(e), Some(v)) if !e.is_empty() && !v.is_empty() => (e, v),
         _ => {
             let entry = crate::billing_matrix::default_engine_for_stage("lyrics")
@@ -2819,6 +2820,49 @@ async fn lyrics_inner(
             (entry.engine, entry.version)
         }
     };
+
+    // CSSOS_WAVE_197 20260516 — Jing: low-resource language → premium model.
+    // Small open-source LLMs (llama-3.1-8b on cerebras / groq) cannot write
+    // fluent lyrics in Ancient Greek, Latin, Sanskrit, Old Norse, Tibetan,
+    // Quechua, Swahili, Vietnamese, Persian, Urdu — they silently fall back
+    // to Chinese instead of failing cleanly. If the caller explicitly asks
+    // for one of these languages, route to a premium model (anthropic /
+    // openai) which has wide enough training data to attempt them properly.
+    // The English-fallback rule in the system prompt still applies if even
+    // the premium model can't write the requested language fluently.
+    fn is_low_resource_lang(code: &str) -> bool {
+        matches!(
+            code.to_ascii_lowercase().as_str(),
+            "la" | "grc" | "sa" | "pli" | "non" | "bo" | "qu" | "sw" | "vi" | "fa" | "ur" | "he" | "yi" | "el-ancient"
+        )
+    }
+    if let Some(lang_code) = body.language.as_deref() {
+        if is_low_resource_lang(lang_code) {
+            let prev_engine = engine.clone();
+            let prev_version = version.clone();
+            // Prefer anthropic > openai > current. Both env-keyed; if neither
+            // configured, fall through to the registry default and rely on
+            // the system-prompt English-fallback rule.
+            if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                engine = "anthropic".to_string();
+                version = std::env::var("CSSMV_LYRICS_PREMIUM_ANTHROPIC_VERSION")
+                    .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+            } else if std::env::var("OPENAI_API_KEY").is_ok() {
+                engine = "openai".to_string();
+                version = std::env::var("CSSMV_LYRICS_PREMIUM_OPENAI_VERSION")
+                    .unwrap_or_else(|_| "gpt-4o".to_string());
+            }
+            tracing::info!(
+                target = "mv_pipeline_lyrics",
+                lang = %lang_code,
+                from_engine = %prev_engine,
+                from_version = %prev_version,
+                to_engine = %engine,
+                to_version = %version,
+                "low-resource language detected — routed to premium model"
+            );
+        }
+    }
 
     // Build the user prompt with optional style/language hints.
     // P2-41 Jing 2026-04-18: map ISO code -> human-readable name so the LLM
@@ -2852,6 +2896,60 @@ async fn lyrics_inner(
         body.language.as_deref(),
     );
     let mut user_prompt = resolved_prompt.clone();
+    // CSSOS_WAVE_199 (Tier 1) 20260516 — Jing: the prompt body for person-MV
+    // is built client-side as "{name} × {landmark} \n[{angle}]" where the
+    // angle comes from landmark.notable_events. That database column is
+    // Chinese-only for legacy reasons even when name_en exists, so any
+    // English-UI run for Michelangelo / Bach / Aristotle still ships
+    // Chinese tokens to the LLM, which then mirrors that script in the
+    // output (even when language=en is explicit). Defense: when target
+    // language is NOT Chinese AND the prompt body contains Han characters,
+    // wrap the entire user_prompt with an explicit script-override prefix.
+    // The LLM (especially premium tier from W197) reliably obeys this
+    // when told plainly.
+    fn contains_han(s: &str) -> bool {
+        s.chars().any(|c| {
+            let n = c as u32;
+            (0x4E00..=0x9FFF).contains(&n)      // CJK Unified
+            || (0x3400..=0x4DBF).contains(&n)   // Extension A
+            || (0xF900..=0xFAFF).contains(&n)   // Compatibility
+        })
+    }
+    let target_is_chinese = body
+        .language
+        .as_deref()
+        .map(|l| {
+            let lc = l.to_ascii_lowercase();
+            lc.starts_with("zh") || lc == "yue" || lc == "lzh"
+        })
+        .unwrap_or(false);
+    let body_has_han = contains_han(&user_prompt)
+        || body.style.as_deref().map(contains_han).unwrap_or(false)
+        || body.civilization.as_deref().map(contains_han).unwrap_or(false)
+        || body.cultural_frame.as_deref().map(contains_han).unwrap_or(false);
+    if !target_is_chinese && body_has_han {
+        let target_human = body
+            .language
+            .as_deref()
+            .map(iso_to_human)
+            .unwrap_or("English");
+        let target_label = if target_human.is_empty() { "English" } else { target_human };
+        user_prompt = format!(
+            "⚠️ SCRIPT-OVERRIDE NOTICE — the following context may contain \
+             Chinese characters (Han script) inherited from a legacy historical \
+             metadata database (person names, landmarks, era / civilization \
+             labels, story-angle hints). These are INFORMATIONAL ONLY. \
+             Your sung lyrics MUST be written in {target_label} REGARDLESS of \
+             the script used in the context below. Do NOT mirror the Chinese \
+             characters in your output. Treat the Chinese as if you read them \
+             through a translator — the meaning matters, the script does NOT.\n\n\
+             ──── CONTEXT (may contain Han characters) ────\n\
+             {user_prompt}\n\
+             ──── END CONTEXT ────",
+            target_label = target_label,
+            user_prompt = user_prompt,
+        );
+    }
     if let Some(lang) = body.language.as_deref() {
         if !lang.is_empty() {
             let human = iso_to_human(lang);
@@ -2949,15 +3047,104 @@ async fn lyrics_inner(
                             result = retry_result;
                         }
                         Err(retry_reason) => {
-                            // Both attempts failed — keep whichever draft is
-                            // LONGER (more sung lines is the lesser evil),
-                            // and log so we can tune the prompt.
+                            /* CSSOS_WAVE_209 20260516 — Jing: "如果无法
+                             * 输出，马上 fallback 到 openAI". After two
+                             * failed attempts on the small LLM, escalate
+                             * to a premium model (Anthropic > OpenAI)
+                             * which can handle any language including
+                             * angelic. Only escalate if the current
+                             * engine ISN'T already premium. */
                             tracing::warn!(
                                 target = "mv_pipeline_lyrics",
                                 retry_violation = %retry_reason,
-                                "retry still violated contract — keeping longer of the two drafts"
+                                "retry still violated contract — escalating to premium LLM"
                             );
-                            if retry_result.text.len() > result.text.len() {
+                            let already_premium =
+                                engine == "anthropic" || engine == "openai";
+                            if !already_premium {
+                                let (premium_engine, premium_version) =
+                                    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                                        (
+                                            "anthropic".to_string(),
+                                            std::env::var("CSSMV_LYRICS_PREMIUM_ANTHROPIC_VERSION")
+                                                .unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
+                                        )
+                                    } else if std::env::var("OPENAI_API_KEY").is_ok() {
+                                        (
+                                            "openai".to_string(),
+                                            std::env::var("CSSMV_LYRICS_PREMIUM_OPENAI_VERSION")
+                                                .unwrap_or_else(|_| "gpt-4o".to_string()),
+                                        )
+                                    } else {
+                                        (engine.clone(), version.clone())
+                                    };
+                                if premium_engine != engine {
+                                    let escalate_req = ChatRequest {
+                                        model: premium_version.clone(),
+                                        system: Some(system_prompt.clone()),
+                                        user: format!(
+                                            "{user_prompt}\n\n\
+                                             ⚠️ Two prior drafts from a smaller model failed the \
+                                             JINGDIAN 10-section contract. Produce the lyric body \
+                                             yourself. MUST contain EXACTLY 10 sections in order — \
+                                             [Verse 1] [Verse 2] [Chorus 1] [Verse 3] [Verse 4] \
+                                             [Chorus 2] [Bridge] [Chorus 3] [Chorus 4] [Outro] — \
+                                             each English bracket marker on its own line, ≥4 sung \
+                                             lines per section, ≥40 sung lines total, all in the \
+                                             requested target language. JSON ONLY.",
+                                        ),
+                                        max_tokens: max_tokens.max(3500),
+                                        temperature: std::env::var("CSSMV_LYRICS_TEMPERATURE")
+                                            .ok()
+                                            .and_then(|s| s.parse::<f32>().ok()),
+                                    };
+                                    match generate_chat(&premium_engine, &escalate_req).await {
+                                        Ok(premium_result) => {
+                                            let (premium_lyrics, _, _, _) =
+                                                parse_lyrics_llm_output(&premium_result.text);
+                                            match validate_jingdian_contract(
+                                                &premium_lyrics,
+                                                body.language.as_deref(),
+                                            ) {
+                                                Ok(()) => {
+                                                    tracing::info!(
+                                                        target = "mv_pipeline_lyrics",
+                                                        premium_engine = %premium_engine,
+                                                        "premium-LLM escalation satisfied the contract"
+                                                    );
+                                                    result = premium_result;
+                                                }
+                                                Err(premium_reason) => {
+                                                    tracing::warn!(
+                                                        target = "mv_pipeline_lyrics",
+                                                        premium_violation = %premium_reason,
+                                                        "premium escalation ALSO failed — keeping longest draft"
+                                                    );
+                                                    let longest = [&result.text, &retry_result.text, &premium_result.text]
+                                                        .iter().max_by_key(|s| s.len())
+                                                        .map(|s| s.to_string())
+                                                        .unwrap_or_default();
+                                                    if !longest.is_empty() {
+                                                        result.text = longest;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                target = "mv_pipeline_lyrics",
+                                                error = %format!("{e:?}"),
+                                                "premium escalation call failed"
+                                            );
+                                            if retry_result.text.len() > result.text.len() {
+                                                result = retry_result;
+                                            }
+                                        }
+                                    }
+                                } else if retry_result.text.len() > result.text.len() {
+                                    result = retry_result;
+                                }
+                            } else if retry_result.text.len() > result.text.len() {
                                 result = retry_result;
                             }
                         }

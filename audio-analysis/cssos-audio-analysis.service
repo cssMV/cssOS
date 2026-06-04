@@ -1,0 +1,27 @@
+[Unit]
+Description=cssOS Audio Analysis Service (WAVE_441)
+Documentation=https://cssstudio.app
+After=network.target cssOS.service
+
+[Service]
+Type=exec
+User=jing
+Group=jing
+WorkingDirectory=/srv/cssos/audio-analysis
+ExecStart=/srv/cssos/audio-analysis/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cssos-audio
+
+# Memory guard: librosa + numpy can spike on large audio files
+MemoryMax=2G
+# Nice value: lower priority than Node.js main service
+Nice=5
+
+Environment=AUDIO_ANALYSIS_PORT=7891
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

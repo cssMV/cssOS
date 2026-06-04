@@ -160,12 +160,23 @@ export interface FireTriggerResult {
 }
 
 /**
- * Constant: the cssOS Curator's user_id. All system gift MVs are
- * inserted with this owner_user_id so they inherit the #266
- * anti-self-dealing rule (free + priceless + non-transferable).
+ * Constant: the cssOS system account's user_id. ALL system-auto-
+ * generated works (welcome/birthday gifts, system MVs, etc.) are
+ * inserted with this owner_user_id.
+ *
+ * CSSOS_WAVE_134 20260514 — Jing's standing rule: "凡是系统自动输出
+ * 的作品归系统所有，具体是 admin@cssstudio.app 账户所有". This was
+ * previously a sentinel "Curator" id (00000000-…-0001 /
+ * system@cssstudio.app) that owned ZERO works — a dead pseudo-user.
+ * The real system account is admin@cssstudio.app, which already owns
+ * 1359 works. Repointed here so welcome/birthday gifts land under the
+ * same account as every other system work. Free + priceless +
+ * non-transferable for all viewers (incl. guests) is enforced by the
+ * explicit work_market_profiles 0/0/system_priceless write in
+ * renderTemplateGift, plus the #266 admin-allowlist read-time mapper.
  */
 export const CSSOS_SYSTEM_USER_ID =
-  "00000000-0000-0000-0000-000000000001" as const;
+  "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb" as const;
 
-export const CSSOS_SYSTEM_USER_EMAIL = "system@cssstudio.app" as const;
-export const CSSOS_SYSTEM_USER_DISPLAY_NAME = "cssOS · Curator" as const;
+export const CSSOS_SYSTEM_USER_EMAIL = "admin@cssstudio.app" as const;
+export const CSSOS_SYSTEM_USER_DISPLAY_NAME = "CSS Studio" as const;

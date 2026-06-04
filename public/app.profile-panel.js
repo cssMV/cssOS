@@ -502,7 +502,8 @@ function renderVersionActions() {
 }
 
 function refreshThemeQuickToggleModule(settings = null, effectiveThemeOverride = "") {
-  if (!(themeQuickToggle instanceof HTMLButtonElement)) return;
+  // 防御: 部署窗口缓存错位时 app.js 可能尚未定义此符号 → typeof 守卫避免 ReferenceError(自愈 06-03)。
+  if (typeof themeQuickToggle === "undefined" || !(themeQuickToggle instanceof HTMLButtonElement)) return;
   const behavior = settings ? sanitizePanelBehaviorSettings(settings) : readPanelBehaviorSettingsLocal();
   const themeMode = String(behavior?.appearance?.theme_mode || "system");
   const effectiveTheme =
@@ -672,7 +673,7 @@ function initVersionSwitcherSurface(elements) {
 }
 
 function initThemeQuickSwitcherModule() {
-  if (!(themeQuickToggle instanceof HTMLButtonElement)) return;
+  if (typeof themeQuickToggle === "undefined" || !(themeQuickToggle instanceof HTMLButtonElement)) return;
   if (themeQuickToggle.dataset.bound === "true") {
     refreshThemeQuickToggleModule();
     return;

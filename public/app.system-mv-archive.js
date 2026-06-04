@@ -125,8 +125,8 @@
         var thumb = w.cover_image || w.portrait_url || "";
         var thumbStyle = thumb ? ('background-image:url(' + esc(thumb) + ');') : '';
         var meta = kind === "festival"
-          ? [w.civilization, w.style, w.core_theme].filter(Boolean).join(" · ")
-          : [w.civilization, w.era, w.event_type === "death" ? "🕯️" : "🎂"].filter(Boolean).join(" · ");
+          ? (globalThis.civMetaText ? globalThis.civMetaText([w.civilization, w.style, w.core_theme], null, " · ") : [w.civilization, w.style, w.core_theme].filter(Boolean).join(" · "))
+          : (globalThis.civMetaText ? globalThis.civMetaText([w.civilization, w.era, w.event_type === "death" ? "🕯️" : "🎂"], null, " · ") : [w.civilization, w.era, w.event_type === "death" ? "🕯️" : "🎂"].filter(Boolean).join(" · "));
         return ''
           + '<div class="cssos-archive-row" data-work-id="' + esc(w.work_id || "") + '">'
           + '  <div class="thumb" style="' + thumbStyle + '"></div>'

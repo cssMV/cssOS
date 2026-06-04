@@ -1,0 +1,31 @@
+{
+  "id": "birthday.en.v2",
+  "trigger_key": "birthday",
+  "language": "en",
+  "version": 2,
+  "label": "Birthday MV — English v2 (real-asset slot, currently fallback)",
+
+  "base_video": "base.mp4",
+  "base_audio": "base.mp3",
+  "base_cover": "cover.png",
+  "duration_secs": 30,
+  "aspect_ratio": "9:16",
+
+  "title_template": "Happy Birthday, {name}",
+  "subtitle_template": "From cssOS · Curator",
+
+  "plain_lyrics_file": "lyrics.txt.tpl",
+
+  "emotional_tone": "warm",
+  "max_name_chars": 24,
+  "active": true,
+
+  "creative_brief": {
+    "music_style": "indie-pop lullaby, ukulele lead, glockenspiel sparkles, finger snaps, warm bass, breezy female vocal, 95 BPM, F major, playful but tender. AVOID the Happy-Birthday-to-You melody (Hill sisters copyright).",
+    "instrumentation": "ukulele, glockenspiel, finger snaps, soft upright bass, accordion swell on chorus, tiny bell sprinkle on each '{name}' syllable",
+    "vocal": "feminine, smiling tone, close-mic, slight reverb",
+    "video": "vertical 9:16 playful stop-motion craft. Tiny wooden table in soft window light. Small unfrosted vanilla cake materialises slice-by-slice 3s. A single candle pops up. At 8s candle lights itself, flame flickers warmly. At 14s paper confetti rains down in slow motion. At 20s a handwritten tag on string drifts past camera: 'for {name}'. At 25s candle bends slightly toward camera as if curious. Final 5s pull back to cozy attic, sun-streaked dust, cake glowing center frame. Pastel cream / soft peach / butter yellow / warm white. NO faces, NO singing-mouth, NO traditional birthday hat. Wes Anderson symmetric framing throughout."
+  },
+
+  "notes": "v2 awaiting real Suno+Kling output. base.mp3/mp4/cover.png are temporarily copied from v1 placeholder. Drop real assets at this path when ready — no other code change needed. v1 retired (active: false)."
+}

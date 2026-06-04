@@ -434,6 +434,10 @@ function _miInjectStyle() {
     ".msrc-coming-soon { text-align:center; padding:32px 12px; opacity:0.75; font-size:13px; }",
     ".msrc-clearance-warn { margin-top:10px; padding:8px 10px; border-radius:8px; background:rgba(255,107,107,0.1); border:1px solid rgba(255,107,107,0.32); color:#ff9b9b; font-size:11.5px; line-height:1.5; }",
   ].join("\n");
+  /* CSSOS_WAVE_513b 20260530 — strip injected :has() rules (iOS/macOS WebKit crash). */
+  if (st.textContent.indexOf(":has(") !== -1) {
+    st.textContent = st.textContent.replace(/[^{}]*:has\([^{}]*\{[^{}]*\}/g, "");
+  }
   document.head.appendChild(st);
 }
 
@@ -486,7 +490,7 @@ function buildMusicSourceUploadCardMarkup() {
           : ""
       }</div>
       ${resultMatchesActive ? _miRenderResultBlock(result) : ""}
-      <div class="msrc-actions" data-segmented="2">
+      <div class="msrc-actions" data-segmented="2" data-pill-bar>
         <button type="button" class="msrc-btn-apply" data-msrc-apply="${_miEsc(activeKey)}"
                 ${resultMatchesActive ? "" : "disabled style=\"opacity:0.45;cursor:not-allowed;\""}>
           ${_miEsc(_miTr("Apply to MV Pipeline", "应用到 MV 管线"))}
@@ -591,7 +595,7 @@ function _miRenderResultBlock(result) {
       <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Scene", "场景"))}:</span> ${_miEsc(v.description || "")}</div>
       <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Suggested theme", "建议主题"))}:</span> ${_miEsc(v.lyrics_prompt || "")}</div>
       <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Style", "风格"))}:</span> ${_miEsc(v.music_style_hint || "")}</div>
-      <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Civilization", "文明"))}:</span> ${_miEsc(v.civilization || "")}</div>
+      <div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Civilization", "文明"))}:</span> ${_miEsc((typeof globalThis.civDisplayName === "function") ? globalThis.civDisplayName(v.civilization || "", (document.documentElement.lang || navigator.language || "")) : (v.civilization || ""))}</div>
       ${v.suggested_title ? `<div class="msrc-vision-row"><span class="msrc-vision-key">${_miEsc(_miTr("Title", "标题"))}:</span> ${_miEsc(v.suggested_title)}</div>` : ""}
     </div>`;
   }

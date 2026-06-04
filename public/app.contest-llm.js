@@ -84,7 +84,9 @@
   window.cssosRenderContestLeaderboard = async function (container, contestId) {
     if (!container || !contestId) return;
     injectStyles();
-    container.innerHTML = `<div style="opacity:0.6;font-size:12px;">${T("Loading leaderboard…", "加载排行榜…")}</div>`;
+    container.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+      ? globalThis.cssosSkeletonRowsMarkup(5, T("Loading leaderboard…", "加载排行榜…"))
+      : `<div style="opacity:0.6;font-size:12px;">${T("Loading leaderboard…", "加载排行榜…")}</div>`);
     try {
       const r = await fetch(`/api/contests/${encodeURIComponent(contestId)}/leaderboard`, { credentials: "include" });
       const j = await r.json();

@@ -51,7 +51,24 @@ async function requestForyouThumbnail(title, subtitle, lines = []) {
       globalThis.currentPreviewFrameDataUrl = leadImage;
     }
     if (pool.length) {
-      globalThis.currentWatchArtworkVariantPool = pool.slice(0, 5);
+      // W347 20260523 — Jing: 若 armAutoEnjoyModule 刚刚把池锁到最新作品单张封面
+      // (< 20s 前), 就不要用 AI 缩略图覆盖它 → 防止乱闪重现.
+      const _lockedAge = Date.now() - (globalThis.__cssosWatchArtworkPoolLockedMs || 0);
+      if (_lockedAge > 20000) {
+        // W348 20260523 — Jing: replicate.delivery URL 过期极快 → img-thumb 502.
+        // 改为存 /api/img-thumb?u=<url>&w=800 代理 URL: img-thumb 在首次成功取图时
+        // 缓存到本地磁盘, 即使原 replicate URL 之后过期, 代理依然从缓存出图.
+        const _toProxied = (u) => {
+          const s = String(u || "").trim();
+          if (!s || s.startsWith("/api/img-thumb")) return s;
+          if (/^data:/.test(s)) return s; // keep data-URLs as-is
+          return "/api/img-thumb?u=" + encodeURIComponent(s) + "&w=800";
+        };
+        const _proxied = pool.slice(0, 5).map(_toProxied).filter(Boolean);
+        globalThis.currentWatchArtworkVariantPool = _proxied;
+        // 立即触发 img-thumb 缓存预热(fire-and-forget)
+        _proxied.forEach((u) => { try { fetch(u, { method: "HEAD" }).catch(() => {}); } catch (_e) {} });
+      }
     }
     globalThis.cacheWatchFrameModule?.(leadImage || cardImage);
     globalThis.showWatchFramePlaceholderModule?.(leadImage || cardImage);

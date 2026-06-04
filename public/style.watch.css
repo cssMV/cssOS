@@ -297,12 +297,22 @@
   height: 100%;
   min-height: 240px;
   object-fit: cover;
-  background: #000;
+  /* CSSOS_WAVE_455 20260527 — Jing: 去掉 background:#000 → 无视频时元素透明,
+   * 背后的 watch-screen-backdrop 和 watch-svg 封面可以透出; 有视频时视频画面
+   * 本身覆盖(无需黑色兜底). 黑底只在真正播视频时才需要(浏览器默认已是黑底). */
+  background: transparent;
   opacity: 0.95;
   filter: saturate(1.1) brightness(1.05);
   position: absolute;
   inset: 0;
   z-index: 0;
+  /* CSSOS_WAVE_543 20260531 — Jing「切歌时上一首的首帧(封面)总要闪一下才播新媒体」:
+   * 换 src 时给 .cssos-video-swapping → opacity:0(底下稳定封面 backdrop 透出, 不黑屏),
+   * 新视频真正 playing 再淡入 → 旧首帧绝不闪现。transform-only/opacity, 合成器安全。 */
+  transition: opacity 0.26s ease;
+}
+.watch-video.cssos-video-swapping {
+  opacity: 0 !important;
 }
 
 .watch-svg {

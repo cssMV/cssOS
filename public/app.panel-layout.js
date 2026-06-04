@@ -96,7 +96,7 @@ function guardPanelAccessModule(panelId) {
 function updateDockVisibilityModule() {
   Object.entries(dockByPanel).forEach(([panelId, action]) => {
     const panel = document.getElementById(panelId);
-    const dockItem = document.querySelector(`.dock-item[data-action="${action}"]`);
+    const dockItem = document.querySelector(`[data-action="${action}"]`);
     if (!panel || !dockItem) return;
     const canOpen = canOpenPanelById(panelId);
     if (!authState.user && !GUEST_VISIBLE_DOCK_ACTIONS.has(action)) {
@@ -146,6 +146,12 @@ function restorePanelModule(panel) {
   // maximized on a fresh page load); it only respects the choice
   // within the current session.
   panel.dataset.userUnmaximized = "1";
+  // CSSOS_WAVE_464 20260528 — clamp after restore so a panel whose
+  // stored position was recorded at a larger window size or off-screen
+  // stays reachable. rAF ensures the layout is settled before measuring.
+  requestAnimationFrame(function () {
+    try { (globalThis.clampPanelInViewport || globalThis.clampAllPanelsInViewport)?.(panel); } catch (_) {}
+  });
 }
 
 /* CSSOS_PHASE1_MAXIMIZE_PARAMETERIZED 20260417:

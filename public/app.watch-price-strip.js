@@ -81,11 +81,14 @@
     strip = document.createElement("div");
     strip.id = "cssos-watch-price-strip";
     strip.dataset.noFrameToggle = "1";
+    // CSSOS_WAVE_573 20260531 — Jing「不要造轮子, 直接套胶囊宪法」: 凹凸镶嵌交给 [data-pill-bar]。
+    // 这里只留宪法管不到的【定位】(底部居中)。背景/边框/镶嵌/间距全由宪法负责。
+    strip.setAttribute("data-pill-bar", "");
+    strip.setAttribute("data-pill-compact", "");
+    strip.setAttribute("data-pill-mono", "");
     strip.style.cssText =
       "position:absolute;left:50%;bottom:14px;transform:translateX(-50%);" +
-      "display:flex;flex-wrap:wrap;justify-content:center;gap:6px;" +
-      "max-width:min(92%, 720px);z-index:14;" +
-      "pointer-events:auto;";
+      "max-width:min(96vw, 860px);z-index:14;pointer-events:auto;";
     screen.appendChild(strip);
     return strip;
   }
@@ -96,17 +99,11 @@
     b.type = "button";
     b.textContent = text;
     b.dataset.noFrameToggle = "1";
-    var bg = opts.kind === "buy"   ? "rgba(40, 110, 70, 0.78)"
-           : opts.kind === "tip"   ? "rgba(150, 100, 30, 0.78)"
-           : opts.kind === "wechat"? "rgba(34, 140, 60, 0.85)"
-           : opts.kind === "cost"  ? "rgba(20, 20, 20, 0.55)"
-           :                          "rgba(40, 80, 120, 0.75)";
-    b.style.cssText =
-      "background:" + bg + ";backdrop-filter:blur(8px);" +
-      "border:1px solid rgba(255,255,255,0.22);border-radius:999px;" +
-      "padding:5px 12px;font-size:12px;font-weight:600;letter-spacing:.02em;" +
-      "color:rgba(255,255,255,0.96);cursor:" + (opts.onClick ? "pointer" : "default") + ";" +
-      "line-height:1.2;white-space:nowrap;";
+    // CSSOS_WAVE_573 — 套胶囊宪法: 每颗 data-pill-key; 可交易段(买断/打赏)标 .active(凸)凸显可点。
+    // 删掉所有自造 background/border/box-shadow/渐变镶嵌 —— 宪法负责真凹凸咬合。
+    var transactional = (opts.kind === "buy" || opts.kind === "tip" || opts.kind === "wechat");
+    b.setAttribute("data-pill-key", String(opts.kind || "seg") + "-" + (text || "").slice(0, 8));
+    if (transactional && opts.onClick) b.classList.add("active");
     if (opts.title) b.title = opts.title;
     if (opts.disabled) {
       b.disabled = true;
@@ -224,32 +221,25 @@
     //  buyout → "版权不出售"; tip routes split between international
     //  (Stripe-style) and 中国 (微信/支付宝via NihaoPay).
 
-    // 1. Creator-visible cost (作品本人可见) — never 0; floor guarantees ≥ 15¢
-    if (isOwn) {
-      strip.appendChild(chip(
-        copy("Cost", "成本") + " · " + fmt(costCents),
-        {
-          kind: "cost",
-          title: copy(
-            "Your creator cost (server compute + third-party engines). Only visible to you.",
-            "本作品的创作成本（服务器算力 + 第三方引擎），仅作者本人可见。"
-          )
-        }
-      ));
-    }
+    // CSSOS_WAVE_587 — Jing「价格条更显眼: Tip 放最前; 然后 欣赏 / 聆听 / 买断」。
+    // 顺序: 💝Tip → 欣赏View → 聆听Listen → 买断Buyout → (成本Cost, 仅作者) → 微信/支付宝。
+    // 规则(之前约好的): 用户可多次 tip; 但【作者本人不能给自己 tip】→ isOwn 时 Tip 灰显。
 
-    // 2. Listen price — always shown
-    var listenLabel = copy("Listen", "聆听") + " · " +
-      (listenCents > 0 ? fmt(listenCents) : copy("Free", "免费"));
-    strip.appendChild(chip(listenLabel, {
-      kind: "buy",
-      title: copy("Suggested listening price", "系统建议的聆听价格"),
-      disabled: !canTransact || listenCents <= 0,
-      onClick: (canTransact && listenCents > 0) ? function () { dispatch("listen", workId); } : null
-    }));
+    // 1. 💝 Tip — FIRST, prominent.
+    strip.appendChild(chip(
+      "💝 " + copy("Tip", "打赏") + (tipsEnabled ? "" : " · " + copy("off", "关")),
+      {
+        kind: "tip",
+        title: isOwn
+          ? copy("You can't tip your own work", "作者本人不能给自己打赏")
+          : copy("Send a tip to the creator — as many times as you like", "给创作者打赏（可多次）"),
+        disabled: !canTransact || !tipsEnabled,
+        onClick: (canTransact && tipsEnabled) ? function () { dispatch("tip", workId); } : null
+      }
+    ));
 
-    // 3. View / 欣赏 price — always shown
-    var viewLabel = copy("View", "欣赏") + " · " +
+    // 2. View / 欣赏 price — always shown
+    var viewLabel = "👁 " + copy("View", "欣赏") + " · " +
       (viewCents > 0 ? fmt(viewCents) : copy("Free", "免费"));
     strip.appendChild(chip(viewLabel, {
       kind: "buy",
@@ -258,19 +248,29 @@
       onClick: (canTransact && viewCents > 0) ? function () { dispatch("view", workId); } : null
     }));
 
+    // 3. Listen price — always shown
+    var listenLabel = "🎧 " + copy("Listen", "聆听") + " · " +
+      (listenCents > 0 ? fmt(listenCents) : copy("Free", "免费"));
+    strip.appendChild(chip(listenLabel, {
+      kind: "buy",
+      title: copy("Suggested listening price", "系统建议的聆听价格"),
+      disabled: !canTransact || listenCents <= 0,
+      onClick: (canTransact && listenCents > 0) ? function () { dispatch("listen", workId); } : null
+    }));
+
     // 4. Buyout — always shown; explicit "版权不出售" when disabled
     var buyoutLabel;
     if (!buyoutEnabled) {
-      buyoutLabel = copy("Buyout · Not for sale", "买断 · 版权不出售");
+      buyoutLabel = "💎 " + copy("Buyout · Not for sale", "买断 · 版权不出售");
     } else if (buyoutCents > 0) {
-      buyoutLabel = copy("Buyout", "买断") + " · " + fmt(buyoutCents);
+      buyoutLabel = "💎 " + copy("Buyout", "买断") + " · " + fmt(buyoutCents);
     } else {
       // CSSOS_WAVE_113G 20260511 — Jing
       // "买断 / Buyout，搞反了，不是免费，是无价，priceless".
       // buyout_enabled=true with no price means the work IS for
       // potential buyout but the creator hasn't set a number —
       // semantically that's "priceless / 无价之宝", not free.
-      buyoutLabel = copy("Buyout · Priceless", "买断 · 无价之宝");
+      buyoutLabel = "💎 " + copy("Buyout · Priceless", "买断 · 无价之宝");
     }
     strip.appendChild(chip(buyoutLabel, {
       kind: "buy",
@@ -281,16 +281,19 @@
       onClick: (canTransact && buyoutEnabled && buyoutCents > 0) ? function () { dispatch("buyout", workId); } : null
     }));
 
-    // 5. Tip — international (Stripe etc.) — always shown
-    strip.appendChild(chip(
-      "💝 " + copy("Tip", "打赏") + (tipsEnabled ? "" : " · " + copy("off", "关")),
-      {
-        kind: "tip",
-        title: copy("Send a tip to the creator (international)", "向创作者发送打赏（国外用户）"),
-        disabled: !canTransact || !tipsEnabled,
-        onClick: (canTransact && tipsEnabled) ? function () { dispatch("tip", workId); } : null
-      }
-    ));
+    // 5. Cost (own only, info) — moved to the end; Tip now leads the strip.
+    if (isOwn) {
+      strip.appendChild(chip(
+        "💰 " + copy("Cost", "成本") + " · " + fmt(costCents),
+        {
+          kind: "cost",
+          title: copy(
+            "Your creator cost (server compute + third-party engines). Only visible to you.",
+            "本作品的创作成本（服务器算力 + 第三方引擎），仅作者本人可见。"
+          )
+        }
+      ));
+    }
 
     // 6. WeChat / Alipay tip — always shown for China users; shown
     //    as informational chip for others so they know the option
@@ -380,6 +383,28 @@
           },
         }
       ));
+    }
+
+    // CSSOS_WAVE_588 批2 — 凹凸镶嵌锚点: 免费作品/作者视角时没有任何可交易 chip → 无 .active → 整条全平(图3)。
+    // 渲染完若无 active, 给第一颗(Tip)补一个【纯视觉】active 凸锚点, 让宪法凹凸咬合渲染出来(不改变可点性)。
+    if (strip && !strip.querySelector("[data-pill-key].active")) {
+      var _anchor = strip.querySelector("[data-pill-key]");
+      if (_anchor) _anchor.classList.add("active");
+    }
+
+    // CSSOS_WAVE_588 — Jing「hover 时未激活胶囊随机色」: 鼠标进价格条 → 每颗【非激活】chip 上一抹随机色;
+    // 移出 → 还原(交回宪法底色)。仅 hover 触发、非无限动画(合规)。一次性绑定(strip 复用)。
+    if (strip && !strip.dataset.hoverHueWired) {
+      strip.dataset.hoverHueWired = "1";
+      strip.addEventListener("mouseenter", function () {
+        [].forEach.call(strip.querySelectorAll("[data-pill-key]:not(.active)"), function (c) {
+          if (c.disabled) return;
+          c.style.background = "hsla(" + Math.floor(Math.random() * 360) + ",72%,52%,0.30)";
+        });
+      });
+      strip.addEventListener("mouseleave", function () {
+        [].forEach.call(strip.querySelectorAll("[data-pill-key]"), function (c) { c.style.background = ""; });
+      });
     }
   }
 

@@ -13,6 +13,11 @@
  * Same system-work invariants apply: FREE, no buyout button, tip-only.
  */
 (function () {
+  /* CSSOS_WAVE_490f 20260529 — Jing「App 审核中, 登录后秒崩」决定性基线瘦身: 诊断探针实锤
+   * 认证态主屏在 iPhone XS Max(4GB)累积过重(~9 发现 shelf + feed + 海量 JS)→ WebKit 内容
+   * 进程崩溃→静默重载(无 beforeunload)循环。装饰性"发现 shelf"在手机/App 上是最可削的负担:
+   * 关掉它们 → 主屏只剩 logo+dock+用户作品+核心 feed, 大幅降内存。桌面端保留全部。 */
+  try { if (document.documentElement.classList.contains("cssos-app") || (window.matchMedia && window.matchMedia("(max-width: 820px)").matches)) return; } catch (_e) {}
   if (globalThis.__cssosTodayFestivalShelfWired) return;
   globalThis.__cssosTodayFestivalShelfWired = true;
 
@@ -123,7 +128,7 @@
       var name = isZh
         ? (it.name_zh || it.name_en || it.festival_id)
         : (it.name_en || it.name_zh || it.festival_id);
-      var meta = [it.civilization, it.core_theme].filter(Boolean).join(" · ");
+      var meta = (globalThis.civMetaText ? globalThis.civMetaText([it.civilization, it.core_theme], null, " · ") : [it.civilization, it.core_theme].filter(Boolean).join(" · "));
       var coverUrl = String(it.cover_image || "").trim();
       var coverStyle = coverUrl
         ? 'background-image:url(' + esc(coverUrl) + ');'
@@ -188,7 +193,14 @@
     var tick = setInterval(function () {
       attempts++;
       if (document.getElementById("foryou-market-section")) {
+        // CSSOS_WAVE_490d 20260529 — Jing「登录后还是闪」最终真凶(诊断探针 sec= 实锤):
+        // 本 shelf 原来每 3s 调 fetchAndRender() 整排重建 innerHTML, 渲染成功后【不停手】,
+        // 连续 10 次/30s。多个 shelf 叠加 → 主屏 main.stage 在 2000↔4800 节点反复建/拆
+        // (诊断 dom 每 3s 震荡)→ iPhone XS Max 内存/CPU 被 DOM thrash 拖垮 → 闪崩。
+        // 修复: 容器一出现就渲染【一次】, 立即 clearInterval 停掉 3s 重建循环(focus 时仍会刷新)。
         fetchAndRender();
+        clearInterval(tick);
+        return;
       }
       if (attempts >= 10) clearInterval(tick);
     }, 3000);

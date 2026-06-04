@@ -367,8 +367,10 @@ function minimizeToDockBridge(panel) {
   updateDockVisibility();
   const action = dockByPanel[panel.id];
   if (!action) return;
-  const dockItem = document.querySelector(`.dock-item[data-action="${action}"]`);
+  const dockItem = document.querySelector(`[data-action="${action}"]`);
   if (!dockItem) return;
+  dockItem.classList.remove("active");
+  panel.dispatchEvent(new CustomEvent("cssos:panelclose", { bubbles: false }));
 }
 
 function togglePanelLockBridge(panel) {
@@ -463,7 +465,7 @@ window.clampAllPanelsToViewport = clampAllPanelsToViewport;
 /* Re-clamp on every viewport resize, throttled via rAF. */
 (function bindViewportClamp() {
   var queued = false;
-  window.addEventListener("resize", function () {
+  function reclamp() {
     if (queued) return;
     queued = true;
     requestAnimationFrame(function () {
@@ -472,5 +474,40 @@ window.clampAllPanelsToViewport = clampAllPanelsToViewport;
         try { console.warn("[panel-clamp] failed", err); } catch (_) {}
       }
     });
-  });
+  }
+  window.addEventListener("resize", reclamp);
+  // CSSOS_WAVE_486 20260529 — Jing「很多面板没遵守面板宪法, 标题栏飞出屏幕外」。
+  // 根因: clampAllPanelsToViewport 此前只在 window resize 时触发。面板【打开】、
+  // 内容渲染后【变高】、或被脚本重定位时, 标题栏冲出视口顶部就没人拉回来。
+  // 补上 Article-2 的第四条腿: 观察 .panel 的 class(显示/隐藏/最大化)与 style
+  // (left/top/width/height)变化, 以及新面板插入 DOM, 都触发一次节流 reclamp。
+  // 这样无论哪条路径让面板越界, 标题栏(拖拽手柄)都会被拉回视口内。
+  try {
+    var clampMo = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var m = mutations[i];
+        if (m.type === "attributes") {
+          var t = m.target;
+          if (t && t.classList && t.classList.contains("panel")) { reclamp(); return; }
+        } else if (m.type === "childList" && m.addedNodes && m.addedNodes.length) {
+          for (var j = 0; j < m.addedNodes.length; j++) {
+            var n = m.addedNodes[j];
+            if (n && n.nodeType === 1 &&
+                ((n.classList && n.classList.contains("panel")) ||
+                 (n.querySelector && n.querySelector(".panel")))) {
+              reclamp(); return;
+            }
+          }
+        }
+      }
+    });
+    clampMo.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      childList: true,
+      subtree: true
+    });
+  } catch (_e) {}
+  // Also clamp once on first paint, in case a panel restored open above the fold.
+  try { requestAnimationFrame(reclamp); } catch (_e2) {}
 })();

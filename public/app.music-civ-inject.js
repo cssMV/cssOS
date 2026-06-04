@@ -97,7 +97,7 @@
             const newInit = Object.assign({}, init, { body: JSON.stringify(body) });
             console.info(
               "%c[music-civ] injected cultural signal → " +
-                [sig.civilization, sig.era, sig.gender].filter(Boolean).join(" / "),
+                (globalThis.civMetaText ? globalThis.civMetaText([sig.civilization, sig.era, sig.gender], null, " / ") : [sig.civilization, sig.era, sig.gender].filter(Boolean).join(" / ")),
               "color:#0a0;font-weight:bold",
             );
             return _origFetch.call(this, input, newInit);

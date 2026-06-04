@@ -44,16 +44,20 @@
     var s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent = [
-      "#person-mv-leaderboard-panel{position:fixed;inset:0;z-index:9300;background:rgba(2,8,6,0.96);overflow:auto;display:none;color:#daffee;}",
-      "#person-mv-leaderboard-panel.open{display:block;}",
-      ".cssos-lb-wrap{max-width:min(1200px,96vw);margin:0 auto;padding:24px 16px 64px;}",
+      /* CSSOS_WAVE_501 20260530 — Jing「排行榜做成小窗口, 不要全屏」。容器改成居中半透明
+       * 遮罩, 内层 .cssos-lb-wrap 变成有最大宽高、圆角、可滚动的窗口卡片。 */
+      "#person-mv-leaderboard-panel{position:fixed;inset:0;z-index:9300;background:rgba(2,8,6,0.62);display:none;color:#daffee;}",
+      "#person-mv-leaderboard-panel.open{display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}",
+      ".cssos-lb-wrap{width:min(1100px,94vw);max-height:min(82vh,760px);overflow:auto;margin:0;padding:20px 18px;box-sizing:border-box;background:rgba(4,12,9,0.97);border:1px solid rgba(0,245,160,0.25);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,0.5);}",
       ".cssos-lb-head{display:flex;align-items:baseline;justify-content:space-between;margin:0 0 16px;}",
       ".cssos-lb-head h1{margin:0;font:700 22px/1.2 -apple-system,system-ui,sans-serif;}",
       ".cssos-lb-close{background:transparent;border:1px solid rgba(0,245,160,0.4);color:#daffee;padding:6px 12px;border-radius:8px;cursor:pointer;font:500 13px/1 -apple-system,system-ui,sans-serif;}",
       ".cssos-lb-close:hover{border-color:rgba(0,245,160,0.85);}",
-      ".cssos-lb-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;}",
-      "@media(max-width:840px){.cssos-lb-cols{grid-template-columns:1fr;}}",
-      ".cssos-lb-col{background:rgba(8,18,14,0.6);border:1px solid rgba(0,245,160,0.18);border-radius:14px;padding:14px;}",
+      /* CSSOS_WAVE_502 20260530 — Jing「小窗口更紧凑: 三板块只用一根线隔开, 不要三个独立卡片」 */
+      ".cssos-lb-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;}",
+      "@media(max-width:840px){.cssos-lb-cols{grid-template-columns:1fr;}.cssos-lb-col + .cssos-lb-col{border-left:0;border-top:1px solid rgba(0,245,160,0.16);}}",
+      ".cssos-lb-col{padding:2px 16px;}",
+      ".cssos-lb-col + .cssos-lb-col{border-left:1px solid rgba(0,245,160,0.16);}",
       ".cssos-lb-col h2{margin:0 0 10px;font:700 15px/1.2 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.95);}",
       ".cssos-lb-tabs{display:flex;gap:6px;margin:0 0 12px;}",
       ".cssos-lb-tab{flex:1;background:rgba(0,40,28,0.5);border:1px solid rgba(0,245,160,0.18);color:rgba(218,255,238,0.78);padding:6px 0;border-radius:8px;cursor:pointer;font:500 12px/1 -apple-system,system-ui,sans-serif;}",
@@ -103,7 +107,7 @@
     return (
       '<div class="cssos-lb-col" data-scope="' + scope + '">' +
         '<h2 data-i18n="leaderboard.col.' + scope + '">' + escapeHtml(tr(enTitle, zhTitle)) + '</h2>' +
-        '<div class="cssos-lb-tabs" role="tablist" data-segmented="3">' +
+        '<div class="cssos-lb-tabs" role="tablist" data-segmented="3" data-pill-bar>' +
           '<button class="cssos-lb-tab active" data-period="week"  type="button">' + escapeHtml(tr("Week","本周")) + '</button>' +
           '<button class="cssos-lb-tab"        data-period="month" type="button">' + escapeHtml(tr("Month","本月")) + '</button>' +
           '<button class="cssos-lb-tab"        data-period="all"   type="button">' + escapeHtml(tr("All time","总榜")) + '</button>' +
@@ -146,6 +150,14 @@
   // --- rendering --------------------------------------------------------
   function renderRows(scope, rows) {
     if (!rows || !rows.length) {
+      var _ems = globalThis.cssosEmptyStateMarkup;
+      if (_ems) {
+        return _ems({
+          icon: "🏆",
+          title: tr("No entries yet for this period.", "本周还无作品"),
+          sub: tr("Be the first to claim the top spot.", "你来抢下榜首第一位。")
+        });
+      }
       return (
         '<div class="cssos-lb-empty">' +
           escapeHtml(tr("No entries yet for this period.", "本周还无作品")) +
@@ -163,7 +175,8 @@
       } else if (scope === "persons") {
         name = r.name_zh || r.name_en || r.person_id;
         img = r.portrait_url ? ' style="background-image:url(\'' + String(r.portrait_url).replace(/'/g, "%27") + '\')"' : "";
-        sub = (r.civilization ? r.civilization + " · " : "") + "👁 " + fmtCount(r.total_views) + " · 🎬 " + fmtCount(r.mv_count);
+        var _civL = r.civilization ? ((globalThis.civDisplayName ? globalThis.civDisplayName(r.civilization) : r.civilization) + " · ") : "";
+        sub = _civL + "👁 " + fmtCount(r.total_views) + " · 🎬 " + fmtCount(r.mv_count);
         key = "p:" + r.person_id;
       } else {
         name = r.name_zh || r.name_en || r.group_id;
@@ -209,7 +222,9 @@
     if (!col) return;
     var list = col.querySelector("[data-list]");
     if (!list) return;
-    list.innerHTML = '<div class="cssos-lb-loading">' + escapeHtml(tr("Loading…","加载中…")) + '</div>';
+    list.innerHTML = (globalThis.cssosSkeletonRowsMarkup
+      ? globalThis.cssosSkeletonRowsMarkup(5, tr("Loading…","加载中…"))
+      : '<div class="cssos-lb-loading">' + escapeHtml(tr("Loading…","加载中…")) + '</div>');
     try {
       var rows = await fetchScope(scope, period);
       list.innerHTML = renderRows(scope, rows);
@@ -222,6 +237,12 @@
     panel.addEventListener("click", function (ev) {
       var t = ev.target;
       if (!t) return;
+      /* CSSOS_WAVE_501 — 小窗口: 点击遮罩空白处(窗口卡片之外)关闭。 */
+      if (t === panel || (t.closest && !t.closest(".cssos-lb-wrap"))) {
+        ev.preventDefault();
+        close();
+        return;
+      }
       if (t.closest && t.closest('[data-act="close"]')) {
         ev.preventDefault();
         close();

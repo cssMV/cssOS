@@ -18,7 +18,10 @@ sync_src() {
 
   if [ -d "${REPO_ROOT}/migrations" ]; then
     say "rsync migrations/ -> ${TARGET}:${REMOTE_REPO}/migrations/"
-    rsync -az --delete \
+    # CSSOS_WAVE_170 20260515 — force a-r on migrations so the cssOS
+    # systemd user (which runs as www-data inside the release dir)
+    # never hits EACCES if a local file lands with mode 0600.
+    rsync -az --delete --chmod=Fa+r \
       "${REPO_ROOT}/migrations/" \
       "${TARGET}:${REMOTE_REPO}/migrations/"
   fi

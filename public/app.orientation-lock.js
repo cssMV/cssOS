@@ -91,12 +91,12 @@
       "user-select:none",
       "-webkit-user-select:none",
     ].join(";");
+    // WAVE_445e 20260526 — i18n fix: English-only per project iron rule.
     el.innerHTML = [
       '<div style="max-width:320px;display:flex;flex-direction:column;align-items:center;gap:18px;">',
       '  <div style="font-size:56px;line-height:1;animation:cssosRotateNudge 2.4s ease-in-out infinite;">📱</div>',
       '  <div style="font-size:18px;font-weight:700;letter-spacing:0.04em;color:#5effc9;">CSS Studio</div>',
       '  <div style="font-size:14px;line-height:1.6;color:rgba(255,255,255,0.88);">',
-      '    请把手机转回 <b>竖屏</b> 使用。<br/>',
       '    Please rotate your device back to <b>portrait</b>.',
       '  </div>',
       '</div>',
@@ -159,16 +159,19 @@
     try {
       if (typeof window.matchMedia === "function") {
         const mq = window.matchMedia("(orientation: landscape)");
+        // WAVE_445e: addListener deprecated since Safari 14+; iOS 15+ target uses addEventListener only.
         if (mq && typeof mq.addEventListener === "function") {
           mq.addEventListener("change", wrap);
-        } else if (mq && typeof mq.addListener === "function") {
-          mq.addListener(wrap);
         }
       }
     } catch (_) {}
   }
 
   function init() {
+    // WAVE_445b 20260526 — attempt lock immediately on load, not just on
+    // fullscreen entry. Works on Android Chrome standalone / PWA. iOS Safari
+    // silently ignores it (no API available); the overlay below is the iOS fallback.
+    tryLockPortrait();
     bindFullscreenLock();
     bindOverlay();
   }

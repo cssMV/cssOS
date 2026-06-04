@@ -309,6 +309,9 @@ function collectCurrentWorkAssetSnapshot() {
   };
 }
 
+// Tracks works we've already kicked a cover-pool request for this session
+// so a burst of persist calls doesn't fan out duplicate generation jobs.
+const coverPoolRequested = new Set();
 async function persistWorkAssets(workId, assetPatch = {}) {
   const targetId = String(workId || "").trim();
   if (!authState.user || !targetId) return false;
@@ -333,6 +336,32 @@ async function persistWorkAssets(workId, assetPatch = {}) {
   }
   persistedWorkAssetSignatures.set(targetId, signature);
   updateLocalWorkAssets(targetId, payload);
+  // CSSOS_WAVE_220A_COVER_POOL 20260519 — Jing: once a work has a real
+  // cover persisted, fire-and-forget generate its 5-image slideshow pool
+  // so every new work auto-gets the random-cover experience. The endpoint
+  // is idempotent (skips if a pool already exists), so repeat persists are
+  // cheap no-ops. UUID guard skips local_* placeholder ids.
+  if (payload.cover_image && /^[0-9a-f-]{36}$/i.test(targetId)) {
+    if (!coverPoolRequested.has(targetId)) {
+      coverPoolRequested.add(targetId);
+      // CSSOS_WAVE_220A_COVER_POOL 20260520 — Jing: count is user-chosen
+      // via the MV PIPELINE cover engine-picker's "Cover images" stepper,
+      // which persists to localStorage key `cssos_mvp_param_cover_count`
+      // (1..8, default 1). 1 = single static cover; 8 ≈ 158 billion
+      // slideshow permutations. We read THAT existing key — no new control.
+      let _poolCount = 1;
+      try {
+        const v = parseInt(localStorage.getItem("cssos_mvp_param_cover_count") || "", 10);
+        if (Number.isFinite(v) && v >= 1 && v <= 8) _poolCount = v;
+      } catch (_e) {}
+      fetch(`/api/works/${encodeURIComponent(targetId)}/cover-pool`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ count: _poolCount })
+      }).catch(() => { coverPoolRequested.delete(targetId); });
+    }
+  }
   return true;
 }
 
@@ -342,7 +371,95 @@ function schedulePersistCurrentWorkAssets(workId = currentPersistedRootWorkId) {
   const payload = collectCurrentWorkAssetSnapshot();
   if (!payload.cover_image && !payload.preview_image_url && !payload.preview_video_url && !payload.preview_video_asset_key) return;
   void persistWorkAssets(targetId, payload).catch(() => {});
+  // W350 20260523 — Jing: 同步补全 work_assets 行(final_mv / audio_track_1
+  // / duration). 之前 Rust commit ON CONFLICT 因 partial index 谓词缺失
+  // 而静默失败, 留下空 work_assets. 现在每次视频/音频就绪时幂等补写.
+  void schedulePersistPipelineWorkAssets(targetId);
 }
+
+// W350 20260523 — Jing: 补全 work_assets 中 final_mv / audio_track_1 /
+// duration_secs. 每次触发都收集当前 watch panel 的真实播放地址 + 时长,
+// POST /api/works/:id/pipeline-assets 幂等 upsert.
+// 防重: 同一 workId × 同一 finalMvUrl 只提交一次(本 session 内).
+const _pipelineAssetsPersisted = new Map(); // workId → finalMvUrl
+
+async function schedulePersistPipelineWorkAssets(workId) {
+  try {
+    const targetId = String(workId || "").trim();
+    if (!targetId || !/^[0-9a-f-]{36}$/i.test(targetId)) return;
+    if (!authState?.user) return;
+
+    // Collect final MV URL from the watch video element.
+    const _watchVideoEl = document.getElementById("watch-video");
+    const finalMvUrl = String(_watchVideoEl?.currentSrc || _watchVideoEl?.src || "").trim();
+
+    // Only persist for works whose video comes from the Rust pipeline.
+    // Stable CDN URLs (replicate, fal, R2, cssstudio) are already stored;
+    // this path is for /cssapi/v1/runs/… proxy URLs.
+    if (!finalMvUrl || !/\/cssapi\/v1\/runs\//i.test(finalMvUrl)) return;
+
+    // Dedup: don't re-submit if this workId + finalMvUrl pair was already
+    // committed this session.
+    const dedupKey = `${targetId}:${finalMvUrl}`;
+    if (_pipelineAssetsPersisted.get(targetId) === dedupKey) return;
+
+    // Collect audio from the watch audio element.
+    const _watchAudioEl = document.getElementById("watch-audio-preview");
+    const audioUrl = String(_watchAudioEl?.src || "").trim();
+
+    // Get duration from video element, fallback to pipeline state.
+    const videoDur = Number(_watchVideoEl?.duration || 0);
+    const psDur = (() => {
+      try {
+        const ps = typeof globalThis.cssosMvPipelinePanelState === "function"
+          ? globalThis.cssosMvPipelinePanelState() : null;
+        return Number(ps?.duration || 0);
+      } catch (_e) { return 0; }
+    })();
+    const durationSecs = (Number.isFinite(videoDur) && videoDur > 0)
+      ? videoDur
+      : (Number.isFinite(psDur) && psDur > 0 ? psDur : null);
+
+    // Get subtitle URL from pipeline state if available.
+    const subtitleSrtUrl = (() => {
+      try {
+        const ps = typeof globalThis.cssosMvPipelinePanelState === "function"
+          ? globalThis.cssosMvPipelinePanelState() : null;
+        return String(ps?.subtitleUrl || "").trim();
+      } catch (_e) { return ""; }
+    })();
+
+    const body = {
+      final_mv_url: finalMvUrl,
+      audio_url: audioUrl || undefined,
+      subtitle_srt_url: subtitleSrtUrl || undefined,
+      duration_secs: durationSecs || undefined,
+    };
+
+    _pipelineAssetsPersisted.set(targetId, dedupKey);
+    const res = await fetch(`/api/works/${encodeURIComponent(targetId)}/pipeline-assets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      _pipelineAssetsPersisted.delete(targetId);
+      console.warn("[W350] pipeline-assets persist failed", res.status);
+    }
+  } catch (_e) {
+    // non-fatal
+  }
+}
+
+// W350 20260523 — Jing: kara_ready = 全管线完成，此时 video + audio 都就绪。
+// 延迟 2s 再补写，确保 watchVideo.src / watchAudioPreview.src 已完成赋值。
+window.addEventListener("cssos:kara_ready", () => {
+  setTimeout(() => {
+    const id = String(currentPersistedRootWorkId || "").trim();
+    if (id) void schedulePersistPipelineWorkAssets(id);
+  }, 2000);
+});
 
 function workCoverSubtitle(work = {}) {
   const style = String(work?.style || "").trim();
@@ -359,7 +476,34 @@ function workCoverLines(work = {}) {
     .slice(0, 4);
 }
 
+// CSSOS_WAVE_410 20260524 — Jing「卡片列表每次都要随机换图, 让人觉得新鲜」:
+// 每首作品都有海量 slideshow_frame(后端聚合成 cover_slides)。这里集中提供一个
+// 随机取帧器, 让【所有】走共享封面解析器的卡片面(For You / 作品中心 / Watch /
+// 人物 MV 队列卡)每次渲染都随机展示一帧, 而不是一图到底。无 slides 时回落固定封面。
+// CSSOS_WAVE_417 20260524 — Jing「封面图一张也留不住」根因: 86% 的 slideshow_frame
+// 存的是会过期的第三方临时链(replicate.delivery / fal.media)→ 随机取到就 404 → 卡片
+// 显示「?」。这里只在【自有域名(已持久化, 永不 404)】的帧里随机取; 没有自有帧时
+// 回落到固定封面, 绝不展示一张明知会死的临时链。(R2 迁移后这些帧 = cdn.cssstudio.app。)
+function _isPersistedCoverUrl(u) {
+  return /(^|\/\/|\.)cssstudio\.app\//.test(u) || u.startsWith("data:");
+}
+function pickRandomCoverSlide(work = {}) {
+  try {
+    const slides = Array.isArray(work && work.cover_slides)
+      ? work.cover_slides.filter((u) => typeof u === "string" && u.trim()).map((u) => u.trim())
+      : [];
+    if (!slides.length) return "";
+    // Prefer frames hosted on our own (persisted) domain — those never 404.
+    const alive = slides.filter(_isPersistedCoverUrl);
+    const pool = alive.length ? alive : slides; // fall back to whatever exists
+    return pool[Math.floor(Math.random() * pool.length)];
+  } catch (_e) {}
+  return "";
+}
+
 function resolveWorkCoverImage(work = {}) {
+  const rnd = pickRandomCoverSlide(work); // W410 — fresh frame each render
+  if (rnd) return rnd;
   const existing = String(work?.cover_image || work?.thumbnail_url || work?.preview_image_url || "").trim();
   if (existing && isSyntheticWorkCoverImage(existing) && isDemoTemplateTitle(String(work?.title || "").trim())) {
     return "";
@@ -369,6 +513,8 @@ function resolveWorkCoverImage(work = {}) {
 }
 
 function resolveWorkCardThumbnailImageModule(work = {}) {
+  const rnd = pickRandomCoverSlide(work); // W410 — random thumbnail each render
+  if (rnd) return rnd;
   const preferred = [
     work?.small_thumbnail_url,
     work?.thumbnail_url,

@@ -1440,11 +1440,28 @@ function safeT(key, localeOverride) {
   return interpolate(template, {});
 }
 
+// CSSOS_WAVE_665 #52 — 100% 全译统一: data-i18n 静态字典键与 tr() 运行时 LLM 翻译合一。
+// t(key) 对【没有该 locale 字典条目】的语言只会回退英文; 这里把那份英文再过一遍运行时 tr()
+// (Claude 懒翻译 + 缓存, 全局共享), 让任意【激活的】语言把静态 UI 也译全, 而非半中半英。
+// 已有自带字典(en/zh/ja/ko/es/fr…)的键 t() 直接给真翻译, 不重复过 tr()。
+function localizedI18nText(key, opts) {
+  const text = t(key, opts);
+  try {
+    const loc = (typeof currentLocale === "string") ? currentLocale.toLowerCase() : "en";
+    if (loc && loc !== "en" && loc !== "en-us" && loc !== "en-gb") {
+      const hasOwn = (typeof I18N !== "undefined" && I18N[currentLocale] &&
+        Object.prototype.hasOwnProperty.call(I18N[currentLocale], key) && I18N[currentLocale][key]);
+      if (!hasOwn && typeof tr === "function" && text) return tr(text);
+    }
+  } catch (_e) { /* fall through to dict text */ }
+  return text;
+}
+
 function applyI18n() {
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.dataset.i18n;
     if (!key) return;
-    const text = t(key, { spell: state.spell });
+    const text = localizedI18nText(key, { spell: state.spell });
     if (text) {
       el.textContent = text;
     }
@@ -1453,7 +1470,7 @@ function applyI18n() {
   document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
     const key = el.dataset.i18nPlaceholder;
     if (!key) return;
-    const text = t(key);
+    const text = localizedI18nText(key);
     if (text) {
       el.setAttribute("placeholder", text);
     }
@@ -1462,7 +1479,7 @@ function applyI18n() {
   document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
     const key = el.dataset.i18nAria;
     if (!key) return;
-    const text = t(key);
+    const text = localizedI18nText(key);
     if (text) {
       el.setAttribute("aria-label", text);
     }
@@ -1471,7 +1488,7 @@ function applyI18n() {
   document.querySelectorAll("[data-i18n-html]").forEach((el) => {
     const key = el.dataset.i18nHtml;
     if (!key) return;
-    const text = t(key, { spell: state.spell });
+    const text = localizedI18nText(key, { spell: state.spell });
     if (text) {
       el.innerHTML = text;
     }
@@ -1486,6 +1503,20 @@ function applyI18n() {
 
   globalThis.renderAboutSubSectionModule?.();
 }
+
+// CSSOS_WAVE_665 #52 — 运行时懒翻译就绪后重渲染 data-i18n(把首帧的英文占位换成译文)。
+// tr() 首调返回英文并异步译; 译好后 runtime.js 派发 cssos:i18n-translation-ready → 重跑 applyI18n
+// (此时缓存命中, 不再 enqueue → 不会死循环)。节流防抖动。
+let _cssosI18nReapplyTimer = null;
+try {
+  window.addEventListener("cssos:i18n-translation-ready", () => {
+    if (_cssosI18nReapplyTimer) return;
+    _cssosI18nReapplyTimer = setTimeout(() => {
+      _cssosI18nReapplyTimer = null;
+      try { applyI18n(); } catch (_e) {}
+    }, 120);
+  });
+} catch (_e) {}
 
 // CSSOS_PHASE2_I18N_ENGLISH_AS_SSOT 20260419
 //
@@ -9206,6 +9237,8 @@ function resumeWatchBackgroundVideoIfFrontModule() {
     if (typeof watchPanel === "undefined" || !watchPanel || watchPanel.classList.contains("hidden")) return;
     var covering = document.querySelector('.panel:not(.hidden)[data-maximized="true"]');
     if (covering && covering !== watchPanel) return; // 仍被别的全屏面板盖着 → 不还原
+    // CSSOS_WAVE_669 — watch 回前台 → 取消待定的后台暂停, 别让它 8s 后误暂停已可见的画面。
+    try { if (globalThis.__cssosBgPauseTimer) { clearTimeout(globalThis.__cssosBgPauseTimer); globalThis.__cssosBgPauseTimer = null; } } catch (_t) {}
     var v = document.getElementById("watch-video");
     if (!v || !v.paused) return;
     if (!(v.getAttribute("src") || v.currentSrc)) return; // 没源不强行 play
@@ -9267,12 +9300,22 @@ function openPanel(panel, options = {}) {
   // iOS WKWebView 解码缓冲堆积 → "开着 works-center 不动几分钟就 OOM 崩"。盖住 watch 时暂停其视频
   // (静音画面, 暂停零声损; 声音在独立 #watch-audio-preview, 不受影响; 重回 watch 时
   // openWatchPanelShellModule 会重启播放)。可逆、低风险。
+  // CSSOS_WAVE_669 — Jing 铁律「MV 播放期间, 任何操作都不许暂停媒体(含开 AI 助理/面板)」。
+  // 原 W589 一打开非 watch 面板就【立刻】pause 后台 #watch-video → 用户开个面板/助理画面就冻 = 违背。
+  // 改为【延迟 8s + 仅当 watch 真被全屏面板盖住时】才暂停(纯 OOM 防护); 任何"快速操作/浮层(AI 助理、
+  // 情绪参数小窗、语言条)"画面都不打断。重回 watch 或关面板会取消并续播。声音始终在独立 audio, 从不停。
+  try { if (globalThis.__cssosBgPauseTimer) { clearTimeout(globalThis.__cssosBgPauseTimer); globalThis.__cssosBgPauseTimer = null; } } catch (_t) {}
   try {
     if (panel !== watchPanel) {
-      var _bgWatchVideo = document.getElementById("watch-video");
-      if (_bgWatchVideo && !_bgWatchVideo.paused && !_bgWatchVideo.hasAttribute("data-keep-media")) {
-        _bgWatchVideo.pause();
-      }
+      globalThis.__cssosBgPauseTimer = setTimeout(function () {
+        try {
+          var v = document.getElementById("watch-video");
+          if (!v || v.paused || v.hasAttribute("data-keep-media")) return;
+          // 仅当此刻 watch 仍被【某个全屏/最大化面板】盖住(真看不见)才暂停; 浮层/已关面板 → 不暂停。
+          var covering = document.querySelector('.panel:not(.hidden)[data-maximized="true"]');
+          if (covering && covering !== watchPanel) v.pause();
+        } catch (_e2) {}
+      }, 8000);
     }
   } catch (_e) { /* non-fatal */ }
   const restoredLayout = applyStoredPanelLayout(panel);
@@ -9359,6 +9402,9 @@ function openPanel(panel, options = {}) {
     }
   }
   if (panel === profilePanel) {
+    // CSSOS_WAVE_662 第2步: 礼物收件箱(挂在 profile 内的 #gift-inbox-mount)按需静默加载——
+    //   打开 profile 才载, 模块自有 readyState 兜底→立即 init→首刷 + 装 MutationObserver。
+    try { globalThis.cssosLoadPanel && globalThis.cssosLoadPanel("gift-inbox", { silent: true }); } catch (_e) {}
     profilePanel.dataset.panelDensity = readPanelBehaviorSettingsLocal().profile.panel_density;
     refreshProfilePanelsAndVersionSurface();
   }

@@ -34,6 +34,11 @@ const watchKaraokeTimelineCache = {
   pending: false,
   error: ""
 };
+// CSSOS_WAVE_643 — 收敛同一对象: 顶层 `const` 进的是【全局词法环境】, 跨脚本可见但【不是 window 属性】。
+// 渲染器读裸名 watchKaraokeTimelineCache(=此 const), 而情绪字幕引擎写 globalThis.watchKaraokeTimelineCache
+// (=另一个对象) → 引擎填 56 条进 window 那份, 渲染器读 const 那份(永远空) → 字幕永不显示。
+// 把 const 镜像到 globalThis, 让两个视图指向【同一个对象】, 引擎写哪份渲染器都看得到。
+try { globalThis.watchKaraokeTimelineCache = watchKaraokeTimelineCache; } catch (_e) {}
 const attemptedFinalAudioArtifacts = new Map();
 let pendingFinalAudioRunId = "";
 let pendingFinalAudioTimer = null;

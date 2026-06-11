@@ -1889,7 +1889,10 @@ body.longpress-guard * {
 
 .language-body {
   display: grid;
-  gap: 16px;
+  gap: 12px;
+  /* CSSOS_WAVE_665c — 关键: grid 默认 align-content 会把 auto 行【拉伸】填满高面板, 导致胶囊组/
+   * 按钮/搜索框全被纵向撑成"超大型"。改 start → 行=内容高、全部紧凑靠顶(图3 风格)。 */
+  align-content: start;
 }
 
 .language-current {
@@ -1993,6 +1996,169 @@ body.longpress-guard * {
 
 @media (hover: none), (pointer: coarse) {
   .lang-name { display: none; }
+}
+
+/* CSSOS_WAVE_665 #52 — 全球语言目录: 卡片需常显母语名(100 语言 + 多书写系统, 纯 flag 无法辨识)。
+ * 覆盖上面的 hover-only / touch-hidden 规则, 仅限语言面板内。 */
+#language-panel .lang-card {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+}
+#language-panel .lang-name {
+  opacity: 1 !important;
+  transform: none !important;
+  display: inline !important;
+  font-size: 14px;
+}
+/* 浏览胶囊: 国旗 + 母语名 + 英文名【横排一行】(与上方"我的语言"胶囊一致)。 */
+.lang-card-text {
+  display: flex;
+  flex-direction: row;       /* 一行: 母语名 + 英文名 横排 */
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+#language-list-more .lang-card {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  text-align: left;
+  padding: 8px 14px;
+  min-height: 46px;
+}
+#language-list-more .lang-flag { flex: none; font-size: 20px; }
+#language-list-more .lang-name {
+  flex: none;
+  font-size: 14px; font-weight: 600;
+  white-space: nowrap;
+}
+#language-panel .lang-card-text .lang-sub,
+#language-panel .lang-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 0;
+  opacity: 0.7;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+/* "我的语言" 凹凸镶嵌胶囊组(每用户一套, 数量随人而异)。段相接成一条, 当前段凸起高亮。 */
+#language-panel #language-list { display: block; }
+/* 凹凸镶嵌: 整组是一条【凹槽】(concave well, 内阴影下凹), 当前语言段是【凸起】(convex)
+ * 的圆胶囊镶嵌其中(独立圆角 + 投影浮起), 其余段平嵌槽内 —— iOS segmented-control 式凹凸。 */
+.lang-capsule-group {
+  display: flex;
+  flex-wrap: nowrap;          /* 不折行: 装得下=均分, 装不下=横滑 */
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  overflow-x: auto;           /* 超宽左右滑动 */
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  background: rgba(0,0,0,0.18);                          /* 凹槽 */
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.32), inset 0 0 0 1px rgba(255,255,255,0.05);
+}
+.lang-capsule-group::-webkit-scrollbar { display: none; }
+.lang-capsule {
+  flex: 1 1 0;                /* 基准 0 + 等权 grow → 装得下各段均分(2 个各半, 3 个各三分之一…) */
+  min-width: max-content;     /* 不缩到内容以下 → 总宽超容器溢出 → 横滑 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 999px;       /* 每段独立圆胶囊 */
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+  transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.lang-capsule .lang-cap-name { font-weight: 600; }
+.lang-capsule .lang-cap-en { font-size: 11px; opacity: 0.6; }
+.lang-capsule.active {                                   /* 凸起镶嵌 */
+  background: var(--accent, rgba(120,180,255,0.32));
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.30), 0 0 0 1px rgba(255,255,255,0.12);
+}
+.lang-capsule.active .lang-cap-en { opacity: 0.85; }
+.lang-capsule:not(.active):hover { background: rgba(255,255,255,0.07); }
+
+/* "更多语言" 浏览 = 多栏流式独立胶囊(宽≈高×3), 满屏多列, 窄屏自动折行。
+ * 用 :not(.is-hidden) 而非 display:flex !important —— 否则 !important 会压过 .is-hidden,
+ * "收起"时整列语言关不掉(原 bug)。收起态显式 display:none !important 兜底。 */
+/* 103 语言浏览 = 统一宽度胶囊网格(等宽列 → 所有胶囊同宽, 以最宽为准; 响应式折行)。 */
+#language-list-more:not(.is-hidden) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));  /* 等宽列, 容下"国旗+母语名+英文名"一行 */
+  gap: 8px;
+}
+#language-list-more.is-hidden { display: none !important; }
+/* "＋ Add language / − Show fewer" 切换按钮 = 胶囊风格(整条宽胶囊)。 */
+#language-more {
+  display: block;
+  width: 100%;
+  margin: 10px 0;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgba(255,255,255,0.16));
+  background: rgba(255,255,255,0.06);
+  color: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+#language-more:hover { background: rgba(255,255,255,0.1); }
+#language-more:active { transform: scale(0.99); }
+#language-list-more .lang-card {
+  width: 100%;           /* 填满 grid 等宽列 → 所有胶囊同宽 */
+  min-height: 50px;
+  box-sizing: border-box;
+  border-radius: 999px;  /* 全胶囊圆角, 与"我的语言"/搜索框/按钮统一 */
+  background: rgba(255,255,255,0.05);
+  box-shadow: inset 0 0 0 1px var(--border, rgba(255,255,255,0.10));
+}
+#language-list-more .lang-card:hover { background: rgba(255,255,255,0.09); }
+.language-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+  padding: 11px 18px;
+  border-radius: 999px;                 /* 胶囊风格: 两头凸圆角, 与按钮统一 */
+  border: 1px solid var(--border, rgba(255,255,255,0.16));
+  background: rgba(255,255,255,0.06);
+  color: inherit;
+  font-size: 14px;
+}
+/* "Add language / Show fewer" 按钮: 整条宽胶囊 + 图标 + 文字居中。 */
+#language-more.lang-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-transform: none;       /* 防止被 .cta 大写化, 与图标和谐 */
+  letter-spacing: normal;
+}
+#language-more .lang-more-ico { font-size: 16px; line-height: 1; }
+#language-more .lang-more-txt { font-weight: 600; }
+.language-search::placeholder { color: var(--muted); }
+.language-browse-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .language-status {
@@ -7137,6 +7303,10 @@ html.cssos-app #watch-panel .watch-frame {
    bottom is the canonical lyric render (#125, #133). Hide the whole
    karaoke-line block. The active-word highlighting feature it provided
    is preserved by the bottom subtitle's tone-emotion + style classes. */
+/* CSSOS_WAVE_644 — 收回旧套: #watch-karaoke-line 早已废弃(见上方注释 "The ENTIRE karaoke-line
+   is redundant now — #watch-subtitle..."), 情绪字幕的正主是【绿色左下角 #watch-subtitle】的逐字
+   .kara-char 渲染器。W643 误把这套退役的 karaoke-line 放出来 → 屏幕中央黑色竖排"第二套字幕"。
+   重新退役它, 只保留 #watch-subtitle 一套。 */
 .watch-karaoke-line {
   display: none !important;
 }

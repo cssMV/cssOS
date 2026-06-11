@@ -1422,6 +1422,12 @@ async function openMarketWorkPreview(work = {}, options = {}) {
 try {
   globalThis.openMarketWorkPreview = openMarketWorkPreview;
 } catch (_e) {}
+// CSSOS_WAVE_696 — 暴露打赏/支付派发器到 globalThis。它被困在本 IIFE 里(漏挂), 导致
+// 价格条(app.watch-price-strip.js)和头像 tip(app.watch-ui.js)用 globalThis.dispatchMarketWorkPayment
+// 调它时永远 undefined → 点 Tip 只弹"市场加载中", 打不了赏。函数声明已提升, 这里安全赋值。
+try {
+  globalThis.dispatchMarketWorkPayment = dispatchMarketWorkPayment;
+} catch (_e) {}
 
 function getStructuredWorkNodeIdModule(work = {}) {
   return String(work?.work_id || work?.id || work?.local_id || "").trim();

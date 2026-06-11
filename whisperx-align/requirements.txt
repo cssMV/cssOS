@@ -1,0 +1,11 @@
+# CSSOS_WAVE_650 — whisperX forced-alignment service deps.
+# CPU works (int8); for GPU set WHISPERX_DEVICE=cuda + install CUDA torch wheel instead.
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+requests==2.32.3
+# whisperX pulls faster-whisper + torch + transformers + the wav2vec2 align models.
+# Pin to a known-good release; bump deliberately after testing CJK alignment quality.
+whisperx==3.1.5
+# torch CPU wheel (override with the CUDA wheel on a GPU host):
+torch==2.2.2
+torchaudio==2.2.2

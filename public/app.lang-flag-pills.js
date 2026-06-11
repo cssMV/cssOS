@@ -113,11 +113,16 @@
       //  · 选了 cell → 收回 none。未选不收。太多横滑。
       // CSSOS_WAVE_587h — 默认收起【只要不是明确 lang/voice 展开就收】: 覆盖 data-expanded=none/缺失/任何非展开值,
       // 防止渲染时机里属性未设 → cell 全露(语言声线混一起)。只有 lang/voice 才放对应 cell 出来。
-      "#cssos-lang-fold:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]) #watch-language-pill .cssos-cell{display:none !important;}",
-      "#cssos-lang-fold[data-expanded=\"lang\"]  #watch-language-pill .cssos-cell-voice,",
-      "#cssos-lang-fold[data-expanded=\"lang\"]  #watch-language-pill .cssos-voice-guide{display:none !important;}",
-      "#cssos-lang-fold[data-expanded=\"voice\"] #watch-language-pill .cssos-cell-lang,",
-      "#cssos-lang-fold[data-expanded=\"voice\"] #watch-language-pill .cssos-lang-guide{display:none !important;}",
+      // CSSOS_WAVE_678 胶囊宪法 v2 — 门控直接挂 bar 本身(不依赖 #cssos-lang-fold 祖先): 之前选择器要求
+      // bar 在 fold 里, render 重建后若没包进 fold → 门控全失效 → 语言/声线 cell 混显 + 两个 guide 全露。
+      // 现在每个胶囊头各管各轨: [data-expanded=lang]→只显语言 cell, [voice]→只显声线 cell, 折叠→只剩模式胶囊。
+      "#watch-language-pill:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]) .cssos-cell{display:none !important;}",
+      "#watch-language-pill[data-expanded=\"lang\"]  .cssos-cell-voice,",
+      "#watch-language-pill[data-expanded=\"lang\"]  .cssos-voice-guide{display:none !important;}",
+      "#watch-language-pill[data-expanded=\"voice\"] .cssos-cell-lang,",
+      "#watch-language-pill[data-expanded=\"voice\"] .cssos-lang-guide{display:none !important;}",
+      // 非作者的统一 guide(cssos-want-guide, 不带 lang/voice 类)在任一展开模式都显一颗(去重双 Want an MV)。
+      "#watch-language-pill:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]) .cssos-want-guide{display:none !important;}",
       // cell 紧接着模式胶囊向右展开(transform-origin 左 = 从🎤胶囊处长出); 仅 transform/opacity(合规)。
       "#watch-language-pill{transform-origin:left center;}",
       "#cssos-lang-fold[data-expanded=\"lang\"] #watch-language-pill,",
@@ -133,6 +138,19 @@
       //  · 轨道高度=胶囊高度(40px)+ 子胶囊撑满(height:100%, 居中), 消除宪法 42px 容器底部的空缝。
       //  · max-width 放宽到 min(96vw,980px), 桌面端 6 颗满文字胶囊放得下不被圆角裁切; 窄屏仍可横滑。
       "#watch-language-pill{overflow-x:auto !important;max-width:min(96vw,980px) !important;height:40px !important;min-height:40px !important;align-items:center !important;scrollbar-width:none;}",
+      // CSSOS_WAVE_678j — Jing「别平均胶囊长度, 要自适应」: 宪法列是 minmax(max-content,1fr), 那个 1fr 在轨道比
+      // 内容宽时把每颗等分拉成平均宽 → 长文案(Want an MV like this)分不到够宽被截断。语言条单独改 max-content
+      //(每颗按内容自适应)+ 左对齐。凹咬靠固定 +20px 重叠, 与基础宽无关, 不受影响。仅覆盖本条, 不动全局宪法。
+      "#watch-language-pill{grid-auto-columns:max-content !important;justify-content:start !important;}",
+      // CSSOS_WAVE_678o — 兜底防截断: width:calc(100%+20) 在 max-content 网格里会列宽↔width 循环、某些内容下解析偏小
+      // → 截断(声线维度 Want an MV li)。给所有凹咬/合并/cell 加 min-width:max-content(地板=内容宽), 永不截断。
+      "#watch-language-pill > button.cssos-cell,#watch-language-pill > button.cssos-mode-cap{min-width:max-content !important;}",
+      // CSSOS_WAVE_678q — 引导胶囊(Want an MV / 加语言 / 加声线)【退出凹咬宽度】: cc-left 的 width:calc(100%+20px)
+      // 在 WebKit 网格里 100% 循环引用解析偏小 → guide 被压窄(既截断、点击区又变小=像点不动)。强制 width:auto
+      //+min-width:max-content+无mask+margin归零 → 纯自适应整颗, 永远完整 + 全可点。(guide 不需要凹咬嵌套。)
+      "#watch-language-pill > button.cssos-want-guide,#watch-language-pill > button.cssos-lang-guide,#watch-language-pill > button.cssos-voice-guide{",
+      "width:auto !important;min-width:max-content !important;margin-left:0 !important;margin-right:0 !important;",
+      "-webkit-mask-image:none !important;mask-image:none !important;border-radius:999px !important;}",
       "#watch-language-pill > button{height:40px !important;min-height:40px !important;max-height:40px !important;align-self:center !important;}",
       "#watch-language-pill::-webkit-scrollbar{display:none;}",
       // CSSOS_WAVE_587f — 根因: 全局 @media(pointer:coarse){.lang-name{display:none}} 在【触屏=App】上把所有
@@ -140,13 +158,64 @@
       // CSSOS_WAVE_587g — 根因有二: 全局 .lang-name 基样式是【opacity:0 + translateY】(只在 .lang-card:hover 才显),
       // 且触屏 media query 还 display:none。我的胶囊复用了 .lang-name → 文字一直透明/隐藏。这里全部强制可见。
       "#watch-language-pill .lang-name{display:inline-flex !important;align-items:center !important;margin-left:5px !important;opacity:1 !important;transform:none !important;overflow:visible !important;text-overflow:clip !important;}",
+      // CSSOS_WAVE_678p — 二维交叉计数小标(N🎤 / N🌐): 略小、半透明、左留间距, 不抢主名字。
+      "#watch-language-pill .cssos-xcount{display:inline-flex !important;align-items:center !important;margin-left:7px !important;font-size:0.82em !important;opacity:0.78 !important;font-weight:600 !important;white-space:nowrap !important;}",
       // CSSOS_WAVE_574 — 不依赖 :has 的【左凹】(JS 给激活左侧的胶囊打 .cssos-laft)。镜像宪法左凹规则,
       // 让左侧胶囊也凹向激活(右边缘咬出弧口), 与右侧 .active~ 对称。",
       "#watch-language-pill > button.cssos-laft{",
       "border-radius:999px 0 0 999px !important;margin-right:-20px !important;width:calc(100% + 20px) !important;",
       "padding-right:36px !important;z-index:0 !important;",
       "-webkit-mask-image:radial-gradient(circle 20px at 100% 50%,transparent 19.5px,#000 20px) !important;",
-      "mask-image:radial-gradient(circle 20px at 100% 50%,transparent 19.5px,#000 20px) !important;}"
+      "mask-image:radial-gradient(circle 20px at 100% 50%,transparent 19.5px,#000 20px) !important;}",
+      // CSSOS_WAVE_675 — Jing「多语言/多声线胶囊很难点击」: 两颗【模式胶囊】退出负margin/透明mask 凹咬
+      //(那块透明咬口一直偷点击), 给足实心点击区 + 抬到最高层, 点击稳稳落自己身上。cell 轨仍保留凹咬美学。
+      "#watch-language-pill .cssos-mode-cap{margin:0 6px 0 0 !important;width:auto !important;min-width:max-content !important;",
+      "padding:0 18px !important;height:40px !important;display:inline-flex !important;align-items:center !important;",
+      "justify-content:center !important;cursor:pointer !important;position:relative !important;z-index:8 !important;",
+      "-webkit-mask-image:none !important;mask-image:none !important;border-radius:999px !important;}",
+      "#watch-language-pill .cssos-mode-cap.cssos-laft{margin-right:6px !important;width:auto !important;padding-right:18px !important;}",
+      "#watch-language-pill .cssos-mode-cap *{pointer-events:none !important;}",  // 子元素不拦点击, 全落按钮
+      // CSSOS_WAVE_678c 胶囊宪法 v2 ── 统一凹咬模型(paintConcave 全权控制本条, 全局凹凸已跳过本 bar)──
+      // 头胶囊按需显隐(非作者单选轴)。
+      "#watch-language-pill .cssos-mode-cap.cssos-cap-hidden{display:none !important;}",
+      // cc-right: 右边缘碗口, 实体向右延伸 20px 嵌进右邻(= 旧 pill-laft 网格配方: width:calc(100%+20)+负margin)。
+      // 【网格布局里, 单负 margin 不产生重叠, 必须配 width:calc 让胶囊实体延伸, 碗口才能咬住邻居】(图: 没咬紧的真凶)。
+      "#watch-language-pill > button.cssos-cc-right{border-radius:999px 0 0 999px !important;width:calc(100% + 20px) !important;margin-right:-20px !important;margin-left:0 !important;padding-right:46px !important;",
+      "-webkit-mask-image:radial-gradient(circle 20px at 100% 50%,transparent 19.5px,#000 20px) !important;mask-image:radial-gradient(circle 20px at 100% 50%,transparent 19.5px,#000 20px) !important;}",
+      // cc-left: 左边缘碗口, 实体向左延伸 20px 嵌进左邻(镜像)。padding-left 必须 >碗口半径(20) + 重叠(20), 否则图标落进碗口透明区被吃(图)。
+      "#watch-language-pill > button.cssos-cc-left{border-radius:0 999px 999px 0 !important;width:calc(100% + 20px) !important;margin-left:-20px !important;margin-right:0 !important;padding-left:46px !important;",
+      "-webkit-mask-image:radial-gradient(circle 20px at 0 50%,transparent 19.5px,#000 20px) !important;mask-image:radial-gradient(circle 20px at 0 50%,transparent 19.5px,#000 20px) !important;}",
+      // cc-solid: 被抱者(被两激活夹住的未激活头)= 实心满圆角无碗口, margin 清零让邻居咬到底。
+      "#watch-language-pill > button.cssos-cc-solid{-webkit-mask-image:none !important;mask-image:none !important;border-radius:999px !important;margin:0 !important;}",
+      // cc-merge-*: 相邻激活合成【一条连续激活胶囊】—— 内侧削平紧贴, 外侧圆角, 无碗口无分隔, 图标自然分隔。
+      // 真凶: 宪法激活态有 border-left+border-right 各1px → 两激活相接处=两条内侧边框叠成分隔线。
+      // 合并组只保留【外侧】边框, 删【内侧】边框 → 连成一条无缝激活胶囊。
+      // 内侧内边距收紧到 6px(像话筒那样近), 让合体的图标不隔太远; 外侧保持 16px。
+      "#watch-language-pill > button.cssos-cc-merge-l{-webkit-mask-image:none !important;mask-image:none !important;border-radius:999px 0 0 999px !important;margin:0 !important;border-right:0 !important;padding-left:16px !important;padding-right:6px !important;}",
+      "#watch-language-pill > button.cssos-cc-merge-m{-webkit-mask-image:none !important;mask-image:none !important;border-radius:0 !important;margin:0 !important;border-left:0 !important;border-right:0 !important;padding-left:6px !important;padding-right:6px !important;}",
+      "#watch-language-pill > button.cssos-cc-merge-r{-webkit-mask-image:none !important;mask-image:none !important;border-radius:0 999px 999px 0 !important;margin:0 !important;border-left:0 !important;padding-left:6px !important;padding-right:16px !important;}",
+      // CSSOS_WAVE_697 — Jing「多语言/多声线胶囊桌面顺、移动端难点击」根治: 凹咬靠 width:calc(100%+20px)+
+      // 负margin 让胶囊实体延伸 20px 嵌进邻居, mask 把那 20px 抠成透明碗口 —— 但【mask 只管视觉, 不管命中】,
+      // 那块透明碗口在触屏上照样偷走相邻胶囊的点击(鼠标精准能避开, 手指粗避不开)。
+      // 触屏(=App/移动)上【拆掉凹咬重叠】: 每颗变干净不重叠的实心圆角矩形, 点哪是哪, 100% 可点。
+      // 桌面(pointer:fine)保留凹凸咬合美学不动。merge 组也拆开 + 留小间距, 方便逐颗点。
+      "@media (pointer: coarse){",
+        "#watch-language-pill > button.cssos-cc-right,",
+        "#watch-language-pill > button.cssos-cc-left,",
+        "#watch-language-pill > button.cssos-laft,",
+        "#watch-language-pill > button.cssos-cc-merge-l,",
+        "#watch-language-pill > button.cssos-cc-merge-m,",
+        "#watch-language-pill > button.cssos-cc-merge-r{",
+          "width:auto !important;min-width:max-content !important;",
+          "margin-left:0 !important;margin-right:0 !important;",
+          "padding-left:16px !important;padding-right:16px !important;",
+          "border-radius:999px !important;border-left:1px solid hsla(var(--ph,155),100%,65%,0.32) !important;",
+          "border-right:1px solid hsla(var(--ph,155),100%,65%,0.32) !important;",
+          "-webkit-mask-image:none !important;mask-image:none !important;z-index:1 !important;",
+        "}",
+        // 相邻胶囊间留 4px 触摸间距, 命中区互不重叠。
+        "#watch-language-pill > button{margin:0 4px 0 0 !important;}",
+      "}"
     ].join("");
     (document.head || document.documentElement).appendChild(st);
   }
@@ -199,6 +268,10 @@
   function applyState(fold) {
     fold.setAttribute("data-mode", curMode());
     fold.setAttribute("data-expanded", _expanded);
+    // CSSOS_WAVE_678 — 门控同时挂到 bar 本身(选择器 #watch-language-pill[data-expanded]),
+    // 即便某次渲染 bar 没被包进 #cssos-lang-fold, 门控仍生效 → 永不混显。
+    var bar = (fold.querySelector && fold.querySelector("#watch-language-pill")) || document.getElementById("watch-language-pill");
+    if (bar) { bar.setAttribute("data-mode", curMode()); bar.setAttribute("data-expanded", _expanded); paintConcave(bar); }
   }
   function paintModeSwitch(bar) {
     var caps = bar.querySelectorAll(".cssos-mode-cap");
@@ -216,9 +289,102 @@
       if (mode === "lang") { ico.textContent = "🌐"; nm.textContent = zh ? "多语言" : "Languages"; nn.textContent = nLang > 1 ? ("· " + nLang) : ""; }
       else { ico.textContent = "🎤"; nm.textContent = zh ? "多声线" : "Voices"; nn.textContent = nVoice > 1 ? ("· " + nVoice) : ""; }
       b.classList.toggle("active", curMode() === mode);
+      // CSSOS_WAVE_678f — 两个头【永远都显】: 未激活头是宪法凹咬编排的主角(咬向激活组), 不可隐藏。
+      b.classList.remove("cssos-cap-hidden");
       // CSSOS_WAVE_587c — 短 title(长串原生 tooltip 浮在轨道上很乱, 见图2)。
       b.title = mode === "lang" ? (zh ? "多语言" : "Languages") : (zh ? "多声线" : "Voices");
     });
+  }
+  // CSSOS_WAVE_678c 胶囊宪法 v2 — 统一凹咬模型(本条由 paintConcave 全权控制, 全局凹凸已跳过本 bar)。
+  // 规则(Jing 定): 激活 cell 永远排最前(头保持 Languages|Voices 固定序); 被两激活夹住的未激活头=实心被抱;
+  // 相邻两激活=合并实心(无分隔, 靠图标); 边缘未激活凹向相邻激活; 其余未激活 cell 一律向左凹(包左邻)。
+  function paintConcave(bar) {
+    if (!bar) return;
+    var caps = [].slice.call(bar.querySelectorAll("button.cssos-mode-cap"));
+    var langCap = null, voiceCap = null;
+    caps.forEach(function (c) { if (c.dataset.mode === "lang") langCap = c; else if (c.dataset.mode === "voice") voiceCap = c; });
+    var activeHead = curMode() === "lang" ? langCap : voiceCap;
+    var inactiveHead = curMode() === "lang" ? voiceCap : langCap;
+    // 可见头(固定 lang,voice 序)。
+    var heads = caps.filter(function (c) { return !c.classList.contains("cssos-cap-hidden"); });
+    var expanded = (_expanded === "lang" || _expanded === "voice");
+    // 展开轨可见 cell(含本模式 cell + 共享 want-guide), 激活 cell 提到最前。
+    var cells = [];
+    if (expanded) {
+      var sel = _expanded === "lang" ? ".cssos-cell-lang,.cssos-want-guide" : ".cssos-cell-voice,.cssos-want-guide";
+      cells = [].slice.call(bar.querySelectorAll("button" + sel));
+      cells.sort(function (a, b) {
+        return (a.classList.contains("active") ? 0 : 1) - (b.classList.contains("active") ? 0 : 1);
+      });
+    }
+    var order = heads.concat(cells);
+    // CSSOS_WAVE_678n — 幂等护栏(根治"整条轨道抖动"): 算出当前状态签名, 与上次相同就【直接返回, 不写任何
+    // style/class】→ 任何反复调用(applyState/observer/其它)都不再触发重排 → 不抖。仅状态真变时才重绘一次。
+    var sig = curMode() + "|" + _expanded + "|" + order.map(function (p) {
+      if (p.classList.contains("cssos-mode-cap")) return "C" + p.dataset.mode + (p === activeHead ? "*" : "");
+      return "X" + (p.dataset.lang || "") + "/" + (p.dataset.voice || "") + (p.classList.contains("active") ? "*" : "") + (p.className.indexOf("want-guide") >= 0 ? "g" : "");
+    }).join(",");
+    if (bar.__ccSig === sig) return;
+    bar.__ccSig = sig;
+    // 状态变了 → 清旧标记 + 内联 order/z, 重绘一次。
+    var all = [].slice.call(bar.querySelectorAll("button.cssos-cell,button.cssos-mode-cap"));
+    all.forEach(function (p) {
+      p.classList.remove("cssos-cc-left", "cssos-cc-right", "cssos-cc-solid", "cssos-cc-merge-l", "cssos-cc-merge-m", "cssos-cc-merge-r");
+      p.style.order = ""; p.style.zIndex = "";
+    });
+    if (!order.length) return;
+    // 视觉顺序(z 在分类后按角色定, 见 setZ)。
+    order.forEach(function (p, i) { p.style.order = String(i); });
+    // 按角色分层 z: 被抱/合并实心(cc-solid)最高, cc-left 次之(链内左高右低), cc-right 最低 →
+    // 包者永远在被包者之下, 碗口才能让邻居完整露出(修"选别的语言时 Voices 又被盖"的真凶)。
+    function setZ() {
+      order.forEach(function (p, i) {
+        var z = 100 - i; // 默认/cc-right: 最低层
+        if (p.classList.contains("cssos-cc-solid") ||
+            p.classList.contains("cssos-cc-merge-l") || p.classList.contains("cssos-cc-merge-m") || p.classList.contains("cssos-cc-merge-r")) z = 1000 - i;
+        else if (p.classList.contains("cssos-cc-left")) z = 500 - i;
+        p.style.zIndex = String(z);
+      });
+    }
+
+    function isActive(p) {
+      if (!p) return false;
+      if (p.classList.contains("cssos-mode-cap")) return p === activeHead;
+      return p.classList.contains("active");
+    }
+    if (!expanded) {
+      // v1(只有头): 未激活头凹向激活头。
+      order.forEach(function (p) {
+        if (p === activeHead) { p.classList.add("cssos-cc-solid"); return; }
+        if (p === inactiveHead) {
+          var ai = order.indexOf(activeHead), ii = order.indexOf(p);
+          p.classList.add(ii > ai ? "cssos-cc-left" : "cssos-cc-right");
+        }
+      });
+      setZ();
+      return;
+    }
+    // v2(展开): 逐胶囊。
+    var iiHead = order.indexOf(inactiveHead);
+    order.forEach(function (p, i) {
+      var left = order[i - 1], right = order[i + 1];
+      var la = isActive(left), ra = isActive(right), me = isActive(p);
+      if (me) {
+        if (la && ra) p.classList.add("cssos-cc-merge-m");         // 激活连续段中部 → 两侧削平
+        else if (ra) p.classList.add("cssos-cc-merge-l");          // 激活段左端 → 左圆右平
+        else if (la) p.classList.add("cssos-cc-merge-r");          // 激活段右端 → 左平右圆
+        else if (iiHead >= 0 && iiHead > i) p.classList.add("cssos-cc-right"); // 孤立激活, 未激活头在右 → 右凹抱它
+        else if (iiHead >= 0 && iiHead < i) p.classList.add("cssos-cc-left");  // 未激活头在左 → 左凹抱它
+        else p.classList.add("cssos-cc-solid");
+      } else if (p === inactiveHead) {
+        if (la && ra) p.classList.add("cssos-cc-solid");           // 被两激活夹住 → 实心被抱
+        else if (ra) p.classList.add("cssos-cc-right");            // 右邻激活 → 右凹抱
+        else p.classList.add("cssos-cc-left");                     // 否则向左凹
+      } else {
+        p.classList.add("cssos-cc-left");                          // 未激活 cell 一律向左凹(包左邻)
+      }
+    });
+    setZ();
   }
 
   function enhance() {
@@ -240,28 +406,17 @@
       bar.parentNode.insertBefore(fold, bar);
       fold.appendChild(bar);
     }
-    // CSSOS_WAVE_587 — Jing「多语言/多声线也要 hover 就显示, 选中就收回」: 桌面 hover 展开当前模式的轨道,
-    // 移出收回两胶囊; 移动端仍靠点击模式胶囊展开(无 hover)。
-    if (fold.dataset.hoverWired !== "1") {
-      fold.dataset.hoverWired = "1";
-      var canHover = false;
-      try { canHover = window.matchMedia && window.matchMedia("(hover:hover) and (pointer:fine)").matches; } catch (_e) {}
-      if (canHover) {
-        fold.addEventListener("mouseenter", function () {
-          if (_expanded === "none") { _expanded = curMode(); applyState(fold); }
-        });
-        fold.addEventListener("mouseleave", function () {
-          _expanded = "none"; applyState(fold);
-        });
-      }
-    }
+    // CSSOS_WAVE_669 — Jing「取消 hover 展开轨道, 改成点击才展开」: 撤掉桌面 hover(mouseenter/leave)
+    // 自动展开/收回。展开统一走【点击模式胶囊「多语言/多声线」】(ensureModeSwitch 里已有, 桌面/移动一致):
+    // 点一下展开该模式轨道, 再点收回, 选中真实 cell 自动收回。鼠标划过不再立刻弹轨道。
+    /* (原 W587 hover 展开逻辑已移除) */
     // CSSOS_WAVE_587c — 选了某颗真实 cell(非引导胶囊) → 收回折叠(回到两胶囊)。委托一次即可(bar 元素常驻)。
     if (bar.dataset.collapseWired !== "1") {
       bar.dataset.collapseWired = "1";
       bar.addEventListener("click", function (e) {
         var cell = e.target && e.target.closest && e.target.closest("button.cssos-cell");
         if (!cell) return;
-        if (cell.classList.contains("cssos-lang-guide") || cell.classList.contains("cssos-voice-guide")) return;
+        if (cell.classList.contains("cssos-lang-guide") || cell.classList.contains("cssos-voice-guide") || cell.classList.contains("cssos-want-guide")) return;
         _expanded = "none";
         var f = document.getElementById("cssos-lang-fold");
         if (f) applyState(f);
@@ -269,6 +424,25 @@
     }
     ensureModeSwitch(fold, bar);
     applyState(fold);
+    // CSSOS_WAVE_678c — 选 cell(switchToLanguage→render 改 .active)/重渲染后, 重算凹咬 + 激活前置。
+    // 全局凹凸已跳过本 bar, 故本条自带观察器保活(防抖)。幂等。
+    if (bar.dataset.ccObserved !== "1") {
+      bar.dataset.ccObserved = "1";
+      var _ccT = null, _ccObs = null;
+      // CSSOS_WAVE_678L — 只监听 childList(cell 重建/重渲染才重算; 选歌走 render 重建会触发)。
+      // 【绝不监听 class】: paintConcave 自己改 class → 若监听 class 会自我回灌 → 反复重绘 = "Want an MV"等闪烁。
+      var _ccOpts = { childList: true, subtree: true };
+      var _ccGo = function () {
+        if (_ccT) return;
+        _ccT = setTimeout(function () {
+          _ccT = null;
+          try { if (_ccObs) _ccObs.disconnect(); } catch (_e) {}   // 断开防自触发(paintConcave 改 class)
+          try { paintConcave(bar); } catch (_e) {}
+          try { if (_ccObs) _ccObs.observe(bar, _ccOpts); } catch (_e) {}
+        }, 60);
+      };
+      try { _ccObs = new MutationObserver(_ccGo); _ccObs.observe(bar, _ccOpts); } catch (_e) {}
+    }
 
     // ── cell 标签重排(语言 cell=国旗+语言名; 声线 cell=声线 glyph+声线名) ──
     var cells = bar.querySelectorAll("button.cssos-cell");
@@ -287,60 +461,92 @@
         glyph = voiceGlyph(effVoice); label = voiceName(effVoice); tip = label + " · " + nameFor(lang);
       }
       else { glyph = flagFor(lang); label = nameFor(lang); tip = label; }
-      var sig = glyph + "|" + label;
+      // CSSOS_WAVE_678p — 二维交叉计数(Jing): 语言 cell 标【有几声线 N🎤】, 声线 cell 标【有几语言 N🌐】。
+      // 计数由 mv-language-pill 存进 dataset.xcount/xkind(重排不丢), 这里读出补一个 .cssos-xcount 小 span。仅 >1 显示。
+      var xc = parseInt(p.dataset.xcount || "0", 10) || 0;
+      var xglyph = p.dataset.xkind === "lang" ? "🌐" : "🎤";
+      var xtxt = xc > 1 ? (xc + xglyph) : "";
+      var sig = glyph + "|" + label + "|" + xtxt;
       if (p.dataset.cellSig !== sig) {
         p.dataset.cellSig = sig;
         p.innerHTML = "";
         var fs = document.createElement("span"); fs.className = "lang-flag"; fs.textContent = glyph;
         var ls = document.createElement("span"); ls.className = "lang-name"; ls.textContent = label;
         p.appendChild(fs); p.appendChild(ls);
+        if (xtxt) { var xs = document.createElement("span"); xs.className = "cssos-xcount"; xs.textContent = xtxt; p.appendChild(xs); }
       }
-      p.title = tip;
+      p.title = tip + (xc > 1 ? " · " + xtxt : "");
     });
-    // ── 上下文引导胶囊(CSS 按模式 show/hide; 语言模式显➕加语言, 声线模式显🎤加声线) ──
+    // ── 上下文引导胶囊(胶囊宪法 v2 / CSSOS_WAVE_678) ──
+    // 作者: 两颗各模式引导(语言模式➕加语言 / 声线模式🎤加声线), 由门控按模式 show/hide。
+    // 非作者: 只一颗共享「✨ Want an MV like this」(class cssos-want-guide, 不带 lang/voice 类),
+    //         任一展开模式都显这一颗 → 根治"两个重复 Want an MV"。
     var zh = String(document.documentElement.lang || navigator.language || "").toLowerCase().indexOf("zh") === 0;
     var own = resolveOwn();
-    // 语言引导: 作者→➕加语言; 非作者→✨做多语言MV。始终保留一颗(单/多语言都显, 引导收入)。
-    (function langGuide() {
-      var g = bar.querySelector(".cssos-lang-guide");
+    function mkGuide(cls, key, glyph, label, tip, onClick) {
+      var g = bar.querySelector("." + key);
       if (!g) {
-        g = document.createElement("button"); g.type = "button"; g.className = "cssos-cell cssos-cell-lang cssos-lang-guide";
-        g.setAttribute("data-pill-key", "lang-guide");
+        g = document.createElement("button"); g.type = "button"; g.className = cls + " " + key;
+        g.setAttribute("data-pill-key", key);
         g.innerHTML = '<span class="lang-flag"></span><span class="lang-name"></span>';
-        g.addEventListener("click", function (e) {
-          e.stopPropagation();
-          var o = resolveOwn();
-          if (o.isOwn && o.wid && typeof globalThis.cssosOpenAddLanguageModal === "function") { globalThis.cssosOpenAddLanguageModal(o.wid); return; }
-          if (typeof globalThis.invokeUniversalCreationEntry === "function") globalThis.invokeUniversalCreationEntry({ origin: "lang-guide", preferredTab: "mv" });
-          else if (typeof globalThis.openMvPipelinePanel === "function") globalThis.openMvPipelinePanel({ focus: true });
-        }, false);
+        // CSSOS_WAVE_678k — guide 点击铁布衫: 拦住 pointer/touch/click 冒泡(防触发 watch 暂停/折叠),
+        // preventDefault 防默认, 然后可靠执行 onClick(打开创作面板)。
+        ["pointerdown", "pointerup", "mousedown", "touchstart", "touchend"].forEach(function (ev) {
+          g.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
+        });
+        g.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); onClick(); }, false);
         bar.appendChild(g);
+      } else { g.className = cls + " " + key; }
+      g.querySelector(".lang-flag").textContent = glyph;
+      g.querySelector(".lang-name").textContent = label;
+      g.title = tip;
+      return g;
+    }
+    function rm(sel) { var el = bar.querySelector(sel); if (el) el.remove(); }
+    // CSSOS_WAVE_678k — Jing「Want an MV 一直不工作; 要弹 MV 管线/AI 助理, 别触发暂停」。
+    // invokeUniversalCreationEntry 全站从未定义 → 旧主路径恒为空操作。改为直接打开 MV 管线
+    //(open-shim 会懒加载 mv-pipeline 模块再开), 失败兜底点 AI 助理 FAB。不暂停当前播放。
+    // CSSOS_WAVE_679c — Jing 铁律: MV 面板内打开的任何东西(MV 管线/AI 助理)都必须【高于媒体】, 否则被影院
+    // 媒体框盖住 = 看着没反应。开面板后把它 z 抬到 watch popover(10055)之上 + display 强制可见(懒加载→重试)。
+    var raiseAboveMedia = function (sel, tries) {
+      var el = document.querySelector(sel);
+      if (el) {
+        el.style.zIndex = "10060";
+        if (getComputedStyle(el).display === "none") el.style.display = "flex";
+        el.style.visibility = "visible"; el.style.opacity = "1";
+        return true;
       }
-      // CSSOS_WAVE_587g — Jing 指定文案: 作者→「添加更多语言」; 非作者→「Want an MV like this」。
-      g.querySelector(".lang-flag").textContent = own.isOwn ? "➕" : "✨";
-      g.querySelector(".lang-name").textContent = own.isOwn ? (zh ? "添加更多语言" : "Add a language") : (zh ? "想要这样的MV?" : "Want an MV like this");
-      g.title = own.isOwn ? (zh ? "为这首作品添加多一种语言" : "Add another language to this MV") : (zh ? "创作你自己的多语言 MV" : "Create your own MV like this");
-    })();
-    // 声线引导: 作者→🎤添加更多声线; 非作者→✨Want an MV like this(语言/声线两个模式都给非作者一颗引导)。
-    (function voiceGuide() {
-      var gv = bar.querySelector(".cssos-voice-guide");
-      if (!gv) {
-        gv = document.createElement("button"); gv.type = "button"; gv.className = "cssos-cell cssos-cell-voice cssos-voice-guide";
-        gv.setAttribute("data-pill-key", "voice-guide");
-        gv.innerHTML = '<span class="lang-flag"></span><span class="lang-name"></span>';
-        gv.addEventListener("click", function (e) {
-          e.stopPropagation();
-          var o = resolveOwn();
-          if (o.isOwn && o.wid && typeof globalThis.cssosOpenAddVoiceModal === "function") { globalThis.cssosOpenAddVoiceModal(o.wid); return; }
-          if (typeof globalThis.invokeUniversalCreationEntry === "function") globalThis.invokeUniversalCreationEntry({ origin: "voice-guide", preferredTab: "mv" });
-          else if (typeof globalThis.openMvPipelinePanel === "function") globalThis.openMvPipelinePanel({ focus: true });
-        }, false);
-        bar.appendChild(gv);
-      }
-      gv.querySelector(".lang-flag").textContent = own.isOwn ? "🎤" : "✨";
-      gv.querySelector(".lang-name").textContent = own.isOwn ? (zh ? "添加更多声线" : "Add a voice") : (zh ? "想要这样的MV?" : "Want an MV like this");
-      gv.title = own.isOwn ? (zh ? "为这首作品添加多一种声线(旋律不变, 换声线重唱)" : "Add another voice (same melody, re-sung)") : (zh ? "创作你自己的 MV" : "Create your own MV like this");
-    })();
+      if (tries > 0) setTimeout(function () { raiseAboveMedia(sel, tries - 1); }, 120);
+      return false;
+    };
+    var makeOwnMv = function () {
+      try {
+        if (typeof globalThis.openMvPipelinePanel === "function") {
+          globalThis.openMvPipelinePanel({ focus: true, forceNew: true });
+          raiseAboveMedia("#cssmv-panel", 25); // 懒加载完成前重试 ~3s
+          return;
+        }
+      } catch (_e) {}
+      try { var fab = document.getElementById("cssos-agent-fab"); if (fab) { fab.click(); raiseAboveMedia("#cssos-agent-panel", 15); return; } } catch (_e) {}
+      try { if (typeof globalThis.cssosLoadPanel === "function") globalThis.cssosLoadPanel("mv-pipeline").then(function () { raiseAboveMedia("#cssmv-panel", 25); }); } catch (_e) {}
+    };
+    if (own.isOwn) {
+      rm(".cssos-want-guide"); // 作者不显共享引导
+      mkGuide("cssos-cell cssos-cell-lang", "cssos-lang-guide", "➕",
+        zh ? "添加更多语言" : "Add a language",
+        zh ? "为这首作品添加多一种语言" : "Add another language to this MV",
+        function () { var o = resolveOwn(); if (o.wid && typeof globalThis.cssosOpenAddLanguageModal === "function") globalThis.cssosOpenAddLanguageModal(o.wid); else makeOwnMv(); });
+      mkGuide("cssos-cell cssos-cell-voice", "cssos-voice-guide", "🎤",
+        zh ? "添加更多声线" : "Add a voice",
+        zh ? "为这首作品添加多一种声线(旋律不变, 换声线重唱)" : "Add another voice (same melody, re-sung)",
+        function () { var o = resolveOwn(); if (o.wid && typeof globalThis.cssosOpenAddVoiceModal === "function") globalThis.cssosOpenAddVoiceModal(o.wid); else makeOwnMv(); });
+    } else {
+      rm(".cssos-lang-guide"); rm(".cssos-voice-guide"); // 非作者去掉两颗重复, 只留一颗
+      mkGuide("cssos-cell", "cssos-want-guide", "✨",
+        zh ? "想要这样的MV?" : "Want an MV like this",
+        zh ? "创作你自己的 MV" : "Create your own MV like this",
+        makeOwnMv);
+    }
 
     paintModeSwitch(bar);
 

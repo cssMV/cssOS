@@ -81,11 +81,11 @@
       // CSSOS_WAVE_588 — Jing「默认别留长长的空轨道」: consolidate() 给容器加了 data-pill-bar →
       // 宪法的深色背景带(!important)盖过本文件的 transparent → 收起态仍是一条长暗带。这里在【收起态】
       // 强制透明 + 收窄到只剩播放胶囊 + 左边贴边; hover/.is-open 展开时宪法带自然回来(轨道才显)。
-      "#watch-panel .cssmv-capsule:not(.is-open):not(:hover){",
+      "#watch-panel .cssmv-capsule:not(.is-open){",
       "  background:transparent !important;border-color:transparent !important;",
       "  width:max-content !important;min-width:0 !important;left:6px !important;",
       "}",
-      "#watch-panel .cssmv-capsule:not(.is-open):not(:hover) > *:not(#watch-playlist-pill){",
+      "#watch-panel .cssmv-capsule:not(.is-open) > *:not(#watch-playlist-pill){",
       "  max-width:0 !important;min-width:0 !important;padding-left:0 !important;padding-right:0 !important;",
       "  margin:0 !important;opacity:0 !important;pointer-events:none !important;",
       "  overflow:hidden;white-space:nowrap;border:none !important;box-shadow:none !important;",
@@ -93,13 +93,11 @@
       "}",
       // CSSOS_WAVE_588 批1 — 残段(图1)根因: 收起态本应【只显播放方式 Loop list】, 但 playlistPill 里
       // 还含「For You」(第2颗)没收起 → 留一小段。收起态把它也收成 0; hover/展开时回来。
-      "#watch-panel .cssmv-capsule:not(.is-open):not(:hover) #watch-playlist-pill > button:nth-of-type(2){",
+      "#watch-panel .cssmv-capsule:not(.is-open) #watch-playlist-pill > button:nth-of-type(2){",
       "  max-width:0 !important;min-width:0 !important;padding:0 !important;margin:0 !important;",
       "  opacity:0 !important;overflow:hidden !important;border:0 !important;pointer-events:none !important;}",
-      // ── 展开态(hover / .is-open): 半屏轨道, 所有段落露出 + 横向滑动。 ──
-      // CSSOS_WAVE_555 — Jing: 半屏 → 全宽轨道。左 12 + 右 12 留边。
-      "#watch-panel .cssmv-capsule.is-open,",
-      "#watch-panel .cssmv-capsule:hover{",
+      // ── 展开态(仅 .is-open = 点击/轻触, W678b 取消 hover 展开): 全宽轨道, 所有段落露出 + 横向滑动。 ──
+      "#watch-panel .cssmv-capsule.is-open{",
       // CSSOS_WAVE_588 — 一改两治:
       //  ① width:max-content → 贴合内容, 让宪法 grid 的 1fr 拿不到多余空间 → 短胶囊(1×)不再被拉伸"两边空"(图1)。
       //  ② max-width:calc(100% - 16px) → 跟随【面板/.watch-screen】宽度(不是 100vw), 非全屏时随面板缩短(图2)。
@@ -108,12 +106,29 @@
       "  flex-wrap:nowrap;scrollbar-width:none;-ms-overflow-style:none;",
       "  scroll-behavior:smooth;-webkit-overflow-scrolling:touch;",
       "}",
-      "#watch-panel .cssmv-capsule.is-open::-webkit-scrollbar,",
-      "#watch-panel .cssmv-capsule:hover::-webkit-scrollbar{display:none;width:0;height:0;}",
-      "#watch-panel .cssmv-capsule.is-open > *,",
-      "#watch-panel .cssmv-capsule:hover > *{",
+      "#watch-panel .cssmv-capsule.is-open::-webkit-scrollbar{display:none;width:0;height:0;}",
+      "#watch-panel .cssmv-capsule.is-open > *{",
       "  max-width:none;opacity:1;pointer-events:auto;",
       "  transition:max-width 0.26s cubic-bezier(0.4,0,0.2,1),opacity 0.22s ease,padding 0.26s ease;",
+      "}",
+      // CSSOS_WAVE_698 — Jing「左下控制条几乎全部无法工作」根因: 折叠态把除第一颗外全部压成
+      // max-width:0(探针实测 w=0=不可点), 只有 .is-open 才展开; 而 W678b 取消了桌面 hover 展开 →
+      // 桌面只能"点第一颗"展开(还顺带切了播放模式), 控件够不到 = 像"全坏了"。
+      // 修: 桌面(hover+fine)恢复 hover 展开(视频控制条标准行为, 零副作用); 触屏仍轻触展开。
+      // 特异性必须压过折叠规则 :not(.is-open)>*:not(#watch-playlist-pill)(含 2 个 id), 故用
+      // :hover:not(.is-open)>*:not(#watch-playlist-pill) (id 数相同 + 多一个 :hover) 稳赢。
+      "@media (hover:hover) and (pointer:fine){",
+        "#watch-panel .cssmv-capsule:hover:not(.is-open){",
+          "width:max-content !important;max-width:calc(100% - 16px) !important;left:8px !important;",
+          "overflow-x:auto !important;overflow-y:hidden !important;",
+        "}",
+        "#watch-panel .cssmv-capsule:hover:not(.is-open) > *:not(#watch-playlist-pill){",
+          "max-width:none !important;min-width:max-content !important;opacity:1 !important;pointer-events:auto !important;",
+          "padding-left:16px !important;padding-right:16px !important;",
+        "}",
+        "#watch-panel .cssmv-capsule:hover:not(.is-open) #watch-playlist-pill > button:nth-of-type(2){",
+          "max-width:none !important;min-width:max-content !important;padding:6px 10px !important;margin:0 !important;",
+        "}",
       "}",
       // CSSOS_WAVE_557 20260531 — Jing: ① 统一所有段落为【半透明翠绿】(覆盖前两颗 Loop list/
       // For You 构建器写死的 rgba(0,0,0,0.55) 深色); ② 加【凹凸镶嵌】(胶囊宪法): 顶部高光 +
@@ -161,13 +176,21 @@
       "#watch-panel .cssmv-capsule #watch-playlist-pill > button{min-width:90px !important;justify-content:center;}",
       // CSSOS_WAVE_560 20260531 — Jing「默认只显示激活的播放方式胶囊」: 折叠态下, 第一颗(playlist pill)
       // 内部只留【模式按钮(btn1)】, 把【来源按钮(My Works, btn2)】也收起 → 折叠 = 只一颗播放方式胶囊。
-      "#watch-panel .cssmv-capsule:not(.is-open):not(:hover) #watch-playlist-pill > button:nth-of-type(2){",
+      "#watch-panel .cssmv-capsule:not(.is-open) #watch-playlist-pill > button:nth-of-type(2){",
       "  max-width:0 !important;padding-left:0 !important;padding-right:0 !important;margin:0 !important;",
       "  opacity:0 !important;pointer-events:none !important;overflow:hidden;border:none !important;box-shadow:none !important;",
       "}",
       // 摊平出来的动作胶囊样式 + 图标(content 由 JS 设 data-icon, 这里渲染)。
       "#watch-panel .cssmv-capsule .cssmv-flat-act{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font:inherit;font-size:11px;font-weight:600;letter-spacing:.04em;padding:6px 10px;white-space:nowrap;}",
       "#watch-panel .cssmv-capsule .cssmv-flat-act .cssmv-flat-ico{font-size:0.95em;}",
+      // CSSOS_WAVE_678b — Jing「默认胶囊两头有透明残留(放大才看得出)」: 折叠态下唯一可见的播放方式胶囊
+      // (playlistPill + 第1颗 Loop 按钮)强制【无 mask 凹口 / 无负margin / 实心满圆角】→ 干净一颗实心胶囊。
+      // 凹咬 mask 只在 .is-open 展开态才需要(那时才有相邻胶囊咬合)。
+      "#watch-panel .cssmv-capsule:not(.is-open) #watch-playlist-pill,",
+      "#watch-panel .cssmv-capsule:not(.is-open) #watch-playlist-pill > button:nth-of-type(1),",
+      "#watch-panel .cssmv-capsule:not(.is-open) > [data-pill-key]{",
+      "  -webkit-mask-image:none !important;mask-image:none !important;margin-left:0 !important;margin-right:0 !important;",
+      "  width:auto !important;border-radius:999px !important;}",
       // Share the Dock's show/hide rhythm: in cinema mode the capsule fades out
       // with the rest of the chrome, and re-appears with the Dock on .is-hovering.
       "#watch-panel.cssmv-cinema .cssmv-capsule{opacity:0;pointer-events:none;transition:opacity 0.9s cubic-bezier(0.4,0,0.2,1);}",

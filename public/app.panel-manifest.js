@@ -39,6 +39,33 @@
     // CSSOS_WAVE_535 — credit-panel(8KB)+ workspaces-panel(10KB): user-admin 同款, 静态壳暂留。
     "credit":        "app.credit-panel.js?v=20260526-w462-skeleton-universal",
     "workspaces":    "app.workspaces-panel.js?v=20260526-w462-skeleton-universal",
+    // CSSOS_WAVE_661 第一批纯岛迁移(代理审计: 单一全局入口、无渲染期裸调、自建 DOM、零定时器)。
+    "templates":          "app.templates-panel.js?v=20260526-w462-skeleton-universal",
+    "user-stats":         "app.user-stats-page.js?v=20260508-wave71",
+    "creation-timeline":  "app.creation-timeline-panel.js?v=20260526-w462-skeleton-universal",
+    "add-language":       "app.add-language-modal.js?v=20260602-w588t-tokens",
+    "work-edit":          "app.work-edit-panel.js?v=20260531-w544-work-edit",
+    "share-dialog":       "app.share-dialog.js?v=20260506-share-link",
+    // CSSOS_WAVE_661 第二小批: voice-clone(定义 cssosOpenVoiceCloneModal+cssosOpenMyVoicesModal)
+    //   + add-voice(仅 cssosOpenAddVoiceModal) 两个独立岛, 所有跨文件调用均 typeof 守卫。
+    "voice-clone":        "app.voice-clone-modal.js?v=20260602-w588t-tokens",
+    "add-voice":          "app.add-voice-modal.js?v=20260602-w588t-tokens",
+    // shortcuts: cheatsheet(i18n 后继者)经 eager app.shortcuts-shim.js 的 ? 键触发懒加载;
+    //   旧 app.shortcuts-overlay.js 退役(两者都绑 ?, 重复; 不再 eager/不入清单)。
+    "shortcuts":          "app.shortcuts-cheatsheet.js?v=20260508-wave65",
+    // CSSOS_WAVE_661 第三批: hash 触发型(干净 IIFE)。feed/webhooks 精确匹配(router hashExact),
+    //   user-homepage 用 #u/<handle> 前缀。
+    "feed":               "app.feed-panel.js?v=20260508-wave26",
+    "webhooks":           "app.webhooks-panel.js?v=20260508-wave57",
+    "user-homepage":      "app.user-homepage.js?v=20260603-w593-civmeta",
+    // CSSOS_WAVE_662 第2阶段·线A: mv-tier-picker(事件触发, router events 能力)。
+    "mv-tier-picker":     "app.mv-tier-picker-modal.js?v=20260528-w465-tier-pill",
+    // CSSOS_WAVE_662 第2阶段·线A第2步: 自挂载型常驻模块。face-safe 经 events(cssos:work-id-changed)
+    //   触发、顶层自启; gift-inbox 经 openPanel 的 profile 分支静默加载、自有 readyState 兜底+observer。
+    "face-safe":          "app.face-safe-overlay.js?v=20260524-w355-no-cors-taint",
+    "gift-inbox":         "app.gift-inbox-panel.js?v=20260515-wave164-fresh-palette",
+    // CSSOS_WAVE_662 线B第1步: mv-language-picker(同步返回 handle 的 mount, 经 eager shim 懒加载)。
+    "mv-language-picker": "app.mv-language-picker.js?v=20260531-w587b-cap",
   });
 
   // CSSOS_WAVE_527 — 面板依赖: 加载某面板后, 内核自动按需加载其卫星模块(也从首屏移除)。

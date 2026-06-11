@@ -808,11 +808,18 @@
       return b;
     }
 
+    // CSSOS_WAVE_678m — 二维交叉计数(Jing): 语言 cell 标【该语言有几声线 🎤N】; 声线 cell 标【该声线有几语言 🌐N】。
+    // 仅 >1 时显示(单选不啰嗦)。max-content 列自适应容得下, 凹咬靠固定 +20 重叠不受影响。
+    function voicesForLang(lang) { return distinctVoices.filter(function (v) { return !!trackAt(lang, v); }).length; }
+    function langsForVoice(voice) { return distinctLangs.filter(function (l) { return !!trackAt(l, voice); }).length; }
+
     // 🌐语言 cell: 每种语言一颗。目标 = (lang, 当前声线)若存在, 否则该语言原声。
+    // 二维计数存 dataset(faceTxt 保持干净), 由 app.lang-flag-pills 重排时读出补计数小 span(否则重排会丢)。
     distinctLangs.forEach(function (lang) {
       var target = trackAt(lang, _activeVoice) || trackAt(lang, "auto")
         || meaningful.find(function (t) { return t.lang === lang; });
       var b = mkCell(target, { cls: "cssos-cell cssos-cell-lang", lang: lang, voice: target ? vof(target) : "auto", faceTxt: face(lang) });
+      b.dataset.xcount = String(voicesForLang(lang)); b.dataset.xkind = "voice"; // 该语言有几声线
       if (target && target.status === "ready" && lang === _activeLang) b.classList.add("active");
       bar.appendChild(b);
     });
@@ -823,6 +830,7 @@
         || meaningful.find(function (t) { return vof(t) === voice && t.status === "ready"; })
         || meaningful.find(function (t) { return vof(t) === voice; });
       var b = mkCell(target, { cls: "cssos-cell cssos-cell-voice", lang: target ? target.lang : _activeLang, voice: voice, faceTxt: voice });
+      b.dataset.xcount = String(langsForVoice(voice)); b.dataset.xkind = "lang"; // 该声线有几语言
       if (target && target.status === "ready" && voice === _activeVoice && target.lang === _activeLang) b.classList.add("active");
       bar.appendChild(b);
     });

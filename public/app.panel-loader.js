@@ -34,7 +34,7 @@
 
   const cache = new Map(); // name → Promise<void>
 
-  function loadOne(name) {
+  function loadOne(name, opts) {
     if (cache.has(name)) return cache.get(name);
     // CSSOS_WAVE_524 — src 真相源 = app.panel-manifest.js 的 CSSOS_PANEL_SRC[name]。
     // index.html 不再保留任何面板 <script>(连惰性标签也删了)。仅为向后兼容, 清单缺失时
@@ -75,7 +75,9 @@
         }
       } catch (_) {}
     };
-    const slowTimer = setTimeout(showLoadingToast, 400);
+    // CSSOS_WAVE_662 — 静默加载(opts.silent): 后台触发的面板(如 face-safe 切歌时、gift-inbox
+    // 打开 profile 时)不弹 "Loading…" toast, 避免无谓打扰(用户没主动开任何东西)。
+    const slowTimer = (opts && opts.silent) ? null : setTimeout(showLoadingToast, 400);
     const p = new Promise((resolve, reject) => {
       const s = document.createElement("script");
       s.src = src;
@@ -107,11 +109,11 @@
   /* Public API. Returns a Promise that resolves AFTER every lazy
    * script bound to that panel name has loaded and executed. Accepts
    * a single name string OR an array of names (loaded in parallel). */
-  globalThis.cssosLoadPanel = function (nameOrNames) {
+  globalThis.cssosLoadPanel = function (nameOrNames, opts) {
     if (Array.isArray(nameOrNames)) {
-      return Promise.all(nameOrNames.map(loadOne));
+      return Promise.all(nameOrNames.map(function (n) { return loadOne(n, opts); }));
     }
-    return loadOne(String(nameOrNames));
+    return loadOne(String(nameOrNames), opts);
   };
 
   /* Convenience helper: wire a click on `el` to load `panel` then call

@@ -109,7 +109,9 @@
       var msg = "last session: DOM " + a.dom + "→" + b.dom + " · img " + a.img + "→" + b.img +
         " · slides " + a.slides + "→" + b.slides + (b.heapMB ? (" · heap " + a.heapMB + "→" + b.heapMB + "MB") : "") +
         " · last: " + (b.act || "?") + (/ERROR|REJECT/.test(b.tag) ? (" · " + b.tag) : "");
-      console.warn("[crash-probe] " + msg, prev);
+      // CSSOS_WAVE_708 — Jing: 演示时控制台只留 LOGO。这行诊断默认【不打印】(收进开关
+      // localStorage['cssos:probeDebug']="1" 才打), 但下面的 OOM 遥测照常上报, 自愈不受影响。
+      try { if (localStorage.getItem("cssos:probeDebug") === "1") console.warn("[crash-probe] " + msg, prev); } catch (_e) {}
       var cleanExit = "0";
       try { cleanExit = localStorage.getItem(CLEAN) || "0"; } catch (_e) {}
       // 崩过(无 clean 标记)+ 样本足够 → 上报 OOM 前兆(崩前 DOM/heap/最后动作/面板栈)。

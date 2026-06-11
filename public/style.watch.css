@@ -760,12 +760,21 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   opacity: 0.66;
 }
 
-.watch-screen.is-playback-clean .watch-subtitle,
+/* CSSOS_WAVE_644 — 从隐藏规则里【解绑 .watch-subtitle】: 它现在是承载逐字情绪字幕的唯一可见
+ * 载体, 必须常驻到段落结束(见文件末尾的显式 opacity:1 豁免)。其余 chrome 仍在沉浸态隐藏。 */
 .watch-screen.is-playback-clean .watch-overlay-play,
 .watch-screen.is-playback-clean .watch-style-shift,
-.watch-screen.is-playback-clean .watch-karaoke-line,
 .watch-screen.is-playback-clean .watch-commerce-actions {
   opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* CSSOS_WAVE_640 20260605 — Jing「情绪字幕只昙花一现」第1步: 情绪字幕(逐字 karaoke 行)是
+ * 演出的一部分, 必须【跟随咬字一直显示到媒体结束】, 不能跟其它 chrome 一起在 is-playback-clean
+ * 下被隐藏。从上面的隐藏规则里【解绑 .watch-karaoke-line】, 并显式保持可见(纯展示, 不接收点击,
+ * 不挡媒体)。空行时无内容 → 不可见, 无占位。 */
+.watch-screen.is-playback-clean .watch-karaoke-line {
+  opacity: 1 !important;
   pointer-events: none !important;
 }
 
@@ -875,6 +884,13 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   justify-content: center;
 }
 
+/* CSSOS_WAVE_711 — #watch-karaoke-line 已彻底退役(#watch-subtitle 是唯一字幕载体)。它仍被旧代码
+ * 每帧写入整句歌词, z-index:3 + 淡绿默认色 → 在画面里【隐隐约约漏出一行英文歌词】(Jing 看到的"泄露")。
+ * 这里【强制隐藏】, 压过所有 is-playback-clean 等保持可见的豁免规则。不是安全泄露, 纯属退役层残影。 */
+.watch-karaoke-line,
+.watch-screen.is-playback-clean .watch-karaoke-line {
+  display: none !important;
+}
 .watch-karaoke-line {
   position: absolute;
   left: 50%;
@@ -987,15 +1003,86 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   color: rgba(255, 245, 168, 0.72);
 }
 
+/* CSSOS_WAVE_708 — 纯器乐段 [Music...](电影字幕惯例): 静默灰白斜体小字, 不参与随机色/蹦/爆,
+ * 读作"此处无人声"的安静提示。特异性(4 类 + !important)压过随机色卡拉OK规则。 */
+.watch-karaoke-word.is-adlib {
+  font-style: italic;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word.is-adlib,
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word.is-adlib.is-sung,
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word.is-adlib.is-active {
+  color: rgba(214, 222, 234, 0.62) !important;
+  font-weight: 500;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  animation: none !important;     /* 不蹦不爆, 安静 */
+  transform: none !important;
+}
+
+/* CSSOS_WAVE_668 — 每字"蹦一下": active 字播一次 pop 关键帧, 幅度 ∝ 该字 emotion_intensity
+ * (--karaoke-word-emphasis) × 全局 --cssfx-bounce/--cssfx-lift(参数化, app.emotion-fx.js)。
+ * 每次咬字换字 → span 重建 → 动画重放一次。compositor-safe(只动 transform/opacity)。 */
+/* CSSOS_WAVE_671 ③ 音高旋律线: 每字静止态按本行音高上下浮动(--kara-pitch-y), 字幕=看得见的旋律。
+ * pop/burst 关键帧都在这个【音高基线】之上叠加 → 旋律起伏与蹦/爆共存不打架。compositor-safe。 */
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word {
+  transform: translateY(var(--kara-pitch-y, 0px));
+  transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s ease, text-shadow 0.18s ease;
+}
+@keyframes kara-pop {
+  0%   { transform: translateY(var(--kara-pitch-y, 0px)) scale(1); }
+  32%  { transform: translateY(calc(var(--kara-pitch-y, 0px) + var(--cssfx-lift, 7) * var(--karaoke-word-emphasis, 0.3) * -1px))
+                    scale(calc(1 + var(--cssfx-bounce, 0.32) * var(--karaoke-word-emphasis, 0.3))); }
+  100% { transform: translateY(var(--kara-pitch-y, 0px)) scale(1); }
+}
 .watch-karaoke-word.is-active {
-  color: rgba(255, 249, 196, 0.98);
+  color: rgba(255, 249, 196, 0.99);
   text-shadow:
-    0 0 calc(16px + var(--karaoke-live-peak, 0) * 12px)
-      rgba(255, 224, 122, calc(0.46 + var(--karaoke-live-energy, 0) * 0.2)),
-    0 0 calc(28px + var(--karaoke-live-energy, 0) * 22px)
-      rgba(0, 245, 160, calc(0.2 + var(--karaoke-word-beat, 0.2) * 0.22));
-  transform: translateY(calc(-1px - var(--karaoke-word-beat, 0.2) * 2px))
-    scale(calc(1 + var(--karaoke-word-beat, 0.2) * 0.08));
+    0 0 calc(12px + 26px * var(--karaoke-word-emphasis, 0.3))
+      rgba(255, 224, 122, calc((0.4 + 0.45 * var(--karaoke-word-emphasis, 0.3)) * var(--cssfx-glow, 1))),
+    0 0 calc(20px + 34px * var(--karaoke-word-emphasis, 0.3))
+      rgba(0, 245, 160, calc(0.16 + 0.28 * var(--karaoke-word-emphasis, 0.3)));
+  transform-origin: center bottom;
+  animation: kara-pop var(--cssfx-pop-dur, 300ms) cubic-bezier(0.2, 1.45, 0.3, 1) both;
+}
+
+/* 峰值字"爆": 更大缩放 + 强光 + 浮到最上。覆盖上面的 pop(更具体)。 */
+@keyframes kara-burst {
+  0%   { transform: translateY(var(--kara-pitch-y, 0px)) scale(1); }
+  26%  { transform: translateY(var(--kara-pitch-y, 0px)) scale(var(--cssfx-burst-scale, 1.75)); }
+  62%  { transform: translateY(var(--kara-pitch-y, 0px)) scale(calc(1 + (var(--cssfx-burst-scale, 1.75) - 1) * 0.22)); }
+  100% { transform: translateY(var(--kara-pitch-y, 0px)) scale(1); }
+}
+.watch-karaoke-word.is-burst.is-active {
+  position: relative;
+  z-index: 4;
+  color: #fff;
+  text-shadow:
+    0 0 22px rgba(255, 236, 150, 0.95),
+    0 0 46px rgba(255, 200, 90, 0.6),
+    0 0 78px rgba(95, 255, 170, 0.34);
+  animation: kara-burst var(--cssfx-burst-dur, 520ms) cubic-bezier(0.2, 1.6, 0.25, 1) both;
+}
+
+/* 夸张全屏闪: app.emotion-fx.js 在峰值字切换时给 #cssfx-flash-overlay 加 .is-flash 重放。 */
+#cssfx-flash-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10085; /* W705 — 抬到影院舞台(10052-10080)之上, 否则爆/闪被影院层盖住看不见 */
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 58%,
+      rgba(var(--cssfx-flash-rgb, 255, 224, 140), var(--cssfx-flash-peak, 0.4)) 0%,
+      rgba(var(--cssfx-flash-rgb, 255, 224, 140), 0) 62%);
+}
+#cssfx-flash-overlay.is-flash {
+  animation: kara-fullscreen-flash var(--cssfx-flash-dur, 520ms) ease-out both;
+}
+@keyframes kara-fullscreen-flash {
+  0%   { opacity: 0; }
+  16%  { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .watch-karaoke-word.is-intimate.is-active {
@@ -1015,6 +1102,251 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
 .watch-karaoke-word.is-resolve.is-active {
   color: rgba(232, 244, 255, 0.99);
   text-shadow: 0 0 16px rgba(176, 220, 255, 0.34), 0 0 24px rgba(212, 185, 255, 0.18);
+}
+
+/* CSSOS_WAVE_644 — 情绪字幕(熟歌词)完整配色 + 常驻。绿色 #watch-subtitle 现在承载逐字情绪
+ * HTML(每字一个 .watch-karaoke-word.is-{emotion}), 但旧 CSS 只覆盖了 intimate/ignite/resolve 的
+ * 部分态, joy/calm/grief 完全没色 → 多数字看起来一个样。这里给【6 种情绪】各配鲜明的 base + active
+ * 配色, 让"晨光落在古城墙上"按真实演唱情绪逐字变色/亮起/随鼓点呼吸 = 真·情绪字幕。 */
+.watch-karaoke-word { transition: color .18s ease, text-shadow .18s ease, transform .12s ease; }
+/* joy — 暖金 */
+.watch-karaoke-word.is-joy { color: rgba(255, 236, 150, 0.82); }
+.watch-karaoke-word.is-joy.is-active {
+  color: rgba(255, 246, 184, 0.99);
+  text-shadow: 0 0 18px rgba(255, 214, 96, 0.5), 0 0 30px rgba(255, 180, 70, 0.26);
+}
+/* calm — 青碧(serene/melancholy 归此) */
+.watch-karaoke-word.is-calm { color: rgba(176, 232, 220, 0.78); }
+.watch-karaoke-word.is-calm.is-active {
+  color: rgba(214, 248, 238, 0.99);
+  text-shadow: 0 0 16px rgba(120, 230, 205, 0.38), 0 0 26px rgba(95, 200, 255, 0.18);
+}
+/* intimate — 柔粉(base 也给, 不止 active) */
+.watch-karaoke-word.is-intimate { color: rgba(255, 214, 198, 0.78); }
+/* ignite — 炽金红(intense/rage/triumphant 归此, base 也给) */
+.watch-karaoke-word.is-ignite { color: rgba(255, 224, 150, 0.82); }
+/* grief — 冷紫蓝(haunting 归此) */
+.watch-karaoke-word.is-grief { color: rgba(196, 200, 240, 0.74); }
+.watch-karaoke-word.is-grief.is-active {
+  color: rgba(224, 226, 255, 0.99);
+  text-shadow: 0 0 16px rgba(150, 156, 230, 0.4), 0 0 26px rgba(120, 110, 200, 0.2);
+}
+
+/* CSSOS_WAVE_711 — 普通字幕级【稳定优先】(Jing: 先把普通 MV 字幕做稳, 再谈情绪层)。
+ * 内联字幕只做【颜色擦除】, 不做任何位移/缩放/音高浮动 —— 那些"蹦/爆/音高上下"抖动感强, 全部
+ * 留给【屏幕中央爆】那一层。字幕在底部纹丝不动, 只是逐字从未唱色擦成已唱色。 */
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word,
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word.is-active,
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word.is-sung,
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word.is-burst {
+  transform: none !important;
+  animation: none !important;
+  --kara-pitch-y: 0px !important;
+  filter: none !important;
+  transition: color 0.12s linear !important;   /* 只过渡颜色, 不过渡位移 */
+}
+
+/* 绿色 #watch-subtitle 承载逐字情绪时: 词 span 内联单行流动(不竖排、不堆叠)。 */
+.watch-subtitle.is-emotion-karaoke { white-space: normal; }
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word {
+  display: inline;
+  font-family: inherit;
+}
+
+/* CSSOS_WAVE_702 — 普通字幕级【双随机色卡拉OK擦除】(脱离情绪上色, Jing)。
+ * 每次播放, --sub-unsung / --sub-sung 由 app.emotion-fx.js 随机滚一对(从头播才换)。
+ * 容器作用域选择器(3+ 类)特异性 > 单 .is-{emotion}(2 类), 故覆盖情绪文本色而不动 JS class。
+ * 未唱=安静随机色; 已唱(is-sung)+当前(is-active)=鲜亮随机色 → 唱到哪变到哪, 整句唱完整句变。 */
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word {
+  color: var(--sub-unsung, rgba(229, 244, 237, 0.55)) !important;
+}
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word.is-sung {
+  color: var(--sub-sung, rgba(255, 245, 168, 0.9)) !important;
+}
+.watch-subtitle.is-emotion-karaoke .watch-karaoke-word.is-active {
+  color: var(--sub-sung, rgba(255, 249, 196, 0.99)) !important;
+  text-shadow:
+    0 0 calc(12px + 22px * var(--karaoke-word-emphasis, 0.3))
+      hsla(var(--sub-sung-h, 48), 95%, 70%, calc((0.45 + 0.4 * var(--karaoke-word-emphasis, 0.3)) * var(--cssfx-glow, 1)));
+}
+
+/* CSSOS_WAVE_644 ④ — 情绪字幕常驻: 跟 W640 给 .watch-karaoke-line 的豁免一样, 让【可见的】
+ * #watch-subtitle 在 is-playback-clean(Dock/chrome 隐藏的沉浸态)下【保持显示, 不跟随 Dock 隐没】,
+ * 一直唱到段落结束。纯展示不挡点击。 */
+.watch-screen.is-playback-clean .watch-subtitle {
+  opacity: 1 !important;
+  pointer-events: none !important;
+}
+
+/* CSSOS_WAVE_652 — 情绪 Emoji 点睛层(iMessage 思想气泡式). emoji 不与字幕同行, 而是【浮在
+ * 该字正上方的小气泡里】, 用【下尖角】指向这个字(类似 iMessage 的 emoji 气泡)。emoji span 是
+ * 目标字 span 的子元素 → 绝对定位到字上方。它【浮起→旋转回正→淡出】一次后消失, 不常驻、不挡
+ * 点击、分层不烧录。只动画 transform/opacity(合成器安全); 静态半透明底, 不用 backdrop-filter
+ * (铁律: 移动内容上方禁 backdrop-filter)。
+ * 可热调(在 .watch-screen 覆盖): --emo-emoji-size(1.15em) / --emo-emoji-rise(1.4em) /
+ *   --emo-emoji-pop(1.32) / --emo-emoji-dur(1.7s) / --emo-emoji-glow(暖粉)。 */
+.watch-karaoke-word.has-emo-emoji { position: relative; }
+/* CSSOS_WAVE_690 — 「思考气泡」式情绪 emoji(Jing 图2): emoji 装进【实心圆气泡】, 下面拖两颗
+ * 递减小圆点(iMessage thinking-bubble 尾巴)指向该字 —— 不要图1的同排内联。气泡按情绪上色。 */
+.cssmv-emo-emoji {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  margin-bottom: 1.05em;                 /* 留出两颗尾点的空间 */
+  --emo-bubble: rgba(120, 210, 130, 0.96);  /* 默认: 图2 那种亮绿 */
+  width: 2.05em;
+  height: 2.05em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--emo-emoji-size, 1.18em);
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  z-index: 6;
+  /* 实心圆气泡 */
+  border-radius: 50%;
+  background: var(--emo-bubble);
+  box-shadow:
+    0 6px 18px color-mix(in srgb, var(--emo-bubble) 60%, transparent),
+    inset 0 2px 6px rgba(255, 255, 255, 0.5),
+    inset 0 -3px 8px rgba(0, 0, 0, 0.12);
+  transform-origin: center bottom;
+  will-change: transform, opacity;
+  animation: cssmvEmoBubble var(--emo-emoji-dur, 1.9s) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+/* 思考尾巴: ::before = 大圆点, ::after = 小圆点, 同色, 自气泡向下指向该字 */
+.cssmv-emo-emoji::before,
+.cssmv-emo-emoji::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  background: var(--emo-bubble);
+  left: 50%;
+}
+.cssmv-emo-emoji::before {
+  width: 0.62em;
+  height: 0.62em;
+  top: 100%;
+  margin-top: 0.14em;
+  transform: translateX(-78%);
+  box-shadow: inset 0 1px 3px rgba(255, 255, 255, 0.4);
+}
+.cssmv-emo-emoji::after {
+  width: 0.34em;
+  height: 0.34em;
+  top: 100%;
+  margin-top: 0.74em;
+  transform: translateX(-30%);
+}
+/* 按情绪给气泡上色(emoji 自身多彩, 在这些底色上都读得清) */
+.watch-karaoke-word.is-joy      .cssmv-emo-emoji { --emo-bubble: rgba(255, 198, 64, 0.97); }
+.watch-karaoke-word.is-ignite   .cssmv-emo-emoji { --emo-bubble: rgba(255, 120, 92, 0.97); }
+.watch-karaoke-word.is-resolve  .cssmv-emo-emoji { --emo-bubble: rgba(108, 212, 142, 0.97); }
+.watch-karaoke-word.is-calm     .cssmv-emo-emoji { --emo-bubble: rgba(126, 198, 236, 0.97); }
+.watch-karaoke-word.is-intimate .cssmv-emo-emoji { --emo-bubble: rgba(255, 150, 192, 0.97); }
+.watch-karaoke-word.is-grief    .cssmv-emo-emoji { --emo-bubble: rgba(184, 172, 232, 0.97); }
+@keyframes cssmvEmoBubble {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(0.55em) scale(0.35) rotate(-14deg); }
+  18%  { opacity: 1; transform: translateX(-50%) translateY(-0.05em) scale(var(--emo-emoji-pop, 1.32)) rotate(7deg); }
+  40%  { opacity: 1; transform: translateX(-50%) translateY(calc(var(--emo-emoji-rise, 1.4em) * -0.3)) scale(1.04) rotate(-3deg); }
+  62%  { opacity: 1; transform: translateX(-50%) translateY(calc(var(--emo-emoji-rise, 1.4em) * -0.55)) scale(1.0) rotate(0deg); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(calc(var(--emo-emoji-rise, 1.4em) * -1)) scale(0.94) rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cssmv-emo-emoji { animation: none; opacity: 0; }
+}
+
+/* CSSOS_WAVE_689 — 天女散花 confetti 层(峰值字爆全屏时撒花瓣/彩纸, 像庆祝)。
+ * compositor-safe: 每片只动 transform/opacity。pointer-events:none 不挡交互。 */
+#cssfx-confetti {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 10086;            /* W705 — 影院舞台之上, 在全屏闪(10085)之上 */
+}
+.cssfx-petal {
+  position: absolute;
+  top: -8vh;
+  line-height: 1;
+  will-change: transform, opacity;
+  text-shadow: 0 2px 10px rgba(255, 180, 210, 0.5);
+  animation: cssfxPetalFall var(--pf-dur, 2.2s) cubic-bezier(0.35, 0.1, 0.4, 1) var(--pf-delay, 0s) forwards;
+}
+@keyframes cssfxPetalFall {
+  0%   { opacity: 0; transform: translateY(0) translateX(0) rotate(0deg) scale(0.6); }
+  10%  { opacity: 1; transform: translateY(8vh) translateX(calc(var(--pf-drift, 0vw) * 0.18)) rotate(calc(var(--pf-rot, 180deg) * 0.12)) scale(1); }
+  85%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(112vh) translateX(var(--pf-drift, 0vw)) rotate(var(--pf-rot, 180deg)) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #cssfx-confetti { display: none; }
+}
+
+/* CSSOS_WAVE_692 — 屏幕中央爆(情绪字幕): 唱到的情绪字在屏幕正中【爆一下/一闪】, 大小∝强度、
+ * 停留∝唱腔时长。与左下角普通字幕【并存】(普通字幕安静, 这是叠加的情绪层)。compositor-safe。 */
+#cssfx-center-burst {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 10088;        /* W705 — 影院舞台(10080)之上, 在闪(10085)/散花(10086)之上 → 爆终于可见 */
+}
+/* CSSOS_WAVE_702 — 一个 burst = emoji 背景(后) + 发光大字(前), 居中叠放。 */
+.cssfx-center-grp {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  will-change: transform, opacity;
+  animation: cssfxCenterPop var(--cb-dur, 0.7s) cubic-bezier(0.18, 1.5, 0.3, 1) both;
+}
+.cssfx-center-grp > * { grid-area: 1 / 1; }   /* emoji 与大字完全重叠居中 */
+/* emoji 背景层: 大、柔、半透明, 衬在大字之后(字幕在上, 背景是 emoji)。 */
+.cssfx-center-emoji {
+  line-height: 1;
+  filter: drop-shadow(0 0 38px rgba(var(--cb-rgb, 255, 224, 140), 0.7)) saturate(1.2);
+  transform: scale(1);
+  will-change: transform, opacity;
+  animation: cssfxCenterEmojiPulse var(--cb-dur, 0.7s) ease-out both;
+  pointer-events: none;
+  user-select: none;
+}
+/* W705 — emoji 背景: 第一眼较清晰(0.78), 再随大字一起缓慢淡到全透明。 */
+@keyframes cssfxCenterEmojiPulse {
+  0%   { opacity: 0;    transform: scale(0.55) rotate(-8deg); }
+  14%  { opacity: 0.78; transform: scale(1.08) rotate(3deg); }
+  40%  { opacity: 0.66; transform: scale(1.0) rotate(0deg); }
+  100% { opacity: 0;    transform: scale(1.16) rotate(0deg); }
+}
+.cssfx-center-word {
+  position: relative;          /* 在 grid 单元内, 叠于 emoji 之上 */
+  z-index: 1;
+  font-family: var(--watch-title-font-family, inherit);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: #fff;   /* W705 — 峰值满不透明(第一眼看得真切), 透明度由关键帧从 1 缓慢淡到 0 */
+  white-space: nowrap;
+  will-change: transform, opacity;
+  text-shadow:
+    0 0 calc(18px + 30px * var(--cb-glow, 0.6)) rgba(var(--cb-rgb, 255, 224, 140), 0.9),
+    0 0 calc(40px + 60px * var(--cb-glow, 0.6)) rgba(var(--cb-rgb, 255, 224, 140), 0.5),
+    0 4px 22px rgba(0, 0, 0, 0.4);
+}
+/* CSSOS_WAVE_705 — Jing: 爆入时【满不透明】(第一眼看得真切), 短暂 HOLD, 再像烟花一样【缓慢淡到
+ * 全透明消失】(40%→100% 整个后半段都在慢慢变透明)。淡出过程不持续遮画面。 */
+@keyframes cssfxCenterPop {
+  0%   { opacity: 0;   transform: scale(0.42) translateY(8px); }
+  10%  { opacity: 1;   transform: scale(1.16) translateY(0); }  /* 咬中唱点: 满不透明爆入 */
+  22%  { opacity: 1;   transform: scale(1.0); }
+  40%  { opacity: 1;   transform: scale(1.0); }                 /* HOLD: 清晰停留, 看得真切 */
+  100% { opacity: 0;   transform: scale(1.05); }                /* 后 60% 缓慢淡到全透明 */
+}
+@media (prefers-reduced-motion: reduce) {
+  #cssfx-center-burst { display: none; }
 }
 
 .watch-engine-grid {
@@ -1790,3 +2122,41 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   font-size: 22px;
   font-family: "Syne", sans-serif;
 }
+
+/* CSSOS_WAVE_668 — 情绪字幕特效拉杆小窗(右击「多语言/多声线」弹出)。 */
+.cssfx-panel {
+  position: fixed;
+  z-index: 10000;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  padding: 14px 16px 12px;
+  border-radius: 18px;
+  background: rgba(18, 22, 28, 0.94);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: #eaf3ee;
+  font-size: 13px;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.cssfx-head { font-weight: 700; font-size: 14px; margin-bottom: 10px; letter-spacing: 0.02em; }
+.cssfx-row { display: block; margin: 10px 0; }
+.cssfx-row-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.cssfx-lbl { opacity: 0.86; }
+.cssfx-val { font-variant-numeric: tabular-nums; opacity: 0.7; font-size: 12px; }
+.cssfx-track { position: relative; display: block; }
+.cssfx-track input[type="range"] { width: 100%; margin: 0; accent-color: #00f5a0; }
+.cssfx-mid {
+  position: absolute; top: 50%; width: 2px; height: 14px;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 224, 122, 0.85); border-radius: 2px; pointer-events: none;
+}
+.cssfx-toggle { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; opacity: 0.9; }
+.cssfx-actions { display: flex; gap: 8px; margin-top: 12px; }
+.cssfx-btn {
+  flex: 1; padding: 9px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.06);
+  color: inherit; font-size: 12px; font-weight: 600;
+}
+.cssfx-btn.primary { background: rgba(0, 245, 160, 0.18); border-color: rgba(0, 245, 160, 0.4); }
+.cssfx-btn:active { transform: scale(0.98); }
+.cssfx-hint { margin-top: 9px; font-size: 11px; opacity: 0.5; line-height: 1.4; }

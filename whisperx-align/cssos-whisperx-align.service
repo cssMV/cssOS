@@ -1,0 +1,33 @@
+[Unit]
+Description=cssOS whisperX Forced-Alignment Service (WAVE_650)
+Documentation=https://cssstudio.app
+After=network.target cssOS.service
+
+[Service]
+Type=exec
+User=jing
+Group=jing
+WorkingDirectory=/srv/cssos/whisperx-align
+ExecStart=/srv/cssos/whisperx-align/venv/bin/python main.py
+Restart=on-failure
+RestartSec=8
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cssos-whisperx
+
+# whisperX + torch models are memory-heavy; cap to avoid OOM-killing the box.
+# medium model on CPU int8 ~ 2-3 GB resident. Raise if using large-v3.
+MemoryMax=5G
+# Lower priority than the Node.js main service.
+Nice=8
+
+Environment=WHISPERX_PORT=7892
+Environment=WHISPERX_MODEL=medium
+Environment=WHISPERX_DEVICE=cpu
+Environment=WHISPERX_COMPUTE=int8
+Environment=PYTHONUNBUFFERED=1
+# HF model cache so models persist across restarts (download once):
+Environment=HF_HOME=/srv/cssos/whisperx-align/.hf-cache
+
+[Install]
+WantedBy=multi-user.target

@@ -267,6 +267,19 @@
     input.addEventListener("keydown", function (e) {
       if (e.key === "Escape") { input.value = ""; runSearch(""); input.blur(); }
     });
+    // CSSOS_WAVE_701 — Jing「搜索结果失焦应隐藏」: 之前结果一旦展开就赖着不走, 碍手碍脚。
+    // 失焦(点别处/Tab 走)→ 收起结果。延迟 180ms: 让"点结果卡"的 click 先生效再隐藏
+    // (blur 先于 click 触发, 直接收会吃掉点击)。点回输入框 → focus 处理器自会重显。
+    input.addEventListener("blur", function () {
+      setTimeout(function () {
+        try {
+          // 焦点若回到结果区内(滚动条/卡片)则不收。
+          if (document.activeElement === input) return;
+          if (results.contains(document.activeElement)) return;
+          results.style.display = "none";
+        } catch (_e) { try { results.style.display = "none"; } catch (_e2) {} }
+      }, 180);
+    });
     results.addEventListener("scroll", function () {
       if (results.scrollTop + results.clientHeight >= results.scrollHeight - 90) loadMore();
     });

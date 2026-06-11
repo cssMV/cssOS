@@ -404,6 +404,16 @@
       fab.setAttribute("data-active", "0");
       /* W331 — agent closed: restore dock */
       document.body.classList.remove("cssos-agent-open");
+      // CSSOS_WAVE_670 — 关闭即【释放内存】: 清空聊天消息 DOM(累积的作品卡 + 封面图最吃内存),
+      // 重开时 hydrateSessionFromServer 会从后端自动重拉(它见 childElementCount>0 才跳过, 清空后必重拉)。
+      // FAB + 面板壳保持常驻(always-on 创作入口, 在内核禁碰名单)。生成在后端继续, 不受影响。
+      try {
+        var _m = document.getElementById("cssos-agent-messages");
+        if (_m) {
+          _m.querySelectorAll("img,video,audio").forEach(function (el) { try { el.removeAttribute("src"); el.load && el.load(); } catch (_e2) {} });
+          _m.innerHTML = "";
+        }
+      } catch (_e) {}
     } else {
       // CSSOS_WAVE_184 — guests can't open the assistant.
       if (!viewerIsSignedIn()) {

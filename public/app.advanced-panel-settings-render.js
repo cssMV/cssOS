@@ -813,6 +813,32 @@ async function renderAdvancedPanelSettingsBridge(options = {}) {
     }
     return fallback;
   };
+  /* CSSOS_WAVE_520 20260606 — Jing「任一面板改引擎, 全平台实时同步」。一个全局订阅(防泄漏:
+   * 模块级单次绑定), 监听 cssmvEngines.setSelection 广播的 cssmv:engine-selection-changed,
+   * 把 document 里【所有】引擎选择器(高级设置 / MV 管线 / 人物 MV 等, 凡用标准
+   * data-mv-engine-stage/select 标记的)的 value + 人气/价格徽章实时刷新到最新选择。 */
+  if (!globalThis.__cssosMvEngineBroadcastSync) {
+    globalThis.__cssosMvEngineBroadcastSync = true;
+    document.addEventListener("cssmv:engine-selection-changed", () => {
+      const api = globalThis.cssmvEngines;
+      if (!api || typeof api.getSelection !== "function") return;
+      document.querySelectorAll("[data-mv-engine-stage]").forEach((row) => {
+        if (!(row instanceof HTMLElement)) return;
+        const stageKey = String(row.getAttribute("data-mv-engine-stage") || "").toLowerCase();
+        if (!stageKey) return;
+        const select = row.querySelector("[data-mv-engine-select]");
+        const sel = api.getSelection(stageKey);
+        if (select instanceof HTMLSelectElement && sel && sel.engine && sel.version) {
+          const v = sel.engine + "::" + sel.version;
+          if (select.value !== v) select.value = v;
+        }
+        const badge = row.querySelector("[data-mv-engine-badge]");
+        if (badge && typeof api.formatEngineBadgeForStage === "function") {
+          badge.textContent = api.formatEngineBadgeForStage(stageKey) || "";
+        }
+      });
+    });
+  }
   advancedPanelSettings.querySelectorAll("[data-mv-engines-panel]").forEach((anchor) => {
     if (!(anchor instanceof HTMLElement)) return;
     const enginesApi = globalThis.cssmvEngines;

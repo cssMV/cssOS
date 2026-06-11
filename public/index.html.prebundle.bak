@@ -84,6 +84,10 @@
     <link rel="stylesheet" href="style.css?v=20260531-w587b-cap" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
     <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
+    <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
+         规则)此前【从未被任何页面加载】→ 字幕词无颜色规则、继承父淡绿白 = Jing 的"还绿"; 随机色/稳定/
+         中央爆/[Music...] 一整轮 CSS 全部失效。在 style.css 之后加载它, 让 watch 面板按设计生效。 -->
+    <link rel="stylesheet" href="style.watch.css?v=20260611-w714-load" />
     <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
 
   </head>
@@ -1669,8 +1673,8 @@
           <div class="panel-label" data-i18n="language.subtitle">Interface Language</div>
           <div class="language-current" id="language-current"></div>
           <div class="language-grid" id="language-list"></div>
-          <button class="cta ghost tiny" id="language-more" type="button" data-i18n="language.more">
-            More languages
+          <button class="cta ghost tiny" id="language-more" type="button">
+            <span class="lang-more-ico">🌐</span><span class="lang-more-txt">Add language</span>
           </button>
           <div class="language-grid is-hidden" id="language-list-more"></div>
           <div class="language-status" id="language-status" data-i18n="language.ready">
@@ -2085,6 +2089,7 @@
          on every deploy so a stale device auto-reloads to the latest build. -->
     <script>window.__CSSOS_BUILD = "20260604-w622";</script>
     <!-- CSSOS_WAVE_513 — neutralize JS-injected :has() (iOS/macOS WebKit crash). MUST be first. -->
+    <script src="app.cinema-teardown-debug.js?v=20260606-w655"></script>
     <script src="app.has-neutralizer.js?v=20260530-w515-backdrop"></script>
     <!-- CSSOS_WAVE_518 — diag probe removed (crash investigation done). -->
 
@@ -2183,9 +2188,8 @@
          for openMarketWorkPreview to be defined before invoking, so
          load-order timing isn't critical — this is just the head start. -->
     <script src="app.share-link-router.js?v=20260525-w424-tieredcta"></script>
-    <script src="app.share-dialog.js?v=20260506-share-link"></script>
     <script src="app.download-menu.js?v=20260506-phase-b"></script>
-    <script src="app.mv-language-picker.js?v=20260531-w587b-cap"></script>
+    <script src="app.mv-language-picker-shim.js?v=20260606-w666"></script>
     <script src="app.mv-language-pill.js?v=20260604-w630-rootid"></script>
     <script src="app.up-next-strip.js?v=20260523-w377-exclusive"></script>
     <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
@@ -2196,7 +2200,7 @@
     <script src="app.create-cta.js?v=20260521-w283-inplace"></script>
     <script src="app.preview-cap.js?v=20260506-a11y"></script>
     <script src="app.tab-title-sync.js?v=20260506-tab-sync"></script>
-    <script src="app.shortcuts-overlay.js?v=20260506-cheatsheet-snap"></script>
+    <script src="app.shortcuts-shim.js?v=20260606-w661"></script>
     <script src="app.dock-now-playing.js?v=20260506-dock-pulse"></script>
     <script src="app.resume-progress.js?v=20260506-resume"></script>
     <script src="app.pip-button.js?v=20260506-pip-diag"></script>
@@ -2210,7 +2214,6 @@
     <script src="app.media-error-toast.js?v=20260506-errtoast"></script>
     <script src="app.popup-deeplink.js?v=20260506-deeplink-auth"></script>
     <script src="app.engine-picker.js?v=20260507-real-models"></script>
-    <script src="app.face-safe-overlay.js?v=20260524-w355-no-cors-taint"></script>
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.emotion-subtitle-engine.js?v=20260525-w442-emo-sub"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
@@ -2256,6 +2259,8 @@
          see the manifest on first call. -->
     <script src="app.watch-font-manifest.js?v=20260506-quiet"></script>
     <script src="app.playlists.js?v=20260524-w390-foryou-retry"></script>
+    <script src="app.emotion-fx.js?v=20260607-w668b"></script>
+    <script src="app.emotion-fx-panel.js?v=20260607-w668b"></script>
     <script src="app.watch-ui.js?v=20260604-w626-never-silent"></script>
     <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
     <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
@@ -2263,10 +2268,7 @@
     <script src="app.watch-bottom-stack.js?v=20260531-w575-gap14"></script>
     <script src="app.lang-flag-pills.js?v=20260602-w588h-laftunify"></script>
     <!-- CSSOS_WAVE_581 20260531 — Jing — 给现有作品加语言的弹窗(选语言→报价→提交). -->
-    <script src="app.add-language-modal.js?v=20260602-w588t-tokens"></script>
     <!-- CSSOS_WAVE_584 20260531 — Jing — 多声线: 给现有作品加声线(同语言换音色重唱). -->
-    <script src="app.add-voice-modal.js?v=20260602-w588t-tokens"></script>
-    <script src="app.voice-clone-modal.js?v=20260602-w588t-tokens"></script>
     <script src="app.my-voice-entry.js?v=20260602-w587y-langrow"></script>
     <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
@@ -2301,14 +2303,14 @@
          implemented but never loaded. Wiring it in now. -->
     <script src="app.title-edit-refine.js?v=20260603-w588w-selfheal"></script>
     <!-- CSSOS_WAVE_544 20260531 — Jing — 作品中心编辑基础+展示信息(标题/风格/歌词/封面/画幅/定价). -->
-    <script src="app.work-edit-panel.js?v=20260531-w544-work-edit"></script>
     <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
     <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
     <script src="app.cinema-translate.js?v=20260508-wave53"></script>
     <script src="app.profile-panel.js?v=20260603-w588w-selfheal"></script>
-    <script src="app.gift-inbox-panel.js?v=20260515-wave164-fresh-palette"></script>
-    <script src="app.language-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.i18n-boot-apply.js?v=20260606-w667"></script>
+    <script src="app.language-catalog.js?v=20260606-w665"></script>
+    <script src="app.language-panel.js?v=20260606-w665"></script>
     <script src="app.login-panel.js?v=20260531-w541-platforms-fallback"></script>
     <script src="app.works-center.js?v=20260603-w597-tree"></script>
     <!-- CSSOS_WAVE_546 20260531 — Jing — 作品中心: 标注未完成草稿 + 继续合成/编辑补救. -->
@@ -2361,7 +2363,6 @@
     <script src="app.foryou-seed-preview.js?v=20260523-w348-imgthumb-proxy"></script>
     <script src="app.mv-engines-catalog.js?v=20260419-p2-57d-anon-silent-1"></script>
     <script src="app.mv-tiers-catalog.js?v=20260419-p2-mv-naming-1"></script>
-    <script src="app.mv-tier-picker-modal.js?v=20260528-w465-tier-pill"></script>
     <script src="app.cssmv-seed-bank.js?v=20260521-w272-cachebust"></script>
     <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
     <!-- CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js (444 KB) is pure
@@ -2384,16 +2385,11 @@
     <script src="app.person-mv-leaderboard.js?v=20260603-w593-civmeta"></script>
     <script src="app.home-shelves-position.js?v=20260508-dock-aware"></script>
     <script src="app.global-search.js?v=20260527-w482-personpin"></script>
-    <script src="app.feed-panel.js?v=20260508-wave26"></script>
     <!-- CSSOS_PERSON_MV_WAVE69 20260508 — Jing — TikTok-style content plaza. -->
     <script src="app.person-mv-plaza.js?v=20260602-w588v-empty"></script>
-    <script src="app.user-homepage.js?v=20260603-w593-civmeta"></script>
     <!-- CSSOS_PERSON_MV_WAVE71 20260508 — Jing — personal stats deep page. -->
-    <script src="app.user-stats-page.js?v=20260508-wave71"></script>
     <!-- CSSOS_PERSON_MV_WAVE64+65 20260508 — Jing — UI surface for waves 51/54/55 + shortcuts cheatsheet. -->
-    <script src="app.creation-timeline-panel.js?v=20260526-w462-skeleton-universal"></script>
     <script src="app.rating-badges.js?v=20260508-wave64"></script>
-    <script src="app.shortcuts-cheatsheet.js?v=20260508-wave65"></script>
     <script src="app.person-mv-comments-share.js?v=20260508-wave12"></script>
     <script src="app.person-mv-festival-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-ai-chat.js?v=20260508-wave24"></script>
@@ -2443,6 +2439,7 @@
     <script src="app.delivery-copy.js?v=20260505c-end"></script>
     <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
     <script src="app.final-audio-artifacts.js?v=20260505c-end"></script>
+    <script src="app.watch-audio-authority.js?v=20260606-w653"></script>
     <script src="app.song-creation-payload.js?v=20260505c-end"></script>
     <script src="app.structure-planning.js?v=20260505c-end"></script>
     <script src="app.run-auth.js?v=20260525-w360b-civ-payload"></script>
@@ -2453,7 +2450,6 @@
     <script src="app.panel-settings-runtime.js?v=20260527-w479-autoentersetting"></script>
     <script src="app.panel-settings-behavior-bindings.js?v=20260525-w431-settingsfix"></script>
     <script src="app.panel-settings-tail.js?v=20260505c-end"></script>
-    <script src="app.webhooks-panel.js?v=20260508-wave57"></script>
     <!-- cssmv-governance MUST load LAST in this group: its top-level call
          to renderDeliveryDigestSummaryModule() must run after that fn is
          defined (delivery-digest-ui.js loads earlier in the file). -->
@@ -2465,7 +2461,6 @@
     <!-- CSSOS_WAVE_529 — app.premium-modal.js 已移除: 完整三件套自包含模块, 仅 #premium hash 触发, 由通用 router(hash 能力)按需注入. 回退: 改回普通 src. -->
 
     <script src="app.ab.js?v=20260508-wave27-ab"></script>
-    <script src="app.templates-panel.js?v=20260526-w462-skeleton-universal"></script>
     <!-- CSSOS_WAVE_107 20260509 — iOS native OAuth handoff listener.
          Must load before app.boot.js so the appUrlOpen listener is
          armed before any first-frame work begins. -->
@@ -2724,11 +2719,13 @@
             // 一致 — 不能一个显一个不显).
             "#watch-search-box",
             "#watch-exit-cinema",
-            "#dock",
-            // W356 20260523 — Jing: 歌词随 UI 一起在 10s 后隐藏, 不在播放时
-            // 常驻. watch-karaoke-line / watch-subtitle 与其他控件步调一致.
-            "#watch-panel #watch-karaoke-line",
-            "#watch-panel #watch-subtitle"
+            "#dock"
+            // CSSOS_WAVE_647 20260605 — Jing「情绪字幕(熟歌词)10 秒后被隐藏」终极根因:
+            // W356 当初把 #watch-karaoke-line / #watch-subtitle 加进了这个【影院 10s 空闲
+            // 强制 display:none !important】列表, 与其它 chrome 步调一致地隐藏。但情绪字幕是
+            // 演出的一部分, 必须【逐字唱到段落结束】(W640/W644/W646 同一铁律)。这条硬 display:none
+            // 凌驾于一切 opacity 豁免与内容写入之上 —— 这才是"前 10 秒能看见、一沉浸就消失"的真凶。
+            // 把字幕/karaoke 行【移出隐藏列表】, 让它在影院里常驻。其余 chrome 仍 10s 隐藏。
           ];
           var hidden = []; // [{el, prevDisplay, prevPriority}]
           function inCinema() {

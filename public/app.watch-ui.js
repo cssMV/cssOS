@@ -1044,7 +1044,12 @@ function setWatchPlaybackUiSuppressedModule(suppressed) {
   }
   if (watchSubtitle) {
     if (watchPlaybackUiSuppressed) {
-      safeSetWatchSubtitleModule("");
+      // CSSOS_WAVE_646 — 「10 秒后情绪字幕隐藏」根因: 进入沉浸态(自动 enjoy)时这里把字幕
+      // 整段清空。但情绪字幕(熟歌词)是演出的一部分, 必须【唱到段落结束】(W640/W644 同一铁律)。
+      // 改为: 只清【状态文案】(origin!=='lyric'), 保留正在咬字的情绪字幕, 让它常驻不被沉浸态抹掉。
+      if (watchSubtitle.dataset.cssmvOrigin !== "lyric") {
+        safeSetWatchSubtitleModule("");
+      }
     } else {
       syncWatchSubtitleForWaitingMediaModule();
     }
@@ -2613,6 +2618,36 @@ function cssmvIsLowWeightWord(text) {
   return false;
 }
 
+// CSSOS_WAVE_649 20260605 — Jing 情绪 Emoji 点睛层. 情绪(经 EMO_MAP 归一为
+// joy/calm/ignite/intimate/resolve/grief)→ 对应 emoji。某字情绪爆发且唱腔拉长时, 渲染器在该字旁
+// 临时浮出对应符号(见 renderWatchKaraokeOverlayModule 注入处)。可热改: globalThis.cssosEmotionEmojiMap。
+// 每情绪一组候选符号(稳定选取: 按词文本哈希挑一个 → 同一个字永远同一个 emoji, 不逐帧跳)。
+// 可热改: globalThis.cssosEmotionEmojiMap = { intimate:["💗","💕"], ignite:["🔥"], ... }。
+const CSSMV_EMOTION_EMOJI = {
+  intimate: ["💗", "💕", "💞"], love: ["💗", "💕"], tender: ["💕", "🌸"],
+  joy: ["✨", "🌟", "💫"], ecstatic: ["🌟", "✨"],
+  ignite: ["🔥", "⚡"], intense: ["🔥"], rage: ["🔥", "⚡"], triumphant: ["🔥", "👑"],
+  grief: ["💧", "🥀"], haunting: ["💧", "🌫️"], melancholy: ["💧"],
+  hope: ["🕊️", "🌅"], longing: ["🕊️", "🌌"],
+  resolve: ["⛰️", "💪"],
+  calm: ["🌙", "🍃"], serene: ["🌙", "🍃"],
+};
+function cssmvEmotionEmojiModule(emotion, seedText) {
+  const map = (globalThis.cssosEmotionEmojiMap && typeof globalThis.cssosEmotionEmojiMap === "object")
+    ? globalThis.cssosEmotionEmojiMap
+    : CSSMV_EMOTION_EMOJI;
+  const entry = map[String(emotion || "").trim().toLowerCase()];
+  if (!entry) return "";
+  const arr = Array.isArray(entry) ? entry : [entry];
+  if (!arr.length) return "";
+  // 稳定哈希 seedText → 选一个候选 (同字稳定, 不同字有变化)
+  const s = String(seedText || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return arr[h % arr.length] || "";
+}
+globalThis.cssmvEmotionEmojiModule = cssmvEmotionEmojiModule;
+
 function renderWatchKaraokeOverlayModule(progress = 0) {
   if (!watchKaraokeLine) return;
   const karaokeTimeline = Array.isArray(watchKaraokeTimelineCache?.data) ? watchKaraokeTimelineCache.data : [];
@@ -2659,34 +2694,62 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
   // at the first cue. Prefer whichever media element is ACTIVELY
   // playing (not paused/ended) and has a real currentTime > 0; fall
   // back through video → audio → 0.
-  const mediaClockSec = (() => {
+  // 取【正在播放的那个元素】的 currentTime + 它自己的 duration(时钟与拉伸基准必须同源)。
+  const mediaClock = (() => {
     const v = watchVideo;
     const a = watchAudioPreview;
     const vt = Number(v?.currentTime || 0);
     const at = Number(a?.currentTime || 0);
+    const vd = Number(v?.duration || 0);
+    const ad = Number(a?.duration || 0);
     const vPlaying = v && !v.paused && !v.ended && vt > 0;
     const aPlaying = a && !a.paused && !a.ended && at > 0;
-    if (vPlaying) return vt;
-    if (aPlaying) return at;
-    if (vt > 0) return vt;
-    if (at > 0) return at;
-    return 0;
+    if (vPlaying) return { t: vt, dur: vd };
+    if (aPlaying) return { t: at, dur: ad };
+    if (vt > 0) return { t: vt, dur: vd };
+    if (at > 0) return { t: at, dur: ad };
+    return { t: 0, dur: 0 };
   })();
+  // CSSOS_WAVE_648 — 情绪字幕【时间轴线性拉伸】对齐歌声。subtitle-take1.json 的行级时间戳是
+  // 【合成匀速】(每行死板 2.4s, 且总长被错估 ~146s, 实测真实音频 247s)→ 字幕按自己的进度匀速
+  // 跑, 唱到一半就播完。修法: 把【真实媒体时钟】线性映射到【字幕时间轴】——
+  //   subtitleClock = mediaClock × (字幕总长 / 真实媒体时长)
+  // 于是字幕铺满整首歌、起止对齐。注: 这是 A 方案(匀速拉伸, 间奏处仍会略飘); B 方案(whisperX
+  // 对真实音频做 forced-alignment, 产出真字级时间戳)才是根治, 见管线 TODO。
+  const subSpanSec = karaokeTimeline.length
+    ? Number(karaokeTimeline[karaokeTimeline.length - 1]?.end_s || 0)
+    : 0;
+  // CSSOS_WAVE_688 — 时间对齐根治: 字幕已是【熟歌词】(whisperX 对真实歌声 forced-align 出的
+  // 真字级时间戳, _hasRealTiming=true), 它的时间就是【播放音频的绝对时间】, 必须 1:1 直用。
+  // W648 的线性拉伸(subSpan/dur)是当年字幕还是【合成匀速假时间】时的补丁 —— 在真时间下
+  // 反而把已对齐的时间又拉歪(尤其历史轨 duration 元数据失真时, 整段抢跑到第二节)。
+  // 规则: 只要时间轴里有任一真时间 cue → 不拉伸(scale=1); 仅当全是占位假时间(极旧作品)
+  // 才退回老拉伸法兜底。这就是 Jing 说的"我们已经是熟歌词, 不是生歌词"。
+  const timelineIsCooked = karaokeTimeline.some(function (c) {
+    return c && (c._cooked === true || c._hasRealTiming === true);
+  });
+  const clockScale =
+    timelineIsCooked
+      ? 1
+      : ((subSpanSec > 1 && mediaClock.dur > 1 && isFinite(mediaClock.dur))
+          ? (subSpanSec / mediaClock.dur)
+          : 1);
+  const mediaClockSec = mediaClock.t * clockScale;
   if (karaokeTimeline.length) {
-    const activeIndex = Math.max(
-      0,
-      karaokeTimeline.findIndex((cue) => mediaClockSec >= Number(cue?.start_s || 0) && mediaClockSec <= Number(cue?.end_s || 0))
-    );
-    const resolvedIndex =
-      activeIndex >= 0
-        ? activeIndex
-        : karaokeTimeline.findIndex((cue) => Number(cue?.start_s || 0) > mediaClockSec);
-    const currentIndex =
-      resolvedIndex >= 0
-        ? resolvedIndex
-        : Math.max(0, karaokeTimeline.length - 1);
+    // CSSOS_WAVE_708 — 只在【真有 cue 覆盖当前时间】时显示字幕。根因实锤: 旧码
+    // Math.max(0, findIndex(...)) 把"没有活动 cue"(-1)误当成"第一句 cue"(0) → 每次呼吸/空隙
+    // 都闪一下第一句字幕(Jing: "晨光落在古城墙上"乱闪)。熟字幕字字对齐, 空隙就该【什么都不显示】。
+    // 前奏/间奏/尾声由 [Music...] cue 覆盖(activeIndex≥0 → 显示 [Music...]); 短呼吸不被覆盖 → 清空。
+    const activeIndex = karaokeTimeline.findIndex((cue) => mediaClockSec >= Number(cue?.start_s || 0) && mediaClockSec <= Number(cue?.end_s || 0));
+    if (activeIndex < 0) {
+      // CSSOS_WAVE_711 — 空隙(呼吸/未被 [Music...] 覆盖): 【保持上一句不动, 原地不动什么都不改】。
+      // 既不回退闪第一句(旧 Math.max bug), 也不清屏导致"清→显"抖动。下一个 cue(歌词或 [Music...])
+      // 到点了才更新。长间奏由 [Music...] cue 覆盖, 短呼吸就让上一句安静地停着。
+      return;
+    }
+    const currentIndex = activeIndex;
     const prevCue = karaokeTimeline[Math.max(0, currentIndex - 1)] || null;
-    let currentCue = karaokeTimeline[currentIndex] || karaokeTimeline[0] || null;
+    let currentCue = karaokeTimeline[currentIndex] || null;
     const nextCue = karaokeTimeline[Math.min(karaokeTimeline.length - 1, currentIndex + 1)] || null;
     const cueWords =
       Array.isArray(currentCue?.words) && currentCue.words.length
@@ -2740,6 +2803,11 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
       if (!(Array.isArray(cueWords) && cueWords.length)) {
         return escapeHtml(resolvedCueText);
       }
+      // CSSOS_WAVE_671 ③ 音高旋律线: 本行内按音高归一化, 让每字静止态上下浮动 = 看得见的旋律。
+      // 与蹦/爆动画分层(静止 transform = 音高位移, 关键帧在此基线上叠加, 见 style.watch.css)。
+      let _pMin = Infinity, _pMax = 0;
+      cueWords.forEach((w) => { const p = Number(w && w.pitch || 0); if (p > 0) { if (p < _pMin) _pMin = p; if (p > _pMax) _pMax = p; } });
+      const _pRange = (_pMax > _pMin) ? (_pMax - _pMin) : 0;
       const wordSpans = cueWords.map((word, index) => {
         const sung = mediaClockSec >= Number(word?.end_s || 0);
         const active =
@@ -2749,6 +2817,15 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
         const cls = ["watch-karaoke-word"];
         const emotion = String(word?.emotion || "").trim().toLowerCase();
         const emphasis = Math.max(0, Math.min(1, Number(word?.emphasis || 0) || 0));
+        // CSSOS_WAVE_688 — 爆裂增益曲线(疯牛之魂): 真凶不是旋钮太小, 是【逐字情绪强度数据偏平】
+        // (SER 多落在 0.3–0.45), 蹦/爆幅度 ∝ emphasis → 平数据×大旋钮还是只动一点点, 且够不到
+        // burst 门(0.45)就根本不爆。这里对 emphasis 做 gamma 提升 + 增益(把中段往上推): 0.30→0.59、
+        // 0.45→0.74、0.60→0.86 → 大量 active 字越过 burst 门、pop 缩放也明显。让现有数据立刻"炸"起来,
+        // 无需重跑后端。可调: globalThis.cssosEmotionPunch = {gamma, gain}。
+        var _punch = (globalThis.cssosEmotionPunch && typeof globalThis.cssosEmotionPunch === "object") ? globalThis.cssosEmotionPunch : null;
+        var _pg = _punch && _punch.gamma > 0 ? _punch.gamma : 0.55;
+        var _pn = _punch && _punch.gain > 0 ? _punch.gain : 1.18;
+        const emphasisFx = emphasis <= 0 ? 0 : Math.max(0, Math.min(1, Math.pow(emphasis, _pg) * _pn));
         const beatWeight = Math.max(
           emphasis,
           active ? watchMusicLiveEnergy * 0.72 + watchMusicLivePeak * 0.28 : emphasis * 0.7,
@@ -2756,23 +2833,52 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
         if (sung) cls.push("is-sung");
         if (active) cls.push("is-active");
         if (emotion) cls.push(`is-${emotion}`);
+        if (word?.adlib) cls.push("is-adlib"); // CSSOS_WAVE_679 — 即兴拟声: 斜体+柔光, 与书面词区分
+        // CSSOS_WAVE_668 — 峰值字"爆": 强度 ≥ 阈值(参数化, app.emotion-fx.js)→ is-burst(更大缩放+全屏闪)。
+        if (active && emphasisFx >= (typeof globalThis.cssosEmotionBurstThreshold === "function" ? globalThis.cssosEmotionBurstThreshold() : 0.8)) {
+          cls.push("is-burst");
+        }
         const wordText = String(word?.text || "");
         const fam = pickPieceFont ? pickPieceFont(wordText) : "";
         const famCss = fam ? `;font-family:&quot;${String(fam).replace(/"/g, "&quot;")}&quot;, var(--watch-title-font-family, inherit)` : "";
         // Emit inline-flow spans separated by a thin space so the
         // browser keeps them on a single line up to the container's
         // max-width (white-space: nowrap on the parent does the rest).
-        return `<span class="${cls.join(" ")}" style="--karaoke-word-emphasis:${emphasis.toFixed(3)};--karaoke-word-beat:${beatWeight.toFixed(3)}${famCss}">${escapeHtml(wordText)}</span>`;
+        // CSSOS_WAVE_649/652 — 情绪 Emoji 点睛层(iMessage 思想气泡式): emoji 不与字幕同行,
+        // 而是【浮在该字正上方】、用小尖尖头【指向这个字】(类似 iMessage emoji 气泡)。因此 emoji
+        // span 作为【目标字 span 的子元素】注入, CSS 把它绝对定位到字的上方 + 下尖角指向字。
+        // 触发: 当前咬字 active 且(情绪强度≥0.78 且 唱腔≥0.35s)—— 阈值放宽, 按情绪需要多蹦些,
+        // 不再过度克制。innerHTML 仅在 active 字切换时重写(emoSig 守卫)→ 动画每字只放一次。
+        // demo: globalThis.cssosEmojiDemo=true 无视阈值, 每个 active 字都蹦。
+        const _wdur = Number(word?.end_s || 0) - Number(word?.start_s || 0);
+        // CSSOS_WAVE_702 — Jing: emoji 不再占字幕轨, 升到【中央爆背景层】(见 cssosEmotionCenterBurst
+        // 的 emoji 背景)。字幕轨从此只放干净的逐字情绪文本。保留 in-track 气泡仅作可选 demo
+        // (globalThis.cssosEmojiInTrack===true 才注入), 默认关。
+        const _emojiInTrack = globalThis.cssosEmojiInTrack === true;
+        const _emojiOn = _emojiInTrack && active && (globalThis.cssosEmojiDemo === true || (emphasisFx >= 0.62 && _wdur >= 0.28));
+        const _emo = _emojiOn ? cssmvEmotionEmojiModule(emotion, wordText) : "";
+        const _emoHtml = _emo ? `<span class="cssmv-emo-emoji" aria-hidden="true">${_emo}</span>` : "";
+        const _wcls = cls.join(" ") + (_emo ? " has-emo-emoji" : "");
+        // 音高 → 静止态纵向位移基线(高音上浮、低音下沉)。NUM∈[-1,1], 高音→负(上)。
+        let _pitchCss = "";
+        const _pv = Number(word?.pitch || 0);
+        if (_pRange > 0 && _pv > 0) {
+          const _relP = (_pv - _pMin) / _pRange;            // 0..1
+          const _num = ((0.5 - _relP) * 2).toFixed(3);       // 1(低)..-1(高)
+          _pitchCss = `;--kara-pitch-y:calc(${_num} * var(--cssfx-pitch-spread, 14px))`;
+        }
+        return `<span class="${_wcls}" style="--karaoke-word-emphasis:${emphasisFx.toFixed(3)};--karaoke-word-beat:${beatWeight.toFixed(3)}${_pitchCss}${famCss}">${escapeHtml(wordText)}${_emoHtml}</span>`;
       });
       return wordSpans.join(" ");
     })();
-    watchKaraokeLine.dataset.emotion = inferredEmotion;
     watchSubtitle?.setAttribute("data-emotion", inferredEmotion);
-    watchKaraokeLine.innerHTML = `
-      ${prevCue && prevCue !== currentCue && String(prevCue?.text || "").trim() !== titleLine ? `<div class="watch-karaoke-prev">${escapeHtml(String(prevCue?.text || ""))}</div>` : ""}
-      <div class="watch-karaoke-current ${mediaClockSec > 0 ? "is-active" : ""} is-${escapeHtml(inferredEmotion)}">${renderedCurrent}</div>
-      ${nextCue && nextCue !== currentCue && String(nextCue?.text || "").trim() !== titleLine ? `<div class="watch-karaoke-next">${escapeHtml(String(nextCue?.text || ""))}</div>` : ""}
-    `;
+    // CSSOS_WAVE_714 — #watch-karaoke-line 已彻底退役(#watch-subtitle 是唯一字幕载体)。此前它仍被
+    // 每帧写入 prev/current/next 整句歌词 + 因 style.watch.css 从未加载而隐藏失效 → 在画面里漏出虚影
+    // 英文。根治: 【JS 里直接清空 + 内联隐藏】, 不依赖任何 CSS 加载, 永不再漏。
+    if (watchKaraokeLine) {
+      if (watchKaraokeLine.innerHTML !== "") watchKaraokeLine.innerHTML = "";
+      watchKaraokeLine.style.display = "none";
+    }
     // CSSOS_PHASE2_SUBTITLE_LYRIC_WRITE 20260426 #133 — Jing
     // "请继续修复普通字幕，放在媒体框底部中间…一句歌词，一行字幕"
     // The active sung lyric only used to land in #watch-karaoke-line. The
@@ -2783,10 +2889,60 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
     // observer in app.watch-media-layout-p2100.js bypasses its
     // looksLikeStatus filter and doesn't strip the lyric.
     if (watchSubtitle) {
-      const oneLine = String(resolvedCueText || "").replace(/\s*\n+\s*/g, " ").trim();
+      // CSSOS_WAVE_644 — 绿色 #watch-subtitle 升级为【逐字情绪字幕(熟歌词)】: 把上面已构建的
+      // per-word 情绪 HTML(renderedCurrent, 每字带 is-{joy|calm|ignite|intimate|resolve|grief}
+      // + is-active 当前咬字 + is-sung 已唱, 字号随 emphasis/音量呼吸)直接写进【可见】的 subtitle,
+      // 而不是平文本。#watch-karaoke-line 已退役 → subtitle 是唯一可见载体, 它才该承载情绪渲染。
       watchSubtitle.dataset.cssmvOrigin = "lyric";
-      if (watchSubtitle.textContent !== oneLine) {
-        safeSetWatchSubtitleModule(oneLine);
+      watchSubtitle.classList.add("is-emotion-karaoke");
+      watchSubtitle.dataset.emotion = inferredEmotion;
+      // CSSOS_WAVE_711 — 双随机色【铁底】: 直接把"未唱/已唱"两随机色写成 #watch-subtitle 的内联 CSS
+      // 变量(不依赖 emotion-fx 模块时机/:root 是否被设)。每个【新作品/新时间轴】滚一对, 同作品播放
+      // 期间不变。CSS 的 var(--sub-unsung/--sub-sung) 直接从本元素读到 → 永远不会落回默认绿。
+      try {
+        var _ck = String(karaokeTimeline.length) + ":" +
+          Number((karaokeTimeline[0] && karaokeTimeline[0].start_s) || 0).toFixed(1) + ":" +
+          String((karaokeTimeline[0] && karaokeTimeline[0].text) || "").slice(0, 10);
+        if (watchSubtitle.dataset.subColorKey !== _ck) {
+          watchSubtitle.dataset.subColorKey = _ck;
+          var _h1 = Math.floor(Math.random() * 360);
+          var _h2 = (_h1 + 100 + Math.floor(Math.random() * 160)) % 360;
+          watchSubtitle.style.setProperty("--sub-unsung", "hsla(" + _h1 + ",60%,75%,0.62)");
+          watchSubtitle.style.setProperty("--sub-sung", "hsla(" + _h2 + ",92%,66%,0.98)");
+          watchSubtitle.style.setProperty("--sub-sung-h", String(_h2));
+        }
+      } catch (_e) {}
+      const _emoSig = resolvedCueText + "#" + activeWordIndex;
+      if (watchSubtitle.dataset.emoSig !== _emoSig) {
+        watchSubtitle.dataset.emoSig = _emoSig;
+        watchSubtitle.innerHTML = renderedCurrent;
+        // CSSOS_WAVE_668 — 当前咬字是峰值字 → 触发夸张全屏闪(每字最多一次, 由 emoSig 守卫)。
+        try {
+          var _aw = (Array.isArray(cueWords) && activeWordIndex >= 0) ? cueWords[activeWordIndex] : null;
+          var _emphRaw = _aw ? Number(_aw.emphasis || 0) : 0;
+          // CSSOS_WAVE_688 — 全屏闪也吃同一条爆裂增益曲线(否则平数据永远够不到 0.8 → 闪从不放)。
+          var _pp = (globalThis.cssosEmotionPunch && typeof globalThis.cssosEmotionPunch === "object") ? globalThis.cssosEmotionPunch : null;
+          var _emph = _emphRaw <= 0 ? 0 : Math.max(0, Math.min(1, Math.pow(_emphRaw, _pp && _pp.gamma > 0 ? _pp.gamma : 0.55) * (_pp && _pp.gain > 0 ? _pp.gain : 1.18)));
+          // 逐字"蹦/爆"门槛低(频繁), 但【全屏闪】只留给真正的峰值字(≥0.8 与门槛取大者)
+          // → "偶尔爆全屏, 只要旋律需要"(Jing), 避免每字频闪。
+          var _thr = (typeof globalThis.cssosEmotionBurstThreshold === "function") ? globalThis.cssosEmotionBurstThreshold() : 0.8;
+          var _flashThr = Math.max(_thr, 0.8);
+          // CSSOS_WAVE_692 — 屏幕中央爆(情绪字幕): 唱到的情绪字(≥burst门槛)在【屏幕中央】爆一下,
+          // 大小∝强度、停留∝唱腔时长(一闪)。左下角普通字幕照常安静。这是叠加的情绪层(不一定套圈)。
+          // CSSOS_WAVE_702 — demo: cssosBurstDemo=true 时无视门槛, 每个 active 字都中央爆(给 Jing 截图)。
+          var _burstGo = _aw && (globalThis.cssosBurstDemo === true || _emph >= _thr);
+          if (_burstGo && typeof globalThis.cssosEmotionCenterBurst === "function") {
+            var _awDur = Math.max(0, Number(_aw.end_s || 0) - Number(_aw.start_s || 0));
+            // 该情绪 emoji → 渲染在大字背后做柔光背景(字幕在上, 背景是 emoji)。
+            var _burstEmoji = "";
+            try { _burstEmoji = (typeof cssmvEmotionEmojiModule === "function") ? cssmvEmotionEmojiModule(String(_aw.emotion || ""), String(_aw.text || "")) : ""; } catch (_e2) {}
+            globalThis.cssosEmotionCenterBurst(String(_aw.text || ""), String(_aw.emotion || ""), _emph, _awDur, _burstEmoji);
+          }
+          // 峰值字(≥0.8)再叠【全屏闪 + 天女散花】。
+          if (_aw && _emph >= _flashThr && typeof globalThis.cssosEmotionFlash === "function") {
+            globalThis.cssosEmotionFlash(String(_aw.emotion || ""), _emph);
+          }
+        } catch (_e) {}
       }
     }
     return;
@@ -3984,25 +4140,22 @@ async function ensureWatchMusicVisualizerModule() {
   // 会在低内存 App 上叠加成不稳定。修法: 把 source 节点【挂到元素本身】上做幂等复用 +
   // 整段 try/catch 优雅降级(可视化失败 ≠ 崩溃, 音频照常播放)。
   try {
-    if (!watchMusicSourceNode) {
-      if (watchAudioPreview.__cssosMediaSourceNode) {
-        // 该元素此前已建过 source(同一 AudioContext) → 直接复用, 绝不二次创建。
-        watchMusicSourceNode = watchAudioPreview.__cssosMediaSourceNode;
-      } else {
-        watchMusicSourceNode = watchMusicAudioContext.createMediaElementSource(watchAudioPreview);
-        try { watchAudioPreview.__cssosMediaSourceNode = watchMusicSourceNode; } catch (_e) {}
-      }
+    // CSSOS_WAVE_667d 20260607 — 【彻底停止用 Web Audio 捕获播放元素】。
+    // createMediaElementSource 会把 <audio> 输出【永久】接进一个 AudioContext; 而该 ctx 在 Safari
+    // 自动播放策略下默认【挂起 suspended】, resume() 仅在用户手势栈内才生效 —— 若捕获发生在非手势时机,
+    // 元素就照常 paused:false 走时间(画面/进度/字幕都动), 声音却卡在哑掉的图谱里出不来 = 全场静音。
+    // 这正是"所有带情绪字幕/可视化的作品一律没声"的真因。播放本身【不需要】Web Audio。
+    // 故一律不再捕获 → 音频走【原生输出】, 声音 100% 保证。频谱可视化待改用后端 volume 时间线重做。
+    if (watchAudioPreview.__cssosMediaSourceNode && !watchMusicSourceNode) {
+      // 仅当本会话此前已被捕获(新版不再发生)→ 沿用并确保接回扬声器; 否则【绝不主动捕获】。
+      watchMusicSourceNode = watchAudioPreview.__cssosMediaSourceNode;
       watchMusicAnalyser = watchMusicAudioContext.createAnalyser();
       watchMusicAnalyser.fftSize = 128;
       watchMusicSourceNode.connect(watchMusicAnalyser);
       watchMusicAnalyser.connect(watchMusicAudioContext.destination);
-    }
-    if (!watchMusicAnalyserFrame) {
-      tickWatchMusicVisualizerModule();
+      if (!watchMusicAnalyserFrame) tickWatchMusicVisualizerModule();
     }
   } catch (_e) {
-    // 可视化建立失败(如元素已被其它 context 占用)→ 放弃可视化, 不抛异常、不影响播放。
-    try { if (typeof console !== "undefined" && console.warn) console.warn("[watch-visualizer] degraded:", _e && _e.message); } catch (_e2) {}
     watchMusicAnalyser = null;
   }
 }
@@ -5684,19 +5837,19 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   function ensureKaraokeAnalyser(targetEl) {
     if (!targetEl) return;
     if (__cssosWiredAudioEl === targetEl && __cssosAnalyser) return;
+    // CSSOS_WAVE_667c 20260607 — 根治"放得出画面、进度在走, 就是没声音":
+    // 原来本函数【自建第二个 AudioContext + createMediaElementSource】给情绪字幕做振幅分析。
+    // 但一个 <audio> 元素的输出【只能被一个 AudioContext 捕获】, 且一旦被捕获, 声音只从那个图谱出。
+    // 它和可视化的 watchMusicAudioContext 抢同一元素: 谁先抢到就拥有音频; 若抢到的是这个、又恰被
+    // 浏览器挂起(suspended)→ 元素照常 paused:false 走时间, 声音却卡在哑掉的图谱里 = 全场静音。
+    // 【修法】绝不自建 ctx/不自己 createMediaElementSource —— 只【复用】可视化已建的同 ctx 同 source
+    // 多挂一个 analyser(同图谱内多分支不影响 destination 输出); 若可视化还没建 source, 就【放弃分析】,
+    // 让音频走原生/可视化单一通道, 声音永不被劫持丢失。情绪字幕仍可用后端逐字 volume 数据。
     try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      if (!__cssosAudioCtx) __cssosAudioCtx = new Ctx();
-      let src = targetEl.__cssosMediaSrc;
-      if (!src) {
-        src = __cssosAudioCtx.createMediaElementSource(targetEl);
-        targetEl.__cssosMediaSrc = src;
-        src.connect(__cssosAudioCtx.destination);
-      }
-      const analyser = __cssosAudioCtx.createAnalyser();
-      // 2048 → ~22 Hz bins at 44.1 kHz, plenty of resolution for
-      // bass / mid / treble band splits.
+      var ctx = (typeof watchMusicAudioContext !== "undefined") ? watchMusicAudioContext : null;
+      var src = targetEl.__cssosMediaSourceNode;   // 可视化(ensureWatchMusicVisualizerModule)建的 source
+      if (!ctx || !src) { __cssosAnalyser = null; return; }  // 没有共享 source → 不分析, 绝不劫持音频
+      var analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0.55;
       src.connect(analyser);
@@ -5704,11 +5857,9 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
       __cssosAmpBuf = new Uint8Array(analyser.fftSize);
       __cssosFreqBuf = new Uint8Array(analyser.frequencyBinCount);
       __cssosWiredAudioEl = targetEl;
-      if (__cssosAudioCtx.state === "suspended") {
-        __cssosAudioCtx.resume().catch(() => {});
-      }
+      if (ctx.state === "suspended") { ctx.resume().catch(function () {}); }
     } catch (e) {
-      console.info("[karaoke] analyser unavailable:", e && e.message);
+      __cssosAnalyser = null;
     }
   }
   function readKaraokeAmpAndBands() {
@@ -11518,7 +11669,16 @@ function renderSongSeedPreviewModule(seed = state.songSeed) {
   const creationBusy = !!globalThis.isCreationBusyModule?.();
   const lyricsRequestPending = !!globalThis.lyricsSeedRequestState?.pending;
   if (watchAudioPreview) {
-    if (restoreRememberedWatchFinalAudio()) {
+    // CSSOS_WAVE_656 20260606 — Jing「分享链接进来播一两秒就停/退影院」真凶: 创作引擎面板刷新
+    // (updateEnginePanels→renderSongSeedPreviewModule)走到下面的 reset 分支时, 把【正在播放的
+    // 分享/浏览音频】pause + removeAttribute("src") + 隐藏了 → 播放被掐、影院随后塌掉。守卫: 只要
+    // audio 元素挂着【真实 http(s) 源】(分享 audio_track_1 / 浏览轨 / 最终成品), 这个【创作种子预览】
+    // 面板就【绝不重置它】, 只确保可见。idle 创作态(空 src / data: 预览)才走原 reset 逻辑(自纠)。
+    const _curAudSrc = String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim();
+    const _realAudioLoaded = !!_curAudSrc && /^https?:/i.test(_curAudSrc);
+    if (_realAudioLoaded) {
+      watchAudioPreview.style.display = "block";
+    } else if (restoreRememberedWatchFinalAudio()) {
       watchAudioPreview.style.display = "block";
     } else if (creationBusy || lyricsRequestPending) {
       watchAudioPreview.pause?.();

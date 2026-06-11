@@ -22,6 +22,9 @@
     "user-admin-panel", "seller-panel", "system-mvs-panel",
     "delivery-ops-panel", "delivery-reports-panel", "workspaces-panel",
     "subscription-panel", "credit-panel", "api-panel",
+    // CSSOS_WAVE_660 — 关于面板(纯静态白皮书, 零媒体/零定时器/零动态注入, 几乎只看一次)= 零风险
+    // 懒加载候选(代理审计确认)。stash/inflate/destroy 全自动复用 W634/635 机制, 无需新钩子。
+    "about-panel",
   ];
   var TARGET = Object.create(null);
   TARGET_IDS.forEach(function (id) { TARGET[id] = true; });

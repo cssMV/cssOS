@@ -49,10 +49,31 @@
     // CSSOS_WAVE_535 — credit + workspaces: user-admin 同款(handleGlobalAction 已有对应 case)。
     "credit": { fns: ["openCreditPanelModule", "renderCreditPanelModule"], action: "credit" },
     "workspaces": { fns: ["openWorkspacesPanelModule", "renderWorkspacesPanelModule"], action: "workspaces" },
+    // CSSOS_WAVE_661 第一批纯岛(单一全局入口, 无渲染期裸调, 自建 DOM, 桩按需加载)。
+    "templates": { fns: ["cssosOpenSaveTemplateDialog"] },
+    "user-stats": { fns: ["openUserStatsPage"] },
+    "creation-timeline": { fns: ["cssosOpenCreationTimeline"] },
+    "add-language": { fns: ["cssosOpenAddLanguageModal"] },
+    "work-edit": { fns: ["openWorkEditPanel"] },
+    "share-dialog": { fns: ["openCssosShareDialog"] },
+    // CSSOS_WAVE_661 第二小批: voice 簇(两独立岛)+ shortcuts(cheatsheet, 经 ? shim 触发, 也注册桩)。
+    "voice-clone": { fns: ["cssosOpenVoiceCloneModal", "cssosOpenMyVoicesModal"] },
+    "add-voice": { fns: ["cssosOpenAddVoiceModal"] },
+    "shortcuts": { fns: ["cssosOpenShortcutsCheatsheet"] },
+    // CSSOS_WAVE_661 第三批: hash 触发型(干净 IIFE, 无同步返回值依赖, 调用方均守卫)。
+    "feed": { fns: ["cssosOpenFeed", "cssosCloseFeed", "cssosToggleSubscribe"], hash: "#feed", hashExact: true },
+    "webhooks": { fns: ["openCssosWebhooksPanel"], hash: "#settings/webhooks", hashExact: true },
+    "user-homepage": { fns: ["openUserHomepage"], hash: "#u/" },
+    // CSSOS_WAVE_662 第2阶段·线A: mv-tier-picker 纯事件驱动(无外部调用/无返回值依赖, 干净孤岛)。
+    //   两个 open-event 监听在 globalThis; 目前无派发方=零回归(懒加载预埋, 接上派发方即生效)。
+    "mv-tier-picker": { fns: [], events: ["cssmv:request-tier-picker", "cssmv:request-low-balance-prompt"] },
+    // CSSOS_WAVE_662 第2步: face-safe 人脸避让分析器(顶层自启, 唯一消费者 watch-media-overlays 已守卫,
+    //   缺失期 round-robin 优雅降级)。挂 cssos:work-id-changed(进 watch 放歌即触发, router 补发带原 detail)。
+    "face-safe": { fns: [], events: ["cssos:work-id-changed"] },
   };
 
-  function loadPanel(name) {
-    if (typeof globalThis.cssosLoadPanel === "function") return globalThis.cssosLoadPanel(name);
+  function loadPanel(name, silent) {
+    if (typeof globalThis.cssosLoadPanel === "function") return globalThis.cssosLoadPanel(name, silent ? { silent: true } : undefined);
     // 兜底: 直接注入对应 cssos-lazy 标签的 src。
     return new Promise(function (res, rej) {
       var tag = document.querySelector('script[type="cssos-lazy"][data-panel="' + (window.CSS && CSS.escape ? CSS.escape(name) : name) + '"]');
@@ -106,14 +127,53 @@
       // CSSOS_WAVE_529 — hash 触发: 命中 location.hash 即按需加载该面板(模块自身的 hash 处理会自开)。
       if (entry.hash && !entry.__hashWired) {
         entry.__hashWired = true;
-        var checkHash = (function (h, nm) {
-          return function () { try { var cur = location.hash || ""; if (cur === h || cur.indexOf(h) === 0) loadPanel(nm); } catch (_e) {} };
-        })(entry.hash, name);
+        var checkHash = (function (h, nm, ex) {
+          // CSSOS_WAVE_661/批3 — hashExact: 精确匹配 #h 或其 #h/<子路径>(不再前缀误伤,
+          //   如 #feed 不会命中 #feedback)。默认(无 hashExact)仍前缀匹配(供 #u/<handle> 这类)。
+          return function () {
+            try {
+              var cur = location.hash || "";
+              var hit = ex ? (cur === h || cur.indexOf(h + "/") === 0) : (cur === h || cur.indexOf(h) === 0);
+              if (!hit) return;
+              var p = loadPanel(nm);
+              // 懒加载模块的 hash 监听器是 load 后才绑定的, 当前 hash 事件已过 → 补发一次 hashchange,
+              // 让模块对【当前】location.hash 自开(各模块 open 多为幂等, 不会重复弹)。
+              if (p && typeof p.then === "function") {
+                p.then(function () {
+                  try { window.dispatchEvent(new HashChangeEvent("hashchange", { newURL: location.href, oldURL: location.href })); }
+                  catch (_e1) { try { window.dispatchEvent(new Event("hashchange")); } catch (_e2) {} }
+                });
+              }
+            } catch (_e) {}
+          };
+        })(entry.hash, name, !!entry.hashExact);
         try {
           window.addEventListener("hashchange", checkHash);
           if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", checkHash);
           else checkHash();
         } catch (_e) {}
+      }
+      // CSSOS_WAVE_662 — 事件触发: REGISTRY {events:["名"…]} → 监听 CustomEvent, 首次触发即按需加载,
+      //   然后【向 window 补发带原 detail 的同名 CustomEvent】, 让模块(load 后才绑定的)监听器自处理
+      //   那个被错过的首次触发; 补发前先摘掉本 router 临时监听(防二次补发), 之后归模块自己监听。
+      //   注意: 监听/补发都在 window(≡globalThis), 因目标模块监听在 globalThis。
+      if (entry.events && !entry.__eventsWired) {
+        entry.__eventsWired = true;
+        (Array.isArray(entry.events) ? entry.events : [entry.events]).forEach(function (evName) {
+          var handler = (function (en, nm) {
+            return function (e) {
+              var detail = e && e.detail;
+              try { window.removeEventListener(en, handler); } catch (_e0) {}
+              var p = loadPanel(nm, true); // 后台事件触发, 静默加载(不弹 Loading toast)
+              if (p && typeof p.then === "function") {
+                p.then(function () {
+                  try { window.dispatchEvent(new CustomEvent(en, { detail: detail })); } catch (_e1) {}
+                });
+              }
+            };
+          })(evName, name);
+          try { window.addEventListener(evName, handler); } catch (_e) {}
+        });
       }
       // dock 动作: 注册到 __cssosDockActionMap, 让 handleGlobalAction 能路由到桩。
       if (entry.action) {

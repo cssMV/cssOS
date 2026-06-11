@@ -358,6 +358,55 @@
     );
     blurb.style.cssText = "font:400 12px/1.5 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.7);";
     card.appendChild(blurb);
+
+    // CSSOS_WAVE_660 — 「档位」一键丰俭由人. 选档 → 把【除歌词(llm)外】每个 kind 的 prefer 设成该档
+    // 内 best-first(歌词永锁 capable 三强, 不参与丰俭由人, 见后端 W659)。auto = 清除偏好走服务端默认。
+    // 档位组: 免费=free; 便宜=cheap; 收费=premium+standard(质量优先, 不计成本)。
+    var TIER_GROUP = { free: ["free"], cheap: ["cheap"], premium: ["premium", "standard"] };
+    var MEDIA_KINDS = ["image", "music", "video"]; // 不含 llm(歌词锁)与 tts
+    function applyTier(tierKey) {
+      MEDIA_KINDS.forEach(function (kind) {
+        var snap = data[kind]; if (!snap) return;
+        var cookieKey = "cssos_" + kind + "_prefer";
+        if (tierKey === "auto") { writeCookie(cookieKey, ""); return; }
+        var grp = TIER_GROUP[tierKey] || [];
+        var byId = {}; snap.providers.forEach(function (p) { byId[p.id] = p; });
+        var order = snap.default_order && snap.default_order.length ? snap.default_order : snap.providers.map(function (p) { return p.id; });
+        var inTier = order.filter(function (id) { var p = byId[id]; return p && p.configured && grp.indexOf(p.tier) >= 0; });
+        var rest = order.filter(function (id) { return inTier.indexOf(id) < 0; }); // 兜底, 永不 dead-end
+        writeCookie(cookieKey, inTier.concat(rest).join(","));
+      });
+      writeCookie("cssos_engine_tier", tierKey);
+    }
+    var tierBar = document.createElement("div");
+    tierBar.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-radius:12px;background:rgba(0,245,160,0.06);border:1px solid rgba(0,245,160,0.18);";
+    var tierLabel = document.createElement("div");
+    tierLabel.textContent = tt("Tier (frugal ↔ premium)", "档位 · 丰俭由人");
+    tierLabel.style.cssText = "font:700 12px/1 -apple-system,system-ui;color:rgba(218,255,238,0.9);margin-right:4px;";
+    tierBar.appendChild(tierLabel);
+    var curTier = readCookie("cssos_engine_tier") || "auto";
+    [["auto", tt("Auto", "自动")], ["free", tt("Free", "免费")], ["cheap", tt("Cheap", "便宜")], ["premium", tt("Premium", "收费·质优")]].forEach(function (pair) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = pair[1]; b.dataset.tier = pair[0];
+      var active = curTier === pair[0];
+      b.style.cssText = "cursor:pointer;border-radius:999px;padding:6px 14px;font:600 12px/1 -apple-system,system-ui;border:1px solid " +
+        (active ? "rgba(0,245,160,0.9)" : "rgba(0,245,160,0.3)") + ";background:" + (active ? "rgba(0,245,160,0.85)" : "transparent") +
+        ";color:" + (active ? "#03130d" : "rgba(218,255,238,0.85)") + ";transition:all .15s;";
+      b.addEventListener("click", function () {
+        applyTier(pair[0]);
+        if (typeof globalThis.cssosGuidedToast === "function") {
+          try { globalThis.cssosGuidedToast(tt("Engine tier set: ", "已切换档位：") + pair[1] + tt(" (lyrics always premium)", "(歌词始终锁高端)")); } catch (_e) {}
+        }
+        close(); setTimeout(open, 60); // 重开以反映新顺序
+      });
+      tierBar.appendChild(b);
+    });
+    var tierHint = document.createElement("div");
+    tierHint.textContent = tt("Lyrics always uses top models (rare languages); media follows your tier.", "歌词永用顶级模型(稀缺语言);图像/音乐/视频按你选的档位。");
+    tierHint.style.cssText = "flex-basis:100%;font:400 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.5);margin-top:2px;";
+    tierBar.appendChild(tierHint);
+    card.appendChild(tierBar);
+
     ["llm", "image", "music", "video", "tts"].forEach(function (kind) {
       var snapshot = data[kind];
       if (!snapshot) return;

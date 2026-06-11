@@ -1,0 +1,127 @@
+/* CSSOS_WAVE_665 #52 — 全球语言大目录(苹果/安卓式).
+ *
+ * 平台 UI 默认仅英文激活; 用户在语言面板"添加语言"里点选任意一门 → 即时激活 + 经
+ * /api/i18n/translate(Claude, 落盘缓存)懒翻译, 零预翻译。本文件只提供【目录数据】
+ * (code/native/en/flag), 不预生成任何翻译。
+ *
+ * 形状: { code(BCP-47), native(母语写法), en(英文名), flag(emoji) }。
+ * code 必须能通过后端 i18nLocalePathSafe: ^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$。
+ * 这是【精选大目录】(~100 主流/有书写系统的语言), 非 700 全集 —— 够全球用户自助,
+ * 又不至于撑爆面板。要增删: 直接改本数组重打包即可。
+ */
+(function () {
+  "use strict";
+  var CATALOG = [
+    { code: "en", native: "English", en: "English", flag: "🇺🇸" },
+    { code: "zh", native: "中文", en: "Chinese", flag: "🇨🇳" },
+    { code: "zh-Hant", native: "繁體中文", en: "Chinese (Traditional)", flag: "🇹🇼" },
+    { code: "es", native: "Español", en: "Spanish", flag: "🇪🇸" },
+    { code: "hi", native: "हिन्दी", en: "Hindi", flag: "🇮🇳" },
+    { code: "ar", native: "العربية", en: "Arabic", flag: "🇸🇦" },
+    { code: "pt", native: "Português", en: "Portuguese", flag: "🇵🇹" },
+    { code: "bn", native: "বাংলা", en: "Bengali", flag: "🇧🇩" },
+    { code: "ru", native: "Русский", en: "Russian", flag: "🇷🇺" },
+    { code: "ja", native: "日本語", en: "Japanese", flag: "🇯🇵" },
+    { code: "pa", native: "ਪੰਜਾਬੀ", en: "Punjabi", flag: "🇮🇳" },
+    { code: "de", native: "Deutsch", en: "German", flag: "🇩🇪" },
+    { code: "jv", native: "Basa Jawa", en: "Javanese", flag: "🇮🇩" },
+    { code: "ko", native: "한국어", en: "Korean", flag: "🇰🇷" },
+    { code: "fr", native: "Français", en: "French", flag: "🇫🇷" },
+    { code: "te", native: "తెలుగు", en: "Telugu", flag: "🇮🇳" },
+    { code: "mr", native: "मराठी", en: "Marathi", flag: "🇮🇳" },
+    { code: "tr", native: "Türkçe", en: "Turkish", flag: "🇹🇷" },
+    { code: "ta", native: "தமிழ்", en: "Tamil", flag: "🇮🇳" },
+    { code: "vi", native: "Tiếng Việt", en: "Vietnamese", flag: "🇻🇳" },
+    { code: "ur", native: "اردو", en: "Urdu", flag: "🇵🇰" },
+    { code: "it", native: "Italiano", en: "Italian", flag: "🇮🇹" },
+    { code: "th", native: "ไทย", en: "Thai", flag: "🇹🇭" },
+    { code: "gu", native: "ગુજરાતી", en: "Gujarati", flag: "🇮🇳" },
+    { code: "pl", native: "Polski", en: "Polish", flag: "🇵🇱" },
+    { code: "uk", native: "Українська", en: "Ukrainian", flag: "🇺🇦" },
+    { code: "kn", native: "ಕನ್ನಡ", en: "Kannada", flag: "🇮🇳" },
+    { code: "ml", native: "മലയാളം", en: "Malayalam", flag: "🇮🇳" },
+    { code: "fa", native: "فارسی", en: "Persian", flag: "🇮🇷" },
+    { code: "id", native: "Bahasa Indonesia", en: "Indonesian", flag: "🇮🇩" },
+    { code: "ms", native: "Bahasa Melayu", en: "Malay", flag: "🇲🇾" },
+    { code: "nl", native: "Nederlands", en: "Dutch", flag: "🇳🇱" },
+    { code: "ro", native: "Română", en: "Romanian", flag: "🇷🇴" },
+    { code: "my", native: "မြန်မာ", en: "Burmese", flag: "🇲🇲" },
+    { code: "el", native: "Ελληνικά", en: "Greek", flag: "🇬🇷" },
+    { code: "hu", native: "Magyar", en: "Hungarian", flag: "🇭🇺" },
+    { code: "cs", native: "Čeština", en: "Czech", flag: "🇨🇿" },
+    { code: "sv", native: "Svenska", en: "Swedish", flag: "🇸🇪" },
+    { code: "he", native: "עברית", en: "Hebrew", flag: "🇮🇱" },
+    { code: "da", native: "Dansk", en: "Danish", flag: "🇩🇰" },
+    { code: "fi", native: "Suomi", en: "Finnish", flag: "🇫🇮" },
+    { code: "no", native: "Norsk", en: "Norwegian", flag: "🇳🇴" },
+    { code: "sk", native: "Slovenčina", en: "Slovak", flag: "🇸🇰" },
+    { code: "bg", native: "Български", en: "Bulgarian", flag: "🇧🇬" },
+    { code: "hr", native: "Hrvatski", en: "Croatian", flag: "🇭🇷" },
+    { code: "sr", native: "Српски", en: "Serbian", flag: "🇷🇸" },
+    { code: "lt", native: "Lietuvių", en: "Lithuanian", flag: "🇱🇹" },
+    { code: "sl", native: "Slovenščina", en: "Slovenian", flag: "🇸🇮" },
+    { code: "lv", native: "Latviešu", en: "Latvian", flag: "🇱🇻" },
+    { code: "et", native: "Eesti", en: "Estonian", flag: "🇪🇪" },
+    { code: "fil", native: "Filipino", en: "Filipino", flag: "🇵🇭" },
+    { code: "sw", native: "Kiswahili", en: "Swahili", flag: "🇰🇪" },
+    { code: "am", native: "አማርኛ", en: "Amharic", flag: "🇪🇹" },
+    { code: "yo", native: "Yorùbá", en: "Yoruba", flag: "🇳🇬" },
+    { code: "ig", native: "Igbo", en: "Igbo", flag: "🇳🇬" },
+    { code: "ha", native: "Hausa", en: "Hausa", flag: "🇳🇬" },
+    { code: "zu", native: "isiZulu", en: "Zulu", flag: "🇿🇦" },
+    { code: "af", native: "Afrikaans", en: "Afrikaans", flag: "🇿🇦" },
+    { code: "ne", native: "नेपाली", en: "Nepali", flag: "🇳🇵" },
+    { code: "si", native: "සිංහල", en: "Sinhala", flag: "🇱🇰" },
+    { code: "km", native: "ខ្មែរ", en: "Khmer", flag: "🇰🇭" },
+    { code: "lo", native: "ລາວ", en: "Lao", flag: "🇱🇦" },
+    { code: "ka", native: "ქართული", en: "Georgian", flag: "🇬🇪" },
+    { code: "hy", native: "Հայերեն", en: "Armenian", flag: "🇦🇲" },
+    { code: "az", native: "Azərbaycan", en: "Azerbaijani", flag: "🇦🇿" },
+    { code: "kk", native: "Қазақ", en: "Kazakh", flag: "🇰🇿" },
+    { code: "uz", native: "Oʻzbek", en: "Uzbek", flag: "🇺🇿" },
+    { code: "mn", native: "Монгол", en: "Mongolian", flag: "🇲🇳" },
+    { code: "ca", native: "Català", en: "Catalan", flag: "🇪🇸" },
+    { code: "eu", native: "Euskara", en: "Basque", flag: "🇪🇸" },
+    { code: "gl", native: "Galego", en: "Galician", flag: "🇪🇸" },
+    { code: "is", native: "Íslenska", en: "Icelandic", flag: "🇮🇸" },
+    { code: "ga", native: "Gaeilge", en: "Irish", flag: "🇮🇪" },
+    { code: "cy", native: "Cymraeg", en: "Welsh", flag: "🏴󠁧󠁢󠁷󠁬󠁳󠁿" },
+    { code: "sq", native: "Shqip", en: "Albanian", flag: "🇦🇱" },
+    { code: "mk", native: "Македонски", en: "Macedonian", flag: "🇲🇰" },
+    { code: "bs", native: "Bosanski", en: "Bosnian", flag: "🇧🇦" },
+    { code: "be", native: "Беларуская", en: "Belarusian", flag: "🇧🇾" },
+    { code: "tg", native: "Тоҷикӣ", en: "Tajik", flag: "🇹🇯" },
+    { code: "ky", native: "Кыргызча", en: "Kyrgyz", flag: "🇰🇬" },
+    { code: "tk", native: "Türkmen", en: "Turkmen", flag: "🇹🇲" },
+    { code: "ps", native: "پښتو", en: "Pashto", flag: "🇦🇫" },
+    { code: "sd", native: "سنڌي", en: "Sindhi", flag: "🇵🇰" },
+    { code: "or", native: "ଓଡ଼ିଆ", en: "Odia", flag: "🇮🇳" },
+    { code: "as", native: "অসমীয়া", en: "Assamese", flag: "🇮🇳" },
+    { code: "mai", native: "मैथिली", en: "Maithili", flag: "🇮🇳" },
+    { code: "sa", native: "संस्कृतम्", en: "Sanskrit", flag: "🇮🇳" },
+    { code: "bo", native: "བོད་སྐད་", en: "Tibetan", flag: "🏔️" },
+    { code: "dv", native: "ދިވެހި", en: "Dhivehi", flag: "🇲🇻" },
+    { code: "ug", native: "ئۇيغۇرچە", en: "Uyghur", flag: "🏳️" },
+    { code: "ku", native: "Kurdî", en: "Kurdish", flag: "🏳️" },
+    { code: "tt", native: "Татарча", en: "Tatar", flag: "🏳️" },
+    { code: "ceb", native: "Cebuano", en: "Cebuano", flag: "🇵🇭" },
+    { code: "ht", native: "Kreyòl", en: "Haitian Creole", flag: "🇭🇹" },
+    { code: "mg", native: "Malagasy", en: "Malagasy", flag: "🇲🇬" },
+    { code: "sm", native: "Gagana Samoa", en: "Samoan", flag: "🇼🇸" },
+    { code: "mi", native: "Te Reo Māori", en: "Maori", flag: "🇳🇿" },
+    { code: "haw", native: "ʻŌlelo Hawaiʻi", en: "Hawaiian", flag: "🌺" },
+    { code: "la", native: "Latina", en: "Latin", flag: "🏛️" },
+    { code: "eo", native: "Esperanto", en: "Esperanto", flag: "🌍" },
+    { code: "lb", native: "Lëtzebuergesch", en: "Luxembourgish", flag: "🇱🇺" },
+    { code: "fo", native: "Føroyskt", en: "Faroese", flag: "🇫🇴" },
+    { code: "yi", native: "ייִדיש", en: "Yiddish", flag: "🕎" }
+  ];
+  // 去重(按 code), 冻结。
+  var seen = {}, out = [];
+  for (var i = 0; i < CATALOG.length; i++) {
+    var c = CATALOG[i];
+    if (!c || !c.code || seen[c.code]) continue;
+    seen[c.code] = 1; out.push(c);
+  }
+  globalThis.CSSOS_LANG_CATALOG = out;
+})();

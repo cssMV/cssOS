@@ -1244,9 +1244,10 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         }
       }, { passive: true });
     }
+    // CSSOS_WAVE_654 — 同根解耦(面板级): 退出原生全屏不再剥掉面板的 is-cssmv-fullscreen 影院 class
+    // (否则分享链接瞬时退 native fullscreen 时面板就脱离影院、塌掉)。影院只由显式关闭面板退出。
     document.addEventListener("fullscreenchange", function () {
-      const panel = document.getElementById("watch-panel");
-      if (panel && !document.fullscreenElement) panel.classList.remove("is-cssmv-fullscreen");
+      // no-op by design — see CSSOS_WAVE_654. 原生全屏退出不连带剥离面板影院态。
     });
 
     // CSSOS_PHASE2_AUTO_CINEMA 20260504 — Jing
@@ -1399,11 +1400,16 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
           }
         }
       };
-      // Pair: drop the cinema class when the user exits fullscreen.
+      // CSSOS_WAVE_654 20260606 — Jing「分享链接进来只播一两秒就退出真全屏影院」根因:
+      // 之前这里把【退出原生全屏】等同于【退出影院】—— 分享链接自动进入、无持续手势, 浏览器/iOS
+      // 会【瞬时】退出 native fullscreen(横跳), 立刻 remove cssos-cinema-mode → 整个影院塌掉、
+      // 播放 UI 消失、看起来"播一两秒就没了"(媒体有时仍在后台跑 = 你看到的"后台继续播")。
+      // 影院 = CSS 沉浸态(由面板开关 + exit-cinema ✕ 控制), 原生全屏只是增强层, 退出它【绝不该】
+      // 退出影院。解耦: 不再因 native fullscreen 退出而移除影院 class; 影院只在用户【显式关闭面板】
+      // (✕/返回, 走 watch-search.js / panel-close 路径)时退出。这样分享链接稳定播放到底,
+      // 才能在结束前 30s 引导登录/创作/订阅/升级。
       document.addEventListener("fullscreenchange", function () {
-        if (!document.fullscreenElement) {
-          document.body.classList.remove("cssos-cinema-mode");
-        }
+        // no-op by design — see CSSOS_WAVE_654 above. 退出原生全屏不连带退出 CSS 影院。
       });
     }
 

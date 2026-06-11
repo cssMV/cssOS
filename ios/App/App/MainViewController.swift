@@ -34,8 +34,12 @@ class MainViewController: CAPBridgeViewController {
         }
     }
 
+    // CSSOS_WAVE_678g 20260607 — Jing「Home 指示线半灰碍手碍脚, 取消隐藏」:
+    // 苹果不允许真正隐藏 Home 指示线(无此 API); prefersHomeIndicatorAutoHidden / 延迟底部手势
+    // 只能把它【淡化变灰】, 永不消失。Jing 觉得半灰状态碍手碍脚 → 去掉 .bottom 延迟,
+    // 让指示线【保持正常常显】(不再淡灰)。仅保留 .top(状态栏下拉延迟, 与指示线无关)。
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
-        return [.top, .bottom]
+        return [.top]
     }
 
     // CSSOS_WAVE_370 20260523 — Jing「自播, 全屏. 就这么简单.」:

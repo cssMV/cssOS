@@ -197,6 +197,14 @@
     }
     state.selections = store;
     writeSelections();
+    /* CSSOS_WAVE_520 20260606 — Jing「任一面板改引擎, 全平台实时同步」。广播收进
+     * setSelection 本身 → 单一真源: 无论高级设置 / MV 管线 / 人物 MV 哪个面板改,
+     * 都触发同一事件, 所有引擎选择器订阅后实时重渲染。detail 带 stage/engine/version。 */
+    try {
+      document.dispatchEvent(new CustomEvent("cssmv:engine-selection-changed", {
+        detail: { stage: stage, engine: engine || null, version: version || null },
+      }));
+    } catch (_e) {}
   }
 
   function getAllSelections() {

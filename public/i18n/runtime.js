@@ -38,8 +38,11 @@
   // Extended TTL to 6 hours because backend is known-not-yet-shipped in
   // this environment; self-heals automatically when the endpoint comes
   // online (or sooner if the user manually clears local storage).
-  const DISABLED_SS_KEY = "cssos.i18n.translate.disabledUntil";
-  const DISABLED_TTL_MS = 6 * 60 * 60 * 1000;
+  // CSSOS_WAVE_665 — key 升到 .v2: /api/i18n/translate 端点已实现并上线, 旧版用户 localStorage 里
+  // 残留的 .disabledUntil(端点未实现时被永久触发的熔断)需作废, 否则他们永远回退英文。换 key = 一次性清零。
+  // TTL 缩到 30 分钟: 真出故障也能较快自愈, 不再"已知后端未上线"的 6 小时长熔断。
+  const DISABLED_SS_KEY = "cssos.i18n.translate.disabledUntil.v3";
+  const DISABLED_TTL_MS = 30 * 60 * 1000;
   const DISABLED_STORE = (typeof localStorage !== "undefined") ? localStorage : null;
 
   const memoryCache = new Map();         // `${hash}:${locale}` -> translated
@@ -228,12 +231,9 @@
             body: JSON.stringify({ locale: locale, sources: sources })
           });
           if (!response.ok) {
-            // Endpoint not deployed or permanently rejecting — trip the
-            // circuit breaker so we stop spamming the network. Falls back to
-            // English for every subsequent call this session.
-            if (response.status === 404 || response.status === 405 ||
-                response.status === 501 || response.status === 502 ||
-                response.status === 503) {
+            // CSSOS_WAVE_666b — 只有【路由真不存在/不允许】(404/405/501)才持久熔断; 4xx 永久错。
+            // 502/503(部署重启瞬时)不熔断 → 下次渲染重试, 否则一次部署窗口就把用户钉死英文 30 分钟。
+            if (response.status === 404 || response.status === 405 || response.status === 501) {
               tripBreaker();
             }
             chunk.forEach(function (e) { e.resolve(e.source); });
@@ -263,10 +263,8 @@
           });
           if (writes.length) dbPut(writes).catch(function () { /* ignore */ });
         } catch (_) {
-          // Network-level failure (DNS, refused, offline). Trip the breaker
-          // — same rationale as HTTP 5xx above — so we don't pummel an
-          // unavailable endpoint on every subsequent first-paint.
-          tripBreaker();
+          // CSSOS_WAVE_666b — 网络瞬时失败(部署重启/离线)【不再持久熔断】: 仅本次回退英文,
+          // 下次渲染自动重试。否则一次部署窗口就把用户钉死英文。端点已实现, 真 404 才熔断(见上)。
           chunk.forEach(function (e) { e.resolve(e.source); });
         }
       }

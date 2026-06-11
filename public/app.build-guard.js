@@ -14,7 +14,25 @@
   if (window.__cssosBuildGuardInstalled) return;
   window.__cssosBuildGuardInstalled = true;
 
-  // 启动 4s 后静默更新一次 SW(不重载页面)。仅此而已 —— 无轮询、无 reload。
+  // CSSOS_WAVE_712 — Jing: 「每次更新自动清缓存, 不用每次怀疑是缓存」。
+  // 安全的自动更新(绝不重蹈 W516 无限刷新): 用【事件驱动】而非轮询比对版本。
+  //   ① 监听 controllerchange —— 新 SW【接管】时只触发一次的事件(每次部署 bump 缓存版本 → 新
+  //      sw.js → install+skipWaiting → activate+clients.claim → controllerchange)。
+  //   ② 双重防护防循环: a) reloaded 一次性闸; b) 仅当【本来就有 controller】(=真·更新, 非首次
+  //      安装的首次 claim)才 reload。首装不刷; 更新刷恰好一次; 之后无更新→无事件→无循环。
+  try {
+    if (navigator.serviceWorker) {
+      var hadController = !!navigator.serviceWorker.controller;
+      var reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        if (reloaded) return;
+        reloaded = true;
+        if (hadController) { try { window.location.reload(); } catch (_e) {} }
+      });
+    }
+  } catch (_e) {}
+
+  // 启动 4s 后静默检查 SW 更新。若发现新版 → 上面的 controllerchange 会自动刷新一次拿到最新资源。
   setTimeout(function () {
     try {
       if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {

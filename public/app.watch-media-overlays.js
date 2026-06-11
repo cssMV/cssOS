@@ -253,9 +253,22 @@
 .watch-screen:hover .cssmv-stem-toggle,
 .watch-screen:focus-within .cssmv-stem-toggle { opacity: 1; }
 .cssmv-stem-toggle:hover { transform: scale(1.05); border-color: rgba(218, 255, 242, 0.55); }
-.cssmv-stem-toggle.is-instrumental .cssmv-stem-icon::before { content: "♪"; }
-.cssmv-stem-toggle.is-vocals       .cssmv-stem-icon::before { content: "🎤"; font-size: 14px; }
+.cssmv-stem-toggle.is-instrumental .cssmv-stem-icon::before { content: "🎤"; font-size: 14px; }
+.cssmv-stem-toggle.is-vocals       .cssmv-stem-icon::before { content: "🎵"; font-size: 14px; }
 .cssmv-stem-icon { pointer-events: none; line-height: 1; }
+/* CSSOS_WAVE_672 ① — 卡拉 OK 标示: 切到伴奏(instrumental)时, 麦克风按钮变绿+展开"卡拉 OK"字样,
+ * 一眼知道"该你唱了"; 原唱态只显图标。 */
+.cssmv-stem-ktv {
+  display: none; pointer-events: none; font-weight: 800; font-size: 11px;
+  letter-spacing: 0.04em; white-space: nowrap; line-height: 1;
+}
+.cssmv-stem-toggle.is-instrumental {
+  width: auto; padding: 0 12px; gap: 6px;
+  background: rgba(0, 200, 120, 0.32);
+  border-color: rgba(0, 245, 160, 0.6);
+  color: #eafff4;
+}
+.cssmv-stem-toggle.is-instrumental .cssmv-stem-ktv { display: inline; }
 
 /* ---------- P2-75 ✦ button facelift — actually visible this time ---------- */
 .cssmv-star-emphasized {
@@ -1763,7 +1776,7 @@
     btn.id = "cssmv-stem-toggle";
     btn.className = "cssmv-stem-toggle";
     btn.setAttribute("aria-label", tr("Toggle vocals / instrumental", "切换原唱/伴奏"));
-    btn.innerHTML = `<span class="cssmv-stem-icon"></span>`;
+    btn.innerHTML = `<span class="cssmv-stem-icon"></span><span class="cssmv-stem-ktv">${tr("KARAOKE", "卡拉 OK")}</span>`;
     frame.appendChild(btn);
     syncStemToggleUi(btn, currentStemPref());
     btn.addEventListener("click", (ev) => {

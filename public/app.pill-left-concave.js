@@ -40,9 +40,17 @@
       });
       // CSSOS_WAVE_588 — 多 active 时(如多语言: 模式胶囊 + 播放中的 cell 都标 .active)取【最右】active 作锚点,
       // 让它左侧所有胶囊都凹向它; findIndex(第一个)会锚错(只让模式胶囊前那几颗凹)。
+      // CSSOS_WAVE_678c — 语言条(#watch-language-pill)整条交给 app.lang-flag-pills.js 的 paintConcave
+      // (统一凹咬模型 + 激活前置 + 头/cell 区别处理), 全局左凹一律不插手; 清掉历史 laft 防双系统打架。
+      if (bar.id === "watch-language-pill") {
+        kids.forEach(function (c) { c.classList.remove("cssos-pill-laft"); });
+        return;
+      }
       var activeIdx = -1;
       kids.forEach(function (c, i) { if (c.classList.contains("active")) activeIdx = i; });
       kids.forEach(function (c, i) {
+        // CSSOS_WAVE_678b — 模式头(🌐多语言/🎤多声线)永远实心, 绝不咬合(否则 Languages 头会 calc(100%+20px) 盖住 Voices 头, 图1)。
+        if (c.classList.contains("cssos-mode-cap")) { c.classList.remove("cssos-pill-laft"); return; }
         if (activeIdx >= 0 && i < activeIdx) c.classList.add("cssos-pill-laft");
         else c.classList.remove("cssos-pill-laft");
       });

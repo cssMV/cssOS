@@ -93,7 +93,12 @@
   //   [{start_s, end_s, text, emotion, words:[{text,start_s,end_s,emotion,emphasis}]}]
   function subtitleJsonToCues(subtitleJson, lang) {
     if (!subtitleJson || !Array.isArray(subtitleJson.languages)) return null;
-    var langEntry = subtitleJson.languages.find(function (l) { return l.lang === lang; });
+    // CSSOS_WAVE_641 — lang 兜底: track.lang(可能是 'orig'/种子默认轨)对不上时, 退到 zh→en→ja→首个,
+    // 保证有字幕可显示(否则旗舰款因 lang 不匹配整段空白)。
+    var langEntry = subtitleJson.languages.find(function (l) { return l.lang === lang; })
+      || subtitleJson.languages.find(function (l) { return l.lang === "zh"; })
+      || subtitleJson.languages.find(function (l) { return l.lang === "en"; })
+      || subtitleJson.languages[0];
     if (!langEntry || !Array.isArray(langEntry.sections)) return null;
 
     var cues = [];
@@ -102,6 +107,15 @@
       if (!Array.isArray(section.lines)) return;
       section.lines.forEach(function (line) {
         if (!line.text || !line.text.trim()) return;
+        // CSSOS_WAVE_644 — 跳过段落结构标签行(【主歌一 Verse 1】/[Chorus]/[Verse]/[Bridge] 等)。
+        // 这些是"生歌词"的结构标记, 不是演唱内容, 绝不该进情绪字幕。任何【整行被 [] 或 【】包裹】
+        // 的行一律视为标签丢弃(真实演唱句不会整句被括号包住)。
+        var _lt = line.text.trim();
+        if (/^[\[【][^\]】]*[\]】]$/.test(_lt)) return;
+        // CSSOS_WAVE_688 — 同样丢弃漏网的 markdown 结构标记行: # 标题行(# The Holy City)、
+        // 整行加粗的段落名(**PHO SI-ÔN** / **Đoạn Một** / **Final Chorus**)。真实演唱句不会
+        // 整句被 ** 包住, 也不会以 # 开头 → 安全过滤。
+        if (/^#{1,6}\s/.test(_lt) || /^[*_]{2}[^*_].*[*_]{2}$/.test(_lt)) return;
         var lineT0 = Number(line.t_start || 0) / 1000; // ms → s
         var lineT1 = Number(line.t_end || 0) / 1000;
 
@@ -121,6 +135,8 @@
               end_s:   t1,
               emotion: emo,
               emphasis: emph,
+              pitch:   Number(tok.pitch_hz || 0),   // CSSOS_WAVE_671 ③ 音高旋律线: 透传逐字音高
+              adlib:   !!(tok.adlib || line.adlib),  // CSSOS_WAVE_679 — Suno 即兴拟声(呀咦哟), 前端可特殊呈现
             });
           });
         }
@@ -129,13 +145,41 @@
         var hasTiming = lineT0 > 0 || lineT1 > 0 ||
           words.some(function (w) { return w.start_s > 0 || w.end_s > 0; });
 
+        var cueEnd = lineT1 > lineT0 ? lineT1 : lineT0 + 3.5;
+
+        // CSSOS_WAVE_648 — 字级(token)时间戳是【占位假数据】(整行所有字都 0.0→0.3s, 见 take1
+        // 实测), 不能拿来做逐字咬字 —— 否则 active-word 永远卡在第一个字。检测: 若 token 时间
+        // 没有【落在本行 [lineT0,lineT1] 窗口内】(占位的都贴在 0 附近), 判定为假 → 在行内把字
+        // 【按字数均匀重分布】到 [lineT0,cueEnd], 但【保留每字的 emotion/emphasis】(招牌情绪)。
+        // 行级时间是真的(由上层 forced-align 行对齐), 字级先匀速顶着, 待 B(whisperX)给真字级时间。
+        var tokenTimingReal = words.length > 1 &&
+          words[words.length - 1].start_s > words[0].start_s + 0.05 &&
+          words[0].start_s >= lineT0 - 1;
+        if (words.length && !tokenTimingReal) {
+          var _span = Math.max(0.4, cueEnd - lineT0);
+          var _step = _span / words.length;
+          words = words.map(function (w, i) {
+            return {
+              text:     w.text,
+              start_s:  Number((lineT0 + i * _step).toFixed(3)),
+              end_s:    Number((lineT0 + (i + 1) * _step).toFixed(3)),
+              emotion:  w.emotion,
+              emphasis: w.emphasis,
+              pitch:    w.pitch,
+            };
+          });
+        }
+
         cues.push({
           start_s: lineT0,
-          end_s:   lineT1 > lineT0 ? lineT1 : lineT0 + 3.5, // 3.5s default if no timing
+          end_s:   cueEnd, // 3.5s default if no timing
           text:    line.text.trim(),
           emotion: sectionEmo,
-          words:   (hasTiming && words.length) ? words : undefined,
+          words:   words.length ? words : undefined,
           _hasRealTiming: hasTiming,
+          // CSSOS_WAVE_688 — 熟歌词标记: 来自 subtitle-take.json(whisperX 真对齐)→ 渲染器
+          // 据此 1:1 直用时间戳, 不做线性拉伸(见 app.watch-ui.js timelineIsCooked)。
+          _cooked: true,
         });
       });
     });
@@ -204,6 +248,7 @@
           text: lineWords.map(function (w) { return w.text; }).join(" "),
           emotion: "",
           words: lineWords.slice(),
+          _cooked: true, // CSSOS_WAVE_688 — whisper 词时间也是绝对真时间, 1:1 不拉伸
         });
         lineWords = [];
       }
@@ -214,7 +259,13 @@
   // ── Feed caches + trigger re-render ──────────────────────────────────────
   function applyToKaraoke(cues, wordArray) {
     // Feed LINE-level cues
-    if (cues && globalThis.watchKaraokeTimelineCache) {
+    // CSSOS_WAVE_642 — 根因: applyToKaraoke 跑在 watch-ui 懒创建 watchKaraokeTimelineCache 之前时,
+    // 旧守卫 `&& globalThis.watchKaraokeTimelineCache` 为假 → cues 被静默丢弃(cache.data 永远 undefined)。
+    // 改为【缺则自建】, 保证情绪字幕数据无论时机先后都落进缓存, 渲染器一定有米下锅。
+    if (cues) {
+      if (!globalThis.watchKaraokeTimelineCache || typeof globalThis.watchKaraokeTimelineCache !== "object") {
+        globalThis.watchKaraokeTimelineCache = {};
+      }
       globalThis.watchKaraokeTimelineCache.data = cues;
       globalThis.watchKaraokeTimelineCache.pending = false;
       globalThis.watchKaraokeTimelineCache.error = "";
@@ -247,9 +298,11 @@
     if (subUrl) {
       try {
         var data = await fetchSubtitleJson(subUrl);
+        try { console.info("[emo-sub] fetched", subUrl, "ok=" + !!data, "langs=" + (data && data.languages ? data.languages.map(function (l) { return l.lang; }).join(",") : "?")); } catch (_e) {}
         if (data) {
           var cues = subtitleJsonToCues(data, lang);
           var wordArr = subtitleJsonToWordArray(data, lang);
+          try { console.info("[emo-sub] cues=" + (cues ? cues.length : 0) + " for lang=" + lang); } catch (_e) {}
           if (cues && cues.length) {
             applyToKaraoke(cues, wordArr);
             return; // subtitle JSON applied — done
@@ -272,5 +325,32 @@
     _fetching.clear();
   }
 
-  globalThis.cssosEmotionSubtitle = { load: load, reset: reset };
+  // CSSOS_WAVE_641 — 自触发: 不再仅依赖语言胶囊的 switchToLanguage(它可能因挂载/时机没跑)。
+  // 切作品(cssos:work-id-changed)时, 主动拉该作品的轨道、取默认轨、加载情绪字幕。带日志便于诊断。
+  async function loadForWork(workId) {
+    try {
+      if (!workId) return;
+      var r = await fetch("/api/works/" + encodeURIComponent(workId) + "/language-tracks");
+      if (!r.ok) { try { console.warn("[emo-sub] tracks fetch", r.status); } catch (_e) {} return; }
+      var j = await r.json();
+      var tracks = (j && j.tracks) || [];
+      var def = tracks.find(function (t) { return t.is_default; })
+        || tracks.find(function (t) { return t.status === "ready" && t.subtitle_take1_json_url; })
+        || tracks.find(function (t) { return t.subtitle_take1_json_url; })
+        || tracks[0];
+      if (!def) { try { console.info("[emo-sub] no track", workId); } catch (_e) {} return; }
+      try { console.info("[emo-sub] loadForWork", workId, "lang=" + def.lang, "hasSubUrl=" + !!def.subtitle_take1_json_url); } catch (_e) {}
+      await load(def, 1);
+    } catch (e) { try { console.warn("[emo-sub] loadForWork err", e); } catch (_x) {} }
+  }
+
+  globalThis.cssosEmotionSubtitle = { load: load, reset: reset, loadForWork: loadForWork };
+
+  try {
+    window.addEventListener("cssos:work-id-changed", function (ev) {
+      var id = ev && ev.detail && ev.detail.workId;
+      // 稍候 700ms 等 watch 面板/媒体元素就位再加载。
+      if (id) setTimeout(function () { loadForWork(id); }, 700);
+    });
+  } catch (_e) {}
 })();

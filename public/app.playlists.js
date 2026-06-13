@@ -373,6 +373,14 @@
       state.index = 0;
       state.shuffleOrder = [];
       state.shuffleCursor = 0;
+      // CSSOS_WAVE_731x 20260613 — Jing「上滑下滑换不了歌」根因(真机探针: mode=loop_single,
+      // len=551): loop_single 是【分享单曲会话】(app.share-link-router setMode("loop_single"))用的,
+      // 而 mode 是全局的 → 离开分享、进入多曲列表(for-you 551 首)后它泄漏 → step() 永远返回当前
+      // 这首 → 切不了歌。修: 切到【非 share-link 的列表】且当前是 loop_single → 还原为 loop_all
+      // (可正常上下滑连播)。真·单曲分享列表(id=share-link)不动。
+      if (state.mode === "loop_single" && id !== "share-link") {
+        state.mode = "loop_all";
+      }
       void ensureLoaded(state.lists[id]);
       notify();
       return true;

@@ -399,11 +399,19 @@
       // CSSOS_WAVE_359 20260522 — Jing: 凡有作品卡片处都显示时长. 搜索列表此前缺.
       var _ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
       var durTxt = _ds > 0 ? (Math.floor(_ds / 60) + ":" + String(Math.floor(_ds % 60)).padStart(2, "0")) : "";
+      // CSSOS_WAVE_733 20260613 — Jing: 搜索结果显示 work 🆔(短码 8 位, 够区分是哪首);
+      // 完整 ID 放卡片 title 悬浮 + meta 行可点复制。
+      var idShort = esc(id.slice(0, 8));
       var card = document.createElement("button");
       card.type = "button";
+      card.title = "🆔 " + id;
       card.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
       card.addEventListener("mouseenter", function () { card.style.background = "rgba(0,245,160,0.1)"; });
       card.addEventListener("mouseleave", function () { card.style.background = "transparent"; });
+      var metaBits = [];
+      if (owner) metaBits.push(owner);
+      if (durTxt) metaBits.push("♪ " + durTxt);
+      metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.8;">🆔 ' + idShort + "</span>");
       card.innerHTML =
         '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +
@@ -413,7 +421,7 @@
         "</div>" +
         '<div style="flex:1;min-width:0;">' +
         '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
-        ((owner || durTxt) ? '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + owner + (owner && durTxt ? " · " : "") + (durTxt ? "♪ " + durTxt : "") + "</div>" : "") +
+        '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + metaBits.join(" · ") + "</div>" +
         "</div>";
       card.addEventListener("click", function () { playWork(w); });
       results.appendChild(card);

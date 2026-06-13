@@ -83,17 +83,18 @@
       // 强制透明 + 收窄到只剩播放胶囊 + 左边贴边; hover/.is-open 展开时宪法带自然回来(轨道才显)。
       "#watch-panel .cssmv-capsule:not(.is-open){",
       "  background:transparent !important;border-color:transparent !important;",
-      "  width:max-content !important;min-width:0 !important;left:6px !important;",
+      // CSSOS_WAVE_740 — 折叠态贴合 pill。width:max-content 会按所有子元素【自然宽度求和】(忽略
+      // max-width:0)→ 满宽 1222px 透明带(探针实测)。改 width:fit-content + 折叠子元素 display:none
+      // (彻底移出布局)→ 容器只剩 pill 宽, 无透明轨道、不挡点击。
+      "  width:fit-content !important;min-width:0 !important;max-width:max-content !important;left:6px !important;",
       "}",
       "#watch-panel .cssmv-capsule:not(.is-open) > *:not(#watch-playlist-pill){",
-      "  max-width:0 !important;min-width:0 !important;padding-left:0 !important;padding-right:0 !important;",
-      "  margin:0 !important;opacity:0 !important;pointer-events:none !important;",
-      "  overflow:hidden;white-space:nowrap;border:none !important;box-shadow:none !important;",
-      "  transition:max-width 0.26s cubic-bezier(0.4,0,0.2,1),opacity 0.18s ease,padding 0.26s ease;",
+      "  display:none !important;",   // W740 — 折叠态彻底移出布局(原 max-width:0 对 max-content 计宽无效)
       "}",
       // CSSOS_WAVE_588 批1 — 残段(图1)根因: 收起态本应【只显播放方式 Loop list】, 但 playlistPill 里
       // 还含「For You」(第2颗)没收起 → 留一小段。收起态把它也收成 0; hover/展开时回来。
       "#watch-panel .cssmv-capsule:not(.is-open) #watch-playlist-pill > button:nth-of-type(2){",
+      "  display:none !important;",   // W740 — For You(第2颗)折叠态也彻底移出, 只剩播放方式
       "  max-width:0 !important;min-width:0 !important;padding:0 !important;margin:0 !important;",
       "  opacity:0 !important;overflow:hidden !important;border:0 !important;pointer-events:none !important;}",
       // ── 展开态(仅 .is-open = 点击/轻触, W678b 取消 hover 展开): 全宽轨道, 所有段落露出 + 横向滑动。 ──
@@ -117,19 +118,10 @@
       // 修: 桌面(hover+fine)恢复 hover 展开(视频控制条标准行为, 零副作用); 触屏仍轻触展开。
       // 特异性必须压过折叠规则 :not(.is-open)>*:not(#watch-playlist-pill)(含 2 个 id), 故用
       // :hover:not(.is-open)>*:not(#watch-playlist-pill) (id 数相同 + 多一个 :hover) 稳赢。
-      "@media (hover:hover) and (pointer:fine){",
-        "#watch-panel .cssmv-capsule:hover:not(.is-open){",
-          "width:max-content !important;max-width:calc(100% - 16px) !important;left:8px !important;",
-          "overflow-x:auto !important;overflow-y:hidden !important;",
-        "}",
-        "#watch-panel .cssmv-capsule:hover:not(.is-open) > *:not(#watch-playlist-pill){",
-          "max-width:none !important;min-width:max-content !important;opacity:1 !important;pointer-events:auto !important;",
-          "padding-left:16px !important;padding-right:16px !important;",
-        "}",
-        "#watch-panel .cssmv-capsule:hover:not(.is-open) #watch-playlist-pill > button:nth-of-type(2){",
-          "max-width:none !important;min-width:max-content !important;padding:6px 10px !important;margin:0 !important;",
-        "}",
-      "}",
+      // CSSOS_WAVE_738 20260613 — Jing「只点击展开, 不再响应 hover(和多语言胶囊一样)」:
+      // 取消 W698 的桌面 hover 展开。展开统一靠点击(.is-open, 见下方 JS 捕获处理器,
+      // 折叠态点击=只展开、吞掉该次点击不切播放模式)。这里留空。
+      "",
       // CSSOS_WAVE_557 20260531 — Jing: ① 统一所有段落为【半透明翠绿】(覆盖前两颗 Loop list/
       // For You 构建器写死的 rgba(0,0,0,0.55) 深色); ② 加【凹凸镶嵌】(胶囊宪法): 顶部高光 +
       // 底部内阴影 = 立体浮起感; ③ 等高(min-height 跟 Dock)。!important 压过内联深色。
@@ -258,7 +250,11 @@
       // 选完任意 item 或轻触面板其它地方 → 收回。桌面靠 :hover, 这套不冲突(只加 .is-open)。
       cap.addEventListener("click", function (e) {
         if (!cap.classList.contains("is-open")) {
-          // 折叠态点第一颗 → 既触发它本身的动作, 也展开轨道。
+          // CSSOS_WAVE_738 — 折叠态点击 = 【只展开, 吞掉这次点击】, 不触发第一颗(播放模式)的动作,
+          // 和多语言/多声线胶囊一致。捕获阶段 + stopImmediatePropagation 拦在按钮自身监听之前。
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           cap.classList.add("is-open");
           return;
         }
@@ -267,7 +263,7 @@
         if (seg && seg.parentNode === cap) {
           setTimeout(function () { cap.classList.remove("is-open"); }, 60);
         }
-      }, false);
+      }, true);
       // 轻触/点击面板其它地方 → 收回。
       document.addEventListener("pointerdown", function (e) {
         if (!cap.classList.contains("is-open")) return;

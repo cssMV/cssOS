@@ -237,6 +237,39 @@
       const wp = document.getElementById("watch-panel");
       if (wp) wp.dataset.activeWorkId = id;
     } catch (_) {}
+    // CSSOS_WAVE_733 — Jing: 播放时低调显示当前 work 🆔(角标, 跟 chrome 一起显隐, 见 style.watch.css)。
+    // CSSOS_WAVE_737 — 左上角:【标题 - 作者】+【🆔】两行(原只显 id)。作者优先 owner_name。
+    try {
+      const idEl = document.getElementById("watch-work-id");
+      if (idEl) {
+        const _t = String((work && work.title) || "").trim();
+        const _au = String((work && (work.owner_name || work.owner_handle)) || "").trim();
+        const _titleLine = _t ? (_au ? _t + " · " + _au : _t) : "";
+        // CSSOS_WAVE_744 — Jing「ID 不要 🆔 emoji, 太显眼; 用纯文本 ID, 更小、隐隐约约不抢戏」。
+        idEl.innerHTML =
+          '<span class="wid-title"></span>' +
+          '<span class="wid-id">ID ' + id + "</span>";
+        if (_titleLine) { const tn = idEl.querySelector(".wid-title"); if (tn) tn.textContent = _titleLine; }
+        // CSSOS_WAVE_742 — Jing「标题-作者没回家」: 某些播放路径传给 bind 的 work 没带 title(只有 id)。
+        // bind 在 openMarketWorkPreview 最前面跑(此时 pipelineState 还是上一首, 不能直接回退=会串台)。
+        // 安全兜底: 稍后读【中央大标题】(openMarketWorkPreview 随后会填), 归属校验同一 id 才镜像。
+        if (!_titleLine) {
+          const _fillFromCenter = function () {
+            try {
+              if (__currentWorkId !== id) return;            // 已切走 → 丢弃
+              const tn = idEl.querySelector(".wid-title");
+              if (!tn || tn.textContent.trim()) return;       // 已有标题 → 不覆盖
+              const ce = document.querySelector("#watch-title-text, .watch-title-text, .cssmv-mv-title");
+              const ct = ce ? String(ce.textContent || "").trim() : "";
+              const _bad = /^(watch|untitled|css mv|untitled mv)$/i.test(ct);
+              if (ct && !_bad) tn.textContent = ct;
+            } catch (_e) {}
+          };
+          setTimeout(_fillFromCenter, 700);
+          setTimeout(_fillFromCenter, 1800);
+        }
+      }
+    } catch (_) {}
     try {
       window.dispatchEvent(new CustomEvent("cssos:work-id-changed", {
         detail: { workId: id, work: __currentWork },
@@ -347,6 +380,36 @@
       console.warn("[work-id] watch panel playing without active-work-id binding — switch site missed");
     }
   }, 8000);
+
+  // CSSOS_WAVE_733b — Jing「凡有音乐作品卡片处都显示时长」: 全平台共用时长格式化 helper。
+  // 输入秒(接受多种字段名), 输出 m:ss; 无效返回 ""(调用方据此决定是否显示)。
+  if (typeof globalThis.cssosFmtDur !== "function") {
+    globalThis.cssosFmtDur = function (secsOrWork) {
+      try {
+        var s = secsOrWork;
+        if (s && typeof s === "object") {
+          s = s.duration_secs || s.audio_duration_secs || s.final_duration_secs
+            || s.duration || s.alt_duration_secs || 0;
+        }
+        s = Number(s) || 0;
+        if (!(s > 0)) return "";
+        var m = Math.floor(s / 60), ss = Math.floor(s % 60);
+        return m + ":" + String(ss).padStart(2, "0");
+      } catch (_e) { return ""; }
+    };
+  }
+
+  // CSSOS_WAVE_733 — Jing: work 🆔 角标兜底覆盖所有入口(分享链接 W731i 派发本事件但不走
+  // cssosBindToWorkId)。监听 cssos:work-id-changed → 设角标文本。
+  try {
+    window.addEventListener("cssos:work-id-changed", function (ev) {
+      try {
+        var wid = ev && ev.detail && ev.detail.workId;
+        var idEl = document.getElementById("watch-work-id");
+        if (idEl && wid) idEl.textContent = "🆔 " + String(wid);
+      } catch (_) {}
+    });
+  } catch (_) {}
 
   // CSSOS_WAVE_536 — 静音启动 install 日志(保持控制台干净)。
 })();

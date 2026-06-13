@@ -42,7 +42,22 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <base href="/" />
-    <title>CSS Studio</title>
+    <title>CSS Studio — Watch + create AI music videos, instantly</title>
+    <!-- CSSOS_WAVE_721 — 产品/公司描述(供搜索引擎、社交分享、以及审核员识别"这家公司做什么产品")。 -->
+    <meta name="description" content="CSS Studio is the first zero-friction watch + create platform for AI music videos. Open the app and a fully-produced music video plays, with sound, instantly — then create your own, in any language and any voice, without ever leaving the cinema. Featuring the world's first emotion subtitles." />
+    <meta name="keywords" content="AI music video, AI MV, music video generator, watch and create, AI music, emotion subtitles, multilingual music video, CSS Studio" />
+    <meta name="author" content="CSS Studio" />
+    <link rel="canonical" href="https://cssstudio.app/" />
+    <meta property="og:site_name" content="CSS Studio" />
+    <meta property="og:title" content="CSS Studio — Watch + create AI music videos, instantly" />
+    <meta property="og:description" content="Open the app and a fully-produced AI music video plays with sound, the moment it loads. Then create your own — any language, any voice — without leaving the cinema. The world's first emotion subtitles." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://cssstudio.app/" />
+    <meta property="og:image" content="https://cssstudio.app/icons/icon-512.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CSS Studio — Watch + create AI music videos" />
+    <meta name="twitter:description" content="A fully-produced AI music video plays the moment you open the app, with sound. Then create your own in any language and voice." />
+    <meta name="twitter:image" content="https://cssstudio.app/icons/icon-512.png" />
     <script>
       // Pre-paint theme resolver — applies user's saved theme BEFORE any CSS loads
       // to prevent flash-of-unstyled-theme (FOUT). Must stay in sync with
@@ -362,6 +377,8 @@
                   CSS is composing...
                 </div>
                 <div class="watch-commerce-actions" id="watch-commerce-actions" hidden></div>
+                <!-- CSSOS_WAVE_733 — Jing: 播放时低调显示当前 work 🆔, 跟 chrome(is-playback-clean)一起显隐。 -->
+                <div class="watch-work-id" id="watch-work-id" aria-hidden="true"></div>
               </div>
               <div class="watch-frame-progress" id="watch-frame-progress" hidden>
                 <div class="watch-frame-progress-line"><span id="watch-frame-progress-fill"></span></div>

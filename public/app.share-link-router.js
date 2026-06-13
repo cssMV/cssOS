@@ -195,6 +195,82 @@
       if (t) t.textContent = title || "";
     } catch (_e) {}
 
+    /* CSSOS_WAVE_731d 20260612 — Jing「有声音了, 画面呢?」根因: 分享路由开场就调过
+     * cssosEnterCinemaLayout(给 watch-panel 加 is-cssmv-fullscreen), 随后 home/主屏
+     * 启动盖上来; 等用户点击 fire() 再调 cssosEnterCinemaLayout 时, 该函数开头
+     * `if (panel.classList.contains("is-cssmv-fullscreen")) return;` 幂等早退 →
+     * 没把面板重新顶到 home 之上 → 声音放了画面还停在 home。修: 直接、强制地把
+     * watch-panel 顶到最前(高 z + 取消 hidden + 保证 cinema 类), 绕过那个早退。 */
+    // CSSOS_WAVE_731h 20260612 — Jing「标题显示 MV Panel + 没进真全屏 + 开头闪」根因:
+    // 之前手搓 bringWatchToFront 只加了 is-cssmv-fullscreen 半套类 + 自定义高 z(还和
+    // 面板系统抢 → 闪烁), 没用平台【标准最大化入口】, 所以停在半吊子壳 UI(搜索框/dock/
+    // 「MV Panel」占位标题都在)。改: 用 globalThis.togglePanelMaximizeModule(标准函数,
+    // 一次性加 maximized + data-maximized + 触发真全屏 + 让 html.cssos-watch-open 藏 dock),
+    // 并把 .panel-title 占位「MV Panel」改成作品标题。放弃自定义 z(交给 CSS .maximized 驱动)。
+    function setSharePanelTitle() {
+      try {
+        var p = document.getElementById("watch-panel");
+        if (!p || !title) return;
+        var t = p.querySelector(".panel-title");
+        if (t) {
+          t.textContent = title;
+          t.removeAttribute("data-i18n"); // 防 i18n 把它刷回「MV Panel」
+        }
+      } catch (_e) {}
+    }
+    function bringWatchToFront() {
+      try {
+        var p = document.getElementById("watch-panel");
+        if (!p) return;
+        p.classList.remove("hidden");
+        p.dataset.minimized = "false";
+        p.style.removeProperty("display");
+        // 标准最大化 → 真影院(只在尚未最大化时调, 否则 toggle 会反向还原)。
+        if (p.dataset.maximized !== "true"
+            && typeof globalThis.togglePanelMaximizeModule === "function") {
+          try { globalThis.togglePanelMaximizeModule(p); } catch (_e) {}
+        }
+        // 兜底: 标准函数不在时, 至少加影院类(CSS 全屏)。
+        p.classList.add("is-cssmv-fullscreen");
+        try { document.body.classList.add("cssos-cinema-mode"); } catch (_e) {}
+        setSharePanelTitle();
+      } catch (_e) {}
+    }
+
+    /* CSSOS_WAVE_731e 20260612 — Jing 实时 DOM 诊断实锤: video paused:false rs:4
+     * vw1080×vh1920(画面在好好解码)、audio 在播, 但 panel.hidden=true 且 z 被
+     * 改回 29 → 被 home 盖住。说明【我置顶之后, 别的模块(focusPanel/面板管理/
+     * autoplay 收尾)又给 watch-panel 重新加了 hidden + 压低 z】, 单次置顶守不住。
+     * 守护: 开场后 ~3.5s 内每 150ms 重申一次 front 状态, 谁来藏都按回去; 用户主动
+     * 关闭(cssos:watch-close)或点了关闭三连就立即收手, 绝不跟用户的关闭意图打架。 */
+    function armShareFrontGuardian() {
+      try {
+        if (globalThis.__cssosShareFrontGuardArmed) return;
+        globalThis.__cssosShareFrontGuardArmed = true;
+        var stop = false;
+        var disarm = function () { stop = true; };
+        try { document.addEventListener("cssos:watch-close", disarm); } catch (_e) {}
+        try { window.addEventListener("cssos:watch-close", disarm); } catch (_e) {}
+        var n = 0;
+        var tick = function () {
+          if (stop) return;
+          var p = document.getElementById("watch-panel");
+          // 只在【确实被藏了或被踢出最大化】时才纠正; 一旦稳定(未隐藏且已最大化)就不
+          // 折腾, 避免每 tick 重写类导致闪烁。
+          if (p) {
+            if (p.classList.contains("hidden") || p.dataset.maximized !== "true") {
+              bringWatchToFront();
+            } else {
+              setSharePanelTitle(); // 仅确保标题不被 i18n 刷回, 极轻量
+            }
+          }
+          n++;
+          if (n < 24) setTimeout(tick, 150); // 24 × 150ms ≈ 3.6s
+        };
+        setTimeout(tick, 120);
+      } catch (_e) {}
+    }
+
     // 5. Open the watch panel — un-hide + run the shell module if present
     //    (this kicks the cinema-enter chain via MutationObserver).
     try {
@@ -208,9 +284,42 @@
         if (typeof globalThis.cssosEnterCinemaLayout === "function") {
           try { globalThis.cssosEnterCinemaLayout(); } catch (_e) {}
         }
+        bringWatchToFront();
+        armShareFrontGuardian();
         if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
           try { globalThis.cssosRequestBrowserFullscreen(); } catch (_e) {}
         }
+      }
+    } catch (_e) {}
+
+    /* CSSOS_WAVE_731i 20260612 — Jing「没有我们的招牌特色情绪字幕」: 分享路由绕过了
+     * 标准水合, 而情绪字幕引擎(app.emotion-subtitle-engine.js)是靠 cssos:work-id-changed
+     * 事件触发 loadForWork(拉该作品语言轨 + 加载逐字情绪字幕 JSON)。分享路由从没派
+     * 这个事件 → 引擎没启动 → 招牌情绪字幕不出来。修: 主动派事件 + 直接调 loadForWork
+     * (双保险), 并在媒体水合后补一次。 */
+    try {
+      var widSub = String(work.id || work.work_id || "");
+      if (widSub) {
+        try {
+          window.dispatchEvent(new CustomEvent("cssos:work-id-changed", { detail: { workId: widSub } }));
+        } catch (_e) {}
+        var kickSubtitles = function () {
+          try {
+            var eng = globalThis.cssosEmotionSubtitle;
+            if (eng && typeof eng.loadForWork === "function") eng.loadForWork(widSub);
+          } catch (_e) {}
+          // CSSOS_WAVE_731l 20260612 — Jing「有了情绪字幕, 但没有多语言/多声线胶囊」:
+          // 标准路径(market-commerce 开作品)会调 cssosMountLanguagePill 渲染那个胶囊
+          // (切语言/声线 + 右击=情绪字幕设置面板入口), 分享路由从没调 → 胶囊缺失。补上。
+          try {
+            globalThis.__cssosCurrentWorkId = widSub;
+            if (typeof globalThis.cssosMountLanguagePill === "function") {
+              globalThis.cssosMountLanguagePill(widSub);
+            }
+          } catch (_e) {}
+        };
+        setTimeout(kickSubtitles, 900);  // 等媒体元素就位
+        setTimeout(kickSubtitles, 2600); // 水合后再补一次, 防被覆盖
       }
     } catch (_e) {}
 
@@ -224,15 +333,23 @@
     try {
       if (globalThis.__cssosShareFullscreenArmed) return;
       globalThis.__cssosShareFullscreenArmed = true;
+
+      var fired = false;
       var fire = function () {
+        if (fired) return;
+        fired = true;
         try { document.removeEventListener("pointerdown", fire, true); } catch (_e) {}
         try { document.removeEventListener("touchstart", fire, true); } catch (_e) {}
         try { document.removeEventListener("keydown", fire, true); } catch (_e) {}
+        try { removeTapVeil(); } catch (_e) {}
         try {
           if (typeof globalThis.cssosEnterCinemaLayout === "function") {
             globalThis.cssosEnterCinemaLayout();
           }
         } catch (_e) {}
+        // CSSOS_WAVE_731d — 强制把面板顶到 home 之上(cssosEnterCinemaLayout 幂等早退
+        // 不会重新置顶, 这里直接做)。
+        try { bringWatchToFront(); } catch (_e) {}
         try {
           if (typeof globalThis.cssosRequestBrowserFullscreen === "function") {
             globalThis.cssosRequestBrowserFullscreen();
@@ -257,12 +374,101 @@
           } catch (_e) {}
         }, 80);
         // Unblock autoplay while we're at it (same gesture授权所有媒体).
-        try { document.getElementById("watch-video")?.play?.().catch(function(){}); } catch (_e) {}
-        try { document.getElementById("watch-audio-preview")?.play?.().catch(function(){}); } catch (_e) {}
+        // CSSOS_WAVE_731c — 显式取消静音 + 拉满音量再播声音源, 防别的模块
+        // (watch-ui 水合 / 单一音频权威) 把音轨 muted 了导致点了还没声。
+        try {
+          var sv = document.getElementById("watch-video");
+          if (sv) { sv.play && sv.play().catch(function(){}); }
+        } catch (_e) {}
+        try {
+          var sa = document.getElementById("watch-audio-preview");
+          if (sa) {
+            sa.muted = false;
+            sa.removeAttribute("muted");
+            sa.volume = 1;
+            sa.play && sa.play().catch(function(){});
+          }
+        } catch (_e) {}
       };
       document.addEventListener("pointerdown", fire, true);
       document.addEventListener("touchstart", fire, true);
       document.addEventListener("keydown", fire, true);
+
+      /* CSSOS_WAVE_731 20260612 — Jing「分享链接被卡住了」: 浏览器(Safari/
+       * Chrome)冷导航禁止无手势自动播放 → 上面的 play() 被静默拒绝 → 黑屏.
+       * 旧兜底只是个隐形 pointerdown 监听, 没有任何可见提示, 用户看到的就是
+       * "黑屏卡死、不知道点哪". 这里补一个**明确可见**的「▶ 点击播放」蒙层:
+       *   - 能自动播就自动播(autoplay 允许时根本不显示这个蒙层);
+       *   - 被拦了 → 给一个全屏大按钮, 点一下 = fire()(播放+影院+全屏);
+       *   - 一旦媒体真的在播, 自动撤掉蒙层. */
+      var removeTapVeil = function () {
+        try { var n = document.getElementById("cssos-share-tap"); if (n) n.remove(); } catch (_e) {}
+      };
+      var showTapVeil = function () {
+        if (fired) return;
+        if (document.getElementById("cssos-share-tap")) return;
+        var zh = false;
+        try { zh = String(navigator.language || "").toLowerCase().indexOf("zh") === 0; } catch (_e) {}
+        var ov = document.createElement("div");
+        ov.id = "cssos-share-tap";
+        ov.style.cssText =
+          "position:fixed;inset:0;z-index:2147483600;display:flex;flex-direction:column;" +
+          "align-items:center;justify-content:center;gap:16px;cursor:pointer;text-align:center;" +
+          "background:radial-gradient(ellipse at center,rgba(4,10,16,.72),rgba(2,6,10,.9));" +
+          "-webkit-tap-highlight-color:transparent;";
+        ov.innerHTML =
+          '<div style="width:96px;height:96px;border-radius:999px;display:flex;align-items:center;' +
+          'justify-content:center;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.85);' +
+          'box-shadow:0 8px 40px rgba(0,0,0,.5);">' +
+          '<div style="width:0;height:0;border-style:solid;border-width:20px 0 20px 32px;' +
+          'border-color:transparent transparent transparent #fff;margin-left:8px;"></div></div>';
+        // The document-level capture listener will also catch this tap, but
+        // bind directly too so it works even if something stops propagation.
+        ov.addEventListener("pointerdown", fire, true);
+        ov.addEventListener("click", fire, true);
+        (document.body || document.documentElement).appendChild(ov);
+      };
+
+      /* CSSOS_WAVE_731c 20260612 — Jing「不再弹最新MV了, 但还是不自动播放」根因:
+       * 浏览器【允许静音视频自动播】, 所以 #watch-video(静音画面)自动播了, 但
+       * 声音在【另一个元素 #watch-audio-preview】(歌曲音轨), 它有声 → 被浏览器拦。
+       * 旧判断 "视频在播 || 音频在播" 看到静音视频在播就误判成功 → 蒙层永不显示。
+       * 修: 只认【声音源】—— 有独立音轨就盯 #watch-audio-preview, 否则盯 video;
+       * 且必须 audible(未静音)才算真出声。蒙层只在声音源真出声时才撤。 */
+      var soundEl = function () {
+        return audioUrl
+          ? document.getElementById("watch-audio-preview")
+          : document.getElementById("watch-video");
+      };
+      var soundIsAudible = function () {
+        var m = soundEl();
+        return !!(m && !m.muted && m.volume > 0 && !m.paused && !m.ended
+          && m.currentTime > 0 && m.readyState >= 2);
+      };
+
+      // If the SOUND source genuinely starts (audible), drop the veil.
+      var bindAutoplaySuccess = function () {
+        var m = soundEl();
+        if (!m || m.__cssosShareAutoOk) return;
+        m.__cssosShareAutoOk = true;
+        m.addEventListener("playing", function () {
+          if (soundIsAudible()) { try { removeTapVeil(); } catch (_e) {} }
+        });
+        m.addEventListener("volumechange", function () {
+          if (soundIsAudible()) { try { removeTapVeil(); } catch (_e) {} }
+        });
+      };
+      bindAutoplaySuccess();
+      setTimeout(bindAutoplaySuccess, 600);
+
+      // Decide after a short grace whether SOUND autoplay was blocked. If the
+      // sound source isn't audibly playing, surface the visible tap veil.
+      // App 端(原生已授权零手势出声)跳过。
+      setTimeout(function () {
+        if (fired) return;
+        try { if (document.documentElement.classList.contains("cssos-app")) return; } catch (_e) {}
+        if (!soundIsAudible()) showTapVeil();
+      }, 900);
     } catch (_e) {}
 
     /* CSSOS_WAVE_220A 20260519 — Jing: share-link visitors get full
@@ -402,23 +608,37 @@
       // Jerusalem on loop and the "You can make one too" CTA never showed,
       // converting nobody. Fix: ALSO trigger at 92% of the first play via
       // timeupdate, so the nudge fires regardless of loop mode.
+      /* CSSOS_WAVE_731f 20260612 — Jing「有声音, 无画面」真凶(实时诊断实锤): 这张转化
+       * 卡 #cssos-share-cta(z 2147483600 + 86% 深色背景)在第 ~15s 就爆出来盖黑了
+       * 正在播的视频。原因: 它挂在【视频元素】上判 92% 进度, 而视频 mv_*.mp4 是十几秒
+       * 短循环、歌(音频)却 226s → 视频 15s 就到 92% → 卡片提前盖屏。修: 转化卡【只挂
+       * 声音源(真歌曲, 有完整时长)】, 不挂短视频; 且必须真到尾声(≥92% 且已播 ≥45s)
+       * 才弹, 短素材一律拦掉。 */
+      var soundElNudge = function () {
+        return audioUrl
+          ? document.getElementById("watch-audio-preview")
+          : document.getElementById("watch-video");
+      };
       var progressNudge = function (e) {
         var el = e && e.target;
-        if (!el || !el.duration || !isFinite(el.duration) || el.duration < 2) return;
-        if ((el.currentTime / el.duration) >= 0.92) maybeNudge();
+        if (!el || !el.duration || !isFinite(el.duration) || el.duration < 30) return;
+        // 必须真到尾声: ≥92% 且至少已播 45s(挡住短素材/短循环误触发)。
+        if (el.currentTime >= 45 && (el.currentTime / el.duration) >= 0.92) maybeNudge();
+      };
+      // CSSOS_WAVE_731f — 'ended' 也加锁: 开场多模块换 src(水合/音频权威/rebind)会
+      // 触发【假 ended】→ 之前直接弹 CTA 盖屏。只有【真的播到结尾】(currentTime 接近
+      // duration)才认, 假 ended 一律忽略。
+      var endedNudge = function (e) {
+        var el = e && e.target;
+        if (!el || !isFinite(el.duration) || el.duration < 30) return;
+        if (el.currentTime >= el.duration - 2) maybeNudge();
       };
       var attachOnce = function () {
-        var v = document.getElementById("watch-video");
-        var a = document.getElementById("watch-audio-preview");
-        if (v && !v.__cssosShareEnded) {
-          v.__cssosShareEnded = true;
-          v.addEventListener("ended", maybeNudge);
-          v.addEventListener("timeupdate", progressNudge);
-        }
-        if (a && !a.__cssosShareEnded) {
-          a.__cssosShareEnded = true;
-          a.addEventListener("ended", maybeNudge);
-          a.addEventListener("timeupdate", progressNudge);
+        var s = soundElNudge();
+        if (s && !s.__cssosShareEnded) {
+          s.__cssosShareEnded = true;
+          s.addEventListener("ended", endedNudge);
+          s.addEventListener("timeupdate", progressNudge);
         }
       };
       attachOnce();
@@ -445,6 +665,14 @@
   async function bootShareLink() {
     var id = readShareWorkId();
     if (!id) return;
+    /* CSSOS_WAVE_731 20260612 — Jing「分享链接被卡住」: 同步、尽早地点亮分享会话
+     * 旗标 (在 stripShareParam 删掉 ?cssMV= 之前、在 async fetch 之前)。这样
+     * app.autoplay-feed.js 那个延迟 1500ms 的「欣赏最新 MV?」提示 (hasBlockingDeepLink)
+     * 无论 strip 多早、fetch 多慢, 都能判出"这是分享会话"而不弹、不抢播。 */
+    try {
+      globalThis.__cssosShareLinkActive = true;
+      globalThis.__cssosShareLinkWorkId = String(id);
+    } catch (_e) {}
     stripShareParam();
     try {
       var res = await fetch("/api/works/public/" + encodeURIComponent(id), {

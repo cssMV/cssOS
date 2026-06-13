@@ -45,7 +45,9 @@ export const SEED_FESTIVALS: SeedFestival[] = [
     date_rule: "lunar:5-5",
     emoji: "🐉",
     theme_color: "#066547",
-    featured_persons: ["confucius", "li-bai"],
+    // CSSOS_WAVE_733B 20260613 — Jing: 端午是纪念【屈原】投江殉国的, 核心人物必须是屈原
+    // (此前误挂 confucius/li-bai)。文明智能联动 = 人物对得准。
+    featured_persons: ["qu-yuan"],
   },
   {
     festival_id: "mid-autumn",

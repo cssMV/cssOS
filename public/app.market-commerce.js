@@ -711,6 +711,20 @@ async function openMarketWorkPreview(work = {}, options = {}) {
   const targetWork = playback.targetWork || work || null;
   currentWatchPreviewWork = targetWork;
   globalThis.cssosBindToWorkId?.(targetWork); // CSSOS_WAVE_121 Step 2
+  // CSSOS_WAVE_734 20260613 — Jing「按 ID 为唯一依据 · 杜绝残余串台」: 本函数有多处 await(拉
+  // sibling/语言轨等), 期间用户可能已切到下一首。第一首的 hydration 最长, 它【晚到的写】会把
+  // 标题/歌词/视频/pipelineState 落到后面几首上 = "总是第一首的残余"。守卫: 捕获本次的 work id,
+  // 每个 await 之后、落笔 pipelineState/DOM 之前校验"我还是当前作品吗", 过期一律丢弃。
+  const __thisWorkId = (typeof globalThis.cssosRootWorkId === "function")
+    ? globalThis.cssosRootWorkId(String(targetWork?.id || targetWork?.work_id || "").trim())
+    : String(targetWork?.id || targetWork?.work_id || "").trim();
+  const __stillCurrent = () => {
+    try {
+      if (typeof globalThis.cssosCurrentWorkId !== "function") return true;
+      const cur = globalThis.cssosCurrentWorkId();
+      return !cur || !__thisWorkId || cur === __thisWorkId;
+    } catch (_e) { return true; }
+  };
   // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — mark this work + its
   // siblings/children as played the moment a watch session opens for
   // them, so the unplayed-dot disappears immediately.
@@ -941,6 +955,9 @@ async function openMarketWorkPreview(work = {}, options = {}) {
           ? { 1: sibMeta, 2: selfMeta }
           : { 1: selfMeta, 2: sibMeta };
       } catch (_metaErr) { globalThis.__cssosTakeMeta = null; }
+      // CSSOS_WAVE_734 — 过期守卫: 走到这里前有 await(sibling/take 拉取), 若用户已切到别的作品,
+      // 这是第一首的【残余写】, 丢弃, 绝不污染当前作品的 pipelineState/标题/歌词/视频。
+      if (!__stillCurrent()) return;
       globalThis.cssmvPipelineLastResult = {
         mvUrl: finalMvUrl,
         coverUrl: String(targetWork?.cover_image_url || targetWork?.preview_image_url || targetWork?.cover_image || "").trim() || null,
@@ -1074,6 +1091,9 @@ async function openMarketWorkPreview(work = {}, options = {}) {
   // only state.title isn't enough — we MUST also update state.songSeed.lyrics
   // and watchLyricsEditor.value so the splitter has the new song's text
   // as its source.
+  // CSSOS_WAVE_734 — 过期守卫: 上面 await renderMarketWorkPreviewIntoWatchModule 之后, 若用户
+  // 已切走, 这是第一首的【残余标题/歌词写】→ 丢弃, 不污染当前作品。
+  if (!__stillCurrent()) return;
   try {
     const newTitle = String(targetWork?.title || "").trim();
     const newLyrics = String(

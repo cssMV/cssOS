@@ -743,8 +743,8 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
   function loadPools() {
     const now = Date.now();
     if (__p2100PoolCache && now - __p2100PoolStamp < 2000) return __p2100PoolCache;
-    let cjk = [], latin = [];
-    function ingest(family, hint) {
+    let cjk = [], latin = [], latinExt = [];
+    function ingest(family, hint, external) {
       const fam = String(family || "").trim();
       if (!fam) return;
       const h = String(hint || "");
@@ -764,21 +764,31 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       );
       const css = "'" + fam.replace(/'/g, "\\'") + "'" + ", sans-serif";
       if (isCjk) cjk.push(css);
-      else latin.push(css);
+      else { latin.push(css); if (external) latinExt.push(css); }
+    }
+    function isExternalEntry(e) {
+      // Google fancy fonts are appended with src:"" + format/group "external".
+      // Local fonts_en/* files (the 404-prone manifest) have a non-empty src.
+      return !!e && (e.format === "external" || (!e.src && (e.group === "latin" || e.group === "external")));
     }
     try {
       const fn = globalThis.buildWatchFontCatalogModule;
       if (typeof fn === "function") {
         const entries = fn() || [];
-        for (const e of entries) ingest(e?.family, e?.group || e?.src);
+        for (const e of entries) ingest(e?.family, e?.group || e?.src, isExternalEntry(e));
       }
     } catch (_) {}
     try {
       const m = globalThis.CSSOS_WATCH_FONT_MANIFEST;
       if (Array.isArray(m)) {
-        for (const e of m) ingest(e?.family, e?.src || e?.group);
+        for (const e of m) ingest(e?.family, e?.src || e?.group, isExternalEntry(e));
       }
     } catch (_) {}
+    // CSSOS_WAVE_744 — Jing「英文/拉丁字体,那 92 个 Google fancy font 就够了,
+    // 很漂亮,免得整天英文字体 404 尴尬」。本地 fonts_en/* 清单大多 404,抽中即回退
+    // sans-serif(=单调英文 + 满屏 404)。拉丁池只保留 external(Google)条目,
+    // 永久终结英文字体 404。CJK 池保留本地 fonts_cn2(可用)。
+    if (latinExt.length) latin = latinExt;
     // Jing 2026-04-25 #102s — only inject system fonts as a fallback when
     // catalog is genuinely empty. Otherwise let the user's 243+ downloaded
     // fonts dominate the random picks instead of being drowned out by 13

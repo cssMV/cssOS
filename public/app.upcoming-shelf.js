@@ -161,6 +161,12 @@
         glyph: FESTIVAL_GLYPH[f.festival_id] || "🎊",
         name: isZh() ? (f.name_zh || f.name_en) : (f.name_en || f.name_zh),
         meta: (globalThis.civMetaText ? globalThis.civMetaText([f.civilization, f.core_theme], null, " · ") : [f.civilization, f.core_theme].filter(Boolean).join(" · ")),
+        // W732/W733/W733B — 节日卡【文明智能联动】创作。带 civ/曲风/主题 + 典故(description)+ 人物。
+        civ: String(f.civilization || "").trim(),
+        theme: String(f.core_theme || "").trim(),
+        music: String(f.music_style_hint || "").trim(),
+        lore: String((isZh() ? f.description_zh : f.description_en) || f.description_zh || f.description_en || "").trim(),
+        persons: String((isZh() ? f.featured_person_names_zh : f.featured_person_names_en) || f.featured_person_names_zh || "").trim(),
       });
     });
     anniversaries.forEach(function (a) {
@@ -196,8 +202,11 @@
     track.innerHTML = items.map(function (it) {
       var when = daysFromTodayLabel(it.date);
       // W360 — anniversary cards with a person_id are clickable → person codex.
-      var isClickable = it.kind === "anniversary" && !!it.personId;
-      var hasPortrait = !!(it.portrait && isClickable);
+      // W732 — 节日卡也可点击 → AI 助理为该节日创作。
+      var isPerson = it.kind === "anniversary" && !!it.personId;
+      var isFest = it.kind === "festival";
+      var isClickable = isPerson || isFest;
+      var hasPortrait = !!(it.portrait && isPerson);
       var coverBg = hasPortrait
         ? ' style="background-image:url(' + esc(it.portrait) + ');background-size:cover;background-position:center 20%;"'
         : '';
@@ -208,9 +217,14 @@
           + ' onerror="var c=this.closest(\'.cover\');if(c){c.style.backgroundImage=\'\';var g=c.querySelector(\'.glyph\');if(g)g.style.display=\'\';}this.remove();"'
           + '>'
         : '';
+      var clickAttrs = isPerson
+        ? ' data-person-id="' + esc(it.personId) + '" role="button" tabindex="0" title="' + esc(tr("Open person page · Create MV", "打开人物专页 · 为TA创作MV")) + '"'
+        : (isFest
+          ? ' data-fest-name="' + esc(it.name || "") + '" data-fest-civ="' + esc(it.civ || "") + '" data-fest-theme="' + esc(it.theme || "") + '" data-fest-music="' + esc(it.music || "") + '" data-fest-lore="' + esc(it.lore || "") + '" data-fest-persons="' + esc(it.persons || "") + '" role="button" tabindex="0" title="' + esc(tr("Create a song for this holiday", "为这个节日创作一首歌")) + '"'
+          : '');
       return ''
         + '<article class="upcoming-card' + (isClickable ? ' upcoming-card-person' : '') + '"'
-        + (isClickable ? ' data-person-id="' + esc(it.personId) + '" role="button" tabindex="0" title="' + esc(tr("Open person page · Create MV", "打开人物专页 · 为TA创作MV")) + '"' : '')
+        + clickAttrs
         + '>'
         + '  <div class="cover"' + coverBg + '>'
         + portraitProbe
@@ -264,6 +278,45 @@
       card.addEventListener("click", handleOpen);
       card.addEventListener("keydown", function (e) {
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleOpen(); }
+      });
+    });
+    // W732 — 节日卡可点击 → 打开 AI 助理, 预填"为该节日创作一首歌"提示词(用户可改后发送)。
+    track.querySelectorAll(".upcoming-card[data-fest-name]").forEach(function (card) {
+      function handleFest() {
+        var nm = card.getAttribute("data-fest-name") || "";
+        var civ = card.getAttribute("data-fest-civ") || "";
+        var theme = card.getAttribute("data-fest-theme") || "";
+        var music = card.getAttribute("data-fest-music") || "";
+        var lore = card.getAttribute("data-fest-lore") || "";
+        var persons = card.getAttribute("data-fest-persons") || "";
+        if (!nm) return;
+        // CSSOS_WAVE_733/733B 20260613 — Jing「任何动作都要文明智能联动」: 节日富种子 = 文明 +
+        // 该文明代表性曲风 + 主题 + 【典故 description】+【人物 featured_persons】+ 母语要求。
+        // 端午 → 中华/民乐/屈原/汨罗江投江。对齐 civ-aware 曲风铁律, 人时地典四维齐全。
+        var prompt = isZh()
+          ? ("为节日「" + nm + "」创作一首歌曲。"
+            + (civ ? "文明:" + civ + "。" : "")
+            + (persons ? "核心人物:" + persons + "。" : "")
+            + (lore ? "典故:" + lore + "。" : "")
+            + (theme ? "主题:" + theme + "。" : "")
+            + (music ? "曲风:" + music + "。" : "")
+            + "请严格用该文明的代表性曲风与母语创作,唱出这个节日背后的人物、典故与情感,要有浓郁的文明特色。")
+          : ("Create a song for the festival “" + nm + "”. "
+            + (civ ? "Civilization: " + civ + ". " : "")
+            + (persons ? "Key figure: " + persons + ". " : "")
+            + (lore ? "Lore: " + lore + ". " : "")
+            + (theme ? "Theme: " + theme + ". " : "")
+            + (music ? "Musical style: " + music + ". " : "")
+            + "Use that civilization's representative musical tradition and mother tongue; sing the people, lore and feeling behind this festival.");
+        if (typeof globalThis.cssosOpenAssistantWithPrompt === "function") {
+          globalThis.cssosOpenAssistantWithPrompt(prompt);
+        } else if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tr("Assistant unavailable.", "助理暂不可用。"));
+        }
+      }
+      card.addEventListener("click", handleFest);
+      card.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleFest(); }
       });
     });
   }

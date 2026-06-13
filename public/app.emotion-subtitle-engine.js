@@ -93,6 +93,22 @@
   //   [{start_s, end_s, text, emotion, words:[{text,start_s,end_s,emotion,emphasis}]}]
   function subtitleJsonToCues(subtitleJson, lang) {
     if (!subtitleJson || !Array.isArray(subtitleJson.languages)) return null;
+    // CSSOS_WAVE_721 — 内容联动 emoji: 字幕 JSON 顶层 theme_emoji = 本曲内容相关 emoji 池(后端 AI 生成)。
+    // 设为全局, emotion-fx 的 confetti/器乐 emoji 用它替代千篇一律的花。无则回退默认。
+    try {
+      if (Array.isArray(subtitleJson.theme_emoji) && subtitleJson.theme_emoji.length) {
+        globalThis.cssosWorkThemeEmoji = subtitleJson.theme_emoji.slice(0, 24);
+      }
+    } catch (_e) {}
+    // CSSOS_WAVE_724 — 整曲音量包络(顶层 vol_curve)→ 全局, 供器乐段 emoji"音量大→多"。
+    try {
+      var _vc = subtitleJson.vol_curve;
+      if (_vc && Array.isArray(_vc.values) && _vc.values.length && _vc.step_ms > 0) {
+        globalThis.cssosSongVolumeCurve = _vc;
+      } else {
+        globalThis.cssosSongVolumeCurve = null;
+      }
+    } catch (_e) {}
     // CSSOS_WAVE_641 — lang 兜底: track.lang(可能是 'orig'/种子默认轨)对不上时, 退到 zh→en→ja→首个,
     // 保证有字幕可显示(否则旗舰款因 lang 不匹配整段空白)。
     var langEntry = subtitleJson.languages.find(function (l) { return l.lang === lang; })
@@ -111,6 +127,27 @@
         // 这些是"生歌词"的结构标记, 不是演唱内容, 绝不该进情绪字幕。任何【整行被 [] 或 【】包裹】
         // 的行一律视为标签丢弃(真实演唱句不会整句被括号包住)。
         var _lt = line.text.trim();
+        // CSSOS_WAVE_731p 20260612 — Jing「前奏/间奏/尾声没有 emoji」根因: tag=music 的间奏段
+        // 那行文本是 [Music...], 正好被下面"整行被[]包裹=结构标签"的过滤丢掉 → 间奏段从不生成
+        // cue → 前端 _isMusicCue 永远 false → 器乐段 emoji 不触发。修: 在过滤【之前】截住间奏行,
+        // 发一条【全 adlib 的 music cue】(文本 [Music...]), 让 cssosMusicGapPulse 跟着音量飘 emoji。
+        var _isMusicLine = String(section.tag || "").toLowerCase() === "music"
+          || /^\[?\s*music\b/i.test(_lt) || _lt === "[Music...]";
+        if (_isMusicLine) {
+          var _ms = Number(line.t_start || 0) / 1000;
+          var _me = Number(line.t_end || 0) / 1000;
+          if (!(_me > _ms)) _me = _ms + 4;
+          cues.push({
+            start_s: _ms,
+            end_s: _me,
+            text: "[Music...]",
+            emotion: sectionEmo,
+            words: [{ text: "♪", start_s: _ms, end_s: _me, emotion: sectionEmo, emphasis: 0.5, adlib: true }],
+            _hasRealTiming: _ms > 0 || _me > 0,
+            _cooked: true,
+          });
+          return;
+        }
         if (/^[\[【][^\]】]*[\]】]$/.test(_lt)) return;
         // CSSOS_WAVE_688 — 同样丢弃漏网的 markdown 结构标记行: # 标题行(# The Holy City)、
         // 整行加粗的段落名(**PHO SI-ÔN** / **Đoạn Một** / **Final Chorus**)。真实演唱句不会

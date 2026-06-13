@@ -17,6 +17,28 @@
   ];
   var pop = null;
 
+  // CSSOS_WAVE_715 — 新增开关参数(中央爆/天女散花/每字都爆)。这几个是 emotion-fx 的全局开关,
+  // 自身不持久化, 这里统一记 localStorage 并启动时应用。
+  var K_TOG = "cssos.emotionfx.toggles";
+  function readTog() { try { var v = JSON.parse(localStorage.getItem(K_TOG) || "{}"); return (v && typeof v === "object") ? v : {}; } catch (e) { return {}; } }
+  function applyTog() {
+    var t = readTog();
+    // W725 — 情绪字幕【主开关】(默认开)。关 = 关掉全部情绪特效(爆/emoji/烟花/闪/边框飘进), 只留普通卡拉OK字幕。
+    globalThis.cssosEmotionSubtitlesOff = (t.master === false);
+    if (t.center === false) globalThis.cssosEmotionCenter = false; else globalThis.cssosEmotionCenter = undefined;
+    globalThis.cssosConfettiTopDown = (t.confetti === true);   // W726 — 天女散花(从天而降)默认关, 用户可开
+    if (t.musicgap === false) globalThis.cssosMusicGapEmoji = false; else globalThis.cssosMusicGapEmoji = undefined;
+    globalThis.cssosBurstDemo = (t.demo === true);
+    // W729 — 三个新参数(默认开)
+    globalThis.cssosSubRandomColor = (t.randomcolor !== false); // 底部卡拉OK字幕: 每次播放一对随机色
+    globalThis.cssosBurstScalePunch = (t.burstpunch !== false);
+    globalThis.cssosSubSizeByEmotion = (t.sizebyemotion !== false);
+    // W731r — 中央爆大字: 每字随机色(默认开)
+    globalThis.cssosBurstCharColor = (t.burstcolor !== false);
+  }
+  function setTog(k, on) { var t = readTog(); t[k] = on; try { localStorage.setItem(K_TOG, JSON.stringify(t)); } catch (e) {} applyTog(); }
+  applyTog();
+
   function fxLayers() {
     try { return globalThis.cssosEmotionFXLayers ? globalThis.cssosEmotionFXLayers() : null; } catch (e) { return null; }
   }
@@ -44,6 +66,12 @@
     pop = document.createElement("div");
     pop.className = "cssfx-panel";
     pop.setAttribute("role", "dialog");
+    var TT = readTog();
+    // W725 — 主开关放面板最顶, 一眼可关。
+    // CSSOS_WAVE_715 铁律(Jing): MV 面板任何操作不触发媒体暂停 → 弹窗吞掉所有指针事件, 绝不冒泡。
+    ["pointerdown", "mousedown", "click", "touchstart", "contextmenu"].forEach(function (ev) {
+      pop.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
+    });
     var rows = SLIDERS.map(function (s) {
       var v = effVal(s.key, hard[s.key]);
       var mid = platformVal(s.key, hard[s.key]);
@@ -58,8 +86,19 @@
     var fsOn = !!effVal("fullscreen", hard.fullscreen ? 1 : 0);
     pop.innerHTML =
       '<div class="cssfx-head">情绪字幕特效</div>' +
+      '<label class="cssfx-toggle" style="font-weight:700;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:8px;margin-bottom:4px"><input type="checkbox" ' + (TT.master !== false ? "checked" : "") + ' data-tog="master"> 🎆 情绪字幕(关闭=只留普通字幕)</label>' +
       rows +
       '<label class="cssfx-toggle"><input type="checkbox" ' + (fsOn ? "checked" : "") + ' data-key="fullscreen"> 全屏爆闪</label>' +
+      // CSSOS_WAVE_715 — 新开关
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.center !== false ? "checked" : "") + ' data-tog="center"> 中央爆</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.confetti === true ? "checked" : "") + ' data-tog="confetti"> 天女散花(从天而降·默认关)</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.musicgap !== false ? "checked" : "") + ' data-tog="musicgap"> 器乐段 emoji(前奏/间奏)</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.randomcolor !== false ? "checked" : "") + ' data-tog="randomcolor"> 底部字幕随机色(每次播放一对)</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.burstcolor !== false ? "checked" : "") + ' data-tog="burstcolor"> 爆字随机色(每字不同)</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.burstpunch !== false ? "checked" : "") + ' data-tog="burstpunch"> 爆字放大→收回</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.sizebyemotion !== false ? "checked" : "") + ' data-tog="sizebyemotion"> 字号随情绪(每字不同)</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.demo === true ? "checked" : "") + ' data-tog="demo"> 每字都爆(演示)</label>' +
+      '<button type="button" class="cssfx-btn" data-act="reroll" style="width:100%;margin-top:8px">🎨 字幕换一对随机色</button>' +
       '<div class="cssfx-actions">' +
         '<button type="button" class="cssfx-btn" data-act="reset">恢复默认</button>' +
         '<button type="button" class="cssfx-btn primary" data-act="platform">设为平台默认</button>' +
@@ -90,8 +129,17 @@
     var fsBox = pop.querySelector('input[data-key="fullscreen"]');
     if (fsBox) fsBox.addEventListener("change", function () { try { globalThis.cssosSetEmotionFX({ fullscreen: fsBox.checked }); } catch (e) {} });
 
+    // CSSOS_WAVE_715 — 新开关接线(即时生效 + 落盘)。
+    ["master", "center", "confetti", "musicgap", "randomcolor", "burstcolor", "burstpunch", "sizebyemotion", "demo"].forEach(function (k) {
+      var box = pop.querySelector('input[data-tog="' + k + '"]');
+      if (box) box.addEventListener("change", function () { setTog(k, box.checked); });
+    });
+    var rrBtn = pop.querySelector('[data-act="reroll"]');
+    if (rrBtn) rrBtn.addEventListener("click", function () { try { if (typeof globalThis.cssosRollSubtitleColors === "function") globalThis.cssosRollSubtitleColors(); } catch (e) {} });
+
     pop.querySelector('[data-act="reset"]').addEventListener("click", function () {
       try { globalThis.cssosResetEmotionFX(); } catch (e) {}
+      try { localStorage.removeItem(K_TOG); } catch (e) {} applyTog();  // W715 也重置新开关
       var r0 = anchorRect; close(); build(r0);  // 重建以反映回退后的值
     });
     pop.querySelector('[data-act="platform"]').addEventListener("click", function () {
@@ -131,6 +179,7 @@
     var bar = ev.target && ev.target.closest && ev.target.closest("#watch-language-pill");
     if (!bar) return;
     ev.preventDefault();
+    ev.stopPropagation();   // CSSOS_WAVE_715 — 绝不冒泡 → 不触发媒体暂停
     openFor(bar);
   }, true);
 
@@ -147,4 +196,33 @@
   });
 
   globalThis.cssosOpenEmotionFXPanel = function () { var b = document.getElementById("watch-language-pill"); openFor(b || document.body); };
+
+  /* CSSOS_WAVE_731t 20260612 — Jing「右击难(被视频层遮住, 触屏也没右键)」: 给「多语言/多声线」
+   * 胶囊条加一个【可见 ⚙ 按钮, 左键一点即开】情绪字幕设置面板(右击 + 长按仍保留)。胶囊是动态
+   * 创建的, 用轻量轮询(幂等)确保 ⚙ 始终在。所有事件 stopPropagation → 绝不冒泡触发媒体暂停。 */
+  function ensureFxGear() {
+    try {
+      var bar = document.getElementById("watch-language-pill");
+      if (!bar || bar.querySelector(".cssfx-fx-gear")) return;
+      var g = document.createElement("button");
+      g.type = "button";
+      g.className = "cssfx-fx-gear";
+      g.textContent = "⚙";
+      g.title = "情绪字幕设置";
+      g.setAttribute("aria-label", "情绪字幕设置");
+      g.style.cssText = "appearance:none;border:0;background:rgba(0,0,0,.32);color:#fff;border-radius:999px;"
+        + "width:30px;height:30px;min-width:30px;font-size:15px;line-height:1;cursor:pointer;flex:0 0 auto;"
+        + "margin-left:4px;opacity:.9;display:inline-flex;align-items:center;justify-content:center;";
+      ["pointerdown", "mousedown", "touchstart", "contextmenu"].forEach(function (ev) {
+        g.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
+      });
+      g.addEventListener("click", function (e) {
+        e.preventDefault(); e.stopPropagation();   // 不冒泡 → 不暂停媒体
+        openFor(bar);
+      }, false);
+      bar.appendChild(g);
+    } catch (_e) {}
+  }
+  setInterval(ensureFxGear, 1500);
+  ensureFxGear();
 })();

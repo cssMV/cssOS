@@ -61,10 +61,15 @@
     var st = document.createElement("style");
     st.id = "cssos-agent-style";
     st.textContent = [
-      "#cssos-agent-fab{position:fixed;right:18px;bottom:max(18px,calc(env(safe-area-inset-bottom,0px)+12px));width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:24px;cursor:pointer;z-index:9800;box-shadow:0 6px 22px rgba(0,245,160,0.32);transition:transform 160ms ease;}" /* WAVE_444c */,
+      /* CSSOS_WAVE_737 20260613 — Jing「AI助理移到右上角(关闭✕左侧), 真全屏也常驻=最强创作入口」:
+         原 z=9800 低于影院层(10052-10080)→ 真全屏被盖住。提到 z=10090(高于影院, 低于 tap-veil),
+         位置改右上角 right:64px(让开 ✕)top:12px → 用户在全屏看片时随手就能创作。 */
+      "#cssos-agent-fab{position:fixed;right:64px;top:max(12px,calc(env(safe-area-inset-top,0px)+10px));bottom:auto;width:50px;height:50px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:23px;cursor:pointer;z-index:10090;box-shadow:0 6px 22px rgba(0,245,160,0.42);transition:transform 160ms ease;}" /* WAVE_737 */,
       "#cssos-agent-fab:hover{transform:scale(1.06);}",
       "#cssos-agent-fab[data-active='1']{background:linear-gradient(135deg,#ff9a3c,#ff6b6b);}",
-      "#cssos-agent-panel{position:fixed;right:18px;bottom:84px;width:min(420px,calc(100vw - 36px));height:min(620px,calc(100vh - 120px));background:#0d1117;color:#e6e8ee;border:1px solid rgba(255,255,255,0.12);border-radius:16px;display:none;flex-direction:column;z-index:9801;box-shadow:0 12px 40px rgba(0,0,0,0.55);overflow:hidden;}",
+      /* CSSOS_WAVE_737 — 面板 z 提到 10091(原 9801 被影院层 10052-10080 盖住, 全屏打不开)。
+         位置改右上角(贴 FAB), top 起算, 让全屏看片时从右上角 FAB 顺势展开创作。 */
+      "#cssos-agent-panel{position:fixed;right:18px;top:72px;bottom:auto;width:min(420px,calc(100vw - 36px));height:min(620px,calc(100vh - 120px));background:#0d1117;color:#e6e8ee;border:1px solid rgba(255,255,255,0.12);border-radius:16px;display:none;flex-direction:column;z-index:10091;box-shadow:0 12px 40px rgba(0,0,0,0.55);overflow:hidden;}",
       "#cssos-agent-panel[data-open='1']{display:flex;}",
       "#cssos-agent-panel header{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;font:600 14px/1 -apple-system,system-ui,sans-serif;}",
       "#cssos-agent-panel header .title{display:flex;gap:8px;align-items:center;}",
@@ -161,6 +166,26 @@
       '</div>',
     ].join("");
     document.body.appendChild(panel);
+
+    /* CSSOS_WAVE_741 20260613 — Jing「AI 助理真全屏压根不显示, 被全屏挡住」根因: 原生全屏
+     * (requestFullscreen)只渲染【全屏元素的子树】, FAB+面板挂在 body 上(全屏元素之外)→ 被
+     * 浏览器整个剔除, z-index 再高也没用。修: 监听 fullscreenchange, 进全屏时把 FAB+面板【移进
+     * 全屏元素】(成为其子树 → 可见); 退出时移回 body。这样真全屏看片时 AI 助理常驻 = 最强创作入口。 */
+    (function keepAgentInFullscreen() {
+      function relocate() {
+        try {
+          var fe = document.fullscreenElement || document.webkitFullscreenElement || null;
+          var host = fe || document.body;
+          if (fab && fab.parentNode !== host) host.appendChild(fab);
+          if (panel && panel.parentNode !== host) host.appendChild(panel);
+          // CSSOS_WAVE_741 — Jing「Dock 全屏不显示, 别留高占位」: 全屏 → --cssos-dock-clear=0
+          // (底部控件贴边); 退出 → 还原默认让位。
+          try { document.documentElement.style.setProperty("--cssos-dock-clear", fe ? "0px" : ""); } catch (_e) {}
+        } catch (_e) {}
+      }
+      document.addEventListener("fullscreenchange", relocate);
+      document.addEventListener("webkitfullscreenchange", relocate);
+    })();
 
     /* W334 — panel is true fullscreen (position:fixed;inset:0;height:100dvh).
      * The Visual Viewport / keyboard-offset handler from W332 is retired:
@@ -429,6 +454,26 @@
       if (input) setTimeout(function () { input.focus(); }, 50);
     }
   }
+
+  /* CSSOS_WAVE_732 20260612 — Jing「节假日/纪念日也该可点击进去创作(同人物生日)」: 暴露一个
+   * 干净入口 — 打开常驻 AI 助理并【预填】一段提示词(用户可改后发送)。供节日 shelf 卡片点击调用。
+   * 访客点开会走 togglePanel 内的登录引导。 */
+  globalThis.cssosOpenAssistantWithPrompt = function (text) {
+    try {
+      var panel = document.getElementById("cssos-agent-panel");
+      if (!panel) return;
+      if (panel.getAttribute("data-open") !== "1") togglePanel();      // 打开(内含访客登录引导)
+      if (panel.getAttribute("data-open") !== "1") return;             // 访客被拦 → 不预填
+      setTimeout(function () {
+        var input = document.getElementById("cssos-agent-input");
+        if (input && text) {
+          input.value = String(text);
+          try { input.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) {}
+          try { input.focus(); } catch (_e) {}
+        }
+      }, 140);
+    } catch (_e) {}
+  };
 
   async function hydrateSessionFromServer() {
     var messages = document.getElementById("cssos-agent-messages");
@@ -777,6 +822,9 @@
       var meta = globalThis.civMetaText
         ? globalThis.civMetaText([c.work_type, c.style, c.civilization, c.language])
         : [c.work_type, c.style, c.civilization, c.language].filter(Boolean).join(" · ");
+      // CSSOS_WAVE_733b — Jing「凡有音乐作品卡片处都显示时长」: 追加 ♪ 时长。
+      var _dur = (globalThis.cssosFmtDur ? globalThis.cssosFmtDur(c) : "");
+      if (_dur) meta = (meta ? meta + " · " : "") + "♪ " + _dur;
       var card = document.createElement("article");
       card.className = "cssos-agent-work-card";
       card.innerHTML = [

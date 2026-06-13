@@ -314,6 +314,10 @@
 
       if (dy < 0 && !onTitlebar) {
         /* ── Article 5: fast upward swipe on panel body → Close ── */
+        // CSSOS_WAVE_731x 20260613 — Jing「上滑热键冲突」: MV(watch)面板里上滑=切下一首(TikTok 式,
+        // app.autoplay-feed.js),绝不能同时触发"上滑关面板"。watch-panel 豁免 Article 5 上滑关闭,
+        // 上滑只切歌。关闭走右上角 ✕ / 下滑标题栏收起即可。
+        if (panel && panel.id === "watch-panel") return;
         try {
           (globalThis.minimizeToDock || globalThis.minimizeToDockBridge)?.(panel);
         } catch (e) {

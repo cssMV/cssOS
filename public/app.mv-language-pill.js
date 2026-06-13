@@ -187,6 +187,63 @@
     attach();
   })();
 
+  // CSSOS_WAVE_731w 20260613 — Jing「约10首后没声」根因(真机探针实锤): #watch-audio-preview
+  // 该响(paused:false, muted:false, 有 .mp3 源)却卡在 readyState 0、currentTime 不前进 —
+  // 独立音轨【缓冲被切歌打断后没再起来】, 且没报 error(err:null)→ W626/W628 那套只认 error 的
+  // 兜底从不触发 = 静默卡死。装【stall 看门狗】: 连续 ~2.4s 不前进就强制 load()+play() 重踢缓冲
+  // (每个 src 最多 3 次, 不死循环)。仍是独立音轨, 绝不放视频声(尊重 W628b 画音分层)。
+  (function installAudioStallWatchdog() {
+    function watchOpen() {
+      try { var wp = document.getElementById("watch-panel"); return !!wp && !wp.classList.contains("hidden") && getComputedStyle(wp).display !== "none"; }
+      catch (_e) { return false; }
+    }
+    var lastT = -1, sameCount = 0, curSrc = "", reloads = 0, videoFallback = false;
+    // W737B — 把当前播放中的视频解/复静音(.mp3 卡死时的兜底声源; 恢复则复静音, 防双声)。
+    function setVideoFallback(on) {
+      try {
+        var vids = document.querySelectorAll("#watch-video, video");
+        for (var i = 0; i < vids.length; i++) {
+          var v = vids[i];
+          if (!v) continue;
+          if (on) { if (!v.paused && v.readyState >= 2) { v.muted = false; try { v.volume = 1; } catch (_e) {} } }
+          else { v.muted = true; }
+        }
+      } catch (_e) {}
+    }
+    setInterval(function () {
+      try {
+        if (!watchOpen()) return;
+        if (!(globalThis.__cssosWatchAudioUnlocked || globalThis.__cssosAudioUnlocked)) return;
+        var a = document.getElementById("watch-audio-preview");
+        if (!a) return;
+        var src = String(a.currentSrc || a.src || "").trim();
+        if (!src) { lastT = -1; sameCount = 0; return; }
+        if (src !== curSrc) { curSrc = src; reloads = 0; lastT = -1; sameCount = 0; if (videoFallback) { setVideoFallback(false); videoFallback = false; } return; } // 换源→重置
+        if (a.paused || a.ended || a.muted) return;            // 用户暂停/静音/播完 → 不干预
+        if (a.readyState >= 2 && a.currentTime > 0) {          // .mp3 正常播
+          lastT = a.currentTime; sameCount = 0;
+          if (videoFallback) { setVideoFallback(false); videoFallback = false; } // .mp3 恢复 → 撤兜底, 防双声
+          return;
+        }
+        // 此刻: 该响却 rs<2 或 t==0 → 疑似 stall
+        if (a.currentTime === lastT) sameCount++; else { sameCount = 0; lastT = a.currentTime; }
+        if (sameCount >= 2) {                                   // 连续 ~2.4s 不前进
+          if (reloads < 6) {                                   // W737B — 重踢更狠: 重设 src + load + play, 最多 6 次
+            reloads++;
+            try { a.src = src; } catch (_e) {}                 // 重设 src 强制重新拉流(比单 load 更彻底)
+            try { a.load && a.load(); } catch (_e) {}
+            var p = a.play && a.play(); if (p && p.catch) p.catch(function () {});
+            if (typeof globalThis.cssosAudioReferee === "function") { try { globalThis.cssosAudioReferee(a); } catch (_e) {} }
+          } else if (!videoFallback) {
+            // W737B — 重踢 6 次仍卡死 → 兜底: 解除正在播放视频的静音(此刻 .mp3 静默, 不会双声)。
+            setVideoFallback(true); videoFallback = true;
+          }
+          sameCount = 0;
+        }
+      } catch (_e) {}
+    }, 1200);
+  })();
+
   // CSSOS_WAVE_587 — 全局音频解锁: 用户在页面任意一次手势后, 标记已解锁 → 之后切歌自动连播, 不再要求点击。
   (function () {
     if (globalThis.__cssosAudioUnlockWired) return;

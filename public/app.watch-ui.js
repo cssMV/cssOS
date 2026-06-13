@@ -2742,6 +2742,8 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
     // 前奏/间奏/尾声由 [Music...] cue 覆盖(activeIndex≥0 → 显示 [Music...]); 短呼吸不被覆盖 → 清空。
     const activeIndex = karaokeTimeline.findIndex((cue) => mediaClockSec >= Number(cue?.start_s || 0) && mediaClockSec <= Number(cue?.end_s || 0));
     if (activeIndex < 0) {
+      // CSSOS_WAVE_720 — 离开歌词句进入空隙 → 让正在驻留的【整句爆】一起淡出。
+      if (typeof globalThis.cssosFadeBurstLine === "function") globalThis.cssosFadeBurstLine();
       // CSSOS_WAVE_711 — 空隙(呼吸/未被 [Music...] 覆盖): 【保持上一句不动, 原地不动什么都不改】。
       // 既不回退闪第一句(旧 Math.max bug), 也不清屏导致"清→显"抖动。下一个 cue(歌词或 [Music...])
       // 到点了才更新。长间奏由 [Music...] cue 覆盖, 短呼吸就让上一句安静地停着。
@@ -2771,6 +2773,23 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
       (/fire|ignite|burn|rise|shout|chorus/i.test(resolvedCueText) ? "surge" :
       /dream|moon|night|echo|whisper|glow/i.test(resolvedCueText) ? "dream" :
       /grief|lost|alone|tear|shadow/i.test(resolvedCueText) ? "hush" : "steady");
+    // CSSOS_WAVE_716 — 器乐段([Music...])正在播 → 让 emoji 跟着音乐闪/飘(前奏/间奏没歌词也别浪费
+    // 高音)。判定: 当前 cue 全是 adlib token(即 [Music...])。节流在 cssosMusicGapPulse 内。
+    const _isMusicCue = (Array.isArray(cueWords) && cueWords.length && cueWords.every((w) => w && w.adlib)) || resolvedCueText === "[Music...]";
+    if (_isMusicCue) {
+      // 进入器乐段: 让上一句驻留的【整句爆】先一起淡出, 再让器乐 emoji 飘。
+      if (typeof globalThis.cssosFadeBurstLine === "function") globalThis.cssosFadeBurstLine();
+      // CSSOS_WAVE_724 — 按整曲音量包络采样当前器乐音量(大→emoji 多)。
+      try {
+        var _vc = globalThis.cssosSongVolumeCurve;
+        if (_vc && _vc.values && _vc.step_ms > 0) {
+          var _vi = Math.floor((mediaClockSec * 1000) / _vc.step_ms);
+          var _vv = _vc.values[_vi];
+          globalThis.cssosCurrentVolume = (_vv != null) ? Number(_vv) : undefined;
+        } else { globalThis.cssosCurrentVolume = undefined; }
+      } catch (_e) {}
+      if (typeof globalThis.cssosMusicGapPulse === "function") globalThis.cssosMusicGapPulse(inferredEmotion);
+    }
     const activeWordIndex = Array.isArray(cueWords)
       ? cueWords.findIndex((word) => mediaClockSec >= Number(word?.start_s || 0) && mediaClockSec <= Number(word?.end_s || 0))
       : -1;
@@ -2900,50 +2919,122 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
       // 变量(不依赖 emotion-fx 模块时机/:root 是否被设)。每个【新作品/新时间轴】滚一对, 同作品播放
       // 期间不变。CSS 的 var(--sub-unsung/--sub-sung) 直接从本元素读到 → 永远不会落回默认绿。
       try {
+        // CSSOS_WAVE_731r 20260612 — Jing 定义: 【底部卡拉OK字幕 = 每次播放滚一对随机色】(整首
+        // 一对, 非每句; 想换点面板🎨"换一对"按钮)。key 锚整条时间轴(timeline[0]+长度)→ 同一
+        // 作品播放期间稳定一对, 换作品/重播才换。(中央爆大字的"每字随机色"是另一套, 见 emotion-fx。)
         var _ck = String(karaokeTimeline.length) + ":" +
           Number((karaokeTimeline[0] && karaokeTimeline[0].start_s) || 0).toFixed(1) + ":" +
           String((karaokeTimeline[0] && karaokeTimeline[0].text) || "").slice(0, 10);
-        if (watchSubtitle.dataset.subColorKey !== _ck) {
-          watchSubtitle.dataset.subColorKey = _ck;
-          var _h1 = Math.floor(Math.random() * 360);
-          var _h2 = (_h1 + 100 + Math.floor(Math.random() * 160)) % 360;
-          watchSubtitle.style.setProperty("--sub-unsung", "hsla(" + _h1 + ",60%,75%,0.62)");
-          watchSubtitle.style.setProperty("--sub-sung", "hsla(" + _h2 + ",92%,66%,0.98)");
-          watchSubtitle.style.setProperty("--sub-sung-h", String(_h2));
+        var _rcKey = _ck + "|" + (globalThis.cssosSubRandomColor === false ? "fixed" : "rand");
+        if (watchSubtitle.dataset.subColorKey !== _rcKey) {
+          watchSubtitle.dataset.subColorKey = _rcKey;
+          if (globalThis.cssosSubRandomColor === false) {
+            watchSubtitle.style.setProperty("--sub-unsung", "rgba(235,245,255,0.62)");
+            watchSubtitle.style.setProperty("--sub-sung", "rgba(255,238,150,0.98)");
+            watchSubtitle.style.setProperty("--sub-sung-h", "48");
+          } else {
+            var _h1 = Math.floor(Math.random() * 360);
+            var _h2 = (_h1 + 100 + Math.floor(Math.random() * 160)) % 360;
+            watchSubtitle.style.setProperty("--sub-unsung", "hsla(" + _h1 + ",60%,75%,0.62)");
+            watchSubtitle.style.setProperty("--sub-sung", "hsla(" + _h2 + ",92%,66%,0.98)");
+            watchSubtitle.style.setProperty("--sub-sung-h", String(_h2));
+          }
         }
       } catch (_e) {}
       const _emoSig = resolvedCueText + "#" + activeWordIndex;
       if (watchSubtitle.dataset.emoSig !== _emoSig) {
         watchSubtitle.dataset.emoSig = _emoSig;
         watchSubtitle.innerHTML = renderedCurrent;
-        // CSSOS_WAVE_668 — 当前咬字是峰值字 → 触发夸张全屏闪(每字最多一次, 由 emoSig 守卫)。
+        // CSSOS_WAVE_668 — 当前咬字是峰值字 → 偶尔触发夸张全屏闪(每字最多一次, 由 emoSig 守卫)。
         try {
           var _aw = (Array.isArray(cueWords) && activeWordIndex >= 0) ? cueWords[activeWordIndex] : null;
           var _emphRaw = _aw ? Number(_aw.emphasis || 0) : 0;
-          // CSSOS_WAVE_688 — 全屏闪也吃同一条爆裂增益曲线(否则平数据永远够不到 0.8 → 闪从不放)。
           var _pp = (globalThis.cssosEmotionPunch && typeof globalThis.cssosEmotionPunch === "object") ? globalThis.cssosEmotionPunch : null;
           var _emph = _emphRaw <= 0 ? 0 : Math.max(0, Math.min(1, Math.pow(_emphRaw, _pp && _pp.gamma > 0 ? _pp.gamma : 0.55) * (_pp && _pp.gain > 0 ? _pp.gain : 1.18)));
-          // 逐字"蹦/爆"门槛低(频繁), 但【全屏闪】只留给真正的峰值字(≥0.8 与门槛取大者)
-          // → "偶尔爆全屏, 只要旋律需要"(Jing), 避免每字频闪。
           var _thr = (typeof globalThis.cssosEmotionBurstThreshold === "function") ? globalThis.cssosEmotionBurstThreshold() : 0.8;
           var _flashThr = Math.max(_thr, 0.8);
-          // CSSOS_WAVE_692 — 屏幕中央爆(情绪字幕): 唱到的情绪字(≥burst门槛)在【屏幕中央】爆一下,
-          // 大小∝强度、停留∝唱腔时长(一闪)。左下角普通字幕照常安静。这是叠加的情绪层(不一定套圈)。
-          // CSSOS_WAVE_702 — demo: cssosBurstDemo=true 时无视门槛, 每个 active 字都中央爆(给 Jing 截图)。
-          var _burstGo = _aw && (globalThis.cssosBurstDemo === true || _emph >= _thr);
-          if (_burstGo && typeof globalThis.cssosEmotionCenterBurst === "function") {
-            var _awDur = Math.max(0, Number(_aw.end_s || 0) - Number(_aw.start_s || 0));
-            // 该情绪 emoji → 渲染在大字背后做柔光背景(字幕在上, 背景是 emoji)。
-            var _burstEmoji = "";
-            try { _burstEmoji = (typeof cssmvEmotionEmojiModule === "function") ? cssmvEmotionEmojiModule(String(_aw.emotion || ""), String(_aw.text || "")) : ""; } catch (_e2) {}
-            globalThis.cssosEmotionCenterBurst(String(_aw.text || ""), String(_aw.emotion || ""), _emph, _awDur, _burstEmoji);
-          }
-          // 峰值字(≥0.8)再叠【全屏闪 + 天女散花】。
-          if (_aw && _emph >= _flashThr && typeof globalThis.cssosEmotionFlash === "function") {
+          // CSSOS_WAVE_731j 20260612 — Jing「那一闪还在屏幕中央, 应该在字心像烟花」:
+          // cssosEmotionFlash 是【全屏中央闪光】, 跟字心烟花(cssosLineBurstWord 的
+          // _fireworkAt 已在字位置)是两套。字心烟花已覆盖"爆"的观感 → 默认【关掉全屏闪】,
+          // 只留字心烟花。想找回全屏闪可设 globalThis.cssosEmotionFullscreenFlash=true。
+          if (_aw && _emph >= _flashThr && globalThis.cssosEmotionFullscreenFlash === true
+              && typeof globalThis.cssosEmotionFlash === "function") {
             globalThis.cssosEmotionFlash(String(_aw.emotion || ""), _emph);
           }
         } catch (_e) {}
       }
+      // CSSOS_WAVE_721 — 整句累积爆【catch-up】(修"最后一个字不显示"): 每次渲染都把【已唱到
+      // (start_s ≤ 当前时间)且未爆】的字补爆一次(cssosLineBurstWord 内 spawned 去重)。
+      // 旧逻辑只在 activeWordIndex 切换时爆当前字, 末字唱腔短 → 可能没有渲染帧落在其活动窗口 → 漏。
+      try {
+        if (Array.isArray(cueWords) && cueWords.length && typeof globalThis.cssosLineBurstWord === "function") {
+          // CSSOS_WAVE_725 — 末字根治: 接近本句结尾(cue.end - 0.6s)时, 把【本句剩下没爆的字全部补上】。
+          // 末字的合法窗口=自己唱腔, 太短就没渲染帧落进去 → 漏。near-end 一次性兜底。
+          var _cueEnd = Number((karaokeTimeline[currentIndex] || {}).end_s || 0);
+          var _nearEnd = _cueEnd > 0 && mediaClockSec >= _cueEnd - 0.6;
+          // CSSOS_WAVE_731k 20260612 — Jing「非亚洲语言竖排不要拆成字母, 拆到词就行(如
+          // Jerusalem 整个单词, 别拆 J/e/r/u/s/a/l/e/m)」: 爆字单元按【词】聚合。CJK 仍逐字;
+          // 非 CJK 把【连续非空白 token】合成整词(空白 token 或 token 内空白=词边界)。爆字布局
+          // 用词数(units.length)→ 竖排是【一个词一格】而不是一个字母一格。
+          var _lineTxt = cueWords.map(function (w) { return (w && w.text) || ""; }).join("");
+          var _lineCJK = /[぀-ヿ㐀-鿿가-힯]/.test(_lineTxt);
+          var _hasSpaceTok = cueWords.some(function (w) { return /\s/.test(String((w && w.text) || "")); });
+          var _units;
+          if (_lineCJK) {
+            _units = cueWords;
+          } else if (_hasSpaceTok) {
+            // token 自带空格 → 按空白边界聚合(可靠)。
+            _units = [];
+            var _cur = null;
+            for (var _ti = 0; _ti < cueWords.length; _ti++) {
+              var _tok = cueWords[_ti];
+              if (!_tok) continue;
+              var _raw = String(_tok.text || "");
+              var _leadSpace = /^\s/.test(_raw);
+              var _trimmed = _raw.replace(/\s+/g, "");
+              if (!_trimmed) { _cur = null; continue; }
+              if (!_cur || _leadSpace) {
+                _cur = { text: _trimmed, start_s: Number(_tok.start_s || 0),
+                  emotion: _tok.emotion, emphasis: Number(_tok.emphasis || 0), adlib: _tok.adlib };
+                _units.push(_cur);
+              } else {
+                _cur.text += _trimmed;
+                if (Number(_tok.emphasis || 0) > _cur.emphasis) {
+                  _cur.emphasis = Number(_tok.emphasis || 0); _cur.emotion = _tok.emotion;
+                }
+                if (_tok.adlib) _cur.adlib = _tok.adlib;
+              }
+              if (/\s$/.test(_raw)) _cur = null;
+            }
+          } else {
+            // CSSOS_WAVE_731u 20260613 — Jing「英文单词全连成一长串」根因(W731k 回归): token
+            // 之间【没有空格】时, 旧聚合把整行并成一个词。修: 用【整行原文的空格】切词
+            // (cue.text 带空格), 再按字符数把 token 的时间/情绪映射到每个词。词正确分开, 不再连成串。
+            var _cueText = String((karaokeTimeline[currentIndex] || {}).text || _lineTxt);
+            var _wordsTxt = _cueText.split(/\s+/).filter(Boolean);
+            _units = [];
+            var _ci = 0;
+            for (var _w2 = 0; _w2 < _wordsTxt.length; _w2++) {
+              var _len = _wordsTxt[_w2].length;
+              var _tk0 = cueWords[Math.min(_ci, cueWords.length - 1)] || {};
+              var _emo = _tk0.emotion, _emp = Number(_tk0.emphasis || 0), _ad = _tk0.adlib;
+              for (var _k = 0; _k < _len && _ci < cueWords.length; _k++) {
+                var _tt = cueWords[_ci];
+                if (_tt) { if (Number(_tt.emphasis || 0) > _emp) { _emp = Number(_tt.emphasis || 0); _emo = _tt.emotion; } if (_tt.adlib) _ad = _tt.adlib; }
+                _ci++;
+              }
+              _units.push({ text: _wordsTxt[_w2], start_s: Number(_tk0.start_s || 0), emotion: _emo, emphasis: _emp, adlib: _ad });
+            }
+          }
+          for (var _wi = 0; _wi < _units.length; _wi++) {
+            var _w = _units[_wi];
+            if (_w && !_w.adlib && (_nearEnd || mediaClockSec >= Number(_w.start_s || 0))) {
+              globalThis.cssosLineBurstWord(currentIndex, _wi, _units.length,
+                String(_w.text || ""), String(_w.emotion || ""), Number(_w.emphasis || 0));
+            }
+          }
+        }
+      } catch (_e) {}
     }
     return;
   }
@@ -12008,3 +12099,96 @@ globalThis.buildWatchFontCatalogModule = buildWatchFontCatalogModule;
 globalThis.buildWatchSelectableFontOptionsModule = buildWatchSelectableFontOptionsModule;
 globalThis.classifyWatchFontGroupModule = classifyWatchFontGroupModule;
 globalThis.pickWatchRandomFontModule = pickWatchRandomFontModule;
+
+// CSSOS_WAVE_744 — 底部浮层【真·流式列容器】。Jing「正解 = 改成真正的流式列容器:
+// 每行紧贴上一行, 空行 0 高度, Dock 显示时整列一起上移。一次性重写, 做对就再不打架」。
+// 这些成员各自 position:fixed 散落在 DOM, 无法用 flex 包裹 → 用 JS 自底向上测高累加,
+// 跳过空/隐藏成员(=0 高度), 把 bottom 写成 calc(var(--cssos-stk-base) + Npx) 并带 important
+// 压过旧的固定 *gap*N 钉位规则。--cssos-stk-base 已含 safe-area + 14 + dock-clear(Dock 显示
+// 时整列同步上移), JS 只管行间堆叠, 不碰横向锚点。旧 CSS 偏移保留为 JS 失效时的兜底。
+(function cssosBottomStackFlow() {
+  var GAP = 10; // 行间距(px)
+  // 自底向上的成员(顺序即视觉层序: 价格条 → CTA → 左下信息 → 字幕 → 多语言/声线)
+  var ORDER = [
+    ".watch-commerce-actions",
+    ".cssos-create-cta",
+    "#watch-pill-row-bl",
+    ".watch-subtitle",
+    "#cssmv-language-pill, .cssmv-language-pill, .watch-take-toggle, .cssmv-take-toggle",
+  ];
+  function isVisible(el) {
+    if (!el) return false;
+    try {
+      var cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") return false;
+      if ((parseFloat(cs.opacity || "1") || 0) < 0.02) return false;
+    } catch (_e) {}
+    return el.offsetHeight > 0; // 空内容 → offsetHeight 0 → 视为 0 高度行
+  }
+  var __raf = 0;
+  function recompute() {
+    __raf = 0;
+    var panel = document.getElementById("watch-panel");
+    if (!panel) return;
+    var cursor = 0; // 累加到 --cssos-stk-base 之上的高度
+    for (var i = 0; i < ORDER.length; i++) {
+      var el = panel.querySelector(ORDER[i]) || document.querySelector(ORDER[i]);
+      if (!el) continue;
+      if (!isVisible(el)) continue; // 空/隐藏 → 不占高度, 上面的行自动下沉紧贴
+      el.style.setProperty(
+        "bottom",
+        "calc(var(--cssos-stk-base) + " + cursor + "px)",
+        "important"
+      );
+      cursor += el.offsetHeight + GAP;
+    }
+  }
+  function schedule() {
+    if (__raf) return;
+    try { __raf = requestAnimationFrame(recompute); }
+    catch (_e) { __raf = 0; recompute(); }
+  }
+  function wire() {
+    var panel = document.getElementById("watch-panel");
+    if (!panel) return false;
+    // 成员尺寸/可见性变化 → 重算(空↔有内容也会触发 offsetHeight 变化)
+    try {
+      if (window.ResizeObserver && !panel.__cssosStackRO) {
+        var ro = new ResizeObserver(schedule);
+        ORDER.forEach(function (sel) {
+          (panel.querySelectorAll(sel) || []).forEach(function (el) { ro.observe(el); });
+        });
+        ro.observe(panel);
+        panel.__cssosStackRO = ro;
+      }
+    } catch (_e) {}
+    // 成员增删 / 文本变化(字幕逐字、价格条出现等) → 重算
+    try {
+      if (window.MutationObserver && !panel.__cssosStackMO) {
+        var mo = new MutationObserver(schedule);
+        mo.observe(panel, { childList: true, subtree: true, characterData: true });
+        panel.__cssosStackMO = mo;
+        // 新增的成员也要纳入 ResizeObserver
+      }
+    } catch (_e) {}
+    schedule();
+    return true;
+  }
+  function boot() {
+    if (!wire()) {
+      var tries = 0;
+      var iv = setInterval(function () {
+        if (wire() || ++tries > 60) clearInterval(iv);
+      }, 250);
+    }
+    // Dock 显隐 / 全屏 / 旋屏 / 面板开关都改变基准或成员 → 重算
+    ["resize", "orientationchange", "cssos:panelopen", "cssos:panelclose",
+     "cssos:open-watch-for-run", "fullscreenchange"].forEach(function (ev) {
+      window.addEventListener(ev, schedule, { passive: true });
+    });
+    [200, 600, 1200, 2500].forEach(function (ms) { setTimeout(schedule, ms); });
+  }
+  if (document.readyState === "complete" || document.readyState === "interactive") boot();
+  else document.addEventListener("DOMContentLoaded", boot, { once: true });
+  globalThis.cssosRecomputeBottomStack = schedule;
+})();

@@ -42,6 +42,16 @@
     // 的 URL 片段(如 #home / #person-mv / 空 #), 于是自动播放【每次都被误判为深链而跳过】。
     // 桌面 web 落在 "/" 无 hash → 正常播放, 完美吻合"网页行, App 不行"。修复: 只有【真正
     // 指向具体内容的深链】才抑制自动播放; #、#home、#main、未知/不完整 hash 一律不算深链。
+    // CSSOS_WAVE_731 20260612 — Jing「分享链接被卡住」真凶: app.share-link-router.js
+    // 一启动就 stripShareParam() 把 ?cssMV= 从 URL 删掉(防刷新重复触发), 而本提示
+    // 延迟 1500ms 才弹 → 那时 location.search 已被清空 → 下面的 URL 守卫判不出深链 →
+    // 照弹「欣赏最新 MV?」盖住分享的那首歌 (Jerusalem)。修复: 优先看分享路由设的全局
+    // 旗标, strip 多早都拦得住。__cssosShareLinkActive 整个分享会话内为 true,
+    // __cssosShareLinkWorkId 是被分享的 work id。
+    try {
+      if (globalThis.__cssosShareLinkActive === true) return true;
+      if (globalThis.__cssosShareLinkWorkId) return true;
+    } catch (_e) {}
     try {
       var h = String(location.hash || "").replace(/^#/, "").trim().toLowerCase();
       if (h) {

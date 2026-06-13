@@ -466,7 +466,8 @@
         mv.cover_image ? el("img", { src: mv.cover_image, alt: "" }) : null,
         el("div", { class: "uhp-mv-meta" }, [
           el("strong", {}, [mv.person_zh || mv.title || ""]),
-          el("em", {}, ["👁 " + (mv.view_count || 0) + " · ❤️ " + (mv.like_count || 0)]),
+          el("em", {}, ["👁 " + (mv.view_count || 0) + " · ❤️ " + (mv.like_count || 0)
+            + ((globalThis.cssosFmtDur && globalThis.cssosFmtDur(mv)) ? " · ♪ " + globalThis.cssosFmtDur(mv) : "")]),
         ]),
       ]);
       grid.appendChild(card);

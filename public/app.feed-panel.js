@@ -86,7 +86,8 @@
         '  <div class="feed-cover" style="background-image:url(' + JSON.stringify(cover) + ')"></div>',
         '  <div class="feed-meta">',
         '    <div class="feed-title">' + escHtml(it.title) + "</div>",
-        '    <div class="feed-source">' + escHtml(srcLabel) + "</div>",
+        '    <div class="feed-source">' + escHtml(srcLabel)
+          + (function(){ var d=(globalThis.cssosFmtDur?globalThis.cssosFmtDur(it):""); return d?" · ♪ "+d:""; })() + "</div>",
         "  </div>",
         "</article>",
       ].join("");

@@ -149,7 +149,7 @@ function buildWorkspaceGroupMarkupModule(group) {
           <div class="workspace-line">
             <div>
               <div class="workspace-line-title">${escapeHtml(String(work?.title || t("workspaces.untitledWork")))}</div>
-              <div class="work-tags">${escapeHtml(String(work?.status || "draft"))}</div>
+              <div class="work-tags">${escapeHtml(String(work?.status || "draft"))}${(globalThis.cssosFmtDur && globalThis.cssosFmtDur(work)) ? " · ♪ " + escapeHtml(globalThis.cssosFmtDur(work)) : ""}</div>
             </div>
             <button class="mini-btn ghost tiny" type="button" data-workspace-open-work="${escapeHtml(String(work?.id || work?.local_id || ""))}">
               ${escapeHtml(t("action.open"))}

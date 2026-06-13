@@ -1489,6 +1489,48 @@ function injectMusicGaps(sections: SubSection[], songDurSec?: number | null): Su
   return sections.concat(musicSecs).sort((a, b) => (a.t_start || 0) - (b.t_start || 0));
 }
 
+// CSSOS_WAVE_721 — 内容智能联动 emoji: 像「文明智能联动歌词」一样, emoji 也按【歌曲内容】智能生成。
+// 西部狂野→🤠🐎🔫🌵🌅; 圣城→🕊️🏛️🌟🕯️✨(中性意象, 绝不画宗教/政治人物)。一首一次 LLM(便宜),
+// 输出存进字幕 JSON 顶层 theme_emoji, 前端用作 confetti/器乐 emoji/爆字背景的池子(替代千篇一律的花)。
+async function deriveThemeEmoji(title: string, lyrics: string): Promise<{ emoji: string[]; title: string } | null> {
+  const ly = String(lyrics || "").replace(/\s+/g, " ").trim().slice(0, 1800);
+  if (ly.length < 8) return null;
+  const sys = "You are a creative subtitle art director. Output STRICT JSON only — no markdown, no commentary.";
+  const user =
+    `This song's emotion-subtitles burst with thematic emoji matching the song's CONTENT (objects, places, nature, animals, weather, mood from the lyrics).\n` +
+    `Title: ${title ? title : "(none — propose a short fitting title from the lyrics)"}\n` +
+    `Lyrics:\n${ly}\n\n` +
+    `Return JSON: { "title": string (keep given title, or a short evocative title from the lyrics if none), "emoji": string[] (12-16 DISTINCT emoji matching THIS song's imagery — specific, varied) }\n` +
+    `HARD RULES for emoji:\n` +
+    `- NEVER depict real, religious, mythological, or political FIGURES / persons / deities / prophets (no person/face/praying-person emoji standing for a figure). Use neutral thematic motifs instead (a holy-city song -> 🕊️🏛️🌟🕯️✨🌅🫒, NEVER any deity/person).\n` +
+    `- Match the lyrics' actual imagery (a desert/cowboy song -> 🤠🐎🌵🔫🌅🪕; an ocean song -> 🌊⛵🐚🌙🧭).\n` +
+    `- Do NOT default to flowers (🌸🌹) unless flowers truly appear in the lyrics.\n` +
+    `- Emoji only; no text, no skin-tone modifiers, no country flags.`;
+  try {
+    const r = await callLlm({ messages: [{ role: "system", content: sys }, { role: "user", content: user }], response_format: { type: "json_object" } });
+    if (!r.ok || !r.content) return null;
+    let p: any = null;
+    try { p = JSON.parse(r.content); } catch { return null; }
+    if (!p || !Array.isArray(p.emoji)) return null;
+    const BORING = new Set(["▶", "◀", "⚫", "⚪", "●", "○", "■", "□", "▪", "▫", "◆", "◇", "⬛", "⬜", "◾", "◽", "▲", "▼", "Ⓡ", "™", "®", "▶️", "◀️"]);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const e of p.emoji) {
+      let s = String(e || "").trim();
+      s = s.replace(/[\u{1F3FB}-\u{1F3FF}]/gu, "");            // 去肤色修饰
+      if (!s) continue;
+      if (s.includes("�")) continue;                      // 乱码替换符
+      if (/[\u{1F1E6}-\u{1F1FF}]/u.test(s)) continue;          // 去国旗
+      if (!/\p{Extended_Pictographic}/u.test(s)) continue;     // 必须是真 emoji 象形字(挡汉字「離」/字母符号 Ⓡ)
+      if (BORING.has(s.replace(/️/g, ""))) continue;      // 挡太朴素的几何符号
+      if (!seen.has(s)) { seen.add(s); out.push(s); }
+      if (out.length >= 16) break;
+    }
+    if (out.length < 4) return null;
+    return { emoji: out, title: String(p.title || title || "").slice(0, 120) };
+  } catch { return null; }
+}
+
 // ── Upsert lyrics.json on R2 (append or create) ───────────────────────────────
 async function upsertLyricsJson(
   workId: string,
@@ -1534,6 +1576,7 @@ async function upsertSubtitleJson(
   lang: string,
   take: 1 | 2,
   sections: SubSection[],
+  volCurve?: { step_ms: number; values: number[] } | null,
 ): Promise<string | null> {
   if (!r2Enabled()) return null;
   const remotePath = `works/${workId}/subtitle-take${take}.json`;
@@ -1541,6 +1584,10 @@ async function upsertSubtitleJson(
     let doc = (await downloadJsonFromR2(remotePath)) as SubtitleJson | null;
     if (!doc || doc.v !== 1) {
       doc = { v: 1, work_id: workId, take, updated_at: new Date().toISOString(), languages: [] };
+    }
+    // CSSOS_WAVE_724 — 整曲音量包络(顶层, 全语言共用同一器乐)。
+    if (volCurve && Array.isArray(volCurve.values) && volCurve.values.length) {
+      (doc as any).vol_curve = volCurve;
     }
     doc.languages = doc.languages.filter((l) => l.lang !== lang);
     doc.languages.push({ lang, analyzed_at: new Date().toISOString(), sections });
@@ -1604,6 +1651,41 @@ async function enrichTimelineViaAudioAnalysis(
     // Service not running or timed out — Phase 1 fallback
     return null;
   }
+}
+
+// CSSOS_WAVE_724 — 整曲 RMS 音量包络(给 [Music...] 器乐段 emoji"音量大→多"用)。复用 /analyze:
+// 用合成 token 平铺整曲(0.5s/格), 取每格 volume, 归一化 0..1。前端按 currentTime 采样 → cssosCurrentVolume。
+async function computeVolumeCurve(
+  audioUrl: string,
+  durationSec: number,
+): Promise<{ step_ms: number; values: number[] } | null> {
+  if (!audioUrl || !(durationSec > 1)) return null;
+  const STEP = 0.5;
+  const n = Math.min(1400, Math.ceil(durationSec / STEP));
+  if (n < 2) return null;
+  const timeline = Array.from({ length: n }, (_v, i) => ({ word: "·", start: i * STEP, end: (i + 1) * STEP }));
+  // CSSOS_WAVE_724 — 【非关键, 短超时 25s】: /analyze 被批处理打满时直接放弃(返回 null → 前端回退
+  // 随机密度), 绝不让这条"锦上添花"的曲线拖慢主对齐/批处理。不用 enrich 的 120s。
+  let enriched: Array<{ volume: number | null }> | null = null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25_000);
+    const resp = await fetch(`${AUDIO_ANALYSIS_URL}/analyze`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio_url: audioUrl, timeline }), signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (resp.ok) {
+      const data = await resp.json() as { ok?: boolean; tokens?: Array<{ volume: number | null }> };
+      if (data && data.ok && Array.isArray(data.tokens)) enriched = data.tokens;
+    }
+  } catch { enriched = null; }
+  if (!enriched || !enriched.length) return null;
+  const raw = enriched.map((e) => Number(e.volume) || 0);
+  let max = 0.0001;
+  for (const v of raw) if (v > max) max = v;
+  const values = raw.map((v) => Math.round(Math.max(0, Math.min(1, v / max)) * 100) / 100);
+  return { step_ms: Math.round(STEP * 1000), values };
 }
 
 // Merge audio-analysis enrichment into subtitle sections built in Phase 1.
@@ -1778,6 +1860,15 @@ function isSubMarkupToken(text: string): boolean {
 // 一【行】是否是段落标题(而非歌词): markdown 标题/加粗包裹, 或已知段落关键词(多语)+ 可选序号。
 // 用于 in-place 清洗已 token 化的 JSON —— 那时全角括号已被切成 CJK 字, 唯一可靠信号是整行语义。
 const _SECTION_KW = /^(verse|chorus|bridge|intro|outro|pre-?chorus|pre-?hook|hook|refrain|interlude|breakdown|drop|coda|build|主歌|副歌|导歌|桥段|桥|前奏|间奏|尾奏|序曲|序|和声|预副歌|过门)$/i;
+// CSSOS_WAVE_728 — 制作/编曲提示行(非歌词): "可逐渐叠加声部"、"渐强收尾"、"转调升半音"、"加入和声"
+// 这些是给制作/演唱的【指示】, 不是被唱出来的词, 却常混进歌词文本被当成一行字幕。短句 + 编曲专有词 → 丢。
+const _PROD_KW = /(声部|配器|编曲|织体|转调|弱起|渐强|渐弱|渐入|渐出|叠加|和声层|哼鸣|拟声|过门|连复段|riff|ad-?lib|crescendo|diminuendo|harmon(y|ies)|layer\s+in|build\s*-?up|fade\s*(in|out)|reverb|octave)/i;
+function isProductionNoteText(text: string): boolean {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  if (t.length > 22) return false;                          // 太长多半是真歌词, 不误删
+  return _PROD_KW.test(t);
+}
 function isSectionHeaderText(text: string): boolean {
   const t = String(text || "").trim();
   if (!t) return false;
@@ -1806,11 +1897,13 @@ function sanitizeSubtitleSections(sections: SubSection[], langHint?: string | nu
     }
     expected = cjk > latin ? "cjk" : latin > cjk ? "latin" : null;
   }
-  const keepTok = (tk: SubToken): boolean => {
+  // CSSOS_WAVE_728 — Jing: 中文轨里【整句英文】(真唱的外语句)被误删 → 那句不显示。修: 脚本裁决
+  // 改【按行】—— 只在"本行以期望脚本为主、零星混进外语"(真泄漏)时剔; 整行是另一种脚本 = 真·外语句, 保留。
+  const keepTok = (tk: SubToken, exp: SubScriptClass | null): boolean => {
     if (isSubMarkupToken(tk.char)) return false;
-    if (expected) {
+    if (exp) {
       const sc = subScriptClassOf(tk.char);
-      if (sc !== "other" && sc !== expected) return false;   // 串语言泄漏
+      if (sc !== "other" && sc !== exp) return false;   // 串语言泄漏(仅在本行主脚本=期望时才裁)
     }
     return true;
   };
@@ -1824,10 +1917,18 @@ function sanitizeSubtitleSections(sections: SubSection[], langHint?: string | nu
       const rawJoin = orig.map((t) => t.char).join(
         orig.length && subScriptClassOf(orig[0]!.char) === "cjk" ? "" : " ",
       ).trim();
-      if (rawJoin && isSectionHeaderText(rawJoin)) continue;
+      if (rawJoin && (isSectionHeaderText(rawJoin) || isProductionNoteText(rawJoin))) continue;
       if (titleKey && rawJoin && normTitle(rawJoin) === titleKey) continue;
-      const tokens = orig.filter(keepTok);
-      if (!tokens.length) continue;                          // 整行皆泄漏 → 丢
+      // CSSOS_WAVE_728 — 本行主脚本: 若整行是【另一种脚本】(真·外语整句, 非零星泄漏)→ 不按脚本裁, 整行保留。
+      let lineExpected = expected;
+      if (expected) {
+        let lc = 0, ll = 0;
+        for (const t of orig) { const s = subScriptClassOf(t.char); if (s === "cjk") lc++; else if (s === "latin") ll++; }
+        const lineMajority: SubScriptClass | null = lc > ll ? "cjk" : ll > lc ? "latin" : null;
+        if (lineMajority && lineMajority !== expected) lineExpected = null;   // 整行外语 → 保留
+      }
+      const tokens = orig.filter((tk) => keepTok(tk, lineExpected));
+      if (!tokens.length) continue;                          // 整行皆 markup → 丢
       const dropped = tokens.length !== orig.length;
       // 若有 token 被丢, 行文本须从存活 token 重建(原 ln.text 还带着泄漏文字)。
       const joiner = subScriptClassOf(tokens[0]!.char) === "cjk" ? "" : " ";
@@ -21187,7 +21288,20 @@ function sanitizeLyricsForMusicEngine(lyrics: string): string {
     return /^(intro|verse|pre-?chorus|chorus|bridge|hook|refrain|outro|coda|interlude|breakdown|drop|build|ritual|chant|incantation)(\s*\d+)?$/i.test(h)
       ? `[${h}]` : m;
   });
-  // 3) Tidy the blank lines left behind.
+  // 3) CSSOS_WAVE_739 20260613 — Jing「Suno 把描述/标签/剧本当歌词唱」根因: 上面只剥【方括号】
+  //    元数据, 但【不带括号的制作说明散文】(可逐渐叠加声部/渐强/和声层…)、【段落头/markdown】
+  //    (# 标题 / **加粗段名**)、剧本场景说明 会原样进 Suno → 被唱出来。这里逐行剔除非歌词散文,
+  //    复用 isProductionNoteText(声部/配器/编曲… ≤22字) + isSectionHeaderText(#/**/段名)。
+  //    保留 [Verse]/[Chorus] 等裸结构标签(Suno 当结构用, 不唱)。
+  s = s.split("\n").filter((line) => {
+    const t = line.trim();
+    if (!t) return true;                                   // 空行保留(结构)
+    if (/^\[[^\]]*\]$/.test(t)) return true;               // 裸 [Verse]/[Chorus] 结构标签 → 保留
+    if (isProductionNoteText(t)) return false;             // 制作说明散文 → 丢
+    if (isSectionHeaderText(t)) return false;              // 段落头/markdown → 丢
+    return true;                                           // 真歌词 → 留
+  }).join("\n");
+  // 4) Tidy the blank lines left behind.
   s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return s;
 }
@@ -26101,12 +26215,19 @@ app.get("/api/festivals/today", async (_req, res) => {
   try {
     const r = await withClient((c) =>
       c.query<any>(
+        // CSSOS_WAVE_733B 20260613 — JOIN festivals 取典故+人物(文明智能联动种子)。
         `SELECT f.festival_id, f.name_zh, f.name_en, f.civilization,
                 f.music_style_hint, f.core_theme, f.influence_score,
                 sfl.work_id, sfl.status, sfl.created_at,
-                w.title AS work_title, w.cover_image
+                w.title AS work_title, w.cover_image,
+                fl.description_zh, fl.description_en, fl.featured_persons,
+                (SELECT string_agg(pp.name_zh, '、') FROM person_profiles pp
+                   WHERE pp.person_id = ANY(fl.featured_persons)) AS featured_person_names_zh,
+                (SELECT string_agg(pp.name_en, ', ') FROM person_profiles pp
+                   WHERE pp.person_id = ANY(fl.featured_persons)) AS featured_person_names_en
            FROM system_festivals f
            JOIN system_festival_dates d ON d.festival_id = f.festival_id
+           LEFT JOIN festivals fl ON fl.festival_id = f.festival_id
            LEFT JOIN system_festival_log sfl
                   ON sfl.festival_id = f.festival_id
                  AND sfl.run_date = current_date
@@ -26136,11 +26257,20 @@ app.get("/api/festivals/upcoming", async (req, res) => {
   try {
     const r = await withClient((c) =>
       c.query<any>(
+        // CSSOS_WAVE_733B 20260613 — Jing「任何动作都要文明智能联动」: JOIN festivals 取【典故
+        // description】+【人物 featured_persons】并解析人名, 让节日创作种子带上"屈原/投江汨罗"这种
+        // 具体人物+典故(不只曲风+主题)。人时地典(文明/曲风/典故/人物)四维齐全。
         `SELECT f.festival_id, f.name_zh, f.name_en, f.civilization,
                 f.music_style_hint, f.core_theme, f.influence_score,
-                d.greg_date
+                d.greg_date,
+                fl.description_zh, fl.description_en, fl.featured_persons,
+                (SELECT string_agg(pp.name_zh, '、') FROM person_profiles pp
+                   WHERE pp.person_id = ANY(fl.featured_persons)) AS featured_person_names_zh,
+                (SELECT string_agg(pp.name_en, ', ') FROM person_profiles pp
+                   WHERE pp.person_id = ANY(fl.featured_persons)) AS featured_person_names_en
            FROM system_festivals f
            JOIN system_festival_dates d ON d.festival_id = f.festival_id
+           LEFT JOIN festivals fl ON fl.festival_id = f.festival_id
           WHERE d.greg_date > current_date
             AND d.greg_date <= current_date + ($1::int * interval '1 day')
             AND f.active = true
@@ -32447,6 +32577,9 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
   if (!/^[0-9a-f-]{36}$/i.test(workId)) {
     return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
   }
+  // CSSOS_WAVE_735B 20260613 — Jing「全量熟歌词优先」: ?asr=1 强制走自由 ASR(忽略书面歌词),
+  // 用【实际唱出来的词】重做字幕 + 覆盖 lyrics_preview。给第②批"有词作品改熟歌词"用。
+  const forceAsr = String((req.query as any)?.asr || (req.body as any)?.asr || "").trim() === "1";
   try {
     const tracks = await withClient((c) => c.query<{ lang: string; audio_url: string; vocal_url: string | null; track_order: number; lyrics: string | null; duration_secs: number | null }>(
       // CSSOS_WAVE_674 ② onset 精度: 也取人声 stem(vocal_url), 强制对齐改在【纯人声】上做 —— 没鼓点/伴奏
@@ -32476,6 +32609,14 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       return "en";
     };
     const realLangCodes = new Set(["zh", "en", "ja", "ko", "es", "fr", "de", "it", "pt", "ru"]);
+    // CSSOS_WAVE_724 — 整曲音量包络: 算一次(用第一条轨的音频), 全语言共用(器乐相同)。给 [Music...] emoji。
+    let _volCurve: { step_ms: number; values: number[] } | null = null;
+    try {
+      const _t0 = tracks.rows[0];
+      const _au = String(_t0?.audio_url || "");   // 用全混(器乐段无人声, 等于器乐)
+      const _dur = Number(_t0?.duration_secs || 0) || 300;   // 无时长 → 按 300s 平铺(超出自然为 0)
+      _volCurve = await computeVolumeCurve(_au, _dur);
+    } catch { _volCurve = null; }
     for (const tr of tracks.rows) {
       const langEntry = lyricsDoc?.languages?.find((l) => l.lang === tr.lang);
       // 歌词来源兜底链: R2 lyrics.json(本轨语言) → DB 轨.lyrics → work.lyrics_preview。
@@ -32499,6 +32640,38 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         if (!/[\p{L}\p{N}]/u.test(t)) return false;            // 无任何字母/数字(含 CJK)= 纯符号分隔 ⸻/---/=== → 丢
         return true;                                            // 注: 用 \p{L} 而非 \w, 否则会误删中文/日文歌词行
       }).join("\n");
+      // CSSOS_WAVE_735 20260613 — Jing「熟歌词优先」: 无书面歌词 → 在(人声 stem 优先)音频上跑
+      // 【自由 ASR】(alignWordsViaWhisper 不给 refText = whisper 自由转写), 把【实际唱出来的词】当
+      // 歌词(熟歌词), 按时间缝分行拼成文本 + 直接复用其词级时间线(省一次对齐), 并回填 lyrics_preview。
+      // 这样有声无词的作品也有情绪字幕, 且歌词=实唱(含 ad-lib/改词/说唱), 比生歌词更准。
+      // W735B — 强制熟歌词: 清掉书面歌词 → 落入下面 ASR 路径(实唱词优先)。
+      if (forceAsr) reLyrics = "";
+      let asrPrebuiltTl: Array<{ word: string; start: number; end: number }> | null = null;
+      if (!reLyrics.trim()) {
+        const asrAudio = (tr.vocal_url && String(tr.vocal_url).trim()) ? String(tr.vocal_url) : tr.audio_url;
+        const asrRaw = await alignWordsViaWhisper(asrAudio); // 无 refText = 自由 ASR
+        const asrWords = (Array.isArray(asrRaw) ? asrRaw : [])
+          .map((w: any) => ({ word: String(w?.text ?? w?.word ?? "").trim(), start: Number(w?.start_s ?? w?.start ?? 0), end: Number(w?.end_s ?? w?.end ?? 0) }))
+          .filter((w) => w.word && w.end > w.start);
+        if (!asrWords.length) { results.push({ lang: tr.lang, ok: false, reason: "asr_empty" }); continue; }
+        // 按时间缝(>0.7s)或每行 ~9 词分行 → 熟歌词文本。
+        const _lines: string[] = []; let _cur: string[] = []; let _lastEnd = asrWords[0]?.start ?? 0;
+        for (const w of asrWords) {
+          if (_cur.length && (w.start - _lastEnd > 0.7 || _cur.length >= 9)) { _lines.push(_cur.join(" ")); _cur = []; }
+          _cur.push(w.word); _lastEnd = w.end;
+        }
+        if (_cur.length) _lines.push(_cur.join(" "));
+        reLyrics = _lines.join("\n");
+        asrPrebuiltTl = asrWords;
+        // 回填熟歌词到 user_works.lyrics_preview。force 模式覆盖(熟歌词优先); 否则仅当原本为空。
+        try {
+          if (forceAsr) {
+            await withClient((c) => c.query(`UPDATE user_works SET lyrics_preview=$2 WHERE id=$1::uuid`, [workId, reLyrics]));
+          } else {
+            await withClient((c) => c.query(`UPDATE user_works SET lyrics_preview=$2 WHERE id=$1::uuid AND (lyrics_preview IS NULL OR lyrics_preview='')`, [workId, reLyrics]));
+          }
+        } catch (_e) {}
+      }
       if (!reLyrics.trim()) {
         results.push({ lang: tr.lang, ok: false, reason: "no_lyrics" });
         continue;
@@ -32508,7 +32681,8 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       const emo = await annotateEmotions(parseLyricsToSections(reLyrics), alignLang);
       // CSSOS_WAVE_674 ② — 优先用人声 stem 做强制对齐(onset 更准); 没有则回退全混。
       const alignAudio = (tr.vocal_url && String(tr.vocal_url).trim()) ? String(tr.vocal_url) : tr.audio_url;
-      const aligned = await alignWordsViaWhisper(alignAudio, alignLang, reLyrics);
+      // W735 — 熟歌词模式已有实唱时间线 → 直接复用(省一次 Whisper); 否则正常强制对齐书面词。
+      const aligned = asrPrebuiltTl ? asrPrebuiltTl : await alignWordsViaWhisper(alignAudio, alignLang, reLyrics);
       const tl = (Array.isArray(aligned) ? aligned : [])
         .map((w: any) => ({
           word: String(w?.text ?? w?.word ?? "").trim(),
@@ -32551,7 +32725,7 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         } catch (_e) { /* SER 失败 → 回退分位 */ }
       }
       sections = derivePerTokenEmotion(sections); // #44 逐字情绪强度(SER 优先, 否则分位)
-      await upsertSubtitleJson(workId, tr.lang, 1, sections);
+      await upsertSubtitleJson(workId, tr.lang, 1, sections, _volCurve);
       results.push({
         lang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),
@@ -32602,6 +32776,61 @@ app.post("/api/audio/pitch", express.json({ limit: "2kb" }), async (req, res) =>
   } finally {
     try { fs.unlinkSync(inF); } catch (_e) {}
     try { fs.unlinkSync(outF); } catch (_e) {}
+  }
+});
+
+/* CSSOS_WAVE_721 — 内容智能联动 emoji: 为一首作品生成【内容相关 emoji 池】, 写进字幕 JSON 顶层
+ *   theme_emoji(前端拿来做 confetti/器乐 emoji/爆字背景, 替代千篇一律的花)。用字幕写入互斥锁,
+ *   与对齐批处理无竞态。?dry=1 仅预览不存储。
+ *   curl -X POST "$API/api/admin/theme-emoji/<workId>[?dry=1]" -H "x-admin-token: $TOK" */
+app.post("/api/admin/theme-emoji/:workId", async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const workId = String(req.params.workId || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
+  const dry = String(req.query.dry || "") === "1";
+  try {
+    const wr = await withClient((c) => c.query<{ title: string | null; lyrics_preview: string | null }>(
+      `SELECT title, lyrics_preview FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+    const title = String(wr.rows[0]?.title || "");
+    let lyrics = String(wr.rows[0]?.lyrics_preview || "");
+    const sub = (await downloadJsonFromR2(`works/${workId}/subtitle-take1.json`)) as any;
+    // 歌词不足 → 从字幕 token 重建(真实唱词, 排除 [Music...]/ad-lib)。
+    if (lyrics.replace(/\s+/g, "").length < 16 && sub && Array.isArray(sub.languages)) {
+      const parts: string[] = [];
+      const lg = sub.languages.find((l: any) => Array.isArray(l?.sections)) || sub.languages[0];
+      for (const s of (lg?.sections || [])) for (const ln of (s.lines || [])) {
+        if (ln.adlib) continue;
+        if (ln.text) parts.push(String(ln.text));
+      }
+      lyrics = parts.join(" ");
+    }
+    const derived = await deriveThemeEmoji(title, lyrics);
+    if (!derived) return res.json({ ok: false, reason: "no_emoji", workId, lyricsLen: lyrics.length });
+    // CSSOS_WAVE_721 — 占位/不符标题(Untitled / CSS MV / 未命名…)→ 用 AI 从歌词生成的标题替换。
+    let titleFixed: string | null = null;
+    const isPlaceholderTitle = !title.trim() || /^(untitled.*|css\s*mv.*|css studio.*|未命名.*|无标题|无题|new song|demo|song)$/i.test(title.trim());
+    if (!dry && isPlaceholderTitle && derived.title && derived.title.trim() && !/^(untitled|css\s*mv|未命名|无标题)$/i.test(derived.title.trim())) {
+      await withClient((c) => c.query(`UPDATE user_works SET title=$2, updated_at=now() WHERE id=$1::uuid`, [workId, derived.title.trim().slice(0, 120)])).catch(() => {});
+      titleFixed = derived.title.trim().slice(0, 120);
+    }
+    let stored = false;
+    if (!dry && r2Enabled()) {
+      await withJsonMutex(`subtitle:${workId}:take1`, async () => {
+        const doc = (await downloadJsonFromR2(`works/${workId}/subtitle-take1.json`)) as any;
+        if (doc && doc.v === 1) {
+          doc.theme_emoji = derived.emoji;
+          doc.updated_at = new Date().toISOString();
+          await uploadBufferToR2(Buffer.from(JSON.stringify(doc), "utf-8"), `works/${workId}/subtitle-take1.json`, "application/json");
+          stored = true;
+        }
+      });
+    }
+    return res.json({ ok: true, workId, stored, title: derived.title, titleFixed, emoji: derived.emoji });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String((e as Error)?.message || e).slice(0, 300) });
   }
 });
 

@@ -136,7 +136,8 @@
       var glyph = FESTIVAL_GLYPH[it.festival_id] || "🎊";
       var pending = !it.work_id;
       return ''
-        + '<article class="festival-card" data-work-id="' + esc(it.work_id || "") + '" data-festival-id="' + esc(it.festival_id) + '">'
+        + '<article class="festival-card" data-work-id="' + esc(it.work_id || "") + '" data-festival-id="' + esc(it.festival_id) + '"'
+        + ' data-fest-name="' + esc(name) + '" data-fest-civ="' + esc(it.civilization || "") + '" data-fest-theme="' + esc(it.core_theme || "") + '" data-fest-music="' + esc(it.music_style_hint || "") + '" data-fest-lore="' + esc((isZh ? it.description_zh : it.description_en) || it.description_zh || "") + '" data-fest-persons="' + esc((isZh ? it.featured_person_names_zh : it.featured_person_names_en) || it.featured_person_names_zh || "") + '">'
         + '  <div class="cover" style="' + coverStyle + '">'
         + '    <span class="festival-glyph">' + glyph + '</span>'
         + (pending
@@ -152,7 +153,23 @@
     track.querySelectorAll(".festival-card").forEach(function (card) {
       card.addEventListener("click", function () {
         var workId = card.getAttribute("data-work-id");
-        if (!workId) return;
+        if (!workId) {
+          // W732 — 今日节日还没生成 MV(pending)→ 别死胡同, 引导去【为该节日创作】(同人物生日)。
+          var nm = card.getAttribute("data-fest-name") || "";
+          var civ = card.getAttribute("data-fest-civ") || "";
+          var theme = card.getAttribute("data-fest-theme") || "";
+          var music = card.getAttribute("data-fest-music") || "";
+          var lore = card.getAttribute("data-fest-lore") || "";
+          var persons = card.getAttribute("data-fest-persons") || "";
+          if (nm && typeof globalThis.cssosOpenAssistantWithPrompt === "function") {
+            // CSSOS_WAVE_733/733B — 文明智能联动: 文明 + 代表性曲风 + 主题 + 典故 + 人物, 母语创作。
+            var p = isZh
+              ? ("为节日「" + nm + "」创作一首歌曲。" + (civ ? "文明:" + civ + "。" : "") + (persons ? "核心人物:" + persons + "。" : "") + (lore ? "典故:" + lore + "。" : "") + (theme ? "主题:" + theme + "。" : "") + (music ? "曲风:" + music + "。" : "") + "请严格用该文明的代表性曲风与母语创作,唱出这个节日背后的人物、典故与情感,要有浓郁的文明特色。")
+              : ("Create a song for the festival “" + nm + "”. " + (civ ? "Civilization: " + civ + ". " : "") + (persons ? "Key figure: " + persons + ". " : "") + (lore ? "Lore: " + lore + ". " : "") + (theme ? "Theme: " + theme + ". " : "") + (music ? "Musical style: " + music + ". " : "") + "Use that civilization's representative musical tradition and mother tongue; sing the people, lore and feeling behind it.");
+            globalThis.cssosOpenAssistantWithPrompt(p);
+          }
+          return;
+        }
         // CSSOS_WAVE_153C 20260514 — Jing: 节日 shelf 点击对齐 W128/W149
         // 统一入口 — open the MV pipeline panel in cinema mode with the
         // work queued, same as the person/landmark codex gallery cards.

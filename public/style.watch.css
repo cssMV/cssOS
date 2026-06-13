@@ -370,41 +370,11 @@
   }
 }
 
-@font-face {
-  font-family: "CSSTitleBoldA";
-  src: url("fonts_en/TheropodsDemoBold-2.ttf") format("truetype");
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "CSSTitleBoldB";
-  src: url("fonts_en/Qualy-Bold-2.ttf") format("truetype");
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "CSSTitleBoldC";
-  src: url("fonts_en/abington-bold-font-2.otf") format("opentype");
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "CSSSubtitleA";
-  src: url("fonts_en/Acmedia-2.ttf") format("truetype");
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "CSSSubtitleB";
-  src: url("fonts_en/BrevardDemoRegular-2.ttf") format("truetype");
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "CSSSubtitleC";
-  src: url("fonts_en/Maves-Regular-2.ttf") format("truetype");
-  font-display: swap;
-}
+/* CSSOS_WAVE_743 20260613 — Jing「控制台满屏字体 404」根因: 这批硬编码 @font-face 指向
+ * fonts_en/*.ttf|otf, 但该目录从未部署(仓库/服务器都没)→ 无条件 404 刷屏。watch-ui 的标题/
+ * 字幕字体族已有 Google 回退(Syne/Orbitron/Cormorant 等真能加载), 所以删掉这批死 @font-face
+ * 不影响显示, 只去噪。若日后补上 fonts_en 字体目录, 再恢复或交给 app.watch-font-manifest 的
+ * 智能 HEAD 探测自动启用。 */
 
 .watch-style-shift {
   position: absolute;
@@ -764,10 +734,47 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
  * 载体, 必须常驻到段落结束(见文件末尾的显式 opacity:1 豁免)。其余 chrome 仍在沉浸态隐藏。 */
 .watch-screen.is-playback-clean .watch-overlay-play,
 .watch-screen.is-playback-clean .watch-style-shift,
-.watch-screen.is-playback-clean .watch-commerce-actions {
+.watch-screen.is-playback-clean .watch-commerce-actions,
+.watch-screen.is-playback-clean .watch-work-id {
   opacity: 0 !important;
   pointer-events: none !important;
 }
+
+/* CSSOS_WAVE_733 — Jing: 播放时当前 work 🆔 低调角标(左下, 等宽小字, 半透明)。
+ * 跟 chrome 一起在 is-playback-clean 下隐藏, hover/focus 时随其它控件一起浮现。 */
+/* CSSOS_WAVE_737 20260613 — Jing: 正在播放的【标题 - 作者 / 🆔】移到【左上角头像之后】(原左下角
+ * 与 Dock 打架)。两行: 第一行 标题 - 作者(白、稍大), 第二行 🆔(等宽小字、半透明)。10s 无操作随
+ * chrome 一起隐(is-playback-clean)。 */
+/* CSSOS_WAVE_741 — Jing「不要背景框, 像之前左下那样不显眼」: 去掉深色底 + 阴影压低, 标题作者
+ * 半透白小字, ID 更淡。低调浮在画面左上角(头像后), 10s 无操作随 chrome 隐。 */
+.watch-work-id {
+  position: absolute;
+  left: 62px;            /* 让开左上角头像 */
+  top: 14px;
+  bottom: auto;
+  z-index: 6;
+  max-width: 46vw;
+  padding: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font: 500 12px/1.3 -apple-system, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  white-space: normal;
+  overflow: hidden;
+  user-select: text;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);   /* 仅靠文字阴影提可读性, 不用底框 */
+}
+.watch-work-id .wid-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.78); }
+.watch-work-id .wid-id {
+  display: block; margin-top: 0;
+  color: rgba(255, 255, 255, 0.28);   /* W744 — 隐隐约约, 不抢戏 */
+  font: 400 7.5px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.02em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.watch-work-id:empty { display: none; }
 
 /* CSSOS_WAVE_640 20260605 — Jing「情绪字幕只昙花一现」第1步: 情绪字幕(逐字 karaoke 行)是
  * 演出的一部分, 必须【跟随咬字一直显示到媒体结束】, 不能跟其它 chrome 一起在 is-playback-clean
@@ -1146,6 +1153,17 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   transition: color 0.12s linear !important;   /* 只过渡颜色, 不过渡位移 */
 }
 
+/* CSSOS_WAVE_721 — Jing: 普通字幕回到【左下角】(传统字幕位)。左对齐 + 限宽, 安静做卡拉OK逐字变色;
+ * 中央爆负责情绪。(W718 误移到右下角, 已恢复。) */
+.watch-subtitle.is-emotion-karaoke {
+  left: 3vw !important;
+  right: auto !important;
+  transform: none !important;
+  text-align: left !important;
+  width: auto !important;
+  max-width: min(46vw, 540px) !important;
+}
+
 /* 绿色 #watch-subtitle 承载逐字情绪时: 词 span 内联单行流动(不竖排、不堆叠)。 */
 .watch-subtitle.is-emotion-karaoke { white-space: normal; }
 .watch-subtitle.is-emotion-karaoke .watch-karaoke-word {
@@ -1304,6 +1322,88 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   animation: cssfxCenterPop var(--cb-dur, 0.7s) cubic-bezier(0.18, 1.5, 0.3, 1) both;
 }
 .cssfx-center-grp > * { grid-area: 1 / 1; }   /* emoji 与大字完全重叠居中 */
+
+/* CSSOS_WAVE_720 — 整句累积爆: 每字爆入(快)→ 原地【驻留 + 轻呼吸】(不自动消失), 等整句铺完
+ * 再加 .is-line-fade 一起淡出。is-line 用 left/top 定位(智能随机), transform 只做缩放呼吸。 */
+/* is-line 的 left/top = 中心点; translate(-50%,-50%) 让字以该点为中心 → 贴边的字超出屏幕约一半
+ * (媒体框只显示半个字), 但中心点永不出屏, 用户总看得见。所有关键帧都带 translate 保持居中。 */
+.cssfx-center-grp.is-line {
+  transform: translate(-50%, -50%);
+  animation: cssfxLineIn 0.9s cubic-bezier(0.2, 1.2, 0.3, 1) both,
+             cssfxBreathe 3.4s ease-in-out 0.9s infinite;
+}
+/* CSSOS_WAVE_729 ② — 爆大→延迟保持→收缩回本身(像 emoji): 默认开。 */
+@keyframes cssfxLineIn {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.42); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) scale(1.8); }
+  42%  { opacity: 1; transform: translate(-50%, -50%) scale(1.8); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+/* 关掉"爆大"时: 直接淡入到本身大小, 不放大。 */
+.cssfx-center-grp.is-line.is-nopunch {
+  animation: cssfxLineInFlat 0.4s ease both,
+             cssfxBreathe 3.4s ease-in-out 0.4s infinite !important;
+}
+@keyframes cssfxLineInFlat {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes cssfxBreathe {     /* 轻呼吸: ±5% 缩放, 给驻留的字一点生命 */
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50%      { transform: translate(-50%, -50%) scale(1.05); }
+}
+.cssfx-center-grp.is-line.is-line-fade {
+  animation: cssfxLineFade 1.5s ease forwards !important;   /* 整句一起慢慢淡出 */
+}
+@keyframes cssfxLineFade {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to   { opacity: 0; transform: translate(-50%, -50%) scale(1.08); }
+}
+/* CSSOS_WAVE_721 #2 — 整句模式: 背景大 emoji 驻留不自己淡出(随整句一起淡), 半透明衬底。 */
+.cssfx-center-grp.is-line .cssfx-center-emoji {
+  animation: none !important;
+  opacity: 0.4;
+}
+/* CSSOS_WAVE_721 #3 — 以字为中心的【小烟花】: 小 emoji 从该点向四周炸开, 不透明→透明消失。 */
+#cssfx-spark {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 10087;
+}
+.cssfx-spark-dot {
+  position: absolute;
+  line-height: 1;
+  will-change: transform, opacity;
+  transform: translate(-50%, -50%);
+  animation: cssfxSparkOut var(--sk-dur, 1.3s) cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+/* W726 — 飞出后多【停留】一会儿再【缓慢淡出】(不透明→透明, 延时, 别太快消失)。 */
+@keyframes cssfxSparkOut {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  12%  { opacity: 1; }
+  62%  { opacity: 0.92; transform: translate(calc(-50% + var(--sk-dx, 0px) * 0.9), calc(-50% + var(--sk-dy, 0px) * 0.9)) scale(1.04); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--sk-dx, 0px)), calc(-50% + var(--sk-dy, 0px))) scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #cssfx-spark { display: none; }
+}
+/* CSSOS_WAVE_721 #6 — 器乐段 emoji 从【四边框向内飘进】(响应音量), 慢飘 + 淡入淡出, 半透明。 */
+.cssfx-edge-dot {
+  position: absolute;
+  line-height: 1;
+  opacity: 0;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+  animation: cssfxEdgeIn var(--ed-dur, 2.6s) ease-in-out forwards;
+}
+@keyframes cssfxEdgeIn {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0.7); }
+  22%  { opacity: 0.7; }
+  78%  { opacity: 0.7; }
+  100% { opacity: 0; transform: translate(var(--ed-dx, 0px), var(--ed-dy, 0px)) scale(1); }
+}
 /* emoji 背景层: 大、柔、半透明, 衬在大字之后(字幕在上, 背景是 emoji)。 */
 .cssfx-center-emoji {
   line-height: 1;

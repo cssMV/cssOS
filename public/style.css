@@ -9039,9 +9039,10 @@ html {
 .cssos-create-cta {
   bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap)) !important;
 }
-/* 层2 — 左下信息胶囊 + 右下 AI 助理(同一行高) */
-#watch-pill-row-bl,
-#cssos-agent-fab {
+/* 层2 — 左下信息胶囊。CSSOS_WAVE_742 — Jing「AI 助理去右上角新家」: #cssos-agent-fab 移出
+ * 底部栈(原 bottom:!important 死压了它的 top 定位 → 一直回不了右上)。FAB 定位现由
+ * app.agent-chat.js 的 top/right 规则 + 全屏移入全屏元素(W741)负责。 */
+#watch-pill-row-bl {
   bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap) * 2) !important;
 }
 /* 层3 — 情绪字幕 */

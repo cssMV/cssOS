@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSS Studio × NVIDIA — World's first emotion subtitles</title>
+  <meta name="description" content="CSS Studio: the world's first emotion subtitles, on a live watch-and-create AI music-video platform. Self-hosted ML pipeline (whisperX alignment, Demucs, SER), multilingual, in review with Y Combinator. Seeking NVIDIA Inception GPU partnership." />
+  <link rel="canonical" href="https://cssstudio.app/nvidia.html" />
+  <meta property="og:title" content="CSS Studio × NVIDIA — World's first emotion subtitles" />
+  <meta property="og:description" content="A live consumer AI music-video platform with the world's first emotion subtitles. Seeking NVIDIA Inception GPU partnership to scale to film & TV." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://cssstudio.app/nvidia.html" />
+  <meta property="og:image" content="https://cssstudio.app/icons/icon-512.png" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0a0d12; color: #e8eef7;
+      font-family: -apple-system, "Segoe UI", "PingFang SC", Roboto, sans-serif; line-height: 1.6; }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 52px 24px 90px; }
+    .brow { display: flex; align-items: center; gap: 12px; color: #9fb0c8; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; }
+    .brow img { width: 30px; height: 30px; border-radius: 8px; }
+    .brow .x { color: #76b900; font-weight: 700; }  /* NVIDIA green */
+    h1 { font-size: clamp(26px, 3.6vw, 38px); margin: 16px 0 8px; line-height: 1.15; }
+    .sub { color: #8aa0bd; font-size: 17px; margin: 0 0 26px; }
+    .pill { display:inline-block; background:rgba(118,185,0,.14); color:#a6e35a; border:1px solid rgba(118,185,0,.4);
+      border-radius:999px; padding:5px 13px; font-size:13px; font-weight:600; margin: 0 6px 8px 0; }
+    h2 { font-size: 18px; margin: 32px 0 8px; color: #fff; }
+    p { color: #c7d3e3; margin: 8px 0; }
+    ul { color: #c7d3e3; padding-left: 18px; margin: 8px 0; } li { margin: 5px 0; }
+    code { background:#161d27; border:1px solid #222c39; border-radius:6px; padding:1px 6px; font-size: 13px; color:#bfe08a; }
+    a { color: #76b900; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+    .card { background:#10151d; border:1px solid #1d2632; border-radius:13px; padding:14px 16px; }
+    .card h3 { margin:0 0 4px; font-size:14px; color:#fff; } .card p { margin:0; font-size:13.5px; }
+    .ask { background:linear-gradient(180deg,rgba(118,185,0,.10),rgba(118,185,0,.03)); border:1px solid rgba(118,185,0,.3);
+      border-radius:15px; padding:18px 20px; margin-top:26px; }
+    .cta { display:inline-block; margin-top:12px; padding:12px 20px; border-radius:11px; background:#76b900; color:#06150a;
+      font-weight:700; text-decoration:none; }
+    footer { margin-top:40px; padding-top:18px; border-top:1px solid #1a222d; color:#7a8aa0; font-size:13.5px; }
+    @media (max-width:620px){ .grid{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brow"><img src="/icons/icon-192.png" alt="CSS Studio" /> CSS Studio <span class="x">× NVIDIA Inception</span></div>
+
+    <h1>The world's first emotion subtitles.</h1>
+    <p class="sub">Built on a live, watch-and-create AI music-video platform — multilingual, in production today.</p>
+
+    <div>
+      <span class="pill">Live product</span>
+      <span class="pill">World-first tech</span>
+      <span class="pill">2,000+ AI MVs</span>
+      <span class="pill">13 languages</span>
+      <span class="pill">YC — in review (F26)</span>
+      <span class="pill">Self-hosted ML</span>
+    </div>
+
+    <h2>What it is</h2>
+    <p>Open <a href="https://cssstudio.app">cssstudio.app</a> and a fully-produced music video plays instantly — sound, full-screen, zero clicks. Anyone then creates their own from one prompt: visuals, vocals, lyrics, in any language and any singing voice, without leaving the player.</p>
+
+    <h2>The breakthrough — emotion subtitles</h2>
+    <p>Lyrics are aligned to the singing voice <strong>word-by-word at human-level precision</strong>. Each word carries its own <strong>emotion, color and size</strong>, and bursts onto the screen in time with the music. Subtitles that feel — extendable to <strong>short-form drama, TV and film</strong>: a new global subtitle standard.</p>
+
+    <h2>The stack (the moat)</h2>
+    <div class="grid">
+      <div class="card"><h3>Forced alignment</h3><p>whisperX + wav2vec2 CTC, word-level (~20–50ms).</p></div>
+      <div class="card"><h3>Stem separation</h3><p>Demucs — vocals vs. instrumental, per track.</p></div>
+      <div class="card"><h3>Speech-emotion</h3><p>wav2vec2 SER (arousal/valence) → per-word emotion.</p></div>
+      <div class="card"><h3>Generation</h3><p>Multi-model video / music / voice, orchestrated.</p></div>
+    </div>
+    <p style="margin-top:12px">Today this runs <strong>self-hosted on CPU</strong>. It works — and it's exactly the inference layer that becomes 10–100× more capable on NVIDIA GPUs.</p>
+
+    <h2>Business model</h2>
+    <ul>
+      <li><strong>Free to watch</strong> — instant, audible MVs drive retention &amp; virality.</li>
+      <li><strong>Pay to create</strong> — credits / subscription for generation.</li>
+      <li><strong>Creator economy</strong> — tipping, and buyout/licensing of works.</li>
+      <li><strong>Emotion-subtitles-as-a-service</strong> — license the rendering engine to film/TV/short-drama studios worldwide.</li>
+    </ul>
+
+    <h2>Traction</h2>
+    <ul>
+      <li>Live consumer product; <strong>2,181</strong> AI music videos generated across <strong>13 languages</strong>.</li>
+      <li>Every song renders in multiple languages &amp; singing voices.</li>
+      <li><strong>In review with Y Combinator</strong> (Fall 2026); Google for Startups Cloud (in review).</li>
+    </ul>
+
+    <h2>30-second demo — “Jerusalem”</h2>
+    <p>Word-by-word emotion bursts with fireworks that linger and fade; during the instrumental break, emoji drift in from the screen edges in time with the music.</p>
+    <video controls playsinline preload="metadata" poster="/jerusalem-poster.jpg"
+      style="width:100%; border-radius:14px; border:1px solid #1d2632; background:#000; margin-top:8px;">
+      <source src="/jerusalem-demo.mp4" type="video/mp4" />
+      Your browser can't play this video — <a href="/jerusalem-demo.mp4">download it here</a>.
+    </video>
+
+    <div class="ask">
+      <h2 style="margin-top:0">The ask — NVIDIA Inception</h2>
+      <p>We are <strong>compute-bound</strong> scaling generation + real-time emotion-subtitle inference from music videos to film-grade, global output. We're seeking <strong>GPU access (DGX Cloud / credits) and technical partnership</strong> — a flagship, demoable consumer-AI story, built on NVIDIA.</p>
+      <a class="cta" href="https://cssstudio.app">▶ See it live</a>
+    </div>
+
+    <footer>
+      <strong>Founding team</strong> — Jing Du (Founder &amp; CEO) · Yi Du (CTO — Math &amp; CS, American University, President's List)<br/>
+      Jing Du · <a href="mailto:jing@cssstudio.app">jing@cssstudio.app</a> · <a href="https://cssstudio.app">cssstudio.app</a><br/>
+      30-second demo: <a href="/jerusalem-demo.mp4">Jerusalem (MP4)</a> · Live: <a href="https://cssstudio.app/?cssMV=f4c5e610-d921-433b-8c32-461a52a9d6ea">play in-app</a>
+    </footer>
+  </div>
+</body>
+</html>

@@ -398,7 +398,10 @@
       // CSSOS_WAVE_745 — Jing「爆字幕/情绪字幕逐字随机切换字体」: 每字从脚本感知的字体池随机取
       // 一个字体(CJK→中日韩字体, 拉丁→那 92 个 Google fancy)。globalThis.cssosBurstRandomFont
       // 默认开, 面板「爆字随机字体·每字」可关(关 = 统一默认字体)。
+      // CSSOS_WAVE_747 — 情绪字幕跟随字体切换总开关 cssosEmotionFontFollow(默认开, 字体设置菜单可关)
+      // ∧ 逐字随机字体开关 cssosBurstRandomFont(默认开)。任一关 → 爆字用统一默认字体(冻结)。
       var _burstFont = (globalThis.cssosBurstRandomFont !== false &&
+                        globalThis.cssosEmotionFontFollow !== false &&
                         typeof globalThis.cssosPickFontForChar === "function")
         ? (function () { try { return globalThis.cssosPickFontForChar(t) || ""; } catch (_e) { return ""; } })()
         : "";

@@ -55,6 +55,8 @@
     AUTO_ROTATE_OPTIONS_MIN: [0, 1, 3, 5, 10, 15, 30, 60],
     AUTO_ROTATE_STORAGE_KEY: "cssmv.watchFontAutoRotateMin",
     SCRIPT_POOLS_ENABLED_KEY: "cssmv.watchFontScriptPools",
+    // CSSOS_WAVE_747 — Jing「情绪字幕是否也跟随字体切换频率, 参数化, 默认跟, 用户可关」。
+    EMOTION_FONT_FOLLOW_KEY: "cssmv.watchEmotionFontFollow",
 
     // P2-28d vocals/instrumental toggle
     STEM_STORAGE_KEY: "cssmv.stemPreference", // "vocals" | "instrumental"
@@ -1320,6 +1322,21 @@
   function setScriptPoolsEnabled(on) {
     try { localStorage.setItem(CONFIG.SCRIPT_POOLS_ENABLED_KEY, on ? "1" : "0"); } catch (_err) {}
   }
+  // CSSOS_WAVE_747 — 情绪字幕(中央爆字逐字随机字体 + 底部情绪字幕)是否跟随字体切换。默认开。
+  // 关 → 情绪层字体冻结(中央爆字用统一默认字体, 底部情绪字幕不随定时器重抽)。
+  function emotionFontFollowEnabled() {
+    try {
+      const raw = localStorage.getItem(CONFIG.EMOTION_FONT_FOLLOW_KEY);
+      if (raw == null) return true; // 默认跟
+      return raw === "1" || raw === "true";
+    } catch (_err) { return true; }
+  }
+  function setEmotionFontFollow(on) {
+    try { localStorage.setItem(CONFIG.EMOTION_FONT_FOLLOW_KEY, on ? "1" : "0"); } catch (_err) {}
+    try { globalThis.cssosEmotionFontFollow = !!on; } catch (_e) {}
+  }
+  // 启动即把持久化偏好同步到全局开关, 供 emotion-fx 的逐字爆字读取。
+  try { globalThis.cssosEmotionFontFollow = emotionFontFollowEnabled(); } catch (_e) {}
   function restartAutoRotate() {
     if (autoRotateTimer) { clearInterval(autoRotateTimer); autoRotateTimer = null; }
     const mins = currentAutoRotateMin();
@@ -1422,6 +1439,10 @@
         <input id="cssmv-font-pools-chk" type="checkbox" ${poolsOn ? "checked" : ""} />
       </div>
       <div class="cssmv-font-settings-row">
+        <label for="cssmv-font-emofollow-chk">${tr("Emotion subtitle follows font shuffle", "情绪字幕跟随换字体")}</label>
+        <input id="cssmv-font-emofollow-chk" type="checkbox" ${emotionFontFollowEnabled() ? "checked" : ""} />
+      </div>
+      <div class="cssmv-font-settings-row">
         <label>${tr("Shuffle now", "立即切换")}</label>
         <button id="cssmv-font-shuffle-now" type="button" style="padding:3px 10px;border-radius:6px;border:1px solid rgba(218,255,242,0.28);background:rgba(5,10,9,0.6);color:inherit;cursor:pointer;">✦</button>
       </div>
@@ -1462,6 +1483,12 @@
       setScriptPoolsEnabled(!!ev.target.checked);
       toast(ev.target.checked ? "CN / EN pool split on" : "Pool split off",
             ev.target.checked ? "中英分池已开" : "中英分池已关");
+    });
+    m.querySelector("#cssmv-font-emofollow-chk")?.addEventListener("change", (ev) => {
+      setEmotionFontFollow(!!ev.target.checked);
+      toast(ev.target.checked ? "Emotion subtitle follows shuffle" : "Emotion subtitle font frozen",
+            ev.target.checked ? "情绪字幕跟随换字体已开" : "情绪字幕字体已冻结");
+      try { shuffleTokenFonts(); } catch (_e) {}
     });
     m.querySelector("#cssmv-font-shuffle-now")?.addEventListener("click", () => {
       shuffleTokenFonts();

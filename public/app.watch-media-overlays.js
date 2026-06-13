@@ -51,7 +51,7 @@
     MAX_GLYPHS_STAGGER: 120,           // hard cap so huge blobs don't stagger forever
 
     // P2-28a auto-rotate
-    AUTO_ROTATE_DEFAULT_MIN: 0,        // 0 = off
+    AUTO_ROTATE_DEFAULT_MIN: 2,        // CSSOS_WAVE_748 — Jing: 默认每 2 分钟自动切换字体(0=关, 用户右键菜单可自定义)
     AUTO_ROTATE_OPTIONS_MIN: [0, 1, 3, 5, 10, 15, 30, 60],
     AUTO_ROTATE_STORAGE_KEY: "cssmv.watchFontAutoRotateMin",
     SCRIPT_POOLS_ENABLED_KEY: "cssmv.watchFontScriptPools",

@@ -1859,7 +1859,9 @@ function isSubMarkupToken(text: string): boolean {
 }
 // 一【行】是否是段落标题(而非歌词): markdown 标题/加粗包裹, 或已知段落关键词(多语)+ 可选序号。
 // 用于 in-place 清洗已 token 化的 JSON —— 那时全角括号已被切成 CJK 字, 唯一可靠信号是整行语义。
-const _SECTION_KW = /^(verse|chorus|bridge|intro|outro|pre-?chorus|pre-?hook|hook|refrain|interlude|breakdown|drop|coda|build|主歌|副歌|导歌|桥段|桥|前奏|间奏|尾奏|序曲|序|和声|预副歌|过门)$/i;
+// CSSOS_WAVE_745 — Jing「『第一节』『第二节』『副歌』被唱出来」: 补 节|段(配合下面 core 去掉
+// 前导『第』+ 所有中文数字, "第一节"→"节"、"第二段"→"段" 即可命中)。
+const _SECTION_KW = /^(verse|chorus|bridge|intro|outro|pre-?chorus|pre-?hook|hook|refrain|interlude|breakdown|drop|coda|build|主歌|副歌|导歌|桥段|桥|前奏|间奏|尾奏|序曲|序|和声|预副歌|过门|节|段)$/i;
 // CSSOS_WAVE_728 — 制作/编曲提示行(非歌词): "可逐渐叠加声部"、"渐强收尾"、"转调升半音"、"加入和声"
 // 这些是给制作/演唱的【指示】, 不是被唱出来的词, 却常混进歌词文本被当成一行字幕。短句 + 编曲专有词 → 丢。
 const _PROD_KW = /(声部|配器|编曲|织体|转调|弱起|渐强|渐弱|渐入|渐出|叠加|和声层|哼鸣|拟声|过门|连复段|riff|ad-?lib|crescendo|diminuendo|harmon(y|ies)|layer\s+in|build\s*-?up|fade\s*(in|out)|reverb|octave)/i;
@@ -1878,7 +1880,8 @@ function isSectionHeaderText(text: string): boolean {
   const core = t
     .replace(/[#*_~`【】〔〕「」『』\[\]()（）:：、,，.\-–—\s]/g, "")
     .replace(/[0-9]+/g, "")
-    .replace(/[一二三四五六七八九十]+$/g, "");
+    .replace(/^第/, "")                                       // CSSOS_WAVE_745 去前导『第』
+    .replace(/[一二三四五六七八九十百零两]+/g, "");            // CSSOS_WAVE_745 去所有中文数字(非仅末尾)
   return !!core && _SECTION_KW.test(core);
 }
 // 对【已构建/已富集】的 SubSection[] 做最终净化。必须在 mergeAudioEnrichment 之后(保持 enriched
@@ -1918,6 +1921,9 @@ function sanitizeSubtitleSections(sections: SubSection[], langHint?: string | nu
         orig.length && subScriptClassOf(orig[0]!.char) === "cjk" ? "" : " ",
       ).trim();
       if (rawJoin && (isSectionHeaderText(rawJoin) || isProductionNoteText(rawJoin))) continue;
+      // CSSOS_WAVE_745 — 翻译/语言指令行(『X翻译成Y』/『translate … into …』)非歌词 → 整行丢。
+      if (rawJoin && (/(?:日|中|英|韩|法|德|西|俄|葡|阿拉伯|意)\s*(?:语|文)?\s*(?:翻译|译)\s*成/.test(rawJoin) ||
+                      /\btranslate[d]?\b[^.\n]*\binto\b|\btranslation\s+of\b/i.test(rawJoin))) continue;
       if (titleKey && rawJoin && normTitle(rawJoin) === titleKey) continue;
       // CSSOS_WAVE_728 — 本行主脚本: 若整行是【另一种脚本】(真·外语整句, 非零星泄漏)→ 不按脚本裁, 整行保留。
       let lineExpected = expected;
@@ -21293,12 +21299,22 @@ function sanitizeLyricsForMusicEngine(lyrics: string): string {
   //    (# 标题 / **加粗段名**)、剧本场景说明 会原样进 Suno → 被唱出来。这里逐行剔除非歌词散文,
   //    复用 isProductionNoteText(声部/配器/编曲… ≤22字) + isSectionHeaderText(#/**/段名)。
   //    保留 [Verse]/[Chorus] 等裸结构标签(Suno 当结构用, 不唱)。
+  // 3b) CSSOS_WAVE_745 — 行内括号里的制作说明(如「歌词…（逐渐叠加声部）」) 整行剔不掉(行其余是真词),
+  //     单独抠掉括号段。仅当括号内含编曲/重复关键词时才删, 不误伤普通括注。
+  s = s.replace(
+    /[（(【\[][^）)】\]\n]*(?:声部|叠加|渐强|渐弱|渐入|渐出|和声层|可重复|反复|配器|编曲|过门|连复段|riff|ad-?lib)[^）)】\]\n]*[）)】\]]/gi,
+    ""
+  );
   s = s.split("\n").filter((line) => {
     const t = line.trim();
     if (!t) return true;                                   // 空行保留(结构)
     if (/^\[[^\]]*\]$/.test(t)) return true;               // 裸 [Verse]/[Chorus] 结构标签 → 保留
     if (isProductionNoteText(t)) return false;             // 制作说明散文 → 丢
     if (isSectionHeaderText(t)) return false;              // 段落头/markdown → 丢
+    // CSSOS_WAVE_745 — Jing「有首歌用英文唱『日语翻译成中文，中文翻译成日文』」: 翻译/语言指令
+    // 污染进歌词被唱出 → 剔除明显的翻译指令行(『X翻译成Y』/『translate … into …』)。
+    if (/(?:日|中|英|韩|法|德|西|俄|葡|阿拉伯|意)\s*(?:语|文)?\s*(?:翻译|译)\s*成/.test(t)) return false;
+    if (/\btranslate[d]?\b[^.\n]*\binto\b|\btranslation\s+of\b/i.test(t)) return false;
     return true;                                           // 真歌词 → 留
   }).join("\n");
   // 4) Tidy the blank lines left behind.

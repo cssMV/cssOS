@@ -395,7 +395,15 @@
       var el = document.createElement("div");
       el.className = "cssfx-center-word";
       el.textContent = t;
-      el.style.cssText = "font-size:" + sz + "rem;--cb-glow:" + (0.4 + inten * 0.6).toFixed(2) + ";";
+      // CSSOS_WAVE_745 — Jing「爆字幕/情绪字幕逐字随机切换字体」: 每字从脚本感知的字体池随机取
+      // 一个字体(CJK→中日韩字体, 拉丁→那 92 个 Google fancy)。globalThis.cssosBurstRandomFont
+      // 默认开, 面板「爆字随机字体·每字」可关(关 = 统一默认字体)。
+      var _burstFont = (globalThis.cssosBurstRandomFont !== false &&
+                        typeof globalThis.cssosPickFontForChar === "function")
+        ? (function () { try { return globalThis.cssosPickFontForChar(t) || ""; } catch (_e) { return ""; } })()
+        : "";
+      el.style.cssText = "font-size:" + sz + "rem;--cb-glow:" + (0.4 + inten * 0.6).toFixed(2) + ";"
+        + (_burstFont ? "font-family:" + _burstFont + ";" : "");
       if (_charColor) el.style.color = _charColor;
       grp.appendChild(el);
       layer.appendChild(grp);

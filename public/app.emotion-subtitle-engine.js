@@ -131,8 +131,15 @@
         // 那行文本是 [Music...], 正好被下面"整行被[]包裹=结构标签"的过滤丢掉 → 间奏段从不生成
         // cue → 前端 _isMusicCue 永远 false → 器乐段 emoji 不触发。修: 在过滤【之前】截住间奏行,
         // 发一条【全 adlib 的 music cue】(文本 [Music...]), 让 cssosMusicGapPulse 跟着音量飘 emoji。
-        var _isMusicLine = String(section.tag || "").toLowerCase() === "music"
-          || /^\[?\s*music\b/i.test(_lt) || _lt === "[Music...]";
+        var _secTag = String(section.tag || "").toLowerCase();
+        var _bracketOnly = /^[\[【][^\]】]*[\]】]$/.test(_lt);
+        // CSSOS_WAVE_745 — Jing「我喜欢这个小音符♪, 前奏/间奏/尾声就用它当歌词」: 整行只是
+        // [Intro]/[Interlude]/[Outro]/[前奏]… 等器乐段标签(无唱词)也发 ♪ music cue。仅 bracket-only
+        // 行触发(真唱的 intro 有词 → 不是 bracket-only → 不受影响)。
+        var _instrKw = /(music|intro|outro|interlude|instrumental|前奏|间奏|尾奏|尾声|序曲|过门)/i;
+        var _isMusicLine = _secTag === "music"
+          || /^\[?\s*music\b/i.test(_lt) || _lt === "[Music...]"
+          || (_bracketOnly && (_instrKw.test(_lt) || _instrKw.test(_secTag)));
         if (_isMusicLine) {
           var _ms = Number(line.t_start || 0) / 1000;
           var _me = Number(line.t_end || 0) / 1000;

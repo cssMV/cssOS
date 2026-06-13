@@ -840,6 +840,8 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
     // each font lands.
     return pool[Math.floor(Math.random() * pool.length)];
   }
+  // CSSOS_WAVE_745 — 暴露脚本感知的逐字随机字体选择器, 供情绪字幕中央爆字逐字换字体。
+  try { globalThis.cssosPickFontForChar = pickFont; } catch (_e) {}
 
   // CSSMV_FONT_PREWARM_DISABLED 20260425 #118 — Jing
   // The previous boot-time prewarm proactively fetched ALL ~243 latin +

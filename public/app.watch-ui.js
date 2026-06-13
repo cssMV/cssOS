@@ -9400,14 +9400,21 @@ async function invokeUniversalCreationEntryModule(options = {}) {
             undefined
         }
       );
+      // CSSOS_WAVE_746 — Jing「所有创作入口必须统一: 点输出 MV 就一点击进入 MV 面板 6 胶囊进度
+      // 正在输出的界面」。根因: 旧默认 hidden:true(后台静默) → 大量入口看不到进度。新规则:
+      //   • 已在【真全屏影院】(document.body.dataset.cinema==="true") → 后台静默出片, 不打断当前播放;
+      //   • 否则 → cinema:true, 打开 6 胶囊进度界面(新默认)。
+      //   • 调用方可显式 showMvPipeline:false / backgroundMvPipeline:true 强制后台(保留 opt-out)。
+      var _inTrueCinema = !!(document.body && document.body.dataset && document.body.dataset.cinema === "true");
+      var _wantBackground = _inTrueCinema
+        || options?.showMvPipeline === false
+        || options?.backgroundMvPipeline === true;
       globalThis.openMvPipelinePanel({
         autoStart: options?.autoStartMvPipeline !== false,
         seed: mergedSeed,
-        // Don't steal focus from the watch panel — it's the primary surface.
-        focus: options?.focusMvPipeline === true,
-        // Run the 6-stage pipeline in the background; the panel itself only
-        // pops open when the user explicitly clicks the dock item.
-        hidden: options?.showMvPipeline !== true
+        cinema: !_wantBackground,
+        focus: _wantBackground ? (options?.focusMvPipeline === true) : true,
+        hidden: _wantBackground
       });
     } catch (mvErr) {
       // Non-fatal: if the 6-stage panel fails to mount, the watch flow still

@@ -314,7 +314,7 @@
     var m = STAGE_META[stageKey] || { icon: "•", label: stageKey };
     var pop = document.createElement("div"); pop.id = "cssos-kie-stagepop";
     pop.dataset.noFrameToggle = "1";
-    pop.innerHTML = '<div class="sp-hd">' + m.icon + " " + m.label + ' · 经 Kie</div><input class="cssmv-kie-search" type="search" placeholder="按名称 / 厂商搜索…" /><div class="cssmv-kie-list"></div>';
+    pop.innerHTML = '<div class="sp-hd">' + m.icon + " " + m.label + '</div><input class="cssmv-kie-search" type="search" placeholder="按名称 / 厂商搜索…" /><div class="cssmv-kie-list"></div>';
     document.body.appendChild(pop);
     // 定位: 锚点下方, 右对齐, 不出屏。
     var r = anchorEl.getBoundingClientRect();
@@ -341,7 +341,7 @@
     });
     loadKie().then(function () {
       var n = (((kieCache || {}).stages || {})[stageKey] || []).length;
-      var hd = pop.querySelector(".sp-hd"); if (hd && n) hd.textContent = m.icon + " " + m.label + " " + n + " · 经 Kie";
+      var hd = pop.querySelector(".sp-hd"); if (hd && n) hd.textContent = m.icon + " " + m.label + " " + n;
       renderKieList(listEl, stageKey, "");
       searchEl.focus();
     });
@@ -359,12 +359,12 @@
       head.addEventListener("click", function (e) {
         var t = e.target;
         var cell = t && t.closest ? t.closest(".mvp-stage-engine") : null;
-        // 只接管【引擎值/⚙】点击; 折叠箭头(—)等不接管(走原行为)。
-        var isGear = t && (String(t.textContent || "").trim() === "⚙" || (t.getAttribute && /gear|cog|engine/i.test(t.getAttribute("class") || "")));
-        if (!cell && !isGear) return;
+        // W779b — 只接管【引擎值文本】点击 → 弹 kie 选择器。⚙ 不拦截, 仍开原 popover(保留"默认
+        // 输出多少封面图"等原设置, 找回来)。折叠箭头(—)等也不拦截。
+        if (!cell) return;
         e.preventDefault(); e.stopImmediatePropagation();
-        openKieStagePop(cell || t, stageKey, row.querySelector(".mvp-stage-engine"));
-      }, true); // capture → 抢在旧 ⚙ 下拉前
+        openKieStagePop(cell, stageKey, cell);
+      }, true);
     });
   }
 

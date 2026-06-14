@@ -185,6 +185,8 @@ ${t("watch.revenue.buyouts")}: ${transfers.length} · ${latestTransferAmount}`}i
 #watch-panel.cssmv-cinema #watch-pill-row-bl,
 #watch-panel.cssmv-cinema #watch-aspect-pill,
 #watch-panel.cssmv-cinema #watch-author-avatar,
+/* CSSOS_WAVE_749 — ID/标题块与头像同组显隐(影院态) */
+#watch-panel.cssmv-cinema .watch-work-id,
 #watch-panel.cssmv-cinema #watch-take-toggle,
 /* W335 20260522 — ✕ and search box join the same opacity fade as avatar */
 #watch-panel.cssmv-cinema #watch-exit-cinema,
@@ -207,6 +209,7 @@ ${t("watch.revenue.buyouts")}: ${transfers.length} · ${latestTransferAmount}`}i
 #watch-panel.cssmv-cinema.is-hovering #watch-pill-row-bl,
 #watch-panel.cssmv-cinema.is-hovering #watch-aspect-pill,
 #watch-panel.cssmv-cinema.is-hovering #watch-author-avatar,
+#watch-panel.cssmv-cinema.is-hovering .watch-work-id,
 #watch-panel.cssmv-cinema.is-hovering #watch-take-toggle,
 #watch-panel.cssmv-cinema.is-hovering #watch-exit-cinema,
 #watch-panel.cssmv-cinema.is-hovering #cssos-lang-fold,

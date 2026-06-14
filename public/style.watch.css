@@ -735,7 +735,11 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
 .watch-screen.is-playback-clean .watch-overlay-play,
 .watch-screen.is-playback-clean .watch-style-shift,
 .watch-screen.is-playback-clean .watch-commerce-actions,
-.watch-screen.is-playback-clean .watch-work-id {
+.watch-screen.is-playback-clean .watch-work-id,
+/* CSSOS_WAVE_749 — Jing「ID 和头像同一个框, 同时显隐」: 头像也进 is-playback-clean 隐藏组,
+ * 与左上角 标题·作者/ID 块作为一个整体一起淡入淡出。 */
+.watch-screen.is-playback-clean #watch-author-avatar,
+.watch-screen.is-playback-clean .watch-author-avatar {
   opacity: 0 !important;
   pointer-events: none !important;
 }
@@ -769,8 +773,8 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
 .watch-work-id .wid-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.78); }
 .watch-work-id .wid-id {
   display: block; margin-top: 0;
-  color: rgba(255, 255, 255, 0.28);   /* W744 — 隐隐约约, 不抢戏 */
-  font: 400 7.5px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: rgba(255, 255, 255, 0.18);   /* W749 — 再淡 (0.28→0.18), 几乎隐形 */
+  font: 400 6.5px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;  /* W749 — 再小 (7.5→6.5) */
   letter-spacing: 0.02em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }

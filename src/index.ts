@@ -5025,7 +5025,9 @@ async function alignWordsViaWhisper(
     }
     const buf = Buffer.from(await dl.arrayBuffer());
     if (!buf.length) return undefined;
-    const ext = /\.(mp3|wav|m4a|ogg|flac)(\?|$)/i.exec(audioUrl)?.[1] || "mp3";
+    // CSSOS_WAVE_765 — 也支持视频源(老作品音频烧在 mp4 里): OpenAI 转写接受 mp4/m4v/mov/webm/aac。
+    // 用真实扩展名保存, 否则 .mp4 内容存成 .mp3 会被按格式拒绝。
+    const ext = /\.(mp3|wav|m4a|ogg|flac|mp4|m4v|mov|webm|aac|mpeg|mpga)(\?|$)/i.exec(audioUrl)?.[1] || "mp3";
     tmp = path.join(os.tmpdir(), `emosub_${crypto.randomBytes(5).toString("hex")}.${ext}`);
     fs.writeFileSync(tmp, buf);
     const wr = await whisperTranscribe(tmp, language);
@@ -32621,7 +32623,22 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         ORDER BY lang, is_default DESC, track_order`,
       [workId],
     ));
-    if (!tracks.rows.length) return res.status(404).json({ ok: false, code: "NO_TRACKS" });
+    // CSSOS_WAVE_765 — Jing「这首有歌声无生歌词, 请输出熟歌词+情绪字幕」。根因: 单轨 MV 作品
+    // 没有 work_language_tracks 行(音频在 user_works.preview_audio_url, 字幕写 subtitle_take1_json_url)。
+    // 无轨 → 合成一条伪轨(lang='orig', audio=preview_audio_url)走同一 ASR 熟歌词管线;
+    // upsertSubtitleJson 本就按 workId 写 user_works.subtitle_take1_json_url(watch 面板正是读这个)。
+    let trackRows: typeof tracks.rows = tracks.rows;
+    if (!trackRows.length) {
+      const uw = await withClient((c) => c.query<{ preview_audio_url: string | null; preview_video_url: string | null }>(
+        `SELECT preview_audio_url, preview_video_url FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+      // 优先独立音频; 老作品(画音未分层)音频烧在视频里 → 用视频做 ASR 源(whisperX 服务 ffmpeg 抽音)。
+      let pau = String(uw.rows[0]?.preview_audio_url || "").trim()
+             || String(uw.rows[0]?.preview_video_url || "").trim();
+      if (!pau) return res.status(404).json({ ok: false, code: "NO_AUDIO" });
+      // 绝对化 /artifacts/… 相对路径(ASR/whisperX 服务需可 HTTP 拉取)。
+      if (pau.startsWith("/")) pau = "https://cssstudio.app" + pau;
+      trackRows = [{ lang: "orig", audio_url: pau, vocal_url: null, track_order: 0, lyrics: null, duration_secs: null }] as any;
+    }
     // CSSOS_WAVE_657 — 老作品多无 R2 lyrics.json, 歌词在 DB(轨.lyrics / lyrics_preview)。批量回填要兜底。
     const workRow = await withClient((c) => c.query<{ lyrics_preview: string | null }>(
       `SELECT lyrics_preview FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
@@ -32640,12 +32657,12 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
     // CSSOS_WAVE_724 — 整曲音量包络: 算一次(用第一条轨的音频), 全语言共用(器乐相同)。给 [Music...] emoji。
     let _volCurve: { step_ms: number; values: number[] } | null = null;
     try {
-      const _t0 = tracks.rows[0];
+      const _t0 = trackRows[0];
       const _au = String(_t0?.audio_url || "");   // 用全混(器乐段无人声, 等于器乐)
       const _dur = Number(_t0?.duration_secs || 0) || 300;   // 无时长 → 按 300s 平铺(超出自然为 0)
       _volCurve = await computeVolumeCurve(_au, _dur);
     } catch { _volCurve = null; }
-    for (const tr of tracks.rows) {
+    for (const tr of trackRows) {
       const langEntry = lyricsDoc?.languages?.find((l) => l.lang === tr.lang);
       // 歌词来源兜底链: R2 lyrics.json(本轨语言) → DB 轨.lyrics → work.lyrics_preview。
       let reLyrics = "";

@@ -8078,7 +8078,7 @@ function ensureWatchShareInfoChipModule() {
     "padding:0",
     "background:transparent", "border:0",
     "font:500 11px/1.25 -apple-system,system-ui,sans-serif",
-    "color:rgba(255,255,255,0.26)",   /* 若隐若现, 不仔细看看不到 */
+    "color:rgba(255,255,255,0.13)",   /* W765 — Jing「水印更加淡一些, 隐隐约约」: 0.26→0.13 */
     "letter-spacing:0.05em",
     "text-shadow:0 1px 3px rgba(0,0,0,0.45)",
     "z-index:8",                      /* 衬在画面上, 低于所有控件 */

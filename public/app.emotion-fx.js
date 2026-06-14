@@ -364,7 +364,8 @@
       var rgb = EMO_RGB[String(emotion || "").toLowerCase()] || "255,224,140";
       var inten = Math.max(0, Math.min(1, Number(intensity) || 0.5));
       // CSSOS_WAVE_729 ③ — 字号按情绪(每字不同, 默认开); 关 = 统一字号。
-      var sz = (globalThis.cssosSubSizeByEmotion === false) ? "3.00" : (1.8 + inten * 2.6).toFixed(2);
+      // W765 — Jing「文本/emoji 字体更小一些, 不要那么显眼」: 缩小爆字尺寸(1.8+2.6→1.2+1.7; 固定 3.0→2.2)。
+      var sz = (globalThis.cssosSubSizeByEmotion === false) ? "2.20" : (1.2 + inten * 1.7).toFixed(2);
       // W736 — 方位由本句首字一次定好(_lineStage.vertical), 整句一致, 不再逐字重判。
       var isCJK = /[぀-ヿ㐀-鿿가-힯]/.test(t);
       var vertical = _lineStage.vertical;
@@ -388,7 +389,7 @@
         var bg = document.createElement("div");
         bg.className = "cssfx-center-emoji";
         bg.textContent = bemo;
-        bg.style.cssText = "font-size:" + (parseFloat(sz) * 2.2).toFixed(2) + "rem;"
+        bg.style.cssText = "font-size:" + (parseFloat(sz) * 1.8).toFixed(2) + "rem;"
           + (_charColor ? "text-shadow:0 0 18px " + _charColor + ",0 0 38px " + _charColor + ";" : "");
         grp.appendChild(bg);
       }

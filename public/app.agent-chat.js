@@ -64,7 +64,7 @@
       /* CSSOS_WAVE_737 20260613 — Jing「AI助理移到右上角(关闭✕左侧), 真全屏也常驻=最强创作入口」:
          原 z=9800 低于影院层(10052-10080)→ 真全屏被盖住。提到 z=10090(高于影院, 低于 tap-veil),
          位置改右上角 right:64px(让开 ✕)top:12px → 用户在全屏看片时随手就能创作。 */
-      "#cssos-agent-fab{position:fixed;right:64px;top:max(12px,calc(env(safe-area-inset-top,0px)+10px));bottom:auto;width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:18px;cursor:pointer;z-index:10090;box-shadow:0 5px 18px rgba(0,245,160,0.42);transition:transform 160ms ease;}" /* WAVE_737 / WAVE_749 缩到胶囊大小 50→42 */,
+      "#cssos-agent-fab{position:fixed;right:14px;bottom:var(--cssos-stk-base,14px);top:auto;width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:18px;cursor:pointer;z-index:10090;box-shadow:0 5px 18px rgba(0,245,160,0.42);transition:transform 160ms ease;}" /* WAVE_737 / WAVE_749 缩到胶囊大小 50→42 + 移到价格条那一行右侧(同 --cssos-stk-base 基准) */,
       "#cssos-agent-fab:hover{transform:scale(1.06);}",
       "#cssos-agent-fab[data-active='1']{background:linear-gradient(135deg,#ff9a3c,#ff6b6b);}",
       /* CSSOS_WAVE_737 — 面板 z 提到 10091(原 9801 被影院层 10052-10080 盖住, 全屏打不开)。

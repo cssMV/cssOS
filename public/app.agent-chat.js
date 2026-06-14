@@ -187,6 +187,34 @@
       document.addEventListener("webkitfullscreenchange", relocate);
     })();
 
+    // CSSOS_WAVE_757 — Jing「AI 助理比价格条高、也大了一些; 用胶囊左右两个半圆凸边组成一个正圆,
+    // 这个正圆就是 AI 助理; 和价格条同上同下」。FAB 是全站常驻入口不能只挂进 .watch-screen, 故用
+    // 对齐器: 价格条(#cssos-watch-price-strip)在场时, 实时把 FAB 设成【同高的正圆 + 同底边】=
+    // 真·同上同下(border-radius:50% 已在基样式 → 直径=胶囊高度的正圆)。不在 watch 面板时 FAB 用默认。
+    (function alignFabToPriceStrip() {
+      function sync() {
+        try {
+          var f = document.getElementById("cssos-agent-fab");
+          if (!f) return;
+          var strip = document.getElementById("cssos-watch-price-strip");
+          var r = strip && strip.offsetParent !== null ? strip.getBoundingClientRect() : null;
+          if (r && r.height) {
+            var d = Math.round(r.height);                                  // 直径 = 胶囊高度
+            f.style.width = d + "px"; f.style.height = d + "px"; f.style.minWidth = d + "px";
+            f.style.bottom = Math.max(0, Math.round(window.innerHeight - r.bottom)) + "px"; // 同下
+            f.style.top = "auto";
+          } else {
+            // 不在 watch / 价格条不可见 → 还原默认(基样式那套, 清掉内联覆盖)。
+            f.style.width = ""; f.style.height = ""; f.style.minWidth = "";
+            f.style.bottom = ""; f.style.top = "";
+          }
+        } catch (_e) {}
+      }
+      setInterval(sync, 800); sync();
+      window.addEventListener("resize", sync, { passive: true });
+      window.addEventListener("cssos:work-id-changed", sync, { passive: true });
+    })();
+
     /* W334 — panel is true fullscreen (position:fixed;inset:0;height:100dvh).
      * The Visual Viewport / keyboard-offset handler from W332 is retired:
      * it set inline bottom styles that fought the inset:0 CSS and created

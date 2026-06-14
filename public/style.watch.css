@@ -754,7 +754,7 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
 .watch-work-id {
   position: absolute;
   left: 62px;            /* 让开左上角头像 */
-  top: 34px;             /* W750 — 下移, 坐在 ♪ 媒体标题胶囊(top:10px)之下 */
+  top: 14px;             /* W752 — ♪ 标题改为浮动水印后, ID 块回到头像那一行 */
   bottom: auto;
   z-index: 6;
   max-width: 46vw;

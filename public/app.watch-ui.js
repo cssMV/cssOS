@@ -8068,29 +8068,43 @@ function ensureWatchShareInfoChipModule() {
   chip = document.createElement("div");
   chip.id = "watch-share-info-chip";
   chip.dataset.noFrameToggle = "1";
-  // CSSOS_WAVE_750 — Jing「这个 ♪ 媒体标题胶囊移到左上角、和头像同一个 div、在 ID 之上」。
-  // 原在左下角(bottom:60px)→ 改到左上角头像之后(left:60px top:10px), 坐在 ID 块上方。
+  // CSSOS_WAVE_752 — Jing「像 Sora 那样, 淡淡的若隐若现, 不仔细看看不到, 随机位置, 随换字体的
+  // 频率随机换一个位置 + 换字体」。防盗用已由 fingerprint_hash(🔐 原产证明)机器可验证地扛着,
+  // 所以画面水印纯为品牌曝光 → 做成极淡的浮水印, 去掉深色框/边框/模糊, 只留若隐若现的文字。
   chip.style.cssText = [
-    "position:absolute", "left:60px", "top:10px", "bottom:auto",
-    "display:flex", "align-items:center", "gap:6px",
-    "max-width:60%", "min-width:0",
-    "padding:4px 10px",
-    "background:rgba(0,0,0,0.62)",
-    "backdrop-filter:blur(10px) saturate(140%)",
-    "-webkit-backdrop-filter:blur(10px) saturate(140%)",
-    "border:1px solid rgba(255,255,255,0.16)",
-    "border-radius:14px",
-    "font:600 11.5px/1.3 -apple-system,system-ui,sans-serif",
-    "color:rgba(255,255,255,0.92)",
-    "letter-spacing:0.02em",
-    "z-index:31",
-    "pointer-events:none",   /* purely informational; click goes through */
+    "position:absolute", "left:8%", "top:14%", "right:auto", "bottom:auto",
+    "display:flex", "align-items:baseline", "gap:5px",
+    "max-width:52%", "min-width:0",
+    "padding:0",
+    "background:transparent", "border:0",
+    "font:500 11px/1.25 -apple-system,system-ui,sans-serif",
+    "color:rgba(255,255,255,0.26)",   /* 若隐若现, 不仔细看看不到 */
+    "letter-spacing:0.05em",
+    "text-shadow:0 1px 3px rgba(0,0,0,0.45)",
+    "z-index:8",                      /* 衬在画面上, 低于所有控件 */
+    "pointer-events:none",
     "user-select:none",
     "white-space:nowrap",
     "overflow:hidden",
     "text-overflow:ellipsis",
+    "transition:left 1.4s ease, top 1.4s ease, opacity 1.4s ease",
   ].join(";");
-  chip.innerHTML = '<span style="font-size:13px;">🎵</span><span data-share-title style="overflow:hidden;text-overflow:ellipsis;"></span><span style="opacity:0.5;">·</span><span style="opacity:0.78;font-weight:700;letter-spacing:0.06em;">cssOS</span>';
+  chip.innerHTML = '<span style="font-size:11px;opacity:0.8;">♪</span><span data-share-title style="overflow:hidden;text-overflow:ellipsis;"></span><span style="opacity:0.55;">·</span><span style="font-weight:700;letter-spacing:0.08em;">cssOS</span>';
+  // Sora 式: 跟随【换字体频率】随机换位置 + 换字体。位置避开底部字幕区(下 22%)与右侧控件列。
+  const reposition = () => {
+    try {
+      const x = (4 + Math.random() * 64).toFixed(1);   // 4%–68%(避右侧控件)
+      const y = (8 + Math.random() * 62).toFixed(1);   // 8%–70%(避底部字幕)
+      chip.style.left = x + "%";
+      chip.style.top = y + "%";
+      chip.style.right = "auto"; chip.style.bottom = "auto";
+      // 顺带随机换个字体(尊重情绪字幕跟随开关)
+      if (globalThis.cssosEmotionFontFollow !== false && typeof globalThis.cssosPickFontForChar === "function") {
+        const te = chip.querySelector("[data-share-title]");
+        if (te) { const f = globalThis.cssosPickFontForChar(te.textContent || "a"); if (f) te.style.fontFamily = f; }
+      }
+    } catch (_e) {}
+  };
   screen.style.position = screen.style.position || "relative";
   screen.appendChild(chip);
   const refresh = () => {
@@ -8110,11 +8124,16 @@ function ensureWatchShareInfoChipModule() {
     } catch (_e) {}
   };
   refresh();
+  reposition();          // 进场即落在一个随机位置(不再钉在头像后面)
   // Re-render on common events that change current work.
   try {
     window.addEventListener("cssos:work-id-changed", refresh);
     window.addEventListener("cssmv:music-durations", refresh);
     document.addEventListener("cssmv:lyrics-updated", refresh);
+    // CSSOS_WAVE_752 — 跟随【换字体频率】(restartAutoRotate 派发的 cssmv:font-shuffle)随机换位置 + 换字体。
+    window.addEventListener("cssmv:font-shuffle", reposition, { passive: true });
+    // 切歌时也换个新位置, 避免长期固定。
+    window.addEventListener("cssos:work-id-changed", reposition);
     if (globalThis.cssosPlaylists?.onChange) globalThis.cssosPlaylists.onChange(refresh);
   } catch (_e) {}
   // Periodic refresh as fallback (cheap — runs every 3s).

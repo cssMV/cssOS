@@ -20755,6 +20755,10 @@ type LlmResponse = {
   error?: string;
 };
 const LLM_PROVIDER_DEFAULTS = {
+  // CSSOS_WAVE_774 — kie.ai 聚合器 Claude 通道(Bearer 鉴权 + Anthropic Messages 格式)。让歌词转译/文本
+  // 走 kie(用 kie credits, 320 引擎一家通吃), 永不被 OpenAI/Anthropic/Gemini 直连断供拦。端点格式实测:
+  // POST https://api.kie.ai/claude/v1/messages  Authorization: Bearer KIE_API_KEY  body{model,max_tokens,messages,system?}。
+  kie:         { url: "https://api.kie.ai/claude/v1/messages",                                          model: "claude-opus-4-5",                               keyEnv: "KIE_API_KEY",         dialect: "kie" },
   groq:        { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",                       keyEnv: "GROQ_API_KEY",        dialect: "openai" },
   cerebras:    { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama3.1-8b",                                   keyEnv: "CEREBRAS_API_KEY",    dialect: "openai" },
   // Gemini doesn't speak chat/completions — its endpoint is
@@ -20787,8 +20791,11 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 // 文本【不参与丰俭由人】, 永锁 capable 前沿大模型。小模型(haiku/mini/flash/llama/mistral)在低资源
 // 语言会乱编、漏译、出乱码。三强按序: Claude → GPT-4o → Gemini Pro。prefer_model 强制 capable 变体
 // (覆盖 provider 默认的 claude-haiku / gpt-4o-mini / gemini-flash —— 此前歌词锁竟在偷用这些小模型)。
-const CAPABLE_TEXT_PREFER: LlmProvider[] = ["anthropic", "openai", "gemini"];
+// CSSOS_WAVE_774 — Jing「一家 kie 通吃」: kie 置首(claude-opus-4-5, 用 kie credits, 不被三强直连断供拦),
+// 三强直连 + 免费引擎仍作兜底(kie 也断了才降级)。
+const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemini"];
 const CAPABLE_TEXT_MODELS: Partial<Record<LlmProvider, string>> = {
+  kie: "claude-opus-4-5",
   anthropic: "claude-sonnet-4-5",
   openai: "gpt-4o",
   gemini: "gemini-2.5-pro",
@@ -21154,6 +21161,34 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
         const parts = json?.candidates?.[0]?.content?.parts;
         content = Array.isArray(parts)
           ? parts.map((p: { text?: string }) => String(p?.text || "")).join("")
+          : "";
+      } else if (cfg.dialect === "kie") {
+        // CSSOS_WAVE_774 — kie.ai Claude 通道(裸 fetch, Bearer 鉴权, Anthropic Messages body)。
+        // 成功响应 = Anthropic 格式 {content:[{type:"text",text}]}; 错误带 {code,msg}。
+        const systemMsgs = req.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+        const kieMessages = req.messages
+          .filter((m) => m.role !== "system")
+          .map((m) => ({ role: (m.role === "assistant" ? "assistant" : "user"), content: m.content }));
+        const body: Record<string, unknown> = { model, max_tokens: req.max_tokens || 1024, messages: kieMessages };
+        if (systemMsgs) body.system = systemMsgs;
+        if (req.temperature !== undefined) body.temperature = req.temperature;
+        upstream = await fetch(cfg.url, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+        });
+        json = await upstream.json().catch(() => null);
+        const kieErrCode = (json && typeof json.code === "number") ? json.code : (upstream.ok ? 200 : upstream.status);
+        if (!upstream.ok || (typeof kieErrCode === "number" && kieErrCode >= 400)) {
+          lastErr = String(json?.msg || json?.error?.message || `kie_${kieErrCode}`);
+          lastStatus = kieErrCode || 500;
+          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[llm-router] kie credits exhausted, falling through`);
+          else console.warn(`[llm-router] kie ${lastStatus}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        const blocks = json?.content;
+        content = Array.isArray(blocks)
+          ? blocks.filter((b: any) => b && b.type === "text").map((b: any) => String(b.text || "")).join("")
           : "";
       } else {
         // OpenAI-compatible (Groq / Cerebras / OpenAI).

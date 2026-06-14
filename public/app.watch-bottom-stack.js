@@ -15,13 +15,17 @@
   globalThis.__cssosBottomFlowWired = true;
 
   // 从下往上的成员(列容器是 column-reverse → 第一个 DOM 子 = 最底)。
-  // CSSOS_WAVE_761 — Jing 拍板从下往上: 价格条 → 左下信息包 → 多语言/多声线 → CTA(Want an MV)。
+  // CSSOS_WAVE_762 — Jing 拍板从下往上(每个一 div, 隐藏=0 高度):
+  //   价格条 → 左下信息包 → 多语言/多声线 → CTA(播放结束前的作品卡片队列) → Want(创作引导卡)。
+  // 注: CTA = #cssos-up-next-strip(队列卡片,「Tap to queue…」); Want = #cssos-create-cta(「Want an MV like this」)。
   var ORDER = [
     "#cssos-watch-price-strip",                       // 价格条(最底, 贴 Dock; 最右是 AI 助理)
     "#watch-panel .watch-screen .cssmv-capsule",      // 左下信息包(Loop list…)
     "#cssos-lang-fold",                               // 多语言/多声线
-    "#cssos-create-cta"                               // CTA「Want an MV like this」(最上)
+    "#cssos-up-next-strip",                           // CTA — 结束前作品卡片队列(全宽)
+    "#cssos-create-cta"                               // Want — 创作引导卡(最上)
   ];
+  var FULLWIDTH = { "cssos-up-next-strip": 1 };       // 这些成员铺满容器宽(卡片条)
 
   function screenEl() { return document.querySelector("#watch-panel .watch-screen"); }
 
@@ -35,12 +39,12 @@
       f.dataset.noFrameToggle = "1";
       // 唯一的绝对定位锚点: 贴左下、坐在 Dock 上方(--cssos-dock-clear 让位), 随之上移。
       f.style.cssText = [
-        "position:absolute", "left:12px", "right:auto",
+        "position:absolute", "left:8px", "right:8px",   // W762 全宽: CTA 卡片条铺开, 窄成员靠左
         // W761 — 容器底边贴 Dock 顶(dock-clear), 不加额外边距 → 价格条↔Dock 距离 0(话筒凸起补足)。
         "bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px))",
         "display:flex", "flex-direction:column-reverse",
         "align-items:flex-start", "gap:8px",
-        "max-width:calc(100% - 24px)", "z-index:20",
+        "z-index:20",
         "pointer-events:none"   // 容器穿透, 子元素各自 auto
       ].join(";");
       if (getComputedStyle(screen).position === "static") screen.style.position = "relative";
@@ -63,6 +67,14 @@
     el.style.setProperty("margin", "0", "important");
     el.style.setProperty("pointer-events", "auto", "important");
     el.style.setProperty("z-index", "auto", "important");
+    // 宽成员(CTA 作品卡片队列)铺满容器宽; 其余保持内容自然宽(靠左)。
+    if (el.id && FULLWIDTH[el.id]) {
+      el.style.setProperty("align-self", "stretch", "important");
+      el.style.setProperty("width", "100%", "important");
+      el.style.setProperty("max-width", "100%", "important");
+    } else {
+      el.style.setProperty("align-self", "flex-start", "important");
+    }
   }
 
   var lastSig = "";

@@ -33111,6 +33111,65 @@ app.post("/api/admin/epic-render/:workId", express.json({ limit: "16kb" }), asyn
     return res.status(500).json({ ok: false, code: "EPIC_RENDER_FAILED", detail: (e as Error)?.message || "" });
   }
 });
+/* CSSOS_WAVE_784 — Jing「往旗舰墙补别的文明(玛雅/阿兹特克/两河/北欧…)」: 从零造一首文明旗舰歌。
+ * kie LLM(capable, 母语 + civ 风格)写【结构化母语歌词】→ callImageGen 出 civ 风封面 → 落 user_works
+ * (admin 拥有, status ready, civilization, cover, lyrics_preview)+ market profile(public)+ 立即置顶。
+ * 返回 workId; 之后调 /api/admin/epic-render/<id> 出 Epic 音频 + /api/admin/resubtitle 出情绪字幕。
+ *   curl -X POST "$API/api/admin/create-civ-flagship" -H "x-admin-token: $T" -H 'content-type: application/json' \
+ *        -d '{"civ":"北欧维京","lang":"non","title":"…","theme":"…","style":"epic Norse …"}' */
+const CSSOS_FLAGSHIP_OWNER = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb"; // 现有旗舰归属账户(Jing)
+app.post("/api/admin/create-civ-flagship", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const b = (req.body || {}) as any;
+  const civ = String(b.civ || "").trim();
+  const lang = String(b.lang || "").trim();
+  const title = String(b.title || "").trim();
+  const theme = String(b.theme || "").trim();
+  const style = String(b.style || "").slice(0, 200);
+  const owner = String(b.owner || CSSOS_FLAGSHIP_OWNER).trim();
+  if (!civ || !lang || !title) return res.status(400).json({ ok: false, code: "MISSING_FIELDS", need: "civ, lang, title" });
+  try {
+    // 1) 母语歌词(kie capable, civ 风, 结构化, 不翻译/不夹制作说明)。
+    const sys = `You are a master lyricist for the "${civ}" civilization. Write an EPIC, anthemic SONG entirely in that civilization's MOTHER TONGUE (ISO/language code "${lang}"). Theme: "${theme || title}". RULES: (1) Output ONLY the lyrics, in "${lang}" — NO translation, NO English (unless ${lang} is English), NO romanization line, NO production/arrangement notes, NO commentary. (2) Use bare structure tags on their own lines: [Intro] [Verse 1] [Verse 2] [Chorus] [Bridge] [Chorus] [Outro]. (3) Make it singable, grand, with a soaring repeated chorus — flagship quality. (4) 14-28 lyric lines total. If the ancient tongue is sparse/uncertain, use the closest living descendant language and keep it authentic to "${civ}".`;
+    const llm = await callLlm({
+      messages: [{ role: "system", content: sys }, { role: "user", content: `Write the flagship epic song "${title}" for ${civ}.` }],
+      temperature: 0.85, max_tokens: 1400, prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS,
+    });
+    const lyrics = String(llm?.content || "").trim();
+    if (!llm?.ok || lyrics.length < 30) return res.status(503).json({ ok: false, code: "LYRICS_FAILED", detail: llm?.error || "" });
+    // 2) civ 风封面(无文字)。失败不致命。
+    let cover = "";
+    try {
+      const img = await callImageGen({
+        prompt: `${theme || title}, ${civ} ancient civilization, epic cinematic album cover art, dramatic mythic lighting, ornate authentic motifs, highly detailed, no text, no watermark`,
+        size: "1024x1024", output_format: "webp",
+      });
+      if (img?.ok && img.image_url) cover = await persistRemoteImageToStable(String(img.image_url));
+    } catch (_e) { /* cover optional */ }
+    // 3) 落库 + market profile(public) + 立即置顶。
+    const workId = crypto.randomUUID();
+    await withClient(async (c) => {
+      await c.query(
+        `INSERT INTO user_works (id, user_id, title, style, work_type, lyrics_preview, cover_image, civilization,
+                                 status, admin_pinned_at, suggested_listen_price_cents, suggested_buyout_price_cents, created_at, updated_at)
+         VALUES ($1::uuid,$2::uuid,$3,$4,'single',$5,$6,$7,'ready', now(), 100, 0, now(), now())`,
+        [workId, owner, title, style || `epic ${civ} cinematic`, lyrics, cover || null, civ]);
+      await c.query(
+        `INSERT INTO work_market_profiles (work_id, owner_user_id, visibility, current_listen_price_cents,
+                                           current_buyout_price_cents, buyout_enabled, tips_enabled, rights_scope, created_at, updated_at)
+         VALUES ($1::uuid,$2::uuid,'public',100,0,false,true,'personal_use', now(), now())
+         ON CONFLICT (work_id) DO NOTHING`,
+        [workId, owner]);
+    });
+    return res.json({ ok: true, workId, civ, lang, title, cover, lyrics_chars: lyrics.length,
+      next: `POST /api/admin/epic-render/${workId} {lang,style,sunoModel:V4_5PLUS} then /api/admin/resubtitle/${workId}` });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "CREATE_FLAGSHIP_FAILED", detail: (e as Error)?.message || "" });
+  }
+});
 /* CSSOS_WAVE_695 — Suno 续写补全【被截断的轨】(Jing「建 extend 功能」)。kie upload-extend:
  * 传我们自己的 R2 音频 URL + 完整歌词, Suno 从 continueAt 续唱到底 → rehost R2 → 更新轨 → 清 stem。
  * 之后再调 separate-stems + resubtitle 即补齐人声分离 + 逐字对齐。

@@ -1,100 +1,121 @@
-/* CSSOS_WAVE_561 20260531 — Jing「底部信息互相礼让, 和谐共处」。
- * 病根: 价格条/CTA/左下控制胶囊/多语言行/Dock 各用绝对定位 + 各写死 bottom → 互相遮挡打架。
- * 解法: 一个【底部堆叠协调器】, 按固定优先级从下往上自动堆叠 —— 谁可见谁占一层, 上面的自动上移,
- * 永不重叠。字幕始终在最顶层之上、不被遮。只改各元素的 bottom(inline !important), 不动其它样式。
+/* CSSOS_WAVE_760 20260613 — Jing「每个信息在一个 div 就不会打架; 大家都用绝对定位肯定打架」。
+ * 彻底改架构: 不再各自绝对定位 + JS 算 bottom(本质还是绝对, 永远抢位)。改成【唯一一个绝对定位的
+ * 流式列容器 #cssos-watch-bottomflow】, 把底部所有信息(价格条 / CTA / 左下控制胶囊 / 多语言行)
+ * 收编为它的【子元素】, 清掉它们各自的绝对定位 → 浏览器原生 flex 列排队:
+ *   • 每行紧贴上一行(gap 固定);
+ *   • 隐藏成员 display:none → 0 高度、不占位、无 gap;
+ *   • 整列随 --cssos-dock-clear 一起上移(Dock 显示让位);
+ *   • 永不重叠、永不打架。
+ * 字幕(#watch-subtitle)居中、独立轨, 不进本列(保持自身居中定位), 仅确保它在列上方。
  *
- * 从下往上优先级(Jing 拍板): Dock(最下, 不移) → 价格条 → CTA → 左下控制胶囊 → 多语言/声线行。
- * 节流: rAF + 250ms 轮询 + resize/事件触发; 只在值变化时写 DOM(避免 churn / 合成层抖动)。 */
+ * 取代 W561 的绝对坐标计算器 + W744 的 calc(bottom) 栈器(均已弃用)。 */
 (function () {
   "use strict";
-  if (globalThis.__cssosBottomStackWired) return;
-  globalThis.__cssosBottomStackWired = true;
+  if (globalThis.__cssosBottomFlowWired) return;
+  globalThis.__cssosBottomFlowWired = true;
 
-  var GAP = 14; // 层间间距 px
-  // 从下往上的顺序。selector 命中第一个可见元素即占一层。
+  // 从下往上的成员(列容器是 column-reverse → 第一个 DOM 子 = 最底)。
   var ORDER = [
-    { key: "price",   sel: "#cssos-watch-price-strip" },
-    { key: "cta",     sel: "#cssos-create-cta" },
-    { key: "capsule", sel: "#watch-panel .watch-screen .cssmv-capsule" },
-    { key: "lang",    sel: "#cssos-lang-fold" }
+    "#cssos-watch-price-strip",                       // 价格条(最底, 贴 Dock)
+    "#cssos-create-cta",                              // CTA「Want an MV」
+    "#watch-panel .watch-screen .cssmv-capsule",      // 左下控制胶囊(Loop list…)
+    "#cssos-lang-fold"                                // 多语言/多声线行
   ];
 
-  function visible(el) {
-    if (!el) return false;
-    if (el.hidden) return false;
-    var cs = getComputedStyle(el);
-    if (cs.display === "none" || cs.visibility === "hidden") return false;
-    if (parseFloat(cs.opacity || "1") < 0.02) return false;
-    var r = el.getBoundingClientRect();
-    return r.width > 1 && r.height > 1;
-  }
+  function screenEl() { return document.querySelector("#watch-panel .watch-screen"); }
 
-  function dockOccupiedPx() {
-    // Dock 在视口底部(面板外)。它可见时, 其它信息要从 Dock 顶部往上堆。
-    var dock = document.querySelector(".dock");
-    if (!dock || !visible(dock)) {
-      // 无 Dock: 从安全区 + 一点边距起。
-      return 12;
+  function ensureFlow() {
+    var screen = screenEl();
+    if (!screen) return null;
+    var f = document.getElementById("cssos-watch-bottomflow");
+    if (!f) {
+      f = document.createElement("div");
+      f.id = "cssos-watch-bottomflow";
+      f.dataset.noFrameToggle = "1";
+      // 唯一的绝对定位锚点: 贴左下、坐在 Dock 上方(--cssos-dock-clear 让位), 随之上移。
+      f.style.cssText = [
+        "position:absolute", "left:12px", "right:auto",
+        "bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px) + 14px)",
+        "display:flex", "flex-direction:column-reverse",
+        "align-items:flex-start", "gap:10px",
+        "max-width:calc(100% - 24px)", "z-index:20",
+        "pointer-events:none"   // 容器穿透, 子元素各自 auto
+      ].join(";");
+      if (getComputedStyle(screen).position === "static") screen.style.position = "relative";
+      screen.appendChild(f);
+    } else if (f.parentNode !== screen) {
+      screen.appendChild(f);
     }
-    var r = dock.getBoundingClientRect();
-    var fromBottom = window.innerHeight - r.top; // Dock 占据的底部高度
-    return Math.max(12, Math.round(fromBottom) + GAP);
+    return f;
   }
 
-  var lastApplied = {};
-  function relayout() {
-    try {
-      var y = dockOccupiedPx(); // 当前堆叠基线(距视口底部 px)
-      for (var i = 0; i < ORDER.length; i++) {
-        var spec = ORDER[i];
-        var el = document.querySelector(spec.sel);
-        if (!visible(el)) continue;
-        var want = Math.round(y);
-        if (lastApplied[spec.key] !== want) {
-          el.style.setProperty("bottom", want + "px", "important");
-          lastApplied[spec.key] = want;
-        }
-        var h = Math.round(el.getBoundingClientRect().height);
-        y = want + h + GAP; // 下一层从这一层顶部 + 间距继续往上
-      }
-      // CSSOS_WAVE_562 20260531 — Jing「情绪字幕 = 最高层」: 平台首创情绪字幕(#watch-subtitle)
-      // 必须实时显示且【绝不被底部信息遮挡】。它坐在堆叠最顶之上 —— 底部信息长高就把字幕往上顶;
-      // 但不低于自然位置(14vh), 信息少时不被拉低。pointer-events 保持 none(不挡媒体点击)。
-      var sub = document.getElementById("watch-subtitle");
-      if (visible(sub)) {
-        var natural = Math.round(window.innerHeight * 0.14); // 自然下限 = 14vh
-        var subWant = Math.max(natural, Math.round(y));
-        if (lastApplied.subtitle !== subWant) {
-          sub.style.setProperty("bottom", subWant + "px", "important");
-          lastApplied.subtitle = subWant;
-        }
-      }
-    } catch (_e) {}
+  // 清掉成员各自的绝对定位 → 进入静态流。用 important 压过内联/CSS。
+  // 幂等守卫: 仅当还没静态化(computed position !== static)才写, 否则 MutationObserver 会
+  // 因每帧写 style 而自激成死循环。
+  function makeFlowChild(el, force) {
+    if (!el) return;
+    try { if (!force && getComputedStyle(el).position === "static") return; } catch (_e) {}
+    el.style.setProperty("position", "static", "important");
+    ["left", "right", "top", "bottom"].forEach(function (p) { el.style.setProperty(p, "auto", "important"); });
+    el.style.setProperty("transform", "none", "important");
+    el.style.setProperty("margin", "0", "important");
+    el.style.setProperty("pointer-events", "auto", "important");
+    el.style.setProperty("z-index", "auto", "important");
+  }
+
+  var lastSig = "";
+  function adopt() {
+    var f = ensureFlow();
+    if (!f) return;
+    // 收集当前存在的成员(按 ORDER)。
+    var els = [];
+    for (var i = 0; i < ORDER.length; i++) {
+      var el = document.querySelector(ORDER[i]);
+      if (el) els.push(el);
+    }
+    // 仅当【成员集合或顺序变化】时才重排, 避免每帧 appendChild churn。
+    var sig = els.map(function (e) { return e.id || e.className; }).join("|");
+    var childrenNow = Array.prototype.filter.call(f.children, function (c) { return true; });
+    var orderRight = childrenNow.length === els.length &&
+      els.every(function (e, idx) { return childrenNow[idx] === e; });
+    if (sig !== lastSig || !orderRight) {
+      els.forEach(function (e) { f.appendChild(e); makeFlowChild(e, true); });
+      lastSig = sig;
+    } else {
+      // 集合未变: 仅在某成员被别的模块重置回绝对定位时才纠正(幂等守卫内部判断)。
+      els.forEach(function (e) { makeFlowChild(e, false); });
+    }
+    // 字幕保持自身居中定位, 仅确保不被列遮挡: 它自己的 bottom 由情绪字幕引擎管, 这里不动。
   }
 
   var rafPending = false;
   function schedule() {
     if (rafPending) return;
     rafPending = true;
-    requestAnimationFrame(function () { rafPending = false; relayout(); });
+    requestAnimationFrame(function () { rafPending = false; adopt(); });
   }
 
   function start() {
-    // 周期性 + 事件驱动: 覆盖切歌/进影院/Dock 显隐/语言行出现等所有时机。
-    setInterval(schedule, 250);
+    setInterval(schedule, 300);
     window.addEventListener("resize", schedule, { passive: true });
-    ["cssos:work-changed", "cssos:playlist-advance", "cssos:dock-toggle",
-     "cssos:cinema-toggle", "cssos:purchase-complete"].forEach(function (ev) {
+    ["cssos:work-changed", "cssos:work-id-changed", "cssos:playlist-advance",
+     "cssos:dock-toggle", "cssos:cinema-toggle", "cssos:purchase-complete",
+     "cssos:open-watch-for-run", "fullscreenchange"].forEach(function (ev) {
       document.addEventListener(ev, schedule);
+      window.addEventListener(ev, schedule);
     });
-    // 监听底部容器子树变化(语言行/CTA 动态出现)。
     var host = document.getElementById("watch-panel") || document.body;
-    try { new MutationObserver(schedule).observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden"] }); } catch (_e) {}
+    try {
+      new MutationObserver(schedule).observe(host, {
+        childList: true, subtree: true, attributes: true,
+        attributeFilter: ["class", "style", "hidden"]
+      });
+    } catch (_e) {}
     schedule();
   }
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
   } else { start(); }
-  globalThis.cssosRelayoutBottomStack = schedule;
+  globalThis.cssosRelayoutBottomStack = schedule;   // 兼容旧调用名
 })();

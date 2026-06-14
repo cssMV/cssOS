@@ -404,14 +404,14 @@
       var idShort = esc(id.slice(0, 8));
       var card = document.createElement("button");
       card.type = "button";
-      card.title = "🆔 " + id;
+      card.title = "ID " + id;   // W764 — Jing: 不用 🆔 emoji, 纯文本
       card.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
       card.addEventListener("mouseenter", function () { card.style.background = "rgba(0,245,160,0.1)"; });
       card.addEventListener("mouseleave", function () { card.style.background = "transparent"; });
       var metaBits = [];
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
-      metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.8;">🆔 ' + idShort + "</span>");
+      metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.82em;">ID ' + idShort + "</span>");
       card.innerHTML =
         '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +

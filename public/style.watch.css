@@ -770,8 +770,18 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   pointer-events: none;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);   /* 仅靠文字阴影提可读性, 不用底框 */
 }
-/* W750 — 标题已由 ♪ 媒体标题胶囊(#watch-share-info-chip)承载, 隐藏此处重复的标题行, 只留 ID。 */
-.watch-work-id .wid-title { display: none; }
+/* W752b — Jing「头像后面也放一份, 和 ID 一样就行」: 恢复左上角固定标题行(浮动水印之外的第二份),
+ * 做成和 ID 一样淡。♪ 前缀点明"正在播放"。坐在 ID 之上。 */
+.watch-work-id .wid-title {
+  display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 46vw;
+  color: rgba(255, 255, 255, 0.42);
+  font: 500 10px/1.3 -apple-system, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+.watch-work-id .wid-title:empty { display: none; }   /* 无标题时不占位 */
+.watch-work-id .wid-title::before { content: "♪ "; opacity: 0.7; }
 .watch-work-id .wid-id {
   display: block; margin-top: 0;
   color: rgba(255, 255, 255, 0.18);   /* W749 — 再淡 (0.28→0.18), 几乎隐形 */

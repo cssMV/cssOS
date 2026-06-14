@@ -40,20 +40,28 @@
     });
   }
 
+  var PAGE = 10;   // CSSOS_WAVE_772 — Jing: 默认显示 10, 上滑加载 10。
   function renderKieList(listEl, stageKey, query) {
     var cat = (kieCache && kieCache.stages && kieCache.stages[stageKey]) || [];
     var q = String(query || "").trim().toLowerCase();
     var rows = cat.filter(function (e) {
       return !q || (e.label + " " + e.provider).toLowerCase().indexOf(q) !== -1;
     });
-    var api = globalThis.cssmvEngines;
-    var sel = api && typeof api.getSelection === "function" ? api.getSelection(stageKey) : null;
+    listEl.__rows = rows; listEl.__stage = stageKey; listEl.__shown = PAGE;
     if (!rows.length) {
       listEl.innerHTML = '<div class="cssmv-kie-empty">' +
         (cat.length ? "无匹配模型" : "正在加载 Kie 目录…") + "</div>";
       return;
     }
-    var html = rows.map(function (e) {
+    paintKiePage(listEl);
+  }
+  function paintKiePage(listEl) {
+    var stageKey = listEl.__stage;
+    var rows = listEl.__rows || [];
+    var shown = Math.min(listEl.__shown || PAGE, rows.length);
+    var api = globalThis.cssmvEngines;
+    var sel = api && typeof api.getSelection === "function" ? api.getSelection(stageKey) : null;
+    var html = rows.slice(0, shown).map(function (e) {
       var isSel = sel && sel.engine === e.id;
       var fire = e.usageCount > 0 ? ('<span class="cssmv-kie-fire">🔥 ' + e.usageCount + "</span>") : "";
       var price = e.usdOurs ? ("$" + e.usdOurs) : "";
@@ -64,6 +72,9 @@
         '<span class="cssmv-kie-price">' + esc(price) + "</span></span>" +
         "</button>";
     }).join("");
+    if (shown < rows.length) {
+      html += '<div class="cssmv-kie-more">已显示 ' + shown + " / " + rows.length + " · 上滑加载更多</div>";
+    }
     listEl.innerHTML = html;
     listEl.querySelectorAll(".cssmv-kie-card").forEach(function (card) {
       card.addEventListener("click", function () {
@@ -105,6 +116,7 @@
       "[data-mv-engines-panel] .cssmv-kie-price{margin-left:auto;font-weight:700;}",
       "[data-mv-engines-panel] .cssmv-kie-fire{color:#ff8a3d;font-weight:700;}",
       "[data-mv-engines-panel] .cssmv-kie-empty{padding:18px;text-align:center;opacity:0.7;font-size:13px;}",
+      "[data-mv-engines-panel] .cssmv-kie-more{grid-column:1/-1;padding:8px;text-align:center;opacity:0.6;font-size:12px;}",
     ].join("\n");
     document.head.appendChild(st);
   }
@@ -149,6 +161,23 @@
     var listEl = wrap.querySelector(".cssmv-kie-list");
     var curStage = null;
     searchEl.addEventListener("input", function () { if (curStage) renderKieList(listEl, curStage, searchEl.value); });
+    // CSSOS_WAVE_772 — 上滑(接近底部)加载多 10 条。
+    listEl.addEventListener("scroll", function () {
+      if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 40) {
+        var rows = listEl.__rows || [];
+        if ((listEl.__shown || PAGE) < rows.length) { listEl.__shown = (listEl.__shown || PAGE) + PAGE; paintKiePage(listEl); }
+      }
+    }, { passive: true });
+    // CSSOS_WAVE_772 — 标签显示实时家数(歌词 45 / 封面图 72 / 音乐 24 / 视频 179),从 live kie 目录拉。
+    loadKie().then(function () {
+      ordered.forEach(function (k) {
+        var n = (((kieCache || {}).stages || {})[k] || []).length;
+        if (!n) return;
+        var span = bar.querySelector('[data-stage-filter="' + k + '"] span');
+        var m = STAGE_META[k] || { label: k };
+        if (span) span.textContent = m.label + " " + n;
+      });
+    });
 
     function applyFilter(filter) {
       bar.querySelectorAll("[data-stage-filter]").forEach(function (b) {

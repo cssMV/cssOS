@@ -242,9 +242,10 @@
     try {
       const idEl = document.getElementById("watch-work-id");
       if (idEl) {
+        // CSSOS_WAVE_766 — Jing: 第一行【标题 - 作者】, 分隔符用 " - ", 作者补 owner_email(如 jingdudc@gmail.com)。
         const _t = String((work && work.title) || "").trim();
-        const _au = String((work && (work.owner_name || work.owner_handle)) || "").trim();
-        const _titleLine = _t ? (_au ? _t + " · " + _au : _t) : "";
+        const _au = String((work && (work.owner_name || work.owner_handle || work.owner_email)) || "").trim();
+        const _titleLine = _t ? (_au ? _t + " - " + _au : _t) : "";
         // CSSOS_WAVE_744 — Jing「ID 不要 🆔 emoji, 太显眼; 用纯文本 ID, 更小、隐隐约约不抢戏」。
         idEl.innerHTML =
           '<span class="wid-title"></span>' +
@@ -262,7 +263,10 @@
               const ce = document.querySelector("#watch-title-text, .watch-title-text, .cssmv-mv-title");
               const ct = ce ? String(ce.textContent || "").trim() : "";
               const _bad = /^(watch|untitled|css mv|untitled mv)$/i.test(ct);
-              if (ct && !_bad) tn.textContent = ct;
+              // W766 — 兜底也补作者(owner_email 优先, 配合主路径"标题 - 作者")。
+              const _w2 = work || globalThis.currentWatchPreviewWork || null;
+              const _au2 = String((_w2 && (_w2.owner_name || _w2.owner_handle || _w2.owner_email)) || "").trim();
+              if (ct && !_bad) tn.textContent = _au2 ? (ct + " - " + _au2) : ct;
             } catch (_e) {}
           };
           setTimeout(_fillFromCenter, 700);

@@ -210,9 +210,15 @@
       g.textContent = "⚙";
       g.title = "情绪字幕设置";
       g.setAttribute("aria-label", "情绪字幕设置");
-      g.style.cssText = "appearance:none;border:0;background:rgba(0,0,0,.32);color:#fff;border-radius:999px;"
-        + "width:30px;height:30px;min-width:30px;font-size:15px;line-height:1;cursor:pointer;flex:0 0 auto;"
-        + "margin-left:4px;opacity:.9;display:inline-flex;align-items:center;justify-content:center;";
+      // CSSOS_WAVE_754 — Jing「设置按钮放第一位 + 遵守胶囊宪法(和这家绿胶囊一致)」。
+      // order:-1 → 永远排最左(压过 lang-flag-pills paintConcave 给 heads 的 order:0+)。
+      // 外观改成宪法绿胶囊(同 #watch-playlist-pill 基样式: 绿底/999圆角/同高)。
+      // 注意: 暂不加凹咬碗口 mask —— 那正是 W753 透明轨道元凶, 盲加易复发; 凹咬包裹待截图再精调。
+      g.style.cssText = "appearance:none;border:0;cursor:pointer;flex:0 0 auto;order:-1;"
+        + "height:40px;min-height:40px;border-radius:999px;"
+        + "background:hsla(155,58%,52%,0.16);color:#eafff6;"
+        + "font-size:15px;line-height:1;padding:0 13px;"
+        + "display:inline-flex;align-items:center;justify-content:center;";
       ["pointerdown", "mousedown", "touchstart", "contextmenu"].forEach(function (ev) {
         g.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
       });
@@ -220,7 +226,7 @@
         e.preventDefault(); e.stopPropagation();   // 不冒泡 → 不暂停媒体
         openFor(bar);
       }, false);
-      bar.appendChild(g);
+      bar.insertBefore(g, bar.firstChild);   // W754 — DOM 也置首(配合 order:-1 双保险)
     } catch (_e) {}
   }
   setInterval(ensureFxGear, 1500);

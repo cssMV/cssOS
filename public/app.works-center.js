@@ -797,6 +797,7 @@ function finalizeWorksListRender(list, sortedWorks, context = {}) {
     list.dataset.renderedCount = String(sortedWorks.length);
     void hydrateWorksCardThumbnails(list, tail);
     injectWorksPinButtons(resultsContainer, tail);
+    injectWorksEpicButtons(resultsContainer, tail);
     if (canEditAnyWorkSetting) bindInlineChipEditors(resultsContainer);
     bindWorksCardExpandToggle(resultsContainer);
     bindWorksCardActionButtons(resultsContainer, tail, {
@@ -831,6 +832,7 @@ function finalizeWorksListRender(list, sortedWorks, context = {}) {
   list.dataset.renderedCount = String(sortedWorks.length);
   void hydrateWorksCardThumbnails(list, sortedWorks);
   injectWorksPinButtons(list, sortedWorks);
+  injectWorksEpicButtons(list, sortedWorks);
   globalThis.bindOperaScoreJumpTargetsModule?.(list);
   if (canEditAnyWorkSetting) bindInlineChipEditors(list);
   bindWorksCardExpandToggle(list);
@@ -886,6 +888,98 @@ function injectWorksPinButtons(container, worksArr) {
     });
   } catch (_e) { /* non-fatal */ }
 }
+
+// CSSOS_WAVE_781 20260614 — Jing「一键 Epic 版」: 给【自己的(或管理员对任意)有歌词的】作品卡注入
+// 一个 ⚡ 按钮(右上角, pin 旁), 点击 → 付费重出更猛的 Epic 编曲(母语原词原样当词唱, 绝不改词)→
+// 自动对齐情绪字幕。异步出片(~3-5min), 轮询作品 audio 变化后刷新列表。
+function injectWorksEpicButtons(container, worksArr) {
+  try {
+    if (!(container instanceof Element)) return;
+    const byId = new Map();
+    (Array.isArray(worksArr) ? worksArr : []).forEach((w) => {
+      const id = String((w && (w.id || w.work_id)) || "").trim();
+      if (id) byId.set(id, w);
+    });
+    const _isAdmin = String((globalThis.authState && globalThis.authState.role) || "").toLowerCase() === "admin";
+    container.querySelectorAll(".work-card[data-work-id]").forEach((card) => {
+      if (card.querySelector("[data-work-epic]")) return; // idempotent
+      const id = String(card.dataset.workId || "").trim();
+      if (!id) return;
+      const w = byId.get(id);
+      // 只对【自己的作品】(或管理员对任意)展示; 礼物/他人作品非管理员不展示。
+      if (!_isAdmin && w && (w.is_received_gift || w.owned === false)) return;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("data-work-epic", id);
+      btn.title = loginCopy("One-tap Epic version (paid re-render, keeps your lyrics)", "一键 Epic 版(付费重出更猛编曲,保留你的原词)");
+      btn.setAttribute("aria-label", btn.title);
+      btn.textContent = "⚡";
+      btn.style.cssText =
+        "position:absolute;top:8px;left:44px;z-index:6;width:30px;height:30px;border-radius:999px;" +
+        "display:grid;place-items:center;font-size:15px;line-height:1;cursor:pointer;" +
+        "border:1px solid rgba(255,196,0,0.7);background:rgba(0,0,0,0.42);filter:grayscale(0.2) opacity(0.85);transition:filter .15s ease,transform .15s ease;";
+      const cover = card.querySelector(".work-cover") || card;
+      if (getComputedStyle(cover).position === "static") cover.style.position = "relative";
+      cover.appendChild(btn);
+    });
+  } catch (_e) { /* non-fatal */ }
+}
+
+// One-time delegated handler for ⚡ Epic re-render.
+(function installWorksEpicHandler() {
+  if (typeof document === "undefined" || globalThis.__cssosWorksEpicInstalled) return;
+  globalThis.__cssosWorksEpicInstalled = true;
+  document.addEventListener("click", async (ev) => {
+    const btn = ev.target instanceof Element ? ev.target.closest("[data-work-epic]") : null;
+    if (!btn) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const id = String(btn.getAttribute("data-work-epic") || "").trim();
+    if (!id || btn.disabled) return;
+    const cost = 30;
+    const toast = (typeof globalThis.cssosGuidedToast === "function") ? globalThis.cssosGuidedToast : null;
+    if (!globalThis.confirm(loginCopy(
+      "Re-render a bigger Epic arrangement? Your lyrics are sung unchanged. ~" + cost + " credits, plays in ~3-5 min.",
+      "重出更猛的 Epic 编曲?你的原词原样演唱。约 " + cost + " 积分,3-5 分钟后自动播放新版。"))) return;
+    btn.disabled = true; btn.textContent = "⏳"; btn.style.filter = "none";
+    try {
+      const r = await fetch("/api/agent/work/" + encodeURIComponent(id) + "/epic-render", {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 402) {
+        if (typeof globalThis.cssosToastInsufficientBalance === "function") globalThis.cssosToastInsufficientBalance();
+        else if (toast) toast(loginCopy("Not enough credits.", "积分不足。"), {});
+        btn.disabled = false; btn.textContent = "⚡"; return;
+      }
+      if (!r.ok || !j.ok) {
+        if (toast) toast(loginCopy("Epic re-render failed to start.", "Epic 重出启动失败。"), {});
+        btn.disabled = false; btn.textContent = "⚡"; return;
+      }
+      if (toast) toast(loginCopy("Epic version generating… plays in ~3-5 min, list refreshes automatically.", "Epic 版生成中… 约 3-5 分钟出片,完成后自动刷新。"), {});
+      // 轮询: 该作品 audio 变化(后端把 preview_audio_url 换成 Epic)→ 刷新列表。
+      const started = Date.now();
+      const poll = setInterval(async () => {
+        if (Date.now() - started > 8 * 60 * 1000) { clearInterval(poll); btn.disabled = false; btn.textContent = "⚡"; return; }
+        try {
+          const wr = await fetch("/api/works/" + encodeURIComponent(id) + "/language-tracks", { credentials: "include" });
+          const wj = await wr.json().catch(() => null);
+          const tracks = (wj && Array.isArray(wj.tracks)) ? wj.tracks : [];
+          // epic-render 完成的标志: 出现备份轨 'orig-pre-epic'(只有 Epic 重出会建)。
+          const done = tracks.some((t) => String(t && t.lang) === "orig-pre-epic");
+          if (done) {
+            clearInterval(poll);
+            if (toast) toast(loginCopy("Epic version ready!", "Epic 版已就绪!"), {});
+            if (typeof loadMyWorksModule === "function") loadMyWorksModule({ resetVisible: false, force: true });
+            else location.reload();
+          }
+        } catch (_e) { /* keep polling */ }
+      }, 15000);
+    } catch (_e) {
+      if (toast) toast(loginCopy("Network error.", "网络错误。"), {});
+      btn.disabled = false; btn.textContent = "⚡";
+    }
+  }, true);
+})();
 
 // One-time delegated handler for pin toggle.
 (function installWorksPinHandler() {

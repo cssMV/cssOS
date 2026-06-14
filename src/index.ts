@@ -8072,6 +8072,60 @@ app.post("/api/agent/work/:work_id/generate-video", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE_781 — Jing「一键 Epic 版」: 把作品重出【更猛的 Epic 编曲】(母语原词原样当词唱, 绝不改词)。
+ * Suno 重谱(40-240s)+ 字幕对齐(~4min)总时长超 nginx 60s → 异步: 先扣费 + 立即返回 {status:"started"},
+ * 后台跑 epic render → 内部触发 resubtitle 对齐新编曲 → 失败退款。前端轮询作品 preview_audio_url 变化。
+ * 共用核心 cssosEpicRenderCore(admin 端点同款), 原音频自动备份为 'orig-pre-epic' 轨(不丢原作)。 */
+const __epicInFlight = new Set<string>();
+app.post("/api/agent/work/:work_id/epic-render", express.json({ limit: "8kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.work_id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  if (__epicInFlight.has(workId)) return res.status(409).json({ ok: false, error: "epic_in_flight" });
+  let work: any;
+  try {
+    const r = await withClient((c) => c.query<any>(
+      `SELECT id, user_id, lyrics_preview FROM user_works WHERE id = $1::uuid LIMIT 1`, [workId]));
+    work = (r as any).rows[0];
+  } catch (_err) { return res.status(500).json({ ok: false, error: "load_failed" }); }
+  if (!work) return res.status(404).json({ ok: false, error: "not_found" });
+  if (String(work.user_id) !== String(userId)) return res.status(403).json({ ok: false, error: "not_your_work" });
+  if (!String(work.lyrics_preview || "").trim()) return res.status(400).json({ ok: false, error: "no_lyrics" });
+  // 扣费(不足 → 402)。
+  const debit = await debitCredits(userId, CSSOS_AGENT_COSTS.epic_render, "epic_render", { work_id: workId });
+  if (!debit.ok) return res.status(402).json({ ok: false, error: "insufficient_credit", need: CSSOS_AGENT_COSTS.epic_render, have: debit.balance });
+  __epicInFlight.add(workId);
+  // 异步执行, 立即返回。
+  (async () => {
+    try {
+      const r = await cssosEpicRenderCore(workId, {
+        style: (req.body as any)?.style,
+        lang: (req.body as any)?.lang,
+        sunoModel: (req.body as any)?.sunoModel,
+      });
+      if (!r.ok) {
+        await creditUserBalance(userId, CSSOS_AGENT_COSTS.epic_render, "epic_render_refund", { work_id: workId, code: r.code });
+        console.warn("[epic-render] failed, refunded:", workId, r.code, r.detail || "");
+        return;
+      }
+      // 字幕对齐新编曲(内部调 admin resubtitle, 不带 ?asr → 用原词强制对齐)。失败不退款(音频已成)。
+      try {
+        const base = `http://127.0.0.1:${process.env.PORT || 3000}`;
+        await fetch(`${base}/api/admin/resubtitle/${workId}`, {
+          method: "POST", headers: { "x-admin-token": String(process.env.CSSOS_ADMIN_TOKEN || "") },
+        });
+      } catch (subErr) { console.warn("[epic-render] resubtitle trigger failed:", workId, (subErr as Error)?.message); }
+    } catch (e) {
+      await creditUserBalance(userId, CSSOS_AGENT_COSTS.epic_render, "epic_render_refund", { work_id: workId }).catch(() => {});
+      console.warn("[epic-render] threw, refunded:", workId, (e as Error)?.message);
+    } finally {
+      __epicInFlight.delete(workId);
+    }
+  })();
+  return res.json({ ok: true, status: "started", work_id: workId, eta_secs: 300, charged: CSSOS_AGENT_COSTS.epic_render });
+});
+
 /* ═══════════════════════════════════════════════════════════════════
  * CSSOS_WAVE_138 20260514 — Jing
  *
@@ -8103,6 +8157,7 @@ const CSSOS_AGENT_COSTS = {
   create_work_other:    2,    // shortplay / series / film
   generate_audio:       10,   // ~$0.10 Suno/Mubert
   generate_video:       50,   // ~$0.50 Luma/Fal
+  epic_render:          30,   // ~$0.30 Suno full Epic re-render (V4_5PLUS) — W781「一键 Epic 版」
   dm_send:              0,    // free
 } as const;
 
@@ -32974,6 +33029,66 @@ async function demucsCleanup(job: string): Promise<void> {
  * preview_audio_url。随后调 /api/admin/resubtitle/<id>(不带 ?asr)把情绪字幕对齐新编曲。
  *   curl -X POST "$API/api/admin/epic-render/<workId>" -H "x-admin-token: $T" \
  *        -H 'content-type: application/json' -d '{"style":"epic ...","lang":"zh","sunoModel":"V4_5PLUS"}' */
+type EpicRenderResult = { ok: boolean; code?: string; detail?: string; workId: string; lang?: string; provider?: string; sunoModel?: string; style?: string; audio_url?: string; alt_audio_url?: string; duration_s?: number | null };
+/* CSSOS_WAVE_781 — 共享核心: 给某作品做 Epic 重编曲(手写/现有原词原样当词唱, 绝不改词)。
+ * admin 端点 + 用户钱包端点共用。不做计费/鉴权 —— 调用方负责。 */
+async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang?: string; sunoModel?: string }): Promise<EpicRenderResult> {
+  const wr = await withClient((c) => c.query<{ title: string | null; style: string | null; lyrics_preview: string | null; preview_audio_url: string | null }>(
+    `SELECT title, style, lyrics_preview, preview_audio_url FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+  const w = wr.rows[0];
+  if (!w) return { ok: false, code: "NOT_FOUND", workId };
+  const lyrics = String(w.lyrics_preview || "").trim();
+  if (!lyrics) return { ok: false, code: "NO_LYRICS", workId };
+  const lang = String(opts?.lang || "zh").trim() || "zh";
+  const baseStyle = String(w.style || "").trim();
+  const epicStyle = String(opts?.style || ("epic, thunderous climax, massive choir, soaring strings, cinematic, " + baseStyle)).slice(0, 200);
+  const sunoModel = String(opts?.sunoModel || "V4_5PLUS").trim() || "V4_5PLUS";
+  // 1) Suno 重谱(prefer suno, customMode 唱【原词】, 画音分层不烧录)。
+  const music = await callMusicGen({
+    prompt: String(w.title || "cssOS"),
+    title: String(w.title || "cssOS"),
+    tags: [epicStyle],
+    lyrics,
+    instrumental: false,
+    language: lang,
+    prefer: ["suno"],
+    sunoModel,
+    want_word_timeline: false,   // 字幕另由 resubtitle 强制对齐
+  });
+  if (!music || !music.ok || !music.audio_url) {
+    return { ok: false, code: "SUNO_UNAVAILABLE", detail: music?.error || "", workId };
+  }
+  // 2) rehost 临时 Suno URL → 稳定 CDN。
+  const epicAudio = await persistRemoteAudioToStable(String(music.audio_url));
+  const epicAlt = music.alt_audio_url ? await persistRemoteAudioToStable(String(music.alt_audio_url)) : "";
+  const dur = Math.round(Number(music.duration_s || 0) || 0) || null;
+  const origAudio = String(w.preview_audio_url || "").trim();
+  // 3-5) 备份原作 → 取消旧默认 → upsert Epic 默认轨 → preview_audio_url 指向 Epic。
+  await withClient(async (c) => {
+    if (origAudio) {
+      const ex = await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND lang='orig-pre-epic' LIMIT 1`, [workId]);
+      if (!ex.rowCount) {
+        await c.query(
+          `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, lyrics, is_default)
+           VALUES ($1::uuid,'orig-pre-epic',90,$2,$3,false)`,
+          [workId, origAudio, lyrics]);
+      }
+    }
+    await c.query(`UPDATE work_language_tracks SET is_default=false WHERE work_id=$1::uuid`, [workId]);
+    const up = await c.query(
+      `UPDATE work_language_tracks SET audio_url=$3, duration_secs=$4, vocal_url=NULL, instrumental_url=NULL, stems_status=NULL, is_default=true, lyrics=$5
+        WHERE work_id=$1::uuid AND lang=$2`,
+      [workId, lang, epicAudio, dur, lyrics]);
+    if (!up.rowCount) {
+      await c.query(
+        `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, duration_secs, lyrics, is_default)
+         VALUES ($1::uuid,$2,0,$3,$4,$5,true)`,
+        [workId, lang, epicAudio, dur, lyrics]);
+    }
+    await c.query(`UPDATE user_works SET preview_audio_url=$2, updated_at=now() WHERE id=$1::uuid`, [workId, epicAudio]);
+  });
+  return { ok: true, workId, lang, provider: music.provider, sunoModel, style: epicStyle, audio_url: epicAudio, alt_audio_url: epicAlt, duration_s: dur };
+}
 app.post("/api/admin/epic-render/:workId", express.json({ limit: "16kb" }), async (req, res) => {
   noStore(res);
   const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
@@ -32982,65 +33097,16 @@ app.post("/api/admin/epic-render/:workId", express.json({ limit: "16kb" }), asyn
   const workId = String(req.params.workId || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
   try {
-    const wr = await withClient((c) => c.query<{ title: string | null; style: string | null; lyrics_preview: string | null; preview_audio_url: string | null }>(
-      `SELECT title, style, lyrics_preview, preview_audio_url FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
-    const w = wr.rows[0];
-    if (!w) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
-    const lyrics = String(w.lyrics_preview || "").trim();
-    if (!lyrics) return res.status(400).json({ ok: false, code: "NO_LYRICS" });
-    const lang = String((req.body as any)?.lang || (req.query as any)?.lang || "zh").trim() || "zh";
-    const baseStyle = String(w.style || "").trim();
-    const epicStyle = String((req.body as any)?.style || ("epic, thunderous climax, massive choir, soaring strings, cinematic, " + baseStyle)).slice(0, 200);
-    const sunoModel = String((req.body as any)?.sunoModel || (req.query as any)?.sunoModel || "V4_5PLUS").trim() || "V4_5PLUS";
-    // 1) Suno 重谱(prefer suno, customMode 唱【原词】, 画音分层不烧录)。
-    const music = await callMusicGen({
-      prompt: String(w.title || "cssOS"),
-      title: String(w.title || "cssOS"),
-      tags: [epicStyle],
-      lyrics,
-      instrumental: false,
-      language: lang,
-      prefer: ["suno"],
-      sunoModel,
-      want_word_timeline: false,   // 字幕另由 resubtitle 强制对齐
+    const r = await cssosEpicRenderCore(workId, {
+      style: (req.body as any)?.style || (req.query as any)?.style,
+      lang: (req.body as any)?.lang || (req.query as any)?.lang,
+      sunoModel: (req.body as any)?.sunoModel || (req.query as any)?.sunoModel,
     });
-    if (!music || !music.ok || !music.audio_url) {
-      return res.status(503).json({ ok: false, code: "SUNO_UNAVAILABLE", detail: music?.error || "" });
+    if (!r.ok) {
+      const status = r.code === "NOT_FOUND" ? 404 : r.code === "NO_LYRICS" ? 400 : r.code === "SUNO_UNAVAILABLE" ? 503 : 500;
+      return res.status(status).json(r);
     }
-    // 2) rehost 临时 Suno URL → 稳定 CDN。
-    const epicAudio = await persistRemoteAudioToStable(String(music.audio_url));
-    const epicAlt = music.alt_audio_url ? await persistRemoteAudioToStable(String(music.alt_audio_url)) : "";
-    const dur = Math.round(Number(music.duration_s || 0) || 0) || null;
-    const origAudio = String(w.preview_audio_url || "").trim();
-    // 3-5) 备份原作 → 取消旧默认 → upsert Epic 默认轨 → preview_audio_url 指向 Epic。
-    await withClient(async (c) => {
-      if (origAudio) {
-        const ex = await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND lang='orig-pre-epic' LIMIT 1`, [workId]);
-        if (!ex.rowCount) {
-          await c.query(
-            `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, lyrics, is_default)
-             VALUES ($1::uuid,'orig-pre-epic',90,$2,$3,false)`,
-            [workId, origAudio, lyrics]);
-        }
-      }
-      await c.query(`UPDATE work_language_tracks SET is_default=false WHERE work_id=$1::uuid`, [workId]);
-      const up = await c.query(
-        `UPDATE work_language_tracks SET audio_url=$3, duration_secs=$4, vocal_url=NULL, instrumental_url=NULL, stems_status=NULL, is_default=true, lyrics=$5
-          WHERE work_id=$1::uuid AND lang=$2`,
-        [workId, lang, epicAudio, dur, lyrics]);
-      if (!up.rowCount) {
-        await c.query(
-          `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, duration_secs, lyrics, is_default)
-           VALUES ($1::uuid,$2,0,$3,$4,$5,true)`,
-          [workId, lang, epicAudio, dur, lyrics]);
-      }
-      await c.query(`UPDATE user_works SET preview_audio_url=$2, updated_at=now() WHERE id=$1::uuid`, [workId, epicAudio]);
-    });
-    return res.json({
-      ok: true, workId, lang, provider: music.provider, sunoModel, style: epicStyle,
-      audio_url: epicAudio, alt_audio_url: epicAlt, duration_s: dur,
-      next: `POST /api/admin/resubtitle/${workId} (no ?asr) to align emotion subtitles to the new Epic audio`,
-    });
+    return res.json({ ...r, next: `POST /api/admin/resubtitle/${workId} (no ?asr) to align emotion subtitles to the new Epic audio` });
   } catch (e) {
     return res.status(500).json({ ok: false, code: "EPIC_RENDER_FAILED", detail: (e as Error)?.message || "" });
   }

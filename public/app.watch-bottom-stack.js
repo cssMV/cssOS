@@ -15,11 +15,12 @@
   globalThis.__cssosBottomFlowWired = true;
 
   // 从下往上的成员(列容器是 column-reverse → 第一个 DOM 子 = 最底)。
+  // CSSOS_WAVE_761 — Jing 拍板从下往上: 价格条 → 左下信息包 → 多语言/多声线 → CTA(Want an MV)。
   var ORDER = [
-    "#cssos-watch-price-strip",                       // 价格条(最底, 贴 Dock)
-    "#cssos-create-cta",                              // CTA「Want an MV」
-    "#watch-panel .watch-screen .cssmv-capsule",      // 左下控制胶囊(Loop list…)
-    "#cssos-lang-fold"                                // 多语言/多声线行
+    "#cssos-watch-price-strip",                       // 价格条(最底, 贴 Dock; 最右是 AI 助理)
+    "#watch-panel .watch-screen .cssmv-capsule",      // 左下信息包(Loop list…)
+    "#cssos-lang-fold",                               // 多语言/多声线
+    "#cssos-create-cta"                               // CTA「Want an MV like this」(最上)
   ];
 
   function screenEl() { return document.querySelector("#watch-panel .watch-screen"); }
@@ -35,9 +36,10 @@
       // 唯一的绝对定位锚点: 贴左下、坐在 Dock 上方(--cssos-dock-clear 让位), 随之上移。
       f.style.cssText = [
         "position:absolute", "left:12px", "right:auto",
-        "bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px) + 14px)",
+        // W761 — 容器底边贴 Dock 顶(dock-clear), 不加额外边距 → 价格条↔Dock 距离 0(话筒凸起补足)。
+        "bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px))",
         "display:flex", "flex-direction:column-reverse",
-        "align-items:flex-start", "gap:10px",
+        "align-items:flex-start", "gap:8px",
         "max-width:calc(100% - 24px)", "z-index:20",
         "pointer-events:none"   // 容器穿透, 子元素各自 auto
       ].join(";");

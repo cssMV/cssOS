@@ -20305,7 +20305,8 @@ async function persistRemoteImageToStable(url: string): Promise<string> {
   let host = "";
   try { host = new URL(u).hostname.toLowerCase(); } catch { return u; }
   if (host === "cssstudio.app" || u.includes("/api/") || u.includes("/artifacts/")) return u;
-  if (!/(^|\.)(replicate\.delivery|fal\.media|fal\.run)$/i.test(host)) return u;
+  // CSSOS_WAVE_786 — 把 kie/nanobanana 的临时图床 aiquickdraw 也纳入 rehost(否则 24h 后封面 404)。
+  if (!/(^|\.)(replicate\.delivery|fal\.media|fal\.run|aiquickdraw\.com)$/i.test(host)) return u;
   try {
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 15000);

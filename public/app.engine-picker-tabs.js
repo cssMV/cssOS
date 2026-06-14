@@ -73,9 +73,14 @@
         "</button>";
     }).join("");
     if (shown < rows.length) {
-      html += '<div class="cssmv-kie-more">已显示 ' + shown + " / " + rows.length + " · 上滑加载更多</div>";
+      // CSSOS_WAVE_775 — Jing「外层还有内容, 上滑动作用不上」: 改成【点击加载更多】按钮, 不依赖滚动容器。
+      html += '<button type="button" class="cssmv-kie-more" data-kie-more="1">已显示 ' + shown + " / " + rows.length + " · 点击加载更多 10</button>";
     }
     listEl.innerHTML = html;
+    var moreBtn = listEl.querySelector("[data-kie-more]");
+    if (moreBtn) moreBtn.addEventListener("click", function () {
+      listEl.__shown = (listEl.__shown || PAGE) + PAGE; paintKiePage(listEl);
+    });
     listEl.querySelectorAll(".cssmv-kie-card").forEach(function (card) {
       card.addEventListener("click", function () {
         var id = card.getAttribute("data-kie-id");
@@ -116,7 +121,8 @@
       "[data-mv-engines-panel] .cssmv-kie-price{margin-left:auto;font-weight:700;}",
       "[data-mv-engines-panel] .cssmv-kie-fire{color:#ff8a3d;font-weight:700;}",
       "[data-mv-engines-panel] .cssmv-kie-empty{padding:18px;text-align:center;opacity:0.7;font-size:13px;}",
-      "[data-mv-engines-panel] .cssmv-kie-more{grid-column:1/-1;padding:8px;text-align:center;opacity:0.6;font-size:12px;}",
+      "[data-mv-engines-panel] .cssmv-kie-more{all:unset;grid-column:1/-1;display:block;width:100%;box-sizing:border-box;cursor:pointer;padding:9px;text-align:center;font-size:12px;border-radius:10px;border:1px dashed rgba(0,245,160,0.35);background:rgba(0,245,160,0.05);color:inherit;opacity:0.85;}",
+      "[data-mv-engines-panel] .cssmv-kie-more:hover{background:rgba(0,245,160,0.14);opacity:1;}",
     ].join("\n");
     document.head.appendChild(st);
   }

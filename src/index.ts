@@ -20791,9 +20791,10 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 // 文本【不参与丰俭由人】, 永锁 capable 前沿大模型。小模型(haiku/mini/flash/llama/mistral)在低资源
 // 语言会乱编、漏译、出乱码。三强按序: Claude → GPT-4o → Gemini Pro。prefer_model 强制 capable 变体
 // (覆盖 provider 默认的 claude-haiku / gpt-4o-mini / gemini-flash —— 此前歌词锁竟在偷用这些小模型)。
-// CSSOS_WAVE_774 — Jing「一家 kie 通吃」: kie 置首(claude-opus-4-5, 用 kie credits, 不被三强直连断供拦),
-// 三强直连 + 免费引擎仍作兜底(kie 也断了才降级)。
-const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemini"];
+// CSSOS_WAVE_775 — Jing「用 kie 一家即可, 经 kie 用三强, 不再直连 OpenAI/Anthropic/Gemini」:
+// 歌词/lore 只走 kie(claude-opus-4-5 = kie 内的 Claude 强模型)。kie 万一全断, llmProviderOrder
+// 末尾仍会自动续上已配 key 的免费引擎(groq/together/…)兜底; 直连三强(空额度)自然跳过, 不再优先。
+const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie"];
 const CAPABLE_TEXT_MODELS: Partial<Record<LlmProvider, string>> = {
   kie: "claude-opus-4-5",
   anthropic: "claude-sonnet-4-5",

@@ -878,8 +878,8 @@ function injectWorksPinButtons(container, worksArr) {
         : (pinned ? loginCopy("Pinned — tap to unpin", "已置顶,点按取消") : loginCopy("Pin to top (max 3)", "置顶(最多 3 个)"));
       btn.textContent = "📌";
       btn.style.cssText =
-        "position:absolute;top:8px;left:8px;z-index:6;width:30px;height:30px;border-radius:999px;" +
-        "display:grid;place-items:center;font-size:15px;line-height:1;cursor:pointer;border:1px solid " +
+        "position:absolute;top:8px;left:8px;z-index:6;width:22px;height:22px;border-radius:999px;" +   // W783 — Jing「📌 小一些」
+        "display:grid;place-items:center;font-size:11px;line-height:1;cursor:pointer;border:1px solid " +
         (pinned ? "rgba(0,245,160,0.85);background:rgba(0,245,160,0.22);" : "rgba(255,255,255,0.22);background:rgba(0,0,0,0.42);") +
         "filter:" + (pinned ? "none" : "grayscale(1) opacity(0.7)") + ";transition:filter .15s ease;";
       const cover = card.querySelector(".work-cover") || card;
@@ -915,8 +915,8 @@ function injectWorksEpicButtons(container, worksArr) {
       btn.setAttribute("aria-label", btn.title);
       btn.textContent = "⚡";
       btn.style.cssText =
-        "position:absolute;top:8px;left:44px;z-index:6;width:30px;height:30px;border-radius:999px;" +
-        "display:grid;place-items:center;font-size:15px;line-height:1;cursor:pointer;" +
+        "position:absolute;top:8px;left:36px;z-index:6;width:22px;height:22px;border-radius:999px;" +   // W783 — 与 📌 同尺寸
+        "display:grid;place-items:center;font-size:11px;line-height:1;cursor:pointer;" +
         "border:1px solid rgba(255,196,0,0.7);background:rgba(0,0,0,0.42);filter:grayscale(0.2) opacity(0.85);transition:filter .15s ease,transform .15s ease;";
       const cover = card.querySelector(".work-cover") || card;
       if (getComputedStyle(cover).position === "static") cover.style.position = "relative";

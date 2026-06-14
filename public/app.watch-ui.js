@@ -12142,6 +12142,11 @@ globalThis.pickWatchRandomFontModule = pickWatchRandomFontModule;
 // 压过旧的固定 *gap*N 钉位规则。--cssos-stk-base 已含 safe-area + 14 + dock-clear(Dock 显示
 // 时整列同步上移), JS 只管行间堆叠, 不碰横向锚点。旧 CSS 偏移保留为 JS 失效时的兜底。
 (function cssosBottomStackFlow() {
+  // CSSOS_WAVE_759 — 禁用本栈器: 它与【已存在且正确的】app.watch-bottom-stack.js(W561, dock 感知 +
+  // 真元素 #cssos-watch-price-strip/#cssos-create-cta/.cssmv-capsule/#cssos-lang-fold)抢着写同一个
+  // CTA/字幕的 bottom !important → 互相覆盖 → CTA 不礼让、遮住价格条/左下胶囊(Jing 报)。W744 当时没
+  // 发现 W561 已存在, 造了重复冲突栈器。这里直接 return, 堆叠权全归 W561。
+  return;
   var GAP = 10; // 行间距(px)
   // 自底向上的成员(顺序即视觉层序: 价格条 → CTA → 左下信息 → 字幕 → 多语言/声线)
   var ORDER = [

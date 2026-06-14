@@ -210,15 +210,11 @@
       g.textContent = "⚙";
       g.title = "情绪字幕设置";
       g.setAttribute("aria-label", "情绪字幕设置");
-      // CSSOS_WAVE_754 — Jing「设置按钮放第一位 + 遵守胶囊宪法(和这家绿胶囊一致)」。
-      // order:-1 → 永远排最左(压过 lang-flag-pills paintConcave 给 heads 的 order:0+)。
-      // 外观改成宪法绿胶囊(同 #watch-playlist-pill 基样式: 绿底/999圆角/同高)。
-      // 注意: 暂不加凹咬碗口 mask —— 那正是 W753 透明轨道元凶, 盲加易复发; 凹咬包裹待截图再精调。
-      g.style.cssText = "appearance:none;border:0;cursor:pointer;flex:0 0 auto;order:-1;"
-        + "height:40px;min-height:40px;border-radius:999px;"
-        + "background:hsla(155,58%,52%,0.16);color:#eafff6;"
-        + "font-size:15px;line-height:1;padding:0 13px;"
-        + "display:inline-flex;align-items:center;justify-content:center;";
+      // CSSOS_WAVE_754b — Jing「套上胶囊风格即可」。最干净做法: 不自带任何底色/边框/mask,
+      // 只留 order:-1 置首 → 让【胶囊宪法 .cssmv-pill-bar > *】完全接管(透明融入轨道绿、同高 40px、
+      // 同内距、hover 自动变色; 且作为"激活前一颗"被宪法 *:has(~.active) 自动右侧凹咬, 包住 Languages)。
+      // 绝不自加 mask 碗口(=W753 透明轨道元凶)。color 给浅色保证图标在绿轨道上可见。
+      g.style.cssText = "order:-1;color:#eafff6;font-size:15px;line-height:1;cursor:pointer;flex:0 0 auto;";
       ["pointerdown", "mousedown", "touchstart", "contextmenu"].forEach(function (ev) {
         g.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
       });

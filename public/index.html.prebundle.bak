@@ -2231,6 +2231,7 @@
     <script src="app.media-error-toast.js?v=20260506-errtoast"></script>
     <script src="app.popup-deeplink.js?v=20260506-deeplink-auth"></script>
     <script src="app.engine-picker.js?v=20260507-real-models"></script>
+    <script defer src="app.engine-picker-tabs.js?v=20260614-w773-kie320"></script>
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.emotion-subtitle-engine.js?v=20260525-w442-emo-sub"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>

@@ -281,12 +281,100 @@
     globalThis.cssosMountKiePicker(panel);
   }
 
+  // CSSOS_WAVE_779 — Jing「MV管线已按阶段分类, 一个阶段单接该阶段 kie 列表, 窗口大一点」。
+  // MV管线行 = div.mvp-stage[data-stage] > .mvp-stage-head > .mvp-stage-engine(引擎值) + ⚙(动态拼,
+  // 源码 grep 不到 → 运行时接管): 点引擎值/⚙ → 弹【该阶段 kie 下拉】(更大: 380×440, 引擎数 + 搜索 +
+  // 默认10 + 加载更多 + 点选写 cssmvEngines.setSelection 广播 + 回填行显示)。只接 kie 四阶段。
+  function injectStagePopStyleOnce() {
+    if (document.getElementById("cssos-kie-stagepop-style")) return;
+    var s = document.createElement("style"); s.id = "cssos-kie-stagepop-style";
+    s.textContent = [
+      "#cssos-kie-stagepop{position:fixed;z-index:2147483600;width:min(420px,92vw);max-height:460px;display:flex;flex-direction:column;",
+      "  background:rgba(6,12,10,0.97);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);",
+      "  border:1px solid rgba(0,245,160,0.28);border-radius:14px;padding:10px;box-shadow:0 18px 50px rgba(0,0,0,0.6);color:#eafff6;}",
+      "#cssos-kie-stagepop .sp-hd{font:700 12px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.05em;opacity:.85;margin-bottom:8px;}",
+      "#cssos-kie-stagepop .cssmv-kie-search{width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px 12px;border-radius:999px;border:1px solid rgba(0,245,160,0.30);background:rgba(0,245,160,0.06);color:inherit;font:500 13px/1.2 ui-monospace,monospace;}",
+      "#cssos-kie-stagepop .cssmv-kie-list{display:grid;grid-template-columns:1fr;gap:6px;overflow-y:auto;flex:1;}",
+      "#cssos-kie-stagepop .cssmv-kie-card{all:unset;cursor:pointer;box-sizing:border-box;display:flex;flex-direction:column;gap:3px;padding:9px 12px;border-radius:10px;border:1px solid rgba(0,245,160,0.22);background:rgba(0,245,160,0.05);}",
+      "#cssos-kie-stagepop .cssmv-kie-card:hover{background:rgba(0,245,160,0.12);}",
+      "#cssos-kie-stagepop .cssmv-kie-card.is-sel{background:rgba(0,200,120,0.85);color:#fff;}",
+      "#cssos-kie-stagepop .cssmv-kie-name{font:600 12px/1.25 -apple-system,system-ui,sans-serif;}",
+      "#cssos-kie-stagepop .cssmv-kie-meta{display:flex;align-items:center;gap:6px;font:500 11px/1.2 sans-serif;opacity:.85;}",
+      "#cssos-kie-stagepop .cssmv-kie-price{margin-left:auto;font-weight:700;}",
+      "#cssos-kie-stagepop .cssmv-kie-fire{color:#ff8a3d;font-weight:700;}",
+      "#cssos-kie-stagepop .cssmv-kie-more{all:unset;display:block;width:100%;box-sizing:border-box;cursor:pointer;text-align:center;padding:9px;margin-top:4px;border-radius:10px;border:1px dashed rgba(0,245,160,0.35);background:rgba(0,245,160,0.05);font-size:12px;}",
+      "#cssos-kie-stagepop .cssmv-kie-empty{padding:18px;text-align:center;opacity:.7;font-size:13px;}",
+    ].join("\n");
+    document.head.appendChild(s);
+  }
+  function closeStagePop() { var p = document.getElementById("cssos-kie-stagepop"); if (p && p.parentNode) p.parentNode.removeChild(p); document.removeEventListener("pointerdown", onStagePopOutside, true); }
+  function onStagePopOutside(e) { var p = document.getElementById("cssos-kie-stagepop"); if (p && !p.contains(e.target)) closeStagePop(); }
+  function openKieStagePop(anchorEl, stageKey, engineCell) {
+    closeStagePop(); injectStyleOnce(); injectStagePopStyleOnce();
+    var m = STAGE_META[stageKey] || { icon: "•", label: stageKey };
+    var pop = document.createElement("div"); pop.id = "cssos-kie-stagepop";
+    pop.dataset.noFrameToggle = "1";
+    pop.innerHTML = '<div class="sp-hd">' + m.icon + " " + m.label + ' · 经 Kie</div><input class="cssmv-kie-search" type="search" placeholder="按名称 / 厂商搜索…" /><div class="cssmv-kie-list"></div>';
+    document.body.appendChild(pop);
+    // 定位: 锚点下方, 右对齐, 不出屏。
+    var r = anchorEl.getBoundingClientRect();
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w));
+    var top = Math.min(window.innerHeight - h - 8, r.bottom + 6);
+    if (r.bottom + 6 + h > window.innerHeight) top = Math.max(8, r.top - h - 6);
+    pop.style.left = left + "px"; pop.style.top = top + "px";
+    var searchEl = pop.querySelector(".cssmv-kie-search");
+    var listEl = pop.querySelector(".cssmv-kie-list");
+    searchEl.addEventListener("input", function () { renderKieList(listEl, stageKey, searchEl.value); });
+    listEl.addEventListener("scroll", function () {
+      if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 40) {
+        var rows = listEl.__rows || []; if ((listEl.__shown || PAGE) < rows.length) { listEl.__shown = (listEl.__shown || PAGE) + PAGE; paintKiePage(listEl); }
+      }
+    }, { passive: true });
+    // 点选某模型 → 回填行显示 + 关闭(setSelection 由 renderKieList 内部已广播)。
+    listEl.addEventListener("click", function (e) {
+      var card = e.target && e.target.closest ? e.target.closest(".cssmv-kie-card") : null;
+      if (!card) return;
+      var id = card.getAttribute("data-kie-id");
+      if (id && engineCell) engineCell.textContent = id;
+      setTimeout(closeStagePop, 60);
+    });
+    loadKie().then(function () {
+      var n = (((kieCache || {}).stages || {})[stageKey] || []).length;
+      var hd = pop.querySelector(".sp-hd"); if (hd && n) hd.textContent = m.icon + " " + m.label + " " + n + " · 经 Kie";
+      renderKieList(listEl, stageKey, "");
+      searchEl.focus();
+    });
+    setTimeout(function () { document.addEventListener("pointerdown", onStagePopOutside, true); }, 0);
+  }
+  function wireMvpStages() {
+    var panel = document.getElementById("mv-pipeline-panel");
+    if (!panel) return;
+    panel.querySelectorAll(".mvp-stage[data-stage]").forEach(function (row) {
+      if (row.dataset.cssosKieWired) return;
+      var stageKey = String(row.getAttribute("data-stage") || "").toLowerCase();
+      if (!STAGE_META[stageKey] || !STAGE_META[stageKey].kie) return; // subtitles/compose 本地, 不接 kie
+      row.dataset.cssosKieWired = "1";
+      var head = row.querySelector(".mvp-stage-head") || row;
+      head.addEventListener("click", function (e) {
+        var t = e.target;
+        var cell = t && t.closest ? t.closest(".mvp-stage-engine") : null;
+        // 只接管【引擎值/⚙】点击; 折叠箭头(—)等不接管(走原行为)。
+        var isGear = t && (String(t.textContent || "").trim() === "⚙" || (t.getAttribute && /gear|cog|engine/i.test(t.getAttribute("class") || "")));
+        if (!cell && !isGear) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        openKieStagePop(cell || t, stageKey, row.querySelector(".mvp-stage-engine"));
+      }, true); // capture → 抢在旧 ⚙ 下拉前
+    });
+  }
+
   function scan() {
     // 原生网格锚点(高级设置)→ buildTabs(在网格上加 kie 标签)。排除注入的裸锚点。
     document.querySelectorAll("[data-mv-engines-panel]:not([data-cssos-kie-injected])").forEach(buildTabs);
-    // CSSOS_WAVE_778 — 人物MV: 整块注入(它本无引擎区, 参照高级设置)。MV管线【不】整块注入
-    // (它已按阶段分好类, 改为每个阶段行单接该阶段 kie 列表, 见 W778 stage-row 接法)。
+    // CSSOS_WAVE_778 — 人物MV: 整块注入(它本无引擎区, 参照高级设置)。
     injectInto("#person-mv-panel");
+    // CSSOS_WAVE_779 — MV管线: 已按阶段分类 → 每个阶段行【点引擎值/⚙ → 该阶段 kie 下拉】(不整块注入)。
+    wireMvpStages();
     document.querySelectorAll("[data-cssos-kie-injected]").forEach(function (a) {
       if (!a.querySelector(".cssmv-engine-tabs")) buildBareTabs(a);
     });

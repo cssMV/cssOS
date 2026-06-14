@@ -217,7 +217,9 @@
   // CSSOS_WAVE_777 — Jing「接 MV管线 + 人物MV; 参照高级设置, 小窗稍大」: 可复用【裸锚点】kie 选择器
   // (不依赖原生 select 网格 = 不需要 advanced 那套水化)。给 kie 四阶段建标签(实时家数)+ 搜索 + 列表
   // (默认10 + 点击/上滑加载更多 + 点选广播全平台)。供注入到任意面板。
-  function buildBareTabs(anchor) {
+  function buildBareTabs(anchor, opts) {
+    opts = opts || {};
+    var INIT = opts.initial || PAGE;   // W780 — 人物MV 默认5; 加载仍 +PAGE(10)
     if (!(anchor instanceof HTMLElement)) return;
     if (anchor.querySelector(".cssmv-engine-tabs")) return; // 幂等
     injectStyleOnce();
@@ -241,15 +243,15 @@
     function show(k) {
       curStage = k;
       bar.querySelectorAll("[data-stage-filter]").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-stage-filter") === k); });
-      loadKie().then(function () { renderKieList(listEl, k, searchEl.value); });
+      loadKie().then(function () { renderKieList(listEl, k, searchEl.value); listEl.__shown = INIT; paintKiePage(listEl); });
     }
     bar.querySelectorAll("[data-stage-filter]").forEach(function (b) {
       b.addEventListener("click", function () { show(b.getAttribute("data-stage-filter")); });
     });
-    searchEl.addEventListener("input", function () { if (curStage) renderKieList(listEl, curStage, searchEl.value); });
+    searchEl.addEventListener("input", function () { if (curStage) { renderKieList(listEl, curStage, searchEl.value); listEl.__shown = INIT; paintKiePage(listEl); } });
     listEl.addEventListener("scroll", function () {
       if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 40) {
-        var rows = listEl.__rows || []; if ((listEl.__shown || PAGE) < rows.length) { listEl.__shown = (listEl.__shown || PAGE) + PAGE; paintKiePage(listEl); }
+        var rows = listEl.__rows || []; if ((listEl.__shown || INIT) < rows.length) { listEl.__shown = (listEl.__shown || INIT) + PAGE; paintKiePage(listEl); }
       }
     }, { passive: true });
     loadKie().then(function () {
@@ -261,24 +263,33 @@
       show(stages[0]);
     });
   }
-  globalThis.cssosMountKiePicker = function (container) {
+  globalThis.cssosMountKiePicker = function (container, opts) {
     if (!(container instanceof HTMLElement)) return null;
+    opts = opts || {};
     var sec = document.createElement("section");
-    sec.className = "mv-engines-panel cssos-kie-injected";
+    sec.className = "mv-engines-panel cssos-kie-injected" + (opts.compact ? " cssos-kie-compact" : "");
     sec.setAttribute("data-mv-engines-panel", ""); sec.setAttribute("data-cssos-kie-injected", "1");
-    sec.style.cssText = "margin:14px 8px;padding:12px 14px;border-radius:14px;background:rgba(0,0,0,0.18);";
-    var title = document.createElement("div");
-    title.style.cssText = "font:700 12px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;opacity:.78;margin-bottom:8px;";
-    title.textContent = "第三方引擎 · 经 Kie";
-    sec.appendChild(title);
-    container.appendChild(sec);
-    buildBareTabs(sec);
+    sec.style.cssText = opts.compact
+      ? "margin:6px 0 0 0;padding:0;background:transparent;"
+      : "margin:14px 8px;padding:12px 14px;border-radius:14px;background:rgba(0,0,0,0.18);";
+    if (opts.title) {
+      var title = document.createElement("div");
+      title.style.cssText = "font:700 12px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;opacity:.78;margin-bottom:8px;";
+      title.textContent = opts.title;
+      sec.appendChild(title);
+    }
+    // 插入位置: opts.after 之后(同父); 否则追加到容器末尾。
+    if (opts.after && opts.after.parentNode) opts.after.parentNode.insertBefore(sec, opts.after.nextSibling);
+    else container.appendChild(sec);
+    buildBareTabs(sec, opts);
     return sec;
   };
   function injectInto(panelSel) {
     var panel = document.querySelector(panelSel);
     if (!panel || panel.querySelector("[data-cssos-kie-injected]")) return;
-    globalThis.cssosMountKiePicker(panel);
+    // W780 — 人物MV: 放在【多语言/声轨 .pmv-lang-section】之下, 无标题(直接从胶囊开始), 紧凑, 默认5。
+    var after = panel.querySelector(".pmv-lang-section");
+    globalThis.cssosMountKiePicker(panel, { after: after, compact: true, initial: 5 });
   }
 
   // CSSOS_WAVE_779 — Jing「MV管线已按阶段分类, 一个阶段单接该阶段 kie 列表, 窗口大一点」。

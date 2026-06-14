@@ -286,9 +286,16 @@
   };
   function injectInto(panelSel) {
     var panel = document.querySelector(panelSel);
-    if (!panel || panel.querySelector("[data-cssos-kie-injected]")) return;
+    if (!panel) return;
     // W780 — 人物MV: 放在【多语言/声轨 .pmv-lang-section】之下, 无标题(直接从胶囊开始), 紧凑, 默认5。
+    // W780b — 等语言区块渲染后再注入(否则 scan 早跑→after=null→落到面板底部); 已注入则校正到语言区块之下。
     var after = panel.querySelector(".pmv-lang-section");
+    if (!after) return; // 语言区块还没渲染, 等下一次 scan
+    var existing = panel.querySelector("[data-cssos-kie-injected]");
+    if (existing) {
+      if (existing.previousElementSibling !== after) after.parentNode.insertBefore(existing, after.nextSibling);
+      return;
+    }
     globalThis.cssosMountKiePicker(panel, { after: after, compact: true, initial: 5 });
   }
 

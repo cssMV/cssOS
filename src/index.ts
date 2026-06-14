@@ -21274,6 +21274,9 @@ type MusicGenRequest = {
    * 设了 coverUrl → suno 分支走 /generate/upload-cover, 否则走 /generate(全新谱曲)。 */
   coverUrl?: string;
   vocalGender?: "m" | "f";
+  /* CSSOS_WAVE_781 — Suno 模型档覆盖(V4≤4min / V4_5 / V4_5PLUS≤8min / V5…)。
+   * 不设时沿用历史默认 V4。Epic 重出长曲(>4min)时传 V4_5PLUS 避免截断。 */
+  sunoModel?: string;
 };
 /* CSSOS_WAVE_156 — word/line-level lyric timeline returned by singing
  * engines (Suno via kie.ai). Each entry is the actual sung word/line
@@ -21770,7 +21773,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
               // customMode=true lets us pass explicit lyrics + style + title.
               customMode: true,
               instrumental: wantInstrumental,
-              model: "V4",
+              model: String(req.sunoModel || "V4").trim() || "V4",
               style: sunoStyle.slice(0, 200),
               title: String(req.title || "cssOS").slice(0, 80),
               // kie.ai rejects the request (422) without a callBackUrl. We
@@ -32965,6 +32968,83 @@ async function demucsCleanup(job: string): Promise<void> {
   if (!base || !job) return;
   try { await fetch(`${base}/cleanup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job }) }); } catch (_e) {}
 }
+/* CSSOS_WAVE_781 — Jing「《阴阳三部曲》付费 Suno 重出【更猛的 Epic 编曲】」。用【手写原词】customMode
+ * 当词唱(绝不改词), style 推到史诗(可 body.style 覆盖, ≤200), 默认 V4_5PLUS(≤8min, 长曲不截断)。
+ * Suno 重谱 → rehost R2 → 原音频备份为 'orig-pre-epic' 非默认轨(不丢原作)→ Epic 设默认轨(lang)+
+ * preview_audio_url。随后调 /api/admin/resubtitle/<id>(不带 ?asr)把情绪字幕对齐新编曲。
+ *   curl -X POST "$API/api/admin/epic-render/<workId>" -H "x-admin-token: $T" \
+ *        -H 'content-type: application/json' -d '{"style":"epic ...","lang":"zh","sunoModel":"V4_5PLUS"}' */
+app.post("/api/admin/epic-render/:workId", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const workId = String(req.params.workId || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
+  try {
+    const wr = await withClient((c) => c.query<{ title: string | null; style: string | null; lyrics_preview: string | null; preview_audio_url: string | null }>(
+      `SELECT title, style, lyrics_preview, preview_audio_url FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+    const w = wr.rows[0];
+    if (!w) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const lyrics = String(w.lyrics_preview || "").trim();
+    if (!lyrics) return res.status(400).json({ ok: false, code: "NO_LYRICS" });
+    const lang = String((req.body as any)?.lang || (req.query as any)?.lang || "zh").trim() || "zh";
+    const baseStyle = String(w.style || "").trim();
+    const epicStyle = String((req.body as any)?.style || ("epic, thunderous climax, massive choir, soaring strings, cinematic, " + baseStyle)).slice(0, 200);
+    const sunoModel = String((req.body as any)?.sunoModel || (req.query as any)?.sunoModel || "V4_5PLUS").trim() || "V4_5PLUS";
+    // 1) Suno 重谱(prefer suno, customMode 唱【原词】, 画音分层不烧录)。
+    const music = await callMusicGen({
+      prompt: String(w.title || "cssOS"),
+      title: String(w.title || "cssOS"),
+      tags: [epicStyle],
+      lyrics,
+      instrumental: false,
+      language: lang,
+      prefer: ["suno"],
+      sunoModel,
+      want_word_timeline: false,   // 字幕另由 resubtitle 强制对齐
+    });
+    if (!music || !music.ok || !music.audio_url) {
+      return res.status(503).json({ ok: false, code: "SUNO_UNAVAILABLE", detail: music?.error || "" });
+    }
+    // 2) rehost 临时 Suno URL → 稳定 CDN。
+    const epicAudio = await persistRemoteAudioToStable(String(music.audio_url));
+    const epicAlt = music.alt_audio_url ? await persistRemoteAudioToStable(String(music.alt_audio_url)) : "";
+    const dur = Math.round(Number(music.duration_s || 0) || 0) || null;
+    const origAudio = String(w.preview_audio_url || "").trim();
+    // 3-5) 备份原作 → 取消旧默认 → upsert Epic 默认轨 → preview_audio_url 指向 Epic。
+    await withClient(async (c) => {
+      if (origAudio) {
+        const ex = await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND lang='orig-pre-epic' LIMIT 1`, [workId]);
+        if (!ex.rowCount) {
+          await c.query(
+            `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, lyrics, is_default)
+             VALUES ($1::uuid,'orig-pre-epic',90,$2,$3,false)`,
+            [workId, origAudio, lyrics]);
+        }
+      }
+      await c.query(`UPDATE work_language_tracks SET is_default=false WHERE work_id=$1::uuid`, [workId]);
+      const up = await c.query(
+        `UPDATE work_language_tracks SET audio_url=$3, duration_secs=$4, vocal_url=NULL, instrumental_url=NULL, stems_status=NULL, is_default=true, lyrics=$5
+          WHERE work_id=$1::uuid AND lang=$2`,
+        [workId, lang, epicAudio, dur, lyrics]);
+      if (!up.rowCount) {
+        await c.query(
+          `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, duration_secs, lyrics, is_default)
+           VALUES ($1::uuid,$2,0,$3,$4,$5,true)`,
+          [workId, lang, epicAudio, dur, lyrics]);
+      }
+      await c.query(`UPDATE user_works SET preview_audio_url=$2, updated_at=now() WHERE id=$1::uuid`, [workId, epicAudio]);
+    });
+    return res.json({
+      ok: true, workId, lang, provider: music.provider, sunoModel, style: epicStyle,
+      audio_url: epicAudio, alt_audio_url: epicAlt, duration_s: dur,
+      next: `POST /api/admin/resubtitle/${workId} (no ?asr) to align emotion subtitles to the new Epic audio`,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "EPIC_RENDER_FAILED", detail: (e as Error)?.message || "" });
+  }
+});
 /* CSSOS_WAVE_695 — Suno 续写补全【被截断的轨】(Jing「建 extend 功能」)。kie upload-extend:
  * 传我们自己的 R2 音频 URL + 完整歌词, Suno 从 continueAt 续唱到底 → rehost R2 → 更新轨 → 清 stem。
  * 之后再调 separate-stems + resubtitle 即补齐人声分离 + 逐字对齐。

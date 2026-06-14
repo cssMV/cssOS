@@ -32770,13 +32770,27 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       const alignAudio = (tr.vocal_url && String(tr.vocal_url).trim()) ? String(tr.vocal_url) : tr.audio_url;
       // W735 — 熟歌词模式已有实唱时间线 → 直接复用(省一次 Whisper); 否则正常强制对齐书面词。
       const aligned = asrPrebuiltTl ? asrPrebuiltTl : await alignWordsViaWhisper(alignAudio, alignLang, reLyrics);
-      const tl = (Array.isArray(aligned) ? aligned : [])
+      let tl = (Array.isArray(aligned) ? aligned : [])
         .map((w: any) => ({
           word: String(w?.text ?? w?.word ?? "").trim(),
           start: Number(w?.start_s ?? w?.start ?? 0),
           end: Number(w?.end_s ?? w?.end ?? 0),
         }))
         .filter((w) => w.word && w.end > w.start);
+      // CSSOS_WAVE_776 — Jing「生+熟对照(DTW)取两者优势」: 强制对齐失败、但有【写词(生歌词)】时,
+      // 用自由 ASR(熟歌词)只取【真实时间戳】, 让 buildSubtitleSections 按位置把【写词】贴上去
+      // (它本就用写词 units 的文本、只借 timeline 的时间)→ 词准(写词, 杜绝"Jerusalem→这如三郎")
+      // + 时间准(ASR)。仅当本轮原本有写词(非 asrPrebuilt 纯熟歌词)时兜底。
+      let dtwMerged = false;
+      if (!tl.length && reLyrics.trim() && !asrPrebuiltTl) {
+        try {
+          const asrTs = await alignWordsViaWhisper(alignAudio); // 无 refText = 自由 ASR, 仅为时间戳
+          tl = (Array.isArray(asrTs) ? asrTs : [])
+            .map((w: any) => ({ word: String(w?.text ?? w?.word ?? "").trim(), start: Number(w?.start_s ?? w?.start ?? 0), end: Number(w?.end_s ?? w?.end ?? 0) }))
+            .filter((w) => w.word && w.end > w.start);
+          if (tl.length) dtwMerged = true;
+        } catch { /* 保持空 → 下面照常 align_failed */ }
+      }
       if (!tl.length) { results.push({ lang: tr.lang, ok: false, reason: "align_failed" }); continue; }
       let sections = buildSubtitleSections(reLyrics, tl, emo);
       sections = sanitizeSubtitleSections(sections, alignLang); // #45 剔除非歌词 token(先清书面 token, ad-lib 再补)
@@ -32816,6 +32830,7 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       results.push({
         lang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),
+        dtw: dtwMerged,   // W776 — true = forced-align 失败后走了【写词+ASR时间戳】兜底
       });
     }
     return res.json({ ok: true, workId, results });

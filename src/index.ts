@@ -20938,12 +20938,18 @@ async function resetEngineFailures(engineId: string): Promise<void> {
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
   const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,mistral,huggingface,openrouter,deepseek,anthropic,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const list = (prefer && prefer.length ? prefer : env)
-    .filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
-  // Caller-supplied prefer wins as-is (power-user override). Default
-  // env order is tier-sorted so the principle holds even if env is
-  // misconfigured.
-  const sorted = (prefer && prefer.length) ? list : tierSortProviders(list);
+  const envList = env.filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
+  const pref = (prefer || []).filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
+  // CSSOS_WAVE_771 — Jing「三强只是推荐, 我们还有 7 家直连 LLM; 普通歌词转译没理由因三强断供就全停」。
+  // prefer = 【优先, 不是死锁】: 先按 prefer 顺序试(歌词锁的三强 → 母语/lore 仍优先用 capable 模型),
+  // 三强全空/限流就【自动降级兜底到其余全部已配 key 的引擎】(groq/together/openrouter/deepseek… 多有免费档)。
+  // 断供时降级出片 >> 完全失败。之前 prefer 被当成唯一列表, 三强一倒就放弃 → 这是 ja/ko 转译全挂的真因。
+  if (pref.length) {
+    const rest = tierSortProviders(envList.filter((p) => !pref.includes(p)));
+    const merged = [...pref, ...rest];
+    return merged.length ? merged : ["openai"];
+  }
+  const sorted = tierSortProviders(envList);
   return sorted.length ? sorted : ["openai"];
 }
 

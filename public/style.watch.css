@@ -871,6 +871,15 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
     0 0 14px rgba(82, 192, 156, 0.24);
 }
 
+/* CSSOS_WAVE_756 — Jing「价格条也总有多余的透明轨道」: #cssos-watch-price-strip 套了 data-pill-bar
+ * (W573)→ 宪法容器底色 rgba(0,245,160,0.10)+边框 = 那条淡绿外框/档位间淡轨道。同 W755 去掉容器轨道,
+ * 只留各档胶囊本身。AI 助理 FAB 是独立圆形(不在此胶囊组), 保持 W749 价格条同行右侧不动。 */
+#cssos-watch-price-strip[data-pill-bar] {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
 .watch-commerce-actions {
   position: absolute;
   left: 50%;

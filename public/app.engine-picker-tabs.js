@@ -284,8 +284,8 @@
   function scan() {
     // 原生网格锚点(高级设置)→ buildTabs(在网格上加 kie 标签)。排除注入的裸锚点。
     document.querySelectorAll("[data-mv-engines-panel]:not([data-cssos-kie-injected])").forEach(buildTabs);
-    // CSSOS_WAVE_777 — 注入到 MV管线 + 人物MV(各一次, 幂等)。
-    injectInto("#mv-pipeline-panel");
+    // CSSOS_WAVE_778 — 人物MV: 整块注入(它本无引擎区, 参照高级设置)。MV管线【不】整块注入
+    // (它已按阶段分好类, 改为每个阶段行单接该阶段 kie 列表, 见 W778 stage-row 接法)。
     injectInto("#person-mv-panel");
     document.querySelectorAll("[data-cssos-kie-injected]").forEach(function (a) {
       if (!a.querySelector(".cssmv-engine-tabs")) buildBareTabs(a);

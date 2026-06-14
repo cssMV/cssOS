@@ -8068,8 +8068,10 @@ function ensureWatchShareInfoChipModule() {
   chip = document.createElement("div");
   chip.id = "watch-share-info-chip";
   chip.dataset.noFrameToggle = "1";
+  // CSSOS_WAVE_750 — Jing「这个 ♪ 媒体标题胶囊移到左上角、和头像同一个 div、在 ID 之上」。
+  // 原在左下角(bottom:60px)→ 改到左上角头像之后(left:60px top:10px), 坐在 ID 块上方。
   chip.style.cssText = [
-    "position:absolute", "left:12px", "bottom:60px",
+    "position:absolute", "left:60px", "top:10px", "bottom:auto",
     "display:flex", "align-items:center", "gap:6px",
     "max-width:60%", "min-width:0",
     "padding:4px 10px",
@@ -8098,9 +8100,13 @@ function ensureWatchShareInfoChipModule() {
       const title = String(ps?.title || "").trim()
         || String(document.getElementById("watch-title-text")?.textContent || "").trim()
         || "";
+      // CSSOS_WAVE_750 — Jing「那些假标题改一下」: 过滤占位假标题(Watch / Untitled / css MV / MV Panel),
+      // 假标题时整个胶囊隐藏(不显示 "(untitled)" 之类的尴尬占位)。
+      const _bad = /^(watch|untitled|untitled mv|css ?mv|mv panel|now)$/i.test(title);
+      const _ok = title && !_bad;
       const titleEl = chip.querySelector("[data-share-title]");
-      if (titleEl) titleEl.textContent = title || "(untitled)";
-      chip.style.display = title ? "flex" : "none";
+      if (titleEl) titleEl.textContent = _ok ? title : "";
+      chip.style.display = _ok ? "flex" : "none";
     } catch (_e) {}
   };
   refresh();

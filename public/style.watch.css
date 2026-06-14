@@ -754,7 +754,7 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
 .watch-work-id {
   position: absolute;
   left: 62px;            /* 让开左上角头像 */
-  top: 14px;
+  top: 34px;             /* W750 — 下移, 坐在 ♪ 媒体标题胶囊(top:10px)之下 */
   bottom: auto;
   z-index: 6;
   max-width: 46vw;
@@ -770,7 +770,8 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   pointer-events: none;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);   /* 仅靠文字阴影提可读性, 不用底框 */
 }
-.watch-work-id .wid-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.78); }
+/* W750 — 标题已由 ♪ 媒体标题胶囊(#watch-share-info-chip)承载, 隐藏此处重复的标题行, 只留 ID。 */
+.watch-work-id .wid-title { display: none; }
 .watch-work-id .wid-id {
   display: block; margin-top: 0;
   color: rgba(255, 255, 255, 0.18);   /* W749 — 再淡 (0.28→0.18), 几乎隐形 */

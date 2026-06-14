@@ -33130,6 +33130,50 @@ async function cssosGenCivCover(prompt: string, ownerId: string): Promise<string
   } catch (_e) { /* optional */ }
   return "";
 }
+/* CSSOS_WAVE_787 — 给作品补 MV 视频(Seedance via kie, image_url=封面锚定, 画音分层=不烧音). 返回的
+ * aiquickdraw 临时视频 → 下载 → uploadBufferToR2 落稳定 CDN(否则 24h 后 404). 失败返回 ""。 */
+async function cssosGenMvVideo(prompt: string, coverUrl: string, workId: string): Promise<string> {
+  try {
+    const vreq: VideoGenRequest = { prompt, duration_secs: 5, aspect_ratio: "2.39:1", prefer: ["seedance"] };
+    if (coverUrl) vreq.image_url = coverUrl;
+    const v = await callVideoGen(vreq);
+    if (!v?.ok || !v.video_url) return "";
+    const tmp = String(v.video_url);
+    if (/cssstudio\.app|\/artifacts\/mv/i.test(tmp)) return tmp; // already stable
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 60000);
+    let buf: Buffer | null = null;
+    try { const r = await fetch(tmp, { signal: ctrl.signal, redirect: "follow" }); if (r.ok) buf = Buffer.from(await r.arrayBuffer()); }
+    finally { clearTimeout(to); }
+    if (buf && buf.byteLength > 4096) {
+      const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 20);
+      const url = await uploadBufferToR2(buf, `artifacts/mv/epic-${workId.slice(0, 8)}-${sha}.mp4`, "video/mp4");
+      if (url) return url;
+    }
+    return tmp; // R2 off → keep temp (better than nothing)
+  } catch (_e) { return ""; }
+}
+app.post("/api/admin/regen-video/:workId", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const workId = String(req.params.workId || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
+  try {
+    const wr = await withClient((c) => c.query<{ title: string | null; civilization: string | null; cover_image: string | null; style: string | null }>(
+      `SELECT title, civilization, cover_image, style FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+    const w = wr.rows[0];
+    if (!w) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const prompt = String((req.body as any)?.prompt || "").trim()
+      || `${w.title || ""}, ${w.civilization || ""}, epic cinematic music-video shot, slow majestic camera move, dramatic mythic atmosphere, ${w.style || ""}, no text`;
+    const video = await cssosGenMvVideo(prompt, String(w.cover_image || ""), workId);
+    if (!video) return res.status(503).json({ ok: false, code: "VIDEO_UNAVAILABLE" });
+    await withClient((c) => c.query(`UPDATE user_works SET preview_video_url=$2, updated_at=now() WHERE id=$1::uuid`, [workId, video]));
+    return res.json({ ok: true, workId, video });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "REGEN_VIDEO_FAILED", detail: (e as Error)?.message || "" });
+  }
+});
 app.post("/api/admin/regen-cover/:workId", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();

@@ -13,14 +13,19 @@
   if (globalThis.__cssosEnginePickerTabs) return;
   globalThis.__cssosEnginePickerTabs = true;
 
+  // CSSOS_WAVE_781 — Jing「最近文案没走 i18n」: label=en(默认英文/全球), zh=中文回退, tr() 自适应。
+  function tr(en, zh) {
+    return typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en, zh || en) : en;
+  }
   var STAGE_META = {
-    lyrics:    { icon: "📝", label: "歌词", kie: true },
-    cover:     { icon: "🖼", label: "封面图", kie: true },
-    music:     { icon: "🎵", label: "音乐", kie: true },
-    video:     { icon: "🎬", label: "视频", kie: true },
-    subtitles: { icon: "💬", label: "字幕", kie: false },
-    compose:   { icon: "🎚", label: "合成", kie: false },
+    lyrics:    { icon: "📝", label: "Lyrics", zh: "歌词", kie: true },
+    cover:     { icon: "🖼", label: "Cover", zh: "封面图", kie: true },
+    music:     { icon: "🎵", label: "Music", zh: "音乐", kie: true },
+    video:     { icon: "🎬", label: "Video", zh: "视频", kie: true },
+    subtitles: { icon: "💬", label: "Subtitles", zh: "字幕", kie: false },
+    compose:   { icon: "🎚", label: "Compose", zh: "合成", kie: false },
   };
+  function lbl(k) { var m = STAGE_META[k] || {}; return tr(m.label || k, m.zh || m.label || k); }
   var ORDER = ["lyrics", "cover", "music", "video", "subtitles", "compose"];
 
   var kieCache = null, kiePending = null;
@@ -50,7 +55,7 @@
     listEl.__rows = rows; listEl.__stage = stageKey; listEl.__shown = PAGE;
     if (!rows.length) {
       listEl.innerHTML = '<div class="cssmv-kie-empty">' +
-        (cat.length ? "无匹配模型" : "正在加载 Kie 目录…") + "</div>";
+        (cat.length ? tr("No matching models", "无匹配模型") : tr("Loading Kie catalog…", "正在加载 Kie 目录…")) + "</div>";
       return;
     }
     paintKiePage(listEl);
@@ -74,7 +79,7 @@
     }).join("");
     if (shown < rows.length) {
       // CSSOS_WAVE_775 — Jing「外层还有内容, 上滑动作用不上」: 改成【点击加载更多】按钮, 不依赖滚动容器。
-      html += '<button type="button" class="cssmv-kie-more" data-kie-more="1">已显示 ' + shown + " / " + rows.length + " · 点击加载更多 10</button>";
+      html += '<button type="button" class="cssmv-kie-more" data-kie-more="1">' + esc(tr("Showing", "已显示")) + " " + shown + " / " + rows.length + " · " + esc(tr("load 10 more", "点击加载更多 10")) + "</button>";
     }
     listEl.innerHTML = html;
     var moreBtn = listEl.querySelector("[data-kie-more]");
@@ -111,18 +116,21 @@
     st.textContent = [
       "#person-mv-panel .cssmv-engine-tabs,[data-mv-engines-panel] .cssmv-engine-tabs{margin:0 0 10px 0;}",
       "[data-mv-engines-panel] .cssmv-kie-wrap{margin-top:8px;}",
-      "[data-mv-engines-panel] .cssmv-kie-search{width:100%;box-sizing:border-box;margin-bottom:8px;padding:7px 12px;border-radius:999px;border:1px solid rgba(0,245,160,0.30);background:rgba(0,245,160,0.06);color:inherit;font:500 13px/1.2 ui-monospace,monospace;}",
+      // CSSOS_WAVE_781 — Jing「白天主题看不清」: 文字改用 var(--text)(明暗自适应), 卡面用
+      // var(--panel-strong) 实底(白天有底色,不再是淡绿透明), 边框用 var(--border)。
+      "[data-mv-engines-panel] .cssmv-kie-search{width:100%;box-sizing:border-box;margin-bottom:8px;padding:7px 12px;border-radius:999px;border:1px solid var(--border,rgba(0,245,160,0.30));background:var(--panel-strong,rgba(0,245,160,0.06));color:var(--text,#e8fdf4);font:500 13px/1.2 ui-monospace,monospace;}",
+      "[data-mv-engines-panel] .cssmv-kie-search::placeholder{color:var(--text,#e8fdf4);opacity:0.5;}",
       "[data-mv-engines-panel] .cssmv-kie-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;max-height:340px;overflow-y:auto;}",
-      "[data-mv-engines-panel] .cssmv-kie-card{all:unset;cursor:pointer;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:9px 12px;border-radius:12px;border:1px solid rgba(0,245,160,0.22);background:rgba(0,245,160,0.05);transition:background .15s,border-color .15s;}",
-      "[data-mv-engines-panel] .cssmv-kie-card:hover{background:rgba(0,245,160,0.12);}",
-      "[data-mv-engines-panel] .cssmv-kie-card.is-sel{background:rgba(0,200,120,0.85);border-color:rgba(0,245,160,0.7);color:#fff;}",
-      "[data-mv-engines-panel] .cssmv-kie-name{font:600 12px/1.25 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-      "[data-mv-engines-panel] .cssmv-kie-meta{display:flex;align-items:center;gap:6px;font:500 11px/1.2 -apple-system,system-ui,sans-serif;opacity:0.85;}",
-      "[data-mv-engines-panel] .cssmv-kie-price{margin-left:auto;font-weight:700;}",
-      "[data-mv-engines-panel] .cssmv-kie-fire{color:#ff8a3d;font-weight:700;}",
-      "[data-mv-engines-panel] .cssmv-kie-empty{padding:18px;text-align:center;opacity:0.7;font-size:13px;}",
-      "[data-mv-engines-panel] .cssmv-kie-more{all:unset;grid-column:1/-1;display:block;width:100%;box-sizing:border-box;cursor:pointer;padding:9px;text-align:center;font-size:12px;border-radius:10px;border:1px dashed rgba(0,245,160,0.35);background:rgba(0,245,160,0.05);color:inherit;opacity:0.85;}",
-      "[data-mv-engines-panel] .cssmv-kie-more:hover{background:rgba(0,245,160,0.14);opacity:1;}",
+      "[data-mv-engines-panel] .cssmv-kie-card{all:unset;cursor:pointer;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:9px 12px;border-radius:12px;border:1px solid var(--border,rgba(0,245,160,0.22));background:var(--panel-strong,rgba(0,245,160,0.05));color:var(--text,#e8fdf4);transition:background .15s,border-color .15s;}",
+      "[data-mv-engines-panel] .cssmv-kie-card:hover{border-color:rgba(0,200,140,0.7);}",
+      "[data-mv-engines-panel] .cssmv-kie-card.is-sel{background:rgba(0,180,110,0.92);border-color:rgba(0,200,120,0.9);color:#fff;}",
+      "[data-mv-engines-panel] .cssmv-kie-name{font:600 12px/1.25 -apple-system,system-ui,sans-serif;color:var(--text,#e8fdf4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+      "[data-mv-engines-panel] .cssmv-kie-meta{display:flex;align-items:center;gap:6px;font:500 11px/1.2 -apple-system,system-ui,sans-serif;color:var(--text,#e8fdf4);opacity:0.7;}",
+      "[data-mv-engines-panel] .cssmv-kie-price{margin-left:auto;font-weight:700;opacity:1;}",
+      "[data-mv-engines-panel] .cssmv-kie-fire{color:#ff8a3d;font-weight:700;opacity:1;}",
+      "[data-mv-engines-panel] .cssmv-kie-empty{padding:18px;text-align:center;color:var(--text,#e8fdf4);opacity:0.7;font-size:13px;}",
+      "[data-mv-engines-panel] .cssmv-kie-more{all:unset;grid-column:1/-1;display:block;width:100%;box-sizing:border-box;cursor:pointer;padding:9px;text-align:center;font-size:12px;border-radius:10px;border:1px dashed var(--border,rgba(0,245,160,0.35));background:var(--panel-strong,rgba(0,245,160,0.05));color:var(--text,#e8fdf4);opacity:0.85;}",
+      "[data-mv-engines-panel] .cssmv-kie-more:hover{opacity:1;}",
     ].join("\n");
     document.head.appendChild(st);
   }
@@ -149,10 +157,10 @@
     var bar = document.createElement("div");
     bar.className = "cssmv-engine-tabs cssmv-pill-bar";
     bar.setAttribute("data-pill-bar", ""); bar.setAttribute("data-pill-text", "dark"); bar.setAttribute("role", "tablist");
-    var th = '<button type="button" class="active" data-pill-key="all" data-stage-filter="all">🎛 <span>全部</span></button>';
+    var th = '<button type="button" class="active" data-pill-key="all" data-stage-filter="all">🎛 <span>' + esc(tr("All", "全部")) + '</span></button>';
     ordered.forEach(function (k) {
       var m = STAGE_META[k] || { icon: "•", label: k };
-      th += '<button type="button" data-pill-key="' + k + '" data-stage-filter="' + k + '">' + m.icon + ' <span>' + m.label + "</span></button>";
+      th += '<button type="button" data-pill-key="' + k + '" data-stage-filter="' + k + '">' + m.icon + ' <span>' + esc(lbl(k)) + "</span></button>";
     });
     bar.innerHTML = th;
     anchor.insertBefore(bar, grid);
@@ -161,7 +169,7 @@
     var wrap = document.createElement("div");
     wrap.className = "cssmv-kie-wrap";
     wrap.style.display = "none";
-    wrap.innerHTML = '<input class="cssmv-kie-search" type="search" placeholder="按名称 / 厂商搜索 Kie 模型…" /><div class="cssmv-kie-list"></div>';
+    wrap.innerHTML = '<input class="cssmv-kie-search" type="search" placeholder="' + esc(tr("Search Kie models by name / vendor…", "按名称 / 厂商搜索 Kie 模型…")) + '" /><div class="cssmv-kie-list"></div>';
     grid.parentNode.insertBefore(wrap, grid.nextSibling);
     var searchEl = wrap.querySelector(".cssmv-kie-search");
     var listEl = wrap.querySelector(".cssmv-kie-list");
@@ -181,7 +189,7 @@
         if (!n) return;
         var span = bar.querySelector('[data-stage-filter="' + k + '"] span');
         var m = STAGE_META[k] || { label: k };
-        if (span) span.textContent = m.label + " " + n;
+        if (span) span.textContent = lbl(k) + " " + n;
       });
     });
 
@@ -195,7 +203,7 @@
         grid.style.display = "none";
         wrap.style.display = "";
         curStage = filter;
-        listEl.innerHTML = '<div class="cssmv-kie-empty">正在加载 Kie 目录…</div>';
+        listEl.innerHTML = '<div class="cssmv-kie-empty">' + esc(tr("Loading Kie catalog…", "正在加载 Kie 目录…")) + '</div>';
         loadKie().then(function () { renderKieList(listEl, filter, searchEl.value); });
       } else {
         // 全部 / 本地(字幕·合成): 显示网格(按段过滤行), 隐藏 Kie 列表
@@ -230,12 +238,12 @@
     bar.setAttribute("data-pill-bar", ""); bar.setAttribute("data-pill-text", "dark"); bar.setAttribute("role", "tablist");
     bar.innerHTML = stages.map(function (k, i) {
       var m = STAGE_META[k] || { icon: "•", label: k };
-      return '<button type="button" class="' + (i === 0 ? "active" : "") + '" data-pill-key="' + k + '" data-stage-filter="' + k + '">' + m.icon + ' <span>' + m.label + "</span></button>";
+      return '<button type="button" class="' + (i === 0 ? "active" : "") + '" data-pill-key="' + k + '" data-stage-filter="' + k + '">' + m.icon + ' <span>' + esc(lbl(k)) + "</span></button>";
     }).join("");
     anchor.appendChild(bar);
     var wrap = document.createElement("div");
     wrap.className = "cssmv-kie-wrap";
-    wrap.innerHTML = '<input class="cssmv-kie-search" type="search" placeholder="按名称 / 厂商搜索 Kie 模型…" /><div class="cssmv-kie-list"></div>';
+    wrap.innerHTML = '<input class="cssmv-kie-search" type="search" placeholder="' + esc(tr("Search Kie models by name / vendor…", "按名称 / 厂商搜索 Kie 模型…")) + '" /><div class="cssmv-kie-list"></div>';
     anchor.appendChild(wrap);
     var searchEl = wrap.querySelector(".cssmv-kie-search");
     var listEl = wrap.querySelector(".cssmv-kie-list");
@@ -258,7 +266,7 @@
       stages.forEach(function (k) {
         var n = (((kieCache || {}).stages || {})[k] || []).length; if (!n) return;
         var span = bar.querySelector('[data-stage-filter="' + k + '"] span'); var m = STAGE_META[k] || { label: k };
-        if (span) span.textContent = m.label + " " + n;
+        if (span) span.textContent = lbl(k) + " " + n;
       });
       show(stages[0]);
     });
@@ -332,7 +340,7 @@
     var m = STAGE_META[stageKey] || { icon: "•", label: stageKey };
     var pop = document.createElement("div"); pop.id = "cssos-kie-stagepop";
     pop.dataset.noFrameToggle = "1";
-    pop.innerHTML = '<div class="sp-hd">' + m.icon + " " + m.label + '</div><input class="cssmv-kie-search" type="search" placeholder="按名称 / 厂商搜索…" /><div class="cssmv-kie-list"></div>';
+    pop.innerHTML = '<div class="sp-hd">' + m.icon + " " + esc(lbl(stageKey)) + '</div><input class="cssmv-kie-search" type="search" placeholder="' + esc(tr("Search by name / vendor…", "按名称 / 厂商搜索…")) + '" /><div class="cssmv-kie-list"></div>';
     document.body.appendChild(pop);
     // 定位: 锚点下方, 右对齐, 不出屏。
     var r = anchorEl.getBoundingClientRect();
@@ -359,7 +367,7 @@
     });
     loadKie().then(function () {
       var n = (((kieCache || {}).stages || {})[stageKey] || []).length;
-      var hd = pop.querySelector(".sp-hd"); if (hd && n) hd.textContent = m.icon + " " + m.label + " " + n;
+      var hd = pop.querySelector(".sp-hd"); if (hd && n) hd.textContent = m.icon + " " + lbl(stageKey) + " " + n;
       renderKieList(listEl, stageKey, "");
       searchEl.focus();
     });

@@ -183,6 +183,15 @@
       "#watch-panel .cssmv-capsule:not(.is-open) > [data-pill-key]{",
       "  -webkit-mask-image:none !important;mask-image:none !important;margin-left:0 !important;margin-right:0 !important;",
       "  width:auto !important;border-radius:999px !important;}",
+      // CSSOS_WAVE_753 — Jing「放大仔细看, 胶囊左右还有透明轨道, 怎么修都修不掉; 请让透明轨道和胶囊一样长」。
+      // 真凶: 折叠态外壳 #watch-playlist-pill 是 overflow:visible(137 行)→ 放任任何凹咬残影/子元素
+      // 溢出外壳 = 左右那条透明轨道。折叠态强制外壳【圆角 + overflow:hidden + 紧贴内容宽】→ 溢出被裁,
+      // 外壳精确等于实心胶囊 = 轨道与胶囊一样长(零溢出)。btn1 取消 90px 撑宽避免空轨道。
+      "#watch-panel .cssmv-capsule:not(.is-open) #watch-playlist-pill{",
+      "  overflow:hidden !important;border-radius:999px !important;width:fit-content !important;",
+      "  min-width:0 !important;max-width:max-content !important;background:transparent !important;}",
+      "#watch-panel .cssmv-capsule:not(.is-open) #watch-playlist-pill > button:nth-of-type(1){",
+      "  min-width:0 !important;}",
       // Share the Dock's show/hide rhythm: in cinema mode the capsule fades out
       // with the rest of the chrome, and re-appears with the Dock on .is-hovering.
       "#watch-panel.cssmv-cinema .cssmv-capsule{opacity:0;pointer-events:none;transition:opacity 0.9s cubic-bezier(0.4,0,0.2,1);}",

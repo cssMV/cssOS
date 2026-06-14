@@ -1865,6 +1865,16 @@ const _SECTION_KW = /^(verse|chorus|bridge|intro|outro|pre-?chorus|pre-?hook|hoo
 // CSSOS_WAVE_728 — 制作/编曲提示行(非歌词): "可逐渐叠加声部"、"渐强收尾"、"转调升半音"、"加入和声"
 // 这些是给制作/演唱的【指示】, 不是被唱出来的词, 却常混进歌词文本被当成一行字幕。短句 + 编曲专有词 → 丢。
 const _PROD_KW = /(声部|配器|编曲|织体|转调|弱起|渐强|渐弱|渐入|渐出|叠加|和声层|哼鸣|拟声|过门|连复段|riff|ad-?lib|crescendo|diminuendo|harmon(y|ies)|layer\s+in|build\s*-?up|fade\s*(in|out)|reverb|octave)/i;
+// CSSOS_WAVE_751 — Jing「『Lyrics』『kind』『motion』这些描述词漏进歌词, 不只在 [] 里, 明显不是歌词」。
+// 这些是 seed 字段名/描述词泄漏。判定: 【整行 = 单个字段词】(去掉标点空格后只剩一个已知字段关键词)→ 丢。
+// 只匹配整行裸关键词 → 真歌词句("be kind to me"/"slow motion")不会误删。
+const _FIELD_KW = /^(lyrics?|kind|motion|style|title|subtitle|cover|mood|tempo|bpm|key|genre|languages?|lang|duration|instruments?|instrumentation|prompt|seed|worktype|civilization|civ|theme|vocals?|arrangement|ensemble|tags?|notes?|description|structure|aspect|ratio|format|model|engine|persona|landmark)$/i;
+function isDescriptiveFieldLine(text: string): boolean {
+  const core = String(text || "").replace(/[^a-zA-Z一-鿿]/g, "");
+  if (!core) return false;
+  if (core.length > 16) return false;                       // 字段词都很短, 长的多半是真歌词
+  return _FIELD_KW.test(core);
+}
 function isProductionNoteText(text: string): boolean {
   const t = String(text || "").trim();
   if (!t) return false;
@@ -1921,6 +1931,7 @@ function sanitizeSubtitleSections(sections: SubSection[], langHint?: string | nu
         orig.length && subScriptClassOf(orig[0]!.char) === "cjk" ? "" : " ",
       ).trim();
       if (rawJoin && (isSectionHeaderText(rawJoin) || isProductionNoteText(rawJoin))) continue;
+      if (rawJoin && isDescriptiveFieldLine(rawJoin)) continue;  // W751 — 整行=描述字段词 → 丢
       // CSSOS_WAVE_745 — 翻译/语言指令行(『X翻译成Y』/『translate … into …』)非歌词 → 整行丢。
       if (rawJoin && (/(?:日|中|英|韩|法|德|西|俄|葡|阿拉伯|意)\s*(?:语|文)?\s*(?:翻译|译)\s*成/.test(rawJoin) ||
                       /\btranslate[d]?\b[^.\n]*\binto\b|\btranslation\s+of\b/i.test(rawJoin))) continue;
@@ -21311,6 +21322,7 @@ function sanitizeLyricsForMusicEngine(lyrics: string): string {
     if (/^\[[^\]]*\]$/.test(t)) return true;               // 裸 [Verse]/[Chorus] 结构标签 → 保留
     if (isProductionNoteText(t)) return false;             // 制作说明散文 → 丢
     if (isSectionHeaderText(t)) return false;              // 段落头/markdown → 丢
+    if (isDescriptiveFieldLine(t)) return false;           // W751 — 整行=描述字段词(Lyrics/kind/motion…) → 丢
     // CSSOS_WAVE_745 — Jing「有首歌用英文唱『日语翻译成中文，中文翻译成日文』」: 翻译/语言指令
     // 污染进歌词被唱出 → 剔除明显的翻译指令行(『X翻译成Y』/『translate … into …』)。
     if (/(?:日|中|英|韩|法|德|西|俄|葡|阿拉伯|意)\s*(?:语|文)?\s*(?:翻译|译)\s*成/.test(t)) return false;

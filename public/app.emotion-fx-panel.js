@@ -206,7 +206,11 @@
       if (!bar || bar.querySelector(".cssfx-fx-gear")) return;
       var g = document.createElement("button");
       g.type = "button";
-      g.className = "cssfx-fx-gear";
+      // CSSOS_WAVE_763 — Jing「一 hover 就知道不对, ⚙ 没凹向多语言胶囊」。真因: paintConcave 只处理
+      // .cssos-cell / .cssos-mode-cap, ⚙ 两者都不是 → 永不获 cc-* 凹咬。⚙ 恒为第一颗、恒在 Languages
+      // 左侧 → 直接给它 cssos-cc-right(右咬向激活的 Languages)。规则 #watch-language-pill>button.cssos-cc-right
+      // 给碗口造型; paintConcave 只清 cell/cap 的 cc-*, 不会清 ⚙ → 稳定保留。
+      g.className = "cssfx-fx-gear cssos-cc-right";
       g.textContent = "⚙";
       g.title = "情绪字幕设置";
       g.setAttribute("aria-label", "情绪字幕设置");

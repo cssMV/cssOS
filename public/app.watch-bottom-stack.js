@@ -20,12 +20,14 @@
   // 注: CTA = #cssos-up-next-strip(队列卡片,「Tap to queue…」); Want = #cssos-create-cta(「Want an MV like this」)。
   var ORDER = [
     "#cssos-watch-price-strip",                       // 价格条(最底, 贴 Dock; 最右是 AI 助理)
+    "#watch-subtitle",                                // W763 — 传统普通字幕(在价格条之上)
     "#watch-panel .watch-screen .cssmv-capsule",      // 左下信息包(Loop list…)
     "#cssos-lang-fold",                               // 多语言/多声线
     "#cssos-up-next-strip",                           // CTA — 结束前作品卡片队列(全宽)
     "#cssos-create-cta"                               // Want — 创作引导卡(最上)
   ];
-  var FULLWIDTH = { "cssos-up-next-strip": 1 };       // 这些成员铺满容器宽(卡片条)
+  // 铺满容器宽的成员(卡片条 + 字幕需居中)。
+  var FULLWIDTH = { "cssos-up-next-strip": 1, "watch-subtitle": 1 };
 
   function screenEl() { return document.querySelector("#watch-panel .watch-screen"); }
 

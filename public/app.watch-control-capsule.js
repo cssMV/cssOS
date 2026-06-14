@@ -108,6 +108,7 @@
       //  ① width:max-content → 贴合内容, 让宪法 grid 的 1fr 拿不到多余空间 → 短胶囊(1×)不再被拉伸"两边空"(图1)。
       //  ② max-width:calc(100% - 16px) → 跟随【面板/.watch-screen】宽度(不是 100vw), 非全屏时随面板缩短(图2)。
       "  width:max-content !important;max-width:calc(100% - 16px) !important;",
+      "  gap:0 !important;",   // W763 — Jing「让它们咬紧一点」: 展开态段间距 0, 消除段间透明轨道
       "  left:8px !important;overflow-x:auto;overflow-y:hidden;",
       "  flex-wrap:nowrap;scrollbar-width:none;-ms-overflow-style:none;",
       "  scroll-behavior:smooth;-webkit-overflow-scrolling:touch;",

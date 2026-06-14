@@ -477,7 +477,7 @@ function buildMarketSearchShellMarkup() {
     <div class="panel-search-shell foryou-search-shell">
       <div class="panel-search-meta">${loginCopy("Pull down to search the market")}</div>
       <div class="panel-search-row">
-        <input id="foryou-market-search" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, owner..."))}" />
+        <input id="foryou-market-search" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, owner, ID..."))}" />
         <input id="foryou-market-author" class="panel-search-input panel-search-input--narrow" type="search" placeholder="${escapeHtml(loginCopy("Author"))}" />
         <select id="foryou-market-filter" class="panel-search-select">
           <option value="all">${loginCopy("All")}</option>
@@ -670,7 +670,7 @@ function ensureMarketSearchReveal(body, behavior) {
     ensurePullRevealSearchModule(foryouPanel, body, {
       enabled: behavior?.foryou?.search_enabled,
       placeholder: loginCopy(
-        "Search title, style, owner...",
+        "Search title, style, owner, ID...",
       ),
       hint: loginCopy(
         `Pull down to search · ${FORYOU_MARKET_PAGE_SIZE} per page`,
@@ -2519,7 +2519,7 @@ function buildWorksSearchShellMarkup(behavior) {
   return `
     <div class="panel-search-shell works-search-shell" id="works-search-shell" data-search-float="swipe">
       <div class="panel-search-row">
-        <input id="works-search-input" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, lyrics..."))}" />
+        <input id="works-search-input" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, lyrics, ID..."))}" />
         <button id="works-search-advanced-toggle" class="panel-search-advanced-btn" type="button"
           title="${escapeHtml(loginCopy("Advanced filters", "高级筛选"))}" aria-label="${escapeHtml(loginCopy("Advanced filters", "高级筛选"))}" aria-expanded="false">⋯</button>
       </div>

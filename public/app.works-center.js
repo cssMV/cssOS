@@ -11,9 +11,7 @@ function worksPanelCopyModule(kind, detail = {}) {
         "Works Center is recovering. Refresh once if the panel looks incomplete."
       );
     case "searchHint":
-      return loginCopy(
-        `Pull down to search · ${WORKS_PAGE_SIZE} per page`
-      );
+      return "";   // W770 — Jing「请把 "Pull down to search · N per page" 删掉」
     case "showingCount":
       return loginCopy(
         `Showing ${Number(detail.visibleCount || 0)} of ${Number(detail.allCount || 0)} works`
@@ -661,9 +659,20 @@ function buildVisibleWorks(works = [], options = {}) {
         work?.lyrics_preview,
         work?.description,
         work?.raw_transcript,
-        work?.source_run_id
+        work?.source_run_id,
+        work?.id,                                   // W769 — Jing「可用 ID 搜索, 哪怕只前 8 位」
+        work?.work_id,
+        String(work?.id || work?.work_id || "").replace(/-/g, "")  // 去连字符也能搜
       ].map((value) => String(value || "").toLowerCase()).join("\n");
-      return haystack.includes(query);
+      // ID 前缀匹配(去连字符比较, 兼顾用户复制带/不带连字符)
+      const _qNoDash = query.replace(/-/g, "");
+      // W770 — Jing「哪怕包含一个 emoji」: 从查询里抽出 ID 片段(去掉 🆔/空格等, 只留 hex+dash)再匹配。
+      const _idQ = query.replace(/[^0-9a-f-]/g, "");
+      const _idQND = _idQ.replace(/-/g, "");
+      return haystack.includes(query)
+        || (_qNoDash && haystack.includes(_qNoDash))
+        || (_idQ.length >= 4 && haystack.includes(_idQ))
+        || (_idQND.length >= 4 && haystack.includes(_idQND));
     })
     .filter((work) => {
       if (!authorQuery) return true;

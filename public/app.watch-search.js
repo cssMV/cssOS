@@ -74,7 +74,7 @@
     input.id = "watch-search-input";
     input.type = "search";
     input.autocomplete = "off";
-    input.placeholder = tr("Search MVs, creators, styles…", "搜索 MV / 作者 / 风格…");
+    input.placeholder = tr("Search MVs, creators, styles, ID…", "搜索 MV / 作者 / 风格 / ID…");
     input.setAttribute("aria-label", tr("Search MVs", "搜索 MV"));
     input.style.cssText = [
       "pointer-events:auto", "width:100%", "box-sizing:border-box", "margin:0",
@@ -399,9 +399,8 @@
       // CSSOS_WAVE_359 20260522 — Jing: 凡有作品卡片处都显示时长. 搜索列表此前缺.
       var _ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
       var durTxt = _ds > 0 ? (Math.floor(_ds / 60) + ":" + String(Math.floor(_ds % 60)).padStart(2, "0")) : "";
-      // CSSOS_WAVE_733 20260613 — Jing: 搜索结果显示 work 🆔(短码 8 位, 够区分是哪首);
-      // 完整 ID 放卡片 title 悬浮 + meta 行可点复制。
-      var idShort = esc(id.slice(0, 8));
+      // CSSOS_WAVE_769 — Jing「请显示完整 ID」: meta 行显示完整 work id(可按完整或前 8 位等任意前缀搜索)。
+      var idFull = esc(id);
       var card = document.createElement("button");
       card.type = "button";
       card.title = "ID " + id;   // W764 — Jing: 不用 🆔 emoji, 纯文本
@@ -411,7 +410,7 @@
       var metaBits = [];
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
-      metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.82em;">ID ' + idShort + "</span>");
+      metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + idFull + "</span>");
       card.innerHTML =
         '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +

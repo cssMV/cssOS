@@ -39330,6 +39330,9 @@ app.get("/api/works/market", async (req, res) => {
     // (照常按最新返回). q 命中 标题 / 作者名 / 风格 / 歌词预览(ILIKE 不区分大小写).
     // offset 配合 limit 做"上滑加载更多 10/次".
     const searchQ = String(req.query.q || "").trim().slice(0, 80);
+    // CSSOS_WAVE_770 — Jing「可用 ID 搜索, 哪怕包含一个 emoji(🆔)」: 从查询里抽出 ID 片段
+    // (只留 hex+dash, 去掉 🆔/空格等), 单独用作 ID 前缀匹配, 不影响标题/风格文本搜索。
+    const idClean = searchQ.replace(/[^0-9a-fA-F-]/g, "");
     const offset = Math.max(0, Math.min(Number(req.query.offset || 0), 100000));
     type Row = WorkTreeRow;
     const q: QueryResult<Row> = await withClient((client) =>
@@ -39433,10 +39436,15 @@ app.get("/api/works/market", async (req, res) => {
                  SELECT 1 FROM work_language_tracks wf
                   WHERE wf.work_id = w.id AND wf.lang = $2 AND wf.status = 'ready'))
            -- CSSOS_WAVE_285 — 文本搜索: q 为空则不过滤
+           -- CSSOS_WAVE_769 — Jing「可用 ID 搜索, 哪怕只前 8 位」: 命中作品 ID 前缀(w.id::text 去掉连字符
+           -- 都能匹配, 因为 uuid::text 含连字符; 用 ILIKE 前缀, 8 位即可)。
            AND ($3 = '' OR w.title ILIKE '%' || $3 || '%'
                         OR u.display_name ILIKE '%' || $3 || '%'
                         OR COALESCE(w.style, '') ILIKE '%' || $3 || '%'
-                        OR COALESCE(w.lyrics_preview, '') ILIKE '%' || $3 || '%')
+                        OR COALESCE(w.lyrics_preview, '') ILIKE '%' || $3 || '%'
+                        OR ($5 <> '' AND length($5) >= 4 AND (
+                              w.id::text ILIKE $5 || '%'
+                              OR replace(w.id::text, '-', '') ILIKE replace($5, '-', '') || '%')))
          -- CSSOS_WAVE_425 20260525 — Jing「死媒体降权: 让活媒体作品优先推」: works
          -- whose primary media (final_mv / audio_track_1) lives on our own domain
          -- (cssstudio.app local or cdn.cssstudio.app R2) are guaranteed to play;
@@ -39463,7 +39471,7 @@ app.get("/api/works/market", async (req, res) => {
                  THEN 0 ELSE 1 END) ASC,
            w.created_at DESC, w.updated_at DESC
          LIMIT $1 OFFSET $4`,
-        [limit, langFilter, searchQ, offset],
+        [limit, langFilter, searchQ, offset, idClean],
       ),
     );
     const rootIds = q.rows.map((row) => row.id);

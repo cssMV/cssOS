@@ -214,7 +214,83 @@
     applyFilter("all");
   }
 
-  function scan() { document.querySelectorAll("[data-mv-engines-panel]").forEach(buildTabs); }
+  // CSSOS_WAVE_777 — Jing「接 MV管线 + 人物MV; 参照高级设置, 小窗稍大」: 可复用【裸锚点】kie 选择器
+  // (不依赖原生 select 网格 = 不需要 advanced 那套水化)。给 kie 四阶段建标签(实时家数)+ 搜索 + 列表
+  // (默认10 + 点击/上滑加载更多 + 点选广播全平台)。供注入到任意面板。
+  function buildBareTabs(anchor) {
+    if (!(anchor instanceof HTMLElement)) return;
+    if (anchor.querySelector(".cssmv-engine-tabs")) return; // 幂等
+    injectStyleOnce();
+    var stages = ORDER.filter(function (k) { return STAGE_META[k] && STAGE_META[k].kie; });
+    if (!stages.length) return;
+    var bar = document.createElement("div");
+    bar.className = "cssmv-engine-tabs cssmv-pill-bar";
+    bar.setAttribute("data-pill-bar", ""); bar.setAttribute("data-pill-text", "dark"); bar.setAttribute("role", "tablist");
+    bar.innerHTML = stages.map(function (k, i) {
+      var m = STAGE_META[k] || { icon: "•", label: k };
+      return '<button type="button" class="' + (i === 0 ? "active" : "") + '" data-pill-key="' + k + '" data-stage-filter="' + k + '">' + m.icon + ' <span>' + m.label + "</span></button>";
+    }).join("");
+    anchor.appendChild(bar);
+    var wrap = document.createElement("div");
+    wrap.className = "cssmv-kie-wrap";
+    wrap.innerHTML = '<input class="cssmv-kie-search" type="search" placeholder="按名称 / 厂商搜索 Kie 模型…" /><div class="cssmv-kie-list"></div>';
+    anchor.appendChild(wrap);
+    var searchEl = wrap.querySelector(".cssmv-kie-search");
+    var listEl = wrap.querySelector(".cssmv-kie-list");
+    var curStage = stages[0];
+    function show(k) {
+      curStage = k;
+      bar.querySelectorAll("[data-stage-filter]").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-stage-filter") === k); });
+      loadKie().then(function () { renderKieList(listEl, k, searchEl.value); });
+    }
+    bar.querySelectorAll("[data-stage-filter]").forEach(function (b) {
+      b.addEventListener("click", function () { show(b.getAttribute("data-stage-filter")); });
+    });
+    searchEl.addEventListener("input", function () { if (curStage) renderKieList(listEl, curStage, searchEl.value); });
+    listEl.addEventListener("scroll", function () {
+      if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 40) {
+        var rows = listEl.__rows || []; if ((listEl.__shown || PAGE) < rows.length) { listEl.__shown = (listEl.__shown || PAGE) + PAGE; paintKiePage(listEl); }
+      }
+    }, { passive: true });
+    loadKie().then(function () {
+      stages.forEach(function (k) {
+        var n = (((kieCache || {}).stages || {})[k] || []).length; if (!n) return;
+        var span = bar.querySelector('[data-stage-filter="' + k + '"] span'); var m = STAGE_META[k] || { label: k };
+        if (span) span.textContent = m.label + " " + n;
+      });
+      show(stages[0]);
+    });
+  }
+  globalThis.cssosMountKiePicker = function (container) {
+    if (!(container instanceof HTMLElement)) return null;
+    var sec = document.createElement("section");
+    sec.className = "mv-engines-panel cssos-kie-injected";
+    sec.setAttribute("data-mv-engines-panel", ""); sec.setAttribute("data-cssos-kie-injected", "1");
+    sec.style.cssText = "margin:14px 8px;padding:12px 14px;border-radius:14px;background:rgba(0,0,0,0.18);";
+    var title = document.createElement("div");
+    title.style.cssText = "font:700 12px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;opacity:.78;margin-bottom:8px;";
+    title.textContent = "第三方引擎 · 经 Kie";
+    sec.appendChild(title);
+    container.appendChild(sec);
+    buildBareTabs(sec);
+    return sec;
+  };
+  function injectInto(panelSel) {
+    var panel = document.querySelector(panelSel);
+    if (!panel || panel.querySelector("[data-cssos-kie-injected]")) return;
+    globalThis.cssosMountKiePicker(panel);
+  }
+
+  function scan() {
+    // 原生网格锚点(高级设置)→ buildTabs(在网格上加 kie 标签)。排除注入的裸锚点。
+    document.querySelectorAll("[data-mv-engines-panel]:not([data-cssos-kie-injected])").forEach(buildTabs);
+    // CSSOS_WAVE_777 — 注入到 MV管线 + 人物MV(各一次, 幂等)。
+    injectInto("#mv-pipeline-panel");
+    injectInto("#person-mv-panel");
+    document.querySelectorAll("[data-cssos-kie-injected]").forEach(function (a) {
+      if (!a.querySelector(".cssmv-engine-tabs")) buildBareTabs(a);
+    });
+  }
   try { new MutationObserver(function () { scan(); }).observe(document.body, { childList: true, subtree: true }); } catch (_e) {}
   if (document.readyState === "complete" || document.readyState === "interactive") scan();
   else document.addEventListener("DOMContentLoaded", scan);

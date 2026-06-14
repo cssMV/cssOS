@@ -39,13 +39,14 @@
       f = document.createElement("div");
       f.id = "cssos-watch-bottomflow";
       f.dataset.noFrameToggle = "1";
-      // 唯一的绝对定位锚点: 贴左下、坐在 Dock 上方(--cssos-dock-clear 让位), 随之上移。
+      // 唯一的绝对定位锚点: 底部居中、坐在 Dock 上方(--cssos-dock-clear 让位), 随之上移。
       f.style.cssText = [
-        "position:absolute", "left:8px", "right:8px",   // W762 全宽: CTA 卡片条铺开, 窄成员靠左
+        "position:absolute", "left:8px", "right:8px",   // W762 全宽容器(CTA 卡片条铺开)
         // W761 — 容器底边贴 Dock 顶(dock-clear), 不加额外边距 → 价格条↔Dock 距离 0(话筒凸起补足)。
         "bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px))",
         "display:flex", "flex-direction:column-reverse",
-        "align-items:flex-start", "gap:8px",
+        "align-items:center", "gap:8px",   // W767 — Jing「应该在底部中间位置」: 各行水平居中(原 flex-start 靠左)
+        "text-align:center",
         "z-index:20",
         "pointer-events:none"   // 容器穿透, 子元素各自 auto
       ].join(";");
@@ -75,7 +76,7 @@
       el.style.setProperty("width", "100%", "important");
       el.style.setProperty("max-width", "100%", "important");
     } else {
-      el.style.setProperty("align-self", "flex-start", "important");
+      el.style.setProperty("align-self", "center", "important");   // W767 — 底部居中(原 flex-start 靠左)
     }
   }
 

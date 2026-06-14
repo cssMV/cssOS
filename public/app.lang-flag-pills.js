@@ -151,6 +151,15 @@
       "#watch-language-pill > button.cssos-want-guide,#watch-language-pill > button.cssos-lang-guide,#watch-language-pill > button.cssos-voice-guide{",
       "width:auto !important;min-width:max-content !important;margin-left:0 !important;margin-right:0 !important;",
       "-webkit-mask-image:none !important;mask-image:none !important;border-radius:999px !important;}",
+      // CSSOS_WAVE_758 — Jing「Want an MV 胶囊总不凹向左边」: 给引导胶囊补【左凹咬】, 但避开 W678q 截断陷阱
+      // (那是 width:calc(100%+20px) 在 max-content 网格里循环解析偏小所致)→ 改用【负 margin + 左 mask +
+      // 保 max-content/width:auto】: 既凹向左邻、又不截断不缩点击区。仅 Want an MV(want-guide), 加/语言加/声线
+      // 引导仍保持实心(它们常在轨道末尾不需要嵌)。
+      "#watch-language-pill > button.cssos-want-guide{",
+      "margin-left:-20px !important;padding-left:38px !important;width:auto !important;min-width:max-content !important;",
+      "border-radius:0 999px 999px 0 !important;z-index:0 !important;",
+      "-webkit-mask-image:radial-gradient(circle 20px at 20px 50%,transparent 19.5px,#000 20px) !important;",
+      "mask-image:radial-gradient(circle 20px at 20px 50%,transparent 19.5px,#000 20px) !important;}",
       "#watch-language-pill > button{height:40px !important;min-height:40px !important;max-height:40px !important;align-self:center !important;}",
       "#watch-language-pill::-webkit-scrollbar{display:none;}",
       // CSSOS_WAVE_587f — 根因: 全局 @media(pointer:coarse){.lang-name{display:none}} 在【触屏=App】上把所有

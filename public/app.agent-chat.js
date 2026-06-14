@@ -176,7 +176,8 @@
         try {
           var fe = document.fullscreenElement || document.webkitFullscreenElement || null;
           var host = fe || document.body;
-          if (fab && fab.parentNode !== host) host.appendChild(fab);
+          // W758 — FAB 若已被对齐器挂进 .watch-screen(价格条同容器), 别拽走(它已在全屏子树内)。
+          if (fab && fab.dataset.inWatchScreen !== "1" && fab.parentNode !== host) host.appendChild(fab);
           if (panel && panel.parentNode !== host) host.appendChild(panel);
           // CSSOS_WAVE_741 — Jing「Dock 全屏不显示, 别留高占位」: 全屏 → --cssos-dock-clear=0
           // (底部控件贴边); 退出 → 还原默认让位。
@@ -187,26 +188,34 @@
       document.addEventListener("webkitfullscreenchange", relocate);
     })();
 
-    // CSSOS_WAVE_757 — Jing「AI 助理比价格条高、也大了一些; 用胶囊左右两个半圆凸边组成一个正圆,
-    // 这个正圆就是 AI 助理; 和价格条同上同下」。FAB 是全站常驻入口不能只挂进 .watch-screen, 故用
-    // 对齐器: 价格条(#cssos-watch-price-strip)在场时, 实时把 FAB 设成【同高的正圆 + 同底边】=
-    // 真·同上同下(border-radius:50% 已在基样式 → 直径=胶囊高度的正圆)。不在 watch 面板时 FAB 用默认。
+    // CSSOS_WAVE_758 — Jing「要真正同上同下, 最稳的是把 FAB 放进价格条所在的同一个容器(.watch-screen);
+    // 对呀就要这样, 但不要参与胶囊组」。价格条在场 → 把 FAB 重挂进 .watch-screen(价格条同容器), 绝对定位、
+    // 同底边、直径=胶囊高度的正圆、右侧; 它是独立圆(无 data-pill-key/不进 pill-bar)= 不参与胶囊组。
+    // 离开 watch → 还原成全局固定 FAB(挂回 body, 清内联)。全屏 relocate 见上, 已加 inWatchScreen 守卫。
     (function alignFabToPriceStrip() {
       function sync() {
         try {
           var f = document.getElementById("cssos-agent-fab");
           if (!f) return;
           var strip = document.getElementById("cssos-watch-price-strip");
-          var r = strip && strip.offsetParent !== null ? strip.getBoundingClientRect() : null;
-          if (r && r.height) {
-            var d = Math.round(r.height);                                  // 直径 = 胶囊高度
+          var screen = document.querySelector("#watch-panel .watch-screen");
+          var stripVisible = strip && strip.offsetParent !== null;
+          if (stripVisible && screen) {
+            if (f.parentNode !== screen) screen.appendChild(f);   // 同一个 div = .watch-screen
+            f.dataset.inWatchScreen = "1";
+            var r = strip.getBoundingClientRect();
+            var sr = screen.getBoundingClientRect();
+            var d = Math.round(r.height) || 40;                   // 直径 = 胶囊高度
+            f.style.position = "absolute";
             f.style.width = d + "px"; f.style.height = d + "px"; f.style.minWidth = d + "px";
-            f.style.bottom = Math.max(0, Math.round(window.innerHeight - r.bottom)) + "px"; // 同下
-            f.style.top = "auto";
-          } else {
-            // 不在 watch / 价格条不可见 → 还原默认(基样式那套, 清掉内联覆盖)。
-            f.style.width = ""; f.style.height = ""; f.style.minWidth = "";
-            f.style.bottom = ""; f.style.top = "";
+            f.style.bottom = Math.max(0, Math.round(sr.bottom - r.bottom)) + "px"; // 同下(同 .watch-screen 基准)
+            f.style.right = "14px"; f.style.top = "auto"; f.style.left = "auto";
+          } else if (f.dataset.inWatchScreen) {
+            // 还原全局固定入口。
+            if (f.parentNode !== document.body) document.body.appendChild(f);
+            delete f.dataset.inWatchScreen;
+            f.style.position = ""; f.style.width = ""; f.style.height = ""; f.style.minWidth = "";
+            f.style.bottom = ""; f.style.right = ""; f.style.top = ""; f.style.left = "";
           }
         } catch (_e) {}
       }

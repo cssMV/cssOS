@@ -78,6 +78,13 @@
     } else {
       el.style.setProperty("align-self", "center", "important");   // W767 — 底部居中(原 flex-start 靠左)
     }
+    // CSSOS_WAVE_768 — Jing「传统普通字幕那一行请保持高度」: 它从头驻留到播放结束、不随空内容塌 0、
+    // 不随 10 秒无操作隐藏(常驻三件套: 价格条/AI助理/传统普通字幕)。强制始终占一行高度 + 不被 :empty 收起。
+    if (el.id === "watch-subtitle") {
+      el.style.setProperty("display", "block", "important");
+      el.style.setProperty("min-height", "1.5em", "important");
+      el.style.setProperty("visibility", "visible", "important");
+    }
   }
 
   var lastSig = "";

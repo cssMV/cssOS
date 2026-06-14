@@ -33118,6 +33118,39 @@ app.post("/api/admin/epic-render/:workId", express.json({ limit: "16kb" }), asyn
  *   curl -X POST "$API/api/admin/create-civ-flagship" -H "x-admin-token: $T" -H 'content-type: application/json' \
  *        -d '{"civ":"北欧维京","lang":"non","title":"…","theme":"…","style":"epic Norse …"}' */
 const CSSOS_FLAGSHIP_OWNER = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb"; // 现有旗舰归属账户(Jing)
+/* CSSOS_WAVE_785 — civ 旗舰封面: 其它图像引擎都余额耗尽/限流, 只有 nanobanana(kie, Jing 有额度)能出。
+ * ⚠️ 坑: kie nanobanana 不接受 output_format 参数(报 "not within allowed options")→ 绝不传 output_format。
+ * prefer nanobanana 直奔有额度的引擎; 返回 url(临时 aiquickdraw)→ rehost 稳定; 或 b64 → persist。失败返回 ""。 */
+async function cssosGenCivCover(prompt: string, ownerId: string): Promise<string> {
+  try {
+    const img = await callImageGen({ prompt, size: "1024x1024", prefer: ["nanobanana"] });
+    if (img?.ok && img.image_url) return await persistRemoteImageToStable(String(img.image_url));
+    if (img?.ok && img.image_b64) return await persistBase64Cover(img.image_b64, ownerId);
+  } catch (_e) { /* optional */ }
+  return "";
+}
+app.post("/api/admin/regen-cover/:workId", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const workId = String(req.params.workId || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
+  try {
+    const wr = await withClient((c) => c.query<{ user_id: string; title: string | null; civilization: string | null }>(
+      `SELECT user_id, title, civilization FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+    const w = wr.rows[0];
+    if (!w) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const prompt = String((req.body as any)?.prompt || "").trim()
+      || `${w.title || ""}, ${w.civilization || ""} ancient civilization, epic cinematic album cover art, dramatic mythic lighting, ornate authentic motifs, highly detailed, no text, no watermark`;
+    const cover = await cssosGenCivCover(prompt, String(w.user_id));
+    if (!cover) return res.status(503).json({ ok: false, code: "IMAGE_UNAVAILABLE" });
+    await withClient((c) => c.query(`UPDATE user_works SET cover_image=$2, updated_at=now() WHERE id=$1::uuid`, [workId, cover]));
+    return res.json({ ok: true, workId, cover });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "REGEN_COVER_FAILED", detail: (e as Error)?.message || "" });
+  }
+});
 app.post("/api/admin/create-civ-flagship", express.json({ limit: "16kb" }), async (req, res) => {
   noStore(res);
   const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
@@ -33141,14 +33174,7 @@ app.post("/api/admin/create-civ-flagship", express.json({ limit: "16kb" }), asyn
     const lyrics = String(llm?.content || "").trim();
     if (!llm?.ok || lyrics.length < 30) return res.status(503).json({ ok: false, code: "LYRICS_FAILED", detail: llm?.error || "" });
     // 2) civ 风封面(无文字)。失败不致命。
-    let cover = "";
-    try {
-      const img = await callImageGen({
-        prompt: `${theme || title}, ${civ} ancient civilization, epic cinematic album cover art, dramatic mythic lighting, ornate authentic motifs, highly detailed, no text, no watermark`,
-        size: "1024x1024", output_format: "webp",
-      });
-      if (img?.ok && img.image_url) cover = await persistRemoteImageToStable(String(img.image_url));
-    } catch (_e) { /* cover optional */ }
+    const cover = await cssosGenCivCover(`${theme || title}, ${civ} ancient civilization, epic cinematic album cover art, dramatic mythic lighting, ornate authentic motifs, highly detailed, no text, no watermark`, owner);
     // 3) 落库 + market profile(public) + 立即置顶。
     const workId = crypto.randomUUID();
     await withClient(async (c) => {

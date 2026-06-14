@@ -98,6 +98,11 @@
       "  max-width:0 !important;min-width:0 !important;padding:0 !important;margin:0 !important;",
       "  opacity:0 !important;overflow:hidden !important;border:0 !important;pointer-events:none !important;}",
       // ── 展开态(仅 .is-open = 点击/轻触, W678b 取消 hover 展开): 全宽轨道, 所有段落露出 + 横向滑动。 ──
+      // CSSOS_WAVE_755 — Jing「这几个胶囊总有多余的透明轨道」: 展开态根因 = consolidate() 给容器加
+      // data-pill-bar → 宪法轨道底色 rgba(0,245,160,0.10)+边框(!important)透出 = 长长的淡绿外框/胶囊间
+      // 淡轨道。折叠态已透明(W588), 展开态漏了。这里展开态也强制容器全透明(只留各胶囊本身)。
+      "#watch-panel .cssmv-capsule.is-open,#watch-panel .cssmv-capsule[data-pill-bar]{",
+      "  background:transparent !important;border-color:transparent !important;box-shadow:none !important;}",
       "#watch-panel .cssmv-capsule.is-open{",
       // CSSOS_WAVE_588 — 一改两治:
       //  ① width:max-content → 贴合内容, 让宪法 grid 的 1fr 拿不到多余空间 → 短胶囊(1×)不再被拉伸"两边空"(图1)。

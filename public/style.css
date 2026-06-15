@@ -8045,6 +8045,16 @@ html[data-panel-transparent="true"] .logo-panel {
 }
 /* CSSOS_PHASE1_MAXIMIZE_FULLSCREEN_END */
 
+/* CSSOS_WAVE_804 20260615 — Jing「统一: 面板最大化时底部留出 Dock 让位高度」: 最大化面板铺满 100vh,
+ * 但 Dock(fixed, bottom≈safe+8, 高~62px)浮在上面 → 面板底部内容/按钮被 Dock 遮住点不到(如 MV 管线
+ * START PIPELINE 那一片、高级设置底部)。给最大化面板的滚动体(.panel-body 或最后一个子节点)垫够 Dock
+ * 让位高度(safe-area + ~90px)。watch 面板除外(它的底部由 watch-bottom-stack 自管, 且真全屏影院媒体铺满)。 */
+.panel.maximized[data-maximize-mode="fullscreen"]:not(#watch-panel) > :last-child,
+.panel.maximized[data-maximize-mode="fullscreen"]:not(#watch-panel) .panel-body {
+  padding-bottom: calc(env(safe-area-inset-bottom, 8px) + 90px) !important;
+  box-sizing: border-box !important;
+}
+
 /* Dock — positioning only. cssosMakePillBar owns all visual (background/border/padding/height).
  * #dock ID selector (1,0,0) definitively beats [data-pill-bar] (0,1,0) from pill-bar.js. */
 #dock {

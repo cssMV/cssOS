@@ -4684,6 +4684,24 @@ function prePaintLatestWorkOnPanelOpenModule() {
   } catch (_e) { /* silent — never block panel open */ }
 }
 
+// CSSOS_WAVE_791 — Jing「只播 5s Seedance 视频, ended 就跳歌」安全网。画音分层下视频是纯视觉:
+// 当有真实独立音轨在播(#watch-audio-preview 有真源且未结束)、且视频是短片(<45s 视觉环)时,
+// 视频 ended 不该切歌 —— 把视频设 loop 垫画面, 切歌交给 audio.ended(真实歌长)。返回 true = 已拦截。
+function cssosShortVideoLoopGuard() {
+  try {
+    var v = document.getElementById("watch-video");
+    var a = document.getElementById("watch-audio-preview");
+    if (!v) return false;
+    var dur = Number(v.duration) || 0;
+    if (!(dur > 0 && dur < 45)) return false;            // 只管短视觉环; 长视频(自带歌)照旧切歌
+    var as = String((a && (a.currentSrc || a.getAttribute("src"))) || "");
+    var aReal = !!a && !!as && !/^data:/i.test(as) && !a.ended;   // 有真实独立音轨在
+    if (!aReal) return false;                            // 没独立音轨(老作品视频自带声)→ 照旧切歌
+    try { v.loop = true; if (v.paused) { var p = v.play && v.play(); if (p && p.catch) p.catch(function () {}); } } catch (_e) {}
+    return true;                                         // 拦截切歌, 让音频主导
+  } catch (_e) { return false; }
+}
+
 function ensureWatchCentered() {
   if (!watchPanel) return;
   if (!guardPanelAccess(watchPanel.id)) return;
@@ -5378,7 +5396,7 @@ function wireWatchQueueAutoAdvanceOnceModule() {
     console.warn("[watch-queue] advancing to next item");
     void watchQueueAdvanceModule(+1);
   };
-  videoEl.addEventListener("ended", onMediaEnded);
+  videoEl.addEventListener("ended", function (e) { if (cssosShortVideoLoopGuard()) return; return onMediaEnded(e); });
   if (audioEl) audioEl.addEventListener("ended", onMediaEnded);
   // CSSOS_PHASE2_KARAOKE_LIVE 20260430 #199 — Jing
   // "字幕跟随 audio.currentTime — fix watch overlay subtitle renderer."
@@ -10088,7 +10106,12 @@ function initWatchVideoPlaybackControlsModule() {
   watchVideo.addEventListener("loadeddata", handleWatchVideoLoadedData);
   watchVideo.addEventListener("canplay", handleWatchVideoCanPlay);
   watchVideo.addEventListener("loadedmetadata", handleWatchVideoLoadedMetadata);
-  watchVideo.addEventListener("ended", queueStructuredWatchAdvanceModule);
+  // CSSOS_WAVE_791 — Jing「只播 5s Seedance 视频, ended 就跳歌」安全网: 当有真实独立音轨在播时,
+  // 短视频(<45s, 画音分层下纯视觉环)的 ended 绝不切歌 —— 改为循环垫画面, 切歌交给 audio.ended。
+  watchVideo.addEventListener("ended", function (e) {
+    if (cssosShortVideoLoopGuard()) return;
+    return queueStructuredWatchAdvanceModule(e);
+  });
   watchVideo.addEventListener("error", handleWatchVideoError);
   if (clickTarget) {
     clickTarget.addEventListener("click", handleWatchPlaybackSurfaceClick);

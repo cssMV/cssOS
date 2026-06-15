@@ -885,7 +885,10 @@ async function openMarketWorkPreview(work = {}, options = {}) {
       // synced subtitles all work for saved works without re-running the
       // pipeline. /api/works/mine now LEFT JOINs work_assets to surface
       // these.
-      let audioUrl = String(targetWork?.audio_track_1_url || "").trim() || null;
+      // CSSOS_WAVE_791 — Jing「新旗舰只放 5s 视频、ended 就跳」根因总入口: admin epic-render 的音频
+      // 落在 preview_audio_url(非 audio_track_1_asset)→ 这里没回退就当作"无独立音轨"→ 播 5s Seedance
+      // 视频、视频 ended 跳歌。回退到 preview_audio_url → 音频驱动、按真实歌长播完才切。
+      let audioUrl = String(targetWork?.audio_track_1_url || targetWork?.preview_audio_url || "").trim() || null;
       let altAudioUrl = String(targetWork?.audio_track_2_url || "").trim() || null;
       const subtitleUrl = String(targetWork?.subtitle_srt_url || "").trim() || null;
       const durationSecs = Number(targetWork?.duration_secs || 0) || null;

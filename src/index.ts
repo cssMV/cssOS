@@ -32711,6 +32711,10 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
   // CSSOS_WAVE_735B 20260613 — Jing「全量熟歌词优先」: ?asr=1 强制走自由 ASR(忽略书面歌词),
   // 用【实际唱出来的词】重做字幕 + 覆盖 lyrics_preview。给第②批"有词作品改熟歌词"用。
   const forceAsr = String((req.query as any)?.asr || (req.body as any)?.asr || "").trim() === "1";
+  // CSSOS_WAVE_789 — Jing「约鲁巴等稀缺语言换个思路补字幕」: ?even=1 = 跳过 whisper(无该语言模型),
+  // 用【书面原词】在整曲时长上【均匀分布】合成时间线(卡拉OK式滚动)。whisper 既不能对齐也转写不出的
+  // 稀缺语言(yo/zap/haw…)的兜底字幕方案。词=原词、时间=均匀估算(非真 onset, 但全语言可用)。
+  const forceEven = String((req.query as any)?.even || (req.body as any)?.even || "").trim() === "1";
   try {
     const tracks = await withClient((c) => c.query<{ lang: string; audio_url: string; vocal_url: string | null; track_order: number; lyrics: string | null; duration_secs: number | null }>(
       // CSSOS_WAVE_674 ② onset 精度: 也取人声 stem(vocal_url), 强制对齐改在【纯人声】上做 —— 没鼓点/伴奏
@@ -32828,14 +32832,30 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       // CSSOS_WAVE_674 ② — 优先用人声 stem 做强制对齐(onset 更准); 没有则回退全混。
       const alignAudio = (tr.vocal_url && String(tr.vocal_url).trim()) ? String(tr.vocal_url) : tr.audio_url;
       // W735 — 熟歌词模式已有实唱时间线 → 直接复用(省一次 Whisper); 否则正常强制对齐书面词。
-      const aligned = asrPrebuiltTl ? asrPrebuiltTl : await alignWordsViaWhisper(alignAudio, alignLang, reLyrics);
-      let tl = (Array.isArray(aligned) ? aligned : [])
-        .map((w: any) => ({
-          word: String(w?.text ?? w?.word ?? "").trim(),
-          start: Number(w?.start_s ?? w?.start ?? 0),
-          end: Number(w?.end_s ?? w?.end ?? 0),
-        }))
-        .filter((w) => w.word && w.end > w.start);
+      let tl: Array<{ word: string; start: number; end: number }>;
+      if (forceEven) {
+        // W789 — 稀缺语言兜底: 书面词在整曲时长上均匀分布。CJK 按字、其余按空白词切。
+        const _dur = (_volCurve && _volCurve.values.length ? (_volCurve.values.length * _volCurve.step_ms) / 1000 : 0)
+          || Number(tr.duration_secs || 0) || 240;
+        const _body = reLyrics.split("\n").filter((l) => !/^\s*[\[【〔]/.test(l)).join(" ").trim();
+        const _spaceRatio = (_body.match(/\s/g) || []).length / Math.max(1, _body.length);
+        const _units = _spaceRatio > 0.04 ? _body.split(/\s+/).filter(Boolean) : Array.from(_body.replace(/\s+/g, ""));
+        const _lead = Math.min(8, _dur * 0.04);
+        const _span = Math.max(1, _dur - _lead - 2);
+        const _n = Math.max(1, _units.length);
+        const _per = _span / _n;
+        tl = _units.map((w, i) => ({ word: w, start: +(_lead + i * _per).toFixed(2), end: +(_lead + (i + 1) * _per - _per * 0.12).toFixed(2) }))
+          .filter((w) => w.word && w.end > w.start);
+      } else {
+        const aligned = asrPrebuiltTl ? asrPrebuiltTl : await alignWordsViaWhisper(alignAudio, alignLang, reLyrics);
+        tl = (Array.isArray(aligned) ? aligned : [])
+          .map((w: any) => ({
+            word: String(w?.text ?? w?.word ?? "").trim(),
+            start: Number(w?.start_s ?? w?.start ?? 0),
+            end: Number(w?.end_s ?? w?.end ?? 0),
+          }))
+          .filter((w) => w.word && w.end > w.start);
+      }
       // CSSOS_WAVE_776 — Jing「生+熟对照(DTW)取两者优势」: 强制对齐失败、但有【写词(生歌词)】时,
       // 用自由 ASR(熟歌词)只取【真实时间戳】, 让 buildSubtitleSections 按位置把【写词】贴上去
       // (它本就用写词 units 的文本、只借 timeline 的时间)→ 词准(写词, 杜绝"Jerusalem→这如三郎")
@@ -32890,6 +32910,7 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         lang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),
         dtw: dtwMerged,   // W776 — true = forced-align 失败后走了【写词+ASR时间戳】兜底
+        even: forceEven,  // W789 — true = 稀缺语言均匀分布合成时间线
       });
     }
     return res.json({ ok: true, workId, results });

@@ -305,6 +305,23 @@ async function loadMyWorksModule(options = {}) {
   return __cssosLoadMyWorksInflight;
 }
 
+// CSSOS_WAVE_802 20260615 — Jing 内存实测: 作品中心一开 +约4000 DOM 节点, 收起后不释放(covered≠closed)。
+// 它每次打开都【强制 force 重新拉取并重渲染】(renderWorksPanelModule → loadMyWorksModule force:true), 所以
+// 面板收起/关闭时【清空已渲染卡片 + 释放会话语料】是无损的(重开必重建)→ 把这 4000 节点的内存还回去。
+(function installWorksCenterReclaim() {
+  if (typeof document === "undefined" || globalThis.__cssosWorksReclaimInstalled) return;
+  globalThis.__cssosWorksReclaimInstalled = true;
+  document.addEventListener("cssos:panelclose", function () {
+    try {
+      var wp = document.getElementById("works-panel");
+      if (!wp || (!wp.classList.contains("hidden") && wp.dataset.minimized !== "true")) return; // 仍开着 → 不动
+      var list = document.getElementById("works-list-dynamic");
+      if (list) list.innerHTML = "";                 // 释放卡片 DOM(重开 force 重渲染)
+      try { latestResolvedWorksCollection = []; globalThis.latestResolvedWorksCollection = []; } catch (_e) {}
+      try { worksVisibleCount = WORKS_PAGE_SIZE; } catch (_e) {}
+    } catch (_e) {}
+  });
+})();
 globalThis.loadMyWorksModule = loadMyWorksModule;
 globalThis.loadMyWorks = loadMyWorksModule;
 globalThis.renderWorksPanelModule = renderWorksPanelModule;

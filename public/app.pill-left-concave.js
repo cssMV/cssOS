@@ -70,7 +70,8 @@
         childList: true, subtree: true, attributes: true, attributeFilter: ["class"]
       });
     } catch (_e) {}
-    setInterval(schedule, 250);
+    // W803 — Jing 审计: 250ms forever 定时器与上面的 MutationObserver【完全冗余】(都触发同一 schedule 重涂
+    // 凹咬胶囊样式)。删掉, 由 observer + 初次 apply 覆盖 → 省每秒 4 次空转。
     schedule();
   }
   if (document.readyState === "loading") {

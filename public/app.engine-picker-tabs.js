@@ -319,6 +319,13 @@
       "  background:rgba(6,12,10,0.97);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);",
       "  border:1px solid rgba(0,245,160,0.28);border-radius:14px;padding:10px;box-shadow:0 18px 50px rgba(0,0,0,0.6);color:#eafff6;}",
       "#cssos-kie-stagepop .sp-hd{font:700 12px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.05em;opacity:.85;margin-bottom:8px;}",
+      // W803 — 顶部一行: 搜索框(一半) + 封面数量步进器(一半)。
+      "#cssos-kie-stagepop .cssmv-kie-toprow{display:flex;gap:8px;align-items:stretch;margin-bottom:8px;}",
+      "#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{flex:1 1 50%;margin-bottom:0;}",
+      "#cssos-kie-stagepop .cssmv-cover-count{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:999px;border:1px solid rgba(0,245,160,0.30);background:rgba(0,245,160,0.06);font:600 12px/1 -apple-system,system-ui,sans-serif;}",
+      "#cssos-kie-stagepop .cssmv-cover-count button{all:unset;cursor:pointer;width:22px;height:22px;display:grid;place-items:center;font-size:16px;border-radius:50%;color:#9affd9;}",
+      "#cssos-kie-stagepop .cssmv-cover-count button:hover{background:rgba(0,245,160,0.18);}",
+      "#cssos-kie-stagepop .cssmv-cc-val{color:#fff;font-weight:800;}",
       "#cssos-kie-stagepop .cssmv-kie-search{width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px 12px;border-radius:999px;border:1px solid rgba(0,245,160,0.30);background:rgba(0,245,160,0.06);color:inherit;font:500 13px/1.2 ui-monospace,monospace;}",
       "#cssos-kie-stagepop .cssmv-kie-list{display:grid;grid-template-columns:1fr;gap:6px;overflow-y:auto;flex:1;}",
       "#cssos-kie-stagepop .cssmv-kie-card{all:unset;cursor:pointer;box-sizing:border-box;display:flex;flex-direction:column;gap:3px;padding:9px 12px;border-radius:10px;border:1px solid rgba(0,245,160,0.22);background:rgba(0,245,160,0.05);}",
@@ -340,7 +347,21 @@
     var m = STAGE_META[stageKey] || { icon: "•", label: stageKey };
     var pop = document.createElement("div"); pop.id = "cssos-kie-stagepop";
     pop.dataset.noFrameToggle = "1";
-    pop.innerHTML = '<div class="sp-hd">' + m.icon + " " + esc(lbl(stageKey)) + '</div><input class="cssmv-kie-search" type="search" placeholder="' + esc(tr("Search by name / vendor…", "按名称 / 厂商搜索…")) + '" /><div class="cssmv-kie-list"></div>';
+    // W803 — Jing「⚙ 也开 kie + 封面数量整合进小窗(搜索一半、封面数量一半)」。cover 阶段顶部排成一行:
+    // 左半=搜索框, 右半=封面数量步进器(localStorage cssos_mvp_param_cover_count, 1-8, work-sync 起跑时读)。
+    var searchHtml = '<input class="cssmv-kie-search" type="search" placeholder="' + esc(tr("Search by name / vendor…", "按名称 / 厂商搜索…")) + '" />';
+    var topRow;
+    if (stageKey === "cover") {
+      var cc = 3; try { cc = Math.min(8, Math.max(1, parseInt(localStorage.getItem("cssos_mvp_param_cover_count") || "3", 10) || 3)); } catch (_e) {}
+      topRow = '<div class="cssmv-kie-toprow">' + searchHtml +
+        '<div class="cssmv-cover-count" title="' + esc(tr("How many cover images to generate (max 8)", "生成几张封面图(最多 8)")) + '">' +
+        '<button type="button" data-cc="-1">−</button>' +
+        '<span class="cssmv-cc-label">' + esc(tr("Covers", "封面")) + ' <b class="cssmv-cc-val">' + cc + '</b></span>' +
+        '<button type="button" data-cc="1">+</button></div></div>';
+    } else {
+      topRow = searchHtml;
+    }
+    pop.innerHTML = '<div class="sp-hd">' + m.icon + " " + esc(lbl(stageKey)) + '</div>' + topRow + '<div class="cssmv-kie-list"></div>';
     document.body.appendChild(pop);
     // 定位: 锚点下方, 右对齐, 不出屏。
     var r = anchorEl.getBoundingClientRect();
@@ -349,6 +370,20 @@
     var top = Math.min(window.innerHeight - h - 8, r.bottom + 6);
     if (r.bottom + 6 + h > window.innerHeight) top = Math.max(8, r.top - h - 6);
     pop.style.left = left + "px"; pop.style.top = top + "px";
+    // W803 — 封面数量步进器(仅 cover 阶段): 改写 localStorage, work-sync 起跑时读。
+    var ccWrap = pop.querySelector(".cssmv-cover-count");
+    if (ccWrap) {
+      var ccValEl = ccWrap.querySelector(".cssmv-cc-val");
+      ccWrap.addEventListener("click", function (e) {
+        var b = e.target && e.target.closest ? e.target.closest("[data-cc]") : null;
+        if (!b) return;
+        e.preventDefault(); e.stopPropagation();
+        var cur = parseInt((ccValEl && ccValEl.textContent) || "3", 10) || 3;
+        var nv = Math.min(8, Math.max(1, cur + (Number(b.getAttribute("data-cc")) || 0)));
+        if (ccValEl) ccValEl.textContent = nv;
+        try { localStorage.setItem("cssos_mvp_param_cover_count", String(nv)); } catch (_e) {}
+      });
+    }
     var searchEl = pop.querySelector(".cssmv-kie-search");
     var listEl = pop.querySelector(".cssmv-kie-list");
     searchEl.addEventListener("input", function () { renderKieList(listEl, stageKey, searchEl.value); });
@@ -385,11 +420,20 @@
       head.addEventListener("click", function (e) {
         var t = e.target;
         var cell = t && t.closest ? t.closest(".mvp-stage-engine") : null;
-        // W779b — 只接管【引擎值文本】点击 → 弹 kie 选择器。⚙ 不拦截, 仍开原 popover(保留"默认
-        // 输出多少封面图"等原设置, 找回来)。折叠箭头(—)等也不拦截。
-        if (!cell) return;
+        // W803 — Jing「⚙ 也开 kie(统一)」: 引擎值【或】⚙ 齿轮 → 都弹 kie 选择器(封面数量已整合进小窗)。
+        // ⚙ 是运行时拼的(grep 不到), 按字符特征识别: 元素文本含 ⚙ 且很短(就是那个图标本身)。折叠箭头(—)等不动。
+        var gear = null;
+        if (!cell) {
+          var el = t;
+          for (var i = 0; i < 4 && el && el !== head; i++) {
+            var tx = (el.textContent || "").trim();
+            if (tx.indexOf("⚙") !== -1 && tx.length <= 3) { gear = el; break; }
+            el = el.parentElement;
+          }
+        }
+        if (!cell && !gear) return;
         e.preventDefault(); e.stopImmediatePropagation();
-        openKieStagePop(cell, stageKey, cell);
+        openKieStagePop(cell || gear, stageKey, cell);
       }, true);
     });
   }

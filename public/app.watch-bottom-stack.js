@@ -120,7 +120,9 @@
   }
 
   function start() {
-    setInterval(schedule, 300);
+    // W803 — Jing 审计: 原 300ms forever 定时器与下面的 resize+一堆 cssos 事件+MutationObserver 高度冗余。
+    // 底部栈是关键布局(价格条/字幕/AI助理), 保留一个【慢安全网】即可 → 300ms→2000ms(省 85% 空转)。
+    setInterval(schedule, 2000);
     window.addEventListener("resize", schedule, { passive: true });
     ["cssos:work-changed", "cssos:work-id-changed", "cssos:playlist-advance",
      "cssos:dock-toggle", "cssos:cinema-toggle", "cssos:purchase-complete",

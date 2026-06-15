@@ -17,7 +17,7 @@
   if (globalThis.__cssosPanelLruInstalled) return;
   globalThis.__cssosPanelLruInstalled = true;
 
-  var MAX_OPEN = 5;
+  var MAX_OPEN = 3;   // W795 — 5→3
   var mru = [];            // 面板元素数组, 队首=最近使用
   var evicting = false;    // 防重入
   var rafPending = false;

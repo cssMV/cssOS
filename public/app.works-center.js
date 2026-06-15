@@ -66,7 +66,10 @@ function renderWorksPanelModule() {
   // search-triggered path on first open so users never get stuck on
   // "Loading works...". A ~200ms cost on first paint vs. permanently
   // stuck is a no-brainer trade.
-  globalThis.__cssosWorksFetchLimit = 1000;
+  // CSSOS_WAVE_795 20260615 — Jing「作品中心一打开就崩 / 内存大户」: 原来一次性拉 1000 个作品进内存
+  // (随作品增多 → DOM/对象爆 → 打开即 OOM)。降到 150(force 路径仍能正常 paint), 其余靠无限滚动按需加载。
+  // 内存随作品规模线性失控 → 现在封顶。W220 那个"limit=30 不 paint"是路径问题(force 路径会 paint), 与数量无关。
+  globalThis.__cssosWorksFetchLimit = 150;
   void loadMyWorksModule({ resetVisible: true, force: true });
 }
 

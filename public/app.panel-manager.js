@@ -34,7 +34,7 @@
    * Power users (Studio/Enterprise) may raise this via panel settings overlay.
    * If Jing changes this number, update CLAUDE.md Article 8 too.
    */
-  const PANEL_MAX_OPEN = 5;
+  const PANEL_MAX_OPEN = 3;   // W795 — Jing「轻装上阵」: 5→3, 同开更少面板省内存
 
   /**
    * Articles 5 & 6: velocity threshold for fling gestures.

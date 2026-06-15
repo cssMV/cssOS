@@ -320,13 +320,11 @@
       "  border:1px solid rgba(0,245,160,0.28);border-radius:14px;padding:10px;box-shadow:0 18px 50px rgba(0,0,0,0.6);color:#eafff6;}",
       "#cssos-kie-stagepop .sp-hd{font:700 12px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.05em;opacity:.85;margin-bottom:8px;}",
       // W803 — 顶部一行: 搜索框(一半) + 封面数量步进器(一半)。
-      // W805 — Jing「胶囊风格 · 左凹向右」: 搜索框右端凹一个碗口, 封面步进器凸头嵌进去(凹咬胶囊)。
-      "#cssos-kie-stagepop .cssmv-kie-toprow{display:flex;align-items:stretch;margin-bottom:8px;}",
-      // W807 — Jing「咬紧一点, 蓝边绿边重叠」: 碗口碾小+往右(搜索框边框贴更近), 步进器多探进(-22px)→ 两边框重叠。
-      "#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{flex:1 1 auto;margin-bottom:0;-webkit-mask:radial-gradient(17px at calc(100% + 9px) 50%, transparent 16px, #000 17px);mask:radial-gradient(17px at calc(100% + 9px) 50%, transparent 16px, #000 17px);}",
-      "#cssos-kie-stagepop .cssmv-cover-count{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:0 10px 0 14px;margin-left:-22px;z-index:1;border-radius:999px;border:1px solid rgba(0,245,160,0.55);background:rgba(0,245,160,0.12);font:600 12px/1 -apple-system,system-ui,sans-serif;}",
-      // W697 铁律: 触屏取消凹咬重叠(实体延伸会偷相邻点击)→ 实心 + 间距。
-      "@media (pointer:coarse){#cssos-kie-stagepop .cssmv-kie-toprow{gap:8px;}#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{-webkit-mask:none;mask:none;}#cssos-kie-stagepop .cssmv-cover-count{margin-left:0;}}",
+      // W808 — Jing「统一胶囊轨道」: 整条一个外框圆角胶囊, 内部 搜索(左) | 分隔线 | 封面步进器(右) 无缝两半。
+      // 无负 margin 重叠 → 无 W697 触屏偷点击隐患, 桌面/触屏同款。
+      "#cssos-kie-stagepop .cssmv-kie-toprow{display:flex;align-items:stretch;margin-bottom:8px;border:1px solid var(--border,rgba(0,245,160,0.30));border-radius:999px;background:rgba(0,245,160,0.06);overflow:hidden;}",
+      "#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{flex:1 1 auto;margin:0;border:0;background:transparent;border-radius:0;-webkit-mask:none;mask:none;}",
+      "#cssos-kie-stagepop .cssmv-cover-count{flex:0 0 auto;display:flex;align-items:center;gap:6px;margin:0;padding:0 12px;border:0;border-left:1px solid var(--border,rgba(0,245,160,0.25));border-radius:0;background:transparent;font:600 12px/1 -apple-system,system-ui,sans-serif;}",
       "#cssos-kie-stagepop .cssmv-cover-count button{all:unset;cursor:pointer;width:22px;height:22px;display:grid;place-items:center;font-size:16px;border-radius:50%;color:#9affd9;}",
       "#cssos-kie-stagepop .cssmv-cover-count button:hover{background:rgba(0,245,160,0.18);}",
       "#cssos-kie-stagepop .cssmv-cc-val{color:#fff;font-weight:800;}",

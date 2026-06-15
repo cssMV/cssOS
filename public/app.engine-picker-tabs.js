@@ -320,9 +320,12 @@
       "  border:1px solid rgba(0,245,160,0.28);border-radius:14px;padding:10px;box-shadow:0 18px 50px rgba(0,0,0,0.6);color:#eafff6;}",
       "#cssos-kie-stagepop .sp-hd{font:700 12px/1.3 -apple-system,system-ui,sans-serif;letter-spacing:.05em;opacity:.85;margin-bottom:8px;}",
       // W803 — 顶部一行: 搜索框(一半) + 封面数量步进器(一半)。
-      "#cssos-kie-stagepop .cssmv-kie-toprow{display:flex;gap:8px;align-items:stretch;margin-bottom:8px;}",
-      "#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{flex:1 1 50%;margin-bottom:0;}",
-      "#cssos-kie-stagepop .cssmv-cover-count{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:999px;border:1px solid rgba(0,245,160,0.30);background:rgba(0,245,160,0.06);font:600 12px/1 -apple-system,system-ui,sans-serif;}",
+      // W805 — Jing「胶囊风格 · 左凹向右」: 搜索框右端凹一个碗口, 封面步进器凸头嵌进去(凹咬胶囊)。
+      "#cssos-kie-stagepop .cssmv-kie-toprow{display:flex;align-items:stretch;margin-bottom:8px;}",
+      "#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{flex:1 1 auto;margin-bottom:0;-webkit-mask:radial-gradient(19px at calc(100% + 5px) 50%, transparent 18px, #000 19px);mask:radial-gradient(19px at calc(100% + 5px) 50%, transparent 18px, #000 19px);}",
+      "#cssos-kie-stagepop .cssmv-cover-count{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:0 10px 0 12px;margin-left:-13px;z-index:1;border-radius:999px;border:1px solid rgba(0,245,160,0.30);background:rgba(0,245,160,0.10);font:600 12px/1 -apple-system,system-ui,sans-serif;}",
+      // W697 铁律: 触屏取消凹咬重叠(实体延伸会偷相邻点击)→ 实心 + 间距。
+      "@media (pointer:coarse){#cssos-kie-stagepop .cssmv-kie-toprow{gap:8px;}#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{-webkit-mask:none;mask:none;}#cssos-kie-stagepop .cssmv-cover-count{margin-left:0;}}",
       "#cssos-kie-stagepop .cssmv-cover-count button{all:unset;cursor:pointer;width:22px;height:22px;display:grid;place-items:center;font-size:16px;border-radius:50%;color:#9affd9;}",
       "#cssos-kie-stagepop .cssmv-cover-count button:hover{background:rgba(0,245,160,0.18);}",
       "#cssos-kie-stagepop .cssmv-cc-val{color:#fff;font-weight:800;}",

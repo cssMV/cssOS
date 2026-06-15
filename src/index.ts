@@ -33066,14 +33066,13 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
   const origAudio = String(w.preview_audio_url || "").trim();
   // 3-5) 备份原作 → 取消旧默认 → upsert Epic 默认轨 → preview_audio_url 指向 Epic。
   await withClient(async (c) => {
-    if (origAudio) {
-      const ex = await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND lang='orig-pre-epic' LIMIT 1`, [workId]);
-      if (!ex.rowCount) {
-        await c.query(
-          `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, lyrics, is_default)
-           VALUES ($1::uuid,'orig-pre-epic',90,$2,$3,false)`,
-          [workId, origAudio, lyrics]);
-      }
+    // 备份原音频(无原音频则留空, audio_url='' 仅作 Epic 标记轨, resubtitle 会跳过空音频轨)。
+    const ex = await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND lang='orig-pre-epic' LIMIT 1`, [workId]);
+    if (!ex.rowCount) {
+      await c.query(
+        `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, lyrics, is_default)
+         VALUES ($1::uuid,'orig-pre-epic',90,$2,$3,false)`,
+        [workId, origAudio || "", lyrics]);
     }
     await c.query(`UPDATE work_language_tracks SET is_default=false WHERE work_id=$1::uuid`, [workId]);
     const up = await c.query(
@@ -33185,7 +33184,7 @@ app.get("/api/works/flagships", async (_req, res) => {
       `SELECT w.id, w.title, w.cover_image, w.civilization,
               EXISTS (SELECT 1 FROM work_language_tracks t WHERE t.work_id = w.id AND t.lang = 'orig-pre-epic') AS epic
          FROM user_works w
-        WHERE w.admin_pinned_at IS NOT NULL AND w.status = 'ready'
+        WHERE w.admin_pinned_at IS NOT NULL AND w.status IN ('ready','published')
         ORDER BY w.admin_pinned_at DESC`));
     const items = r.rows.map((x) => ({ id: x.id, title: x.title || "", cover: x.cover_image || "", civ: x.civilization || "", epic: !!x.epic }));
     const payload = { ok: true, items, flagshipIds: items.map((i) => i.id), epicIds: items.filter((i) => i.epic).map((i) => i.id) };

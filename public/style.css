@@ -12810,6 +12810,15 @@ html.cssos-pill-cascade .palette-color-tabs:not(:has(.active)) > .palette-color-
   color: rgba(218, 255, 238, 0.80);
 }
 .cssos-lang-picker-price.is-insufficient { color: #d9534f; }
+/* CSSOS_WAVE_806 20260615 — Jing「同理 · 还有文本颜色」: 白天主题下面板背景是米色, 但上面这些标签/胶囊
+ * 文字用的是【深色主题的淡薄荷色 rgba(218,255,238,…)】→ 米色上几乎看不清。之前只给"高级设置"做了反色,
+ * 但白天主题【所有面板都是浅底】(MV 管线等同样浅底)→ 全局按 data-theme=light 反成深色文字(var(--text))。 */
+html[data-theme="light"] .cssos-lang-picker-head { color: var(--text); }
+html[data-theme="light"] .cssos-lang-picker-sub { color: rgba(28, 25, 20, 0.72); }
+html[data-theme="light"] .cssos-lang-picker-price { color: rgba(28, 25, 20, 0.82); }
+html[data-theme="light"] .cssos-lang-cell { color: var(--text); border-color: rgba(40, 90, 66, 0.35); }
+html[data-theme="light"] .cssos-lang-cell.is-selected { border-color: rgba(0, 160, 96, 0.7); }
+html[data-theme="light"] .cssos-lang-cell.is-default { border-color: rgba(0, 160, 96, 0.95); }
 
 /* W461b — Lang picker context-scoped colour overrides.
  *

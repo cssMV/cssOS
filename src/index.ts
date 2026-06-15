@@ -33174,6 +33174,27 @@ app.post("/api/admin/regen-video/:workId", express.json({ limit: "8kb" }), async
     return res.status(500).json({ ok: false, code: "REGEN_VIDEO_FAILED", detail: (e as Error)?.message || "" });
   }
 });
+/* CSSOS_WAVE_788 — Jing「旗舰/Epic 徽章」: 公开只读端点, 供前端给作品卡/MV面板打 ⚜旗舰/⚡Epic 徽章 +
+ * 渲染「⚜ 旗舰精选」墙入口。旗舰=admin_pinned_at; Epic=有 'orig-pre-epic' 备份轨。内存缓存 60s。 */
+let __flagshipCache: { at: number; payload: any } | null = null;
+app.get("/api/works/flagships", async (_req, res) => {
+  noStore(res);
+  try {
+    if (__flagshipCache && (Date.now() - __flagshipCache.at) < 60_000) return res.json(__flagshipCache.payload);
+    const r = await withClient((c) => c.query<{ id: string; title: string | null; cover_image: string | null; civilization: string | null; epic: boolean }>(
+      `SELECT w.id, w.title, w.cover_image, w.civilization,
+              EXISTS (SELECT 1 FROM work_language_tracks t WHERE t.work_id = w.id AND t.lang = 'orig-pre-epic') AS epic
+         FROM user_works w
+        WHERE w.admin_pinned_at IS NOT NULL AND w.status = 'ready'
+        ORDER BY w.admin_pinned_at DESC`));
+    const items = r.rows.map((x) => ({ id: x.id, title: x.title || "", cover: x.cover_image || "", civ: x.civilization || "", epic: !!x.epic }));
+    const payload = { ok: true, items, flagshipIds: items.map((i) => i.id), epicIds: items.filter((i) => i.epic).map((i) => i.id) };
+    __flagshipCache = { at: Date.now(), payload };
+    return res.json(payload);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: (e as Error)?.message || "failed", items: [], flagshipIds: [], epicIds: [] });
+  }
+});
 app.post("/api/admin/regen-cover/:workId", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();

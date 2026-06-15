@@ -10978,6 +10978,15 @@ function startWatchFrameLoopModule(frames) {
 
 function captureWatchVideoFirstFrameModule(video) {
   if (!video?.videoWidth || !video?.videoHeight) return "";
+  // CSSOS_WAVE_796 — 跨域视频画进 canvas 会污染(getImageData 抛 SecurityError)→ 既报错刷屏又白耗 CPU。
+  // 只对【本域/自家 CDN】的视频做首帧亮度采样; 跨域(replicate/aiquickdraw 等)直接跳过(交给封面兜底)。
+  try {
+    var _vs = String(video.currentSrc || video.getAttribute("src") || "");
+    if (_vs && !/^(blob:|data:)/i.test(_vs)) {
+      var _h = new URL(_vs, location.href).hostname;
+      if (_h && _h !== location.hostname && !/(^|\.)cssstudio\.app$/i.test(_h)) return "";
+    }
+  } catch (_e) {}
   try {
     const canvas = document.createElement("canvas");
     canvas.width = Math.min(640, video.videoWidth);

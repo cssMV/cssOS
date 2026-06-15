@@ -718,13 +718,13 @@ async function openMarketWorkPreview(work = {}, options = {}) {
   const __thisWorkId = (typeof globalThis.cssosRootWorkId === "function")
     ? globalThis.cssosRootWorkId(String(targetWork?.id || targetWork?.work_id || "").trim())
     : String(targetWork?.id || targetWork?.work_id || "").trim();
-  const __stillCurrent = () => {
-    try {
-      if (typeof globalThis.cssosCurrentWorkId !== "function") return true;
-      const cur = globalThis.cssosCurrentWorkId();
-      return !cur || !__thisWorkId || cur === __thisWorkId;
-    } catch (_e) { return true; }
-  };
+  // CSSOS_WAVE_796 20260615 — Jing「后台预加载的歌 vs 用户手选的歌 抢播放权, 标题/歌声/歌词/画面/字幕
+  // 各占一半」根治: 原 W734 守卫靠 cssosCurrentWorkId()(异步落值, 时序竞态 → 两次调用都自认当前 → 晚到
+  // 的写互相覆盖 = 半半串台)。改用【同步单调代次令牌】: 每次进入本函数立刻 ++__cssosPlayGen; 任何 await
+  // 之后只有"我仍是最后一次调用"(myGen===全局)才允许落笔 pipelineState/DOM/媒体源, 过期一律丢弃。
+  // 自动播放(滚动可见)与用户手选 都走本函数 → 谁最后调用谁赢, 前者的所有晚到写一律作废。彻底消除竞态。
+  const __myGen = (globalThis.__cssosPlayGen = (Number(globalThis.__cssosPlayGen) || 0) + 1);
+  const __stillCurrent = () => globalThis.__cssosPlayGen === __myGen;
   // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — mark this work + its
   // siblings/children as played the moment a watch session opens for
   // them, so the unplayed-dot disappears immediately.
@@ -1050,6 +1050,9 @@ async function openMarketWorkPreview(work = {}, options = {}) {
       } catch (_e) { /* state hydration best-effort */ }
     }
   } catch (_hydrationErr) { /* non-fatal */ }
+  // CSSOS_WAVE_796 — 真正落地渲染/起播前的最后一道代次闸: 过期(用户已另选/自动播放被超越)绝不起播,
+  // 杜绝"后台预加载那首"抢到画面/声音。
+  if (!__stillCurrent()) return;
   const seed = buildMarketPreviewSeed(targetWork);
   const previewUnlimited = canBypassPreviewLimit(authState.user, targetWork);
   await renderMarketWorkPreviewIntoWatchModule({

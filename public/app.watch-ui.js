@@ -4827,7 +4827,10 @@ async function fetchWatchQueueMoreModule() {
           const id = String(w?.id || w?.work_id || "").trim();
           if (!id || seen.has(id)) continue;
           const finalMv = String(w.final_mv_url || w.preview_video_url || "").trim();
-          const a1 = String(w.audio_track_1_url || "").trim();
+          // CSSOS_WAVE_790 — Jing「新旗舰播 2 秒就跳歌」根因: admin epic-render 的音频落在
+          // preview_audio_url(非 audio_track_1_asset)→ audio_track_1_url 为空 → 播放器当作"无独立
+          // 音轨"→ 放 5s Seedance 视频, 视频 ended 就跳下一首。回退到 preview_audio_url 作独立音轨。
+          const a1 = String(w.audio_track_1_url || w.preview_audio_url || "").trim();
           const a2 = String(w.audio_track_2_url || "").trim();
           if (!finalMv && !a1 && !a2) continue; // skip drafts with no media
           // Skip Take 2 siblings — Take 1 row already carries both audio URLs.
@@ -5006,7 +5009,9 @@ function applyWatchQueueItemModule(item) {
     // This kills the "no sound after swipe" failure mode where the
     // queue silently advanced to a legacy work, video was muted, audio
     // element had no src, and the user heard nothing.
-    const hasAudioElSrc = !!(audioEl && item.audio_track_1_url);
+    // CSSOS_WAVE_790 — 独立音轨识别回退到 preview_audio_url(admin epic-render 音频在此)。
+    const __a1src = String(item.audio_track_1_url || item.preview_audio_url || "").trim();
+    const hasAudioElSrc = !!(audioEl && __a1src);
     if (videoEl && url) {
       // CSSOS_PHASE2_PRESERVE_ASPECT 20260430 #235 — clear the previous
       // item's source-aspect tag so the new item's loadedmetadata can
@@ -5053,7 +5058,7 @@ function applyWatchQueueItemModule(item) {
       // is allowed by the autoplay policy. Subsequent programmatic plays
       // from ended-handlers also work because this play() registers the
       // element as "user-activated" for the rest of the session.
-      audioEl.src = item.audio_track_1_url;
+      audioEl.src = __a1src;
       audioEl.muted = false;
       audioEl.load && audioEl.load();
       if (audioEl.play) {

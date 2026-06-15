@@ -39766,7 +39766,10 @@ app.get("/api/works/market", async (req, res) => {
               缺时回退到 user_works.duration_secs 列(W166 落库), 覆盖更多作品. */
            COALESCE((fm_asset.meta->>'duration_secs')::float, w.duration_secs::float, NULL) AS duration_secs,
            fm_asset.url AS final_mv_url,
-           a1_asset.url AS audio_track_1_url,
+           -- CSSOS_WAVE_793 — Jing「开车听歌」: admin epic-render 音频在 user_works.preview_audio_url
+           -- (无 audio_track_1 资产) → 不回退就当"无独立音轨", 播 5s 视频、ended 跳歌。COALESCE 回退
+           -- preview_audio_url → For-You 自动连播认得独立音轨 → 按真实歌长播完才切。仅资产为空时填。
+           COALESCE(a1_asset.url, w.preview_audio_url) AS audio_track_1_url,
            a2_asset.url AS audio_track_2_url,
            ss_asset.url AS subtitle_srt_url,
            -- W357 — random 15 from pool; same logic as market query above.

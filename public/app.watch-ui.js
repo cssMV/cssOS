@@ -5266,6 +5266,17 @@ async function watchQueueAdvanceModule(direction = +1, _wrapDepth = 0) {
     }
     return;
   }
+  // CSSOS_WAVE_800 20260615 — Jing「连播十几首吃满内存」根治: 播放队列 __cssosWatchQueue.items 原本
+  // 【只增不减】(每次 prefetch 往里压一页, index 只前进), 整场会话线性膨胀 → 数十首后 OOM。
+  // 这里做【滑动窗口】: 只保留游标前 ~24 首已播历史, 更早的丢弃(信息流本就可丢, 末端 wrap 也只回到窗口头)。
+  try {
+    var _BEHIND = 24;
+    if (__cssosWatchQueue.index > _BEHIND + 8) {
+      var _drop = __cssosWatchQueue.index - _BEHIND;
+      __cssosWatchQueue.items.splice(0, _drop);
+      __cssosWatchQueue.index -= _drop;
+    }
+  } catch (_trimErr) {}
   // Prefetch ahead when we're 2 from the end.
   if (
     __cssosWatchQueue.items.length - __cssosWatchQueue.index <= 3 &&
@@ -5971,6 +5982,10 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
     // 多挂一个 analyser(同图谱内多分支不影响 destination 输出); 若可视化还没建 source, 就【放弃分析】,
     // 让音频走原生/可视化单一通道, 声音永不被劫持丢失。情绪字幕仍可用后端逐字 volume 数据。
     try {
+      // CSSOS_WAVE_800 — Jing 内核内存审计: 切换音/视频元素时旧 AnalyserNode 未 disconnect → 留在
+      // Web Audio 图谱里(有连接的节点不被 GC), 混音/视频混播放久了节点堆积。重连前先断开旧的。
+      try { if (__cssosAnalyser && typeof __cssosAnalyser.disconnect === "function") __cssosAnalyser.disconnect(); } catch (_d) {}
+      __cssosAnalyser = null; __cssosAmpBuf = null; __cssosFreqBuf = null;
       var ctx = (typeof watchMusicAudioContext !== "undefined") ? watchMusicAudioContext : null;
       var src = targetEl.__cssosMediaSourceNode;   // 可视化(ensureWatchMusicVisualizerModule)建的 source
       if (!ctx || !src) { __cssosAnalyser = null; return; }  // 没有共享 source → 不分析, 绝不劫持音频

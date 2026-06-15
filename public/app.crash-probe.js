@@ -19,6 +19,13 @@
       panel: (function () { try { var p = document.querySelector(".cssos-panel:not([hidden]) .panel-title, .panel.is-open .panel-title"); return p ? p.textContent.trim().slice(0, 20) : ""; } catch (_e) { return ""; } })(),
     };
     try { if (window.performance && performance.memory) s.heapMB = Math.round(performance.memory.usedJSHeapSize / 1048576); } catch (_e) {}
+    // CSSOS_WAVE_800 — 接上 cssmemProbe 已有的细粒度计数(此前 crash-probe 没用): 活跃定时器/视频/音频/blob。
+    // active_intervals 持续上涨 = 泄漏定时器的实锤; videos/audios 上涨 = 媒体元素没回收。
+    try {
+      var _mp = globalThis.cssmemProbe && typeof globalThis.cssmemProbe.snapshot === "function" ? globalThis.cssmemProbe.snapshot() : null;
+      if (_mp) { s.iv = _mp.active_intervals; s.vid = _mp.videos; s.aud = _mp.audios; s.blob = _mp.blob_urls; }
+    } catch (_e) {}
+    try { s.panels = document.querySelectorAll(".panel:not(.hidden)").length; } catch (_e) {}
     var arr = load(); arr.push(s); save(arr);
     return s;
   }
@@ -183,10 +190,16 @@
       if (domPerMin > 250 || heapPerMin > 20) {
         _slopeReported = true; // 本会话只报一次, 防刷屏
         _growing = true;       // W794 — 喂给自愈判定: 已确认异常增长
+        // W800 — 一并报 cssmemProbe 计数(定时器/视频/音频 的首末值): 谁在涨一目了然。
+        var _a0 = arr[0] || {}, _aN = arr[arr.length - 1] || {};
+        var _cnt = "iv " + (_a0.iv ?? "?") + "→" + (_aN.iv ?? "?") +
+                   " · vid " + (_a0.vid ?? "?") + "→" + (_aN.vid ?? "?") +
+                   " · aud " + (_a0.aud ?? "?") + "→" + (_aN.aud ?? "?") +
+                   " · panels " + (_a0.panels ?? "?") + "→" + (_aN.panels ?? "?");
         globalThis.cssosReportError(
           "Memory growth: DOM +" + Math.round(domPerMin) + "/min" +
           (heapPerMin > 0 ? (" · heap +" + Math.round(heapPerMin) + "MB/min") : "") +
-          " · panels=" + openPanelStack() + " · top=" + _topTags(5),   // W794 — 点名累积的标签
+          " · panels=" + openPanelStack() + " · top=" + _topTags(5) + " · " + _cnt,   // W794 标签 + W800 计数趋势
           "mem_growth"
         );
       }

@@ -2133,6 +2133,9 @@ function buildMarketCardsMarkup(works = []) {
 function bindMarketCardExpandToggle(list) {
   if (!(list instanceof Element)) return;
   list.querySelectorAll("[data-work-expand]").forEach((card) => {
+    // CSSOS_WAVE_800 — 幂等闸: 滚动加载更多时整容器重绑会给旧卡叠加重复监听(闭包抓大数组→内存涨)。每卡只绑一次。
+    if (card.dataset.cssExpandBound === "1") return;
+    card.dataset.cssExpandBound = "1";
     card.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -2145,6 +2148,9 @@ function bindMarketCardExpandToggle(list) {
 function bindMarketCardActionButtons(list, works = []) {
   if (!(list instanceof Element) || !Array.isArray(works)) return;
   list.querySelectorAll("[data-market-action='preview']").forEach((button) => {
+    // CSSOS_WAVE_800 — 幂等闸: 防滚动重绑叠加重复监听(每翻一页给旧卡又加一层 = 内存/CPU 累积)。
+    if (button.dataset.cssActBound === "1") return;
+    button.dataset.cssActBound = "1";
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       const card = button.closest("[data-market-work-id]");
@@ -3908,6 +3914,8 @@ async function hydrateMarketCardThumbnails(container, works) {
 function bindWorksCardExpandToggle(list) {
   if (!(list instanceof Element)) return;
   list.querySelectorAll("[data-work-expand]").forEach((card) => {
+    if (card.dataset.cssExpandBound === "1") return;   // CSSOS_WAVE_800 幂等闸: 防滚动重绑叠加监听
+    card.dataset.cssExpandBound = "1";
     card.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -3945,6 +3953,8 @@ function bindWorksCardActionButtons(list, sortedWorks, options = {}) {
   };
 
   list.querySelectorAll("[data-work-action='watch']").forEach((button) => {
+    if (button.dataset.cssWatchBound === "1") return;   // CSSOS_WAVE_800 幂等闸
+    button.dataset.cssWatchBound = "1";
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
       await openWatchFromCard(button);
@@ -3952,6 +3962,8 @@ function bindWorksCardActionButtons(list, sortedWorks, options = {}) {
   });
 
   list.querySelectorAll("[data-work-open-watch]").forEach((cover) => {
+    if (cover.dataset.cssOpenWatchBound === "1") return;   // CSSOS_WAVE_800 幂等闸
+    cover.dataset.cssOpenWatchBound = "1";
     cover.addEventListener("click", async (event) => {
       event.stopPropagation();
       await openWatchFromCard(cover);

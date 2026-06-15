@@ -45,7 +45,9 @@
       "#cssos-flagship-wall{position:fixed;inset:0;z-index:2147483600;display:flex;flex-direction:column;background:rgba(4,8,7,0.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);}",
       "#cssos-flagship-wall .fw-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;color:#ffeab0;font:800 16px/1.2 -apple-system,system-ui,sans-serif;letter-spacing:.04em;}",
       "#cssos-flagship-wall .fw-close{all:unset;cursor:pointer;font-size:22px;color:#ffeab0;padding:4px 10px;}",
-      "#cssos-flagship-wall .fw-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:0 16px 24px;}",
+      "#cssos-flagship-wall .fw-scroll{flex:1;overflow-y:auto;padding:0 16px 24px;}",
+      "#cssos-flagship-wall .fw-sec{color:#ffeab0;font:800 12px/1.2 -apple-system,system-ui,sans-serif;letter-spacing:.06em;opacity:.85;margin:14px 2px 8px;}",
+      "#cssos-flagship-wall .fw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}",
       "#cssos-flagship-wall .fw-card{all:unset;cursor:pointer;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;background:rgba(255,255,255,0.05);border:1px solid rgba(212,175,55,0.3);position:relative;}",
       "#cssos-flagship-wall .fw-cover{width:100%;aspect-ratio:1/1;object-fit:cover;background:rgba(255,255,255,0.06);}",
       "#cssos-flagship-wall .fw-meta{padding:8px 10px;color:#f4ecd8;font:600 12px/1.3 -apple-system,system-ui,sans-serif;}",
@@ -107,15 +109,23 @@
     if (document.getElementById("cssos-flagship-wall")) return;
     injectStyle();
     var ov = document.createElement("div"); ov.id = "cssos-flagship-wall";
-    var cards = DATA.items.map(function (it) {
+    function cardHtml(it) {
       return '<button type="button" class="fw-card" data-fw-id="' + esc(it.id) + '">' +
         (it.cover ? '<img class="fw-cover" loading="lazy" src="' + esc(it.cover) + '" alt="">' : '<div class="fw-cover"></div>') +
         '<div class="cssos-flagship-badge" style="position:absolute;top:6px;right:6px;">' + badgeInner(true, it.epic) + "</div>" +
         '<div class="fw-meta">' + esc(it.title || "") + '<span class="fw-civ">' + esc(it.civ || "") + "</span></div>" +
         "</button>";
-    }).join("");
-    ov.innerHTML = '<div class="fw-head"><span>⚜ ' + esc(tr("Flagship Picks", "旗舰精选")) + " · " + DATA.items.length + '</span><button class="fw-close" aria-label="close">×</button></div>' +
-      '<div class="fw-grid">' + (cards || ('<div style="color:#bbb;padding:24px;">' + esc(tr("No flagships yet", "暂无旗舰")) + "</div>")) + "</div>";
+    }
+    // W799 — 分区: 我的 Epic(用户级, 仅本人可见)在前, 系统旗舰(所有人)在后。
+    var mine = DATA.items.filter(function (i) { return i.level === "user"; });
+    var sys = DATA.items.filter(function (i) { return i.level !== "user"; });
+    var body = "";
+    if (mine.length) body += '<div class="fw-sec">' + esc(tr("My Epic", "我的 Epic")) + " · " + mine.length + "</div>" +
+      '<div class="fw-grid">' + mine.map(cardHtml).join("") + "</div>";
+    body += '<div class="fw-sec">⚜ ' + esc(tr("Flagship Picks", "系统旗舰")) + " · " + sys.length + "</div>" +
+      '<div class="fw-grid">' + (sys.map(cardHtml).join("") || ('<div style="color:#bbb;padding:18px;">' + esc(tr("No flagships yet", "暂无旗舰")) + "</div>")) + "</div>";
+    ov.innerHTML = '<div class="fw-head"><span>⚜ ' + esc(tr("Flagship Picks", "旗舰精选")) + '</span><button class="fw-close" aria-label="close">×</button></div>' +
+      '<div class="fw-scroll">' + body + "</div>";
     document.body.appendChild(ov);
     ov.addEventListener("click", function (e) {
       var t = e.target;

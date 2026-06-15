@@ -33209,25 +33209,44 @@ app.post("/api/admin/regen-video/:workId", express.json({ limit: "8kb" }), async
 });
 /* CSSOS_WAVE_788 — Jing「旗舰/Epic 徽章」: 公开只读端点, 供前端给作品卡/MV面板打 ⚜旗舰/⚡Epic 徽章 +
  * 渲染「⚜ 旗舰精选」墙入口。旗舰=admin_pinned_at; Epic=有 'orig-pre-epic' 备份轨。内存缓存 60s。 */
-let __flagshipCache: { at: number; payload: any } | null = null;
-app.get("/api/works/flagships", async (_req, res) => {
+type FlagshipRow = { id: string; title: string | null; cover_image: string | null; civilization: string | null; epic: boolean; audio_track_1_url: string | null; preview_video_url: string | null; duration_secs: number | null };
+function __mapFlagshipRow(x: FlagshipRow, level: "system" | "user") {
+  return { id: x.id, title: x.title || "", cover: x.cover_image || "", civ: x.civilization || "", epic: !!x.epic, level,
+    audio_track_1_url: x.audio_track_1_url || "", preview_audio_url: x.audio_track_1_url || "", preview_video_url: x.preview_video_url || "", duration_secs: x.duration_secs || 0 };
+}
+const __FLAGSHIP_COLS = `w.id, w.title, w.cover_image, w.civilization, w.preview_video_url, w.duration_secs,
+              COALESCE((SELECT t2.audio_url FROM work_language_tracks t2 WHERE t2.work_id = w.id AND t2.is_default = true AND t2.audio_url <> '' LIMIT 1), w.preview_audio_url) AS audio_track_1_url,
+              EXISTS (SELECT 1 FROM work_language_tracks t WHERE t.work_id = w.id AND t.lang = 'orig-pre-epic') AS epic`;
+let __flagshipSysCache: { at: number; items: any[] } | null = null;
+app.get("/api/works/flagships", async (req, res) => {
   noStore(res);
   try {
-    if (__flagshipCache && (Date.now() - __flagshipCache.at) < 60_000) return res.json(__flagshipCache.payload);
-    // CSSOS_WAVE_797 — Jing「打开 Epic 墙 → 当作播放池, 只在 Epic 之间连播」: 端点要返回可直接起播的字段
-    // (audio/video/时长), 让前端 overlay 既显示又能组成 scoped 播放列表。audio 回退 preview_audio_url。
-    const r = await withClient((c) => c.query<{ id: string; title: string | null; cover_image: string | null; civilization: string | null; epic: boolean; audio_track_1_url: string | null; preview_video_url: string | null; duration_secs: number | null }>(
-      `SELECT w.id, w.title, w.cover_image, w.civilization, w.preview_video_url, w.duration_secs,
-              COALESCE((SELECT t2.audio_url FROM work_language_tracks t2 WHERE t2.work_id = w.id AND t2.is_default = true AND t2.audio_url <> '' LIMIT 1), w.preview_audio_url) AS audio_track_1_url,
-              EXISTS (SELECT 1 FROM work_language_tracks t WHERE t.work_id = w.id AND t.lang = 'orig-pre-epic') AS epic
-         FROM user_works w
-        WHERE w.admin_pinned_at IS NOT NULL AND w.status IN ('ready','published')
-        ORDER BY w.admin_pinned_at DESC`));
-    const items = r.rows.map((x) => ({ id: x.id, title: x.title || "", cover: x.cover_image || "", civ: x.civilization || "", epic: !!x.epic,
-      audio_track_1_url: x.audio_track_1_url || "", preview_audio_url: x.audio_track_1_url || "", preview_video_url: x.preview_video_url || "", duration_secs: x.duration_secs || 0 }));
-    const payload = { ok: true, items, flagshipIds: items.map((i) => i.id), epicIds: items.filter((i) => i.epic).map((i) => i.id) };
-    __flagshipCache = { at: Date.now(), payload };
-    return res.json(payload);
+    // CSSOS_WAVE_799 — Jing「Epic 墙分用户级/系统级」: 系统级=admin 后台输出并置顶(admin_pinned_at), 所有人可见;
+    // 用户级=登录用户【自己】Epic 过(有 orig-pre-epic 轨)但未被 admin 置顶的作品, 只对本人可见。
+    // 系统级全局缓存 60s; 用户级按 viewer 实时查(便宜, ≤50 条)。前端按 item.level 分区显示。
+    if (!__flagshipSysCache || (Date.now() - __flagshipSysCache.at) >= 60_000) {
+      const r = await withClient((c) => c.query<FlagshipRow>(
+        `SELECT ${__FLAGSHIP_COLS}
+           FROM user_works w
+          WHERE w.admin_pinned_at IS NOT NULL AND w.status IN ('ready','published')
+          ORDER BY w.admin_pinned_at DESC`));
+      __flagshipSysCache = { at: Date.now(), items: r.rows.map((x) => __mapFlagshipRow(x, "system")) };
+    }
+    const sysItems = __flagshipSysCache.items;
+    let userItems: any[] = [];
+    const viewer = String((req.session as any)?.user_id || "").trim();
+    if (/^[0-9a-f-]{36}$/i.test(viewer)) {
+      const ur = await withClient((c) => c.query<FlagshipRow>(
+        `SELECT ${__FLAGSHIP_COLS}
+           FROM user_works w
+          WHERE w.user_id = $1::uuid AND w.admin_pinned_at IS NULL AND w.status IN ('ready','published')
+            AND EXISTS (SELECT 1 FROM work_language_tracks t3 WHERE t3.work_id = w.id AND t3.lang = 'orig-pre-epic')
+          ORDER BY w.updated_at DESC LIMIT 50`, [viewer]));
+      userItems = ur.rows.map((x) => __mapFlagshipRow(x, "user"));
+    }
+    const items = userItems.concat(sysItems);   // 用户自己的在前
+    return res.json({ ok: true, items, flagshipIds: items.map((i) => i.id), epicIds: items.filter((i) => i.epic).map((i) => i.id),
+      counts: { system: sysItems.length, user: userItems.length } });
   } catch (e) {
     return res.status(500).json({ ok: false, error: (e as Error)?.message || "failed", items: [], flagshipIds: [], epicIds: [] });
   }

@@ -140,7 +140,13 @@
     injectStyle();
     load().then(function () {
       tick();
-      var mo = new MutationObserver(function () { if (DATA.ready) { decorateCards(); ensureEntry(); } });
+      // CSSOS_WAVE_794 — 防 CPU 抖动: 观察器回调【去抖 600ms】(原来每次 DOM 变动都跑 decorateCards,
+      // 在泄漏/字幕逐字刷新的繁忙页面上空烧 CPU)。徽章本就幂等, 600ms 合批足够及时。
+      var _moT = null;
+      var mo = new MutationObserver(function () {
+        if (!DATA.ready || _moT) return;
+        _moT = setTimeout(function () { _moT = null; decorateCards(); ensureEntry(); }, 600);
+      });
       try { mo.observe(document.body, { childList: true, subtree: true }); } catch (_e) {}
       setInterval(decorateMv, 1500);   // 跟随当前播放作品
     });

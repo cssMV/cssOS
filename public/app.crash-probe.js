@@ -99,6 +99,37 @@
 
   var SAMPLE_MS = 3000, PER_MIN = 60000 / SAMPLE_MS; // 样本→每分钟换算
 
+  // CSSOS_WAVE_794 20260615 — Jing「肯定是什么代码把内存吃完了」+ Apple 审查优先: 免疫系统【自愈】。
+  // 探针本只【检测】DOM 失控却不【恢复】→ 泄漏累积到 OOM 就冻屏/被系统杀(审查员会当崩溃)。
+  // 现在: 当 DOM 既【大】又【确认在涨】(真泄漏, 非一次性重 feed)时, 自动重载一次恢复, 且:
+  //   ① 绝不在媒体播放中打断(开车听歌不能断); ② 5 分钟内至多自愈一次(防循环); ③ 标 clean 避免误报。
+  function _activeMediaPlaying() {
+    try { var a = document.getElementById("watch-audio-preview"), v = document.getElementById("watch-video");
+      return (a && a.currentSrc && !a.paused && !a.ended) || (v && !v.paused && !v.ended); } catch (_e) { return false; }
+  }
+  // 当前 DOM 各标签计数 top-N(定位"哪类元素在累积")。
+  function _topTags(n) {
+    try {
+      var all = document.getElementsByTagName("*"), m = {}, i;
+      for (i = 0; i < all.length; i++) { var t = all[i].tagName; m[t] = (m[t] || 0) + 1; }
+      return Object.keys(m).sort(function (x, y) { return m[y] - m[x]; }).slice(0, n || 4)
+        .map(function (k) { return k + "=" + m[k]; }).join(",");
+    } catch (_e) { return ""; }
+  }
+  var _growing = false;   // 本会话是否已确认异常增长(slope 告警置真)
+  function _maybeSelfHeal(domCount) {
+    var runaway = (_growing && domCount > 4500) || domCount > 8000;   // 既大又涨 = 真泄漏; 或绝对失控
+    if (!runaway) return;
+    if (_activeMediaPlaying()) return;        // 播放中不打断
+    var now = Date.now(), last = 0;
+    try { last = Number(sessionStorage.getItem("cssos:oomHealAt") || 0); } catch (_e) {}
+    if (now - last < 300000) return;          // 5 分钟内只自愈一次
+    try { sessionStorage.setItem("cssos:oomHealAt", String(now)); } catch (_e) {}
+    try { localStorage.setItem(CLEAN, "1"); } catch (_e) {}   // 这是受控重载, 不算崩
+    globalThis.cssosReportError("OOM self-heal reload: DOM " + domCount + " top=" + _topTags(4), "oom_selfheal");
+    try { location.reload(); } catch (_e) {}
+  }
+
   // CSSOS_WAVE_594 #3 — OOM 前兆快照: 用 clean-exit 旗标区分"正常离开"vs"被系统杀(OOM/崩溃)"。
   // 正常 pagehide 会置 clean=1; OOM 杀进程不会 → 重载时发现上次有样本却无 clean 标记 = 崩过 → 上报崩前快照。
   var CLEAN = KEY + ":clean";
@@ -138,7 +169,8 @@
   // CSSOS_WAVE_594 #2 — 增长斜率告警: 每 ~60s 用线性回归看 DOM/heap 是否【单调上涨超阈】→ 才上报(稳定不报)。
   var _slopeTicks = 0, _slopeReported = false;
   setInterval(function () {
-    sample("tick");
+    var _s = sample("tick");
+    try { _maybeSelfHeal(_s.dom || 0); } catch (_e) {}   // W794 自愈检查(每 tick)
     if (_slopeReported) return;
     if (++_slopeTicks % PER_MIN !== 0) return;           // 每分钟评估一次
     try {
@@ -150,10 +182,11 @@
       // 阈值: DOM 每分钟净增 >250 个, 或 heap 每分钟 >20MB 且持续 → 疑似泄漏。
       if (domPerMin > 250 || heapPerMin > 20) {
         _slopeReported = true; // 本会话只报一次, 防刷屏
+        _growing = true;       // W794 — 喂给自愈判定: 已确认异常增长
         globalThis.cssosReportError(
           "Memory growth: DOM +" + Math.round(domPerMin) + "/min" +
           (heapPerMin > 0 ? (" · heap +" + Math.round(heapPerMin) + "MB/min") : "") +
-          " · panels=" + openPanelStack(),
+          " · panels=" + openPanelStack() + " · top=" + _topTags(5),   // W794 — 点名累积的标签
           "mem_growth"
         );
       }

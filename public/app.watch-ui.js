@@ -4684,21 +4684,32 @@ function prePaintLatestWorkOnPanelOpenModule() {
   } catch (_e) { /* silent — never block panel open */ }
 }
 
-// CSSOS_WAVE_791 — Jing「只播 5s Seedance 视频, ended 就跳歌」安全网。画音分层下视频是纯视觉:
-// 当有真实独立音轨在播(#watch-audio-preview 有真源且未结束)、且视频是短片(<45s 视觉环)时,
-// 视频 ended 不该切歌 —— 把视频设 loop 垫画面, 切歌交给 audio.ended(真实歌长)。返回 true = 已拦截。
+// CSSOS_WAVE_792 — Jing「短视频先放完那 5 秒, 之后交棒给幻灯, 音频不断」。画音分层下视频是纯视觉:
+// 当有真实独立音轨在播、且视频是短片(<45s)时, 视频 ended【不切歌】——【放完一次就交给封面幻灯】
+// (加 watch-screen-audio-fallback 让视频淡出、封面层透出 + 喂封面给幻灯), 视频暂停省解码, 音频继续,
+// 切歌权交给 audio.ended(真实歌长)。返回 true = 已拦截切歌。长视频(自带歌)照旧 ended 切歌。
 function cssosShortVideoLoopGuard() {
   try {
     var v = document.getElementById("watch-video");
     var a = document.getElementById("watch-audio-preview");
     if (!v) return false;
     var dur = Number(v.duration) || 0;
-    if (!(dur > 0 && dur < 45)) return false;            // 只管短视觉环; 长视频(自带歌)照旧切歌
+    if (!(dur > 0 && dur < 45)) return false;            // 只管短片; 长视频(自带歌)照旧切歌
     var as = String((a && (a.currentSrc || a.getAttribute("src"))) || "");
     var aReal = !!a && !!as && !/^data:/i.test(as) && !a.ended;   // 有真实独立音轨在
     if (!aReal) return false;                            // 没独立音轨(老作品视频自带声)→ 照旧切歌
-    try { v.loop = true; if (v.paused) { var p = v.play && v.play(); if (p && p.catch) p.catch(function () {}); } } catch (_e) {}
-    return true;                                         // 拦截切歌, 让音频主导
+    // 视频已放完它那一遍 → 交棒幻灯(封面), 音频继续, 别再循环视频(省解码、避免 5s 一跳一跳)。
+    try {
+      var ws = document.querySelector(".watch-screen");
+      if (ws) ws.classList.add("watch-screen-audio-fallback");   // CSS: 视频压到 opacity:0.1 → 封面层透出
+    } catch (_e) {}
+    try {
+      var w = globalThis.cssosCurrentWork || null;
+      var cover = w && String(w.cover_image || w.cover_url || w.preview_image_url || (w.cover_slides && w.cover_slides[0]) || "").trim();
+      if (cover && typeof globalThis.cssmvSetCoverSlides === "function") globalThis.cssmvSetCoverSlides([cover]);
+    } catch (_e) {}
+    try { v.loop = false; if (!v.paused) v.pause && v.pause(); } catch (_e) {}
+    return true;                                         // 拦截切歌, 让音频主导, 画面走幻灯
   } catch (_e) { return false; }
 }
 

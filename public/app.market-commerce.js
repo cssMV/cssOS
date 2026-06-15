@@ -774,6 +774,16 @@ async function openMarketWorkPreview(work = {}, options = {}) {
         pl.populate("mine", visible);
         pl.setActive("mine");
         if (clickedId) pl.seekTo(clickedId);
+      } else if (source === "flagship") {
+        // CSSOS_WAVE_797 — Jing「打开 Epic 墙 → 只在 Epic 之间连播, 当作播放池」: 用 overlay 传来的
+        // 旗舰列表作为 scoped 播放列表, 一直到用户切到别的面板(为你创作/作品中心 重新 populate 覆盖)。
+        const pool = Array.isArray(work?.__cssosPlaylistPool) ? work.__cssosPlaylistPool : [];
+        if (pool.length) {
+          pl.populate("flagship", pool);
+          pl.setActive("flagship");
+          if (clickedId) pl.seekTo(clickedId);
+          if (pl.setMode) pl.setMode("loop_all");
+        }
       }
       // Default sensible mode for "play through everything once and loop".
       // Don't override if user already picked a non-default mode this session.

@@ -37,8 +37,9 @@
       "#cssos-mv-flagship-badge .fb-flag{background:rgba(212,175,55,0.22);color:#ffeab0;border:1px solid rgba(212,175,55,0.45);}",
       "#cssos-mv-flagship-badge .fb-epic{background:rgba(255,150,40,0.20);color:#ffd9a8;border:1px solid rgba(255,150,40,0.4);}",
       /* 旗舰精选入口 chip */
-      "#cssos-flagship-entry{display:inline-flex;align-items:center;gap:6px;margin:8px 10px;padding:7px 14px;border-radius:999px;cursor:pointer;",
-      "  font:700 12px/1 -apple-system,system-ui,sans-serif;letter-spacing:.04em;color:#ffeab0;background:rgba(212,175,55,0.16);border:1px solid rgba(212,175,55,0.5);}",
+      // W797 — 实底金 + 深色字 + 加粗放大, 明暗主题都清晰(原来淡金描边在白天几乎看不清)。
+      "#cssos-flagship-entry{display:flex;align-items:center;justify-content:center;gap:8px;margin:10px 10px 4px;padding:11px 18px;border-radius:14px;cursor:pointer;width:calc(100% - 20px);box-sizing:border-box;",
+      "  font:800 14px/1.1 -apple-system,system-ui,sans-serif;letter-spacing:.06em;color:#2a1c00;background:linear-gradient(180deg,#f6d873,#e7b73f);border:1px solid rgba(150,110,20,0.55);box-shadow:0 2px 10px rgba(212,175,55,0.35);}",
       "#cssos-flagship-entry:active{transform:scale(0.97);}",
       /* overlay 旗舰墙 */
       "#cssos-flagship-wall{position:fixed;inset:0;z-index:2147483600;display:flex;flex-direction:column;background:rgba(4,8,7,0.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);}",
@@ -90,10 +91,13 @@
     if (el.innerHTML !== want) el.innerHTML = want;
   }
 
-  // play a work id across surfaces
-  function playWork(id) {
+  // play a flagship item; W797 — 整个旗舰墙当作 scoped 播放池(只在 Epic 之间连播)。
+  function playWork(item) {
+    var w = (item && typeof item === "object") ? item : { id: String(item || "") };
+    var id = String(w.id || "");
+    var work = Object.assign({}, w, { __cssosOpenedFrom: "flagship", __cssosPlaylistPool: DATA.items.slice() });
     try {
-      if (typeof globalThis.openMarketWorkPreview === "function") { globalThis.openMarketWorkPreview(id); return; }
+      if (typeof globalThis.openMarketWorkPreview === "function") { globalThis.openMarketWorkPreview(work, {}); return; }
     } catch (_e) {}
     try { location.href = "/?cssMV=" + encodeURIComponent(id); } catch (_e) {}
   }
@@ -117,7 +121,7 @@
       var t = e.target;
       if (t && (t.classList.contains("fw-close") || t.id === "cssos-flagship-wall")) { ov.remove(); return; }
       var card = t && t.closest ? t.closest("[data-fw-id]") : null;
-      if (card) { var id = card.getAttribute("data-fw-id"); ov.remove(); playWork(id); }
+      if (card) { var id = card.getAttribute("data-fw-id"); ov.remove(); var it = null; for (var i = 0; i < DATA.items.length; i++) { if (DATA.items[i].id === id) { it = DATA.items[i]; break; } } playWork(it || { id: id }); }
     });
   }
 
@@ -130,8 +134,12 @@
     chip.type = "button"; chip.id = "cssos-flagship-entry";
     chip.innerHTML = "⚜ " + esc(tr("Flagship Picks", "旗舰精选")) + " · " + DATA.items.length;
     chip.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); openWall(); });
-    // 放在面板最前(标题区之上)
-    foryou.insertBefore(chip, foryou.firstChild);
+    // W797 — Jing「放到多语言选择器之下, 文字显眼」: 锚到语言胶囊条(#foryou-market-lang-chips)之后;
+    // 找不到则回退面板顶部。样式见 injectStyle(实底金 + 深字 + 加粗, 不再模糊难辨)。
+    var langBar = document.getElementById("foryou-market-lang-chips")
+      || foryou.querySelector("[id*='lang-chip'],[class*='lang-chip']");
+    if (langBar && langBar.parentNode) langBar.parentNode.insertBefore(chip, langBar.nextSibling);
+    else foryou.insertBefore(chip, foryou.firstChild);
   }
 
   function tick() { decorateCards(); decorateMv(); ensureEntry(); }

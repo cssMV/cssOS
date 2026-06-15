@@ -11428,9 +11428,11 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-pane.active,
  * position:fixed 底部半透明浮层, 且只在播放结束前 ~10s 淡入 (JS 控制),
  * 不占布局 → 不是黑块来源, 保留不动. 真全屏只隐藏纯装饰浮层
  * (save-as-template + chat 球), 媒体铺满 100dvh 已消除黑块. */
+/* CSSOS_WAVE_798 20260615 — Jing「真全屏影院/分享链接进来, AI 助理、价格条、字幕必须始终显示
+ * (游客/用户要被引导去登录/升级/创作)」: 真全屏只隐藏【纯装饰】save-template; AI 助理 FAB 不再隐藏
+ * (它是登录/升级/创作的核心引导入口)。价格条+字幕本就只隐藏 save-template/chat球之外不动, 一并保障。 */
 body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .watch-save-template,
-body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen [data-watch-save-template],
-body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen #cssos-agent-fab {
+body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen [data-watch-save-template] {
   display: none !important;
 }
 

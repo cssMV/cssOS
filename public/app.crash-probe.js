@@ -7,6 +7,22 @@
   if (globalThis.__cssosCrashProbe) return;
   globalThis.__cssosCrashProbe = true;
   var KEY = "cssos:crashprobe";
+  // CSSOS_WAVE_801 — Jing「彻底断掉 Web Audio」可验证化: 全局计数 AudioContext 构造次数。
+  // W801 后播放路径应【永不】再建 AudioContext → 这个数应停在很小的常数(仅 iOS 解锁那一个)。
+  // 若播放中 actx 持续上涨, 就是又有谁偷偷 new AudioContext 了 —— 免疫系统会直接点名。
+  (function () {
+    try {
+      if (globalThis.__cssosACtxPatched) return; globalThis.__cssosACtxPatched = true;
+      globalThis.__cssosACtxCount = 0;
+      ["AudioContext", "webkitAudioContext"].forEach(function (k) {
+        var Orig = globalThis[k];
+        if (typeof Orig !== "function") return;
+        function Wrapped() { globalThis.__cssosACtxCount++; return Reflect.construct(Orig, arguments, Wrapped); }
+        Wrapped.prototype = Orig.prototype;
+        try { globalThis[k] = Wrapped; } catch (_e) {}
+      });
+    } catch (_e) {}
+  })();
   function load() { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (_e) { return []; } }
   function save(arr) { try { localStorage.setItem(KEY, JSON.stringify(arr.slice(-50))); } catch (_e) {} }
   var lastAction = "(boot)";
@@ -26,6 +42,14 @@
       if (_mp) { s.iv = _mp.active_intervals; s.vid = _mp.videos; s.aud = _mp.audios; s.blob = _mp.blob_urls; }
     } catch (_e) {}
     try { s.panels = document.querySelectorAll(".panel:not(.hidden)").length; } catch (_e) {}
+    try { s.actx = globalThis.__cssosACtxCount || 0; } catch (_e) {}   // W801 — AudioContext 构造数(应≈0)
+    // W801 — 各标签计数(给增长 DELTA 用): 只存 top-12, 控 localStorage 体积。
+    try {
+      var all = document.getElementsByTagName("*"), m = {}, i;
+      for (i = 0; i < all.length; i++) { var t = all[i].tagName; m[t] = (m[t] || 0) + 1; }
+      var keys = Object.keys(m).sort(function (a, b) { return m[b] - m[a]; }).slice(0, 12);
+      var tm = {}; keys.forEach(function (k) { tm[k] = m[k]; }); s.tagmap = tm;
+    } catch (_e) {}
     var arr = load(); arr.push(s); save(arr);
     return s;
   }
@@ -195,11 +219,21 @@
         var _cnt = "iv " + (_a0.iv ?? "?") + "→" + (_aN.iv ?? "?") +
                    " · vid " + (_a0.vid ?? "?") + "→" + (_aN.vid ?? "?") +
                    " · aud " + (_a0.aud ?? "?") + "→" + (_aN.aud ?? "?") +
+                   " · actx " + (_a0.actx ?? "?") + "→" + (_aN.actx ?? "?") +   // W801 — AudioContext 数(应≈0)
                    " · panels " + (_a0.panels ?? "?") + "→" + (_aN.panels ?? "?");
+        // W801 — 标签【增长 DELTA】: 哪类元素涨得最快(比"哪类最多"更指向泄漏源)。
+        var _grow = "";
+        try {
+          var t0 = _a0.tagmap || {}, tN = _aN.tagmap || {}, dk = {}, k;
+          for (k in tN) dk[k] = (tN[k] || 0) - (t0[k] || 0);
+          _grow = Object.keys(dk).filter(function (x) { return dk[x] > 0; })
+            .sort(function (a, b) { return dk[b] - dk[a]; }).slice(0, 4)
+            .map(function (x) { return x + "+" + dk[x]; }).join(",");
+        } catch (_e) {}
         globalThis.cssosReportError(
           "Memory growth: DOM +" + Math.round(domPerMin) + "/min" +
           (heapPerMin > 0 ? (" · heap +" + Math.round(heapPerMin) + "MB/min") : "") +
-          " · panels=" + openPanelStack() + " · top=" + _topTags(5) + " · " + _cnt,   // W794 标签 + W800 计数趋势
+          " · panels=" + openPanelStack() + " · grow=" + (_grow || "?") + " · " + _cnt,   // W801 增长Δ + 计数趋势
           "mem_growth"
         );
       }

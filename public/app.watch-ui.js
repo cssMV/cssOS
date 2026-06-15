@@ -4215,40 +4215,13 @@ function tickWatchMusicVisualizerModule() {
 }
 
 async function ensureWatchMusicVisualizerModule() {
-  if (!watchAudioPreview || typeof window === "undefined") return;
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return;
-  if (!watchMusicAudioContext) {
-    watchMusicAudioContext = new AudioCtx();
-  }
-  if (watchMusicAudioContext.state === "suspended") {
-    await watchMusicAudioContext.resume().catch(() => {});
-  }
-  // CSSOS_WAVE_486 20260529 — Jing「登录后还是闪」加固: createMediaElementSource 对同一个
-  // <audio> 元素【一辈子只能调一次】。原守卫只看 watchMusicSourceNode(模块级变量), 若它被
-  // 重置而 audio 元素被复用(换歌/面板重建/登录后重进影院), 第二次调用就抛
-  // "Media element is already associated with an audio source node" —— 未捕获 rejection
-  // 会在低内存 App 上叠加成不稳定。修法: 把 source 节点【挂到元素本身】上做幂等复用 +
-  // 整段 try/catch 优雅降级(可视化失败 ≠ 崩溃, 音频照常播放)。
-  try {
-    // CSSOS_WAVE_667d 20260607 — 【彻底停止用 Web Audio 捕获播放元素】。
-    // createMediaElementSource 会把 <audio> 输出【永久】接进一个 AudioContext; 而该 ctx 在 Safari
-    // 自动播放策略下默认【挂起 suspended】, resume() 仅在用户手势栈内才生效 —— 若捕获发生在非手势时机,
-    // 元素就照常 paused:false 走时间(画面/进度/字幕都动), 声音却卡在哑掉的图谱里出不来 = 全场静音。
-    // 这正是"所有带情绪字幕/可视化的作品一律没声"的真因。播放本身【不需要】Web Audio。
-    // 故一律不再捕获 → 音频走【原生输出】, 声音 100% 保证。频谱可视化待改用后端 volume 时间线重做。
-    if (watchAudioPreview.__cssosMediaSourceNode && !watchMusicSourceNode) {
-      // 仅当本会话此前已被捕获(新版不再发生)→ 沿用并确保接回扬声器; 否则【绝不主动捕获】。
-      watchMusicSourceNode = watchAudioPreview.__cssosMediaSourceNode;
-      watchMusicAnalyser = watchMusicAudioContext.createAnalyser();
-      watchMusicAnalyser.fftSize = 128;
-      watchMusicSourceNode.connect(watchMusicAnalyser);
-      watchMusicAnalyser.connect(watchMusicAudioContext.destination);
-      if (!watchMusicAnalyserFrame) tickWatchMusicVisualizerModule();
-    }
-  } catch (_e) {
-    watchMusicAnalyser = null;
-  }
+  // CSSOS_WAVE_801 20260615 — Jing「我们已经不走 Web Audio 了, 请彻底断掉」: 此函数残留 —— 即便不再
+  // createMediaElementSource(捕获分支早已死), 仍每次播放 `new AudioContext()` 且永不 close() →
+  // AudioContext 累积 + 与原生输出潜在抢权 = 残余竞态/资源泄漏。现【彻底断掉】: 不建任何 AudioContext、
+  // 不建 analyser、不捕获播放元素。频谱/光环可视化改吃后端逐字 volume 时间线(subtitle token.volume),
+  // 永不碰音频。音频 100% 原生直出, 无竞态。
+  watchMusicAnalyser = null;
+  return;
 }
 
 function syncWatchMusicStateModule() {
@@ -5971,6 +5944,13 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   let __cssosBandBass = 0, __cssosBandMid = 0, __cssosBandTreble = 0;
   let __cssosBassPrev = 0, __cssosBeatPulse = 0;
   function ensureKaraokeAnalyser(targetEl) {
+    // CSSOS_WAVE_801 — Jing「彻底断掉 Web Audio」: 本函数依赖可视化建的 __cssosMediaSourceNode, 而
+    // W801 已彻底停建任何 AudioContext/source → 这里永远拿不到 src, 等于死路。直接断掉, 绝不碰 Web Audio。
+    // 情绪字幕的振幅/呼吸全部走后端逐字 volume 时间线(subtitle token.volume), 永不捕获播放元素。
+    try { if (__cssosAnalyser && typeof __cssosAnalyser.disconnect === "function") __cssosAnalyser.disconnect(); } catch (_d) {}
+    __cssosAnalyser = null; __cssosAmpBuf = null; __cssosFreqBuf = null;
+    return;
+    // eslint-disable-next-line no-unreachable
     if (!targetEl) return;
     if (__cssosWiredAudioEl === targetEl && __cssosAnalyser) return;
     // CSSOS_WAVE_667c 20260607 — 根治"放得出画面、进度在走, 就是没声音":

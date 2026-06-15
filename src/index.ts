@@ -33051,6 +33051,18 @@ async function demucsCleanup(job: string): Promise<void> {
  * preview_audio_url。随后调 /api/admin/resubtitle/<id>(不带 ?asr)把情绪字幕对齐新编曲。
  *   curl -X POST "$API/api/admin/epic-render/<workId>" -H "x-admin-token: $T" \
  *        -H 'content-type: application/json' -d '{"style":"epic ...","lang":"zh","sunoModel":"V4_5PLUS"}' */
+/* CSSOS_WAVE_789 — ffprobe 远端音频时长(Suno 偶尔不返回 duration → 落 NULL → 播放器以为 2s 放完就跳歌)。 */
+async function probeAudioDurationSecs(url: string): Promise<number | null> {
+  if (!url) return null;
+  return await new Promise<number | null>((resolve) => {
+    try {
+      const ff = spawn("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", url]);
+      let out = ""; ff.stdout.on("data", (b) => { out += b.toString(); });
+      ff.on("error", () => resolve(null));
+      ff.on("close", () => { const n = Math.round(parseFloat(out.trim())); resolve(Number.isFinite(n) && n > 0 ? n : null); });
+    } catch { resolve(null); }
+  });
+}
 type EpicRenderResult = { ok: boolean; code?: string; detail?: string; workId: string; lang?: string; provider?: string; sunoModel?: string; style?: string; audio_url?: string; alt_audio_url?: string; duration_s?: number | null };
 /* CSSOS_WAVE_781 — 共享核心: 给某作品做 Epic 重编曲(手写/现有原词原样当词唱, 绝不改词)。
  * admin 端点 + 用户钱包端点共用。不做计费/鉴权 —— 调用方负责。 */
@@ -33083,7 +33095,8 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
   // 2) rehost 临时 Suno URL → 稳定 CDN。
   const epicAudio = await persistRemoteAudioToStable(String(music.audio_url));
   const epicAlt = music.alt_audio_url ? await persistRemoteAudioToStable(String(music.alt_audio_url)) : "";
-  const dur = Math.round(Number(music.duration_s || 0) || 0) || null;
+  // W789 — Suno 偶尔不返回 duration → ffprobe 实测, 绝不落 NULL(否则播放器 ~2s 就跳歌)。
+  const dur = (Math.round(Number(music.duration_s || 0) || 0) || await probeAudioDurationSecs(epicAudio)) || null;
   const origAudio = String(w.preview_audio_url || "").trim();
   // 3-5) 备份原作 → 取消旧默认 → upsert Epic 默认轨 → preview_audio_url 指向 Epic。
   await withClient(async (c) => {

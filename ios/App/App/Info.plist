@@ -48,19 +48,19 @@
 	     没有这个 key，Info.plist 里缺少 LandscapeLeft/Right 会导致上传报错 90474。 -->
 	<key>UIRequiresFullScreen</key>
 	<true/>
-	<!-- WAVE_445c 20260526 — Jing: 固定竖屏，禁止横屏。
-	     iPhone: Portrait only (no Landscape).
-	     iPad: Portrait + PortraitUpsideDown only (no Landscape).
-	     This is the system-level lock — takes effect from App launch,
-	     before any JS/CSS orientation code runs. -->
+	<!-- CSSOS_WAVE_984 20260618 — Jing: iPhone 禁横屏, 但支持上下翻转(竖排正立+倒置);
+	     iPad 全四向(竖正/竖倒/横左/横右)。系统级锁, App 启动即生效。 -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>

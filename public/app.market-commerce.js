@@ -1553,7 +1553,21 @@ function resolveStructuredPlaybackRequestModule(work = {}) {
         leaves.findIndex((item) => getStructuredWorkNodeIdModule(item) === requestedStartId),
       )
     : 0;
-  const safeStartIndex = startIndex >= 0 ? startIndex : 0;
+  let safeStartIndex = startIndex >= 0 ? startIndex : 0;
+  // CSSOS_WAVE_1079 — Jing「自动进入就黑屏/无法播放」断根: 绝不自动播【无音视频的节点】
+  //   (root 专辑头 / 没补齐音频的空残骸 part)。无指定起点(=自动播放/打开 root)时, 跳过开头
+  //   没有任何可播源的 leaf, 从第一个【有音频或视频】的 part 起播; 全空才退回原样。
+  //   用户明确点了某部(requestedStartId)则尊重其选择, 不覆盖。
+  if (!requestedStartId) {
+    const _playable = (item) => {
+      if (!item || typeof item !== "object") return false;
+      const a = String(item.preview_audio_url || item.audio_url || item.audio_track_1_url || item.audioUrl || "").trim();
+      const v = String(item.preview_video_url || item.video_url || item.final_mv_url || "").trim();
+      return !!(a || v);
+    };
+    const firstPlayable = leaves.findIndex(_playable);
+    if (firstPlayable > safeStartIndex) safeStartIndex = firstPlayable;
+  }
   const queueItems = leaves.slice(safeStartIndex);
   const rootId = getStructuredWorkNodeIdModule(rootWork);
   return {

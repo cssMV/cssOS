@@ -85,15 +85,17 @@ __pycache__/
 *.mp3
 *.wav
 *.m4a
-# 图片:public 下的封面/缩略/兜底/截图不进 git
-public/**/*.png
-public/**/*.jpg
-public/**/*.jpeg
-public/**/*.webp
-public/**/*.gif
-public/**/*.ico
+# 图片:全局不进 git(封面/缩略/兜底/截图/模板封面等,均为媒体)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.ico
 screenshots-appstore/
 *-shots/
-# 例外:visionOS App 图标/logo 是构建必需输入 → 保留
+# 例外:原生 App 构建必需图标/启动图(visionOS + iOS)→ 保留在 git
 !visionos/**/*.png
 !visionos/**/*.jpg
+!ios/**/*.png
+!ios/**/*.jpg

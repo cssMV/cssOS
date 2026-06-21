@@ -1,0 +1,10 @@
+[Unit]
+Description=Run cssOS whisperX align watchdog every 3 min (WAVE_1093)
+
+[Timer]
+OnBootSec=120
+OnUnitActiveSec=180
+AccuracySec=15
+
+[Install]
+WantedBy=timers.target

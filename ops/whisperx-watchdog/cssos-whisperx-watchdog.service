@@ -1,0 +1,7 @@
+[Unit]
+Description=cssOS whisperX align watchdog (auto-restart on hang, WAVE_1093)
+After=cssos-whisperx-align.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cssos-whisperx-watchdog.sh

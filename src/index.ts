@@ -32732,6 +32732,8 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
          w.cover_image,
          w.preview_image_url,
          w.preview_video_url,
+         w.preview_audio_url,
+         w.duration_secs,
          w.language,
          w.civilization,
          u.display_name AS owner_name,
@@ -32742,7 +32744,11 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
          COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
          mp.tips_enabled,
          mp.visibility,
-         mp.rights_scope
+         mp.rights_scope,
+         final_mv_asset.url AS final_mv_url,
+         audio_track_1_asset.url AS audio_track_1_url,
+         audio_track_2_asset.url AS audio_track_2_url,
+         subtitle_asset.url AS subtitle_srt_url
        FROM user_works w
        JOIN users u ON u.id = w.user_id
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -32754,6 +32760,14 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
          ON buyout_product.work_id = w.id
         AND buyout_product.product_kind = 'buyout'
         AND buyout_product.active = true
+       LEFT JOIN work_assets final_mv_asset
+         ON final_mv_asset.work_id = w.id AND final_mv_asset.asset_type = 'final_mv'
+       LEFT JOIN work_assets audio_track_1_asset
+         ON audio_track_1_asset.work_id = w.id AND audio_track_1_asset.asset_type = 'audio_track_1'
+       LEFT JOIN work_assets audio_track_2_asset
+         ON audio_track_2_asset.work_id = w.id AND audio_track_2_asset.asset_type = 'audio_track_2'
+       LEFT JOIN work_assets subtitle_asset
+         ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
        WHERE w.root_work_id IN (${placeholders})
          AND w.parent_work_id IS NOT NULL
        ORDER BY w.sequence_index ASC, w.created_at ASC`,
@@ -32794,6 +32808,8 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          w.cover_image,
          w.preview_image_url,
          w.preview_video_url,
+         w.preview_audio_url,
+         w.duration_secs,
          w.language,
          w.civilization,
          u.display_name AS owner_name,
@@ -32804,7 +32820,11 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          COALESCE(mp.buyout_enabled, buyout_product.active, false) AS buyout_enabled,
          mp.tips_enabled,
          mp.visibility,
-         mp.rights_scope
+         mp.rights_scope,
+         final_mv_asset.url AS final_mv_url,
+         audio_track_1_asset.url AS audio_track_1_url,
+         audio_track_2_asset.url AS audio_track_2_url,
+         subtitle_asset.url AS subtitle_srt_url
        FROM user_works w
        JOIN users u ON u.id = w.user_id
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -32816,6 +32836,14 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          ON buyout_product.work_id = w.id
         AND buyout_product.product_kind = 'buyout'
         AND buyout_product.active = true
+       LEFT JOIN work_assets final_mv_asset
+         ON final_mv_asset.work_id = w.id AND final_mv_asset.asset_type = 'final_mv'
+       LEFT JOIN work_assets audio_track_1_asset
+         ON audio_track_1_asset.work_id = w.id AND audio_track_1_asset.asset_type = 'audio_track_1'
+       LEFT JOIN work_assets audio_track_2_asset
+         ON audio_track_2_asset.work_id = w.id AND audio_track_2_asset.asset_type = 'audio_track_2'
+       LEFT JOIN work_assets subtitle_asset
+         ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
        WHERE w.root_work_id = $1
          AND w.parent_work_id IS NOT NULL
        ORDER BY w.sequence_index ASC, w.created_at ASC`,

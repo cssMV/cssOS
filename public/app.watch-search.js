@@ -30,7 +30,21 @@
   }
   // 与 normaliseItem 一致: 没有任何媒体的草稿不可播, 过滤掉.
   function isPlayable(w) {
-    return !!(String(w.final_mv_url || w.preview_video_url || w.audio_track_1_url || w.audio_track_2_url || "").trim());
+    return !!(w && String(w.final_mv_url || w.preview_video_url || w.audio_track_1_url || w.audio_track_2_url || w.preview_audio_url || "").trim());
+  }
+  // CSSOS_WAVE_1084 — Jing「唐伯虎能播却搜不到」: 结构作品(三部曲/歌剧/剧集)的 root
+  //   自身无媒体, 可播媒体在 children/parts 上。搜索此前只用 isPlayable(root) 判定 →
+  //   root 全被滤掉 → "No matching MVs."。改为"root 或任一后代可播即算可搜到", 点击时
+  //   下钻到首个可播 part 播放(与主网格点 root 进去播子作品一致)。
+  function firstPlayable(w) {
+    if (!w) return null;
+    if (isPlayable(w) && Number(w.take_index || 0) !== 2) return w;
+    var kids = Array.isArray(w.children) ? w.children : (Array.isArray(w.parts) ? w.parts : []);
+    for (var i = 0; i < kids.length; i++) {
+      var hit = firstPlayable(kids[i]);
+      if (hit) return hit;
+    }
+    return null;
   }
 
   function ensureUI() {
@@ -363,7 +377,7 @@
   function renderResults(works, first) {
     if (!results) return;
     if (first) { results.innerHTML = ""; seen = {}; }
-    var playable = works.filter(function (w) { return isPlayable(w) && Number(w.take_index || 0) !== 2; });
+    var playable = works.filter(function (w) { return !!firstPlayable(w); });   // W1084 — root 或后代可播即收录
     if (first && !playable.length) {
       results.innerHTML = '<div style="padding:18px;text-align:center;color:rgba(218,255,238,0.6);font:500 13px ui-monospace,monospace;">' + esc(tr("No matching MVs.", "没有匹配的 MV。")) + "</div>";
       return;
@@ -397,7 +411,9 @@
       var title = esc(w.title || tr("Untitled", "未命名"));
       var owner = esc(w.owner_name || "");
       // CSSOS_WAVE_359 20260522 — Jing: 凡有作品卡片处都显示时长. 搜索列表此前缺.
-      var _ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
+      var _pw = firstPlayable(w) || w;   // W1084 — 结构 root 自身时长为 0, 借首个可播 part 的时长
+      var _ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration
+        || _pw.duration_secs || _pw.audio_duration_secs || _pw.final_duration_secs || 0) || 0;
       var durTxt = _ds > 0 ? (Math.floor(_ds / 60) + ":" + String(Math.floor(_ds % 60)).padStart(2, "0")) : "";
       // CSSOS_WAVE_769 — Jing「请显示完整 ID」: meta 行显示完整 work id(可按完整或前 8 位等任意前缀搜索)。
       var idFull = esc(id);
@@ -422,7 +438,7 @@
         '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
         '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + metaBits.join(" · ") + "</div>" +
         "</div>";
-      card.addEventListener("click", function () { playWork(w); });
+      card.addEventListener("click", function () { playWork(firstPlayable(w) || w); });   // W1084 — 下钻到可播 part
       results.appendChild(card);
     });
   }

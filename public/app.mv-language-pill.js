@@ -667,8 +667,13 @@
     var screen = watchScreen();
     if (!screen) return;
     var list = Array.isArray(tracks) ? tracks : [];
-    var active = list.filter(function (t) { return t && (t.status === "rendering" || t.status === "pending"); })
-      .sort(function (a, b) { return (a.track_order | 0) - (b.track_order | 0); })[0];
+    var active = list.filter(function (t) {
+      if (!t || (t.status !== "rendering" && t.status !== "pending")) return false;
+      // CSSOS_WAVE_1085 — Jing「左下角永驻 queued 0% 角标」: 已有音频的轨= 实际可播,
+      //   绝不当作待渲染(回填灌了音频却没把 status 翻成 ready → 进度条永显假 queued)。
+      if (t.audio_url || t.url || t.audioUrl || t.preview_audio_url || t.alt_audio_url) return false;
+      return true;
+    }).sort(function (a, b) { return (a.track_order | 0) - (b.track_order | 0); })[0];
     var el = document.getElementById("cssos-mv-progress");
     if (!active) {
       // Nothing generating → remove the caption (a brief "just finished" toast is

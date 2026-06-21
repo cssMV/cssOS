@@ -84,6 +84,9 @@ sync_public() {
 
   ssh "${TARGET}" "
     sudo chmod -R a+rX /srv/cssos/releases/
+    # CSSOS_WAVE_1082 — 根治 i18n/静态 600→500 反复发作: 必须 chmod【真正被服务的 current/public】
+    # (此前只 chmod releases/, 漏了 current/public → dict.js 等残留 600 → nginx 500 → i18n 全站漏键)。
+    sudo chmod -R a+rX ${REMOTE_STATIC}
     sudo chmod a+X /srv/cssos /srv/cssos/releases /srv/cssos/current
     sudo touch ${REMOTE_STATIC}/index.html || true
   "

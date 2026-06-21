@@ -37,8 +37,11 @@ rsync -az \
   --exclude '.DS_Store' --exclude '._*' --exclude '.AppleDouble' \
   "${REPO_ROOT}/public/" \
   "${TARGET}:/tmp/cssos-public-stage/"
-ssh "${TARGET}" 'sudo rsync -a --delete /tmp/cssos-public-stage/ /srv/cssos/current/public/ \
-  && sudo chown -R www-data:www-data /srv/cssos/current/public/'
+ssh "${TARGET}" 'sudo rsync -a --delete --chmod=a+rX /tmp/cssos-public-stage/ /srv/cssos/current/public/ \
+  && sudo chown -R www-data:www-data /srv/cssos/current/public/ \
+  && sudo chmod -R a+rX /srv/cssos/current/public/'
+# CSSOS_WAVE_1082 — 裸 rsync -a 会继承 root umask 077 → 文件落地 600 → nginx 500 → i18n/静态全漏。
+# 加 --chmod=a+rX + 落地后再 chmod -R a+rX 真服务路径, 双保险。
 
 say "4/6 cargo build --release + restart cssos-rust-api on ${TARGET}"
 ssh "${TARGET}" 'set -euo pipefail

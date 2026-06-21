@@ -33,8 +33,10 @@ rsync -az \
   --exclude '.DS_Store' --exclude '._*' --exclude '.AppleDouble' \
   "${REPO_ROOT}/public/" \
   "${TARGET}:/tmp/cssos-public-stage/"
-ssh "${TARGET}" 'sudo rsync -a --delete /tmp/cssos-public-stage/ /srv/cssos/current/public/ \
-  && sudo chown -R www-data:www-data /srv/cssos/current/public/'
+ssh "${TARGET}" 'sudo rsync -a --delete --chmod=a+rX /tmp/cssos-public-stage/ /srv/cssos/current/public/ \
+  && sudo chown -R www-data:www-data /srv/cssos/current/public/ \
+  && sudo chmod -R a+rX /srv/cssos/current/public/'
+# CSSOS_WAVE_1082 — 裸 rsync -a 继承 root umask 077 → 600 → nginx 500 → i18n/静态全漏。双保险修。
 
 if [[ -n "${SUNO_MODEL_OVERRIDE}" ]]; then
   say "2a/4 setting SUNO_MODEL=${SUNO_MODEL_OVERRIDE} in /etc/cssos.env"

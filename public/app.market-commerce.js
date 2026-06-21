@@ -724,7 +724,7 @@ async function openMarketWorkPreview(work = {}, options = {}) {
   const playback = isShareLink
     ? { targetWork: work, queue: null }
     : resolveStructuredPlaybackRequestModule(work);
-  const targetWork = playback.targetWork || work || null;
+  let targetWork = playback.targetWork || work || null;
   currentWatchPreviewWork = targetWork;
   globalThis.cssosBindToWorkId?.(targetWork); // CSSOS_WAVE_121 Step 2
   // CSSOS_WAVE_734 20260613 — Jing「按 ID 为唯一依据 · 杜绝残余串台」: 本函数有多处 await(拉
@@ -741,6 +741,35 @@ async function openMarketWorkPreview(work = {}, options = {}) {
   // 自动播放(滚动可见)与用户手选 都走本函数 → 谁最后调用谁赢, 前者的所有晚到写一律作废。彻底消除竞态。
   const __myGen = (globalThis.__cssosPlayGen = (Number(globalThis.__cssosPlayGen) || 0) + 1);
   const __stillCurrent = () => globalThis.__cssosPlayGen === __myGen;
+  // CSSOS_WAVE_1080 — Jing「唯一数据源: 按ID读取, 杜绝一首歌信息来自二十多首」根治:
+  //   主播放路不再只信传入的局部对象 + 残留全局 → 凡有【真 UUID】的作品(非分享/非草稿),
+  //   一律按ID重拉【完整规范记录】(/api/works/public/:id, W1080 已补全音频/字幕兜底), 防御式
+  //   合并(规范源【有值才覆盖】, 绝不把已有字段清成 null) → 标题/歌词/封面/音视频/时长全部以
+  //   "这一首自己的规范记录"为准。分享链接路本就这么做; 草稿/无真ID 走原逻辑(seed 预览)。
+  if (!isShareLink && !work?.__cssosDraftPreview && !work?.__cssosSeedPreview) {
+    const _cid = String(targetWork?.id || targetWork?.work_id || "").trim();
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(_cid)) {
+      try {
+        const _cr = await fetch("/api/works/public/" + encodeURIComponent(_cid), { credentials: "include" });
+        const _cp = await _cr.json().catch(() => null);
+        const _canon = _cp?.data?.work || _cp?.data || _cp?.work || (_cp && _cp.id ? _cp : null);
+        if (!__stillCurrent()) return;   // 期间已切歌 → 这是上一首的规范数据, 丢弃
+        if (_canon && String(_canon.id || "").trim() === _cid) {
+          const _merged = Object.assign({}, targetWork);
+          for (const _k in _canon) {
+            const _v = _canon[_k];
+            const _empty = _v === null || _v === undefined
+              || (typeof _v === "string" && _v.trim() === "")
+              || (Array.isArray(_v) && _v.length === 0);
+            if (!_empty) _merged[_k] = _v;   // 规范源有值才覆盖, 不清空已有
+          }
+          targetWork = _merged;
+          currentWatchPreviewWork = targetWork;
+        }
+      } catch (_e) { /* 规范拉取尽力而为; 失败则沿用局部对象 */ }
+      if (!__stillCurrent()) return;
+    }
+  }
   // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — mark this work + its
   // siblings/children as played the moment a watch session opens for
   // them, so the unplayed-dot disappears immediately.

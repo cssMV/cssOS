@@ -40371,7 +40371,12 @@ app.get("/api/works/public/:id", async (req, res) => {
            mp.visibility,
            mp.rights_scope,
            final_mv_asset.url AS final_mv_url,
-           audio_track_1_asset.url AS audio_track_1_url,
+           -- CSSOS_WAVE_1080 — 唯一数据源必须完整: epic/补齐作品音频在 user_works.preview_audio_url
+           -- (无 audio_track_1 资产) → 加兜底, 否则按ID读时音频为 null = 播不出(混沌の海/唐伯虎)。
+           COALESCE(audio_track_1_asset.url, w.preview_audio_url) AS audio_track_1_url,
+           w.preview_audio_url,
+           w.subtitle_take1_json_url,
+           w.subtitle_take2_json_url,
            audio_track_2_asset.url AS audio_track_2_url,
            whisper_words_asset.meta AS whisper_words_meta,
            -- W360 — fall back to user_works.duration_secs (written by W166/W367)

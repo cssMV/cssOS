@@ -382,7 +382,10 @@
       results.innerHTML = '<div style="padding:18px;text-align:center;color:rgba(218,255,238,0.6);font:500 13px ui-monospace,monospace;">' + esc(tr("No matching MVs.", "没有匹配的 MV。")) + "</div>";
       return;
     }
-    playable.forEach(function (w) {
+    // CSSOS_WAVE_1086 — Jing「搜索结果也显示树, 对多部作品最友好」: 多部作品(三部曲/
+    //   歌剧/剧集/电影)渲染为 root 头卡 + 缩进 part 子卡; 单曲照旧一张卡。点 root 播首部,
+    //   点子卡播该 part。
+    function appendCard(w, depth, playNode) {
       var id = String(w.id || w.work_id || "").trim();
       if (!id || seen[id]) return;
       seen[id] = 1;
@@ -421,9 +424,19 @@
       card.type = "button";
       card.title = "ID " + id;   // W764 — Jing: 不用 🆔 emoji, 纯文本
       card.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
+      // W1086 — 树形缩进: 子作品(part)左移 + 细青竖线, 一眼看出从属于上面的 root。
+      if (depth > 0) {
+        card.style.marginLeft = "18px";
+        card.style.borderLeft = "2px solid rgba(0,245,160,0.28)";
+        card.style.borderRadius = "0 10px 10px 0";
+      }
       card.addEventListener("mouseenter", function () { card.style.background = "rgba(0,245,160,0.1)"; });
       card.addEventListener("mouseleave", function () { card.style.background = "transparent"; });
+      // W1086 — root 头卡标注部数(N 部), 让多部作品一目了然。
+      var _kids = Array.isArray(w.children) ? w.children : (Array.isArray(w.parts) ? w.parts : []);
+      var _playKids = _kids.filter(function (k) { return !!firstPlayable(k); });
       var metaBits = [];
+      if (depth === 0 && _playKids.length > 1) metaBits.push("🎬 " + _playKids.length + tr(" parts", " 部"));
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
       metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + idFull + "</span>");
@@ -438,8 +451,18 @@
         '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
         '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + metaBits.join(" · ") + "</div>" +
         "</div>";
-      card.addEventListener("click", function () { playWork(firstPlayable(w) || w); });   // W1084 — 下钻到可播 part
+      card.addEventListener("click", function () { playWork(playNode || firstPlayable(w) || w); });   // W1084/W1086 — 下钻到可播 part
       results.appendChild(card);
+    }
+
+    playable.forEach(function (root) {
+      var kids = Array.isArray(root.children) ? root.children : (Array.isArray(root.parts) ? root.parts : []);
+      var playableKids = kids.filter(function (k) { return !!firstPlayable(k); });
+      // W1086 — 多部作品: root 头卡(播首部)+ 各 part 缩进子卡; 单部/单曲只渲一张卡。
+      appendCard(root, 0, firstPlayable(root) || root);
+      if (playableKids.length > 1) {
+        playableKids.forEach(function (kid) { appendCard(kid, 1, firstPlayable(kid) || kid); });
+      }
     });
   }
 

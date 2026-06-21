@@ -79,25 +79,10 @@
       showToast(explainErrorCode(c), "error");
     }, { passive: true });
 
-    el.addEventListener("stalled", function () {
-      // stalled fires when bytes haven't arrived for ~3s. Worth a hint.
-      if (el.paused || el.ended) return;
-      showToast(tt("Buffering…", "缓冲中…"));
-    }, { passive: true });
-
-    var waitingTimer = 0;
-    el.addEventListener("waiting", function () {
-      clearTimeout(waitingTimer);
-      waitingTimer = setTimeout(function () {
-        if (!el.paused && !el.ended && el.readyState < 3) {
-          showToast(tt("Slow connection — buffering…", "网络较慢 — 正在缓冲…"));
-        }
-      }, 4000);
-    }, { passive: true });
-    var clearWait = function () { clearTimeout(waitingTimer); };
-    el.addEventListener("playing", clearWait, { passive: true });
-    el.addEventListener("canplay", clearWait, { passive: true });
-    el.addEventListener("pause", clearWait, { passive: true });
+    // CSSOS_WAVE_922 20260617 — Jing「底部 Buffering… 提示框压住价格条, 被苹果点名拥挤」:
+    // 取消缓冲的底部 toast(stalled/waiting 不再弹 pill), 缓冲状态改由【中央小呼吸魔镜】
+    // (app.media-buffering-mirror.js, ~48px AI 胶囊大小)表达: 卡顿显示、可播放即隐藏。
+    // 真正的播放 error 仍保留 toast(上面 error 监听), 那是错误不是缓冲, 罕见且重要。
   }
 
   function init() {

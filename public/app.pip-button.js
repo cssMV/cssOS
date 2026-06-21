@@ -123,6 +123,12 @@
   }
 
   function ensureButton() {
+    // CSSOS_WAVE_920 20260617 — Jing「特斯拉右下角 AI 助理旁边那个暗方块」: 那是画中画
+    // (PiP)按钮 cssmv-pip-btn(图标 ⊞), 沉浸 MV + 独立音轨场景下无用, 还在 AI 胶囊旁
+    // 像残留垃圾。彻底停止创建(所有端: init + MutationObserver 两条路都从这里返回)。
+    // 旧端缓存到新 bundle 后即消失。保留 globalThis.cssosPip 桩防跨文件引用报错。
+    return null;
+    // eslint-disable-next-line no-unreachable
     if (!isPipSupported()) return null;
     var screen = document.querySelector("#watch-panel .watch-screen");
     if (!screen) return null;
@@ -168,9 +174,14 @@
     document.head.appendChild(s);
   }
 
+  function removeExistingButtons() {
+    // CSSOS_WAVE_920 — 清掉任何已挂的 PiP 按钮(旧 DOM/缓存遗留)。
+    try {
+      document.querySelectorAll(".cssmv-pip-btn").forEach(function (b) { b.remove(); });
+    } catch (_e) {}
+  }
   function init() {
-    ensureStyles();
-    ensureButton();
+    removeExistingButtons();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

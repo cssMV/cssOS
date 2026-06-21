@@ -64,7 +64,7 @@
       /* CSSOS_WAVE_737 20260613 — Jing「AI助理移到右上角(关闭✕左侧), 真全屏也常驻=最强创作入口」:
          原 z=9800 低于影院层(10052-10080)→ 真全屏被盖住。提到 z=10090(高于影院, 低于 tap-veil),
          位置改右上角 right:64px(让开 ✕)top:12px → 用户在全屏看片时随手就能创作。 */
-      "#cssos-agent-fab{position:fixed;right:14px;bottom:var(--cssos-stk-base,14px);top:auto;width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:18px;cursor:pointer;z-index:10090;box-shadow:0 5px 18px rgba(0,245,160,0.42);transition:transform 160ms ease;}" /* WAVE_737 / WAVE_749 缩到胶囊大小 50→42 + 移到价格条那一行右侧(同 --cssos-stk-base 基准) */,
+      "#cssos-agent-fab{position:fixed;right:14px;bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px) + 5px);top:auto;width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:18px;cursor:pointer;z-index:10090;box-shadow:0 5px 18px rgba(0,245,160,0.42);transition:transform 160ms ease;}" /* WAVE_822e — Jing「AI 助理与价格条同一行」: 锚到价格条同一 bottom 基准(dock-clear+safe), 去掉旧 +14 偏移; 圆形+非 pill-key → 不参与胶囊凹凸 */,
       "#cssos-agent-fab:hover{transform:scale(1.06);}",
       "#cssos-agent-fab[data-active='1']{background:linear-gradient(135deg,#ff9a3c,#ff6b6b);}",
       /* CSSOS_WAVE_737 — 面板 z 提到 10091(原 9801 被影院层 10052-10080 盖住, 全屏打不开)。
@@ -219,9 +219,17 @@
           }
         } catch (_e) {}
       }
-      setInterval(sync, 800); sync();
+      // CSSOS_WAVE_924 — Jing「轻装上阵」: 去掉 800ms 永久轮询(空烧), 改【事件驱动】+ 慢安全网。
+      // FAB 只在这些时机需要重定位: 窗口 resize、切作品、面板开/关(进出 watch-screen)。
+      sync();
       window.addEventListener("resize", sync, { passive: true });
       window.addEventListener("cssos:work-id-changed", sync, { passive: true });
+      window.addEventListener("cssos:work-changed", sync, { passive: true });
+      ["cssos:panelopen", "cssos:panelclose", "cssos:watch-open", "cssos:watch-close"].forEach(function (ev) {
+        try { window.addEventListener(ev, function () { setTimeout(sync, 60); }, { passive: true }); } catch (_e) {}
+        try { document.addEventListener(ev, function () { setTimeout(sync, 60); }, { passive: true }); } catch (_e) {}
+      });
+      setInterval(sync, 3000); // 慢安全网(从 800ms 提到 3000ms, 省 ~73%), 兜住未覆盖的 DOM 变化
     })();
 
     /* W334 — panel is true fullscreen (position:fixed;inset:0;height:100dvh).
@@ -388,25 +396,62 @@
       label: (loc.indexOf("zh") === 0) ? "🎴 三部曲模板《长相思》(李煜)" : "🎴 Trilogy template 《长相思》(Li Yu)",
       prompt: LIYU_PROMPT
     };
+    // CSSOS_WAVE_1003 20260619 — Jing 内置《李白·饮者三部曲》+《唐伯虎三部曲》。京典 10 节、
+    // 小节标签【英文 + 中文小节标题】(如 [Verse 1: 寒窗孤影]); 副歌逐字钉指定诗句; 曲风用英文(Suno 要求)。
+    var LIBAI_PROMPT = [
+      "用京典模板(10 节: Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro)创作《李白·饮者三部曲》。work_type: triptych(三部曲,3 部各一首)。语言:中文。文明:中华文明(盛唐)。人物:李白。",
+      "【小节标签格式】标签用英文 + 中文小节标题,例如 [Verse 1: 寒窗孤影]、[Chorus 1: 初饮]。这些标签是非歌词标记,必须放方括号内。",
+      "【硬性要求】每首的高潮副歌(Chorus)必须逐字包含以下两句(required hooks),绝不改动:",
+      "古来圣贤皆寂寞",
+      "惟有饮者留其名",
+      "【音乐风格(英文,Suno 要求)】epic Chinese, guofeng rock, guqin, pipa, erhu, guzheng, taiko drums, hybrid strings, choir, cinematic; mood: solitary → rebellious → transcendent.",
+      "三部递进:Ⅰ《圣贤之寂》— 寒窗孤影、功名如梦、初饮出世;Ⅱ《醉里狂歌》— 长街烈酒、世人笑我、大醉狂歌;Ⅲ《天地留名》— 回首千年、超脱看穿、举杯天地、凡人成传奇。"
+    ].join("\n");
+    var libaiTpl = {
+      label: (loc.indexOf("zh") === 0) ? "🍷 三部曲模板《李白·饮者》" : "🍷 Trilogy template 《Li Bai · The Drinker》",
+      prompt: LIBAI_PROMPT
+    };
+    var TANGBOHU_PROMPT = [
+      "用京典模板(10 节: Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro)把唐寅(唐伯虎)《桃花庵歌》改编为《唐伯虎三部曲》。work_type: triptych(三部曲,3 部各一首)。语言:中文。文明:中华文明(明代·江南)。人物:唐寅,江南才子、画家诗人。",
+      "原词(《桃花庵歌》,忠于原词改编,意象/用典皆从此出,不要臆造):",
+      "桃花坞里桃花庵,桃花庵下桃花仙;桃花仙人种桃树,又摘桃花换酒钱。",
+      "酒醒只在花前坐,酒醉还来花下眠;半醉半醒日复日,花落花开年复年。",
+      "但愿老死花酒间,不愿鞠躬车马前。若将富贵比贫贱,一在平地一在天。",
+      "若将贫贱比车马,他得驱驰我得闲。别人笑我太疯癫,我笑他人看不穿;",
+      "不见五陵豪杰墓,无花无酒锄作田。",
+      "【小节标签格式】标签用英文 + 中文小节标题,例如 [Verse 1: 桃花庵下]、[Chorus 1: 疯癫]。这些标签是非歌词标记,必须放方括号内。",
+      "【硬性要求】每首的高潮副歌(Chorus)必须逐字包含以下两句(required hooks),绝不改动:",
+      "别人笑我太疯癫",
+      "我笑他人看不穿",
+      "【音乐风格(英文,Suno 要求)】epic Chinese, guofeng, jiangnan elegance, guqin, pipa, dizi flute, erhu, light percussion, cinematic; mood: carefree → defiant → enlightened.",
+      "三部递进(忠于原词意象):Ⅰ《桃花庵》— 桃花坞种桃、摘花换酒、花前花下、自在疏狂;Ⅱ《花酒间》— 但愿老死花酒间、不愿鞠躬车马前、富贵贫贱一在平地一在天;Ⅲ《看不穿》— 别人笑我疯癫、我笑他人看不穿、五陵豪杰墓无花无酒锄作田,看破功名了此一生。"
+    ].join("\n");
+    var tangbohuTpl = {
+      label: (loc.indexOf("zh") === 0) ? "🌸 三部曲模板《唐伯虎》" : "🌸 Trilogy template 《Tang Bohu》",
+      prompt: TANGBOHU_PROMPT
+    };
     var seeds = loc.indexOf("zh") === 0 ? [
+      libaiTpl,
+      tangbohuTpl,
       trilogyTpl,
       liyuTpl,
       "为我做一首孔子 × 杏坛的歌剧",
       "拿破仑 × 凯旋门，单曲就行",
-      "Beethoven × Musikverein，三部曲",
       "孙悟空 × 凌霄宝殿，唐风",
     ] : loc.indexOf("ja") === 0 ? [
+      libaiTpl,
+      tangbohuTpl,
       trilogyTpl,
       liyuTpl,
       "紫式部 × 源氏物語の単曲",
       "葛飾北斎 × 富士山",
-      "Beethoven × Musikverein, opera",
     ] : [
+      libaiTpl,
+      tangbohuTpl,
       trilogyTpl,
       liyuTpl,
       "Confucius × Apricot Altar, opera",
       "Napoleon × Arc de Triomphe, single",
-      "Beethoven × Musikverein, triptych",
       "Sun Wukong × Lingxiao Palace",
     ];
     host.innerHTML = seeds.map(function (s) {
@@ -807,6 +852,15 @@
           "Creating in the background — it will join your cinema queue.",
           "正在后台创作 —— 完成后自动加入影院队列接着播。"
         );
+        // CSSOS_WAVE_1057 — Jing「正在播别的作品时, 后台新作品绝不抢播」: 若此刻有音频在播,
+        //   标记 enqueue-only + 记住正在播放的音频源, 让 openCurrentGeneratedWatchPlaybackModule
+        //   改为【插队进 up-next】, 等当前媒体放完再优先播(不打断当前)。
+        try {
+          var _au = document.getElementById("watch-audio-preview");
+          var _src = _au ? String(_au.currentSrc || _au.src || "") : "";
+          var _playing = !!(_au && !_au.paused && _au.currentTime > 0.2 && _src && _src.indexOf("data:") !== 0);
+          if (_playing) { globalThis.cssosBackgroundGenEnqueueOnly = true; globalThis.cssosProtectedAudioSrc = _src; }
+        } catch (_e2) {}
         try { globalThis.cssmvRunPipeline({ seed: seed, fresh: true }); } catch (_e) {}
         return; // 留在影院, 不开面板
       }

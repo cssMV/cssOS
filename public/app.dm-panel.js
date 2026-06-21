@@ -406,7 +406,7 @@
       ws.onclose = () => {
         if (!wsOk && tid === activeThreadId) {
           // Polling fallback.
-          pollIv = setInterval(() => pollMessages(tid), 5000);
+          pollIv = setInterval(() => { if (document.hidden || tid !== activeThreadId) return; pollMessages(tid); }, 5000);
         }
       };
       ws.onerror = () => { /* close handler will set polling */ };

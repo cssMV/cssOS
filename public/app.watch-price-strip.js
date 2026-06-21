@@ -157,8 +157,18 @@
     // has a one-tap path to listen / view / buy out / tip. Even before
     // the MV is rendered we still show the price (suggested / floor)
     // and the Tip chip so fans can support the creator mid-render.
+    // CSSOS_WAVE_867 — Jing「价格条消失那么久, 修多少次都回不来」根治(真凶, 与 loop 胶囊搬家无关):
+    // #watch-panel 是 position:fixed → 【fixed 元素的 offsetParent 永远是 null】→ 旧判据 watchOpen
+    // 恒为 false → 创作中(ps 有值)价格条才显, 一进 For You/浏览(ps 为空)就被 display:none 藏掉。
+    // 这就是"输出时在、其它时候消失"的根。改用对 fixed 有效的可见性判据(hidden/类/computed display)。
     var watchPanel = document.getElementById("watch-panel");
-    var watchOpen = watchPanel && !watchPanel.hidden && watchPanel.offsetParent !== null;
+    var watchOpen = false;
+    if (watchPanel && !watchPanel.hidden && !watchPanel.classList.contains("hidden")) {
+      try {
+        var _cs = getComputedStyle(watchPanel);
+        watchOpen = _cs.display !== "none" && _cs.visibility !== "hidden";
+      } catch (_e) { watchOpen = true; }
+    }
     if (!ps && !watchOpen) { strip.style.display = "none"; return; }
     ps = ps || {};
     var workId = String(ps.workId || "").split("|")[0];
@@ -167,6 +177,14 @@
 
     var work = ps.work || ps.currentWork || {};
     var isOwn = ps.is_own === true || work.is_own === true;
+    // CSSOS_WAVE_823 20260616 — Jing「自己作品 Tip 不亮, 别人作品 Tip+AI助理常亮」: 旧版只认
+    // is_own 标志, 标志缺失时自己作品的 Tip 还会亮。这里用【owner_id === 当前登录用户】做权威兜底,
+    // 自己作品 Tip 必灰(不能打赏自己), 别人作品 Tip 必亮。
+    try {
+      var _vid = String((globalThis.authState && globalThis.authState.user && globalThis.authState.user.id) || "").trim();
+      var _oid = String(work.owner_id || work.owner_user_id || work.user_id || ps.ownerId || ps.owner_id || "").trim();
+      if (_vid && _oid) isOwn = (_vid === _oid);
+    } catch (_eOwn) {}
     var listenCents = Number(work.current_listen_price_cents || work.listen_price_cents || work.suggested_listen_price_cents || ps.listenCents || 0);
     var buyoutCents = Number(work.current_buyout_price_cents || work.buyout_price_cents || work.suggested_buyout_price_cents || ps.buyoutCents || 0);
     var viewCents = Number(work.view_price_cents || work.current_view_price_cents || work.suggested_view_price_cents || 0);
@@ -407,6 +425,10 @@
       });
     }
   }
+
+  // CSSOS_WAVE_863 — Jing「价格条呢? 三件套必须常驻」: 暴露 render 给底部栈, 价格条没建出来时
+  // 由 ensurePriceLine 主动催一次, 保证三件套(传统字幕/价格条/AI助理)恒在。
+  globalThis.cssosRenderPriceStrip = renderStrip;
 
   function start() {
     renderStrip();

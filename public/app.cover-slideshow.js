@@ -210,6 +210,25 @@
     stopMusic();
   };
 
+  // CSSOS_WAVE_1000 20260619 — Jing「揪后台吸血鬼」: 面板被盖住(covered≠closed)时, 幻灯定时器
+  // 仍每 ~4.5s 增删带 will-change 的 slide DOM = 没人看却在后台 churn 吃内存。这里给换帧加
+  // 【可见性闸】: 文档隐藏、或 watch 面板/宿主元素当前不可见时, 直接跳过换帧(不增删 DOM, 不跑
+  // 运镜动画), 内存与合成开销归零; 面板重新可见时下一拍自然继续。timer 本身极廉, 不必拆。
+  function _slideshowVisible(host) {
+    try {
+      if (document.hidden) return false;
+      if (!host) return false;
+      // offsetParent===null ⇒ 元素或其祖先 display:none / 被隐藏面板包住 ⇒ 不可见。
+      if (host.offsetParent === null && host.tagName !== "BODY") {
+        // fixed 定位元素 offsetParent 恒 null, 用 getClientRects 兜底判可见。
+        if (!host.getClientRects || host.getClientRects().length === 0) return false;
+      }
+      var wp = document.getElementById("watch-panel");
+      if (wp && wp.classList.contains("hidden")) return false;
+    } catch (_e) {}
+    return true;
+  }
+
   // ---------- MV tab host (#watch-svg) ----------
 
   function mvHost() { return document.getElementById("watch-svg"); }
@@ -220,10 +239,14 @@
     if (state.mvActive) return;
     if (host.tagName !== "IMG") host.classList.add("cssmv-slideshow-host");
     state.mvActive = true;
-    state.mvIndex = 0;
+    // CSSOS_WAVE_1001b 20260619 — Jing回归修复: 纯一次性导致【无视频作品(create_work 多部曲)】
+    // 封面幻灯渲染时机错过就永久空白 → 主人"画面不显示"。恢复循环换帧【保证画面一定出现】, 但保留
+    // W1000 可见性闸: 面板被盖/隐藏时跳过换帧(不 churn DOM、不吃内存)。两全。
+    state.mvIndex = state.slides.length ? Math.floor(Math.random() * state.slides.length) : 0;
     if (state.slides.length) renderMvFrame(state.mvIndex);
     state.mvTimer = setInterval(() => {
       if (!state.slides.length) return;
+      if (!_slideshowVisible(mvHost())) return;   // W1000 — 不可见不 churn
       state.mvIndex = (state.mvIndex + 1) % state.slides.length;
       renderMvFrame(state.mvIndex);
     }, TICK_MS);
@@ -276,10 +299,12 @@
     if (state.musicActive) return;
     hosts.forEach((h) => h.classList.add("cssmv-slideshow-host"));
     state.musicActive = true;
-    state.musicIndex = 0;
+    // CSSOS_WAVE_1001b — 恢复循环 + 保留可见性闸(见 startMv 说明)。
+    state.musicIndex = state.slides.length ? Math.floor(Math.random() * state.slides.length) : 0;
     if (state.slides.length) renderMusicFrame(state.musicIndex);
     state.musicTimer = setInterval(() => {
       if (!state.slides.length) return;
+      if (!_slideshowVisible(musicHosts()[0])) return;   // W1000 — 不可见不 churn
       state.musicIndex = (state.musicIndex + 1) % state.slides.length;
       renderMusicFrame(state.musicIndex);
     }, TICK_MS);
@@ -497,8 +522,7 @@
     // Force reflow then mark visible so the 5s opacity transition runs.
     void next.offsetWidth;
     next.classList.add("is-visible");
-    // Self-fade at FADE_IN_MS + MAIN_MS so each slide completes its own
-    // full in/stay/out cycle independent of the next tick.
+    // CSSOS_WAVE_1001b — 恢复 self-fade(配合循环换帧), 否则多帧叠加。每帧 FADE_IN+MAIN 后淡出。
     setTimeout(() => {
       if (!next.isConnected) return;
       if (!next.classList.contains("is-visible")) return;
@@ -526,4 +550,60 @@
     // touching pipeline code.
     return;
   }
+
+  // CSSOS_WAVE_1007 20260619 — Jing「MV 黑屏有声无画面, 改了好几波都没好」根因: 播放有多条
+  // 路径(openMarketWorkPreview / hydrateWatchFromRunPayload / queue-advance / cinema), 逐个修
+  // 不可靠 —— 总有一条没把封面喂给幻灯。改用【路径无关的兜底看门狗】: 只要 watch 面板可见、
+  // 且没有视频在出画面、且幻灯也空, 就用【当前作品封面】强行铺满。封面来源按优先级从多个全局取,
+  // 不依赖任何单一 play 路径。可见时才跑(W1000 闸), 不可见不工作。
+  function _currentCoverUrl() {
+    var cands = [];
+    try { cands.push(globalThis.cssmvPipelineLastResult && globalThis.cssmvPipelineLastResult.coverUrl); } catch (_e) {}
+    try { cands.push(globalThis.currentPreviewCoverUrl); } catch (_e) {}
+    try { cands.push(globalThis.currentWatchPreviewWork && (globalThis.currentWatchPreviewWork.cover_image_url || globalThis.currentWatchPreviewWork.cover_image || globalThis.currentWatchPreviewWork.preview_image_url)); } catch (_e) {}
+    for (var i = 0; i < cands.length; i++) {
+      var u = (typeof cands[i] === "string") ? cands[i].trim() : "";
+      if (u) return u;
+    }
+    return "";
+  }
+  function _watchVisible() {
+    if (document.hidden) return false;
+    var wp = document.getElementById("watch-panel");
+    return !!(wp && !wp.classList.contains("hidden") && wp.dataset.minimized !== "true");
+  }
+  function _videoShowingPicture() {
+    var v = document.getElementById("watch-video");
+    if (!v) return false;
+    var hasSrc = !!String(v.currentSrc || v.src || "").trim();
+    // readyState>=2 = 有当前帧可显示; opacity 0 = 被兜底隐藏(不算在出画面)。
+    var visible = true;
+    try { visible = getComputedStyle(v).opacity !== "0" && v.style.opacity !== "0"; } catch (_e) {}
+    return hasSrc && v.readyState >= 2 && visible;
+  }
+  setInterval(function () {
+    try {
+      if (document.hidden) return;
+      // CSSOS_WAVE_1018 20260619 — 影院层(#cssos-cinema-stage)兜底已删: 该元素是早期设计遗留,
+      //   现已无任何代码创建它(真全屏影院 = watch 面板最大化)。只保留 watch 面板兜底。
+      // —— watch 面板兜底 ——
+      if (!_watchVisible()) return;
+      if (_videoShowingPicture()) return;          // 视频在出画面 → 不插手
+      // CSSOS_WAVE_1009 — 空的 #watch-video(无 src)若不透明会盖住下层封面幻灯 → 仍黑。
+      // 没视频在出画面时, 把视频元素隐藏(opacity 0), 让封面幻灯透出。视频回来时其它路径会复位。
+      try {
+        var _wv = document.getElementById("watch-video");
+        if (_wv && !String(_wv.currentSrc || _wv.src || "").trim()) {
+          _wv.style.opacity = "0";
+        }
+      } catch (_e) {}
+      var cover = _currentCoverUrl();
+      if (!cover) return;                          // 实在没封面也没办法
+      // 当前封面已在幻灯里就不重复设(避免每 1.5s 重渲染), 否则设上并启动。
+      if (!(state.mvActive && state.slides.length === 1 && state.slides[0] === cover)) {
+        globalThis.cssmvSetCoverSlides([cover]);
+      }
+      startMv();                                   // 幂等; 保证铺满当前封面, 黑屏消除
+    } catch (_e) {}
+  }, 1500);
 })();

@@ -72,6 +72,17 @@
         exhausted: false,
         loading: false,
       },
+      // CSSOS_WAVE_822 20260616 — Jing「加一个 Epic 列表, 仿 Epic 墙: 用户个人 Epic → 平台 Epic」。
+      "epic": {
+        id: "epic",
+        get name() { return _lc("⚡ Epic", "⚡ Epic"); },
+        builtin: true,
+        source: "epic",
+        items: [],
+        cursor: null,
+        exhausted: false,
+        loading: false,
+      },
     },
     index: 0,
     shuffleOrder: [],   // permutation indices for shuffle mode
@@ -277,6 +288,30 @@
     }
   }
 
+  // CSSOS_WAVE_822 — Epic 列表取数: /api/works/flagships 已返回【用户个人 Epic 在前 + 平台系统 Epic 在后】,
+  // 音轨取 is_default(=epic-render 设的 Epic 轨)→ COALESCE preview_audio_url。仿 Epic 墙顺序连播。
+  async function fetchEpic(list) {
+    if (list.loading) return;
+    list.loading = true;
+    try {
+      const res = await fetch("/api/works/flagships", { credentials: "include" });
+      const payload = await res.json().catch(() => null);
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      const have = new Set(list.items.map((it) => it.id));
+      for (const w of items) {
+        const it = normaliseItem({
+          ...w,
+          cover_image: w.cover || w.cover_image || w.cover_url,
+          audio_track_1_url: w.audio_track_1_url || w.preview_audio_url,
+          preview_video_url: w.preview_video_url,
+        });
+        if (it && !have.has(it.id)) { list.items.push(it); have.add(it.id); }
+      }
+      list.exhausted = true;
+    } catch (_e) {}
+    finally { list.loading = false; notify(); }
+  }
+
   async function ensureLoaded(list) {
     if (!list || !list.builtin) return;
     if (list.items.length > 0) {
@@ -288,6 +323,7 @@
     }
     if (list.source === "for-you") await fetchForYou(list);
     else if (list.source === "mine") await fetchMine(list);
+    else if (list.source === "epic") await fetchEpic(list);
     // After primary, fall back to the other if still empty.
     if (list.items.length === 0 && list.source === "for-you") {
       // Try mine as a backstop so the queue is never truly empty.
@@ -544,11 +580,24 @@
 
   loadPersisted();
 
-  // Eagerly start loading both builtins so the first nav call has data.
+  // Eagerly start loading builtins so the first nav call has data + the
+  // playlist menu shows accurate counts immediately.
+  // CSSOS_WAVE_822 — Epic 也预取(轻量 ≤50 条), 否则菜单显示 "⚡ Epic (0)"。
+  // 平台系统 Epic(31)总会有; 登录后再 refresh 一次把【个人 Epic】也计入(31+个人)。
   setTimeout(() => {
     void ensureLoaded(state.lists["mine"]);
     void ensureLoaded(state.lists["for-you"]);
+    void ensureLoaded(state.lists["epic"]);
   }, 0);
+  // 登录态就绪后重取 Epic, 把个人 Epic 计入(首取可能在登录前 → 只拿到系统 31)。
+  try {
+    setTimeout(() => {
+      if (globalThis.authState && globalThis.authState.user) {
+        const ep = state.lists["epic"];
+        if (ep) { ep.items = []; ep.exhausted = false; void fetchEpic(ep); }
+      }
+    }, 4000);
+  } catch (_e) {}
 
   globalThis.cssosPlaylists = api;
 })();

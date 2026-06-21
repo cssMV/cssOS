@@ -176,7 +176,13 @@
       }
     }
     load();
-    pollTimer = setInterval(load, 30000);
+    // CSSOS_WAVE_1000 — Jing「揪后台吸血鬼」: dashboard 关闭(backdrop 移除)或标签隐藏时停止 30s 轮询;
+    // backdrop 不在 DOM 时自取消, 不在后台空跑网络。
+    pollTimer = setInterval(function () {
+      if (!document.body.contains(backdrop)) { try { clearInterval(pollTimer); } catch (_e) {} pollTimer = null; return; }
+      if (document.hidden) return;
+      load();
+    }, 30000);
   }
 
   globalThis.cssosOpenProviderHealth = open;

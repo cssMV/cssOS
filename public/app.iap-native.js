@@ -75,6 +75,29 @@
     } catch (_) { return []; }
   }
 
+  /* CSSOS_WAVE_814 20260616 — fetch the REAL localized StoreKit prices
+   * so the in-app price labels exactly match what Apple charges (e.g.
+   * "$14.99/mo", not the hardcoded "$15"). Apple 2.3.2: in-app price
+   * display must match the actual IAP price. Returns { productId: "$14.99" }.
+   * Empty object on web / no plugin / failure (caller keeps hardcoded). */
+  async function getStoreKitPrices(productIds) {
+    try {
+      if (!isIosNative()) return {};
+      var plugin = getPlugin();
+      if (!plugin || typeof plugin.getProducts !== "function") return {};
+      var res = await plugin.getProducts({ productIdentifiers: productIds });
+      var list = (res && res.products) || [];
+      var map = {};
+      for (var i = 0; i < list.length; i++) {
+        var p = list[i] || {};
+        var id = p.identifier || p.productIdentifier || p.id;
+        var ps = p.priceString || p.displayPrice || p.billingDisplayPrice;
+        if (id && ps) map[id] = ps;
+      }
+      return map;
+    } catch (_e) { return {}; }
+  }
+
   /* Purchase a product by App Store Connect product_id. Returns
    *   { ok: true, receipt: <verify response> } on success
    *   { ok: false, error: "..." } on failure */
@@ -222,6 +245,7 @@
   globalThis.cssosIapNative = Object.freeze({
     isIosNative: isIosNative,
     fetchProducts: fetchProducts,
+    getStoreKitPrices: getStoreKitPrices,
     purchase: purchase,
     purchaseSubscriptionTier: purchaseSubscriptionTier,
     purchaseCreditPack: purchaseCreditPack,

@@ -147,6 +147,22 @@
         .map(function (k) { return k + "=" + m[k]; }).join(",");
     } catch (_e) { return ""; }
   }
+  // W1078 — 泄漏【位置】: 从升级后的 cssmemProbe 取"定时器创建源 + DOM 热点容器",
+  // 拼进 OOM/增长上报消息 → digest 直接看到"谁建的定时器、哪个 DOM 容器膨胀", 不再靠猜。
+  function _leakLoc() {
+    try {
+      var mp = globalThis.cssmemProbe; if (!mp) return "";
+      var out = "";
+      try { var iv = mp.intervalSites && mp.intervalSites(3); if (iv && iv.length) out += " · ivsrc=" + iv.join("|"); } catch (_e) {}
+      try { var rf = mp.rafSites && mp.rafSites(2); if (rf && rf.length) out += " · rafsrc=" + rf.join("|"); } catch (_e) {}
+      try {
+        var h = mp.domHotspot && mp.domHotspot();
+        if (h) out += " · hot=" + h.sel + "(" + h.descendants + "n,SPAN" + h.span + ",STRONG" + h.strong + ",A" + h.a + ")";
+      } catch (_e) {}
+      return out;
+    } catch (_e) { return ""; }
+  }
+
   var _growing = false;   // 本会话是否已确认异常增长(slope 告警置真)
   function _maybeSelfHeal(domCount) {
     var runaway = (_growing && domCount > 4500) || domCount > 8000;   // 既大又涨 = 真泄漏; 或绝对失控
@@ -157,7 +173,7 @@
     if (now - last < 300000) return;          // 5 分钟内只自愈一次
     try { sessionStorage.setItem("cssos:oomHealAt", String(now)); } catch (_e) {}
     try { localStorage.setItem(CLEAN, "1"); } catch (_e) {}   // 这是受控重载, 不算崩
-    globalThis.cssosReportError("OOM self-heal reload: DOM " + domCount + " top=" + _topTags(4), "oom_selfheal");
+    globalThis.cssosReportError("OOM self-heal reload: DOM " + domCount + " top=" + _topTags(4) + _leakLoc(), "oom_selfheal");
     try { location.reload(); } catch (_e) {}
   }
 
@@ -233,7 +249,7 @@
         globalThis.cssosReportError(
           "Memory growth: DOM +" + Math.round(domPerMin) + "/min" +
           (heapPerMin > 0 ? (" · heap +" + Math.round(heapPerMin) + "MB/min") : "") +
-          " · panels=" + openPanelStack() + " · grow=" + (_grow || "?") + " · " + _cnt,   // W801 增长Δ + 计数趋势
+          " · panels=" + openPanelStack() + " · grow=" + (_grow || "?") + " · " + _cnt + _leakLoc(),   // W801 增长Δ + 计数趋势 + W1078 位置
           "mem_growth"
         );
       }

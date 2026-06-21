@@ -33,7 +33,8 @@
     ".work-card", "[data-work-id]", "[data-person-id]", ".pmv-card", ".person-mv-card",
     ".lyrics", ".karaoke", ".subtitle", ".cssmv-lyrics", "[data-cjk-ok]", "[lang^=zh]",
     ".cssos-agent-msg", ".msrc-vision-row", ".person-mv-theme", ".pmv-mv-angle",
-    "#cssos-pmm", "#cssos-agent-panel .body"
+    "#cssos-pmm", "#cssos-agent-panel .body",
+    "#foryou-market-lang-chips" // 语言选择器合法显示端名(中文/日本語/한국어),非泄漏
   ].join(",");
 
   var _reported = {}, _count = 0, MAX = 3;

@@ -12,10 +12,21 @@
           "/verify",
           "/verify*"
         ]
+      },
+      {
+        "appID": "QBG9PRVBYZ.app.cssstudio.vision",
+        "paths": [
+          "/auth/return",
+          "/auth/return/*",
+          "/m/*",
+          "/?cssMV=*",
+          "/verify",
+          "/verify*"
+        ]
       }
     ]
   },
   "webcredentials": {
-    "apps": ["QBG9PRVBYZ.app.cssstudio.studio"]
+    "apps": ["QBG9PRVBYZ.app.cssstudio.studio", "QBG9PRVBYZ.app.cssstudio.vision"]
   }
 }

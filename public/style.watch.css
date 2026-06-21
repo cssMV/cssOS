@@ -784,11 +784,16 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
 .watch-work-id .wid-title::before { content: "♪ "; opacity: 0.7; }
 .watch-work-id .wid-id {
   display: block; margin-top: 0;
-  color: rgba(255, 255, 255, 0.12);   /* W764 — 再淡一倍 (0.18→0.12), 几乎隐形 */
-  font: 400 5.5px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;  /* W764 — 再小一倍 (6.5→5.5) */
-  letter-spacing: 0.02em;
+  /* CSSOS_WAVE_843 — Jing: 只一串数字, 比"5m42s·1.2k tokens"还小还淡; 浮现时由 JS 给整块
+   * opacity(W843 reveal 控制器), 叠加这里的极淡 → 每 2 分钟随机位置若隐若现 10 秒。 */
+  color: rgba(255, 255, 255, 0.30);
+  font: 400 6px/1.15 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* W843 — ID 块默认隐藏(reveal 控制器用内联 opacity 每 2 分钟昙花一现); 标题行不再用。 */
+.watch-work-id { opacity: 0; }
+.watch-work-id .wid-title { display: none !important; }
 .watch-work-id:empty { display: none; }
 
 /* CSSOS_WAVE_640 20260605 — Jing「情绪字幕只昙花一现」第1步: 情绪字幕(逐字 karaoke 行)是
@@ -2286,3 +2291,48 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
 .cssfx-btn.primary { background: rgba(0, 245, 160, 0.18); border-color: rgba(0, 245, 160, 0.4); }
 .cssfx-btn:active { transform: scale(0.98); }
 .cssfx-hint { margin-top: 9px; font-size: 11px; opacity: 0.5; line-height: 1.4; }
+
+/* CSSOS_WAVE_848 20260616 — Jing 底部三行【差异显隐】:
+ *  行1 三件套(传统字幕/价格条/AI助理, 在 #cssos-watch-priceline)= 常驻, 永不随 10s idle 隐藏。
+ *  行2 多语言/多声线(#cssos-lang-fold)= 10s idle(is-playback-clean)隐藏, hover/focus 浮现。
+ *  行3 CTA/Want(#cssos-up-next-strip)= 自身"播放结束前显示"逻辑(app.up-next-strip.js), 此处不动。 */
+/* CSSOS_WAVE_855 — 强化常驻: opacity + visibility 双保险, 显式点名 priceline + 价格条 + 字幕(及子)。 */
+.watch-screen.is-playback-clean #cssos-watch-priceline,
+.watch-screen.is-playback-clean #cssos-watch-priceline *,
+.watch-screen.is-playback-clean #cssos-watch-price-strip,
+.watch-screen.is-playback-clean #cssos-watch-price-strip *,
+.watch-screen.is-playback-clean #watch-subtitle {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+.watch-screen.is-playback-clean #cssos-lang-fold {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.watch-screen.is-playback-clean:hover #cssos-lang-fold,
+.watch-screen.is-playback-clean:focus-within #cssos-lang-fold {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* CSSOS_WAVE_849 20260616 — Jing「真正安静下来播放时, 只留三件套常驻, 其余全隐, 极简未来感」:
+ * 顶部搜索栏(#watch-search-box, 挂 #watch-panel)+ 关闭X(#watch-exit-cinema, 挂 .watch-screen)
+ * 也随 10s idle(is-playback-clean)隐藏。控制胶囊已随 cinema 隐, lang-fold 已 W848 隐, 三件套
+ * (priceline)豁免常驻。交互(移动/hover)移除 is-playback-clean → 全部回来。 */
+#watch-panel:has(.watch-screen.is-playback-clean) #watch-search-box,
+.watch-screen.is-playback-clean ~ #watch-search-box {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.4s ease;
+}
+.watch-screen.is-playback-clean #watch-exit-cinema {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.4s ease;
+}
+.watch-screen.is-playback-clean:hover #watch-exit-cinema,
+.watch-screen.is-playback-clean:focus-within #watch-exit-cinema {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}

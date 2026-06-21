@@ -395,7 +395,12 @@ async fn compose_hybrid(
 
     let width = req.width.unwrap_or(1920);
     let height = req.height.unwrap_or(1080);
-    let fps = req.fps.unwrap_or(25);
+    // CSSOS_WAVE_836 — slideshow tier (every segment is a Ken Burns still) is
+    // image-only, so encode it cheaper: 24fps + ultrafast x264 preset (set in
+    // render_kenburns + compose_xfade_chain below). AI-video tiers (hybrid /
+    // cinematic) keep 25fps + veryfast for motion quality.
+    let all_kenburns = segments.iter().all(|s| matches!(s, ComposeSegment::KenburnsImage { .. }));
+    let fps = if all_kenburns { req.fps.unwrap_or(24).min(24) } else { req.fps.unwrap_or(25) };
 
     // 1. Render each segment to staging/seg-NNNN.mp4 with matched params.
     let mut seg_paths: Vec<PathBuf> = Vec::with_capacity(segments.len());
@@ -598,8 +603,12 @@ async fn compose_xfade_chain(
         };
         cmd.arg("-t").arg(format!("{total_dur:.3}"));
     }
+    // CSSOS_WAVE_836 — pure slideshow (all Ken Burns) → ultrafast (~1.4x faster
+    // encode, imperceptible on still-image Ken Burns); AI-video chains keep
+    // veryfast for motion quality.
+    let _all_kb_chain = segments.iter().all(|s| matches!(s, ComposeSegment::KenburnsImage { .. }));
     cmd.arg("-c:v").arg("libx264")
-        .arg("-preset").arg("veryfast")
+        .arg("-preset").arg(if _all_kb_chain { "ultrafast" } else { "veryfast" })
         .arg("-pix_fmt").arg("yuv420p");
     cmd.arg("-movflags").arg("+faststart")
         .arg(final_path)
@@ -936,7 +945,8 @@ async fn render_kenburns(
         .arg("-c:v")
         .arg("libx264")
         .arg("-preset")
-        .arg("veryfast")
+        // CSSOS_WAVE_836 — render_kenburns is slideshow-only → ultrafast.
+        .arg("ultrafast")
         .arg("-pix_fmt")
         .arg("yuv420p")
         .arg("-r")

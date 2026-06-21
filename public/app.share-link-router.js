@@ -362,6 +362,10 @@
           // CSSOS_WAVE_314 — App 端不调原生全屏(CSS 已全屏, 避免 iOS 原生 ✕).
           try { if (document.documentElement.classList.contains("cssos-app")) return; } catch (_e) {}
           if (document.fullscreenElement) return;
+          // CSSOS_WAVE_1042 20260620 — Jing「Console: requestFullscreen API can only be initiated by a
+          //   user gesture」根治: 这是 80ms 延迟兜底, 那时用户手势已过期 → requestFullscreen 必被拒 +
+          //   Chrome 记红字, 且本就成不了(无手势)。无活动手势就跳过 → 消报错 + 不做无用功。
+          try { if (navigator.userActivation && navigator.userActivation.isActive === false) return; } catch (_e) {}
           try {
             var v = document.getElementById("watch-video");
             var fn = v && (v.requestFullscreen || v.webkitRequestFullscreen);

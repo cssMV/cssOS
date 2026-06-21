@@ -7,13 +7,20 @@
  */
 (function () {
   "use strict";
+  // CSSOS_WAVE_926 20260617 — Jing「中文硬编码」根治(i18n 铁律): 本面板原全中文, iPad Safari
+  // (苹果审核环境)非 zh locale 露中文 = 拒因。改: 所有用户可见文案走 lc(en, zh), 默认英文。
+  function lc(en, zh) {
+    try { if (typeof globalThis.loginCopy === "function") return globalThis.loginCopy(en, zh); } catch (_e) {}
+    try { var l = (navigator.language || "en").toLowerCase(); if (l.indexOf("zh") === 0 && zh) return zh; } catch (_e) {}
+    return en;
+  }
   var SLIDERS = [
-    { key: "pitchSpread", label: "音高旋律浮动", min: 0, max: 40, step: 1, unit: "px" },
-    { key: "bounce", label: "每字蹦动", min: 0, max: 0.8, step: 0.02 },
-    { key: "lift", label: "每字上跳", min: 0, max: 24, step: 1, unit: "px" },
-    { key: "burstThreshold", label: "爆字阈值(越低越多)", min: 0.4, max: 1, step: 0.02 },
-    { key: "burstScale", label: "爆字放大", min: 1, max: 3, step: 0.05, unit: "×" },
-    { key: "flash", label: "全屏闪强度", min: 0, max: 1, step: 0.02 }
+    { key: "pitchSpread", en: "Pitch melody drift", zh: "音高旋律浮动", min: 0, max: 40, step: 1, unit: "px" },
+    { key: "bounce", en: "Per-word bounce", zh: "每字蹦动", min: 0, max: 0.8, step: 0.02 },
+    { key: "lift", en: "Per-word lift", zh: "每字上跳", min: 0, max: 24, step: 1, unit: "px" },
+    { key: "burstThreshold", en: "Burst threshold (lower = more)", zh: "爆字阈值(越低越多)", min: 0.4, max: 1, step: 0.02 },
+    { key: "burstScale", en: "Burst scale", zh: "爆字放大", min: 1, max: 3, step: 0.05, unit: "×" },
+    { key: "flash", en: "Fullscreen flash strength", zh: "全屏闪强度", min: 0, max: 1, step: 0.02 }
   ];
   var pop = null;
 
@@ -77,34 +84,50 @@
       var mid = platformVal(s.key, hard[s.key]);
       var midPct = ((mid - s.min) / (s.max - s.min) * 100);
       return '<label class="cssfx-row" data-key="' + s.key + '">' +
-        '<span class="cssfx-row-top"><span class="cssfx-lbl">' + s.label + '</span>' +
+        '<span class="cssfx-row-top"><span class="cssfx-lbl">' + lc(s.en, s.zh) + '</span>' +
         '<span class="cssfx-val">' + v.toFixed(s.step < 0.1 ? 2 : (s.step < 1 ? 2 : 0)) + (s.unit || "") + '</span></span>' +
-        '<span class="cssfx-track"><span class="cssfx-mid" style="left:' + midPct.toFixed(1) + '%" title="平台默认"></span>' +
+        '<span class="cssfx-track"><span class="cssfx-mid" style="left:' + midPct.toFixed(1) + '%" title="' + lc("Platform default", "平台默认") + '"></span>' +
         '<input type="range" min="' + s.min + '" max="' + s.max + '" step="' + s.step + '" value="' + v + '"></span>' +
         '</label>';
     }).join("");
     var fsOn = !!effVal("fullscreen", hard.fullscreen ? 1 : 0);
     pop.innerHTML =
-      '<div class="cssfx-head">情绪字幕特效</div>' +
-      '<label class="cssfx-toggle" style="font-weight:700;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:8px;margin-bottom:4px"><input type="checkbox" ' + (TT.master !== false ? "checked" : "") + ' data-tog="master"> 🎆 情绪字幕(关闭=只留普通字幕)</label>' +
+      '<div class="cssfx-head">' + lc("Emotion subtitle FX", "情绪字幕特效") + '</div>' +
+      '<label class="cssfx-toggle" style="font-weight:700;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:8px;margin-bottom:4px"><input type="checkbox" ' + (TT.master !== false ? "checked" : "") + ' data-tog="master"> 🎆 ' + lc("Emotion subtitles (off = plain subtitles only)", "情绪字幕(关闭=只留普通字幕)") + '</label>' +
       rows +
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (fsOn ? "checked" : "") + ' data-key="fullscreen"> 全屏爆闪</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (fsOn ? "checked" : "") + ' data-key="fullscreen"> ' + lc("Fullscreen flash", "全屏爆闪") + '</label>' +
       // CSSOS_WAVE_715 — 新开关
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.center !== false ? "checked" : "") + ' data-tog="center"> 中央爆</label>' +
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.confetti === true ? "checked" : "") + ' data-tog="confetti"> 天女散花(从天而降·默认关)</label>' +
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.musicgap !== false ? "checked" : "") + ' data-tog="musicgap"> 器乐段 emoji(前奏/间奏)</label>' +
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.randomcolor !== false ? "checked" : "") + ' data-tog="randomcolor"> 底部字幕随机色(每次播放一对)</label>' +
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.burstcolor !== false ? "checked" : "") + ' data-tog="burstcolor"> 爆字随机色(每字不同)</label>' +
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.burstpunch !== false ? "checked" : "") + ' data-tog="burstpunch"> 爆字放大→收回</label>' +
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.sizebyemotion !== false ? "checked" : "") + ' data-tog="sizebyemotion"> 字号随情绪(每字不同)</label>' +
-      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.demo === true ? "checked" : "") + ' data-tog="demo"> 每字都爆(演示)</label>' +
-      '<button type="button" class="cssfx-btn" data-act="reroll" style="width:100%;margin-top:8px">🎨 字幕换一对随机色</button>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.center !== false ? "checked" : "") + ' data-tog="center"> ' + lc("Center burst", "中央爆") + '</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.confetti === true ? "checked" : "") + ' data-tog="confetti"> ' + lc("Petal rain (top-down · off by default)", "天女散花(从天而降·默认关)") + '</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.musicgap !== false ? "checked" : "") + ' data-tog="musicgap"> ' + lc("Instrumental emoji (intro/interlude)", "器乐段 emoji(前奏/间奏)") + '</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.randomcolor !== false ? "checked" : "") + ' data-tog="randomcolor"> ' + lc("Bottom subtitle random color (a pair per play)", "底部字幕随机色(每次播放一对)") + '</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.burstcolor !== false ? "checked" : "") + ' data-tog="burstcolor"> ' + lc("Burst random color (per word)", "爆字随机色(每字不同)") + '</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.burstpunch !== false ? "checked" : "") + ' data-tog="burstpunch"> ' + lc("Burst scale-up → settle", "爆字放大→收回") + '</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.sizebyemotion !== false ? "checked" : "") + ' data-tog="sizebyemotion"> ' + lc("Font size by emotion (per word)", "字号随情绪(每字不同)") + '</label>' +
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (TT.demo === true ? "checked" : "") + ' data-tog="demo"> ' + lc("Burst every word (demo)", "每字都爆(演示)") + '</label>' +
+      // CSSOS_WAVE_994 — Jing「字幕整体偏移微调(第一期)」: drag the whole subtitle
+      // track earlier(−)/later(+) until it hugs the vocal. Live + saved per work.
+      '<label class="cssfx-row cssfx-suboffset" style="border-top:1px solid rgba(255,255,255,0.12);padding-top:8px;margin-top:4px">' +
+        '<span class="cssfx-row-top"><span class="cssfx-lbl">⏱ ' + lc("Subtitle sync (subtitles early ◂ / late ▸)", "字幕对齐(早了 ◂ / 晚了 ▸)") + '</span>' +
+        '<span class="cssfx-val" data-suboff-val>0.00s</span></span>' +
+        '<span class="cssfx-track"><span class="cssfx-mid" style="left:50%" title="0"></span>' +
+        '<input type="range" min="-3000" max="3000" step="50" value="0" data-suboff></span>' +
+      '</label>' +
+      // CSSOS_WAVE_995 — per-line live tuning: turn on, then drag a subtitle line
+      // ◂ ▸ during playback to hug the vocal (saved per line). Beyond the global
+      // slider above — most fixes are per-line nudges, not whole-track shifts.
+      '<label class="cssfx-toggle"><input type="checkbox" ' + (globalThis.cssosSubtitleTuneMode ? "checked" : "") + ' data-tog="subtune"> ✎ ' + lc("Subtitle fine-tune (drag each line to the vocal)", "字幕微调(拖每句对齐歌声)") + '</label>' +
+      // CSSOS_WAVE_996 — open the waveform per-word editor (precision: drag each字 onto its onset).
+      '<button type="button" class="cssfx-btn" data-act="waveedit" style="width:100%;margin-top:4px">🎚 ' + lc("Waveform fine-tune (per word)", "波形逐字精修") + '</button>' +
+      '<button type="button" class="cssfx-btn" data-act="reroll" style="width:100%;margin-top:8px">🎨 ' + lc("Reroll subtitle color pair", "字幕换一对随机色") + '</button>' +
       '<div class="cssfx-actions">' +
-        '<button type="button" class="cssfx-btn" data-act="reset">恢复默认</button>' +
-        '<button type="button" class="cssfx-btn primary" data-act="platform">设为平台默认</button>' +
+        '<button type="button" class="cssfx-btn" data-act="reset">' + lc("Reset to default", "恢复默认") + '</button>' +
+        '<button type="button" class="cssfx-btn primary" data-act="platform">' + lc("Set as platform default", "设为平台默认") + '</button>' +
       '</div>' +
-      '<div class="cssfx-hint">拉杆即调即生效(本人偏好)。中线 = 平台默认。</div>';
-    document.body.appendChild(pop);
+      '<div class="cssfx-hint">' + lc("Drag to apply live (your preference). Midline = platform default.", "拉杆即调即生效(本人偏好)。中线 = 平台默认。") + '</div>';
+    // CSSOS_WAVE_850 — Jing「真全屏被挡住, 退出才显示」: 原生全屏只渲染全屏元素子树, 挂 body 的
+    // 弹层被剔除。改挂【全屏元素】(在全屏子树内→可见); 非全屏挂 body。同 W741。
+    (document.fullscreenElement || document.webkitFullscreenElement || document.body).appendChild(pop);
 
     // 定位: 锚点上方, 不出屏。
     var pr = pop.getBoundingClientRect();
@@ -134,6 +157,39 @@
       var box = pop.querySelector('input[data-tog="' + k + '"]');
       if (box) box.addEventListener("change", function () { setTog(k, box.checked); });
     });
+    // CSSOS_WAVE_994 — subtitle-sync slider: live on drag (no save), persist on
+    // release. Reads the work's saved offset so it opens at the current value.
+    var offIn = pop.querySelector('input[data-suboff]');
+    var offVal = pop.querySelector('[data-suboff-val]');
+    if (offIn) {
+      var eng = globalThis.cssosEmotionSubtitle;
+      var fmtOff = function (ms) { var s = ms / 1000; return (s > 0 ? "+" : "") + s.toFixed(2) + "s"; };
+      var cur = 0;
+      try { cur = (eng && typeof eng.getOffsetMs === "function") ? eng.getOffsetMs() : 0; } catch (e) {}
+      offIn.value = String(cur);
+      if (offVal) offVal.textContent = fmtOff(cur);
+      offIn.addEventListener("input", function () {
+        var ms = Number(offIn.value) || 0;
+        if (offVal) offVal.textContent = fmtOff(ms);
+        try { if (eng && eng.setOffset) eng.setOffset(ms, { persist: false }); } catch (e) {}
+      });
+      offIn.addEventListener("change", function () {
+        var ms = Number(offIn.value) || 0;
+        try { if (eng && eng.setOffset) eng.setOffset(ms, { persist: true }); } catch (e) {}
+        try { if (typeof globalThis.cssosGuidedToast === "function") globalThis.cssosGuidedToast(lc("Subtitle sync saved", "字幕对齐已保存")); } catch (e) {}
+      });
+    }
+    // CSSOS_WAVE_995 — subtitle fine-tune mode (transient, session-only).
+    var stBox = pop.querySelector('input[data-tog="subtune"]');
+    if (stBox) stBox.addEventListener("change", function () {
+      try { if (typeof globalThis.cssosSetSubtitleTuneMode === "function") globalThis.cssosSetSubtitleTuneMode(stBox.checked); else globalThis.cssosSubtitleTuneMode = stBox.checked; } catch (e) {}
+    });
+    // CSSOS_WAVE_996 — open the waveform per-word editor (closes this popover first).
+    var weBtn = pop.querySelector('[data-act="waveedit"]');
+    if (weBtn) weBtn.addEventListener("click", function () {
+      close();
+      try { if (typeof globalThis.cssosOpenWaveEditor === "function") globalThis.cssosOpenWaveEditor(); } catch (e) {}
+    });
     var rrBtn = pop.querySelector('[data-act="reroll"]');
     if (rrBtn) rrBtn.addEventListener("click", function () { try { if (typeof globalThis.cssosRollSubtitleColors === "function") globalThis.cssosRollSubtitleColors(); } catch (e) {} });
 
@@ -153,11 +209,11 @@
         .then(function (res) {
           if (res.ok && res.j && res.j.ok) {
             try { globalThis.cssosSetEmotionPlatformDefaults(res.j.defaults || eff); } catch (e) {}
-            toast("✅ 已设为全平台默认");
+            toast("✅ " + lc("Set as platform default for everyone", "已设为全平台默认"));
           } else {
-            toast(res.j && res.j.code === "ADMIN_ONLY" ? "仅管理员可设平台默认" : "保存失败");
+            toast(res.j && res.j.code === "ADMIN_ONLY" ? lc("Admins only can set the platform default", "仅管理员可设平台默认") : lc("Save failed", "保存失败"));
           }
-        }).catch(function () { toast("网络错误, 未保存"); });
+        }).catch(function () { toast(lc("Network error — not saved", "网络错误, 未保存")); });
     });
 
     // 点外部 / Esc 关闭。
@@ -212,8 +268,8 @@
       // 给碗口造型; paintConcave 只清 cell/cap 的 cc-*, 不会清 ⚙ → 稳定保留。
       g.className = "cssfx-fx-gear cssos-cc-right";
       g.textContent = "⚙";
-      g.title = "情绪字幕设置";
-      g.setAttribute("aria-label", "情绪字幕设置");
+      g.title = lc("Emotion subtitle settings", "情绪字幕设置");
+      g.setAttribute("aria-label", lc("Emotion subtitle settings", "情绪字幕设置"));
       // CSSOS_WAVE_754b — Jing「套上胶囊风格即可」。最干净做法: 不自带任何底色/边框/mask,
       // 只留 order:-1 置首 → 让【胶囊宪法 .cssmv-pill-bar > *】完全接管(透明融入轨道绿、同高 40px、
       // 同内距、hover 自动变色; 且作为"激活前一颗"被宪法 *:has(~.active) 自动右侧凹咬, 包住 Languages)。

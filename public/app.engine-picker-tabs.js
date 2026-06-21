@@ -323,7 +323,8 @@
       // W808 — Jing「统一胶囊轨道」: 整条一个外框圆角胶囊, 内部 搜索(左) | 分隔线 | 封面步进器(右) 无缝两半。
       // 无负 margin 重叠 → 无 W697 触屏偷点击隐患, 桌面/触屏同款。
       "#cssos-kie-stagepop .cssmv-kie-toprow{display:flex;align-items:stretch;margin-bottom:8px;border:1px solid var(--border,rgba(0,245,160,0.30));border-radius:999px;background:rgba(0,245,160,0.06);overflow:hidden;}",
-      "#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{flex:1 1 auto;margin:0;border:0;background:transparent;border-radius:0;-webkit-mask:none;mask:none;}",
+      "#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search{flex:1 1 auto;margin:0;border:0;background:transparent;border-radius:0;-webkit-mask:none;mask:none;outline:none !important;box-shadow:none !important;-webkit-appearance:none;appearance:none;}",
+      "#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search:focus,#cssos-kie-stagepop .cssmv-kie-toprow .cssmv-kie-search:focus-visible{outline:none !important;box-shadow:none !important;}",
       "#cssos-kie-stagepop .cssmv-cover-count{flex:0 0 auto;display:flex;align-items:center;gap:6px;margin:0;padding:0 12px;border:0;border-left:1px solid var(--border,rgba(0,245,160,0.25));border-radius:0;background:transparent;font:600 12px/1 -apple-system,system-ui,sans-serif;}",
       "#cssos-kie-stagepop .cssmv-cover-count button{all:unset;cursor:pointer;width:22px;height:22px;display:grid;place-items:center;font-size:16px;border-radius:50%;color:#9affd9;}",
       "#cssos-kie-stagepop .cssmv-cover-count button:hover{background:rgba(0,245,160,0.18);}",

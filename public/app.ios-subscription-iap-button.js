@@ -85,7 +85,7 @@
     }
     button.disabled = true;
     var orig = button.innerHTML;
-    button.innerHTML = '<span class="apple-glyph"></span> ' + esc(tr("Opening Apple Pay…", "正在打开 Apple Pay…"));
+    button.innerHTML = '<span class="apple-glyph"></span> ' + esc(tr("Opening App Store…", "正在打开 App Store…"));
     try {
       var result = await globalThis.cssosIapNative.purchaseSubscriptionTier(tier, "monthly");
       if (result && result.ok) {
@@ -120,8 +120,8 @@
         } catch (_) {}
         if (typeof globalThis.showToast === "function") {
           globalThis.showToast(tr(
-            "Apple Pay isn't available in this build. Please use the web checkout for now.",
-            "本版本暂不支持 Apple Pay，请通过网页端付费。"
+            "In-App Purchase isn't available in this build. Please try again later.",
+            "本版本暂不支持内购，请稍后再试。"
           ));
         }
       } else if (typeof globalThis.showToast === "function") {
@@ -130,7 +130,7 @@
     } catch (e) {
       console.warn("[ios-iap-btn] purchase threw:", e);
       if (typeof globalThis.showToast === "function") {
-        globalThis.showToast(tr("Apple Pay error: ", "Apple Pay 错误：") + (e && e.message ? e.message : String(e)));
+        globalThis.showToast(tr("Purchase error: ", "购买出错：") + (e && e.message ? e.message : String(e)));
       }
     } finally {
       button.disabled = false;
@@ -160,19 +160,67 @@
     });
   }
 
+  /* CSSOS_WAVE_814 20260616 — rewrite each tier card's price label to the
+   * REAL localized StoreKit price (e.g. "$14.99/month"), so the in-app
+   * display matches exactly what Apple charges (Jing: 网页价 $15 vs 内购
+   * $14.99 不一致). Pulls live from StoreKit → always correct currency &
+   * amount, no hardcode drift. Web is untouched (its $15 display == its
+   * Stripe charge, internally consistent). */
+  var TIER_PRODUCT = {
+    starter: "app.cssstudio.studio.starter.monthly",
+    pro: "app.cssstudio.studio.pro.monthly",
+    studio: "app.cssstudio.studio.studio.monthly",
+    enterprise: "app.cssstudio.studio.enterprise.monthly"
+  };
+  var _skPrices = null, _skFetching = false;
+  async function ensurePrices() {
+    if (_skPrices) return _skPrices;
+    if (_skFetching) return null;
+    _skFetching = true;
+    try {
+      if (globalThis.cssosIapNative && typeof globalThis.cssosIapNative.getStoreKitPrices === "function") {
+        var ids = Object.keys(TIER_PRODUCT).map(function (k) { return TIER_PRODUCT[k]; });
+        _skPrices = await globalThis.cssosIapNative.getStoreKitPrices(ids);
+      }
+    } catch (_) {}
+    _skFetching = false;
+    return _skPrices;
+  }
+  async function fixPrices() {
+    var prices = await ensurePrices();
+    if (!prices) return;
+    var perMo = tr("/month", "/月");
+    var btns = document.querySelectorAll('[data-subscription-select-tier], [data-subscription-direct-tier]');
+    for (var i = 0; i < btns.length; i++) {
+      var el = btns[i];
+      var tier = el.getAttribute("data-subscription-select-tier") || el.getAttribute("data-subscription-direct-tier");
+      var pid = TIER_PRODUCT[tier];
+      if (!pid || !prices[pid]) continue;
+      var card = el.closest(".work-card");
+      if (!card) continue;
+      var info = card.querySelector(".work-info");
+      if (!info) continue;
+      var priceEl = info.querySelector(".work-tags"); // first .work-tags = price line
+      if (!priceEl || priceEl.getAttribute("data-iap-priced") === "1") continue;
+      priceEl.textContent = prices[pid] + perMo;
+      priceEl.setAttribute("data-iap-priced", "1");
+    }
+  }
+  function refreshIosSubUi() { injectButtons(); fixPrices(); }
+
   // Re-scan whenever the subscription panel renders (it lazy-loads
   // and re-renders after tier changes). Cheap: 8s × 30s = 4 passes.
   function startWatcher() {
-    injectButtons();
+    refreshIosSubUi();
     var passes = 0;
     var tick = setInterval(function () {
       passes++;
-      injectButtons();
+      refreshIosSubUi();
       if (passes >= 8) clearInterval(tick);
     }, 1200);
     // Also re-scan on focus + when panel close/open events fire.
-    window.addEventListener("focus", injectButtons);
-    document.addEventListener("click", function () { setTimeout(injectButtons, 200); }, true);
+    window.addEventListener("focus", refreshIosSubUi);
+    document.addEventListener("click", function () { setTimeout(refreshIosSubUi, 200); }, true);
   }
 
   if (document.readyState === "loading") {

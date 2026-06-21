@@ -97,7 +97,10 @@ function defaultPanelBehaviorSettings() {
       spell: PANEL_BEHAVIOR_DEFAULT_SPELL,
       subtitle: "Studio",
       slogan_template: "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
-      mirror_size_px: midpointNumber(420, 880, 10, 0),
+      mirror_size_px: 360,   // CSSOS_WAVE_1033 20260620 — Jing「保持进入时那个小尺寸, 别撑大」: 旧默认
+                             // 600 被 70vh 撑到 ~420(大)。改 360 = 进入时的小 logo, 且 = CSS 兜底
+                             // var(--mirror-size,360px), 首屏与 applySettings 后一致 → 无跳变。想调大去
+                             // 高级设置 logo 尺寸滑块。
       mask_inset_percent: midpointNumber(0, 28, 1, 0),
       spellcast_ring_scale: midpointNumber(0.82, 1.12, 0.01),
       spellcast_glow_scale: midpointNumber(0, 1, 0.02, 2),

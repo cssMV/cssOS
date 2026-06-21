@@ -69,19 +69,97 @@
     };
   }
 
-  // ─── Active interval tracking (best-effort) ───────────────────────
-  const intervalRegistry = new Set();
+  // ─── CSSOS_WAVE_1078 — 泄漏定位: 给每个定时器/rAF 打【创建处标签】+ DOM 热点容器 ──
+  // 旧版只数"有多少个定时器/多少 DOM 节点"(症状), 不知道【是谁建的、堆在哪】(位置)。
+  // 反复"抓到根因"又复发, 就是因为只有症状靠猜。这里加位置: 下一次真实 OOM 报告
+  // 直接带"哪个函数泄漏了 N 个定时器 + 哪个 DOM 容器在膨胀"。
+  function captureSite() {
+    try {
+      const stack = (new Error()).stack || "";
+      const lines = stack.split("\n").slice(1);
+      for (const ln of lines) {
+        if (/memory-probe|captureSite|setInterval|requestAnimationFrame|origSet/.test(ln)) continue;
+        const m = ln.match(/at\s+([^\s(]+)\s*\(?([^)\s]*?:\d+):\d+\)?/);
+        if (m) {
+          const fn = (m[1] && m[1] !== "<anonymous>") ? m[1] : "";
+          const loc = String(m[2] || "").split("/").pop();
+          return ((fn ? fn + "@" : "") + loc).slice(0, 60);
+        }
+        const t = ln.trim().replace(/^at\s+/, "");
+        if (t) return t.slice(0, 60);
+      }
+    } catch (_) {}
+    return "?";
+  }
+
+  // ─── Active interval tracking (id → creation site) ────────────────
+  const intervalRegistry = new Map();
   const origSetInterval = globalThis.setInterval.bind(globalThis);
   const origClearInterval = globalThis.clearInterval.bind(globalThis);
   globalThis.setInterval = function (...args) {
     const id = origSetInterval(...args);
-    intervalRegistry.add(id);
+    try { intervalRegistry.set(id, captureSite()); } catch (_) { intervalRegistry.set(id, "?"); }
     return id;
   };
   globalThis.clearInterval = function (id) {
     intervalRegistry.delete(id);
     return origClearInterval(id);
   };
+  // Top creation-sites among LIVE intervals → 谁建的最多(=泄漏源)。
+  function intervalTopSites(n) {
+    const c = Object.create(null);
+    for (const site of intervalRegistry.values()) c[site] = (c[site] || 0) + 1;
+    return Object.keys(c).sort((a, b) => c[b] - c[a]).slice(0, n || 3).map((s) => s + "×" + c[s]);
+  }
+
+  // ─── requestAnimationFrame leak sampling ──────────────────────────
+  // rAF 每帧 ~60 次, 抓栈太贵 → 每 30 次采样一次创建处。自调度的泄漏循环(如孤儿
+  // dualLoop)会持续累积同一处样本 → 浮出水面。窗口值每次 beacon 后清零看"速率"。
+  let rafWindow = Object.create(null);
+  let _rafN = 0;
+  const origRAF = globalThis.requestAnimationFrame ? globalThis.requestAnimationFrame.bind(globalThis) : null;
+  if (origRAF) {
+    globalThis.requestAnimationFrame = function (cb) {
+      if ((++_rafN % 30) === 0) { try { const s = captureSite(); rafWindow[s] = (rafWindow[s] || 0) + 1; } catch (_) {} }
+      return origRAF(cb);
+    };
+  }
+  function rafTopSites(n) {
+    return Object.keys(rafWindow).sort((a, b) => rafWindow[b] - rafWindow[a]).slice(0, n || 3).map((s) => s + "×" + rafWindow[s]);
+  }
+
+  // ─── DOM hotspot: 哪个容器装着最多节点(膨胀的真身)──────────────
+  function selectorOf(el) {
+    try {
+      if (el.id) return "#" + el.id;
+      let seg = el.tagName.toLowerCase();
+      if (el.className && typeof el.className === "string") {
+        const c = el.className.trim().split(/\s+/).slice(0, 2).join(".");
+        if (c) seg += "." + c;
+      }
+      const p = el.parentElement;
+      if (p && p.id) return "#" + p.id + ">" + seg;
+      return seg;
+    } catch (_) { return "?"; }
+  }
+  function domHotspot() {
+    try {
+      let best = null, bestN = 0;
+      const cands = document.querySelectorAll(".panel,[id],main,section,[data-work-id]");
+      for (let i = 0; i < cands.length; i++) {
+        const n = cands[i].getElementsByTagName("*").length;
+        if (n > bestN) { bestN = n; best = cands[i]; }
+      }
+      if (!best) return null;
+      return {
+        sel: selectorOf(best),
+        descendants: bestN,
+        span: best.getElementsByTagName("span").length,
+        strong: best.getElementsByTagName("strong").length,
+        a: best.getElementsByTagName("a").length,
+      };
+    } catch (_) { return null; }
+  }
 
   // ─── Panel open/close tracking ────────────────────────────────────
   const openPanels = new Set();
@@ -157,6 +235,7 @@
       open_panels: Array.from(openPanels),
       open_panel_count: openPanels.size,
       active_intervals: intervalRegistry.size,
+      interval_sites: intervalTopSites(3),   // W1078 — 谁建的最多(泄漏源)
       module_globals: moduleGlobals,
       script_tags_eager: document.querySelectorAll('script[src*="app."]:not([type="cssos-lazy"])').length,
       script_tags_lazy: document.querySelectorAll('script[type="cssos-lazy"]').length,
@@ -186,7 +265,12 @@
   async function beacon(reason) {
     try {
       const snap = lastSnap || snapshot();
-      const body = JSON.stringify({ ...snap, reason });
+      // W1078 — beacon 时附带"位置"(每 tick 算太贵, 只在 30s beacon 算): DOM 热点容器 + rAF 泄漏源。
+      let dom_hotspot = null, raf_sites = [];
+      try { dom_hotspot = domHotspot(); } catch (_) {}
+      try { raf_sites = rafTopSites(3); } catch (_) {}
+      rafWindow = Object.create(null);   // 清窗口 → 下次 beacon 反映新速率
+      const body = JSON.stringify({ ...snap, dom_hotspot, raf_sites, reason });
       // Use sendBeacon when available — fire-and-forget, survives unload.
       if (navigator.sendBeacon) {
         const blob = new Blob([body], { type: "application/json" });
@@ -218,6 +302,9 @@
     markPanelClose,
     recoveredFromCrash: () => crashRecovered,
     beacon: (r) => beacon(r || "manual"),
+    intervalSites: intervalTopSites,   // W1078 — 泄漏定时器创建源
+    rafSites: rafTopSites,             // W1078 — 泄漏 rAF 源
+    domHotspot,                        // W1078 — 膨胀的 DOM 容器
     isIOS, isCapacitor,
   };
 

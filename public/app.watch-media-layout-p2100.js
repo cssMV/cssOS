@@ -1298,13 +1298,48 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
         // webkitExitFullscreen() is called after native fullscreen entry — same
         // root bug. Extend the guard to ALL iOS devices so the CSS-fullscreen
         // path (position:fixed; 100dvh) is the ONLY mechanism on iOS.
-        try { if (document.documentElement.classList.contains("cssos-app")) return; } catch (_e) {}
+        // CSSOS_WAVE_930 20260617 — Jing 愿景: Apple Vision Pro 的 Immersive 虚拟影院里
+        //   把【整个 #watch-panel】搬进去(欣赏/创作/交易/交流)。visionOS 上要进空间巨幕
+        //   必须真调 panel.requestFullscreen()(CSS fixed 只填窗口、不是沉浸影院)。原 W314/
+        //   W445b 的 iOS 全屏退出重载 bug 只在 iPhone/iPad Safari, visionOS 不受影响 → 对
+        //   visionOS(及手动开关)放行原生整面板全屏; iPhone/iPad/App 仍走 CSS 全屏(不动)。
+        const _ua = String(navigator?.userAgent || "").toLowerCase();
+        const _isVisionOS = /vision\s?os|xros|applevision|vision pro|\bvision\b/.test(_ua);
+        let _immersiveNative = false;
         try {
-          const _ua = String(navigator?.userAgent || "").toLowerCase();
-          if (/iphone|ipod|ipad/.test(_ua)) return;
-          // iPadOS 13+ reports as Mac; detect via touch
-          if (/macintosh/.test(_ua) && typeof navigator?.maxTouchPoints === "number" && navigator.maxTouchPoints > 1) return;
+          // CSSOS_WAVE_934 20260617 — Jing 真机验证反转: visionOS 把【原生全屏视频】强制抽进系统
+          //   空间影院、剥掉所有 DOM → 只剩裸视频(无情绪字幕/无传统字幕/无交互)。桌面真全屏能显
+          //   DOM 是因为 element-fullscreen 渲染子树, visionOS 不是。所以 visionOS 默认【绝不调原生
+          //   全屏】, 走 CSS 全屏(position:fixed;inset:0;100dvh, 同 iOS)→ 整套 DOM(情绪字幕+价格条+
+          //   AI)全保留, 在铺满视野的大影院面板里。空间黑影院装不下 DOM = Apple 视频沙盒铁律。
+          //   ?immersive=1 / cssosSetImmersiveNative(true) 仍作为【显式 opt-in】保留(想要系统空间影院
+          //   的裸视频+原生 VTT 字幕的人可开), 但不是默认。
+          var _qs = String(location.search || "");
+          // CSSOS_WAVE_935 — Jing「Vision Pro 仍裸视频」: visionOS UA 报成 Mac 又无触摸点,
+          //   绕过所有 guard → 仍跑原生全屏被系统抽走视频。UA 不可靠。给【强制 CSS 全屏】网址
+          //   开关 ?immersive=css(一次设定永久, localStorage cssos.immersive.forcecss=1)→ 永远走
+          //   CSS 全屏(全 DOM 情绪字幕), 不依赖 UA。?immersive=1 仍是显式系统空间影院(裸视频);
+          //   ?immersive=0 清全部回默认。
+          if (/[?&]immersive=css\b/.test(_qs)) {
+            try { localStorage.setItem("cssos.immersive.forcecss", "1"); localStorage.removeItem("cssos.immersive.native"); } catch (_e2) {}
+          } else if (/[?&]immersive=1\b/.test(_qs)) {
+            try { localStorage.setItem("cssos.immersive.native", "1"); localStorage.removeItem("cssos.immersive.forcecss"); } catch (_e2) {}
+          } else if (/[?&]immersive=0\b/.test(_qs)) {
+            try { localStorage.removeItem("cssos.immersive.native"); localStorage.removeItem("cssos.immersive.forcecss"); } catch (_e2) {}
+          }
+          // 强制 CSS 全屏 → 直接当作"不支持原生全屏", 永走 CSS 路。
+          try { if (localStorage.getItem("cssos.immersive.forcecss") === "1") return; } catch (_e2) {}
+          _immersiveNative = localStorage.getItem("cssos.immersive.native") === "1";
         } catch (_e) {}
+        try { if (document.documentElement.classList.contains("cssos-app")) return; } catch (_e) {}
+        if (!_immersiveNative) {
+          try {
+            if (/iphone|ipod|ipad/.test(_ua)) return;
+            // iPadOS 13+ reports as Mac; detect via touch
+            if (/macintosh/.test(_ua) && typeof navigator?.maxTouchPoints === "number" && navigator.maxTouchPoints > 1) return;
+            if (_isVisionOS) return;   // W934: visionOS 默认 CSS 全屏, 保住 DOM 情绪字幕
+          } catch (_e) {}
+        }
         if (document.fullscreenElement) return;
         // Snapshot audio state so the fullscreen reflow can't mute us.
         const v = document.getElementById("watch-video");
@@ -1331,7 +1366,13 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
             panel.webkitRequestFullscreen ||
             panel.mozRequestFullScreen ||
             panel.msRequestFullscreen;
-          if (fn) await fn.call(panel);
+          // CSSOS_WAVE_1009 20260619 — Jing「Console 一直报 requestFullscreen ... user gesture」
+          // 终极根因: 这是所有调用方(index 内联影院开关 / share / watch-ui)汇聚的【唯一】原生全屏
+          // 调用点。它在自动开影院(非手势, 异步流程)里也会跑 → Chrome 即使被 catch 仍记一条违规错误。
+          // 门控: 无活跃用户手势就【根本不调】原生全屏(CSS 影院全屏已铺满, 视觉无损)→ 报错彻底消除。
+          var _uaFs = (typeof navigator !== "undefined" && navigator.userActivation);
+          var _noGestureFs = !!(_uaFs && _uaFs.isActive === false);
+          if (fn && !_noGestureFs) await fn.call(panel);
           // CSSOS_AUDIO_MUTE_RESTORE 20260505b — Jing
           // "媒体进度条走了，画面走了，但是好像音乐被静音了". The Safari
           // fullscreen reflow can mute the audio track multiple times in
@@ -1350,6 +1391,14 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
           console.info("[cssos-cinema] requestFullscreen rejected:", err?.name || err);
           restore();
         }
+      };
+    }
+    // CSSOS_WAVE_930 — Jing: 手动开关, 万一 visionOS UA 检测不到, 在 Vision Pro 上
+    // 控制台跑 cssosSetImmersiveNative(true) 即可强制走原生整面板沉浸全屏(持久化)。
+    if (!globalThis.cssosSetImmersiveNative) {
+      globalThis.cssosSetImmersiveNative = function (on) {
+        try { localStorage.setItem("cssos.immersive.native", on === false ? "0" : "1"); } catch (_e) {}
+        return on !== false;
       };
     }
     // Backwards-compat: the original combined helper still works for

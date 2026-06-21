@@ -504,6 +504,11 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     } catch (_e) { /* non-fatal */ }
   }
   function ensureFullscreenButton(panel) {
+    // CSSOS_WAVE_926 20260617 — Jing「右下角全屏按钮删掉」(iPad Safari 审核可见, 同特斯拉)。
+    // 影院/沉浸胶囊已提供全屏入口, 这个角标 ⛶ 多余且挤占画面。彻底不再创建。
+    try { panel.querySelectorAll && panel.querySelectorAll(".cssmv-fs-btn").forEach(function (b) { b.remove(); }); } catch (_e) {}
+    return;
+    // eslint-disable-next-line no-unreachable
     // The iOS app is already edge-to-edge true fullscreen; only desktop web
     // needs an explicit toggle (browser chrome otherwise stays visible).
     if (document.documentElement.classList.contains("cssos-app")) return;
@@ -698,7 +703,12 @@ html.cssos-app .cssmv-border-bar.is-viewport {
         state.rafId = 0;
         return;
       }
-      render();
+      // CSSOS_WAVE_1001 — watch 面板不可见时跳过 render()(没人看的逐帧 DOM 写); 保留 rAF 以便
+      // 面板再可见即恢复(document.hidden 时浏览器本就把 rAF 节流到≈0)。
+      try {
+        var _wp = document.getElementById("watch-panel");
+        if (!(_wp && _wp.classList.contains("hidden")) && !document.hidden) render();
+      } catch (_e) { render(); }
       state.rafId = requestAnimationFrame(tick);
     };
     state.rafId = requestAnimationFrame(tick);

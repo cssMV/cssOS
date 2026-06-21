@@ -19,14 +19,11 @@
     st.textContent = [
       /* The overlay floats absolutely over its parent media element.
          Parent must be position:relative — we set that on demand. */
-      ".cssos-buffering-mirror{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:130px;height:130px;max-width:28vw;max-height:28vw;pointer-events:none;z-index:50;display:none;}",
+      /* CSSOS_WAVE_922 20260617 — Jing: 缓冲指示=【中央小呼吸魔镜】, 缩到 ~48px(右下角
+         AI 胶囊大小), 不再 130px 占屏; 去掉随机色背景球(轻装+不花俏), 只留两张魔镜图呼吸。 */
+      ".cssos-buffering-mirror{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;max-width:14vw;max-height:14vw;pointer-events:none;z-index:50;display:none;}",
       ".cssos-buffering-mirror.is-active{display:block;}",
-      /* CSSOS_WAVE_144 20260514 — Jing: 不再只是 CSS orb. 用真正的魔镜
-         两张图片 (mirror-1.webp + mirror-2.webp) 交替急促呼吸 + 随机色
-         的径向背景。 */
-      ".cssos-buffering-mirror .bg{position:absolute;inset:-10%;border-radius:50%;filter:blur(8px);opacity:0.55;animation:cssosBufBgPulse 1.4s ease-in-out infinite;}",
-      /* CSSOS_WAVE_347 — Jing: 魔镜图加载失败时, 不要单独留一坨随机色背景. */
-      ".cssos-buffering-mirror.img-failed .bg{display:none;}",
+      ".cssos-buffering-mirror .bg{display:none;}",
       ".cssos-buffering-mirror .mirror-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}",
       ".cssos-buffering-mirror .mirror-img.a{animation:cssosBufFadeA 1.4s ease-in-out infinite;}",
       ".cssos-buffering-mirror .mirror-img.b{animation:cssosBufFadeB 1.4s ease-in-out infinite;}",

@@ -356,7 +356,24 @@
       ".pmv-compare-modal .pmv-compare-results{display:flex;flex-direction:column;gap:4px;max-height:240px;overflow:auto;}" +
       ".pmv-compare-modal .pmv-compare-result{cursor:pointer;padding:6px 8px;border-radius:6px;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.15);}" +
       ".pmv-compare-modal .pmv-compare-result:hover{background:rgba(0,245,160,.18);}" +
-      ".pmv-compare-modal .pmv-compare-close{cursor:pointer;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:4px 10px;color:#daffee;font:600 12px/1 ui-monospace,monospace;}";
+      ".pmv-compare-modal .pmv-compare-close{cursor:pointer;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:4px 10px;color:#daffee;font:600 12px/1 ui-monospace,monospace;}" +
+      /* CSSOS_WAVE_811 20260615 — Jing「逐文件甄别白天反色」: 补 codex/列表【在面板上】的
+       * 淡薄荷文字(深色专用 #daffee/rgba(218,255,238,*) 在奶油底=隐形)。仅限面板内容文字;
+       * 图片上的浮层标题、深底徽章(rgba(0,0,0,*))、.pmv-compare-modal 深底浮层【不动】, 它们该一直浅字。
+       * 沿用 W-PERSON_MV_LIGHT_THEME 的森林绿配色 #0f3a2a / rgba(15,58,42,*)。 */
+      "html[data-theme=\"light\"] #person-mv-panel .pmv-tier-title{color:#0f3a2a;}" +
+      "html[data-theme=\"light\"] #person-mv-panel .pmv-compendium-row{background:rgba(0,40,30,0.04);color:#0f3a2a;border-color:rgba(0,160,100,0.3);}" +
+      "html[data-theme=\"light\"] #person-mv-panel .pmv-compendium-skel{color:rgba(15,58,42,0.6);}" +
+      "html[data-theme=\"light\"] .pmv-codex{color:rgba(15,58,42,0.92);}" +
+      "html[data-theme=\"light\"] #person-mv-panel .pmv-chip,html[data-theme=\"light\"] .pmv-codex .pmv-chip{background:rgba(0,160,100,0.12);border-color:rgba(0,160,100,0.4);color:#0f3a2a;}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-mv-tab{background:rgba(0,160,100,0.10);border-color:rgba(0,160,100,0.3);color:#0f3a2a;}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-allusion-title,html[data-theme=\"light\"] .pmv-codex .pmv-mini-name{color:#0f3a2a;}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-allusion-syn{color:rgba(15,58,42,0.78);}" +
+      // CSSOS_WAVE_900 — Jing「MV Gallery 双主题色」白天反色: 区段标题/排行榜/卡片创作者/计数 都写死浅薄荷, 白天奶油底看不清。
+      "html[data-theme=\"light\"] .pmv-codex .pmv-section h3{color:#0f3a2a;}" +
+      "html[data-theme=\"light\"] .pmv-leaderboard{color:#0f3a2a;background:rgba(0,160,100,0.08);border-color:rgba(0,160,100,0.3);}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-mv-creator{color:#0f3a2a;background:rgba(255,255,255,0.72);}" +
+      "html[data-theme=\"light\"] .pmv-codex .pmv-mv-card .pmv-mv-icon{color:#0f3a2a;background:rgba(0,160,100,0.12);}";
     document.head.appendChild(s);
   }
 
@@ -1740,17 +1757,9 @@
         card.addEventListener("click", function () {
           var wid = card.getAttribute("data-work-id");
           if (!wid) return;
-          if (typeof globalThis.openMvPipelinePanel === "function") {
-            globalThis.openMvPipelinePanel({
-              cinema: true,
-              queue: [wid],
-              landmarkId: l.landmark_id,
-              personName: primary,
-              personEra: l.era || "",
-              personCiv: l.civilization || "",
-              personPortrait: card.querySelector(".cover")?.style.backgroundImage?.match(/url\(["']?(.*?)["']?\)/)?.[1] || "",
-            });
-          }
+          // CSSOS_WAVE_900 — 点已完成 MV = 播放(规范播放), 不是开创作管线。
+          if (typeof globalThis.cssosOpenWorkById === "function") { globalThis.cssosOpenWorkById(wid); return; }
+          if (typeof globalThis.openMarketWorkPreview === "function") { globalThis.openMarketWorkPreview({ id: wid, work_id: wid }); return; }
         });
       });
       wireLandmarkBack(host);
@@ -3733,17 +3742,11 @@
           if (e.target && e.target.closest && e.target.closest(".pmv-mv-icon")) return;
           var wid = card.getAttribute("data-work-id");
           if (!wid) return;
-          if (typeof globalThis.openMvPipelinePanel === "function") {
-            globalThis.openMvPipelinePanel({
-              cinema: true,
-              queue: [wid],
-              personId: p.person_id,
-              personName: primary,
-              personEra: p.era || "",
-              personCiv: p.civilization || "",
-              personPortrait: p.portrait_url || "",
-            });
-          }
+          // CSSOS_WAVE_900 — Jing「MV Gallery 里的 MV 全部点不动」根治: 点【已完成的 MV】应【播放】它,
+          // 而不是开创作管线(openMvPipelinePanel)。改走 W895 规范播放 cssosOpenWorkById(按 ID 拉真源+播),
+          // 兜底 openMarketWorkPreview。"Create my version" 才是创作入口, 各司其职。
+          if (typeof globalThis.cssosOpenWorkById === "function") { globalThis.cssosOpenWorkById(wid); return; }
+          if (typeof globalThis.openMarketWorkPreview === "function") { globalThis.openMarketWorkPreview({ id: wid, work_id: wid }); return; }
         });
       });
       /* CSSOS_WAVE_110E3 20260510 — Jing

@@ -57,6 +57,16 @@
       'html[data-ios-native="1"] #cssos-watch-price-strip [data-kind="wechat"]',
       // ── Marketplace card per-row "Tip · 支付宝/微信" button ──
       ', html[data-ios-native="1"] [data-market-action="tip-nihaopay"]',
+      // ── CSSOS_WAVE_813 20260616 — the PLAIN "Tip" button opens an
+      // amount picker whose pay-method buttons (Stripe/NihaoPay) are
+      // hidden on iOS → dead-end modal (amount + Cancel only). Apple
+      // forbids external payment for digital tips here & a dead-end =
+      // broken feature (2.1). v1: hide the Tip entry entirely on iOS
+      // (same strategy as buyout/listen). Re-enable later via StoreKit
+      // consumable IAP. ──
+      ', html[data-ios-native="1"] [data-market-action="tip"]',
+      ', html[data-ios-native="1"] [data-watch-market-action="tip"]',
+      ', html[data-ios-native="1"] [data-market-tip-input]',
       // ── Notifications panel "Buy background" Alipay/WeChat/UnionPay row ──
       ', html[data-ios-native="1"] [data-notification-buy-background-nihaopay]',
       // ── Advanced panel "Creator boost" Alipay/WeChat boost ──
@@ -89,6 +99,12 @@
       ', html[data-ios-native="1"] [data-subscription-buy-boost]',
       ', html[data-ios-native="1"] [data-subscription-boost-nihaopay-vendor]',
       ', html[data-ios-native="1"] .pay-group',
+      // ── CSSOS_WAVE_837 20260616 — Apple 1.1.6: the web Stripe checkout's
+      // wallet buttons literally say "Apple Pay" (data-pay-stripe-wallet=
+      // apple_pay). IAP ≠ Apple Pay; never show these on iOS native. ──
+      ', html[data-ios-native="1"] [data-pay-stripe-wallet]',
+      ', html[data-ios-native="1"] .pay-wallet',
+      ', html[data-ios-native="1"] .pay-stripe',
       "{ display: none !important; visibility: hidden !important; }",
       "",
       // Hide entire payment-vendor row container if it was the only child.
@@ -112,7 +128,7 @@
   // the tip-nihaopay path entirely.
   document.addEventListener("click", function (e) {
     var t = e.target && e.target.closest
-      ? e.target.closest('[data-market-action="tip-nihaopay"], [data-notification-buy-background-nihaopay], [data-creator-boost-nihaopay-vendor]')
+      ? e.target.closest('[data-market-action="tip"], [data-watch-market-action="tip"], [data-market-action="tip-nihaopay"], [data-notification-buy-background-nihaopay], [data-creator-boost-nihaopay-vendor]')
       : null;
     if (t) {
       e.preventDefault();

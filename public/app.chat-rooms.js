@@ -282,6 +282,7 @@
 
   async function pollRoomMessages() {
     if (roomState.mode !== "room" || !roomState.roomId) return;
+    if (document.hidden) return;   // W1000 — 标签隐藏不轮询
     try {
       var url = "/api/rooms/" + encodeURIComponent(roomState.roomId) + "/messages";
       if (roomState.lastSeenIso) url += "?since=" + encodeURIComponent(roomState.lastSeenIso);

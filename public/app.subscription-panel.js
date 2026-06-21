@@ -81,21 +81,21 @@ function buildSubscriptionPanelMarkupModule() {
     },
     {
       tier: "starter",
-      price: 15,
+      price: 14.99,
       label: tr("Starter"),
       note: tr("Longer generation and paid creation lane."),
       limit: tr("30 creations / month")
     },
     {
       tier: "pro",
-      price: 39,
+      price: 39.99,
       label: tr("Pro"),
       note: tr("Opera, triptych, advanced settings, longer video."),
       limit: tr("100 creations / month")
     },
     {
       tier: "studio",
-      price: 129,
+      price: 129.99,
       label: tr("Studio"),
       note: tr("Studio lanes, team workflow, heavier output."),
       limit: tr("300 creations / month")
@@ -275,8 +275,8 @@ function buildSubscriptionPanelMarkupModule() {
           <div class="subscription-legal" style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.14);font-size:12px;line-height:1.55;opacity:0.85;">
             <p style="margin:0 0 8px;">${escapeHtml(tr("Subscriptions are auto-renewable. Each plan's name, length, and price are shown above. Payment is charged to your Apple ID at confirmation of purchase. It renews automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple ID account settings."))}</p>
             <p style="margin:0;display:flex;gap:16px;flex-wrap:wrap;">
-              <a href="/terms.html" target="_blank" rel="noopener" style="color:#7fd1ff;text-decoration:underline;">${escapeHtml(tr("Terms of Use (EULA)"))}</a>
-              <a href="/privacy.html" target="_blank" rel="noopener" style="color:#7fd1ff;text-decoration:underline;">${escapeHtml(tr("Privacy Policy"))}</a>
+              <a href="/terms.html" target="_blank" rel="noopener" style="color:#1a73e8;text-decoration:underline;font-weight:600;">${escapeHtml(tr("Terms of Use (EULA)"))}</a>
+              <a href="/privacy.html" target="_blank" rel="noopener" style="color:#1a73e8;text-decoration:underline;font-weight:600;">${escapeHtml(tr("Privacy Policy"))}</a>
             </p>
           </div>
         </div>
@@ -329,28 +329,28 @@ function subscriptionPlansCatalogModule() {
     },
     {
       tier: "starter",
-      price: 15,
+      price: 14.99,
       label: tr("Starter"),
       limit: tr("30 creations / month"),
       note: tr("Longer duration and paid creation lane.")
     },
     {
       tier: "pro",
-      price: 39,
+      price: 39.99,
       label: tr("Pro"),
       limit: tr("100 creations / month"),
       note: tr("Structured works and advanced settings.")
     },
     {
       tier: "studio",
-      price: 129,
+      price: 129.99,
       label: tr("Studio"),
       limit: tr("300 creations / month"),
       note: tr("Workspace lanes and team workflow.")
     },
     {
       tier: "enterprise",
-      price: 399,
+      price: 399.99,
       label: tr("Enterprise"),
       limit: tr("Dedicated route policy"),
       note: tr("Enterprise API and isolated limits.")
@@ -495,7 +495,7 @@ async function requestMembershipPlanChangeModule(targetTier, trigger = null, sta
   if (iosNative && globalThis.cssosIapNative && nextTier !== "free") {
     try {
       setButtonBusy(trigger, true);
-      updateStatus(tr("Opening Apple Pay…"));
+      updateStatus(tr("Opening App Store…"));
       const result = await globalThis.cssosIapNative.purchaseSubscriptionTier(nextTier, "monthly");
       if (result && result.ok) {
         if (typeof fetchBillingStatus === "function") {
@@ -513,7 +513,7 @@ async function requestMembershipPlanChangeModule(targetTier, trigger = null, sta
       }
       return false;
     } catch (err) {
-      updateStatus(tr("Apple Pay error: ") + String(err?.message || err));
+      updateStatus(tr("Purchase error: ") + String(err?.message || err));
       return false;
     } finally {
       setButtonBusy(trigger, false);
@@ -678,6 +678,27 @@ async function renderSubscriptionPanelModule() {
     await loadCreatorBoostState().catch(() => null);
   }
   content.innerHTML = buildSubscriptionPanelMarkupModule();
+  // CSSOS_WAVE_840 — "账户" hub: API/订阅/积分 三个同主题面板归一成一个 Dock 入口(账户)。
+  // 订阅是主视图; 积分(信用奖惩)和 API(密钥/计费)从这条顶部导航进入(它们各自仍是独立面板,
+  // 点开即覆盖在上层, 关掉回到账户)。随渲染生成→不被 re-render 擦掉; 用真实事件、不用内联 onclick。
+  try {
+    const hub = document.createElement("div");
+    hub.className = "account-hub-nav";
+    hub.innerHTML =
+      '<button type="button" class="account-hub-tab is-active" disabled>' + tr("Subscription", "订阅") + "</button>" +
+      '<button type="button" class="account-hub-tab" data-hub="credit">' + tr("Credits", "积分") + "</button>" +
+      '<button type="button" class="account-hub-tab" data-hub="api">' + tr("API", "API") + "</button>";
+    content.insertBefore(hub, content.firstChild);
+    const _creditBtn = hub.querySelector('[data-hub="credit"]');
+    if (_creditBtn) _creditBtn.addEventListener("click", () => {
+      if (typeof globalThis.openCreditPanelModule === "function") globalThis.openCreditPanelModule();
+      else if (typeof globalThis.handleGlobalAction === "function") globalThis.handleGlobalAction("credit");
+    });
+    const _apiBtn = hub.querySelector('[data-hub="api"]');
+    if (_apiBtn) _apiBtn.addEventListener("click", () => {
+      if (typeof globalThis.handleGlobalAction === "function") globalThis.handleGlobalAction("api");
+    });
+  } catch (_hubErr) { /* non-fatal */ }
   content.querySelectorAll("[data-subscription-open-plan-modal]").forEach((button) => {
     button.addEventListener("click", () => {
       renderSubscriptionPlanModalModule(String(button.getAttribute("data-target-tier") || "").trim());

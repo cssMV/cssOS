@@ -126,10 +126,22 @@
   globalThis.cssosSetAutoEnterMvPref = writeAutoEnterPref;
 
   var _autoEnterPromptShown = false;
-  function showAutoEnterPromptOnce() {
-    if (_autoEnterPromptShown) return;
-    if (document.getElementById("cssos-autoenter-prompt")) return;
+  // CSSOS_WAVE_1018 20260619 — Jing「进平台弹一次, 选了欣赏进去又弹回来=共 2 次」根治:
+  //   内存变量 _autoEnterPromptShown 在【页面重载/影院打开瞬间弹回主界面】后清零 → 又弹。
+  //   改用 sessionStorage 持久化"本会话已问过", 跨重载/跨弹回都只问一次。新会话(冷启动)才恢复。
+  var AUTOENTER_ASKED_KEY = "cssos:autoEnterAsked";
+  function autoEnterAlreadyAsked() {
+    if (_autoEnterPromptShown) return true;
+    try { return sessionStorage.getItem(AUTOENTER_ASKED_KEY) === "1"; } catch (_e) { return false; }
+  }
+  function markAutoEnterAsked() {
     _autoEnterPromptShown = true;
+    try { sessionStorage.setItem(AUTOENTER_ASKED_KEY, "1"); } catch (_e) {}
+  }
+  function showAutoEnterPromptOnce() {
+    if (autoEnterAlreadyAsked()) return;
+    if (document.getElementById("cssos-autoenter-prompt")) return;
+    markAutoEnterAsked();
     var lc = function (en, zh) { return (typeof globalThis.loginCopy === "function") ? globalThis.loginCopy(en, zh) : en; };
     var ov = document.createElement("div");
     ov.id = "cssos-autoenter-prompt";
@@ -286,4 +298,31 @@
     // 上滑 (dy<0) = 下一首; 下滑 (dy>0) = 上一首. 与 TikTok 一致.
     try { globalThis.watchQueueAdvanceModule(dy < 0 ? +1 : -1); } catch (_e) {}
   }, { passive: true });
+})();
+
+/* CSSOS_WAVE_1021 20260619 — Jing「关闭标签页/App, 媒体还在继续播放」根治: 全局监听【页面关闭/
+ * 离开/退后台】, 暂停所有 audio/video。pagehide 覆盖标签页关闭 + 跳转(iOS WKWebView 进后台也触发);
+ * 原生 App appStateChange(isActive=false)再补一道。仅暂停(不清 src)→ 回前台可手动续播, 契合
+ * "干净退出, 不留客"。单一来源, 幂等。 */
+(function cssosStopMediaOnClose() {
+  if (globalThis.__cssosStopMediaOnCloseWired) return;
+  globalThis.__cssosStopMediaOnCloseWired = true;
+  function stopAllMedia() {
+    try {
+      var m = document.querySelectorAll("audio, video");
+      for (var i = 0; i < m.length; i++) {
+        try { if (!m[i].paused) m[i].pause(); } catch (_e) {}
+      }
+    } catch (_e) {}
+  }
+  try { window.addEventListener("pagehide", stopAllMedia); } catch (_e) {}
+  try { window.addEventListener("beforeunload", stopAllMedia); } catch (_e) {}
+  try {
+    var cap = globalThis.Capacitor;
+    if (cap && cap.Plugins && cap.Plugins.App && typeof cap.Plugins.App.addListener === "function") {
+      cap.Plugins.App.addListener("appStateChange", function (st) {
+        if (st && st.isActive === false) stopAllMedia();
+      });
+    }
+  } catch (_e) {}
 })();

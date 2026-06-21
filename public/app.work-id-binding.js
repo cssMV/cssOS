@@ -157,6 +157,8 @@
       const sub = document.querySelector("#watch-panel .watch-subtitle, #watch-subtitle");
       if (sub instanceof HTMLElement) sub.textContent = "";
     } catch (_) {}
+    // CSSOS_WAVE_821 — 切歌硬清情绪FX浮层(spark/edge/center/line-stage 残留 = iOS DOM 爆炸真凶)。
+    try { if (typeof globalThis.cssosClearAllBurstFx === "function") globalThis.cssosClearAllBurstFx(); } catch (_) {}
     // Karaoke / lyrics overlay
     try {
       const k = document.getElementById("watch-karaoke-line");
@@ -175,6 +177,40 @@
     try {
       ["cssos.lastGoodWatchFrame", "cssos.lastGoodWatchFrameSeq"]
         .forEach((k) => localStorage.removeItem(k));
+    } catch (_) {}
+    /* CSSOS_WAVE_819 20260616 — Jing「播完/切走必须轻装上阵, 别越积越爆」根治剩余泄漏缝
+     * (代理泄漏地图: 连播 ~12 首 OOM 的残留资源)。把统一释放补全到位: */
+    // ① For-You 缩略视频/图 —— 旧 flush 选择器只圈 #watch-panel video, 漏了它, 解码缓冲一直驻留累积。
+    try {
+      const ft = document.getElementById("foryou-thumb-video");
+      if (ft instanceof HTMLVideoElement) { ft.pause(); ft.removeAttribute("src"); ft.load(); }
+      const fi = document.getElementById("foryou-thumb-image");
+      if (fi instanceof HTMLImageElement) fi.removeAttribute("src");
+    } catch (_) {}
+    // ② 帧循环定时器 + 已解码位图(W547: 不清位图 → WKWebView 解码缓存累积 → OOM)。
+    try {
+      if (typeof globalThis.clearWatchFrameLoopModule === "function") {
+        globalThis.clearWatchFrameLoopModule();
+      } else {
+        if (globalThis.watchFrameLoopTimer) { clearInterval(globalThis.watchFrameLoopTimer); globalThis.watchFrameLoopTimer = null; }
+        if (Array.isArray(globalThis.__cssosFramePreloadImgs)) {
+          globalThis.__cssosFramePreloadImgs.forEach((im) => { try { if (im) im.src = ""; } catch (_e) {} });
+          globalThis.__cssosFramePreloadImgs = [];
+        }
+      }
+    } catch (_) {}
+    // ③ advance backstop 定时器 —— 关面板后仍可能 fire watchQueueAdvance 把媒体又拉起来。
+    try { if (globalThis.__cssosAdvanceBackstopId) { clearTimeout(globalThis.__cssosAdvanceBackstopId); globalThis.__cssosAdvanceBackstopId = null; } } catch (_) {}
+    // ④ playedTakes Map: 单 take 作品每首漏一条 → 给个硬上限, 超了就清空(下次重建, 无害)。
+    try {
+      const pt = globalThis.__cssosPlayedTakes;
+      if (pt && typeof pt.size === "number" && pt.size > 60 && typeof pt.clear === "function") pt.clear();
+    } catch (_) {}
+    // ⑤ playlist 活动列表无上限 → 给个滑窗硬顶(只留最近 80 条; 连播不爆)。
+    try {
+      const pls = globalThis.cssosPlaylists;
+      const act = pls && typeof pls.activeItems === "function" ? pls.activeItems() : null;
+      if (Array.isArray(act) && act.length > 120 && typeof pls.trimActive === "function") pls.trimActive(80);
     } catch (_) {}
   }
 
@@ -246,11 +282,11 @@
         const _t = String((work && work.title) || "").trim();
         const _au = String((work && (work.owner_name || work.owner_handle || work.owner_email)) || "").trim();
         const _titleLine = _t ? (_au ? _t + " - " + _au : _t) : "";
-        // CSSOS_WAVE_744 — Jing「ID 不要 🆔 emoji, 太显眼; 用纯文本 ID, 更小、隐隐约约不抢戏」。
-        idEl.innerHTML =
-          '<span class="wid-title"></span>' +
-          '<span class="wid-id">ID ' + id + "</span>";
-        if (_titleLine) { const tn = idEl.querySelector(".wid-title"); if (tn) tn.textContent = _titleLine; }
+        // CSSOS_WAVE_843 — Jing: ID 只留【一串数字】(去 "ID" 文字 + emoji + 标题行), 更小更淡,
+        // 默认隐藏, 每 2 分钟(跟字体切换 cssmv:font-shuffle 同步)随机位置浮现 10 秒(reveal 控制器在文件尾)。
+        idEl.innerHTML = '<span class="wid-id">' + id + "</span>";
+        idEl.style.opacity = "0";   // 默认隐藏
+        void _titleLine;            // 标题不再进 ID 块(中央大标题已有)
         // CSSOS_WAVE_742 — Jing「标题-作者没回家」: 某些播放路径传给 bind 的 work 没带 title(只有 id)。
         // bind 在 openMarketWorkPreview 最前面跑(此时 pipelineState 还是上一首, 不能直接回退=会串台)。
         // 安全兜底: 稍后读【中央大标题】(openMarketWorkPreview 随后会填), 归属校验同一 id 才镜像。
@@ -410,10 +446,61 @@
       try {
         var wid = ev && ev.detail && ev.detail.workId;
         var idEl = document.getElementById("watch-work-id");
-        if (idEl && wid) idEl.textContent = "🆔 " + String(wid);
+        if (idEl && wid) { idEl.innerHTML = '<span class="wid-id">' + String(wid) + "</span>"; idEl.style.opacity = "0"; } // W843 纯数字 + 默认隐藏
       } catch (_) {}
     });
   } catch (_) {}
 
   // CSSOS_WAVE_536 — 静音启动 install 日志(保持控制台干净)。
+})();
+
+/* CSSOS_WAVE_843 20260616 — Jing: ID = 一串数字, 默认隐藏, 每 2 分钟(跟字体切换 cssmv:font-shuffle
+ * 同步)在画面【随机位置】浮现 10 秒, 极小极淡。让 ID 可验真伪又绝不抢戏。 */
+(function cssosWorkIdRevealController() {
+  if (globalThis.__cssosWorkIdRevealWired) return;
+  globalThis.__cssosWorkIdRevealWired = true;
+  var REVEAL_MS = 10000;        // 显示 10 秒
+  var FALLBACK_MS = 120000;     // 2 分钟兜底(字体轮换关闭时仍每 2 分钟闪一次)
+  var flashing = false;
+  function flash() {
+    try {
+      var el = document.getElementById("watch-work-id");
+      if (!el || !el.querySelector || !el.querySelector(".wid-id")) return;
+      var screen = document.querySelector("#watch-panel .watch-screen");
+      if (!screen) return;
+      // 仅在 MV/watch 面板可见时才闪
+      var wp = document.getElementById("watch-panel");
+      if (!wp || wp.classList.contains("hidden") || wp.style.display === "none") return;
+      if (flashing) return;
+      flashing = true;
+      // 随机位置(留边距, 避开正中大标题区与底部信息行)
+      var r = screen.getBoundingClientRect();
+      var w = r.width || 360, h = r.height || 640;
+      var left = Math.round(8 + Math.random() * Math.max(8, w - 120));
+      // 纵向偏上/偏下两段随机, 避开中间 35%~62% 的主标题/人物区
+      var topFrac = Math.random() < 0.5 ? (0.04 + Math.random() * 0.26) : (0.66 + Math.random() * 0.24);
+      var top = Math.round(topFrac * h);
+      el.style.position = "absolute";
+      el.style.left = left + "px";
+      el.style.top = top + "px";
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      el.style.maxWidth = "60vw";
+      el.style.transition = "opacity 0.8s ease";
+      el.style.opacity = "0.5";   // 浮现(wid-id 自身已极淡, 叠加后若隐若现)
+      setTimeout(function () {
+        try { el.style.opacity = "0"; } catch (_e) {}
+        flashing = false;
+      }, REVEAL_MS);
+    } catch (_e) { flashing = false; }
+  }
+  // 主同步: 跟随字体切换
+  try { window.addEventListener("cssmv:font-shuffle", flash, { passive: true }); } catch (_e) {}
+  // 兜底: 每 2 分钟独立闪一次(去重: flashing 守卫避免与 font-shuffle 撞车叠加)
+  try { setInterval(flash, FALLBACK_MS); } catch (_e) {}
+  // CSSOS_WAVE_844 — Jing「和标题一样, 刚开始也显示 10 秒, 不然用户不知道有这个」: 每次新作品
+  // 载入(cssos:work-id-changed)稍后闪一次 → 开场即露 10s, 之后回到 2 分钟节奏。
+  try {
+    window.addEventListener("cssos:work-id-changed", function () { setTimeout(flash, 700); }, { passive: true });
+  } catch (_e) {}
 })();

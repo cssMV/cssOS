@@ -1,0 +1,49 @@
+# CSSOS_WAVE_941 — XcodeGen 工程配置: 一条命令生成 CSS Vision 的 .xcodeproj。
+# 用法(Mac, 在本目录):
+#   brew install xcodegen        # 没装过才需要
+#   xcodegen generate
+#   open CSSImmersive.xcodeproj
+# 然后 Xcode 里: Signing 选你的 Team → 选 Vision Pro 真机 → ▶︎ Run。
+#
+# 已自动配好: Group Activities 能力(SharePlay)、世界感知/手势权限说明、显示名 "CSS Vision"。
+
+name: CSSImmersive
+options:
+  bundleIdPrefix: app.cssstudio
+  deploymentTarget:
+    visionOS: "2.0"
+  createIntermediateGroups: true
+
+targets:
+  CSSImmersive:
+    type: application
+    platform: visionOS
+    sources:
+      - path: .
+        includes:
+          - "*.swift"
+      - path: Assets.xcassets   # 含 AppIcon.solidimagestack(visionOS 立体魔镜图标)
+    # 显式 Info.plist: 声明多场景(窗口 + 沉浸空间)+ 显示名 + 权限说明。
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: "CSS Vision"
+        NSWorldSensingUsageDescription: "用于让 MV 银幕随你的视线环绕摆放、转头切换语言版本。"
+        NSHandsTrackingUsageDescription: "用于在空中以手势创作 MV。"
+        NSMicrophoneUsageDescription: "用于语音说出想听的作品或创作咒语。"
+        NSSpeechRecognitionUsageDescription: "用于把你说的话转成创作/搜索指令。"
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true   # ← 同时支持窗口 + 沉浸空间
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.cssstudio.vision
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: NO
+        # SharePlay 群组会话能力。
+        CODE_SIGN_ENTITLEMENTS: CSSImmersive.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "7"   # visionOS

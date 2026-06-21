@@ -1,0 +1,271 @@
+// CSSOS_WAVE_937 — 多银幕环绕 + 转头切换 控制器。
+//   · 每个变体(主/Take2/语言版)一块环绕银幕, 各自一个 AVPlayer。
+//   · 同时只有【激活屏】出声(画音分层: 优先它的独立音轨); 其余静音预览。
+//   · ARKit 头部追踪: 用户转头朝哪块, 哪块自动成为激活屏(声音/字幕切过去)。
+//   · 也支持看着某屏捏合(SpatialTap)手动切。
+//
+// 画音分层铁律: 画面走 video(静音), 真声音走独立 audioURL; 字幕跟【激活屏有声那条】时钟。
+
+import Foundation
+import AVFoundation
+import Combine
+import ARKit
+import simd
+
+@MainActor
+final class PlayerController: ObservableObject {
+    @Published var work: CSSWork?
+    @Published var variants: [CSSVariant] = []
+    /// 当前激活(出声 + 字幕)的银幕索引。
+    @Published var activeIndex: Int = 0
+    /// 激活屏当前字幕行(-1 无)。
+    @Published var currentLineIndex: Int = -1
+
+    /// CSSOS_WAVE_938 — 逐字爆字幕事件流(空间爆字幕订阅它在用户身边炸字)。
+    let burstSubject = PassthroughSubject<BurstEvent, Never>()
+    private struct FireToken { let text: String; let start: Double; let emotion: String; let intensity: Double }
+    private var fireTokens: [FireToken] = []
+    private var nextFireIdx = 0
+    private var lastTickSec: Double = 0
+
+    /// 每块银幕一个画面播放器。
+    private var variantVideoURLs: [String?] = []   // W950 — 懒解码用: 切到才装项
+    private(set) var videoPlayers: [AVPlayer] = []
+    /// 每块银幕的独立音轨(可空)。
+    private var audioPlayers: [AVPlayer?] = []
+
+    private var timeObserver: Any?
+    private var observedPlayer: AVPlayer?
+
+    // ── 加载 ────────────────────────────────────────────────────────────────
+    func load(_ w: CSSWork) {
+        teardown()
+        work = w
+        variants = w.surroundVariants()
+
+        // W950 — 解码保护: 只有【激活屏】装视频项(真解码), 其余屏不装项(显封面/暗屏), 转到才装。
+        variantVideoURLs = variants.map { $0.videoURL }
+        for (i, v) in variants.enumerated() {
+            let vp = AVPlayer()
+            if i == 0, let vs = v.videoURL, let url = URL(string: vs) {
+                vp.replaceCurrentItem(with: AVPlayerItem(url: url))   // 仅激活屏(0)解码
+            }
+            var ap: AVPlayer? = nil
+            if let asu = v.audioURL, let aurl = URL(string: asu) {
+                vp.isMuted = true
+                ap = (i == 0) ? AVPlayer(url: aurl) : nil            // 仅激活屏出声/解音
+            }
+            videoPlayers.append(vp)
+            audioPlayers.append(ap)
+        }
+        activeIndex = 0
+        applyActiveAudio()
+        installTimeObserver()
+        startHeadTracking()
+    }
+
+    /// CSSOS_WAVE_939 — SharePlay 媒体同步用: 当前激活屏的画面播放器。
+    var activeVideoPlayer: AVPlayer? { videoPlayers[safe: activeIndex] }
+
+    func playAll() {
+        // W950 — 只播激活屏(其余无项=不解码)。
+        videoPlayers[safe: activeIndex]?.play()
+        (audioPlayers[safe: activeIndex] ?? nil)?.play()
+    }
+
+    func pauseAll() {
+        for (i, vp) in videoPlayers.enumerated() {
+            vp.pause()
+            audioPlayers[i]?.pause()
+        }
+        stopHeadTracking()
+    }
+
+    // ── 激活屏切换(转头 / 点选都走这里)──────────────────────────────────────
+    /// CSSOS_WAVE_939 — 切激活屏时通知(SharePlay 用来广播给同殿伙伴; 防回环靠调用方 flag)。
+    var onActiveSwitched: ((Int) -> Void)?
+
+    func setActive(_ idx: Int) {
+        guard idx >= 0, idx < variants.count, idx != activeIndex else { return }
+        // W950 — 解码保护切换: 卸下旧屏视频项(释放解码) → 装上新屏 → seek 到同一时间 → 播。
+        let t = activeClock.currentTime()
+        let old = activeIndex
+        videoPlayers[safe: old]?.pause()
+        videoPlayers[safe: old]?.replaceCurrentItem(with: nil)   // 释放旧屏解码缓冲
+        (audioPlayers[safe: old] ?? nil)?.pause()
+
+        activeIndex = idx
+        if videoPlayers[safe: idx]?.currentItem == nil,
+           let vs = variantVideoURLs[safe: idx] ?? nil, let url = URL(string: vs) {
+            videoPlayers[safe: idx]?.replaceCurrentItem(with: AVPlayerItem(url: url))
+        }
+        // 懒建激活屏音轨(若该变体有独立音轨且尚未建)。
+        if (audioPlayers[safe: idx] ?? nil) == nil,
+           let asu = variants[safe: idx]?.audioURL, let aurl = URL(string: asu) {
+            audioPlayers[idx] = AVPlayer(url: aurl)
+        }
+        applyActiveAudio()
+        videoPlayers[safe: idx]?.seek(to: t); videoPlayers[safe: idx]?.play()
+        (audioPlayers[safe: idx] ?? nil)?.seek(to: t)
+        (audioPlayers[safe: idx] ?? nil)?.play()
+        installTimeObserver()   // 字幕时钟改跟新激活屏
+        onActiveSwitched?(idx)
+    }
+
+    /// 激活屏出声(优先独立音轨), 其余全静音。
+    private func applyActiveAudio() {
+        for (i, vp) in videoPlayers.enumerated() {
+            let isActive = (i == activeIndex)
+            if let ap = audioPlayers[i] {
+                ap.isMuted = !isActive
+                vp.isMuted = true            // 有独立音轨 → 画面永远静音
+            } else {
+                vp.isMuted = !isActive       // 无独立音轨 → 画面自带声, 仅激活屏出
+            }
+        }
+    }
+
+    // ── 字幕时钟(跟激活屏的有声那条)─────────────────────────────────────────
+    private var activeClock: AVPlayer {
+        audioPlayers[safe: activeIndex].flatMap { $0 } ?? videoPlayers[safe: activeIndex] ?? AVPlayer()
+    }
+
+    private func installTimeObserver() {
+        if let ob = timeObserver, let p = observedPlayer { p.removeTimeObserver(ob) }
+        timeObserver = nil; observedPlayer = nil
+        let clock = activeClock
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+        observedPlayer = clock
+        buildFireTokens()
+        timeObserver = clock.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] t in
+            guard let self else { return }
+            self.updateCurrentLine(at: t.seconds)
+            self.fireBursts(at: t.seconds)
+        }
+    }
+
+    /// 把激活屏的逐字 token 摊平成带绝对时间的发射表(有 tokens 用 tokens, 否则按行发整行)。
+    private func buildFireTokens() {
+        fireTokens.removeAll(); nextFireIdx = 0; lastTickSec = 0
+        let lines = variants[safe: activeIndex]?.alignedLyrics ?? []
+        for line in lines {
+            if let toks = line.tokens, !toks.isEmpty {
+                for tk in toks {
+                    let txt = tk.resolvedText.trimmingCharacters(in: .whitespaces)
+                    guard !txt.isEmpty else { continue }
+                    fireTokens.append(FireToken(text: txt, start: tk.startSeconds,
+                                                emotion: tk.emotion ?? "",
+                                                intensity: tk.emotionIntensity ?? 0.6))
+                }
+            } else {
+                let txt = line.resolvedText.trimmingCharacters(in: .whitespaces)
+                if !txt.isEmpty {
+                    fireTokens.append(FireToken(text: txt, start: line.startSeconds, emotion: "", intensity: 0.7))
+                }
+            }
+        }
+        fireTokens.sort { $0.start < $1.start }
+    }
+
+    /// 时间推进到某字 start 就发一次爆字; 回退(seek)则重定位发射指针。
+    private func fireBursts(at sec: Double) {
+        if sec + 0.05 < lastTickSec {   // 明显回退 → 重定位
+            nextFireIdx = fireTokens.firstIndex(where: { $0.start >= sec }) ?? fireTokens.count
+        }
+        lastTickSec = sec
+        while nextFireIdx < fireTokens.count, sec >= fireTokens[nextFireIdx].start {
+            let f = fireTokens[nextFireIdx]
+            burstSubject.send(BurstEvent(text: f.text, emotion: f.emotion, intensity: f.intensity))
+            nextFireIdx += 1
+        }
+    }
+
+    private func updateCurrentLine(at sec: Double) {
+        let lines = variants[safe: activeIndex]?.alignedLyrics ?? []
+        var idx = -1
+        for (i, line) in lines.enumerated() where sec >= line.startSeconds && sec <= line.endSeconds {
+            idx = i; break
+        }
+        if idx != currentLineIndex { currentLineIndex = idx }
+    }
+
+    var currentLineText: String {
+        let lines = variants[safe: activeIndex]?.alignedLyrics ?? []
+        guard currentLineIndex >= 0, currentLineIndex < lines.count else { return "" }
+        return lines[currentLineIndex].resolvedText
+    }
+
+    // ── ARKit 头部追踪: 转头自动切激活屏 ─────────────────────────────────────
+    private let arSession = ARKitSession()
+    private let worldTracking = WorldTrackingProvider()
+    private var headTask: Task<Void, Never>?
+
+    /// CSSOS_WAVE_944 — 头显(=用户)实时位置/朝向, 给"情绪字幕炸在你身边/身上"用(恐龙演示式贴脸)。
+    @MainActor var headPos = SIMD3<Float>(0, 1.5, 0)
+    @MainActor var headFwd = SIMD3<Float>(0, 0, -1)
+
+    private func startHeadTracking() {
+        stopHeadTracking()
+        headTask = Task { [weak self] in
+            guard let self else { return }
+            do { try await self.arSession.run([self.worldTracking]) }
+            catch { return }   // 没权限/不支持 → 退化为只用点选切换
+            while !Task.isCancelled {
+                if let anchor = self.worldTracking.queryDeviceAnchor(atTimestamp: CACurrentMediaTime()) {
+                    let m = anchor.originFromAnchorTransform
+                    // 头部前方向 = -Z 列。水平偏航角 yaw(度): 0=正前, 负=左, 正=右。
+                    let fwd = SIMD3<Float>(-m.columns.2.x, -m.columns.2.y, -m.columns.2.z)
+                    let yawDeg = atan2(fwd.x, -fwd.z) * 180 / .pi
+                    let pos = SIMD3<Float>(m.columns.3.x, m.columns.3.y, m.columns.3.z)
+                    // W955 — Jing「转头换屏太灵敏, 体验不好」: 取消转头自动切屏, 只更新头位
+                    //   (身边爆字用)。切屏改为只靠注视+捏合手动(SpatialTapGesture)。
+                    _ = yawDeg
+                    await MainActor.run { self.headPos = pos; self.headFwd = fwd }
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s
+            }
+        }
+    }
+
+    private func stopHeadTracking() {
+        headTask?.cancel(); headTask = nil
+    }
+
+    /// 偏航角最接近哪块银幕角度, 就激活哪块(留 ~18° 死区防抖动)。
+    private func pickScreenByYaw(_ yawDeg: Float) {
+        guard variants.count > 1 else { return }
+        var best = activeIndex
+        var bestDiff = Float.greatestFiniteMagnitude
+        for (i, v) in variants.enumerated() {
+            let d = abs(angleDelta(yawDeg, v.angleDegrees))
+            if d < bestDiff { bestDiff = d; best = i }
+        }
+        // 只有明显朝向另一块(差值比当前小且当前已偏离)才切, 减少误切。
+        if best != activeIndex {
+            let curDiff = abs(angleDelta(yawDeg, variants[activeIndex].angleDegrees))
+            if curDiff > 32 && bestDiff < curDiff - 10 {
+                setActive(best)
+            }
+        }
+    }
+
+    private func angleDelta(_ a: Float, _ b: Float) -> Float {
+        var d = (a - b).truncatingRemainder(dividingBy: 360)
+        if d > 180 { d -= 360 }; if d < -180 { d += 360 }
+        return d
+    }
+
+    // ── 清理 ────────────────────────────────────────────────────────────────
+    private func teardown() {
+        if let ob = timeObserver, let p = observedPlayer { p.removeTimeObserver(ob) }
+        timeObserver = nil; observedPlayer = nil
+        for (i, vp) in videoPlayers.enumerated() { vp.pause(); audioPlayers[safe: i]??.pause() }
+        videoPlayers.removeAll(); audioPlayers.removeAll()
+        stopHeadTracking()
+    }
+}
+
+// 安全下标。
+extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+}

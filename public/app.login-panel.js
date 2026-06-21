@@ -155,7 +155,7 @@ const _INLINE_LOGOS = {
 
 function logoColorForModule(platformId) {
   const map = {
-    apple: "ffffff",
+    apple: "000000",
     github: "ffffff",
     x: "ffffff",
     tiktok: "ffffff",
@@ -235,12 +235,26 @@ function renderLoginPlatformsModule() {
    * 还是会渲染出 "Unavailable" 标签. 改为白名单: 只有这 5 个
    * 一定渲染, 其他不管 enabledMap 怎么说一律不渲染.
    * App Store 截图 + 用户体验都干净. */
-  var _PROVIDER_ALLOW = new Set(["google", "apple", "facebook", "github", "x"]);
+  /* CSSOS_WAVE_815 20260616 — Jing 真机: iOS 上 Google/Facebook/X/GitHub 的
+   * OAuth 全失败(系统 Safari 报 400 malformed / auth_failed —— redirect_uri
+   * 等未对 App 配好),只有 Apple 原生登录可用。坏的第三方登录 = Apple 2.1
+   * 坏功能 + 死胡同。iOS 原生只显示 Apple 登录(+ 邮箱表单,另处);Apple 4.8
+   * 仅要求"有 Apple 登录"即合规。Web 不变(仍 5 家)。OAuth 修通后再放开。 */
+  var _iosNativeLogin = (function () {
+    try {
+      if (document.documentElement.getAttribute("data-ios-native") === "1") return true;
+      if (typeof globalThis.cssosIsIosNative === "function" && globalThis.cssosIsIosNative()) return true;
+      var cap = globalThis.Capacitor;
+      return !!(cap && typeof cap.getPlatform === "function" && cap.getPlatform() === "ios"
+        && (typeof cap.isNativePlatform !== "function" || cap.isNativePlatform()));
+    } catch (_e) { return false; }
+  })();
+  var _PROVIDER_ALLOW = new Set(_iosNativeLogin ? ["apple"] : ["google", "apple", "facebook", "github", "x"]);
   /* CSSOS_WAVE_541 20260531 — Jing: App 端社交平台空框根因 = WKWebView 旧 SW 缓存
    * 让 window.CSSOS_I18N_PLATFORMS 拿到空/旧数组, socialPlatforms.filter 后 rendered=0,
    * 清空 loginList 后什么都不渲染。修法: 实时从 global 取数组 + 白名单 id 兜底,
    * 保证这 5 个永远出现(标签仍走 loginPanelLoginCopy, 不硬编码可翻译文案)。 */
-  var _ALLOW_ORDER = ["google", "apple", "facebook", "github", "x"];
+  var _ALLOW_ORDER = _iosNativeLogin ? ["apple"] : ["google", "apple", "facebook", "github", "x"];
   var _srcPlatforms = [];
   try {
     var _g = (window.CSSOS_I18N_PLATFORMS && window.CSSOS_I18N_PLATFORMS.socialPlatforms) || socialPlatforms;
@@ -393,7 +407,10 @@ function renderLoginPlatformsModule() {
         card.click();
       });
     }
-    card.className = `login-card ${stateClass}${platform.active ? " active" : ""}`;
+    // CSSOS_WAVE_874 — Jing: iOS 只有 Apple 一颗时, :only-child 选不中(同容器还有 SIGNED-IN/LOG OUT 兄弟),
+    // 所以这里直接给【唯一一颗 provider 卡】打 .cssos-login-solo, CSS 让它铺满整行居中(全宽 Apple 主 CTA)。
+    const _soloClass = orderedList.length === 1 ? " cssos-login-solo" : "";
+    card.className = `login-card ${stateClass}${platform.active ? " active" : ""}${_soloClass}`;
     card.innerHTML = `
       <div class="login-icon">${platform.icon}</div>
       <div class="login-title-wrap">
@@ -404,6 +421,21 @@ function renderLoginPlatformsModule() {
     `;
     loginList.appendChild(card);
   });
+  // CSSOS_WAVE_880 — Jing「不管什么方法, 我只要全宽」: 唯一一颗 Apple 卡的【宽度】用内联 !important 钉死。
+  // 内联 !important 优先级高于任何样式表(含胶囊宪法的 !important)→ 一定全宽。只钉宽度/铺满, 不加任何美化。
+  try {
+    var _soloCard = loginList.querySelector(".login-card.cssos-login-solo");
+    if (_soloCard) {
+      _soloCard.style.setProperty("width", "100%", "important");
+      _soloCard.style.setProperty("max-width", "100%", "important");
+      _soloCard.style.setProperty("min-width", "0", "important");
+      _soloCard.style.setProperty("margin", "0", "important");
+      _soloCard.style.setProperty("grid-column", "1 / -1", "important");
+      _soloCard.style.setProperty("justify-content", "center", "important");
+      _soloCard.style.setProperty("-webkit-mask-image", "none", "important");
+      _soloCard.style.setProperty("mask-image", "none", "important");
+    }
+  } catch (_eFull) {}
   // CSSOS_WAVE_207 20260516 — Jing: Apple App Review demo sign-in.
   // cssOS is OAuth-only by design; this is the ONE email+password path,
   // gated server-side by APP_REVIEW_DEMO_EMAIL + APP_REVIEW_DEMO_PASSWORD
@@ -651,8 +683,11 @@ function updateLoginUIModule() {
     }
   }
   if (loginLogout) {
-    const behavior = readPanelBehaviorSettingsLocal();
-    loginLogout.style.display = loginPanelHasPanelPermission("login.logout") && behavior.login.show_logout ? "inline-flex" : "none";
+    // CSSOS_WAVE_1012 20260619 — Jing「登录面板没有退出按钮, 退不了登录」: 旧逻辑用
+    // 权限(login.logout)+ 行为开关(show_logout)双闸 → 一旦任一为假就永远藏起退出按钮,
+    // 用户(含管理员)登录后无法登出, 也截不到干净登录页, 更是 App Store 合规风险(必须能登出)。
+    // 改: 只要已登录就【常显】退出按钮; 未登录则隐藏(没登录无可退)。
+    loginLogout.style.display = authState.user ? "inline-flex" : "none";
   }
   broadcastProfileRefresh();
   updateDockVisibility();

@@ -57,7 +57,9 @@
       // bottom = calc(safe-area + 110px), 而胶囊条只写了 110px(没加 safe-area)→ 真机上
       // (safe-area≈34px)fab 比胶囊条高出一截, 不对称。统一用同一 safe-area+110 基线,
       // 再上抬 8px 让胶囊中线与更高的 fab 圆中线齐平 → 真正同一行。
-      "  position:absolute;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 110px);z-index:26;",
+      // CSSOS_WAVE_846 — Jing「信息包碍手碍脚, 搬到头像后面」: 控制胶囊从左下移到【左上头像之后】
+      //   (头像 #watch-author-avatar 在 left:12 top:12, ~44px), 这里 left:62 top:10 紧随其后。
+      "  position:absolute;left:62px;top:10px;z-index:26;",
       "  transform:translateY(-8px);",
       // CSSOS_WAVE_558 — 头顶头: gap:0, 无外内边距; 高度由胶囊自身撑起。
       "  display:flex;align-items:center;gap:7px;",
@@ -88,7 +90,9 @@
       // (彻底移出布局)→ 容器只剩 pill 宽, 无透明轨道、不挡点击。
       "  width:fit-content !important;min-width:0 !important;max-width:max-content !important;left:6px !important;",
       "}",
-      "#watch-panel .cssmv-capsule:not(.is-open) > *:not(#watch-playlist-pill){",
+      // CSSOS_WAVE_850 — 折叠态豁免【头像】: 否则 "只露第一颗" 把头像也藏了(Jing「头像呢?」)。
+      // 折叠态露: 头像 + 播放方式(Loop list); 展开才出其余控件。
+      "#watch-panel .cssmv-capsule:not(.is-open) > *:not(#watch-playlist-pill):not(#watch-author-avatar){",
       "  display:none !important;",   // W740 — 折叠态彻底移出布局(原 max-width:0 对 max-content 计宽无效)
       "}",
       // CSSOS_WAVE_588 批1 — 残段(图1)根因: 收起态本应【只显播放方式 Loop list】, 但 playlistPill 里
@@ -102,7 +106,11 @@
       // data-pill-bar → 宪法轨道底色 rgba(0,245,160,0.10)+边框(!important)透出 = 长长的淡绿外框/胶囊间
       // 淡轨道。折叠态已透明(W588), 展开态漏了。这里展开态也强制容器全透明(只留各胶囊本身)。
       "#watch-panel .cssmv-capsule.is-open,#watch-panel .cssmv-capsule[data-pill-bar]{",
-      "  background:transparent !important;border-color:transparent !important;box-shadow:none !important;}",
+      "  background:transparent !important;border-color:transparent !important;box-shadow:none !important;",
+      // CSSOS_WAVE_844 — Jing「收掉透明轨道, 标签自适应」根因: 宪法 [data-pill-bar] 用
+      //   grid-auto-columns:minmax(max-content,1fr) → 那个 1fr 把每段【拉伸填满整条】= 撑满 + 段间大间距。
+      //   覆盖成 max-content(去 1fr): 每段只按文字内容宽, 整条缩到内容宽(约一半), 左对齐, 不再有空轨道。
+      "  grid-auto-columns:max-content !important;width:max-content !important;justify-content:start !important;}",
       "#watch-panel .cssmv-capsule.is-open{",
       // CSSOS_WAVE_588 — 一改两治:
       //  ① width:max-content → 贴合内容, 让宪法 grid 的 1fr 拿不到多余空间 → 短胶囊(1×)不再被拉伸"两边空"(图1)。
@@ -292,23 +300,38 @@
     var style = document.getElementById("watch-style-shift");           // ✦
     var fs = screen.querySelector(".cssmv-fs-btn");                     // ⛶
     var actionsPill = document.getElementById("watch-actions-pill");    // ⋯ (旧入口)
+    var avatar = document.getElementById("watch-author-avatar");        // 👤 作者头像
 
-    // CSSOS_WAVE_555 — Jing「摊平 ⋯ 成胶囊轨道」: 不再把 ⋯ 移进轨道, 改为把 ⋯ 里的动作
-    // 逐个渲染成胶囊段(去重: 倍速/下载MP4; 去掉: 静音; 滑块→点击循环)。⋯ 入口隐藏。
-    if (actionsPill) actionsPill.style.display = "none";
+    // CSSOS_WAVE_841 20260616 — Jing(D 批·回应苹果"拥挤"): ① 去掉【全屏】按钮(MV 本就是
+    // 真全屏影院, 重复); ② ⋯ 复活作【更多】入口, 承载偶用功能(画中画/投屏/作品信息/人声-伴奏/
+    // 扩帧池/媒体规格), 这些从常驻摊平 chip 移进更多弹层(见 rebuildFlatActions 过滤)。
+    if (fs) fs.style.display = "none";
 
-    var KEY = [playlistPill, speed, style, fs];
+    // CSSOS_WAVE_861 — 头像进 Loop list pill: 主力是头像模块的 MutationObserver(W859), 这里【兜底】
+    // 再插一次(胶囊重建时 playlistPill 必在), 调用头像模块暴露的 __mountIntoPill。双保险确保头像真进 pill。
+    try {
+      if (avatar && playlistPill && typeof avatar.__mountIntoPill === "function") {
+        if (avatar.parentNode !== playlistPill) playlistPill.insertBefore(avatar, playlistPill.firstChild);
+        avatar.__mountIntoPill();
+      } else if (avatar && playlistPill && avatar.parentNode !== playlistPill) {
+        playlistPill.insertBefore(avatar, playlistPill.firstChild);
+      }
+      // pill 自身 overflow:hidden 会裁掉圆头凸出部分 → 改 visible。
+      if (playlistPill) { playlistPill.style.setProperty("overflow", "visible", "important"); playlistPill.style.setProperty("padding-left", "0", "important"); }
+    } catch (_e) {}
+
+    var KEY = [playlistPill, speed, style, actionsPill];
     KEY.forEach(function (el) { moveInto(cap, el); });
 
     rebuildFlatActions(cap);
 
-    // CSSOS_WAVE_565 — 给 ✦字体 / ⛶全屏 注入【图标 + 文字标签】(i18n via tr/loginCopy)。幂等。
+    // 给 🎨字体 / ⋯更多 注入【图标 + 文字标签】(i18n via tr/loginCopy)。幂等。
     labelIconSeg(style, "🎨", lc("Font", "字体"));   // 🎨 字体
-    labelIconSeg(fs,    "⛶",       lc("Fullscreen", "全屏")); // ⛶ 全屏
+    labelIconSeg(actionsPill, "⋯", lc("More", "更多")); // ⋯ 更多
 
-    // 顺序: [模式][来源](=playlistPill 内两颗) [倍速] [✦] [⛶] [...摊平动作]。
+    // 顺序: [模式][来源](=playlistPill, 内含【头像+Loop list】) [倍速] [🎨] [...常用摊平动作] [⋯更多]。
     var flat = [].slice.call(cap.querySelectorAll(".cssmv-flat-act"));
-    var order = [playlistPill, speed, style, fs].concat(flat).filter(function (el) { return el && el.parentNode === cap; });
+    var order = [playlistPill, speed, style].concat(flat).concat([actionsPill]).filter(function (el) { return el && el.parentNode === cap; });
     var current = [].slice.call(cap.children).filter(function (el) { return el.style.display !== "none"; });
     var mismatch = order.some(function (el, i) { return current[i] !== el; });
     if (mismatch) order.forEach(function (el) { cap.appendChild(el); });
@@ -350,6 +373,14 @@
       if (ic === "🔇" || ic === "🔊") return false;              // 静音 去掉
       if (ic === "⏩") return false;                              // 倍速 重复 去掉(已有速度胶囊)
       if (/Download MP4|下载 ?MP4/i.test(lb)) return false;       // 第二个下载 去掉, 留上面 ⬇ 下载
+      // CSSOS_WAVE_841 — Jing(D 批): 偶用功能从常驻 chip 移进 ⋯更多 弹层(点开即用、用完即收),
+      // 让控制条精简。这些仍出现在 ⋯更多 菜单(showMediaActionsMenuModule 用同一 buildMediaActionsModule)。
+      if (ic === "🪟" || /Picture-in-Picture|画中画/i.test(lb)) return false;   // 画中画
+      if (ic === "📡" || ic === "📺" || /Cast|投屏|AirPlay/i.test(lb)) return false; // 投屏/AirPlay
+      if (ic === "ℹ️" || /Track info|作品信息/i.test(lb)) return false;          // 作品信息
+      if (ic === "🎤" || /Vocals|Instrumental|人声|伴奏/i.test(lb)) return false; // 人声/伴奏
+      if (ic === "🖼️" || /Expand frame pool|扩展幻灯帧池|帧池/i.test(lb)) return false; // 扩帧池
+      if (ic === "📐" || /Aspect ratio|媒体规格|画幅/i.test(lb)) return false;    // 媒体规格
       return true;
     });
     // 签名: 仅当动作集合(图标+是否滑块)变化才重建, 避免每 tick churn。

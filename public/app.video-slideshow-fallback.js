@@ -55,7 +55,9 @@
     } else { stuckSince = 0; }
   }
 
-  function start() { wire(); setInterval(poll, 1500); }
+  // CSSOS_WAVE_924 — Jing「轻装上阵」: 1500ms→2500ms(省 ~40%)。poll 本就在面板 hidden 时秒退(几乎零成本),
+  // 它只为"视频被拦/解码不出"兜底, 不需高频; 冷加载宽限仍是 4500ms, 体验不变。
+  function start() { wire(); setInterval(poll, 2500); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 })();

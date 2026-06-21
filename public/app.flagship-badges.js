@@ -97,9 +97,11 @@
   function playWork(item) {
     var w = (item && typeof item === "object") ? item : { id: String(item || "") };
     var id = String(w.id || "");
-    var work = Object.assign({}, w, { __cssosOpenedFrom: "flagship", __cssosPlaylistPool: DATA.items.slice() });
+    // CSSOS_WAVE_822 — Jing: 从 Epic 墙开播 → 把统一播放列表的【活动列表】设成 epic,
+    // 这样后续连播/循环/菜单都走 Epic 列表(个人 Epic → 平台 Epic),与"按首歌来源定列表"一致。
+    var work = Object.assign({}, w, { __cssosOpenedFrom: "flagship", __source: "epic", __cssosPlaylistPool: DATA.items.slice() });
     try {
-      if (typeof globalThis.openMarketWorkPreview === "function") { globalThis.openMarketWorkPreview(work, {}); return; }
+      if (typeof globalThis.openMarketWorkPreview === "function") { globalThis.openMarketWorkPreview(work, { source: "epic" }); return; }
     } catch (_e) {}
     try { location.href = "/?cssMV=" + encodeURIComponent(id); } catch (_e) {}
   }
@@ -135,29 +137,51 @@
     });
   }
 
-  // 旗舰精选入口 chip(注入 for-you 面板顶部)
+  // CSSOS_WAVE_1000 20260619 — Jing「删掉 Epic 墙」: 取消 31+ 封面网格 overlay(一次性加载几十张
+  // 封面 = 内存吸血鬼)。改为【打开 Epic 歌即默认走 Epic 连播池】(见 start() 里 openMarketWorkPreview
+  // 包装)。这里把入口 chip 改成【移除】, 墙彻底不可达; openWall 保留但无人调用(惰性死代码, 不打包成本)。
   function ensureEntry() {
-    if (!DATA.ready || !DATA.items.length) return;
-    var foryou = document.getElementById("foryou-panel"); if (!foryou) return;
-    if (foryou.querySelector("#cssos-flagship-entry")) return;
-    var chip = document.createElement("button");
-    chip.type = "button"; chip.id = "cssos-flagship-entry";
-    chip.innerHTML = "⚜ " + esc(tr("Flagship Picks", "旗舰精选")) + " · " + DATA.items.length;
-    chip.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); openWall(); });
-    // W797 — Jing「放到多语言选择器之下, 文字显眼」: 锚到语言胶囊条(#foryou-market-lang-chips)之后;
-    // 找不到则回退面板顶部。样式见 injectStyle(实底金 + 深字 + 加粗, 不再模糊难辨)。
-    var langBar = document.getElementById("foryou-market-lang-chips")
-      || foryou.querySelector("[id*='lang-chip'],[class*='lang-chip']");
-    if (langBar && langBar.parentNode) langBar.parentNode.insertBefore(chip, langBar.nextSibling);
-    else foryou.insertBefore(chip, foryou.firstChild);
+    try {
+      var old = document.getElementById("cssos-flagship-entry");
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+    } catch (_e) {}
+    return;
   }
+  // CSSOS_WAVE_1013 20260619 — Epic 墙构建函数(_ensureEntry_DEPRECATED_wall)本波物理删除, 零残留。
+  // 入口已永久移除(ensureEntry 只负责"移除 chip"); 连播仍由 _installEpicAutoPool() 提供。
 
   function tick() { decorateCards(); decorateMv(); ensureEntry(); }
+
+  // CSSOS_WAVE_1000 — Jing「打开的第一首歌若是 Epic, 就默认播放 Epic 列表」: 包装
+  // openMarketWorkPreview —— 打开的作品是 Epic 且调用方没指定播放池时, 自动把活动列表设成
+  // Epic 连播池(等同旧 Epic 墙 playWork 的效果), 无需墙。
+  function _installEpicAutoPool() {
+    try {
+      var orig = globalThis.openMarketWorkPreview;
+      if (typeof orig !== "function" || orig.__epicPoolWrapped) return;
+      var wrapped = function (work, opts) {
+        try {
+          if (DATA.ready && work && typeof work === "object" && !work.__cssosPlaylistPool) {
+            var id = String(work.id || work.work_id || "");
+            if (id && DATA.epic.has(id) && DATA.items.length) {
+              work.__source = "epic";
+              work.__cssosPlaylistPool = DATA.items.slice();
+              opts = Object.assign({}, opts || {}, { source: "epic" });
+            }
+          }
+        } catch (_e) {}
+        return orig.call(this, work, opts);
+      };
+      wrapped.__epicPoolWrapped = true;
+      globalThis.openMarketWorkPreview = wrapped;
+    } catch (_e) {}
+  }
 
   function start() {
     injectStyle();
     load().then(function () {
       tick();
+      _installEpicAutoPool();
       // CSSOS_WAVE_794 — 防 CPU 抖动: 观察器回调【去抖 600ms】(原来每次 DOM 变动都跑 decorateCards,
       // 在泄漏/字幕逐字刷新的繁忙页面上空烧 CPU)。徽章本就幂等, 600ms 合批足够及时。
       var _moT = null;

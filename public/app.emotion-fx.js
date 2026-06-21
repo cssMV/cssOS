@@ -58,12 +58,20 @@
   // 挂在 body 上的特效层在【全屏元素之外 → 完全不可见】(Jing 一直"看不到爆"的真因)。
   // 解决: 特效层挂到【当前全屏元素】(没有就 #watch-panel, 再没有才 body), 并在全屏切换时重新归位。
   function fxHost() {
-    // 原生全屏时【必须】挂到全屏元素(否则不渲染); 否则挂 body(页面级, z-index 10088 压全场,
-    // 不被影院层 10052-10080 盖住)。不要在非全屏时挂 #watch-panel —— 会困在其层叠上下文里。
-    return document.fullscreenElement
-        || document.webkitFullscreenElement
-        || document.body
-        || document.documentElement;
+    // 原生全屏时【必须】挂到全屏元素(否则不渲染)。
+    var fs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fs) return fs;
+    // CSSOS_WAVE_1004b/1018 20260619 — Jing 实测: "MV 真全屏影院"其实是 watch 面板【最大化】
+    // (非 OS requestFullscreen, 也无独立 cinema-stage —— 那是早期设计遗留, 现已无任何代码创建,
+    // W1018 删除空引用)。watch 面板打开且在前时, 把特效层挂进它的 .watch-screen(情绪字幕
+    // #watch-subtitle 本就在这里且可见 → 同处必可见), 爆字就在 MV 上炸开, 不再漏到主页。
+    try {
+      var wp = document.getElementById("watch-panel");
+      if (wp && !wp.classList.contains("hidden") && wp.dataset.minimized !== "true") {
+        return wp.querySelector(".watch-screen") || wp;
+      }
+    } catch (_e) {}
+    return document.body || document.documentElement;
   }
   function homeLayer(el) {
     try {
@@ -80,6 +88,10 @@
   try {
     document.addEventListener("fullscreenchange", rehomeAll);
     document.addEventListener("webkitfullscreenchange", rehomeAll);
+    // CSSOS_WAVE_1004 — 影院进/出也要 re-home(影院非原生全屏, fullscreenchange 不触发)。
+    // 延一拍等 #cssos-cinema-stage 挂好/移除后再归位。
+    document.addEventListener("cssos:cinema-toggle", function () { setTimeout(rehomeAll, 60); });
+    document.addEventListener("cssos:panelclose", function () { setTimeout(rehomeAll, 60); });
   } catch (e) {}
 
   var flashEl = null;
@@ -256,14 +268,19 @@
       var cols = oneCol ? 1 : Math.max(1, Math.min(2, Math.round(n / 9)));
       var perCol = Math.ceil(n / cols);
       var col = Math.floor(i / perCol), within = i % perCol;
-      var ySpan = 76, y0 = 50 - ySpan / 2;
-      var yStep = perCol > 1 ? ySpan / (perCol - 1) : 0;
-      // CSSOS_WAVE_727 — 竖排【靠左 or 靠右】(每句固定一侧, 不在中间)。
-      var base = (side === "right") ? 71 : 29;
+      // CSSOS_WAVE_858 — Jing「行距没生效: 只 3 个词却均摊上中下占满全屏」根因: 原 ySpan 固定 64%, 行距=
+      // 64/(行数-1) → 词少也撑满。改【固定行距 ~9%/行】: 行少→紧凑(3 词 ≈18% 高, 居中一小块), 行多→
+      // 才撑开(封顶 78%)。背景 emoji 可重叠, 字本身行距正常即可。
+      // CSSOS_WAVE_858 — Jing「行少紧凑居上(左上角), 不要居中」: 从顶部 ~12% 起向下排, 固定行距 ~9%/行
+      // (背景emoji可重叠)。3 词 → 12/21/30%(左上一小列); 长列向下撑(封顶仍在屏内)。不再垂直居中。
+      var yStep = perCol > 1 ? Math.min(9, 80 / (perCol - 1)) : 0;
+      var y0 = 12;   // 顶部起点(居上)
+      // 竖排【靠左 or 靠右】更贴边框(原 29/71 → 16/84 → CSSOS_WAVE_1034 8/92 更靠边, Jing「左右再靠边一点」)。
+      var base = (side === "right") ? 92 : 8;
       var xCenter = cols > 1 ? (base + col * 13 - 6.5) : base;
-      var x = xCenter + (Math.random() * 6 - 3);
+      var x = xCenter + (Math.random() * 10 - 5);   // 横向 ±5 歪斜(原 ±3)
       var y = y0 + within * yStep + (Math.random() * 4 - 2);
-      return { x: Math.max(6, Math.min(94, x)), y: Math.max(7, Math.min(93, y)) };
+      return { x: Math.max(3, Math.min(97, x)), y: Math.max(6, Math.min(94, y)) };
     }
     // 横排: 像横向流动的一整句, 短句单行, 长句折 2-3 行, 允许部分重叠("看得出是一整句")。
     // CSSOS_WAVE_726 — Jing: 桌面横排字间距太疏 → 改【固定紧凑步距 ~9.5%/字, 整句居中】, 字更抱团;
@@ -273,16 +290,16 @@
     var row = Math.floor(i / perRow), col2 = i % perRow;
     var STEP = 7.0;                                             // W729 — 更紧(背景大 emoji 允许部分重叠)
     var xSpan = Math.min(86, Math.max(0, (perRow - 1) * STEP));
-    var ySpan2 = Math.min(44, Math.max(0, (rows - 1) * 15));
-    // CSSOS_WAVE_736B 20260613 — Jing「取消中央位置, 它遮挡人物/主景」: 横排只在【上/下边框】,
-    // 不再有中间档。上推到 22%、下压到 78%, 让出中央主景。(band 已只发 0/2, 这里 1 兜底也归上。)
-    var bandY = band === 2 ? 78 : 22;
+    // CSSOS_WAVE_851 — 行更紧凑(15→11), 更歪斜。
+    var ySpan2 = Math.min(34, Math.max(0, (rows - 1) * 11));
+    // W851 — 横排更贴上下边框(原 22/78 → 14/86), 让中央主景更干净。
+    var bandY = band === 2 ? 86 : 14;
     var x0 = 50 - xSpan / 2, y02 = bandY - ySpan2 / 2;
     var colStep = perRow > 1 ? xSpan / (perRow - 1) : 0;
     var rowStep = rows > 1 ? ySpan2 / (rows - 1) : 0;
     var x2 = x0 + col2 * colStep + (Math.random() * 6 - 3);
-    var y2 = y02 + row * rowStep + (Math.random() * 6 - 3);
-    return { x: Math.max(4, Math.min(96, x2)), y: Math.max(10, Math.min(88, y2)) };
+    var y2 = y02 + row * rowStep + (Math.random() * 8 - 4);   // 纵向 ±4 歪斜(原 ±3)
+    return { x: Math.max(3, Math.min(97, x2)), y: Math.max(7, Math.min(93, y2)) };
   }
   function _fadeLine(stage) {
     if (!stage || !stage.els || !stage.els.length) return;
@@ -293,6 +310,43 @@
   globalThis.cssosFadeBurstLine = function () {
     if (_lineStage.key !== null) { _fadeLine(_lineStage); _lineStage = { key: null, els: [], spawned: null }; }
   };
+  // CSSOS_WAVE_821 20260616 — Jing「App 连播几首就崩回主界面」根治(DOM 爆炸真凶)。
+  // 情绪FX的 spark/edge/center/line-stage 元素喷进【常驻浮层】, 各自靠 3-4s 自清定时器;
+  // 切歌/停止时这些定时器对 detach 的浮层空放(silent no-op)→ 元素残留, 连播几首累积上千 SPAN
+  // → iOS WKWebView 撞内存顶被杀(表现为"返回主界面")。这里提供一个【硬清空】: 切歌/停止/关面板
+  // 时把三个浮层一次性清空 + 复位 line-stage, 让每首轻装上阵(innerHTML="" 比逐 removeChild 省重排)。
+  globalThis.cssosClearAllBurstFx = function () {
+    try {
+      ["cssfx-confetti", "cssfx-center-burst", "cssfx-spark"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && el.childNodes.length) el.innerHTML = "";
+      });
+    } catch (_e) {}
+    try { _lineStage = { key: null, els: [], spawned: null }; } catch (_e2) {}
+  };
+  // CSSOS_WAVE_823b 20260616 — Jing 实证「退出影院后左上角 emoji 迟迟不消失」: W821 只在切歌清,
+  // 退影院/暂停/结束/关面板时没清 → 最后一个 burst 元素留在固定浮层上(timer 在浮层被盖后空放)。
+  // 这里把【退影院 / 全屏变化 / 关面板 / 媒体暂停 / 媒体结束】全挂上硬清空。
+  (function wireBurstFxClear() {
+    var clr = function () { try { globalThis.cssosClearAllBurstFx(); } catch (_e) {} };
+    try {
+      ["cssos:cinema-toggle", "cssos:panelclose", "cssos:work-changed", "fullscreenchange", "webkitfullscreenchange"].forEach(function (ev) {
+        document.addEventListener(ev, function () { setTimeout(clr, 60); }, false);
+      });
+    } catch (_e) {}
+    // 媒体暂停/结束(pause/ended 不冒泡, 直接挂元素; index.html 静态存在)。带重试以防元素晚到。
+    var wireMedia = function () {
+      ["watch-audio-preview", "watch-video"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && !el.__cssosBurstClrWired) {
+          el.__cssosBurstClrWired = true;
+          el.addEventListener("pause", clr);
+          el.addEventListener("ended", clr);
+        }
+      });
+    };
+    try { wireMedia(); setTimeout(wireMedia, 1500); setTimeout(wireMedia, 5000); } catch (_e) {}
+  })();
   // ── 以某点为中心的【小烟花】: 小 emoji 从该点向四周炸开, 不透明→透明消失(替代从天而降)。───
   var _sparkLayer = null;
   function ensureSparkLayer() {
@@ -406,7 +460,11 @@
                         typeof globalThis.cssosPickFontForChar === "function")
         ? (function () { try { return globalThis.cssosPickFontForChar(t) || ""; } catch (_e) { return ""; } })()
         : "";
+      // CSSOS_WAVE_851 — Jing「不必那么整齐, 可歪歪斜斜」: 每字随机小旋转(±9°)。加在 word 元素
+      // (不碰 grp 的爆字缩放动画), 让整句看着错落有致而不死板。
+      var _tilt = (Math.random() * 18 - 9).toFixed(1);
       el.style.cssText = "font-size:" + sz + "rem;--cb-glow:" + (0.4 + inten * 0.6).toFixed(2) + ";"
+        + "transform:rotate(" + _tilt + "deg);"
         + (_burstFont ? "font-family:" + _burstFont + ";" : "");
       if (_charColor) el.style.color = _charColor;
       grp.appendChild(el);

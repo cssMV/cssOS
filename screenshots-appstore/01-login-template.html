@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CSS Studio — App Store screenshot 01 (Login)</title>
+<style>
+  /* App Store 6.9" portrait = 1290 × 2796. Body is exactly that size so a
+     full-page screenshot is upload-ready. Zoom the browser to fit your screen,
+     then capture at 100% (or use a headless shot at this viewport). */
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+  html, body { width: 1290px; height: 2796px; }
+  body {
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    color: #fff;
+    background:
+      radial-gradient(120% 70% at 50% -8%, #0c5a3f 0%, #08361f 38%, #04140d 72%, #020a07 100%);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .wrap { padding: 150px 96px 0; text-align: center; }
+
+  .brand {
+    display: inline-flex; align-items: center; gap: 16px;
+    padding: 20px 40px; border-radius: 999px;
+    border: 2px solid rgba(0,245,160,0.45);
+    background: rgba(0,245,160,0.06);
+    font-size: 40px; font-weight: 700; letter-spacing: .01em;
+    color: #00f5a0;
+  }
+  .brand .dot { width: 16px; height: 16px; border-radius: 50%; background: #00f5a0; box-shadow: 0 0 18px #00f5a0; }
+
+  h1 { margin-top: 70px; font-size: 150px; line-height: 1.02; font-weight: 800; letter-spacing: -0.03em; }
+  h1 .mint {
+    background: linear-gradient(180deg, #6bffce 0%, #00f0a0 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  .sub { margin-top: 56px; font-size: 56px; line-height: 1.32; font-weight: 400; color: rgba(220,235,228,0.62); }
+  .sub b { display: block; font-weight: 700; color: #f3fbf7; }
+
+  /* ---- device frame ---- */
+  .device {
+    margin: 110px auto 0; width: 1020px; border-radius: 76px;
+    background: #05100b;
+    border: 3px solid rgba(0,245,160,0.14);
+    box-shadow: 0 40px 120px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
+    overflow: hidden; text-align: left;
+  }
+  .statusbar { display: flex; justify-content: space-between; align-items: center; padding: 34px 56px 20px; font-size: 34px; font-weight: 700; color: #dfeee7; }
+  .statusbar .right { display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 600; }
+
+  /* ---- login panel (cream card) ---- */
+  .panel { margin: 8px 28px 40px; border-radius: 44px; background: #f7f3ea; color: #1c2a22; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.4); }
+  .panel-bar { display: flex; align-items: center; gap: 22px; padding: 40px 44px; background: #a9a59b; }
+  .panel-bar .ico { font-size: 46px; }
+  .panel-bar .title { font-size: 50px; font-weight: 800; letter-spacing: .06em; color: #1c2118; }
+  .panel-bar .win { margin-left: auto; display: flex; gap: 14px; }
+  .panel-bar .win span {
+    width: 92px; height: 64px; border-radius: 999px; border: 2px solid rgba(0,245,160,0.30);
+    background: rgba(0,245,160,0.12); display: flex; align-items: center; justify-content: center;
+    font-size: 38px; color: #2a3a30; font-weight: 600;
+  }
+  .panel-body { padding: 54px 48px 60px; }
+  .label { font-size: 34px; letter-spacing: .34em; color: rgba(40,60,50,0.5); font-weight: 600; }
+  .signed { display: flex; align-items: center; margin-top: 48px; }
+  .signed .k { font-size: 34px; letter-spacing: .18em; color: rgba(40,60,50,0.5); font-weight: 600; }
+  .signed .v { font-size: 38px; font-weight: 800; color: #1c2a22; margin-left: 22px; }
+  .signed .membership {
+    margin-left: auto; padding: 22px 40px; border-radius: 999px;
+    background: #b8b4aa; color: #2a3026; font-size: 32px; font-weight: 700; letter-spacing: .06em;
+  }
+
+  /* the ONE thing that matters: full-width Apple */
+  .apple {
+    margin-top: 52px; width: 100%; height: 150px; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center; gap: 26px;
+    background: linear-gradient(135deg, #00e39a 0%, #00a86d 100%);
+    color: #fff; font-size: 56px; font-weight: 800; letter-spacing: .01em;
+    box-shadow: 0 18px 44px rgba(0,190,120,0.45), inset 0 2px 0 rgba(255,255,255,0.30);
+  }
+  .apple .logo { font-size: 60px; line-height: 0; }
+
+  .logout {
+    margin-top: 44px; width: 100%; height: 132px; border-radius: 999px;
+    border: 2px solid rgba(0,168,109,0.45); background: rgba(0,200,130,0.10);
+    display: flex; align-items: center; justify-content: flex-start; padding-left: 60px;
+    font-size: 44px; font-weight: 800; letter-spacing: .12em; color: #14241c;
+  }
+
+  /* ---- footer ---- */
+  .footer { position: absolute; left: 0; right: 0; bottom: 150px; text-align: center; }
+  .footer .lead { font-size: 50px; font-weight: 800; color: #eafff6; }
+  .footer .plats { margin-top: 22px; font-size: 40px; font-weight: 500; color: rgba(180,210,196,0.7); letter-spacing: .02em; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span>CSS Studio</div>
+    <h1>Sign in.<br><span class="mint">Start creating.</span></h1>
+    <p class="sub">One tap. Your music video,<b>generated by AI in minutes.</b></p>
+
+    <div class="device">
+      <div class="statusbar"><span>9:41</span><span class="right">▲ WiFi 🔋</span></div>
+      <div class="panel">
+        <div class="panel-bar">
+          <span class="ico">🔐</span><span class="title">LOGIN</span>
+          <span class="win"><span>—</span><span>⤢</span><span>×</span></span>
+        </div>
+        <div class="panel-body">
+          <div class="label">SOCIAL LOGIN GATEWAYS</div>
+          <div class="signed"><span class="k">SIGNED IN</span><span class="v">cssstudio.bsky.social</span><span class="membership">MEMBERSHIP</span></div>
+          <div class="apple"><span class="logo"></span><span>Apple</span></div>
+          <div class="logout">LOG OUT</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="lead">Sign in with Apple</div>
+    <div class="plats">Private · one tap · no passwords</div>
+  </div>
+</body>
+</html>

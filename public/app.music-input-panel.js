@@ -382,7 +382,7 @@ function _miInjectStyle() {
     /* CSSOS_WAVE_220A 20260518 v14 — track + thumb. */
     ".msrc-tabbar { display:flex; gap:0; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; -webkit-overflow-scrolling:touch; padding:4px; margin-bottom:12px; background:rgba(0,245,160,0.10); border:1px solid rgba(0,245,160,0.30); border-radius:999px; align-items:stretch; }",
     ".msrc-tabbar::-webkit-scrollbar { display:none; }",
-    ".msrc-tab { flex:1 1 auto; min-width:max-content; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 16px; box-sizing:border-box; border-radius:0; border:0; background:transparent; color:#daffee; cursor:pointer; font:500 12px/1 -apple-system,system-ui,sans-serif; white-space:nowrap; transition: background 180ms ease, color 180ms ease; }",
+    ".msrc-tab { flex:1 1 auto; min-width:max-content; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 16px; box-sizing:border-box; border-radius:0; border:0; background:transparent; color:var(--text); cursor:pointer; font:500 12px/1 -apple-system,system-ui,sans-serif; white-space:nowrap; transition: background 180ms ease, color 180ms ease; }",
     ".msrc-tab.active { border:0 !important; border-left:1px solid rgba(0,245,160,0.30) !important; border-right:1px solid rgba(0,245,160,0.30) !important; border-radius:999px !important; color:var(--text,#fff); font-weight:600; box-shadow:none; }",
     /* v17.1 — inactive curves: ( for before-active, ) for after-active. */
     ".msrc-tabbar > .msrc-tab:has(~ .msrc-tab.active) { border-left:1px solid rgba(0,245,160,0.30) !important; border-radius:999px 0 0 999px !important; }",
@@ -404,10 +404,10 @@ function _miInjectStyle() {
     ".msrc-tab .msrc-tab-icon { font-size:14px; }",
     ".msrc-tab .msrc-tab-badge { font-size:9px; padding:1px 5px; border-radius:4px; background:rgba(255,200,0,0.18); color:#ffc83d; margin-left:2px; }",
     ".msrc-pane { padding:6px 2px; }",
-    ".msrc-pane-title { font-size:13px; font-weight:700; color:#daffee; margin:0 0 6px; }",
+    ".msrc-pane-title { font-size:13px; font-weight:700; color:var(--text); margin:0 0 6px; }",
     ".msrc-pane-hint { font-size:11.5px; opacity:0.72; line-height:1.5; margin:0 0 12px; }",
     ".msrc-file-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }",
-    ".msrc-file-input { flex:1; padding:8px; border-radius:8px; background:rgba(255,255,255,0.04); border:1px dashed rgba(255,255,255,0.22); color:#daffee; font:inherit; cursor:pointer; }",
+    ".msrc-file-input { flex:1; padding:8px; border-radius:8px; background:rgba(255,255,255,0.04); border:1px dashed rgba(255,255,255,0.22); color:var(--text); font:inherit; cursor:pointer; }",
     ".msrc-status { font:500 11.5px/1.5 ui-monospace,monospace; min-height:16px; opacity:0.85; margin-top:4px; }",
     ".msrc-status.ok { color:#00f5a0; }",
     ".msrc-status.err { color:#ff6b6b; }",
@@ -417,20 +417,20 @@ function _miInjectStyle() {
     ".msrc-progress-fill { position:absolute; left:0; top:0; bottom:0; width:0%; border-radius:6px; transition: width 240ms ease, background-color 320ms ease, filter 320ms ease; box-shadow: 0 0 8px currentColor; }",
     ".msrc-progress-fill.indeterminate { animation: msrcShimmer 1.4s linear infinite; background-image: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%); background-size: 60% 100%; background-repeat: no-repeat; }",
     "@keyframes msrcShimmer { 0% { background-position: -60% 0; } 100% { background-position: 160% 0; } }",
-    ".msrc-progress-label { font:600 11px/1.3 ui-monospace,monospace; color:#daffee; opacity:0.9; }",
+    ".msrc-progress-label { font:600 11px/1.3 ui-monospace,monospace; color:var(--text); opacity:0.9; }",
     ".msrc-progress-label .pct { color:#00f5a0; margin-left:6px; }",
     ".msrc-result { margin-top:10px; padding:10px 12px; border-radius:10px; background:rgba(0,245,160,0.06); border:1px solid rgba(0,245,160,0.22); font-size:12px; line-height:1.55; }",
     ".msrc-result .msrc-result-row { display:flex; justify-content:space-between; padding:2px 0; }",
     ".msrc-result .msrc-result-key { opacity:0.7; }",
-    ".msrc-result .msrc-result-val { font-family:ui-monospace,monospace; color:#daffee; }",
+    ".msrc-result .msrc-result-val { font-family:ui-monospace,monospace; color:var(--text); }",
     ".msrc-lyrics-preview { margin-top:8px; max-height:140px; overflow-y:auto; padding:8px; border-radius:6px; background:rgba(0,0,0,0.32); font-family:ui-monospace,monospace; font-size:11px; line-height:1.6; color:#9efbcb; white-space:pre-wrap; }",
-    ".msrc-vision { margin-top:8px; padding:8px; border-radius:6px; background:rgba(0,0,0,0.32); font-size:12px; color:#daffee; line-height:1.55; }",
+    ".msrc-vision { margin-top:8px; padding:8px; border-radius:6px; background:rgba(0,0,0,0.32); font-size:12px; color:var(--text); line-height:1.55; }",
     ".msrc-vision-row { padding:3px 0; }",
     ".msrc-vision-key { font-weight:600; color:#9efbcb; }",
     ".msrc-actions { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }",
     ".msrc-actions button { padding:7px 14px; border-radius:999px; cursor:pointer; font:600 12px/1.2 -apple-system,system-ui,sans-serif; }",
     ".msrc-actions .msrc-btn-apply { background:linear-gradient(135deg,#00f5a0,#00b87a); color:#0a0d12; border:0; font-weight:700; }",
-    ".msrc-actions .msrc-btn-clear { background:transparent; color:#daffee; border:1px solid rgba(255,255,255,0.18); }",
+    ".msrc-actions .msrc-btn-clear { background:transparent; color:var(--text); border:1px solid rgba(255,255,255,0.18); }",
     ".msrc-coming-soon { text-align:center; padding:32px 12px; opacity:0.75; font-size:13px; }",
     ".msrc-clearance-warn { margin-top:10px; padding:8px 10px; border-radius:8px; background:rgba(255,107,107,0.1); border:1px solid rgba(255,107,107,0.32); color:#ff9b9b; font-size:11.5px; line-height:1.5; }",
   ].join("\n");
@@ -464,7 +464,7 @@ function buildMusicSourceUploadCardMarkup() {
     // Wave 111B/C placeholder
     pane = `<div class="msrc-coming-soon">
       <div style="font-size:32px; margin-bottom:8px;">${_miEsc(activeTab.icon)}</div>
-      <div style="font-weight:700; color:#daffee; margin-bottom:6px;">${_miEsc(activeTab.label)}</div>
+      <div style="font-weight:700; color:var(--text); margin-bottom:6px;">${_miEsc(activeTab.label)}</div>
       <div>${_miEsc(activeTab.hint)}</div>
     </div>`;
   } else {
@@ -480,8 +480,8 @@ function buildMusicSourceUploadCardMarkup() {
       ${activeKey === "sheet" ? `
       <div class="msrc-url-row" style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;">
         <input type="url" data-msrc-sheet-url placeholder="${_miEsc(_miTr("…or paste a public HTTPS PDF/image URL (IMSLP, raw GitHub, etc.)", "…或粘贴公开 HTTPS PDF/图片 URL（如 IMSLP、GitHub raw 等）"))}"
-               style="flex:1 1 260px;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#daffee;font-size:13px;" />
-        <button type="button" data-msrc-sheet-url-go style="padding:8px 14px;border-radius:8px;border:1px solid rgba(0,245,160,0.4);background:rgba(0,245,160,0.12);color:#daffee;font-weight:600;cursor:pointer;">${_miEsc(_miTr("Import URL", "导入 URL"))}</button>
+               style="flex:1 1 260px;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:var(--text);font-size:13px;" />
+        <button type="button" data-msrc-sheet-url-go style="padding:8px 14px;border-radius:8px;border:1px solid rgba(0,245,160,0.4);background:rgba(0,245,160,0.12);color:var(--text);font-weight:600;cursor:pointer;">${_miEsc(_miTr("Import URL", "导入 URL"))}</button>
         <span style="font-size:11px;opacity:0.6;flex:1 1 100%;">${_miEsc(_miTr("Tip: you can also paste a screenshot directly (⌘V / Ctrl+V) while this tab is focused.", "提示：聚焦此面板时可直接粘贴截图（⌘V / Ctrl+V）。"))}</span>
       </div>` : ""}
       <div class="msrc-status" data-msrc-status="${_miEsc(activeKey)}">${
@@ -572,9 +572,9 @@ function _miRenderResultBlock(result) {
     // Title chip above the editor — NEVER inside the textarea, so
     // it can't leak to the music engine.
     if (_miTitle) {
-      extra += `<div style="font-size:13px;color:#daffee;font-weight:700;margin-top:8px;">[${_miEsc(_miTitle)}]</div>`;
+      extra += `<div style="font-size:13px;color:var(--text);font-weight:700;margin-top:8px;">[${_miEsc(_miTitle)}]</div>`;
     }
-    extra += `<div style="font:500 11.5px/1.4 ui-monospace,monospace;color:rgba(218,255,238,0.75);margin:6px 0 4px;">
+    extra += `<div style="font:500 11.5px/1.4 ui-monospace,monospace;color:var(--muted);margin:6px 0 4px;">
       ${_miEsc(_miTr(
         "✏️ Edit lyrics below — exact text goes to the music engine. Keep section tags in English brackets like [Verse 1] [Chorus 1] — Suno cannot parse 【第一节】 and will sing the label out loud.",
         "✏️ 下方可编辑歌词 —— 编辑后的文本将原样进入音乐引擎。请保持英文方括号小节标签如 [Verse 1] [Chorus 1] —— Suno 无法解析【第一节】这类中文标签，会被当成歌词唱出来。"
@@ -583,7 +583,7 @@ function _miRenderResultBlock(result) {
     extra += `<textarea class="msrc-lyrics-editor" data-msrc-lyrics-editor="${_miEsc(result._tab || "")}"
       style="width:100%;min-height:240px;max-height:70vh;resize:vertical;
              font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
-             color:#daffee;background:rgba(0,0,0,0.32);
+             color:var(--text);background:rgba(0,0,0,0.32);
              border:1px solid rgba(0,245,160,0.28);border-radius:8px;
              padding:10px 12px;outline:none;white-space:pre;overflow:auto;"
       spellcheck="false"

@@ -411,12 +411,15 @@ const DOCK_ORDER_KEY = "cssos.dockOrder";
 // 真正的固定由 restoreDockOrder() 的 pinFront() 强制, 覆盖任何旧的 localStorage 顺序。
 // CSSOS_WAVE_489 20260529 — Jing「话筒默认在第一位, 不要先渲染别处再飞过去」: mic
 // 提到最前(它是默认激活项, 而激活项跳第一 W487)。加载即在位, 无"飞行"。
-const DOCK_FRONT_PINNED = ["mic", "mv-pipeline", "person-mv", "foryou", "settings"];
+// CSSOS_WAVE_862 20260616 — Jing「请设置'为你创作'面板默认显示在第二个位置, 即: 话筒, 为你创作/人物MV」。
+// 新顺序前三 = 话筒 → 为你创作(foryou) → 人物MV(person-mv)。MV 管线后移(创作仍可一键进, 但 For You
+// 信息流是用户进来第一眼该看到的「欣赏」入口, 紧随话筒)。
+const DOCK_FRONT_PINNED = ["mic", "foryou", "person-mv", "mv-pipeline", "settings"];
 const DOCK_DEFAULT_ORDER = [
   "mic",
-  "mv-pipeline",
+  "foryou",      // 为你创作 — 提到第二位(Jing W862)
   "person-mv",   // 人物MV — 动态注入，restoreDockOrder 会保留位置
-  "foryou",
+  "mv-pipeline",
   "settings",    // 高级设置 — 提到前5
   "works",
   "lyrics",
@@ -31983,8 +31986,60 @@ function restoreDockOrder() {
     const item = current.get(action);
     if (item) dock.appendChild(item);
   });
+  // CSSOS_WAVE_889 — Jing「运营/后台面板黑乎乎、违反宪法、审核员还能点进去」根治: 纯运营/管理面板
+  // (Delivery Reports / Delivery Ops / System MVs / Engines / User-admin / Seller Desk)对【非 admin】隐藏。
+  // 一举三得: ① Apple 审核员(普通账号)看不到这些破面板 → Guideline 4 不再被这些 ding;
+  // ② Dock 大幅瘦身、不拥挤; ③ admin(运营本人)照常可见, 运营能力一点不丢。
+  try {
+    // CSSOS_WAVE_890 — Jing 拍板「10 大核心面板, 其余轻装上阵」: 运营 + 未完成 + 冗余面板全对非 admin 隐藏。
+    // 保留(普通用户可见): mic / mv-pipeline / watch / person-mv / foryou / works / settings / language /
+    //   subscription(账户) / login + notifications + about(标准、干净、Apple 喜欢有"关于")。
+    // 隐藏(仅 admin): 运营 6 个 + workspaces(未完成) + profile(已并进账户)。
+    // CSSOS_WAVE_898 — Jing 定稿 10 大面板: 关于(about)留、通知(notifications)隐藏。其余运营/冗余全隐藏。
+    // 普通用户最终可见: mic / mv-pipeline / watch / person-mv / foryou / works / settings / language /
+    //   subscription(账户) / login + about。其余一律仅 admin。
+    applyAdminDockGateModule();
+  } catch (_eAdminDock) { /* never break the dock on gating */ }
   if (!normalizedStored.length) saveDockOrder();
 }
+
+// CSSOS_WAVE_902 — Jing「普通用户只看 10 面板, 其余仅 admin」根治: 把门禁抽成【独立、随时可重跑】函数,
+// 不再只依赖 restoreDockOrder 那一次时机。直接从 DOM 查 pill(不靠捕获的 map), 默认(未知/非 admin)一律隐藏,
+// 只有确认 isAdminUser() 才显示。init + 每次 auth 变化/登录/登出 + 慢安全网都重应用 → 普通用户绝看不到运营面板。
+// CSSOS_WAVE_903 — Jing 定稿(以表格为准): 非管理员【只看这 10 个】, 其余一律隐藏。改用【白名单】最稳:
+//   新增任何面板都默认对普通用户隐藏, 不会漏。admin 仍看全部。(关于 about 这次也对普通用户隐藏 — 以表为准。)
+// CSSOS_WAVE_904 — Jing: about 加回白名单(普通用户需要"关于/隐私政策"入口, 否则苹果挑"无隐私政策")。
+const DOCK_KEEP_FOR_NONADMIN = new Set([
+  // CSSOS_WAVE_983 — Jing/Apple 5.1.1(v): "profile"(账户面板)必须对普通用户可见, 否则审核员
+  //   找不到【删除账户】= 直接拒。上次 W903 收太紧把它也藏了 → build 26 被拒。加回。
+  "mic", "mv-pipeline", "watch", "person-mv", "foryou", "works", "settings", "language", "login", "subscription", "about", "profile"
+]);
+function applyAdminDockGateModule() {
+  try {
+    if (!(dock instanceof Element)) return;
+    var isAdmin = (typeof isAdminUser === "function") && isAdminUser();
+    dock.querySelectorAll("[data-action]").forEach(function (it) {
+      var act = String(it.getAttribute("data-action") || "").trim();
+      if (!act) return;
+      var keep = isAdmin || DOCK_KEEP_FOR_NONADMIN.has(act);
+      it.style.setProperty("display", keep ? "" : "none", keep ? "" : "important");
+    });
+  } catch (_e) { /* never break the dock */ }
+}
+globalThis.cssosApplyAdminDockGate = applyAdminDockGateModule;
+// 随 auth 变化重应用(登录/登出/会话恢复都会改变 admin 身份)。
+try {
+  ["cssos:auth-changed", "cssos:login", "cssos:logout", "cssos:session-ready"].forEach(function (ev) {
+    document.addEventListener(ev, applyAdminDockGateModule);
+    window.addEventListener(ev, applyAdminDockGateModule);
+  });
+  // 慢安全网: 头 30 秒每 2s 校正一次(覆盖 auth 晚到 / dock 重建), 之后停。
+  var _adminGateTries = 0;
+  var _adminGateIv = setInterval(function () {
+    applyAdminDockGateModule();
+    if (++_adminGateTries > 15) clearInterval(_adminGateIv);
+  }, 2000);
+} catch (_e) {}
 
 function attachDockReorder() {
   if (!(dock instanceof Element)) return;

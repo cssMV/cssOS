@@ -17,7 +17,11 @@
   if (globalThis.__cssosPanelLruInstalled) return;
   globalThis.__cssosPanelLruInstalled = true;
 
-  var MAX_OPEN = 3;   // W795 — 5→3
+  // CSSOS_WAVE_1011 20260619 — Jing: 1→2。严格 1 + "MV 在播则豁免不关"(W1010)会导致点别的面板时
+  // 驱逐不了豁免的 MV → 新面板被盖住"点了不显示"。改 2: 正在播的 MV + 用户点开的那个面板共存(新的在上
+  // 层显示), 开第 3 个再淘汰最旧的非豁免者。仍远小于原 5, 配合 W1000 吸血鬼治理, 内存安全。
+  var MAX_OPEN = 2;   // W999→W1011: 单线程基本只 1 激活, 但留 1 个缓冲位给"MV 在播 + 看另一面板"
+
   var mru = [];            // 面板元素数组, 队首=最近使用
   var evicting = false;    // 防重入
   var rafPending = false;
@@ -41,7 +45,23 @@
     try {
       if (el.hasAttribute("data-lru-keep")) return true;   // 显式豁免(logo 等核心)
     } catch (_e) {}
-    return isPlayingMedia(el);                              // 正在播放媒体 → 豁免
+    if (isPlayingMedia(el)) return true;                   // 面板【内】有媒体在播 → 豁免
+    // CSSOS_WAVE_1010 20260619 — Jing「MV 黑屏只有声音, watch 面板被关」根因: 播放用的
+    // #watch-audio-preview / #watch-video 挂在【body 级】不在面板内 → isPlayingMedia(panel) 查不到
+    // → 单面板 LRU 误判正在播放的 watch/MV 面板空闲 → 一有别的面板动作就驱逐它 → 黑屏+只剩声音
+    // (也是"面板出不来 / 3 首就停"的真因)。修: watch/MV 类面板, 只要 body 级 watch 媒体在播就豁免。
+    try {
+      var id = el.id || "";
+      if (id === "watch-panel" || id === "mv-pipeline-panel" || id === "cssmv-panel" || id === "person-mv-panel") {
+        var a = document.getElementById("watch-audio-preview");
+        var v = document.getElementById("watch-video");
+        if (a && !a.paused && !a.ended && (a.currentTime || 0) > 0) return true;
+        if (v && !v.paused && !v.ended && (v.currentTime || 0) > 0) return true;
+        // 影院模式标记也算"正在用 MV"(刚进影院 audio 可能还没起播)。
+        try { if (document.body && document.body.classList.contains("cssos-cinema-mode")) return true; } catch (_e2) {}
+      }
+    } catch (_e) {}
+    return false;
   }
 
   function touch(el) {

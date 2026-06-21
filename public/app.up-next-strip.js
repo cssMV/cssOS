@@ -44,6 +44,8 @@
     return readNumberSetting("cssos_up_next_lead_seconds", "__cssosUpNextLead", 10);
   }
   function countItems() {
+    // CSSOS_WAVE_894 — Jing: N 秒/N 卡【本就用户自定义】(⚙ 里调 lead_seconds + count), 系统默认 10 卡,
+    //   有人(Jing)偏好 30。撤回 W892 擅改的 5, 恢复默认 10 + 保留自定义(1–40)。
     return Math.max(1, Math.min(40, readNumberSetting("cssos_up_next_count", "__cssosUpNextCount", 10)));
   }
 
@@ -188,9 +190,11 @@
     stripEl.style.cssText =
       "position:fixed;left:0;right:0;bottom:max(18px,env(safe-area-inset-bottom,0px));z-index:2147483645;" +
       "display:flex;justify-content:center;pointer-events:none;" +
-      "background:linear-gradient(to top,rgba(0,0,0,0.34),rgba(0,0,0,0.10) 55%,transparent);" +
+      // CSSOS_WAVE_893 — Jing「去掉 CTA 通栏半透明背景」: 撤掉从下往上的黑色渐变 scrim, 整条透明,
+      //   只靠每张卡自己的淡底, 画面 100% 留给 MV。
       "padding-top:40px;" +
-      "opacity:0;transform:translateY(12px);transition:opacity .35s ease,transform .35s ease;";
+      // CSSOS_WAVE_896 — 更顺的淡入 + 轻微上浮(ease-out 缓动, 16px 起跳)。
+      "opacity:0;transform:translateY(16px);transition:opacity .42s cubic-bezier(.22,.7,.2,1),transform .42s cubic-bezier(.22,.7,.2,1);";
     var bar = document.createElement("div");
     bar.style.cssText =
       "max-width:min(96vw,1400px);padding:10px 14px;border-radius:14px;" +
@@ -198,18 +202,17 @@
       "pointer-events:auto;display:flex;flex-direction:column;gap:6px;";
     var hdr = document.createElement("div");
     hdr.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;";
+    // CSSOS_WAVE_896 — Jing「UP NEXT 缩成极小图标 ▸」: 省掉文字, 更克制未来感。
     var ttl = document.createElement("div");
-    ttl.textContent = tt("Up Next", "即将播放");
-    ttl.style.cssText = "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.78;";
+    ttl.textContent = "▸";
+    ttl.title = tt("Up Next", "即将播放");
+    ttl.style.cssText = "color:rgba(0,245,160,0.85);font:600 13px/1 ui-monospace,monospace;opacity:.8;";
     // CSSOS_WAVE_265 — 倒计时不再放条头, 改放在用户选中的那张卡的徽章上.
     var hdrRight = document.createElement("div");
     hdrRight.style.cssText = "display:flex;align-items:center;gap:10px;";
+    // CSSOS_WAVE_892 — Jing「极简」: 去掉啰嗦的"Tap to queue…"长提示(卡片可点本就自明), 只留 ⚙。
     var hint = document.createElement("div");
-    hint.textContent = tt(
-      "Tap to queue — plays when this song ends",
-      "点击预选 — 当前歌放完自动切，可随时改选"
-    );
-    hint.style.cssText = "color:rgba(218,255,238,0.55);font:400 11px/1 -apple-system,system-ui,sans-serif;";
+    hint.style.cssText = "display:none;";
     hdrRight.appendChild(hint);
     /* CSSOS_UP_NEXT_GEAR 20260506 — tunable lead/count sliders right
      * inside the strip header. Cleaner than threading two new rows
@@ -295,12 +298,16 @@
     card.type = "button";
     card.className = "cssos-up-next-card";
     card.dataset.workId = String(item.id || item.work_id || "");
+    // CSSOS_WAVE_896 — Jing「玻璃片卡」: 不再实色深块, 改 1px 细边 + 极淡半透明填充 + 背景模糊(悬浮光卡感)。
+    //   下一首(index 0)用薄荷强调边/淡薄荷玻璃; 其余中性淡玻璃。和四边框进度光呼应, 未来感。
     card.style.cssText =
       "display:flex;flex-direction:column;align-items:flex-start;gap:6px;flex:0 0 auto;" +
-      "width:140px;padding:6px;border-radius:10px;border:1px solid " +
-      (index === 0 ? "rgba(0,245,160,0.55)" : "rgba(0,245,160,0.18)") + ";" +
-      "background:" + (index === 0 ? "rgba(0,245,160,0.12)" : "rgba(0,0,0,0.32)") + ";" +
-      "color:#daffee;cursor:pointer;text-align:left;transition:transform .12s ease,border-color .12s ease;";
+      "width:140px;padding:6px;border-radius:12px;border:1px solid " +
+      (index === 0 ? "rgba(0,245,160,0.45)" : "rgba(255,255,255,0.14)") + ";" +
+      "background:" + (index === 0 ? "rgba(0,245,160,0.07)" : "rgba(255,255,255,0.05)") + ";" +
+      "-webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);" +
+      "box-shadow:0 4px 18px rgba(0,0,0,0.22),inset 0 1px 0 rgba(255,255,255,0.10);" +
+      "color:#eafff6;cursor:pointer;text-align:left;transition:transform .16s ease,border-color .16s ease,background .16s ease;";
     card.onmouseenter = function () { card.style.transform = "translateY(-2px)"; };
     card.onmouseleave = function () { card.style.transform = ""; };
 
@@ -371,20 +378,8 @@
         "background:rgba(0,245,160,0.85);color:#001b14;font:700 9px/1 ui-monospace,monospace;letter-spacing:.06em;font-variant-numeric:tabular-nums;";
       thumb.appendChild(nextBadge);
     }
-    // CSSOS_WAVE_277 20260521 — Jing: 大号居中倒计时数字, 醒目告诉用户"还有
-    // 几秒切到这张 / 还能改多久主意". 只加在将要播放的那张卡(预选 / 默认
-    // index0); timeUpdate 实时更新. 平时 display:none, 只在 lead 窗口内现身.
-    if (isPreselected || (index === 0 && !preselectedId)) {
-      var bigCd = document.createElement("div");
-      bigCd.className = "cssos-up-next-countdown-big";
-      bigCd.style.cssText =
-        "position:absolute;inset:0;display:none;align-items:center;justify-content:center;" +
-        "font:800 32px/1 ui-monospace,monospace;color:#fff;font-variant-numeric:tabular-nums;" +
-        "text-shadow:0 2px 12px rgba(0,0,0,0.9);" +
-        "background:radial-gradient(circle,rgba(0,0,0,0.5),rgba(0,0,0,0.12));" +
-        "border-radius:8px;pointer-events:none;letter-spacing:.02em;";
-      thumb.appendChild(bigCd);
-    }
+    // CSSOS_WAVE_891 — Jing「右下角那个'0'按钮不知道干什么, 删掉」: 撤掉 W277 的大号居中倒计时数字。
+    // 它在移动端浮成一个莫名的"0"方块(图1/2), 让人困惑, 且属于 CTA 切歌那套(本就要收敛)。整块删除。
     card.appendChild(thumb);
 
     var title = document.createElement("div");
@@ -596,11 +591,45 @@
     if (!listEl) return;
     listEl.innerHTML = "";
     var items = pickNextItems();
-    if (!items.length) {
-      hide();
-      return;
-    }
     items.forEach(function (it, i) { listEl.appendChild(buildCard(it, i)); });
+    // CSSOS_WAVE_841 20260616 — Jing(D 批): "Want an MV like this" 合进 CTA 队列【最后一格】
+    // (作品卡片形态), 不再单独占一行 → CTA 与 Want 不再【同时显示打架】。空队列时也至少有
+    // Want 卡, 所以不再 hide()。独立 #cssos-create-cta 行由 CSS 隐藏(W841)。
+    try { appendWantCard(); } catch (_e) {}
+  }
+
+  // CSSOS_WAVE_841 — Want 卡(CTA 队列最后一格)。点它走通用创作入口。
+  function appendWantCard() {
+    if (!listEl) return;
+    var lc = (typeof globalThis.loginCopy === "function") ? globalThis.loginCopy : function (en) { return en; };
+    var card = document.createElement("button");
+    card.type = "button";
+    card.className = "cssos-up-next-card cssos-up-next-want";
+    // CSSOS_WAVE_845 — Jing「Want 整合到 CTA 最后一格」: position:sticky right:0 让它永远贴在
+    // 横向滚动队列的【最右、始终可见】(否则队列长时它滚出屏外, 用户看不到)。
+    card.style.cssText =
+      "position:sticky;right:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;flex:0 0 auto;" +
+      "width:140px;padding:6px;border-radius:12px;border:1px dashed rgba(0,245,160,0.5);" +
+      // CSSOS_WAVE_896 — 玻璃片(虚线边保留=可创作的暗示), 淡薄荷玻璃 + 模糊, 与其它卡一致。
+      "background:rgba(0,245,160,0.06);-webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);box-shadow:0 4px 18px rgba(0,0,0,0.22),inset 0 1px 0 rgba(255,255,255,0.10);color:#eafff6;cursor:pointer;text-align:center;" +
+      "box-shadow:-12px 0 16px rgba(0,0,0,0.45);transition:transform .12s ease,border-color .12s ease;";
+    card.onmouseenter = function () { card.style.transform = "translateY(-2px)"; };
+    card.onmouseleave = function () { card.style.transform = ""; };
+    card.innerHTML =
+      '<div style="width:100%;aspect-ratio:16/9;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:24px;background:rgba(0,0,0,0.32);">✨</div>' +
+      '<div style="font:600 11px/1.25 -apple-system,system-ui,sans-serif;">' +
+      lc("Want an MV like this?", "也想要这样一支 MV?") + "</div>";
+    card.addEventListener("click", function () {
+      try {
+        if (typeof globalThis.startInPlaceCreation === "function") globalThis.startInPlaceCreation();
+        else if (typeof globalThis.invokeUniversalCreationEntry === "function") globalThis.invokeUniversalCreationEntry();
+        else {
+          var go = document.querySelector("#cssos-create-cta .cssos-create-cta-go, #cssos-create-cta button");
+          if (go) go.click();
+        }
+      } catch (_e) {}
+    });
+    listEl.appendChild(card);
   }
 
   function show() {
@@ -649,8 +678,28 @@
       if (stripEl) {
         var badge = stripEl.querySelector(".cssos-up-next-countdown-badge");
         if (badge && badge.dataset.baseLabel) badge.textContent = badge.dataset.baseLabel + " · " + secs + "s";
+        // CSSOS_WAVE_1058 — Jing「重做 CTA 大号倒计时」: 居中大数字(32px 同原尺寸), 每秒换一个随机色。
+        //   W891 删了旧的(移动端浮成莫名"0"方块); 这版只在结束前 LEAD 秒出现(timeUpdate 门控)、
+        //   居中浮在 up-next 条上、随秒变色, 醒目但不常驻。
         var big = stripEl.querySelector(".cssos-up-next-countdown-big");
-        if (big) { big.textContent = String(secs); big.style.display = "flex"; }
+        if (!big) {
+          if (getComputedStyle(stripEl).position === "static") stripEl.style.position = "relative";
+          big = document.createElement("div");
+          big.className = "cssos-up-next-countdown-big";
+          big.style.cssText =
+            "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none;" +
+            "min-width:1.7em;height:1.7em;display:none;align-items:center;justify-content:center;" +
+            "font:800 32px/1 ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:.02em;" +
+            "border-radius:12px;background:radial-gradient(circle,rgba(0,0,0,0.55),rgba(0,0,0,0.12));" +
+            "text-shadow:0 2px 12px rgba(0,0,0,0.9);transition:color .18s ease;";
+          stripEl.appendChild(big);
+        }
+        if (big.dataset.lastSec !== String(secs)) {        // 每秒(整数变化时)换随机色
+          big.dataset.lastSec = String(secs);
+          big.style.color = "hsl(" + Math.floor(Math.random() * 360) + ",92%,62%)";
+        }
+        big.textContent = String(secs);
+        big.style.display = "flex";
       }
     } else if (remaining > leadSeconds() + 0.5) {
       hide();
@@ -663,12 +712,17 @@
    * whatever the playlist's own auto-advance does (unchanged behavior).
    * Guard against double-fire: `ended` can fire on both the <audio> and
    * <video> for the same track. */
+  // CSSOS_WAVE_895 — 单点切歌锁: 暴露"是否有 CTA 预选"给自动前进路, 让它在预选时让位(CTA 优先)。
+  globalThis.__cssosUpNextHasPreselect = function () { return !!preselectedId; };
   var __lastEndedSwitchAt = 0;
   function endedHandler() {
     var now = Date.now();
     if (now - __lastEndedSwitchAt < 1500) { hide(); return; }
     if (preselectedId) {
       __lastEndedSwitchAt = now;
+      // CSSOS_WAVE_895 — claim 全局切歌锁: 这次 ended 由 CTA 接管, onMediaEnded/queueStructured 全部让位,
+      // 杜绝"CTA 切 A 歌 + 自动前进切 B 歌"同时开火 → 双 bind 竞态 → 后到 flush 清黑新视频。
+      globalThis.__cssosEndedSwitchLock = now;
       var targetId = preselectedId;
       var fallback = preselectedItem;
       // Clear preselect state BEFORE the switch so the new track's
@@ -776,4 +830,17 @@
       releasePreload(); refresh();
     }
   };
+
+  // CSSOS_WAVE_997 20260619 — Jing「端尾 CTA/预选绝不能带进下一首开场」: 切歌时
+  // 彻底重置 up-next —— 清预选 + 释放预载媒体(省内存) + 收起条 + 关倒计时。否则
+  // 上一首结束前预选的「Queued: X」会残留到新歌开头(误触 + 提前耗内存)。end-of-song
+  // 体验只在结束前 LEAD 秒(timeUpdateHandler 门控)出现, 新歌从干净状态开始。
+  try {
+    window.addEventListener("cssos:work-id-changed", function () {
+      preselectedId = null;
+      preselectedItem = null;
+      try { releasePreload(); } catch (_e) {}
+      try { hide(); } catch (_e) {}
+    });
+  } catch (_e) {}
 })();

@@ -2,6 +2,16 @@
 // page from the server (limit=10 &offset=N) and appends. No more full
 // re-fetches with a growing limit cap that eventually hits limit=1000.
 const FORYOU_MARKET_PAGE_SIZE = 10;
+// CSSOS_WAVE_921 20260617 — Jing「App 播几首就退回主界面 = 内存爆满」根治。遥测实锤:
+// OOM 快照 DOM 8897(SPAN3844/DIV2270/STRONG597/A503)≈ 500+ 张 feed 卡片【只增不删】,
+// 越过 crash-probe 自愈阈值(DOM>4500 且在涨)→ location.reload() = 退回主界面。这不是
+// 媒体解码 OOM(vid/aud 数量稳定)。修: 渲染的 feed 卡片数封顶(自动连播用的是独立 playlist,
+// 不靠这些 DOM 卡片, 故连播不受影响; 仅"卡片点击作用域"受限于上限)。原生 App(WKWebView
+// 内存上限更低)封更紧。后端仍可继续分页拉数据进 works 数组(纯对象, 便宜), 只是不全渲染。
+function foryouMarketRenderCap() {
+  try { if (document.documentElement.classList.contains("cssos-app")) return 90; } catch (_e) {}
+  return 200;
+}
 let foryouMarketVisibleCount = FORYOU_MARKET_PAGE_SIZE;
 let latestVisibleMarketWorks = [];
 let foryouMarketAutoPagingBound = false;
@@ -379,6 +389,8 @@ async function loadPublicMarketWorks(force = false) {
 // W353 — fetch the next page and APPEND; called from scroll handler.
 async function loadMoreMarketWorks() {
   if (publicMarketState.loading || publicMarketState.exhausted) return;
+  // CSSOS_WAVE_921 — 已渲染到上限就不再拉更多页(DOM 封顶后再拉也不显示, 白耗网络+内存)。
+  if (publicMarketState.works.length >= foryouMarketRenderCap()) return;
   publicMarketState.loading = true;
   renderForyouMarketplace();
   try {
@@ -403,7 +415,8 @@ async function loadMoreMarketWorks() {
     // non-fatal; user can scroll again
   } finally {
     publicMarketState.loading = false;
-    foryouMarketVisibleCount = publicMarketState.works.length;
+    // CSSOS_WAVE_921 — 渲染卡片数封顶, 防 DOM 爆满→自愈重载→退主界面。
+    foryouMarketVisibleCount = Math.min(publicMarketState.works.length, foryouMarketRenderCap());
     renderForyouMarketplace({ resetVisible: false });
   }
 }
@@ -704,6 +717,9 @@ async function openMarketWorkPreview(work = {}, options = {}) {
    *
    * The UUID in the URL is the single source of truth: that exact work
    * plays, that exact title shows, nothing else. */
+  // CSSOS_WAVE_895 — 单点切歌锁: 任何手点/直接切歌(为你创作/作品中心/搜索/AI/分享)进门即 claim 全局锁,
+  //   2.5s 内撞上的"歌曲 ended 自动前进"一律让位 → 杜绝"手点 A 歌 + 自动前进 B 歌"双 bind 竞态/黑屏。
+  try { globalThis.__cssosEndedSwitchLock = Date.now(); } catch (_lk) {}
   const isShareLink = !!work?.__cssosShareLink;
   const playback = isShareLink
     ? { targetWork: work, queue: null }
@@ -830,6 +846,10 @@ async function openMarketWorkPreview(work = {}, options = {}) {
         if (sibVid) finalMvUrl = sibVid; // borrow primary take's picture
       }
     } catch (_e) { /* sibling-video fallback best-effort */ }
+    // CSSOS_WAVE_919 — 过期守卫(补 W796 漏): 上面 sibling-video 回退有 await, 草稿水合
+    // 分支会写 cssmvPipelineLastResult/pipelineState.title/lyrics(在 976 大守卫之前)。
+    // 快速连切时这是上一首的【残余写】, 会把旧草稿标题/歌词落到当前作品 → 丢弃。
+    if (!__stillCurrent()) return;
     // CSSOS_PHASE2_DRAFT_HYDRATION 20260430 #216 — Jing
     // "找回旧作品的歌词/脚本/音频/视频等完整的作品信息，如果缺少哪项就补上."
     // 498 of the user's saved works are pre-MV-pipeline drafts: they have
@@ -950,6 +970,10 @@ async function openMarketWorkPreview(work = {}, options = {}) {
           }
         } catch (_e) { /* sibling fetch best-effort */ }
       }
+      // CSSOS_WAVE_919 — 过期守卫(补 W796 漏): sibling fetch 是 await, 下面发布
+      // __cssosTakeMeta 在 976 大守卫之前。快速连切时这是上一首的残余, 会让 ♪ 切轨
+      // 胶囊显示上一首的 take 元数据 → 丢弃。
+      if (!__stillCurrent()) return;
       // Publish per-take metadata for the watch take-switcher (B3 full swap).
       try {
         const selfSlides = Array.isArray(targetWork?.cover_slides) && targetWork.cover_slides.length
@@ -1409,38 +1433,60 @@ async function openMarketWorkPreview(work = {}, options = {}) {
     // transient user-activation; without an active gesture, skip native fullscreen
     // (the CSS cinema/immersive layout still applies — on mobile W440 already fills
     // the viewport, so nothing visual is lost).
+    // CSSOS_WAVE_1006 20260619 — Jing「Console: requestFullscreen API can only be initiated by
+    // a user gesture」根因: openMarketWorkPreview 是 async, 走到这里时手势 token 往往已被前面的
+    // await 消耗 / 过期; 旧门控 `!(ua && isActive===false)` 在【userActivation 不存在】或【刚好
+    // 还没翻 false】时误判为"有手势"→ 非手势里发原生 requestFullscreen → 浏览器报错。改为【严格】:
+    // 只有 userActivation 存在且 isActive===true 才发原生全屏; 否则跳过(CSS 影院全屏照样铺满,
+    // 真要原生全屏由右下角沉浸按钮 app-fullscreen-immersive 在手势内触发)。彻底消除该 console 报错。
     var _uaC = (typeof navigator !== "undefined" && navigator.userActivation);
-    var _gestureActive = !(_uaC && _uaC.isActive === false);
-    if (_gestureActive && !isApp314c && !skip && !userOptOut && !document.fullscreenElement
+    var _gestureActive = !!(_uaC && _uaC.isActive === true);
+    // CSSOS_WAVE_935 — Jing「Vision Pro 强制 CSS 全屏(保 DOM 情绪字幕)」: 该自动全屏路径会
+    //   直接对 panel/video 发原生全屏, visionOS 会抽走视频成裸视频。若用户设了 forcecss(?immersive=css)
+    //   则【完全不发原生全屏】, 交给 CSS 全屏(position:fixed 100dvh)→ 整套 DOM 保留。
+    let _forceCssFs = false;
+    try { _forceCssFs = localStorage.getItem("cssos.immersive.forcecss") === "1"; } catch (_e) {}
+    if (_gestureActive && !isApp314c && !skip && !userOptOut && !_forceCssFs && !document.fullscreenElement
         && !document.webkitFullscreenElement) {
+      // CSSOS_WAVE_929 20260617 — Jing 愿景: Apple Vision Pro 的 Immersive 虚拟影院里能
+      //   欣赏/创作/交易/交流, 像桌面真全屏影院。机制: 全屏时只渲染 fullscreenElement 子树 →
+      //   必须对【整个 #watch-panel 容器】发起全屏(里面有视频+字幕+爆字+价格条/交易+下一首,
+      //   AI 助理由 agent-chat W334 重定位进来)。绝不退化到【裸 <video> webkitEnterFullscreen】——
+      //   那会把视频交给系统影院播放器, 只剩视频帧+原生字幕, 我们整套 DOM 交互全被丢弃。
+      //   只有【完全不支持元素级全屏】的设备(iPhone Safari 只有 video.webkitEnterFullscreen)才退化。
+      const panelEl = document.getElementById("watch-panel");
       const frame = document.querySelector("#watch-panel .watch-frame")
         || document.getElementById("watch-frame");
       const videoEl = document.getElementById("watch-video");
-      // Prefer the frame so the title overlay + author avatar come along.
-      // If the frame's request is rejected, try the bare video element
-      // (useful on iOS where webkitEnterFullscreen lives on <video>).
-      const tryFs = (el) => {
+      // 元素级全屏是否可用(iPad / Mac / visionOS = 是; iPhone = 否, 只有 video webkit)。
+      const supportsElementFs = !!(document.documentElement.requestFullscreen
+        || document.documentElement.webkitRequestFullscreen
+        || document.documentElement.mozRequestFullScreen
+        || document.documentElement.msRequestFullscreen);
+      const elementFs = (el) => {
         if (!el) return false;
-        const fn = el.requestFullscreen
-          || el.webkitRequestFullscreen
-          || el.webkitEnterFullscreen
-          || el.mozRequestFullScreen
-          || el.msRequestFullscreen;
+        const fn = el.requestFullscreen || el.webkitRequestFullscreen
+          || el.mozRequestFullScreen || el.msRequestFullscreen;
         if (!fn) return false;
         try {
           const result = fn.call(el);
           if (result && typeof result.catch === "function") {
             result.catch(() => {
-              // First choice failed (often Safari frame-not-allowed).
-              // Fall through to video element on next try.
-              if (el !== videoEl && videoEl) tryFs(videoEl);
+              // 容器被拒 → 退到 watch-frame(仍是容器, 字幕/交互照样在); 仍不行则放弃,
+              //   【绝不】退到裸视频(visionOS 上那会丢掉沉浸交互层)。
+              if (el === panelEl && frame && frame !== panelEl) elementFs(frame);
             });
           }
           return true;
         } catch (_e) { return false; }
       };
-      const ok = tryFs(frame);
-      if (!ok && videoEl) tryFs(videoEl);
+      if (supportsElementFs) {
+        // 整面板优先(欣赏/创作/交易/交流全在内), watch-frame 兜底, 都是容器全屏。
+        if (!elementFs(panelEl)) elementFs(frame);
+      } else if (videoEl && videoEl.webkitEnterFullscreen) {
+        // iPhone 唯一选择: 裸视频系统全屏(无法承载 DOM 字幕, 平台局限)。
+        try { videoEl.webkitEnterFullscreen(); } catch (_e) {}
+      }
     }
   } catch (_fsErr) { /* auto-fullscreen best-effort */ }
 }
@@ -1680,6 +1726,15 @@ function renderForyouMarketplace(options = {}) {
     const tmp = document.createElement("div");
     tmp.innerHTML = buildMarketCardsMarkup(tail);
     while (tmp.firstChild) resultsContainer.appendChild(tmp.firstChild);
+    // CSSOS_WAVE_821 20260616 — Jing「连播+无限滚动 DOM 只增不减 → iOS OOM」: feed 卡片
+    // 此前只 append、从不剔头, resultsContainer 单调膨胀(遥测 DIV=2270/STRONG=597/A=503)。
+    // 滑动窗口封顶: 超过 MAX 就从头部删早已滚过的卡片(信息流本可丢; 滚回去会自然重渲)。
+    try {
+      var __MAX_FEED_CARDS = 120;
+      while (resultsContainer.children.length > __MAX_FEED_CARDS && resultsContainer.firstElementChild) {
+        resultsContainer.removeChild(resultsContainer.firstElementChild);
+      }
+    } catch (_eCap) {}
     const footerNote = list.querySelector(".works-list-footer .works-note");
     if (footerNote) {
       footerNote.textContent = loginCopy(`Showing ${pageWorks.length} of ${works.length} works`);
@@ -2100,7 +2155,7 @@ function buildMarketCardsMarkup(works = []) {
           </div>
           <div class="work-info">
             <div class="work-title" data-market-toggle data-editable-title>${title}</div>
-            <div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.42);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(String(workId).slice(0, 8))}</div>
+            <div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:var(--muted);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(String(workId).slice(0, 8))}</div>
             <div class="work-tags" title="${style}">${style}</div>
             <div class="work-pricing">
               <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}${(Array.isArray(work?.children) && work.children.length >= 2) ? ` × ${work.children.length}` : ""}</span>
@@ -2698,7 +2753,7 @@ function buildWorksCardInfoMarkup(options = {}) {
   return `
     <div class="work-info">
       <div class="work-title" data-work-toggle data-editable-title>${escapeHtml(title)}</div>
-      ${workId ? `<div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.42);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(workId.slice(0, 8))}</div>` : ""}
+      ${workId ? `<div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:var(--muted);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(workId.slice(0, 8))}</div>` : ""}
       <div class="work-tags" title="${escapeHtml((style || loginCopy("Style not set")).replace(/"/g, "&quot;"))}">${escapeHtml(style || loginCopy("Style not set"))}</div>
       ${buildWorksCardPricingMarkup(options)}
     </div>

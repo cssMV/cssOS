@@ -34,7 +34,10 @@
    * Power users (Studio/Enterprise) may raise this via panel settings overlay.
    * If Jing changes this number, update CLAUDE.md Article 8 too.
    */
-  const PANEL_MAX_OPEN = 3;   // W795 — Jing「轻装上阵」: 5→3, 同开更少面板省内存
+  const PANEL_MAX_OPEN = 1;   // W999 — Jing「单线程单面板」: 只允许 1 个激活面板, 开第二个即
+                              // 自动关闭+回收第一个(minimizeToDock→cssos:panelclose→W520 回收媒体
+                              // +lazy-panels 重新 stash 销毁)。根治"For-You 10 + Epic 墙 31 = 41 面板
+                              // 同开 → 内存爆满"。先关闭销毁, 才有下一个。
 
   /**
    * Articles 5 & 6: velocity threshold for fling gestures.
@@ -313,16 +316,12 @@
       const { panel, onTitlebar } = info;
 
       if (dy < 0 && !onTitlebar) {
-        /* ── Article 5: fast upward swipe on panel body → Close ── */
-        // CSSOS_WAVE_731x 20260613 — Jing「上滑热键冲突」: MV(watch)面板里上滑=切下一首(TikTok 式,
-        // app.autoplay-feed.js),绝不能同时触发"上滑关面板"。watch-panel 豁免 Article 5 上滑关闭,
-        // 上滑只切歌。关闭走右上角 ✕ / 下滑标题栏收起即可。
-        if (panel && panel.id === "watch-panel") return;
-        try {
-          (globalThis.minimizeToDock || globalThis.minimizeToDockBridge)?.(panel);
-        } catch (e) {
-          console.warn("[panel-manager] Article 5 close failed", e);
-        }
+        /* ── Article 5: 上滑关闭面板 —— 已取消(CSSOS_WAVE_931) ── */
+        // CSSOS_WAVE_931 20260617 — Jing「取消上滑关闭面板」: 用户只想上滑【查看内容】,
+        // 却被误触成关闭面板。彻底取消上滑关闭 —— 上滑永远只是上滑(滚动/切歌/查看),
+        // 绝不关面板。关闭走右上角 ✕; 收起走标题栏下滑(Article 6)。W731x 的 watch 豁免
+        // 也随之并入(本来就不该关)。
+        return;
       } else if (dy > 0 && onTitlebar) {
         /* ── Article 6: fast downward swipe on titlebar → Minimize ── */
         try {

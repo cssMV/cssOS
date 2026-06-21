@@ -19,20 +19,33 @@
   //   价格条 → 左下信息包 → 多语言/多声线 → CTA(播放结束前的作品卡片队列) → Want(创作引导卡)。
   // 注: CTA = #cssos-up-next-strip(队列卡片,「Tap to queue…」); Want = #cssos-create-cta(「Want an MV like this」)。
   var ORDER = [
-    "#cssos-watch-price-strip",                       // 价格条(最底, 贴 Dock; 最右是 AI 助理)
-    "#watch-subtitle",                                // W763 — 传统普通字幕(在价格条之上)
-    "#watch-panel .watch-screen .cssmv-capsule",      // 左下信息包(Loop list…)
-    "#cssos-lang-fold",                               // 多语言/多声线
+    "#cssos-watch-priceline",                         // W845 — 传统字幕 + 价格条 + AI助理【同一行】(字幕左截断到 Tip)
+    // CSSOS_WAVE_906 — Jing「多语言飘太高」根因之一: 旧 .watch-commerce-actions 仍在列里占一大块空高度,
+    //   把它上面的多语言顶到屏幕中段。它是 W837 早该并入的遗留行 → 移出 ORDER, 不再进底部列(价格已在 priceline)。
+    // "#watch-panel .watch-commerce-actions" — 已移除
+    // W846 — 信息包(.cssmv-capsule)移出底部列, 改去左上头像之后(见 app.watch-control-capsule.js 定位)。
+    // CSSOS_WAVE_862 — Jing「传统字幕/AI助理 和 多语言打架, 不是各自在自己的 div 吗?」根治:
+    //   W854/857 曾把多语言移出本列、改回 absolute(bottom 60px)→ 又回到「大家都绝对定位 = 必打架」老路,
+    //   且 60px 正好落进价格条(App 两行)的竖直跨度 → 与价格条/AI助理行重叠。回归 W760 本意:
+    //   多语言重新【收编为本列子元素】, 排在价格条上方一行, 浏览器 flex 原生排队, 永不重叠。
+    //   (lang-flag-pills.js 同步撤掉自身 absolute 钉死, 本列是唯一定位 owner。)
+    "#cssos-lang-fold",                               // 多语言/多声线(价格条上方一行)
     "#cssos-up-next-strip",                           // CTA — 结束前作品卡片队列(全宽)
     "#cssos-create-cta"                               // Want — 创作引导卡(最上)
   ];
-  // 铺满容器宽的成员(卡片条 + 字幕需居中)。
-  var FULLWIDTH = { "cssos-up-next-strip": 1, "watch-subtitle": 1 };
+  // 铺满容器宽的成员(卡片条 + 价格行需全宽: 字幕 flex:1 占左, 价格条靠右)。
+  var FULLWIDTH = { "cssos-up-next-strip": 1, "cssos-watch-priceline": 1 };
 
   function screenEl() { return document.querySelector("#watch-panel .watch-screen"); }
+  // CSSOS_WAVE_927 20260617 — Jing「iPad Safari 语言条还跑中央」终极根因: bottomflow 原锚
+  //   `.watch-screen`, 而它是 `aspect-ratio:16/9` 信箱盒 —— 原生 App 把它撑满全屏(底=屏底),
+  //   但 iPad Safari 上它居中letterbox、底边在屏幕【中段】→ 锚在它底部的 bottomflow(语言条+
+  //   价格行)就掉到中段。这正是"App 正常、Safari 中央"。改: bottomflow 锚到【全屏的 #watch-panel】
+  //   (始终铺满视口), 底部 = 真正屏底, 与信箱媒体盒无关。W923 的 display 门控也跟着指向新容器。
+  function hostEl() { return document.getElementById("watch-panel") || screenEl(); }
 
   function ensureFlow() {
-    var screen = screenEl();
+    var screen = hostEl();
     if (!screen) return null;
     var f = document.getElementById("cssos-watch-bottomflow");
     if (!f) {
@@ -42,10 +55,13 @@
       // 唯一的绝对定位锚点: 底部居中、坐在 Dock 上方(--cssos-dock-clear 让位), 随之上移。
       f.style.cssText = [
         "position:absolute", "left:8px", "right:8px",   // W762 全宽容器(CTA 卡片条铺开)
-        // W761 — 容器底边贴 Dock 顶(dock-clear), 不加额外边距 → 价格条↔Dock 距离 0(话筒凸起补足)。
-        "bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px))",
+        // CSSOS_WAVE_883 — Jing「价格条距 home 指示条 = 指示条距底边(对称)」。
+        // home 指示条约离底边 8px、自身高 ~5px(顶约离底 13px)。安全区 inset(~34)整段加上去会把价格条
+        // 顶到安全区之上、离指示条一大截。改: inset - 13px(≈指示条顶位)+ 留 8px 对称间隔, 即贴指示条上方
+        // ~8px。无安全区设备(老机/桌面)用 8px 下限兜底。其他行间距 = 5px(gap)。
+        "bottom:calc(var(--cssos-dock-clear,0px) + max(8px, env(safe-area-inset-bottom,0px) - 13px))",
         "display:flex", "flex-direction:column-reverse",
-        "align-items:center", "gap:8px",   // W767 — Jing「应该在底部中间位置」: 各行水平居中(原 flex-start 靠左)
+        "align-items:center", "gap:5px",   // W882 — 各行间距 5px(多语言↔字幕/AI 等)
         "text-align:center",
         "z-index:20",
         "pointer-events:none"   // 容器穿透, 子元素各自 auto
@@ -87,10 +103,90 @@
     }
   }
 
+  // CSSOS_WAVE_845 — Jing「取消传统字幕那一行, 整合到价格条; 传统/价格条/AI助理 同一行」:
+  // 建一个横行 #cssos-watch-priceline = [传统字幕(左, flex:1, 单行截断到 Tip)] [价格条(右)],
+  // 右侧留出 AI 助理 FAB 的位置。字幕不再单独占一行 → 底部少一行。
+  function ensurePriceLine() {
+    var screen = screenEl();
+    if (!screen) return null;
+    var line = document.getElementById("cssos-watch-priceline");
+    if (!line) {
+      line = document.createElement("div");
+      line.id = "cssos-watch-priceline";
+      line.dataset.noFrameToggle = "1";
+      // CSSOS_WAVE_847 — 必须先落进 DOM(screen), 否则 adopt 的 querySelector 取不到游离节点 →
+      // 整行(含价格条/传统字幕)从不被加进底部列 = 三件套行消失。
+      screen.appendChild(line);
+    }
+    var sub = document.getElementById("watch-subtitle");
+    var price = document.getElementById("cssos-watch-price-strip");
+    // CSSOS_WAVE_863 — 三件套常驻: 价格条还没建出来 → 主动催价格条模块渲染一次, 再取。
+    if (!price && typeof globalThis.cssosRenderPriceStrip === "function") {
+      try { globalThis.cssosRenderPriceStrip(); } catch (_e) {}
+      price = document.getElementById("cssos-watch-price-strip");
+    }
+    if (sub && sub.parentNode !== line) line.appendChild(sub);
+    if (price && price.parentNode !== line) line.appendChild(price);
+    // CSSOS_WAVE_881 — Jing 拍板布局(按平台分):
+    //   桌面端 = 三件套【一行】: [传统字幕 左] [价格条 中] [AI助理 右]  → grid 1fr auto 1fr。
+    //   App 端  = 【两行】(窄屏一行塞不下): 上行 [传统字幕(左) ⟷ AI助理(右, FAB 抬高一行落此处)],
+    //            下行 [价格条 独占·居中·不被 AI 遮挡]。价格条在【下】。字幕与 AI 在上行上下居中对齐。
+    //   (之前 W868 误把 App 也压成一行 = 错; 这里回到 Option B。)
+    var isApp = false;
+    try { isApp = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
+    var AI_FAB_H = "42px";
+    // CSSOS_WAVE_1020 20260619 — Jing「小屏里 AI 助理应和传统字幕/价格条【同一行】」: 撤销 W881 的
+    //   窄屏两行布局(那是评估反馈"拥挤"的来源, 也非最初样子)。统一【单行】:
+    //   [传统字幕 左(flex 截断)] [价格条 中] [AI 助理 右(44px 留位, fixed FAB 竖向对齐本行)]。
+    //   窄屏装不下时: 字幕省略号 + 价格条宪法 overflow-x:auto 横滑, 仍一行。桌面/App 一致。
+    // CSSOS_WAVE_1032 20260620 — Jing「价格条请居中」: 旧 minmax(0,1fr) auto 44px 左列撑开把价格挤到右边。
+    //   改【左右对称】minmax(0,1fr) auto minmax(44px,1fr) → 价格条(中列)真正居中, 字幕左、AI 右对称留位。
+    line.style.cssText = "display:grid;grid-template-columns:minmax(0,1fr) auto minmax(44px,1fr);align-items:center;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
+    if (sub) {
+      sub.style.setProperty("min-width", "0", "important");
+      sub.style.setProperty("white-space", "nowrap", "important");
+      sub.style.setProperty("overflow", "hidden", "important");
+      sub.style.setProperty("text-overflow", "ellipsis", "important");
+      sub.style.setProperty("text-align", "left", "important");
+      sub.style.setProperty("position", "static", "important");
+      ["left", "right", "bottom", "top"].forEach(function (p) { sub.style.setProperty(p, "auto", "important"); });
+      sub.style.setProperty("transform", "none", "important");
+      sub.style.setProperty("opacity", "1", "important");
+      sub.style.setProperty("justify-self", "start", "important");
+      sub.style.setProperty("align-self", "center", "important");   // 上下居中, 与 AI 平
+      sub.style.setProperty("grid-row", "1", "important");          // 上行
+      sub.style.setProperty("grid-column", "1", "important");       // 左列(右列 52px 留给 AI FAB)
+      sub.style.setProperty("max-width", "100%", "important");
+      // CSSOS_WAVE_908 — Jing「字幕时有时无, AI 助理跳上跳下」根治: 把传统字幕这行【钉死固定高度 = AI FAB 42px】,
+      //   空内容也不塌、有字也不长高 → alignAgentFab 测到的中心恒定, AI 助理稳定不跳。
+      sub.style.setProperty("height", AI_FAB_H, "important");
+      sub.style.setProperty("min-height", AI_FAB_H, "important");
+      sub.style.setProperty("max-height", AI_FAB_H, "important");
+      sub.style.setProperty("line-height", AI_FAB_H, "important");
+      sub.style.setProperty("display", "block", "important");
+    }
+    if (price) {
+      price.style.setProperty("position", "static", "important");
+      ["left", "right", "bottom", "top"].forEach(function (p) { price.style.setProperty(p, "auto", "important"); });
+      price.style.setProperty("transform", "none", "important");
+      price.style.setProperty("margin", "0", "important");
+      price.style.setProperty("justify-self", "center", "important");
+      price.style.setProperty("align-self", "center", "important");
+      // CSSOS_WAVE_864 — 价格条自适应 + 装不下横滑: min-width:0(可收缩)+ 有界 max-width → 宪法 overflow-x:auto 接管。
+      price.style.setProperty("min-width", "0", "important");
+      // CSSOS_WAVE_1020 — 统一单行: 价格条恒在【中列】, 窄屏靠宪法横滑收纳, 不再下沉成第二行。
+      price.style.setProperty("grid-row", "1", "important");
+      price.style.setProperty("grid-column", "2", "important");
+      price.style.setProperty("max-width", isApp ? "min(58vw, 420px)" : "min(72vw, 640px)", "important");
+    }
+    return line;
+  }
+
   var lastSig = "";
   function adopt() {
     var f = ensureFlow();
     if (!f) return;
+    try { ensurePriceLine(); } catch (_e) {}
     // 收集当前存在的成员(按 ORDER)。
     var els = [];
     for (var i = 0; i < ORDER.length; i++) {
@@ -110,6 +206,26 @@
       els.forEach(function (e) { makeFlowChild(e, false); });
     }
     // 字幕保持自身居中定位, 仅确保不被列遮挡: 它自己的 bottom 由情绪字幕引擎管, 这里不动。
+    try { alignAgentFab(); } catch (_e) {}
+  }
+
+  // CSSOS_WAVE_906 — Jing「传统字幕和 AI 助理不在同一行(同行则 AI 太高)」根治: AI 助理 FAB 是 position:fixed,
+  //   靠固定 +54px 猜位置永远对不齐。改成【实测字幕行的竖直中心, 把 FAB 的竖直中心对齐过去】(仅 App/窄屏)。
+  //   桌面端清掉内联 bottom, 回归 CSS 默认(三件套一行)。内联 !important 压过 W855 的 +54。
+  function alignAgentFab() {
+    var fab = document.getElementById("cssos-agent-fab");
+    if (!fab) return;
+    var isApp = false;
+    try { isApp = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
+    if (!isApp) { fab.style.removeProperty("bottom"); return; }
+    var sub = document.getElementById("watch-subtitle");
+    if (!sub) return;
+    var sr = sub.getBoundingClientRect();
+    if (!sr || !sr.height) return;
+    var fabH = fab.offsetHeight || 42;
+    var subCenterFromBottom = window.innerHeight - (sr.top + sr.height / 2);
+    var bottomPx = Math.max(8, Math.round(subCenterFromBottom - fabH / 2));
+    fab.style.setProperty("bottom", bottomPx + "px", "important");
   }
 
   var rafPending = false;
@@ -118,6 +234,9 @@
     rafPending = true;
     requestAnimationFrame(function () { rafPending = false; adopt(); });
   }
+  // CSSOS_WAVE_870 — Jing「多语言久不久跑到上面」根治: 暴露 schedule 给 lang-flag-pills, 它每次重渲染
+  // /重建 fold 后立刻喊一声 → 同帧 adopt 把 fold 收回底部列, 不再等 2s 安全网(那 2s 窗口 = "跑上面")。
+  globalThis.cssosScheduleBottomFlow = schedule;
 
   function start() {
     // W803 — Jing 审计: 原 300ms forever 定时器与下面的 resize+一堆 cssos 事件+MutationObserver 高度冗余。

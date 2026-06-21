@@ -116,8 +116,23 @@
     }
   }
 
+  // CSSOS_WAVE_860 — Jing「偷油鼠/400 噪音」根治: 没有创作 prompt/词 就【绝不】kick 歌词生成。
+  // 本意是"创作中无标题→自动补歌词得标题", 但浏览/播放【已有作品】时创作输入是空的 → 空打
+  // /api/mv/lyrics(后端 W856 返 400, 标题一直假→无限重试 = 满屏 400 噪音 + 曾经的空烧 KIE)。
+  function hasCreationPrompt() {
+    try {
+      var el = document.getElementById("mvp-prompt");
+      if (el && String(el.value || "").trim()) return true;
+      var s = global.state || {};
+      if (String(s.prompt || (s.songSeed && s.songSeed.prompt) || "").trim()) return true;
+      var lel = document.getElementById("mvp-lyrics");
+      if (lel && String(lel.value || "").trim()) return true;
+    } catch (_e) {}
+    return false;
+  }
   function maybeKickLyrics() {
     if (!isWatchPanelVisible()) return;
+    if (!hasCreationPrompt()) return;   // W860 — 无 prompt/词 → 不 kick(浏览态不空打 lyrics)
     if (Date.now() - _lastKickAt < KICK_COOLDOWN_MS) return;
     if (lyricsAlreadyPending()) return;
     const t = currentTitleText();

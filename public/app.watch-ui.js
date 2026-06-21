@@ -799,6 +799,30 @@ function maybeRenderWatchArtworkSlideshowFrameModule(preferFirst) {
   watchScreenBackdrop?.classList.add(motion);
   watchSvg?.classList.add("is-transitioning");
   watchScreenBackdrop?.classList.add("is-transitioning");
+  // CSSOS_WAVE_818 20260616 — Jing「同一首歌每次幻灯几乎一样」根治(感知层方案 A)。
+  // 实情: 帧池本就小(~5 张, 见 localFrames .slice(0,5))。这里给【每一帧】随机化
+  // 运镜支点 + 节奏 + 轻微色温, 让同一张底图每次播放的缩放焦点/快慢/色调都不同 →
+  // 观感永不重复, 零额外出图成本。仅改 transform-origin / animation-duration /
+  // 【静态】filter(不无限动 filter, 合规 compositor-safe 铁律)。背景层不套 filter
+  // 以保留其原有模糊。
+  try {
+    var _ox = (8 + Math.floor(Math.random() * 84)) + "%";
+    var _oy = (8 + Math.floor(Math.random() * 84)) + "%";
+    var _dur = (6.5 + Math.random() * 6.5).toFixed(1) + "s";          // 6.5–13s 节奏
+    if (watchSvg) {
+      var _hue = (Math.random() * 16 - 8).toFixed(0);                  // ±8°
+      var _sat = (0.93 + Math.random() * 0.18).toFixed(2);            // 0.93–1.11
+      var _bri = (0.96 + Math.random() * 0.10).toFixed(2);            // 0.96–1.06
+      var _con = (0.97 + Math.random() * 0.09).toFixed(2);
+      watchSvg.style.transformOrigin = _ox + " " + _oy;
+      watchSvg.style.animationDuration = _dur;
+      watchSvg.style.filter = "hue-rotate(" + _hue + "deg) saturate(" + _sat + ") brightness(" + _bri + ") contrast(" + _con + ")";
+    }
+    if (watchScreenBackdrop) {
+      watchScreenBackdrop.style.transformOrigin = (100 - parseFloat(_ox)) + "% " + (100 - parseFloat(_oy)) + "%";
+      watchScreenBackdrop.style.animationDuration = _dur;
+    }
+  } catch (_eKB) {}
   showWatchFramePlaceholderModule(next);
   syncWatchMusicArtworkModule();
   return true;
@@ -2324,6 +2348,13 @@ function animateProgressModule() {
   clearInterval(progressTimer);
   ensureWatchProgressRotatorModule();
   progressTimer = setInterval(() => {
+    // CSSOS_WAVE_1001 20260619 — Jing「面板没开/没播放就别工作, 省内存」: watch 面板不可见时,
+    // 这个 420ms 的进度/引擎网格/进度环同步全是【没人看的 DOM 写】→ 直接跳过(timer 本身极廉)。
+    // 面板可见时(播放或生成中)照常工作。单面板 W999 下被盖的 watch 即 .hidden, 自然歇。
+    try {
+      var _wp = document.getElementById("watch-panel");
+      if ((_wp && _wp.classList.contains("hidden")) || document.hidden) return;
+    } catch (_e) {}
     if (engineStates.lyrics === "running" && lyricsProgress) {
       const current = lyricsEl?.textContent?.length || 0;
       const pct = lyricsTargetLength ? Math.min(100, (current / lyricsTargetLength) * 100) : 0;
@@ -5052,6 +5083,12 @@ function applyWatchQueueItemModule(item) {
       }
       // Read source dimensions once available + re-shape watch frame.
       try { applyVideoSourceAspectModule(); } catch (_e) {}
+    } else if (videoEl && !url) {
+      // CSSOS_WAVE_1005 20260619 — Jing「MV 真全屏黑屏没画面」根因: 无视频作品(create_work
+      // 多部曲等, 视频延后生成)走到这里 url 为空 → 上面整个 if 块跳过 → 既不播视频、也不触发
+      // 封面幻灯兜底(它只在 video.play() 失败的 catch 里) → 纯黑。这里显式走封面幻灯兜底:
+      // 拿这首歌的封面铺满, 保证【有画面】(配合 W1001b 幻灯循环 + W1004b 爆字挂进面板)。
+      try { activateVideoBlockedFallbackModule(item, videoEl); } catch (_e) {}
     }
     if (hasAudioElSrc) {
       // Prime + play in the same user-initiated gesture chain (swipe /
@@ -5214,10 +5251,24 @@ async function watchQueueAdvanceModule(direction = +1, _wrapDepth = 0) {
         ? await globalThis.cssosPlaylists.next()
         : await globalThis.cssosPlaylists.prev();
       if (!item) {
+        const mode = globalThis.cssosPlaylists.getMode();
+        // CSSOS_WAVE_820 20260616 — Jing「连播到尽头不循环、停那不动了」根治。
+        // 循环模式(loop_all/loop_single)下 next() 返回 null(活动列表到头/为空)
+        // 绝不死停 —— 强制回到列表头继续循环(用户的核心预期: loop list 到底回头播)。
+        // 只有顺序/倒序才提示到边界。
+        if (mode === "loop_all" || mode === "loop_single") {
+          try {
+            const act = globalThis.cssosPlaylists.getActive && globalThis.cssosPlaylists.getActive();
+            const first = act && Array.isArray(act.items) && act.items.length ? act.items[0] : null;
+            if (first && globalThis.cssosPlaylists.seekTo) {
+              globalThis.cssosPlaylists.seekTo(first.id);
+              applyWatchQueueItemModule(first);
+              return;
+            }
+          } catch (_eLoop) {}
+        }
         if (typeof globalThis.showToast === "function") {
-          const mode = globalThis.cssosPlaylists.getMode();
-          // CSSOS_WAVE_273 20260521 — Jing(P2 i18n): 这些播放期 toast 之前写死,
-          // 中文用户看到英文/混排. 统一走 loginCopy(en, zh) 双语.
+          // CSSOS_WAVE_273 20260521 — Jing(P2 i18n): 播放期 toast 统一双语。
           if (mode === "sequential") globalThis.showToast(loginCopy("End of playlist — switch to loop to keep playing.", "已到列表末尾(顺序播放)。切换到列表循环可继续。"));
           else if (mode === "reverse") globalThis.showToast(loginCopy("Start of playlist (reverse).", "已到列表开头(倒序播放)。"));
           else globalThis.showToast(loginCopy("No playable items in the playlist.", "列表里暂无可播放的作品。"));
@@ -5338,6 +5389,40 @@ function wireWatchQueueAutoAdvanceOnceModule() {
   };
   globalThis.__cssosScheduleAutoAdvanceBackstop = scheduleAutoAdvanceBackstop;
   const onMediaEnded = () => {
+    // CSSOS_WAVE_1057 — 插队优先播: 后台生成的作品在等"当前媒体放完", 此刻优先播它(插队在最前)。
+    //   就绪则播, 没就绪(还没出齐)则让位常规连播, 绝不卡死。
+    try {
+      var _pr = globalThis.cssosPendingPriorityRun;
+      if (_pr) {
+        globalThis.cssosPendingPriorityRun = "";
+        globalThis.cssosBackgroundGenEnqueueOnly = false;
+        globalThis.cssosProtectedAudioSrc = "";
+        globalThis.__cssosEndedSwitchLock = Date.now();   // 占锁, 防其它 ended 抢
+        Promise.resolve(openCurrentGeneratedWatchPlaybackModule({ autoplay: true, preferVideo: true }))
+          .then(function (ok) { if (!ok) void watchQueueAdvanceModule(+1); })
+          .catch(function () { void watchQueueAdvanceModule(+1); });
+        return;
+      }
+    } catch (_prErr) {}
+    // CSSOS_WAVE_895 — 单点切歌锁(根治串台/黑屏): 一次 ended 只允许一路切歌。
+    //   ① CTA 预选时, 让位给 up-next(它会切到预选那首), 自动前进绝不插手 → 不会"CTA 切 A + 自动切 B"。
+    //   ② 否则用 2.5s 全局锁去重: audio/video/structured 多次 ended、以及手点 openMarketWorkPreview 撞 ended,
+    //      只第一个 claim 锁的执行, 其余全部让位 → 永不两个 bind 竞态 → 后到 flush 不再清黑新视频。
+    try {
+      if (typeof globalThis.__cssosUpNextHasPreselect === "function" && globalThis.__cssosUpNextHasPreselect()) {
+        console.warn("[watch-queue] CTA 预选存在 → 自动前进让位(up-next 接管)");
+        return;
+      }
+      // 结构化(歌剧/三部曲多段)队列激活时, 让位给 queueStructuredWatchAdvanceModule(它管段内前进),
+      // 本通用前进不抢锁, 否则会压掉多段播放。
+      try { if (typeof structuredWatchQueueIsActiveModule === "function" && structuredWatchQueueIsActiveModule()) return; } catch (_se) {}
+      var _endNow = Date.now();
+      if (globalThis.__cssosEndedSwitchLock && (_endNow - globalThis.__cssosEndedSwitchLock) < 2500) {
+        console.warn("[watch-queue] 2.5s 内已有切歌 → 本次 ended 去重让位");
+        return;
+      }
+      globalThis.__cssosEndedSwitchLock = _endNow;
+    } catch (_lockErr) {}
     console.warn("[watch-queue] media ended, evaluating advance");
     try {
       const ps = globalThis.cssosMvPipelinePanelState
@@ -6580,7 +6665,24 @@ function wireWatchSwipeOnceModule() {
     wheelLockUntil = now + 600;
   }, { passive: false });
   wireWatchQueueAutoAdvanceOnceModule();
-  void fetchWatchQueueMoreModule();
+  // CSSOS_WAVE_838 20260616 — Jing: 别在每次进平台就偷偷预取播放队列。原本模块加载即
+  // `fetchWatchQueueMoreModule()` → /api/works/mine?limit=500, 用户哪怕没开 MV 面板也白拉
+  // (Jing 早察觉"进平台 MV 面板就在偷偷加载东西")。改为【MV/watch 面板首次真正打开时】才取一次。
+  (function deferWatchQueuePrefetch() {
+    var fired = false;
+    function watchOpen() {
+      var wp = document.getElementById("watch-panel");
+      return !!(wp && !wp.classList.contains("hidden") && wp.style.display !== "none");
+    }
+    function fireOnce() {
+      if (fired || !watchOpen()) return;
+      fired = true;
+      document.removeEventListener("cssos:panelopen", fireOnce, true);
+      try { void fetchWatchQueueMoreModule(); } catch (_e) {}
+    }
+    if (watchOpen()) { fireOnce(); }          // 深链直接进 MV → 立即取
+    else { document.addEventListener("cssos:panelopen", fireOnce, true); }
+  })();
   // CSSOS_PHASE2_PLAYLISTS 20260430 #239 — Jing
   // Inject the playlist mode pill (left side, mirrors the aspect pill
   // on the right). Click cycles modes; right-click opens the list-
@@ -6916,6 +7018,33 @@ function buildMediaActionsModule() {
         return loginCopy(`${r.frameMs / 1000 | 0}s per slide`, `每张 ${r.frameMs / 1000 | 0} 秒`);
       },
     });
+    // CSSOS_WAVE_826 20260616 — Jing「扩池改手动按钮 + 预算上限, 不再后台偷烧」: 一键给当前作品
+    // 多生成 6 张幻灯帧(消耗 KIE 积分, 丰俭由人)。后台自动生成已默认关闭。
+    actions.push({
+      icon: "🖼️",
+      label: loginCopy("Expand frame pool…", "扩展幻灯帧池…"),
+      onClick: async () => {
+        try {
+          const wid = (typeof globalThis.cssosCurrentWorkId === "function") ? globalThis.cssosCurrentWorkId() : "";
+          if (!wid) { globalThis.showToast?.(loginCopy("No work is playing", "当前没有正在播放的作品")); return; }
+          // 丰俭由人: 选本次生成几张(硬上限 30/轮, 消耗 KIE 积分)。
+          const ans = (typeof prompt === "function")
+            ? prompt(loginCopy("How many frames to generate? (1–30, uses credits)", "本次生成几张?(1–30,消耗积分)"), "6")
+            : "6";
+          if (ans == null) return; // 用户取消
+          const count = Math.max(1, Math.min(parseInt(String(ans), 10) || 6, 30));
+          globalThis.showToast?.(loginCopy(`Generating ${count} frames… (uses credits)`, `正在生成 ${count} 张新帧…(消耗积分)`));
+          const r = await fetch(`/api/works/${encodeURIComponent(wid)}/slideshow/generate`, {
+            method: "POST", credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ count }),
+          }).then((x) => x.json()).catch(() => null);
+          globalThis.showToast?.(r && r.ok
+            ? loginCopy("Frame pool expanding — new frames appear shortly", "帧池扩展中,稍后出现新帧")
+            : loginCopy("Could not expand the pool, try again", "扩池失败,请稍后再试"));
+        } catch (_e) {}
+      },
+    });
   }
   // CSSOS_PHASE2_ASPECT_IN_MENU 20260501 #263 — Jing
   // "媒体框左上角，请让用户头像独占，之前的媒体规格的那个按钮，
@@ -7144,6 +7273,9 @@ function activateVideoBlockedFallbackModule(item, videoEl) {
         const stable = cover || pool[0] || "";
         if (stable) globalThis.cssmvSetCoverSlides([stable]);
       }
+      // CSSOS_WAVE_1005 — 必须【启动】幻灯, 否则 cssmvSetCoverSlides 仅在 mvActive 时渲染 →
+      // 无视频作品仍黑屏。显式 start(幂等: 已启动则内部早退)。
+      try { if (typeof globalThis.cssmvStartCoverSlideshow === "function") globalThis.cssmvStartCoverSlideshow({ mv: true, music: false }); } catch (_e2) {}
     }
   } catch (_e) {}
 }
@@ -7539,9 +7671,14 @@ function ensureAuthorAvatarModule() {
   // CSSOS_PHASE2_AVATAR_SOLO 20260501 #263 — Jing
   // "媒体框左上角，请让用户头像独占." Aspect pill moved into the ⋯
   // menu, so the avatar takes the top-left corner alone at top:12px.
+  // CSSOS_WAVE_862 — 基础样式即锁正方(min/max 38px), 不写 left/top 绝对角落: 头像从诞生起就是
+  // 圆形、为「进 For You 胶囊当圆头」准备。styleCircle() 仍会再钉一遍(进 pill 后)。Safari 椭圆根因
+  // 之一 = 旧基础 width/height 40 无 min/max → 进 flex pill 被拉伸; 这里 min/max 锁死防拉伸。
   avatar.style.cssText =
-    "position:absolute;left:12px;top:12px;width:40px;height:40px;" +
-    "border-radius:50%;border:2px solid rgba(255,255,255,0.6);" +
+    "position:absolute;left:12px;top:12px;" +   // 预挂载兜底角落; 进 pill 后 styleCircle 改 static
+    "width:38px;height:38px;min-width:38px;max-width:38px;min-height:38px;max-height:38px;flex:0 0 38px;" +
+    "box-sizing:border-box;" +
+    "border-radius:50%;border:1.5px solid rgba(255,255,255,0.6);" +
     "background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);" +
     "color:#fff;font-size:14px;font-weight:700;cursor:pointer;" +
     "display:flex;align-items:center;justify-content:center;" +
@@ -7604,6 +7741,8 @@ function ensureAuthorAvatarModule() {
           avatar.style.setProperty("background", "hsl(" + h + ",65%,48%)", "important");
         } catch (_e) {}
       }
+      // W854 — 换歌重画头像后, 再上一次圆形(防 background/textContent 改写破坏圆形)。
+      try { if (avatar.__styleCircle) avatar.__styleCircle(); } catch (_e) {}
     } catch (_e) {}
   };
   refresh();
@@ -7641,6 +7780,21 @@ function ensureAuthorAvatarModule() {
         const list = pl._state?.lists?.[newId];
         if (list) list.items = collected;
         pl.setActive(newId);
+        // CSSOS_WAVE_822 — Jing「进入别的用户作品中心 → 连播 TА 的全部作品」: 此前只从
+        // 内存已加载的 feed 收集(不全)。这里异步拉取该创作者全量公开作品补全 scoped 列表,
+        // 先即播(上面内存版), 拉到后 populate 替换为完整目录并保持当前这首的定位。
+        try {
+          fetch("/api/works/by-creator/" + encodeURIComponent(ownerId), { credentials: "include" })
+            .then((r) => r.json())
+            .then((data) => {
+              if (data && data.ok && Array.isArray(data.items) && data.items.length && typeof pl.populate === "function") {
+                const curId = (typeof globalThis.cssosCurrentWorkId === "function") ? globalThis.cssosCurrentWorkId() : "";
+                pl.populate(newId, data.items);
+                if (curId && typeof pl.seekTo === "function") pl.seekTo(curId);
+              }
+            })
+            .catch(() => {});
+        } catch (_eFetch) {}
       } else {
         pl.setActive(listId);
       }
@@ -7939,6 +8093,54 @@ function ensureAuthorAvatarModule() {
   globalThis.__cssosRefreshAuthorAvatar = refresh;
   screen.style.position = screen.style.position || "relative";
   screen.appendChild(avatar);
+  // CSSOS_WAVE_854 — Jing 手绘: 头像在 Loop list 胶囊【里面】(圆形, 文字左边), 不是单独一段/顶头/椭圆。
+  // 头像模块做【唯一所有者】: 把头像移进 #watch-playlist-pill 内最左, 圆形定死(aspect-ratio 防椭圆)。
+  // 带重试(pill 由胶囊 consolidate 异步建)。styleCircle 暴露给 refresh, 换歌重画头像后再上一次圆形。
+  function styleCircle() {
+    try {
+      // CSSOS_WAVE_907 — Jing「隐藏左上 For You pill; 头像/搜索框/关闭同一行」: 头像不再塞进 playlist pill,
+      // 改作【顶部左侧独立工具栏圆头】, 与搜索框(top safe+4)、关闭 ✕(top:12 right:12)同一行。
+      avatar.style.setProperty("position", "absolute", "important");
+      avatar.style.setProperty("left", "12px", "important");
+      avatar.style.setProperty("top", "calc(env(safe-area-inset-top,0px) + 8px)", "important");
+      avatar.style.setProperty("right", "auto", "important");
+      avatar.style.setProperty("bottom", "auto", "important");
+      ["width", "height", "min-width", "max-width", "min-height", "max-height"].forEach(function (p) {
+        avatar.style.setProperty(p, "40px", "important");
+      });
+      avatar.style.setProperty("box-sizing", "border-box", "important");
+      avatar.style.setProperty("border-radius", "50%", "important");
+      avatar.style.setProperty("margin", "0", "important");
+      avatar.style.setProperty("z-index", "61", "important");   // 高于搜索框(60), 保证可点
+      avatar.style.setProperty("transform", "none", "important");
+      avatar.style.setProperty("overflow", "hidden", "important");
+      avatar.style.setProperty("padding", "0", "important");
+      avatar.style.setProperty("border-width", "1.5px", "important");
+      var im = avatar.querySelector("img");
+      if (im) { im.style.setProperty("width", "100%", "important"); im.style.setProperty("height", "100%", "important"); im.style.setProperty("object-fit", "cover", "important"); im.style.setProperty("border-radius", "50%", "important"); }
+    } catch (_e) {}
+  }
+  avatar.__styleCircle = styleCircle;
+  // CSSOS_WAVE_859 — Jing「真的进不去吗?」: 头像还在 For You 胶囊外有缝 = mount 之前 10s 重试窗到期、
+  // 胶囊/pill 还没建出来就放弃了。改用 MutationObserver(不超时, pill 一出现立刻插入)+ 持续守护
+  // (pill 被重建/头像被挪出 → 自动重插)。这是把头像【真正塞进 #watch-playlist-pill】的根治。
+  function mountIntoPill() {
+    // CSSOS_WAVE_907 — Jing「隐藏 For You pill, 头像移到顶部一行」: 不再把头像塞进 playlist pill(已隐藏)。
+    // 头像保持在 .watch-screen 下、作顶部左侧独立工具栏圆头(styleCircle 定绝对定位)。这里只确保它在 screen 内 + 重上样式。
+    try {
+      if (screen && avatar.parentNode !== screen) screen.appendChild(avatar);
+    } catch (_e) {}
+    styleCircle();
+    return true;
+  }
+  avatar.__mountIntoPill = mountIntoPill;
+  mountIntoPill();
+  try {
+    var _mo = new MutationObserver(function () { mountIntoPill(); });
+    _mo.observe(document.getElementById("watch-panel") || document.body, { childList: true, subtree: true });
+  } catch (_e) {
+    var _t = 0, _iv = setInterval(function () { _t++; if (mountIntoPill() && _t > 4 || _t > 80) clearInterval(_iv); }, 250);
+  }
 }
 
 // CSSOS_WAVE_113B1 20260511 — Jing
@@ -8273,17 +8475,46 @@ function showPlaylistSwitcherMenuModule(anchor) {
   const lists = globalThis.cssosPlaylists.lists();
   const active = globalThis.cssosPlaylists.getActive()?.id;
   for (const l of lists) {
+    // CSSOS_WAVE_822d — 一行 = 选择按钮 + (自定义列表)✕ 删除按钮。
+    const rowWrap = document.createElement("div");
+    rowWrap.style.cssText = "display:flex;align-items:center;";
     const row = document.createElement("button");
     row.type = "button";
     row.style.cssText =
-      "display:block;width:100%;text-align:left;padding:8px 14px;" +
+      "flex:1 1 auto;text-align:left;padding:8px 14px;" +
       "background:transparent;border:none;color:inherit;font:inherit;cursor:pointer;";
     row.textContent = `${l.id === active ? "●" : "○"} ${l.name} (${l.count})`;
     row.addEventListener("click", () => {
       globalThis.cssosPlaylists.setActive(l.id);
       menu.remove();
     });
-    menu.appendChild(row);
+    rowWrap.appendChild(row);
+    // CSSOS_WAVE_822c — builtin 列表计数为 0(如 Epic 尚未预取)→ 打开菜单即拉取, 拉到后更新文字。
+    // 不再依赖启动预取时机, 计数永远准。
+    if (l.builtin && (!l.count) && typeof globalThis.cssosPlaylists.refresh === "function") {
+      Promise.resolve(globalThis.cssosPlaylists.refresh(l.id)).then(() => {
+        try {
+          const fresh = (globalThis.cssosPlaylists.lists() || []).find((x) => x.id === l.id);
+          if (fresh && row.isConnected) row.textContent = `${l.id === active ? "●" : "○"} ${fresh.name} (${fresh.count})`;
+        } catch (_e) {}
+      }).catch(() => {});
+    }
+    // CSSOS_WAVE_822d — Jing「进入某用户作品中心播一首 → 以收藏名义出现在这里, 可删除」:
+    // 自定义列表(含 ✨创作者 scoped 列表)挂 ✕ 删除按钮。
+    if (!l.builtin) {
+      const del = document.createElement("button");
+      del.type = "button";
+      del.textContent = "✕";
+      del.title = loginCopy("Remove list", "删除此列表");
+      del.style.cssText = "flex:0 0 auto;padding:8px 12px;background:transparent;border:none;color:rgba(255,120,120,0.85);font:inherit;cursor:pointer;";
+      del.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        try { globalThis.cssosPlaylists.removeCustom(l.id); } catch (_e) {}
+        try { rowWrap.remove(); } catch (_e) {}
+      });
+      rowWrap.appendChild(del);
+    }
+    menu.appendChild(rowWrap);
   }
   // Add custom list
   const sep = document.createElement("div");
@@ -8375,13 +8606,26 @@ function applyWatchFrameOrientationModule() {
     // user-pill override beats both.
     // CSSOS_WAVE_544 — Jing: 若作品已入库画幅(aspect_ratio/分辨率)→ storedAspect 优先,
     // 不再退回设备默认 16:9。仅当既无用户覆盖、无视频真实尺寸、也无入库画幅时才用设备默认。
-    if (!frame.dataset.userOverrodeAspect && !frame.dataset.sourceAspect && !frame.dataset.storedAspect) {
-      __cssosAspectIdx = isPortraitDevice ? 1 : 0;
-      const a = __cssosAspectCycle[__cssosAspectIdx];
-      frame.style.aspectRatio = a.css;
-      frame.style.maxHeight = isPortraitDevice ? "85vh" : "65vh";
-      frame.dataset.orientation = isPortraitDevice ? "portrait" : "landscape";
-      frame.dataset.aspect = a.id;
+    // CSSOS_WAVE_1015 20260619 — Jing「全变 16:9/9:16, 要桌面 2.39:1 / App device-fit」根治:
+    //   视口规则现在是【唯一权威】,只有用户手动改画幅(transform pill)才让位。不再因为
+    //   源视频真实尺寸(多半 16:9)或入库画幅就把画框改回 16:9/9:16 —— 那两条覆盖已停用
+    //   (applyVideoSourceAspectModule / applyStoredWorkAspectModule 改为重跑本规则)。
+    //   源画面一律 object-fit:cover 裁切填充到目标画框。
+    if (!frame.dataset.userOverrodeAspect) {
+      // 横屏/桌面 = 超宽电影 2.39:1;竖屏/App = 适配屏幕(填满,device-fit)。
+      if (isPortraitDevice) {
+        frame.style.aspectRatio = "";          // 竖屏: 适配/填满设备屏幕
+        frame.style.maxHeight = "";
+        frame.dataset.orientation = "portrait";
+        frame.dataset.aspect = "fit";
+        __cssosAspectIdx = 1;
+      } else {
+        frame.style.aspectRatio = "2.39 / 1";  // 横屏: 超宽电影格式
+        frame.style.maxHeight = "65vh";
+        frame.dataset.orientation = "ultra-wide";
+        frame.dataset.aspect = "2.39x1";
+        __cssosAspectIdx = 0;
+      }
     }
     const videoEl = document.getElementById("watch-video");
     if (videoEl) {
@@ -8403,41 +8647,17 @@ function applyVideoSourceAspectModule() {
     const frame = document.querySelector("#watch-panel .watch-frame");
     const videoEl = document.getElementById("watch-video");
     if (!frame || !videoEl) return;
+    // CSSOS_WAVE_1015 20260619 — Jing: 不再用视频真实尺寸改画框(那是"全变 16:9"的真凶)。
+    //   画框比例由视口规则决定(桌面 2.39:1 / App device-fit),源画面用 object-fit:cover 裁切填充。
     const apply = () => {
       const w = Number(videoEl.videoWidth || 0);
       const h = Number(videoEl.videoHeight || 0);
       if (w < 8 || h < 8) return;
       if (frame.dataset.userOverrodeAspect) return;
-      // Tag with the source's dimensions so the orientation-change
-      // listener (matchMedia) doesn't overwrite back to 16:9 on the
-      // next phone-rotate / window-resize.
-      frame.style.aspectRatio = `${w} / ${h}`;
-      frame.dataset.sourceAspect = `${w}x${h}`;
-      // Cap height differently for ultra-wide vs standard so the user
-      // can actually see super-wide MVs without horizontal scrolling.
-      const ratio = w / h;
-      if (ratio >= 2.6) {
-        // 32:9 / 21:9 — go wider, shorter.
-        frame.style.maxHeight = "55vh";
-        frame.dataset.orientation = "ultra-wide";
-        frame.dataset.aspect = ratio >= 3.4 ? "32x9" : "21x9";
-      } else if (ratio >= 1.5) {
-        frame.style.maxHeight = "65vh";
-        frame.dataset.orientation = "landscape";
-        frame.dataset.aspect = "16x9";
-      } else if (ratio >= 0.95 && ratio <= 1.05) {
-        frame.style.maxHeight = "75vh";
-        frame.dataset.orientation = "square";
-        frame.dataset.aspect = "1x1";
-      } else {
-        frame.style.maxHeight = "85vh";
-        frame.dataset.orientation = "portrait";
-        frame.dataset.aspect = "9x16";
-      }
-      console.warn(
-        "[watch-aspect] source dims %dx%d (ratio %s) — frame aspect-ratio set",
-        w, h, ratio.toFixed(2)
-      );
+      videoEl.style.objectFit = "cover";
+      videoEl.style.width = "100%";
+      videoEl.style.height = "100%";
+      try { applyWatchFrameOrientationModule(); } catch (_e) {}  // 重跑视口规则, 不跟随源比例
     };
     if (videoEl.readyState >= 1) apply();
     else videoEl.addEventListener("loadedmetadata", apply, { once: true });
@@ -8449,36 +8669,14 @@ function applyVideoSourceAspectModule() {
 // 现已入库, 这里在【加载作品时】用入库画幅设定 watch-frame 比例, 让纯音频幻灯作品也能正确显示
 // 真实比例(不再退回设备默认 16:9)。视频作品的真实尺寸 loadedmetadata 仍会进一步精修(更准)。
 function applyStoredWorkAspectModule(work) {
+  // CSSOS_WAVE_1015 20260619 — Jing「显示画幅按视口固定, 别跟随入库/源比例」: 不再用入库
+  //   aspect_ratio/frame_width/height 改画框(那会让横屏退回 16:9、竖屏 9:16)。画框统一由
+  //   视口规则决定(桌面 2.39:1 / App device-fit), 源画面 object-fit:cover 裁切填充。
+  //   保留函数签名(多处调用), 改为重跑视口规则。用户手动改画幅(transform pill)仍优先。
   try {
-    if (!work || typeof work !== "object") return;
     const frame = document.querySelector("#watch-panel .watch-frame");
-    if (!frame) return;
-    if (frame.dataset.userOverrodeAspect) return; // 用户手动覆盖优先
-    var w = Number(work.frame_width || 0);
-    var h = Number(work.frame_height || 0);
-    var ratio = 0;
-    if (w >= 8 && h >= 8) {
-      ratio = w / h;
-    } else {
-      // 从 aspect_ratio 字符串解析: "2.39:1" / "16:9" / "9:16" / "1:1"
-      var ar = String(work.aspect_ratio || "").trim();
-      var m = ar.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*[:x\/]\s*([0-9]+(?:\.[0-9]+)?)\s*$/i);
-      if (m) {
-        var a = parseFloat(m[1]), b = parseFloat(m[2]);
-        if (a > 0 && b > 0) ratio = a / b;
-      } else if (/anamorphic|ultra|2\.39/i.test(ar)) {
-        ratio = 2.39;
-      }
-    }
-    if (!(ratio > 0)) return;
-    frame.style.aspectRatio = (w >= 8 && h >= 8) ? `${w} / ${h}` : `${ratio.toFixed(4)} / 1`;
-    frame.dataset.storedAspect = (w >= 8 && h >= 8) ? `${w}x${h}` : `r${ratio.toFixed(3)}`;
-    var orient = String(work.orientation || "").trim().toLowerCase();
-    if (ratio >= 2.2) { frame.style.maxHeight = "55vh"; orient = orient || "ultra-wide"; frame.dataset.aspect = ratio >= 3.4 ? "32x9" : (ratio >= 2.2 ? "2.39x1" : "21x9"); }
-    else if (ratio >= 1.5) { frame.style.maxHeight = "65vh"; orient = orient || "landscape"; frame.dataset.aspect = "16x9"; }
-    else if (ratio >= 0.95 && ratio <= 1.05) { frame.style.maxHeight = "75vh"; orient = orient || "square"; frame.dataset.aspect = "1x1"; }
-    else { frame.style.maxHeight = "85vh"; orient = orient || "portrait"; frame.dataset.aspect = "9x16"; }
-    frame.dataset.orientation = orient;
+    if (!frame || frame.dataset.userOverrodeAspect) return;
+    applyWatchFrameOrientationModule();
   } catch (_e) {}
 }
 globalThis.applyStoredWorkAspectModule = applyStoredWorkAspectModule;
@@ -9656,6 +9854,13 @@ function structuredWatchQueueIsActiveModule() {
 let structuredWatchQueueAdvancePending = false;
 
 function queueStructuredWatchAdvanceModule() {
+  // CSSOS_WAVE_895 — 单点切歌锁: CTA 预选时让位; 2.5s 内已有切歌则去重让位(防与 onMediaEnded/手点撞车)。
+  try {
+    if (typeof globalThis.__cssosUpNextHasPreselect === "function" && globalThis.__cssosUpNextHasPreselect()) return;
+    var _qsNow = Date.now();
+    if (globalThis.__cssosEndedSwitchLock && (_qsNow - globalThis.__cssosEndedSwitchLock) < 2500) return;
+    globalThis.__cssosEndedSwitchLock = _qsNow;
+  } catch (_qsLockErr) {}
   if (structuredWatchQueueAdvancePending || !structuredWatchQueueIsActiveModule()) return;
   structuredWatchQueueAdvancePending = true;
   window.setTimeout(async () => {
@@ -9816,6 +10021,26 @@ async function openCurrentGeneratedWatchPlaybackModule({ autoplay = true, prefer
   const candidateRunId = String(
     currentWatchAudioRunId || pendingFinalAudioRunId || activePipelineRunId || currentWatchPreviewWork?.source_run_id || ""
   ).trim();
+  // CSSOS_WAVE_1057 — 后台代次防抢播: 用户正在听【别的作品】时, 这次生成的作品不抢播,
+  //   而是插队进优先队列(cssosPendingPriorityRun), 等当前媒体放完由 onMediaEnded 顶部钩子优先播。
+  //   仅当 enqueue-only 标记在 + 被保护的音频仍在播 时拦截; 否则解除标记走正常逻辑(冷启动不受影响)。
+  if (globalThis.cssosBackgroundGenEnqueueOnly) {
+    const _au = watchAudioPreview;
+    const _cur = _au ? String(_au.currentSrc || _au.src || "") : "";
+    const _stillProtected = !!(_au && !_au.paused && _cur && _cur === String(globalThis.cssosProtectedAudioSrc || ""));
+    if (_stillProtected) {
+      if (candidateRunId) globalThis.cssosPendingPriorityRun = candidateRunId;
+      try {
+        document.dispatchEvent(new CustomEvent("cssos:cinema-queue", { detail: {
+          runId: candidateRunId, priority: true,
+          title: String(state.songSeed?.title || state.title || "").trim(),
+        }}));
+      } catch (_e) {}
+      console.warn("[watch-queue] 后台新作品插队 up-next, 当前媒体放完再优先播(不抢播)");
+      return false;
+    }
+    globalThis.cssosBackgroundGenEnqueueOnly = false;
+  }
   if (candidateRunId) {
     // Hydrate the full Watch surface (video/cover/title) from the run's
     // pipeline status payload BEFORE we attempt audio attach, so the panel
@@ -10171,6 +10396,11 @@ function initWatchMusicControlsModule() {
   syncWatchMusicStateModule();
   if (!watchProgressRotatorTimer) {
     watchProgressRotatorTimer = window.setInterval(() => {
+      // CSSOS_WAVE_1001 — watch 面板不可见时不旋转进度环(没人看的 DOM/CSS 写), 省内存。
+      try {
+        var _wp = document.getElementById("watch-panel");
+        if ((_wp && _wp.classList.contains("hidden")) || document.hidden) return;
+      } catch (_e) {}
       syncWatchProgressRotatorModule();
     }, WATCH_PROGRESS_ROTATE_MS);
   }
@@ -10965,9 +11195,9 @@ function startWatchFrameLoopModule(frames) {
     }
     if (idx !== lastIndex) { lastIndex = idx; watchSvg.src = frames[idx]; }
   };
-  // 400ms cadence keeps frame changes punctual on short tracks without thrashing
-  // src (we only swap when the computed index actually changes).
-  globalThis.watchFrameLoopTimer = setInterval(tick, 400);
+  // CSSOS_WAVE_924 — Jing「轻装上阵」: 帧轮播 400ms→850ms(省 ~53% 空转)。W818 每帧随机运镜/
+  // 节奏让单帧足够耐看, 不需 400ms 那么急; 仍只在 index 真变化才换 src, 短曲也够准。
+  globalThis.watchFrameLoopTimer = setInterval(tick, 850);
   return true;
 }
 

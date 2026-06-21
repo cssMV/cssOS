@@ -540,7 +540,20 @@ scheduleNonCriticalBoot(() => {
         try {
           var _mobile = (window.matchMedia && window.matchMedia("(max-width: 820px)").matches)
             || document.documentElement.classList.contains("cssos-app");
-          if (_mobile) return;
+          if (_mobile) {
+            // CSSOS_WAVE_1026 20260620 — Jing「iPad/App/竖屏不弹 Watch MV 提示, 要都有」: W490h 曾在
+            //   移动/App【彻底禁用】1.5s 自动触发以止"登录后秒崩"——但崩溃源是 backdrop-filter(W490g
+            //   已修)+ 直接开重影院。提示框本身是轻量 div(无模糊), 只在用户点[欣赏 MV]才以手势开影院
+            //   → 安全。这里【只弹轻量提示】, 绝不在启动自动开重影院。尊重 never 偏好 + 分享深链优先。
+            setTimeout(function () {
+              try {
+                if (globalThis.__cssosShareLinkActive === true || globalThis.__cssosShareLinkWorkId) return;
+                if (globalThis.cssosReadAutoEnterMvPref && globalThis.cssosReadAutoEnterMvPref() === "never") return;
+                if (typeof globalThis.cssosShowAutoEnterPrompt === "function") globalThis.cssosShowAutoEnterPrompt();
+              } catch (_e) {}
+            }, 1500);
+            return;
+          }
         } catch (_e) {}
         setTimeout(() => { try { globalThis.cssosAutoOpenWatchFeed?.(); } catch (_e) {} }, 1500);
       },

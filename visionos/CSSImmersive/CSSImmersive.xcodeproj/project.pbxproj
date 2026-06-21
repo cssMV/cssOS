@@ -1,0 +1,414 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1C5F86CE3478660C4B369C30 /* AIAssistantPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_3F9282DD-0790-4B30-8663-3250C44C3446" /* AIAssistantPanel.swift */; };
+		21220B65ABDA35075EFB8C3D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1DC83B92-9F10-4DF1-B012-3A8A061E6139" /* ContentView.swift */; };
+		224ECF3D3B764EEB854BBDA9 /* FuturePhases.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_37C224C6-9559-4EE6-AA48-79FD77872E04" /* FuturePhases.swift */; };
+		25CB37857D674A3E405D36CC /* CSSPayments.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_0FA60A8A-F9C2-49D3-B95D-E65D66BDF729" /* CSSPayments.swift */; };
+		396FC0DCEBDA8BC679AB1B70 /* CSSAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_59A9BF4A-D88A-4C1C-87ED-76C57214DCD3" /* CSSAppIntents.swift */; };
+		4EFF3D903C8047FB5926772B /* CathedralFX.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_2EBA4EB8-7C91-4CC2-A0D5-CFAAB6C3975D" /* CathedralFX.swift */; };
+		562EBEE9B9918D46802DC5C4 /* ImmersiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_94E9C760-EC6B-47F1-B734-9BFBFC16FC53" /* ImmersiveView.swift */; };
+		57CCDDBBEFA636DC7557B4EA /* MeshPetal3D.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_75FD8C32-B22E-4FFC-9779-4EFB41DCAAE5" /* MeshPetal3D.swift */; };
+		667A831CD92B5B949134E9E9 /* ImmersiveScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_417FFD55-AC36-426B-B6B9-D1BE9F108971" /* ImmersiveScene.swift */; };
+		6F1473B3577411F9084C34E6 /* CreationOrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_D6FD2182-5323-41A2-9C2C-73CB56E92045" /* CreationOrbView.swift */; };
+		A0B1C2D3E4F5061728394A5B /* GateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_GATEVIEW-0000-0000-0000-000000000001" /* GateView.swift */; };
+		B1C2D3E4F5061728394A5B6C /* GateRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_GATEROUTER-0000-0000-0000-000000000002" /* GateRouter.swift */; };
+		73E26C62CA2A120E8D751212 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E02FD07F4CB126DC80F00491 /* Assets.xcassets */; };
+		77E18880D9A1C1773B13E2E8 /* SignInOrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_CBBF7C82-2E05-40EE-91F9-502F14DBC774" /* SignInOrbView.swift */; };
+		791B9EECBAF8BAFE84BC21F8 /* SpatialTip.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F78D2ECF-FE9E-4440-AD3C-CDB57BB0C63F" /* SpatialTip.swift */; };
+		8937CFEBDFF1695CEDEE0C68 /* CathedralSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_403E277D-411B-480D-97EB-4718ED667417" /* CathedralSettings.swift */; };
+		94871ADD8DD4AD3AC3737DE0 /* VoiceInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F9A44166-5C7D-4B9C-B413-C1BD55A74BE2" /* VoiceInput.swift */; };
+		B9FFAB6B035DA1FE74D134C7 /* CSSImmersiveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_4EE3A894-4951-48D2-9367-03971EC0EFCE" /* CSSImmersiveApp.swift */; };
+		BE70D6E8CC1E9B4CE1963497 /* MagicMirrorOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_CB3A65BC-55F8-4E5C-97CD-57260C835A45" /* MagicMirrorOrb.swift */; };
+		C6905D74D4D4623BC470455A /* CSSBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_3648AFD3-F59E-48E1-AA47-C10E67D3BBB9" /* CSSBackend.swift */; };
+		C6965E1D8FDF0C6F5300751C /* SharePlayCathedral.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_EA3CD1EF-03AD-4E52-80F5-FD3A927B8672" /* SharePlayCathedral.swift */; };
+		CC07FF6F697E39907A2954F6 /* SpatialSubtitleSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_CD13BF44-0A74-42BC-B0FF-246E065BFE89" /* SpatialSubtitleSystem.swift */; };
+		D22A6E37ECA496152986B595 /* LobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_AA258F3B-79D9-4E75-83C6-181AE7C47641" /* LobbyView.swift */; };
+		D4554B0968B625D8E2E8A3F8 /* Loc.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_B688D967-6116-4EAA-8812-1C4B4FCC2E2D" /* Loc.swift */; };
+		DCF1AA7390B8DBF02BE23AEB /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F0D050E0-AE63-425C-B4FB-A195DAC75166" /* Models.swift */; };
+		E1FC2967CFDBFD78C85A270B /* PlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_6CBA99AE-00BF-4210-A243-1E1EFA5DA67E" /* PlayerController.swift */; };
+		E209D83CCC5C92D6604DF159 /* CSSAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_2C10E964-5696-40CB-85ED-ECCA56C58328" /* CSSAuth.swift */; };
+		F9AD821E7E628DABF79AB216 /* ControlsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_C60F4104-2DC2-49D5-8E3B-AEA3CAFE9AE8" /* ControlsPanel.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		D23DE4578431DF603D2F16C8 /* CSSImmersive.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CSSImmersive.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E02FD07F4CB126DC80F00491 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		"TEMP_0FA60A8A-F9C2-49D3-B95D-E65D66BDF729" /* CSSPayments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSPayments.swift; sourceTree = "<group>"; };
+		"TEMP_1DC83B92-9F10-4DF1-B012-3A8A061E6139" /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		"TEMP_2C10E964-5696-40CB-85ED-ECCA56C58328" /* CSSAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSAuth.swift; sourceTree = "<group>"; };
+		"TEMP_2EBA4EB8-7C91-4CC2-A0D5-CFAAB6C3975D" /* CathedralFX.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CathedralFX.swift; sourceTree = "<group>"; };
+		"TEMP_3648AFD3-F59E-48E1-AA47-C10E67D3BBB9" /* CSSBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSBackend.swift; sourceTree = "<group>"; };
+		"TEMP_37C224C6-9559-4EE6-AA48-79FD77872E04" /* FuturePhases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuturePhases.swift; sourceTree = "<group>"; };
+		"TEMP_3F9282DD-0790-4B30-8663-3250C44C3446" /* AIAssistantPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantPanel.swift; sourceTree = "<group>"; };
+		"TEMP_403E277D-411B-480D-97EB-4718ED667417" /* CathedralSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CathedralSettings.swift; sourceTree = "<group>"; };
+		"TEMP_417FFD55-AC36-426B-B6B9-D1BE9F108971" /* ImmersiveScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveScene.swift; sourceTree = "<group>"; };
+		"TEMP_4EE3A894-4951-48D2-9367-03971EC0EFCE" /* CSSImmersiveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSImmersiveApp.swift; sourceTree = "<group>"; };
+		"TEMP_59A9BF4A-D88A-4C1C-87ED-76C57214DCD3" /* CSSAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSAppIntents.swift; sourceTree = "<group>"; };
+		"TEMP_6CBA99AE-00BF-4210-A243-1E1EFA5DA67E" /* PlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerController.swift; sourceTree = "<group>"; };
+		"TEMP_75FD8C32-B22E-4FFC-9779-4EFB41DCAAE5" /* MeshPetal3D.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshPetal3D.swift; sourceTree = "<group>"; };
+		"TEMP_94E9C760-EC6B-47F1-B734-9BFBFC16FC53" /* ImmersiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveView.swift; sourceTree = "<group>"; };
+		"TEMP_AA258F3B-79D9-4E75-83C6-181AE7C47641" /* LobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyView.swift; sourceTree = "<group>"; };
+		"TEMP_B688D967-6116-4EAA-8812-1C4B4FCC2E2D" /* Loc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Loc.swift; sourceTree = "<group>"; };
+		"TEMP_C60F4104-2DC2-49D5-8E3B-AEA3CAFE9AE8" /* ControlsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlsPanel.swift; sourceTree = "<group>"; };
+		"TEMP_CB3A65BC-55F8-4E5C-97CD-57260C835A45" /* MagicMirrorOrb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MagicMirrorOrb.swift; sourceTree = "<group>"; };
+		"TEMP_GATEVIEW-0000-0000-0000-000000000001" /* GateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GateView.swift; sourceTree = "<group>"; };
+		"TEMP_GATEROUTER-0000-0000-0000-000000000002" /* GateRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GateRouter.swift; sourceTree = "<group>"; };
+		"TEMP_CBBF7C82-2E05-40EE-91F9-502F14DBC774" /* SignInOrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInOrbView.swift; sourceTree = "<group>"; };
+		"TEMP_CD13BF44-0A74-42BC-B0FF-246E065BFE89" /* SpatialSubtitleSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialSubtitleSystem.swift; sourceTree = "<group>"; };
+		"TEMP_D6FD2182-5323-41A2-9C2C-73CB56E92045" /* CreationOrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreationOrbView.swift; sourceTree = "<group>"; };
+		"TEMP_EA3CD1EF-03AD-4E52-80F5-FD3A927B8672" /* SharePlayCathedral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePlayCathedral.swift; sourceTree = "<group>"; };
+		"TEMP_F0D050E0-AE63-425C-B4FB-A195DAC75166" /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		"TEMP_F78D2ECF-FE9E-4440-AD3C-CDB57BB0C63F" /* SpatialTip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTip.swift; sourceTree = "<group>"; };
+		"TEMP_F9A44166-5C7D-4B9C-B413-C1BD55A74BE2" /* VoiceInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInput.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		3FE8CFDB2FE76C95002F6649 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_3F9282DD-0790-4B30-8663-3250C44C3446" /* AIAssistantPanel.swift */,
+				"TEMP_59A9BF4A-D88A-4C1C-87ED-76C57214DCD3" /* CSSAppIntents.swift */,
+				"TEMP_2C10E964-5696-40CB-85ED-ECCA56C58328" /* CSSAuth.swift */,
+				"TEMP_3648AFD3-F59E-48E1-AA47-C10E67D3BBB9" /* CSSBackend.swift */,
+				"TEMP_4EE3A894-4951-48D2-9367-03971EC0EFCE" /* CSSImmersiveApp.swift */,
+				"TEMP_0FA60A8A-F9C2-49D3-B95D-E65D66BDF729" /* CSSPayments.swift */,
+				"TEMP_2EBA4EB8-7C91-4CC2-A0D5-CFAAB6C3975D" /* CathedralFX.swift */,
+				"TEMP_403E277D-411B-480D-97EB-4718ED667417" /* CathedralSettings.swift */,
+				"TEMP_1DC83B92-9F10-4DF1-B012-3A8A061E6139" /* ContentView.swift */,
+				"TEMP_C60F4104-2DC2-49D5-8E3B-AEA3CAFE9AE8" /* ControlsPanel.swift */,
+				"TEMP_D6FD2182-5323-41A2-9C2C-73CB56E92045" /* CreationOrbView.swift */,
+				"TEMP_37C224C6-9559-4EE6-AA48-79FD77872E04" /* FuturePhases.swift */,
+				"TEMP_GATEVIEW-0000-0000-0000-000000000001" /* GateView.swift */,
+				"TEMP_GATEROUTER-0000-0000-0000-000000000002" /* GateRouter.swift */,
+				"TEMP_417FFD55-AC36-426B-B6B9-D1BE9F108971" /* ImmersiveScene.swift */,
+				"TEMP_94E9C760-EC6B-47F1-B734-9BFBFC16FC53" /* ImmersiveView.swift */,
+				"TEMP_AA258F3B-79D9-4E75-83C6-181AE7C47641" /* LobbyView.swift */,
+				"TEMP_B688D967-6116-4EAA-8812-1C4B4FCC2E2D" /* Loc.swift */,
+				"TEMP_CB3A65BC-55F8-4E5C-97CD-57260C835A45" /* MagicMirrorOrb.swift */,
+				"TEMP_75FD8C32-B22E-4FFC-9779-4EFB41DCAAE5" /* MeshPetal3D.swift */,
+				"TEMP_F0D050E0-AE63-425C-B4FB-A195DAC75166" /* Models.swift */,
+				"TEMP_6CBA99AE-00BF-4210-A243-1E1EFA5DA67E" /* PlayerController.swift */,
+				"TEMP_EA3CD1EF-03AD-4E52-80F5-FD3A927B8672" /* SharePlayCathedral.swift */,
+				"TEMP_CBBF7C82-2E05-40EE-91F9-502F14DBC774" /* SignInOrbView.swift */,
+				"TEMP_CD13BF44-0A74-42BC-B0FF-246E065BFE89" /* SpatialSubtitleSystem.swift */,
+				"TEMP_F78D2ECF-FE9E-4440-AD3C-CDB57BB0C63F" /* SpatialTip.swift */,
+				"TEMP_F9A44166-5C7D-4B9C-B413-C1BD55A74BE2" /* VoiceInput.swift */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+		4944D8A3CDF211806ACE2E2B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D23DE4578431DF603D2F16C8 /* CSSImmersive.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		6F3796C0E3D9F64B7BF2A92F = {
+			isa = PBXGroup;
+			children = (
+				E02FD07F4CB126DC80F00491 /* Assets.xcassets */,
+				4944D8A3CDF211806ACE2E2B /* Products */,
+				3FE8CFDB2FE76C95002F6649 /* Recovered References */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AF464E00C223536C092D796F /* CSSImmersive */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 853148EFE3BD7BF07BE0A1CE /* Build configuration list for PBXNativeTarget "CSSImmersive" */;
+			buildPhases = (
+				B921D1576D8CC189AC85DD3D /* Sources */,
+				F4003E2192B8567F13B08653 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CSSImmersive;
+			packageProductDependencies = (
+			);
+			productName = CSSImmersive;
+			productReference = D23DE4578431DF603D2F16C8 /* CSSImmersive.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F5D86263A5B8A6C1C7672100 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					AF464E00C223536C092D796F = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 099686F7F516CDE0CBA04F13 /* Build configuration list for PBXProject "CSSImmersive" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 6F3796C0E3D9F64B7BF2A92F;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 4944D8A3CDF211806ACE2E2B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AF464E00C223536C092D796F /* CSSImmersive */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F4003E2192B8567F13B08653 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				73E26C62CA2A120E8D751212 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B921D1576D8CC189AC85DD3D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1C5F86CE3478660C4B369C30 /* AIAssistantPanel.swift in Sources */,
+				396FC0DCEBDA8BC679AB1B70 /* CSSAppIntents.swift in Sources */,
+				E209D83CCC5C92D6604DF159 /* CSSAuth.swift in Sources */,
+				C6905D74D4D4623BC470455A /* CSSBackend.swift in Sources */,
+				B9FFAB6B035DA1FE74D134C7 /* CSSImmersiveApp.swift in Sources */,
+				25CB37857D674A3E405D36CC /* CSSPayments.swift in Sources */,
+				4EFF3D903C8047FB5926772B /* CathedralFX.swift in Sources */,
+				8937CFEBDFF1695CEDEE0C68 /* CathedralSettings.swift in Sources */,
+				21220B65ABDA35075EFB8C3D /* ContentView.swift in Sources */,
+				F9AD821E7E628DABF79AB216 /* ControlsPanel.swift in Sources */,
+				6F1473B3577411F9084C34E6 /* CreationOrbView.swift in Sources */,
+				224ECF3D3B764EEB854BBDA9 /* FuturePhases.swift in Sources */,
+				A0B1C2D3E4F5061728394A5B /* GateView.swift in Sources */,
+				B1C2D3E4F5061728394A5B6C /* GateRouter.swift in Sources */,
+				667A831CD92B5B949134E9E9 /* ImmersiveScene.swift in Sources */,
+				562EBEE9B9918D46802DC5C4 /* ImmersiveView.swift in Sources */,
+				D22A6E37ECA496152986B595 /* LobbyView.swift in Sources */,
+				D4554B0968B625D8E2E8A3F8 /* Loc.swift in Sources */,
+				BE70D6E8CC1E9B4CE1963497 /* MagicMirrorOrb.swift in Sources */,
+				57CCDDBBEFA636DC7557B4EA /* MeshPetal3D.swift in Sources */,
+				DCF1AA7390B8DBF02BE23AEB /* Models.swift in Sources */,
+				E1FC2967CFDBFD78C85A270B /* PlayerController.swift in Sources */,
+				C6965E1D8FDF0C6F5300751C /* SharePlayCathedral.swift in Sources */,
+				77E18880D9A1C1773B13E2E8 /* SignInOrbView.swift in Sources */,
+				CC07FF6F697E39907A2954F6 /* SpatialSubtitleSystem.swift in Sources */,
+				791B9EECBAF8BAFE84BC21F8 /* SpatialTip.swift in Sources */,
+				94871ADD8DD4AD3AC3737DE0 /* VoiceInput.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		40F8078780C87F5C0A28F876 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				XROS_DEPLOYMENT_TARGET = 2.0;
+			};
+			name = Debug;
+		};
+		491766020B4E84380C0BADEE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CSSImmersive.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QBG9PRVBYZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.vision;
+				SDKROOT = xros;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+			};
+			name = Debug;
+		};
+		66B986C3292DFCBC1D23AD4E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				XROS_DEPLOYMENT_TARGET = 2.0;
+			};
+			name = Release;
+		};
+		6FDB39E70B1F6D3F7302CBDD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CSSImmersive.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QBG9PRVBYZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.vision;
+				SDKROOT = xros;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		099686F7F516CDE0CBA04F13 /* Build configuration list for PBXProject "CSSImmersive" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				40F8078780C87F5C0A28F876 /* Debug */,
+				66B986C3292DFCBC1D23AD4E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		853148EFE3BD7BF07BE0A1CE /* Build configuration list for PBXNativeTarget "CSSImmersive" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				491766020B4E84380C0BADEE /* Debug */,
+				6FDB39E70B1F6D3F7302CBDD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F5D86263A5B8A6C1C7672100 /* Project object */;
+}

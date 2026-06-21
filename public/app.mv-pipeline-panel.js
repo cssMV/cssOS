@@ -257,20 +257,42 @@
   // + 歌词采集来源 + creationState.lyrics), 等同手动按"清空". 防止下次创作沿用上一首
   // 的歌词(串歌词). 只在成功完成时调; 刷屏/中断不调 → 用户草稿仍保留. 不动运行态 state.*
   // (收尾自动播放还要用 state.mvUrl/audioUrl).
-  function clearCreationInputsAfterSuccessModule() {
+  // CSSOS_WAVE_834 — single authoritative reset of ALL creation inputs +
+  // per-run state + per-run globals. Called on EVERY terminal run path
+  // (success AND failure) so no stale prompt/style/lyrics/title/person ever
+  // survives into the next creation — the root cause of "严格按 ID 读取却仍
+  // 标题/歌词/封面/视频串味入库". The work id is the only source of truth;
+  // never carry text across creations. (Replaces the success-only partial
+  // clear, which left failed runs dirty.)
+  function cssmvResetCreationInputs() {
     try {
-      ["#mvp-prompt", "#mvp-style", "#mvp-lyrics", "#custom-lyrics",
+      // 1) DOM input fields (prompt / style / lyrics + all lyric mirrors + title)
+      ["#mvp-prompt", "#mvp-style", "#mvp-lyrics", "#mvp-title", "#custom-lyrics",
        "#creation-lyrics-input", "#watch-lyrics-editor", "#song-seed-lyrics"
       ].forEach(function (sel) {
         var el = document.querySelector(sel);
-        if (el && "value" in el) el.value = "";
+        if (el && "value" in el) {
+          el.value = "";
+          try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (_d) {}
+        }
       });
       document.querySelectorAll("textarea[data-creation-field='lyrics']").forEach(function (el) {
         if ("value" in el) el.value = "";
       });
+    } catch (_e1) { /* non-fatal */ }
+    // NOTE: we deliberately do NOT clear state.prompt/lyrics/title here —
+    // runAll re-reads the DOM inputs at its next start (so stale state.* is
+    // harmless), and a fire-and-forget saveAsWork may still be reading state.*
+    // on the success path; clearing it would race and corrupt the saved row.
+    // 2) Per-run globals that the cover/lyrics stages read for identity.
+    try {
+      globalThis.cssmvActivePerson = null;
       if (globalThis.creationState) globalThis.creationState.lyrics = "";
-    } catch (_e) { /* non-fatal */ }
+    } catch (_e3) { /* non-fatal */ }
   }
+  globalThis.cssmvResetCreationInputs = cssmvResetCreationInputs;
+  // Back-compat alias — existing success-path callers now get the fuller reset.
+  function clearCreationInputsAfterSuccessModule() { cssmvResetCreationInputs(); }
 
   // Billing key mapping for the /api/mv/commit payload. Adding a new stage is
   // a one-line change in STAGES + this map; no other code path hardcodes
@@ -319,7 +341,15 @@
     // Track which mv_id we've already POST'd to /api/mv/commit so the auto-save
     // wired to compose-done only fires once per finished MV. Both `runAll`
     // re-entries on the same mvId AND any residual manual triggers are no-ops.
-    committedMvId: ""
+    committedMvId: "",
+    // CSSOS_WAVE_990 20260618 — Jing「MV 管线多部模式」: 创作树形作品的状态。
+    // structure = 'single' | 'triptych' | 'opera' | 'shortplay' | 'series' | 'film'
+    // parts = [{ title, lyrics }] 用户自带词或留空让 AI 写, 每部一条。
+    // structureContext = 单部运行时的树挂接 {workType, rootId, parentId, role, sequenceIndex}
+    //   —— runAll 的 commit 步骤读它落库; 单曲时为 null。
+    structure: "single",
+    parts: [],
+    structureContext: null
   };
 
   // CSSOS_PHASE2_DUAL_TRACK 20260430 #229 — Jing
@@ -933,6 +963,19 @@
     const anchor = document.getElementById("cssmv-panel") || document.body;
     anchor.insertAdjacentElement("afterend", panel);
     wire(panel);
+    // CSSOS_WAVE_834b — "decline the remedy = clear" rule. When the user closes
+    // this panel while a run is NOT in progress (e.g. after a compose failure
+    // they chose not to Retry), clear the creation inputs so the leftover
+    // prompt/lyrics/title never leak into the next song. We DON'T clear while a
+    // run is in flight (the inputs + Retry still need them).
+    try {
+      const _closeBtn = panel.querySelector('[aria-label="close"]');
+      if (_closeBtn) {
+        _closeBtn.addEventListener("click", function () {
+          try { if (!state.running) cssmvResetCreationInputs(); } catch (_e) {}
+        }, true); // capture: run before the external chrome handler hides it
+      }
+    } catch (_clrWire) { /* non-fatal */ }
     /* CSSOS_MV_PIPELINE_DRAG_BIND 20260506 — Jing
      * "这个面板无法拖拽…别的面板都可以拖拽，就这个不可以."
      * Root cause: the panel is created HERE at first user interaction —
@@ -1005,7 +1048,7 @@
       "留空会用你在高级设置里选的 LLM 自动生成歌词"
     );
     const stylePlaceholder = copy("synth-pop, cinematic, warm", "合成流行、电影感、温暖");
-    const paneTitle = copy("MV Pipeline · 3rd-party engines", "MV Pipeline · 第三方引擎");
+    const paneTitle = copy("MV Pipeline", "MV 工作室");
     return (
       '<div class="panel-bar">' +
         '<div class="panel-icon">🎞️</div>' +
@@ -1033,6 +1076,7 @@
            * track picker mount point. Populated after render by
            * cssosMountLanguagePicker(). freeFirst=true (new work). */
           '<div id="mvp-language-picker"></div>' +
+          renderStructureControls() +
           renderAspectRatioControls() +
           /* CSSOS_PHASE3_PARAMS_INLINE 20260507 — extra params moved
            * INTO stage gear dropdowns per Jing. cover gear hosts the
@@ -1082,6 +1126,279 @@
   // Reads from / writes to the shared creationState + fires applyAspectRatioCssVar
   // so the Watch preview frame stays in sync with the current spec even before
   // the user hits Run.
+  // CSSOS_WAVE_990 20260618 — Jing「MV 管线多部模式」: 让 MV 管线能自由创作
+  // 单曲 / 三部曲 / 歌剧 / 短剧 / 电视剧 / 电影, 并支持用户自带歌词/剧本(每部
+  // 一段, 留空才让 AI 写)。这是 Suno 们没有的差异化能力。
+  // role = 每部落库的 structure_role(树渲染器已认这些角色);
+  // defaultCount = 切到该类型时预置几部; min = 至少几部。
+  const STRUCTURE_TYPES = [
+    { key: "single",    zh: "单曲",    en: "Single",  role: "single",  defaultCount: 0, min: 0 },
+    { key: "triptych",  zh: "三部曲",  en: "Triptych", role: "part",    defaultCount: 3, min: 2 },
+    { key: "opera",     zh: "歌剧",    en: "Opera",   role: "scene",   defaultCount: 4, min: 2 },
+    { key: "shortplay", zh: "短剧",    en: "Shortplay", role: "episode", defaultCount: 3, min: 2 },
+    { key: "series",    zh: "电视剧",  en: "Series",  role: "episode", defaultCount: 4, min: 2 },
+    { key: "film",      zh: "电影",    en: "Film",    role: "chapter", defaultCount: 3, min: 2 },
+  ];
+  function structureDef(key) {
+    return STRUCTURE_TYPES.find(function (t) { return t.key === key; }) || STRUCTURE_TYPES[0];
+  }
+
+  function renderStructureControls() {
+    const lang = (globalThis.currentLocale === "zh") ? "zh" : "en";
+    const headline = copy("Work type", "作品类型");
+    const hint = copy(
+      "Multi-part works generate one song per part. Paste your own lyrics per part, or leave blank for AI.",
+      "多部作品每部生成一首。每部可粘贴你的手写词/剧本,留空则由 AI 创作。"
+    );
+    let chips = "";
+    STRUCTURE_TYPES.forEach(function (t) {
+      const pressed = (t.key === "single") ? "true" : "false";
+      chips += '<button type="button" class="mvp-structure-chip" data-structure="' +
+        escapeHtml(t.key) + '" aria-pressed="' + pressed + '">' +
+        escapeHtml(lang === "zh" ? t.zh : t.en) + '</button>';
+    });
+    const addLabel = copy("＋ Add a part", "＋ 添加一部");
+    const pasteLabel = copy(
+      "Paste a whole multi-part script. IRON RULE: every non-lyric marker MUST be in [ ] — e.g. [Part I — 《Title》], [Verse 1], [Chorus] — or the music engine will SING it.",
+      "整段粘贴。铁律:所有非歌词标记必须放方括号 [ ] —— 例如 [Part I — 《标题》]、[Verse 1]、[Chorus],否则音乐引擎会把它当歌词唱出来。"
+    );
+    const pastePh = copy(
+      "[Part I — 《Title》]\n[Verse 1]\n…lyrics…\n[Chorus]\n…lyrics…\n\n[Part II — 《Title》]\n…\n\n(Header like Title:/Genre:/Tempo: is auto-stripped. Each part is used VERBATIM. Splits on [Part]/[Act]/[Scene]/[Episode]/[Chapter] or 第N部/幕/场/集/章.)",
+      "[Part I — 《标题》]\n[Verse 1]\n…歌词…\n[Chorus]\n…歌词…\n\n[Part II — 《标题》]\n…\n\n(头部 Title:/Genre:/Tempo: 会自动剥离。每部逐字使用、绝不改动。按 [Part]/[Act]/[Scene]/[Episode]/[Chapter] 或 第N部/幕/场/集/章 切分。)"
+    );
+    return (
+      '<div class="mvp-structure">' +
+        '<label>' + escapeHtml(headline) + '</label>' +
+        '<div class="mvp-structure-chips">' + chips + '</div>' +
+        '<div class="mvp-structure-hint" hidden>' + escapeHtml(hint) + '</div>' +
+        '<div class="mvp-multipart-paste-wrap" hidden>' +
+          '<label class="mvp-multipart-paste-label">' + escapeHtml(pasteLabel) + '</label>' +
+          '<textarea id="mvp-multipart-paste" rows="5" placeholder="' + escapeHtml(pastePh) + '"></textarea>' +
+          '<div class="mvp-paste-or">' + escapeHtml(copy("— or fill parts manually —", "— 或在下方逐部手动填 —")) + '</div>' +
+        '</div>' +
+        '<div id="mvp-parts" class="mvp-parts" hidden></div>' +
+        '<button type="button" id="mvp-add-part" class="cta ghost" hidden>' +
+          escapeHtml(addLabel) + '</button>' +
+      '</div>'
+    );
+  }
+
+  // Render the per-part editor rows from state.parts into #mvp-parts.
+  function renderPartsEditor(panel) {
+    const wrap = panel.querySelector("#mvp-parts");
+    if (!wrap) return;
+    const lang = (globalThis.currentLocale === "zh") ? "zh" : "en";
+    const def = structureDef(state.structure);
+    const unitZh = { part: "部", scene: "场", episode: "集", chapter: "章" }[def.role] || "部";
+    const lyricsPh = copy(
+      "Paste your own lyrics / script for this part — leave blank to let AI write",
+      "粘贴你为这一部手写的歌词/剧本 — 留空则让 AI 创作"
+    );
+    let html = "";
+    state.parts.forEach(function (p, i) {
+      const ordLabel = (lang === "zh")
+        ? ("第 " + (i + 1) + " " + unitZh)
+        : ((def.en || "Part") + " " + (i + 1));
+      const titlePh = (lang === "zh") ? (ordLabel + " 标题") : (ordLabel + " title");
+      html +=
+        '<div class="mvp-part" data-idx="' + i + '">' +
+          '<div class="mvp-part-head">' +
+            '<span class="mvp-part-ord">' + escapeHtml(ordLabel) + '</span>' +
+            '<button type="button" class="mvp-part-del" data-idx="' + i + '" ' +
+              'aria-label="remove">✕</button>' +
+          '</div>' +
+          '<input type="text" class="mvp-part-title" data-idx="' + i + '" ' +
+            'placeholder="' + escapeHtml(titlePh) + '" value="' + escapeHtml(p.title || "") + '">' +
+          '<textarea class="mvp-part-lyrics" data-idx="' + i + '" rows="3" ' +
+            'placeholder="' + escapeHtml(lyricsPh) + '">' + escapeHtml(p.lyrics || "") + '</textarea>' +
+        '</div>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  // Sync the DOM inputs back into state.parts (called before a run).
+  function readPartsFromDom(panel) {
+    const rows = panel.querySelectorAll("#mvp-parts .mvp-part");
+    const out = [];
+    rows.forEach(function (row) {
+      const t = row.querySelector(".mvp-part-title");
+      const l = row.querySelector(".mvp-part-lyrics");
+      out.push({
+        title: String((t && t.value) || "").trim(),
+        lyrics: String((l && l.value) || ""),
+      });
+    });
+    state.parts = out;
+    return out;
+  }
+
+  function wireStructureControls(panel) {
+    const partsWrap = panel.querySelector("#mvp-parts");
+    const addBtn = panel.querySelector("#mvp-add-part");
+    const hintEl = panel.querySelector(".mvp-structure-hint");
+    const lyricsLabel = panel.querySelector('label[for], #mvp-lyrics');
+    function applyStructureVisibility() {
+      const multi = state.structure !== "single";
+      if (partsWrap) partsWrap.hidden = !multi;
+      if (addBtn) addBtn.hidden = !multi;
+      if (hintEl) hintEl.hidden = !multi;
+      const pasteWrap = panel.querySelector(".mvp-multipart-paste-wrap");
+      if (pasteWrap) pasteWrap.hidden = !multi;
+      // Hide the single-song lyrics box in multi-mode (per-part lyrics take over).
+      const singleLyrics = panel.querySelector("#mvp-lyrics");
+      if (singleLyrics) {
+        singleLyrics.style.display = multi ? "none" : "";
+        const lbl = singleLyrics.previousElementSibling;
+        if (lbl && lbl.tagName === "LABEL") lbl.style.display = multi ? "none" : "";
+      }
+    }
+    // Structure chip selection.
+    panel.querySelectorAll(".mvp-structure-chip").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        const key = chip.getAttribute("data-structure");
+        state.structure = key;
+        panel.querySelectorAll(".mvp-structure-chip").forEach(function (c) {
+          c.setAttribute("aria-pressed", c === chip ? "true" : "false");
+        });
+        const def = structureDef(key);
+        if (key !== "single") {
+          // Seed default empty parts if switching into a multi type fresh.
+          if (!state.parts.length || state.parts.length < def.min) {
+            state.parts = [];
+            for (let i = 0; i < def.defaultCount; i++) state.parts.push({ title: "", lyrics: "" });
+          }
+          renderPartsEditor(panel);
+        }
+        applyStructureVisibility();
+      });
+    });
+    // Add a part.
+    if (addBtn) {
+      addBtn.addEventListener("click", function () {
+        readPartsFromDom(panel);
+        state.parts.push({ title: "", lyrics: "" });
+        renderPartsEditor(panel);
+      });
+    }
+    // Delete a part (event delegation).
+    if (partsWrap) {
+      partsWrap.addEventListener("click", function (ev) {
+        const del = ev.target.closest && ev.target.closest(".mvp-part-del");
+        if (!del) return;
+        readPartsFromDom(panel);
+        const idx = parseInt(del.getAttribute("data-idx"), 10);
+        if (Number.isFinite(idx)) state.parts.splice(idx, 1);
+        renderPartsEditor(panel);
+      });
+    }
+    applyStructureVisibility();
+  }
+
+  // Orchestrate a multi-part work: create the media-less root, then run the
+  // pipeline once per part (each committed as a leaf under the root). For
+  // big works (>3 parts) only the first 3 are auto-generated; the rest are
+  // created as tree placeholders the user generates on demand later.
+  // CSSOS_WAVE_990.
+  async function runMultiPart() {
+    if (state.running) return;
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    const def = structureDef(state.structure);
+    const rootTitle =
+      String(panel.querySelector("#mvp-title")?.value || "").trim() ||
+      String(panel.querySelector("#mvp-prompt")?.value || "").trim().split(/\r?\n/)[0] ||
+      (copy("Untitled", "未命名作品"));
+    const sharedStyle = String(panel.querySelector("#mvp-style")?.value || "").trim();
+
+    // CSSOS_WAVE_991/992 — feed the PROVEN create_work batch engine (tree-build
+    // + auto-batch lyrics + lazy backfill + tree-card UI) with the user's own
+    // lyrics, VERBATIM. No per-part runAll loop (that reinvented the engine);
+    // no LLM touches hand-written lyrics. Two input modes:
+    //   (a) paste one whole multi-part blob → backend auto-splits by markers;
+    //   (b) fill the per-part cards manually.
+    const pasteEl = panel.querySelector("#mvp-multipart-paste");
+    const pasteBlob = String((pasteEl && pasteEl.value) || "").trim();
+    const payload = {
+      title: rootTitle,
+      style: sharedStyle || null,
+      work_type: state.structure,
+    };
+    if (pasteBlob) {
+      // Paste mode — backend strips the header + splits into ordered parts.
+      payload.lyrics_blob = pasteBlob;
+    } else {
+      readPartsFromDom(panel);
+      const parts = state.parts.filter(function (p) { return p; });
+      if (parts.length < def.min) {
+        if (typeof globalThis.cssosGuidedToast === "function") {
+          globalThis.cssosGuidedToast(copy(
+            "Paste a multi-part script above, or add at least " + def.min + " parts.",
+            "请在上方粘贴整段多部歌词,或至少添加 " + def.min + " 部。"
+          ));
+        }
+        return;
+      }
+      payload.parts_lyrics = parts.map(function (p) {
+        return { title: p.title || "", lyrics: p.lyrics || "" };
+      });
+    }
+    if (state.language) payload.language = state.language;
+    if (state.civilization) payload.civilization = state.civilization;
+    // CSSOS_WAVE_998 — pass the creator's viewport-aware aspect so server-side
+    // create_work generates covers in the right orientation (desktop→ultrawide,
+    // phone→full-frame portrait), not always landscape.
+    try {
+      var _asp = (globalThis.creationState && globalThis.creationState.aspectRatio) || "";
+      if (!_asp) {
+        var _portrait = (window.matchMedia && window.matchMedia("(orientation: portrait)").matches) ||
+          (window.innerHeight > window.innerWidth);
+        _asp = _portrait ? "9:19.5" : "2.39:1";
+      }
+      payload.aspect = _asp;
+    } catch (_e) {}
+
+    let runBtn = panel.querySelector("#mvp-run");
+    const _origLabel = runBtn ? runBtn.textContent : "";
+    state.running = true;
+    if (runBtn) { runBtn.disabled = true; runBtn.textContent = copy("Creating…", "正在创建…"); }
+    try {
+      const resp = await postJson("/api/works/create-multipart", payload);
+      const cards = resp && (resp.work_cards || resp.cards);
+      const rootId = resp && (resp.root_work_id || resp.rootId);
+      if (typeof globalThis.cssosGuidedToast === "function") {
+        const n = (resp && resp.count) || (Array.isArray(cards) ? cards.length : parts.length);
+        globalThis.cssosGuidedToast(
+          copy("Multi-part work created — " + n + " part(s).", "多部作品已创建 —— 共 " + n + " 部。"),
+          { actions: [{
+            label: copy("Open in Works", "去作品中心查看"),
+            onClick: function () {
+              try {
+                if (typeof globalThis.openPanelByName === "function") globalThis.openPanelByName("works");
+                else location.hash = "#works";
+              } catch (_e) {}
+            }
+          }] }
+        );
+      }
+      // Let the works/feed panels know a new tree landed so they refresh.
+      try { globalThis.dispatchEvent(new CustomEvent("cssos:work-created", { detail: { rootId: rootId, multipart: true } })); } catch (_e) {}
+    } catch (createErr) {
+      console.warn("[multi-part] create_work failed", createErr);
+      if (typeof globalThis.cssosGuidedToast === "function") {
+        globalThis.cssosGuidedToast(copy("Could not create the work — try again.", "创建作品失败,请重试。"));
+      }
+    } finally {
+      state.running = false;
+      if (runBtn) { runBtn.disabled = false; runBtn.textContent = _origLabel; }
+    }
+  }
+
+  // Dispatcher for the Start button: single → runAll, multi → runMultiPart.
+  function runCreateDispatch() {
+    if (state.structure && state.structure !== "single") return runMultiPart();
+    return runAll();
+  }
+
   function renderAspectRatioControls() {
     const presets = globalThis.ASPECT_PRESETS || {};
     const order = globalThis.ASPECT_PRESET_ORDER || Object.keys(presets);
@@ -1349,7 +1666,9 @@
   globalThis.cssmvHandleInsufficientBalance = handleInsufficientBalance;
 
   function wire(panel) {
-    panel.querySelector("#mvp-run").addEventListener("click", runAll);
+    // CSSOS_WAVE_990 — Start button dispatches single→runAll / multi→runMultiPart.
+    panel.querySelector("#mvp-run").addEventListener("click", runCreateDispatch);
+    try { wireStructureControls(panel); } catch (_swErr) { /* additive — never block panel */ }
     // CSSOS_TIER_C_MULTILINGUAL C3 20260520 — mount the language-track
     // picker. freeFirst=true: the first checked language is the work's
     // default (free); extras are paid. The selected list (in order) is
@@ -2837,6 +3156,74 @@
   // same fallback without duplicating logic.
   globalThis.cssmvFallbackToMusicOnly = fallbackToMusicOnly;
 
+  // CSSOS_WAVE_833 — 边出边播 (true progressive playback). The moment the music
+  // stage finishes — lyrics + cover are already done by stage order, and the
+  // cinema view is already rendering the emotion subtitles + cover slideshow —
+  // we START PLAYING the song immediately, WITHOUT waiting for the slow video
+  // and compose stages. By the time compose finishes, the work may have played
+  // a full loop. Compose then hot-swaps the final muxed MV in (compose-done
+  // pauses this <audio> first via the data-cssmv-early-play marker so there's
+  // no double audio). The <audio> element was unlocked under the create gesture
+  // (#159b silent prime), so unmuted play() is granted; if a browser still
+  // blocks it we surface a guided tap-to-play cue — never W325's silent flashing
+  // covers. Kill switch: set globalThis.CSSMV_EARLY_PLAY = false.
+  function cssmvTryEarlyPlay(state) {
+    try {
+      if (globalThis.CSSMV_EARLY_PLAY === false) return;
+      if (!state || state.__earlyPlayStarted) return;
+      if (!state.audioUrl) return;
+      const audioEl = document.getElementById("watch-audio-preview");
+      if (!audioEl) return;
+      // Visual layer: make sure the cover slideshow is running.
+      try {
+        if (state.coverUrl && typeof globalThis.cssmvStartCoverSlideshow === "function") {
+          globalThis.cssmvStartCoverSlideshow({ mv: true, music: true });
+        }
+      } catch (_s) { /* non-fatal */ }
+      if (audioEl.src !== state.audioUrl) {
+        audioEl.src = state.audioUrl;
+        audioEl.preload = "auto";
+        try { audioEl.load(); } catch (_l) {}
+      }
+      audioEl.muted = false;
+      audioEl.volume = 1;
+      audioEl.dataset.cssmvEarlyPlay = "1";
+      const p = audioEl.play();
+      if (p && typeof p.then === "function") {
+        p.then(function () {
+          state.__earlyPlayStarted = true;
+          console.info("%c[mv-pipeline][边出边播] audio playing before compose — video renders in background", "color:#0c8;font-weight:bold");
+          try {
+            if (typeof globalThis.cssosGuidedToast === "function") {
+              globalThis.cssosGuidedToast(copy(
+                "▶ Playing now · the full video is still rendering",
+                "▶ 已开始播放 · 完整视频仍在后台合成"
+              ));
+            }
+          } catch (_t) {}
+        }).catch(function (err) {
+          // Autoplay blocked — guided tap-to-play cue, NEVER silent flashing.
+          console.warn("[mv-pipeline][早播] autoplay blocked — guided tap cue:", err);
+          try {
+            if (typeof globalThis.cssosGuidedToast === "function") {
+              globalThis.cssosGuidedToast(
+                copy("🎵 Your song is ready — tap to play", "🎵 歌曲已就绪 —— 点击即可播放"),
+                { actions: [{ label: copy("▶ Play", "▶ 播放"), onClick: function () {
+                  try { audioEl.muted = false; audioEl.volume = 1; audioEl.play().catch(function () {}); state.__earlyPlayStarted = true; } catch (_e) {}
+                } }] }
+              );
+            }
+          } catch (_t2) {}
+        });
+      } else {
+        state.__earlyPlayStarted = true;
+      }
+    } catch (e) {
+      console.warn("[mv-pipeline][early-play] failed:", e);
+    }
+  }
+  globalThis.cssmvTryEarlyPlay = cssmvTryEarlyPlay;
+
   // P2-31: syncWatchOutputs
   //
   // Writes the pipeline's current lyrics+title into #watch-lyrics-editor and a
@@ -3882,6 +4269,21 @@
       try { await globalThis.cssmvEngines.fetchCatalog(false); } catch (_err) { /* ignore */ }
       refreshStageBadges();
     }
+    // CSSOS_WAVE_989 20260618 — Jing「统一创作入口」: 任何走到这里、且还没在
+    // 影院里的创作(尤其 MV 管线面板自己的「开始生成 / #mvp-run」按钮,以及
+    // 高级设置的 cssmvRunPipeline),都必须进入【影院 6 胶囊总进度】等待输出,
+    // 而不是停留在 MV 管线自己的面板里跑 stages —— 和 AI 助理/万能入口体验一致。
+    // 守卫: AI 路径(openMvPipelinePanel({cinema:true}))已先进影院, dataset.cinema
+    // 已为 "true", 会被跳过, 不会二次 enterCinemaMode 清掉 cinemaSt.seed/queue/person。
+    try {
+      const _mvPanel = document.getElementById(PANEL_ID);
+      const _alreadyCinema =
+        (_mvPanel && _mvPanel.dataset.cinema === "true") ||
+        (document.body && document.body.dataset.cinema === "true");
+      if (!_alreadyCinema && typeof enterCinemaMode === "function") {
+        enterCinemaMode({ seed: (opts && opts.seed) || null });
+      }
+    } catch (_cineErr) { /* non-fatal — fall back to in-panel run */ }
     state.running = true;
     // CSSOS_MV_DAG_WAVE_2_7B 20260507 — show overall-progress block on the
     // ordinary MV PIPELINE panel for the duration of the run.
@@ -4186,10 +4588,15 @@
         // tightly coupled to runId resolution that lives inside the helper.
         if (stageId === "music") {
           try { syncWatchOutputs(); } catch (_e) { /* non-fatal */ }
-          // CSSOS_WAVE_325 20260522 — Jing: 撤销 W323「东风」自动起播. 它在音乐阶段
-          // 完成时(已不在用户手势内)调 play() → iOS 自动播放策略拦截 → 音频不响, 只剩
-          // 封面幻灯空闪, 用户看到"进去不播放、闪无关封面". 回退到正常播放路径(用户
-          // 手势/合成时播). 「边出边播」需配合自动播放解锁后重做.
+          // CSSOS_WAVE_833 20260616 — 边出边播 reborn (supersedes the W325 revert).
+          // W325 disabled early play because the <audio> wasn't gesture-unlocked
+          // and src wasn't ready → iOS blocked play() → silent flashing covers.
+          // Both are fixed now: the create gesture pre-unlocks <audio> (#159b)
+          // AND state.audioUrl is set by the time this music-stage event fires,
+          // and the cinema view is already rendering subtitles + slideshow.
+          // cssmvTryEarlyPlay degrades to a guided tap-cue if a browser still
+          // blocks autoplay — so it never regresses to W325's silent flashing.
+          try { cssmvTryEarlyPlay(state); } catch (_ep) { /* non-fatal */ }
         }
         // CSSOS_MV_DAG_WAVE_7D 20260508 — video broadcast lifted out of
         // runVideoStage. Only re-syncs Watch editors after a successful
@@ -4247,10 +4654,34 @@
         const isZh = globalThis.currentLocale === "zh";
         const coverSuffix = isZh ? COVER_PROMPT_SUFFIX_ZH : COVER_PROMPT_SUFFIX_EN;
         const styleSuffix = deriveCoverStyleSuffix(state.style, isZh);
+        // CSSOS_WAVE_829 — Jing「各引擎要文明联动, 别各干各的拼凑怪胎」: 封面 prompt 不再只用原始主题,
+        // 而是【人物身份(画这个人, 文明/年代锚定相貌) + 标题 + 歌词主题 + 原始主题】组合, 让封面忠实于作品。
+        // cover 阶段现在依赖 lyrics(W829: DAG 加 ["lyrics"]), 故此时 state.title/state.lyrics 已就绪。
+        const _coverBase = (function buildCoherentCoverPrompt() {
+          const parts = [];
+          const p = (globalThis.cssmvActivePerson && typeof globalThis.cssmvActivePerson === "object") ? globalThis.cssmvActivePerson : null;
+          const civ = String((p && p.civ) || state.civilization || state.culturalFrame || "").trim();
+          if (p && p.name) {
+            const nm = String(p.name).trim();
+            const nat = String(p.nameNative || "").trim();
+            const era = String(p.era || "").trim();
+            parts.push(isZh
+              ? `${nm}${(nat && nat !== nm) ? "（" + nat + "）" : ""}的忠实肖像${era ? "，" + era : ""}${civ ? "，" + civ + "文明" : ""}，相貌与气质须符合其真实身份与时代，不要换成无关的人`
+              : `a faithful portrait of ${nm}${(nat && nat !== nm) ? " (" + nat + ")" : ""}${era ? ", " + era : ""}${civ ? ", " + civ + " civilization" : ""}, true to the real figure's appearance and era — not a generic or unrelated person`);
+          } else if (civ) {
+            parts.push(isZh ? `${civ}文明的场景` : `a scene in the ${civ} civilization`);
+          }
+          const title = String(state.title || "").trim();
+          if (title) parts.push(isZh ? `主题《${title}》` : `themed "${title}"`);
+          const lyr = String(state.lyrics || "").replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+          if (lyr) parts.push((isZh ? "意境：" : "evoking: ") + lyr.slice(0, 160));
+          if (state.prompt) parts.push(String(state.prompt));
+          return parts.filter(Boolean).join(isZh ? "；" : "; ") || String(state.prompt || "");
+        })();
         const cover = await postJson(
           "/api/mv/cover",
           withEngine("cover", {
-            prompt: state.prompt + coverSuffix + styleSuffix,
+            prompt: _coverBase + coverSuffix + styleSuffix,
             ratio: state.outputSpec && state.outputSpec.runwayImageRatio
               ? state.outputSpec.runwayImageRatio
               : null
@@ -4277,11 +4708,22 @@
             const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze", ", backlit silhouette", ", high-angle shot", ", golden hour", ", rainy neon night"];
             const variationSuffixes = ((globalThis.currentLocale === "zh") ? variationSuffixesZh : variationSuffixesEn)
               .slice(0, Math.max(0, _coverCount - 1));
+            // CSSOS_WAVE_833 — show the live "封面 N/总数" count the user asked for
+            // (primary cover already landed = 1, each variation bumps the tally).
+            let _coverDone = 1;
+            // Keep state "done" (primary cover already landed → pipeline moved on);
+            // only the DETAIL text counts up so the progress weighting never regresses.
+            try {
+              setStage("cover", "done", copy(
+                "Cover " + _coverDone + "/" + _coverCount,
+                "封面 " + _coverDone + "/" + _coverCount
+              ));
+            } catch (_cs0) {}
             variationSuffixes.forEach(function (suffix) {
               postJson(
                 "/api/mv/cover",
                 withEngine("cover", {
-                  prompt: state.prompt + coverSuffix + styleSuffix + suffix,
+                  prompt: _coverBase + coverSuffix + styleSuffix + suffix,
                   ratio: state.outputSpec && state.outputSpec.runwayImageRatio
                     ? state.outputSpec.runwayImageRatio
                     : null
@@ -4292,6 +4734,13 @@
                   if (typeof globalThis.cssmvAddCoverSlide === "function") {
                     globalThis.cssmvAddCoverSlide(extra.image_url);
                   }
+                  _coverDone += 1;
+                  try {
+                    setStage("cover", "done", copy(
+                      "Cover " + _coverDone + "/" + _coverCount,
+                      "封面 " + _coverDone + "/" + _coverCount
+                    ));
+                  } catch (_cs1) {}
                 })
                 .catch(function (_err) { /* variation failures are non-fatal */ });
             });
@@ -6114,6 +6563,13 @@
       {
       setStage("compose", "running", "");
       const mvId = "mv_" + Date.now();
+      // CSSOS_WAVE_832 — hoist _composeBase OUT of the try block so the
+      // 502/504 retry path (in the catch below) can still reference it.
+      // Previously `const _composeBase` was block-scoped to the try, so the
+      // ONE place it's needed on retry threw "_composeBase is not defined" —
+      // which surfaced exactly on the slow gateway-timeout compose that the
+      // retry exists to rescue (root cause of "卡在最后合成" failures).
+      let _composeBase = null;
       try {
         // CSSOS_PHASE2_LITE_SEGMENT_PLANNER 20260426 #47 — Jing
         // Resolve current MV tier (lite | hybrid | cinematic). Lite users
@@ -6148,7 +6604,7 @@
           // for this person, supplied at cinema-entry from the codex API.
           coverPool: Array.isArray(state.coverPool) ? state.coverPool : []
         });
-        const _composeBase = {
+        _composeBase = {
           mv_id: mvId,
           // CSSOS_PHASE2_FILE_URL_GUARD 20260426 #144 — when state.audioUrl
           // was zeroed because the engine returned file://, prefer the
@@ -6168,6 +6624,30 @@
           height: state.outputSpec && state.outputSpec.height
             ? state.outputSpec.height : null
         };
+        // CSSOS_WAVE_836 — membership-tier compose-resolution lock. Encoding a
+        // 2560×1072 anamorphic on CPU x264 is the dominant compose cost; cap the
+        // LONG side per tier (Pro = 720p-class → a 2.39:1 frame becomes 1280×536),
+        // then the <video> upscales on playback (imperceptible on a phone). Admin
+        // is uncapped for QA. Raise these caps when funds/GPU allow. ONLY the
+        // compose output is capped — image & video generation keep their full
+        // outputSpec aspect untouched.
+        try {
+          const _tier = String((globalThis.authState && globalThis.authState.tier) || "").toLowerCase();
+          const _longCap = _tier === "admin" ? 0 /* uncapped */
+            : (_tier === "studio" || _tier === "max" || _tier === "enterprise") ? 1920
+            : 1280; /* free / pro / unknown → 720p-class */
+          if (_longCap > 0 && _composeBase.width && _composeBase.height) {
+            const _w = Number(_composeBase.width), _h = Number(_composeBase.height);
+            const _long = Math.max(_w, _h);
+            if (_long > _longCap) {
+              const _scale = _longCap / _long;
+              _composeBase.width = Math.max(2, Math.round(_w * _scale / 2) * 2);
+              _composeBase.height = Math.max(2, Math.round(_h * _scale / 2) * 2);
+              console.info("%c[mv-pipeline][res-lock] tier=%s compose %dx%d → %dx%d (cap %d)",
+                "color:#08a", _tier || "?", _w, _h, _composeBase.width, _composeBase.height, _longCap);
+            }
+          }
+        } catch (_resLockErr) { /* non-fatal */ }
         // CSSOS_PHASE2_HYBRID_MIXER_DEBUG 20260426 #132b — Jing
         // The Hybrid AI video was reportedly still ignored on user end.
         // Loud diagnostic log so we can see EXACTLY what happens at compose
@@ -6350,10 +6830,13 @@
             retryErr.__retried = true;
             const retryMsg = retryErr && retryErr.message ? retryErr.message : String(retryErr);
             console.warn("[mv-pipeline] compose retry also failed:", retryErr);
+            // CSSOS_WAVE_832 — friendly, non-dead-end copy: the song IS playing
+            // and lyrics/cover are saved; only the final video mux is pending.
+            // Keep the raw error in console; never show it to the user.
             setStage("compose", "error",
-              copy("Compose failed after retry (" + retryMsg + ") · playing music fallback",
-                   "重试后合成仍失败（" + retryMsg + "）· 已切换到音乐播放"), 0);
-            fallbackToMusicOnly(copy("Compose timed out · playing music", "合成超时 · 播放音乐"));
+              copy("🎵 Your song is playing — only the video render is still pending. Tap Retry to finish it (no extra charge), or find it later in Works Center.",
+                   "🎵 你的歌已经在播放 —— 只差最后一步视频合成。点「重试」补上(不额外扣费),或稍后在作品中心找到它。"), 0);
+            fallbackToMusicOnly(copy("Song playing · video render pending", "歌曲播放中 · 视频合成待补"));
             renderSummary();
             const sentinel2 = new Error("__CSSMV_SHORT_CIRCUIT__:compose:" + retryMsg);
             sentinel2.__shortCircuit = "compose";
@@ -6362,18 +6845,19 @@
           // Retry succeeded — fall through to the success continuation below.
         } else {
           console.warn("[mv-pipeline] compose stage failed, falling back to music-only:", composeErr);
+          // CSSOS_WAVE_832 — friendly, non-dead-end copy (raw error → console only).
           setStage(
             "compose",
             "error",
             copy(
-              "Compose failed (" + composeMsg + ") · playing music fallback",
-              "合成失败（" + composeMsg + "）· 已切换到音乐播放"
+              "🎵 Your song is playing — only the video render is still pending. Tap Retry to finish it (no extra charge), or find it later in Works Center.",
+              "🎵 你的歌已经在播放 —— 只差最后一步视频合成。点「重试」补上(不额外扣费),或稍后在作品中心找到它。"
             ),
             0
           );
           fallbackToMusicOnly(copy(
-            "Compose timed out · playing music",
-            "合成超时 · 播放音乐"
+            "Song playing · video render pending",
+            "歌曲播放中 · 视频合成待补"
           ));
           renderSummary();
           const sentinel = new Error("__CSSMV_SHORT_CIRCUIT__:compose:" + composeMsg);
@@ -6783,6 +7267,15 @@
             try {
               const requestFs = (el) => {
                 if (!el) return Promise.resolve(false);
+                // CSSOS_WAVE_1008 20260619 — Jing「Console 仍报 requestFullscreen ... user gesture」:
+                // 关键认知 —— Chrome 即使 .catch() 了 rejection, 只要在【非手势】里调用了
+                // requestFullscreen, 仍会在 console 记一条违规错误。必须【根本别调】。这段 zero-touch
+                // 自动全屏在创作管线异步流程里跑(非手势)→ 报错。门控: 无活跃用户手势就直接放弃原生
+                // 全屏(CSS 影院全屏已铺满, 视觉无损), 不调 API → 报错消除。
+                try {
+                  var _ua = (typeof navigator !== "undefined" && navigator.userActivation);
+                  if (_ua && _ua.isActive === false) return Promise.resolve(false);
+                } catch (_e) {}
                 const fn =
                   el.requestFullscreen ||
                   el.webkitRequestFullscreen ||
@@ -6988,6 +7481,20 @@
           // This is the "muted-first, never fallback" principle —
           // contradicts the original "unmuted-first, fallback to music"
           // design but matches Jing's "the real MV must always show."
+          //
+          // CSSOS_WAVE_833 — if 边出边播 started the preview <audio>, pause +
+          // clear it NOW so the composed MV (audio muxed in) doesn't double up.
+          // The hot-swap therefore goes: preview audio → final muxed video.
+          try {
+            const _earlyAudio = document.getElementById("watch-audio-preview");
+            if (_earlyAudio && _earlyAudio.dataset && _earlyAudio.dataset.cssmvEarlyPlay === "1") {
+              try { _earlyAudio.pause(); } catch (_pa) {}
+              _earlyAudio.removeAttribute("src");
+              try { _earlyAudio.load(); } catch (_la) {}
+              delete _earlyAudio.dataset.cssmvEarlyPlay;
+              console.info("[mv-pipeline][边出边播] paused preview audio — handing off to composed MV");
+            }
+          } catch (_swapErr) { /* non-fatal */ }
           const watchVideoEl = document.getElementById("watch-video");
           if (watchVideoEl) {
             // CSSOS_PHASE2_UNMUTED_AUTOPLAY 20260429 #174 — Jing
@@ -7187,7 +7694,9 @@
       // lyrics stage is already covered by STAGE_ORDER/resumeStartIdx.
       const _SHORT_CIRCUIT = "__CSSMV_SHORT_CIRCUIT__";
       const _pipelineDag = globalThis.cssmvDag.create()
-        .stage("cover", [], { weight: 10 }, async () => {
+        // CSSOS_WAVE_829 — Jing「封面必须基于标题/歌词/人物, 不能凭空; 歌词挂了封面也别瞎出」:
+        // cover 依赖从 [] 改 ["lyrics"] → 先出歌词(标题+内容)再据此画封面; 歌词失败则跳过封面, 不拼凑怪胎。
+        .stage("cover", ["lyrics"], { weight: 10 }, async () => {
           if (STAGE_ORDER.indexOf("cover") < resumeStartIdx) return null;
           setStage("cover", "running", "");
           // CSSOS_MV_DAG_WAVE_7A 20260508 — Jing
@@ -7415,6 +7924,12 @@
     } finally {
       state.running = false;
       try { showMvOverallProgress(false); } catch (_e) {}
+      // CSSOS_WAVE_834b — NO blanket clear here. SUCCESS already clears inputs
+      // at the compose-done path (clearCreationInputsAfterSuccessModule @~7279/
+      // 8014). On FAILURE we deliberately KEEP the inputs so the "Retry" remedy
+      // (W832) can finish the work — clearing would break retry. If the user
+      // declines the remedy (closes the panel / exits cinema), the panel-close
+      // listener below clears them — so nothing ever leaks into the next song.
     }
   }
 
@@ -7629,6 +8144,25 @@
       // 用 Node 端点(带正确部分谓词的 ON CONFLICT)幂等补写这些资产, 全部按 ID 落库.
       try {
         var _wid = resp && (resp.work_id || resp.id);
+        // CSSOS_WAVE_990 — expose the leaf work_id so runMultiPart can chain,
+        // and attach this part into the multi-part tree (parent/root/role/seq)
+        // via the Node endpoint. structureContext is null for single songs →
+        // no-op, zero impact on the single-song path.
+        if (_wid) {
+          state.lastCommittedWorkId = _wid;
+          var _sc = state.structureContext;
+          if (_sc && _sc.rootId) {
+            postJson("/api/works/" + encodeURIComponent(_wid) + "/structure", {
+              work_type: _sc.workType || "single",
+              parent_work_id: _sc.parentId || _sc.rootId,
+              root_work_id: _sc.rootId,
+              structure_role: _sc.role || "part",
+              sequence_index: Number.isFinite(_sc.sequenceIndex) ? _sc.sequenceIndex : 0,
+            }).catch(function (e) {
+              try { console.warn("[multi-part] structure link failed (non-fatal)", e); } catch (_e3) {}
+            });
+          }
+        }
         if (_wid && (state.mvUrl || state.audioUrl)) {
           postJson("/api/works/" + encodeURIComponent(_wid) + "/pipeline-assets", {
             final_mv_url: state.mvUrl || state.videoUrl || null,
@@ -8042,6 +8576,13 @@
         intro: opts.personIntro || "",
       },
     };
+    // CSSOS_WAVE_829 — Jing「封面必须画【这个人物】, 不是泛泛'亚洲美女'」: 把人物身份暴露成全局,
+    // 让封面阶段(runCoverStage, 只见 state)能据此构建忠实肖像 prompt。每次进面板刷新; 无人物则清空。
+    try {
+      globalThis.cssmvActivePerson = (opts.personName || opts.personNameEn)
+        ? { name: opts.personName || opts.personNameEn || "", nameNative: opts.personNameNative || "", era: opts.personEra || "", civ: opts.personCiv || "" }
+        : null;
+    } catch (_e) {}
 
     // CSSOS_WAVE_110B3 20260510 — Jing
     // Wire topbar buttons. cinema-to-panel keeps the running pipeline
@@ -9204,7 +9745,11 @@
       '.panel[data-cinema="true"] .panel-body { background:#000; padding:0; }' +
       '.panel[data-cinema="true"] .panel-body > *:not(.cinema-stage) { display:none !important; }' +
       '#cssos-cinema-stage, .panel[data-cinema="true"] .cinema-stage { position:fixed; inset:0; background:#000; display:flex; align-items:center; justify-content:center; }' +
-      '#cssos-cinema-stage .cinema-video, .panel[data-cinema="true"] .cinema-video { width:100%; height:100%; object-fit:contain; background:#000; }' +
+      /* CSSOS_WAVE_997 20260619 — Jing「桌面/横屏超宽屏、App/竖屏满屏, 不要信箱黑边」:
+       * object-fit:contain 会留黑边(信箱化)。改 cover → 媒体【铺满整屏】, 真影院/沉浸感。
+       * 注: 这是【显示层】填满; 要真正做到桌面超宽构图/竖屏全幅【不裁切】, 需生成层按视口
+       * 出对应画幅(见下方 W997 备注 / 待办)。 */
+      '#cssos-cinema-stage .cinema-video, .panel[data-cinema="true"] .cinema-video { width:100%; height:100%; object-fit:cover; background:#000; }' +
       '#cssos-cinema-stage .cinema-strip, .panel[data-cinema="true"] .cinema-strip { position:absolute; left:0; right:0; bottom:0; padding:8px 14px; color:#daffee; font:600 12px/1.3 ui-monospace,monospace; background:linear-gradient(transparent,rgba(0,0,0,.7)); text-align:center; transition: opacity 600ms ease; }' +
       '#cssos-cinema-stage .cinema-loading { transition: opacity 600ms ease; }' +
       /* CSSOS_WAVE_158 — only the central output info fades on idle;

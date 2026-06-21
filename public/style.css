@@ -2487,6 +2487,29 @@ html.cssos-pill-cascade .login-grid.cssmv-pill-bar:not(:has(> .login-card.active
   box-shadow: 0 0 26px rgba(37, 212, 255, 0.28);
 }
 
+/* CSSOS_WAVE_874 — Jing: 唯一一颗 provider 卡(iOS = 仅 Apple)由 JS 打 .cssos-login-solo,
+ * CSS 让它铺满整行、图标+Apple 居中 = 一颗干净的全宽 "Sign in with Apple" 主 CTA。
+ * 选择器挂到 #login-list(ID)上 → 优先级压过胶囊宪法 `.login-grid.cssmv-pill-bar > .login-card.active`,
+ * 这样"铺满整行"才真正生效(之前 class 选不赢宪法, 所以一直缩着)。纯 CSS, 不加任何 JS。 */
+#login-list .login-card.cssos-login-solo {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  grid-column: 1 / -1 !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  border-radius: 16px !important;
+}
+#login-list .login-card.cssos-login-solo .login-title-wrap {
+  flex: 0 0 auto !important;
+  text-align: center !important;
+}
+
 .login-card.disabled {
   opacity: 0.45;
   border-color: rgba(255, 255, 255, 0.08);
@@ -3936,12 +3959,12 @@ html[data-theme="light"] .works-fp-optin-desc {
     padding: 0 !important;
   }
   .mirror-title {
-    font-size: clamp(14px, 6vw, 22px) !important;
+    font-size: clamp(14px, 5.2vw, 24px) !important;   /* W915 — Jing: 手机再收, CSS 落在内圈不撑破(仅字号) */
     line-height: 1 !important;
     letter-spacing: 0.04em !important;
   }
   .mirror-subtitle {
-    font-size: clamp(7px, 2.4vw, 10px) !important;
+    font-size: clamp(6px, 1.9vw, 9px) !important;   /* W916 — Jing: STUDIO 别喧宾夺主, 收小落圈内(仅字号) */
     line-height: 1 !important;
     letter-spacing: 0.32em !important;
   }
@@ -4301,14 +4324,14 @@ body.cssos-cinema-mode #logo-panel .mirror-img {
      circle's left/right edges. */
   font-family: "Rubik", "Syne", sans-serif;
   font-weight: 900;
-  font-size: clamp(18px, 2.5vw, 42px);
+  font-size: clamp(24px, 3.4vw, 56px);   /* W914 — Jing: 收一点, 刚好充满内圈不撑破(仅字号) */
   letter-spacing: 0.06em;
   color: #f1fff8;
   text-shadow: 0 0 28px rgba(0, 245, 160, 0.75);
 }
 
 .mirror-subtitle {
-  font-size: clamp(9px, 1.1vw, 12px);
+  font-size: clamp(11px, 1.4vw, 18px);   /* W914 — Jing: Studio 同步收小(仅字号) */
   letter-spacing: 0.4em;
   text-transform: uppercase;
   color: var(--muted);
@@ -6676,6 +6699,10 @@ html.cssos-app #watch-panel .watch-screen {
   padding: 0 !important;   /* 去掉基础 10px → 媒体真正铺满, 无内边黑框 */
   border-radius: 0 !important;
 }
+/* CSSOS_WAVE_1027 20260620 — 2.39:1 实验整体撤销: W1015/1016/1017/1019/1023/1024 多轮盲改在
+ * 桌面/iPad 反复翻车(双屏/退黑/爆字偏位/价格条不居中)。恢复影院原满屏行为(media object-fit:cover
+ * 铺满, 由 11409+ 既有规则负责), 待能真机/控制台取值后再正确实现 2.39:1。 */
+
 /* App 全屏 watch 时, 底部 dock / app 徽章 / CTA 黑块统统不占位(媒体已盖满全屏) */
 html.cssos-app #watch-panel:not(.hidden) ~ .dock,
 html.cssos-app.cssos-watch-fullscreen .dock,
@@ -9039,35 +9066,88 @@ html {
 @media (orientation: portrait), (max-width: 820px) {
   html.cssos-watch-open { --cssos-dock-clear: 0px; } /* 全屏 watch → Dock 隐藏, 不让位 */
 }
-/* 层0 — 价格条/打赏, 做成胶囊 */
-#watch-panel .watch-commerce-actions {
-  bottom: var(--cssos-stk-base) !important;
-  border-radius: 999px !important;
+/* CSSOS_WAVE_846 20260616 — Jing「MV面板/真全屏统一不显示 Dock」: AI 助理已是重要创作入口, 看 MV 时
+ * Dock 多余。打开 watch/MV 面板就【隐藏 Dock】(所有尺寸, 不止竖屏)+ dock 让位归零 → 底部信息贴到屏幕
+ * 边缘, 影院更纯净。退出 watch 面板 Dock 自动恢复(cssos-watch-open class 摘除)。 */
+html.cssos-watch-open #dock { display: none !important; }
+html.cssos-watch-open { --cssos-dock-clear: 0px; }
+/* CSSOS_WAVE_901 20260617 — Jing「版本小窗口删掉」: 左上角 ⋯ 版本切换按钮 + VERSIONS 卡整块隐藏。
+ * 自动更新走 app.build-guard.js(SW controllerchange), 与此 UI 无关 → 删 UI 不影响自动更新。 */
+#version-switch { display: none !important; }
+
+/* CSSOS_WAVE_907 20260617 — Jing「隐藏左上 For You(playlist pill); 头像/搜索框/关闭按钮同一行」。
+ * ① 隐藏 For You 选择 pill(loop+For You 源)。② 搜索框两端让位: 左给头像(40px@left:12)、右给关闭 ✕
+ *   (top:12 right:12)→ 头像/搜索框/关闭三者一行不重叠。头像定位由 styleCircle 管(top safe+8, left:12)。 */
+#watch-playlist-pill { display: none !important; }
+#watch-search-box { left: 60px !important; right: 54px !important; }
+
+/* CSSOS_WAVE_905 20260617 — Jing「英伟达: 网站要像功能完整的产品网站」: web 冷访客的产品一句话 + 导航。
+ * 仅 web 显示; 原生 App(html.cssos-app)隐藏, 保持纯净 App 外观。主题感知配色, 两主题都清晰。 */
+/* CSSOS_WAVE_909 — Jing: 口号下方【一行 | 分隔、可点击】导航。flex-basis:100% 让它在 logo-body 的 flex 行里
+ * 换到新行(落到口号下方); pointer-events/z-index 保证真能点(之前被上层吞了点击)。仅 web 显示。 */
+/* CSSOS_WAVE_912 — Jing: 导航在 mirror-stage 外、logo-body(横排 flex)里。allow wrap, 导航 flex-basis:100%
+ * → 换到新行落到 logo+口号下方(logo 完全不受影响、不变形)。margin-top 小, 贴近。 */
+#logo-panel .logo-body { flex-wrap: wrap; }
+.site-intro {
+  flex: 0 0 auto;
+  margin: 8px auto 0;
+  padding: 0 16px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 10px;
+  position: relative;
+  z-index: 30;
+  pointer-events: auto;
 }
-/* 层1 — CTA "Want an MV" */
-#watch-panel .cssos-create-cta,
-.cssos-create-cta {
-  bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap)) !important;
+html.cssos-app .site-intro { display: none !important; }
+/* CSSOS_WAVE_918 — Jing: nav 与口号间距时大时小的真因 = panel-front 全高时
+   mirror-stage(height:100%)撑满整屏、logo+口号被垂直居中,nav 换行掉到
+   整块下方。改:#logo-panel 内 logo-body 列布局 + mirror-stage 按内容收拢,
+   nav 紧跟口号。只锁 #logo-panel 作用域,不改 .mirror 尺寸(桌面 70vh>600px
+   仍取 600px,体感不变;移动端 nav 本就 display:none)。 */
+#logo-panel .logo-body { flex-direction: column; }
+#logo-panel .mirror-stage { height: auto; flex: 0 0 auto; }
+#logo-panel .mirror-stage .mirror { height: min(var(--mirror-size, 360px), 70vh); flex: 0 0 auto; } /* W1033: 兜底 600→360 小 logo, 与默认配置一致无跳变 */
+.site-intro a {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #00f5a0;
+  text-decoration: none;
+  opacity: 0.92;
+  pointer-events: auto;
+  transition: opacity 0.15s ease;
 }
-/* 层2 — 左下信息胶囊。CSSOS_WAVE_742 — Jing「AI 助理去右上角新家」: #cssos-agent-fab 移出
- * 底部栈(原 bottom:!important 死压了它的 top 定位 → 一直回不了右上)。FAB 定位现由
- * app.agent-chat.js 的 top/right 规则 + 全屏移入全屏元素(W741)负责。 */
-#watch-pill-row-bl {
-  bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap) * 2) !important;
-}
-/* 层3 — 情绪字幕 */
-#watch-panel .watch-subtitle {
-  bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap) * 3) !important;
-}
-/* 层4 — 多歌词/声线胶囊 */
-#watch-panel .cssmv-language-pill,
-#watch-panel #cssmv-language-pill,
-#watch-panel .cssmv-take-toggle,
-#watch-panel .watch-take-toggle {
-  bottom: calc(var(--cssos-stk-base) + var(--cssos-stk-gap) * 4) !important;
-}
+.site-intro a:hover { opacity: 1; text-decoration: underline; }
+.site-intro .sep { color: rgba(120, 200, 170, 0.45); font-size: 12px; user-select: none; }
+html[data-theme="light"] .site-intro a { color: #00a060; }
+html[data-theme="light"] .site-intro .sep { color: rgba(0, 120, 80, 0.4); }
+/* CSSOS_WAVE_897/899 20260617 — Jing「创作/入口/沉浸面板统一隐藏 Dock, 其余面板保留 Dock(含话筒)高度」。
+ * 入口面板(MV 管线 #cssmv-panel / 高级设置 #settings-panel / 人物MV #person-mv-panel; MV 面板 #watch-panel
+ * 已由 .cssos-watch-open 处理)打开时隐藏 Dock + dock 让位归零 → 表单/媒体贴边清爽。关闭(.hidden 回来)自动恢复。
+ * 其余所有面板【不在此列】→ Dock 照常显示并保留底部高度空间(W846 的 dock-clear 默认值生效)。
+ * :has() 现代 Safari/Chrome 都支持。 */
+html:has(#cssmv-panel:not(.hidden)) #dock,
+html:has(#settings-panel:not(.hidden)) #dock,
+html:has(#person-mv-panel:not(.hidden)) #dock { display: none !important; }
+html:has(#cssmv-panel:not(.hidden)),
+html:has(#settings-panel:not(.hidden)),
+html:has(#person-mv-panel:not(.hidden)) { --cssos-dock-clear: 0px; }
+/* CSSOS_WAVE_837 20260616 — Apple Guideline 4(底部信息互相遮挡)根治: 删除 W477 的
+ * 【绝对定位分层栈】。它用 `bottom: stk-base + gap*N !important` 把每个底部元素独立钉死,
+ * 与 W760 的 flex 列(#cssos-watch-bottomflow, app.watch-bottom-stack.js)抢同一批元素 —
+ * W760 接管的元素被设 position:static(让位生效), 但 W477 仍把【未被 W760 接管的】
+ * commerce-actions / pill-row-bl / language-pill 钉成绝对定位 → 它们和 flex 列落在同一
+ * 竖直带, 在 iPhone 17 Pro Max 这种高屏上互相遮挡。现在统一交给 W760 flex 列自动堆叠
+ * (column-reverse + gap, 自动礼让、绝不重叠)。这 5 条层规则全部移除; --cssos-dock-clear
+ * 变量保留(W760 的 bottom 锚点仍用它), 右侧控制列规则(下方)保留。 */
 /* 右侧角控制列(全屏/信息/stem/风格)非栈成员, 仅随 Dock 让位上移, 保持各自基准。 */
-#watch-panel .cssmv-fs-btn,
+/* CSSOS_WAVE_928 20260617 — Jing「Vision Pro / iPad / 特斯拉 AI 助理前那个最大化(全屏)按钮删掉」:
+   .cssmv-fs-btn 已在 JS 两处停止创建(W926 watch-stage-bars + p2100 早注释), 这里再加一道 CSS 硬隐藏
+   做双保险 —— 任何漏网路径/旧缓存更新后都彻底不显示这个 ⛶ 全屏角标。 */
+#watch-panel .cssmv-fs-btn { display: none !important; }
 #watch-panel .cssmv-info-btn,
 #watch-panel .cssmv-stem-toggle,
 #watch-panel #watch-style-shift {
@@ -10966,7 +11046,7 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-titlebar {
 #foryou-panel .work-card .work-tags,
 #works-panel .work-card .work-tags {
   font-size: 12px !important;
-  color: rgba(218, 255, 242, 0.7);
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -11133,7 +11213,7 @@ html, body {
   content: "▾";
   align-self: center;
   font-size: 14px;
-  color: rgba(218, 255, 242, 0.55);
+  color: var(--muted);
   margin-left: 4px;
   pointer-events: none;
 }
@@ -11141,7 +11221,7 @@ html, body {
   content: "▴";
   align-self: center;
   font-size: 14px;
-  color: rgba(218, 255, 242, 0.55);
+  color: var(--muted);
   margin-left: 4px;
   pointer-events: none;
 }
@@ -11162,7 +11242,7 @@ html, body {
   padding: 8px 12px;
   font-size: 12px;
   letter-spacing: 0.06em;
-  color: rgba(218, 255, 242, 0.7);
+  color: var(--muted);
   background: rgba(0, 0, 0, 0.22);
   border: 1px dashed rgba(218, 255, 242, 0.22);
   border-radius: 10px;
@@ -11174,7 +11254,7 @@ html, body {
   padding: 4px 8px;
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: rgba(218, 255, 242, 0.55);
+  color: var(--muted);
   cursor: pointer;
 }
 
@@ -11484,7 +11564,20 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
    typical height (~80px) plus safe-area inset. Keeps right-edge
    alignment. */
 #cssos-agent-fab {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 110px) !important;
+  /* CSSOS_WAVE_823c 20260616 — Jing「AI 助理与价格条同一行右下角」: 旧 +110px !important
+   * 把 FAB 钉在中右(压过 agent-chat.js 的对齐)。改成价格条同一 bottom 基准(dock-clear+safe+5)。 */
+  bottom: calc(var(--cssos-dock-clear, 0px) + env(safe-area-inset-bottom, 0px) + 12px) !important; /* W857 — Safari 边距≥5 */
+}
+/* CSSOS_WAVE_855 — App/窄屏: 价格条独占下行, AI 助理抬高一行(到传统字幕那行的右侧), 不盖住价格条
+ * 最后的胶囊(Buyout)。桌面端屏宽, AI 在价格条右侧不会盖, 保持上面的 +5px。 */
+html.cssos-app #cssos-agent-fab,
+html.cssos-watch-open[data-narrow="1"] #cssos-agent-fab {
+  bottom: calc(var(--cssos-dock-clear, 0px) + env(safe-area-inset-bottom, 0px) + 54px) !important;
+}
+@media (max-width: 640px) {
+  html.cssos-watch-open #cssos-agent-fab {
+    bottom: calc(var(--cssos-dock-clear, 0px) + env(safe-area-inset-bottom, 0px) + 54px) !important;
+  }
 }
 #cssos-agent-panel {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 178px) !important;
@@ -12782,8 +12875,9 @@ html.cssos-pill-cascade .palette-color-tabs:not(:has(.active)) > .palette-color-
   font-size: 13px; user-select: none;
   /* W461b — explicit light text; lang pickers live in dark panels (pipeline,
    * person-MV codex).  The advanced-settings light-mode override below
-   * reverts to dark text for the one context that has a light bg. */
-  color: rgba(218, 255, 238, 0.88);
+   * reverts to dark text for the one context that has a light bg.
+   * W810 — 改 var(--text) 源头自适应: 深色=浅薄荷, 白天=深色, 一劳永逸。 */
+  color: var(--text);
 }
 .cssos-lang-cell:hover { background: rgba(0, 245, 160, 0.10); }
 .cssos-lang-cell.is-selected {
@@ -12819,6 +12913,17 @@ html[data-theme="light"] .cssos-lang-picker-price { color: rgba(28, 25, 20, 0.82
 html[data-theme="light"] .cssos-lang-cell { color: var(--text); border-color: rgba(40, 90, 66, 0.35); }
 html[data-theme="light"] .cssos-lang-cell.is-selected { border-color: rgba(0, 160, 96, 0.7); }
 html[data-theme="light"] .cssos-lang-cell.is-default { border-color: rgba(0, 160, 96, 0.95); }
+
+/* CSSOS_WAVE_888 — Jing「白天主题文字看不清」逐面板反色(Apple Guideline 4 真凶=难读)。
+ * 组件各自注入 <style> 把字写死成深色主题的浅薄荷/浅蓝白(#cfd8f5 等)→ 白天奶油底上隐形。
+ * 这里按 data-theme=light 反成深色文字。本批: For You 面板(Coming up next 货架 + 拉取搜索提示)。 */
+html[data-theme="light"] #cssos-upcoming-shelf .shelf-title { color: #14241c !important; }
+html[data-theme="light"] #cssos-upcoming-shelf .shelf-sub { color: rgba(20, 36, 28, 0.66) !important; }
+html[data-theme="light"] #cssos-upcoming-shelf { background: linear-gradient(135deg, rgba(0, 160, 96, 0.06), rgba(0, 120, 80, 0.03)) !important; border-color: rgba(0, 140, 90, 0.22) !important; }
+html[data-theme="light"] .panel-search-meta,
+html[data-theme="light"] .panel-pull-search-hint { color: rgba(20, 36, 28, 0.6) !important; }
+html[data-theme="light"] .shelf-title,
+html[data-theme="light"] .shelf-sub { color: #14241c !important; }
 
 /* W461b — Lang picker context-scoped colour overrides.
  *
@@ -12897,6 +13002,13 @@ body[data-theme="light"] .cssos-lang-badge {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.9s cubic-bezier(0.4,0,0.2,1);
+}
+/* CSSOS_WAVE_1039 20260620 — Jing「多语言胶囊消失时, CTA/Want 应掉下来贴价格条, 别留空一行」根治:
+ *   idle 时多语言只 opacity:0(#watch-language-pill 固定 height:40px)→ 它隐藏后【还占 40px 空行】。
+ *   这里 idle 时把整个 #cssos-lang-fold 折叠为 0(display:none)→ bottomflow 列 reflow, 上面的 CTA/Want
+ *   自然下移贴住价格条。hover 回来即恢复。"内容隐藏=高度0"。 */
+#watch-panel.cssmv-cinema:not(.is-hovering) #cssos-lang-fold {
+  display: none !important;
 }
 
 /* CSSOS_TIER_C_MULTILINGUAL C5b — dual subtitle (≤2). Second language
@@ -13161,3 +13273,366 @@ html.cssos-app *, html.cssos-app *::before, html.cssos-app *::after {
   -webkit-backdrop-filter: none !important;
 }
 html.cssos-app .bg-blob { filter: none !important; }
+
+/* CSSOS_WAVE_809 20260615 — Jing「全平台检查双主题色, 一劳永逸」。
+ * 平台审计(代理)结论: ~42 条规则把【深色主题专用薄荷文字】(rgba(232,253,244,*)=深色 --text、
+ * rgba(218,255,238,*)、#daffee/#eafff6/#eaffff)写死, 没有白天主题反色 → 奶油底上淡薄荷字读不清。
+ * 这里一条更广的兜底: 白天主题下把这些【面板内容文字】统一反成深色 var(--text)。
+ * 注意: 故意深底浮层(主题菜单 .theme-menu-item / kie 选择弹窗 #cssos-kie-stagepop)【不在此列】——
+ * 它们自带深背景, 始终用浅字, 已在各自规则保留。内联 style 的薄荷文字(51 个 JS 文件 ~232 处)
+ * CSS 够不着, 分波在 JS 内逐个改(W810+)。 */
+html[data-theme="light"] .theme-toggle:hover,
+html[data-theme="light"] .theme-toggle:focus-visible,
+html[data-theme="light"] .version-title,
+html[data-theme="light"] .version-current,
+html[data-theme="light"] .version-copy,
+html[data-theme="light"] .version-highlight,
+html[data-theme="light"] .version-details summary,
+html[data-theme="light"] .version-item span,
+html[data-theme="light"] .foryou-seed-copy,
+html[data-theme="light"] .foryou-structure .work-hierarchy-summary,
+html[data-theme="light"] .foryou-selection-lyrics,
+html[data-theme="light"] .field-action-btn.is-busy,
+html[data-theme="light"] .works-fp-optin-desc,
+html[data-theme="light"] .mini-btn.market-preview-btn,
+html[data-theme="light"] .mv-digest-metric.is-waiting strong,
+html[data-theme="light"] .mv-digest-metric.is-waiting span,
+html[data-theme="light"] .report-export-source:disabled,
+html[data-theme="light"] .report-export-button:disabled,
+html[data-theme="light"] .report-export-action:disabled,
+html[data-theme="light"] .report-preview-code,
+html[data-theme="light"] .watch-overlay-play,
+html[data-theme="light"] .watch-seed-copy,
+html[data-theme="light"] .watch-music-play,
+html[data-theme="light"] .watch-meta-copy,
+html[data-theme="light"] #version-toggle:hover,
+html[data-theme="light"] .version-toggle:hover,
+html[data-theme="light"] .mv-overlay-close,
+html[data-theme="light"] .pay-card,
+html[data-theme="light"] .pay-stripe-inline-loading,
+html[data-theme="light"] .pay-stripe-inline-confirm,
+html[data-theme="light"] .cssos-engine-bal-na,
+html[data-theme="light"] .cssos-lang-picker-head,
+html[data-theme="light"] .cssos-lang-cell,
+html[data-theme="light"] .cssos-create-cta-lead-opt,
+html[data-theme="light"] .cssos-create-cta-lead-opt:hover {
+  color: var(--text) !important;
+}
+/* 副文字(子标签/价格/标签/状态)在白天用稍浅的 muted, 不抢主文字 */
+html[data-theme="light"] .work-extra,
+html[data-theme="light"] .work-hierarchy-summary,
+html[data-theme="light"] .status-detail,
+html[data-theme="light"] .field-debug-status,
+html[data-theme="light"] .cssos-lang-picker-sub,
+html[data-theme="light"] .cssos-lang-picker-price,
+html[data-theme="light"] .cssos-create-cta-sub,
+html[data-theme="light"] .work-tags,
+html[data-theme="light"] #works-panel .work-card .work-tags {
+  color: var(--muted, #5a6b60) !important;
+}
+
+/* CSSOS_WAVE_840 — "账户" hub 顶部导航(订阅/积分/API 归一)。小巧 pill tab 行。 */
+.account-hub-nav {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0 12px;
+  flex-wrap: wrap;
+}
+.account-hub-tab {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text, #e8e8ea);
+  font: 600 12.5px/1 -apple-system, system-ui, sans-serif;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.account-hub-tab:hover { background: rgba(255, 255, 255, 0.10); }
+.account-hub-tab.is-active {
+  background: rgba(0, 245, 160, 0.16);
+  border-color: rgba(0, 245, 160, 0.45);
+  color: #c8ffe6;
+  cursor: default;
+}
+
+/* CSSOS_WAVE_841 — D 批: "Want an MV" 已合进 CTA 队列最后一格(app.up-next-strip Want 卡),
+   独立的 #cssos-create-cta 行不再单独显示, 避免与 CTA 同时冒出来打架。 */
+#cssos-create-cta { display: none !important; }
+
+/* CSSOS_WAVE_986 20260618 — Jing/Apple Guideline 4「拥挤/低质」: 情绪字幕/花瓣/爆字是【影院专属】,
+   一旦有别的面板(MV Pipeline/订阅/登录/搜索等)前置盖住影院, 这些 FX 不能再漏到面板上面。
+   panel-front 同时只一个; 只要前置的不是 watch-panel, 就把所有情绪 FX 层 + 底部字幕藏掉。 */
+html:has(.panel-front:not(#watch-panel):not(#cssmv-panel):not(#mv-pipeline-panel)) #cssfx-confetti,
+html:has(.panel-front:not(#watch-panel):not(#cssmv-panel):not(#mv-pipeline-panel)) #cssfx-center-burst,
+html:has(.panel-front:not(#watch-panel):not(#cssmv-panel):not(#mv-pipeline-panel)) #cssfx-spark,
+html:has(.panel-front:not(#watch-panel):not(#cssmv-panel):not(#mv-pipeline-panel)) #cssfx-flash,
+html:has(.panel-front:not(#watch-panel):not(#cssmv-panel):not(#mv-pipeline-panel)) #watch-subtitle {
+  display: none !important;
+}
+
+/* CSSOS_WAVE_986 — 订阅面板白天主题可读性(Apple Guideline 4): boost 价格原为白色62%, 在奶油亮底上全隐形 → 白天反深色。 */
+html[data-theme="light"] .boost-shop-price { color: rgba(15, 38, 27, 0.80) !important; }
+html[data-theme="light"] .subscription-legal { opacity: 1 !important; }
+html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
+
+/* CSSOS_WAVE_988 20260618 — Jing/Apple Guideline 4: 登录面板横屏一大片留白(内容挤顶部)。
+   横屏(宽>高)时把登录内容【垂直居中 + 限宽】, 不再是顶部一条 + 下方空洞。竖屏不变。 */
+@media (min-aspect-ratio: 5/4) {
+  #login-panel .panel-body,
+  #login-panel .login-body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 100%;
+  }
+  #login-panel .login-grid,
+  #login-panel .login-summary,
+  #login-panel .login-compact-summary,
+  #login-panel .login-hint {
+    max-width: 680px !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+/* CSSOS_WAVE_990 20260618 — Jing「MV 管线多部模式」: structure selector +
+   per-part editor in the MV pipeline panel. Capsule-style chips per 胶囊宪法. */
+.mvp-structure { margin: 10px 0 4px; }
+.mvp-structure > label {
+  display: block; font-size: 12px; opacity: 0.7; margin-bottom: 6px;
+}
+.mvp-structure-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mvp-structure-chip {
+  border: 1px solid rgba(127,209,255,0.35);
+  background: rgba(127,209,255,0.06);
+  color: inherit; border-radius: 999px;
+  padding: 5px 14px; font-size: 13px; cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.mvp-structure-chip:hover { transform: translateY(-1px); }
+.mvp-structure-chip[aria-pressed="true"] {
+  background: linear-gradient(135deg, #5eead4, #38bdf8);
+  border-color: transparent; color: #042f2e; font-weight: 600;
+}
+.mvp-structure-hint {
+  font-size: 11px; opacity: 0.6; margin: 6px 0; line-height: 1.4;
+}
+.mvp-parts { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
+.mvp-part {
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px; padding: 10px;
+  background: rgba(255,255,255,0.03);
+}
+.mvp-part-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.mvp-part-ord { font-size: 12px; font-weight: 600; opacity: 0.85; }
+.mvp-part-del {
+  border: none; background: transparent; color: inherit;
+  opacity: 0.5; cursor: pointer; font-size: 14px; padding: 2px 6px;
+}
+.mvp-part-del:hover { opacity: 1; color: #f87171; }
+.mvp-part-title {
+  width: 100%; box-sizing: border-box; margin-bottom: 6px;
+  padding: 7px 10px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.20); color: inherit; font-size: 13px;
+}
+.mvp-part-lyrics {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.20); color: inherit;
+  font-size: 13px; line-height: 1.45;
+}
+#mvp-add-part { margin-top: 2px; align-self: flex-start; }
+
+/* CSSOS_WAVE_992 — multi-part paste box (auto-split). */
+.mvp-multipart-paste-wrap { margin: 8px 0; }
+.mvp-multipart-paste-label { display:block; font-size:11px; opacity:0.7; margin-bottom:6px; line-height:1.4; }
+#mvp-multipart-paste {
+  width:100%; box-sizing:border-box; resize:vertical; min-height:96px;
+  padding:9px 11px; border-radius:10px; font-size:13px; line-height:1.5;
+  border:1px solid rgba(127,209,255,0.30); background:rgba(0,0,0,0.22); color:inherit;
+}
+.mvp-paste-or { text-align:center; font-size:11px; opacity:0.45; margin:8px 0 2px; }
+
+/* CSSOS_WAVE_1012c 20260619 — Jing「登录两按钮: 通栏 + 去图标圈圈 + 文字居中」。
+   通栏(不要 680 居中); Apple 网关卡与 LOG OUT 同为整行全宽、内容居中; 去掉小图标的
+   圆角绿底边框圈圈(纯图标即可)。 */
+#login-panel #login-list,
+#login-panel #login-logout {
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  box-sizing: border-box !important;
+}
+#login-panel #login-list > .login-card,
+#login-panel #login-logout {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  justify-content: center !important;
+  text-align: center !important;
+}
+/* 去掉小图标的圈圈(圆角/绿底/边框)→ 纯图标 */
+#login-panel #login-list > .login-card .login-icon {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  width: 20px !important;
+  height: 20px !important;
+}
+
+/* CSSOS_WAVE_1012d 20260619 — Jing「两按钮都要小图标」: Apple 已有图标; 给 LOG OUT 加退出小图标。
+   用 ::before 注入(data-i18n 改的是 textContent, 子元素会被清, ::before 不受影响)。不强制 display,
+   交给 JS 的 inline-flex/none 控制显隐(避免覆盖登出态隐藏)。 */
+#login-panel #login-logout {
+  gap: 6px !important;
+  align-items: center !important;
+}
+#login-panel #login-logout::before {
+  /* CSSOS_WAVE_1014 20260619 — Jing「🚪 退出图标不好看」: 改成圈叉 ⊗(更直观=结束/退出会话)。 */
+  content: "\2297"; /* ⊗ circled times */
+  font-size: 17px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* CSSOS_WAVE_1012f 20260619 — Jing「苹果图标被截断」: 基础 .login-icon 有 overflow:hidden 且内部
+   img/svg 可能大于 20px 容器 → 被裁。让图标完整呈现: 容器不裁、内部图标按比例缩满。 */
+#login-panel #login-list > .login-card .login-icon {
+  width: 22px !important;
+  height: 22px !important;
+  overflow: visible !important;
+}
+#login-panel #login-list > .login-card .login-icon img,
+#login-panel #login-list > .login-card .login-icon svg {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  display: block !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+/* CSSOS_WAVE_1029 20260620 — Jing 真机 console 取值后【一次做对】2.39:1。真实结构(影院全屏):
+ *   .watch-screen(满视口) > #watch-video(z2)/#watch-svg封面(z1)/#watch-screen-backdrop(z0) 均 absolute inset:0 cover;
+ *   字幕 #watch-subtitle 在价格条行(static, 底部)——【不动】; 爆字 cssfx-* 是 fixed 满屏。
+ * 之前翻车真凶: svg/backdrop 带 breathe 的 transform(matrix 缩放), 我用 transform:translate 居中 → 打架=双屏/偏位。
+ * 正解: 用【inset:0 + margin:auto】居中(绝不碰 transform, 保住呼吸动画), 媒体+爆字收成居中 2.39 框, 四周纯黑。
+ * 按朝向: 横屏(桌面+iPad横屏)命中; iPhone 锁竖屏永不命中 → device-fit 满屏。 */
+@media (min-aspect-ratio: 1 / 1) {
+  #watch-panel.is-cssmv-fullscreen .watch-screen > #watch-video,
+  #watch-panel.is-cssmv-fullscreen .watch-screen > #watch-svg {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    margin: auto !important;
+    /* CSSOS_WAVE_1040 20260620 — Jing「媒体撑满左右两边(不缩)」: 取消 W1038 的 32px 缩小, width:100%。
+     *   保留: 取消装饰边框(见下)、无圆角、停 breathe 呼吸动画(animation/transform:none, 不脉动不溢黑边)。
+     *   iPhone 竖屏不命中本规则, 它特别的边框安全不动。 */
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 2.39 / 1 !important;  /* 高=宽/2.39 → 上下黑边电影信箱 */
+    max-height: 100% !important;
+    object-fit: cover !important;
+    border-radius: 0 !important;
+    animation: none !important;
+    transform: none !important;
+  }
+  /* CSSOS_WAVE_1031 20260620 — Jing「媒体框底部那条彩色细缝=双媒体」根治: #watch-screen-backdrop
+   *   (模糊底层)带 breathe scale 1.02 比 2.39 框略大 → 从黑边露出一条。视频/封面已足够, 此层多余,
+   *   2.39 模式直接隐藏 → 黑边纯净。 */
+  #watch-panel.is-cssmv-fullscreen .watch-screen > #watch-screen-backdrop {
+    display: none !important;
+  }
+  /* CSSOS_WAVE_1037 — Jing「取消边框, 不要圆角」: 影院全屏彻底去掉面板四周一切装饰(彩虹 borderFlow
+   *   边框/发光/阴影/圆角), 纯黑边。进度条(.panel-progress-line, 独立元素)保留, 沿顶边走。 */
+  #watch-panel.is-cssmv-fullscreen,
+  #watch-panel.is-cssmv-fullscreen.panel-front,
+  #watch-panel.is-cssmv-fullscreen.panel-active {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  #watch-panel.is-cssmv-fullscreen::before,
+  #watch-panel.is-cssmv-fullscreen::after,
+  #watch-panel.is-cssmv-fullscreen.panel-front::before,
+  #watch-panel.is-cssmv-fullscreen.panel-active::before,
+  #watch-panel.is-cssmv-fullscreen.panel-front::after,
+  #watch-panel.is-cssmv-fullscreen.panel-active::after {
+    display: none !important;
+    content: none !important;
+    background: none !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  /* 情绪爆字/天女散花/色闪: inset:0+margin:auto 收进 2.39 框。
+   * 注 CSSOS_WAVE_1030: #cssfx-spark(前奏/间奏/尾声器乐段 emoji)【故意不收】—— Jing 要它从
+   *   【整屏 4 边】按音量飘进, 不是 2.39 框边 → spark 保持满屏(默认 fxHost=.watch-screen 满视口)。 */
+  #watch-panel.is-cssmv-fullscreen #cssfx-center-burst,
+  #watch-panel.is-cssmv-fullscreen #cssfx-center-grp,
+  #watch-panel.is-cssmv-fullscreen #cssfx-confetti,
+  #watch-panel.is-cssmv-fullscreen #cssfx-flash-overlay {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    margin: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 2.39 / 1 !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+  }
+}
+
+/* CSSOS_WAVE_1036 20260620 — Jing「多语言/多声线总跑中央」防御根治: 探针实锤 #cssos-lang-fold 本该
+ *   static 待在 #cssos-watch-bottomflow 底部行(与价格条同处), 但某代码路径在加载/过渡瞬间把它绝对
+ *   定位到屏幕中央。这里强制它【永远 static + 不绝对定位】, 任何 JS 内联(无 !important)都压不过 →
+ *   它只能待在 bottomflow 底部, 绝不跑中央。pill 内部的 transform 展开动画不受影响(只锁外层 fold 定位)。 */
+#cssos-lang-fold {
+  position: static !important;
+  inset: auto !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+/* CSSOS_WAVE_1058 20260620 — Jing「多语言/多声线胶囊有时还跑中央」真凶: 不是外层 fold(W1036 已锁),
+ *   而是【内层 .watch-language-pill.cssmv-pill-bar 自身】position:absolute;left:50%;transform:translateX(-50%)
+ *   → 横屏影院脱流飘到屏幕正中。横屏(底部三行布局)里把内层也锁 static, 老实待在底部那一行;
+ *   竖屏 device-fit 保留原居中(那里它本就浮在媒体上方)。 */
+@media (min-aspect-ratio: 1 / 1) {
+  #watch-panel.cssmv-cinema .watch-language-pill.cssmv-pill-bar,
+  #cssos-lang-fold .watch-language-pill.cssmv-pill-bar {
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    margin: 0 auto !important;
+  }
+}
+
+/* CSSOS_WAVE_1041 20260620 — Jing「满宽媒体盖住左右周长进度条, 把它提到媒体之上」: .cssmv-border-bar
+ *   (watch-stage-bars.js 画的周长进度环)挂 body、z-index 仅 3 → 被满宽媒体(watch-panel z 10050)盖住。
+ *   影院里把它 z 抬到媒体之上(10075, 媒体 ~10060)→ 左右进度条照常可见, 沿四边走。SVG 是细环+pointer
+ *   -events:none, 不挡画面。 */
+@media (min-aspect-ratio: 1 / 1) {
+  body.cssos-cinema-mode .cssmv-border-bar,
+  #watch-panel.is-cssmv-fullscreen ~ .cssmv-border-bar,
+  .cssmv-border-bar.is-active {
+    z-index: 10075 !important;
+  }
+}

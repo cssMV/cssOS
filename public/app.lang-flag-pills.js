@@ -97,7 +97,15 @@
       // CSSOS_WAVE_587 — 单行布局: [模式胶囊 🌐多语言 | 🎤多声线] + [一条 cell 轨道]。
       // 不再折叠成单颗; 两个模式胶囊常显, 点谁就只显谁那一类 cell(lang/voice)。
       // CSSOS_WAVE_587 — z-index 抬到 40 + pointer-events:auto: 之前两颗模式胶囊很难点(被字幕/Dock 等层盖住或层级不够)。
-      "#cssos-lang-fold{position:absolute;left:50%;bottom:60px;transform:translateX(-50%);z-index:40;display:inline-flex;align-items:center;max-width:92vw;pointer-events:auto;}",
+      // CSSOS_WAVE_862 — 不再自绝对定位: 由 app.watch-bottom-stack.js 收编为底部 flex 列子元素(单一 owner),
+      // 浏览器原生排在价格条上方一行, 永不与价格条/AI助理打架。这里只留视觉/命中属性。
+      "#cssos-lang-fold{z-index:40;align-items:center;max-width:92vw;pointer-events:auto;}",
+      // CSSOS_WAVE_884/923 — 只有【收进底部栈】后才显示; 否则(还浮在 DOM 出生点/中段)一律藏起, 杜绝"跑中央"。
+      // W923 真凶: 旧版用 visibility:hidden, 但子元素(.cssos-mode-cap 等)自带 visibility/pointer 规则会
+      // 【覆盖父级 visibility】→ 父藏子显 = 胶囊照样飘在中央。改用 display:none(子元素无法覆盖, 整棵子树消失),
+      // 仅当 fold 真在 #cssos-watch-bottomflow 里才 display:inline-flex 显示 → 永不在中段闪现/常驻。
+      "#cssos-lang-fold{display:none;}",
+      "#cssos-watch-bottomflow #cssos-lang-fold{display:inline-flex;}",
       "#cssos-lang-fold .cssos-mode-cap,#cssos-lang-fold #watch-language-pill,#cssos-lang-fold #watch-language-pill>button{pointer-events:auto !important;}",
       // CSSOS_WAVE_587 — 难点击根因: 宪法凹凸咬合用【负margin+透明遮罩】让相邻胶囊盒子伸进激活胶囊 20px,
       // 那块透明咬口仍然捕获点击 → 偷走激活/模式胶囊边缘的点击。把它们的 z 抬高于相邻咬口, 点击就落自己身上。
@@ -203,28 +211,13 @@
       "#watch-language-pill > button.cssos-cc-merge-l{-webkit-mask-image:none !important;mask-image:none !important;border-radius:999px 0 0 999px !important;margin:0 !important;border-right:0 !important;padding-left:16px !important;padding-right:6px !important;}",
       "#watch-language-pill > button.cssos-cc-merge-m{-webkit-mask-image:none !important;mask-image:none !important;border-radius:0 !important;margin:0 !important;border-left:0 !important;border-right:0 !important;padding-left:6px !important;padding-right:6px !important;}",
       "#watch-language-pill > button.cssos-cc-merge-r{-webkit-mask-image:none !important;mask-image:none !important;border-radius:0 999px 999px 0 !important;margin:0 !important;border-left:0 !important;padding-left:6px !important;padding-right:16px !important;}",
-      // CSSOS_WAVE_697 — Jing「多语言/多声线胶囊桌面顺、移动端难点击」根治: 凹咬靠 width:calc(100%+20px)+
-      // 负margin 让胶囊实体延伸 20px 嵌进邻居, mask 把那 20px 抠成透明碗口 —— 但【mask 只管视觉, 不管命中】,
-      // 那块透明碗口在触屏上照样偷走相邻胶囊的点击(鼠标精准能避开, 手指粗避不开)。
-      // 触屏(=App/移动)上【拆掉凹咬重叠】: 每颗变干净不重叠的实心圆角矩形, 点哪是哪, 100% 可点。
-      // 桌面(pointer:fine)保留凹凸咬合美学不动。merge 组也拆开 + 留小间距, 方便逐颗点。
-      "@media (pointer: coarse){",
-        "#watch-language-pill > button.cssos-cc-right,",
-        "#watch-language-pill > button.cssos-cc-left,",
-        "#watch-language-pill > button.cssos-laft,",
-        "#watch-language-pill > button.cssos-cc-merge-l,",
-        "#watch-language-pill > button.cssos-cc-merge-m,",
-        "#watch-language-pill > button.cssos-cc-merge-r{",
-          "width:auto !important;min-width:max-content !important;",
-          "margin-left:0 !important;margin-right:0 !important;",
-          "padding-left:16px !important;padding-right:16px !important;",
-          "border-radius:999px !important;border-left:1px solid hsla(var(--ph,155),100%,65%,0.32) !important;",
-          "border-right:1px solid hsla(var(--ph,155),100%,65%,0.32) !important;",
-          "-webkit-mask-image:none !important;mask-image:none !important;z-index:1 !important;",
-        "}",
-        // 相邻胶囊间留 4px 触摸间距, 命中区互不重叠。
-        "#watch-language-pill > button{margin:0 4px 0 0 !important;}",
-      "}"
+      // CSSOS_WAVE_866 — Jing「App 端应是【设置/多声线两个未激活胶囊凹咬包住激活的多语言】, 之前好好的,
+      // 是搬 loop 胶囊那波动了无关代码弄坏的」。根治: 【彻底删掉】W697/W865 的 @media(pointer:coarse) 触屏
+      // 改写块。那块把 cc-right/cc-left/cc-solid 等的凹咬(width:calc(100%+20)+负margin+mask 碗口)在触屏上
+      // 抹平 → App 失去凹凸咬合。现在 App 与桌面【同走 paintConcave 的真凹咬】: ⚙(cc-right 右咬)+ 🎤多声线
+      // (cc-left/right 咬向中心)双双凹抱激活的 🌐多语言。W697 当年怕"透明碗口在触屏偷相邻点击"——但这三颗是
+      // 大胶囊、点中心即可, 偷点只在密集 cell 轨才明显; 视觉正确优先, 恢复原貌。
+      ""
     ].join("");
     (document.head || document.documentElement).appendChild(st);
   }
@@ -281,6 +274,15 @@
     // 即便某次渲染 bar 没被包进 #cssos-lang-fold, 门控仍生效 → 永不混显。
     var bar = (fold.querySelector && fold.querySelector("#watch-language-pill")) || document.getElementById("watch-language-pill");
     if (bar) { bar.setAttribute("data-mode", curMode()); bar.setAttribute("data-expanded", _expanded); paintConcave(bar); }
+    // CSSOS_WAVE_884 — Jing「多语言总是跑那么远(屏幕中段)」根治: W870 只 schedule(异步 rAF)且依赖 adopt
+    // 的判断, 实测没收进去 → fold 停在 DOM 出生点(中段)。这里【同步直接】把 fold 塞进 #cssos-watch-bottomflow,
+    // 绕开 adopt 所有守卫, 每次渲染都保证它在底部栈里(adopt 之后再校正顺序)。bottomflow 还没建出来时,
+    // fold 由 CSS(visibility:hidden, 仅 bottomflow 内才显)藏住, 绝不在中段闪现。
+    try {
+      var _bf = document.getElementById("cssos-watch-bottomflow");
+      if (_bf && fold.parentNode !== _bf) _bf.appendChild(fold);
+      if (typeof globalThis.cssosScheduleBottomFlow === "function") globalThis.cssosScheduleBottomFlow();
+    } catch (_e) {}
   }
   function paintModeSwitch(bar) {
     var caps = bar.querySelectorAll(".cssos-mode-cap");
@@ -415,6 +417,10 @@
       bar.parentNode.insertBefore(fold, bar);
       fold.appendChild(bar);
     }
+    // CSSOS_WAVE_862 — Jing「不是各自在自己的 div 吗? 为什么打架?」根治: 撤掉 W857 的 absolute 钉死。
+    // 多语言行交给 app.watch-bottom-stack.js 收编为底部 flex 列子元素(单一 owner), 它会 appendChild 进
+    // #cssos-watch-bottomflow 并 makeFlowChild(static), 浏览器原生排在价格条上方一行 → 永不重叠。
+    // 这里【绝不】再设 position/left/bottom/transform(两个 owner = W760 之前的「都绝对定位必打架」老路)。
     // CSSOS_WAVE_669 — Jing「取消 hover 展开轨道, 改成点击才展开」: 撤掉桌面 hover(mouseenter/leave)
     // 自动展开/收回。展开统一走【点击模式胶囊「多语言/多声线」】(ensureModeSwitch 里已有, 桌面/移动一致):
     // 点一下展开该模式轨道, 再点收回, 选中真实 cell 自动收回。鼠标划过不再立刻弹轨道。

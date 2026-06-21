@@ -225,6 +225,10 @@
               <audio id="mic-capture-audio" class="mic-capture-audio" controls preload="metadata" hidden></audio>
             </div>
           </div>
+          <!-- CSSOS_WAVE_912 — Jing: 导航放在 mirror-stage【外面】(logo 不变形), 用 logo-body flex-wrap 换行落到口号下方。仅 web。 -->
+          <nav class="site-intro" id="site-intro" aria-label="Site navigation">
+            <a href="/about.html">About</a><span class="sep">|</span><a href="/business.html">Business</a><span class="sep">|</span><a href="/privacy.html">Privacy</a><span class="sep">|</span><a href="/terms.html">Terms</a><span class="sep">|</span><a href="mailto:admin@cssstudio.app">Contact</a>
+          </nav>
         </div>
       </section>
 
@@ -1435,7 +1439,7 @@
                      derived_settings infer (single / triptych / opera /
                      short_drama / series / film) from section-form. -->
                 <select id="creation-work-type">
-                  <option value="" selected data-i18n="creation.option.workType.auto">Auto · 智能判断</option>
+                  <option value="" selected data-i18n="creation.option.workType.auto">Auto · smart-detect</option>
                   <option value="single">Single</option>
                   <option value="triptych">Triptych</option>
                   <option value="opera">Opera</option>
@@ -1722,6 +1726,7 @@
           <div class="login-user" id="login-user"></div>
           <div id="login-summary-host"></div>
           <div class="login-grid cssmv-pill-bar" id="login-list"></div>
+          <!-- CSSOS_WAVE_878 — Jing「回滚到干净的全宽 Apple, 撤掉 W875 那段说明文字」。全宽机制(solo 类 + 内联钉死)保留。 -->
           <button class="cta ghost tiny" id="login-logout" type="button" data-i18n="login.logout">
             Log out
           </button>
@@ -2066,22 +2071,26 @@
         </span>
         <span data-i18n="dock.mic">Mic</span>
       </div>
-      <div data-action="mv-pipeline" data-pill-key="mv-pipeline">🎞️ <span data-i18n="dock.mvPipeline">MV Pipeline</span></div>
+      <!-- CSSOS_WAVE_862 — Jing: 为你创作(For You)默认第二位(话筒之后), 静态 HTML 同步, 避免 JS 跑前飞位。 -->
       <div data-action="foryou" data-pill-key="foryou">✨ <span data-i18n="dock.foryou">For You</span></div>
+      <div data-action="mv-pipeline" data-pill-key="mv-pipeline">🎞️ <span data-i18n="dock.mvPipeline">MV Pipeline</span></div>
       <div data-action="works" data-pill-key="works">🗂 <span data-i18n="dock.works">Works</span></div>
       <!-- CSSOS_WAVE_486 20260529 — Jing: 删除 🎬 CSS MV dock 项。它和 🎞️ MV
            Pipeline 打开同一个面板(WAVE_147 起被重指向管线), 纯重复, 还导致
            "点 CSS MV 却激活 MV 管线"。交付仪表盘仍可经 Reports / Delivery Ops
            进入。cssmv-panel 与其 handler 保留, 仅移除这颗重复的 dock 胶囊。 -->
-      <div data-action="lyrics" data-pill-key="lyrics">📝 <span data-i18n="dock.lyrics">Lyrics</span></div>
-      <div data-action="music" data-pill-key="music">🎼 <span data-i18n="dock.music">Music</span></div>
-      <div data-action="video" data-pill-key="video">📽 <span data-i18n="dock.video">Video</span></div>
+      <!-- CSSOS_WAVE_838 20260616 — Jing: 删除 歌词/音乐/视频 三个早期"臆念"引擎面板的 Dock 入口。
+           功能早整合进 MV 面板(左下打字机歌词 + 6 胶囊进度),单独入口=空壳+写死假数据=画蛇添足,
+           让平台显得没完工(英伟达/苹果 Guideline 4 的"杂乱"观感)。面板 DOM 暂留作管线舞台可视化,
+           只撤 Dock 重复入口。一切创作输出统一在 MV 面板,从入口到欣赏只一步。 -->
       <div data-action="watch" data-pill-key="watch">▶ <span data-i18n="dock.watch">MV</span></div>
       <div data-action="notifications" data-pill-key="notifications">🔔 <span class="dock-notification-badge" id="dock-notification-badge" hidden>0</span><span data-i18n="dock.notifications">Notifications</span></div>
       <div data-action="about" data-pill-key="about">ℹ <span data-i18n="dock.about">About</span></div>
-      <div data-action="api" data-pill-key="api">⌁ <span data-i18n="dock.api">API</span></div>
-      <div data-action="subscription" data-pill-key="subscription">💎 <span data-i18n="dock.subscription">Subscription</span></div>
-      <div data-action="credit" data-pill-key="credit">💳 <span data-i18n="dock.credit">Credit</span></div>
+      <!-- CSSOS_WAVE_840 20260616 — Jing: API/订阅/积分 三个钱面板归一成一个"账户"入口。
+           订阅 pill 改名"账户"(主视图), 积分(信用奖惩)+API(密钥计费)入口收进账户面板顶部
+           导航(app.subscription-panel.js account-hub-nav)。删 API/Credit 两个 Dock pill, 减少
+           Dock 重复、回应苹果 Guideline 4。两面板 DOM 与功能保留, 仅入口归拢。 -->
+      <div data-action="subscription" data-pill-key="subscription">💎 <span data-i18n="dock.account">Account</span></div>
       <div data-action="workspaces" data-pill-key="workspaces">🗂 <span data-i18n="dock.workspaces">Workspaces</span></div>
       <div data-action="user-admin" data-pill-key="user-admin">🧑‍💼 <span data-i18n="dock.userAdmin">User</span></div>
       <div data-action="settings" data-pill-key="settings">⚙ <span data-i18n="dock.settings">Settings</span></div>
@@ -2092,7 +2101,9 @@
       <div data-action="seller" data-pill-key="seller">💸 <span data-i18n="dock.seller">Seller</span></div>
       <div data-action="language" data-pill-key="language">🌐 <span data-i18n="dock.language">Language</span></div>
       <div data-action="engines" data-pill-key="engines" title="AI Engine Preferences">🧠 <span data-i18n="dock.engines">Engines</span></div>
-      <div data-action="passkey" data-pill-key="passkey">🔐 <span data-i18n="action.passkeyLogin">Passkey</span></div>
+      <!-- CSSOS_WAVE_838 — 删除 Passkey Dock 死按钮: 它没有自己的面板、handleDockAction 无 case,
+           点它会去开 Profile 面板 → Dock 又把所有打开面板点亮 → 看起来"最后两个面板一起冒出来"
+           (Jing 报的 bug)。通行密钥登录入口仍在 Profile 面板内,不丢功能。 -->
       <div data-action="profile" data-pill-key="profile">👤 <span data-i18n="action.profile">Profile</span></div>
     </footer>
 
@@ -2281,6 +2292,8 @@
     <script src="app.playlists.js?v=20260524-w390-foryou-retry"></script>
     <script src="app.emotion-fx.js?v=20260607-w668b"></script>
     <script src="app.emotion-fx-panel.js?v=20260607-w668b"></script>
+    <script src="app.subtitle-tune.js?v=20260618-w995"></script>
+    <script src="app.subtitle-wave-editor.js?v=20260618-w996"></script>
     <script src="app.watch-ui.js?v=20260604-w626-never-silent"></script>
     <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
     <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
@@ -2344,6 +2357,7 @@
     <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
 
     <script src="app.media-buffering-mirror.js?v=20260522-w355-mutedskip"></script>
+    <script src="app.vtt-immersive-captions.js?v=20260617-w933"></script>
     <script src="app.provider-health-dashboard.js?v=20260514-wave139c"></script>
     <script src="app.today-in-history-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.today-festival-shelf.js?v=20260603-w593-civmeta"></script>
@@ -3045,6 +3059,19 @@
         display: none !important;
       }
       /* (cssmv-border-bar rainbow ring is intentionally preserved in cinema.) */
+      /* CSSOS_WAVE_925 20260617 — Jing「播放媒体时, 三件套(字幕/价格条/AI 助理)+ 四边框
+         进度条 从开始到结束常驻, 都显示」: 明确豁免, 即使影院 idle(10s 无操作)也绝不隐藏
+         这四样。压过上面的 idle 隐藏 + 任何祖先 opacity/visibility 淡出。进度条本就只在 ended
+         闪爆后淡出(app.watch-stage-bars.js), 这里不动它的 opacity, 只保证 idle 不藏它。 */
+      html body.cssos-cinema-mode.cssos-watch-idle #watch-subtitle,
+      html body.cssos-cinema-mode.cssos-watch-idle #cssos-watch-priceline,
+      html body.cssos-cinema-mode.cssos-watch-idle #cssos-watch-price-strip,
+      html body.cssos-cinema-mode.cssos-watch-idle #cssos-agent-fab,
+      html body.cssos-cinema-mode.cssos-watch-idle .cssmv-border-bar.is-active {
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+      }
       body.cssos-cinema-mode.cssos-watch-idle {
         cursor: none;
       }

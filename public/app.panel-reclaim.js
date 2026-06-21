@@ -94,6 +94,15 @@
       var v = reclaimMedia(panel);
       reclaimBlobUrls(panel);
       stopResidentLoops(panel);
+      // CSSOS_WAVE_819 20260616 — Jing「覆盖≠关闭, 关面板必须彻底释放」: 关 watch 面板时
+      // 调用统一释放例程(此前 reclaim 只清 DOM 媒体, 漏了帧位图/dataURL池/运镜blob/帧循环
+      // 定时器/backstop —— 全驻留 = OOM 累积)。flushAllAssetCaches 已含这些(W819 补全)。
+      try {
+        var pid = (panel && panel.id) || "";
+        if (pid === "watch-panel" && typeof globalThis.cssosFlushAllAssetCaches === "function") {
+          globalThis.cssosFlushAllAssetCaches();
+        }
+      } catch (_f) {}
       // 给面板一个自定义 teardown 的机会(断 observer / 置空大状态)。
       try { panel.dispatchEvent(new CustomEvent("cssos:panelreclaim", { bubbles: false })); } catch (_c) {}
       try { console.debug("[panel-reclaim] " + (panel.id || "?") + " media-freed=" + v); } catch (_d) {}

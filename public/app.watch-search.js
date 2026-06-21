@@ -411,6 +411,12 @@
       // (每次搜索/启动都不同, 像幻灯); 没有池才退回主封面 cover_image. 池里的
       // 临时图(replicate/fal)若过期 404, onerror 再回退到稳定 cover_image 保底.
       var stable = String(w.cover_image || w.cover_url || w.preview_image_url || "").trim();
+      // W1090 — 树头卡若自身没封面(root 常无图 → 红色占位), 借首个可播 part 的封面,
+      //   让整棵树都有真封面、且各节点封面不同。
+      if (!stable && depth === 0) {
+        var _fp = firstPlayable(w);
+        if (_fp) stable = String(_fp.cover_image || _fp.cover_url || _fp.preview_image_url || "").trim();
+      }
       var rawPool = (Array.isArray(w.cover_slides) ? w.cover_slides : [])
         .map(function (u) { return String(u || "").trim(); })
         .filter(Boolean);
@@ -459,8 +465,9 @@
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
       metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + idFull + "</span>");
+      var _tsz = depth > 0 ? 38 : 56;   // W1090 — 树枝桠(子作品)缩略图更小, 视觉层级更清晰
       card.innerHTML =
-        '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
+        '<div style="position:relative;width:' + _tsz + 'px;height:' + _tsz + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +
           slidesAttr +
           (fallback ? ' data-stable="' + fallback + '" onerror="if(this.dataset.stable&&this.src!==this.dataset.stable){this.src=this.dataset.stable;}"' : "") + ">" : "") +

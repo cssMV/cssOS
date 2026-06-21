@@ -374,9 +374,27 @@
   }
 
   var seen = {};
+  // CSSOS_WAVE_1089 — Jing「播放多部作品时先播完整棵树所有枝丫, 才进下一个」: 把搜索结果
+  //   按【树展开】成一条有序播放队列 = [root1.part1, root1.part2, …, root2.part1, …],
+  //   点任一节点都 seekTo 它, 顺序 next() 自然走完本树全部章节再到下一部作品。
+  var _searchQueue = [];
+  function _treeExpandPlayOrder(roots) {
+    var out = [], have = {};
+    (Array.isArray(roots) ? roots : []).forEach(function (root) {
+      var kids = Array.isArray(root.children) ? root.children : (Array.isArray(root.parts) ? root.parts : []);
+      var nodes = kids.length > 1
+        ? kids.map(function (k) { return firstPlayable(k); }).filter(Boolean)
+        : [firstPlayable(root)].filter(Boolean);
+      nodes.forEach(function (n) {
+        var nid = String((n && (n.id || n.work_id)) || "").trim();
+        if (nid && !have[nid]) { have[nid] = 1; out.push(n); }
+      });
+    });
+    return out;
+  }
   function renderResults(works, first) {
     if (!results) return;
-    if (first) { results.innerHTML = ""; seen = {}; }
+    if (first) { results.innerHTML = ""; seen = {}; _searchQueue = []; }
     var playable = works.filter(function (w) { return !!firstPlayable(w); });   // W1084 — root 或后代可播即收录
     if (first && !playable.length) {
       results.innerHTML = '<div style="padding:18px;text-align:center;color:rgba(218,255,238,0.6);font:500 13px ui-monospace,monospace;">' + esc(tr("No matching MVs.", "没有匹配的 MV。")) + "</div>";
@@ -432,11 +450,12 @@
       }
       card.addEventListener("mouseenter", function () { card.style.background = "rgba(0,245,160,0.1)"; });
       card.addEventListener("mouseleave", function () { card.style.background = "transparent"; });
-      // W1086 — root 头卡标注部数(N 部), 让多部作品一目了然。
+      // W1086/W1088 — root 头卡标注部数(N 部), 让多部作品一目了然(按全部章节数, 不只可播)。
       var _kids = Array.isArray(w.children) ? w.children : (Array.isArray(w.parts) ? w.parts : []);
-      var _playKids = _kids.filter(function (k) { return !!firstPlayable(k); });
+      var _nodePlayable = !!firstPlayable(w);   // W1088 — 子节点是否就绪(未就绪→灰显+提示)
       var metaBits = [];
-      if (depth === 0 && _playKids.length > 1) metaBits.push("🎬 " + _playKids.length + tr(" parts", " 部"));
+      if (depth === 0 && _kids.length > 1) metaBits.push("🎬 " + _kids.length + tr(" parts", " 部"));
+      if (depth > 0 && !_nodePlayable) metaBits.push(tr("not ready yet", "章节生成中"));
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
       metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + idFull + "</span>");
@@ -451,17 +470,33 @@
         '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
         '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + metaBits.join(" · ") + "</div>" +
         "</div>";
-      card.addEventListener("click", function () { playWork(playNode || firstPlayable(w) || w); });   // W1084/W1086 — 下钻到可播 part
+      // W1088 — 未就绪章节: 灰显, 点击给引导提示而非死胡同。
+      if (depth > 0 && !_nodePlayable) {
+        card.style.opacity = "0.5";
+        card.addEventListener("click", function () {
+          var m = tr("This chapter is still being generated.", "该章节还在生成中,稍后再来欣赏。");
+          if (typeof globalThis.cssosGuidedToast === "function") globalThis.cssosGuidedToast(m);
+          else if (typeof globalThis.showToast === "function") globalThis.showToast(m);
+        });
+      } else {
+        card.addEventListener("click", function () { playWork(playNode || firstPlayable(w) || w); });   // W1084/W1086 — 下钻到可播 part
+      }
       results.appendChild(card);
     }
 
+    // W1089 — 累积本批结果的树展开播放顺序(分页追加, dedup)。
+    _treeExpandPlayOrder(playable).forEach(function (n) {
+      var nid = String((n && (n.id || n.work_id)) || "").trim();
+      if (nid && !_searchQueue.some(function (q) { return String(q.id || q.work_id) === nid; })) _searchQueue.push(n);
+    });
     playable.forEach(function (root) {
       var kids = Array.isArray(root.children) ? root.children : (Array.isArray(root.parts) ? root.parts : []);
-      var playableKids = kids.filter(function (k) { return !!firstPlayable(k); });
-      // W1086 — 多部作品: root 头卡(播首部)+ 各 part 缩进子卡; 单部/单曲只渲一张卡。
+      // W1086/W1088 — 只要有 ≥2 个 part 就是【多部作品】, 一律显示树(root 头卡 + 全部
+      //   章节子卡), 让用户一眼知道这是三部曲/歌剧/剧集/电影; 未就绪的章节灰显+提示,
+      //   绝不藏起来(藏起来用户就不知道有多少章)。单部/单曲只渲一张卡。
       appendCard(root, 0, firstPlayable(root) || root);
-      if (playableKids.length > 1) {
-        playableKids.forEach(function (kid) { appendCard(kid, 1, firstPlayable(kid) || kid); });
+      if (kids.length > 1) {
+        kids.forEach(function (kid) { appendCard(kid, 1, firstPlayable(kid) || kid); });
       }
     });
   }
@@ -496,6 +531,21 @@
           globalThis.cssosEnterCinemaLayout();
         }
       } catch (_e) {}
+      // CSSOS_WAVE_1089 — 把【树展开的搜索队列】灌进播放列表, seekTo 当前节点 → 顺序
+      //   next() 先播完本树全部章节(三部曲/歌剧/剧集/电影), 再继续下一部作品。
+      try {
+        var _pl = globalThis.cssosPlaylists;
+        var _pid = String(payload.id || payload.work_id || "").trim();
+        if (_pl && typeof _pl.populate === "function" && _searchQueue.length) {
+          var _q = _searchQueue.some(function (q) { return String(q.id || q.work_id) === _pid; })
+            ? _searchQueue : [payload].concat(_searchQueue);
+          if (_pl.populate("for-you", _q)) {
+            _pl.setActive && _pl.setActive("for-you");
+            if (_pl.setMode && _pl.getMode && _pl.getMode() === "loop_single") _pl.setMode("loop_all");
+            _pl.seekTo && _pl.seekTo(_pid);
+          }
+        }
+      } catch (_qe) {}
       // 2. 渲染新内容(异步, 但 click 手势上下文仍在).
       if (typeof globalThis.openMarketWorkPreview === "function") {
         globalThis.openMarketWorkPreview(payload);

@@ -154,6 +154,12 @@
       take_index: raw.take_index || null,
       root_work_id: raw.root_work_id || null,
       sequence_index: raw.sequence_index ?? 0,
+      // CSSOS_WAVE_1092 — 多部作品上下文(供 up-next 卡显示三部曲/歌剧/剧集 N 部 + 第几/共几)
+      work_type: String(raw.work_type || "").trim() || null,
+      part_index: Number(raw._part_index || 0) || null,
+      part_total: Number(raw._part_total || 0) || null,
+      root_title: raw._root_title || null,
+      root_work_type: raw._root_work_type || null,
       is_own: raw.is_own === true,
       created_at: raw.created_at || null,
       // CSSOS_WAVE_262 20260521 — Jing: 携带"作者"身份, 供媒体框左上角头像
@@ -172,12 +178,22 @@
   // 永远有内容连播. 旧的 GET /cssapi/v1/mv 已废弃, 改用 market 端点.
   function flattenWorksTree(works) {
     const flat = [];
-    const visit = (w) => {
+    const visit = (w, parent) => {
       if (!w) return;
+      // CSSOS_WAVE_1092 — Jing「Next-up 卡显示多部作品」: 拍平时给每个 part 盖上多部上下文
+      //   (第几/共几 + root 类型 + root 标题), 让 up-next 卡能显示"三部曲 1/3"等。root 容器
+      //   常无媒体被丢弃, 所以信息必须下沉到各 part。
+      if (parent && Array.isArray(parent.children) && parent.children.length > 1) {
+        const sibs = parent.children;
+        w._part_index = sibs.indexOf(w) + 1;
+        w._part_total = sibs.length;
+        w._root_title = String(parent.title || "").trim();
+        w._root_work_type = String(parent.work_type || w.work_type || "").trim();
+      }
       flat.push(w);
-      if (Array.isArray(w.children)) w.children.forEach(visit);
+      if (Array.isArray(w.children)) w.children.forEach((c) => visit(c, w));
     };
-    (Array.isArray(works) ? works : []).forEach(visit);
+    (Array.isArray(works) ? works : []).forEach((w) => visit(w, null));
     return flat;
   }
   function pushUnique(list, have, rawItems, ownFlag) {

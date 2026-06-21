@@ -382,11 +382,35 @@
     // 它在移动端浮成一个莫名的"0"方块(图1/2), 让人困惑, 且属于 CTA 切歌那套(本就要收敛)。整块删除。
     card.appendChild(thumb);
 
+    // CSSOS_WAVE_1092 — Jing「Next-up 卡显示多部作品」: 多部(三部曲/歌剧/剧集/短剧/电影)→
+    //   叠卡边(=一套) + 类型徽章(=是什么) + 章节位「类型 · N/M」(=第几枝)。单曲不变。
+    var _wt = String(item.root_work_type || item.work_type || "").toLowerCase();
+    var _pi = Number(item.part_index || 0), _pt = Number(item.part_total || 0);
+    var _multi = _pt > 1 || ["triptych", "opera", "series", "shortplay", "film"].indexOf(_wt) >= 0;
+    if (_multi) {
+      var _m = ({
+        triptych: ["🎬", "三部曲", "Triptych"], opera: ["🎭", "歌剧", "Opera"],
+        series: ["📺", "剧集", "Series"], shortplay: ["🎬", "短剧", "Short"], film: ["🎞️", "电影", "Film"],
+      })[_wt] || ["🎬", "合集", "Set"];
+      thumb.style.boxShadow = "3px -3px 0 -1px rgba(255,255,255,0.18), 6px -6px 0 -2px rgba(255,255,255,0.10)";
+      var tb = document.createElement("span");
+      tb.textContent = _m[0] + " " + tt(_m[2], _m[1]);
+      tb.style.cssText = "position:absolute;top:4px;right:4px;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,0.6);color:#9fe9d4;font:600 9px/1 -apple-system,system-ui,sans-serif;";
+      thumb.appendChild(tb);
+    }
+
     var title = document.createElement("div");
     title.textContent = truncateTitle(item.title, 32) || "—";
     title.title = String(item.title || "");
     title.style.cssText = "font:500 12px/1.25 -apple-system,system-ui,sans-serif;color:#daffee;width:100%;";
     card.appendChild(title);
+
+    if (_multi) {
+      var pc = document.createElement("div");
+      pc.textContent = (_pi && _pt) ? (tt(_m[2], _m[1]) + " · " + _pi + "/" + _pt) : tt(_m[2], _m[1]);
+      pc.style.cssText = "font:600 10px/1.2 -apple-system,system-ui,sans-serif;color:#5effc9;width:100%;";
+      card.appendChild(pc);
+    }
 
     /* CSSOS_WAVE_205 20260516 — Jing: "人物MV进入MV面板，每次播放结束前
      * 显示的另一个人物的卡片，要标注人物名称。为你创作/作品中心每次

@@ -52868,6 +52868,52 @@ async function start() {
     try { startHandoffGcLoop(); } catch (err) {
       console.warn("[handoff-gc] failed to start loop:", err);
     }
+    // CSSOS_WAVE_1082b — 静态权限自愈(根治反复的 i18n/静态 600→nginx 500→全站漏键):
+    //   开机 + 每 30 分钟扫 public 顶层 + i18n/ 的 .js/.css/.json, 发现非 world-readable(600)
+    //   就尽力 chmod 644(node 以 www-data 跑, 仅当文件可被本进程 chmod 时生效); 修不了则写
+    //   error_reports('ops' 域)告警 → 进 admin digest, 不再靠肉眼发现。彻底兜底 W1082 部署脚本修复。
+    const cssosHealStaticPerms = async () => {
+      try {
+        const bad: string[] = [];
+        const fixed: string[] = [];
+        const scan = (dir: string) => {
+          let entries: any[] = [];
+          try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+          for (const e of entries) {
+            if (!e.isFile || !e.isFile()) continue;
+            if (!/\.(js|css|json|webmanifest)$/.test(e.name)) continue;
+            const p = path.join(dir, e.name);
+            let mode = 0;
+            try { mode = fs.statSync(p).mode; } catch { continue; }
+            if (!(mode & 0o004)) { // 非 world-readable → nginx 会 500
+              try { fs.chmodSync(p, 0o644); fixed.push(e.name); } catch { bad.push(e.name); }
+            }
+          }
+        };
+        scan(path.join(PUBLIC_DIR, "i18n"));
+        scan(PUBLIC_DIR);
+        if (bad.length || fixed.length) {
+          const msg = bad.length
+            ? `static UNREADABLE (600→nginx500→all-keys-leak), auto-chmod FAILED (need root): ${bad.slice(0, 8).join(",")}${bad.length > 8 ? "…+" + (bad.length - 8) : ""} — RUN: ssh api-vm 'sudo chmod -R a+rX /srv/cssos/current/public'`
+            : `static perms self-healed chmod644 ×${fixed.length}: ${fixed.slice(0, 8).join(",")}`;
+          (bad.length ? console.error : console.warn)("[selfheal][static-perms]", msg);
+          try {
+            const _code = bad.length ? "static_perm_500" : "static_perm_healed";
+            const _fp = crypto.createHash("sha1").update("ops|" + _code).digest("hex").slice(0, 24);
+            await withClient((c) => c.query(
+              `INSERT INTO error_reports (fingerprint, domain, message, code, build)
+               VALUES ($1,'ops',$2,$3,$4)
+               ON CONFLICT (fingerprint) DO UPDATE SET
+                 count = error_reports.count + 1, last_seen = now(), message = EXCLUDED.message,
+                 status = CASE WHEN error_reports.status='fixed' THEN 'new' ELSE error_reports.status END`,
+              [_fp, msg.slice(0, 300), _code, String(process.env.CSSOS_BUILD || "")],
+            ));
+          } catch (_e) { /* telemetry best-effort */ }
+        }
+      } catch (_e) { /* self-heal best-effort */ }
+    };
+    void cssosHealStaticPerms();
+    setInterval(() => { void cssosHealStaticPerms(); }, 30 * 60 * 1000);
     // CSSOS_WAVE_545 20260531 — Jing「作品中心有、却不在『为你创作』」自愈:
     // Rust 管线提交资产后把作品设为 'ready', 但给市场档案写 visibility='private'
     // (Rust 服务不在本仓, 改不了)。平台策略 = 完成的作品默认公开。这里在 Node 侧

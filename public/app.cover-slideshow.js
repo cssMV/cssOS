@@ -244,12 +244,13 @@
     // W1000 可见性闸: 面板被盖/隐藏时跳过换帧(不 churn DOM、不吃内存)。两全。
     state.mvIndex = state.slides.length ? Math.floor(Math.random() * state.slides.length) : 0;
     if (state.slides.length) renderMvFrame(state.mvIndex);
+    _ensureAudioRefitHook();   // W1083b — 音频时长就绪/换 take 时自动重铺
     state.mvTimer = setInterval(() => {
       if (!state.slides.length) return;
       if (!_slideshowVisible(mvHost())) return;   // W1000 — 不可见不 churn
       state.mvIndex = (state.mvIndex + 1) % state.slides.length;
       renderMvFrame(state.mvIndex);
-    }, TICK_MS);
+    }, _fittedFrameMs());   // W1083b — 按音频时长精确铺满(非固定 TICK_MS)
   }
 
   function stopMv() {
@@ -285,6 +286,53 @@
     injectSlide(host, url);
   }
 
+  // CSSOS_WAVE_1083b — Jing「幻灯按音频时长精确铺满 + 两 take 各自时长各自铺」: 帧不再固定 TICK_MS
+  //   盲循环, 而是按【当前音频时长 ÷ (帧数 × 整数圈)】算每帧间隔 → 帧池在整曲内均匀铺满、收尾≈音频
+  //   结束; 切到另一 take(时长不同)时 durationchange → 重算重铺。同一帧池, 不同时长各自适配。
+  function _fittedFrameMs() {
+    try {
+      const a = document.getElementById("watch-audio-preview");
+      const durMs = a && isFinite(a.duration) && a.duration > 1 ? a.duration * 1000 : 0;
+      const n = state.slides.length || 1;
+      if (durMs && n) {
+        const loops = Math.max(1, Math.round(durMs / (TICK_MS * n)));   // 最接近原节奏的整数圈
+        return Math.max(2500, Math.min(45000, durMs / (n * loops)));    // 夹: 不短于2.5s(防闪)不长于45s
+      }
+    } catch (_e) {}
+    return TICK_MS;
+  }
+  function _refitActiveTimers() {
+    try {
+      if (state.mvActive && state.mvTimer) {
+        clearInterval(state.mvTimer);
+        state.mvTimer = setInterval(() => {
+          if (!state.slides.length) return;
+          if (!_slideshowVisible(mvHost())) return;
+          state.mvIndex = (state.mvIndex + 1) % state.slides.length;
+          renderMvFrame(state.mvIndex);
+        }, _fittedFrameMs());
+      }
+      if (state.musicActive && state.musicTimer) {
+        clearInterval(state.musicTimer);
+        state.musicTimer = setInterval(() => {
+          if (!state.slides.length) return;
+          if (!_slideshowVisible(musicHosts()[0])) return;
+          state.musicIndex = (state.musicIndex + 1) % state.slides.length;
+          renderMusicFrame(state.musicIndex);
+        }, _fittedFrameMs());
+      }
+    } catch (_e) {}
+  }
+  function _ensureAudioRefitHook() {
+    try {
+      const a = document.getElementById("watch-audio-preview");
+      if (!a || a.__cssosSlideshowRefitHooked) return;
+      a.__cssosSlideshowRefitHooked = true;
+      a.addEventListener("loadedmetadata", _refitActiveTimers);   // 时长就绪 → 铺满
+      a.addEventListener("durationchange", _refitActiveTimers);   // 切 take → 按新时长重铺
+    } catch (_e) {}
+  }
+
   // ---------- Music tab hosts (#watch-music-art + #watch-music-disc) ----------
 
   function musicHosts() {
@@ -302,12 +350,13 @@
     // CSSOS_WAVE_1001b — 恢复循环 + 保留可见性闸(见 startMv 说明)。
     state.musicIndex = state.slides.length ? Math.floor(Math.random() * state.slides.length) : 0;
     if (state.slides.length) renderMusicFrame(state.musicIndex);
+    _ensureAudioRefitHook();   // W1083b — 音频时长就绪/换 take 时自动重铺
     state.musicTimer = setInterval(() => {
       if (!state.slides.length) return;
       if (!_slideshowVisible(musicHosts()[0])) return;   // W1000 — 不可见不 churn
       state.musicIndex = (state.musicIndex + 1) % state.slides.length;
       renderMusicFrame(state.musicIndex);
-    }, TICK_MS);
+    }, _fittedFrameMs());   // W1083b — 按音频时长精确铺满(非固定 TICK_MS)
   }
 
   function stopMusic() {

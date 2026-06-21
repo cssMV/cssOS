@@ -752,8 +752,21 @@ async function openMarketWorkPreview(work = {}, options = {}) {
       try {
         const _cr = await fetch("/api/works/public/" + encodeURIComponent(_cid), { credentials: "include" });
         const _cp = await _cr.json().catch(() => null);
+        if (!__stillCurrent()) return;
+        // CSSOS_WAVE_1087 — Jing「在播一个已删除的空壳」根治: 规范源说这作品已删除/不存在
+        //   (404 WORK_DELETED/WORK_NOT_FOUND) → 绝不播放这个空壳(无音频/字幕/语言轨, 标题来路不明)。
+        var _code = String((_cp && _cp.code) || "");
+        if (_cr.status === 404 || _code === "WORK_DELETED" || _code === "WORK_NOT_FOUND") {
+          try {
+            var _msg = (typeof globalThis.loginCopy === "function")
+              ? globalThis.loginCopy("This work is no longer available.", "该作品已不可用(已删除)。")
+              : "This work is no longer available.";
+            if (typeof globalThis.cssosGuidedToast === "function") globalThis.cssosGuidedToast(_msg);
+            else if (typeof globalThis.showToast === "function") globalThis.showToast(_msg);
+          } catch (_te) {}
+          return;   // 不播删除壳
+        }
         const _canon = _cp?.data?.work || _cp?.data || _cp?.work || (_cp && _cp.id ? _cp : null);
-        if (!__stillCurrent()) return;   // 期间已切歌 → 这是上一首的规范数据, 丢弃
         if (_canon && String(_canon.id || "").trim() === _cid) {
           const _merged = Object.assign({}, targetWork);
           for (const _k in _canon) {

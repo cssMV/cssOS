@@ -40457,6 +40457,14 @@ app.get("/api/works/public/:id", async (req, res) => {
     if (visibility === "private" && viewer?.id !== row.owner_user_id) {
       return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
     }
+    // CSSOS_WAVE_1087 — Jing「在播一个已删除的空壳(François-Marie Arouet af18f1b6:
+    //   0 音频/0 轨/0 字幕)」根治: 已删除/下架作品按 ID 取也必须 404, 绝不复活空壳
+    //   (此前 public/:id 不看 status → canonical fetch 把删除壳当唯一数据源喂回播放 →
+    //   标题来路不明 + 字幕/语言胶囊全空)。前端拿到 WORK_NOT_FOUND 应跳过此作品。
+    const _st = String(row.status || "").toLowerCase();
+    if (_st === "deleted" || _st === "removed" || _st === "blocked" || _st === "purged") {
+      return res.status(404).json({ ok: false, code: "WORK_DELETED" });
+    }
     const normalized = normalizeWorkTreeRow(row) as any;
     // Resolve viewer access tier. getAccessTier-equivalent on server side
     // is just user.tier (or "guest").

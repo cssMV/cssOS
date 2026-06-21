@@ -2529,6 +2529,7 @@
     <!-- CSSOS_WAVE_588 — 轻量崩溃探针: 打点 DOM/图/幻灯/堆 + 最后动作, 崩溃重载后回显趋势(用数据定位)。 -->
     <script src="app.crash-probe.js?v=20260603-w594-diag"></script>
     <script src="app.i18n-leak-probe.js?v=20260603-w594"></script>
+    <script src="app.subtitle-probe.js?v=20260621-w1091"></script>
     <!-- CSSOS_WAVE_588 — 引导式 toast: 失败提示带 CTA(去充值/登录/重试), 不让用户卡死。 -->
     <script src="app.guided-toast.js?v=20260602-w588n-report"></script>
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 统一空态助手 cssosEmptyState。 -->

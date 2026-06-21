@@ -5389,6 +5389,23 @@ function wireWatchQueueAutoAdvanceOnceModule() {
   };
   globalThis.__cssosScheduleAutoAdvanceBackstop = scheduleAutoAdvanceBackstop;
   const onMediaEnded = () => {
+    // CSSOS_WAVE_1083a — Jing「5秒短视频先播, 放完无痕过渡到封面幻灯, 音频走全长」:
+    //   补齐作品的视频是 seedance 5 秒短片, 音频是全长(几分钟)。视频静音、音频驱动声音(W406),
+    //   但短视频的 'ended' 会先触发本回调 → 误以为歌放完了就切歌(=用户看到的"5秒跳")。守卫:
+    //   若【音频还在放且离结束还有 >2s】, 这次 ended 必来自短视频 → 不切歌; 停掉视频(opacity:0
+    //   让下层封面幻灯透出, cover-slideshow 兜底自动接管), 音频继续, 真正放完(audio.ended)才前进。
+    try {
+      const _a = document.getElementById("watch-audio-preview");
+      if (_a && (_a.currentSrc || _a.src) && !_a.paused && !_a.ended
+          && isFinite(_a.duration) && _a.duration > 8 && (_a.duration - _a.currentTime) > 2) {
+        const _v = document.getElementById("watch-video");
+        try {
+          if (_v) { _v.loop = false; try { _v.pause && _v.pause(); } catch (_p) {} _v.style.opacity = "0"; }
+        } catch (_ve) {}
+        try { globalThis.cssmvStartCoverSlideshow && globalThis.cssmvStartCoverSlideshow(); } catch (_se) {}
+        return;   // 短视频结束 ≠ 歌结束; 交给幻灯, 不切歌
+      }
+    } catch (_g) {}
     // CSSOS_WAVE_1057 — 插队优先播: 后台生成的作品在等"当前媒体放完", 此刻优先播它(插队在最前)。
     //   就绪则播, 没就绪(还没出齐)则让位常规连播, 绝不卡死。
     try {

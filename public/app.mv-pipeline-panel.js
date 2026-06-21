@@ -4010,6 +4010,12 @@
     state.prompt = (panel.querySelector("#mvp-prompt").value || "").trim();
     state.style = (panel.querySelector("#mvp-style").value || "").trim();
     state.lyrics = (panel.querySelector("#mvp-lyrics").value || "").trim();
+    // CSSOS_WAVE_1081 — Jing「手输标题=最高优先, 系统绝不覆盖」根治: 运行起点会两处
+    //   state.title="" 清空 → 用户填的标题被抹掉 → 后面 LLM/Suno 的"仅当 state.title 为空才采用"
+    //   守卫误以为没标题, 灌入随机英文标题。修: 每次运行先从 #mvp-title 捕获用户标题并加锁,
+    //   下面的清空改为"保留用户标题"; 用户没填才清空让 LLM 生成。
+    state.userTitle = String((panel.querySelector("#mvp-title") || {}).value || "").trim();
+    state.userTitleLocked = !!state.userTitle;
 
     /* CSSOS_WAVE_198/199 20260516 — Jing: "每次输出歌词等 25 项信息，首先要
      * 全面地清除旧的，确保回灌全新的内容，不得保留任何旧的内容。" My first
@@ -4064,7 +4070,7 @@
       // whether the user has changed jobs.
       state._lastPipelinePrompt = currentPromptTrim;
       // Wipe ALL downstream output fields regardless of lyrics source.
-      state.title = "";
+      state.title = state.userTitle || "";   // W1081 — 保留用户手输标题(最高优先)
       state.sections = null;
       state.shotScripts = null;
       state.derivedSettings = null;
@@ -4373,7 +4379,7 @@
     } catch (_cssErr) { /* non-fatal — preview just falls back to the stylesheet default */ }
     if (!isResume) {
       state.duration = 0;
-      state.title = "";        // P2-31: reset title at run start
+      state.title = state.userTitle || "";   // W1081 — 保留用户手输标题(P2-31 原为无条件清空, 会抹掉用户标题)
     }
     // Only reset the stage-state for stages we're actually going to rerun.
     // Earlier stages keep their prior "done" marker so the top-border bars

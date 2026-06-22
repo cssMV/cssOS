@@ -273,7 +273,10 @@ enum CSSBackend {
                 let wt = (w["work_type"] as? String) ?? ""
                 let dur = (w["duration_secs"] as? Int) ?? Int((w["duration_secs"] as? Double) ?? 0)
                 let video = (w["final_mv_url"] as? String) ?? (w["preview_video_url"] as? String) ?? ""
-                let audio = (w["audio_track_1_url"] as? String) ?? ""
+                // CSSOS_WAVE_1104 — 可播音频兜底: 不少作品音频在 preview_audio_url 而非 audio_track_1
+                //   资产 → 只读 audio_track_1_url 会拿到空串 = 点了不响。补 preview_audio_url 兜底。
+                let audio = (w["audio_track_1_url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    ?? (w["preview_audio_url"] as? String) ?? ""
                 let meta = [wt, style].filter { !$0.isEmpty }.joined(separator: " · ")
                 let createdRaw = (w["created_at"] as? String) ?? (w["createdAt"] as? String) ?? (w["release_date"] as? String) ?? ""
                 let created = shortDate(createdRaw)

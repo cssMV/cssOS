@@ -42,23 +42,17 @@ struct ContentView: View {
                     .frame(width: 660, height: 720)
                     .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
             } else {
-                // W1093 — 大厅已搬进沉浸空间(GateSpace), 窗口只留极简占位(沉浸态下本就隐藏);
-                //   若沉浸没开起来, 这里给个手动进入兜底。
-                VStack(spacing: 18) {
-                    Image("MirrorFull").resizable().scaledToFit().frame(width: 150, height: 150)
-                    Text("CSS Vision").font(.system(size: 30, weight: .black, design: .rounded))
-                    if !gateOpened {
-                        ProgressView()
-                        Text(L("Entering the Cathedral…", "正在进入魔镜圣殿…"))
-                            .font(.footnote).foregroundStyle(.secondary)
-                    } else {
-                        Button(L("Re-enter", "重新进入")) { Task { await openGate() } }
-                            .buttonStyle(.bordered).buttonBorderShape(.capsule)
-                    }
-                }
-                .padding(40)
-                .frame(width: 420, height: 460)
-                .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
+                // CSSOS_WAVE_1104 — Jing「用苹果原生窗口自带的隐藏拖拽条, 别手动加; 大门默认太高」:
+                //   大厅改回【原生窗口】渲染(系统自带底部隐藏拖拽条 + 按舒适眼高摆放), GateSpace
+                //   只负责星空+光点背景。不再用沉浸内 attachment + 自定义拖拽条。
+                LobbyView(
+                    onEnter: { router.enter($0) },
+                    onCreate: { router.doCreate = true },
+                    onSpell: { router.spell = $0 },
+                    signedIn: auth.isSignedIn,
+                    onSignIn: { router.fireBeams = true }
+                )
+                .frame(minWidth: 720, idealWidth: 920, maxWidth: 1100, minHeight: 600, idealHeight: 820)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: inImmersive)
@@ -124,13 +118,8 @@ struct ContentView: View {
     // CSSOS_WAVE_1093 — 打开沉浸大厅(GateSpace): 星空 + 大厅面板 + 光束仪式。
     private func openGate() async {
         let r = await openImmersiveSpace(id: "GateSpace")
-        if case .opened = r {
-            gateOpened = true
-            // CSSOS_WAVE_1099 — Jing「启动窗应进沉浸即消失、用户无感, 别驻留」: 圣殿大门
-            //   一旦进入沉浸, 立刻关掉那个 2D 启动占位窗(此前只有影院路径关了, 大门路径漏关 →
-            //   小窗一直悬在那)。影院路径已各自 dismiss, 这里补上大门路径。
-            dismissWindow(id: "launch")
-        }
+        if case .opened = r { gateOpened = true }
+        // CSSOS_WAVE_1104 — 大厅现在就是这个原生窗口本身(在星空沉浸背景前), 故【不再 dismiss launch 窗】。
     }
 
     // W1060 — 咒语创作: 显示 CreationOrb 流动阶段词 → 调后端管线 → 出 MV 进影院。

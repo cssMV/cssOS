@@ -26,10 +26,11 @@ struct CSSImmersiveApp: App {
                     shareplay.listen()         // 监听 SharePlay 邀请/发起
                 }
         }
-        .windowStyle(.plain)
-        // W1076 — 启动占位窗 = defaultSize: 收紧到紧凑尺寸, 避免"一大片空玻璃 + 系统小图标"的破相;
-        //   大厅是 .contentSize 自适应, 加载完自动撑到内容宽(860), 不受影响。
-        .defaultSize(width: 480, height: 560)
+        // CSSOS_WAVE_1104 — Jing「用苹果原生窗口自带的隐藏拖拽条, 别手动加; 大门别太高」:
+        //   去掉 .windowStyle(.plain)(plain 无系统 chrome/拖拽条)→ 用默认窗口样式, 系统自带
+        //   底部隐藏拖拽条(凝视才显)+ 深度手柄 + 按舒适眼高摆放(自动平视, 不再太高)。
+        //   大厅(LobbyView)就渲染在这个原生窗口里。
+        .defaultSize(width: 920, height: 760)
         .windowResizability(.contentSize)       // 紧贴内容
 
         // W975 — 可拖拽控制窗(原生 WindowGroup, 自带抓取条): 交易 + 多语言/多声线整合一窗。

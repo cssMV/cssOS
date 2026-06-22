@@ -9,67 +9,24 @@ import SwiftUI
 import RealityKit
 import UIKit
 
-private final class GateViewRefs { var head: Entity?; var rig: Entity? }
+private final class GateViewRefs { var head: Entity? }
 
 struct GateView: View {
     @EnvironmentObject var auth: CSSAuth
     @EnvironmentObject var router: GateRouter
     @State private var refs = GateViewRefs()
-    @State private var dragStart: SIMD3<Float>? = nil   // CSSOS_WAVE_1101 — 拖拽起点
 
     var body: some View {
-        RealityView { content, attachments in
-            // 星空环绕。
+        // CSSOS_WAVE_1104 — Jing「用原生窗口的隐藏拖拽条; 大门别太高」: 大厅面板已移回原生
+        //   窗口(ContentView 渲染 LobbyView, 系统自带拖拽条 + 眼高摆放)。GateSpace 此处只负责
+        //   【星空 + 光点背景 + 头部锚点(光点仪式)】, 不再放大厅 attachment / 自定义拖拽条。
+        RealityView { content in
             content.add(ImmersiveScene.makeEnvironment(named: "cosmos"))
-            // 头部锚点(光束朝眼睛飞用)。
             let head = AnchorEntity(.head)
             content.add(head)
             refs.head = head
-            // CSSOS_WAVE_1101 — Jing「圣殿大门没有拖拽条, 无法拖远近」: 把大厅面板放进一个
-            //   可移动的 rig 容器, 容器顶部挂一根【拖拽条】(可抓握 InputTarget), 拖它=带着
-            //   整个大厅在 3D 里移动(含远近)。沉浸空间里 DragGesture 给的是 3D 位移, 手往
-            //   前后伸即调远近, 比 2D 窗口的深度手柄更自然。
-            let rig = Entity()
-            rig.position = SIMD3<Float>(0, 1.32, -1.7)
-            content.add(rig)
-            refs.rig = rig
-            if let lobby = attachments.entity(for: "lobby") {
-                lobby.position = SIMD3<Float>(0, 0, 0)
-                rig.addChild(lobby)
-            }
-            // 拖拽条: 浮在面板上方的一根细横杆, 可凝视+捏住拖动。
-            let bar = ModelEntity(mesh: .generateBox(size: SIMD3<Float>(0.24, 0.016, 0.022), cornerRadius: 0.008))
-            bar.model?.materials = [UnlitMaterial(color: UIColor(white: 1.0, alpha: 0.85))]
-            bar.position = SIMD3<Float>(0, 0.34, 0.01)      // 面板上沿之上
-            bar.components.set(InputTargetComponent())
-            bar.components.set(CollisionComponent(shapes: [.generateBox(size: SIMD3<Float>(0.34, 0.06, 0.06))]))  // 抓取判定放大些好捏
-            bar.components.set(HoverEffectComponent())       // 凝视高亮提示"可拖"
-            rig.addChild(bar)
-        } attachments: {
-            Attachment(id: "lobby") {
-                LobbyView(
-                    onEnter: { router.enter($0) },
-                    onCreate: { router.doCreate = true },
-                    onSpell: { router.spell = $0 },
-                    signedIn: auth.isSignedIn,
-                    onSignIn: { router.fireBeams = true }   // 捏金球 → 在本沉浸空间内放光束
-                )
-                .frame(width: 920, height: 800)
-            }
         }
-        // CSSOS_WAVE_1101 — 拖拽条移动整个大厅(含远近)。沉浸空间 DragGesture 给 3D 位移。
-        .gesture(
-            DragGesture()
-                .targetedToAnyEntity()
-                .onChanged { value in
-                    guard let rig = refs.rig else { return }
-                    if dragStart == nil { dragStart = rig.position(relativeTo: nil) }
-                    let t = value.convert(value.translation3D, from: .local, to: .scene)
-                    rig.setPosition(dragStart! + SIMD3<Float>(t), relativeTo: nil)
-                }
-                .onEnded { _ in dragStart = nil }
-        )
-        // 捏金球 → 头部锚点光束仪式(同一空间, 不退出) → Optic ID。
+        // 捏金球 → 头部锚点光点仪式(同一空间, 不退出) → Optic ID。
         .onChange(of: router.fireBeams) { _, want in
             guard want else { return }
             router.fireBeams = false

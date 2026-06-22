@@ -706,6 +706,32 @@ async function renderSubscriptionPanelModule() {
       if (typeof globalThis.handleGlobalAction === "function") globalThis.handleGlobalAction("profile");
     });
   } catch (_hubErr) { /* non-fatal */ }
+
+  // CSSOS_WAVE_1107c 20260622 — Jing「删除入口提一层 + 放正规说明(苹果 5.1.1 要好找)」: 登录用户在
+  //   订阅面板(💎 Account 一进来)底部直接看到显眼的「删除账号」区 + 30天清除/7天可恢复说明, 点击
+  //   走共享的 cssosRunDeleteAccountFlow(与 Profile 里那颗同一套逻辑)。访客不显。
+  try {
+    if (authState.user && !content.querySelector("[data-subscription-delete-account]")) {
+      const dz = document.createElement("div");
+      dz.className = "subscription-account-danger-zone";
+      dz.style.cssText = "margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,80,80,0.18);";
+      dz.innerHTML =
+        '<button type="button" data-subscription-delete-account ' +
+        'style="background:transparent;border:1px solid rgba(255,80,80,0.5);color:#ff8080;padding:9px 16px;' +
+        'border-radius:8px;font:600 13px/1.2 -apple-system,system-ui,sans-serif;cursor:pointer;">' +
+        tr("Delete account", "删除账号") + "</button>" +
+        '<div style="margin-top:8px;font-size:11.5px;line-height:1.5;color:rgba(255,255,255,0.55);max-width:520px;">' +
+        tr("Permanently delete your account and all generated works. 30-day purge with a 7-day grace window — sign in again within 7 days to cancel.",
+           "永久删除你的账号和所有生成的作品。30 天彻底清除,前 7 天内重新登录可取消恢复。") +
+        "</div>";
+      content.appendChild(dz);
+      const _delBtn = dz.querySelector("[data-subscription-delete-account]");
+      if (_delBtn) _delBtn.addEventListener("click", () => {
+        if (typeof globalThis.cssosRunDeleteAccountFlow === "function") globalThis.cssosRunDeleteAccountFlow(_delBtn);
+        else if (typeof globalThis.handleGlobalAction === "function") globalThis.handleGlobalAction("profile");
+      });
+    }
+  } catch (_dzErr) { /* non-fatal */ }
   content.querySelectorAll("[data-subscription-open-plan-modal]").forEach((button) => {
     button.addEventListener("click", () => {
       renderSubscriptionPlanModalModule(String(button.getAttribute("data-target-tier") || "").trim());

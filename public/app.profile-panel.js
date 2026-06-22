@@ -177,65 +177,65 @@ function bindSignedInProfileActions(summary, options = {}) {
 // Two-step confirmation (native confirm() is acceptable per Apple's
 // review pattern; cleaner-looking modal can replace it later, the
 // guard token + backend gate are the load-bearing part).
+// CSSOS_WAVE_1107c 20260622 — Jing「删除入口埋太深, 提一层到 Account 页」: 把两步确认 + POST
+// 删除流程抽成共享全局 cssosRunDeleteAccountFlow(triggerBtn?), 让 profile 按钮和订阅面板
+// (💎 Account)的显眼按钮共用同一套逻辑(单一真相源, 改一处两处生效)。triggerBtn 可选, 仅用于
+// 显示「删除中…」加载态; 缺省也能跑。
+globalThis.cssosRunDeleteAccountFlow = async function cssosRunDeleteAccountFlow(triggerBtn) {
+  const _copy = (typeof loginCopy === "function") ? loginCopy : (en) => en;
+  const _toast = (m) => { try { if (typeof showToast === "function") showToast(m); else window.alert(m); } catch (_) {} };
+  const c1 = _copy(
+    "Delete your account?\n\nThis schedules a 30-day purge of your account, generated works, and uploaded media. Sign in again within the first 7 days to cancel.",
+    "确认删除账号？\n\n你的账号、所有生成作品和上传素材将进入 30 天清除流程。前 7 天内重新登录可取消。"
+  );
+  if (!window.confirm(c1)) return;
+  const c2 = _copy(
+    "Last check — really delete? Type-confirmation will be sent to the server.",
+    "最后一次确认 — 真的删除？将向服务器发送类型确认。"
+  );
+  if (!window.confirm(c2)) return;
+  const btn = (triggerBtn instanceof Element) ? triggerBtn : null;
+  let origText = "";
+  if (btn) { btn.disabled = true; origText = btn.textContent; btn.textContent = _copy("Deleting…", "删除中…"); }
+  try {
+    const res = await fetch("/api/account/delete", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: "delete-my-account" }),
+    });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok || !payload || payload.ok !== true) {
+      const detail = (payload && (payload.error || payload.detail)) || `status_${res.status}`;
+      _toast(_copy("Delete failed: ", "删除失败：") + detail);
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+      return;
+    }
+    const purgeIso = String(payload.purge_eta_iso || "");
+    const purgeDate = purgeIso ? new Date(purgeIso).toLocaleDateString() : "30 days";
+    const grace = Number(payload.grace_window_days || 7);
+    _toast(_copy(
+      `Account deleted. Final purge on ${purgeDate}. Sign in within ${grace} days to restore.`,
+      `账号已删除。${purgeDate} 彻底清除。${grace} 天内重新登录可恢复。`
+    ));
+    // Server already destroyed the session + cleared the cookie. Reload to guest state.
+    setTimeout(() => { try { window.location.href = "/"; } catch (_) { window.location.reload(); } }, 1200);
+  } catch (err) {
+    const m = (err && err.message) || String(err);
+    _toast(_copy("Delete error: ", "删除错误：") + m);
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
+  }
+};
+
 function bindProfileDeleteAccount(summary) {
   if (!(summary instanceof Element)) return;
   const btn = summary.querySelector("[data-profile-delete-account]");
   if (!btn || btn.__cssosBound) return;
   btn.__cssosBound = true;
-  btn.addEventListener("click", async (ev) => {
+  btn.addEventListener("click", (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
-    const c1 = loginCopy(
-      "Delete your account?\n\nThis schedules a 30-day purge of your account, generated works, and uploaded media. Sign in again within the first 7 days to cancel.",
-      "确认删除账号？\n\n你的账号、所有生成作品和上传素材将进入 30 天清除流程。前 7 天内重新登录可取消。"
-    );
-    if (!window.confirm(c1)) return;
-    const c2 = loginCopy(
-      "Last check — really delete? Type-confirmation will be sent to the server.",
-      "最后一次确认 — 真的删除？将向服务器发送类型确认。"
-    );
-    if (!window.confirm(c2)) return;
-    btn.disabled = true;
-    const origText = btn.textContent;
-    btn.textContent = loginCopy("Deleting…", "删除中…");
-    try {
-      const res = await fetch("/api/account/delete", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ confirm: "delete-my-account" }),
-      });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok || !payload || payload.ok !== true) {
-        const detail = (payload && (payload.error || payload.detail)) || `status_${res.status}`;
-        if (typeof showToast === "function") {
-          showToast(loginCopy("Delete failed: ", "删除失败：") + detail);
-        } else {
-          window.alert(loginCopy("Delete failed: ", "删除失败：") + detail);
-        }
-        btn.disabled = false;
-        btn.textContent = origText;
-        return;
-      }
-      const purgeIso = String(payload.purge_eta_iso || "");
-      const purgeDate = purgeIso ? new Date(purgeIso).toLocaleDateString() : "30 days";
-      const grace = Number(payload.grace_window_days || 7);
-      const msg = loginCopy(
-        `Account deleted. Final purge on ${purgeDate}. Sign in within ${grace} days to restore.`,
-        `账号已删除。${purgeDate} 彻底清除。${grace} 天内重新登录可恢复。`
-      );
-      try { if (typeof showToast === "function") showToast(msg); else window.alert(msg); } catch (_) {}
-      // Server already destroyed the session + cleared the cookie.
-      // Reload so the UI lands on guest state and any cached
-      // authState / linked-provider rows are wiped.
-      setTimeout(() => { try { window.location.href = "/"; } catch (_) { window.location.reload(); } }, 1200);
-    } catch (err) {
-      const m = (err && err.message) || String(err);
-      if (typeof showToast === "function") showToast(loginCopy("Delete error: ", "删除错误：") + m);
-      else window.alert(loginCopy("Delete error: ", "删除错误：") + m);
-      btn.disabled = false;
-      btn.textContent = origText;
-    }
+    globalThis.cssosRunDeleteAccountFlow(btn);
   });
 }
 

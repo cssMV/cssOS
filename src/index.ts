@@ -32412,6 +32412,12 @@ function reconcileLegacyStructuredRoots(nodes: any[]) {
   const roots = [...nodes];
   const grouped = new Map<string, any[]>();
   roots.forEach((node) => {
+    // CSSOS_WAVE_1103 — Jing「桃花/李白三部曲被拆散、点不进去」根因: 本函数是为【纯靠标题、
+    //   没有 DB 结构】的老作品做合并(按 "·" 首段当 rootTitle 归组)。但它误伤了【已有真实
+    //   parent_work_id/root_work_id DB 树】的新作品 —— "人物 · 系列 · 分部" 被按"人物"归到
+    //   虚构 root, 真三部曲消失。修: 凡已有 DB 结构(root_work_id/parent_work_id 已设)一律跳过,
+    //   它们由 buildWorkTree 用真实结构成树, 不需要也不能被标题启发式重组。
+    if (node?.root_work_id || node?.parent_work_id) return;
     const parsed = parseStructuredWorkTitle(String(node?.title || ""));
     const role = String(node?.structure_role || "")
       .trim()
@@ -32694,6 +32700,7 @@ async function loadMineWorkDescendants(rootIds: string[]) {
          ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
        WHERE w.root_work_id IN (${placeholders})
          AND w.parent_work_id IS NOT NULL
+         AND w.status <> 'deleted'
        ORDER BY w.sequence_index ASC, w.created_at ASC`,
       rootIds,
     ),
@@ -32772,6 +32779,7 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
          ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
        WHERE w.root_work_id IN (${placeholders})
          AND w.parent_work_id IS NOT NULL
+         AND w.status <> 'deleted'
        ORDER BY w.sequence_index ASC, w.created_at ASC`,
       rootIds,
     ),
@@ -32850,6 +32858,7 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          ON subtitle_asset.work_id = w.id AND subtitle_asset.asset_type = 'subtitle_srt'
        WHERE w.root_work_id = $1
          AND w.parent_work_id IS NOT NULL
+         AND w.status <> 'deleted'
        ORDER BY w.sequence_index ASC, w.created_at ASC`,
       [normalized],
     ),

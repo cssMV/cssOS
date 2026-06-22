@@ -13609,19 +13609,27 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
   transform: none !important;
 }
 
-/* CSSOS_WAVE_1058 20260620 — Jing「多语言/多声线胶囊有时还跑中央」真凶: 不是外层 fold(W1036 已锁),
- *   而是【内层 .watch-language-pill.cssmv-pill-bar 自身】position:absolute;left:50%;transform:translateX(-50%)
- *   → 横屏影院脱流飘到屏幕正中。横屏(底部三行布局)里把内层也锁 static, 老实待在底部那一行;
- *   竖屏 device-fit 保留原居中(那里它本就浮在媒体上方)。 */
+/* CSSOS_WAVE_1109 20260622 — Jing「多语言/多声线总跑中央」真正根治。探针实锤(真机 1210×1078):
+ *   胶囊 computed position=static(W1058 那道"强制 static"锁生效了), 但它的父是 .watch-screen(2.39:1
+ *   视频框, 居中布局)→ 静态流子元素被【居中】→ 正好飘到正中央。即:为防跑中央而加的 static 锁,
+ *   恰恰把它推到了中央(每次"修"都加更强 static = 越修越中)。原始 inline 本意是 absolute 右下角
+ *   (inset:auto 12px 12px auto)。根治 = 不再 static, 显式钉【底部居中】, 旧 left:50% 满屏居中 + 静态
+ *   居中两种病因一次堵死; 选择器覆盖全部影院状态类(cssmv-cinema/is-cssmv-fullscreen/cssos-cinema-mode)
+ *   + id 直挂(不依赖祖先状态类, W1058 只认 cssmv-cinema 是漏锁主因之一)。竖屏 device-fit 不受影响。 */
 @media (min-aspect-ratio: 1 / 1) {
   #watch-panel.cssmv-cinema .watch-language-pill.cssmv-pill-bar,
-  #cssos-lang-fold .watch-language-pill.cssmv-pill-bar {
-    position: static !important;
-    left: auto !important;
+  #watch-panel.is-cssmv-fullscreen .watch-language-pill.cssmv-pill-bar,
+  body.cssos-cinema-mode .watch-language-pill.cssmv-pill-bar,
+  #cssos-lang-fold .watch-language-pill.cssmv-pill-bar,
+  #watch-language-pill.cssmv-pill-bar {
+    position: absolute !important;
+    left: 50% !important;
     right: auto !important;
-    bottom: auto !important;
-    transform: none !important;
-    margin: 0 auto !important;
+    top: auto !important;
+    bottom: 12px !important;
+    transform: translateX(-50%) !important;
+    margin: 0 !important;
+    z-index: 40 !important;
   }
 }
 

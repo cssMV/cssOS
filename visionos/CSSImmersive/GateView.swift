@@ -67,25 +67,20 @@ struct GateView: View {
     ///   起射时刻/飞行速度/透明度】全部独立随机 → 长短错落、根根不平行、错峰乱射、
     ///   明暗不一, 像扫描光。
     @MainActor private func fireWave(into head: Entity) {
-        // CSSOS_WAVE_1098 — Jing「要像清晨树林里阳光穿透树叶的体积光, 不要细实心棍」:
-        //   ① 锥形(tapered)而非圆柱 → 像收束的光柱;② 宽很多(0.04-0.16)+ 暖阳色
-        //   (低饱和金白, 非彩虹)+ 低不透明(0.08-0.30)→ 多根半透叠加出"体积光/丁达尔"
-        //   的柔软光感;③ 长度/朝向/错峰/速度仍各异。RealityKit 无真体积光后处理, 这是
-        //   几何+半透叠加的近似(真·丁达尔尘埃光见 ParticleEmitter, 见下次迭代)。
-        let n = Int.random(in: 12...22)                                 // 多根叠加 → 体积感
+        // CSSOS_WAVE_1100 — Jing「体积光效果不理想, 恢复成光束; 要长短不一、粗细不一、速度不一」:
+        //   回到实心光束(圆柱), 但每根的【长度/粗细/速度/朝向倾斜/起射时刻/明暗】各异 →
+        //   不齐刷刷、不像棍阵, 像影视剧扫描光。
+        let n = Int.random(in: 8...16)                                  // 每波数量也不固定
         for _ in 0..<n {
-            // 暖阳色: 金白偏暖, 低饱和(清晨阳光不是彩虹)
-            let color = UIColor(hue: CGFloat.random(in: 0.08...0.13),
-                                saturation: CGFloat.random(in: 0.18...0.55),
+            let color = UIColor(hue: CGFloat.random(in: 0...1),
+                                saturation: CGFloat.random(in: 0.75...1.0),
                                 brightness: 1.0, alpha: 1.0)
-            let soft = Float.random(in: 0.08...0.30)                    // 低不透明 → 多根叠加成柔光
-            let len = Float.random(in: 0.45...1.4)                      // 更长, 长短错落
-            let rad = Float.random(in: 0.04...0.16)                     // 更宽的光柱(不再是棍)
-            let beam = ModelEntity(mesh: .generateCone(height: len, radius: rad))  // 锥形=收束光柱
+            let len = Float.random(in: 0.30...1.05)                     // 长短不一
+            let rad = Float.random(in: 0.004...0.024)                   // 粗细不一
+            let beam = ModelEntity(mesh: .generateCylinder(height: len, radius: rad))
             beam.model?.materials = [UnlitMaterial(color: color)]       // @MainActor 必须
-            beam.components.set(OpacityComponent(opacity: soft))        // 半透(稳妥 API)→ 体积柔光
             let ang = Float.random(in: 0 ..< (2 * .pi))
-            let r0 = Float.random(in: 0.02...0.22)
+            let r0 = Float.random(in: 0.02...0.18)
             let sx = cos(ang) * r0
             let sy = sin(ang) * r0 * Float.random(in: 0.5...0.85)
             beam.position = SIMD3<Float>(sx, sy, -1.5)
@@ -93,17 +88,18 @@ struct GateView: View {
             let jitterAxis = normalize(SIMD3<Float>(Float.random(in: -1...1),
                                                     Float.random(in: -1...1),
                                                     Float.random(in: -1...1)))
-            let jitter = simd_quatf(angle: Float.random(in: -0.26...0.26), axis: jitterAxis)
+            let jitter = simd_quatf(angle: Float.random(in: -0.22...0.22), axis: jitterAxis)
             beam.orientation = jitter * baseTilt
-            let delay = Double.random(in: 0 ... 0.45)                   // 错峰
-            let dur = Double.random(in: 0.8...2.0)                      // 慢一点 → 像缓缓洒下的光
+            beam.components.set(OpacityComponent(opacity: Float.random(in: 0.6...1.0)))  // 明暗不一
+            let delay = Double.random(in: 0 ... 0.35)                   // 错峰起射
+            let dur = Double.random(in: 0.55...1.9)                     // 速度不一
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 head.addChild(beam)
                 var t = beam.transform
                 t.translation = SIMD3<Float>(sx * 0.08, sy * 0.08, 0.5)
                 beam.move(to: t, relativeTo: head, duration: dur,
                           timingFunction: Bool.random() ? .easeIn : .easeInOut)
-                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.2) { beam.removeFromParent() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) { beam.removeFromParent() }
             }
         }
     }

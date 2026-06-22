@@ -2191,10 +2191,13 @@
     <script src="app.ios-manage-subscription.js?v=20260513-wave127"></script>
     <script src="/i18n/constants.js"></script>
     <script src="/i18n/catalog.js"></script>
-    <script src="/i18n/dict.js?v=20260518-w220a-v28-step34"></script>
-    <script src="/i18n/platforms.js?v=20260509-wave107c-coming-soon"></script>
-    <script src="/i18n/index.js?v=20260518-w220a-v28-step42-chip-active-full-convex"></script>
-    <script src="/i18n/runtime.js?v=20260424-p2-92-breaker-localstorage-1"></script>
+    <!-- CSSOS_WAVE_1107b 20260622 — i18n 字典曾因服务器权限掉到 600 → nginx 500 → I18N 不载入 →
+         满屏原始 key(dock.* / logo.slogan)。已 chmod 644; 此处一并 bump 版本号强制所有客户端(含
+         SW 缓存)重新拉取这批 i18n 脚本, 越过缓存里那个坏掉的 500 响应。 -->
+    <script src="/i18n/dict.js?v=20260622-w1107b-perm644-cachebust"></script>
+    <script src="/i18n/platforms.js?v=20260622-w1107b"></script>
+    <script src="/i18n/index.js?v=20260622-w1107b"></script>
+    <script src="/i18n/runtime.js?v=20260622-w1107b"></script>
     <script src="app.dom-globals.js?v=20260527-w449-skip-expired-cdn"></script>
     <script src="app.input-guardrails.js?v=20260420-p2-84-input-guardrails-1"></script>
     <script src="app.runtime-shell-bridges.js?v=20260417-ui-recovery-1"></script>

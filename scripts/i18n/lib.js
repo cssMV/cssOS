@@ -63,6 +63,8 @@ function ensureDir(dirPath) {
 function writeJson(targetPath, value) {
   ensureDir(path.dirname(targetPath));
   fs.writeFileSync(targetPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  // CSSOS_WAVE_1107b — 源头护栏: 防 umask 077 下生成的 i18n 资产落 600 → nginx 500。
+  try { fs.chmodSync(targetPath, 0o644); } catch (_e) {}
 }
 
 module.exports = {

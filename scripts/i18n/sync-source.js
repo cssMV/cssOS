@@ -114,6 +114,9 @@ function main() {
   }
 
   fs.writeFileSync(dictPath, formatDictSource(I18N), "utf8");
+  // CSSOS_WAVE_1107b 20260622 — 源头护栏: writeFileSync 默认 mode 受进程 umask 影响, umask 077 环境
+  // 下 dict.js 会落 600 → nginx 500 → 全站漏键(满屏 dock.* / logo.slogan)。显式钉死 644。
+  try { fs.chmodSync(dictPath, 0o644); } catch (_e) {}
 
   process.stdout.write(`${JSON.stringify({ dictPath, merged }, null, 2)}\n`);
 }

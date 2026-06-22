@@ -173,6 +173,8 @@ async function main() {
     };
     const outPath = path.join(GEN_DIR, `${locale}.json`);
     fs.writeFileSync(outPath, JSON.stringify(payload, null, 2));
+    // CSSOS_WAVE_1107b — 源头护栏: 防 umask 077 下生成的 i18n 资产落 600 → nginx 500。
+    try { fs.chmodSync(outPath, 0o644); } catch (_e) {}
     console.log(`[i18n-batch] ${locale}: total=${payload.stats.totalKeys} priorityCoverage=${payload.stats.priorityCoverage}/${targetKeys.length} (+${translatedCount} this run)`);
   }
 }

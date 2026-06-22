@@ -74,6 +74,23 @@ enum ImmersiveScene {
         return UnlitMaterial(color: fallback)
     }
 
+    /// CSSOS_WAVE_1106 — 画一颗 N 角星(凹凸交替顶点): radius=外接半径, 内半径≈0.42×外半径。
+    static func fillStar(in c: CGContext, cx: CGFloat, cy: CGFloat, radius: CGFloat,
+                         points: Int, rotation: CGFloat) {
+        let n = max(3, points)
+        let inner = radius * 0.42
+        let path = CGMutablePath()
+        for i in 0 ..< (n * 2) {
+            let r = (i % 2 == 0) ? radius : inner
+            let a = rotation + CGFloat(i) * .pi / CGFloat(n) - .pi / 2
+            let p = CGPoint(x: cx + r * cos(a), y: cy + r * sin(a))
+            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        path.closeSubpath()
+        c.addPath(path)
+        c.fillPath()
+    }
+
     /// 程序生成星空 equirectangular 贴图 → 无光材质(从内部看 = 真星空天空盒)。
     static func starfieldMaterial() -> RealityKit.Material {
         // CSSOS_WAVE_1105 — 加密加亮: 半径 1000 巨球上贴图会被拉得很大, 星点必须够多够大够亮才看得见。
@@ -85,24 +102,30 @@ enum ImmersiveScene {
             // 深空底
             c.setFillColor(UIColor(red: 0.012, green: 0.012, blue: 0.05, alpha: 1).cgColor)
             c.fill(CGRect(x: 0, y: 0, width: w, height: h))
-            // 七千白星(大小/亮度随机, 比之前大)
+            // CSSOS_WAVE_1106 — Jing「星星要真的是五角星/多角星, 不是圆点」: 全部改成多角星形
+            //   (5/6 角随机), 用星形路径填充。小星偏小, 亮星偏大 + 柔光晕。
+            // 七千白星(多角星, 大小/亮度/角数随机)
             for _ in 0..<7000 {
                 let x = CGFloat.random(in: 0 ..< CGFloat(w))
                 let y = CGFloat.random(in: 0 ..< CGFloat(h))
-                let s = CGFloat.random(in: 1.4...5.0)
+                let s = CGFloat.random(in: 2.0...7.0)
                 let b = CGFloat.random(in: 0.5...1.0)
                 c.setFillColor(UIColor(white: 1, alpha: b).cgColor)
-                c.fillEllipse(in: CGRect(x: x, y: y, width: s, height: s))
+                ImmersiveScene.fillStar(in: c, cx: x, cy: y, radius: s,
+                                        points: Bool.random() ? 5 : 4,
+                                        rotation: CGFloat.random(in: 0 ..< .pi))
             }
-            // 两百颗彩色亮星(带柔光晕)
+            // 两百颗彩色亮星(更大的多角星 + 柔光晕)
             for _ in 0..<200 {
                 let x = CGFloat.random(in: 0 ..< CGFloat(w))
                 let y = CGFloat.random(in: 0 ..< CGFloat(h))
                 let hue = CGFloat.random(in: 0...1)
                 let col = UIColor(hue: hue, saturation: 0.5, brightness: 1, alpha: 1)
-                c.setShadow(offset: .zero, blur: 9, color: col.withAlphaComponent(0.9).cgColor)  // 光晕
+                c.setShadow(offset: .zero, blur: 11, color: col.withAlphaComponent(0.9).cgColor)  // 光晕
                 c.setFillColor(col.cgColor)
-                c.fillEllipse(in: CGRect(x: x, y: y, width: CGFloat.random(in: 4...8), height: CGFloat.random(in: 4...8)))
+                ImmersiveScene.fillStar(in: c, cx: x, cy: y, radius: CGFloat.random(in: 6...12),
+                                        points: [5, 6].randomElement()!,
+                                        rotation: CGFloat.random(in: 0 ..< .pi))
             }
             c.setShadow(offset: .zero, blur: 0, color: nil)
         }
@@ -113,6 +136,23 @@ enum ImmersiveScene {
             return unlit
         }
         return UnlitMaterial(color: UIColor(red: 0.012, green: 0.012, blue: 0.05, alpha: 1))
+    }
+
+    /// CSSOS_WAVE_1106 — Jing「点卡片播放无画面」根因: 纯音频作品(无 final_mv_url)的弧形银幕
+    ///   贴的是空 VideoMaterial → 黑屏。兜底: 异步拉作品封面贴成 UnlitMaterial(像桌面端的封面铺满),
+    ///   有声有画(画=封面静帧)。拉失败保留暗色。
+    static func applyCoverTexture(_ urlString: String, to screen: ModelEntity) {
+        guard let url = URL(string: urlString) else { return }
+        Task.detached {
+            guard let (data, _) = try? await URLSession.shared.data(from: url),
+                  let img = UIImage(data: data), let cg = img.cgImage,
+                  let tex = try? await TextureResource(image: cg, options: .init(semantic: .color)) else { return }
+            await MainActor.run {
+                var m = UnlitMaterial()
+                m.color = .init(texture: .init(tex))
+                screen.model?.materials = [m]
+            }
+        }
     }
 
     /// 一块弧形视频银幕。width/height 米; curveDepth = 中心相对两端往用户方向凹的深度(米)。

@@ -26,14 +26,13 @@ struct CSSImmersiveApp: App {
                     shareplay.listen()         // 监听 SharePlay 邀请/发起
                 }
         }
-        // CSSOS_WAVE_1104 — Jing「用苹果原生窗口自带的隐藏拖拽条, 别手动加; 大门别太高」:
-        //   去掉 .windowStyle(.plain)(plain 无系统 chrome/拖拽条)→ 用默认窗口样式, 系统自带
-        //   底部隐藏拖拽条(凝视才显)+ 深度手柄 + 按舒适眼高摆放(自动平视, 不再太高)。
-        //   大厅(LobbyView)就渲染在这个原生窗口里。
-        // CSSOS_WAVE_1106 — 启动折叠态: 窗口紧贴自转魔镜金球(小窗, 无白底大窗); 点魔镜展开
-        //   → contentSize 自动放大成大厅菜单(带系统隐藏拖拽条)。
-        .defaultSize(width: 320, height: 340)
-        .windowResizability(.contentSize)       // 紧贴内容(折叠↔展开自动伸缩)
+        // CSSOS_WAVE_1106 — Jing「去掉魔镜白色底 + 圣殿大门别方角突出苹果圆角窗」:
+        //   改回 .windowStyle(.plain)(无系统玻璃方窗)→ 折叠态金球浮在星空前【无白底】;
+        //   展开态由 LobbyView 自己的 glassBackgroundEffect(圆角 44)定义窗形 → 圆角干净、
+        //   不再有方角苹果窗框突出。代价: plain 无系统拖拽条(可后续按需补)。
+        .windowStyle(.plain)
+        .defaultSize(width: 320, height: 340)   // 启动折叠态紧贴金球; contentSize 折叠↔展开自动伸缩
+        .windowResizability(.contentSize)
 
         // W975 — 可拖拽控制窗(原生 WindowGroup, 自带抓取条): 交易 + 多语言/多声线整合一窗。
         WindowGroup(id: "controls") {

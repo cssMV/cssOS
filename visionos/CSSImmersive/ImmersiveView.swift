@@ -207,11 +207,8 @@ struct ImmersiveView: View {
             content.add(env)
             envModel = env.children.first as? ModelEntity
 
-            // W1052 — 大厅 logo: 魔镜金球悬在中央银幕上方, 自转 + 随机脉动(品牌存在感, 不挡画面)。
-            let logoOrb = MagicMirrorOrb.make(size: 0.34, clockwise: true,
-                                              style: orbSphere ? .sphere : .plane)
-            logoOrb.position = SIMD3<Float>(0, 2.0, -(Float(settings.radius)))
-            content.add(logoOrb)
+            // CSSOS_WAVE_1106 — Jing「影院里有两个魔镜球, 一个孤零零浮在视频框上」: 删掉这颗悬浮
+            //   logo 金球(品牌存在感改由控制窗里的折叠魔镜承担), 影院中央只留画面, 不再有孤球。
 
             // 2) 每个变体一块弧形银幕, 摆到环绕弧线上, 配一个标签。
             for (i, v) in player.variants.enumerated() {
@@ -228,6 +225,10 @@ struct ImmersiveView: View {
                 screen.generateCollisionShapes(recursive: false)
                 ImmersiveScene.placeOnArc(screen, angleDegrees: v.angleDegrees, radius: Float(settings.radius))
                 content.add(screen)
+                // CSSOS_WAVE_1106 — 纯音频作品(无 final_mv_url)→ 银幕贴作品封面(否则空 VideoMaterial=黑屏)。
+                if (v.videoURL ?? "").isEmpty, let cover = player.work?.coverURL, !cover.isEmpty {
+                    ImmersiveScene.applyCoverTexture(cover, to: screen)
+                }
                 // W958 — 去掉每屏语言标签(视频上角看不清的小信息)。语言在菜单里看。
             }
 
@@ -305,8 +306,13 @@ struct ImmersiveView: View {
                 applied.act = player.activeIndex
                 for (i, _) in player.variants.enumerated() {
                     guard let s = content.entities.first(where: { $0.name == "screen-\(i)" }) as? ModelEntity else { continue }
-                    if i == player.activeIndex, i < player.videoPlayers.count {
+                    let vurl = player.variants[safe: i]?.videoURL ?? ""
+                    if i == player.activeIndex, i < player.videoPlayers.count, !vurl.isEmpty {
                         s.model?.materials = [VideoMaterial(avPlayer: player.videoPlayers[i])]
+                    } else if i == player.activeIndex, let cover = player.work?.coverURL, !cover.isEmpty {
+                        // CSSOS_WAVE_1106 — 激活屏是纯音频作品 → 贴封面静帧(不黑屏)。
+                        s.model?.materials = [UnlitMaterial(color: UIColor(white: 0.05, alpha: 1.0))]
+                        ImmersiveScene.applyCoverTexture(cover, to: s)
                     } else {
                         s.model?.materials = [UnlitMaterial(color: UIColor(white: 0.05, alpha: 1.0))]
                     }

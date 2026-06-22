@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var showSignIn = false        // W1063 — 科幻登录门户
     @State private var pendingSpell = ""          // 登录成功后接力的咒语
     @State private var menuExpanded = false       // CSSOS_WAVE_1106 — 圣殿大门折叠: 默认只显自转魔镜, 点它才展开菜单
+    @State private var consoleExpanded = false     // CSSOS_WAVE_1106 — 影院控制台折叠: 默认魔镜球, 点它才展开设置
 
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.openWindow) private var openWindow
@@ -38,10 +39,24 @@ struct ContentView: View {
     var body: some View {
         Group {
             if inImmersive {
-                // W972 — 进影院后, 方窗变「魔镜控制台」(常驻驾驶舱: 欣赏/创作/交易/交流 + 环绕/场景)。
-                ScrollView { fullPanel.frame(width: 620) }
-                    .frame(width: 660, height: 720)
-                    .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
+                // CSSOS_WAVE_1106 — Jing「影院里的设置窗口应缩小到魔镜球, 点它才显」: 控制台也折叠。
+                if consoleExpanded {
+                    ScrollView { fullPanel.frame(maxWidth: 620).padding(.vertical, 20) }
+                        .frame(width: 660, height: 720)
+                        .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
+                        .overlay(alignment: .topTrailing) {
+                            Button { withAnimation(.easeInOut(duration: 0.28)) { consoleExpanded = false } } label: {
+                                Image(systemName: "circle.grid.cross").font(.title2)
+                            }.buttonStyle(.plain).padding(18).help(L("Collapse to mirror", "折叠为魔镜"))
+                        }
+                } else {
+                    // 折叠态: 只显自转魔镜球(浮在影院里), 点它 → 展开控制台。无白底。
+                    MagicMirrorOrbView(size: 0.2, sphere: orbSphere)
+                        .frame(width: 220, height: 220)
+                        .contentShape(Circle())
+                        .onTapGesture { withAnimation(.easeInOut(duration: 0.28)) { consoleExpanded = true } }
+                        .frame(minWidth: 280, idealWidth: 300, minHeight: 280, idealHeight: 300)
+                }
             } else if menuExpanded {
                 // CSSOS_WAVE_1106 — Jing「两者结合」展开态: 大厅菜单在【原生窗口】里(系统自带隐藏
                 //   拖拽条 + 舒适眼高), 外层 ScrollView 让内容上下滑动(不再被窗口高度切掉顶部魔镜)。

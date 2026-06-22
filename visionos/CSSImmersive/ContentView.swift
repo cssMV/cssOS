@@ -124,7 +124,13 @@ struct ContentView: View {
     // CSSOS_WAVE_1093 — 打开沉浸大厅(GateSpace): 星空 + 大厅面板 + 光束仪式。
     private func openGate() async {
         let r = await openImmersiveSpace(id: "GateSpace")
-        if case .opened = r { gateOpened = true }
+        if case .opened = r {
+            gateOpened = true
+            // CSSOS_WAVE_1099 — Jing「启动窗应进沉浸即消失、用户无感, 别驻留」: 圣殿大门
+            //   一旦进入沉浸, 立刻关掉那个 2D 启动占位窗(此前只有影院路径关了, 大门路径漏关 →
+            //   小窗一直悬在那)。影院路径已各自 dismiss, 这里补上大门路径。
+            dismissWindow(id: "launch")
+        }
     }
 
     // W1060 — 咒语创作: 显示 CreationOrb 流动阶段词 → 调后端管线 → 出 MV 进影院。

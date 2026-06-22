@@ -88,6 +88,11 @@ sync_public() {
     # (此前只 chmod releases/, 漏了 current/public → dict.js 等残留 600 → nginx 500 → i18n 全站漏键)。
     sudo chmod -R a+rX ${REMOTE_STATIC}
     sudo chmod a+X /srv/cssos /srv/cssos/releases /srv/cssos/current
+    # CSSOS_WAVE_1107b 20260622 — Jing 显式护栏: i18n/dict.js 等反复掉 600 → nginx 500 → 全站漏键
+    # (满屏 dock.* / logo.slogan 原始 key)。专门把被服务的 i18n 脚本钉死 644, 即使上面 -R 那行
+    # 被改/被某个运行时词典重生成绕过, 这道也兜底。
+    sudo chmod 644 ${REMOTE_STATIC}/i18n/*.js 2>/dev/null || true
+    sudo find ${REMOTE_STATIC}/i18n -type f -name '*.js' -exec sudo chmod 644 {} + 2>/dev/null || true
     sudo touch ${REMOTE_STATIC}/index.html || true
   "
 }

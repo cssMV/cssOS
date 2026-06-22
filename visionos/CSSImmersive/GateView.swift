@@ -61,24 +61,44 @@ struct GateView: View {
         }
     }
 
-    /// 一波光束: ~12 根随机色, 从眼前真冲进眼心、穿到脑后(快 = "射")。
+    /// 一波光束: 随机数量、随机色, 从眼前真冲进眼心、穿到脑后(快 = "射")。
+    /// CSSOS_WAVE_1096 — Jing「光束太规则显假, 要像影视剧扫描眼睛那种不规则光束」:
+    ///   不再是一束齐刷刷平行、同时同速的整齐光柱。每根光束的【长度/粗细/朝向倾斜/
+    ///   起射时刻/飞行速度/透明度】全部独立随机 → 长短错落、根根不平行、错峰乱射、
+    ///   明暗不一, 像扫描光。
     @MainActor private func fireWave(into head: Entity) {
-        for _ in 0..<12 {
-            let color = UIColor(hue: CGFloat.random(in: 0...1), saturation: 0.9, brightness: 1.0, alpha: 1.0)
-            let beam = ModelEntity(mesh: .generateCylinder(height: 0.55, radius: 0.011))
-            beam.model?.materials = [UnlitMaterial(color: color)]   // @MainActor 必须
+        let n = Int.random(in: 8...16)                                  // 每波数量也不固定
+        for _ in 0..<n {
+            let color = UIColor(hue: CGFloat.random(in: 0...1),
+                                saturation: CGFloat.random(in: 0.75...1.0),
+                                brightness: 1.0, alpha: 1.0)
+            let len = Float.random(in: 0.32...0.95)                     // 不规则长度: 长短错落
+            let rad = Float.random(in: 0.004...0.02)                    // 不规则粗细
+            let beam = ModelEntity(mesh: .generateCylinder(height: len, radius: rad))
+            beam.model?.materials = [UnlitMaterial(color: color)]       // @MainActor 必须
             let ang = Float.random(in: 0 ..< (2 * .pi))
-            let rad = Float.random(in: 0.03...0.15)
-            let sx = cos(ang) * rad
-            let sy = sin(ang) * rad * 0.7
+            let r0 = Float.random(in: 0.02...0.18)
+            let sx = cos(ang) * r0
+            let sy = sin(ang) * r0 * Float.random(in: 0.5...0.85)
             beam.position = SIMD3<Float>(sx, sy, -1.5)
-            beam.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
-            beam.components.set(OpacityComponent(opacity: 0.95))
-            head.addChild(beam)
-            var t = beam.transform
-            t.translation = SIMD3<Float>(sx * 0.08, sy * 0.08, 0.5)   // 冲进眼心 + 穿到脑后
-            beam.move(to: t, relativeTo: head, duration: 1.1, timingFunction: .easeIn)   // 慢速飞来
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { beam.removeFromParent() }
+            // 朝向: 基础对齐 + 小幅随机倾斜 → 根根不再完全平行(关键去"整齐感")
+            let baseTilt = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
+            let jitterAxis = normalize(SIMD3<Float>(Float.random(in: -1...1),
+                                                    Float.random(in: -1...1),
+                                                    Float.random(in: -1...1)))
+            let jitter = simd_quatf(angle: Float.random(in: -0.22...0.22), axis: jitterAxis)
+            beam.orientation = jitter * baseTilt
+            beam.components.set(OpacityComponent(opacity: Float.random(in: 0.55...1.0)))  // 明暗不一
+            let delay = Double.random(in: 0 ... 0.35)                   // 错峰起射, 不齐射
+            let dur = Double.random(in: 0.65...1.7)                     // 飞行速度各异
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                head.addChild(beam)
+                var t = beam.transform
+                t.translation = SIMD3<Float>(sx * 0.08, sy * 0.08, 0.5)  // 冲进眼心 + 穿到脑后
+                beam.move(to: t, relativeTo: head, duration: dur,
+                          timingFunction: Bool.random() ? .easeIn : .easeInOut)
+                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) { beam.removeFromParent() }
+            }
         }
     }
 }

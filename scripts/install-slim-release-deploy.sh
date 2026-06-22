@@ -143,34 +143,20 @@ EOF
 
 install_target() {
   local target="$1"
-  local remote_path=""
   local ssh_cmd=(ssh)
   local base_dir="/srv/cssos"
-  if [[ "$target" == "gzvm" ]]; then
-    remote_path="/home/ubuntu/cssOS/bin/deploy-release.sh"
-    ssh_cmd=(ssh -o RemoteCommand=none -T)
-    base_dir="/home/ubuntu/cssOS"
-  else
-    remote_path="/srv/cssos/bin/deploy-release.sh"
-  fi
+  local remote_path="/srv/cssos/bin/deploy-release.sh"
   say "${target}: installing slim deploy-release.sh"
   build_remote_script "$base_dir" | sed "s|__BASE_DIR__|${base_dir}|g" | "${ssh_cmd[@]}" "$target" "sudo tee ${remote_path} >/dev/null && sudo chmod +x ${remote_path}"
   say "${target}: install complete"
 }
 
 case "${TARGET}" in
-  api-vm)
+  api-vm|all)
     install_target api-vm
-    ;;
-  gzvm)
-    install_target gzvm
-    ;;
-  all)
-    install_target api-vm
-    install_target gzvm
     ;;
   *)
-    echo "usage: TARGET={api-vm|gzvm|all} $(basename "$0")" >&2
+    echo "usage: TARGET={api-vm|all} $(basename "$0")" >&2
     exit 1
     ;;
 esac

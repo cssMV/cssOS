@@ -47,17 +47,9 @@ install_target() {
   local target="$1"
   local ssh_cmd=(ssh)
   local base_dir="/srv/cssos"
-  if [[ "$target" == "gzvm" ]]; then
-    ssh_cmd=(ssh -o RemoteCommand=none -T)
-    base_dir="/home/ubuntu/cssOS"
-  fi
   local script_path="${base_dir}/bin/prune-test-runs-before-date.sh"
   local run_root="${base_dir}/shared/runs"
   local report_file="${base_dir}/shared/ops/maintenance/run-prune.latest.json"
-  if [[ "$target" == "gzvm" ]]; then
-    run_root="${base_dir}/runs"
-    report_file="${base_dir}/shared/ops/maintenance/run-prune.latest.json"
-  fi
   say "${target}: syncing prune script"
   cat /Users/jing/cssOS/scripts/prune-test-runs-before-date.sh | "${ssh_cmd[@]}" "$target" "sudo tee ${script_path} >/dev/null && sudo chmod +x ${script_path}"
   say "${target}: installing systemd service/timer"
@@ -68,18 +60,11 @@ install_target() {
 }
 
 case "${TARGET}" in
-  api-vm)
+  api-vm|all)
     install_target api-vm
-    ;;
-  gzvm)
-    install_target gzvm
-    ;;
-  all)
-    install_target api-vm
-    install_target gzvm
     ;;
   *)
-    echo "usage: TARGET={api-vm|gzvm|all} $(basename "$0")" >&2
+    echo "usage: TARGET={api-vm|all} $(basename "$0")" >&2
     exit 1
     ;;
 esac

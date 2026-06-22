@@ -41,43 +41,14 @@ deploy_api_vm() {
   '
 }
 
-deploy_gzvm() {
-  say "gzvm: syncing changed rust-api files"
-  rsync -az \
-    --delete \
-    --exclude target \
-    --exclude build \
-    -e "ssh -o RemoteCommand=none -T" \
-    "${REPO_ROOT}/rust-api/" \
-    gzvm:/home/ubuntu/cssOS/rust-api/
-  scp -o RemoteCommand=none -T "${SMOKE_SCRIPT}" gzvm:/tmp/smoke-rust-api.sh >/dev/null
-
-  say "gzvm: build, restart, smoke"
-  ssh -o RemoteCommand=none -T gzvm '
-    set -euo pipefail
-    export PATH=/home/ubuntu/.cargo/bin:$PATH
-    cd /home/ubuntu/cssOS/rust-api
-    cargo build --release
-    sudo install -m 755 target/release/cssos-rust-api /usr/local/bin/cssos-rust-api
-    sudo install -m 755 /tmp/smoke-rust-api.sh /usr/local/bin/cssos-rust-smoke
-    sudo systemctl restart cssos-rust-api
-    sleep 2
-    sudo systemctl is-active --quiet cssos-rust-api
-    /usr/local/bin/cssos-rust-smoke
-  '
-}
-
 require_smoke
 
 case "${TARGET}" in
   api-vm)
     deploy_api_vm
     ;;
-  gzvm)
-    deploy_gzvm
-    ;;
   *)
-    echo "usage: TARGET={api-vm|gzvm} $(basename "$0")" >&2
+    echo "usage: TARGET={api-vm} $(basename "$0")" >&2
     exit 1
     ;;
 esac

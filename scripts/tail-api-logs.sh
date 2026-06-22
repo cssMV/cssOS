@@ -18,29 +18,12 @@ run_api_vm() {
   fi
 }
 
-run_gzvm() {
-  say "gzvm: cssos-rust-api last ${LINES} lines"
-  if [[ "${FOLLOW}" == "1" ]]; then
-    ssh -o RemoteCommand=none -T gzvm "sudo journalctl -u cssos-rust-api -n ${LINES} -f --no-pager"
-  else
-    ssh -o RemoteCommand=none -T gzvm "sudo journalctl -u cssos-rust-api -n ${LINES} --no-pager"
-  fi
-}
-
 case "${TARGET}" in
-  api-vm)
+  api-vm|all)
     run_api_vm
-    ;;
-  gzvm)
-    run_gzvm
-    ;;
-  all)
-    run_api_vm
-    printf '\n'
-    run_gzvm
     ;;
   *)
-    echo "usage: TARGET={api-vm|gzvm|all} LINES=120 FOLLOW=0 $(basename "$0")" >&2
+    echo "usage: TARGET={api-vm|all} LINES=120 FOLLOW=0 $(basename "$0")" >&2
     exit 1
     ;;
 esac

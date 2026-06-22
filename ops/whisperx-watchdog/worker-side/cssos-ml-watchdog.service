@@ -1,0 +1,6 @@
+[Unit]
+Description=cssOS ML worker watchdog (auto-restart hung ML services, WAVE_1095)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cssos-ml-watchdog.sh

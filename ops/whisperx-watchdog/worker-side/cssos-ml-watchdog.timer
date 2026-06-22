@@ -1,0 +1,10 @@
+[Unit]
+Description=Run cssOS ML worker watchdog every 3 min (WAVE_1095)
+
+[Timer]
+OnBootSec=120
+OnUnitActiveSec=180
+AccuracySec=15
+
+[Install]
+WantedBy=timers.target

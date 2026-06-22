@@ -102,7 +102,7 @@
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
          规则)此前【从未被任何页面加载】→ 字幕词无颜色规则、继承父淡绿白 = Jing 的"还绿"; 随机色/稳定/
          中央爆/[Music...] 一整轮 CSS 全部失效。在 style.css 之后加载它, 让 watch 面板按设计生效。 -->
-    <link rel="stylesheet" href="style.watch.css?v=20260611-w714-load" />
+    <link rel="stylesheet" href="style.watch.css?v=20260621-w1094-scroll" />
     <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
 
   </head>

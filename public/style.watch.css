@@ -2268,6 +2268,14 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   font-size: 13px;
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+  /* CSSOS_WAVE_1094 — Jing「情绪字幕设置面板可上下滑动」: 内容比视口高时(尤其
+     竖屏/小屏), Reset/Set-default 等底部控件会溢出屏幕够不到 → 限高 + 纵向滚动。 */
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 .cssfx-head { font-weight: 700; font-size: 14px; margin-bottom: 10px; letter-spacing: 0.02em; }
 .cssfx-row { display: block; margin: 10px 0; }

@@ -702,12 +702,34 @@
       if (stripEl) {
         var badge = stripEl.querySelector(".cssos-up-next-countdown-badge");
         if (badge && badge.dataset.baseLabel) badge.textContent = badge.dataset.baseLabel + " · " + secs + "s";
-        // CSSOS_WAVE_1110 — Jing「倒计时数字应显示在用户点选的那张作品卡上(之前就是这样)」: 倒计时
-        //   只走【卡上 badge】(上一行, W265: 预选卡 待播·Ns / 默认首卡 下一首·Ns, 随点选移动)。
-        //   撤掉 W1058 那个"居中大号倒计时数字"—— 它不在任何卡上, 与"显示在点击的卡上"矛盾, 也违 W891。
-        //   顺手移除旧 DOM 里可能残留的那个居中数字。
-        var _staleBig = stripEl.querySelector(".cssos-up-next-countdown-big");
-        if (_staleBig) _staleBig.remove();
+        // CSSOS_WAVE_1112 — Jing「大号倒计时数字应显示在【默认卡/用户选中的卡】上, 不要固定在中间」。
+        //   目标卡 = 带 .cssos-up-next-countdown-badge 的那张(render 已按 预选卡 / 默认 index0 放好,
+        //   badge 挂在该卡缩略图 thumb 上)。把大数字钉在该 thumb 正中(thumb 已 position:relative),
+        //   随每秒变色; 用户改选 → 下一帧 badge 随卡移动 → 大数字自动跟到新卡。清掉任何残留在别处的旧数字。
+        var hostThumb = badge ? badge.parentElement : null;
+        var _olds = stripEl.querySelectorAll(".cssos-up-next-countdown-big");
+        for (var _o = 0; _o < _olds.length; _o++) {
+          if (!hostThumb || _olds[_o].parentElement !== hostThumb) _olds[_o].remove();
+        }
+        if (hostThumb) {
+          var big = hostThumb.querySelector(".cssos-up-next-countdown-big");
+          if (!big) {
+            big = document.createElement("div");
+            big.className = "cssos-up-next-countdown-big";
+            big.style.cssText =
+              "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none;" +
+              "min-width:1.4em;height:1.4em;display:flex;align-items:center;justify-content:center;" +
+              "font:800 30px/1 ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:.02em;" +
+              "border-radius:12px;background:radial-gradient(circle,rgba(0,0,0,0.55),rgba(0,0,0,0.10));" +
+              "text-shadow:0 2px 12px rgba(0,0,0,0.9);transition:color .18s ease;";
+            hostThumb.appendChild(big);
+          }
+          if (big.dataset.lastSec !== String(secs)) {
+            big.dataset.lastSec = String(secs);
+            big.style.color = "hsl(" + Math.floor(Math.random() * 360) + ",92%,62%)";
+          }
+          big.textContent = String(secs);
+        }
       }
     } else if (remaining > leadSeconds() + 0.5) {
       hide();

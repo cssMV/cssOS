@@ -248,12 +248,23 @@ enum CSSBackend {
 
     /// 拉货架作品(公开 market 列表, 无需鉴权)。shelf 暂统一走 market(后端日后可按 shelf 细分)。
     static func fetchShelf(_ shelf: String = "for-you", limit: Int = 24) async -> [LobbyItem] {
-        guard let url = URL(string: "\(baseURL)/api/works/market?limit=\(limit)") else { return [] }
+        // CSSOS_WAVE_1097 — Jing「大厅卡片用最新 5 个, 不要总是 Epic 优先」: market 默认序是
+        //   置顶/Epic 优先。这里多取一池(≥60), 按 created_at 倒序, 再取前 limit = 真·最新。
+        //   flagship 货架保留 Epic 原序(那本就是旗舰墙)。
+        let pool = max(limit, 60)
+        guard let url = URL(string: "\(baseURL)/api/works/market?limit=\(pool)") else { return [] }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let works = ((obj?["data"] as? [String: Any])?["works"] as? [[String: Any]]) ?? []
-            return works.compactMap { w in
+            var works = ((obj?["data"] as? [String: Any])?["works"] as? [[String: Any]]) ?? []
+            if shelf != "flagship" {
+                works.sort {  // created_at 是 ISO 串, 字典序倒排=时间倒排(最新在前)
+                    let a = ($0["created_at"] as? String) ?? ($0["createdAt"] as? String) ?? ""
+                    let b = ($1["created_at"] as? String) ?? ($1["createdAt"] as? String) ?? ""
+                    return a > b
+                }
+            }
+            let mapped: [LobbyItem] = works.compactMap { w in
                 let id = (w["id"] as? String) ?? ""
                 if id.isEmpty { return nil }
                 let title = (w["title"] as? String) ?? "—"
@@ -269,6 +280,7 @@ enum CSSBackend {
                 return LobbyItem(id: id, title: title, coverURL: cover, meta: meta,
                                  durSecs: dur, createdAt: created, videoURL: video, audioURL: audio)
             }
+            return Array(mapped.prefix(limit))
         } catch { return [] }
     }
 

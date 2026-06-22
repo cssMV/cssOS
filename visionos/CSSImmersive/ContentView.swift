@@ -30,6 +30,7 @@ struct ContentView: View {
     @State private var creatingProgress = 0.0
     @State private var showSignIn = false        // W1063 — 科幻登录门户
     @State private var pendingSpell = ""          // 登录成功后接力的咒语
+    @State private var menuExpanded = false       // CSSOS_WAVE_1106 — 圣殿大门折叠: 默认只显自转魔镜, 点它才展开菜单
 
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.openWindow) private var openWindow
@@ -41,18 +42,43 @@ struct ContentView: View {
                 ScrollView { fullPanel.frame(width: 620) }
                     .frame(width: 660, height: 720)
                     .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
+            } else if menuExpanded {
+                // CSSOS_WAVE_1106 — Jing「两者结合」展开态: 大厅菜单在【原生窗口】里(系统自带隐藏
+                //   拖拽条 + 舒适眼高), 外层 ScrollView 让内容上下滑动(不再被窗口高度切掉顶部魔镜)。
+                //   右上角小魔镜按钮 → 折叠回金球。
+                ScrollView {
+                    LobbyView(
+                        onEnter: { router.enter($0) },
+                        onCreate: { router.doCreate = true },
+                        onSpell: { router.spell = $0 },
+                        signedIn: auth.isSignedIn,
+                        onSignIn: { router.fireBeams = true }
+                    )
+                    .frame(maxWidth: 880)
+                    .padding(.vertical, 24)
+                }
+                .frame(minWidth: 760, idealWidth: 900, maxWidth: 1000,
+                       minHeight: 600, idealHeight: 880, maxHeight: 1100)
+                .overlay(alignment: .topTrailing) {
+                    Button { withAnimation(.easeInOut(duration: 0.28)) { menuExpanded = false } } label: {
+                        Image(systemName: "circle.grid.cross").font(.title2)
+                    }
+                    .buttonStyle(.plain).padding(20).help(L("Collapse to mirror", "折叠为魔镜"))
+                }
             } else {
-                // CSSOS_WAVE_1104 — Jing「用苹果原生窗口自带的隐藏拖拽条, 别手动加; 大门默认太高」:
-                //   大厅改回【原生窗口】渲染(系统自带底部隐藏拖拽条 + 按舒适眼高摆放), GateSpace
-                //   只负责星空+光点背景。不再用沉浸内 attachment + 自定义拖拽条。
-                LobbyView(
-                    onEnter: { router.enter($0) },
-                    onCreate: { router.doCreate = true },
-                    onSpell: { router.spell = $0 },
-                    signedIn: auth.isSignedIn,
-                    onSignIn: { router.fireBeams = true }
-                )
-                .frame(minWidth: 720, idealWidth: 920, maxWidth: 1100, minHeight: 600, idealHeight: 820)
+                // CSSOS_WAVE_1106 — Jing「圣殿大门缩为魔镜, 尖角托盘不动、金球旋转, 点魔镜才显菜单」:
+                //   折叠态 = 只显自转魔镜金球(浮在星空沉浸背景前), 点它 → 展开大厅菜单。窗口紧贴
+                //   金球大小, 没有白底大窗。
+                VStack(spacing: 14) {
+                    MagicMirrorOrbView(size: 0.2, sphere: orbSphere)
+                        .frame(width: 240, height: 240)
+                    Text(L("Tap the mirror to enter", "点魔镜进入"))
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                .padding(28)
+                .contentShape(Circle())
+                .onTapGesture { withAnimation(.easeInOut(duration: 0.28)) { menuExpanded = true } }
+                .frame(minWidth: 300, idealWidth: 320, minHeight: 320, idealHeight: 340)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: inImmersive)

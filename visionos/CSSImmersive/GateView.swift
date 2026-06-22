@@ -9,12 +9,13 @@ import SwiftUI
 import RealityKit
 import UIKit
 
-private final class GateViewRefs { var head: Entity? }
+private final class GateViewRefs { var head: Entity?; var rig: Entity? }
 
 struct GateView: View {
     @EnvironmentObject var auth: CSSAuth
     @EnvironmentObject var router: GateRouter
     @State private var refs = GateViewRefs()
+    @State private var dragStart: SIMD3<Float>? = nil   // CSSOS_WAVE_1101 — 拖拽起点
 
     var body: some View {
         RealityView { content, attachments in
@@ -24,11 +25,26 @@ struct GateView: View {
             let head = AnchorEntity(.head)
             content.add(head)
             refs.head = head
-            // 大厅面板浮在正前方, 略低于视线中心。
+            // CSSOS_WAVE_1101 — Jing「圣殿大门没有拖拽条, 无法拖远近」: 把大厅面板放进一个
+            //   可移动的 rig 容器, 容器顶部挂一根【拖拽条】(可抓握 InputTarget), 拖它=带着
+            //   整个大厅在 3D 里移动(含远近)。沉浸空间里 DragGesture 给的是 3D 位移, 手往
+            //   前后伸即调远近, 比 2D 窗口的深度手柄更自然。
+            let rig = Entity()
+            rig.position = SIMD3<Float>(0, 1.32, -1.7)
+            content.add(rig)
+            refs.rig = rig
             if let lobby = attachments.entity(for: "lobby") {
-                lobby.position = SIMD3<Float>(0, 1.32, -1.7)
-                content.add(lobby)
+                lobby.position = SIMD3<Float>(0, 0, 0)
+                rig.addChild(lobby)
             }
+            // 拖拽条: 浮在面板上方的一根细横杆, 可凝视+捏住拖动。
+            let bar = ModelEntity(mesh: .generateBox(size: SIMD3<Float>(0.24, 0.016, 0.022), cornerRadius: 0.008))
+            bar.model?.materials = [UnlitMaterial(color: UIColor(white: 1.0, alpha: 0.85))]
+            bar.position = SIMD3<Float>(0, 0.34, 0.01)      // 面板上沿之上
+            bar.components.set(InputTargetComponent())
+            bar.components.set(CollisionComponent(shapes: [.generateBox(size: SIMD3<Float>(0.34, 0.06, 0.06))]))  // 抓取判定放大些好捏
+            bar.components.set(HoverEffectComponent())       // 凝视高亮提示"可拖"
+            rig.addChild(bar)
         } attachments: {
             Attachment(id: "lobby") {
                 LobbyView(
@@ -41,6 +57,18 @@ struct GateView: View {
                 .frame(width: 920, height: 800)
             }
         }
+        // CSSOS_WAVE_1101 — 拖拽条移动整个大厅(含远近)。沉浸空间 DragGesture 给 3D 位移。
+        .gesture(
+            DragGesture()
+                .targetedToAnyEntity()
+                .onChanged { value in
+                    guard let rig = refs.rig else { return }
+                    if dragStart == nil { dragStart = rig.position(relativeTo: nil) }
+                    let t = value.convert(value.translation3D, from: .local, to: .scene)
+                    rig.setPosition(dragStart! + SIMD3<Float>(t), relativeTo: nil)
+                }
+                .onEnded { _ in dragStart = nil }
+        )
         // 捏金球 → 头部锚点光束仪式(同一空间, 不退出) → Optic ID。
         .onChange(of: router.fireBeams) { _, want in
             guard want else { return }
@@ -67,39 +95,31 @@ struct GateView: View {
     ///   起射时刻/飞行速度/透明度】全部独立随机 → 长短错落、根根不平行、错峰乱射、
     ///   明暗不一, 像扫描光。
     @MainActor private func fireWave(into head: Entity) {
-        // CSSOS_WAVE_1100 — Jing「体积光效果不理想, 恢复成光束; 要长短不一、粗细不一、速度不一」:
-        //   回到实心光束(圆柱), 但每根的【长度/粗细/速度/朝向倾斜/起射时刻/明暗】各异 →
-        //   不齐刷刷、不像棍阵, 像影视剧扫描光。
-        let n = Int.random(in: 8...16)                                  // 每波数量也不固定
+        // CSSOS_WAVE_1102 — Jing「光束改光点试试」: 改成一群发光小球(光点), 从眼前各方向
+        //   飞进眼心、穿到脑后。每颗【大小/速度/起射时刻/明暗/颜色】各异, 像点点星火/扫描点。
+        let n = Int.random(in: 22...40)                                 // 点多一些才成"群"
         for _ in 0..<n {
             let color = UIColor(hue: CGFloat.random(in: 0...1),
-                                saturation: CGFloat.random(in: 0.75...1.0),
+                                saturation: CGFloat.random(in: 0.7...1.0),
                                 brightness: 1.0, alpha: 1.0)
-            let len = Float.random(in: 0.30...1.05)                     // 长短不一
-            let rad = Float.random(in: 0.004...0.024)                   // 粗细不一
-            let beam = ModelEntity(mesh: .generateCylinder(height: len, radius: rad))
-            beam.model?.materials = [UnlitMaterial(color: color)]       // @MainActor 必须
+            let r = Float.random(in: 0.006...0.026)                     // 大小不一
+            let dot = ModelEntity(mesh: .generateSphere(radius: r))
+            dot.model?.materials = [UnlitMaterial(color: color)]        // @MainActor 必须
             let ang = Float.random(in: 0 ..< (2 * .pi))
-            let r0 = Float.random(in: 0.02...0.18)
+            let r0 = Float.random(in: 0.02...0.22)
             let sx = cos(ang) * r0
-            let sy = sin(ang) * r0 * Float.random(in: 0.5...0.85)
-            beam.position = SIMD3<Float>(sx, sy, -1.5)
-            let baseTilt = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
-            let jitterAxis = normalize(SIMD3<Float>(Float.random(in: -1...1),
-                                                    Float.random(in: -1...1),
-                                                    Float.random(in: -1...1)))
-            let jitter = simd_quatf(angle: Float.random(in: -0.22...0.22), axis: jitterAxis)
-            beam.orientation = jitter * baseTilt
-            beam.components.set(OpacityComponent(opacity: Float.random(in: 0.6...1.0)))  // 明暗不一
-            let delay = Double.random(in: 0 ... 0.35)                   // 错峰起射
-            let dur = Double.random(in: 0.55...1.9)                     // 速度不一
+            let sy = sin(ang) * r0 * Float.random(in: 0.5...0.9)
+            dot.position = SIMD3<Float>(sx, sy, -1.6)
+            dot.components.set(OpacityComponent(opacity: Float.random(in: 0.55...1.0)))  // 明暗不一
+            let delay = Double.random(in: 0 ... 0.5)                    // 错峰
+            let dur = Double.random(in: 0.5...1.8)                      // 速度不一
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                head.addChild(beam)
-                var t = beam.transform
-                t.translation = SIMD3<Float>(sx * 0.08, sy * 0.08, 0.5)
-                beam.move(to: t, relativeTo: head, duration: dur,
-                          timingFunction: Bool.random() ? .easeIn : .easeInOut)
-                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) { beam.removeFromParent() }
+                head.addChild(dot)
+                var t = dot.transform
+                t.translation = SIMD3<Float>(sx * 0.06, sy * 0.06, 0.5)  // 冲进眼心 + 穿到脑后
+                dot.move(to: t, relativeTo: head, duration: dur,
+                         timingFunction: Bool.random() ? .easeIn : .easeInOut)
+                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) { dot.removeFromParent() }
             }
         }
     }

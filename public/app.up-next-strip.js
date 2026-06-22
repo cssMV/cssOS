@@ -702,28 +702,12 @@
       if (stripEl) {
         var badge = stripEl.querySelector(".cssos-up-next-countdown-badge");
         if (badge && badge.dataset.baseLabel) badge.textContent = badge.dataset.baseLabel + " · " + secs + "s";
-        // CSSOS_WAVE_1058 — Jing「重做 CTA 大号倒计时」: 居中大数字(32px 同原尺寸), 每秒换一个随机色。
-        //   W891 删了旧的(移动端浮成莫名"0"方块); 这版只在结束前 LEAD 秒出现(timeUpdate 门控)、
-        //   居中浮在 up-next 条上、随秒变色, 醒目但不常驻。
-        var big = stripEl.querySelector(".cssos-up-next-countdown-big");
-        if (!big) {
-          if (getComputedStyle(stripEl).position === "static") stripEl.style.position = "relative";
-          big = document.createElement("div");
-          big.className = "cssos-up-next-countdown-big";
-          big.style.cssText =
-            "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none;" +
-            "min-width:1.7em;height:1.7em;display:none;align-items:center;justify-content:center;" +
-            "font:800 32px/1 ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:.02em;" +
-            "border-radius:12px;background:radial-gradient(circle,rgba(0,0,0,0.55),rgba(0,0,0,0.12));" +
-            "text-shadow:0 2px 12px rgba(0,0,0,0.9);transition:color .18s ease;";
-          stripEl.appendChild(big);
-        }
-        if (big.dataset.lastSec !== String(secs)) {        // 每秒(整数变化时)换随机色
-          big.dataset.lastSec = String(secs);
-          big.style.color = "hsl(" + Math.floor(Math.random() * 360) + ",92%,62%)";
-        }
-        big.textContent = String(secs);
-        big.style.display = "flex";
+        // CSSOS_WAVE_1110 — Jing「倒计时数字应显示在用户点选的那张作品卡上(之前就是这样)」: 倒计时
+        //   只走【卡上 badge】(上一行, W265: 预选卡 待播·Ns / 默认首卡 下一首·Ns, 随点选移动)。
+        //   撤掉 W1058 那个"居中大号倒计时数字"—— 它不在任何卡上, 与"显示在点击的卡上"矛盾, 也违 W891。
+        //   顺手移除旧 DOM 里可能残留的那个居中数字。
+        var _staleBig = stripEl.querySelector(".cssos-up-next-countdown-big");
+        if (_staleBig) _staleBig.remove();
       }
     } else if (remaining > leadSeconds() + 0.5) {
       hide();

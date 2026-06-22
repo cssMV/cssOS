@@ -53,14 +53,16 @@ enum ImmersiveScene {
     /// W953 — 按场景名取天空盒材质: 优先加载 360 全景图 `env_<name>`(真场景, 以后换成 AI/实拍
     /// 高清 equirectangular 即可), 没有则按情绪兜底纯色。切场景只换这个材质, 不重建球。
     static func environmentMaterial(named name: String) -> RealityKit.Material {
+        // CSSOS_WAVE_1105 — Jing「星空只有两颗星」根因: 存在 env_cosmos.imageset 全景图(几乎全黑、
+        //   只有 2 颗亮点), 被优先加载顶掉了程序星空。修: cosmos 一律走程序生成的密集星空(下面
+        //   已加密加亮), 不用那张弱图。其它场景仍可用 env_<name> 全景图。
+        if name == "cosmos" { return starfieldMaterial() }
         if let img = UIImage(named: "env_\(name)"), let cg = img.cgImage,
            let tex = try? TextureResource(image: cg, options: .init(semantic: .color)) {
             var unlit = UnlitMaterial()
             unlit.color = .init(texture: .init(tex))
             return unlit
         }
-        // 没有 env_cosmos 全景图 → 程序生成真星空(深空 + 上千随机星点 + 几十颗彩色亮星)。
-        if name == "cosmos" { return starfieldMaterial() }
         let fallback: UIColor
         switch name {
         case "cosmos":  fallback = UIColor(red: 0.04, green: 0.02, blue: 0.18, alpha: 1)
@@ -74,30 +76,35 @@ enum ImmersiveScene {
 
     /// 程序生成星空 equirectangular 贴图 → 无光材质(从内部看 = 真星空天空盒)。
     static func starfieldMaterial() -> RealityKit.Material {
-        let w = 2048, h = 1024
+        // CSSOS_WAVE_1105 — 加密加亮: 半径 1000 巨球上贴图会被拉得很大, 星点必须够多够大够亮才看得见。
+        //   分辨率翻倍(4096×2048), 星数 1600→7000, 星点更大, 再加一批带光晕的亮星。
+        let w = 4096, h = 2048
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: w, height: h))
         let img = renderer.image { ctx in
             let c = ctx.cgContext
             // 深空底
             c.setFillColor(UIColor(red: 0.012, green: 0.012, blue: 0.05, alpha: 1).cgColor)
             c.fill(CGRect(x: 0, y: 0, width: w, height: h))
-            // 上千白星(大小/亮度随机)
-            for _ in 0..<1600 {
+            // 七千白星(大小/亮度随机, 比之前大)
+            for _ in 0..<7000 {
                 let x = CGFloat.random(in: 0 ..< CGFloat(w))
                 let y = CGFloat.random(in: 0 ..< CGFloat(h))
-                let s = CGFloat.random(in: 0.5...2.4)
-                let b = CGFloat.random(in: 0.45...1.0)
+                let s = CGFloat.random(in: 1.4...5.0)
+                let b = CGFloat.random(in: 0.5...1.0)
                 c.setFillColor(UIColor(white: 1, alpha: b).cgColor)
                 c.fillEllipse(in: CGRect(x: x, y: y, width: s, height: s))
             }
-            // 几十颗彩色亮星(带光晕感)
-            for _ in 0..<46 {
+            // 两百颗彩色亮星(带柔光晕)
+            for _ in 0..<200 {
                 let x = CGFloat.random(in: 0 ..< CGFloat(w))
                 let y = CGFloat.random(in: 0 ..< CGFloat(h))
                 let hue = CGFloat.random(in: 0...1)
-                c.setFillColor(UIColor(hue: hue, saturation: 0.55, brightness: 1, alpha: 0.95).cgColor)
-                c.fillEllipse(in: CGRect(x: x, y: y, width: 2.8, height: 2.8))
+                let col = UIColor(hue: hue, saturation: 0.5, brightness: 1, alpha: 1)
+                c.setShadow(offset: .zero, blur: 9, color: col.withAlphaComponent(0.9).cgColor)  // 光晕
+                c.setFillColor(col.cgColor)
+                c.fillEllipse(in: CGRect(x: x, y: y, width: CGFloat.random(in: 4...8), height: CGFloat.random(in: 4...8)))
             }
+            c.setShadow(offset: .zero, blur: 0, color: nil)
         }
         if let cg = img.cgImage,
            let tex = try? TextureResource(image: cg, options: .init(semantic: .color)) {

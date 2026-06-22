@@ -2735,10 +2735,14 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
     const ad = Number(a?.duration || 0);
     const vPlaying = v && !v.paused && !v.ended && vt > 0;
     const aPlaying = a && !a.paused && !a.ended && at > 0;
-    if (vPlaying) return { t: vt, dur: vd };
+    // CSSOS_WAVE_1108 — 音频是主时钟(铁律): 有独立音轨在播时, 字幕/卡拉OK必须跟 audio.currentTime,
+    // 绝不能跟 video —— 背景画面常与音频不等长(本例 audio 240s / video 438s), 跟视频会漂移 200+s,
+    // 字幕跑到框外/全屏空白。仅当音频元素没在播(老作品: 音频从 video muxed 出、audio.src 被清空)
+    // 才退回 video 时钟。原代码 video 优先, 正是音画脱钩的根因。
     if (aPlaying) return { t: at, dur: ad };
-    if (vt > 0) return { t: vt, dur: vd };
+    if (vPlaying) return { t: vt, dur: vd };
     if (at > 0) return { t: at, dur: ad };
+    if (vt > 0) return { t: vt, dur: vd };
     return { t: 0, dur: 0 };
   })();
   // CSSOS_WAVE_648 — 情绪字幕【时间轴线性拉伸】对齐歌声。subtitle-take1.json 的行级时间戳是

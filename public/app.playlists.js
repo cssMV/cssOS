@@ -42,7 +42,8 @@
     get reverse() { return _lc("◀ Reverse", "◀ 倒序"); },
     get shuffle() { return _lc("🔀 Shuffle", "🔀 随机"); },
     get loop_all() { return _lc("🔁 Loop list", "🔁 列表循环"); },
-    get loop_single() { return _lc("🔂 Loop single", "🔂 单曲循环"); },
+    // CSSOS_WAVE_1107 — 升级: 独立单曲=1部作品, 多部作品在整部内循环 → 统称"单部循环"。
+    get loop_single() { return _lc("🔂 Loop work", "🔂 单部循环"); },
   };
 
   // ─── State ──────────────────────────────────────────────────────────
@@ -376,12 +377,39 @@
     }
   }
 
+  // CSSOS_WAVE_1107 20260622 — Jing「单曲循环 升级为 单部循环」: 一首独立歌 = 1 部作品, 多部作品
+  //   (三部曲/歌剧/短剧/电视剧/电影)= N 部。当前 item 属于多部作品时, 返回它在列表里【同 root 的
+  //   连续部段】范围 [start,end](含)。据此 loop_single 在【整部作品内】从第一集播到最后一集再循环,
+  //   绝不中途跳到别的作品 / 被插队。标识同 root 用 root_work_id, 缺失再退回 root_title。
+  function workGroupBounds(list, index) {
+    const items = list.items;
+    const cur = items[index];
+    if (!cur) return null;
+    const key = cur.root_work_id || cur.root_title || null;
+    // 仅多部作品(part_total>1 或确有同 root 邻居)才成"部段"; 独立单曲 → null(走真·单曲循环)。
+    if (!key || !(Number(cur.part_total) > 1)) return null;
+    const sameRoot = (it) => it && (it.root_work_id || it.root_title || null) === key;
+    let start = index, end = index;
+    while (start - 1 >= 0 && sameRoot(items[start - 1])) start -= 1;
+    while (end + 1 < items.length && sameRoot(items[end + 1])) end += 1;
+    return end > start ? { start, end } : null;
+  }
+
   function step(direction /* +1 or -1 */) {
     const list = state.lists[state.active];
     if (!list || list.items.length === 0) return null;
     const len = list.items.length;
     const mode = state.mode;
     if (mode === "loop_single") {
+      // 单部循环: 多部作品 → 在本部段内循环(第一集→最后一集→回第一集); 独立单曲 → 原地循环。
+      const g = workGroupBounds(list, state.index);
+      if (g) {
+        const span = g.end - g.start + 1;
+        const rel = state.index - g.start;
+        const nextRel = ((rel + direction) % span + span) % span;   // 在部段内环绕
+        state.index = g.start + nextRel;
+        return list.items[state.index] || null;
+      }
       // Stay on current item; force re-render by returning current.
       return list.items[state.index] || null;
     }

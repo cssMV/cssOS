@@ -33,9 +33,9 @@
     // CSSOS_WAVE_531 — engine-accounts (27KB): 自建HTML, CSS在共享表。market 渲染计费面板时调
     //   renderEngineAccountsCard(桩)→ 按需加载并渲染 BYOK 卡片; 卡内"管理"按钮再开 openEngineAccountsModal。
     "engine-accounts": "app.engine-accounts.js?v=20260530-w531-lazy",
-    // CSSOS_WAVE_534 — subscription-panel (46KB): user-admin 同款。handleGlobalAction 有 subscription case,
-    //   静态 HTML 壳暂留(dom-globals 抓 subscriptionPanel)。桩 open/render 入口按需加载。
-    "subscription":  "app.subscription-panel.js?v=20260531-w537-sublegal",
+    // CSSOS_WAVE_1107 20260622 — Jing/App Store 2.1 拒因: 订阅面板首点懒加载失败导致拒审,
+    //   已改回 eager 常驻(prebundle 直接 src)。此处不再登记为懒加载, 避免重复加载/竞态。
+    //   (原 W534: "subscription": "app.subscription-panel.js?v=20260531-w537-sublegal")
     // CSSOS_WAVE_535 — credit-panel(8KB)+ workspaces-panel(10KB): user-admin 同款, 静态壳暂留。
     "credit":        "app.credit-panel.js?v=20260526-w462-skeleton-universal",
     "workspaces":    "app.workspaces-panel.js?v=20260526-w462-skeleton-universal",

@@ -43,9 +43,9 @@
     // CSSOS_WAVE_531 — engine-accounts: 桩 renderEngineAccountsCard(market 渲染计费面板时调→按需加载渲染卡片)
     //   + openEngineAccountsModal(卡内"管理"按钮)。无 dock/hash, 纯由 render 调用触发加载。
     "engine-accounts": { fns: ["renderEngineAccountsCard", "openEngineAccountsModal"] },
-    // CSSOS_WAVE_534 — subscription-panel: user-admin 同款。handleGlobalAction 已有 subscription case
-    //   (openSubscriptionPanelModule?.() || openPanel(subscriptionPanel)); 这里桩 open/render 入口。
-    "subscription": { fns: ["openSubscriptionPanelModule", "renderSubscriptionPanelModule"], action: "subscription" },
+    // CSSOS_WAVE_1107 20260622 — subscription-panel 改回 eager 常驻(App Store 2.1 拒因: 付费墙懒加载
+    //   首点失败被拒)。不再桩 open/render 入口 —— 真实函数已 eager 就位, 直接删除条目最干净杜绝竞态。
+    //   (原 W534: "subscription": { fns:["openSubscriptionPanelModule","renderSubscriptionPanelModule"], action:"subscription" })
     // CSSOS_WAVE_535 — credit + workspaces: user-admin 同款(handleGlobalAction 已有对应 case)。
     "credit": { fns: ["openCreditPanelModule", "renderCreditPanelModule"], action: "credit" },
     "workspaces": { fns: ["openWorkspacesPanelModule", "renderWorkspacesPanelModule"], action: "workspaces" },
@@ -87,10 +87,21 @@
 
   function makeStub(name, fnName) {
     var inflight = null;
+    // CSSOS_WAVE_1107 — App Store 2.1 拒因(懒面板首点"Panel failed to load"=死胡同)。失败不再直接报错:
+    //   先自动重试一次(网络抖动/SW 缓存窜版常见), 重试仍败才提示, 且【清空 inflight】让用户再点真能重试。
+    function attempt(retriesLeft) {
+      return loadPanel(name).catch(function (err) {
+        if (retriesLeft > 0) {
+          console.warn("[panel-router] lazy load " + name + " failed, retrying…", err);
+          return new Promise(function (r) { setTimeout(r, 350); }).then(function () { return attempt(retriesLeft - 1); });
+        }
+        throw err;
+      });
+    }
     function stub() {
       var args = arguments, self = this;
       try { if (typeof globalThis.showToast === "function") {/* 可选 loading 提示由 cssosLoadPanel 内部处理 */} } catch (_e) {}
-      if (!inflight) inflight = loadPanel(name);
+      if (!inflight) inflight = attempt(1);   // 首次 + 1 次自动重试
       return inflight.then(function () {
         var real = globalThis[fnName];
         if (typeof real === "function" && real.__cssosStub !== true) {
@@ -100,7 +111,8 @@
           console.warn("[panel-router] " + name + " loaded but " + fnName + " not exposed");
         }
       }, function (err) {
-        console.warn("[panel-router] lazy load " + name + " failed:", err);
+        console.warn("[panel-router] lazy load " + name + " failed (after retry):", err);
+        inflight = null;   // 清空 → 用户再点可真重试(不再卡在已 reject 的 promise)
         try {
           if (typeof globalThis.showToast === "function") {
             globalThis.showToast(typeof globalThis.loginCopy === "function"

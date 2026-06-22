@@ -687,7 +687,10 @@ async function renderSubscriptionPanelModule() {
     hub.innerHTML =
       '<button type="button" class="account-hub-tab is-active" disabled>' + tr("Subscription", "订阅") + "</button>" +
       '<button type="button" class="account-hub-tab" data-hub="credit">' + tr("Credits", "积分") + "</button>" +
-      '<button type="button" class="account-hub-tab" data-hub="api">' + tr("API", "API") + "</button>";
+      '<button type="button" class="account-hub-tab" data-hub="api">' + tr("API", "API") + "</button>" +
+      // CSSOS_WAVE_1107 20260622 — Jing/App Store 5.1.1(v) 拒因(找不到账户删除入口): 账户中枢加
+      //   "Account" 标签直达 Profile(删除账户所在), 让审核员/用户从订阅页一步到达删除流程。
+      '<button type="button" class="account-hub-tab" data-hub="account">' + tr("Account", "账户") + "</button>";
     content.insertBefore(hub, content.firstChild);
     const _creditBtn = hub.querySelector('[data-hub="credit"]');
     if (_creditBtn) _creditBtn.addEventListener("click", () => {
@@ -697,6 +700,10 @@ async function renderSubscriptionPanelModule() {
     const _apiBtn = hub.querySelector('[data-hub="api"]');
     if (_apiBtn) _apiBtn.addEventListener("click", () => {
       if (typeof globalThis.handleGlobalAction === "function") globalThis.handleGlobalAction("api");
+    });
+    const _acctBtn = hub.querySelector('[data-hub="account"]');
+    if (_acctBtn) _acctBtn.addEventListener("click", () => {
+      if (typeof globalThis.handleGlobalAction === "function") globalThis.handleGlobalAction("profile");
     });
   } catch (_hubErr) { /* non-fatal */ }
   content.querySelectorAll("[data-subscription-open-plan-modal]").forEach((button) => {

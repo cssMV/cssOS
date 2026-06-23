@@ -167,11 +167,23 @@
       sub.style.setProperty("max-width", "100%", "important");
       // CSSOS_WAVE_908 — Jing「字幕时有时无, AI 助理跳上跳下」根治: 把传统字幕这行【钉死固定高度 = AI FAB 42px】,
       //   空内容也不塌、有字也不长高 → alignAgentFab 测到的中心恒定, AI 助理稳定不跳。
-      sub.style.setProperty("height", AI_FAB_H, "important");
-      sub.style.setProperty("min-height", AI_FAB_H, "important");
-      sub.style.setProperty("max-height", AI_FAB_H, "important");
-      sub.style.setProperty("line-height", AI_FAB_H, "important");
-      sub.style.setProperty("display", "block", "important");
+      if (_railOn) {
+        // CSSOS_WAVE_1114k 20260622 — Jing「传统字幕太大、把逐字情绪压扁裁切=乱」: 右轨态(AI FAB 已撤,
+        //   无需为它钉固定高度)→ 传统字幕【小字号 + 自然高度、不裁切】, 回到原来小小的, 不抢情绪字幕。
+        sub.style.setProperty("font-size", "13px", "important");
+        sub.style.setProperty("line-height", "1.3", "important");
+        sub.style.removeProperty("height");
+        sub.style.removeProperty("max-height");
+        sub.style.setProperty("min-height", "1.3em", "important");
+        sub.style.setProperty("display", "block", "important");
+      } else {
+        // CSSOS_WAVE_908 — 无右轨(老布局): 钉死固定高度 = AI FAB 42px, 防 AI 助理跳。
+        sub.style.setProperty("height", AI_FAB_H, "important");
+        sub.style.setProperty("min-height", AI_FAB_H, "important");
+        sub.style.setProperty("max-height", AI_FAB_H, "important");
+        sub.style.setProperty("line-height", AI_FAB_H, "important");
+        sub.style.setProperty("display", "block", "important");
+      }
     }
     if (price) {
       price.style.setProperty("position", "static", "important");

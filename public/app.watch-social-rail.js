@@ -94,7 +94,12 @@
       "justify-content:center;font-weight:500;font-size:15px;color:#fff;overflow:visible;}" +
       ".csr-av img{width:100%;height:100%;border-radius:50%;object-fit:cover;}" +
       ".csr-av .csr-follow{position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:17px;height:17px;" +
-      "border-radius:50%;background:#00f5a0;color:#04241a;font-size:12px;display:flex;align-items:center;justify-content:center;}";
+      "border-radius:50%;background:#00f5a0;color:#04241a;font-size:12px;display:flex;align-items:center;justify-content:center;}" +
+      // CSSOS_WAVE_1119 — 左上返回键(成熟模式): 退出影院。点它=触发现成 watch-panel 关闭按钮。
+      "#cssos-watch-backbtn{position:absolute;left:12px;top:12px;z-index:31;width:40px;height:40px;border-radius:50%;" +
+      "background:rgba(20,16,12,0.55);border:0.5px solid rgba(255,255,255,0.18);color:#fff;font-size:22px;line-height:1;" +
+      "display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;}" +
+      "#cssos-watch-backbtn:active{transform:scale(0.92);}";
     document.head.appendChild(s);
   }
 
@@ -146,8 +151,33 @@
     return rail;
   }
 
+  // CSSOS_WAVE_1119 — 左上返回键: 退出影院 = 点现成的 watch-panel 关闭按钮(不另造退出逻辑)。
+  function ensureBackBtn() {
+    var host = railHost(); if (!host) return;
+    var b = document.getElementById("cssos-watch-backbtn");
+    if (!watchOpen()) { if (b) b.style.display = "none"; return; }
+    if (!b) {
+      b = document.createElement("button");
+      b.id = "cssos-watch-backbtn"; b.type = "button"; b.dataset.noFrameToggle = "1";
+      b.setAttribute("aria-label", copy("Back", "返回"));
+      b.textContent = "‹";
+      b.addEventListener("click", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        try {
+          var x = host.querySelector('.panel-actions .icon-btn[aria-label="Close"]')
+               || host.querySelector('.icon-btn[aria-label="Close"]')
+               || host.querySelector('.icon-btn[aria-label="close"]');
+          if (x) x.click();
+        } catch (_e) {}
+      });
+      host.appendChild(b);
+    }
+    b.style.display = "flex";
+  }
+
   function render() {
     injectHideCss();
+    ensureBackBtn();
     if (!watchOpen()) { var r0 = document.getElementById("cssos-watch-social-rail"); if (r0) r0.style.display = "none"; return; }
     var rail = buildRail();
     if (!rail) return;

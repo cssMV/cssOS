@@ -2318,6 +2318,9 @@
     <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
          只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
     <script src="app.watch-social-rail.js?v=20260623-w1118-rail-restart"></script>
+    <!-- CSSOS_WAVE_1119 — 右轨配套: 左下标题摘要(标题·进度·@作者·时长·摘要)+ 弹幕(评论左下窄道弹入上飘)。
+         纯叠加层, 不碰 emotion-fx/字幕/bottom-stack。 -->
+    <script src="app.watch-cinema-caption.js?v=20260623-w1119-caption"></script>
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
     <script src="app.crash-log-dashboard.js?v=20260526-w463-skeleton-admin"></script>

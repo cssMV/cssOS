@@ -658,32 +658,37 @@
       } catch (_e) {}
     });
     listEl.appendChild(card);
-    // 从大 emoji 中心爆出随机色小 emoji(平台特色字心烟花)。节流: 同一次"出现"只爆一次。
-    // CSSOS_WAVE_1134 — 修可靠性: ① rAF→setTimeout(160ms) 等卡片滑入动画定位完再取坐标;
-    //   ② 卡片在屏幕最右缘, 爆点 x 往屏内收 6%, 让小 emoji 不全飞出屏外; ③ 数量 16–24 更明显。
+    // CSSOS_WAVE_1139 — Jing 指令: Want 卡片【持续爆】(播放快结束的创作召唤), 从大 emoji【正中心】爆。
+    ensureWantBurstLoop();
+  }
+
+  // 持续从 Want 卡片大 emoji 正中心爆出随机色小 emoji(平台特色字心烟花)。单一定时器, 自检卡片是否可见。
+  var _wantBurstTimer = null;
+  var _EMO_KEYS = ["joy", "ignite", "resolve", "intimate", "calm"];
+  function fireWantBurstOnce() {
     try {
-      var now = Date.now();
-      if (now - _lastWantBurst > 2500) {
-        _lastWantBurst = now;
-        var EMO_KEYS = ["joy", "ignite", "resolve", "intimate", "calm"];
-        var emo = EMO_KEYS[(Math.random() * EMO_KEYS.length) | 0];
-        setTimeout(function () {
-          try {
-            if (typeof globalThis.cssosFireworkAt !== "function") return;
-            var box = card.querySelector(".cssos-want-bigemo");
-            var r = (box || card).getBoundingClientRect();
-            if (!r.width) return;
-            var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-            var vw = window.innerWidth || 1, vh = window.innerHeight || 1;
-            var xPct = Math.min(94, cx / vw * 100 - 6);   // 往屏内收, 避免半数飞出右缘
-            var yPct = cy / vh * 100;
-            globalThis.cssosFireworkAt(xPct, yPct, emo, 16 + ((Math.random() * 8) | 0));
-          } catch (_e) {}
-        }, 160);
-      }
+      if (typeof globalThis.cssosFireworkAt !== "function") return;
+      var box = document.querySelector(".cssos-up-next-want .cssos-want-bigemo");
+      if (!box) return;
+      var r = box.getBoundingClientRect();
+      if (!r.width || r.bottom < 0 || r.top > (window.innerHeight || 0)) return;   // 不可见就不爆
+      var cx = r.left + r.width / 2, cy = r.top + r.height / 2;     // 正中心, 不再偏移
+      var vw = window.innerWidth || 1, vh = window.innerHeight || 1;
+      var emo = _EMO_KEYS[(Math.random() * _EMO_KEYS.length) | 0];
+      globalThis.cssosFireworkAt(cx / vw * 100, cy / vh * 100, emo, 14 + ((Math.random() * 8) | 0));
     } catch (_e) {}
   }
-  var _lastWantBurst = 0;
+  function ensureWantBurstLoop() {
+    if (_wantBurstTimer) return;
+    setTimeout(fireWantBurstOnce, 180);                  // 卡片滑入定位后先爆一发
+    _wantBurstTimer = setInterval(function () {
+      // 卡片不存在了(切歌/关面板) → 停掉定时器, 不空转。
+      if (!document.querySelector(".cssos-up-next-want .cssos-want-bigemo")) {
+        clearInterval(_wantBurstTimer); _wantBurstTimer = null; return;
+      }
+      fireWantBurstOnce();
+    }, 2200);                                            // 每 2.2s 续爆 = "一直爆"
+  }
 
   function show() {
     if (visible) return;

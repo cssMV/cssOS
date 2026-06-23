@@ -256,26 +256,27 @@
       }
     ));
 
-    // 2. Watch / 观赏 price — CSSOS_WAVE_1108 — Jing 调价: 观赏 = 【以后的真视频】, 定价 $0.99,
-    //   现在暂【置灰不可购】(真视频上线前, 现有内容只有幻灯/画面格式 = 走 $0.69 聆听档)。
-    //   与 $0.69 聆听明确区分, 不再重复 0.99。
+    // CSSOS_WAVE_1113b 20260622 — Jing 定稿顺序: 🎧聆听 → 👁观赏 → 💎买断(聆听在前, 观赏其次)。
+    //   聆听 $0.69(音频/幻灯, 当前唯一可购) / 观赏 $0.99(真视频, 上线前置灰) / 买断=系统建议价。
+
+    // 2. 🎧 Listen / 聆听 price — $0.69 当前可购(音频/幻灯)。
+    var listenLabel = "🎧 " + copy("Listen", "聆听") + " · " +
+      (listenCents > 0 ? fmt(listenCents) : copy("Free", "免费"));
+    strip.appendChild(chip(listenLabel, {
+      kind: "buy",
+      title: copy("Suggested listening price (audio / slideshow)", "系统建议的聆听价格(音频/幻灯)"),
+      disabled: !canTransact || listenCents <= 0,
+      onClick: (canTransact && listenCents > 0) ? function () { dispatch("listen", workId); } : null
+    }));
+
+    // 3. 👁 Watch / 观赏 price — $0.99 真视频, 真视频上线前【置灰不可购】(现有内容走 $0.69 聆听)。
     var viewShownCents = (viewCents > 0 ? viewCents : 99);
-    var viewLabel = "🎬 " + copy("Watch", "观赏") + " · " + fmt(viewShownCents);
+    var viewLabel = "👁 " + copy("Watch", "观赏") + " · " + fmt(viewShownCents);
     strip.appendChild(chip(viewLabel, {
       kind: "buy",
       title: copy("Real-video viewing — opens once full video ships", "观赏(真视频)— 真视频上线后开放"),
       disabled: true,
       onClick: null
-    }));
-
-    // 3. Listen price — always shown
-    var listenLabel = "🎧 " + copy("Listen", "聆听") + " · " +
-      (listenCents > 0 ? fmt(listenCents) : copy("Free", "免费"));
-    strip.appendChild(chip(listenLabel, {
-      kind: "buy",
-      title: copy("Suggested listening price", "系统建议的聆听价格"),
-      disabled: !canTransact || listenCents <= 0,
-      onClick: (canTransact && listenCents > 0) ? function () { dispatch("listen", workId); } : null
     }));
 
     // 4. Buyout — always shown; explicit "版权不出售" when disabled

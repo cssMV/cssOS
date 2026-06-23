@@ -83,8 +83,9 @@
       //   ‹ 仍以编程方式点击这个隐藏的关闭按钮来退出, 故藏其外观不影响退出)。
       "#watch-author-avatar{display:none !important;}" +
       "#watch-panel .panel-actions .icon-btn[aria-label=\"Close\"]{display:none !important;}" +
-      // CSSOS_WAVE_1120 — Jing 指令①: 右轨居视频框【右下角】(原垂直居中 top:50% → 改底部锚定, 贴右下)。
-      "#cssos-watch-social-rail{position:absolute;right:14px;bottom:96px;" +
+      // CSSOS_WAVE_1125 — Jing 指令: 右轨往下移、靠近 AI 助理, 视觉上成一整体(AI 像是右轨最底图标)。
+      //   bottom 96px → 56px, 让最底"买断"贴近底部 AI 助理(旧 FAB)。
+      "#cssos-watch-social-rail{position:absolute;right:14px;bottom:56px;" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
       "#cssos-watch-social-rail>*{pointer-events:auto;}" +
       ".csr-item{display:flex;flex-direction:column;align-items:center;gap:1px;background:transparent;border:0;padding:0;cursor:pointer;}" +

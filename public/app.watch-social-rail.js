@@ -24,6 +24,31 @@
     c = Number(c) || 0;
     return c >= 100 ? "$" + (c / 100).toFixed(2) : "¢" + c;
   }
+  function fmtCount(n) {
+    n = Number(n) || 0;
+    if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 ? 1 : 0) + "m";
+    if (n >= 1000) return (n / 1000).toFixed(n % 1000 ? 1 : 0) + "k";
+    return String(n);
+  }
+
+  // 社会证明计数缓存(workId → {listens,watches,tips,comments})。
+  var _stats = {};
+  function fetchStats(id) {
+    if (!id || _stats[id]) return;
+    _stats[id] = { listens: 0, watches: 0, tips: 0, comments: 0 };   // 占位防重复拉
+    try {
+      fetch("/api/works/" + encodeURIComponent(id) + "/social-stats", { credentials: "include" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || d.ok === false) return;
+          _stats[id] = { listens: Number(d.listens || 0), watches: Number(d.watches || 0), tips: Number(d.tips || 0), comments: Number(d.comments || 0) };
+          schedule();   // 拿到数 → 重渲染带上计数
+        }).catch(function () {});
+    } catch (_e) {}
+  }
+  function statsFor(id) { return _stats[id] || { listens: 0, watches: 0, tips: 0, comments: 0 }; }
+  // 价后接计数: "N · ¢69"(N>0 才显); 无计数只显价。
+  function countPrice(n, cents) { n = Number(n) || 0; return (n > 0 ? fmtCount(n) + " · " : "") + fmtCents(cents); }
 
   // 当前播放作品(沿用 watch 既有回退链)。
   function currentWork() {
@@ -54,6 +79,8 @@
     s.textContent =
       "#cssos-watch-price-strip{display:none !important;}" +
       "#cssos-agent-fab{display:none !important;}" +
+      // CSSOS_WAVE_1114d — 作者头像已移入右轨(顶部), 影院态隐藏旧的左上/胶囊内头像, 左上让位给返回键。
+      "body.cssos-cinema-mode #watch-author-avatar{display:none !important;}" +
       "#cssos-watch-social-rail{position:absolute;right:10px;top:50%;transform:translateY(-50%);" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
       "#cssos-watch-social-rail>*{pointer-events:auto;}" +
@@ -128,6 +155,9 @@
     if (!rail) return;
     rail.style.display = "flex";
     var w = currentWork() || {};
+    var id0 = workId();
+    fetchStats(id0);
+    var st = statsFor(id0);
     rail.textContent = "";
 
     // 1. 作者头像 + 关注
@@ -148,8 +178,8 @@
     });
     rail.appendChild(av);
 
-    // 2. 💬 评论(计数 Wave 后补) → 现成抽屉
-    rail.appendChild(mkItem("💬", copy("Comment", "评论"), {
+    // 2. 💬 评论 · 计数 → 现成抽屉
+    rail.appendChild(mkItem("💬", st.comments > 0 ? fmtCount(st.comments) : copy("Comment", "评论"), {
       icClass: "is-comment", aria: copy("Comments", "评论"),
       onClick: function () {
         var id = workId(); if (!id) return;
@@ -160,20 +190,20 @@
       }
     }));
 
-    // 3. 🎧 聆听 · ¢69
-    rail.appendChild(mkItem("🎧", fmtCents(listenCents(w)), {
+    // 3. 🎧 聆听 · 计数·¢69
+    rail.appendChild(mkItem("🎧", countPrice(st.listens, listenCents(w)), {
       aria: copy("Listen", "聆听"), title: copy("Listen (audio / slideshow)", "聆听(音频/幻灯)"),
       onClick: function (b) { dispatch("listen", b); }
     }));
 
-    // 4. 👁 观赏 · ¢99(真视频, 上线前置灰)
-    rail.appendChild(mkItem("👁️", fmtCents(viewCents(w)), {
+    // 4. 👁 观赏 · 计数·¢99(真视频, 上线前置灰)
+    rail.appendChild(mkItem("👁️", countPrice(st.watches, viewCents(w)), {
       disabled: true, aria: copy("Watch", "观赏"),
       title: copy("Real-video viewing — opens once full video ships", "观赏(真视频)— 真视频上线后开放")
     }));
 
-    // 5. 💝 打赏(金额随意)
-    rail.appendChild(mkItem("💝", copy("Tip", "打赏"), {
+    // 5. 💝 打赏 · 计数(金额随意)
+    rail.appendChild(mkItem("💝", st.tips > 0 ? fmtCount(st.tips) : copy("Tip", "打赏"), {
       aria: copy("Tip the creator", "打赏作者"), title: copy("Tip the creator — any amount", "打赏作者(金额随意)"),
       onClick: function (b) { dispatch("tip", b); }
     }));

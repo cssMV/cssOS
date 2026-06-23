@@ -134,7 +134,12 @@
     //   (之前 W868 误把 App 也压成一行 = 错; 这里回到 Option B。)
     var isApp = false;
     try { isApp = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
-    var AI_FAB_H = "42px";
+    // CSSOS_WAVE_1114f 20260622 — Jing「没有价格条了, 别再给价格条留那么高占位; 字幕贴近底部」:
+    //   影院右轨(TikTok 位)在场 → 价格条/AI FAB 已迁入右轨、被隐藏。这一行不再需要为 AI FAB 预留
+    //   42px, 收成字幕自然高度(~1.6em), 让多语言行随之下沉、贴底。无右轨仍保留 42px(老布局兼容)。
+    var _railOn = false;
+    try { _railOn = !!document.getElementById("cssos-watch-social-rail"); } catch (_e) {}
+    var AI_FAB_H = _railOn ? "1.7em" : "42px";
     // CSSOS_WAVE_1020 20260619 — Jing「小屏里 AI 助理应和传统字幕/价格条【同一行】」: 撤销 W881 的
     //   窄屏两行布局(那是评估反馈"拥挤"的来源, 也非最初样子)。统一【单行】:
     //   [传统字幕 左(flex 截断)] [价格条 中] [AI 助理 右(44px 留位, fixed FAB 竖向对齐本行)]。

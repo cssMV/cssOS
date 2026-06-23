@@ -122,13 +122,13 @@
       var exitBtn = document.createElement("button");
       exitBtn.id = "watch-exit-cinema";
       exitBtn.type = "button";
-      exitBtn.setAttribute("aria-label", tr("Exit cinema", "退出影院"));
-      exitBtn.title = tr("Exit cinema", "退出影院");
-      exitBtn.textContent = "✕";
+      exitBtn.setAttribute("aria-label", tr("Back", "返回"));
+      exitBtn.title = tr("Back", "返回");
+      // CSSOS_WAVE_1114d 20260622 — Jing「左上角头像改返回(头像已移右轨), 删右上 ✕」: 退出键从右上 ✕
+      //   挪到【左上角】、图标改返回箭头 ‹。一处改动同时完成"删右上 ✕"+"左上加返回"; 退出逻辑不变。
+      exitBtn.textContent = "‹";
       exitBtn.style.cssText = [
-        // CSSOS_WAVE_326 — ✕ 放进媒体框右上角, 与左上角头像(left:12 top:12)对称.
-        // (改为 append 到 .watch-screen; App 全屏帧=满屏, 由 style.css 让位刘海.)
-        "position:absolute", "top:12px", "right:12px",
+        "position:absolute", "top:12px", "left:12px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
@@ -465,7 +465,7 @@
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
       metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + idFull + "</span>");
-      var _tsz = depth > 0 ? 38 : 56;   // W1090 — 树枝桠(子作品)缩略图更小, 视觉层级更清晰
+      var _tsz = depth > 0 ? 26 : 56;   // W1090/W1114g — 树枝桠(子作品)缩略图更小(38→26), 别抢 root 戏
       card.innerHTML =
         '<div style="position:relative;width:' + _tsz + 'px;height:' + _tsz + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +

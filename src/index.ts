@@ -48248,6 +48248,37 @@ function escapeHtmlBody(s: string): string {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// CSSOS_WAVE_1114e 20260622 — 影院右轨(TikTok 位)社会证明计数: 某作品的 聆听/观赏/打赏/评论 人数。
+//   公开只读(无需登录), 给右轨显示"计数·价"。聆听/观赏 = work_orders 已付; 打赏 = work_tips;
+//   评论 = person_mv_comments(经 person_mvs.work_id 映射回 user_works.id)。
+app.get("/api/works/:id/social-stats", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, error: "bad_id" });
+    const PAID = ["paid", "completed", "succeeded", "captured", "complete"];
+    const r = await withClient((c) => c.query<{ listens: string; watches: string; tips: string; comments: string }>(
+      `SELECT
+         (SELECT COUNT(DISTINCT buyer_user_id) FROM work_orders WHERE work_id=$1 AND order_kind='listen' AND status = ANY($2)) AS listens,
+         (SELECT COUNT(DISTINCT buyer_user_id) FROM work_orders WHERE work_id=$1 AND order_kind='view'   AND status = ANY($2)) AS watches,
+         (SELECT COUNT(*) FROM work_tips WHERE work_id=$1) AS tips,
+         (SELECT COUNT(*) FROM person_mv_comments pc JOIN person_mvs pm ON pc.mv_id = pm.mv_id
+            WHERE pm.work_id=$1 AND pc.deleted_at IS NULL) AS comments`,
+      [id, PAID]
+    ));
+    const row = (r.rows && r.rows[0]) || ({} as any);
+    return res.json({
+      ok: true,
+      listens: Number(row.listens || 0),
+      watches: Number(row.watches || 0),
+      tips: Number(row.tips || 0),
+      comments: Number(row.comments || 0),
+    });
+  } catch (err) {
+    // 计数永不阻断 UI: 失败回 0。
+    return res.json({ ok: true, listens: 0, watches: 0, tips: 0, comments: 0 });
+  }
+});
+
 app.get("/api/person-mv/mvs/:mv_id/comments", async (req, res) => {
   noStore(res);
   try {

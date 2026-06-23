@@ -256,14 +256,16 @@
       }
     ));
 
-    // 2. View / 欣赏 price — always shown
-    var viewLabel = "👁 " + copy("View", "欣赏") + " · " +
-      (viewCents > 0 ? fmt(viewCents) : copy("Free", "免费"));
+    // 2. Watch / 观赏 price — CSSOS_WAVE_1108 — Jing 调价: 观赏 = 【以后的真视频】, 定价 $0.99,
+    //   现在暂【置灰不可购】(真视频上线前, 现有内容只有幻灯/画面格式 = 走 $0.69 聆听档)。
+    //   与 $0.69 聆听明确区分, 不再重复 0.99。
+    var viewShownCents = (viewCents > 0 ? viewCents : 99);
+    var viewLabel = "🎬 " + copy("Watch", "观赏") + " · " + fmt(viewShownCents);
     strip.appendChild(chip(viewLabel, {
       kind: "buy",
-      title: copy("Suggested viewing price", "系统建议的欣赏价格"),
-      disabled: !canTransact || viewCents <= 0,
-      onClick: (canTransact && viewCents > 0) ? function () { dispatch("view", workId); } : null
+      title: copy("Real-video viewing — opens once full video ships", "观赏(真视频)— 真视频上线后开放"),
+      disabled: true,
+      onClick: null
     }));
 
     // 3. Listen price — always shown

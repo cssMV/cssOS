@@ -339,14 +339,19 @@
           </div>
         </div>
         <div class="panel-body watch-body">
+          <!-- CSSOS_WAVE_1108 20260622 — Jing「MV 面板只留 MV 媒体框」: 撤掉 Music/Lyrics/Script/
+               Comments/Revenue/Ownership 六个标签(原本已隐藏)。Music(纯音频)档也撤 —— 因为 $0.69
+               聆听 = 现在的幻灯/画面(等同音频体验), 特斯拉等阻止视频也 fallback 到幻灯, 无需独立音频页。
+               收益→作品中心; 其余内容(歌词作为情绪字幕已在画面内)。保留的 mv 标签 + 各 pane DOM 暂留
+               (JS 守卫引用), 仅隐藏入口, 零回归; 以后可彻底删 pane。 -->
           <div class="watch-tabs cssmv-pill-bar" role="tablist" data-pill-bar>
             <button class="watch-tab active" id="watch-tab-mv" type="button" data-watch-tab="mv" data-i18n="watch.tab.mv">MV</button>
-            <button class="watch-tab" id="watch-tab-music" type="button" data-watch-tab="music" data-i18n="watch.tab.music">Music</button>
-            <button class="watch-tab" id="watch-tab-lyrics" type="button" data-watch-tab="lyrics" data-i18n="watch.tab.lyrics">Lyrics</button>
-            <button class="watch-tab" id="watch-tab-script" type="button" data-watch-tab="script" data-i18n="watch.tab.script">Script</button>
-            <button class="watch-tab" id="watch-tab-comments" type="button" data-watch-tab="comments" data-i18n="watch.tab.comments">Comments</button>
-            <button class="watch-tab" id="watch-tab-revenue" type="button" data-watch-tab="revenue" data-i18n="watch.tab.revenue">Revenue</button>
-            <button class="watch-tab" id="watch-tab-ownership" type="button" data-watch-tab="ownership" data-i18n="watch.tab.ownership">Ownership</button>
+            <button class="watch-tab" id="watch-tab-music" type="button" data-watch-tab="music" data-i18n="watch.tab.music" hidden style="display:none">Music</button>
+            <button class="watch-tab" id="watch-tab-lyrics" type="button" data-watch-tab="lyrics" data-i18n="watch.tab.lyrics" hidden style="display:none">Lyrics</button>
+            <button class="watch-tab" id="watch-tab-script" type="button" data-watch-tab="script" data-i18n="watch.tab.script" hidden style="display:none">Script</button>
+            <button class="watch-tab" id="watch-tab-comments" type="button" data-watch-tab="comments" data-i18n="watch.tab.comments" hidden style="display:none">Comments</button>
+            <button class="watch-tab" id="watch-tab-revenue" type="button" data-watch-tab="revenue" data-i18n="watch.tab.revenue" hidden style="display:none">Revenue</button>
+            <button class="watch-tab" id="watch-tab-ownership" type="button" data-watch-tab="ownership" data-i18n="watch.tab.ownership" hidden style="display:none">Ownership</button>
           </div>
           <div class="watch-pane active" id="watch-pane-mv" data-watch-pane="mv">
             <div class="engine-progress-shell" id="kara-progress-shell" data-engine-progress="kara" hidden>

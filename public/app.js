@@ -1888,17 +1888,18 @@ function renderHierarchyTree(nodes, context = "market") {
 }
 
 function workTypePricingDefaults(workType) {
+  // CSSOS_WAVE_1108 — 聆听价默认 $0.99 → $0.69(当前幻灯/画面格式)。买断价不变。
   const stored = panelDefaultsState.creation?.pricing_by_type?.[normalizeWorkTypeClient(workType)] || null;
   if (stored) {
     return {
-      listenCents: Number(stored.listen_cents || 99),
+      listenCents: Number(stored.listen_cents || 69),
       buyoutCents: Number(stored.buyout_cents || 299)
     };
   }
   const normalized = normalizeWorkTypeClient(workType);
-  if (normalized === "triptych") return { listenCents: 99, buyoutCents: 499 };
-  if (normalized === "opera") return { listenCents: 99, buyoutCents: 999 };
-  return { listenCents: 99, buyoutCents: 299 };
+  if (normalized === "triptych") return { listenCents: 69, buyoutCents: 499 };
+  if (normalized === "opera") return { listenCents: 69, buyoutCents: 999 };
+  return { listenCents: 69, buyoutCents: 299 };
 }
 
 function buildCurrentCreationDefaultsPayload() {

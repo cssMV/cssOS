@@ -208,7 +208,7 @@ function renderHierarchyTreeModule(nodes, context = "market") {
 }
 
 function workTypePricingDefaultsModule(workType) {
-  return globalThis.workTypePricingDefaultsModule?.(workType) || { listenCents: 99, buyoutCents: 299 };
+  return globalThis.workTypePricingDefaultsModule?.(workType) || { listenCents: 69, buyoutCents: 299 };
 }
 
 function buildCurrentCreationDefaultsPayloadModuleBridge() {

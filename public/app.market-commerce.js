@@ -2758,7 +2758,7 @@ function buildWorksCardPricingMarkup(options = {}) {
           ? `
             <span class="inline-chip-editor" data-inline-editor="listen">
               <button class="price-chip editable-chip" type="button" data-inline-trigger="listen">${loginCopy("Listen")} · ${escapeHtml(listenPrice)}</button>
-              <input class="inline-chip-input" type="number" min="0.99" step="0.01" value="${escapeHtml((listenPriceCents / 100).toFixed(2))}" data-work-price="listen" hidden />
+              <input class="inline-chip-input" type="number" min="0.69" step="0.01" value="${escapeHtml((listenPriceCents / 100).toFixed(2))}" data-work-price="listen" hidden />
             </span>
             ${
               wholeBuyoutChild

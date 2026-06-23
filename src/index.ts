@@ -14464,13 +14464,14 @@ function requestRawBody(req: express.Request) {
   return ((req as any).rawBody as Buffer | undefined) || Buffer.alloc(0);
 }
 
-// CSSOS_WAVE_549 20260531 — Jing 定调: 聆听/观赏价统一 $0.99; 买断价按系统建议分类价。用户可改。
+// CSSOS_WAVE_1108 20260622 — Jing 调价: 聆听价(=当前幻灯/画面格式, 等同音频体验)$0.99 → $0.69;
+//   观赏价 $0.99 保留给【以后的真视频】(前端 view 档置灰占位)。买断价不变。用户可改。
 function defaultListenPriceCents() {
   const parsed = Number.parseInt(
-    String(process.env.CSSMV_DEFAULT_LISTEN_PRICE_CENTS || "99"),
+    String(process.env.CSSMV_DEFAULT_LISTEN_PRICE_CENTS || "69"),
     10,
   );
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 99;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 69;
 }
 
 function defaultBuyoutPriceCents() {
@@ -14498,13 +14499,13 @@ function workTypeDisplayLabel(workType: CssmvWorkType) {
   return "single";
 }
 
-// CSSOS_WAVE_549 — 聆听价统一 $0.99; 买断价系统建议分类价(单曲 $5.99 / 三部曲 $9.99 / 歌剧 $19.99)。用户可改。
+// CSSOS_WAVE_1108 — 聆听价 $0.99 → $0.69(当前幻灯格式); 买断价系统建议分类价(单曲 $5.99 / 三部曲 $9.99 / 歌剧 $19.99)。用户可改。
 function pricingPresetForWorkType(workType: CssmvWorkType) {
   if (workType === "opera") {
-    return { listenCents: 99, buyoutCents: 1999, label: "opera" };
+    return { listenCents: 69, buyoutCents: 1999, label: "opera" };
   }
   if (workType === "triptych") {
-    return { listenCents: 99, buyoutCents: 999, label: "triptych" };
+    return { listenCents: 69, buyoutCents: 999, label: "triptych" };
   }
   return {
     listenCents: defaultListenPriceCents(),  // 99

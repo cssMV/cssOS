@@ -549,7 +549,8 @@
             ? _searchQueue : [payload].concat(_searchQueue);
           if (_pl.populate("for-you", _q)) {
             _pl.setActive && _pl.setActive("for-you");
-            if (_pl.setMode && _pl.getMode && _pl.getMode() === "loop_single") _pl.setMode("loop_all");
+            // CSSOS_WAVE_1113c — 删掉旧的"强制 loop_single→loop_all"(它把用户主动选的【单部循环】掐死)。
+            //   防泄漏已由 setActive 收口(只在离开 share-link 时还原)。这里不再误伤单部循环。
             _pl.seekTo && _pl.seekTo(_pid);
           }
         }

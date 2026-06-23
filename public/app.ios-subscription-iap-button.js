@@ -44,6 +44,9 @@
       '.cssos-ios-iap-btn:hover{background:#1a1a1a;transform:translateY(-1px);}',
       '.cssos-ios-iap-btn:active{transform:translateY(0);background:#000;}',
       '.cssos-ios-iap-btn:disabled{opacity:.6;cursor:wait;}',
+      /* CSSOS_WAVE_1152 — Jing: admin / free / 当前套餐 → 置灰不可订阅(防苹果审核点了报错)。 */
+      '.cssos-ios-iap-btn.is-locked{background:#3a3a3c;color:rgba(255,255,255,.55);cursor:not-allowed;opacity:1;}',
+      '.cssos-ios-iap-btn.is-locked:hover{background:#3a3a3c;transform:none;}',
       '.cssos-ios-iap-btn .apple-glyph{font-size:18px;line-height:1;}',
       '.cssos-ios-iap-hint{font:500 11px/1.4 -apple-system,system-ui,sans-serif;color:rgba(0,0,0,.55);margin-top:6px;text-align:center;}',
     ].join("\n");
@@ -138,18 +141,42 @@
     }
   }
 
+  // CSSOS_WAVE_1152 — Jing 指令: 已拥有/不可购买的等级, 订阅按钮置灰不可点(苹果审核 demo 账号若是
+  //   admin, 点 "Subscribe with Apple" 会报错/无响应 → 2.1 拒因)。admin & free & 当前套餐都锁。
+  function currentTier() {
+    try { return (typeof globalThis.getAccessTier === "function") ? String(globalThis.getAccessTier() || "").toLowerCase() : ""; } catch (_e) { return ""; }
+  }
+  function isAdminTier() {
+    var t = currentTier();
+    if (t === "admin") return true;
+    try { if (typeof globalThis.hasPanelPermission === "function" && globalThis.hasPanelPermission("admin.panel")) return true; } catch (_e) {}
+    return false;
+  }
+
   function injectButtons() {
     var cards = findUninjectedCards();
     if (!cards.length) return;
     injectStyles();
+    var admin = isAdminTier();
+    var cur = currentTier();
     cards.forEach(function (c) {
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = "cssos-ios-iap-btn";
       btn.setAttribute("data-iap-tier", c.tier);
-      btn.innerHTML = '<span class="apple-glyph"></span> '
-        + esc(tr("Subscribe with Apple", "通过 Apple 订阅"));
-      btn.addEventListener("click", function () { startPurchase(btn, c.tier); });
+      var lockReason = admin ? "admin" : (String(c.tier).toLowerCase() === "free" ? "free" : (String(c.tier).toLowerCase() === cur ? "current" : ""));
+      if (lockReason) {
+        btn.classList.add("is-locked");
+        btn.disabled = true;
+        btn.innerHTML = esc(
+          lockReason === "admin" ? tr("Included with Admin", "管理员已包含")
+            : lockReason === "free" ? tr("Free — no subscription", "免费 · 无需订阅")
+              : tr("Current plan", "当前套餐")
+        );
+      } else {
+        btn.innerHTML = '<span class="apple-glyph"></span> ' + esc(tr("Subscribe with Apple", "通过 Apple 订阅"));
+        btn.addEventListener("click", function () { startPurchase(btn, c.tier); });
+      }
       // Insert immediately after the (hidden) pay-group so the layout
       // is still under the tier description.
       if (c.anchor.parentElement) {

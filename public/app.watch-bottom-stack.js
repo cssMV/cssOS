@@ -29,7 +29,8 @@
     //   且 60px 正好落进价格条(App 两行)的竖直跨度 → 与价格条/AI助理行重叠。回归 W760 本意:
     //   多语言重新【收编为本列子元素】, 排在价格条上方一行, 浏览器 flex 原生排队, 永不重叠。
     //   (lang-flag-pills.js 同步撤掉自身 absolute 钉死, 本列是唯一定位 owner。)
-    "#cssos-lang-fold",                               // 多语言/多声线(价格条上方一行)
+    // CSSOS_WAVE_1122 — Jing 指令: 传统字幕 + 多语言【同一行】(字幕左, 多语言居中)。多语言不再独立成行,
+    //   改并进 priceline 的中列(见 ensurePriceLine)。故从 ORDER 移除 #cssos-lang-fold。
     "#cssos-up-next-strip",                           // CTA — 结束前作品卡片队列(全宽)
     "#cssos-create-cta"                               // Want — 创作引导卡(最上)
   ];
@@ -127,6 +128,9 @@
     }
     if (sub && sub.parentNode !== line) line.appendChild(sub);
     if (price && price.parentNode !== line) line.appendChild(price);
+    // CSSOS_WAVE_1122 — Jing 指令: 多语言并进本行(中列居中)。价格条已拆(右轨接管), 中列让给多语言。
+    var lang = document.getElementById("cssos-lang-fold");
+    if (lang && lang.parentNode !== line) line.appendChild(lang);
     // CSSOS_WAVE_881 — Jing 拍板布局(按平台分):
     //   桌面端 = 三件套【一行】: [传统字幕 左] [价格条 中] [AI助理 右]  → grid 1fr auto 1fr。
     //   App 端  = 【两行】(窄屏一行塞不下): 上行 [传统字幕(左) ⟷ AI助理(右, FAB 抬高一行落此处)],
@@ -141,7 +145,9 @@
     //   窄屏装不下时: 字幕省略号 + 价格条宪法 overflow-x:auto 横滑, 仍一行。桌面/App 一致。
     // CSSOS_WAVE_1032 20260620 — Jing「价格条请居中」: 旧 minmax(0,1fr) auto 44px 左列撑开把价格挤到右边。
     //   改【左右对称】minmax(0,1fr) auto minmax(44px,1fr) → 价格条(中列)真正居中, 字幕左、AI 右对称留位。
-    line.style.cssText = "display:grid;grid-template-columns:minmax(0,1fr) auto minmax(44px,1fr);align-items:center;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
+    // CSSOS_WAVE_1122 — 对称三列: [字幕 左, ≥72px 防挤到0] [多语言 中, auto 居中] [备用 右]。字幕给最小宽度
+    //   是吸取上次"多语言挤爆字幕只显两字"的教训 —— 字幕永远保住至少 72px, 不再归零。
+    line.style.cssText = "display:grid;grid-template-columns:minmax(72px,1fr) auto minmax(72px,1fr);align-items:center;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
     if (sub) {
       sub.style.setProperty("min-width", "0", "important");
       sub.style.setProperty("white-space", "nowrap", "important");
@@ -178,6 +184,21 @@
       price.style.setProperty("grid-row", "1", "important");
       price.style.setProperty("grid-column", "2", "important");
       price.style.setProperty("max-width", isApp ? "min(58vw, 420px)" : "min(72vw, 640px)", "important");
+    }
+    // CSSOS_WAVE_1122 — 多语言并入中列居中(清掉它自身的绝对定位, 由本行 grid 接管)。
+    if (lang) {
+      lang.style.setProperty("position", "static", "important");
+      ["left", "right", "bottom", "top"].forEach(function (p) { lang.style.setProperty(p, "auto", "important"); });
+      lang.style.setProperty("transform", "none", "important");
+      lang.style.setProperty("margin", "0", "important");
+      lang.style.setProperty("grid-row", "1", "important");
+      lang.style.setProperty("grid-column", "2", "important");       // 中列
+      lang.style.setProperty("justify-self", "center", "important"); // 居中
+      lang.style.setProperty("align-self", "center", "important");
+      lang.style.setProperty("min-width", "0", "important");
+      lang.style.setProperty("max-width", isApp ? "min(64vw, 460px)" : "min(70vw, 680px)", "important");
+      lang.style.setProperty("pointer-events", "auto", "important");
+      lang.style.setProperty("z-index", "5", "important");
     }
     return line;
   }

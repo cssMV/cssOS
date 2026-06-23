@@ -77,8 +77,8 @@
     var s = document.createElement("style");
     s.id = "cssos-social-rail-css";
     s.textContent =
-      // CSSOS_WAVE_1118 — Jing 指令: 先做完右轨功能, 暂不删旧价格条/头像/AI FAB(新旧并存), 等右轨
-      //   全做完验收后再删。故此处【不再隐藏】它们(原 W1114 的 3 条 display:none 已撤)。
+      // CSSOS_WAVE_1121 — Jing 指令: 右轨已接管聆听/观赏/打赏/买断 → 拆掉旧价格条(只藏价格条, 不动头像/AI FAB)。
+      "#cssos-watch-price-strip{display:none !important;}" +
       // CSSOS_WAVE_1120 — Jing 指令①: 右轨居视频框【右下角】(原垂直居中 top:50% → 改底部锚定, 贴右下)。
       "#cssos-watch-social-rail{position:absolute;right:14px;bottom:96px;" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +

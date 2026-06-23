@@ -251,13 +251,35 @@
     //   故右轨【不再放 🤖】(避免重复)。右轨 = 头像/评论/聆听/观赏/打赏/买断。
   }
 
+  // CSSOS_WAVE_1124 — Jing 指令④: 10 秒无操作淡出【返回 / 搜索框 / 多语言】; 右轨图标/传统字幕/AI 常驻。
+  //   用 opacity 淡出(不 display:none, 避免布局跳)。任何交互即恢复 + 重置计时。
+  var _idleTimer = null;
+  var IDLE_HIDE_IDS = ["cssos-watch-backbtn", "watch-search-box", "cssos-lang-fold"];
+  function setChromeHidden(hidden) {
+    IDLE_HIDE_IDS.forEach(function (id) {
+      var e = document.getElementById(id); if (!e) return;
+      e.style.transition = "opacity .45s ease";
+      e.style.opacity = hidden ? "0" : "1";
+      e.style.pointerEvents = hidden ? "none" : "auto";
+    });
+  }
+  function bumpIdle() {
+    setChromeHidden(false);
+    if (_idleTimer) clearTimeout(_idleTimer);
+    _idleTimer = setTimeout(function () { if (watchOpen()) setChromeHidden(true); }, 10000);
+  }
+  globalThis.cssosWatchChromeBump = bumpIdle;
+
   var raf = false;
-  function schedule() { if (raf) return; raf = true; requestAnimationFrame(function () { raf = false; try { render(); } catch (e) { console.warn("[social-rail]", e); } }); }
+  function schedule() { if (raf) return; raf = true; requestAnimationFrame(function () { raf = false; try { render(); if (watchOpen() && !_idleTimer) bumpIdle(); } catch (e) { console.warn("[social-rail]", e); } }); }
   globalThis.cssosRenderSocialRail = schedule;
 
   function start() {
     schedule();
     setInterval(schedule, 2500);
+    ["mousemove", "pointerdown", "touchstart", "keydown", "wheel"].forEach(function (ev) {
+      document.addEventListener(ev, function () { if (watchOpen()) bumpIdle(); }, { passive: true });
+    });
     ["cssos:work-changed", "cssos:work-id-changed", "cssos:playlist-advance",
      "cssos:open-watch-for-run", "cssos:cinema-toggle", "fullscreenchange"].forEach(function (ev) {
       document.addEventListener(ev, schedule);

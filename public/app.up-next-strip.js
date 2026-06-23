@@ -641,7 +641,6 @@
     card.onmouseleave = function () { card.style.transform = ""; };
     // CSSOS_WAVE_1129b — Jing 指令: 统一平台特色「爆」风格。每次出现 = 随机【大 emoji】居中,
     //   再从它【中心爆出随机色小 emoji】(复用情绪字幕字心烟花 cssosFireworkAt)。
-    var BIG_WANT_EMOJI = ["✨", "🎉", "💫", "🌟", "💖", "🔥", "🎇", "🌈", "⚡", "🎆", "💥", "🪄"];
     var bigEmo = BIG_WANT_EMOJI[(Math.random() * BIG_WANT_EMOJI.length) | 0];
     card.innerHTML =
       '<div class="cssos-want-bigemo" style="width:100%;aspect-ratio:16/9;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:36px;background:rgba(0,0,0,0.32);">' + bigEmo + "</div>" +
@@ -665,11 +664,15 @@
   // 持续从 Want 卡片大 emoji 正中心爆出随机色小 emoji(平台特色字心烟花)。单一定时器, 自检卡片是否可见。
   var _wantBurstTimer = null;
   var _EMO_KEYS = ["joy", "ignite", "resolve", "intimate", "calm"];
+  // CSSOS_WAVE_1142 — Jing 指令: 大 emoji 也要随机变, 别总是同一个。每次爆都换一枚。
+  var BIG_WANT_EMOJI = ["✨", "🎉", "💫", "🌟", "💖", "🔥", "🎇", "🌈", "⚡", "🎆", "💥", "🪄", "🎶", "🌠", "💎", "🦄"];
   function fireWantBurstOnce() {
     try {
       if (typeof globalThis.cssosFireworkAt !== "function") return;
       var box = document.querySelector(".cssos-up-next-want .cssos-want-bigemo");
       if (!box) return;
+      // 每次续爆前换一枚随机大 emoji(不再固定 ✨)。
+      try { box.textContent = BIG_WANT_EMOJI[(Math.random() * BIG_WANT_EMOJI.length) | 0]; } catch (_e) {}
       var r = box.getBoundingClientRect();
       if (!r.width || r.bottom < 0 || r.top > (window.innerHeight || 0)) return;   // 不可见就不爆
       var cx = r.left + r.width / 2, cy = r.top + r.height / 2;     // 正中心, 不再偏移

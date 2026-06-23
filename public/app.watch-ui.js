@@ -7764,6 +7764,10 @@ function ensureAuthorAvatarModule() {
       }
       // W854 — 换歌重画头像后, 再上一次圆形(防 background/textContent 改写破坏圆形)。
       try { if (avatar.__styleCircle) avatar.__styleCircle(); } catch (_e) {}
+      // CSSOS_WAVE_1132 — Jing 指令: 头像搬右轨后, 把【已正确解析】的作者头像/名/ID 暴露给右轨复用,
+      //   right rail 不再自己从 currentWork 瞎猜(那字段常空)。来源 = 作品作者头像, 没有则回退登录账户头像。
+      globalThis.__cssosWatchAuthorInfo = { ownerId: ownerId, ownerName: ownerName, ownerAvatar: ownerAvatar };
+      try { document.dispatchEvent(new CustomEvent("cssos:author-info-changed")); } catch (_e) {}
     } catch (_e) {}
   };
   refresh();

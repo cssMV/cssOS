@@ -207,9 +207,13 @@
     var av = document.createElement("button");
     av.type = "button"; av.className = "csr-av";
     av.setAttribute("aria-label", copy("Creator", "作者"));
-    var avatarUrl = String(w.owner_avatar_url || w.avatar_url || "").trim();
+    // CSSOS_WAVE_1132 — Jing 指令: 用 watch-ui【已正确解析】的作者信息(作品作者头像→回退登录账户头像),
+    //   不再自己从 currentWork 瞎猜(owner_avatar_url 常空 → 之前总显首字母)。
+    var ai = globalThis.__cssosWatchAuthorInfo || {};
+    var avatarUrl = String(ai.ownerAvatar || w.owner_avatar_url || w.avatar_url || "").trim();
+    var nameForInitial = String(ai.ownerName || w.owner_display_name || w.title || "C").trim();
     if (avatarUrl) { var im = document.createElement("img"); im.src = avatarUrl; im.alt = ""; av.appendChild(im); }
-    else { av.textContent = String(w.owner_display_name || w.title || "C").trim().charAt(0).toUpperCase() || "C"; }
+    else { av.textContent = nameForInitial.charAt(0).toUpperCase() || "C"; }
     var fol = document.createElement("span"); fol.className = "csr-follow"; fol.textContent = "+"; av.appendChild(fol);
     // CSSOS_WAVE_1130 — Jing 指令: 点头像弹【原来左上角那套作者菜单】(关注/只播TA/作品中心/屏蔽/赠礼,
     //   含带图标的用户名)。右轨头像只是 TikTok 风格的新位置 + ➕关注视觉, 菜单复用 watch-ui 的 openMenu。
@@ -303,7 +307,8 @@
       document.addEventListener(ev, function () { if (watchOpen()) bumpIdle(); }, { passive: true });
     });
     ["cssos:work-changed", "cssos:work-id-changed", "cssos:playlist-advance",
-     "cssos:open-watch-for-run", "cssos:cinema-toggle", "fullscreenchange"].forEach(function (ev) {
+     "cssos:open-watch-for-run", "cssos:cinema-toggle", "fullscreenchange",
+     "cssos:author-info-changed"].forEach(function (ev) {   // W1132 — 作者头像解析好后重渲染
       document.addEventListener(ev, schedule);
       window.addEventListener(ev, schedule);
     });

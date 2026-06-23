@@ -714,11 +714,21 @@
   }
 
   function hide() {
-    if (!visible || !stripEl) return;
-    stripEl.style.opacity = "0";
-    stripEl.style.transform = "translateY(12px)";
+    // CSSOS_WAVE_1143 — Jing 指令: Next up 不提前注入。隐藏时必须【立即不可点击 + 从 DOM 移除】,
+    //   否则隐形的卡片条仍浮在底部 → 点黑边误触切歌。只在 lead 窗口内 show() 才动态注入。
+    if (!stripEl) { visible = false; return; }
     visible = false;
     try { document.documentElement.classList.remove("cssos-upnext-visible"); } catch (_e) {}
+    // 立即掐断点击(连内层 bar 的 pointer-events:auto 一起关掉), 防淡出期间误触。
+    try {
+      stripEl.style.pointerEvents = "none";
+      var bar = stripEl.firstElementChild; if (bar) bar.style.pointerEvents = "none";
+    } catch (_e) {}
+    stripEl.style.opacity = "0";
+    stripEl.style.transform = "translateY(12px)";
+    // 淡出后真正从 DOM 摘除(若期间没再 show)。下次 show() 经 ensureStrip 重新构建注入。
+    var el = stripEl;
+    setTimeout(function () { try { if (!visible && el && el.parentNode) el.parentNode.removeChild(el); } catch (_e) {} }, 460);
   }
 
   function timeUpdateHandler(e) {

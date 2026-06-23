@@ -275,12 +275,17 @@
       // (背景emoji可重叠)。3 词 → 12/21/30%(左上一小列); 长列向下撑(封顶仍在屏内)。不再垂直居中。
       var yStep = perCol > 1 ? Math.min(9, 80 / (perCol - 1)) : 0;
       var y0 = 12;   // 顶部起点(居上)
-      // 竖排【靠左 or 靠右】更贴边框(原 29/71 → 16/84 → CSSOS_WAVE_1034 8/92 更靠边, Jing「左右再靠边一点」)。
-      var base = (side === "right") ? 92 : 8;
+      // 竖排【靠左 or 靠右】更贴边框(8/92)。CSSOS_WAVE_1114 — 有影院右轨(TikTok 位)时, 右列让出
+      //   右边 ~16% 给右轨, 别打架(92→83, 右 clamp 97→90); 无右轨仍贴边 92。左列不受影响。
+      var _railOn = false;
+      try { var _r = document.getElementById("cssos-watch-social-rail"); _railOn = !!(_r && _r.style.display !== "none" && _r.offsetParent !== null); } catch (_e) {}
+      var rightBase = _railOn ? 83 : 92;
+      var rightClamp = _railOn ? 90 : 97;
+      var base = (side === "right") ? rightBase : 8;
       var xCenter = cols > 1 ? (base + col * 13 - 6.5) : base;
       var x = xCenter + (Math.random() * 10 - 5);   // 横向 ±5 歪斜(原 ±3)
       var y = y0 + within * yStep + (Math.random() * 4 - 2);
-      return { x: Math.max(3, Math.min(97, x)), y: Math.max(6, Math.min(94, y)) };
+      return { x: Math.max(3, Math.min((side === "right") ? rightClamp : 97, x)), y: Math.max(6, Math.min(94, y)) };
     }
     // 横排: 像横向流动的一整句, 短句单行, 长句折 2-3 行, 允许部分重叠("看得出是一整句")。
     // CSSOS_WAVE_726 — Jing: 桌面横排字间距太疏 → 改【固定紧凑步距 ~9.5%/字, 整句居中】, 字更抱团;

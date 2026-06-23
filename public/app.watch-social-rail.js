@@ -79,7 +79,8 @@
     s.textContent =
       // CSSOS_WAVE_1118 — Jing 指令: 先做完右轨功能, 暂不删旧价格条/头像/AI FAB(新旧并存), 等右轨
       //   全做完验收后再删。故此处【不再隐藏】它们(原 W1114 的 3 条 display:none 已撤)。
-      "#cssos-watch-social-rail{position:absolute;right:10px;top:50%;transform:translateY(-50%);" +
+      // CSSOS_WAVE_1120 — Jing 指令①: 右轨居视频框【右下角】(原垂直居中 top:50% → 改底部锚定, 贴右下)。
+      "#cssos-watch-social-rail{position:absolute;right:14px;bottom:96px;" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
       "#cssos-watch-social-rail>*{pointer-events:auto;}" +
       ".csr-item{display:flex;flex-direction:column;align-items:center;gap:1px;background:transparent;border:0;padding:0;cursor:pointer;}" +

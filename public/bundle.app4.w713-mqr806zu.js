@@ -1,0 +1,1 @@
+"use strict";(function(){"use strict";typeof globalThis.compactLyricLines!="function"&&(globalThis.compactLyricLines=function(lines=[]){return(Array.isArray(lines)?lines:[]).map(line=>String(line||"").trim()).filter(line=>line&&!/^title\s*·/i.test(line)&&!/^\[[^\]]+\]$/.test(line))})})();

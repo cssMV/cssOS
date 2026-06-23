@@ -74,4 +74,29 @@
     e.preventDefault();
     showMenu(e.clientX, e.clientY, id);
   });
+
+  // CSSOS_WAVE_1140 — Jing 指令: 手机无右键 → 【长按】卡片触发同一个分享菜单。
+  //   ~500ms 不动即触发; 手指移动超过阈值(滚动/滑动切歌)则取消, 不误触。
+  var lpTimer = null, lpId = "", lpX = 0, lpY = 0;
+  function lpCancel() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } lpId = ""; }
+  document.addEventListener("touchstart", function (e) {
+    if (!e.touches || e.touches.length !== 1) { lpCancel(); return; }
+    var id = workIdFrom(e.target);
+    if (!id) return;
+    var t = e.touches[0];
+    lpX = t.clientX; lpY = t.clientY; lpId = id;
+    lpTimer = setTimeout(function () {
+      if (!lpId) return;
+      try { if (navigator.vibrate) navigator.vibrate(12); } catch (_e) {}
+      showMenu(lpX, lpY, lpId);
+      lpCancel();
+    }, 500);
+  }, { passive: true });
+  document.addEventListener("touchmove", function (e) {
+    if (!lpTimer || !e.touches || !e.touches[0]) return;
+    var t = e.touches[0];
+    if (Math.abs(t.clientX - lpX) > 10 || Math.abs(t.clientY - lpY) > 10) lpCancel();   // 滑动 → 取消
+  }, { passive: true });
+  document.addEventListener("touchend", lpCancel, { passive: true });
+  document.addEventListener("touchcancel", lpCancel, { passive: true });
 })();

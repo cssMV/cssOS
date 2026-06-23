@@ -144,12 +144,31 @@
           var _ms = Number(line.t_start || 0) / 1000;
           var _me = Number(line.t_end || 0) / 1000;
           if (!(_me > _ms)) _me = _ms + 4;
+          // CSSOS_WAVE_1109 — Jing「前奏/间奏/尾声那个小音符太孤单太小, 几乎看不见」: 换成一簇【各不
+          // 相同 + 随机色】的音符。不同字形(♪♫♬♩🎵🎶)+ 循环 6 情绪色(各有独立 kara-c-* 颜色)+ 每段
+          // 随机错位起点 → 段段不一样; 前半段依次淡入、全段留存 → 同时可见、更醒目。仍全 adlib(器乐
+          // emoji cssosMusicGapPulse 照常)。用户仍可在 ✎微调里往里加真正的拟声词。
+          var _noteGlyphs = ["♪", "♫", "♬", "♩", "🎵", "🎶"];
+          var _noteEmos = ["joy", "calm", "ignite", "intimate", "resolve", "grief"];
+          var _nspan = Math.max(0.001, _me - _ms);
+          var _ncount = Math.min(6, Math.max(3, Math.round(_nspan / 2)));
+          var _nrot = Math.floor(Math.random() * 6);
+          var _noteWords = [];
+          for (var _ni = 0; _ni < _ncount; _ni++) {
+            _noteWords.push({
+              text: _noteGlyphs[(_ni + _nrot) % _noteGlyphs.length],
+              start_s: _ms + _nspan * 0.5 * (_ni / _ncount),  // 前半段依次淡入
+              end_s: _me,                                      // 全段留存 → 同时可见
+              emotion: _noteEmos[(_ni + _nrot) % _noteEmos.length],
+              emphasis: 0.5, adlib: true,
+            });
+          }
           cues.push({
             start_s: _ms,
             end_s: _me,
             text: "[Music...]",
             emotion: sectionEmo,
-            words: [{ text: "♪", start_s: _ms, end_s: _me, emotion: sectionEmo, emphasis: 0.5, adlib: true }],
+            words: _noteWords,
             _hasRealTiming: _ms > 0 || _me > 0,
             _cooked: true,
           });
@@ -313,6 +332,8 @@
       globalThis.watchKaraokeTimelineCache.data = cues;
       globalThis.watchKaraokeTimelineCache.pending = false;
       globalThis.watchKaraokeTimelineCache.error = "";
+      // CSSOS_WAVE_1108 — 给缓存打上【它属于哪部作品】的戳, 供切歌即清 + 防串台判定使用。
+      globalThis.watchKaraokeTimelineCache.workId = _offsetWorkId || "";
     }
     // Feed WORD/CHAR-level array
     if (wordArray) {
@@ -331,7 +352,7 @@
   }
 
   // ── Public load function ─────────────────────────────────────────────────
-  async function load(track, take) {
+  async function load(track, take, ownerWorkId) {
     if (!track) return;
     var lang = String(track.lang || "");
     var takeN = (take === 2) ? 2 : 1;
@@ -348,6 +369,11 @@
           var wordArr = subtitleJsonToWordArray(data, lang);
           try { console.info("[emo-sub] cues=" + (cues ? cues.length : 0) + " for lang=" + lang); } catch (_e) {}
           if (cues && cues.length) {
+            // CSSOS_WAVE_1108 — 防串台守卫: 这次 load 是为 ownerWorkId 发起的。若在 await 期间
+            // 用户已切到别的作品(_offsetWorkId 被新 loadForWork 改写), 丢弃这条【迟到的旧结果】,
+            // 绝不用上一首的字幕覆盖当前作品(就是"切歌后字幕显示别首歌/残留"的真凶)。
+            // 注: 语言胶囊直接调 load(track,take) 不传 ownerWorkId → 守卫自动跳过, 切语言照常。
+            if (ownerWorkId && _offsetWorkId && ownerWorkId !== _offsetWorkId) return;
             // CSSOS_WAVE_994 — stash raw cues so the global offset slider can
             // re-shift live without refetching, then feed with offset applied.
             // W1048 — keep pristine + overlay non-destructive token add/delete.
@@ -426,7 +452,7 @@
         || tracks[0];
       if (!def) { try { console.info("[emo-sub] no track", workId); } catch (_e) {} return; }
       try { console.info("[emo-sub] loadForWork", workId, "lang=" + def.lang, "hasSubUrl=" + !!def.subtitle_take1_json_url); } catch (_e) {}
-      await load(def, 1);
+      await load(def, 1, workId);
     } catch (e) { try { console.warn("[emo-sub] loadForWork err", e); } catch (_x) {} }
   }
 
@@ -786,8 +812,16 @@
   try {
     window.addEventListener("cssos:work-id-changed", function (ev) {
       var id = ev && ev.detail && ev.detail.workId;
+      if (!id) return;
+      // CSSOS_WAVE_1108 — 切到【别的】作品时, 立刻把上一首的字幕缓存清空, 别等 700ms 重载完成。
+      // 否则这段窗口里渲染器还在用旧 cue → 屏幕显示上一首的残留字幕(就是"切歌字幕串台/对不上"
+      // 的现象)。靠 applyToKaraoke 打的 workId 戳判定是否真换了作品。
+      try {
+        var _c = globalThis.watchKaraokeTimelineCache;
+        if (_c && _c.workId && _c.workId !== id) { _c.data = null; _c.pending = true; }
+      } catch (_e) {}
       // 稍候 700ms 等 watch 面板/媒体元素就位再加载。
-      if (id) setTimeout(function () { loadForWork(id); }, 700);
+      setTimeout(function () { loadForWork(id); }, 700);
     });
   } catch (_e) {}
 })();

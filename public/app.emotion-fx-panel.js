@@ -256,33 +256,49 @@
   /* CSSOS_WAVE_731t 20260612 — Jing「右击难(被视频层遮住, 触屏也没右键)」: 给「多语言/多声线」
    * 胶囊条加一个【可见 ⚙ 按钮, 左键一点即开】情绪字幕设置面板(右击 + 长按仍保留)。胶囊是动态
    * 创建的, 用轻量轮询(幂等)确保 ⚙ 始终在。所有事件 stopPropagation → 绝不冒泡触发媒体暂停。 */
+  // CSSOS_WAVE_1109 20260622 — Jing: 这条轨道做成【四胶囊】= ⚙设置 / ✎微调 / 🌐多语言 / 🎤多声线。
+  //   ⚙ 与 ✎ 都照 W754 同款机制(非 .cssos-mode-cap → 不进 paintConcave 凹咬数学, 零几何风险),
+  //   靠 order 置于多语言/多声线之前。i18n 走本文件统一 lc()(绝不硬编码)。
+  //   B: ⚙ 补「设置」文字(原来只有图标, 用户几乎不知道点哪)。
+  //   C: ✎微调 提为独立胶囊, 直开波形逐字精修(cssosOpenWaveEditor), 不可用则退回 FX 面板。
+  function makeCapButton(cls, ico, label, title, order, onClick) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = cls + " cssos-cc-right";
+    b.innerHTML = '<span class="cssfx-cap-ico">' + ico + '</span>' +
+      '<span class="cssfx-cap-lbl" style="font-size:11px;margin-left:4px;font-weight:600;">' + label + '</span>';
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.style.cssText = "order:" + order + ";color:#eafff6;font-size:13px;line-height:1;cursor:pointer;flex:0 0 auto;display:inline-flex;align-items:center;";
+    ["pointerdown", "mousedown", "touchstart", "contextmenu"].forEach(function (ev) {
+      b.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
+    });
+    b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); onClick(); }, false);
+    return b;
+  }
   function ensureFxGear() {
     try {
       var bar = document.getElementById("watch-language-pill");
-      if (!bar || bar.querySelector(".cssfx-fx-gear")) return;
-      var g = document.createElement("button");
-      g.type = "button";
-      // CSSOS_WAVE_763 — Jing「一 hover 就知道不对, ⚙ 没凹向多语言胶囊」。真因: paintConcave 只处理
-      // .cssos-cell / .cssos-mode-cap, ⚙ 两者都不是 → 永不获 cc-* 凹咬。⚙ 恒为第一颗、恒在 Languages
-      // 左侧 → 直接给它 cssos-cc-right(右咬向激活的 Languages)。规则 #watch-language-pill>button.cssos-cc-right
-      // 给碗口造型; paintConcave 只清 cell/cap 的 cc-*, 不会清 ⚙ → 稳定保留。
-      g.className = "cssfx-fx-gear cssos-cc-right";
-      g.textContent = "⚙";
-      g.title = lc("Emotion subtitle settings", "情绪字幕设置");
-      g.setAttribute("aria-label", lc("Emotion subtitle settings", "情绪字幕设置"));
-      // CSSOS_WAVE_754b — Jing「套上胶囊风格即可」。最干净做法: 不自带任何底色/边框/mask,
-      // 只留 order:-1 置首 → 让【胶囊宪法 .cssmv-pill-bar > *】完全接管(透明融入轨道绿、同高 40px、
-      // 同内距、hover 自动变色; 且作为"激活前一颗"被宪法 *:has(~.active) 自动右侧凹咬, 包住 Languages)。
-      // 绝不自加 mask 碗口(=W753 透明轨道元凶)。color 给浅色保证图标在绿轨道上可见。
-      g.style.cssText = "order:-1;color:#eafff6;font-size:15px;line-height:1;cursor:pointer;flex:0 0 auto;";
-      ["pointerdown", "mousedown", "touchstart", "contextmenu"].forEach(function (ev) {
-        g.addEventListener(ev, function (e) { e.stopPropagation(); }, false);
-      });
-      g.addEventListener("click", function (e) {
-        e.preventDefault(); e.stopPropagation();   // 不冒泡 → 不暂停媒体
-        openFor(bar);
-      }, false);
-      bar.insertBefore(g, bar.firstChild);   // W754 — DOM 也置首(配合 order:-1 双保险)
+      if (!bar) return;
+      // ⚙ 设置(order:-2 → 最左)
+      if (!bar.querySelector(".cssfx-fx-gear")) {
+        var g = makeCapButton("cssfx-fx-gear", "⚙", lc("Settings", "设置"),
+          lc("Emotion subtitle settings", "情绪字幕设置"), -2, function () { openFor(bar); });
+        bar.insertBefore(g, bar.firstChild);
+      }
+      // ✎ 微调(order:-1 → ⚙ 之后、多语言之前)→ 直开波形逐字精修
+      if (!bar.querySelector(".cssfx-fx-tune")) {
+        var t = makeCapButton("cssfx-fx-tune", "✎", lc("Fine-tune", "微调"),
+          lc("Subtitle fine-tune (per word)", "字幕逐字微调"), -1, function () {
+            try {
+              if (typeof globalThis.cssosOpenWaveEditor === "function") globalThis.cssosOpenWaveEditor();
+              else openFor(bar);
+            } catch (_e) { openFor(bar); }
+          });
+        var gear = bar.querySelector(".cssfx-fx-gear");
+        if (gear && gear.nextSibling) bar.insertBefore(t, gear.nextSibling);
+        else bar.insertBefore(t, bar.firstChild);
+      }
     } catch (_e) {}
   }
   setInterval(ensureFxGear, 1500);

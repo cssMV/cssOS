@@ -13609,21 +13609,35 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
   transform: none !important;
 }
 
-/* CSSOS_WAVE_1058 20260620 — Jing「多语言/多声线胶囊有时还跑中央」真凶: 不是外层 fold(W1036 已锁),
- *   而是【内层 .watch-language-pill.cssmv-pill-bar 自身】position:absolute;left:50%;transform:translateX(-50%)
- *   → 横屏影院脱流飘到屏幕正中。横屏(底部三行布局)里把内层也锁 static, 老实待在底部那一行;
- *   竖屏 device-fit 保留原居中(那里它本就浮在媒体上方)。 */
+/* CSSOS_WAVE_1110 20260622 — Jing 三行底部栈: 胶囊条做【栈里的中间一行】(不是浮在视频上)。
+ *   真正根治(接 W1109): bar 必须 static 在流里 → 被 lang-flag-pills 收进 #cssos-lang-fold → 被
+ *   app.watch-bottom-stack.js 收进 #cssos-watch-bottomflow(column-reverse, align-items:center)
+ *   → 自然排在 [价格条] 上方、[Next up] 下方, 横向居中。W1109 曾把 bar !important 钉成 absolute
+ *   底部居中(浮在视频上), 与"栈中一行"冲突 → 这里改回 static, 清掉一切定位, 让 flex 排队。
+ *   配合 enhance() 每次强制把 bar 收回 fold(W1110)+ 撕 W437 absolute 内联, 永不再浮/跑中央。 */
 @media (min-aspect-ratio: 1 / 1) {
   #watch-panel.cssmv-cinema .watch-language-pill.cssmv-pill-bar,
-  #cssos-lang-fold .watch-language-pill.cssmv-pill-bar {
+  #watch-panel.is-cssmv-fullscreen .watch-language-pill.cssmv-pill-bar,
+  body.cssos-cinema-mode .watch-language-pill.cssmv-pill-bar,
+  #cssos-lang-fold .watch-language-pill.cssmv-pill-bar,
+  #watch-language-pill.cssmv-pill-bar {
     position: static !important;
     left: auto !important;
     right: auto !important;
+    top: auto !important;
     bottom: auto !important;
     transform: none !important;
     margin: 0 auto !important;
   }
 }
+
+/* CSSOS_WAVE_1110 20260622 — Jing「三部分三行, 不显示的时候行高度为 0, 避免留高占位」: 底部栈
+ *   (#cssos-watch-bottomflow, 从下到上 [传统字幕/价格条/AI助理] → [设置/微调/多语言/多声线] →
+ *   [Next up])。空行(无内容)一律 display:none → flex gap 对 none 子元素不计间距 → 真正 0 高,
+ *   不留占位。:empty 兜底真空行; 渲染器在无卡片时也应自行 display:none(双保险)。 */
+#cssos-watch-bottomflow > *:empty,
+#cssos-up-next-strip:empty,
+#cssos-create-cta:empty { display: none !important; }
 
 /* CSSOS_WAVE_1041 20260620 — Jing「满宽媒体盖住左右周长进度条, 把它提到媒体之上」: .cssmv-border-bar
  *   (watch-stage-bars.js 画的周长进度环)挂 body、z-index 仅 3 → 被满宽媒体(watch-panel z 10050)盖住。

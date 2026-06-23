@@ -2735,10 +2735,14 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
     const ad = Number(a?.duration || 0);
     const vPlaying = v && !v.paused && !v.ended && vt > 0;
     const aPlaying = a && !a.paused && !a.ended && at > 0;
-    if (vPlaying) return { t: vt, dur: vd };
+    // CSSOS_WAVE_1108 — 音频是主时钟(铁律): 有独立音轨在播时, 字幕/卡拉OK必须跟 audio.currentTime,
+    // 绝不能跟 video —— 背景画面常与音频不等长(本例 audio 240s / video 438s), 跟视频会漂移 200+s,
+    // 字幕跑到框外/全屏空白。仅当音频元素没在播(老作品: 音频从 video muxed 出、audio.src 被清空)
+    // 才退回 video 时钟。原代码 video 优先, 正是音画脱钩的根因。
     if (aPlaying) return { t: at, dur: ad };
-    if (vt > 0) return { t: vt, dur: vd };
+    if (vPlaying) return { t: vt, dur: vd };
     if (at > 0) return { t: at, dur: ad };
+    if (vt > 0) return { t: vt, dur: vd };
     return { t: 0, dur: 0 };
   })();
   // CSSOS_WAVE_648 — 情绪字幕【时间轴线性拉伸】对齐歌声。subtitle-take1.json 的行级时间戳是
@@ -5389,6 +5393,23 @@ function wireWatchQueueAutoAdvanceOnceModule() {
   };
   globalThis.__cssosScheduleAutoAdvanceBackstop = scheduleAutoAdvanceBackstop;
   const onMediaEnded = () => {
+    // CSSOS_WAVE_1083a — Jing「5秒短视频先播, 放完无痕过渡到封面幻灯, 音频走全长」:
+    //   补齐作品的视频是 seedance 5 秒短片, 音频是全长(几分钟)。视频静音、音频驱动声音(W406),
+    //   但短视频的 'ended' 会先触发本回调 → 误以为歌放完了就切歌(=用户看到的"5秒跳")。守卫:
+    //   若【音频还在放且离结束还有 >2s】, 这次 ended 必来自短视频 → 不切歌; 停掉视频(opacity:0
+    //   让下层封面幻灯透出, cover-slideshow 兜底自动接管), 音频继续, 真正放完(audio.ended)才前进。
+    try {
+      const _a = document.getElementById("watch-audio-preview");
+      if (_a && (_a.currentSrc || _a.src) && !_a.paused && !_a.ended
+          && isFinite(_a.duration) && _a.duration > 8 && (_a.duration - _a.currentTime) > 2) {
+        const _v = document.getElementById("watch-video");
+        try {
+          if (_v) { _v.loop = false; try { _v.pause && _v.pause(); } catch (_p) {} _v.style.opacity = "0"; }
+        } catch (_ve) {}
+        try { globalThis.cssmvStartCoverSlideshow && globalThis.cssmvStartCoverSlideshow(); } catch (_se) {}
+        return;   // 短视频结束 ≠ 歌结束; 交给幻灯, 不切歌
+      }
+    } catch (_g) {}
     // CSSOS_WAVE_1057 — 插队优先播: 后台生成的作品在等"当前媒体放完", 此刻优先播它(插队在最前)。
     //   就绪则播, 没就绪(还没出齐)则让位常规连播, 绝不卡死。
     try {

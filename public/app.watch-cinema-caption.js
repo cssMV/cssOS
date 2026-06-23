@@ -53,6 +53,8 @@
       "text-overflow:ellipsis;opacity:0;transform:translateY(0) scale(0.6);" +
       "animation:cwd-pop 0.34s cubic-bezier(.2,1.5,.3,1) forwards, cwd-float 6.4s linear 0.34s forwards;}" +
       ".cwd-item b{color:#9effa0;font-weight:500;margin-right:5px;}" +
+      // CSSOS_WAVE_1124 — Jing 指令③: 弹幕加随机 emoji 背景(∝评论长短)+ 从它字心爆小 emoji(仿情绪字幕)。
+      ".cwd-em{margin-right:5px;vertical-align:-2px;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.5));}" +
       "@keyframes cwd-pop{0%{opacity:0;transform:translateY(0) scale(0.6);}100%{opacity:0.92;transform:translateY(0) scale(1);}}" +
       "@keyframes cwd-float{0%{opacity:0.92;}70%{opacity:0.8;}100%{opacity:0;transform:translateY(-230px) scale(1);}}";
     document.head.appendChild(s);
@@ -91,6 +93,8 @@
   // ── 弹幕(评论) ──
   var _danmuCache = {};   // workId → [{name, body}]
   var _danmuTimer = null, _danmuIdx = 0, _danmuWorkId = "";
+  // CSSOS_WAVE_1124 — 弹幕 emoji 背景默认池(无 theme_emoji 时用)。
+  var DANMU_EMOJI = ["💬", "✨", "🌟", "💖", "🔥", "🎵", "🌸", "💫", "👏", "🎉", "😍", "🥹"];
   function fetchDanmu(id) {
     if (!id || _danmuCache[id]) return;
     _danmuCache[id] = [];
@@ -114,9 +118,26 @@
     var list = _danmuCache[_danmuWorkId] || [];
     if (!list.length) return;
     var c = list[_danmuIdx % list.length]; _danmuIdx++;
+    var bodyTxt = c.body.slice(0, 48);
+    var len = bodyTxt.length;
+    // CSSOS_WAVE_1124 — Jing 指令③: 按评论长短选随机 emoji 背景(越长越大)+ 从它字心爆小 emoji(仿情绪字幕)。
+    var pool = (globalThis.cssosWorkThemeEmoji && globalThis.cssosWorkThemeEmoji.length)
+      ? globalThis.cssosWorkThemeEmoji : DANMU_EMOJI;
+    var bemo = pool[(Math.random() * pool.length) | 0];
+    var emSize = (1.3 + Math.min(1.8, len / 14)).toFixed(2);   // 1.3–3.1em ∝ 评论长度
     var el = document.createElement("div"); el.className = "cwd-item";
-    el.innerHTML = (c.name ? "<b>" + esc(c.name) + "</b>" : "") + esc(c.body.slice(0, 48));
+    el.innerHTML = '<span class="cwd-em" style="font-size:' + emSize + 'em;">' + esc(bemo) + "</span>"
+      + (c.name ? "<b>" + esc(c.name) + "</b>" : "") + esc(bodyTxt);
     lane.appendChild(el);
+    // 从弹幕处字心爆小 emoji, 数量 ∝ 评论长度(短 4 颗 → 长 16 颗)。位置取弹幕轨左下区。
+    try {
+      if (typeof globalThis.cssosFireworkAt === "function") {
+        var lr = lane.getBoundingClientRect();
+        var xPct = (lr.left + lr.width * (0.15 + Math.random() * 0.4)) / (window.innerWidth || 1) * 100;
+        var yPct = (lr.bottom - 24 - Math.random() * 40) / (window.innerHeight || 1) * 100;
+        globalThis.cssosFireworkAt(xPct, yPct, "joy", Math.max(4, Math.min(16, Math.round(len / 3))));
+      }
+    } catch (_e) {}
     setTimeout(function () { try { el.remove(); } catch (_e) {} }, 7200);
   }
   function ensureDanmuLane() {

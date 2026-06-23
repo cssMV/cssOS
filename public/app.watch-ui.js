@@ -7860,8 +7860,13 @@ function ensureAuthorAvatarModule() {
     menu.style.top = `${Math.round(rect.bottom + 6)}px`;
 
     const header = document.createElement("div");
-    header.style.cssText = "padding:8px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;font-weight:700;letter-spacing:0.02em;";
-    header.textContent = ownerName;
+    header.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;font-weight:700;letter-spacing:0.02em;";
+    // CSSOS_WAVE_1130 — Jing 指令: 菜单里的用户名也加图标(与 TikTok 风格右轨头像统一)。
+    const hIcon = document.createElement("span");
+    hIcon.textContent = "👤"; hIcon.style.cssText = "font-size:16px;width:20px;text-align:center;flex:0 0 auto;";
+    const hName = document.createElement("span");
+    hName.textContent = ownerName; hName.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+    header.appendChild(hIcon); header.appendChild(hName);
     menu.appendChild(header);
 
     const addItem = (icon, label, onClick, opts) => {
@@ -8112,6 +8117,13 @@ function ensureAuthorAvatarModule() {
     globalThis.cssosPlaylists.onChange(refresh);
   }
   globalThis.__cssosRefreshAuthorAvatar = refresh;
+  // CSSOS_WAVE_1130 — Jing 指令: 头像搬到右轨(TikTok 风格)后, 点它要弹【原来这套作者菜单】。
+  //   暴露开菜单器: 复用隐藏的 #watch-author-avatar 的 ownerId/title(refresh 持续更新), 锚到右轨头像。
+  globalThis.cssosOpenWatchAuthorMenu = function (anchorEl) {
+    try { refresh(); } catch (_e) {}
+    var name = (avatar.title || "").replace(/^By |\s—.*$/g, "").trim() || loginCopy("Author", "作者");
+    return openMenu(avatar.dataset.ownerId, name, anchorEl || avatar);
+  };
   screen.style.position = screen.style.position || "relative";
   screen.appendChild(avatar);
   // CSSOS_WAVE_854 — Jing 手绘: 头像在 Loop list 胶囊【里面】(圆形, 文字左边), 不是单独一段/顶头/椭圆。

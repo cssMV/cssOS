@@ -211,10 +211,13 @@
     if (avatarUrl) { var im = document.createElement("img"); im.src = avatarUrl; im.alt = ""; av.appendChild(im); }
     else { av.textContent = String(w.owner_display_name || w.title || "C").trim().charAt(0).toUpperCase() || "C"; }
     var fol = document.createElement("span"); fol.className = "csr-follow"; fol.textContent = "+"; av.appendChild(fol);
+    // CSSOS_WAVE_1130 — Jing 指令: 点头像弹【原来左上角那套作者菜单】(关注/只播TA/作品中心/屏蔽/赠礼,
+    //   含带图标的用户名)。右轨头像只是 TikTok 风格的新位置 + ➕关注视觉, 菜单复用 watch-ui 的 openMenu。
     av.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
-      var uid = String(w.owner_user_id || "").trim();
       try {
+        if (typeof globalThis.cssosOpenWatchAuthorMenu === "function") { globalThis.cssosOpenWatchAuthorMenu(av); return; }
+        var uid = String(w.owner_user_id || "").trim();
         if (uid && typeof globalThis.openUserHomepage === "function") globalThis.openUserHomepage(uid);
         else if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Creator profile coming soon", "作者主页即将开放"));
       } catch (_e) {}

@@ -279,8 +279,12 @@
     // 绕开 adopt 所有守卫, 每次渲染都保证它在底部栈里(adopt 之后再校正顺序)。bottomflow 还没建出来时,
     // fold 由 CSS(visibility:hidden, 仅 bottomflow 内才显)藏住, 绝不在中段闪现。
     try {
-      var _bf = document.getElementById("cssos-watch-bottomflow");
-      if (_bf && fold.parentNode !== _bf) _bf.appendChild(fold);
+      // CSSOS_WAVE_1127 — Jing「多语言整合进字幕行后闪烁+点不动」根治: 两个 owner 抢 fold 的父 ——
+      //   bottom-stack(W1122)把它放进 #cssos-watch-priceline(与字幕同一行), 而这里原把它放进
+      //   #cssos-watch-bottomflow(独立行)→ 来回搬=闪+点击handler失效。统一【优先放进 priceline】,
+      //   两边目标一致, 不再来回搬。priceline 在 bottomflow 内, CSS 显示门(bottomflow 后代)仍成立。
+      var _tgt = document.getElementById("cssos-watch-priceline") || document.getElementById("cssos-watch-bottomflow");
+      if (_tgt && fold.parentNode !== _tgt) _tgt.appendChild(fold);
       if (typeof globalThis.cssosScheduleBottomFlow === "function") globalThis.cssosScheduleBottomFlow();
     } catch (_e) {}
   }

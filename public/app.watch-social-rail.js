@@ -47,8 +47,8 @@
     } catch (_e) {}
   }
   function statsFor(id) { return _stats[id] || { listens: 0, watches: 0, tips: 0, comments: 0 }; }
-  // 价后接计数: "N · ¢69"(N>0 才显); 无计数只显价。
-  function countPrice(n, cents) { n = Number(n) || 0; return (n > 0 ? fmtCount(n) + " · " : "") + fmtCents(cents); }
+  // CSSOS_WAVE_1128 — Jing 指令: 始终显"计数 · 价"(无交易也显 0), 如 "0 · ¢69"。
+  function countPrice(n, cents) { return fmtCount(Number(n) || 0) + " · " + fmtCents(cents); }
 
   // 当前播放作品(沿用 watch 既有回退链)。
   function currentWork() {
@@ -83,9 +83,11 @@
       //   ‹ 仍以编程方式点击这个隐藏的关闭按钮来退出, 故藏其外观不影响退出)。
       "#watch-author-avatar{display:none !important;}" +
       "#watch-panel .panel-actions .icon-btn[aria-label=\"Close\"]{display:none !important;}" +
-      // CSSOS_WAVE_1125 — Jing 指令: 右轨往下移、靠近 AI 助理, 视觉上成一整体(AI 像是右轨最底图标)。
-      //   bottom 96px → 56px, 让最底"买断"贴近底部 AI 助理(旧 FAB)。
-      "#cssos-watch-social-rail{position:absolute;right:14px;bottom:56px;" +
+      // CSSOS_WAVE_1128 — Jing 指令: AI 助理换小机器人收回右轨底部(=右轨第7个图标, 用右轨统一间距),
+      //   隐藏旧悬浮 AI FAB(避免"太靠近"+重复)。
+      "#cssos-agent-fab{display:none !important;}" +
+      // 右轨现含 AI(7 项), bottom 下移到 20px, 让 🤖 落在右下角(旧 FAB 位置), 全轨用统一 9px 间距。
+      "#cssos-watch-social-rail{position:absolute;right:14px;bottom:20px;" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
       "#cssos-watch-social-rail>*{pointer-events:auto;}" +
       ".csr-item{display:flex;flex-direction:column;align-items:center;gap:1px;background:transparent;border:0;padding:0;cursor:pointer;}" +
@@ -212,8 +214,8 @@
     });
     rail.appendChild(av);
 
-    // 2. 💬 评论 · 计数 → 现成抽屉
-    rail.appendChild(mkItem("💬", st.comments > 0 ? fmtCount(st.comments) : copy("Comment", "评论"), {
+    // 2. 💬 评论 · 计数(TikTok 式: 直接显计数, 无评论显 0, 不显"评论"二字) — CSSOS_WAVE_1128
+    rail.appendChild(mkItem("💬", fmtCount(st.comments), {
       icClass: "is-comment", aria: copy("Comments", "评论"),
       onClick: function () {
         var id = workId(); if (!id) return;
@@ -236,20 +238,29 @@
       title: copy("Real-video viewing — opens once full video ships", "观赏(真视频)— 真视频上线后开放")
     }));
 
-    // 5. 💝 打赏 · 计数(金额随意)
-    rail.appendChild(mkItem("💝", st.tips > 0 ? fmtCount(st.tips) : copy("Tip", "打赏"), {
+    // 5. 💝 打赏 · "0 · Tip"(计数 · Tip 字, 金额随意) — CSSOS_WAVE_1128
+    rail.appendChild(mkItem("💝", fmtCount(st.tips) + " · " + copy("Tip", "打赏"), {
       aria: copy("Tip the creator", "打赏作者"), title: copy("Tip the creator — any amount", "打赏作者(金额随意)"),
       onClick: function (b) { dispatch("tip", b); }
     }));
 
-    // 6. 💎 买断(仅图标)
-    rail.appendChild(mkItem("💎", "", {
+    // 6. 💎 买断 — 直接写"买断" — CSSOS_WAVE_1128
+    rail.appendChild(mkItem("💎", copy("Buyout", "买断"), {
       aria: copy("Buyout", "买断"), title: copy("Buyout — system-suggested price", "买断 — 系统建议价"),
       onClick: function (b) { dispatch("buyout", b); }
     }));
 
-    // CSSOS_WAVE_1123 — Jing 指令①: AI 助理改放底部行右(=保留旧 #cssos-agent-fab 作"左中右"的右),
-    //   故右轨【不再放 🤖】(避免重复)。右轨 = 头像/评论/聆听/观赏/打赏/买断。
+    // 7. 🤖 AI 助理 — CSSOS_WAVE_1128 — Jing 指令: 换小机器人收回右轨底部(用右轨统一间距),
+    //   隐藏旧 #cssos-agent-fab(避免"太靠近"+重复)。点击 = 打开常驻 AI 助理。
+    rail.appendChild(mkItem("🤖", "", {
+      icClass: "is-ai", aria: copy("AI assistant", "AI 助理"), title: copy("AI assistant", "AI 助理"),
+      onClick: function () {
+        try {
+          if (typeof globalThis.cssosOpenAssistantWithPrompt === "function") globalThis.cssosOpenAssistantWithPrompt("");
+          else { var fab = document.getElementById("cssos-agent-fab"); if (fab) { fab.style.display = ""; fab.click(); } }
+        } catch (_e) {}
+      }
+    }));
   }
 
   // CSSOS_WAVE_1124 — Jing 指令④: 10 秒无操作淡出【返回 / 搜索框 / 多语言】; 右轨图标/传统字幕/AI 常驻。

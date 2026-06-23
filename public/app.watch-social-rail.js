@@ -238,7 +238,9 @@
       onClick: function () {
         var id = workId(); if (!id) return;
         try {
-          if (typeof globalThis.openPersonMvComments === "function") globalThis.openPersonMvComments(id);
+          // CSSOS_WAVE_1138 — 通用作品评论(影院 user_works); 旧的 openPersonMvComments 只认 person_mv → 点不动。
+          if (typeof globalThis.cssosOpenWorkComments === "function") globalThis.cssosOpenWorkComments(id);
+          else if (typeof globalThis.openPersonMvComments === "function") globalThis.openPersonMvComments(id);
           else if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Comments unavailable", "评论暂不可用"));
         } catch (_e) {}
       }

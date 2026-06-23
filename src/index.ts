@@ -24762,6 +24762,21 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS person_mv_comments_mv_idx ON person_mv_comments (mv_id, created_at DESC);
 
+      -- CSSOS_WAVE_1138 — Jing 指令: 通用作品评论(影院里播的 user_works 都能评论)。
+      -- 富内容用【安全结构化嵌入】: embed_work_id 指向一首作品, 前端渲染成作品卡(封面/标题/▶),
+      -- 绝不存裸 HTML(防 XSS)。回复=parent_id; 软删=deleted_at(评论作者 或 作品作者可删)。
+      CREATE TABLE IF NOT EXISTS work_comments (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        work_id       UUID NOT NULL,
+        user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body          TEXT,
+        parent_id     UUID NULL,
+        embed_work_id UUID NULL,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        deleted_at    TIMESTAMPTZ NULL
+      );
+      CREATE INDEX IF NOT EXISTS work_comments_work_idx ON work_comments (work_id, created_at DESC);
+
       CREATE TABLE IF NOT EXISTS mv_shares (
         shortcode  TEXT PRIMARY KEY,
         mv_id      UUID NOT NULL REFERENCES person_mvs(mv_id) ON DELETE CASCADE,
@@ -31454,6 +31469,121 @@ app.post("/api/works/:id/gift-ownership", express.json({ limit: "4kb" }), async 
   } catch (err) {
     console.warn("[gift-ownership] failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "GIFT_FAILED" });
+  }
+});
+
+/* CSSOS_WAVE_1138 — Jing 指令: 通用作品评论(影院 user_works 可评论)。
+ * 富内容 = 安全结构化嵌入作品卡(embed_work_id), 前端渲染封面/标题/▶链接, 不存裸 HTML。
+ * 回复(parent_id) + 软删(评论作者 或 作品作者可删)。 */
+async function resolveWorkEffectiveOwner(workId: string): Promise<string> {
+  const r = await withClient((c) =>
+    c.query<{ owner_id: string | null }>(
+      `SELECT COALESCE(
+                (SELECT to_user_id FROM ownership_transfers WHERE work_id = $1::uuid ORDER BY effective_at DESC NULLS LAST, created_at DESC LIMIT 1),
+                (SELECT user_id FROM user_works WHERE id = $1::uuid)
+              ) AS owner_id`,
+      [workId],
+    ),
+  );
+  return String(r.rows?.[0]?.owner_id || "").trim();
+}
+
+app.get("/api/works/:id/comments", async (req, res) => {
+  noStore(res);
+  try {
+    const workId = String(req.params.id || "").trim();
+    if (!workId) return res.status(400).json({ ok: false, code: "BAD_WORK" });
+    const me = await getSessionUser(req).catch(() => null);
+    const ownerId = await resolveWorkEffectiveOwner(workId).catch(() => "");
+    const limit = Math.min(300, Math.max(1, parseInt(String(req.query.limit || "100"), 10) || 100));
+    const r = await withClient((c) =>
+      c.query(
+        `SELECT c.id, c.work_id, c.user_id, c.body, c.parent_id, c.embed_work_id, c.created_at, c.deleted_at,
+                u.display_name, u.username, u.avatar_url,
+                ew.title AS embed_title, ew.cover_image AS embed_cover, ew.preview_image_url AS embed_preview
+           FROM work_comments c
+           LEFT JOIN users u ON u.id = c.user_id
+           LEFT JOIN user_works ew ON ew.id = c.embed_work_id
+          WHERE c.work_id = $1::uuid
+          ORDER BY c.created_at ASC
+          LIMIT $2`,
+        [workId, limit],
+      ),
+    );
+    const items = r.rows.map((row: any) => ({
+      id: row.id,
+      work_id: row.work_id,
+      user_id: row.user_id,
+      parent_id: row.parent_id,
+      created_at: row.created_at,
+      deleted: !!row.deleted_at,
+      body_html: row.deleted_at ? null : (row.body ? escapeHtmlBody(row.body) : null),
+      display_name: row.display_name,
+      username: row.username,
+      avatar_url: row.avatar_url,
+      embed: row.embed_work_id && !row.deleted_at
+        ? { work_id: row.embed_work_id, title: row.embed_title, cover: row.embed_cover || row.embed_preview }
+        : null,
+      can_delete: !!(me && me.id && (String(me.id) === String(row.user_id) || (ownerId && String(me.id) === ownerId))),
+    }));
+    return res.json({ ok: true, items, owner_id: ownerId || null });
+  } catch (err) {
+    console.warn("[work-comments][get] failed:", (err as Error)?.message || err);
+    return res.json({ ok: true, items: [] });
+  }
+});
+
+app.post("/api/works/:id/comments", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const workId = String(req.params.id || "").trim();
+    if (!workId) return res.status(400).json({ ok: false, code: "BAD_WORK" });
+    const body = String(req.body?.body || "").trim().slice(0, 2000);
+    const parentId = String(req.body?.parent_id || "").trim() || null;
+    let embedWorkId = String(req.body?.embed_work_id || "").trim() || null;
+    if (!body && !embedWorkId) return res.status(400).json({ ok: false, code: "EMPTY" });
+    // 校验嵌入作品确实存在(防瞎指)。
+    if (embedWorkId) {
+      const ew = await withClient((c) => c.query(`SELECT 1 FROM user_works WHERE id = $1::uuid LIMIT 1`, [embedWorkId]));
+      if (!ew.rowCount) embedWorkId = null;
+    }
+    const ins = await withClient((c) =>
+      c.query<{ id: string }>(
+        `INSERT INTO work_comments (work_id, user_id, body, parent_id, embed_work_id)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5) RETURNING id`,
+        [workId, me.id, body || null, parentId, embedWorkId],
+      ),
+    );
+    return res.json({ ok: true, id: ins.rows?.[0]?.id || null });
+  } catch (err) {
+    console.warn("[work-comments][post] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "POST_FAILED" });
+  }
+});
+
+app.delete("/api/works/:id/comments/:commentId", async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const workId = String(req.params.id || "").trim();
+    const commentId = String(req.params.commentId || "").trim();
+    if (!workId || !commentId) return res.status(400).json({ ok: false, code: "BAD_REQUEST" });
+    const cr = await withClient((c) => c.query<{ user_id: string }>(`SELECT user_id FROM work_comments WHERE id = $1::uuid AND work_id = $2::uuid LIMIT 1`, [commentId, workId]));
+    const authorId = String(cr.rows?.[0]?.user_id || "").trim();
+    if (!authorId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const ownerId = await resolveWorkEffectiveOwner(workId).catch(() => "");
+    // 评论作者本人, 或作品(有效)作者 可删。
+    if (String(me.id) !== authorId && !(ownerId && String(me.id) === ownerId)) {
+      return res.status(403).json({ ok: false, code: "NOT_ALLOWED" });
+    }
+    await withClient((c) => c.query(`UPDATE work_comments SET deleted_at = now() WHERE id = $1::uuid`, [commentId]));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.warn("[work-comments][delete] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "DELETE_FAILED" });
   }
 });
 
@@ -48346,8 +48476,11 @@ app.get("/api/works/:id/social-stats", async (req, res) => {
          (SELECT COUNT(DISTINCT buyer_user_id) FROM work_orders WHERE work_id=$1 AND order_kind='view'   AND status = ANY($2)) AS watches,
          (SELECT COUNT(*) FROM work_tips WHERE work_id=$1) AS tips,
          (SELECT COALESCE(SUM(amount_cents),0) FROM work_tips WHERE work_id=$1) AS tips_total_cents,
-         (SELECT COUNT(*) FROM person_mv_comments pc JOIN person_mvs pm ON pc.mv_id = pm.mv_id
-            WHERE pm.work_id=$1 AND pc.deleted_at IS NULL) AS comments`,
+         (
+           (SELECT COUNT(*) FROM work_comments WHERE work_id=$1 AND deleted_at IS NULL)  -- W1138 通用作品评论
+           + (SELECT COUNT(*) FROM person_mv_comments pc JOIN person_mvs pm ON pc.mv_id = pm.mv_id
+                WHERE pm.work_id=$1 AND pc.deleted_at IS NULL)
+         ) AS comments`,
       [id, PAID]
     ));
     const row = (r.rows && r.rows[0]) || ({} as any);

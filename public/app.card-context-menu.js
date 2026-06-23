@@ -56,9 +56,8 @@
       } catch (_e) {}
     });
     menu.appendChild(item);
-    // CSSOS_WAVE_1142 — Jing: 影院全屏时 Next up 挂在 fullscreenElement 内, 菜单挂 body 会在全屏层【外】→ 看不见。
-    //   和作者菜单一样: 挂到 fullscreenElement(若有), 否则 body。
-    (document.fullscreenElement || document.webkitFullscreenElement || document.body).appendChild(menu);
+    // CSSOS_WAVE_1147 — 统一影院挂载工具(全屏层内可见; 收口反复踩的"挂 body 看不见"坑)。
+    (globalThis.cssosMountInCinema || function (el) { (document.fullscreenElement || document.body).appendChild(el); })(menu);
     // 夹紧在视口内。
     var vw = window.innerWidth || 360, vh = window.innerHeight || 640;
     var mw = menu.offsetWidth || 180, mh = menu.offsetHeight || 44;

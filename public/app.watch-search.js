@@ -103,7 +103,7 @@
     results = document.createElement("div");
     results.id = "watch-search-results";
     results.style.cssText = [
-      "pointer-events:auto", "display:none", "flex-direction:column", "gap:6px",
+      "pointer-events:auto", "display:none", "flex-direction:column", "gap:3px",
       "max-height:62vh", "overflow-y:auto", "-webkit-overflow-scrolling:touch",
       "background:rgba(6,12,10,0.93)", "backdrop-filter:blur(18px)",
       "-webkit-backdrop-filter:blur(18px)", "border:1px solid rgba(0,245,160,0.2)",
@@ -447,7 +447,8 @@
       var card = document.createElement("button");
       card.type = "button";
       card.title = "ID " + id;   // W764 — Jing: 不用 🆔 emoji, 纯文本
-      card.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
+      // W1114i — 行距收紧: 枝桠卡上下 padding 更小(3px), root 卡 6px; 图与字间距 10px。
+      card.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:" + (depth > 0 ? "3px 8px" : "6px 8px") + ";cursor:pointer;color:#fff;font:inherit;";
       // W1086 — 树形缩进: 子作品(part)左移 + 细青竖线, 一眼看出从属于上面的 root。
       if (depth > 0) {
         card.style.marginLeft = "18px";
@@ -465,7 +466,7 @@
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
       metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + idFull + "</span>");
-      var _tsz = depth > 0 ? 26 : 56;   // W1090/W1114g — 树枝桠(子作品)缩略图更小(38→26), 别抢 root 戏
+      var _tsz = depth > 0 ? 32 : 56;   // W1090/W1114i — 树枝桠缩略图=两行字高(32px), 别抢 root 戏
       card.innerHTML =
         '<div style="position:relative;width:' + _tsz + 'px;height:' + _tsz + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +

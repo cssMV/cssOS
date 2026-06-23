@@ -29,7 +29,10 @@
     //   且 60px 正好落进价格条(App 两行)的竖直跨度 → 与价格条/AI助理行重叠。回归 W760 本意:
     //   多语言重新【收编为本列子元素】, 排在价格条上方一行, 浏览器 flex 原生排队, 永不重叠。
     //   (lang-flag-pills.js 同步撤掉自身 absolute 钉死, 本列是唯一定位 owner。)
-    "#cssos-lang-fold",                               // 多语言/多声线(价格条上方一行)
+    // CSSOS_WAVE_1114j 20260622 — Jing「多语言紧挨底部, 和传统字幕同一行」: 影院右轨在场时, adopt() 会
+    //   把四胶囊(多语言/多声线 #cssos-lang-fold)从这里【剔除】, 改并进价格行(priceline)中列、与传统
+    //   字幕同一行贴底(见 ensurePriceLine)。无右轨仍单独占这一行(旧布局)。
+    "#cssos-lang-fold",                               // 多语言/多声线
     "#cssos-up-next-strip",                           // CTA — 结束前作品卡片队列(全宽)
     "#cssos-create-cta"                               // Want — 创作引导卡(最上)
   ];
@@ -184,6 +187,22 @@
       price.style.setProperty("grid-column", "2", "important");
       price.style.setProperty("max-width", isApp ? "min(58vw, 420px)" : "min(72vw, 640px)", "important");
     }
+    // CSSOS_WAVE_1114j — 右轨在场: 把多语言四胶囊收进【中列(与价格条同位)】, 与传统字幕同一行贴底。
+    if (_railOn) {
+      var lang = document.getElementById("cssos-lang-fold");
+      if (lang) {
+        if (lang.parentNode !== line) line.appendChild(lang);
+        lang.style.setProperty("position", "static", "important");
+        ["left", "right", "bottom", "top"].forEach(function (p) { lang.style.setProperty(p, "auto", "important"); });
+        lang.style.setProperty("transform", "none", "important");
+        lang.style.setProperty("margin", "0", "important");
+        lang.style.setProperty("grid-row", "1", "important");
+        lang.style.setProperty("grid-column", "2", "important");
+        lang.style.setProperty("justify-self", "center", "important");
+        lang.style.setProperty("align-self", "center", "important");
+        lang.style.setProperty("z-index", "auto", "important");
+      }
+    }
     return line;
   }
 
@@ -192,9 +211,13 @@
     var f = ensureFlow();
     if (!f) return;
     try { ensurePriceLine(); } catch (_e) {}
-    // 收集当前存在的成员(按 ORDER)。
+    // 收集当前存在的成员(按 ORDER)。CSSOS_WAVE_1114j — 右轨在场时, 多语言四胶囊改并进 priceline
+    //   中列(ensurePriceLine 负责), 这里把它从底部列剔除, 避免它再单独占一行。
+    var _railOn2 = false;
+    try { _railOn2 = !!document.getElementById("cssos-watch-social-rail"); } catch (_e) {}
     var els = [];
     for (var i = 0; i < ORDER.length; i++) {
+      if (_railOn2 && ORDER[i] === "#cssos-lang-fold") continue;
       var el = document.querySelector(ORDER[i]);
       if (el) els.push(el);
     }

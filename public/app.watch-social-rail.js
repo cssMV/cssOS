@@ -214,7 +214,7 @@
     if (!rail) return;
     rail.style.display = "flex";
     var w = currentWork() || {};
-    var id0 = workId();
+    var id0 = robustWorkId();   // CSSOS_WAVE_1146 — workId() 常空→计数永远0(评论3却显0)。改用稳健多源 id。
     fetchStats(id0);
     var st = statsFor(id0);
     rail.textContent = "";

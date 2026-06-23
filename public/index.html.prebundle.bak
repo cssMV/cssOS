@@ -2442,7 +2442,7 @@
     <!-- CSSOS_PERSON_MV_WAVE64+65 20260508 — Jing — UI surface for waves 51/54/55 + shortcuts cheatsheet. -->
     <script src="app.rating-badges.js?v=20260508-wave64"></script>
     <script src="app.person-mv-comments-share.js?v=20260508-wave12"></script>
-    <script src="app.work-comments.js?v=20260623-w1145"></script>
+    <script src="app.work-comments.js?v=20260623-w1146"></script>
     <script src="app.card-context-menu.js?v=20260623-w1142"></script>
     <script src="app.person-mv-festival-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-ai-chat.js?v=20260508-wave24"></script>

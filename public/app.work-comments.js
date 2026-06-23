@@ -21,10 +21,10 @@
     if (document.getElementById("cssos-work-comments-css")) return;
     var s = document.createElement("style"); s.id = "cssos-work-comments-css";
     s.textContent =
-      // CSSOS_WAVE_1144 — Jing 指令: 评论/右轨弹出窗【依附在右轨】(右侧停靠, 不再底部居中)。
-      "#cssos-work-comments{position:fixed;inset:0;z-index:10058;display:flex;align-items:center;justify-content:flex-end;" +
+      // CSSOS_WAVE_1144/1146 — Jing 指令: 评论窗【依附右轨】右侧停靠; 顶部不高于右轨(JS 设 top 对齐右轨顶)。
+      "#cssos-work-comments{position:fixed;inset:0;z-index:10058;display:flex;align-items:flex-start;justify-content:flex-end;" +
       "background:rgba(0,0,0,0.32);backdrop-filter:blur(3px);font:500 14px/1.45 -apple-system,system-ui,sans-serif;}" +
-      "#cssos-work-comments .cwc-sheet{width:min(400px,84vw);max-height:84vh;margin:0 76px 0 0;display:flex;flex-direction:column;" +   /* margin-right 76px 让出右轨图标 */
+      "#cssos-work-comments .cwc-sheet{width:min(400px,84vw);max-height:78vh;margin:0 76px 0 0;display:flex;flex-direction:column;" +   /* margin-right 76px 让出右轨图标; top 由 JS 对齐右轨 */
       "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.12);border-radius:18px;" +
       "box-shadow:0 18px 60px rgba(0,0,0,0.6);color:rgba(255,255,255,0.95);}" +
       "@media (max-width:560px){#cssos-work-comments{align-items:flex-end;justify-content:center;}" +
@@ -52,7 +52,8 @@
       "#cssos-work-comments .cwc-replychip,#cssos-work-comments .cwc-embedchip{display:none;align-items:center;gap:6px;font-size:11.5px;color:#bcd;background:rgba(0,245,160,0.1);border:1px solid rgba(0,245,160,0.3);border-radius:999px;padding:3px 10px;align-self:flex-start;}" +
       "#cssos-work-comments .cwc-replychip button,#cssos-work-comments .cwc-embedchip button{background:transparent;border:0;color:#9aa3b2;cursor:pointer;font-size:13px;}" +
       "#cssos-work-comments .cwc-composer{display:flex;gap:8px;align-items:flex-end;}" +
-      "#cssos-work-comments textarea{flex:1;resize:none;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.16);border-radius:10px;padding:9px 11px;color:#fff;font:inherit;max-height:90px;}" +
+      // CSSOS_WAVE_1146 — Jing 指令: 输入框默认一行, 随内容增高(box-sizing+1行基准高, 配合 input 自增)。
+      "#cssos-work-comments textarea{flex:1;resize:none;box-sizing:border-box;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.16);border-radius:10px;padding:9px 11px;color:#fff;font:inherit;height:38px;min-height:38px;max-height:120px;overflow-y:auto;line-height:1.35;}" +
       "#cssos-work-comments .cwc-attach{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);color:#fff;border-radius:10px;padding:9px 11px;cursor:pointer;font-size:16px;flex:0 0 auto;}" +
       "#cssos-work-comments .cwc-post{background:rgba(0,245,160,0.22);border:1px solid rgba(0,245,160,0.6);color:#fff;border-radius:10px;padding:9px 14px;cursor:pointer;font-weight:700;flex:0 0 auto;}" +
       "#cssos-work-comments .cwc-empty{opacity:0.55;text-align:center;font-size:12.5px;padding:26px 0;}";
@@ -227,6 +228,13 @@
         "</div>" +
       "</div>";
     (document.fullscreenElement || document.body).appendChild(overlay);
+    // CSSOS_WAVE_1146 — Jing 指令: 顶部不高于右轨 → sheet 顶对齐右轨顶(找不到右轨则给个合理上边距)。
+    try {
+      var sheet = overlay.querySelector(".cwc-sheet");
+      var rail = document.getElementById("cssos-watch-social-rail");
+      var topPx = rail ? Math.max(8, Math.round(rail.getBoundingClientRect().top)) : Math.round((window.innerHeight || 600) * 0.18);
+      if (sheet) sheet.style.marginTop = topPx + "px";
+    } catch (_e) {}
 
     overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.remove(); });
     overlay.querySelector(".cwc-x").addEventListener("click", function () { overlay.remove(); });

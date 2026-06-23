@@ -77,10 +77,8 @@
     var s = document.createElement("style");
     s.id = "cssos-social-rail-css";
     s.textContent =
-      "#cssos-watch-price-strip{display:none !important;}" +
-      "#cssos-agent-fab{display:none !important;}" +
-      // CSSOS_WAVE_1114d — 作者头像已移入右轨(顶部), 影院态隐藏旧的左上/胶囊内头像, 左上让位给返回键。
-      "body.cssos-cinema-mode #watch-author-avatar{display:none !important;}" +
+      // CSSOS_WAVE_1118 — Jing 指令: 先做完右轨功能, 暂不删旧价格条/头像/AI FAB(新旧并存), 等右轨
+      //   全做完验收后再删。故此处【不再隐藏】它们(原 W1114 的 3 条 display:none 已撤)。
       "#cssos-watch-social-rail{position:absolute;right:10px;top:50%;transform:translateY(-50%);" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
       "#cssos-watch-social-rail>*{pointer-events:auto;}" +

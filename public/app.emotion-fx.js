@@ -364,7 +364,7 @@
       if (globalThis.cssosEmotionSubtitlesOff === true) return;   // W726 — 字心烟花只受主开关管(不再被"天女散花"开关误关)
       var layer = ensureSparkLayer();
       var pool = _themePool(EMO_PETALS[String(emotion || "").toLowerCase()] || PETALS);
-      var nn = Math.max(3, Math.min(16, count || 6));
+      var nn = Math.max(3, Math.min(30, count || 6));   // W1118b — Jing 指令: 上限 16→30, 字心爆更多
       var frag = document.createDocumentFragment();
       for (var k = 0; k < nn; k++) {
         var p = document.createElement("span");
@@ -472,7 +472,7 @@
       _lineStage.els.push(grp);
       // CSSOS_WAVE_721 #3 — 以【该字为中心】炸开小烟花(小 emoji 向四周扩散, 不透明→透明),
       // 取代"从天而降"。数量 ∝ 情绪强度。
-      _fireworkAt(pos.x, pos.y, emotion, 5 + Math.round(inten * 7));
+      _fireworkAt(pos.x, pos.y, emotion, 10 + Math.round(inten * 14));   // W1118b — Jing 指令: 字心小 emoji 爆多一点(原 5–12 → 10–24)
     } catch (e) {}
   };
 

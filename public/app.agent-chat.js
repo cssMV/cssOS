@@ -69,7 +69,7 @@
       "#cssos-agent-fab[data-active='1']{background:linear-gradient(135deg,#ff9a3c,#ff6b6b);}",
       /* CSSOS_WAVE_737 — 面板 z 提到 10091(原 9801 被影院层 10052-10080 盖住, 全屏打不开)。
          位置改右上角(贴 FAB), top 起算, 让全屏看片时从右上角 FAB 顺势展开创作。 */
-      "#cssos-agent-panel{position:fixed;right:18px;top:72px;bottom:auto;width:min(420px,calc(100vw - 36px));height:min(620px,calc(100vh - 120px));background:#0d1117;color:#e6e8ee;border:1px solid rgba(255,255,255,0.12);border-radius:16px;display:none;flex-direction:column;z-index:10091;box-shadow:0 12px 40px rgba(0,0,0,0.55);overflow:hidden;}",
+      "#cssos-agent-panel{position:fixed;right:76px;top:72px;bottom:auto;width:min(420px,calc(100vw - 36px));height:min(620px,calc(100vh - 120px));background:#0d1117;color:#e6e8ee;border:1px solid rgba(255,255,255,0.12);border-radius:16px;display:none;flex-direction:column;z-index:10091;box-shadow:0 12px 40px rgba(0,0,0,0.55);overflow:hidden;}",
       "#cssos-agent-panel[data-open='1']{display:flex;}",
       "#cssos-agent-panel header{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;font:600 14px/1 -apple-system,system-ui,sans-serif;}",
       "#cssos-agent-panel header .title{display:flex;gap:8px;align-items:center;}",
@@ -287,7 +287,9 @@
     renderSuggestions();
   }
 
-  var DRAG_POS_KEY = "cssos.agent.panel.pos.v1";
+  // CSSOS_WAVE_1149 — Jing 指令: AI 助理弹窗别停在左上角(旧拖拽位置卡住了)。bump v1→v2 丢弃旧位置,
+  //   回到默认【右侧停靠 right:76px】(让出右轨, 与其它小弹窗一致); 仍可拖动(存到 v2)。
+  var DRAG_POS_KEY = "cssos.agent.panel.pos.v2";
   function makeAgentPanelDraggable(panel, handle) {
     if (!panel || !handle) return;
     // Restore a saved position if present.

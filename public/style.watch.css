@@ -1415,9 +1415,9 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   62%  { opacity: 0.92; transform: translate(calc(-50% + var(--sk-dx, 0px) * 0.9), calc(-50% + var(--sk-dy, 0px) * 0.9)) scale(1.04); }
   100% { opacity: 0; transform: translate(calc(-50% + var(--sk-dx, 0px)), calc(-50% + var(--sk-dy, 0px))) scale(1.06); }
 }
-@media (prefers-reduced-motion: reduce) {
-  #cssfx-spark { display: none; }
-}
+/* CSSOS_WAVE_1117 20260623 — Jing「字心爆小 emoji 不见了」真凶之一: 此前 reduced-motion 下整层
+   #cssfx-spark display:none, 只藏了字心小 emoji、大字仍在 → 正好是"大字在、字心 emoji 没有"。
+   情绪字幕是招牌, 不该被"减弱动态效果"杀掉。删除此门, 字心小 emoji 无条件显示。 */
 /* CSSOS_WAVE_721 #6 — 器乐段 emoji 从【四边框向内飘进】(响应音量), 慢飘 + 淡入淡出, 半透明。 */
 .cssfx-edge-dot {
   position: absolute;

@@ -702,34 +702,28 @@
       if (stripEl) {
         var badge = stripEl.querySelector(".cssos-up-next-countdown-badge");
         if (badge && badge.dataset.baseLabel) badge.textContent = badge.dataset.baseLabel + " · " + secs + "s";
-        // CSSOS_WAVE_1112 — Jing「大号倒计时数字应显示在【默认卡/用户选中的卡】上, 不要固定在中间」。
-        //   目标卡 = 带 .cssos-up-next-countdown-badge 的那张(render 已按 预选卡 / 默认 index0 放好,
-        //   badge 挂在该卡缩略图 thumb 上)。把大数字钉在该 thumb 正中(thumb 已 position:relative),
-        //   随每秒变色; 用户改选 → 下一帧 badge 随卡移动 → 大数字自动跟到新卡。清掉任何残留在别处的旧数字。
-        var hostThumb = badge ? badge.parentElement : null;
-        var _olds = stripEl.querySelectorAll(".cssos-up-next-countdown-big");
-        for (var _o = 0; _o < _olds.length; _o++) {
-          if (!hostThumb || _olds[_o].parentElement !== hostThumb) _olds[_o].remove();
+        // CSSOS_WAVE_1058 — Jing「重做 CTA 大号倒计时」: 居中大数字(32px 同原尺寸), 每秒换一个随机色。
+        //   W891 删了旧的(移动端浮成莫名"0"方块); 这版只在结束前 LEAD 秒出现(timeUpdate 门控)、
+        //   居中浮在 up-next 条上、随秒变色, 醒目但不常驻。
+        var big = stripEl.querySelector(".cssos-up-next-countdown-big");
+        if (!big) {
+          if (getComputedStyle(stripEl).position === "static") stripEl.style.position = "relative";
+          big = document.createElement("div");
+          big.className = "cssos-up-next-countdown-big";
+          big.style.cssText =
+            "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none;" +
+            "min-width:1.7em;height:1.7em;display:none;align-items:center;justify-content:center;" +
+            "font:800 32px/1 ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:.02em;" +
+            "border-radius:12px;background:radial-gradient(circle,rgba(0,0,0,0.55),rgba(0,0,0,0.12));" +
+            "text-shadow:0 2px 12px rgba(0,0,0,0.9);transition:color .18s ease;";
+          stripEl.appendChild(big);
         }
-        if (hostThumb) {
-          var big = hostThumb.querySelector(".cssos-up-next-countdown-big");
-          if (!big) {
-            big = document.createElement("div");
-            big.className = "cssos-up-next-countdown-big";
-            big.style.cssText =
-              "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none;" +
-              "min-width:1.4em;height:1.4em;display:flex;align-items:center;justify-content:center;" +
-              "font:800 30px/1 ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:.02em;" +
-              "border-radius:12px;background:radial-gradient(circle,rgba(0,0,0,0.55),rgba(0,0,0,0.10));" +
-              "text-shadow:0 2px 12px rgba(0,0,0,0.9);transition:color .18s ease;";
-            hostThumb.appendChild(big);
-          }
-          if (big.dataset.lastSec !== String(secs)) {
-            big.dataset.lastSec = String(secs);
-            big.style.color = "hsl(" + Math.floor(Math.random() * 360) + ",92%,62%)";
-          }
-          big.textContent = String(secs);
+        if (big.dataset.lastSec !== String(secs)) {        // 每秒(整数变化时)换随机色
+          big.dataset.lastSec = String(secs);
+          big.style.color = "hsl(" + Math.floor(Math.random() * 360) + ",92%,62%)";
         }
+        big.textContent = String(secs);
+        big.style.display = "flex";
       }
     } else if (remaining > leadSeconds() + 0.5) {
       hide();

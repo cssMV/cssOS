@@ -417,15 +417,6 @@
       bar.parentNode.insertBefore(fold, bar);
       fold.appendChild(bar);
     }
-    // CSSOS_WAVE_1110 — Jing「胶囊总跑中央/浮在视频上」真正根治。探针实锤: bar 的父常是 .watch-screen
-    //   (不是 fold)。两个 owner 打架: mv-language-pill 把 bar 造成 absolute 挂 .watch-screen, 本函数旧码
-    //   只在【首次建 fold】时 fold.appendChild(bar) → fold 已存在但 bar 被甩回 .watch-screen 时不再收编,
-    //   bar 留在 .watch-screen 被其居中布局推到正中。改: 每次 enhance 都【强制把 bar 收回 fold】, 并撕掉
-    //   W437 残留的 absolute 内联 → bar 永远 static 待在 fold → fold 进底部栈 = 老实做"中间一行"。
-    if (bar.parentNode !== fold) fold.appendChild(bar);
-    ["position", "left", "right", "top", "bottom", "transform"].forEach(function (p) {
-      try { bar.style.removeProperty(p); } catch (_e) {}
-    });
     // CSSOS_WAVE_862 — Jing「不是各自在自己的 div 吗? 为什么打架?」根治: 撤掉 W857 的 absolute 钉死。
     // 多语言行交给 app.watch-bottom-stack.js 收编为底部 flex 列子元素(单一 owner), 它会 appendChild 进
     // #cssos-watch-bottomflow 并 makeFlowChild(static), 浏览器原生排在价格条上方一行 → 永不重叠。

@@ -313,8 +313,6 @@
       globalThis.watchKaraokeTimelineCache.data = cues;
       globalThis.watchKaraokeTimelineCache.pending = false;
       globalThis.watchKaraokeTimelineCache.error = "";
-      // CSSOS_WAVE_1108 — 给缓存打上【它属于哪部作品】的戳, 供切歌即清 + 防串台判定使用。
-      globalThis.watchKaraokeTimelineCache.workId = _offsetWorkId || "";
     }
     // Feed WORD/CHAR-level array
     if (wordArray) {
@@ -333,7 +331,7 @@
   }
 
   // ── Public load function ─────────────────────────────────────────────────
-  async function load(track, take, ownerWorkId) {
+  async function load(track, take) {
     if (!track) return;
     var lang = String(track.lang || "");
     var takeN = (take === 2) ? 2 : 1;
@@ -350,11 +348,6 @@
           var wordArr = subtitleJsonToWordArray(data, lang);
           try { console.info("[emo-sub] cues=" + (cues ? cues.length : 0) + " for lang=" + lang); } catch (_e) {}
           if (cues && cues.length) {
-            // CSSOS_WAVE_1108 — 防串台守卫: 这次 load 是为 ownerWorkId 发起的。若在 await 期间
-            // 用户已切到别的作品(_offsetWorkId 被新 loadForWork 改写), 丢弃这条【迟到的旧结果】,
-            // 绝不用上一首的字幕覆盖当前作品(就是"切歌后字幕显示别首歌/残留"的真凶)。
-            // 注: 语言胶囊直接调 load(track,take) 不传 ownerWorkId → 守卫自动跳过, 切语言照常。
-            if (ownerWorkId && _offsetWorkId && ownerWorkId !== _offsetWorkId) return;
             // CSSOS_WAVE_994 — stash raw cues so the global offset slider can
             // re-shift live without refetching, then feed with offset applied.
             // W1048 — keep pristine + overlay non-destructive token add/delete.
@@ -433,7 +426,7 @@
         || tracks[0];
       if (!def) { try { console.info("[emo-sub] no track", workId); } catch (_e) {} return; }
       try { console.info("[emo-sub] loadForWork", workId, "lang=" + def.lang, "hasSubUrl=" + !!def.subtitle_take1_json_url); } catch (_e) {}
-      await load(def, 1, workId);
+      await load(def, 1);
     } catch (e) { try { console.warn("[emo-sub] loadForWork err", e); } catch (_x) {} }
   }
 
@@ -793,16 +786,8 @@
   try {
     window.addEventListener("cssos:work-id-changed", function (ev) {
       var id = ev && ev.detail && ev.detail.workId;
-      if (!id) return;
-      // CSSOS_WAVE_1108 — 切到【别的】作品时, 立刻把上一首的字幕缓存清空, 别等 700ms 重载完成。
-      // 否则这段窗口里渲染器还在用旧 cue → 屏幕显示上一首的残留字幕(就是"切歌字幕串台/对不上"
-      // 的现象)。靠 applyToKaraoke 打的 workId 戳判定是否真换了作品。
-      try {
-        var _c = globalThis.watchKaraokeTimelineCache;
-        if (_c && _c.workId && _c.workId !== id) { _c.data = null; _c.pending = true; }
-      } catch (_e) {}
       // 稍候 700ms 等 watch 面板/媒体元素就位再加载。
-      setTimeout(function () { loadForWork(id); }, 700);
+      if (id) setTimeout(function () { loadForWork(id); }, 700);
     });
   } catch (_e) {}
 })();

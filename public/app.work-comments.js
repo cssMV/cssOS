@@ -150,34 +150,66 @@
   }
   function clearEmbed() { embedWorkId = ""; embedWorkTitle = ""; var chip = document.querySelector("#cssos-work-comments .cwc-embedchip"); if (chip) chip.style.display = "none"; }
 
-  // 选一首【我的作品】嵌入(安全卡片, 非裸 HTML)。
-  async function openEmbedPicker() {
-    var pick = document.createElement("div");
-    pick.style.cssText = "position:fixed;inset:0;z-index:10060;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;padding:20px;";
-    var card = document.createElement("div");
-    card.style.cssText = "max-width:440px;width:100%;max-height:70vh;display:flex;flex-direction:column;background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:18px;color:#fff;font:500 14px/1.4 -apple-system,system-ui,sans-serif;";
-    card.innerHTML = '<div style="font-weight:700;margin-bottom:10px;">' + esc(tr("Attach a work", "嵌入一首作品")) + '</div><div data-pl style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:100px;"><div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("Loading…", "加载中…")) + "</div></div>";
-    pick.appendChild(card); pick.addEventListener("click", function (e) { if (e.target === pick) pick.remove(); });
-    // CSSOS_WAVE_1147 — 统一影院挂载工具(全屏层内可见)。
-    (globalThis.cssosMountInCinema || function (el) { (document.fullscreenElement || document.body).appendChild(el); })(pick);
+  // 选一首【我的作品】嵌入(安全卡片, 非裸 HTML)。CSSOS_WAVE_1148 — Jing 指令:
+  //   弹窗【锚在 🎵 按钮上方/评论框左侧】, 不再屏幕中央; 加载更稳健(失败给重试, 不死)。
+  async function loadMyWorks(pl) {
+    pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("Loading…", "加载中…")) + "</div>";
+    var items = [];
+    // 优先用内存里已加载的"我的"歌单(零网络, 最稳); 否则退回 /api/works/mine。
     try {
-      var r = await fetch("/api/works/mine?limit=200", { credentials: "include" });
-      var j = await r.json().catch(function () { return null; });
-      var items = ((j && (j.works || j.items || j.data)) || []).filter(function (w) { return w && !w.parent_work_id && w.id; });
-      var pl = card.querySelector("[data-pl]");
-      if (!items.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No works.", "暂无作品。")) + "</div>"; return; }
-      pl.innerHTML = "";
-      items.forEach(function (w) {
-        var cover = String(w.cover_image || w.preview_image_url || "");
-        var row = document.createElement("button");
-        row.type = "button";
-        row.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:7px;cursor:pointer;color:#fff;font:inherit;";
-        row.innerHTML = (cover ? '<img src="' + esc(cover) + '" style="width:42px;height:42px;border-radius:7px;object-fit:cover;">' : '<span style="width:42px;height:42px;border-radius:7px;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;">🎵</span>') +
-          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">' + esc(w.title || "Untitled") + "</span>";
-        row.addEventListener("click", function () { setEmbed(String(w.id), String(w.title || "")); pick.remove(); });
-        pl.appendChild(row);
-      });
-    } catch (_e) { card.querySelector("[data-pl]").innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("Failed.", "加载失败。")) + "</div>"; }
+      var st = globalThis.cssosPlaylists && globalThis.cssosPlaylists._state;
+      var mine = st && st.lists && st.lists.mine && st.lists.mine.items;
+      if (mine && mine.length) items = mine.slice();
+    } catch (_e) {}
+    if (!items.length) {
+      try {
+        var r = await fetch("/api/works/mine?limit=60", { credentials: "include" });
+        var j = await r.json().catch(function () { return null; });
+        items = ((j && (j.works || j.items || j.data)) || []);
+      } catch (_e) {
+        pl.innerHTML = '<div style="opacity:.7;text-align:center;padding:16px;">' + esc(tr("Failed to load.", "加载失败。")) +
+          ' <button data-retry style="background:transparent;border:0;color:#00f5a0;cursor:pointer;font:inherit;text-decoration:underline;">' + esc(tr("Retry", "重试")) + "</button></div>";
+        var rb = pl.querySelector("[data-retry]"); if (rb) rb.addEventListener("click", function () { loadMyWorks(pl); });
+        return;
+      }
+    }
+    items = items.filter(function (w) { return w && !w.parent_work_id && (w.id || w.work_id); });
+    if (!items.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No works.", "暂无作品。")) + "</div>"; return; }
+    pl.innerHTML = "";
+    items.forEach(function (w) {
+      var cover = String(w.cover_image || w.preview_image_url || w.cover_url || "");
+      var row = document.createElement("button");
+      row.type = "button";
+      row.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:7px;cursor:pointer;color:#fff;font:inherit;";
+      row.innerHTML = (cover ? '<img src="' + esc(cover) + '" style="width:42px;height:42px;border-radius:7px;object-fit:cover;">' : '<span style="width:42px;height:42px;border-radius:7px;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;">🎵</span>') +
+        '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">' + esc(w.title || "Untitled") + "</span>";
+      row.addEventListener("click", function () { setEmbed(String(w.id || w.work_id), String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });
+      pl.appendChild(row);
+    });
+  }
+  function openEmbedPicker() {
+    var old = document.getElementById("cssos-embed-pick"); if (old) old.remove();
+    var pick = document.createElement("div"); pick.id = "cssos-embed-pick";
+    pick.style.cssText = "position:fixed;inset:0;z-index:10062;background:transparent;";   // 透明捕获层, 点外面关闭
+    var card = document.createElement("div");
+    card.style.cssText = "position:fixed;width:min(300px,76vw);max-height:54vh;display:flex;flex-direction:column;" +
+      "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.16);border-radius:14px;padding:14px;color:#fff;" +
+      "box-shadow:0 14px 44px rgba(0,0,0,0.6);font:500 14px/1.4 -apple-system,system-ui,sans-serif;";
+    card.innerHTML = '<div style="font-weight:700;margin-bottom:8px;font-size:13px;">' + esc(tr("Attach a work", "嵌入一首作品")) + '</div><div data-pl style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:7px;min-height:80px;"></div>';
+    pick.appendChild(card);
+    pick.addEventListener("click", function (e) { if (e.target === pick) pick.remove(); });
+    (globalThis.cssosMountInCinema || function (el) { (document.fullscreenElement || document.body).appendChild(el); })(pick);
+    // 锚在 🎵 按钮上方(评论框左侧)。
+    try {
+      var btn = document.querySelector("#cssos-work-comments .cwc-attach");
+      var vw = window.innerWidth || 360, vh = window.innerHeight || 640, cw = Math.min(300, vw * 0.76);
+      if (btn) {
+        var br = btn.getBoundingClientRect();
+        card.style.left = Math.max(8, Math.min(br.left, vw - cw - 8)) + "px";
+        card.style.bottom = Math.max(8, vh - br.top + 8) + "px";   // 浮在按钮正上方
+      } else { card.style.left = "12px"; card.style.bottom = "80px"; }
+    } catch (_e) { card.style.left = "12px"; card.style.bottom = "80px"; }
+    loadMyWorks(card.querySelector("[data-pl]"));
   }
 
   async function postComment() {

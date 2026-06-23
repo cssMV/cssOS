@@ -381,24 +381,18 @@
   //   (三部曲/歌剧/短剧/电视剧/电影)= N 部。当前 item 属于多部作品时, 返回它在列表里【同 root 的
   //   连续部段】范围 [start,end](含)。据此 loop_single 在【整部作品内】从第一集播到最后一集再循环,
   //   绝不中途跳到别的作品 / 被插队。标识同 root 用 root_work_id, 缺失再退回 root_title。
-  // CSSOS_WAVE_1113c 20260623 — Jing「单部循环无效, 只循环第一首」根因之一: 原判据要 part_total>1,
-  //   但搜索灌进来的 item 常没有 part_total → 退回单曲。改为【纯按同 root 连续判定】, 不依赖 part_total:
-  //   root 卡用自身 id, 子部用 root_work_id/parent_work_id → 同一作品的 root+各部 key 一致, 连续≥2 即成"部段"。
-  function _groupKey(it) {
-    if (!it) return null;
-    return String(it.root_work_id || it.parent_work_id || it.id || it.work_id || it.root_title || "").trim() || null;
-  }
   function workGroupBounds(list, index) {
     const items = list.items;
     const cur = items[index];
     if (!cur) return null;
-    const key = _groupKey(cur);
-    if (!key) return null;
-    const sameRoot = (it) => _groupKey(it) === key;
+    const key = cur.root_work_id || cur.root_title || null;
+    // 仅多部作品(part_total>1 或确有同 root 邻居)才成"部段"; 独立单曲 → null(走真·单曲循环)。
+    if (!key || !(Number(cur.part_total) > 1)) return null;
+    const sameRoot = (it) => it && (it.root_work_id || it.root_title || null) === key;
     let start = index, end = index;
     while (start - 1 >= 0 && sameRoot(items[start - 1])) start -= 1;
     while (end + 1 < items.length && sameRoot(items[end + 1])) end += 1;
-    return end > start ? { start, end } : null;   // ≥2 个同 root 连续 = 多部作品的部段
+    return end > start ? { start, end } : null;
   }
 
   function step(direction /* +1 or -1 */) {
@@ -455,16 +449,16 @@
     },
     setActive(id) {
       if (!state.lists[id]) return false;
-      const _prev = state.active;
       state.active = id;
       state.index = 0;
       state.shuffleOrder = [];
       state.shuffleCursor = 0;
-      // CSSOS_WAVE_731x — loop_single 曾从【分享单曲会话】(share-link)泄漏到 for-you(551 首)→ 切不了歌。
-      // CSSOS_WAVE_1113c 20260623 — Jing「单部循环无效」根因: 原逻辑【任何】切到非 share-link 列表都把
-      //   loop_single 还原成 loop_all → 把用户主动选的【单部循环】也误伤了。改为【只在离开 share-link 时】
-      //   还原(那才是泄漏源); 用户在 for-you 主动选的 loop_single(=单部循环)予以保留。
-      if (state.mode === "loop_single" && id !== "share-link" && _prev === "share-link") {
+      // CSSOS_WAVE_731x 20260613 — Jing「上滑下滑换不了歌」根因(真机探针: mode=loop_single,
+      // len=551): loop_single 是【分享单曲会话】(app.share-link-router setMode("loop_single"))用的,
+      // 而 mode 是全局的 → 离开分享、进入多曲列表(for-you 551 首)后它泄漏 → step() 永远返回当前
+      // 这首 → 切不了歌。修: 切到【非 share-link 的列表】且当前是 loop_single → 还原为 loop_all
+      // (可正常上下滑连播)。真·单曲分享列表(id=share-link)不动。
+      if (state.mode === "loop_single" && id !== "share-link") {
         state.mode = "loop_all";
       }
       void ensureLoaded(state.lists[id]);

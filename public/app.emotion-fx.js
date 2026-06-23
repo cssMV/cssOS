@@ -276,7 +276,6 @@
       var yStep = perCol > 1 ? Math.min(9, 80 / (perCol - 1)) : 0;
       var y0 = 12;   // 顶部起点(居上)
       // 竖排【靠左 or 靠右】更贴边框(原 29/71 → 16/84 → CSSOS_WAVE_1034 8/92 更靠边, Jing「左右再靠边一点」)。
-      // CSSOS_WAVE_1114b 撤销右轨避让: Jing「情绪字幕在更高层, 可以爆在右轨之上」→ 仍贴边 92。
       var base = (side === "right") ? 92 : 8;
       var xCenter = cols > 1 ? (base + col * 13 - 6.5) : base;
       var x = xCenter + (Math.random() * 10 - 5);   // 横向 ±5 歪斜(原 ±3)
@@ -494,8 +493,6 @@
       _lastMusicPulse = now;
       var vol = Number(globalThis.cssosCurrentVolume);
       if (!(vol >= 0 && vol <= 1)) vol = 0.4 + Math.random() * 0.4; // 没音量数据 → 中等随机
-      // CSSOS_WAVE_1114n 20260622 — Jing 铁律「情绪字幕是招牌, 以后绝不再动 emotion-fx」: 撤回 W1114m
-      //   (我为右轨改的间奏 emoji 去底边+减密度), 完全恢复原样: 四边都冒、密度 vol*6。
       var nn = 1 + Math.round(vol * 6);                              // 音量大 → 飘得多
       var layer = ensureSparkLayer();
       var pool = _themePool(EMO_PETALS[String(emotion || "").toLowerCase()] || MUSIC_EMOJI);

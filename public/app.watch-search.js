@@ -103,7 +103,7 @@
     results = document.createElement("div");
     results.id = "watch-search-results";
     results.style.cssText = [
-      "pointer-events:auto", "display:none", "flex-direction:column", "gap:3px",
+      "pointer-events:auto", "display:none", "flex-direction:column", "gap:6px",
       "max-height:62vh", "overflow-y:auto", "-webkit-overflow-scrolling:touch",
       "background:rgba(6,12,10,0.93)", "backdrop-filter:blur(18px)",
       "-webkit-backdrop-filter:blur(18px)", "border:1px solid rgba(0,245,160,0.2)",
@@ -122,13 +122,13 @@
       var exitBtn = document.createElement("button");
       exitBtn.id = "watch-exit-cinema";
       exitBtn.type = "button";
-      exitBtn.setAttribute("aria-label", tr("Back", "返回"));
-      exitBtn.title = tr("Back", "返回");
-      // CSSOS_WAVE_1114d 20260622 — Jing「左上角头像改返回(头像已移右轨), 删右上 ✕」: 退出键从右上 ✕
-      //   挪到【左上角】、图标改返回箭头 ‹。一处改动同时完成"删右上 ✕"+"左上加返回"; 退出逻辑不变。
-      exitBtn.textContent = "‹";
+      exitBtn.setAttribute("aria-label", tr("Exit cinema", "退出影院"));
+      exitBtn.title = tr("Exit cinema", "退出影院");
+      exitBtn.textContent = "✕";
       exitBtn.style.cssText = [
-        "position:absolute", "top:12px", "left:12px",
+        // CSSOS_WAVE_326 — ✕ 放进媒体框右上角, 与左上角头像(left:12 top:12)对称.
+        // (改为 append 到 .watch-screen; App 全屏帧=满屏, 由 style.css 让位刘海.)
+        "position:absolute", "top:12px", "right:12px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",
@@ -447,8 +447,7 @@
       var card = document.createElement("button");
       card.type = "button";
       card.title = "ID " + id;   // W764 — Jing: 不用 🆔 emoji, 纯文本
-      // W1114i — 行距收紧: 枝桠卡上下 padding 更小(3px), root 卡 6px; 图与字间距 10px。
-      card.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:" + (depth > 0 ? "3px 8px" : "6px 8px") + ";cursor:pointer;color:#fff;font:inherit;";
+      card.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
       // W1086 — 树形缩进: 子作品(part)左移 + 细青竖线, 一眼看出从属于上面的 root。
       if (depth > 0) {
         card.style.marginLeft = "18px";
@@ -466,7 +465,7 @@
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
       metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + idFull + "</span>");
-      var _tsz = depth > 0 ? 32 : 56;   // W1090/W1114i — 树枝桠缩略图=两行字高(32px), 别抢 root 戏
+      var _tsz = depth > 0 ? 38 : 56;   // W1090 — 树枝桠(子作品)缩略图更小, 视觉层级更清晰
       card.innerHTML =
         '<div style="position:relative;width:' + _tsz + 'px;height:' + _tsz + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
         (cover ? '<img src="' + cover + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;"' +
@@ -549,8 +548,7 @@
             ? _searchQueue : [payload].concat(_searchQueue);
           if (_pl.populate("for-you", _q)) {
             _pl.setActive && _pl.setActive("for-you");
-            // CSSOS_WAVE_1113c — 删掉旧的"强制 loop_single→loop_all"(它把用户主动选的【单部循环】掐死)。
-            //   防泄漏已由 setActive 收口(只在离开 share-link 时还原)。这里不再误伤单部循环。
+            if (_pl.setMode && _pl.getMode && _pl.getMode() === "loop_single") _pl.setMode("loop_all");
             _pl.seekTo && _pl.seekTo(_pid);
           }
         }

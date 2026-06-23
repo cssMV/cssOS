@@ -58,12 +58,20 @@
   // 挂在 body 上的特效层在【全屏元素之外 → 完全不可见】(Jing 一直"看不到爆"的真因)。
   // 解决: 特效层挂到【当前全屏元素】(没有就 #watch-panel, 再没有才 body), 并在全屏切换时重新归位。
   function fxHost() {
-    // 原生全屏时【必须】挂到全屏元素(否则不渲染); 否则挂 body(页面级, z-index 10088 压全场,
-    // 不被影院层 10052-10080 盖住)。不要在非全屏时挂 #watch-panel —— 会困在其层叠上下文里。
-    return document.fullscreenElement
-        || document.webkitFullscreenElement
-        || document.body
-        || document.documentElement;
+    // 原生全屏时【必须】挂到全屏元素(否则不渲染)。
+    var fs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fs) return fs;
+    // CSSOS_WAVE_1004b/1018 20260619 — Jing 实测: "MV 真全屏影院"其实是 watch 面板【最大化】
+    // (非 OS requestFullscreen, 也无独立 cinema-stage —— 那是早期设计遗留, 现已无任何代码创建,
+    // W1018 删除空引用)。watch 面板打开且在前时, 把特效层挂进它的 .watch-screen(情绪字幕
+    // #watch-subtitle 本就在这里且可见 → 同处必可见), 爆字就在 MV 上炸开, 不再漏到主页。
+    try {
+      var wp = document.getElementById("watch-panel");
+      if (wp && !wp.classList.contains("hidden") && wp.dataset.minimized !== "true") {
+        return wp.querySelector(".watch-screen") || wp;
+      }
+    } catch (_e) {}
+    return document.body || document.documentElement;
   }
   function homeLayer(el) {
     try {
@@ -80,6 +88,10 @@
   try {
     document.addEventListener("fullscreenchange", rehomeAll);
     document.addEventListener("webkitfullscreenchange", rehomeAll);
+    // CSSOS_WAVE_1004 — 影院进/出也要 re-home(影院非原生全屏, fullscreenchange 不触发)。
+    // 延一拍等 #cssos-cinema-stage 挂好/移除后再归位。
+    document.addEventListener("cssos:cinema-toggle", function () { setTimeout(rehomeAll, 60); });
+    document.addEventListener("cssos:panelclose", function () { setTimeout(rehomeAll, 60); });
   } catch (e) {}
 
   var flashEl = null;
@@ -94,6 +106,7 @@
     return flashEl;
   }
   globalThis.cssosEmotionFlash = function (emotion, intensity) {
+    if (globalThis.cssosEmotionSubtitlesOff === true) return;   // W725 — 情绪字幕主开关(关 = 只留普通字幕)
     if (!FX.fullscreen || !FX.flash) return;
     try {
       var el = ensureFlash();
@@ -103,9 +116,8 @@
       el.style.setProperty("--cssfx-flash-peak", peak.toFixed(3));
       el.style.setProperty("--cssfx-flash-dur", (FX.burstDurMs || 520) + "ms");
       el.classList.remove("is-flash"); void el.offsetWidth; el.classList.add("is-flash");
-      // CSSOS_WAVE_689 — 天女散花: 峰值字爆全屏时, 从顶部撒一阵花瓣/彩纸(像庆祝)。compositor-safe
-      // (只动 transform/opacity), 自动清理。可关: cssosEmotionConfetti=false。
-      spawnConfetti(emotion, peak);
+      // CSSOS_WAVE_726 — 天女散花(从天而降)做成可选: 默认关; 用户在面板开启后, 峰值字时才撒。
+      spawnConfetti(emotion, peak);   // 内部 cssosConfettiTopDown !== true 直接 return
     } catch (e) {}
   };
 
@@ -126,14 +138,24 @@
     homeLayer(confettiLayer);
     return confettiLayer;
   }
+  // CSSOS_WAVE_721 — 内容联动 emoji 池: 优先用本曲 AI 生成的 theme_emoji(西部→🤠🐎🔫, 圣城→🕊️🏛️🌟),
+  // 没有才回退情绪默认/花。让 confetti + 器乐 emoji 都"长在歌曲内容里", 不再千篇一律。
+  function _themePool(fallback) {
+    try {
+      var th = globalThis.cssosWorkThemeEmoji;
+      if (Array.isArray(th) && th.length >= 3) return th;
+    } catch (e) {}
+    return fallback;
+  }
   var _lastConfetti = 0;
   function spawnConfetti(emotion, peak) {
-    if (globalThis.cssosEmotionConfetti === false) return;
+    if (globalThis.cssosEmotionSubtitlesOff === true) return;
+    if (globalThis.cssosConfettiTopDown !== true) return;   // W726 — 天女散花(从天而降)默认关, 用户可开
     var now = (globalThis.performance && performance.now) ? performance.now() : 0;
     if (now && now - _lastConfetti < 420) return; // 节流: 别每字都撒, 保持"庆祝"的稀有感
     _lastConfetti = now;
     var layer = ensureConfettiLayer();
-    var pool = EMO_PETALS[String(emotion || "").toLowerCase()] || PETALS;
+    var pool = _themePool(EMO_PETALS[String(emotion || "").toLowerCase()] || PETALS);
     // 数量 ∝ 峰值强度(0.8→16, 1.0→26), 越激动撒越多。
     var n = Math.round(14 + 12 * Math.max(0, Math.min(1, Number(peak) || 0.8)));
     var frag = document.createDocumentFragment();
@@ -187,7 +209,7 @@
   // text=要爆的字/词; emotion=情绪(配色); intensity=0..1(决定大小); durSec=唱腔时长(决定停留);
   // emoji=该情绪 emoji(可选)→ 渲染在大字【背后】做柔光背景(Jing: 字幕在上, 背景是 emoji, 全屏爆)。
   // CSSOS_WAVE_702 — 重做: 一个 burst = 【emoji 背景层(后)+ 发光大字(前)】的组合, emoji 不再占字幕轨。
-  globalThis.cssosEmotionCenterBurst = function (text, emotion, intensity, durSec, emoji) {
+  globalThis.cssosEmotionCenterBurst = function (text, emotion, intensity, durSec, emoji, scatter) {
     try {
       if (globalThis.cssosEmotionCenter === false) return;
       var t = String(text || "").trim();
@@ -204,6 +226,12 @@
       var grp = document.createElement("div");
       grp.className = "cssfx-center-grp";
       grp.style.cssText = "--cb-rgb:" + rgb + ";--cb-dur:" + dwell.toFixed(2) + "s;";
+      // CSSOS_WAVE_716 — scatter: 不在中央, 全屏随机一个安全位置爆(避开顶部搜索/底部胶囊区)。
+      if (scatter) {
+        grp.classList.add("is-scatter");
+        grp.style.left = (8 + Math.random() * 74).toFixed(1) + "%";
+        grp.style.top = (14 + Math.random() * 58).toFixed(1) + "%";
+      }
       var emo = String(emoji || "").trim();
       if (emo) {
         var bg = document.createElement("div");
@@ -222,6 +250,276 @@
       grp.appendChild(el);
       layer.appendChild(grp);
       setTimeout(function () { try { if (grp && grp.parentNode) grp.parentNode.removeChild(grp); } catch (_e) {} }, Math.round(dwell * 1000) + 280);
+    } catch (e) {}
+  };
+
+  // ── 整句累积爆(W720)──────────────────────────────────────────────────────────
+  // Jing: 不再"单字一爆就消失"。一句字幕从第一个字开始, 逐字在【智能随机位置】爆出并【驻留+轻呼吸】,
+  // 直到整句铺完(看起来是完整一句, 不死板但能读), 再【整句一起慢慢淡出】; 然后下一句。
+  // "智能随机"= 按阅读顺序铺成松散网格(左→右、上→下)+ 抖动, 不是乱撒。字号 ∝ 情绪强度(每字不同)。
+  var _lineStage = { key: null, els: [], spawned: null };
+  // 返回【中心点】坐标(% of viewport)。CSS 用 translate(-50%,-50%) 以此为中心 → 贴边的字会
+  // 超出屏幕约一半(媒体框只显示半个字), 但中心点 clamp 永远不会完全出屏。
+  // CSSOS_WAVE_721 — 竖排(vertical): 拉丁语/移动端用竖排(横排会挤爆窄屏); CJK 桌面横排网格。
+  function _stagePos(i, n, vertical, side, band, oneCol) {
+    if (vertical) {
+      // CSSOS_WAVE_731v 20260613 — Jing: 英文(非CJK)无论横竖屏, 中央爆的词【一律单列竖排、
+      // 一个单词一行】, 随机靠左/右。oneCol=true 时强制单列(不再长句分两列)。
+      var cols = oneCol ? 1 : Math.max(1, Math.min(2, Math.round(n / 9)));
+      var perCol = Math.ceil(n / cols);
+      var col = Math.floor(i / perCol), within = i % perCol;
+      // CSSOS_WAVE_858 — Jing「行距没生效: 只 3 个词却均摊上中下占满全屏」根因: 原 ySpan 固定 64%, 行距=
+      // 64/(行数-1) → 词少也撑满。改【固定行距 ~9%/行】: 行少→紧凑(3 词 ≈18% 高, 居中一小块), 行多→
+      // 才撑开(封顶 78%)。背景 emoji 可重叠, 字本身行距正常即可。
+      // CSSOS_WAVE_858 — Jing「行少紧凑居上(左上角), 不要居中」: 从顶部 ~12% 起向下排, 固定行距 ~9%/行
+      // (背景emoji可重叠)。3 词 → 12/21/30%(左上一小列); 长列向下撑(封顶仍在屏内)。不再垂直居中。
+      var yStep = perCol > 1 ? Math.min(9, 80 / (perCol - 1)) : 0;
+      var y0 = 12;   // 顶部起点(居上)
+      // 竖排【靠左 or 靠右】更贴边框(原 29/71 → 16/84 → CSSOS_WAVE_1034 8/92 更靠边, Jing「左右再靠边一点」)。
+      var base = (side === "right") ? 92 : 8;
+      var xCenter = cols > 1 ? (base + col * 13 - 6.5) : base;
+      var x = xCenter + (Math.random() * 10 - 5);   // 横向 ±5 歪斜(原 ±3)
+      var y = y0 + within * yStep + (Math.random() * 4 - 2);
+      return { x: Math.max(3, Math.min(97, x)), y: Math.max(6, Math.min(94, y)) };
+    }
+    // 横排: 像横向流动的一整句, 短句单行, 长句折 2-3 行, 允许部分重叠("看得出是一整句")。
+    // CSSOS_WAVE_726 — Jing: 桌面横排字间距太疏 → 改【固定紧凑步距 ~9.5%/字, 整句居中】, 字更抱团;
+    // 长句才撑宽(封顶 88%), 抖动收小到 ±3, 不再各自飘远。
+    var rows = Math.max(1, Math.min(3, Math.round(n / 7)));
+    var perRow = Math.ceil(n / rows);
+    var row = Math.floor(i / perRow), col2 = i % perRow;
+    var STEP = 7.0;                                             // W729 — 更紧(背景大 emoji 允许部分重叠)
+    var xSpan = Math.min(86, Math.max(0, (perRow - 1) * STEP));
+    // CSSOS_WAVE_851 — 行更紧凑(15→11), 更歪斜。
+    var ySpan2 = Math.min(34, Math.max(0, (rows - 1) * 11));
+    // W851 — 横排更贴上下边框(原 22/78 → 14/86), 让中央主景更干净。
+    var bandY = band === 2 ? 86 : 14;
+    var x0 = 50 - xSpan / 2, y02 = bandY - ySpan2 / 2;
+    var colStep = perRow > 1 ? xSpan / (perRow - 1) : 0;
+    var rowStep = rows > 1 ? ySpan2 / (rows - 1) : 0;
+    var x2 = x0 + col2 * colStep + (Math.random() * 6 - 3);
+    var y2 = y02 + row * rowStep + (Math.random() * 8 - 4);   // 纵向 ±4 歪斜(原 ±3)
+    return { x: Math.max(3, Math.min(97, x2)), y: Math.max(7, Math.min(93, y2)) };
+  }
+  function _fadeLine(stage) {
+    if (!stage || !stage.els || !stage.els.length) return;
+    var els = stage.els.slice();
+    els.forEach(function (el) { try { el.classList.add("is-line-fade"); } catch (e) {} });
+    setTimeout(function () { els.forEach(function (el) { try { if (el && el.parentNode) el.parentNode.removeChild(el); } catch (e) {} }); }, 1600);
+  }
+  globalThis.cssosFadeBurstLine = function () {
+    if (_lineStage.key !== null) { _fadeLine(_lineStage); _lineStage = { key: null, els: [], spawned: null }; }
+  };
+  // CSSOS_WAVE_821 20260616 — Jing「App 连播几首就崩回主界面」根治(DOM 爆炸真凶)。
+  // 情绪FX的 spark/edge/center/line-stage 元素喷进【常驻浮层】, 各自靠 3-4s 自清定时器;
+  // 切歌/停止时这些定时器对 detach 的浮层空放(silent no-op)→ 元素残留, 连播几首累积上千 SPAN
+  // → iOS WKWebView 撞内存顶被杀(表现为"返回主界面")。这里提供一个【硬清空】: 切歌/停止/关面板
+  // 时把三个浮层一次性清空 + 复位 line-stage, 让每首轻装上阵(innerHTML="" 比逐 removeChild 省重排)。
+  globalThis.cssosClearAllBurstFx = function () {
+    try {
+      ["cssfx-confetti", "cssfx-center-burst", "cssfx-spark"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && el.childNodes.length) el.innerHTML = "";
+      });
+    } catch (_e) {}
+    try { _lineStage = { key: null, els: [], spawned: null }; } catch (_e2) {}
+  };
+  // CSSOS_WAVE_823b 20260616 — Jing 实证「退出影院后左上角 emoji 迟迟不消失」: W821 只在切歌清,
+  // 退影院/暂停/结束/关面板时没清 → 最后一个 burst 元素留在固定浮层上(timer 在浮层被盖后空放)。
+  // 这里把【退影院 / 全屏变化 / 关面板 / 媒体暂停 / 媒体结束】全挂上硬清空。
+  (function wireBurstFxClear() {
+    var clr = function () { try { globalThis.cssosClearAllBurstFx(); } catch (_e) {} };
+    try {
+      ["cssos:cinema-toggle", "cssos:panelclose", "cssos:work-changed", "fullscreenchange", "webkitfullscreenchange"].forEach(function (ev) {
+        document.addEventListener(ev, function () { setTimeout(clr, 60); }, false);
+      });
+    } catch (_e) {}
+    // 媒体暂停/结束(pause/ended 不冒泡, 直接挂元素; index.html 静态存在)。带重试以防元素晚到。
+    var wireMedia = function () {
+      ["watch-audio-preview", "watch-video"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && !el.__cssosBurstClrWired) {
+          el.__cssosBurstClrWired = true;
+          el.addEventListener("pause", clr);
+          el.addEventListener("ended", clr);
+        }
+      });
+    };
+    try { wireMedia(); setTimeout(wireMedia, 1500); setTimeout(wireMedia, 5000); } catch (_e) {}
+  })();
+  // ── 以某点为中心的【小烟花】: 小 emoji 从该点向四周炸开, 不透明→透明消失(替代从天而降)。───
+  var _sparkLayer = null;
+  function ensureSparkLayer() {
+    if (!_sparkLayer) _sparkLayer = document.getElementById("cssfx-spark");
+    if (!_sparkLayer) {
+      _sparkLayer = document.createElement("div");
+      _sparkLayer.id = "cssfx-spark";
+      _sparkLayer.setAttribute("aria-hidden", "true");
+    }
+    homeLayer(_sparkLayer);
+    return _sparkLayer;
+  }
+  function _fireworkAt(xPct, yPct, emotion, count) {
+    try {
+      if (globalThis.cssosEmotionSubtitlesOff === true) return;   // W726 — 字心烟花只受主开关管(不再被"天女散花"开关误关)
+      var layer = ensureSparkLayer();
+      var pool = _themePool(EMO_PETALS[String(emotion || "").toLowerCase()] || PETALS);
+      var nn = Math.max(3, Math.min(16, count || 6));
+      var frag = document.createDocumentFragment();
+      for (var k = 0; k < nn; k++) {
+        var p = document.createElement("span");
+        p.className = "cssfx-spark-dot";
+        p.textContent = pool[(Math.random() * pool.length) | 0];
+        var ang = Math.random() * Math.PI * 2;
+        var dist = 7 + Math.random() * 22;        // vmin
+        p.style.cssText =
+          "left:" + xPct.toFixed(1) + "%;top:" + yPct.toFixed(1) + "%;" +
+          "font-size:" + (0.6 + Math.random() * 0.9).toFixed(2) + "em;" +
+          "--sk-dx:" + (Math.cos(ang) * dist).toFixed(1) + "vmin;" +
+          "--sk-dy:" + (Math.sin(ang) * dist).toFixed(1) + "vmin;" +
+          "--sk-dur:" + (1.7 + Math.random() * 1.3).toFixed(2) + "s;";   // W726 — 慢一点淡出(延时, 别太快消失)
+        frag.appendChild(p);
+      }
+      layer.appendChild(frag);
+      setTimeout(function () {
+        try { var kids = layer.querySelectorAll(".cssfx-spark-dot"); for (var z = 0; z < Math.min(kids.length, nn); z++) if (kids[z]) layer.removeChild(kids[z]); } catch (_e) {}
+      }, 3400);
+    } catch (e) {}
+  }
+  globalThis.cssosFireworkAt = _fireworkAt;
+  globalThis.cssosLineBurstWord = function (lineKey, i, n, text, emotion, intensity) {
+    try {
+      if (globalThis.cssosEmotionSubtitlesOff === true) return;   // W725 — 情绪字幕主开关
+      if (globalThis.cssosEmotionCenter === false) return;
+      var t = String(text || "").trim();
+      if (!t) return;
+      if (_lineStage.key !== lineKey) {        // 新句: 上一句一起淡出, 起新句; 【按本句首字 + 屏幕方向定方位】
+        _fadeLine(_lineStage);
+        // CSSOS_WAVE_736 20260613 — Jing 排版规则(整句一致, 非逐字):
+        //  · 竖屏 / App端: 所有语言【必须竖排左/右】, 绝不横排(否则撑破屏幕);
+        //  · 桌面/横屏 + 拉丁(长单词): 只能竖排左/右(无论横竖屏);
+        //  · 桌面/横屏 + CJK/方块字: 5 种 —— 横排(上/中/下) + 竖排(左/右), 随机。
+        var _isCJK0 = /[぀-ヿ㐀-鿿가-힯]/.test(t);
+        var _isApp = false, _portrait = false;
+        try { _isApp = document.documentElement.classList.contains("cssos-app"); } catch (_e) {}
+        try { _portrait = (window.innerHeight || 0) >= (window.innerWidth || 1); } catch (_e) {}
+        var _mustVert = _isApp || _portrait || !_isCJK0;   // 竖屏/App/拉丁 → 必竖排
+        var _vert = _mustVert ? true : (Math.random() < 0.4); // CJK横屏: 40%竖 / 60%横(共5种)
+        _lineStage = {
+          key: lineKey, els: [], spawned: {},
+          vertical: _vert,
+          side: (Math.random() < 0.5 ? "left" : "right"),  // 竖排用: 左/右(边框)
+          band: (Math.random() < 0.5 ? 0 : 2),             // 横排用: 上/下(边框, W736B 去掉中间, 不遮主景)
+        };
+      }
+      if (_lineStage.spawned[i]) return;       // 每句每字只爆一次
+      _lineStage.spawned[i] = 1;
+      var layer = ensureCenterLayer();
+      var rgb = EMO_RGB[String(emotion || "").toLowerCase()] || "255,224,140";
+      var inten = Math.max(0, Math.min(1, Number(intensity) || 0.5));
+      // CSSOS_WAVE_729 ③ — 字号按情绪(每字不同, 默认开); 关 = 统一字号。
+      // W766b — Jing「中央爆字恢复之前的正常」: 撤销 W765 缩小, 还原原尺寸。
+      var sz = (globalThis.cssosSubSizeByEmotion === false) ? "3.00" : (1.8 + inten * 2.6).toFixed(2);
+      // W736 — 方位由本句首字一次定好(_lineStage.vertical), 整句一致, 不再逐字重判。
+      var isCJK = /[぀-ヿ㐀-鿿가-힯]/.test(t);
+      var vertical = _lineStage.vertical;
+      // W731v — 非 CJK(拉丁)竖排强制单列(一词一行); CJK 竖排可双列。
+      var pos = _stagePos(i, Math.max(1, n), vertical, _lineStage.side, _lineStage.band, !isCJK);
+      var grp = document.createElement("div");
+      // CSSOS_WAVE_729 ② — 爆大→延迟→收回(默认开); 关 = 直接到本身大小(加 is-nopunch)。
+      grp.className = "cssfx-center-grp is-line" + (globalThis.cssosBurstScalePunch === false ? " is-nopunch" : "");
+      grp.style.cssText = "--cb-rgb:" + rgb + ";left:" + pos.x.toFixed(1) + "%;top:" + pos.y.toFixed(1) + "%;";
+      // CSSOS_WAVE_731r/s 20260612 — Jing 定义: 中央爆大字 = 【每字随机色】(不是每句)。每个字滚
+      // 一个新随机色, 字用它上色 + 该字的【背景 emoji 用同色发光晕】(emoji 多色字形 color 改不动,
+      // 但同色 halo 让字和它的专属背景 emoji 呼应)。参数化: globalThis.cssosBurstCharColor(默认开,
+      // 面板「爆字随机色·每字」可关; 关了字保持白、emoji 无彩晕)。
+      var _charColor = (globalThis.cssosBurstCharColor !== false)
+        ? "hsl(" + ((Math.random() * 360) | 0) + ",92%,72%)"
+        : null;
+      // CSSOS_WAVE_721 #2 — 每字【大背景 emoji】: 比字大、半透明、随字驻留(不消失), 衬在字后。
+      var bpool = _themePool(EMO_PETALS[String(emotion || "").toLowerCase()] || PETALS);
+      var bemo = bpool[(Math.random() * bpool.length) | 0];
+      if (bemo) {
+        var bg = document.createElement("div");
+        bg.className = "cssfx-center-emoji";
+        bg.textContent = bemo;
+        bg.style.cssText = "font-size:" + (parseFloat(sz) * 2.2).toFixed(2) + "rem;"
+          + (_charColor ? "text-shadow:0 0 18px " + _charColor + ",0 0 38px " + _charColor + ";" : "");
+        grp.appendChild(bg);
+      }
+      var el = document.createElement("div");
+      el.className = "cssfx-center-word";
+      el.textContent = t;
+      // CSSOS_WAVE_745 — Jing「爆字幕/情绪字幕逐字随机切换字体」: 每字从脚本感知的字体池随机取
+      // 一个字体(CJK→中日韩字体, 拉丁→那 92 个 Google fancy)。globalThis.cssosBurstRandomFont
+      // 默认开, 面板「爆字随机字体·每字」可关(关 = 统一默认字体)。
+      // CSSOS_WAVE_747 — 情绪字幕跟随字体切换总开关 cssosEmotionFontFollow(默认开, 字体设置菜单可关)
+      // ∧ 逐字随机字体开关 cssosBurstRandomFont(默认开)。任一关 → 爆字用统一默认字体(冻结)。
+      var _burstFont = (globalThis.cssosBurstRandomFont !== false &&
+                        globalThis.cssosEmotionFontFollow !== false &&
+                        typeof globalThis.cssosPickFontForChar === "function")
+        ? (function () { try { return globalThis.cssosPickFontForChar(t) || ""; } catch (_e) { return ""; } })()
+        : "";
+      // CSSOS_WAVE_851 — Jing「不必那么整齐, 可歪歪斜斜」: 每字随机小旋转(±9°)。加在 word 元素
+      // (不碰 grp 的爆字缩放动画), 让整句看着错落有致而不死板。
+      var _tilt = (Math.random() * 18 - 9).toFixed(1);
+      el.style.cssText = "font-size:" + sz + "rem;--cb-glow:" + (0.4 + inten * 0.6).toFixed(2) + ";"
+        + "transform:rotate(" + _tilt + "deg);"
+        + (_burstFont ? "font-family:" + _burstFont + ";" : "");
+      if (_charColor) el.style.color = _charColor;
+      grp.appendChild(el);
+      layer.appendChild(grp);
+      _lineStage.els.push(grp);
+      // CSSOS_WAVE_721 #3 — 以【该字为中心】炸开小烟花(小 emoji 向四周扩散, 不透明→透明),
+      // 取代"从天而降"。数量 ∝ 情绪强度。
+      _fireworkAt(pos.x, pos.y, emotion, 5 + Math.round(inten * 7));
+    } catch (e) {}
+  };
+
+  // ── 器乐段 emoji 脉冲(前奏/间奏/尾声: 有音乐没歌词, 也别浪费高音)──────────────────
+  // CSSOS_WAVE_716 — Jing: "前奏那段虽然没歌词, 但有音乐呀, 不是应该爆一些 emoji 吗?"
+  //   [Music...] 段播放时, 让 emoji 跟着节奏闪/飘(天女散花 + 偶尔中央爆一个音乐 emoji), 半透明
+  //   不遮画面。节流 ~1.4s, 随机大小/停留/emoji → 有"跳动/呼吸"感而不喧宾夺主。
+  var _lastMusicPulse = 0;
+  var MUSIC_EMOJI = ["🎵", "🎶", "✨", "🌟", "💫", "🎼", "🎷", "🎻", "🪕", "🥁", "🌸", "💖"];
+  // CSSOS_WAVE_721 #6 — 器乐段(前奏/间奏/尾声): emoji 从【四边框向内飘进】(取代从天而降),
+  // 密度【响应音量】(globalThis.cssosCurrentVolume 0..1: 大→多, 小→少)。无音量数据时用中等随机。
+  globalThis.cssosMusicGapPulse = function (emotion) {
+    try {
+      if (globalThis.cssosEmotionSubtitlesOff === true) return;   // W725 — 情绪字幕主开关
+      if (globalThis.cssosMusicGapEmoji === false) return;        // 仅吃自己的开关(不再被"天女散花"开关误关)
+      var now = (globalThis.performance && performance.now) ? performance.now() : 0;
+      if (now && _lastMusicPulse && now - _lastMusicPulse < 700) return; // 节流
+      _lastMusicPulse = now;
+      var vol = Number(globalThis.cssosCurrentVolume);
+      if (!(vol >= 0 && vol <= 1)) vol = 0.4 + Math.random() * 0.4; // 没音量数据 → 中等随机
+      var nn = 1 + Math.round(vol * 6);                              // 音量大 → 飘得多
+      var layer = ensureSparkLayer();
+      var pool = _themePool(EMO_PETALS[String(emotion || "").toLowerCase()] || MUSIC_EMOJI);
+      var frag = document.createDocumentFragment();
+      for (var k = 0; k < nn; k++) {
+        var edge = (Math.random() * 4) | 0;   // 0上 1右 2下 3左
+        var sx, sy, dx, dy;
+        var along = 8 + Math.random() * 84;    // 沿边位置 %
+        var into = 14 + Math.random() * 26;    // 向内飘进距离 vmin
+        if (edge === 0) { sx = along; sy = 2;  dx = 0; dy = into; }
+        else if (edge === 1) { sx = 98; sy = along; dx = -into; dy = 0; }
+        else if (edge === 2) { sx = along; sy = 98; dx = 0; dy = -into; }
+        else { sx = 2; sy = along; dx = into; dy = 0; }
+        var p = document.createElement("span");
+        p.className = "cssfx-edge-dot";
+        p.textContent = pool[(Math.random() * pool.length) | 0];
+        p.style.cssText =
+          "left:" + sx.toFixed(1) + "%;top:" + sy.toFixed(1) + "%;" +
+          "font-size:" + (0.8 + Math.random() * 1.1).toFixed(2) + "em;" +
+          "--ed-dx:" + dx.toFixed(1) + "vmin;--ed-dy:" + dy.toFixed(1) + "vmin;" +
+          "--ed-dur:" + (2.0 + Math.random() * 1.6).toFixed(2) + "s;";
+        frag.appendChild(p);
+      }
+      layer.appendChild(frag);
+      setTimeout(function () {
+        try { var kids = layer.querySelectorAll(".cssfx-edge-dot"); for (var z = 0; z < Math.min(kids.length, nn); z++) if (kids[z]) layer.removeChild(kids[z]); } catch (_e) {}
+      }, 3800);
     } catch (e) {}
   };
 

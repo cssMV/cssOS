@@ -639,8 +639,12 @@
       "box-shadow:-12px 0 16px rgba(0,0,0,0.45);transition:transform .12s ease,border-color .12s ease;";
     card.onmouseenter = function () { card.style.transform = "translateY(-2px)"; };
     card.onmouseleave = function () { card.style.transform = ""; };
+    // CSSOS_WAVE_1129b — Jing 指令: 统一平台特色「爆」风格。每次出现 = 随机【大 emoji】居中,
+    //   再从它【中心爆出随机色小 emoji】(复用情绪字幕字心烟花 cssosFireworkAt)。
+    var BIG_WANT_EMOJI = ["✨", "🎉", "💫", "🌟", "💖", "🔥", "🎇", "🌈", "⚡", "🎆", "💥", "🪄"];
+    var bigEmo = BIG_WANT_EMOJI[(Math.random() * BIG_WANT_EMOJI.length) | 0];
     card.innerHTML =
-      '<div style="width:100%;aspect-ratio:16/9;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:24px;background:rgba(0,0,0,0.32);">✨</div>' +
+      '<div class="cssos-want-bigemo" style="width:100%;aspect-ratio:16/9;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:24px;background:rgba(0,0,0,0.32);">' + bigEmo + "</div>" +
       '<div style="font:600 11px/1.25 -apple-system,system-ui,sans-serif;">' +
       lc("Want an MV like this?", "也想要这样一支 MV?") + "</div>";
     card.addEventListener("click", function () {
@@ -654,7 +658,28 @@
       } catch (_e) {}
     });
     listEl.appendChild(card);
+    // 从大 emoji 中心爆出随机色小 emoji。节流: 同一次"出现"只爆一次(refresh 可能频繁触发)。
+    try {
+      var now = Date.now();
+      if (now - _lastWantBurst > 3500) {
+        _lastWantBurst = now;
+        var EMO_KEYS = ["joy", "ignite", "resolve", "intimate", "calm"];
+        var emo = EMO_KEYS[(Math.random() * EMO_KEYS.length) | 0];
+        requestAnimationFrame(function () {
+          try {
+            if (typeof globalThis.cssosFireworkAt !== "function") return;
+            var box = card.querySelector(".cssos-want-bigemo");
+            var r = (box || card).getBoundingClientRect();
+            if (!r.width) return;
+            var xPct = (r.left + r.width / 2) / (window.innerWidth || 1) * 100;
+            var yPct = (r.top + r.height / 2) / (window.innerHeight || 1) * 100;
+            globalThis.cssosFireworkAt(xPct, yPct, emo, 12 + ((Math.random() * 6) | 0));
+          } catch (_e) {}
+        });
+      }
+    } catch (_e) {}
   }
+  var _lastWantBurst = 0;
 
   function show() {
     if (visible) return;

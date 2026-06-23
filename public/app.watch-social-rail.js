@@ -47,8 +47,9 @@
     } catch (_e) {}
   }
   function statsFor(id) { return _stats[id] || { listens: 0, watches: 0, tips: 0, comments: 0 }; }
-  // CSSOS_WAVE_1128 — Jing 指令: 始终显"计数 · 价"(无交易也显 0), 如 "0 · ¢69"。
-  function countPrice(n, cents) { return fmtCount(Number(n) || 0) + " · " + fmtCents(cents); }
+  // CSSOS_WAVE_1129b — Jing 指令: 始终显"计数/价"(无交易也显 0), 如 "0/¢69"。
+  //   用斜杠 "/" 而非圆点 —— "/" 表示【每次/per】这个价(每聆听/每观赏的单价)。
+  function countPrice(n, cents) { return fmtCount(Number(n) || 0) + "/" + fmtCents(cents); }
 
   // 当前播放作品(沿用 watch 既有回退链)。
   function currentWork() {
@@ -232,14 +233,14 @@
       onClick: function (b) { dispatch("listen", b); }
     }));
 
-    // 4. 👁 观赏 · 计数·¢99(真视频, 上线前置灰)
-    rail.appendChild(mkItem("👁️", countPrice(st.watches, viewCents(w)), {
+    // 4. 🎞️ 观赏 · 计数/¢99(真视频, 上线前置灰) — CSSOS_WAVE_1129b 图标改胶片
+    rail.appendChild(mkItem("🎞️", countPrice(st.watches, viewCents(w)), {
       disabled: true, aria: copy("Watch", "观赏"),
       title: copy("Real-video viewing — opens once full video ships", "观赏(真视频)— 真视频上线后开放")
     }));
 
-    // 5. 💝 打赏 · "0 · Tip"(计数 · Tip 字, 金额随意) — CSSOS_WAVE_1128
-    rail.appendChild(mkItem("💝", fmtCount(st.tips) + " · " + copy("Tip", "打赏"), {
+    // 5. 💝 打赏 · "0/Tip"(计数/Tip, 金额随意) — CSSOS_WAVE_1129b
+    rail.appendChild(mkItem("💝", fmtCount(st.tips) + "/" + copy("Tip", "打赏"), {
       aria: copy("Tip the creator", "打赏作者"), title: copy("Tip the creator — any amount", "打赏作者(金额随意)"),
       onClick: function (b) { dispatch("tip", b); }
     }));

@@ -67,6 +67,15 @@
     } catch (_e) { return null; }
   }
   function workId() { var w = currentWork(); return w ? String(w.id || w.work_id || "").trim() : ""; }
+  // CSSOS_WAVE_1141 — Jing: 评论点不动多半是点击时 currentWork() 已空 → workId 为"" → 静默返回。
+  //   多源稳健解析 work id, 任一拿到即用。
+  function robustWorkId() {
+    var id = workId(); if (id) return id;
+    try { if (typeof globalThis.cssosCurrentWorkId === "function") { id = String(globalThis.cssosCurrentWorkId() || "").trim(); if (id) return id; } } catch (_e) {}
+    try { var ps = globalThis.cssosMvPipelinePanelState && globalThis.cssosMvPipelinePanelState(); if (ps) { id = String(ps.workId || ps.work_id || ps.id || "").trim(); if (id) return id; } } catch (_e) {}
+    try { var p = globalThis.currentWatchPreviewWork; if (p) { id = String(p.id || p.work_id || "").trim(); if (id) return id; } } catch (_e) {}
+    return "";
+  }
   function listenCents(w) { return Number((w && (w.current_listen_price_cents || w.listen_price_cents || w.suggested_listen_price_cents)) || 69); }
   function viewCents(w) { return Number((w && (w.current_view_price_cents || w.view_price_cents)) || 99); }
 
@@ -236,13 +245,18 @@
     rail.appendChild(mkItem("💬", fmtCount(st.comments), {
       aria: copy("Comments", "评论"),
       onClick: function () {
-        var id = workId(); if (!id) return;
+        // CSSOS_WAVE_1141 — 稳健取 id; 取不到也给可见提示, 不再静默"点不动"。
+        var id = robustWorkId();
+        if (!id) { try { if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Loading work…", "作品加载中…")); } catch (_e) {} return; }
         try {
           // CSSOS_WAVE_1138 — 通用作品评论(影院 user_works); 旧的 openPersonMvComments 只认 person_mv → 点不动。
-          if (typeof globalThis.cssosOpenWorkComments === "function") globalThis.cssosOpenWorkComments(id);
-          else if (typeof globalThis.openPersonMvComments === "function") globalThis.openPersonMvComments(id);
-          else if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Comments unavailable", "评论暂不可用"));
-        } catch (_e) {}
+          if (typeof globalThis.cssosOpenWorkComments === "function") { globalThis.cssosOpenWorkComments(id); return; }
+          if (typeof globalThis.openPersonMvComments === "function") { globalThis.openPersonMvComments(id); return; }
+          if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Comments unavailable", "评论暂不可用"));
+        } catch (err) {
+          try { if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Comments failed to open", "评论打开失败")); } catch (_e) {}
+          try { console.warn("[social-rail] comments open failed", err); } catch (_e) {}
+        }
       }
     }));
 

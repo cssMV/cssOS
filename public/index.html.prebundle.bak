@@ -2315,7 +2315,9 @@
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
     <script src="app.autoplay-feed.js?v=20260529-w490g-nobackdrop"></script>
     <script src="app.watch-price-strip.js?v=20260602-w588f-icons"></script>
-    <script src="app.anthropic-health-banner.js?v=20260512-wave111d-vision-health"></script>
+    <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
+         只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
+    <script src="app.watch-social-rail.js?v=20260623-w1118-rail-restart"></script>
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
     <script src="app.crash-log-dashboard.js?v=20260526-w463-skeleton-admin"></script>

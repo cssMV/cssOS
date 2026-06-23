@@ -220,6 +220,9 @@
     av.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
       try {
+        // CSSOS_WAVE_1137 — Jing 指令: 点头像【切换】菜单显隐(已开→关, 已关→开)。
+        var openMenuEl = document.querySelector(".cssos-author-menu");
+        if (openMenuEl) { document.querySelectorAll(".cssos-author-menu").forEach(function (m) { m.remove(); }); return; }
         if (typeof globalThis.cssosOpenWatchAuthorMenu === "function") { globalThis.cssosOpenWatchAuthorMenu(av); return; }
         var uid = String(w.owner_user_id || "").trim();
         if (uid && typeof globalThis.openUserHomepage === "function") globalThis.openUserHomepage(uid);

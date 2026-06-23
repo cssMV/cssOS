@@ -229,8 +229,9 @@
     rail.appendChild(av);
 
     // 2. 💬 评论 · 计数(TikTok 式: 直接显计数, 无评论显 0, 不显"评论"二字) — CSSOS_WAVE_1128
+    //    CSSOS_WAVE_1134 — Jing 指令: 去掉 is-comment 特殊绿圈, 与其它图标风格统一(普通半透明圆)。
     rail.appendChild(mkItem("💬", fmtCount(st.comments), {
-      icClass: "is-comment", aria: copy("Comments", "评论"),
+      aria: copy("Comments", "评论"),
       onClick: function () {
         var id = workId(); if (!id) return;
         try {
@@ -302,13 +303,15 @@
 
   function start() {
     schedule();
-    setInterval(schedule, 2500);
+    // CSSOS_WAVE_1134 — Jing 指令: 停止每 2.5s 全量重渲染(耗内存 DOM churn + 头像被反复 detach)。
+    //   改【纯事件驱动】: 只在真有变化时渲染(换歌/换 workId/作者解析好/面板开关/全屏切换)。
     ["mousemove", "pointerdown", "touchstart", "keydown", "wheel"].forEach(function (ev) {
       document.addEventListener(ev, function () { if (watchOpen()) bumpIdle(); }, { passive: true });
     });
     ["cssos:work-changed", "cssos:work-id-changed", "cssos:playlist-advance",
      "cssos:open-watch-for-run", "cssos:cinema-toggle", "fullscreenchange",
-     "cssos:author-info-changed"].forEach(function (ev) {   // W1132 — 作者头像解析好后重渲染
+     "cssos:author-info-changed",                          // W1132 — 作者头像解析好后重渲染
+     "cssos:panelopen", "cssos:panelclose"].forEach(function (ev) {   // W1134 — 面板开关时更新显隐
       document.addEventListener(ev, schedule);
       window.addEventListener(ev, schedule);
     });

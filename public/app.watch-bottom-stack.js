@@ -162,6 +162,9 @@
       sub.style.setProperty("align-self", "center", "important");   // 上下居中, 与 AI 平
       sub.style.setProperty("grid-row", "1", "important");          // 上行
       sub.style.setProperty("grid-column", "1", "important");       // 左列(右列 52px 留给 AI FAB)
+      // CSSOS_WAVE_1126 — Jing 报「多语言整合后点不动」: 传统字幕是纯展示文字, 其左列的框(1fr)可能盖住
+      //   中列多语言、拦截点击。字幕设 pointer-events:none → 点击穿过字幕落到多语言上(字幕从不需点)。
+      sub.style.setProperty("pointer-events", "none", "important");
       sub.style.setProperty("max-width", "100%", "important");
       // CSSOS_WAVE_908 — Jing「字幕时有时无, AI 助理跳上跳下」根治: 把传统字幕这行【钉死固定高度 = AI FAB 42px】,
       //   空内容也不塌、有字也不长高 → alignAgentFab 测到的中心恒定, AI 助理稳定不跳。
@@ -198,7 +201,8 @@
       lang.style.setProperty("min-width", "0", "important");
       lang.style.setProperty("max-width", isApp ? "min(64vw, 460px)" : "min(70vw, 680px)", "important");
       lang.style.setProperty("pointer-events", "auto", "important");
-      lang.style.setProperty("z-index", "5", "important");
+      lang.style.setProperty("z-index", "8", "important");          // W1126 — 抬到字幕之上, 确保可点
+      lang.style.setProperty("position", "relative", "important");  // z-index 生效需定位上下文(此处 relative 不脱流)
     }
     return line;
   }

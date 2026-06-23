@@ -171,6 +171,7 @@
         // CSSOS_WAVE_1114k 20260622 — Jing「传统字幕太大、把逐字情绪压扁裁切=乱」: 右轨态(AI FAB 已撤,
         //   无需为它钉固定高度)→ 传统字幕【小字号 + 自然高度、不裁切】, 回到原来小小的, 不抢情绪字幕。
         sub.style.setProperty("font-size", "13px", "important");
+        sub.style.setProperty("font-weight", "400", "important");   // W1114l — Jing「不要加粗, 找原来的回来」
         sub.style.setProperty("line-height", "1.3", "important");
         sub.style.removeProperty("height");
         sub.style.removeProperty("max-height");
@@ -212,7 +213,10 @@
         lang.style.setProperty("grid-column", "2", "important");
         lang.style.setProperty("justify-self", "center", "important");
         lang.style.setProperty("align-self", "center", "important");
-        lang.style.setProperty("z-index", "auto", "important");
+        lang.style.setProperty("z-index", "5", "important");
+        // CSSOS_WAVE_1114l — Jing「多语言移到贴底就点不动了」: 进 priceline 后漏设 pointer-events →
+        //   继承不到可点。显式 auto, 且 z-index 抬到字幕之上, 确保可点击。
+        lang.style.setProperty("pointer-events", "auto", "important");
       }
     }
     return line;

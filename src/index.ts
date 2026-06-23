@@ -31320,6 +31320,18 @@ app.get("/api/users/:username/relationship", async (req, res) => {
     if (!target) {
       return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     }
+    // CSSOS_WAVE_1131 — Jing 指令: 钱包余额颜色灯。绿=充足 / 橙=不够生成一首歌 / 红=0。
+    //   阈值 = 一首歌的算力成本(generate_audio=10¢)。隐私: 给【别人】只返回颜色级别,
+    //   不暴露精确金额; 给【自己】额外返回精确余额(看自己的钱无妨)。
+    const ONE_SONG_COST = CSSOS_AGENT_COSTS.generate_audio;
+    let walletCents = 0;
+    try {
+      const wr = await withClient((c) =>
+        c.query<{ balance: string }>(`SELECT COALESCE(balance,0) AS balance FROM user_credits WHERE user_id = $1`, [target.id]),
+      );
+      walletCents = Number(wr.rows?.[0]?.balance || 0);
+    } catch (_e) { walletCents = 0; }
+    const walletLevel = walletCents <= 0 ? "red" : (walletCents < ONE_SONG_COST ? "orange" : "green");
     if (target.id === viewer.id) {
       return res.json({
         ok: true,
@@ -31327,6 +31339,8 @@ app.get("/api/users/:username/relationship", async (req, res) => {
         is_self: true,
         is_following: false,
         is_blocked: false,
+        wallet_level: walletLevel,
+        wallet_balance_cents: walletCents,   // 自己看自己 — 精确余额可见
         target: {
           id: target.id,
           username: target.username,
@@ -31355,6 +31369,7 @@ app.get("/api/users/:username/relationship", async (req, res) => {
       is_self: false,
       is_following: (followR.rowCount || 0) > 0,
       is_blocked: (blockR.rowCount || 0) > 0,
+      wallet_level: walletLevel,   // 别人只见颜色级别, 不暴露精确金额(隐私)
       target: {
         id: target.id,
         username: target.username,

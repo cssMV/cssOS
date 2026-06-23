@@ -7867,6 +7867,36 @@ function ensureAuthorAvatarModule() {
     const hName = document.createElement("span");
     hName.textContent = ownerName; hName.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
     header.appendChild(hIcon); header.appendChild(hName);
+    // CSSOS_WAVE_1131 — Jing 指令: 钱包余额颜色灯。绿=充足 / 橙=余额低(不够生成一首)/ 红=余额为0。
+    //   隐私: 别人只见颜色灯; 自己额外见精确余额。红/橙时提示"可帮 TA 充值"(帮充值入口在 🎁 赠礼子菜单)。
+    var wlvl = String(rel.wallet_level || "").toLowerCase();
+    if (wlvl === "green" || wlvl === "orange" || wlvl === "red") {
+      var wmap = {
+        green:  { c: "#2ecc71", t: loginCopy("Wallet healthy", "钱包余额充足") },
+        orange: { c: "#ff9f43", t: loginCopy("Wallet low — you can top up for them", "余额偏低 — 可帮 TA 充值") },
+        red:    { c: "#ff5b5b", t: loginCopy("Wallet empty — you can top up for them", "余额为 0 — 可帮 TA 充值") },
+      };
+      var wi = wmap[wlvl];
+      var dot = document.createElement("span");
+      dot.title = wi.t;
+      dot.style.cssText = "flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:" + wi.c +
+        ";box-shadow:0 0 6px " + wi.c + ";" + (wlvl !== "green" ? "animation:cssfxWalletPulse 1.6s ease-in-out infinite;" : "");
+      header.appendChild(dot);
+      // 自己看自己 — 显示精确余额数字。
+      if (rel.is_self && typeof rel.wallet_balance_cents === "number") {
+        var bal = document.createElement("span");
+        var bc = rel.wallet_balance_cents;
+        bal.textContent = bc >= 100 ? "$" + (bc / 100).toFixed(2) : "¢" + bc;
+        bal.style.cssText = "flex:0 0 auto;font:600 11px/1 -apple-system,system-ui;color:" + wi.c + ";opacity:0.9;";
+        header.appendChild(bal);
+      }
+      // 注入一次脉动动画(红/橙呼吸提示)。
+      if (!document.getElementById("cssfx-wallet-pulse-css")) {
+        var ws = document.createElement("style"); ws.id = "cssfx-wallet-pulse-css";
+        ws.textContent = "@keyframes cssfxWalletPulse{0%,100%{opacity:1;}50%{opacity:0.35;}}";
+        document.head.appendChild(ws);
+      }
+    }
     menu.appendChild(header);
 
     const addItem = (icon, label, onClick, opts) => {

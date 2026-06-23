@@ -157,7 +157,8 @@
     card.style.cssText = "max-width:440px;width:100%;max-height:70vh;display:flex;flex-direction:column;background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:18px;color:#fff;font:500 14px/1.4 -apple-system,system-ui,sans-serif;";
     card.innerHTML = '<div style="font-weight:700;margin-bottom:10px;">' + esc(tr("Attach a work", "嵌入一首作品")) + '</div><div data-pl style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:100px;"><div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("Loading…", "加载中…")) + "</div></div>";
     pick.appendChild(card); pick.addEventListener("click", function (e) { if (e.target === pick) pick.remove(); });
-    document.body.appendChild(pick);
+    // CSSOS_WAVE_1145 — Jing: 影院全屏时挂 body 会在全屏层外看不见 → 挂到 fullscreenElement(若有)。
+    (document.fullscreenElement || document.webkitFullscreenElement || document.body).appendChild(pick);
     try {
       var r = await fetch("/api/works/mine?limit=200", { credentials: "include" });
       var j = await r.json().catch(function () { return null; });

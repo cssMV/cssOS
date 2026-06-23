@@ -79,6 +79,10 @@
     s.textContent =
       // CSSOS_WAVE_1121 — Jing 指令: 右轨已接管聆听/观赏/打赏/买断 → 拆掉旧价格条(只藏价格条, 不动头像/AI FAB)。
       "#cssos-watch-price-strip{display:none !important;}" +
+      // CSSOS_WAVE_1123 — Jing 指令②: 删左上旧头像(右轨顶部已有头像); 藏右上旧 ✕(左上 ‹ 返回已替代,
+      //   ‹ 仍以编程方式点击这个隐藏的关闭按钮来退出, 故藏其外观不影响退出)。
+      "#watch-author-avatar{display:none !important;}" +
+      "#watch-panel .panel-actions .icon-btn[aria-label=\"Close\"]{display:none !important;}" +
       // CSSOS_WAVE_1120 — Jing 指令①: 右轨居视频框【右下角】(原垂直居中 top:50% → 改底部锚定, 贴右下)。
       "#cssos-watch-social-rail{position:absolute;right:14px;bottom:96px;" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
@@ -243,16 +247,8 @@
       onClick: function (b) { dispatch("buyout", b); }
     }));
 
-    // 7. 🤖 AI(最底紧挨买断)
-    rail.appendChild(mkItem("🤖", "AI", {
-      icClass: "is-ai", aria: copy("AI assistant", "AI 助理"), title: copy("Discuss with the AI assistant", "和 AI 助理讨论"),
-      onClick: function () {
-        try {
-          if (typeof globalThis.cssosOpenAssistantWithPrompt === "function") globalThis.cssosOpenAssistantWithPrompt("");
-          else { var fab = document.getElementById("cssos-agent-fab"); if (fab) { fab.style.display = ""; fab.click(); } }
-        } catch (_e) {}
-      }
-    }));
+    // CSSOS_WAVE_1123 — Jing 指令①: AI 助理改放底部行右(=保留旧 #cssos-agent-fab 作"左中右"的右),
+    //   故右轨【不再放 🤖】(避免重复)。右轨 = 头像/评论/聆听/观赏/打赏/买断。
   }
 
   var raf = false;

@@ -7731,6 +7731,17 @@ function ensureAuthorAvatarModule() {
           ownerAvatar = String(auth?.user?.avatar_url || auth?.user?.avatar || auth?.user?.picture || "").trim();
         }
       }
+      // CSSOS_WAVE_1133 — Jing 指令: 作者就是我自己、但作品数据没带头像时, 回退到登录账户头像
+      //   (含 OAuth provider 的 picture)。否则我自己的作品头像总显首字母。
+      if (!ownerAvatar && ownerId) {
+        try {
+          const _auth = (typeof globalThis.cssosAuthState === "function") ? globalThis.cssosAuthState() : globalThis.authState;
+          const _meId = String(_auth?.user?.id || "").trim();
+          if (_meId && _meId === ownerId) {
+            ownerAvatar = String(_auth?.user?.avatar_url || _auth?.user?.avatar || _auth?.user?.picture || "").trim();
+          }
+        } catch (_e) {}
+      }
       avatar.dataset.ownerId = ownerId;
       avatar.title = ownerName ? `By ${ownerName} — click for options` : "Unknown author";
       // CSSOS_WAVE_274 无障碍: aria-label 随作者名更新(屏幕阅读器念出作者).
@@ -7842,6 +7853,13 @@ function ensureAuthorAvatarModule() {
     // Close any existing menu so we don't stack.
     document.querySelectorAll(".cssos-author-menu").forEach((el) => el.remove());
 
+    // CSSOS_WAVE_1133 — Jing 指令: 菜单在【头像正下方】弹出, 不再跑左上角。
+    //   真因: 右轨头像每 2.5s 重渲染, 点击后 await relationship 期间旧 av 被 detach →
+    //   之后取 getBoundingClientRect() 全 0 → 菜单跑到左上角(0,0)。修: 在 await【之前】
+    //   就把 anchor 的位置快照下来; 右轨在右侧 → 菜单右对齐 + 夹紧在视口内(可遮下方图标)。
+    var anchorRect = null;
+    try { var _ar = (anchorEl && anchorEl.getBoundingClientRect && anchorEl.getBoundingClientRect()); if (_ar && (_ar.width || _ar.height)) anchorRect = _ar; } catch (_e) {}
+
     // Fetch relationship state in parallel with menu render.
     let rel = { is_following: false, is_blocked: false, is_self: false, signed_in: false };
     try {
@@ -7859,9 +7877,17 @@ function ensureAuthorAvatarModule() {
       "font:500 13px/1.4 -apple-system,system-ui,sans-serif",
       "color:rgba(255,255,255,0.95)", "user-select:none",
     ].join(";");
-    const rect = anchorEl.getBoundingClientRect();
-    menu.style.left = `${Math.round(rect.left)}px`;
-    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+    // CSSOS_WAVE_1133 — 用 await 前的快照(anchorRect); 头像在右侧 → 菜单右对齐, 整体夹紧在视口内。
+    const rect = anchorRect || { left: 12, right: 252, bottom: 54, top: 12 };
+    const MW = 244, vw = window.innerWidth || 360, vh = window.innerHeight || 640;
+    let mLeft = rect.left;
+    if (rect.left > vw / 2) mLeft = rect.right - MW;          // 右侧头像 → 右对齐
+    mLeft = Math.max(8, Math.min(mLeft, vw - MW - 8));        // 夹在视口内
+    let mTop = Math.min(rect.bottom + 6, vh - 60);            // 头像正下方; 底部留点边
+    menu.style.left = `${Math.round(mLeft)}px`;
+    menu.style.top = `${Math.round(mTop)}px`;
+    menu.dataset.anchorLeft = String(Math.round(mLeft));
+    menu.dataset.anchorTop = String(Math.round(rect.bottom + 6));
 
     const header = document.createElement("div");
     header.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;font-weight:700;letter-spacing:0.02em;";
@@ -8042,9 +8068,11 @@ function ensureAuthorAvatarModule() {
           "font:500 13px/1.4 -apple-system,system-ui,sans-serif",
           "color:rgba(255,255,255,0.95)", "user-select:none",
         ].join(";");
-        const ar = avatar.getBoundingClientRect();
-        sub.style.left = `${Math.round(ar.left)}px`;
-        sub.style.top = `${Math.round(ar.bottom + 6)}px`;
+        // CSSOS_WAVE_1133 — 子菜单贴着主菜单位置(别再用隐藏旧头像的 0,0)。夹紧视口。
+        var _sw = 264, _vw = window.innerWidth || 360;
+        var _sl = Math.max(8, Math.min(Number(menu.dataset.anchorLeft || 12), _vw - _sw - 8));
+        sub.style.left = `${_sl}px`;
+        sub.style.top = `${Number(menu.dataset.anchorTop || 54)}px`;
         const hdr = document.createElement("div");
         hdr.style.cssText = "padding:8px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;font-weight:700;color:#ffd28d;";
         hdr.textContent = loginCopy(`🎁 Gift to ${ownerName}`, `🎁 赠礼给 ${ownerName}`);

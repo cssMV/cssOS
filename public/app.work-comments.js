@@ -14,16 +14,21 @@
   }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]; }); }
   function toast(m) { try { if (typeof globalThis.showToast === "function") globalThis.showToast(m); } catch (_e) {} }
+  // CSSOS_WAVE_1144 — Jing 指令: 评论增删后通知右轨立即刷新计数(同步显示)。
+  function notifyChanged() { try { document.dispatchEvent(new CustomEvent("cssos:comments-changed", { detail: { workId: currentWorkId } })); } catch (_e) {} }
 
   function injectCss() {
     if (document.getElementById("cssos-work-comments-css")) return;
     var s = document.createElement("style"); s.id = "cssos-work-comments-css";
     s.textContent =
-      "#cssos-work-comments{position:fixed;inset:0;z-index:10058;display:flex;align-items:flex-end;justify-content:center;" +
-      "background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);font:500 14px/1.45 -apple-system,system-ui,sans-serif;}" +
-      "#cssos-work-comments .cwc-sheet{width:100%;max-width:560px;max-height:82vh;display:flex;flex-direction:column;" +
-      "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.12);border-bottom:0;border-radius:18px 18px 0 0;" +
-      "box-shadow:0 -10px 50px rgba(0,0,0,0.6);color:rgba(255,255,255,0.95);}" +
+      // CSSOS_WAVE_1144 — Jing 指令: 评论/右轨弹出窗【依附在右轨】(右侧停靠, 不再底部居中)。
+      "#cssos-work-comments{position:fixed;inset:0;z-index:10058;display:flex;align-items:center;justify-content:flex-end;" +
+      "background:rgba(0,0,0,0.32);backdrop-filter:blur(3px);font:500 14px/1.45 -apple-system,system-ui,sans-serif;}" +
+      "#cssos-work-comments .cwc-sheet{width:min(400px,84vw);max-height:84vh;margin:0 76px 0 0;display:flex;flex-direction:column;" +   /* margin-right 76px 让出右轨图标 */
+      "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.12);border-radius:18px;" +
+      "box-shadow:0 18px 60px rgba(0,0,0,0.6);color:rgba(255,255,255,0.95);}" +
+      "@media (max-width:560px){#cssos-work-comments{align-items:flex-end;justify-content:center;}" +
+      "#cssos-work-comments .cwc-sheet{width:100%;margin:0;border-radius:18px 18px 0 0;}}" +   /* 窄屏回退底部 */
       "#cssos-work-comments .cwc-head{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.08);}" +
       "#cssos-work-comments .cwc-head b{flex:1;font-size:15px;}" +
       "#cssos-work-comments .cwc-x{background:transparent;border:0;color:#fff;font-size:20px;cursor:pointer;width:32px;height:32px;border-radius:50%;}" +
@@ -116,7 +121,7 @@
           del.addEventListener("click", async function () {
             try {
               var dr = await fetch("/api/works/" + encodeURIComponent(currentWorkId) + "/comments/" + encodeURIComponent(c.id), { method: "DELETE", credentials: "include" });
-              if (dr.ok) refresh(); else toast(tr("Delete failed", "删除失败"));
+              if (dr.ok) { await refresh(); notifyChanged(); } else toast(tr("Delete failed", "删除失败"));
             } catch (_e) { toast(tr("Delete failed", "删除失败")); }
           });
           acts.appendChild(del);
@@ -190,6 +195,7 @@
         if (ta) ta.value = "";
         clearReplyTo(); clearEmbed();
         await refresh();
+        notifyChanged();
       } else {
         toast((j && j.code === "AUTH_REQUIRED") ? tr("Sign in to comment.", "登录后才能评论。") : tr("Post failed", "发送失败"));
       }

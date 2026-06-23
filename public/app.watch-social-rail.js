@@ -53,6 +53,13 @@
     } catch (_e) {}
   }
   function statsFor(id) { return _stats[id] || { listens: 0, watches: 0, tips: 0, tips_total_cents: 0, comments: 0 }; }
+  // CSSOS_WAVE_1144 — Jing 指令: 评论增删后立即同步右轨计数。清缓存→下次 render 重新拉→重渲染。
+  function invalidateStats(id) { try { if (id) delete _stats[id]; } catch (_e) {} }
+  document.addEventListener("cssos:comments-changed", function (e) {
+    var id = (e && e.detail && e.detail.workId) || workId();
+    invalidateStats(id);
+    if (typeof globalThis.cssosRenderSocialRail === "function") globalThis.cssosRenderSocialRail();
+  });
   // CSSOS_WAVE_1129b — Jing 指令: 始终显"计数/价"(无交易也显 0), 如 "0/¢69"。
   //   用斜杠 "/" 而非圆点 —— "/" 表示【每次/per】这个价(每聆听/每观赏的单价)。
   function countPrice(n, cents) { return fmtCount(Number(n) || 0) + "/" + fmtCents(cents); }

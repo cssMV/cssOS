@@ -7677,6 +7677,133 @@ function escapeHtmlGift(s) {
     c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#039;");
 }
 
+/* CSSOS_WAVE_1135 — Jing 指令: 🎬 赠送作品版权 = 免费买断。我从【自己的作品】里挑一首,
+ * 无偿把版权转给 TA(效果等同被买断, 只是不收钱)。挑作品 → 确认 → POST /api/works/:id/gift-ownership。 */
+globalThis.cssosOpenWorkGiftModalModule = function (opts) {
+  const o = opts || {};
+  const recipientId = String(o.recipientId || o.userId || "").trim();
+  const recipientName = String(o.recipientName || o.displayName || "").trim() || loginCopy("this user", "TA");
+  if (!recipientId) { try { globalThis.showToast(loginCopy("Recipient unavailable.", "接收者不可用。")); } catch (_e) {} return; }
+  document.querySelectorAll(".cssos-workgift-modal").forEach((el) => el.remove());
+
+  const overlay = document.createElement("div");
+  overlay.className = "cssos-workgift-modal";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:10054;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;font:500 14px/1.4 -apple-system,system-ui,sans-serif;color:rgba(255,255,255,0.95);";
+  const card = document.createElement("div");
+  card.style.cssText = "max-width:460px;width:100%;max-height:80vh;display:flex;flex-direction:column;background:rgba(15,18,24,0.98);border:1px solid rgba(255,200,120,0.4);border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,0.7);";
+  overlay.appendChild(card);
+
+  card.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">' +
+      '<span style="font-size:26px;">🎬</span>' +
+      '<div style="flex:1;"><div style="font-weight:700;font-size:16px;">' +
+        loginCopy(`Gift a work to ${escapeHtmlGift(recipientName)}`, `赠送作品给 ${escapeHtmlGift(recipientName)}`) +
+      '</div><div style="font-size:11px;opacity:0.7;margin-top:2px;">' +
+        loginCopy("Transfers full copyright — like a buyout, but free.", "转让完整版权 —— 相当于被买断,只是不收钱。") +
+      "</div></div></div>" +
+    '<div data-list style="flex:1;overflow-y:auto;margin:12px 0;display:flex;flex-direction:column;gap:8px;min-height:120px;">' +
+      '<div style="opacity:0.6;font-size:12px;padding:18px 0;text-align:center;">' + loginCopy("Loading your works…", "正在加载你的作品…") + "</div>" +
+    "</div>" +
+    '<div data-error style="color:#ff8c8c;font-size:11px;min-height:14px;margin-bottom:6px;"></div>' +
+    '<div style="display:flex;gap:8px;">' +
+      '<button type="button" data-cancel style="flex:1;background:transparent;color:inherit;border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px;cursor:pointer;font:inherit;">' + loginCopy("Cancel", "取消") + "</button>" +
+      '<button type="button" data-send disabled style="flex:2;background:rgba(255,200,120,0.14);color:#fff;border:1px solid rgba(255,200,120,0.4);border-radius:8px;padding:10px;cursor:not-allowed;font-weight:700;font:inherit;opacity:0.6;">' + loginCopy("Gift this work 🎬", "赠送这首作品 🎬") + "</button>" +
+    "</div>";
+
+  const listEl = card.querySelector("[data-list]");
+  const errEl = card.querySelector("[data-error]");
+  const sendBtn = card.querySelector("[data-send]");
+  let selectedId = "";
+  let selectedTitle = "";
+
+  const close = () => overlay.remove();
+  card.querySelector("[data-cancel]").addEventListener("click", close);
+  overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
+
+  const enableSend = () => {
+    if (selectedId) {
+      sendBtn.disabled = false;
+      sendBtn.style.cursor = "pointer";
+      sendBtn.style.opacity = "1";
+      sendBtn.style.background = "rgba(255,200,120,0.22)";
+      sendBtn.style.borderColor = "rgba(255,200,120,0.6)";
+    }
+  };
+
+  // Load my works (only roots — gift a whole work, not a sub-part).
+  (async () => {
+    try {
+      const r = await fetch("/api/works/mine?limit=200", { credentials: "include" });
+      const j = await r.json().catch(() => null);
+      const items = (j && (j.works || j.items || j.data)) || (Array.isArray(j) ? j : []);
+      const roots = items.filter((w) => w && !w.parent_work_id && String(w.id || "").trim());
+      if (!roots.length) {
+        listEl.innerHTML = '<div style="opacity:0.6;font-size:12px;padding:18px 0;text-align:center;">' + loginCopy("You have no works to gift yet.", "你还没有可赠送的作品。") + "</div>";
+        return;
+      }
+      listEl.innerHTML = "";
+      roots.forEach((w) => {
+        const id = String(w.id);
+        const title = String(w.title || w.name || "Untitled").trim();
+        const cover = String(w.cover_image || w.preview_image_url || "").trim();
+        const row = document.createElement("button");
+        row.type = "button";
+        row.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,0.05);border:1.5px solid rgba(255,255,255,0.12);border-radius:10px;padding:8px;cursor:pointer;color:inherit;font:inherit;";
+        row.innerHTML =
+          (cover ? '<img src="' + escapeHtmlGift(cover) + '" alt="" style="width:46px;height:46px;border-radius:7px;object-fit:cover;flex:0 0 auto;">'
+                 : '<span style="width:46px;height:46px;border-radius:7px;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;flex:0 0 auto;">🎵</span>') +
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">' + escapeHtmlGift(title) + "</span>";
+        row.addEventListener("click", () => {
+          selectedId = id; selectedTitle = title;
+          Array.from(listEl.children).forEach((c) => { c.style.background = "rgba(255,255,255,0.05)"; c.style.borderColor = "rgba(255,255,255,0.12)"; });
+          row.style.background = "rgba(255,200,120,0.18)";
+          row.style.borderColor = "rgba(255,200,120,0.6)";
+          enableSend();
+        });
+        listEl.appendChild(row);
+      });
+    } catch (_e) {
+      listEl.innerHTML = '<div style="opacity:0.6;font-size:12px;padding:18px 0;text-align:center;">' + loginCopy("Failed to load your works.", "加载作品失败。") + "</div>";
+    }
+  })();
+
+  sendBtn.addEventListener("click", async () => {
+    if (!selectedId) return;
+    errEl.textContent = "";
+    sendBtn.disabled = true;
+    sendBtn.textContent = loginCopy("Gifting…", "赠送中…");
+    try {
+      const r = await fetch("/api/works/" + encodeURIComponent(selectedId) + "/gift-ownership", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipient: recipientId }),
+      });
+      const j = await r.json().catch(() => null);
+      if (r.ok && j && j.ok) {
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(loginCopy(`🎬 Gifted "${selectedTitle}" to ${recipientName}`, `🎬 已把《${selectedTitle}》赠送给 ${recipientName}`));
+        }
+        close();
+      } else {
+        const code = (j && j.code) || ("HTTP " + r.status);
+        const msg = code === "NOT_OWNER" ? loginCopy("You can only gift your own works.", "只能赠送你自己的作品。")
+          : code === "CANNOT_GIFT_SELF" ? loginCopy("Can't gift to yourself.", "不能赠送给自己。")
+          : code === "AUTH_REQUIRED" ? loginCopy("Sign in first.", "请先登录。")
+          : loginCopy(`Failed: ${code}`, `赠送失败：${code}`);
+        errEl.textContent = msg;
+        sendBtn.disabled = false;
+        sendBtn.textContent = loginCopy("Gift this work 🎬", "赠送这首作品 🎬");
+      }
+    } catch (_e) {
+      errEl.textContent = loginCopy("Network error.", "网络错误。");
+      sendBtn.disabled = false;
+      sendBtn.textContent = loginCopy("Gift this work 🎬", "赠送这首作品 🎬");
+    }
+  });
+
+  (document.fullscreenElement || document.body).appendChild(overlay);
+};
+
 let __cssosAuthorAvatarWired = false;
 function ensureAuthorAvatarModule() {
   if (__cssosAuthorAvatarWired) return;
@@ -8117,13 +8244,14 @@ function ensureAuthorAvatarModule() {
           openCreditGiftModal(ownerId, ownerName);
         });
 
-        addSub("🎬", loginCopy("Gift one of TA's works to TA", "赠送 TA 自己的作品给 TA"), () => {
+        // CSSOS_WAVE_1135 — 赠送作品版权: 我从自己的作品挑一首, 无偿转给 TA(=免费买断)。
+        addSub("🎬", loginCopy("Gift a work's copyright (free buyout)", "赠送作品版权(免费买断)"), () => {
           if (typeof globalThis.cssosOpenWorkGiftModalModule === "function") {
             globalThis.cssosOpenWorkGiftModalModule({ recipientId: ownerId, recipientName: ownerName });
           } else if (typeof globalThis.showToast === "function") {
             globalThis.showToast(loginCopy("Work-gift flow coming soon.", "赠送作品 — 即将上线。"));
           }
-        }, { muted: typeof globalThis.cssosOpenWorkGiftModalModule !== "function" });
+        });
 
         // CSSOS_WAVE_205 — fullscreen-aware mounting (same fix as parent menu).
         (document.fullscreenElement || document.body).appendChild(sub);

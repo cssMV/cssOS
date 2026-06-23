@@ -31388,6 +31388,75 @@ app.get("/api/users/:username/relationship", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE_1135 — Jing 指令: 赠送作品版权 = 免费买断。把【我自己的一首作品】无偿转给别人,
+ * 效果【完全等同买断,只是金额为 0、不走 Stripe】。复用买断完成时的两条记录:
+ *   ① work_orders(kind=buyout, status=paid, gross=0, buyer=接收者, seller=我, meta.gift=true)
+ *   ② insertOwnershipTransferIfMissing(from=我, to=接收者, amount=0)  —— 与真买断同一函数。
+ * 有效所有者解析读 ownership_transfers(见 ~40942), 故接收者立即成为有效所有者, 与买断一致。 */
+app.post("/api/works/:id/gift-ownership", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const me = await getSessionUser(req).catch(() => null);
+    if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const workId = String(req.params.id || "").trim();
+    if (!workId) return res.status(400).json({ ok: false, code: "BAD_WORK" });
+    const recipientRaw = String(req.body?.recipient || req.body?.recipient_id || "").trim();
+    if (!recipientRaw) return res.status(400).json({ ok: false, code: "BAD_RECIPIENT" });
+    const recipient = await resolveUserByUsernameOrId(recipientRaw);
+    if (!recipient) return res.status(404).json({ ok: false, code: "RECIPIENT_NOT_FOUND" });
+    if (String(recipient.id) === String(me.id)) return res.status(400).json({ ok: false, code: "CANNOT_GIFT_SELF" });
+    // 有效当前所有者 = 最近一次 ownership_transfers.to_user_id, 否则作品创建者 user_works.user_id。
+    const ownerRow = await withClient((c) =>
+      c.query<{ owner_id: string | null; title: string | null }>(
+        `SELECT COALESCE(
+                  (SELECT to_user_id FROM ownership_transfers WHERE work_id = $1::uuid ORDER BY effective_at DESC NULLS LAST, created_at DESC LIMIT 1),
+                  (SELECT user_id FROM user_works WHERE id = $1::uuid)
+                ) AS owner_id,
+                (SELECT title FROM user_works WHERE id = $1::uuid) AS title`,
+        [workId],
+      ),
+    );
+    const ownerId = String(ownerRow.rows?.[0]?.owner_id || "").trim();
+    const workTitle = String(ownerRow.rows?.[0]?.title || "").trim();
+    if (!ownerId) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+    if (ownerId !== String(me.id)) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    const currency = "USD";
+    const orderId = await createPendingWorkOrder({
+      buyerUserId: String(recipient.id),
+      sellerUserId: ownerId,
+      workId,
+      productId: null,
+      orderKind: "buyout",
+      currency,
+      grossAmountCents: 0,
+      platformFeeCents: 0,
+      sellerNetCents: 0,
+      requestId: `gift-${workId}-${recipient.id}-${Date.now()}`,
+      meta: { gift: true, gifted_by: String(me.id), kind: "ownership_gift" },
+    });
+    if (!orderId) return res.status(500).json({ ok: false, code: "ORDER_FAILED" });
+    await withClient((c) => c.query(`UPDATE work_orders SET status = 'paid', updated_at = now() WHERE id = $1`, [orderId]));
+    const transferId = await insertOwnershipTransferIfMissing({
+      workId,
+      fromUserId: ownerId,
+      toUserId: String(recipient.id),
+      orderId,
+      currency,
+      transferAmountCents: 0,
+    });
+    return res.json({
+      ok: true,
+      order_id: orderId,
+      transfer_id: transferId,
+      work_title: workTitle,
+      recipient: { id: recipient.id, display_name: recipient.display_name || recipient.username || "" },
+    });
+  } catch (err) {
+    console.warn("[gift-ownership] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "GIFT_FAILED" });
+  }
+});
+
 app.post("/api/profile/switch-provider", async (req, res) => {
   noStore(res);
   try {

@@ -253,7 +253,7 @@
     // 7. 🤖 AI 助理 — CSSOS_WAVE_1128 — Jing 指令: 换小机器人收回右轨底部(用右轨统一间距),
     //   隐藏旧 #cssos-agent-fab(避免"太靠近"+重复)。点击 = 打开常驻 AI 助理。
     rail.appendChild(mkItem("🤖", "", {
-      icClass: "is-ai", aria: copy("AI assistant", "AI 助理"), title: copy("AI assistant", "AI 助理"),
+      aria: copy("AI assistant", "AI 助理"), title: copy("AI assistant", "AI 助理"),
       onClick: function () {
         try {
           if (typeof globalThis.cssosOpenAssistantWithPrompt === "function") globalThis.cssosOpenAssistantWithPrompt("");

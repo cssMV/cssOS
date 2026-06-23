@@ -8282,6 +8282,16 @@ function ensureAuthorAvatarModule() {
      * fullscreen is active, fall back to body otherwise. Same fix
      * applied to the gift sub-menu below. */
     (document.fullscreenElement || document.body).appendChild(menu);
+    // CSSOS_WAVE_1136 — Jing 指令: 菜单内容比预估 244px 宽得多(admin@… $1000.00) → 右对齐后右缘
+    //   溢出屏幕被截。贴 DOM 后用【真实宽度】重新夹紧, 保证整窗完整显示在视口内。
+    try {
+      const aw = menu.offsetWidth || 244;
+      const vw2 = window.innerWidth || 360;
+      let lx2 = Math.round(rect.right - aw);            // 右对齐到头像右缘
+      lx2 = Math.max(8, Math.min(lx2, vw2 - aw - 8));   // 夹紧: 左≥8, 右缘≤视口-8
+      menu.style.left = `${lx2}px`;
+      menu.dataset.anchorLeft = String(lx2);
+    } catch (_e) {}
     // Click-outside-closes
     const onClickAway = (ev) => {
       if (!menu.contains(ev.target) && ev.target !== anchorEl) {

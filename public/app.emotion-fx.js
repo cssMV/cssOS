@@ -494,16 +494,14 @@
       _lastMusicPulse = now;
       var vol = Number(globalThis.cssosCurrentVolume);
       if (!(vol >= 0 && vol <= 1)) vol = 0.4 + Math.random() * 0.4; // 没音量数据 → 中等随机
-      // CSSOS_WAVE_1114m 20260622 — Jing「情绪字幕(间奏 emoji)乱了」: 底部已有传统字幕+多语言+弹幕,
-      //   间奏 emoji 再从【底边】冒出就排成一条横线=乱。修: ① 不再从底边(edge 2)冒, 只上/左/右三边;
-      //   ② 密度减半(vol*6→vol*3), 不糊屏。
-      var nn = 1 + Math.round(vol * 3);                              // 音量大 → 飘得多(减半)
+      // CSSOS_WAVE_1114n 20260622 — Jing 铁律「情绪字幕是招牌, 以后绝不再动 emotion-fx」: 撤回 W1114m
+      //   (我为右轨改的间奏 emoji 去底边+减密度), 完全恢复原样: 四边都冒、密度 vol*6。
+      var nn = 1 + Math.round(vol * 6);                              // 音量大 → 飘得多
       var layer = ensureSparkLayer();
       var pool = _themePool(EMO_PETALS[String(emotion || "").toLowerCase()] || MUSIC_EMOJI);
       var frag = document.createDocumentFragment();
-      var EDGES = [0, 1, 3];   // 0上 1右 3左(去掉 2下, 别挤底部)
       for (var k = 0; k < nn; k++) {
-        var edge = EDGES[(Math.random() * EDGES.length) | 0];
+        var edge = (Math.random() * 4) | 0;   // 0上 1右 2下 3左
         var sx, sy, dx, dy;
         var along = 8 + Math.random() * 84;    // 沿边位置 %
         var into = 14 + Math.random() * 26;    // 向内飘进距离 vmin

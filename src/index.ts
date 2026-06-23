@@ -48256,11 +48256,12 @@ app.get("/api/works/:id/social-stats", async (req, res) => {
     const id = String(req.params.id || "").trim();
     if (!id) return res.status(400).json({ ok: false, error: "bad_id" });
     const PAID = ["paid", "completed", "succeeded", "captured", "complete"];
-    const r = await withClient((c) => c.query<{ listens: string; watches: string; tips: string; comments: string }>(
+    const r = await withClient((c) => c.query<{ listens: string; watches: string; tips: string; tips_total_cents: string; comments: string }>(
       `SELECT
          (SELECT COUNT(DISTINCT buyer_user_id) FROM work_orders WHERE work_id=$1 AND order_kind='listen' AND status = ANY($2)) AS listens,
          (SELECT COUNT(DISTINCT buyer_user_id) FROM work_orders WHERE work_id=$1 AND order_kind='view'   AND status = ANY($2)) AS watches,
          (SELECT COUNT(*) FROM work_tips WHERE work_id=$1) AS tips,
+         (SELECT COALESCE(SUM(amount_cents),0) FROM work_tips WHERE work_id=$1) AS tips_total_cents,
          (SELECT COUNT(*) FROM person_mv_comments pc JOIN person_mvs pm ON pc.mv_id = pm.mv_id
             WHERE pm.work_id=$1 AND pc.deleted_at IS NULL) AS comments`,
       [id, PAID]
@@ -48271,11 +48272,12 @@ app.get("/api/works/:id/social-stats", async (req, res) => {
       listens: Number(row.listens || 0),
       watches: Number(row.watches || 0),
       tips: Number(row.tips || 0),
+      tips_total_cents: Number(row.tips_total_cents || 0),
       comments: Number(row.comments || 0),
     });
   } catch (err) {
     // 计数永不阻断 UI: 失败回 0。
-    return res.json({ ok: true, listens: 0, watches: 0, tips: 0, comments: 0 });
+    return res.json({ ok: true, listens: 0, watches: 0, tips: 0, tips_total_cents: 0, comments: 0 });
   }
 });
 

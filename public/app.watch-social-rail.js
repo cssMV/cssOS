@@ -30,23 +30,29 @@
     if (n >= 1000) return (n / 1000).toFixed(n % 1000 ? 1 : 0) + "k";
     return String(n);
   }
+  // CSSOS_WAVE_1129c — 打赏总额: 整美元去掉 .00($58), 否则两位小数($58.50)。
+  function fmtMoney(cents) {
+    cents = Number(cents) || 0;
+    var d = cents / 100;
+    return "$" + (cents % 100 === 0 ? String(d) : d.toFixed(2));
+  }
 
   // 社会证明计数缓存(workId → {listens,watches,tips,comments})。
   var _stats = {};
   function fetchStats(id) {
     if (!id || _stats[id]) return;
-    _stats[id] = { listens: 0, watches: 0, tips: 0, comments: 0 };   // 占位防重复拉
+    _stats[id] = { listens: 0, watches: 0, tips: 0, tips_total_cents: 0, comments: 0 };   // 占位防重复拉
     try {
       fetch("/api/works/" + encodeURIComponent(id) + "/social-stats", { credentials: "include" })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
           if (!d || d.ok === false) return;
-          _stats[id] = { listens: Number(d.listens || 0), watches: Number(d.watches || 0), tips: Number(d.tips || 0), comments: Number(d.comments || 0) };
+          _stats[id] = { listens: Number(d.listens || 0), watches: Number(d.watches || 0), tips: Number(d.tips || 0), tips_total_cents: Number(d.tips_total_cents || 0), comments: Number(d.comments || 0) };
           schedule();   // 拿到数 → 重渲染带上计数
         }).catch(function () {});
     } catch (_e) {}
   }
-  function statsFor(id) { return _stats[id] || { listens: 0, watches: 0, tips: 0, comments: 0 }; }
+  function statsFor(id) { return _stats[id] || { listens: 0, watches: 0, tips: 0, tips_total_cents: 0, comments: 0 }; }
   // CSSOS_WAVE_1129b — Jing 指令: 始终显"计数/价"(无交易也显 0), 如 "0/¢69"。
   //   用斜杠 "/" 而非圆点 —— "/" 表示【每次/per】这个价(每聆听/每观赏的单价)。
   function countPrice(n, cents) { return fmtCount(Number(n) || 0) + "/" + fmtCents(cents); }
@@ -239,8 +245,8 @@
       title: copy("Real-video viewing — opens once full video ships", "观赏(真视频)— 真视频上线后开放")
     }));
 
-    // 5. 💝 打赏 · "0/Tip"(计数/Tip, 金额随意) — CSSOS_WAVE_1129b
-    rail.appendChild(mkItem("💝", fmtCount(st.tips) + "/" + copy("Tip", "打赏"), {
+    // 5. 💝 打赏 — CSSOS_WAVE_1129c — Jing 指令: 无打赏显 "0/Tip"; 有打赏显 "总额/次数"(如 $58/9)。
+    rail.appendChild(mkItem("💝", st.tips > 0 ? (fmtMoney(st.tips_total_cents) + "/" + fmtCount(st.tips)) : ("0/" + copy("Tip", "打赏")), {
       aria: copy("Tip the creator", "打赏作者"), title: copy("Tip the creator — any amount", "打赏作者(金额随意)"),
       onClick: function (b) { dispatch("tip", b); }
     }));

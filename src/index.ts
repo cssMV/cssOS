@@ -31500,7 +31500,8 @@ app.get("/api/works/:id/comments", async (req, res) => {
       c.query(
         `SELECT c.id, c.work_id, c.user_id, c.body, c.parent_id, c.embed_work_id, c.created_at, c.deleted_at,
                 u.display_name, u.username, u.avatar_url,
-                ew.title AS embed_title, ew.cover_image AS embed_cover, ew.preview_image_url AS embed_preview
+                ew.title AS embed_title, ew.cover_image AS embed_cover, ew.preview_image_url AS embed_preview,
+                ew.duration_secs AS embed_duration_secs
            FROM work_comments c
            LEFT JOIN users u ON u.id = c.user_id
            LEFT JOIN user_works ew ON ew.id = c.embed_work_id
@@ -31522,7 +31523,7 @@ app.get("/api/works/:id/comments", async (req, res) => {
       username: row.username,
       avatar_url: row.avatar_url,
       embed: row.embed_work_id && !row.deleted_at
-        ? { work_id: row.embed_work_id, title: row.embed_title, cover: row.embed_cover || row.embed_preview }
+        ? { work_id: row.embed_work_id, title: row.embed_title, cover: row.embed_cover || row.embed_preview, duration_secs: Number(row.embed_duration_secs || 0) || null }
         : null,
       can_delete: !!(me && me.id && (String(me.id) === String(row.user_id) || (ownerId && String(me.id) === ownerId))),
     }));

@@ -13,6 +13,8 @@
     return zhLoc ? zh : en;
   }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]; }); }
+  // CSSOS_WAVE_1150 — Jing 铁律: 有作品/卡片处必显时长。♪ m:ss。
+  function fmtDur(s) { s = Math.round(Number(s) || 0); if (s <= 0) return ""; return "♪ " + Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
   function toast(m) { try { if (typeof globalThis.showToast === "function") globalThis.showToast(m); } catch (_e) {} }
   // CSSOS_WAVE_1144 — Jing 指令: 评论增删后通知右轨立即刷新计数(同步显示)。
   function notifyChanged() { try { document.dispatchEvent(new CustomEvent("cssos:comments-changed", { detail: { workId: currentWorkId } })); } catch (_e) {} }
@@ -104,9 +106,12 @@
         main.appendChild(tx);
         if (c.embed && c.embed.work_id) {
           var emb = document.createElement("div"); emb.className = "cwc-embed";
+          var edur = fmtDur(c.embed.duration_secs);
           emb.innerHTML =
             (c.embed.cover ? '<img src="' + esc(c.embed.cover) + '" alt="">' : '<span class="cwc-embed-ph">🎵</span>') +
-            '<span class="cwc-embed-t">' + esc(c.embed.title || tr("A work", "一首作品")) + "</span>" +
+            '<span class="cwc-embed-t">' + esc(c.embed.title || tr("A work", "一首作品")) +
+              (edur ? '<span style="display:block;font-weight:500;font-size:10.5px;color:#9aa3b2;">' + esc(edur) + "</span>" : "") +
+            "</span>" +
             '<span class="cwc-embed-play">▶</span>';
           emb.addEventListener("click", function () { playEmbed(c.embed.work_id); });
           main.appendChild(emb);
@@ -181,8 +186,10 @@
       var row = document.createElement("button");
       row.type = "button";
       row.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:7px;cursor:pointer;color:#fff;font:inherit;";
+      var dur = fmtDur(w.duration_secs || w.duration || w.audio_duration_secs);
       row.innerHTML = (cover ? '<img src="' + esc(cover) + '" style="width:42px;height:42px;border-radius:7px;object-fit:cover;">' : '<span style="width:42px;height:42px;border-radius:7px;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;">🎵</span>') +
-        '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">' + esc(w.title || "Untitled") + "</span>";
+        '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">' + esc(w.title || "Untitled") + "</span>" +
+        (dur ? '<span style="flex:0 0 auto;font-size:11px;color:#9aa3b2;">' + esc(dur) + "</span>" : "");
       row.addEventListener("click", function () { setEmbed(String(w.id || w.work_id), String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });
       pl.appendChild(row);
     });

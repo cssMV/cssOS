@@ -132,6 +132,12 @@
       (function(){
         var s=document.getElementById("cssos-launch-splash");
         if(!s)return;
+        // CSSOS_WAVE_1207 — Jing「为什么换一个一样的 logo、跳一下」根因: 网页(Safari/桌面)没有 WKWebView 黑屏空档,
+        //   静态 HTML 的大厅魔镜从首帧就在; splash 盖上去再淡出 = 两套 logo 交接"跳一下换 logo"。
+        //   → 网页端【根本不显示 splash】, 只剩大厅一个 logo, 呼吸 + 口号淡入, 无交接无跳变。
+        //   仅【原生 App(Capacitor)】保留 splash 兜原生闪屏后的黑屏空档。
+        var _native=!!(window.Capacitor && (typeof window.Capacitor.isNativePlatform!=="function" || window.Capacitor.isNativePlatform()));
+        if(!_native){ try{ s.parentNode&&s.parentNode.removeChild(s); }catch(_e){} return; }
         var done=false,start=Date.now();
         function hide(){if(done)return;done=true;
           s.classList.add("cssos-splash-hide");

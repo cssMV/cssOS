@@ -3959,12 +3959,12 @@ html[data-theme="light"] .works-fp-optin-desc {
     padding: 0 !important;
   }
   .mirror-title {
-    font-size: clamp(14px, 5.2vw, 24px) !important;   /* W915 — Jing: 手机再收, CSS 落在内圈不撑破(仅字号) */
+    font-size: calc(var(--mirror-size, 180px) * 0.22) !important;   /* W1207 — 跟随 --mirror-size 等比, 手机同理 */
     line-height: 1 !important;
     letter-spacing: 0.04em !important;
   }
   .mirror-subtitle {
-    font-size: clamp(6px, 1.9vw, 9px) !important;   /* W916 — Jing: STUDIO 别喧宾夺主, 收小落圈内(仅字号) */
+    font-size: calc(var(--mirror-size, 180px) * 0.072) !important;   /* W1207 — STUDIO 跟随 --mirror-size 等比 */
     line-height: 1 !important;
     letter-spacing: 0.32em !important;
   }
@@ -4324,14 +4324,15 @@ body.cssos-cinema-mode #logo-panel .mirror-img {
      circle's left/right edges. */
   font-family: "Rubik", "Syne", sans-serif;
   font-weight: 900;
-  font-size: clamp(24px, 3.4vw, 56px);   /* W914 — Jing: 收一点, 刚好充满内圈不撑破(仅字号) */
+  /* CSSOS_WAVE_1207 — Jing「CSS Studio 没跟着 mirror 变小」: 字号改为【跟随 --mirror-size 等比】(原来跟 vw → mirror 缩小后文字不缩、撑破内圈)。 */
+  font-size: calc(var(--mirror-size, 180px) * 0.22);
   letter-spacing: 0.06em;
   color: #f1fff8;
   text-shadow: 0 0 28px rgba(0, 245, 160, 0.75);
 }
 
 .mirror-subtitle {
-  font-size: clamp(11px, 1.4vw, 18px);   /* W914 — Jing: Studio 同步收小(仅字号) */
+  font-size: calc(var(--mirror-size, 180px) * 0.072);   /* W1207 — Studio 同步跟随 --mirror-size 等比 */
   letter-spacing: 0.4em;
   text-transform: uppercase;
   color: var(--muted);

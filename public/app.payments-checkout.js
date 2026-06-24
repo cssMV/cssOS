@@ -427,11 +427,16 @@
 
     const root = document.createElement("div");
     root.className = "css-pay-picker-backdrop";
-    // CSSOS_WAVE_1155 — Jing 指令: 影院里(右轨触发)支付弹窗靠右轨、不遮挡(像评论窗); 非影院仍居中。
+    // CSSOS_WAVE_1155/1156 — Jing 指令: 影院里(右轨触发)支付弹窗靠右轨、顶对齐右轨、不遮挡(像评论窗); 非影院仍居中。
     try {
       var _wp = document.getElementById("watch-panel");
       var _open = _wp && !_wp.hidden && !_wp.classList.contains("hidden") && getComputedStyle(_wp).display !== "none";
-      if (_open) root.classList.add("is-cinema-docked");
+      if (_open) {
+        root.classList.add("is-cinema-docked");
+        var _rail = document.getElementById("cssos-watch-social-rail");
+        var _top = _rail ? Math.max(8, Math.round(_rail.getBoundingClientRect().top)) : Math.round((window.innerHeight || 600) * 0.18);
+        root.style.setProperty("--cssos-pay-dock-top", _top + "px");   // 顶对齐右轨
+      }
     } catch (_e) {}
     root.setAttribute("role", "dialog");
     root.setAttribute("aria-modal", "true");

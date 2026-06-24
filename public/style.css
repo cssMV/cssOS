@@ -10515,7 +10515,7 @@ html[data-theme="light"] .pay-card {
 /* CSSOS_WAVE_1155 — Jing 指令: 影院里支付弹窗靠右轨、不遮挡主画面(像评论窗)。 */
 .css-pay-picker-backdrop.is-cinema-docked {
   justify-content: flex-end;
-  align-items: center;
+  align-items: flex-start;       /* 顶对齐, 配合 card margin-top = 右轨顶 */
   background: rgba(0, 0, 0, 0.32);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
@@ -10523,8 +10523,8 @@ html[data-theme="light"] .pay-card {
 }
 .css-pay-picker-backdrop.is-cinema-docked .css-pay-picker-card {
   width: min(380px, 84vw);
-  margin: 0 76px 0 0;            /* 让出右轨那排图标 */
-  max-height: 80vh;
+  margin: var(--cssos-pay-dock-top, 80px) 76px 0 0;   /* 顶=右轨顶; 右留76px让出图标 */
+  max-height: 78vh;
 }
 @media (max-width: 560px) {
   .css-pay-picker-backdrop.is-cinema-docked { justify-content: center; align-items: flex-end; }

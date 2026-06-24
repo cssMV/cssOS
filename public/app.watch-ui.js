@@ -8292,9 +8292,11 @@ function ensureAuthorAvatarModule() {
       menu.style.left = `${lx2}px`;
       menu.dataset.anchorLeft = String(lx2);
     } catch (_e) {}
-    // Click-outside-closes
+    // Click-outside-closes. CSSOS_WAVE_1156 — Jing: 点头像【子元素】(logo图/➕角标)时 ev.target≠anchorEl
+    //   但仍在头像内 → 旧逻辑误判"点外面"先关, 然后头像 click 又开 → toggle 失效。把头像内部都算锚点。
     const onClickAway = (ev) => {
-      if (!menu.contains(ev.target) && ev.target !== anchorEl) {
+      var inAnchor = ev.target === anchorEl || (anchorEl && anchorEl.contains && anchorEl.contains(ev.target));
+      if (!menu.contains(ev.target) && !inAnchor) {
         menu.remove();
         document.removeEventListener("mousedown", onClickAway, true);
         document.removeEventListener("touchstart", onClickAway, true);

@@ -3906,8 +3906,8 @@ html[data-theme="light"] .works-fp-optin-desc {
 
 .mirror {
   position: relative;
-  width: min(var(--mirror-size, 600px), 100%);
-  height: min(var(--mirror-size, 600px), 100%);
+  width: min(var(--mirror-size, 360px), 100%);
+  height: min(var(--mirror-size, 360px), 100%);
   display: grid;
   place-items: center;
   animation: mirrorBreath 14s ease-in-out infinite;

@@ -895,7 +895,10 @@ function applyPanelBehaviorSettings(settings) {
   if (mirrorSubtitle) mirrorSubtitle.textContent = logoSubtitleText;
   if (mirrorSlogan) mirrorSlogan.innerHTML = formatSlogan(state.spell || next.logo.spell);
   if (logoPanel) {
-    logoPanel.style.setProperty("--mirror-size", `${MIRROR_SIZE_PX}px`);
+    // CSSOS_WAVE_1214 — Jing「晚上 logo 变大」防御: MIRROR_SIZE_PX 万一是 NaN/无效, 写出 "NaNpx" 会让
+    //   CSS 回退到兜底值 → logo 突然变大。这里夹到 [160,480] 的有效数, 永远写出合法尺寸。
+    var _ms = Number(MIRROR_SIZE_PX); if (!isFinite(_ms) || _ms <= 0) _ms = 360; _ms = Math.max(160, Math.min(480, _ms));
+    logoPanel.style.setProperty("--mirror-size", _ms + "px");
     logoPanel.style.setProperty("--mirror-mask-inset", `${MIRROR_MASK_INSET_PERCENT}%`);
     logoPanel.style.setProperty("--hold-ring-inset", `${Math.max(48, Math.round(MIRROR_SIZE_PX * 0.14))}px`);
     logoPanel.style.setProperty("--spellcast-ring-scale", String(next.logo.spellcast_ring_scale));

@@ -26,9 +26,9 @@
       // CSSOS_WAVE_1144/1146 — Jing 指令: 评论窗【依附右轨】右侧停靠; 顶部不高于右轨(JS 设 top 对齐右轨顶)。
       "#cssos-work-comments{position:fixed;inset:0;z-index:10058;display:flex;align-items:flex-start;justify-content:flex-end;" +
       "background:rgba(0,0,0,0.32);backdrop-filter:blur(3px);font:500 14px/1.45 -apple-system,system-ui,sans-serif;}" +
-      // CSSOS_WAVE_1162 — Jing 指令: 弹窗支持缩放(右下角拖拽手柄)。resize+overflow 让用户自由调大小。
-      "#cssos-work-comments .cwc-sheet{width:min(400px,84vw);max-height:78vh;margin:0 76px 0 0;display:flex;flex-direction:column;" +
-      "resize:both;overflow:auto;min-width:300px;min-height:240px;max-width:92vw;" +   /* margin-right 76px 让出右轨图标; top 由 JS 对齐右轨 */
+      // CSSOS_WAVE_1164 — Jing 指令: 八方缩放(8 边角手柄, cssosMakeResizable)。sheet 自身 overflow:visible(手柄在边外),
+      //   内部 .cwc-list 自己滚动。
+      "#cssos-work-comments .cwc-sheet{width:min(400px,84vw);max-height:78vh;margin:0 76px 0 0;display:flex;flex-direction:column;position:relative;overflow:visible;}" +
       "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.12);border-radius:18px;" +
       "box-shadow:0 18px 60px rgba(0,0,0,0.6);color:rgba(255,255,255,0.95);}" +
       "@media (max-width:560px){#cssos-work-comments{align-items:flex-end;justify-content:center;}" +
@@ -279,6 +279,8 @@
         sheet.style.marginTop = topPx + "px";
         // CSSOS_WAVE_1160 — 高度封顶到视口底, 不溢出 → 评论列表内部可上下滚(之前 78vh+marginTop 溢出导致滚不动)。
         sheet.style.maxHeight = "calc(100vh - " + topPx + "px - 14px)";
+        // CSSOS_WAVE_1164 — 八方缩放。
+        try { if (typeof globalThis.cssosMakeResizable === "function") globalThis.cssosMakeResizable(sheet, { minW: 300, minH: 240 }); } catch (_e) {}
       }
     } catch (_e) {}
 

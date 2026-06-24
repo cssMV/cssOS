@@ -689,6 +689,13 @@
       document.body;
     (fsHost || document.body).appendChild(root);
     __picker_open = { root, onKey };
+    // CSSOS_WAVE_1164 — 支付卡片八方缩放(影院停靠态)。
+    try {
+      if (root.classList.contains("is-cinema-docked") && typeof globalThis.cssosMakeResizable === "function") {
+        var _card = root.querySelector(".css-pay-picker-card");
+        if (_card) globalThis.cssosMakeResizable(_card, { minW: 300, minH: 220 });
+      }
+    } catch (_e) {}
 
     // Focus first actionable button
     try {

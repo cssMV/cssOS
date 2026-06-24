@@ -10526,12 +10526,9 @@ html[data-theme="light"] .pay-card {
   margin: var(--cssos-pay-dock-top, 80px) 76px 0 0;   /* 顶=右轨顶; 右留76px让出图标 */
   /* CSSOS_WAVE_1159 — 高度上限 = 从右轨顶到视口底, 不溢出 → 卡片输入表单(下一步)永在窗内, 超长则内部滚动。 */
   max-height: calc(100vh - var(--cssos-pay-dock-top, 80px) - 14px);
-  /* CSSOS_WAVE_1162 — Jing 指令: 弹窗支持缩放(右下角拖拽手柄)。 */
-  resize: both;
-  overflow: auto;
-  min-width: 300px;
-  min-height: 220px;
-  max-width: 92vw;
+  /* CSSOS_WAVE_1164 — 八方缩放走 cssosMakeResizable(JS 加 8 手柄); 手柄在边外, overflow:visible。内部表单自滚。 */
+  overflow: visible;
+  position: relative;
 }
 @media (max-width: 560px) {
   .css-pay-picker-backdrop.is-cinema-docked { justify-content: center; align-items: flex-end; }

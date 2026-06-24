@@ -110,10 +110,10 @@
       /* W334 — AI panel = true fullscreen (like MV panel) on the NATIVE APP and
        * small screens. CSSOS_WAVE_590 — Jing: 桌面宽屏没必要全屏 → 限定全屏只在
        * html.cssos-app(原生) 或 ≤768px(移动); 桌面宽屏保留基础浮窗(右下 420×620)。 */
-      "html.cssos-app #cssos-agent-panel[data-open='1']{" +
-        "position:fixed!important;inset:0!important;width:100dvw!important;height:100dvh!important;" +
-        "max-height:none!important;max-width:none!important;border-radius:0!important;border:none!important;" +
-        "right:0!important;left:0!important;bottom:0!important;top:0!important;}",
+      /* CSSOS_WAVE_1164 — Jing 指令: AI 助理默认【不】全屏, 让用户自由缩放(八方手柄)。
+       *   故移除原生 App 的强制全屏规则; 仅手机窄屏(≤768px)仍全屏(小屏缩放不便)。
+       *   桌面/iPad/原生宽屏 = 浮动 420×620 可缩放面板。 */
+      "html.cssos-app #cssos-agent-panel[data-open='1']{}",
       "@media (max-width:768px){#cssos-agent-panel[data-open='1']{" +
         "position:fixed!important;inset:0!important;width:100dvw!important;height:100dvh!important;" +
         "max-height:none!important;max-width:none!important;border-radius:0!important;border:none!important;" +
@@ -283,6 +283,8 @@
     // viewport, and persists the position to localStorage so it stays
     // where the user left it across sessions.
     makeAgentPanelDraggable(panel, panel.querySelector("header"));
+    // CSSOS_WAVE_1164 — Jing 指令: AI 助理可八方缩放(默认浮动非全屏)。与标题栏拖动并存。
+    try { if (typeof globalThis.cssosMakeResizable === "function") globalThis.cssosMakeResizable(panel, { minW: 320, minH: 360 }); } catch (_e) {}
 
     renderSuggestions();
   }

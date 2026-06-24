@@ -13500,7 +13500,10 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
   margin-right: 0 !important;
   box-sizing: border-box !important;
 }
-#login-panel #login-list > .login-card,
+/* CSSOS_WAVE_1184 — Jing「5 个社交平台套胶囊风格,不要一个一整行」: 这条全宽 override 原为
+   iOS 单 Apple 网关卡而设, 但无差别命中所有卡 → 把胶囊轨道里的每粒撑成整行, 压垮胶囊宪法布局。
+   只对【唯一一颗 solo 卡(iOS 单 Apple)】与 LOG OUT 钉全宽; 多 provider(web 5 粒)交还胶囊轨道(2235)。 */
+#login-panel #login-list > .login-card.cssos-login-solo,
 #login-panel #login-logout {
   width: 100% !important;
   box-sizing: border-box !important;

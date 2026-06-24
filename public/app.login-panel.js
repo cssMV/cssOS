@@ -306,7 +306,11 @@ function renderLoginPlatformsModule() {
         ? ""
         : (record?.url || (record?.enabled ? `/auth/${platform.id}` : "")),
       linked: isLinked,
-      active: authState.loginProvider === platform.id,
+      // CSSOS_WAVE_1184 — Jing「默认 Apple 为激活胶囊」: 登录态用当前会话 provider;
+      // 未登录(登录选择态)默认激活 Apple。
+      active: authState.loginProvider
+        ? authState.loginProvider === platform.id
+        : platform.id === "apple",
       actionLabel,
       comingSoon: isComingSoon
     };
@@ -341,10 +345,14 @@ function renderLoginPlatformsModule() {
     openSubscriptionPanelModule?.();
   });
 
-  const preferred = behavior.login.preferred_provider;
+  // CSSOS_WAVE_1184 — Jing「谁激活谁在第一个位置」+「默认 Apple」: 未登录默认偏好 Apple。
+  const preferred = behavior.login.preferred_provider || (!authState.user ? "apple" : null);
   const orderedList = [...(authState.user
     ? [...list].sort((a, b) => Number(a.linked) - Number(b.linked))
     : list)].sort((a, b) => {
+      // 激活胶囊永远排第一。
+      if (a.active && !b.active) return -1;
+      if (b.active && !a.active) return 1;
       if (a.id === preferred && b.id !== preferred) return -1;
       if (b.id === preferred && a.id !== preferred) return 1;
       return 0;

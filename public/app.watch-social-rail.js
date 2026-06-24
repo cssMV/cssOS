@@ -123,13 +123,13 @@
       ".csr-ic.is-ai{background:#1c2b3a;box-shadow:inset 0 0 0 1px #2e4a63;color:#7fd4ff;}" +
       // CSSOS_WAVE_1159 — Jing 指令: 头像彻底去黑圈——去掉 button 默认边框/阴影/内边距+任何底色,
       //   只剩透明 + 完整 logo(object-fit:contain, 尖角不截)。仅【文字兜底】(.is-text, 无 logo 图)时给半透明圆。
-      // CSSOS_WAVE_1160 — Jing 指令: 头像彻底无圈(白环/黑环全去)。透明背景、无边框/描边/阴影/焦点环,
-      //   只剩内容(logo 或首字母)。img object-fit:contain 完整显示 logo, 尖角不截。
+      // CSSOS_WAVE_1161 — Jing 指令: 头像和其它图标一样 = 【无边框的半透明圆】(不是全透明, 也不要白/黑环)。
+      //   背景同 .csr-ic 的 rgba(255,255,255,0.12); 去掉一切 border/outline/box-shadow/焦点环。
       ".csr-av{position:relative;width:46px;height:46px;border:0!important;outline:0!important;box-shadow:none!important;padding:0;margin:0;" +
-      "background:transparent!important;-webkit-appearance:none;appearance:none;border-radius:50%;display:flex;align-items:center;" +
-      "justify-content:center;font-weight:600;font-size:16px;color:#fff;overflow:visible;text-shadow:0 1px 3px rgba(0,0,0,0.6);}" +
+      "background:rgba(255,255,255,0.12);-webkit-appearance:none;appearance:none;border-radius:50%;overflow:hidden;display:flex;align-items:center;" +
+      "justify-content:center;font-weight:600;font-size:16px;color:#fff;}" +
       ".csr-av:focus,.csr-av:focus-visible{outline:0!important;box-shadow:none!important;}" +
-      ".csr-av img{width:100%;height:100%;border:0;border-radius:0;object-fit:contain;display:block;background:transparent;}" +
+      ".csr-av img{width:100%;height:100%;border:0;border-radius:50%;object-fit:cover;display:block;}" +
       ".csr-av .csr-follow{position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:17px;height:17px;" +
       "border-radius:50%;background:#00f5a0;color:#04241a;font-size:12px;display:flex;align-items:center;justify-content:center;}" +
       // CSSOS_WAVE_1119 — 左上返回键(成熟模式): 退出影院。点它=触发现成 watch-panel 关闭按钮。

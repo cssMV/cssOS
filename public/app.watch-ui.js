@@ -8325,10 +8325,15 @@ function ensureAuthorAvatarModule() {
   globalThis.__cssosRefreshAuthorAvatar = refresh;
   // CSSOS_WAVE_1130 — Jing 指令: 头像搬到右轨(TikTok 风格)后, 点它要弹【原来这套作者菜单】。
   //   暴露开菜单器: 复用隐藏的 #watch-author-avatar 的 ownerId/title(refresh 持续更新), 锚到右轨头像。
-  globalThis.cssosOpenWatchAuthorMenu = function (anchorEl) {
+  // CSSOS_WAVE_1163 — Jing 指令: 优先用调用方传入的【作品作者】id/名(右轨已正确解析); 仅在没传时
+  //   才退回隐藏头像的 dataset(那个会自我兜底成登录用户, 是 bug 源, 故不作首选)。
+  globalThis.cssosOpenWatchAuthorMenu = function (anchorEl, ownerId, ownerName) {
     try { refresh(); } catch (_e) {}
-    var name = (avatar.title || "").replace(/^By |\s—.*$/g, "").trim() || loginCopy("Author", "作者");
-    return openMenu(avatar.dataset.ownerId, name, anchorEl || avatar);
+    var oid = String(ownerId || "").trim() || avatar.dataset.ownerId;
+    var name = String(ownerName || "").trim()
+      || (avatar.title || "").replace(/^By |\s—.*$/g, "").trim()
+      || loginCopy("Author", "作者");
+    return openMenu(oid, name, anchorEl || avatar);
   };
   screen.style.position = screen.style.position || "relative";
   screen.appendChild(avatar);

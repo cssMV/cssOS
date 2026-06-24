@@ -86,6 +86,30 @@
   function listenCents(w) { return Number((w && (w.current_listen_price_cents || w.listen_price_cents || w.suggested_listen_price_cents)) || 69); }
   function viewCents(w) { return Number((w && (w.current_view_price_cents || w.view_price_cents)) || 99); }
 
+  // CSSOS_WAVE_1163 — Jing 指令: 头像必须是【正在播放作品的作者】, 绝不回退登录用户。
+  //   从当前作品取作者 id/名/头像; 作品没带头像就按 id 拉(缓存), 拉到再重渲染。
+  var _authorCache = {};   // userId → {name, avatar}
+  function currentAuthor() {
+    var w = currentWork() || {};
+    var ow = w.owner || {};
+    var id = String(w.owner_user_id || w.owner_id || ow.id || ow.user_id || "").trim();
+    var name = String(w.owner_display_name || w.owner_name || ow.name || ow.display_name || "").trim();
+    var avatar = String(w.owner_avatar_url || w.avatar_url || ow.avatar_url || "").trim();
+    if (id && _authorCache[id]) { name = name || _authorCache[id].name; avatar = avatar || _authorCache[id].avatar; }
+    return { id: id, name: name, avatar: avatar };
+  }
+  function fetchAuthor(id) {
+    if (!id || _authorCache[id]) return;
+    _authorCache[id] = { name: "", avatar: "" };   // 占位防重复拉
+    try {
+      fetch("/api/users/" + encodeURIComponent(id) + "/public-avatar", { credentials: "include" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (j && j.ok) { _authorCache[id] = { name: String(j.display_name || ""), avatar: String(j.avatar_url || "") }; schedule(); }
+        }).catch(function () {});
+    } catch (_e) {}
+  }
+
   function railHost() { return document.getElementById("watch-panel"); }
   function watchOpen() {
     var p = railHost();
@@ -235,11 +259,11 @@
     var av = document.createElement("button");
     av.type = "button"; av.className = "csr-av";
     av.setAttribute("aria-label", copy("Creator", "作者"));
-    // CSSOS_WAVE_1132 — Jing 指令: 用 watch-ui【已正确解析】的作者信息(作品作者头像→回退登录账户头像),
-    //   不再自己从 currentWork 瞎猜(owner_avatar_url 常空 → 之前总显首字母)。
-    var ai = globalThis.__cssosWatchAuthorInfo || {};
-    var avatarUrl = String(ai.ownerAvatar || w.owner_avatar_url || w.avatar_url || "").trim();
-    var nameForInitial = String(ai.ownerName || w.owner_display_name || w.title || "C").trim();
+    // CSSOS_WAVE_1163 — Jing 指令: 头像=【正在播放作品的作者】, 不是登录用户(之前 watch-ui 自我兜底=人人显示自己头像, 错)。
+    var au = currentAuthor();
+    if (au.id && !au.avatar) fetchAuthor(au.id);   // 作品没带头像 → 按作者 id 拉
+    var avatarUrl = au.avatar;
+    var nameForInitial = String(au.name || w.title || "C").trim();
     if (avatarUrl) { var im = document.createElement("img"); im.src = avatarUrl; im.alt = ""; av.appendChild(im); }
     else { av.classList.add("is-text"); av.textContent = nameForInitial.charAt(0).toUpperCase() || "C"; }   // W1159 仅文字兜底给半透明圆
     var fol = document.createElement("span"); fol.className = "csr-follow"; fol.textContent = "+"; av.appendChild(fol);
@@ -251,8 +275,9 @@
         // CSSOS_WAVE_1137 — Jing 指令: 点头像【切换】菜单显隐(已开→关, 已关→开)。
         var openMenuEl = document.querySelector(".cssos-author-menu");
         if (openMenuEl) { document.querySelectorAll(".cssos-author-menu").forEach(function (m) { m.remove(); }); return; }
-        if (typeof globalThis.cssosOpenWatchAuthorMenu === "function") { globalThis.cssosOpenWatchAuthorMenu(av); return; }
-        var uid = String(w.owner_user_id || "").trim();
+        // CSSOS_WAVE_1163 — 把【作品作者】的 id/名字显式传给菜单(不再让 watch-ui 自我兜底)。
+        if (typeof globalThis.cssosOpenWatchAuthorMenu === "function") { globalThis.cssosOpenWatchAuthorMenu(av, au.id, au.name); return; }
+        var uid = String(au.id || w.owner_user_id || "").trim();
         if (uid && typeof globalThis.openUserHomepage === "function") globalThis.openUserHomepage(uid);
         else if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Creator profile coming soon", "作者主页即将开放"));
       } catch (_e) {}

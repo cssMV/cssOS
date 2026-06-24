@@ -31317,6 +31317,19 @@ app.post(
 /* CSSOS_WAVE_200 — viewer ↔ target relationship snapshot. Frontend uses
  * this to render the avatar context menu with the right toggle states
  * (Follow vs ✓ Following, Block vs ✓ Blocked) without 3 round trips. */
+/* CSSOS_WAVE_1163 — Jing 指令: 右轨头像必须是【正在播放作品的作者】头像, 不是登录用户。
+ * 轻量端点: 按 id/username 取作者的 avatar_url + display_name(作品数据没带头像时前端拉这个)。 */
+app.get("/api/users/:id/public-avatar", async (req, res) => {
+  noStore(res);
+  try {
+    const u = await resolveUserByUsernameOrId(String(req.params.id || "").trim());
+    if (!u) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, id: u.id, display_name: u.display_name || u.username || "", avatar_url: u.avatar_url || "" });
+  } catch (err) {
+    return res.json({ ok: false });
+  }
+});
+
 app.get("/api/users/:username/relationship", async (req, res) => {
   noStore(res);
   try {

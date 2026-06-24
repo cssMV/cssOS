@@ -164,17 +164,24 @@
   //   服务端搜索端点】 /api/works/market?q=&limit=&offset= (服务端返回带 children/parts 的树),
   //   边输入边搜、首字母即出、滚动分页。默认显 5, 每页拉 10。
   var EMBED_PAGE = 10;
-  // 把 market 返回的【根作品(含 children/parts)】展平成带 depth 的节点: 根 depth0 → 各部段 depth1。
+  // 照搬 MV 面板 app.watch-search.js 的 isPlayable / firstPlayable。
+  function isPlayable(w) {
+    return !!(w && String(w.final_mv_url || w.preview_video_url || w.audio_track_1_url || w.audio_track_2_url || w.preview_audio_url || "").trim());
+  }
+  function firstPlayable(w) {
+    if (!w) return null;
+    if (isPlayable(w) && Number(w.take_index || 0) !== 2) return w;
+    var kids = Array.isArray(w.children) ? w.children : Array.isArray(w.parts) ? w.parts : [];
+    for (var i = 0; i < kids.length; i++) { var hit = firstPlayable(kids[i]); if (hit) return hit; }
+    return null;
+  }
+  // 把 market 返回的【根作品(含 children/parts)】展平成带 depth 的节点(照搬 MV: 根 depth0 → kids>1 才铺部段 depth1)。
   function embedExpandRoots(roots) {
     var out = [];
-    (Array.isArray(roots) ? roots : []).forEach(function (root) {
-      if (!root) return;
-      var kids = (Array.isArray(root.children) ? root.children : Array.isArray(root.parts) ? root.parts : [])
-        .filter(Boolean)
-        .sort(function (a, b) { return (Number(a.sequence_index) || 0) - (Number(b.sequence_index) || 0); });
-      var multi = kids.length > 1;
-      out.push({ w: root, depth: 0, partTotal: multi ? kids.length : 0 });
-      if (multi) kids.forEach(function (c, i) { out.push({ w: c, depth: 1, partIndex: i + 1, partTotal: kids.length }); });
+    (Array.isArray(roots) ? roots : []).filter(function (w) { return !!firstPlayable(w); }).forEach(function (root) {
+      var kids = (Array.isArray(root.children) ? root.children : Array.isArray(root.parts) ? root.parts : []).filter(Boolean);
+      out.push({ w: root, depth: 0, partTotal: kids.length > 1 ? kids.length : 0 });
+      if (kids.length > 1) kids.forEach(function (c, i) { out.push({ w: c, depth: 1, partIndex: i + 1, partTotal: kids.length }); });
     });
     return out;
   }
@@ -229,44 +236,56 @@
     embedFetchPage(pl, false);
   }
   function buildEmbedRow(node) {
-    // W1188 — node = { w, depth, partIndex, partTotal }。样式参照 MV 面板搜索结果树:
-    //   根(depth0, 56px 大缩略图 + ×N 部段徽章), 部段(depth1, 缩进 + 44px 缩略图 + ① 序号)。
+    // CSSOS_WAVE_1189 — 直接照搬 MV 面板 app.watch-search.js 的 appendCard 渲染:
+    //   根 depth0(56px), 部段 depth1(38px + marginLeft18 + 左边框); meta = [depth0&kids>1:"🎬 N 部" |
+    //   depth1&未就绪:"章节生成中"] + owner + 时长(firstPlayable 回填) + ID。
     var w = node && node.w ? node.w : node;
     var depth = (node && node.depth) || 0;
-    var isPart = depth > 0;
-    var cover = String(w.cover_image || w.preview_image_url || w.cover_url || "");
-    var wid = String(w.id || w.work_id || "");
-    var ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
-    var durTxt = ds > 0 ? (Math.floor(ds / 60) + ":" + String(Math.floor(ds % 60)).padStart(2, "0")) : "";
-    var owner = String(w.owner_display_name || w.owner_name || "").trim();
     var partTotal = (node && node.partTotal) || 0;
-    var thumb = isPart ? 44 : 56;
+    var wid = String(w.id || w.work_id || "").trim();
+    var cover = String(w.cover_image || w.cover_url || w.preview_image_url || "").trim();
+    if (!cover && depth === 0) { var _fp0 = firstPlayable(w); if (_fp0) cover = String(_fp0.cover_image || _fp0.cover_url || _fp0.preview_image_url || "").trim(); }
+    var thumb = typeof globalThis.cssosThumb === "function" ? globalThis.cssosThumb : function (u) { return u; };
+    var coverUrl = esc(thumb(cover, 160));
+    var title = esc(w.title || tr("Untitled", "未命名"));
+    var owner = esc(w.owner_name || w.owner_display_name || "");
+    var _pw = firstPlayable(w) || w;
+    var _ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration ||
+      _pw.duration_secs || _pw.audio_duration_secs || _pw.final_duration_secs || 0) || 0;
+    var durTxt = _ds > 0 ? (Math.floor(_ds / 60) + ":" + String(Math.floor(_ds % 60)).padStart(2, "0")) : "";
+    var _nodePlayable = !!firstPlayable(w);
     var meta = [];
-    if (isPart && node.partIndex) meta.push("▸ " + node.partIndex + (partTotal ? "/" + partTotal : ""));
-    if (owner && !isPart) meta.push(esc(owner));
+    if (depth === 0 && partTotal > 1) meta.push("🎬 " + partTotal + tr(" parts", " 部"));
+    if (depth > 0 && !_nodePlayable) meta.push(tr("not ready yet", "章节生成中"));
+    if (owner) meta.push(owner);
     if (durTxt) meta.push("♪ " + durTxt);
-    meta.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;">ID ' + esc(wid.slice(0, 8)) + "</span>");
+    meta.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + esc(wid) + "</span>");
+    var _tsz = depth > 0 ? 38 : 56;
     var row = document.createElement("button");
     row.type = "button";
-    row.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;" +
-      (isPart ? "padding-left:26px;" : "");
+    row.title = "ID " + wid;
+    row.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
+    if (depth > 0) { row.style.marginLeft = "18px"; row.style.borderLeft = "2px solid rgba(0,245,160,0.28)"; row.style.borderRadius = "0 10px 10px 0"; }
     row.addEventListener("mouseenter", function () { row.style.background = "rgba(0,245,160,0.1)"; });
     row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-    var titleHtml = esc(w.title || "Untitled");
-    var badge = (!isPart && partTotal >= 2)
-      ? '<span style="margin-left:6px;flex:0 0 auto;font:600 10px/1 ui-monospace,monospace;color:#00f5a0;background:rgba(0,245,160,0.14);border:1px solid rgba(0,245,160,0.35);border-radius:999px;padding:2px 6px;">× ' + (partTotal + 1) + "</span>"
-      : "";
     row.innerHTML =
-      (isPart ? '<span style="flex:0 0 auto;color:rgba(0,245,160,0.55);font-size:13px;">↳</span>' : "") +
-      '<div style="position:relative;width:' + thumb + 'px;height:' + thumb + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
-      (cover ? '<img src="' + esc(cover) + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;">' : '<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;">🎵</span>') +
+      '<div style="position:relative;width:' + _tsz + "px;height:" + _tsz + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
+      (coverUrl ? '<img src="' + coverUrl + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;">' : '<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;">🎵</span>') +
       (durTxt ? '<span style="position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.66);color:#fff;font:600 9px/1 ui-monospace,monospace;padding:2px 4px;border-radius:4px;">' + durTxt + "</span>" : "") +
-      "</div>" +
-      '<div style="flex:1;min-width:0;">' +
-      '<div style="display:flex;align-items:center;min-width:0;"><span style="font:' + (isPart ? "500 13px" : "600 14px") + '/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + titleHtml + "</span>" + badge + "</div>" +
-      '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + meta.join(" · ") + "</div>" +
-      "</div>";
-    row.addEventListener("click", function () { setEmbed(wid, String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });
+      '</div><div style="flex:1;min-width:0;">' +
+      '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
+      '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + meta.join(" · ") + "</div></div>";
+    // 未就绪部段不可嵌入(照搬 MV: 提示稍后)。
+    if (depth > 0 && !_nodePlayable) {
+      row.style.opacity = "0.5";
+      row.addEventListener("click", function () {
+        var m = tr("This chapter is still being generated.", "该章节还在生成中,稍后再来。");
+        if (typeof globalThis.cssosGuidedToast === "function") globalThis.cssosGuidedToast(m);
+        else if (typeof globalThis.showToast === "function") globalThis.showToast(m);
+      });
+    } else {
+      row.addEventListener("click", function () { setEmbed(wid, String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });
+    }
     return row;
   }
   function openEmbedPicker() {

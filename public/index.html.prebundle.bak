@@ -2535,7 +2535,7 @@
          to dock positions 1 and 2 (per Jing — they were getting
          clipped at the back). Loaded after app.boot.js below so
          the dynamic Person-MV injector has a chance to run first. -->
-    <script src="app.dock-priority-order.js?v=20260509-wave108b" defer></script>
+    <script src="app.dock-priority-order.js?v=20260624-w1171c" defer></script>
     <!-- CSSOS_WAVE_445 20260526 — horizontal swipe cycles main panels -->
     <script src="app.panel-swipe-nav.js?v=20260529-w496-swipe" defer></script>
     <!-- CSSOS_WAVE_463 20260528 — Panel Constitution execution layer

@@ -28,6 +28,105 @@
       return c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;";
     });
   }
+
+  // CSSOS_WAVE_1199 — Jing: 右上角 ⋯ 信息包(透明玻璃下拉, 同评论框风格)。三组:
+  //   播放方式(cssosPlaylists 模式) / 播放范围(for-you·mine·epic 列表) / 播放规格(画幅)。
+  var ASPECT_OPTS = [
+    { id: "fit", label: tr("Fit", "适配"), ar: "" },
+    { id: "2.39x1", label: "2.39:1", ar: "2.39 / 1" },
+    { id: "16x9", label: "16:9", ar: "16 / 9" },
+    { id: "1x1", label: "1:1", ar: "1 / 1" },
+    { id: "9x16", label: "9:16", ar: "9 / 16" }
+  ];
+  function applyWatchAspect(id) {
+    var frame = document.querySelector("#watch-panel .watch-frame"); if (!frame) return;
+    var a = null; for (var i = 0; i < ASPECT_OPTS.length; i++) { if (ASPECT_OPTS[i].id === id) { a = ASPECT_OPTS[i]; break; } }
+    if (!a) a = ASPECT_OPTS[0];
+    frame.dataset.aspectCycleId = a.id;
+    if (a.ar) {
+      frame.dataset.userOverrodeAspect = "1"; frame.style.aspectRatio = a.ar; frame.dataset.aspect = a.id;
+      var r = a.ar.split("/").map(function (n) { return parseFloat(n); });
+      var ratio = (r[0] && r[1]) ? r[0] / r[1] : 1;
+      frame.dataset.orientation = ratio >= 2.2 ? "ultra-wide" : ratio > 1.1 ? "landscape" : ratio >= 0.95 ? "square" : "portrait";
+      frame.style.maxHeight = ratio >= 2.2 ? "55vh" : ratio > 1.1 ? "65vh" : ratio >= 0.95 ? "75vh" : "85vh";
+    } else {
+      frame.style.aspectRatio = ""; delete frame.dataset.userOverrodeAspect;
+      try { if (typeof globalThis.applyVideoSourceAspectModule === "function") globalThis.applyVideoSourceAspectModule(); } catch (_e) {}
+    }
+  }
+  function openWatchInfoPack(anchor) {
+    var existing = document.getElementById("cssos-watch-infopack");
+    if (existing) { existing.remove(); return; }   // 再点 = 收起(toggle)
+    var pl = globalThis.cssosPlaylists;
+    var pop = document.createElement("div");
+    pop.id = "cssos-watch-infopack";
+    // 透明玻璃, 同评论/分享窗风格(W1198)。
+    pop.style.cssText = "position:fixed;z-index:62;width:248px;max-width:84vw;max-height:64vh;overflow-y:auto;" +
+      "-webkit-overflow-scrolling:touch;padding:14px;border-radius:18px;box-sizing:border-box;" +
+      "background:rgba(10,14,20,0.42);border:1px solid rgba(255,255,255,0.14);color:#fff;" +
+      "text-shadow:0 1px 4px rgba(0,0,0,0.7);box-shadow:0 18px 60px rgba(0,0,0,0.5);" +
+      "font:500 13px/1.4 -apple-system,system-ui,sans-serif;";
+    function chip(label, active, onClick) {
+      var b = document.createElement("button"); b.type = "button"; b.textContent = label;
+      b.style.cssText = "appearance:none;cursor:pointer;border-radius:999px;padding:6px 12px;margin:0;font:600 12px/1 inherit;" +
+        (active
+          ? "background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;border:none;"
+          : "background:rgba(255,255,255,0.10);color:#eafff6;border:1px solid rgba(255,255,255,0.16);");
+      b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); try { onClick(); } catch (_e) {} render(); });
+      return b;
+    }
+    function section(title, chips) {
+      var wrap = document.createElement("div"); wrap.style.cssText = "margin-bottom:14px;";
+      var h = document.createElement("div"); h.textContent = title;
+      h.style.cssText = "font:700 11px/1.2 inherit;letter-spacing:.04em;opacity:.7;margin-bottom:8px;text-transform:uppercase;";
+      var row = document.createElement("div"); row.style.cssText = "display:flex;flex-wrap:wrap;gap:7px;";
+      chips.forEach(function (c) { row.appendChild(c); });
+      wrap.appendChild(h); wrap.appendChild(row); return wrap;
+    }
+    function render() {
+      pop.innerHTML = "";
+      // 1) 播放方式
+      if (pl && pl.getMode) {
+        var modes = ["loop_all", "loop_single", "sequential", "reverse", "shuffle"];
+        var cur = pl.getMode();
+        pop.appendChild(section(tr("Playback mode", "播放方式"), modes.map(function (m) {
+          return chip(pl.modeLabel ? pl.modeLabel(m) : m, m === cur, function () { pl.setMode(m); });
+        })));
+      }
+      // 2) 播放范围
+      if (pl && pl._state && pl._state.lists) {
+        var lists = pl._state.lists, activeId = pl._state.active;
+        var scopeChips = [];
+        ["for-you", "mine", "epic"].forEach(function (id) {
+          var l = lists[id]; if (!l) return;
+          scopeChips.push(chip(l.name || id, id === activeId, function () { if (pl.setActive) pl.setActive(id); }));
+        });
+        if (scopeChips.length) pop.appendChild(section(tr("Playback scope", "播放范围"), scopeChips));
+      }
+      // 3) 播放规格
+      var frame = document.querySelector("#watch-panel .watch-frame");
+      var curAsp = frame ? (frame.dataset.aspectCycleId || "fit") : "fit";
+      pop.appendChild(section(tr("Aspect", "播放规格"), ASPECT_OPTS.map(function (a) {
+        return chip(a.label, a.id === curAsp, function () { applyWatchAspect(a.id); });
+      })));
+    }
+    render();
+    // 锚在 ⋯ 按钮正下方, 右对齐。
+    var host = document.fullscreenElement || document.webkitFullscreenElement || document.body;
+    host.appendChild(pop);
+    try {
+      var br = anchor.getBoundingClientRect(); var vw = window.innerWidth || 360;
+      pop.style.top = Math.round(br.bottom + 8) + "px";
+      pop.style.right = Math.max(8, Math.round(vw - br.right)) + "px";
+    } catch (_e) { pop.style.top = "58px"; pop.style.right = "12px"; }
+    // 点外面关闭。
+    function onOutside(e) {
+      if (pop.contains(e.target) || e.target === anchor) return;
+      pop.remove(); document.removeEventListener("pointerdown", onOutside, true);
+    }
+    setTimeout(function () { document.addEventListener("pointerdown", onOutside, true); }, 0);
+  }
+  globalThis.cssosOpenWatchInfoPack = openWatchInfoPack;
   // 与 normaliseItem 一致: 没有任何媒体的草稿不可播, 过滤掉.
   function isPlayable(w) {
     return !!(w && String(w.final_mv_url || w.preview_video_url || w.audio_track_1_url || w.audio_track_2_url || w.preview_audio_url || "").trim());
@@ -122,9 +221,10 @@
       var exitBtn = document.createElement("button");
       exitBtn.id = "watch-exit-cinema";
       exitBtn.type = "button";
-      exitBtn.setAttribute("aria-label", tr("Exit cinema", "退出影院"));
-      exitBtn.title = tr("Exit cinema", "退出影院");
-      exitBtn.textContent = "✕";
+      // CSSOS_WAVE_1199 — Jing: 退出已搬到左上角(返回)。右上角这颗删掉退出功能, 改成 ⋯ 信息包入口。
+      exitBtn.setAttribute("aria-label", tr("More", "更多"));
+      exitBtn.title = tr("Playback options", "播放选项");
+      exitBtn.textContent = "⋯";
       exitBtn.style.cssText = [
         // CSSOS_WAVE_326 — ✕ 放进媒体框右上角, 与左上角头像(left:12 top:12)对称.
         // (改为 append 到 .watch-screen; App 全屏帧=满屏, 由 style.css 让位刘海.)
@@ -140,36 +240,7 @@
       ].join(";");
       exitBtn.addEventListener("click", function (ev) {
         try { ev.preventDefault(); ev.stopPropagation(); } catch (_e) {}
-        // CSSOS_WAVE_316 20260521 — Jing: 退出影院键必须【真的退出】. W314 取消网页
-        // 原生全屏后, 仅靠 exitFullscreen + 去 class 已无法关闭面板(App 端 MV 面板是
-        // CSS 全屏, 不吃那几个 class). 现在走全平台统一的关闭路径: 停播 → 去全屏
-        // class → minimizeToDockBridge(把面板收回 dock / 回到首页) —— 与其它面板的
-        // 关闭按钮、右键菜单"最小化"完全一致.
-        var pnl = document.getElementById("watch-panel");
-        try { document.dispatchEvent(new CustomEvent("cssos:watch-close")); } catch (_e) {}
-        try { window.dispatchEvent(new CustomEvent("cssos:watch-close")); } catch (_e) {}
-        // CSSOS_WAVE_445b 20260527 — Skip webkitExitFullscreen on iOS entirely.
-        // On iOS (Capacitor + Safari), calling webkitExitFullscreen can trigger
-        // a page reload (WebKit bug). The Watch panel uses CSS fullscreen on iOS
-        // (position:fixed; 100dvh) — class removal below handles the visual exit.
-        // Only call exitFullscreen on non-iOS desktop browsers.
-        try {
-          var _isIos = /iphone|ipod|ipad/i.test(navigator.userAgent) ||
-            (/macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
-          if (!_isIos) {
-            if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
-            else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
-          }
-        } catch (_e) {}
-        try { if (pnl) pnl.classList.remove("is-cssmv-fullscreen", "cssmv-cinema"); } catch (_e) {}
-        try { document.body.classList.remove("cssos-cinema-mode", "cssos-watch-theater", "cssos-watch-idle"); } catch (_e) {}
-        try { globalThis.stopWatchPanelPlaybackModule && globalThis.stopWatchPanelPlaybackModule(); } catch (_e) {}
-        // 真正关闭面板(回到首页/feed): 优先用全站统一的 minimizeToDockBridge.
-        try {
-          if (pnl && typeof globalThis.minimizeToDockBridge === "function") globalThis.minimizeToDockBridge(pnl);
-          else if (pnl && typeof globalThis.minimizeToDock === "function") globalThis.minimizeToDock(pnl);
-          else if (pnl) pnl.classList.add("hidden");
-        } catch (_e) { try { if (pnl) pnl.classList.add("hidden"); } catch (_e2) {} }
+        try { openWatchInfoPack(exitBtn); } catch (e) { try { console.warn("[info-pack]", e); } catch (_e) {} }
       });
       (panel.querySelector(".watch-screen") || panel).appendChild(exitBtn);
       // CSSOS_WAVE_311 20260521 — Jing: "步调一致" — ✕ 必须和头像/搜索框/Dock 完全

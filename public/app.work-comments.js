@@ -158,95 +158,75 @@
   }
   function clearEmbed() { embedWorkId = ""; embedWorkTitle = ""; var chip = document.querySelector("#cssos-work-comments .cwc-embedchip"); if (chip) chip.style.display = "none"; }
 
-  // 选一首【我的作品】嵌入(安全卡片, 非裸 HTML)。CSSOS_WAVE_1148 — Jing 指令:
-  //   弹窗【锚在 🎵 按钮上方/评论框左侧】, 不再屏幕中央; 加载更稳健(失败给重试, 不死)。
-  async function loadMyWorks(pl) {
-    pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("Loading…", "加载中…")) + "</div>";
-    var items = [];
-    // CSSOS_WAVE_1188 — Jing「搜不到 Jerusalem」根因: 只 limit=60 + 内存切片本地过滤 → 库大就漏。
-    //   改: 拉【全量库】(limit=1000, 同作品中心), 失败再退回内存"我的"歌单。
-    try {
-      var r = await fetch("/api/works/mine?limit=1000", { credentials: "include" });
-      var j = await r.json().catch(function () { return null; });
-      items = ((j && (j.works || j.items || j.data)) || []);
-    } catch (_e) {}
-    if (!items.length) {
-      try {
-        var st = globalThis.cssosPlaylists && globalThis.cssosPlaylists._state;
-        var mine = st && st.lists && st.lists.mine && st.lists.mine.items;
-        if (mine && mine.length) items = mine.slice();
-      } catch (_e2) {}
-    }
-    if (!items.length) {
-      pl.innerHTML = '<div style="opacity:.7;text-align:center;padding:16px;">' + esc(tr("Failed to load.", "加载失败。")) +
-        ' <button data-retry style="background:transparent;border:0;color:#00f5a0;cursor:pointer;font:inherit;text-decoration:underline;">' + esc(tr("Retry", "重试")) + "</button></div>";
-      var rb = pl.querySelector("[data-retry]"); if (rb) rb.addEventListener("click", function () { loadMyWorks(pl); });
-      return;
-    }
-    // W1188 — 不再过滤掉子部段; 按 root 分组成【树】(根 + 部段), 和 MV 面板搜索结果一致。
-    pl.__groups = buildEmbedGroups(items);
-    if (!pl.__groups.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No works.", "暂无作品。")) + "</div>"; return; }
-    renderEmbedList(pl, pl.__searchQuery || "");
-  }
-  // W1188 — 把扁平作品行按 root_work_id 聚成树: { root, kids:[按 sequence_index 排序] }。
-  function buildEmbedGroups(items) {
-    var byKey = {}, order = [];
-    items.forEach(function (w) {
-      if (!w) return;
-      var id = String(w.id || w.work_id || "");
-      if (!id) return;
-      var hasParent = !!w.parent_work_id;
-      var rootKey = String(w.root_work_id || (hasParent ? w.parent_work_id : id) || id);
-      if (!byKey[rootKey]) { byKey[rootKey] = { root: null, kids: [] }; order.push(rootKey); }
-      var isRoot = !hasParent && (String(w.root_work_id || id) === id);
-      if (isRoot && !byKey[rootKey].root) byKey[rootKey].root = w;
-      else byKey[rootKey].kids.push(w);
-    });
-    var groups = [];
-    order.forEach(function (k) {
-      var g = byKey[k];
-      var root = g.root || g.kids.shift();   // 没显式根 → 拿第一个部段当根
+  // 选一首作品嵌入(安全卡片, 非裸 HTML)。CSSOS_WAVE_1148 — Jing: 弹窗锚在 🎵 按钮上方。
+  // CSSOS_WAVE_1189 — Jing「搜不到 Jerusalem / 输入完整词仍无结果」根因: 之前只搜【我的作品】
+  //   (/api/works/mine), Jerusalem 属于别的账号 → 永远搜不到。改用 MV 面板【同一个全平台
+  //   服务端搜索端点】 /api/works/market?q=&limit=&offset= (服务端返回带 children/parts 的树),
+  //   边输入边搜、首字母即出、滚动分页。默认显 5, 每页拉 10。
+  var EMBED_PAGE = 10;
+  // 把 market 返回的【根作品(含 children/parts)】展平成带 depth 的节点: 根 depth0 → 各部段 depth1。
+  function embedExpandRoots(roots) {
+    var out = [];
+    (Array.isArray(roots) ? roots : []).forEach(function (root) {
       if (!root) return;
-      g.kids.sort(function (a, b) { return (Number(a.sequence_index) || 0) - (Number(b.sequence_index) || 0); });
-      groups.push({ root: root, kids: g.kids });
+      var kids = (Array.isArray(root.children) ? root.children : Array.isArray(root.parts) ? root.parts : [])
+        .filter(Boolean)
+        .sort(function (a, b) { return (Number(a.sequence_index) || 0) - (Number(b.sequence_index) || 0); });
+      var multi = kids.length > 1;
+      out.push({ w: root, depth: 0, partTotal: multi ? kids.length : 0 });
+      if (multi) kids.forEach(function (c, i) { out.push({ w: c, depth: 1, partIndex: i + 1, partTotal: kids.length }); });
     });
-    return groups;
+    return out;
   }
-  function groupMatches(g, q) {
-    if (!q) return true;
-    var nodes = [g.root].concat(g.kids);
-    for (var i = 0; i < nodes.length; i++) {
-      var w = nodes[i];
-      var hay = ((w.title || "") + " " + (w.owner_display_name || w.owner_name || "") + " " + (w.id || w.work_id || "")).toLowerCase();
-      if (hay.indexOf(q) >= 0) return true;
+  async function embedFetchPage(pl, first) {
+    if (pl.__loading || pl.__exhausted) return;
+    pl.__loading = true;
+    var q = pl.__q || "";
+    try {
+      var url = "/api/works/market?q=" + encodeURIComponent(q) + "&limit=" + EMBED_PAGE + "&offset=" + (pl.__offset || 0);
+      var r = await fetch(url, { credentials: "include" });
+      var j = await r.json().catch(function () { return null; });
+      var roots = (j && ((j.data && j.data.works) || j.works)) || [];
+      if (q !== (pl.__q || "")) { pl.__loading = false; return; }  // 过期响应(已改查询)丢弃
+      if (roots.length < EMBED_PAGE) pl.__exhausted = true;
+      pl.__offset = (pl.__offset || 0) + roots.length;
+      var nodes = embedExpandRoots(roots);
+      pl.__nodes = (pl.__nodes || []).concat(nodes);
+      if (first) {
+        pl.innerHTML = "";
+        if (!pl.__nodes.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No matches.", "无匹配。")) + "</div>"; pl.__loading = false; return; }
+        appendEmbedBatch(pl, 5);   // 默认只显 5 个节点。
+      } else {
+        appendEmbedBatch(pl, EMBED_PAGE);
+      }
+    } catch (_e) {
+      if (first) {
+        pl.innerHTML = '<div style="opacity:.7;text-align:center;padding:16px;">' + esc(tr("Search failed.", "搜索失败。")) +
+          ' <button data-retry style="background:transparent;border:0;color:#00f5a0;cursor:pointer;font:inherit;text-decoration:underline;">' + esc(tr("Retry", "重试")) + "</button></div>";
+        var rb = pl.querySelector("[data-retry]"); if (rb) rb.addEventListener("click", function () { embedSearch(pl, pl.__q || ""); });
+      }
     }
-    return false;
+    pl.__loading = false;
   }
-  // CSSOS_WAVE_1176/1188 — 列表上下滑动加载更多, 一次 10。搜索命中任意节点 → 显示整组(树)。
-  var EMBED_BATCH = 10;
-  function renderEmbedList(pl, query) {
-    var groups = pl.__groups || [];
-    var q = String(query || "").trim().toLowerCase();
-    var matched = q ? groups.filter(function (g) { return groupMatches(g, q); }) : groups;
-    // 展平成【带 depth 的节点列表】: 根(depth0) → 各部段(depth1)。
-    var flat = [];
-    matched.forEach(function (g) {
-      flat.push({ w: g.root, depth: 0, partTotal: g.kids.length });
-      g.kids.forEach(function (c, i) { flat.push({ w: c, depth: 1, partIndex: i + 1, partTotal: g.kids.length }); });
-    });
-    pl.__filtered = flat;
-    pl.__rendered = 0;
+  // 新查询(含空 = 最新作品): 重置分页 + 拉第一页。首字母即触发(输入处理已 debounce)。
+  function embedSearch(pl, query) {
+    pl.__q = String(query || "").trim();
+    pl.__offset = 0; pl.__exhausted = false; pl.__loading = false; pl.__nodes = []; pl.__rendered = 0;
     pl.scrollTop = 0;
-    pl.innerHTML = "";
-    if (!flat.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No matches.", "无匹配。")) + "</div>"; return; }
-    appendEmbedBatch(pl, 5);   // W1188 — Jing: 默认只显 5 个节点; 之后每次滚动加载 10(EMBED_BATCH)。绝不一次渲染全量。
+    pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(pl.__q ? tr("Searching…", "搜索中…") : tr("Loading…", "加载中…")) + "</div>";
+    embedFetchPage(pl, true);
   }
   function appendEmbedBatch(pl, n) {
-    var f = pl.__filtered || [];
+    var f = pl.__nodes || [];
     var start = pl.__rendered || 0;
-    var end = Math.min(start + (n || EMBED_BATCH), f.length);
+    var end = Math.min(start + (n || EMBED_PAGE), f.length);
     for (var i = start; i < end; i++) pl.appendChild(buildEmbedRow(f[i]));
     pl.__rendered = end;
+  }
+  // 滚到底: 先把已缓冲的节点再渲染一批; 缓冲见底且未穷尽 → 拉下一页。
+  function embedMaybeLoadMore(pl) {
+    if ((pl.__rendered || 0) < (pl.__nodes || []).length) { appendEmbedBatch(pl, EMBED_PAGE); return; }
+    embedFetchPage(pl, false);
   }
   function buildEmbedRow(node) {
     // W1188 — node = { w, depth, partIndex, partTotal }。样式参照 MV 面板搜索结果树:
@@ -303,17 +283,24 @@
       // W1177 — 搜索框统一风格: 🔍 内嵌在框内开头(同 MV 面板)。
       '<div style="position:relative;margin-bottom:8px;">' +
         '<span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);opacity:.55;pointer-events:none;font-size:14px;">🔍</span>' +
-        '<input data-embed-search type="search" placeholder="' + esc(tr("Search your works…", "搜索你的作品…")) + '" ' +
+        '<input data-embed-search type="search" placeholder="' + esc(tr("Search works, creators, ID…", "搜索作品 / 作者 / ID…")) + '" ' +
         'style="width:100%;box-sizing:border-box;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.16);border-radius:10px;padding:8px 11px 8px 34px;color:#fff;font:inherit;" />' +
       "</div>" +
       '<div data-pl style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:7px;min-height:80px;"></div>';
     pick.appendChild(card);
-    // 搜索框过滤 + 滚到底加载更多(一次 10)。
+    // W1189 — 全平台服务端搜索: 边输入边搜(debounce 150ms, 首字母即出) + 滚到底分页(每页 10)。
     var _si = card.querySelector("[data-embed-search]");
     var _pl = card.querySelector("[data-pl]");
-    if (_si && _pl) _si.addEventListener("input", function () { _pl.__searchQuery = _si.value; renderEmbedList(_pl, _si.value); });
+    if (_si && _pl) {
+      var _deb = null;
+      _si.addEventListener("input", function () {
+        clearTimeout(_deb);
+        var v = _si.value;
+        _deb = setTimeout(function () { embedSearch(_pl, v); }, 150);
+      });
+    }
     if (_pl) _pl.addEventListener("scroll", function () {
-      if (_pl.scrollTop + _pl.clientHeight >= _pl.scrollHeight - 60) appendEmbedBatch(_pl);
+      if (_pl.scrollTop + _pl.clientHeight >= _pl.scrollHeight - 60) embedMaybeLoadMore(_pl);
     }, { passive: true });
     pick.addEventListener("click", function (e) { if (e.target === pick) pick.remove(); });
     (globalThis.cssosMountInCinema || function (el) { (document.fullscreenElement || document.body).appendChild(el); })(pick);
@@ -327,7 +314,7 @@
         card.style.bottom = Math.max(8, vh - br.top + 8) + "px";   // 浮在按钮正上方
       } else { card.style.left = "12px"; card.style.bottom = "80px"; }
     } catch (_e) { card.style.left = "12px"; card.style.bottom = "80px"; }
-    loadMyWorks(card.querySelector("[data-pl]"));
+    embedSearch(card.querySelector("[data-pl]"), "");   // 打开即拉最新作品(空查询)
   }
 
   async function postComment() {

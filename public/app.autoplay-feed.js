@@ -159,12 +159,13 @@
     ov.innerHTML =
       '<div style="max-width:360px;width:100%;background:rgba(8,16,13,0.96);border:1px solid rgba(0,245,160,0.28);' +
       'border-radius:20px;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(0,0,0,0.5);font:500 14px/1.5 -apple-system,system-ui,sans-serif;color:#eafff6;">' +
-      '<div style="font:700 18px/1.3 -apple-system,system-ui,sans-serif;margin-bottom:6px;">' + lc("Watch the latest MV?", "欣赏最新 MV?") + '</div>' +
+      // W1180 — 标题加图标 🎬。
+      '<div style="font:700 18px/1.3 -apple-system,system-ui,sans-serif;margin-bottom:6px;display:flex;align-items:center;gap:8px;"><span>🎬</span>' + lc("Watch the latest MV?", "欣赏最新 MV?") + '</div>' +
       '<div style="color:rgba(200,255,232,0.7);font-size:13px;margin-bottom:18px;">' + lc("Auto-play the latest works in the cinema.", "在影院自动连播最新作品。") + '</div>' +
-      // 中间: 两个按钮
-      '<div style="display:flex;gap:10px;margin-bottom:16px;">' +
-      '<button type="button" id="cssos-autoenter-later" style="flex:1;appearance:none;border:1px solid rgba(255,255,255,0.18);background:transparent;color:#eafff6;border-radius:999px;padding:11px 14px;font:600 14px/1 inherit;cursor:pointer;">' + lc("Maybe later", "稍后再说") + '</button>' +
-      '<button type="button" id="cssos-autoenter-watch" style="flex:1.3;appearance:none;border:none;background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;border-radius:999px;padding:11px 14px;font:700 14px/1 inherit;cursor:pointer;">' + lc("Watch MV ✨", "欣赏 MV ✨") + '</button>' +
+      // W1180 — 一体分段胶囊: 激活的 Watch MV 在前(左), 未激活 Maybe later 在后(右)。
+      '<div style="display:flex;border-radius:999px;overflow:hidden;border:1px solid rgba(0,245,160,0.35);margin-bottom:16px;">' +
+      '<button type="button" id="cssos-autoenter-watch" style="flex:1.4;appearance:none;border:none;background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;padding:12px 14px;font:700 14px/1 inherit;cursor:pointer;">' + lc("Watch MV ✨", "欣赏 MV ✨") + '</button>' +
+      '<button type="button" id="cssos-autoenter-later" style="flex:1;appearance:none;border:none;border-left:1px solid rgba(255,255,255,0.12);background:transparent;color:#eafff6;padding:12px 14px;font:600 14px/1 inherit;cursor:pointer;">' + lc("Maybe later", "稍后再说") + '</button>' +
       '</div>' +
       // 底部: 记住复选框
       '<label style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:rgba(200,255,232,0.65);cursor:pointer;">' +

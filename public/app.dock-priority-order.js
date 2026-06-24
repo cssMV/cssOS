@@ -71,28 +71,10 @@
     dock = document.querySelector(".dock");
     if (!dock) return;
     ensureOrder();
-
-    /* Observe future additions / re-insertions. The dock-order
-     * module may shuffle on user drag — we honor user drags but
-     * re-pin on inserts of new dynamic items. To avoid fighting
-     * with intentional drags we ONLY reorder when (a) we see a
-     * NEW node added or (b) PRIORITY items are missing from the
-     * head. */
-    var mo = new MutationObserver(function (mutations) {
-      var sawAddition = false;
-      for (var i = 0; i < mutations.length; i += 1) {
-        if (mutations[i].addedNodes && mutations[i].addedNodes.length) {
-          sawAddition = true;
-          break;
-        }
-      }
-      if (sawAddition) ensureOrder();
-    });
-    mo.observe(dock, { childList: true });
-
-    /* Also re-check after late dynamic injectors finish — Person MV
-     * sets up via setInterval so it may insert ~2-5s after load. */
-    var settles = [400, 1500, 4000, 8000];
+    /* CSSOS_WAVE_1171c — 紧急: 彻底移除 MutationObserver(它是唯一可能造成"排序↔观察"无限循环、
+     * 卡死主线程的东西)。改为【纯定时几次】兜住动态注入(人物MV ~2-5s 后才插入), 排完即停,
+     * 绝无循环可能。ensureOrder 本身幂等, 重复调用零副作用。 */
+    var settles = [300, 800, 1500, 3000, 5000, 9000];
     settles.forEach(function (ms) { setTimeout(ensureOrder, ms); });
   }
 

@@ -66,15 +66,31 @@
       "background:rgba(10,14,20,0.42);border:1px solid rgba(255,255,255,0.14);color:#fff;" +
       "text-shadow:0 1px 4px rgba(0,0,0,0.7);box-shadow:0 18px 60px rgba(0,0,0,0.5);" +
       "font:500 13px/1.4 -apple-system,system-ui,sans-serif;";
-    // CSSOS_WAVE_1202 — Jing「对照胶囊宪法」: 段=图标+标签; 激活段【凸】(绿填充/两头圆/微抬+阴影);
-    //   未激活段【凹】(透明融入轨道、无独立边框) → 与轨道共边、段间小缝。
+    // CSSOS_WAVE_1203 — Jing「照搬胶囊宪法,做凹凸咬合,不是简单绿一下」: 注入一次作用域样式,
+    //   轨道 overflow:hidden + 段贴满高度; 激活段【凸】绿填充两头圆; 两侧未激活段用 radial mask 咬出【凹】口
+    //   朝向激活段(负 margin 相扣)。轨道横向滚动不换行(咬合只在一行成立)。
+    if (!document.getElementById("cssos-infopack-style")) {
+      var ipSt = document.createElement("style"); ipSt.id = "cssos-infopack-style";
+      ipSt.textContent =
+        "#cssos-watch-infopack .ip-bar{display:flex;align-items:stretch;overflow-x:auto;overflow-y:hidden;" +
+        "border-radius:999px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.05);box-sizing:border-box;}" +
+        "#cssos-watch-infopack .ip-bar::-webkit-scrollbar{display:none;width:0;height:0;}" +
+        "#cssos-watch-infopack .ip-seg{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;height:38px;" +
+        "padding:0 16px;white-space:nowrap;border:0;background:transparent;color:#eafff6;cursor:pointer;" +
+        "font:600 12px/38px -apple-system,system-ui,sans-serif;border-radius:999px;position:relative;z-index:1;box-sizing:border-box;}" +
+        "#cssos-watch-infopack .ip-seg.active{z-index:2;color:#012;font-weight:700;border-radius:999px;" +
+        "background:linear-gradient(120deg,#00f5a0,#0bf7ff);box-shadow:0 4px 14px rgba(0,0,0,0.28);}" +
+        // 激活段【右邻】: 凹咬左侧(朝激活)
+        "#cssos-watch-infopack .ip-seg.active ~ .ip-seg{margin-left:-19px;padding:0 14px 0 22px;border-radius:0 999px 999px 0;" +
+        "-webkit-mask-image:radial-gradient(circle 19px at 0 19px,transparent 18.5px,#000 19px);mask-image:radial-gradient(circle 19px at 0 19px,transparent 18.5px,#000 19px);}" +
+        // 激活段【左邻】: 凹咬右侧(朝激活)
+        "#cssos-watch-infopack .ip-seg:has(~ .ip-seg.active){margin-right:-19px;padding:0 22px 0 14px;border-radius:999px 0 0 999px;" +
+        "-webkit-mask-image:radial-gradient(circle 19px at 100% 19px,transparent 18.5px,#000 19px);mask-image:radial-gradient(circle 19px at 100% 19px,transparent 18.5px,#000 19px);}";
+      document.head.appendChild(ipSt);
+    }
     function chip(label, active, onClick) {
-      var b = document.createElement("button"); b.type = "button"; b.textContent = label;
-      b.style.cssText = "appearance:none;cursor:pointer;border-radius:999px;padding:7px 13px;margin:0;border:none;" +
-        "display:inline-flex;align-items:center;gap:5px;white-space:nowrap;" +
-        (active
-          ? "background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;font:700 12px/1 inherit;box-shadow:0 2px 9px rgba(0,0,0,0.28);transform:translateY(-0.5px);"
-          : "background:transparent;color:#eafff6;font:600 12px/1 inherit;");
+      var b = document.createElement("button"); b.type = "button"; b.className = "ip-seg" + (active ? " active" : "");
+      b.textContent = label;
       b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); try { onClick(); } catch (_e) {} render(); });
       return b;
     }
@@ -82,10 +98,7 @@
       var wrap = document.createElement("div"); wrap.style.cssText = "margin-bottom:14px;";
       var h = document.createElement("div"); h.textContent = title;
       h.style.cssText = "font:700 11px/1.2 inherit;letter-spacing:.04em;opacity:.7;margin-bottom:8px;text-transform:uppercase;";
-      // 胶囊【轨道】: 999px 圆角 + 细边 + 半透明壳; 激活段贴满轨道高度(align-items:stretch), 段间小缝。
-      var row = document.createElement("div");
-      row.style.cssText = "display:flex;flex-wrap:wrap;align-items:stretch;gap:3px;padding:3px;border-radius:999px;" +
-        "background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);box-sizing:border-box;";
+      var row = document.createElement("div"); row.className = "ip-bar";
       chips.forEach(function (c) { row.appendChild(c); });
       wrap.appendChild(h); wrap.appendChild(row); return wrap;
     }

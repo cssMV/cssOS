@@ -535,6 +535,13 @@
       fab.setAttribute("data-active", "1");
       /* W331 — agent open: hide dock so they don't fight */
       document.body.classList.add("cssos-agent-open");
+      // CSSOS_WAVE_1203 — Jing「AI 助理也不例外, 和右轨高, 参照评论」: 统一靠右轨定位(顶对齐右轨、
+      //   高到 Next up 之上、不遮右轨)+ 透明玻璃风格(同评论框)。常驻面板, helper 已去重防泄漏。
+      try {
+        if (typeof globalThis.cssosAnchorPopupToRail === "function") globalThis.cssosAnchorPopupToRail(panel, { gap: 12 });
+        panel.style.background = "rgba(10,14,20,0.42)";
+        panel.style.boxShadow = "0 18px 60px rgba(0,0,0,0.5)";
+      } catch (_e) {}
       hydrateSessionFromServer();
       var input = document.getElementById("cssos-agent-input");
       if (input) setTimeout(function () { input.focus(); }, 50);

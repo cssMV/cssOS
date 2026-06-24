@@ -92,7 +92,10 @@
       }
     }
     place();
+    // CSSOS_WAVE_1203 — 去重: 同一元素(尤其常驻面板如 AI 助理)重复调用时先解绑旧监听, 防泄漏。
+    try { if (el.__cssosRailResizeFn) window.removeEventListener("resize", el.__cssosRailResizeFn); } catch (_e) {}
     window.addEventListener("resize", place);
+    el.__cssosRailResizeFn = place;
     el.__cssosRailReplace = place;   // 调用方内容变化后可手动重排
     return el;
   };

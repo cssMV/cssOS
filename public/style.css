@@ -1701,6 +1701,28 @@ body.longpress-guard * {
   cursor: grab;
 }
 
+/* CSSOS_WAVE_1220 — Jing「晚上 logo 圈圈不融背景」: 魔镜图自带的暖金绿辉光在深底上显出一圈边(白天浅底上隐形=完美)。
+   仅【晚上】在魔镜【背后】垫一层同色、向外彻底淡出的径向辉光, 把那圈边溶进深背景 → 无可见圆。白天不加(已完美)。
+   极淡(峰值 0.10)、72% 处归零, 不形成新盘; z-index:-1 在魔镜之下、页面背景之上; 不碰图片/尖角/遮罩。 */
+html[data-theme="dark"] .logo-panel .mirror-stage { position: relative; }
+html[data-theme="dark"] .logo-panel .mirror-stage::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(78vw, 760px);
+  height: min(78vw, 760px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(152, 210, 150, 0.10) 0%,
+    rgba(110, 180, 120, 0.05) 30%,
+    rgba(60, 120, 90, 0.02) 50%,
+    transparent 72%);
+  z-index: -1;
+  pointer-events: none;
+}
+
 .panel-settings {
   position: absolute;
   top: 56px;

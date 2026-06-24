@@ -329,6 +329,27 @@
       }
     }));
 
+    // 2.5 📤 分享 — CSSOS_WAVE_1190 — Jing 指令: 右轨补分享按钮。复用已做好的分享小窗口
+    //   openCssosShareDialog({workId,...}) (app.share-dialog.js)。谁的作品好, 谁都可分享(不限自己)。
+    rail.appendChild(mkItem("📤", copy("Share", "分享"), {
+      aria: copy("Share", "分享"), title: copy("Share this work", "分享这首作品"),
+      onClick: function () {
+        var id = robustWorkId();
+        if (!id) { try { if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Loading work…", "作品加载中…")); } catch (_e) {} return; }
+        try {
+          if (typeof globalThis.openCssosShareDialog === "function") {
+            globalThis.openCssosShareDialog({ workId: id, title: String(w.title || ""), style: String(w.style || ""), ownerName: String((currentAuthor() || {}).name || w.owner_name || "") });
+            return;
+          }
+          if (typeof globalThis.sharePersonMv === "function") { globalThis.sharePersonMv(id); return; }
+          if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Share unavailable.", "分享暂不可用。"));
+        } catch (err) {
+          try { if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Share failed to open", "分享打开失败")); } catch (_e) {}
+          try { console.warn("[social-rail] share open failed", err); } catch (_e) {}
+        }
+      }
+    }));
+
     // 3. 🎧 聆听 · 计数·¢69 — W1169: staff 不参与买卖 → 置灰
     rail.appendChild(mkItem("🎧", countPrice(st.listens, listenCents(w)), {
       disabled: _staff, aria: copy("Listen", "聆听"),

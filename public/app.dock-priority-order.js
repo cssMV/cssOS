@@ -42,17 +42,25 @@
       if (act && !byAction[act]) byAction[act] = el;
     });
 
-    /* For each priority action, if it exists and isn't already at
-     * the head in the right order, move it. */
+    // CSSOS_WAVE_1171b — 紧急修复无限循环(主线程卡死、连控制台都打不开)。必须【幂等】:
+    //   先算期望队头顺序(存在的优先项); DOM 已就位就【直接返回, 零改动】, 否则每次 insertBefore
+    //   都会再触发 MutationObserver → 又调 ensureOrder → DOM 永远抖 → 整页冻死。
+    var desired = [];
+    for (var p = 0; p < PRIORITY.length; p += 1) {
+      var de = byAction[PRIORITY[p]];
+      if (de) desired.push(de);
+    }
+    var alreadyOk = true;
+    for (var q = 0; q < desired.length; q += 1) {
+      if (dock.children[q] !== desired[q]) { alreadyOk = false; break; }
+    }
+    if (alreadyOk) return;   // 已就位 → 零 DOM 改动 → 不再触发 observer → 无循环
+
     settling = true;
     try {
-      // Reverse-iterate, 每个优先项插到当前首位 → 处理完后队头依次为 PRIORITY[0..n], 其余跟在后面。
-      // CSSOS_WAVE_1170 — 去掉旧的 currentIdx===i 提前跳过(会让完整排序漏移); 这里幂等, 已就位则 insertBefore 无副作用。
-      for (var i = PRIORITY.length - 1; i >= 0; i -= 1) {
-        var el = byAction[PRIORITY[i]];
-        if (!el) continue;
-        if (dock.firstChild === el) continue;
-        dock.insertBefore(el, dock.firstChild);
+      // 仅在确实乱序时重排: reverse-insert, 处理完队头依次为 desired[0..n], 其余跟在后面。
+      for (var i = desired.length - 1; i >= 0; i -= 1) {
+        if (dock.firstChild !== desired[i]) dock.insertBefore(desired[i], dock.firstChild);
       }
     } finally {
       settling = false;

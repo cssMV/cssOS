@@ -97,7 +97,7 @@ function defaultPanelBehaviorSettings() {
       spell: PANEL_BEHAVIOR_DEFAULT_SPELL,
       subtitle: "Studio",
       slogan_template: "Just say <span class=\"spell\">{spell}</span>, witness the miracle!",
-      mirror_size_px: 360,   // CSSOS_WAVE_1033 20260620 — Jing「保持进入时那个小尺寸, 别撑大」: 旧默认
+      mirror_size_px: 180,   // CSSOS_WAVE_1206 — Jing「logo 突然变大」根治: 大厅 mirror = splash 尺寸(splash img=42vw/max170)。360 比 splash 大一倍→交接时跳大。改 180≈splash, 无跳变。 / CSSOS_WAVE_1033 旧默认
                              // 600 被 70vh 撑到 ~420(大)。改 360 = 进入时的小 logo, 且 = CSS 兜底
                              // var(--mirror-size,360px), 首屏与 applySettings 后一致 → 无跳变。想调大去
                              // 高级设置 logo 尺寸滑块。
@@ -354,7 +354,9 @@ function sanitizePanelBehaviorSettings(value = {}) {
       // CSSOS_WAVE_1204 — Jing「为什么变大? 保持进入时小尺寸」根因: 这里 Math.max(420) 地板 + ||600 兜底
       //   把 W1033 的 360 又顶回 ≥420 → 加载后 logo 从小长成大。改地板 160 + 兜底 360, 让 360 生效, 与
       //   CSS 兜底 var(--mirror-size,360px) 一致 → 首屏=设置后零跳变, 不再变大。
-      mirror_size_px: Math.max(160, Math.min(880, Number(source?.logo?.mirror_size_px ?? base.logo.mirror_size_px) || 360)),
+      // CSSOS_WAVE_1206 — Jing「logo 突然变大」根治: 上限 880→280 + 兜底 360→180。即使 localStorage 存了旧大值
+      //   也被压到 ≤280, 不会再撑大成图2那样; 默认 180≈splash, 交接无跳变。想调大去高级设置滑块(范围 160–280)。
+      mirror_size_px: Math.max(160, Math.min(280, Number(source?.logo?.mirror_size_px ?? base.logo.mirror_size_px) || 180)),
       mask_inset_percent: Math.max(0, Math.min(28, Number(source?.logo?.mask_inset_percent ?? base.logo.mask_inset_percent) || 12)),
       spellcast_ring_scale: Math.max(0.82, Math.min(1.12, Number(source?.logo?.spellcast_ring_scale ?? base.logo.spellcast_ring_scale) || 1)),
       spellcast_glow_scale: Math.max(0, Math.min(1, Number(source?.logo?.spellcast_glow_scale ?? base.logo.spellcast_glow_scale) || 0.18)),

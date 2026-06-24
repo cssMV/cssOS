@@ -206,6 +206,9 @@
       } else {
         appendEmbedBatch(pl, EMBED_PAGE);
       }
+      pl.__loading = false;
+      embedAutofill(pl);   // CSSOS_WAVE_1197 — 内容没撑出滚动条就续拉, 否则永远卡在 5、滚不动加载不了更多。
+      return;
     } catch (_e) {
       if (first) {
         pl.innerHTML = '<div style="opacity:.7;text-align:center;padding:16px;">' + esc(tr("Search failed.", "搜索失败。")) +
@@ -226,6 +229,16 @@
       ? globalThis.cssosSkeletonListMarkup(5, _lc, "card")
       : '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(_lc) + "</div>";
     embedFetchPage(pl, true);
+  }
+  // CSSOS_WAVE_1197 — 自动填满: 默认渲 5, 若没撑出滚动条(scrollHeight<=clientHeight)就再续一批/拉下一页,
+  //   直到能滚动或穷尽 → 保证用户总能往下滚加载更多, 不再卡在 5。
+  function embedAutofill(pl) {
+    requestAnimationFrame(function () {
+      if (!pl || !document.body.contains(pl)) return;
+      if (pl.scrollHeight > pl.clientHeight + 8) return;     // 已可滚 → 停
+      if ((pl.__rendered || 0) < (pl.__nodes || []).length) { appendEmbedBatch(pl, EMBED_PAGE); embedAutofill(pl); return; }
+      if (!pl.__exhausted && !pl.__loading) { embedFetchPage(pl, false); }   // 拉下一页(它结束会再 autofill)
+    });
   }
   function appendEmbedBatch(pl, n) {
     var f = pl.__nodes || [];
@@ -301,9 +314,10 @@
     var pick = document.createElement("div"); pick.id = "cssos-embed-pick";
     pick.style.cssText = "position:fixed;inset:0;z-index:10062;background:transparent;";   // 透明捕获层, 点外面关闭
     var card = document.createElement("div");
-    card.style.cssText = "position:fixed;width:min(360px,82vw);max-height:60vh;display:flex;flex-direction:column;" +
-      "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.16);border-radius:14px;padding:14px;color:#fff;" +
-      "box-shadow:0 14px 44px rgba(0,0,0,0.6);font:500 14px/1.4 -apple-system,system-ui,sans-serif;";
+    // CSSOS_WAVE_1197 — Jing: 和评论框一样(透明背景层 + 深色卡 + 靠右轨够高可滚)。定位交给 cssosAnchorPopupToRail。
+    card.style.cssText = "display:flex;flex-direction:column;" +
+      "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:14px;color:#fff;" +
+      "box-shadow:0 18px 60px rgba(0,0,0,0.6);font:500 14px/1.4 -apple-system,system-ui,sans-serif;box-sizing:border-box;";
     card.innerHTML =
       // W1177 — 标题加小图标 🎵。
       '<div style="font-weight:700;margin-bottom:8px;font-size:13px;display:flex;align-items:center;gap:6px;"><span style="font-size:15px;">🎵</span>' + esc(tr("Attach a work", "嵌入一首作品")) + "</div>" +
@@ -331,16 +345,12 @@
     }, { passive: true });
     pick.addEventListener("click", function (e) { if (e.target === pick) pick.remove(); });
     (globalThis.cssosMountInCinema || function (el) { (document.fullscreenElement || document.body).appendChild(el); })(pick);
-    // 锚在 🎵 按钮上方(评论框左侧)。
-    try {
-      var btn = document.querySelector("#cssos-work-comments .cwc-attach");
-      var vw = window.innerWidth || 360, vh = window.innerHeight || 640, cw = Math.min(300, vw * 0.76);
-      if (btn) {
-        var br = btn.getBoundingClientRect();
-        card.style.left = Math.max(8, Math.min(br.left, vw - cw - 8)) + "px";
-        card.style.bottom = Math.max(8, vh - br.top + 8) + "px";   // 浮在按钮正上方
-      } else { card.style.left = "12px"; card.style.bottom = "80px"; }
-    } catch (_e) { card.style.left = "12px"; card.style.bottom = "80px"; }
+    // CSSOS_WAVE_1197 — 统一靠右轨定位(顶对齐右轨/高到 Next up 之上/不遮右轨), 和评论框一致。
+    if (typeof globalThis.cssosAnchorPopupToRail === "function") {
+      globalThis.cssosAnchorPopupToRail(card, { gap: 12 });
+    } else {
+      card.style.position = "fixed"; card.style.left = "12px"; card.style.bottom = "80px"; card.style.maxHeight = "60vh";
+    }
     embedSearch(card.querySelector("[data-pl]"), "");   // 打开即拉最新作品(空查询)
   }
 

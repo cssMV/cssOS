@@ -380,13 +380,30 @@ html.cssos-app .bg-blob {
     opacity 160ms ease;
 }
 
+/* CSSOS_WAVE_1216 — Jing「hover 时外圈像真按钮大, 图标保持小」: 默认只显小图标(20px), 不显眼;
+   hover 时用 ::before 伪元素在图标【背后】撑出一个真按钮大小的圆(38px)的悬停背景, 图标尺寸不变。 */
+.theme-toggle { position: relative; overflow: visible; }
+.theme-toggle::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 38px; height: 38px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  transition: background 160ms ease, box-shadow 160ms ease;
+  z-index: -1;
+  pointer-events: none;
+}
 .theme-toggle:hover {
   transform: none;
   opacity: 1;
-  background: var(--panel-strong);   /* CSSOS_WAVE_1215 — 随主题翻(原写死深底, 白天悬停亮字隐形) */
   color: var(--text);
-  border-radius: 999px;
-  box-shadow: 0 0 0 1px var(--border);
+}
+.theme-toggle:hover::before {
+  background: var(--panel-strong);   /* 随主题翻 */
+  box-shadow: 0 0 0 1px var(--border), 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
 .theme-toggle:focus-visible {

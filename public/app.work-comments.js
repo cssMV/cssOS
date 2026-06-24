@@ -182,35 +182,55 @@
     }
     items = items.filter(function (w) { return w && !w.parent_work_id && (w.id || w.work_id); });
     if (!items.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No works.", "暂无作品。")) + "</div>"; return; }
+    pl.__allItems = items;   // W1174 — 存全量, 默认显 5, 顶部搜索框过滤更多
+    renderEmbedList(pl, pl.__searchQuery || "");
+  }
+  // CSSOS_WAVE_1174 — Jing 指令: 嵌入选作品弹窗顶部加搜索框, 默认只显 5 个; 搜索时过滤全部匹配。
+  function renderEmbedList(pl, query) {
+    var all = pl.__allItems || [];
+    var q = String(query || "").trim().toLowerCase();
+    var matched = q ? all.filter(function (w) {
+      var hay = ((w.title || "") + " " + (w.owner_display_name || w.owner_name || "") + " " + (w.id || w.work_id || "")).toLowerCase();
+      return hay.indexOf(q) >= 0;
+    }) : all;
+    var shown = q ? matched : matched.slice(0, 5);
     pl.innerHTML = "";
-    items.forEach(function (w) {
-      // CSSOS_WAVE_1173 — Jing 指令: 列表样式参照 MV 面板搜索结果(56px 缩略图+时长角标 + 标题/meta行 + 绿 hover)。
-      var cover = String(w.cover_image || w.preview_image_url || w.cover_url || "");
-      var wid = String(w.id || w.work_id || "");
-      var ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
-      var durTxt = ds > 0 ? (Math.floor(ds / 60) + ":" + String(Math.floor(ds % 60)).padStart(2, "0")) : "";
-      var owner = String(w.owner_display_name || w.owner_name || "").trim();
-      var meta = [];
-      if (owner) meta.push(esc(owner));
-      if (durTxt) meta.push("♪ " + durTxt);
-      meta.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;">ID ' + esc(wid.slice(0, 8)) + "</span>");
-      var row = document.createElement("button");
-      row.type = "button";
-      row.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
-      row.addEventListener("mouseenter", function () { row.style.background = "rgba(0,245,160,0.1)"; });
-      row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
-      row.innerHTML =
-        '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
-        (cover ? '<img src="' + esc(cover) + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;">' : '<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;">🎵</span>') +
-        (durTxt ? '<span style="position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.66);color:#fff;font:600 9px/1 ui-monospace,monospace;padding:2px 4px;border-radius:4px;">' + durTxt + "</span>" : "") +
-        "</div>" +
-        '<div style="flex:1;min-width:0;">' +
-        '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(w.title || "Untitled") + "</div>" +
-        '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + meta.join(" · ") + "</div>" +
-        "</div>";
-      row.addEventListener("click", function () { setEmbed(wid, String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });
-      pl.appendChild(row);
-    });
+    if (!shown.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No matches.", "无匹配。")) + "</div>"; return; }
+    shown.forEach(function (w) { pl.appendChild(buildEmbedRow(w)); });
+    if (!q && matched.length > 5) {
+      var more = document.createElement("div");
+      more.style.cssText = "text-align:center;opacity:.5;font-size:11px;padding:6px;";
+      more.textContent = tr("Search to see all " + matched.length, "搜索查看全部 " + matched.length + " 首");
+      pl.appendChild(more);
+    }
+  }
+  function buildEmbedRow(w) {
+    // 样式参照 MV 面板搜索结果(56px 缩略图+时长角标 + 标题/meta行 + 绿 hover)。
+    var cover = String(w.cover_image || w.preview_image_url || w.cover_url || "");
+    var wid = String(w.id || w.work_id || "");
+    var ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
+    var durTxt = ds > 0 ? (Math.floor(ds / 60) + ":" + String(Math.floor(ds % 60)).padStart(2, "0")) : "";
+    var owner = String(w.owner_display_name || w.owner_name || "").trim();
+    var meta = [];
+    if (owner) meta.push(esc(owner));
+    if (durTxt) meta.push("♪ " + durTxt);
+    meta.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;">ID ' + esc(wid.slice(0, 8)) + "</span>");
+    var row = document.createElement("button");
+    row.type = "button";
+    row.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
+    row.addEventListener("mouseenter", function () { row.style.background = "rgba(0,245,160,0.1)"; });
+    row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+    row.innerHTML =
+      '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
+      (cover ? '<img src="' + esc(cover) + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;">' : '<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;">🎵</span>') +
+      (durTxt ? '<span style="position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.66);color:#fff;font:600 9px/1 ui-monospace,monospace;padding:2px 4px;border-radius:4px;">' + durTxt + "</span>" : "") +
+      "</div>" +
+      '<div style="flex:1;min-width:0;">' +
+      '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(w.title || "Untitled") + "</div>" +
+      '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + meta.join(" · ") + "</div>" +
+      "</div>";
+    row.addEventListener("click", function () { setEmbed(wid, String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });
+    return row;
   }
   function openEmbedPicker() {
     var old = document.getElementById("cssos-embed-pick"); if (old) old.remove();
@@ -220,8 +240,16 @@
     card.style.cssText = "position:fixed;width:min(360px,82vw);max-height:60vh;display:flex;flex-direction:column;" +
       "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.16);border-radius:14px;padding:14px;color:#fff;" +
       "box-shadow:0 14px 44px rgba(0,0,0,0.6);font:500 14px/1.4 -apple-system,system-ui,sans-serif;";
-    card.innerHTML = '<div style="font-weight:700;margin-bottom:8px;font-size:13px;">' + esc(tr("Attach a work", "嵌入一首作品")) + '</div><div data-pl style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:7px;min-height:80px;"></div>';
+    card.innerHTML = '<div style="font-weight:700;margin-bottom:8px;font-size:13px;">' + esc(tr("Attach a work", "嵌入一首作品")) + "</div>" +
+      // W1174 — 顶部搜索框: 默认显 5, 输入即过滤。
+      '<input data-embed-search type="search" placeholder="' + esc(tr("Search your works…", "搜索你的作品…")) + '" ' +
+      'style="width:100%;box-sizing:border-box;margin-bottom:8px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.16);border-radius:10px;padding:8px 11px;color:#fff;font:inherit;" />' +
+      '<div data-pl style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:7px;min-height:80px;"></div>';
     pick.appendChild(card);
+    // 搜索框过滤。
+    var _si = card.querySelector("[data-embed-search]");
+    var _pl = card.querySelector("[data-pl]");
+    if (_si && _pl) _si.addEventListener("input", function () { _pl.__searchQuery = _si.value; renderEmbedList(_pl, _si.value); });
     pick.addEventListener("click", function (e) { if (e.target === pick) pick.remove(); });
     (globalThis.cssosMountInCinema || function (el) { (document.fullscreenElement || document.body).appendChild(el); })(pick);
     // 锚在 🎵 按钮上方(评论框左侧)。

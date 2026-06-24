@@ -163,43 +163,83 @@
   async function loadMyWorks(pl) {
     pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("Loading…", "加载中…")) + "</div>";
     var items = [];
-    // 优先用内存里已加载的"我的"歌单(零网络, 最稳); 否则退回 /api/works/mine。
+    // CSSOS_WAVE_1188 — Jing「搜不到 Jerusalem」根因: 只 limit=60 + 内存切片本地过滤 → 库大就漏。
+    //   改: 拉【全量库】(limit=1000, 同作品中心), 失败再退回内存"我的"歌单。
     try {
-      var st = globalThis.cssosPlaylists && globalThis.cssosPlaylists._state;
-      var mine = st && st.lists && st.lists.mine && st.lists.mine.items;
-      if (mine && mine.length) items = mine.slice();
+      var r = await fetch("/api/works/mine?limit=1000", { credentials: "include" });
+      var j = await r.json().catch(function () { return null; });
+      items = ((j && (j.works || j.items || j.data)) || []);
     } catch (_e) {}
     if (!items.length) {
       try {
-        var r = await fetch("/api/works/mine?limit=60", { credentials: "include" });
-        var j = await r.json().catch(function () { return null; });
-        items = ((j && (j.works || j.items || j.data)) || []);
-      } catch (_e) {
-        pl.innerHTML = '<div style="opacity:.7;text-align:center;padding:16px;">' + esc(tr("Failed to load.", "加载失败。")) +
-          ' <button data-retry style="background:transparent;border:0;color:#00f5a0;cursor:pointer;font:inherit;text-decoration:underline;">' + esc(tr("Retry", "重试")) + "</button></div>";
-        var rb = pl.querySelector("[data-retry]"); if (rb) rb.addEventListener("click", function () { loadMyWorks(pl); });
-        return;
-      }
+        var st = globalThis.cssosPlaylists && globalThis.cssosPlaylists._state;
+        var mine = st && st.lists && st.lists.mine && st.lists.mine.items;
+        if (mine && mine.length) items = mine.slice();
+      } catch (_e2) {}
     }
-    items = items.filter(function (w) { return w && !w.parent_work_id && (w.id || w.work_id); });
-    if (!items.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No works.", "暂无作品。")) + "</div>"; return; }
-    pl.__allItems = items;   // W1174 — 存全量, 默认显 5, 顶部搜索框过滤更多
+    if (!items.length) {
+      pl.innerHTML = '<div style="opacity:.7;text-align:center;padding:16px;">' + esc(tr("Failed to load.", "加载失败。")) +
+        ' <button data-retry style="background:transparent;border:0;color:#00f5a0;cursor:pointer;font:inherit;text-decoration:underline;">' + esc(tr("Retry", "重试")) + "</button></div>";
+      var rb = pl.querySelector("[data-retry]"); if (rb) rb.addEventListener("click", function () { loadMyWorks(pl); });
+      return;
+    }
+    // W1188 — 不再过滤掉子部段; 按 root 分组成【树】(根 + 部段), 和 MV 面板搜索结果一致。
+    pl.__groups = buildEmbedGroups(items);
+    if (!pl.__groups.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No works.", "暂无作品。")) + "</div>"; return; }
     renderEmbedList(pl, pl.__searchQuery || "");
   }
-  // CSSOS_WAVE_1176 — Jing 指令: 列表上下滑动加载更多, 一次 10。顶部搜索框过滤; 过滤后同样分批 10。
+  // W1188 — 把扁平作品行按 root_work_id 聚成树: { root, kids:[按 sequence_index 排序] }。
+  function buildEmbedGroups(items) {
+    var byKey = {}, order = [];
+    items.forEach(function (w) {
+      if (!w) return;
+      var id = String(w.id || w.work_id || "");
+      if (!id) return;
+      var hasParent = !!w.parent_work_id;
+      var rootKey = String(w.root_work_id || (hasParent ? w.parent_work_id : id) || id);
+      if (!byKey[rootKey]) { byKey[rootKey] = { root: null, kids: [] }; order.push(rootKey); }
+      var isRoot = !hasParent && (String(w.root_work_id || id) === id);
+      if (isRoot && !byKey[rootKey].root) byKey[rootKey].root = w;
+      else byKey[rootKey].kids.push(w);
+    });
+    var groups = [];
+    order.forEach(function (k) {
+      var g = byKey[k];
+      var root = g.root || g.kids.shift();   // 没显式根 → 拿第一个部段当根
+      if (!root) return;
+      g.kids.sort(function (a, b) { return (Number(a.sequence_index) || 0) - (Number(b.sequence_index) || 0); });
+      groups.push({ root: root, kids: g.kids });
+    });
+    return groups;
+  }
+  function groupMatches(g, q) {
+    if (!q) return true;
+    var nodes = [g.root].concat(g.kids);
+    for (var i = 0; i < nodes.length; i++) {
+      var w = nodes[i];
+      var hay = ((w.title || "") + " " + (w.owner_display_name || w.owner_name || "") + " " + (w.id || w.work_id || "")).toLowerCase();
+      if (hay.indexOf(q) >= 0) return true;
+    }
+    return false;
+  }
+  // CSSOS_WAVE_1176/1188 — 列表上下滑动加载更多, 一次 10。搜索命中任意节点 → 显示整组(树)。
   var EMBED_BATCH = 10;
   function renderEmbedList(pl, query) {
-    var all = pl.__allItems || [];
+    var groups = pl.__groups || [];
     var q = String(query || "").trim().toLowerCase();
-    pl.__filtered = q ? all.filter(function (w) {
-      var hay = ((w.title || "") + " " + (w.owner_display_name || w.owner_name || "") + " " + (w.id || w.work_id || "")).toLowerCase();
-      return hay.indexOf(q) >= 0;
-    }) : all;
+    var matched = q ? groups.filter(function (g) { return groupMatches(g, q); }) : groups;
+    // 展平成【带 depth 的节点列表】: 根(depth0) → 各部段(depth1)。
+    var flat = [];
+    matched.forEach(function (g) {
+      flat.push({ w: g.root, depth: 0, partTotal: g.kids.length });
+      g.kids.forEach(function (c, i) { flat.push({ w: c, depth: 1, partIndex: i + 1, partTotal: g.kids.length }); });
+    });
+    pl.__filtered = flat;
     pl.__rendered = 0;
     pl.scrollTop = 0;
     pl.innerHTML = "";
-    if (!pl.__filtered.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No matches.", "无匹配。")) + "</div>"; return; }
-    appendEmbedBatch(pl, 5);   // W1178 — Jing: 窗口小, 默认只显 5; 之后每次滚动加载 10。
+    if (!flat.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No matches.", "无匹配。")) + "</div>"; return; }
+    appendEmbedBatch(pl, 6);   // 默认显 ~6 个节点; 之后每次滚动加载 10。
   }
   function appendEmbedBatch(pl, n) {
     var f = pl.__filtered || [];
@@ -208,29 +248,42 @@
     for (var i = start; i < end; i++) pl.appendChild(buildEmbedRow(f[i]));
     pl.__rendered = end;
   }
-  function buildEmbedRow(w) {
-    // 样式参照 MV 面板搜索结果(56px 缩略图+时长角标 + 标题/meta行 + 绿 hover)。
+  function buildEmbedRow(node) {
+    // W1188 — node = { w, depth, partIndex, partTotal }。样式参照 MV 面板搜索结果树:
+    //   根(depth0, 56px 大缩略图 + ×N 部段徽章), 部段(depth1, 缩进 + 44px 缩略图 + ① 序号)。
+    var w = node && node.w ? node.w : node;
+    var depth = (node && node.depth) || 0;
+    var isPart = depth > 0;
     var cover = String(w.cover_image || w.preview_image_url || w.cover_url || "");
     var wid = String(w.id || w.work_id || "");
     var ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
     var durTxt = ds > 0 ? (Math.floor(ds / 60) + ":" + String(Math.floor(ds % 60)).padStart(2, "0")) : "";
     var owner = String(w.owner_display_name || w.owner_name || "").trim();
+    var partTotal = (node && node.partTotal) || 0;
+    var thumb = isPart ? 44 : 56;
     var meta = [];
-    if (owner) meta.push(esc(owner));
+    if (isPart && node.partIndex) meta.push("▸ " + node.partIndex + (partTotal ? "/" + partTotal : ""));
+    if (owner && !isPart) meta.push(esc(owner));
     if (durTxt) meta.push("♪ " + durTxt);
     meta.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;">ID ' + esc(wid.slice(0, 8)) + "</span>");
     var row = document.createElement("button");
     row.type = "button";
-    row.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
+    row.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;" +
+      (isPart ? "padding-left:26px;" : "");
     row.addEventListener("mouseenter", function () { row.style.background = "rgba(0,245,160,0.1)"; });
     row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+    var titleHtml = esc(w.title || "Untitled");
+    var badge = (!isPart && partTotal >= 2)
+      ? '<span style="margin-left:6px;flex:0 0 auto;font:600 10px/1 ui-monospace,monospace;color:#00f5a0;background:rgba(0,245,160,0.14);border:1px solid rgba(0,245,160,0.35);border-radius:999px;padding:2px 6px;">× ' + (partTotal + 1) + "</span>"
+      : "";
     row.innerHTML =
-      '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
+      (isPart ? '<span style="flex:0 0 auto;color:rgba(0,245,160,0.55);font-size:13px;">↳</span>' : "") +
+      '<div style="position:relative;width:' + thumb + 'px;height:' + thumb + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
       (cover ? '<img src="' + esc(cover) + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;">' : '<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;">🎵</span>') +
       (durTxt ? '<span style="position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.66);color:#fff;font:600 9px/1 ui-monospace,monospace;padding:2px 4px;border-radius:4px;">' + durTxt + "</span>" : "") +
       "</div>" +
       '<div style="flex:1;min-width:0;">' +
-      '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(w.title || "Untitled") + "</div>" +
+      '<div style="display:flex;align-items:center;min-width:0;"><span style="font:' + (isPart ? "500 13px" : "600 14px") + '/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + titleHtml + "</span>" + badge + "</div>" +
       '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + meta.join(" · ") + "</div>" +
       "</div>";
     row.addEventListener("click", function () { setEmbed(wid, String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });

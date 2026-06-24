@@ -716,13 +716,8 @@
       document.body;
     (fsHost || document.body).appendChild(root);
     __picker_open = { root, onKey };
-    // CSSOS_WAVE_1164 — 支付卡片八方缩放(影院停靠态)。
-    try {
-      if (root.classList.contains("is-cinema-docked") && typeof globalThis.cssosMakeResizable === "function") {
-        var _card = root.querySelector(".css-pay-picker-card");
-        if (_card) globalThis.cssosMakeResizable(_card, { minW: 300, minH: 220 });
-      }
-    } catch (_e) {}
+    // CSSOS_WAVE_1171 — 支付窗不用八方缩放(它需要内部滚动看全卡片表单, 与 resize 的 overflow:visible 冲突)。
+    //   缩放保留给评论窗/AI 助理(它们有独立内滚区)。
 
     // Focus first actionable button
     try {

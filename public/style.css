@@ -10526,9 +10526,12 @@ html[data-theme="light"] .pay-card {
   margin: var(--cssos-pay-dock-top, 80px) 76px 0 0;   /* 顶=右轨顶; 右留76px让出图标 */
   /* CSSOS_WAVE_1159 — 高度上限 = 从右轨顶到视口底, 不溢出 → 卡片输入表单(下一步)永在窗内, 超长则内部滚动。 */
   max-height: calc(100vh - var(--cssos-pay-dock-top, 80px) - 14px);
-  /* CSSOS_WAVE_1164 — 八方缩放走 cssosMakeResizable(JS 加 8 手柄); 手柄在边外, overflow:visible。内部表单自滚。 */
-  overflow: visible;
+  /* CSSOS_WAVE_1171 — Jing 指令: 支付窗内容(卡片表单)比窗高 → 必须能滚动看全(否则到不了 Pay 按钮)。
+   *   恢复内部纵向滚动; 不在支付窗用八方缩放手柄(那需要 overflow:visible 会破坏滚动)。 */
+  overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
+  -webkit-overflow-scrolling: touch;
 }
 @media (max-width: 560px) {
   .css-pay-picker-backdrop.is-cinema-docked { justify-content: center; align-items: flex-end; }

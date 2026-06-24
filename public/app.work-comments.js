@@ -239,7 +239,7 @@
     pl.scrollTop = 0;
     pl.innerHTML = "";
     if (!flat.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No matches.", "无匹配。")) + "</div>"; return; }
-    appendEmbedBatch(pl, 6);   // 默认显 ~6 个节点; 之后每次滚动加载 10。
+    appendEmbedBatch(pl, 5);   // W1188 — Jing: 默认只显 5 个节点; 之后每次滚动加载 10(EMBED_BATCH)。绝不一次渲染全量。
   }
   function appendEmbedBatch(pl, n) {
     var f = pl.__filtered || [];

@@ -314,10 +314,10 @@
     var pick = document.createElement("div"); pick.id = "cssos-embed-pick";
     pick.style.cssText = "position:fixed;inset:0;z-index:10062;background:transparent;";   // 透明捕获层, 点外面关闭
     var card = document.createElement("div");
-    // CSSOS_WAVE_1197 — Jing: 和评论框一样(透明背景层 + 深色卡 + 靠右轨够高可滚)。定位交给 cssosAnchorPopupToRail。
+    // CSSOS_WAVE_1198 — Jing: 背景设为【透明玻璃】(不再黑底), 直接浮在 MV 上; 文字靠阴影保可读。
     card.style.cssText = "display:flex;flex-direction:column;" +
-      "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:14px;color:#fff;" +
-      "box-shadow:0 18px 60px rgba(0,0,0,0.6);font:500 14px/1.4 -apple-system,system-ui,sans-serif;box-sizing:border-box;";
+      "background:rgba(10,14,20,0.42);border:1px solid rgba(255,255,255,0.14);border-radius:18px;padding:14px;color:#fff;" +
+      "text-shadow:0 1px 4px rgba(0,0,0,0.7);box-shadow:0 18px 60px rgba(0,0,0,0.5);font:500 14px/1.4 -apple-system,system-ui,sans-serif;box-sizing:border-box;";
     card.innerHTML =
       // W1177 — 标题加小图标 🎵。
       '<div style="font-weight:700;margin-bottom:8px;font-size:13px;display:flex;align-items:center;gap:6px;"><span style="font-size:15px;">🎵</span>' + esc(tr("Attach a work", "嵌入一首作品")) + "</div>" +

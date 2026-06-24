@@ -119,20 +119,20 @@ html[data-theme="light"] .bg-grid, html[data-theme="light"] .bg-grid { opacity: 
 }
 
 .bg-blob-a {
-  background: radial-gradient(circle at top, rgba(0, 255, 170, 0.55), transparent 65%);
+  background: radial-gradient(circle at top, rgba(0, 200, 140, 0.22), transparent 70%);
   top: -15vmax;
   left: -10vmax;
 }
 
 .bg-blob-b {
-  background: radial-gradient(circle at 30% 30%, rgba(11, 247, 255, 0.4), transparent 60%);
+  background: radial-gradient(circle at 30% 30%, rgba(0, 180, 160, 0.15), transparent 66%);
   bottom: -20vmax;
   right: -15vmax;
   animation-delay: -8s;
 }
 
 .bg-blob-c {
-  background: radial-gradient(circle at 70% 40%, rgba(0, 255, 135, 0.45), transparent 62%);
+  background: radial-gradient(circle at 70% 40%, rgba(0, 200, 120, 0.17), transparent 68%);
   top: 25vmax;
   left: 20vmax;
   animation-delay: -14s;
@@ -1701,27 +1701,9 @@ body.longpress-guard * {
   cursor: grab;
 }
 
-/* CSSOS_WAVE_1220 — Jing「晚上 logo 圈圈不融背景」: 魔镜图自带的暖金绿辉光在深底上显出一圈边(白天浅底上隐形=完美)。
-   仅【晚上】在魔镜【背后】垫一层同色、向外彻底淡出的径向辉光, 把那圈边溶进深背景 → 无可见圆。白天不加(已完美)。
-   极淡(峰值 0.10)、72% 处归零, 不形成新盘; z-index:-1 在魔镜之下、页面背景之上; 不碰图片/尖角/遮罩。 */
-html[data-theme="dark"] .logo-panel .mirror-stage { position: relative; }
-html[data-theme="dark"] .logo-panel .mirror-stage::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: min(78vw, 760px);
-  height: min(78vw, 760px);
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(circle,
-    rgba(152, 210, 150, 0.10) 0%,
-    rgba(110, 180, 120, 0.05) 30%,
-    rgba(60, 120, 90, 0.02) 50%,
-    transparent 72%);
-  z-index: -1;
-  pointer-events: none;
-}
+/* CSSOS_WAVE_1221 — Jing「照搬白天」: 实证=logo 背后那圈是【极光 blob 在中心重叠堆出的亮绿盘】(图片角全透明, 不是图片造的)。
+   白天完美是因为 W1217 把白天 blob 调到极淡(≈0.10)→ 米底近纯平、logo 自融。照搬到晚上: 把晚上 blob 也大幅调淡,
+   不再在 logo 背后堆出亮盘。撤销 W1220 那层多余辉光(没对症)。详见下方 .bg-blob-* 默认值(晚上)已调淡。 */
 
 .panel-settings {
   position: absolute;

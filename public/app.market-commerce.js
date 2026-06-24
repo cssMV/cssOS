@@ -2211,7 +2211,7 @@ function buildMarketCardsMarkup(works = []) {
           </div>
           <div class="work-info">
             <div class="work-title" data-market-toggle data-editable-title>${title}</div>
-            <div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:var(--muted);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(String(workId).slice(0, 8))}</div>
+            <div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:var(--muted);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;word-break:break-all;">#${escapeHtml(String(workId))}</div>
             <div class="work-tags" title="${style}">${style}${(globalThis.cssosFmtDur && globalThis.cssosFmtDur(work)) ? ` · ♪ ${escapeHtml(globalThis.cssosFmtDur(work))}` : ""}</div>
             <div class="work-pricing">
               <span class="price-chip ghost-chip">${loginCopy("Type")} · ${escapeHtml(workTypeLabel(workType))}${(Array.isArray(work?.children) && work.children.length >= 2) ? ` × ${work.children.length}` : ""}</span>
@@ -2809,7 +2809,7 @@ function buildWorksCardInfoMarkup(options = {}) {
   return `
     <div class="work-info">
       <div class="work-title" data-work-toggle data-editable-title>${escapeHtml(title)}</div>
-      ${workId ? `<div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:var(--muted);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;">#${escapeHtml(workId.slice(0, 8))}</div>` : ""}
+      ${workId ? `<div class="work-id-tag" title="${escapeHtml(workId)}" style="font:500 9px/1.3 ui-monospace,monospace;color:var(--muted);letter-spacing:.04em;margin-top:2px;user-select:all;-webkit-user-select:all;word-break:break-all;">#${escapeHtml(workId)}</div>` : ""}
       <div class="work-tags" title="${escapeHtml((style || loginCopy("Style not set")).replace(/"/g, "&quot;"))}">${escapeHtml(style || loginCopy("Style not set"))}${(globalThis.cssosFmtDur && globalThis.cssosFmtDur(options.durationSecs)) ? ` · ♪ ${escapeHtml(globalThis.cssosFmtDur(options.durationSecs))}` : ""}</div>
       ${buildWorksCardPricingMarkup(options)}
     </div>

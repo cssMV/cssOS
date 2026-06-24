@@ -259,7 +259,8 @@
     if (depth > 0 && !_nodePlayable) meta.push(tr("not ready yet", "章节生成中"));
     if (owner) meta.push(owner);
     if (durTxt) meta.push("♪ " + durTxt);
-    meta.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + esc(wid) + "</span>");
+    // CSSOS_WAVE_1191 — Jing: ID 单独一行【完整显示】(word-break, 空间不够才换行), 不再被同行省略号截断。
+    var idLine = '<div style="font:500 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.45);word-break:break-all;margin-top:1px;">ID ' + esc(wid) + "</div>";
     var _tsz = depth > 0 ? 38 : 56;
     var row = document.createElement("button");
     row.type = "button";
@@ -274,7 +275,8 @@
       (durTxt ? '<span style="position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.66);color:#fff;font:600 9px/1 ui-monospace,monospace;padding:2px 4px;border-radius:4px;">' + durTxt + "</span>" : "") +
       '</div><div style="flex:1;min-width:0;">' +
       '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
-      '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + meta.join(" · ") + "</div></div>";
+      (meta.length ? '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + meta.join(" · ") + "</div>" : "") +
+      idLine + "</div>";
     // 未就绪部段不可嵌入(照搬 MV: 提示稍后)。
     if (depth > 0 && !_nodePlayable) {
       row.style.opacity = "0.5";

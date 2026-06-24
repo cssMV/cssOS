@@ -464,7 +464,8 @@
       if (depth > 0 && !_nodePlayable) metaBits.push(tr("not ready yet", "章节生成中"));
       if (owner) metaBits.push(owner);
       if (durTxt) metaBits.push("♪ " + durTxt);
-      metaBits.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;word-break:break-all;">ID ' + idFull + "</span>");
+      // CSSOS_WAVE_1191 — Jing: ID 单独一行【完整显示】(word-break, 空间不够才换行), 不被同行省略号截断。
+      var idLine = '<div style="font:500 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.45);word-break:break-all;margin-top:1px;">ID ' + idFull + "</div>";
       var _tsz = depth > 0 ? 38 : 56;   // W1090 — 树枝桠(子作品)缩略图更小, 视觉层级更清晰
       card.innerHTML =
         '<div style="position:relative;width:' + _tsz + 'px;height:' + _tsz + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
@@ -475,7 +476,8 @@
         "</div>" +
         '<div style="flex:1;min-width:0;">' +
         '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + title + "</div>" +
-        '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + metaBits.join(" · ") + "</div>" +
+        (metaBits.length ? '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + metaBits.join(" · ") + "</div>" : "") +
+        idLine +
         "</div>";
       // W1088 — 未就绪章节: 灰显, 点击给引导提示而非死胡同。
       if (depth > 0 && !_nodePlayable) {

@@ -20,7 +20,9 @@
 (function () {
   "use strict";
 
-  var PRIORITY = ["cssmv", "person-mv"];
+  // CSSOS_WAVE_1170 — Jing 指令: Dock 默认排序。
+  //   话筒 / 为你创作 / 作品中心 / 人物MV / MV管线 / 高级设置 / 登录 / 语言 / 订阅 / MV面板, 其余跟在后面。
+  var PRIORITY = ["mic", "foryou", "works", "person-mv", "mv-pipeline", "settings", "login", "language", "subscription", "watch"];
   var dock = null;
   var settling = false;
 
@@ -44,16 +46,12 @@
      * the head in the right order, move it. */
     settling = true;
     try {
-      // Reverse-iterate so we always insert before the current first child.
-      // After: [cssmv, person-mv, ...rest]
+      // Reverse-iterate, 每个优先项插到当前首位 → 处理完后队头依次为 PRIORITY[0..n], 其余跟在后面。
+      // CSSOS_WAVE_1170 — 去掉旧的 currentIdx===i 提前跳过(会让完整排序漏移); 这里幂等, 已就位则 insertBefore 无副作用。
       for (var i = PRIORITY.length - 1; i >= 0; i -= 1) {
-        var act = PRIORITY[i];
-        var el = byAction[act];
+        var el = byAction[PRIORITY[i]];
         if (!el) continue;
         if (dock.firstChild === el) continue;
-        // Avoid moving if already in correct slot relative to others.
-        var currentIdx = items.indexOf(el);
-        if (currentIdx === i) continue;
         dock.insertBefore(el, dock.firstChild);
       }
     } finally {

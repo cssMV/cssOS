@@ -93,7 +93,7 @@
           return chip(pl.modeLabel ? pl.modeLabel(m) : m, m === cur, function () { pl.setMode(m); });
         })));
       }
-      // 2) 播放范围
+      // 2) 播放范围 — builtin(为你创作/作品中心/Epic) + 非builtin收藏/自定义列表 + ❤️收藏当前。
       if (pl && pl._state && pl._state.lists) {
         var lists = pl._state.lists, activeId = pl._state.active;
         var scopeChips = [];
@@ -101,6 +101,21 @@
           var l = lists[id]; if (!l) return;
           scopeChips.push(chip(l.name || id, id === activeId, function () { if (pl.setActive) pl.setActive(id); }));
         });
+        // 收藏/自定义(非 builtin)列表 — 用户点 ❤️ 收藏后会出现。
+        Object.keys(lists).forEach(function (id) {
+          var l = lists[id]; if (!l || l.builtin) return;
+          var n = (l.name || id) + (l.items && l.items.length ? " (" + l.items.length + ")" : "");
+          scopeChips.push(chip(n, id === activeId, function () { if (pl.setActive) pl.setActive(id); }));
+        });
+        // ❤️ 收藏当前正在播放的作品 → 进"我的收藏"列表。
+        if (pl.addToCustom) {
+          scopeChips.push(chip("❤️ " + tr("Favorite", "收藏"), false, function () {
+            var cur = pl.current && pl.current();
+            if (!cur) { if (globalThis.showToast) globalThis.showToast(tr("Nothing playing", "暂无正在播放")); return; }
+            var ok = pl.addToCustom(cur);
+            if (globalThis.showToast) globalThis.showToast(ok ? tr("❤️ Added to favorites", "❤️ 已加入收藏列表") : tr("Already in favorites", "已在收藏里"));
+          }));
+        }
         if (scopeChips.length) pop.appendChild(section(tr("Playback scope", "播放范围"), scopeChips));
       }
       // 3) 播放规格

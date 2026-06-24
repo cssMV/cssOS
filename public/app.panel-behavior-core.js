@@ -357,7 +357,7 @@ function sanitizePanelBehaviorSettings(value = {}) {
       // CSSOS_WAVE_1209 — Jing「晚上主题为什么改尺寸? 只该换色」根因: 切主题会重跑 applyPanelBehaviorSettings,
       //   把 localStorage 里存的【大值】重新应用 → 魔镜跳到 ~880 巨大。把上限从 880 压到设计上限 480
       //   (= CSS min(20vw,480px) 的 480), 无论存多大都 ≤480, 切主题不再变大; 默认 360。
-      mirror_size_px: Math.max(160, Math.min(480, Number(source?.logo?.mirror_size_px ?? base.logo.mirror_size_px) || 360)),
+      mirror_size_px: Math.max(160, Math.min(360, Number(source?.logo?.mirror_size_px ?? base.logo.mirror_size_px) || 360)),
       mask_inset_percent: Math.max(0, Math.min(28, Number(source?.logo?.mask_inset_percent ?? base.logo.mask_inset_percent) || 12)),
       spellcast_ring_scale: Math.max(0.82, Math.min(1.12, Number(source?.logo?.spellcast_ring_scale ?? base.logo.spellcast_ring_scale) || 1)),
       spellcast_glow_scale: Math.max(0, Math.min(1, Number(source?.logo?.spellcast_glow_scale ?? base.logo.spellcast_glow_scale) || 0.18)),
@@ -897,7 +897,7 @@ function applyPanelBehaviorSettings(settings) {
   if (logoPanel) {
     // CSSOS_WAVE_1214 — Jing「晚上 logo 变大」防御: MIRROR_SIZE_PX 万一是 NaN/无效, 写出 "NaNpx" 会让
     //   CSS 回退到兜底值 → logo 突然变大。这里夹到 [160,480] 的有效数, 永远写出合法尺寸。
-    var _ms = Number(MIRROR_SIZE_PX); if (!isFinite(_ms) || _ms <= 0) _ms = 360; _ms = Math.max(160, Math.min(480, _ms));
+    var _ms = Number(MIRROR_SIZE_PX); if (!isFinite(_ms) || _ms <= 0) _ms = 360; _ms = Math.max(160, Math.min(360, _ms));
     logoPanel.style.setProperty("--mirror-size", _ms + "px");
     logoPanel.style.setProperty("--mirror-mask-inset", `${MIRROR_MASK_INSET_PERCENT}%`);
     logoPanel.style.setProperty("--hold-ring-inset", `${Math.max(48, Math.round(MIRROR_SIZE_PX * 0.14))}px`);

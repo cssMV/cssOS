@@ -383,15 +383,15 @@ html.cssos-app .bg-blob {
 .theme-toggle:hover {
   transform: none;
   opacity: 1;
-  background: rgba(4, 10, 8, 0.82);
-  color: rgba(232, 253, 244, 0.96);
+  background: var(--panel-strong);   /* CSSOS_WAVE_1215 — 随主题翻(原写死深底, 白天悬停亮字隐形) */
+  color: var(--text);
   border-radius: 999px;
-  box-shadow: 0 0 0 1px rgba(232, 253, 244, 0.18);
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 .theme-toggle:focus-visible {
   outline: none;
-  color: rgba(232, 253, 244, 0.96);
+  color: var(--text);
 }
 
 body[data-theme="light"] .theme-toggle,
@@ -422,7 +422,7 @@ html[data-theme="light"] .theme-toggle {
 }
 
 .theme-menu-item {
-  color: rgba(218, 255, 238, 0.86);   /* always light text (menu floats on dark bg) */
+  color: var(--text);   /* CSSOS_WAVE_1215 — Jing「主题小面板本身要随主题翻」: 原写死浅色, 白天菜单底翻米色后浅字隐形=丢失。改 var(--text) 随主题翻, 昼深字/夜亮字, 两主题都看得清。 */
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -441,7 +441,7 @@ html[data-theme="light"] .theme-toggle {
 /* Hover for inactive */
 .theme-menu > .theme-menu-item:not(.active):not(.is-active):hover {
   background: rgba(0, 245, 160, 0.14) !important;
-  color: #daffee !important;
+  color: var(--text) !important;   /* CSSOS_WAVE_1215 — 随主题翻 */
 }
 /*
 body[data-theme="light"] .dock,
@@ -1586,7 +1586,7 @@ body.longpress-guard * {
      mirror doesn't overshoot on ultra-wide monitors. Mobile portrait
      widens to 33vw — see the @media block further down. The breathing
      animation is unchanged — only the box scales. */
-  --mirror-size: min(20vw, 480px); /* CSSOS_WAVE_1208 还原原始设计 — Jing「恢复初衷 logo 面板」: 撤销 W1204/1206 的缩小(那是误诊"变大", 真因是 splash 交接, 已在网页端移除 splash) */
+  --mirror-size: min(20vw, 360px); /* CSSOS_WAVE_1215 锁死360 — CSS默认/JS/兜底统一≤360, 切主题尺寸恒定 */
   --mirror-mask-inset: 4%;
   --hold-ring-inset: 84px;
   --spellcast-ring-scale: 1;

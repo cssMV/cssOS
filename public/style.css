@@ -86,15 +86,17 @@ body {
   isolation: isolate;
 }
 
+/* CSSOS_WAVE_1218 — Jing「切到白天背景还是深绿、深字看不见」根因: 切换时 html 拿到 data-theme(--text 已翻深),
+   但 body 那一刻没拿到 → 键在 body[data-theme=light] 的 .bg 不翻 → 深底+深字=隐形。改键 html[data-theme]
+   (html 一定有), 背景必随主题翻; 同时盖过 applyBackgroundPalette 的深绿内联极光。 */
+html[data-theme="light"] .bg,
 body[data-theme="light"] .bg {
-  background: #f6efe4;
+  background: #f6efe4 !important;
 }
-/* CSSOS_WAVE_1217 — Jing「切到白天整界面还是绿/夜色」: 极光 blob 写死亮绿、无白天覆盖 → 白天仍偏绿。
-   白天用【低饱和软绿淡晕】, 让暖米底为主、绿只作点缀, 整界面真正翻成白天。 */
-body[data-theme="light"] .bg-blob-a { background: radial-gradient(circle at top, rgba(0, 160, 96, 0.10), transparent 65%); }
-body[data-theme="light"] .bg-blob-b { background: radial-gradient(circle at 30% 30%, rgba(0, 140, 120, 0.07), transparent 60%); }
-body[data-theme="light"] .bg-blob-c { background: radial-gradient(circle at 70% 40%, rgba(0, 160, 90, 0.09), transparent 62%); }
-body[data-theme="light"] .bg-grid { opacity: 0.35; }
+html[data-theme="light"] .bg-blob-a, body[data-theme="light"] .bg-blob-a { background: radial-gradient(circle at top, rgba(0, 160, 96, 0.10), transparent 65%) !important; }
+html[data-theme="light"] .bg-blob-b, body[data-theme="light"] .bg-blob-b { background: radial-gradient(circle at 30% 30%, rgba(0, 140, 120, 0.07), transparent 60%) !important; }
+html[data-theme="light"] .bg-blob-c, body[data-theme="light"] .bg-blob-c { background: radial-gradient(circle at 70% 40%, rgba(0, 160, 90, 0.09), transparent 62%) !important; }
+html[data-theme="light"] .bg-grid, body[data-theme="light"] .bg-grid { opacity: 0.35; }
 
 .bg-blob {
   position: absolute;

@@ -47,13 +47,16 @@
   //   背景层(调用方)用评论框那套透明风格(透明 backdrop + 深色卡)。无右轨(非影院)回退底部安全 sheet。
   //   自动随 resize/旋转重排(卡片移除即解绑)。
   function _railBottomLimit(vh) {
-    // 左下角"正在播放"标题不好唯一定位 → 探测一组候选, 取最靠上的可见标题顶, 让弹窗停在它之上。
-    var best = Math.round(vh - 124);   // 兜底: 距底 124px(留出左下标题 + 波形/安全区)
+    // CSSOS_WAVE_1195 — Jing: 弹窗底要高到【Next up 之上】(Next up 比左下标题更靠上)。
+    //   探测一组底部元素(Next up 优先, 再左下标题), 取最靠上的可见者顶, 让弹窗停在它之上。
+    var best = Math.round(vh - 124);   // 兜底: 距底 124px(留出底部栈 + 安全区)
     try {
-      var els = document.querySelectorAll(".cssmv-mv-title, #cssos-mv-now-playing-title, .watch-now-playing, .cssmv-nowplaying, .watch-title-bottom");
+      var els = document.querySelectorAll("#cssos-up-next-strip, .cssmv-mv-title, #cssos-mv-now-playing-title, .watch-now-playing, .cssmv-nowplaying, .watch-title-bottom");
       for (var i = 0; i < els.length; i++) {
-        var rc = els[i].getBoundingClientRect();
-        if (rc.height > 0 && rc.top > vh * 0.45 && rc.top < best) best = Math.round(rc.top - 10);
+        var el = els[i];
+        if (!el || el.offsetParent === null && getComputedStyle(el).position !== "fixed") { /* 可能隐藏, 继续用 rect 判 */ }
+        var rc = el.getBoundingClientRect();
+        if (rc.height > 0 && rc.top > vh * 0.4 && rc.top < best) best = Math.round(rc.top - 10);
       }
     } catch (_e) {}
     return best;

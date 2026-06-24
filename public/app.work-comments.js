@@ -244,10 +244,15 @@
     card.style.cssText = "position:fixed;width:min(360px,82vw);max-height:60vh;display:flex;flex-direction:column;" +
       "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.16);border-radius:14px;padding:14px;color:#fff;" +
       "box-shadow:0 14px 44px rgba(0,0,0,0.6);font:500 14px/1.4 -apple-system,system-ui,sans-serif;";
-    card.innerHTML = '<div style="font-weight:700;margin-bottom:8px;font-size:13px;">' + esc(tr("Attach a work", "嵌入一首作品")) + "</div>" +
-      // W1174 — 顶部搜索框: 默认显 5, 输入即过滤。
-      '<input data-embed-search type="search" placeholder="' + esc(tr("Search your works…", "搜索你的作品…")) + '" ' +
-      'style="width:100%;box-sizing:border-box;margin-bottom:8px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.16);border-radius:10px;padding:8px 11px;color:#fff;font:inherit;" />' +
+    card.innerHTML =
+      // W1177 — 标题加小图标 🎵。
+      '<div style="font-weight:700;margin-bottom:8px;font-size:13px;display:flex;align-items:center;gap:6px;"><span style="font-size:15px;">🎵</span>' + esc(tr("Attach a work", "嵌入一首作品")) + "</div>" +
+      // W1177 — 搜索框统一风格: 🔍 内嵌在框内开头(同 MV 面板)。
+      '<div style="position:relative;margin-bottom:8px;">' +
+        '<span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);opacity:.55;pointer-events:none;font-size:14px;">🔍</span>' +
+        '<input data-embed-search type="search" placeholder="' + esc(tr("Search your works…", "搜索你的作品…")) + '" ' +
+        'style="width:100%;box-sizing:border-box;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.16);border-radius:10px;padding:8px 11px 8px 34px;color:#fff;font:inherit;" />' +
+      "</div>" +
       '<div data-pl style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:7px;min-height:80px;"></div>';
     pick.appendChild(card);
     // 搜索框过滤 + 滚到底加载更多(一次 10)。

@@ -161,11 +161,17 @@
   }
 
   function dispatch(kind, btn) {
-    var id = workId();
+    // CSSOS_WAVE_1154 — Jing: 聆听/观赏/打赏/买断点不动 = workId() 常空→静默返回。改稳健多源 id;
+    //   支付分发器缺失也给可见提示(不再死按钮)。
+    var id = robustWorkId();
     if (!id) { try { if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Loading work…", "作品加载中…")); } catch (_e) {} return; }
     try {
-      if (typeof globalThis.dispatchMarketWorkPayment === "function") globalThis.dispatchMarketWorkPayment(id, kind, btn);
-    } catch (e) { console.warn("[social-rail] dispatch " + kind, e); }
+      if (typeof globalThis.dispatchMarketWorkPayment === "function") { globalThis.dispatchMarketWorkPayment(id, kind, btn); return; }
+      if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Payment is loading…", "支付组件加载中…"));
+    } catch (e) {
+      try { if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Could not open payment", "支付打开失败")); } catch (_e) {}
+      console.warn("[social-rail] dispatch " + kind, e);
+    }
   }
 
   function buildRail() {

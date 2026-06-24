@@ -2650,7 +2650,7 @@ function buildWorksSearchShellMarkup(behavior) {
   // 一行的 5 个筛选(作者/类型/排序/价格/时间)收进 ⋯ 展开的"高级搜索"区(默认
   // 隐藏). 所有原 ID 保留, works-center.js 的搜索/筛选逻辑不变.
   return `
-    <div class="panel-search-shell works-search-shell" id="works-search-shell" data-search-float="swipe">
+    <div class="panel-search-shell works-search-shell" id="works-search-shell" data-search-float="pinned">
       <div class="panel-search-row">
         <input id="works-search-input" class="panel-search-input" type="search" placeholder="${escapeHtml(loginCopy("Search title, style, lyrics, ID..."))}" />
         <button id="works-search-advanced-toggle" class="panel-search-advanced-btn" type="button"

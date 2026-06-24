@@ -10926,9 +10926,11 @@ body.cssos-cinema-mode #watch-panel.is-cssmv-fullscreen .panel-titlebar {
    down (.search-revealed). The Works Center already follows this
    pattern; For You now matches: section title → first work card → … →
    pull-down reveals search controls. */
-#foryou-panel:not(.search-revealed) .foryou-search-shell {
-  display: none !important;
-}
+/* CSSOS_WAVE_1173 — Jing 指令: 为你创作/作品中心 搜索框【默认显示, 不再隐藏】。
+   去掉"下拉才出现"的隐藏; 同时藏掉"Pull down to search"提示(现在常驻就不需要它了)。 */
+#foryou-panel .foryou-search-shell { display: flex !important; }
+#foryou-panel .foryou-search-shell .panel-search-meta { display: none !important; }
+.works-search-shell .panel-search-meta { display: none !important; }
 
 /* CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — Jing
    Played-vs-unplayed work cards. UNPLAYED works show a small

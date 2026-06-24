@@ -184,15 +184,31 @@
     if (!items.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No works.", "暂无作品。")) + "</div>"; return; }
     pl.innerHTML = "";
     items.forEach(function (w) {
+      // CSSOS_WAVE_1173 — Jing 指令: 列表样式参照 MV 面板搜索结果(56px 缩略图+时长角标 + 标题/meta行 + 绿 hover)。
       var cover = String(w.cover_image || w.preview_image_url || w.cover_url || "");
+      var wid = String(w.id || w.work_id || "");
+      var ds = Number(w.duration_secs || w.audio_duration_secs || w.final_duration_secs || w.duration || 0) || 0;
+      var durTxt = ds > 0 ? (Math.floor(ds / 60) + ":" + String(Math.floor(ds % 60)).padStart(2, "0")) : "";
+      var owner = String(w.owner_display_name || w.owner_name || "").trim();
+      var meta = [];
+      if (owner) meta.push(esc(owner));
+      if (durTxt) meta.push("♪ " + durTxt);
+      meta.push('<span style="font-family:ui-monospace,monospace;opacity:.55;font-size:0.78em;">ID ' + esc(wid.slice(0, 8)) + "</span>");
       var row = document.createElement("button");
       row.type = "button";
-      row.style.cssText = "display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:7px;cursor:pointer;color:#fff;font:inherit;";
-      var dur = fmtDur(w.duration_secs || w.duration || w.audio_duration_secs);
-      row.innerHTML = (cover ? '<img src="' + esc(cover) + '" style="width:42px;height:42px;border-radius:7px;object-fit:cover;">' : '<span style="width:42px;height:42px;border-radius:7px;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;">🎵</span>') +
-        '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">' + esc(w.title || "Untitled") + "</span>" +
-        (dur ? '<span style="flex:0 0 auto;font-size:11px;color:#9aa3b2;">' + esc(dur) + "</span>" : "");
-      row.addEventListener("click", function () { setEmbed(String(w.id || w.work_id), String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });
+      row.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:transparent;border:none;border-radius:10px;padding:8px;cursor:pointer;color:#fff;font:inherit;";
+      row.addEventListener("mouseenter", function () { row.style.background = "rgba(0,245,160,0.1)"; });
+      row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+      row.innerHTML =
+        '<div style="position:relative;width:56px;height:56px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +
+        (cover ? '<img src="' + esc(cover) + '" alt="" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;">' : '<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;">🎵</span>') +
+        (durTxt ? '<span style="position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.66);color:#fff;font:600 9px/1 ui-monospace,monospace;padding:2px 4px;border-radius:4px;">' + durTxt + "</span>" : "") +
+        "</div>" +
+        '<div style="flex:1;min-width:0;">' +
+        '<div style="font:600 14px/1.3 -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(w.title || "Untitled") + "</div>" +
+        '<div style="font:500 11px/1.3 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + meta.join(" · ") + "</div>" +
+        "</div>";
+      row.addEventListener("click", function () { setEmbed(wid, String(w.title || "")); var pk = document.getElementById("cssos-embed-pick"); if (pk) pk.remove(); });
       pl.appendChild(row);
     });
   }
@@ -201,7 +217,7 @@
     var pick = document.createElement("div"); pick.id = "cssos-embed-pick";
     pick.style.cssText = "position:fixed;inset:0;z-index:10062;background:transparent;";   // 透明捕获层, 点外面关闭
     var card = document.createElement("div");
-    card.style.cssText = "position:fixed;width:min(300px,76vw);max-height:54vh;display:flex;flex-direction:column;" +
+    card.style.cssText = "position:fixed;width:min(360px,82vw);max-height:60vh;display:flex;flex-direction:column;" +
       "background:rgba(15,18,24,0.99);border:1px solid rgba(255,255,255,0.16);border-radius:14px;padding:14px;color:#fff;" +
       "box-shadow:0 14px 44px rgba(0,0,0,0.6);font:500 14px/1.4 -apple-system,system-ui,sans-serif;";
     card.innerHTML = '<div style="font-weight:700;margin-bottom:8px;font-size:13px;">' + esc(tr("Attach a work", "嵌入一首作品")) + '</div><div data-pl style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:7px;min-height:80px;"></div>';

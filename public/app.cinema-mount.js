@@ -29,4 +29,12 @@
     // 也关掉嵌入选作品子弹窗(若它残留且不是要保留的)。
     if (keepSel !== "#cssos-embed-pick") { var ep = document.getElementById("cssos-embed-pick"); if (ep) try { ep.remove(); } catch (_e) {} }
   };
+  // CSSOS_WAVE_1173 — Jing 指令: 主面板关闭时, 里面的小窗口(评论/支付/菜单等)必须同时关闭。
+  //   监听面板关闭/影院退出/全屏退出 → 关掉所有影院弹窗(含嵌入子弹窗)。
+  function _closeAllCinemaPopups() { try { globalThis.cssosCloseOtherPopups(""); var ep = document.getElementById("cssos-embed-pick"); if (ep) ep.remove(); } catch (_e) {} }
+  // 用【捕获阶段】监听: cssos:panelclose 是在面板元素上派发且 bubbles:false, 捕获阶段(document→target)才能收到。
+  ["cssos:panelclose", "cssos:cinema-exit", "cssos:watch-close"].forEach(function (ev) {
+    document.addEventListener(ev, _closeAllCinemaPopups, true);
+    window.addEventListener(ev, _closeAllCinemaPopups);
+  });
 })();

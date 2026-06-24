@@ -47,7 +47,7 @@
     t.style.cssText =
       "position:fixed;left:50%;bottom:32px;transform:translateX(-50%) translateY(8px);" +
       "z-index:2147483645;padding:9px 16px;border-radius:999px;" +
-      "background:rgba(8,18,16,0.92);color:#daffee;" +
+      "background:var(--panel-strong);color:var(--text);" +
       "font:600 12px/1 ui-monospace,monospace;letter-spacing:.04em;" +
       "border:1px solid rgba(0,245,160,0.35);" +
       "box-shadow:0 14px 32px rgba(0,0,0,0.5);" +

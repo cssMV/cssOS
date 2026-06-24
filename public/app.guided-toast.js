@@ -29,7 +29,7 @@
     el.className = "cssos-guided-toast";
     el.style.cssText = "position:fixed;left:50%;bottom:32px;transform:translateX(-50%) translateY(8px);z-index:2147483646;" +
       "display:flex;align-items:center;gap:10px;padding:11px 12px 11px 16px;border-radius:16px;" +
-      "background:rgba(8,18,16,0.95);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:#eafff6;" +
+      "background:var(--panel-strong);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:var(--text);" +
       "font:600 12.5px/1.35 -apple-system,system-ui,sans-serif;" +
       "border:1px solid " + (err ? "rgba(255,120,120,0.5)" : "rgba(0,245,160,0.4)") + ";" +
       "box-shadow:0 16px 40px rgba(0,0,0,0.5);opacity:0;transition:opacity .2s ease,transform .2s ease;" +
@@ -44,7 +44,7 @@
       b.textContent = a.label;
       var primary = a.primary !== false;
       b.style.cssText = "flex:0 0 auto;border:0;border-radius:999px;padding:7px 14px;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap;text-decoration:none;" +
-        (primary ? "background:hsl(155,66%,46%);color:#04130c;" : "background:rgba(255,255,255,0.16);color:#eafff6;");
+        (primary ? "background:hsl(155,66%,46%);color:#04130c;" : "background:rgba(255,255,255,0.16);color:var(--text);");
       if (a.href) { b.href = a.href; b.target = a.target || "_self"; }
       b.addEventListener("click", function (e) {
         e.stopPropagation();

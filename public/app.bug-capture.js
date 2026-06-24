@@ -95,13 +95,13 @@
       "padding:80px 16px 16px",
     ].join(";");
     root.innerHTML = `
-      <div style="background:#0d1117;color:#daffee;border:1px solid rgba(255,200,0,0.4);border-radius:14px;
+      <div style="background:var(--panel-strong);color:var(--text);border:1px solid rgba(255,200,0,0.4);border-radius:14px;
                   padding:18px;width:min(440px,92vw);max-height:80vh;overflow-y:auto;
                   box-shadow:0 16px 48px rgba(0,0,0,0.6);font:14px/1.5 -apple-system,system-ui,sans-serif;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
           <span style="font-size:24px;">🐛</span>
           <strong style="flex:1;letter-spacing:.04em;">REPORT WHAT YOU SEE</strong>
-          <button type="button" data-bug-close style="background:transparent;border:none;color:#daffee;font-size:24px;cursor:pointer;line-height:1;padding:0 4px;">×</button>
+          <button type="button" data-bug-close style="background:transparent;border:none;color:var(--text);font-size:24px;cursor:pointer;line-height:1;padding:0 4px;">×</button>
         </div>
         <div style="font:500 11px/1.4 ui-monospace,monospace;color:rgba(218,255,238,0.55);margin-bottom:10px;
                     background:rgba(0,0,0,0.3);padding:8px 10px;border-radius:6px;word-break:break-all;">
@@ -114,8 +114,8 @@
                  border-radius:8px;padding:10px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
                  resize:vertical;min-height:120px;outline:none;box-sizing:border-box;"></textarea>
         <div style="display:flex;gap:8px;margin-top:12px;">
-          <button type="button" data-bug-cancel style="flex:1;background:transparent;color:#daffee;
-                  border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px;cursor:pointer;font-weight:600;">取消</button>
+          <button type="button" data-bug-cancel style="flex:1;background:transparent;color:var(--text);
+                  border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer;font-weight:600;">取消</button>
           <button type="button" data-bug-send style="flex:2;background:rgba(255,200,0,0.18);color:#fff;
                   border:1px solid rgba(255,200,0,0.55);border-radius:8px;padding:10px;cursor:pointer;font-weight:700;">提交 →</button>
         </div>
@@ -132,7 +132,7 @@
       const status = root.querySelector("[data-bug-status]");
       const body = String(text.value || "").trim();
       if (!body) { status.textContent = "请先写点什么 🙂"; status.style.color = "#ffd56b"; return; }
-      status.textContent = "发送中…"; status.style.color = "#daffee";
+      status.textContent = "发送中…"; status.style.color = "var(--text)";
       try {
         const r = await fetch("/api/admin/bug-report", {
           method: "POST",

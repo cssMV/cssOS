@@ -36,7 +36,7 @@
     s.textContent = [
       "#cssos-shortcuts-overlay{position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,0.78);display:none;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace;}",
       "#cssos-shortcuts-overlay.open{display:flex;}",
-      "#cssos-shortcuts-overlay .cssos-sc-modal{background:#0a1814;color:#daffee;border:1px solid rgba(0,200,140,0.35);border-radius:10px;padding:24px 28px;max-width:min(720px,94vw);max-height:88vh;overflow:auto;box-shadow:0 18px 40px rgba(0,0,0,0.6);}",
+      "#cssos-shortcuts-overlay .cssos-sc-modal{background:var(--panel-strong);color:var(--text);border:1px solid rgba(0,200,140,0.35);border-radius:10px;padding:24px 28px;max-width:min(720px,94vw);max-height:88vh;overflow:auto;box-shadow:0 18px 40px rgba(0,0,0,0.6);}",
       "#cssos-shortcuts-overlay h2{margin:0 0 16px;font-size:18px;display:flex;justify-content:space-between;align-items:center;gap:12px;}",
       "#cssos-shortcuts-overlay .cssos-sc-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:18px 24px;}",
       "#cssos-shortcuts-overlay .cssos-sc-col h3{margin:0 0 8px;font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:0.7;}",
@@ -45,7 +45,7 @@
       "#cssos-shortcuts-overlay kbd{background:rgba(0,200,140,0.15);border:1px solid rgba(0,200,140,0.35);border-bottom-width:2px;border-radius:4px;padding:1px 6px;font-size:12px;font-family:inherit;}",
       "#cssos-shortcuts-overlay .cssos-sc-keys{flex:0 0 auto;}",
       "#cssos-shortcuts-overlay .cssos-sc-label{flex:1;text-align:right;opacity:0.85;}",
-      "#cssos-shortcuts-overlay .cssos-sc-close{background:transparent;color:#daffee;border:1px solid rgba(0,200,140,0.35);border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;}",
+      "#cssos-shortcuts-overlay .cssos-sc-close{background:transparent;color:var(--text);border:1px solid rgba(0,200,140,0.35);border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;}",
       "#cssos-shortcuts-overlay .cssos-sc-foot{margin-top:14px;font-size:11px;opacity:0.6;text-align:center;}",
     ].join("\n");
     document.head.appendChild(s);

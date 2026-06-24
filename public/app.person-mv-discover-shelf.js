@@ -27,7 +27,7 @@
     s.textContent = [
       ".cssos-discover-shelf{margin:24px auto 8px;max-width:min(100%,920px);padding:0 12px;width:100%;box-sizing:border-box;}",
       ".cssos-discover-header{display:flex;align-items:baseline;justify-content:space-between;margin:0 4px 10px;gap:12px;}",
-      ".cssos-discover-header h2{margin:0;font:700 15px/1.2 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.92);letter-spacing:.02em;}",
+      ".cssos-discover-header h2{margin:0;font:700 15px/1.2 -apple-system,system-ui,sans-serif;color:var(--text);letter-spacing:.02em;}",
       ".cssos-discover-all{font:500 12px/1 -apple-system,system-ui,sans-serif;color:rgba(0,245,160,0.78);text-decoration:none;white-space:nowrap;}",
       ".cssos-discover-all:hover{color:rgba(0,245,160,1);}",
       ".cssos-discover-row{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding:4px 4px 12px;scrollbar-width:none;}",

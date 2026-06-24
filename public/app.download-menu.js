@@ -157,7 +157,7 @@
     var card = document.createElement("div");
     card.style.cssText =
       "width:380px;max-width:92vw;padding:22px 24px;border-radius:18px;" +
-      "background:rgba(8,18,16,0.96);color:#daffee;" +
+      "background:var(--panel-strong);color:var(--text);" +
       "box-shadow:0 20px 60px rgba(0,0,0,0.6);" +
       "border:1px solid rgba(0,245,160,0.25);" +
       "font:14px/1.4 -apple-system,system-ui,sans-serif;" +
@@ -173,7 +173,7 @@
     close.textContent = "×";
     close.setAttribute("aria-label", "Close");
     close.style.cssText =
-      "background:transparent;border:0;color:rgba(218,255,238,0.7);cursor:pointer;" +
+      "background:transparent;border:0;color:var(--muted);cursor:pointer;" +
       "font:600 22px/1 ui-monospace,monospace;padding:0 6px;";
     close.addEventListener("click", function () { dismiss(root); });
     hdr.appendChild(ttl); hdr.appendChild(close);
@@ -182,7 +182,7 @@
     if (titleHint) {
       var sub = document.createElement("div");
       sub.textContent = titleHint;
-      sub.style.cssText = "font-size:12px;color:rgba(218,255,238,0.6);margin-bottom:14px;word-break:break-word;";
+      sub.style.cssText = "font-size:12px;color:var(--muted);margin-bottom:14px;word-break:break-word;";
       card.appendChild(sub);
     }
 
@@ -194,18 +194,18 @@
         "display:flex;align-items:center;gap:14px;width:100%;padding:14px 16px;margin-bottom:10px;" +
         "border-radius:12px;border:1px solid rgba(0,245,160,0.2);" +
         "background:" + (available ? "rgba(0,245,160,0.08)" : "rgba(0,0,0,0.18)") + ";" +
-        "color:" + (available ? "#daffee" : "rgba(218,255,238,0.45)") + ";" +
+        "color:" + (available ? "var(--text)" : "var(--muted)") + ";" +
         "cursor:" + (available ? "pointer" : "not-allowed") + ";" +
         "text-align:left;font:500 13px/1.3 -apple-system,system-ui,sans-serif;";
       row.innerHTML =
         '<span style="font-size:24px;line-height:1;flex:0 0 auto;">' + glyph + '</span>' +
         '<span style="flex:1;display:flex;flex-direction:column;gap:2px;">' +
           '<span style="font-weight:600;font-size:14px;color:inherit;">' + formatLabel + '</span>' +
-          '<span style="font-size:11px;color:rgba(218,255,238,0.55);">' + (gateLabel || sizeHint || "") + '</span>' +
+          '<span style="font-size:11px;color:var(--muted);">' + (gateLabel || sizeHint || "") + '</span>' +
         '</span>' +
         (available
           ? '<span style="font-size:13px;color:rgba(0,245,160,0.85);flex:0 0 auto;">↓</span>'
-          : '<span style="font-size:11px;color:rgba(218,255,238,0.4);flex:0 0 auto;">🔒</span>');
+          : '<span style="font-size:11px;color:var(--muted);flex:0 0 auto;">🔒</span>');
       if (available) {
         row.addEventListener("click", function () {
           dismiss(root);
@@ -249,7 +249,7 @@
     if (!fullAccess) {
       var nudge = document.createElement("div");
       nudge.style.cssText = "margin-top:8px;padding:10px 12px;border-radius:10px;" +
-        "background:rgba(0,245,160,0.08);font-size:12px;color:rgba(218,255,238,0.85);";
+        "background:rgba(0,245,160,0.08);font-size:12px;color:var(--muted);";
       nudge.textContent = tt(
         "Sign in / subscribe to unlock downloads.",
         "登录或订阅后即可下载。"
@@ -258,7 +258,7 @@
     } else if (!isProPlus(tier)) {
       var upgrade = document.createElement("div");
       upgrade.style.cssText = "margin-top:8px;padding:10px 12px;border-radius:10px;" +
-        "background:rgba(0,245,160,0.08);font-size:12px;color:rgba(218,255,238,0.85);";
+        "background:rgba(0,245,160,0.08);font-size:12px;color:var(--muted);";
       upgrade.textContent = tt(
         "Upgrade to Pro+ for WAV / MP4 downloads (24h temporary files).",
         "升级 Pro+ 解锁 WAV / MP4（24h 临时文件）。"

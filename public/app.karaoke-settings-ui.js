@@ -31,10 +31,10 @@
         "position:fixed;right:24px;bottom:24px;width:min(340px,90vw);" +
         "max-height:min(70vh,560px);overflow:auto;padding:18px 18px 14px;" +
         "z-index:2147483646;border-radius:14px;" +
-        "background:rgba(8,18,16,0.96);" +
+        "background:var(--panel-strong);" +
         "border:1px solid rgba(0,245,160,0.35);" +
         "box-shadow:0 18px 38px rgba(0,0,0,0.55);" +
-        "color:#daffee;font:13px/1.4 -apple-system,system-ui,sans-serif;" +
+        "color:var(--text);font:13px/1.4 -apple-system,system-ui,sans-serif;" +
       "}" +
       "#cssos-karaoke-settings h3{" +
         "margin:0 0 12px;font:700 14px/1.2 ui-monospace,monospace;" +
@@ -44,7 +44,7 @@
         "display:grid;grid-template-columns:1fr auto;gap:6px 10px;" +
         "padding:6px 0;align-items:center;" +
       "}" +
-      "#cssos-karaoke-settings label{font-size:11px;color:rgba(218,255,238,0.75);}" +
+      "#cssos-karaoke-settings label{font-size:11px;color:var(--muted);}" +
       "#cssos-karaoke-settings .val{" +
         "font:600 11px/1 ui-monospace,monospace;color:#00f5a0;min-width:48px;text-align:right;" +
       "}" +
@@ -64,7 +64,7 @@
       "}" +
       "#cssos-karaoke-settings .close{" +
         "position:absolute;top:8px;right:10px;" +
-        "background:transparent;border:0;color:rgba(218,255,238,0.55);" +
+        "background:transparent;border:0;color:var(--muted);" +
         "font:600 18px/1 ui-monospace,monospace;cursor:pointer;padding:2px 6px;flex:0;" +
       "}";
     document.head.appendChild(s);

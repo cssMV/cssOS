@@ -101,8 +101,8 @@
       "bottom:0",
       "width:min(440px,90vw)",
       "z-index:9701",
-      "background:rgba(6,12,10,0.97)",
-      "color:#daffee",
+      "background:var(--panel-strong)",
+      "color:var(--text)",
       "border-left:1px solid rgba(0,245,160,0.25)",
       "box-shadow:-12px 0 32px rgba(0,0,0,0.5)",
       "display:flex",
@@ -116,15 +116,15 @@
         <span style="font-size:18px;">🪲</span>
         <strong style="flex:1;font-size:14px;letter-spacing:.04em;">CRASH TELEMETRY</strong>
         <button type="button" data-cd-report title="Aggregated report / 聚合报表"
-          style="background:transparent;border:1px solid rgba(0,245,160,0.35);color:#daffee;font-size:13px;padding:4px 10px;border-radius:6px;cursor:pointer;">📊</button>
+          style="background:transparent;border:1px solid rgba(0,245,160,0.35);color:var(--text);font-size:13px;padding:4px 10px;border-radius:6px;cursor:pointer;">📊</button>
         <button type="button" data-cd-refresh title="Refresh"
-          style="background:transparent;border:1px solid rgba(0,245,160,0.35);color:#daffee;font-size:13px;padding:4px 10px;border-radius:6px;cursor:pointer;">↻</button>
+          style="background:transparent;border:1px solid rgba(0,245,160,0.35);color:var(--text);font-size:13px;padding:4px 10px;border-radius:6px;cursor:pointer;">↻</button>
         <button type="button" data-cd-close aria-label="Close"
-          style="background:transparent;border:none;color:#daffee;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;">×</button>
+          style="background:transparent;border:none;color:var(--text);font-size:22px;cursor:pointer;padding:0 4px;line-height:1;">×</button>
       </div>
-      <div data-cd-summary style="padding:12px 16px;border-bottom:1px solid rgba(0,245,160,0.08);font:500 11.5px/1.5 ui-monospace,monospace;color:rgba(218,255,238,0.85);display:grid;grid-template-columns:repeat(4,1fr);gap:8px;flex-shrink:0;"></div>
+      <div data-cd-summary style="padding:12px 16px;border-bottom:1px solid rgba(0,245,160,0.08);font:500 11.5px/1.5 ui-monospace,monospace;color:var(--muted);display:grid;grid-template-columns:repeat(4,1fr);gap:8px;flex-shrink:0;"></div>
       <div data-cd-list style="flex:1;overflow-y:auto;padding:8px 0;"></div>
-      <div style="padding:10px 16px;border-top:1px solid rgba(0,245,160,0.12);font:500 11px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.5);text-align:center;flex-shrink:0;">
+      <div style="padding:10px 16px;border-top:1px solid rgba(0,245,160,0.12);font:500 11px/1.3 ui-monospace,monospace;color:var(--muted);text-align:center;flex-shrink:0;">
         Polls every 30s · server keeps last 500
       </div>
     `;
@@ -176,7 +176,7 @@
     if (kind === "location.reload") return "#ffd56b";
     if (kind === "location.assign") return "#ffd56b";
     if (kind === "beforeunload") return "rgba(218,255,238,0.6)";
-    return "#daffee";
+    return "var(--text)";
   }
 
   function renderSummary(items) {
@@ -190,13 +190,13 @@
     if (!sum) return;
     const cell = (n, label, color) => `<div style="text-align:center;">
       <div style="color:${color};font:700 18px/1.1 -apple-system,system-ui,sans-serif;">${n}</div>
-      <div style="color:rgba(218,255,238,0.55);font-size:9.5px;letter-spacing:.06em;margin-top:2px;">${label}</div>
+      <div style="color:var(--muted);font-size:9.5px;letter-spacing:.06em;margin-top:2px;">${label}</div>
     </div>`;
     sum.innerHTML =
-      cell(errors, "ERRORS · 1h", errors > 0 ? "#ff8c8c" : "#daffee") +
-      cell(reloads, "RELOADS · 1h", reloads > 0 ? "#ffd56b" : "#daffee") +
-      cell(unloads, "UNLOADS · 1h", "#daffee") +
-      cell(total, "TOTAL · 1h", "#daffee");
+      cell(errors, "ERRORS · 1h", errors > 0 ? "#ff8c8c" : "var(--text)") +
+      cell(reloads, "RELOADS · 1h", reloads > 0 ? "#ffd56b" : "var(--text)") +
+      cell(unloads, "UNLOADS · 1h", "var(--text)") +
+      cell(total, "TOTAL · 1h", "var(--text)");
     // Update floating button badge
     const btn = document.getElementById("cssos-crash-dash-btn");
     if (btn) {
@@ -208,7 +208,7 @@
       btn.style.borderColor = seriousNow >= 5 ? "rgba(255,120,120,0.7)"
         : seriousNow > 0 ? "rgba(255,210,100,0.6)" : "rgba(0,245,160,0.4)";
       btn.style.color = seriousNow >= 5 ? "#ffd6d6"
-        : seriousNow > 0 ? "#ffe0a0" : "#daffee";
+        : seriousNow > 0 ? "#ffe0a0" : "var(--text)";
     }
   }
 
@@ -222,7 +222,7 @@
     const list = document.querySelector("#cssos-crash-dash-panel [data-cd-list]");
     if (!list) return;
     if (!items.length) {
-      list.innerHTML = `<div style="padding:40px 16px;text-align:center;color:rgba(218,255,238,0.5);font:500 12px/1.4 ui-monospace,monospace;">
+      list.innerHTML = `<div style="padding:40px 16px;text-align:center;color:var(--muted);font:500 12px/1.4 ui-monospace,monospace;">
         No crash events yet — clean run.
       </div>`;
       return;
@@ -235,12 +235,12 @@
       return `<div style="padding:10px 16px;border-bottom:1px solid rgba(0,245,160,0.06);">
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
           <span style="color:${c};font:700 11.5px/1 ui-monospace,monospace;letter-spacing:.04em;">${escapeHtml(p.kind)}</span>
-          <span style="color:rgba(218,255,238,0.5);font:500 10.5px/1 ui-monospace,monospace;">${relativeTime(e.ts)}</span>
+          <span style="color:var(--muted);font:500 10.5px/1 ui-monospace,monospace;">${relativeTime(e.ts)}</span>
         </div>
-        ${p.message ? `<div style="color:#daffee;font:400 12px/1.45 ui-monospace,monospace;word-break:break-word;margin-bottom:3px;">${escapeHtml(p.message)}</div>` : ""}
-        ${p.lastClick ? `<div style="color:rgba(218,255,238,0.6);font:400 10.5px/1.4 ui-monospace,monospace;word-break:break-word;margin-bottom:3px;">📍 ${escapeHtml(p.lastClick)}</div>` : ""}
-        ${p.url && p.url !== "https://cssstudio.app/" ? `<div style="color:rgba(218,255,238,0.45);font:400 10px/1.3 ui-monospace,monospace;word-break:break-all;">${escapeHtml(p.url)}</div>` : ""}
-        ${uaShort ? `<div style="color:rgba(218,255,238,0.35);font:400 9.5px/1.3 ui-monospace,monospace;margin-top:3px;">${escapeHtml(uaShort)}</div>` : ""}
+        ${p.message ? `<div style="color:var(--text);font:400 12px/1.45 ui-monospace,monospace;word-break:break-word;margin-bottom:3px;">${escapeHtml(p.message)}</div>` : ""}
+        ${p.lastClick ? `<div style="color:var(--muted);font:400 10.5px/1.4 ui-monospace,monospace;word-break:break-word;margin-bottom:3px;">📍 ${escapeHtml(p.lastClick)}</div>` : ""}
+        ${p.url && p.url !== "https://cssstudio.app/" ? `<div style="color:var(--muted);font:400 10px/1.3 ui-monospace,monospace;word-break:break-all;">${escapeHtml(p.url)}</div>` : ""}
+        ${uaShort ? `<div style="color:var(--muted);font:400 9.5px/1.3 ui-monospace,monospace;margin-top:3px;">${escapeHtml(uaShort)}</div>` : ""}
       </div>`;
     }).join("");
   }
@@ -254,7 +254,7 @@
     if (!list) return;
     list.innerHTML = (globalThis.cssosSkeletonRowsMarkup
       ? globalThis.cssosSkeletonRowsMarkup(5, "Loading report…")
-      : `<div style="padding:32px 16px;text-align:center;color:rgba(218,255,238,0.5);font:500 12px/1.4 ui-monospace,monospace;">Loading report…</div>`);
+      : `<div style="padding:32px 16px;text-align:center;color:var(--muted);font:500 12px/1.4 ui-monospace,monospace;">Loading report…</div>`);
     let j = null;
     try {
       const r = await fetch(`/api/admin/crash-log/report?hours=${Number(hours) || 48}`, { credentials: "include" });
@@ -271,15 +271,15 @@
     const sec = (title, inner) => `<div style="padding:12px 16px;border-bottom:1px solid rgba(0,245,160,0.08);">
       <div style="color:rgba(0,245,160,0.85);font:700 10.5px/1 ui-monospace,monospace;letter-spacing:.08em;margin-bottom:8px;">${title}</div>${inner}</div>`;
     const kindRows = kinds.length ? kinds.map(([k, n]) =>
-      `<div style="display:flex;justify-content:space-between;font:500 12px/1.7 ui-monospace,monospace;"><span style="color:${kindColor(k)};">${escapeHtml(k)}</span><span style="color:#daffee;">${n}</span></div>`).join("") : `<div style="color:rgba(218,255,238,0.5);">none</div>`;
+      `<div style="display:flex;justify-content:space-between;font:500 12px/1.7 ui-monospace,monospace;"><span style="color:${kindColor(k)};">${escapeHtml(k)}</span><span style="color:var(--text);">${n}</span></div>`).join("") : `<div style="color:var(--muted);">none</div>`;
     const topRows = tops.length ? tops.map((m) =>
-      `<div style="font:400 11px/1.45 ui-monospace,monospace;color:#daffee;margin-bottom:5px;word-break:break-word;"><span style="color:#ff8c8c;font-weight:700;">${m.count}×</span> ${escapeHtml(String(m.message).slice(0, 140))}</div>`).join("") : `<div style="color:rgba(218,255,238,0.5);">none</div>`;
+      `<div style="font:400 11px/1.45 ui-monospace,monospace;color:var(--text);margin-bottom:5px;word-break:break-word;"><span style="color:#ff8c8c;font-weight:700;">${m.count}×</span> ${escapeHtml(String(m.message).slice(0, 140))}</div>`).join("") : `<div style="color:var(--muted);">none</div>`;
     const clickRows = clicks.length ? clicks.slice(0, 15).map((c) => {
       let label = ""; try { const o = typeof c.click === "string" ? JSON.parse(c.click) : c.click; label = `${o.tag || ""}${o.id ? "#" + o.id : ""} ${String(o.text || "").slice(0, 50)}`; } catch (_) { label = String(c.click || "").slice(0, 60); }
-      return `<div style="font:400 10.5px/1.4 ui-monospace,monospace;color:rgba(218,255,238,0.7);margin-bottom:4px;word-break:break-word;">📍 ${escapeHtml(label)} <span style="color:rgba(218,255,238,0.4);">· ${relativeTime(c.ts)}</span></div>`;
-    }).join("") : `<div style="color:rgba(218,255,238,0.5);">none</div>`;
+      return `<div style="font:400 10.5px/1.4 ui-monospace,monospace;color:var(--muted);margin-bottom:4px;word-break:break-word;">📍 ${escapeHtml(label)} <span style="color:var(--muted);">· ${relativeTime(c.ts)}</span></div>`;
+    }).join("") : `<div style="color:var(--muted);">none</div>`;
     list.innerHTML =
-      sec(`SUMMARY · last ${win}h`, `<div style="font:500 12px/1.7 ui-monospace,monospace;color:#daffee;">total events: <b>${j.total || 0}</b></div>`) +
+      sec(`SUMMARY · last ${win}h`, `<div style="font:500 12px/1.7 ui-monospace,monospace;color:var(--text);">total events: <b>${j.total || 0}</b></div>`) +
       sec("BY KIND", kindRows) +
       sec("TOP ERROR MESSAGES", topRows) +
       sec("RECENT UNLOAD CLICK TARGETS", clickRows);

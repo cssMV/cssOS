@@ -125,10 +125,10 @@
       /* CSSOS_WAVE_108F 20260509 — gap replaces the "/" separator. */
       "  gap:8px;",
       "  padding:8px 14px;",
-      "  background:rgba(8, 18, 14, 0.78);",
+      "  background:var(--panel-strong);",
       "  backdrop-filter: blur(22px) saturate(145%);",
       "  -webkit-backdrop-filter: blur(22px) saturate(145%);",
-      "  border:1px solid rgba(255,255,255,0.10);",
+      "  border:1px solid var(--border);",
       "  box-shadow:0 8px 28px rgba(0,0,0,0.45);",
       /* width is set via inline JS (refreshPosition) so we win
        * against any conflicting CSS reliably. Defaults here just
@@ -173,8 +173,8 @@
       "  padding:6px 12px;",
       "  border-radius:999px;",
       "  font:600 12.5px/1.2 -apple-system,system-ui,sans-serif;",
-      "  color:#daffee;",
-      "  border:1px solid rgba(255,255,255,0.08);",
+      "  color:var(--text);",
+      "  border:1px solid var(--border);",
       "  cursor:pointer;",
       "  user-select:none;",
       "  -webkit-user-select:none;",
@@ -594,7 +594,7 @@
       "top:calc(var(--cssos-bar-top, 24px) + 56px)",
       "max-width:min(92vw, 720px)",
       "padding:8px",
-      "background:rgba(8,18,14,0.92)",
+      "background:var(--panel-strong)",
       "backdrop-filter:blur(20px) saturate(140%)",
       "-webkit-backdrop-filter:blur(20px) saturate(140%)",
       "border:1px solid rgba(0,245,160,0.28)",

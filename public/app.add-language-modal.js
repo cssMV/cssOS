@@ -32,7 +32,7 @@
       "background:var(--cssos-overlay);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);}",
       "#cssos-add-lang-modal[hidden]{display:none;}",
       "#cssos-add-lang-card{width:min(560px,92vw);max-height:86vh;overflow:auto;border-radius:18px;padding:20px;",
-      "background:var(--cssos-surface);border:1px solid var(--cssos-border);box-shadow:0 16px 48px rgba(0,0,0,0.5);color:#eafff6;}",
+      "background:var(--cssos-surface);border:1px solid var(--cssos-border);box-shadow:0 16px 48px rgba(0,0,0,0.5);color:var(--text);}",
       "#cssos-add-lang-card h3{margin:0 0 4px;font-size:17px;font-weight:700;}",
       "#cssos-add-lang-card .alm-sub{font-size:12.5px;opacity:0.8;margin-bottom:14px;}",
       "#cssos-add-lang-picker{margin:8px 0 14px;}",

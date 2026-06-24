@@ -15,18 +15,18 @@
     s.textContent = [
       "#cssos-global-search-root{position:fixed;inset:0;z-index:9999;display:none;background:rgba(0,12,8,0.78);backdrop-filter:blur(6px);}",
       "#cssos-global-search-root.open{display:block;}",
-      "#cssos-global-search-root .gs-shell{position:absolute;left:50%;top:14vh;transform:translateX(-50%);width:min(640px,92vw);background:rgba(8,18,14,0.96);border:1px solid rgba(0,245,160,0.35);border-radius:14px;padding:14px;box-shadow:0 12px 48px rgba(0,0,0,0.55);}",
-      "#cssos-global-search-root input.gs-input{width:100%;background:transparent;border:0;outline:0;color:#daffee;font:600 18px -apple-system,system-ui,sans-serif;padding:8px 4px;border-bottom:1px solid rgba(0,245,160,0.28);}",
+      "#cssos-global-search-root .gs-shell{position:absolute;left:50%;top:14vh;transform:translateX(-50%);width:min(640px,92vw);background:var(--panel-strong);border:1px solid rgba(0,245,160,0.35);border-radius:14px;padding:14px;box-shadow:0 12px 48px rgba(0,0,0,0.55);}",
+      "#cssos-global-search-root input.gs-input{width:100%;background:transparent;border:0;outline:0;color:var(--text);font:600 18px -apple-system,system-ui,sans-serif;padding:8px 4px;border-bottom:1px solid rgba(0,245,160,0.28);}",
       "#cssos-global-search-root .gs-results{max-height:60vh;overflow-y:auto;margin-top:10px;}",
       "#cssos-global-search-root .gs-group{margin:8px 0 4px;font:600 11px ui-monospace,monospace;color:rgba(0,245,160,0.78);letter-spacing:.08em;text-transform:uppercase;}",
       "#cssos-global-search-root .gs-row{display:flex;gap:10px;padding:8px;border-radius:8px;cursor:pointer;align-items:flex-start;}",
       "#cssos-global-search-root .gs-row:hover{background:rgba(0,245,160,0.08);}",
       "#cssos-global-search-root .gs-row .icon{flex:0 0 22px;font-size:18px;line-height:1.2;}",
       "#cssos-global-search-root .gs-row .body{flex:1;min-width:0;}",
-      "#cssos-global-search-root .gs-row .title{color:#daffee;font:600 14px -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-      "#cssos-global-search-root .gs-row .snippet{color:rgba(218,255,238,0.65);font:500 12px -apple-system,system-ui,sans-serif;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-      "#cssos-global-search-root .gs-empty{padding:18px 8px;color:rgba(218,255,238,0.55);font:500 13px -apple-system,system-ui,sans-serif;text-align:center;}",
-      "#cssos-global-search-root .gs-hint{color:rgba(218,255,238,0.45);font:500 11px ui-monospace,monospace;margin-top:6px;text-align:right;}",
+      "#cssos-global-search-root .gs-row .title{color:var(--text);font:600 14px -apple-system,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+      "#cssos-global-search-root .gs-row .snippet{color:var(--muted);font:500 12px -apple-system,system-ui,sans-serif;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+      "#cssos-global-search-root .gs-empty{padding:18px 8px;color:var(--muted);font:500 13px -apple-system,system-ui,sans-serif;text-align:center;}",
+      "#cssos-global-search-root .gs-hint{color:var(--muted);font:500 11px ui-monospace,monospace;margin-top:6px;text-align:right;}",
     ].join("");
     document.head.appendChild(s);
   }

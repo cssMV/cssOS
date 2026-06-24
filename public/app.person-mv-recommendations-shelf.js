@@ -19,7 +19,7 @@
     s.textContent = [
       ".cssos-recs-shelf{margin:24px auto 8px;max-width:min(100%,920px);padding:0 12px;width:100%;box-sizing:border-box;}",
       ".cssos-recs-header{display:flex;align-items:baseline;justify-content:space-between;margin:0 4px 10px;gap:12px;}",
-      ".cssos-recs-header h2{margin:0;font:700 15px/1.2 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.92);letter-spacing:.02em;}",
+      ".cssos-recs-header h2{margin:0;font:700 15px/1.2 -apple-system,system-ui,sans-serif;color:var(--text);letter-spacing:.02em;}",
       ".cssos-recs-row{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding:4px 4px 12px;scrollbar-width:none;}",
       ".cssos-recs-row::-webkit-scrollbar{display:none;}",
       ".cssos-recs-card{flex:0 0 180px;height:240px;border-radius:12px;overflow:hidden;position:relative;cursor:pointer;scroll-snap-align:start;background:rgba(8,18,14,0.6);border:1px solid rgba(0,245,160,0.18);transition:transform .15s ease, border-color .15s ease;}",

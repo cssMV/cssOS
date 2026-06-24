@@ -54,7 +54,7 @@
       t.style.cssText =
         "position:fixed;left:50%;top:24px;transform:translateX(-50%) translateY(-6px);" +
         "z-index:2147483645;padding:6px 12px;border-radius:999px;" +
-        "background:rgba(8,18,16,0.92);color:#daffee;" +
+        "background:var(--panel-strong);color:var(--text);" +
         "font:600 12px/1 ui-monospace,monospace;letter-spacing:.04em;" +
         "border:1px solid rgba(0,245,160,0.3);" +
         "box-shadow:0 8px 24px rgba(0,0,0,0.45);" +
@@ -82,7 +82,7 @@
       "top:" + (rect.top - 8) + "px;left:" + (rect.left + rect.width / 2) + "px;" +
       "transform:translate(-50%,-100%);" +
       "padding:6px;border-radius:10px;" +
-      "background:rgba(8,18,16,0.96);" +
+      "background:var(--panel-strong);" +
       "border:1px solid rgba(0,245,160,0.35);" +
       "box-shadow:0 12px 28px rgba(0,0,0,0.45);" +
       "display:flex;flex-direction:column;gap:2px;min-width:80px;";
@@ -93,7 +93,7 @@
       item.textContent = fmt(r);
       item.style.cssText =
         "all:unset;cursor:pointer;padding:6px 12px;border-radius:6px;" +
-        "font:500 12px/1 ui-monospace,monospace;color:#daffee;text-align:center;" +
+        "font:500 12px/1 ui-monospace,monospace;color:var(--text);text-align:center;" +
         (Math.abs(r - current) < 0.01
           ? "background:rgba(0,245,160,0.18);color:#00f5a0;font-weight:700;"
           : "");

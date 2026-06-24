@@ -71,7 +71,7 @@
       "position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;" +
       "background:rgba(0,8,6,0.78);backdrop-filter:blur(12px);" +
       "opacity:0;transition:opacity .18s ease;" +
-      "font:14px/1.4 -apple-system,system-ui,sans-serif;color:#daffee;";
+      "font:14px/1.4 -apple-system,system-ui,sans-serif;color:var(--text);";
     overlay.addEventListener("click", function (e) {
       // Click backdrop dismisses; clicks inside the card don't.
       if (e.target === overlay) hide();
@@ -80,7 +80,7 @@
     card.style.cssText =
       "max-width:min(720px,92vw);max-height:82vh;overflow:auto;" +
       "padding:24px 28px;border-radius:18px;" +
-      "background:rgba(8,18,16,0.96);" +
+      "background:var(--panel-strong);" +
       "border:1px solid rgba(0,245,160,0.35);" +
       "box-shadow:0 30px 80px rgba(0,0,0,0.6);";
     var head = document.createElement("div");
@@ -90,7 +90,7 @@
     title.style.cssText = "font:700 16px/1 -apple-system,system-ui,sans-serif;letter-spacing:.04em;";
     var hint = document.createElement("div");
     hint.textContent = tt("Press ? or Esc to close", "按 ? 或 Esc 关闭");
-    hint.style.cssText = "font:400 11px/1 ui-monospace,monospace;color:rgba(218,255,238,0.55);";
+    hint.style.cssText = "font:400 11px/1 ui-monospace,monospace;color:var(--muted);";
     head.appendChild(title);
     head.appendChild(hint);
     card.appendChild(head);

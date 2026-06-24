@@ -13,12 +13,12 @@
     var s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent = [
-      "#cssos-feed-panel-root{position:fixed;inset:0;background:rgba(0,12,8,0.94);z-index:9000;overflow-y:auto;display:none;}",
+      "#cssos-feed-panel-root{position:fixed;inset:0;background:var(--panel-strong);z-index:9000;overflow-y:auto;display:none;}",
       "#cssos-feed-panel-root.open{display:block;}",
       "#cssos-feed-panel-root .feed-shell{max-width:920px;margin:32px auto;padding:0 16px;}",
       "#cssos-feed-panel-root header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px;}",
-      "#cssos-feed-panel-root h1{margin:0;font:700 22px -apple-system,system-ui,sans-serif;color:#daffee;}",
-      "#cssos-feed-panel-root .close-btn{background:transparent;border:1px solid rgba(0,245,160,0.45);color:#daffee;padding:6px 12px;border-radius:8px;cursor:pointer;font:500 12px ui-monospace,monospace;}",
+      "#cssos-feed-panel-root h1{margin:0;font:700 22px -apple-system,system-ui,sans-serif;color:var(--text);}",
+      "#cssos-feed-panel-root .close-btn{background:transparent;border:1px solid rgba(0,245,160,0.45);color:var(--text);padding:6px 12px;border-radius:8px;cursor:pointer;font:500 12px ui-monospace,monospace;}",
       "#cssos-feed-panel-root .feed-rss{font:500 11px ui-monospace,monospace;color:rgba(0,245,160,0.85);text-decoration:none;}",
       "#cssos-feed-panel-root .feed-rss:hover{text-decoration:underline;}",
       "#cssos-feed-panel-root .feed-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;}",
@@ -28,7 +28,7 @@
       "#cssos-feed-panel-root .feed-meta{padding:10px;}",
       "#cssos-feed-panel-root .feed-title{font:600 14px -apple-system,system-ui,sans-serif;color:#daffee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
       "#cssos-feed-panel-root .feed-source{font:500 11px ui-monospace,monospace;color:rgba(0,245,160,0.78);margin-top:4px;}",
-      "#cssos-feed-panel-root .feed-empty{padding:48px 12px;text-align:center;color:rgba(218,255,238,0.6);}",
+      "#cssos-feed-panel-root .feed-empty{padding:48px 12px;text-align:center;color:var(--muted);}",
     ].join("");
     document.head.appendChild(s);
   }

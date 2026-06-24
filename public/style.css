@@ -35,7 +35,7 @@
   --text: #e8fdf4;
   --muted: rgba(232, 253, 244, 0.6);
   --shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
-  --radius: 28px; /* CSSOS_WAVE_1185 20260624 — Jing: 全平台面板圆角 40 -> 28px (更克制现代,接近 iOS 大圆角卡片)。W301 曾 24->40。 */
+  --radius: 28px; /* CSSOS_WAVE_1185 20260624 — Jing: 桌面/浏览器面板圆角 40 -> 28px (更克制现代,接近 iOS 大圆角卡片)。W301 曾 24->40。 */
   --wc1: rgba(0, 245, 160, 0.55);
   --wc2: rgba(4, 10, 8, 0.75);
   --wc3: rgba(0, 140, 100, 0.5);
@@ -10902,6 +10902,12 @@ html[data-theme="light"] .pay-card {
    Body-level class that forces a flat-black canvas behind the
    fullscreened watch panel, regardless of the active theme (light
    day theme included). Pairs with .is-cssmv-fullscreen on #watch-panel. */
+/* CSSOS_WAVE_1186 20260624 — Jing「iPhone/App MV 面板边框与边框进度条重叠」:
+   App 端面板圆角 = 边框进度环的【设备圆角】(iPhone 40 / iPad 20 / Android 20,
+   由 app.watch-stage-bars.js panelRadiusPx() 发布到 --mv-corner-radius)→ 边框与进度环完全重叠。
+   桌面/浏览器不受影响(仍用上面的 28)。html.cssos-app 比 :root 更具体, 无需 !important。 */
+html.cssos-app { --radius: var(--mv-corner-radius, 40px); }
+
 body.cssos-cinema-mode {
   background: #000 !important;
 }

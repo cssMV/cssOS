@@ -413,6 +413,22 @@
       // Stay on current item; force re-render by returning current.
       return list.items[state.index] || null;
     }
+    // CSSOS_WAVE_1187 20260624 — Jing「从 root 播就必须播完整个多部; 从多部的某个枝丫开始播,
+    //   就顺着播完整个多部」: 在有序模式(sequential / reverse / loop_all)下, 只要当前 item 属于
+    //   多部作品(三部曲/歌剧/短剧/电视剧/电影)且沿 direction 仍在本部段 [start,end] 内 →
+    //   先在部段内推进, 保证整部多部作品一次连贯播完, 绝不中途跳到别作品。
+    //   只有到了部段边界(最后一部 / 第一部)才落回各模式正常逻辑, 离开本部段。
+    //   (shuffle 保持原状: 随机本就无序, 不强行串部段, 避免 shuffleCursor 失同步。)
+    if (mode !== "shuffle") {
+      const g = workGroupBounds(list, state.index);
+      if (g) {
+        const within = state.index + direction;
+        if (within >= g.start && within <= g.end) {
+          state.index = within;
+          return list.items[state.index] || null;
+        }
+      }
+    }
     if (mode === "shuffle") {
       ensureShuffleOrder(list);
       state.shuffleCursor = (state.shuffleCursor + direction + len) % len;

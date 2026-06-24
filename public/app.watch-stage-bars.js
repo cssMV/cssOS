@@ -78,6 +78,14 @@
     } catch (_e) {}
     return 40;
   }
+  // CSSOS_WAVE_1186 — Jing「iPhone/App 让进度条和边框重叠」: 把边框进度环用的【设备圆角】
+  // 发布成 CSS 变量 --mv-corner-radius, App 端面板 --radius 跟它走(见 style.css), 这样
+  // 面板边框圆角 == 边框进度环圆角 → 完全重叠。桌面不受影响(仍用 W1185 的 28)。
+  try {
+    if (document.documentElement.classList.contains("cssos-app")) {
+      document.documentElement.style.setProperty("--mv-corner-radius", panelRadiusPx() + "px");
+    }
+  } catch (_eR) {}
   // Bar stroke thickness. Jing earlier: "尺寸小一半" — halved from 10 → 5.
   const TRAIL_STROKE_PX = 5;
 

@@ -11,4 +11,22 @@
     try { host.appendChild(el); } catch (_e) { try { document.body.appendChild(el); } catch (_e2) {} }
     return el;
   };
+
+  // CSSOS_WAVE_1158 — Jing 指令: 不允许同时多个弹窗, 只能一个。打开任一弹窗前调用此函数关掉其它。
+  //   注: 嵌入选作品弹窗(#cssos-embed-pick)是评论的子流程, 不在此列(允许叠在评论上)。
+  //   AI 助理(#cssos-agent-panel)是独立面板/可全屏, 不在此列。
+  var POPUP_SELS = [
+    "#cssos-work-comments", ".css-pay-picker-backdrop", ".cssos-author-menu",
+    "#cssos-card-ctx", "#cssos-share-dialog", ".cssos-gift-modal", ".cssos-workgift-modal",
+  ];
+  globalThis.cssosCloseOtherPopups = function (keepSel) {
+    POPUP_SELS.forEach(function (s) {
+      if (s === keepSel) return;
+      try {
+        document.querySelectorAll(s).forEach(function (el) { try { el.remove(); } catch (_e) {} });
+      } catch (_e) {}
+    });
+    // 也关掉嵌入选作品子弹窗(若它残留且不是要保留的)。
+    if (keepSel !== "#cssos-embed-pick") { var ep = document.getElementById("cssos-embed-pick"); if (ep) try { ep.remove(); } catch (_e) {} }
+  };
 })();

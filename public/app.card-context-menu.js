@@ -35,6 +35,7 @@
 
   function showMenu(x, y, workId) {
     closeMenu();
+    try { if (typeof globalThis.cssosCloseOtherPopups === "function") globalThis.cssosCloseOtherPopups("#cssos-card-ctx"); } catch (_e) {}   // W1158 单弹窗
     var menu = document.createElement("div");
     menu.id = "cssos-card-ctx";
     menu.style.cssText =

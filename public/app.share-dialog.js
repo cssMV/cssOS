@@ -263,6 +263,7 @@
       toast(tt("No work to share.", "无可分享的作品。"));
       return;
     }
+    try { if (typeof globalThis.cssosCloseOtherPopups === "function") globalThis.cssosCloseOtherPopups("#cssos-share-dialog"); } catch (_e) {}   // W1158 单弹窗
     var url = buildShareUrl(workId);
     var text = buildShareText(opts);
 

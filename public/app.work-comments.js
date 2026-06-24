@@ -247,6 +247,7 @@
   function open(workId) {
     workId = String(workId || "").trim();
     if (!workId) return;
+    try { if (typeof globalThis.cssosCloseOtherPopups === "function") globalThis.cssosCloseOtherPopups("#cssos-work-comments"); } catch (_e) {}   // W1158 单弹窗
     injectCss();
     var old = document.getElementById("cssos-work-comments"); if (old) old.remove();
     currentWorkId = workId; currentReplyTo = null; embedWorkId = ""; embedWorkTitle = "";

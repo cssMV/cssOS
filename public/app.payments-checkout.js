@@ -424,6 +424,7 @@
   function openPicker(opts) {
     const options = opts || {};
     closePicker();
+    try { if (typeof globalThis.cssosCloseOtherPopups === "function") globalThis.cssosCloseOtherPopups(".css-pay-picker-backdrop"); } catch (_e) {}   // W1158 单弹窗
 
     const root = document.createElement("div");
     root.className = "css-pay-picker-backdrop";

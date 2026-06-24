@@ -7979,6 +7979,7 @@ function ensureAuthorAvatarModule() {
     }
     // Close any existing menu so we don't stack.
     document.querySelectorAll(".cssos-author-menu").forEach((el) => el.remove());
+    try { if (typeof globalThis.cssosCloseOtherPopups === "function") globalThis.cssosCloseOtherPopups(".cssos-author-menu"); } catch (_e) {}   // W1158 单弹窗
 
     // CSSOS_WAVE_1133 — Jing 指令: 菜单在【头像正下方】弹出, 不再跑左上角。
     //   真因: 右轨头像每 2.5s 重渲染, 点击后 await relationship 期间旧 av 被 detach →

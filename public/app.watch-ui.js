@@ -8296,7 +8296,10 @@ function ensureAuthorAvatarModule() {
     // Click-outside-closes. CSSOS_WAVE_1156 — Jing: 点头像【子元素】(logo图/➕角标)时 ev.target≠anchorEl
     //   但仍在头像内 → 旧逻辑误判"点外面"先关, 然后头像 click 又开 → toggle 失效。把头像内部都算锚点。
     const onClickAway = (ev) => {
-      var inAnchor = ev.target === anchorEl || (anchorEl && anchorEl.contains && anchorEl.contains(ev.target));
+      // CSSOS_WAVE_1160 — Jing: 右轨每次重渲染会换掉头像 av, 旧 anchorEl 已 detach → 点新头像时
+      //   这里误判"点外面"先关、再开 = toggle 失效。把【任何右轨头像 .csr-av】都算锚点。
+      var inAnchor = ev.target === anchorEl || (anchorEl && anchorEl.contains && anchorEl.contains(ev.target))
+        || (ev.target && ev.target.closest && ev.target.closest(".csr-av"));
       if (!menu.contains(ev.target) && !inAnchor) {
         menu.remove();
         document.removeEventListener("mousedown", onClickAway, true);

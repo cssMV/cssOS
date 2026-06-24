@@ -273,7 +273,11 @@
       var sheet = overlay.querySelector(".cwc-sheet");
       var rail = document.getElementById("cssos-watch-social-rail");
       var topPx = rail ? Math.max(8, Math.round(rail.getBoundingClientRect().top)) : Math.round((window.innerHeight || 600) * 0.18);
-      if (sheet) sheet.style.marginTop = topPx + "px";
+      if (sheet) {
+        sheet.style.marginTop = topPx + "px";
+        // CSSOS_WAVE_1160 — 高度封顶到视口底, 不溢出 → 评论列表内部可上下滚(之前 78vh+marginTop 溢出导致滚不动)。
+        sheet.style.maxHeight = "calc(100vh - " + topPx + "px - 14px)";
+      }
     } catch (_e) {}
 
     overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.remove(); });

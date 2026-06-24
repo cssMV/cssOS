@@ -47,7 +47,7 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
           if (!d || d.ok === false) return;
-          _stats[id] = { listens: Number(d.listens || 0), watches: Number(d.watches || 0), tips: Number(d.tips || 0), tips_total_cents: Number(d.tips_total_cents || 0), comments: Number(d.comments || 0) };
+          _stats[id] = { listens: Number(d.listens || 0), watches: Number(d.watches || 0), tips: Number(d.tips || 0), tips_total_cents: Number(d.tips_total_cents || 0), comments: Number(d.comments || 0), owner_is_staff: !!d.owner_is_staff };
           // CSSOS_WAVE_1168 — 同时拿到【作品作者】(有效所有者), 灌进作者缓存供头像/菜单用(作品数据常不带 owner)。
           var oid = String(d.owner_user_id || "").trim();
           if (oid) { _authorCache[oid] = { name: String(d.owner_display_name || ""), avatar: String(d.owner_avatar_url || "") }; _statsOwner[id] = oid; }
@@ -55,7 +55,17 @@
         }).catch(function () {});
     } catch (_e) {}
   }
-  function statsFor(id) { return _stats[id] || { listens: 0, watches: 0, tips: 0, tips_total_cents: 0, comments: 0 }; }
+  function statsFor(id) { return _stats[id] || { listens: 0, watches: 0, tips: 0, tips_total_cents: 0, comments: 0, owner_is_staff: false }; }
+  // CSSOS_WAVE_1169 — Jing 指令: @cssstudio.app 全员 + jingdudc@gmail.com(管理员/工作人员)不参与买卖。
+  //   故 staff 观众: 聆听/观赏/买断 置灰; 打赏可用, 但作者也是 staff 时置灰(staff↔staff 禁打赏)。
+  function viewerEmail() {
+    try { var a = (typeof globalThis.cssosAuthState === "function") ? globalThis.cssosAuthState() : globalThis.authState; return String((a && a.user && a.user.email) || "").toLowerCase().trim(); } catch (_e) { return ""; }
+  }
+  function viewerIsStaff() {
+    var e = viewerEmail(); if (!e) return false;
+    try { if (typeof globalThis.isAdminEmailModule === "function") return !!globalThis.isAdminEmailModule(e); } catch (_e) {}
+    return e.indexOf("@cssstudio.app") >= 0 || e === "jingdudc@gmail.com";
+  }
   // CSSOS_WAVE_1144 — Jing 指令: 评论增删后立即同步右轨计数。清缓存→下次 render 重新拉→重渲染。
   function invalidateStats(id) { try { if (id) delete _stats[id]; } catch (_e) {} }
   document.addEventListener("cssos:comments-changed", function (e) {
@@ -265,6 +275,10 @@
     fetchStats(id0);
     var st = statsFor(id0);
     rail.textContent = "";
+    // CSSOS_WAVE_1169 — staff(管理员/工作人员)不参与买卖: 聆听/观赏/买断置灰; 打赏可用, 但作者也是 staff 时置灰。
+    var _staff = viewerIsStaff();
+    var _ownerStaff = !!st.owner_is_staff;
+    var _noTip = _staff && _ownerStaff;
 
     // 1. 作者头像 + 关注
     var av = document.createElement("button");
@@ -315,9 +329,10 @@
       }
     }));
 
-    // 3. 🎧 聆听 · 计数·¢69
+    // 3. 🎧 聆听 · 计数·¢69 — W1169: staff 不参与买卖 → 置灰
     rail.appendChild(mkItem("🎧", countPrice(st.listens, listenCents(w)), {
-      aria: copy("Listen", "聆听"), title: copy("Listen (audio / slideshow)", "聆听(音频/幻灯)"),
+      disabled: _staff, aria: copy("Listen", "聆听"),
+      title: _staff ? copy("Staff don't participate in purchases", "管理员/工作人员不参与买卖") : copy("Listen (audio / slideshow)", "聆听(音频/幻灯)"),
       onClick: function (b) { dispatch("listen", b); }
     }));
 
@@ -327,15 +342,17 @@
       title: copy("Real-video viewing — opens once full video ships", "观赏(真视频)— 真视频上线后开放")
     }));
 
-    // 5. 💝 打赏 — CSSOS_WAVE_1129c — Jing 指令: 无打赏显 "0/Tip"; 有打赏显 "总额/次数"(如 $58/9)。
+    // 5. 💝 打赏 — W1169: staff 可打赏非 staff; staff↔staff 置灰。
     rail.appendChild(mkItem("💝", st.tips > 0 ? (fmtMoney(st.tips_total_cents) + "/" + fmtCount(st.tips)) : ("0/" + copy("Tip", "打赏")), {
-      aria: copy("Tip the creator", "打赏作者"), title: copy("Tip the creator — any amount", "打赏作者(金额随意)"),
+      disabled: _noTip, aria: copy("Tip the creator", "打赏作者"),
+      title: _noTip ? copy("Staff can't tip staff", "管理员/工作人员之间不能打赏") : copy("Tip the creator — any amount", "打赏作者(金额随意)"),
       onClick: function (b) { dispatch("tip", b); }
     }));
 
-    // 6. 💎 买断 — 显示系统建议价(不是"买断"字) — CSSOS_WAVE_1167
+    // 6. 💎 买断 — 显示系统建议价(不是"买断"字) — CSSOS_WAVE_1167; W1169: staff 不参与买卖 → 置灰
     rail.appendChild(mkItem("💎", fmtCents(buyoutCents(w)), {
-      aria: copy("Buyout", "买断"), title: copy("Buyout — system-suggested price", "买断 — 系统建议价"),
+      disabled: _staff, aria: copy("Buyout", "买断"),
+      title: _staff ? copy("Staff don't participate in purchases", "管理员/工作人员不参与买卖") : copy("Buyout — system-suggested price", "买断 — 系统建议价"),
       onClick: function (b) { dispatch("buyout", b); }
     }));
 

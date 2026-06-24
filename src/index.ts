@@ -48520,7 +48520,8 @@ app.get("/api/works/:id/social-stats", async (req, res) => {
          ) AS comments,
          (SELECT oid FROM owner)::text AS owner_user_id,
          (SELECT display_name FROM users WHERE id=(SELECT oid FROM owner)) AS owner_display_name,
-         (SELECT avatar_url FROM users WHERE id=(SELECT oid FROM owner)) AS owner_avatar_url`,
+         (SELECT avatar_url FROM users WHERE id=(SELECT oid FROM owner)) AS owner_avatar_url,
+         (SELECT email FROM users WHERE id=(SELECT oid FROM owner)) AS owner_email`,
       [id, PAID]
     ));
     const row = (r.rows && r.rows[0]) || ({} as any);
@@ -48534,6 +48535,9 @@ app.get("/api/works/:id/social-stats", async (req, res) => {
       owner_user_id: row.owner_user_id || null,
       owner_display_name: row.owner_display_name || null,
       owner_avatar_url: row.owner_avatar_url || null,
+      // CSSOS_WAVE_1169 — 作者是否管理员/工作人员(@cssstudio.app 或 admin 名单)。前端据此置灰打赏(staff↔staff 禁打赏)。
+      //   只回布尔, 不泄露 email。
+      owner_is_staff: isCssosAdminEmail(row.owner_email || ""),
     });
   } catch (err) {
     // 计数永不阻断 UI: 失败回 0。

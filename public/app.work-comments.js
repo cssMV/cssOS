@@ -199,12 +199,12 @@
     pl.scrollTop = 0;
     pl.innerHTML = "";
     if (!pl.__filtered.length) { pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(tr("No matches.", "无匹配。")) + "</div>"; return; }
-    appendEmbedBatch(pl);
+    appendEmbedBatch(pl, 5);   // W1178 — Jing: 窗口小, 默认只显 5; 之后每次滚动加载 10。
   }
-  function appendEmbedBatch(pl) {
+  function appendEmbedBatch(pl, n) {
     var f = pl.__filtered || [];
     var start = pl.__rendered || 0;
-    var end = Math.min(start + EMBED_BATCH, f.length);
+    var end = Math.min(start + (n || EMBED_BATCH), f.length);
     for (var i = start; i < end; i++) pl.appendChild(buildEmbedRow(f[i]));
     pl.__rendered = end;
   }

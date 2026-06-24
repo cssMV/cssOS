@@ -38,6 +38,33 @@
     try { console.warn("[cssPaymentsCheckout]", msg); } catch (_e) {}
   }
 
+  // CSSOS_WAVE_1166 — Jing 指令: 别再给用户看 "payment_intent_failed:STRIPE_PAYMENT_INTENT_CREATE_FAILED"
+  //   这种吓人红字(尤其怕苹果看到)。把后端码翻成干净友好的人话(双语)。
+  function friendlyPayError(raw) {
+    var code = String(raw || "").replace(/^payment_intent_failed:/i, "").trim();
+    var zh = false; try { zh = /^zh/i.test(document.documentElement.lang || ""); } catch (_e) {}
+    var M = {
+      TIPS_NOT_ENABLED: ["The creator hasn't enabled tips for this work.", "作者还没有为这首作品开启打赏。"],
+      BUYOUT_NOT_ENABLED: ["Buyout isn't available for this work.", "这首作品暂未开放买断。"],
+      PRODUCT_UNAVAILABLE: ["This option isn't available for this work.", "这首作品暂不支持此项。"],
+      WORK_NOT_FOUND: ["This work is unavailable.", "作品不可用。"],
+      SELF_PURCHASE_NOT_ALLOWED: ["You can't pay for your own work.", "不能给自己的作品付款。"],
+      SELF_TIP_NOT_ALLOWED: ["You can't tip yourself.", "不能给自己打赏。"],
+      ADMIN_CANNOT_PURCHASE: ["Admin accounts can't make purchases.", "管理员账号不能购买。"],
+      ORDER_ALREADY_PAID: ["You already purchased this.", "你已经购买过了。"],
+      ORDER_ALREADY_OWNED_BUYOUT: ["You already own this work.", "你已拥有这首作品。"],
+      ORDER_ALREADY_PENDING: ["A payment is already in progress.", "已有一笔支付在进行中。"],
+      STRIPE_NOT_CONFIGURED: ["Payments are temporarily unavailable.", "支付暂时不可用。"],
+      STRIPE_PUBLISHABLE_KEY_MISSING: ["Payments are temporarily unavailable.", "支付暂时不可用。"],
+      payments_disabled: ["Payments are temporarily unavailable.", "支付暂时不可用。"],
+      AUTH_REQUIRED: ["Please sign in first.", "请先登录。"],
+      TIP_AMOUNT_INVALID: ["Please enter a valid amount.", "请输入有效金额。"]
+    };
+    var m = M[code];
+    if (m) return zh ? m[1] : m[0];
+    return zh ? "支付未能完成,请稍后再试。" : "Payment couldn't be completed. Please try again.";
+  }
+
   /* CSSOS_WAVE_116 20260513 — Jing
    * Wallet (Apple Pay / Google Pay) detection.
    *
@@ -183,7 +210,7 @@
           redirect: "if_required",
         });
         if (error) {
-          if (errEl) errEl.textContent = String(error.message || error.code || "Payment failed");
+          if (errEl) errEl.textContent = friendlyPayError(error.message || error.code);   // W1166
           setBusy(payBtn, false);
           return { ok: false, error };
         }
@@ -191,7 +218,7 @@
         if (errEl) errEl.textContent = "";
         return { ok: true, order_id };
       } catch (err) {
-        if (errEl) errEl.textContent = String(err && err.message ? err.message : err);
+        if (errEl) errEl.textContent = friendlyPayError(err && err.message ? err.message : err);   // W1166
         setBusy(payBtn, false);
         return { ok: false, error: err };
       }
@@ -585,7 +612,7 @@
           await mountStripePaymentElement(host, intentReq);
         } catch (err) {
           host.innerHTML = '<div class="pay-stripe-inline-error">' +
-            String(err && err.message ? err.message : err) + "</div>";
+            friendlyPayError(err && err.message ? err.message : err) + "</div>";   // W1166 友好提示
           g.querySelectorAll("[data-pay-stripe-inline-trigger], [data-pay-stripe-wallet]").forEach((b) => { b.hidden = false; });
           setBusy(triggerBtn, false);
         }

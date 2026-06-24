@@ -4356,6 +4356,12 @@ body.cssos-cinema-mode #logo-panel .mirror-img {
   text-shadow: 0 0 18px rgba(0, 245, 160, 0.9),
     0 0 32px rgba(11, 247, 255, 0.65);
 }
+/* CSSOS_WAVE_1213 — Jing「白天口号里高亮 CSS 看不见」: 浅色 #f4fff9 压在米色上隐形。
+   白天改用品牌绿(可见、不丢身份), 收掉过亮的青光晕。 */
+html[data-theme="light"] .mirror-slogan .spell {
+  color: #00a060;
+  text-shadow: 0 0 14px rgba(0, 160, 96, 0.30);
+}
 
 .mic-capture-status {
   width: min(560px, calc(100% - 40px));

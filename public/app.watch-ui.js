@@ -2068,7 +2068,7 @@ function renderWorkCostBillMarkupModule(work = {}, entries = []) {
   if (computeCost <= 0) {
     computeCost = _cssosCostFloorCents(work?.work_type, work?.duration_secs);
   }
-  const suggestedListen = Math.max(99, Number(work?.suggested_listen_price_cents || 0));
+  const suggestedListen = Math.max(69, Number(work?.suggested_listen_price_cents || 0));   // CSSOS_WAVE_1153 — 聆听底价 99→69¢
   const suggestedBuyout = Math.max(299, Number(work?.suggested_buyout_price_cents || 0));
   const historyMarkup = renderUsageHistoryMarkupModule(
     getWorkMatchedUsageEventsModule(work, entries),
@@ -4564,7 +4564,7 @@ function renderWatchCommerceActionsModule(work = currentWatchPreviewWork) {
   const usageEvents = Array.isArray(commerce?.usage_events) ? commerce.usage_events : [];
   const computeUnits = Math.max(0, Number(work?.compute_units_estimate || 0));
   const computeCost = Math.max(0, Number(work?.compute_cost_cents_estimate || 0));
-  const suggestedListen = Math.max(99, Number(work?.suggested_listen_price_cents || listenCents || 0));
+  const suggestedListen = Math.max(69, Number(work?.suggested_listen_price_cents || listenCents || 0));   // CSSOS_WAVE_1153 — 聆听底价 99→69¢
   const suggestedBuyout = Math.max(299, Number(work?.suggested_buyout_price_cents || buyoutCents || 0));
   const listenDisabled = Boolean(
     orderState.paidBuyout || orderState.paidListen || orderState.pendingListen || orderState.pendingBuyout || listenCents <= 0

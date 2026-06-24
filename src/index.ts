@@ -14508,7 +14508,7 @@ function pricingPresetForWorkType(workType: CssmvWorkType) {
     return { listenCents: 69, buyoutCents: 999, label: "triptych" };
   }
   return {
-    listenCents: defaultListenPriceCents(),  // 99
+    listenCents: defaultListenPriceCents(),  // 69
     buyoutCents: defaultBuyoutPriceCents(),  // 599
     label: "single",
   };
@@ -14544,9 +14544,10 @@ function defaultCreationPanelTemplate() {
       work_type: "single",
     },
     pricing_by_type: {
-      single: { listen_cents: 99, buyout_cents: 599 },
-      triptych: { listen_cents: 99, buyout_cents: 999 },
-      opera: { listen_cents: 99, buyout_cents: 1999 },
+      // CSSOS_WAVE_1153 — Jing 铁律: 聆听价 = 69¢($0.69), 不是 99¢。W1108 漏改了这张模板表。
+      single: { listen_cents: 69, buyout_cents: 599 },
+      triptych: { listen_cents: 69, buyout_cents: 999 },
+      opera: { listen_cents: 69, buyout_cents: 1999 },
     },
   };
 }

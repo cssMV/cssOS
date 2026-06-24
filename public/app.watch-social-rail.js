@@ -121,9 +121,11 @@
       ".csr-lbl{font-size:11px;color:#e6ddd2;text-shadow:0 1px 3px rgba(0,0,0,0.6);white-space:nowrap;}" +
       ".csr-ic.is-comment{background:rgba(0,245,160,0.18);box-shadow:inset 0 0 0 1.5px #00f5a0;color:#00f5a0;}" +
       ".csr-ic.is-ai{background:#1c2b3a;box-shadow:inset 0 0 0 1px #2e4a63;color:#7fd4ff;}" +
-      ".csr-av{position:relative;width:46px;height:46px;border-radius:50%;background:#2a6cf0;display:flex;align-items:center;" +
+      // CSSOS_WAVE_1153 — Jing 指令: 头像与其它图标同风格(半透明圆, 不要蓝底); 头像=我们的 logo,
+      //   充满边框且显示其透明背景(object-fit:cover 铺满, 底色用与 .csr-ic 一致的半透明)。
+      ".csr-av{position:relative;width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,0.12);display:flex;align-items:center;" +
       "justify-content:center;font-weight:500;font-size:15px;color:#fff;overflow:visible;}" +
-      ".csr-av img{width:100%;height:100%;border-radius:50%;object-fit:cover;}" +
+      ".csr-av img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}" +
       ".csr-av .csr-follow{position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:17px;height:17px;" +
       "border-radius:50%;background:#00f5a0;color:#04241a;font-size:12px;display:flex;align-items:center;justify-content:center;}" +
       // CSSOS_WAVE_1119 — 左上返回键(成熟模式): 退出影院。点它=触发现成 watch-panel 关闭按钮。

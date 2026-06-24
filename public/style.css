@@ -1586,7 +1586,7 @@ body.longpress-guard * {
      mirror doesn't overshoot on ultra-wide monitors. Mobile portrait
      widens to 33vw — see the @media block further down. The breathing
      animation is unchanged — only the box scales. */
-  --mirror-size: min(42vw, 180px); /* CSSOS_WAVE_1206 — Jing「logo 突然变大」: 大厅 mirror = splash(42vw/max170) 尺寸, 首屏=交接=180, 无跳变 */
+  --mirror-size: min(20vw, 480px); /* CSSOS_WAVE_1208 还原原始设计 — Jing「恢复初衷 logo 面板」: 撤销 W1204/1206 的缩小(那是误诊"变大", 真因是 splash 交接, 已在网页端移除 splash) */
   --mirror-mask-inset: 4%;
   --hold-ring-inset: 84px;
   --spellcast-ring-scale: 1;
@@ -3959,12 +3959,12 @@ html[data-theme="light"] .works-fp-optin-desc {
     padding: 0 !important;
   }
   .mirror-title {
-    font-size: calc(var(--mirror-size, 180px) * 0.22) !important;   /* W1207 — 跟随 --mirror-size 等比, 手机同理 */
+    font-size: clamp(14px, 5.2vw, 24px) !important;   /* CSSOS_WAVE_1208 还原原值(撤销 W1207) */
     line-height: 1 !important;
     letter-spacing: 0.04em !important;
   }
   .mirror-subtitle {
-    font-size: calc(var(--mirror-size, 180px) * 0.072) !important;   /* W1207 — STUDIO 跟随 --mirror-size 等比 */
+    font-size: clamp(6px, 1.9vw, 9px) !important;   /* CSSOS_WAVE_1208 还原原值 */
     line-height: 1 !important;
     letter-spacing: 0.32em !important;
   }
@@ -4324,15 +4324,14 @@ body.cssos-cinema-mode #logo-panel .mirror-img {
      circle's left/right edges. */
   font-family: "Rubik", "Syne", sans-serif;
   font-weight: 900;
-  /* CSSOS_WAVE_1207 — Jing「CSS Studio 没跟着 mirror 变小」: 字号改为【跟随 --mirror-size 等比】(原来跟 vw → mirror 缩小后文字不缩、撑破内圈)。 */
-  font-size: calc(var(--mirror-size, 180px) * 0.22);
+  font-size: clamp(24px, 3.4vw, 56px);   /* CSSOS_WAVE_1208 还原原值(撤销 W1207 的等比缩放) */
   letter-spacing: 0.06em;
   color: #f1fff8;
   text-shadow: 0 0 28px rgba(0, 245, 160, 0.75);
 }
 
 .mirror-subtitle {
-  font-size: calc(var(--mirror-size, 180px) * 0.072);   /* W1207 — Studio 同步跟随 --mirror-size 等比 */
+  font-size: clamp(11px, 1.4vw, 18px);   /* CSSOS_WAVE_1208 还原原值 */
   letter-spacing: 0.4em;
   text-transform: uppercase;
   color: var(--muted);

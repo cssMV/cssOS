@@ -351,7 +351,10 @@ function sanitizePanelBehaviorSettings(value = {}) {
       spell: String(source?.logo?.spell || base.logo.spell).slice(0, 24) || PANEL_BEHAVIOR_DEFAULT_SPELL,
       subtitle: String(source?.logo?.subtitle || base.logo.subtitle).slice(0, 40) || "Studio",
       slogan_template: String(source?.logo?.slogan_template || base.logo.slogan_template).slice(0, 240) || base.logo.slogan_template,
-      mirror_size_px: Math.max(420, Math.min(880, Number(source?.logo?.mirror_size_px ?? base.logo.mirror_size_px) || 600)),
+      // CSSOS_WAVE_1204 — Jing「为什么变大? 保持进入时小尺寸」根因: 这里 Math.max(420) 地板 + ||600 兜底
+      //   把 W1033 的 360 又顶回 ≥420 → 加载后 logo 从小长成大。改地板 160 + 兜底 360, 让 360 生效, 与
+      //   CSS 兜底 var(--mirror-size,360px) 一致 → 首屏=设置后零跳变, 不再变大。
+      mirror_size_px: Math.max(160, Math.min(880, Number(source?.logo?.mirror_size_px ?? base.logo.mirror_size_px) || 360)),
       mask_inset_percent: Math.max(0, Math.min(28, Number(source?.logo?.mask_inset_percent ?? base.logo.mask_inset_percent) || 12)),
       spellcast_ring_scale: Math.max(0.82, Math.min(1.12, Number(source?.logo?.spellcast_ring_scale ?? base.logo.spellcast_ring_scale) || 1)),
       spellcast_glow_scale: Math.max(0, Math.min(1, Number(source?.logo?.spellcast_glow_scale ?? base.logo.spellcast_glow_scale) || 0.18)),

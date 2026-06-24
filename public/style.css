@@ -1586,7 +1586,7 @@ body.longpress-guard * {
      mirror doesn't overshoot on ultra-wide monitors. Mobile portrait
      widens to 33vw — see the @media block further down. The breathing
      animation is unchanged — only the box scales. */
-  --mirror-size: min(20vw, 480px);
+  --mirror-size: min(20vw, 360px); /* CSSOS_WAVE_1204 — Jing「保持进入时小尺寸」: 480→360, 与 JS/CSS 兜底一致, 首屏不先撑大 */
   --mirror-mask-inset: 4%;
   --hold-ring-inset: 84px;
   --spellcast-ring-scale: 1;

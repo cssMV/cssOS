@@ -48,6 +48,9 @@
         .then(function (d) {
           if (!d || d.ok === false) return;
           _stats[id] = { listens: Number(d.listens || 0), watches: Number(d.watches || 0), tips: Number(d.tips || 0), tips_total_cents: Number(d.tips_total_cents || 0), comments: Number(d.comments || 0) };
+          // CSSOS_WAVE_1168 — 同时拿到【作品作者】(有效所有者), 灌进作者缓存供头像/菜单用(作品数据常不带 owner)。
+          var oid = String(d.owner_user_id || "").trim();
+          if (oid) { _authorCache[oid] = { name: String(d.owner_display_name || ""), avatar: String(d.owner_avatar_url || "") }; _statsOwner[id] = oid; }
           schedule();   // 拿到数 → 重渲染带上计数
         }).catch(function () {});
     } catch (_e) {}
@@ -91,10 +94,13 @@
   // CSSOS_WAVE_1163 — Jing 指令: 头像必须是【正在播放作品的作者】, 绝不回退登录用户。
   //   从当前作品取作者 id/名/头像; 作品没带头像就按 id 拉(缓存), 拉到再重渲染。
   var _authorCache = {};   // userId → {name, avatar}
+  var _statsOwner = {};    // workId → ownerUserId(来自 social-stats, 作品数据没带 owner 时的权威来源)
   function currentAuthor() {
     var w = currentWork() || {};
     var ow = w.owner || {};
     var id = String(w.owner_user_id || w.owner_id || ow.id || ow.user_id || "").trim();
+    // 作品数据没带 owner → 用 social-stats 拉到的作者(W1168)。
+    if (!id) { try { var wid = robustWorkId(); if (wid && _statsOwner[wid]) id = _statsOwner[wid]; } catch (_e) {} }
     var name = String(w.owner_display_name || w.owner_name || ow.name || ow.display_name || "").trim();
     var avatar = String(w.owner_avatar_url || w.avatar_url || ow.avatar_url || "").trim();
     if (id && _authorCache[id]) { name = name || _authorCache[id].name; avatar = avatar || _authorCache[id].avatar; }

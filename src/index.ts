@@ -48499,8 +48499,16 @@ app.get("/api/works/:id/social-stats", async (req, res) => {
     const id = String(req.params.id || "").trim();
     if (!id) return res.status(400).json({ ok: false, error: "bad_id" });
     const PAID = ["paid", "completed", "succeeded", "captured", "complete"];
-    const r = await withClient((c) => c.query<{ listens: string; watches: string; tips: string; tips_total_cents: string; comments: string }>(
-      `SELECT
+    // CSSOS_WAVE_1168 — Jing 指令: 右轨头像必须是【作品作者】。作品数据常不带 owner, 故这里(右轨本就拉的)
+    //   一并返回作者 = 有效当前所有者(ownership_transfers 最近 to_user_id, 否则创建者 user_works.user_id)+ 头像/名。
+    const r = await withClient((c) => c.query<{ listens: string; watches: string; tips: string; tips_total_cents: string; comments: string; owner_user_id: string | null; owner_display_name: string | null; owner_avatar_url: string | null }>(
+      `WITH owner AS (
+         SELECT COALESCE(
+                  (SELECT to_user_id FROM ownership_transfers WHERE work_id=$1::uuid ORDER BY effective_at DESC NULLS LAST, created_at DESC LIMIT 1),
+                  (SELECT user_id FROM user_works WHERE id=$1::uuid)
+                ) AS oid
+       )
+       SELECT
          (SELECT COUNT(DISTINCT buyer_user_id) FROM work_orders WHERE work_id=$1 AND order_kind='listen' AND status = ANY($2)) AS listens,
          (SELECT COUNT(DISTINCT buyer_user_id) FROM work_orders WHERE work_id=$1 AND order_kind='view'   AND status = ANY($2)) AS watches,
          (SELECT COUNT(*) FROM work_tips WHERE work_id=$1) AS tips,
@@ -48509,7 +48517,10 @@ app.get("/api/works/:id/social-stats", async (req, res) => {
            (SELECT COUNT(*) FROM work_comments WHERE work_id=$1 AND deleted_at IS NULL)  -- W1138 通用作品评论
            + (SELECT COUNT(*) FROM person_mv_comments pc JOIN person_mvs pm ON pc.mv_id = pm.mv_id
                 WHERE pm.work_id=$1 AND pc.deleted_at IS NULL)
-         ) AS comments`,
+         ) AS comments,
+         (SELECT oid FROM owner)::text AS owner_user_id,
+         (SELECT display_name FROM users WHERE id=(SELECT oid FROM owner)) AS owner_display_name,
+         (SELECT avatar_url FROM users WHERE id=(SELECT oid FROM owner)) AS owner_avatar_url`,
       [id, PAID]
     ));
     const row = (r.rows && r.rows[0]) || ({} as any);
@@ -48520,6 +48531,9 @@ app.get("/api/works/:id/social-stats", async (req, res) => {
       tips: Number(row.tips || 0),
       tips_total_cents: Number(row.tips_total_cents || 0),
       comments: Number(row.comments || 0),
+      owner_user_id: row.owner_user_id || null,
+      owner_display_name: row.owner_display_name || null,
+      owner_avatar_url: row.owner_avatar_url || null,
     });
   } catch (err) {
     // 计数永不阻断 UI: 失败回 0。

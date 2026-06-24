@@ -196,8 +196,10 @@
       // CSSOS_WAVE_896 — 更顺的淡入 + 轻微上浮(ease-out 缓动, 16px 起跳)。
       "opacity:0;transform:translateY(16px);transition:opacity .42s cubic-bezier(.22,.7,.2,1),transform .42s cubic-bezier(.22,.7,.2,1);";
     var bar = document.createElement("div");
+    // CSSOS_WAVE_1165 — Jing 指令: 只显示 ~6 张卡(6×140 + 5×8gap + 内边距 ≈ 920px), 其余左右滑动加载;
+    //   窄一点 → 居中后两侧留白, 不再蹭到右轨/左下标题(防苹果判拥挤)。listEl 本就 overflow-x:auto 可滑。
     bar.style.cssText =
-      "max-width:min(96vw,1400px);padding:10px 14px;border-radius:14px;" +
+      "max-width:min(92vw,920px);padding:10px 14px;border-radius:14px;" +
       "background:transparent;" +
       "pointer-events:auto;display:flex;flex-direction:column;gap:6px;";
     var hdr = document.createElement("div");

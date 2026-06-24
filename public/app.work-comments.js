@@ -57,9 +57,10 @@
       "#cssos-work-comments .cwc-replychip button,#cssos-work-comments .cwc-embedchip button{background:transparent;border:0;color:#9aa3b2;cursor:pointer;font-size:13px;}" +
       "#cssos-work-comments .cwc-composer{display:flex;gap:8px;align-items:flex-end;}" +
       // CSSOS_WAVE_1146 — Jing 指令: 输入框默认一行, 随内容增高(box-sizing+1行基准高, 配合 input 自增)。
-      "#cssos-work-comments textarea{flex:1;resize:none;box-sizing:border-box;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.16);border-radius:10px;padding:9px 11px;color:#fff;font:inherit;height:38px;min-height:38px;max-height:120px;overflow-y:auto;line-height:1.35;}" +
-      "#cssos-work-comments .cwc-attach{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);color:#fff;border-radius:10px;padding:9px 11px;cursor:pointer;font-size:16px;flex:0 0 auto;}" +
-      "#cssos-work-comments .cwc-post{background:rgba(0,245,160,0.22);border:1px solid rgba(0,245,160,0.6);color:#fff;border-radius:10px;padding:9px 14px;cursor:pointer;font-weight:700;flex:0 0 auto;}" +
+      // CSSOS_WAVE_1175 — Jing 指令: 🎵/输入框/Post 三者同高 = 固定 40px(box-sizing+flex 居中, 不靠 padding 撑)。
+      "#cssos-work-comments textarea{flex:1;resize:none;box-sizing:border-box;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.16);border-radius:10px;padding:9px 11px;color:#fff;font:inherit;height:40px;min-height:40px;max-height:120px;overflow-y:auto;line-height:1.35;}" +
+      "#cssos-work-comments .cwc-attach{box-sizing:border-box;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);color:#fff;border-radius:10px;padding:0 13px;cursor:pointer;font-size:16px;flex:0 0 auto;}" +
+      "#cssos-work-comments .cwc-post{box-sizing:border-box;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(0,245,160,0.22);border:1px solid rgba(0,245,160,0.6);color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-weight:700;flex:0 0 auto;}" +
       "#cssos-work-comments .cwc-empty{opacity:0.55;text-align:center;font-size:12.5px;padding:26px 0;}";
     document.head.appendChild(s);
   }
@@ -335,7 +336,7 @@
     overlay.querySelector("[data-rt-x]").addEventListener("click", clearReplyTo);
     overlay.querySelector("[data-et-x]").addEventListener("click", clearEmbed);
     var ta = overlay.querySelector("textarea");
-    ta.addEventListener("input", function () { ta.style.height = "auto"; ta.style.height = Math.min(90, ta.scrollHeight) + "px"; });
+    ta.addEventListener("input", function () { ta.style.height = "auto"; ta.style.height = Math.max(40, Math.min(120, ta.scrollHeight)) + "px"; });   // W1175 — 底线 40px 与 🎵/Post 同高
     ta.addEventListener("keydown", function (e) { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") postComment(); });
 
     refresh();

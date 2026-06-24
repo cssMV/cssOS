@@ -275,10 +275,13 @@
     fetchStats(id0);
     var st = statsFor(id0);
     rail.textContent = "";
-    // CSSOS_WAVE_1169 — staff(管理员/工作人员)不参与买卖: 聆听/观赏/买断置灰; 打赏可用, 但作者也是 staff 时置灰。
+    // CSSOS_WAVE_1196 — Jing 规则: 管理员/工作人员【只能接受打赏】。
+    //   · 买卖(聆听/买断): 任一方是 staff 即不可 —— staff 不买, staff 作品也不卖给非 staff。
+    //   · 打赏: viewer 是 staff 不可【给】(staff 仅接受); viewer 非 staff 时给 staff/非 staff 都行(staff↔staff 自然被挡)。
     var _staff = viewerIsStaff();
     var _ownerStaff = !!st.owner_is_staff;
-    var _noTip = _staff && _ownerStaff;
+    var _noSale = _staff || _ownerStaff;   // 买卖不可
+    var _noTip = _staff;                    // 打赏: 只挡 staff 主动给
 
     // 1. 作者头像 + 关注
     var av = document.createElement("button");
@@ -350,10 +353,10 @@
       }
     }));
 
-    // 3. 🎧 聆听 · 计数·¢69 — W1169: staff 不参与买卖 → 置灰
+    // 3. 🎧 聆听 · 计数·¢69 — W1196: 任一方 staff → 不可买卖, 置灰
     rail.appendChild(mkItem("🎧", countPrice(st.listens, listenCents(w)), {
-      disabled: _staff, aria: copy("Listen", "聆听"),
-      title: _staff ? copy("Staff don't participate in purchases", "管理员/工作人员不参与买卖") : copy("Listen (audio / slideshow)", "聆听(音频/幻灯)"),
+      disabled: _noSale, aria: copy("Listen", "聆听"),
+      title: _noSale ? copy("Staff works aren't for sale", "管理员/工作人员作品不参与买卖") : copy("Listen (audio / slideshow)", "聆听(音频/幻灯)"),
       onClick: function (b) { dispatch("listen", b); }
     }));
 
@@ -363,17 +366,17 @@
       title: copy("Real-video viewing — opens once full video ships", "观赏(真视频)— 真视频上线后开放")
     }));
 
-    // 5. 💝 打赏 — W1169: staff 可打赏非 staff; staff↔staff 置灰。
+    // 5. 💝 打赏 — W1196: staff 只能【接受】打赏(viewer 非 staff 即可给; staff 自己不可给)。
     rail.appendChild(mkItem("💝", st.tips > 0 ? (fmtMoney(st.tips_total_cents) + "/" + fmtCount(st.tips)) : ("0/" + copy("Tip", "打赏")), {
       disabled: _noTip, aria: copy("Tip the creator", "打赏作者"),
-      title: _noTip ? copy("Staff can't tip staff", "管理员/工作人员之间不能打赏") : copy("Tip the creator — any amount", "打赏作者(金额随意)"),
+      title: _noTip ? copy("Staff can only receive tips, not give", "管理员/工作人员只能接受打赏,不能打赏他人") : copy("Tip the creator — any amount", "打赏作者(金额随意)"),
       onClick: function (b) { dispatch("tip", b); }
     }));
 
-    // 6. 💎 买断 — 显示系统建议价(不是"买断"字) — CSSOS_WAVE_1167; W1169: staff 不参与买卖 → 置灰
+    // 6. 💎 买断 — 显示系统建议价(不是"买断"字) — CSSOS_WAVE_1167; W1196: 任一方 staff → 不可买卖, 置灰
     rail.appendChild(mkItem("💎", fmtCents(buyoutCents(w)), {
-      disabled: _staff, aria: copy("Buyout", "买断"),
-      title: _staff ? copy("Staff don't participate in purchases", "管理员/工作人员不参与买卖") : copy("Buyout — system-suggested price", "买断 — 系统建议价"),
+      disabled: _noSale, aria: copy("Buyout", "买断"),
+      title: _noSale ? copy("Staff works aren't for sale", "管理员/工作人员作品不参与买卖") : copy("Buyout — system-suggested price", "买断 — 系统建议价"),
       onClick: function (b) { dispatch("buyout", b); }
     }));
 

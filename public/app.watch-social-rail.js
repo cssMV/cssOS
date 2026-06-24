@@ -121,12 +121,13 @@
       ".csr-lbl{font-size:11px;color:#e6ddd2;text-shadow:0 1px 3px rgba(0,0,0,0.6);white-space:nowrap;}" +
       ".csr-ic.is-comment{background:rgba(0,245,160,0.18);box-shadow:inset 0 0 0 1.5px #00f5a0;color:#00f5a0;}" +
       ".csr-ic.is-ai{background:#1c2b3a;box-shadow:inset 0 0 0 1px #2e4a63;color:#7fd4ff;}" +
-      // CSSOS_WAVE_1158 — Jing 指令: 头像=我们的 logo(带尖角星形), 不要圆形内圈裁剪(尖角被截)。
-      //   去掉圆底+圆裁, object-fit:contain 完整显示整枚 logo, 透明背景。文字兜底仍用半透明圆。
-      ".csr-av{position:relative;width:46px;height:46px;border-radius:50%;background:transparent;display:flex;align-items:center;" +
+      // CSSOS_WAVE_1159 — Jing 指令: 头像彻底去黑圈——去掉 button 默认边框/阴影/内边距+任何底色,
+      //   只剩透明 + 完整 logo(object-fit:contain, 尖角不截)。仅【文字兜底】(.is-text, 无 logo 图)时给半透明圆。
+      ".csr-av{position:relative;width:46px;height:46px;border:0;outline:0;box-shadow:none;padding:0;margin:0;" +
+      "background:transparent;-webkit-appearance:none;appearance:none;border-radius:50%;display:flex;align-items:center;" +
       "justify-content:center;font-weight:500;font-size:15px;color:#fff;overflow:visible;}" +
-      ".csr-av:not(:has(img)){background:rgba(255,255,255,0.12);}" +   /* 只有文字兜底(无 logo 图)时给半透明圆底 */
-      ".csr-av img{width:100%;height:100%;border-radius:0;object-fit:contain;display:block;}" +
+      ".csr-av.is-text{background:rgba(255,255,255,0.12);}" +
+      ".csr-av img{width:100%;height:100%;border:0;border-radius:0;object-fit:contain;display:block;background:transparent;}" +
       ".csr-av .csr-follow{position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:17px;height:17px;" +
       "border-radius:50%;background:#00f5a0;color:#04241a;font-size:12px;display:flex;align-items:center;justify-content:center;}" +
       // CSSOS_WAVE_1119 — 左上返回键(成熟模式): 退出影院。点它=触发现成 watch-panel 关闭按钮。
@@ -238,7 +239,7 @@
     var avatarUrl = String(ai.ownerAvatar || w.owner_avatar_url || w.avatar_url || "").trim();
     var nameForInitial = String(ai.ownerName || w.owner_display_name || w.title || "C").trim();
     if (avatarUrl) { var im = document.createElement("img"); im.src = avatarUrl; im.alt = ""; av.appendChild(im); }
-    else { av.textContent = nameForInitial.charAt(0).toUpperCase() || "C"; }
+    else { av.classList.add("is-text"); av.textContent = nameForInitial.charAt(0).toUpperCase() || "C"; }   // W1159 仅文字兜底给半透明圆
     var fol = document.createElement("span"); fol.className = "csr-follow"; fol.textContent = "+"; av.appendChild(fol);
     // CSSOS_WAVE_1130 — Jing 指令: 点头像弹【原来左上角那套作者菜单】(关注/只播TA/作品中心/屏蔽/赠礼,
     //   含带图标的用户名)。右轨头像只是 TikTok 风格的新位置 + ➕关注视觉, 菜单复用 watch-ui 的 openMenu。

@@ -166,6 +166,11 @@
     const errEl = container.querySelector(".pay-stripe-inline-error");
     const paymentElement = elements.create("payment", { layout: "tabs" });
     paymentElement.mount(elContainer);
+    // CSSOS_WAVE_1159 — Jing: 卡片表单(下一步)挂载后自动滚到可见(docked 小窗里别让它落在视口外)。
+    //   Stripe 元素是异步 iframe, 延时滚 + ready 后再滚一次。
+    function _scrollIntoView() { try { (payBtn || container).scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (_e) {} }
+    try { paymentElement.on("ready", function () { setTimeout(_scrollIntoView, 60); }); } catch (_e) {}
+    setTimeout(_scrollIntoView, 250);
     async function pay() {
       if (errEl) errEl.textContent = "";
       setBusy(payBtn, true);

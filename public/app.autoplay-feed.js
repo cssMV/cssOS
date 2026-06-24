@@ -160,7 +160,7 @@
       '<div style="max-width:360px;width:100%;background:rgba(8,16,13,0.96);border:1px solid rgba(0,245,160,0.28);' +
       'border-radius:20px;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(0,0,0,0.5);font:500 14px/1.5 -apple-system,system-ui,sans-serif;color:#eafff6;">' +
       '<div style="font:700 18px/1.3 -apple-system,system-ui,sans-serif;margin-bottom:6px;">' + lc("Watch the latest MV?", "欣赏最新 MV?") + '</div>' +
-      '<div style="color:rgba(200,255,232,0.7);font-size:13px;margin-bottom:18px;">' + lc("Auto-play the latest works in the MV cinema, newest first.", "在 MV 影院自动连播最新作品,从新到旧。") + '</div>' +
+      '<div style="color:rgba(200,255,232,0.7);font-size:13px;margin-bottom:18px;">' + lc("Auto-play the latest works in the cinema.", "在影院自动连播最新作品。") + '</div>' +
       // 中间: 两个按钮
       '<div style="display:flex;gap:10px;margin-bottom:16px;">' +
       '<button type="button" id="cssos-autoenter-later" style="flex:1;appearance:none;border:1px solid rgba(255,255,255,0.18);background:transparent;color:#eafff6;border-radius:999px;padding:11px 14px;font:600 14px/1 inherit;cursor:pointer;">' + lc("Maybe later", "稍后再说") + '</button>' +

@@ -32,8 +32,12 @@
       var wp = document.getElementById("watch-panel");
       var watchOpen = !!(wp && !wp.classList.contains("hidden"));
       html.classList.toggle("cssos-watch-open", watchOpen);
-      // 3) 有面板最大化 / cinema 全屏
-      var panelMax = !!document.querySelector(".panel.maximized")
+      // 3) 有【别的】面板最大化 / cinema 全屏 → 隐藏主界面 chrome(主题按钮/版本切换)。
+      // CSSOS_WAVE_1210 — Jing「切主题主题按钮就消失」根因: logo-panel(主界面自己)在 fullscreen 布局下
+      //   本身带 .maximized; 切主题 reapply 布局会(重新)给它打 .maximized → 误判"面板最大化" → 主题按钮被
+      //   CSS display:none。主界面就是 logo-panel, 它最大化【不该】隐藏主题按钮。排除 logo-panel(及 watch 面板,
+      //   watch 由 cssmv-cinema 另行判定), 只有【真·别的面板】最大化才隐藏。
+      var panelMax = !!document.querySelector(".panel.maximized:not(#logo-panel):not(.logo-panel):not(#watch-panel)")
         || !!(wp && wp.classList.contains("cssmv-cinema"));
       body.classList.toggle("cssos-panel-max", panelMax);
     } catch (_e) {}

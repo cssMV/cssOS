@@ -45470,7 +45470,21 @@ app.post("/api/stripe/payment-intent/create", async (req, res) => {
     ) {
       return res.status(400).json({ ok: false, code: "TIP_AMOUNT_INVALID" });
     }
-    const product = await resolveCommerceProduct({ workId, orderKind, tipAmountCents });
+    // CSSOS_WAVE_1157 — Jing: 业务错误(打赏未开/买断未开/作品不存在)别被外层 catch 误标成
+    //   STRIPE_PAYMENT_INTENT_CREATE_FAILED(吓人红字, 怕苹果看到)。这里先行返回干净的业务码。
+    let product: Awaited<ReturnType<typeof resolveCommerceProduct>>;
+    try {
+      product = await resolveCommerceProduct({ workId, orderKind, tipAmountCents });
+    } catch (pe) {
+      const m = String((pe as any)?.message || "").trim();
+      const map: Record<string, string> = {
+        tips_not_enabled: "TIPS_NOT_ENABLED",
+        buyout_not_enabled: "BUYOUT_NOT_ENABLED",
+        work_not_found: "WORK_NOT_FOUND",
+        stripe_not_configured: "STRIPE_NOT_CONFIGURED",
+      };
+      return res.status(400).json({ ok: false, code: map[m] || "PRODUCT_UNAVAILABLE", message: m });
+    }
     if (product.ownerUserId === user.id) {
       return res.status(400).json({ ok: false, code: "SELF_PURCHASE_NOT_ALLOWED" });
     }

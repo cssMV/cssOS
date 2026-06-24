@@ -5092,6 +5092,14 @@ function findPublicMarketWorkByIdModule(workId) {
 async function dispatchMarketWorkPayment(workId, orderKind, button) {
   const id = String(workId || "").trim();
   if (!id) return;
+  // CSSOS_WAVE_1157 — Jing 指令(Apple 3.1.1): iOS 原生 App 内, 单作品 聆听/观赏/买断/打赏 不得走外部
+  //   Stripe 支付(数字内容须 IAP)。这里统一锁住外部支付出口, 给中性提示(不引导到外部)。订阅走 StoreKit 不受影响。
+  try {
+    if (typeof isIosNativeAppModule === "function" && isIosNativeAppModule()) {
+      if (typeof showToast === "function") showToast(loginCopy("Coming soon to the app.", "App 内即将开放。"));
+      return;
+    }
+  } catch (_e) {}
   const kind = String(orderKind || "").trim().toLowerCase();
   // CSSOS_WAVE_113B3 20260512 — Tip flow: open a unified picker with
   // amount input + Stripe (international) + NihaoPay (Alipay/WeChat/

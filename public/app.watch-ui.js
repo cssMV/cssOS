@@ -8296,6 +8296,11 @@ function ensureAuthorAvatarModule() {
       const vw2 = window.innerWidth || 360;
       let lx2 = Math.round(rect.right - aw);            // 右对齐到头像右缘
       lx2 = Math.max(8, Math.min(lx2, vw2 - aw - 8));   // 夹紧: 左≥8, 右缘≤视口-8
+      // CSSOS_WAVE_1202 — Jing「还遮右轨, 往左移」: 用【真实宽度】把右缘卡在右轨左侧(W1201 的预估夹紧被这里覆盖了)。
+      try {
+        const _rail = document.getElementById("cssos-watch-social-rail");
+        if (_rail) { const _rr = _rail.getBoundingClientRect(); lx2 = Math.max(8, Math.min(lx2, Math.round(_rr.left - aw - 10))); }
+      } catch (_eR2) {}
       menu.style.left = `${lx2}px`;
       menu.dataset.anchorLeft = String(lx2);
     } catch (_e) {}

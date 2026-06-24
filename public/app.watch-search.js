@@ -66,12 +66,15 @@
       "background:rgba(10,14,20,0.42);border:1px solid rgba(255,255,255,0.14);color:#fff;" +
       "text-shadow:0 1px 4px rgba(0,0,0,0.7);box-shadow:0 18px 60px rgba(0,0,0,0.5);" +
       "font:500 13px/1.4 -apple-system,system-ui,sans-serif;";
+    // CSSOS_WAVE_1202 — Jing「对照胶囊宪法」: 段=图标+标签; 激活段【凸】(绿填充/两头圆/微抬+阴影);
+    //   未激活段【凹】(透明融入轨道、无独立边框) → 与轨道共边、段间小缝。
     function chip(label, active, onClick) {
       var b = document.createElement("button"); b.type = "button"; b.textContent = label;
-      b.style.cssText = "appearance:none;cursor:pointer;border-radius:999px;padding:6px 12px;margin:0;font:600 12px/1 inherit;" +
+      b.style.cssText = "appearance:none;cursor:pointer;border-radius:999px;padding:7px 13px;margin:0;border:none;" +
+        "display:inline-flex;align-items:center;gap:5px;white-space:nowrap;" +
         (active
-          ? "background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;border:none;"
-          : "background:rgba(255,255,255,0.10);color:#eafff6;border:1px solid rgba(255,255,255,0.16);");
+          ? "background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;font:700 12px/1 inherit;box-shadow:0 2px 9px rgba(0,0,0,0.28);transform:translateY(-0.5px);"
+          : "background:transparent;color:#eafff6;font:600 12px/1 inherit;");
       b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); try { onClick(); } catch (_e) {} render(); });
       return b;
     }
@@ -79,9 +82,9 @@
       var wrap = document.createElement("div"); wrap.style.cssText = "margin-bottom:14px;";
       var h = document.createElement("div"); h.textContent = title;
       h.style.cssText = "font:700 11px/1.2 inherit;letter-spacing:.04em;opacity:.7;margin-bottom:8px;text-transform:uppercase;";
-      // CSSOS_WAVE_1201 — Jing「3 组胶囊」: 每组包进一条圆角胶囊【轨道】(半透明壳 + 细边), 段落在轨道里。
+      // 胶囊【轨道】: 999px 圆角 + 细边 + 半透明壳; 激活段贴满轨道高度(align-items:stretch), 段间小缝。
       var row = document.createElement("div");
-      row.style.cssText = "display:flex;flex-wrap:wrap;gap:5px;padding:4px;border-radius:999px;" +
+      row.style.cssText = "display:flex;flex-wrap:wrap;align-items:stretch;gap:3px;padding:3px;border-radius:999px;" +
         "background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);box-sizing:border-box;";
       chips.forEach(function (c) { row.appendChild(c); });
       wrap.appendChild(h); wrap.appendChild(row); return wrap;

@@ -220,7 +220,11 @@
     pl.__q = String(query || "").trim();
     pl.__offset = 0; pl.__exhausted = false; pl.__loading = false; pl.__nodes = []; pl.__rendered = 0;
     pl.scrollTop = 0;
-    pl.innerHTML = '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(pl.__q ? tr("Searching…", "搜索中…") : tr("Loading…", "加载中…")) + "</div>";
+    // CSSOS_WAVE_1192 — Jing: 懒加载骨架(先闪骨架, 再出结果), 同 MV 面板。
+    var _lc = pl.__q ? tr("Searching…", "搜索中…") : tr("Loading…", "加载中…");
+    pl.innerHTML = (typeof globalThis.cssosSkeletonListMarkup === "function")
+      ? globalThis.cssosSkeletonListMarkup(5, _lc, "card")
+      : '<div style="opacity:.6;text-align:center;padding:16px;">' + esc(_lc) + "</div>";
     embedFetchPage(pl, true);
   }
   function appendEmbedBatch(pl, n) {
@@ -258,9 +262,11 @@
     if (depth === 0 && partTotal > 1) meta.push("🎬 " + partTotal + tr(" parts", " 部"));
     if (depth > 0 && !_nodePlayable) meta.push(tr("not ready yet", "章节生成中"));
     if (owner) meta.push(owner);
-    if (durTxt) meta.push("♪ " + durTxt);
-    // CSSOS_WAVE_1191 — Jing: ID 单独一行【完整显示】(word-break, 空间不够才换行), 不再被同行省略号截断。
-    var idLine = '<div style="font:500 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.45);word-break:break-all;margin-top:1px;">ID ' + esc(wid) + "</div>";
+    // CSSOS_WAVE_1192 — Jing: 时长 + 完整ID 合到【第三行】(word-break 完整, 不被省略号截)。第二行只留 parts/owner。
+    var line3 = [];
+    if (durTxt) line3.push("♪ " + durTxt);
+    line3.push("ID " + esc(wid));
+    var idLine = '<div style="font:500 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.45);word-break:break-all;margin-top:1px;">' + line3.join(" · ") + "</div>";
     var _tsz = depth > 0 ? 38 : 56;
     var row = document.createElement("button");
     row.type = "button";

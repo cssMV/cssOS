@@ -463,9 +463,11 @@
       if (depth === 0 && _kids.length > 1) metaBits.push("🎬 " + _kids.length + tr(" parts", " 部"));
       if (depth > 0 && !_nodePlayable) metaBits.push(tr("not ready yet", "章节生成中"));
       if (owner) metaBits.push(owner);
-      if (durTxt) metaBits.push("♪ " + durTxt);
-      // CSSOS_WAVE_1191 — Jing: ID 单独一行【完整显示】(word-break, 空间不够才换行), 不被同行省略号截断。
-      var idLine = '<div style="font:500 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.45);word-break:break-all;margin-top:1px;">ID ' + idFull + "</div>";
+      // CSSOS_WAVE_1192 — Jing: 时长 + 完整ID 合到【第三行】(word-break 完整)。第二行只留 parts/owner。
+      var _l3 = [];
+      if (durTxt) _l3.push("♪ " + durTxt);
+      _l3.push("ID " + idFull);
+      var idLine = '<div style="font:500 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.45);word-break:break-all;margin-top:1px;">' + _l3.join(" · ") + "</div>";
       var _tsz = depth > 0 ? 38 : 56;   // W1090 — 树枝桠(子作品)缩略图更小, 视觉层级更清晰
       card.innerHTML =
         '<div style="position:relative;width:' + _tsz + 'px;height:' + _tsz + 'px;flex:0 0 auto;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.08);">' +

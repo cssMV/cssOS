@@ -285,11 +285,12 @@
     var card = document.createElement("div");
     // CSSOS_WAVE_1193 — Jing: 改由 cssosAnchorPopupToRail 统一定位(顶对齐右轨、和右轨等高、不遮右轨);
     //   内容比右轨矮 → overflow-y:auto 顶对齐 + 可滚。宽度/位置交给 helper, 这里不再写死 520px 居中。
+    // CSSOS_WAVE_1194 — Jing: 统一采用【评论框那套深色透明风格】(rgba(15,18,24,0.99) + 白细边)。
     card.style.cssText =
-      "padding:22px 24px;border-radius:18px;overflow-y:auto;-webkit-overflow-scrolling:touch;" +
-      "background:rgba(8,18,16,0.96);color:#daffee;" +
-      "box-shadow:0 20px 60px rgba(0,0,0,0.6);" +
-      "border:1px solid rgba(0,245,160,0.25);" +
+      "padding:18px 18px;border-radius:18px;overflow-y:auto;-webkit-overflow-scrolling:touch;" +
+      "background:rgba(15,18,24,0.99);color:rgba(255,255,255,0.95);" +
+      "box-shadow:0 18px 60px rgba(0,0,0,0.6);" +
+      "border:1px solid rgba(255,255,255,0.12);" +
       "font:14px/1.4 -apple-system,system-ui,sans-serif;" +
       "box-sizing:border-box;";
 

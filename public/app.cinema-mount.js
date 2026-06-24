@@ -38,10 +38,26 @@
     window.addEventListener(ev, _closeAllCinemaPopups);
   });
 
-  // CSSOS_WAVE_1193 — Jing 指令: 右轨的所有小窗口(分享/评论/嵌入/支付…)统一【顶对齐右轨顶、
-  //   和右轨一样高、右侧不盖住右轨】, 不再一高一低、不再一个一个改。所有右轨弹窗的【内容卡】调用此函数即可。
-  //   做法: 把卡片 position:fixed 钉到 [right轨顶 → 右轨底] 的高度, 右边停在右轨左侧 gap 处, 左边给小边距。
-  //   右轨不在(无影院)时回退为底部安全 sheet。会自动随 resize/旋转重定位(直到卡片移除)。
+  // CSSOS_WAVE_1193/1194 — Jing 指令: 右轨的所有小窗口(分享/评论/嵌入/支付…)统一定位, 不再一高一低、
+  //   不再一个个改。所有右轨弹窗的【内容卡】调一次此函数即可:
+  //     · 顶对齐右轨顶;
+  //     · 底【一直高到左下角标题之上】(W1194 改, 不再"和右轨等高"); 探测不到标题则距底约 124px 兜底;
+  //     · 右侧停在右轨左侧 gap → 不遮右轨;
+  //     · 内容比框矮 → overflow:auto 顶对齐可滚。
+  //   背景层(调用方)用评论框那套透明风格(透明 backdrop + 深色卡)。无右轨(非影院)回退底部安全 sheet。
+  //   自动随 resize/旋转重排(卡片移除即解绑)。
+  function _railBottomLimit(vh) {
+    // 左下角"正在播放"标题不好唯一定位 → 探测一组候选, 取最靠上的可见标题顶, 让弹窗停在它之上。
+    var best = Math.round(vh - 124);   // 兜底: 距底 124px(留出左下标题 + 波形/安全区)
+    try {
+      var els = document.querySelectorAll(".cssmv-mv-title, #cssos-mv-now-playing-title, .watch-now-playing, .cssmv-nowplaying, .watch-title-bottom");
+      for (var i = 0; i < els.length; i++) {
+        var rc = els[i].getBoundingClientRect();
+        if (rc.height > 0 && rc.top > vh * 0.45 && rc.top < best) best = Math.round(rc.top - 10);
+      }
+    } catch (_e) {}
+    return best;
+  }
   globalThis.cssosAnchorPopupToRail = function (el, opts) {
     if (!el) return el;
     opts = opts || {};
@@ -56,7 +72,8 @@
         var r = rail.getBoundingClientRect();
         var gap = opts.gap != null ? opts.gap : 12;
         var topPx = Math.max(8, Math.round(r.top));
-        var hPx = Math.max(160, Math.round(r.bottom - r.top));   // 和右轨一样高
+        var botLimit = _railBottomLimit(vh);                 // W1194 — 高到左下标题之上
+        var hPx = Math.max(160, botLimit - topPx);
         el.style.top = topPx + "px";
         el.style.bottom = "auto";
         el.style.height = hPx + "px";

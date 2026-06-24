@@ -17,19 +17,19 @@
     var s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent = [
-      "#cssos-user-homepage{position:fixed;inset:0;z-index:9300;background:rgba(4,10,8,0.96);overflow-y:auto;color:#daffee;font:14px/1.45 -apple-system,system-ui,sans-serif;}",
+      "#cssos-user-homepage{position:fixed;inset:0;z-index:9300;background:var(--panel-strong);overflow-y:auto;color:var(--text);font:14px/1.45 -apple-system,system-ui,sans-serif;}",
       "#cssos-user-homepage .uhp-inner{max-width:920px;margin:0 auto;padding:32px 20px 80px;}",
       "#cssos-user-homepage .uhp-close{position:fixed;top:16px;right:18px;background:rgba(0,245,160,0.12);color:#00f5a0;border:1px solid rgba(0,245,160,0.4);border-radius:999px;padding:6px 14px;cursor:pointer;font-weight:600;}",
       "#cssos-user-homepage .uhp-hero{display:flex;gap:20px;align-items:center;margin-bottom:20px;}",
       "#cssos-user-homepage .uhp-avatar{width:96px;height:96px;border-radius:50%;background:#0c1d16;border:2px solid rgba(0,245,160,0.4);object-fit:cover;flex-shrink:0;}",
-      "#cssos-user-homepage .uhp-name{font-size:22px;font-weight:700;margin:0 0 4px;color:#fff;}",
+      "#cssos-user-homepage .uhp-name{font-size:22px;font-weight:700;margin:0 0 4px;color:var(--text);}",
       "#cssos-user-homepage .uhp-handle{font-size:13px;color:rgba(0,245,160,0.7);margin-bottom:6px;}",
-      "#cssos-user-homepage .uhp-bio{font-size:13px;color:rgba(218,255,238,0.78);margin:6px 0 8px;}",
+      "#cssos-user-homepage .uhp-bio{font-size:13px;color:var(--muted);margin:6px 0 8px;}",
       "#cssos-user-homepage .uhp-follow{background:#00f5a0;color:#06100b;border:0;border-radius:999px;padding:6px 18px;font-weight:700;cursor:pointer;}",
       "#cssos-user-homepage .uhp-follow.is-following{background:transparent;color:#00f5a0;border:1px solid #00f5a0;}",
       "#cssos-user-homepage .uhp-stats{display:flex;flex-wrap:wrap;gap:14px;margin:14px 0 26px;padding:10px 14px;background:rgba(0,245,160,0.06);border-radius:10px;font-size:13px;}",
       "#cssos-user-homepage .uhp-stats span{white-space:nowrap;}",
-      "#cssos-user-homepage h2.uhp-section{font-size:15px;font-weight:700;margin:24px 0 10px;color:rgba(218,255,238,0.92);}",
+      "#cssos-user-homepage h2.uhp-section{font-size:15px;font-weight:700;margin:24px 0 10px;color:var(--muted);}",
       "#cssos-user-homepage .uhp-mv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}",
       "#cssos-user-homepage .uhp-mv-card{aspect-ratio:3/4;background:#0c1d16;border:1px solid rgba(0,245,160,0.18);border-radius:10px;overflow:hidden;position:relative;cursor:pointer;}",
       "#cssos-user-homepage .uhp-mv-card img{width:100%;height:100%;object-fit:cover;}",
@@ -38,15 +38,15 @@
       "#cssos-user-homepage .uhp-mv-meta em{font-style:normal;color:rgba(0,245,160,0.85);}",
       "#cssos-user-homepage .uhp-person-row{display:flex;flex-wrap:wrap;gap:10px;}",
       "#cssos-user-homepage .uhp-person-card{flex:0 0 140px;padding:10px;background:rgba(0,245,160,0.05);border:1px solid rgba(0,245,160,0.18);border-radius:10px;cursor:pointer;}",
-      "#cssos-user-homepage .uhp-person-card strong{display:block;font-size:13px;color:#fff;}",
-      "#cssos-user-homepage .uhp-person-card span{font-size:11px;color:rgba(218,255,238,0.65);}",
+      "#cssos-user-homepage .uhp-person-card strong{display:block;font-size:13px;color:var(--text);}",
+      "#cssos-user-homepage .uhp-person-card span{font-size:11px;color:var(--muted);}",
       "#cssos-user-homepage .uhp-tabs{display:flex;gap:8px;margin:8px 0;}",
-      "#cssos-user-homepage .uhp-tabs button{background:transparent;color:rgba(218,255,238,0.65);border:1px solid rgba(0,245,160,0.18);border-radius:999px;padding:4px 12px;cursor:pointer;font-size:12px;}",
+      "#cssos-user-homepage .uhp-tabs button{background:transparent;color:var(--muted);border:1px solid rgba(0,245,160,0.18);border-radius:999px;padding:4px 12px;cursor:pointer;font-size:12px;}",
       "#cssos-user-homepage .uhp-tabs button.is-active{background:rgba(0,245,160,0.18);color:#00f5a0;}",
       "#cssos-user-homepage .uhp-follow-list{display:flex;flex-direction:column;gap:8px;margin:8px 0;}",
       "#cssos-user-homepage .uhp-follow-item{display:flex;gap:10px;align-items:center;padding:8px;background:rgba(0,245,160,0.04);border-radius:8px;cursor:pointer;}",
       "#cssos-user-homepage .uhp-follow-item img{width:32px;height:32px;border-radius:50%;}",
-      "#cssos-user-homepage .uhp-loading,#cssos-user-homepage .uhp-error{padding:60px 20px;text-align:center;color:rgba(218,255,238,0.6);}",
+      "#cssos-user-homepage .uhp-loading,#cssos-user-homepage .uhp-error{padding:60px 20px;text-align:center;color:var(--muted);}",
     ].join("");
     document.head.appendChild(s);
   }
@@ -351,7 +351,7 @@
 
       function renderPayouts(rows) {
         payoutHost.innerHTML = "";
-        payoutHost.appendChild(el("h3", { style: "font-size:13px;font-weight:700;margin:8px 0 4px;color:rgba(218,255,238,0.92);" }, [tr("Payout history", "支付历史")]));
+        payoutHost.appendChild(el("h3", { style: "font-size:13px;font-weight:700;margin:8px 0 4px;color:var(--muted);" }, [tr("Payout history", "支付历史")]));
         if (!rows || !rows.length) {
           payoutHost.appendChild(el("div", { style: "opacity:0.7;" }, [tr("No payouts yet.", "暂无支付记录。")]));
           return;

@@ -97,7 +97,7 @@
     wrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
     var lbl = document.createElement("div");
     lbl.textContent = label;
-    lbl.style.cssText = "color:#daffee;font:600 11px/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;opacity:.78;";
+    lbl.style.cssText = "color:var(--text);font:600 11px/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;opacity:.78;";
     wrap.appendChild(lbl);
     var row = document.createElement("div");
     row.style.cssText = "display:flex;gap:6px;";
@@ -110,8 +110,8 @@
         "padding:6px 10px;border-radius:8px;cursor:pointer;flex:1 1 auto;" +
         "font:600 12px/1 ui-monospace,monospace;" +
         "border:1px solid " + (active ? "rgba(0,245,160,0.65)" : "rgba(0,245,160,0.18)") + ";" +
-        "background:" + (active ? "rgba(0,245,160,0.2)" : "rgba(0,0,0,0.32)") + ";" +
-        "color:#daffee;";
+        "background:" + (active ? "rgba(0,245,160,0.2)" : "var(--panel)") + ";" +
+        "color:var(--text);";
       b.addEventListener("click", function (e) {
         e.preventDefault(); e.stopPropagation();
         onChoose(val);
@@ -127,7 +127,7 @@
     settingsPopover = document.createElement("div");
     settingsPopover.style.cssText =
       "position:fixed;z-index:2147483647;min-width:240px;padding:14px 16px;" +
-      "border-radius:12px;background:rgba(8,18,16,0.96);color:#daffee;" +
+      "border-radius:12px;background:var(--panel-strong);color:var(--text);" +
       "border:1px solid rgba(0,245,160,0.3);" +
       "box-shadow:0 16px 40px rgba(0,0,0,0.55);" +
       "display:flex;flex-direction:column;gap:14px;" +
@@ -165,7 +165,7 @@
       "Saved to this browser. Refresh keeps the choice.",
       "保存在本浏览器，刷新后保留。"
     );
-    note.style.cssText = "font:400 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.5);";
+    note.style.cssText = "font:400 10px/1.3 ui-monospace,monospace;color:var(--muted);";
     settingsPopover.appendChild(note);
     var mount = document.fullscreenElement || document.webkitFullscreenElement || document.body;
     mount.appendChild(settingsPopover);
@@ -224,7 +224,7 @@
     gear.setAttribute("aria-label", "Up Next settings");
     gear.textContent = "⚙";
     gear.style.cssText =
-      "background:transparent;border:0;color:rgba(218,255,238,0.7);" +
+      "background:transparent;border:0;color:var(--muted);" +
       "cursor:pointer;font:400 14px/1 ui-monospace,monospace;padding:0 4px;";
     gear.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
@@ -309,7 +309,7 @@
       "background:" + (index === 0 ? "rgba(0,245,160,0.07)" : "rgba(255,255,255,0.05)") + ";" +
       "-webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);" +
       "box-shadow:0 4px 18px rgba(0,0,0,0.22),inset 0 1px 0 rgba(255,255,255,0.10);" +
-      "color:#eafff6;cursor:pointer;text-align:left;transition:transform .16s ease,border-color .16s ease,background .16s ease;";
+      "color:var(--text);cursor:pointer;text-align:left;transition:transform .16s ease,border-color .16s ease,background .16s ease;";
     card.onmouseenter = function () { card.style.transform = "translateY(-2px)"; };
     card.onmouseleave = function () { card.style.transform = ""; };
 
@@ -404,13 +404,13 @@
     var title = document.createElement("div");
     title.textContent = truncateTitle(item.title, 32) || "—";
     title.title = String(item.title || "");
-    title.style.cssText = "font:500 12px/1.25 -apple-system,system-ui,sans-serif;color:#daffee;width:100%;";
+    title.style.cssText = "font:500 12px/1.25 -apple-system,system-ui,sans-serif;color:var(--text);width:100%;";
     card.appendChild(title);
 
     if (_multi) {
       var pc = document.createElement("div");
       pc.textContent = (_pi && _pt) ? (tt(_m[2], _m[1]) + " · " + _pi + "/" + _pt) : tt(_m[2], _m[1]);
-      pc.style.cssText = "font:600 10px/1.2 -apple-system,system-ui,sans-serif;color:#5effc9;width:100%;";
+      pc.style.cssText = "font:600 10px/1.2 -apple-system,system-ui,sans-serif;color:var(--muted);width:100%;";
       card.appendChild(pc);
     }
 
@@ -433,7 +433,7 @@
     var metaEl = document.createElement("div");
     metaEl.style.cssText =
       "display:flex;align-items:center;gap:6px;width:100%;" +
-      "font:400 10px/1.2 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.55);";
+      "font:400 10px/1.2 -apple-system,system-ui,sans-serif;color:var(--muted);";
     var durSecs = Number(
       item.duration_secs ?? item.audio_duration_secs ??
       item.preview_duration_secs ?? item.total_duration_secs ?? 0
@@ -443,7 +443,7 @@
       durEl.textContent =
         Math.floor(durSecs / 60) + ":" +
         String(Math.floor(durSecs % 60)).padStart(2, "0");
-      durEl.style.cssText = "font-variant-numeric:tabular-nums;font-weight:600;color:rgba(218,255,238,0.78);";
+      durEl.style.cssText = "font-variant-numeric:tabular-nums;font-weight:600;color:var(--muted);";
       metaEl.appendChild(durEl);
     }
     if (item.style) {
@@ -637,7 +637,7 @@
       "position:sticky;right:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;flex:0 0 auto;" +
       "width:140px;padding:6px;border-radius:12px;border:1px dashed rgba(0,245,160,0.5);" +
       // CSSOS_WAVE_896 — 玻璃片(虚线边保留=可创作的暗示), 淡薄荷玻璃 + 模糊, 与其它卡一致。
-      "background:rgba(0,245,160,0.06);-webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);box-shadow:0 4px 18px rgba(0,0,0,0.22),inset 0 1px 0 rgba(255,255,255,0.10);color:#eafff6;cursor:pointer;text-align:center;" +
+      "background:rgba(0,245,160,0.06);-webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);box-shadow:0 4px 18px rgba(0,0,0,0.22),inset 0 1px 0 rgba(255,255,255,0.10);color:var(--text);cursor:pointer;text-align:center;" +
       "box-shadow:-12px 0 16px rgba(0,0,0,0.45);transition:transform .12s ease,border-color .12s ease;";
     card.onmouseenter = function () { card.style.transform = "translateY(-2px)"; };
     card.onmouseleave = function () { card.style.transform = ""; };

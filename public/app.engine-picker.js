@@ -93,11 +93,11 @@
       "left:" + Math.max(8, Math.min(rect.left, window.innerWidth - 280)) + "px;" +
       "top:" + (rect.bottom + 6) + "px;" +
       "min-width:240px;max-width:320px;padding:6px;" +
-      "border-radius:10px;background:rgba(8,18,16,0.96);" +
+      "border-radius:10px;background:var(--panel-strong);" +
       "border:1px solid rgba(0,245,160,0.4);" +
       "box-shadow:0 18px 36px rgba(0,0,0,0.55);" +
       "display:flex;flex-direction:column;gap:2px;" +
-      "font:500 12px/1.3 ui-monospace,monospace;color:#daffee;";
+      "font:500 12px/1.3 ui-monospace,monospace;color:var(--text);";
     var modelCookieKey = "cssos_" + kind + "_" + provider.id + "_model";
     var current = readCookie(modelCookieKey) || provider.default_model;
     var head = document.createElement("div");
@@ -115,7 +115,7 @@
         "all:unset;cursor:pointer;padding:8px 12px;border-radius:6px;text-align:left;" +
         (isCurrent
           ? "background:rgba(0,245,160,0.22);color:#00f5a0;font-weight:700;"
-          : "color:#daffee;") +
+          : "color:var(--text);") +
         "font:600 12px/1.3 ui-monospace,monospace;";
       item.addEventListener("mouseenter", function () {
         if (!isCurrent) item.style.background = "rgba(0,245,160,0.10)";
@@ -133,7 +133,7 @@
     });
     var foot = document.createElement("div");
     foot.textContent = tt("Click outside to cancel", "点击外部取消");
-    foot.style.cssText = "padding:4px 10px 6px;font:400 10px/1.2 ui-monospace,monospace;color:rgba(218,255,238,0.4);";
+    foot.style.cssText = "padding:4px 10px 6px;font:400 10px/1.2 ui-monospace,monospace;color:var(--muted);";
     menu.appendChild(foot);
     document.body.appendChild(menu);
     // Outside click closes.
@@ -165,7 +165,7 @@
   function buildKindCard(kind, snapshot) {
     var card = document.createElement("div");
     card.style.cssText =
-      "padding:14px;border-radius:12px;background:rgba(8,18,16,0.92);" +
+      "padding:14px;border-radius:12px;background:var(--panel-strong);" +
       "border:1px solid rgba(0,245,160,0.3);";
     var title = document.createElement("div");
     title.textContent = KIND_LABEL[kind] || kind;
@@ -223,7 +223,7 @@
       var up = document.createElement("button");
       up.type = "button";
       up.textContent = "▲";
-      up.style.cssText = "background:transparent;border:0;color:rgba(218,255,238,0.55);cursor:pointer;font:700 10px/1 ui-monospace,monospace;";
+      up.style.cssText = "background:transparent;border:0;color:var(--muted);cursor:pointer;font:700 10px/1 ui-monospace,monospace;";
       up.addEventListener("click", function () {
         var prev = li.previousElementSibling;
         if (prev) { list.insertBefore(li, prev); rerenderAndPersist(); }
@@ -232,7 +232,7 @@
       var down = document.createElement("button");
       down.type = "button";
       down.textContent = "▼";
-      down.style.cssText = "background:transparent;border:0;color:rgba(218,255,238,0.55);cursor:pointer;font:700 10px/1 ui-monospace,monospace;";
+      down.style.cssText = "background:transparent;border:0;color:var(--muted);cursor:pointer;font:700 10px/1 ui-monospace,monospace;";
       down.addEventListener("click", function () {
         var next = li.nextElementSibling;
         if (next) { list.insertBefore(next, li); rerenderAndPersist(); }
@@ -244,7 +244,7 @@
       var primary = document.createElement("div");
       var modelCookieKey = "cssos_" + kind + "_" + p.id + "_model";
       var chosenModel = readCookie(modelCookieKey) || p.default_model;
-      primary.style.cssText = "font:600 12px/1.2 ui-monospace,monospace;color:#daffee;display:flex;align-items:center;gap:6px;";
+      primary.style.cssText = "font:600 12px/1.2 ui-monospace,monospace;color:var(--text);display:flex;align-items:center;gap:6px;";
       var nameText = document.createElement("span");
       nameText.textContent = p.id + " · " + chosenModel;
       primary.appendChild(nameText);
@@ -261,7 +261,7 @@
         ? tt("system default", "系统默认")
         : tt("personal", "仅自己"));
       sub.textContent = bits.join(" · ");
-      sub.style.cssText = "font:500 10px/1 ui-monospace,monospace;color:rgba(218,255,238,0.5);";
+      sub.style.cssText = "font:500 10px/1 ui-monospace,monospace;color:var(--muted);";
       name.appendChild(primary);
       name.appendChild(sub);
       // Hover → reveal gear.
@@ -299,7 +299,7 @@
       "▲▼ reorder · uncheck to skip · hover ⚙ to pick model · falls through on failure",
       "▲▼ 排序 · 取消勾选跳过 · 悬停 ⚙ 选模型 · 失败自动下一个"
     );
-    hint.style.cssText = "margin-top:8px;font:400 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.45);text-align:center;";
+    hint.style.cssText = "margin-top:8px;font:400 10px/1.3 ui-monospace,monospace;color:var(--muted);text-align:center;";
     card.appendChild(hint);
     return card;
   }
@@ -327,7 +327,7 @@
     overlay.style.cssText =
       "position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;" +
       "background:rgba(0,8,6,0.78);backdrop-filter:blur(12px);" +
-      "opacity:0;transition:opacity .18s ease;color:#daffee;" +
+      "opacity:0;transition:opacity .18s ease;color:var(--text);" +
       "font:14px/1.4 -apple-system,system-ui,sans-serif;pointer-events:auto;";
     overlay.addEventListener("click", function (e) {
       if (e.target === overlay) close();
@@ -335,7 +335,7 @@
     var card = document.createElement("div");
     card.style.cssText =
       "max-width:min(720px,94vw);max-height:88vh;overflow:auto;padding:24px 28px;" +
-      "border-radius:18px;background:rgba(8,18,16,0.96);" +
+      "border-radius:18px;background:var(--panel-strong);" +
       "border:1px solid rgba(0,245,160,0.35);box-shadow:0 30px 80px rgba(0,0,0,0.6);" +
       "display:flex;flex-direction:column;gap:16px;";
     var head = document.createElement("div");
@@ -346,7 +346,7 @@
     var close_ = document.createElement("button");
     close_.type = "button";
     close_.textContent = "×";
-    close_.style.cssText = "background:transparent;border:0;color:rgba(218,255,238,0.7);cursor:pointer;font:400 22px/1 ui-monospace,monospace;padding:4px 10px;";
+    close_.style.cssText = "background:transparent;border:0;color:var(--muted);cursor:pointer;font:400 22px/1 ui-monospace,monospace;padding:4px 10px;";
     close_.addEventListener("click", close);
     head.appendChild(title);
     head.appendChild(close_);
@@ -356,7 +356,7 @@
       "Pick which AI engines cssOS uses for each capability. Keys live on the server; we never expose them. Disabled / un-configured options are dimmed.",
       "为每个能力指定 AI 引擎的优先顺序。Keys 永远只在服务器，不会暴露给前端。灰色项目表示未配置。"
     );
-    blurb.style.cssText = "font:400 12px/1.5 -apple-system,system-ui,sans-serif;color:rgba(218,255,238,0.7);";
+    blurb.style.cssText = "font:400 12px/1.5 -apple-system,system-ui,sans-serif;color:var(--muted);";
     card.appendChild(blurb);
 
     // CSSOS_WAVE_660 — 「档位」一键丰俭由人. 选档 → 把【除歌词(llm)外】每个 kind 的 prefer 设成该档
@@ -382,7 +382,7 @@
     tierBar.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-radius:12px;background:rgba(0,245,160,0.06);border:1px solid rgba(0,245,160,0.18);";
     var tierLabel = document.createElement("div");
     tierLabel.textContent = tt("Tier (frugal ↔ premium)", "档位 · 丰俭由人");
-    tierLabel.style.cssText = "font:700 12px/1 -apple-system,system-ui;color:rgba(218,255,238,0.9);margin-right:4px;";
+    tierLabel.style.cssText = "font:700 12px/1 -apple-system,system-ui;color:var(--muted);margin-right:4px;";
     tierBar.appendChild(tierLabel);
     var curTier = readCookie("cssos_engine_tier") || "auto";
     [["auto", tt("Auto", "自动")], ["free", tt("Free", "免费")], ["cheap", tt("Cheap", "便宜")], ["premium", tt("Premium", "收费·质优")]].forEach(function (pair) {
@@ -391,7 +391,7 @@
       var active = curTier === pair[0];
       b.style.cssText = "cursor:pointer;border-radius:999px;padding:6px 14px;font:600 12px/1 -apple-system,system-ui;border:1px solid " +
         (active ? "rgba(0,245,160,0.9)" : "rgba(0,245,160,0.3)") + ";background:" + (active ? "rgba(0,245,160,0.85)" : "transparent") +
-        ";color:" + (active ? "#03130d" : "rgba(218,255,238,0.85)") + ";transition:all .15s;";
+        ";color:" + (active ? "#03130d" : "var(--muted)") + ";transition:all .15s;";
       b.addEventListener("click", function () {
         applyTier(pair[0]);
         if (typeof globalThis.cssosGuidedToast === "function") {
@@ -403,7 +403,7 @@
     });
     var tierHint = document.createElement("div");
     tierHint.textContent = tt("Lyrics always uses top models (rare languages); media follows your tier.", "歌词永用顶级模型(稀缺语言);图像/音乐/视频按你选的档位。");
-    tierHint.style.cssText = "flex-basis:100%;font:400 10px/1.3 ui-monospace,monospace;color:rgba(218,255,238,0.5);margin-top:2px;";
+    tierHint.style.cssText = "flex-basis:100%;font:400 10px/1.3 ui-monospace,monospace;color:var(--muted);margin-top:2px;";
     tierBar.appendChild(tierHint);
     card.appendChild(tierBar);
 

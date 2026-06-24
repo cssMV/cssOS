@@ -715,6 +715,14 @@
       document.querySelector("#watch-panel .watch-screen.is-fullscreen") ||
       document.body;
     (fsHost || document.body).appendChild(root);
+    // CSSOS_WAVE_1193 — Jing 指令: 右轨所有小窗口统一【顶对齐右轨、和右轨等高、不遮右轨】→ 复用共享定位。
+    //   影院里(右轨触发, is-cinema-docked)才钉到右轨; 非影院维持居中。背景层透明不再 dim 盖住右轨。
+    try {
+      if (root.classList.contains("is-cinema-docked") && typeof globalThis.cssosAnchorPopupToRail === "function") {
+        root.style.background = "transparent"; root.style.backdropFilter = "none"; root.style.webkitBackdropFilter = "none";
+        globalThis.cssosAnchorPopupToRail(card, { gap: 12 });
+      }
+    } catch (_e) {}
     __picker_open = { root, onKey };
     // CSSOS_WAVE_1171 — 支付窗不用八方缩放(它需要内部滚动看全卡片表单, 与 resize 的 overflow:visible 冲突)。
     //   缩放保留给评论窗/AI 助理(它们有独立内滚区)。

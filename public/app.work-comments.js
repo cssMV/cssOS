@@ -393,15 +393,18 @@
         "</div>" +
       "</div>";
     (globalThis.cssosMountInCinema || function (el) { (document.fullscreenElement || document.body).appendChild(el); })(overlay);   // W1147 统一影院挂载
-    // CSSOS_WAVE_1146 — Jing 指令: 顶部不高于右轨 → sheet 顶对齐右轨顶(找不到右轨则给个合理上边距)。
+    // CSSOS_WAVE_1193 — Jing 指令: 右轨所有小窗口统一【顶对齐右轨、和右轨等高、不遮右轨】→ 复用共享定位。
     try {
       var sheet = overlay.querySelector(".cwc-sheet");
-      var rail = document.getElementById("cssos-watch-social-rail");
-      var topPx = rail ? Math.max(8, Math.round(rail.getBoundingClientRect().top)) : Math.round((window.innerHeight || 600) * 0.18);
       if (sheet) {
-        sheet.style.marginTop = topPx + "px";
-        // CSSOS_WAVE_1160 — 高度封顶到视口底, 不溢出 → 评论列表内部可上下滚(之前 78vh+marginTop 溢出导致滚不动)。
-        sheet.style.maxHeight = "calc(100vh - " + topPx + "px - 14px)";
+        if (typeof globalThis.cssosAnchorPopupToRail === "function") {
+          globalThis.cssosAnchorPopupToRail(sheet, { gap: 12 });
+        } else {
+          var rail = document.getElementById("cssos-watch-social-rail");
+          var topPx = rail ? Math.max(8, Math.round(rail.getBoundingClientRect().top)) : Math.round((window.innerHeight || 600) * 0.18);
+          sheet.style.marginTop = topPx + "px";
+          sheet.style.maxHeight = "calc(100vh - " + topPx + "px - 14px)";
+        }
         // CSSOS_WAVE_1164 — 八方缩放。
         try { if (typeof globalThis.cssosMakeResizable === "function") globalThis.cssosMakeResizable(sheet, { minW: 300, minH: 240 }); } catch (_e) {}
       }

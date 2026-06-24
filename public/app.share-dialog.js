@@ -270,9 +270,10 @@
     // Backdrop
     var root = document.createElement("div");
     root.id = "cssos-share-dialog";
+    // CSSOS_WAVE_1193 — Jing: 不遮右轨 → 背景层透明(仅作点外面关闭的捕获层, 不再 dim/blur 盖住右轨)。
     root.style.cssText =
-      "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;" +
-      "background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);transition:opacity .18s ease;opacity:0;";
+      "position:fixed;inset:0;z-index:2147483647;display:block;" +
+      "background:transparent;transition:opacity .18s ease;opacity:0;";
     root.addEventListener("click", function (e) {
       if (e.target === root) dismiss(root);
     });
@@ -282,8 +283,10 @@
     // https://cssstudio.app/?cssMV=<UUID> string with a small margin
     // on either side; platform row scrolls horizontally for overflow.
     var card = document.createElement("div");
+    // CSSOS_WAVE_1193 — Jing: 改由 cssosAnchorPopupToRail 统一定位(顶对齐右轨、和右轨等高、不遮右轨);
+    //   内容比右轨矮 → overflow-y:auto 顶对齐 + 可滚。宽度/位置交给 helper, 这里不再写死 520px 居中。
     card.style.cssText =
-      "width:520px;max-width:92vw;padding:22px 24px;border-radius:18px;" +
+      "padding:22px 24px;border-radius:18px;overflow-y:auto;-webkit-overflow-scrolling:touch;" +
       "background:rgba(8,18,16,0.96);color:#daffee;" +
       "box-shadow:0 20px 60px rgba(0,0,0,0.6);" +
       "border:1px solid rgba(0,245,160,0.25);" +
@@ -444,6 +447,8 @@
       || document.webkitFullscreenElement
       || document.body;
     mount.appendChild(root);
+    // CSSOS_WAVE_1193 — Jing: 统一定位到右轨(顶对齐、等高、不遮右轨)。
+    try { if (typeof globalThis.cssosAnchorPopupToRail === "function") globalThis.cssosAnchorPopupToRail(card, { gap: 12 }); } catch (_e) {}
     requestAnimationFrame(function () { root.style.opacity = "1"; });
 
     // ESC closes

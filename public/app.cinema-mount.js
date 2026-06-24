@@ -37,4 +37,43 @@
     document.addEventListener(ev, _closeAllCinemaPopups, true);
     window.addEventListener(ev, _closeAllCinemaPopups);
   });
+
+  // CSSOS_WAVE_1193 — Jing 指令: 右轨的所有小窗口(分享/评论/嵌入/支付…)统一【顶对齐右轨顶、
+  //   和右轨一样高、右侧不盖住右轨】, 不再一高一低、不再一个一个改。所有右轨弹窗的【内容卡】调用此函数即可。
+  //   做法: 把卡片 position:fixed 钉到 [right轨顶 → 右轨底] 的高度, 右边停在右轨左侧 gap 处, 左边给小边距。
+  //   右轨不在(无影院)时回退为底部安全 sheet。会自动随 resize/旋转重定位(直到卡片移除)。
+  globalThis.cssosAnchorPopupToRail = function (el, opts) {
+    if (!el) return el;
+    opts = opts || {};
+    function place() {
+      if (!document.body.contains(el)) { window.removeEventListener("resize", place); return; }
+      var vw = window.innerWidth || 360, vh = window.innerHeight || 640;
+      var rail = document.getElementById("cssos-watch-social-rail");
+      el.style.position = "fixed";
+      el.style.margin = "0";
+      el.style.transform = "none";
+      if (rail && rail.style.display !== "none" && rail.getBoundingClientRect().height > 0) {
+        var r = rail.getBoundingClientRect();
+        var gap = opts.gap != null ? opts.gap : 12;
+        var topPx = Math.max(8, Math.round(r.top));
+        var hPx = Math.max(160, Math.round(r.bottom - r.top));   // 和右轨一样高
+        el.style.top = topPx + "px";
+        el.style.bottom = "auto";
+        el.style.height = hPx + "px";
+        el.style.maxHeight = hPx + "px";
+        el.style.right = Math.max(8, Math.round(vw - r.left + gap)) + "px";   // 右边停在右轨左侧 → 不遮右轨
+        el.style.left = (opts.left != null ? opts.left : 8) + "px";
+        el.style.width = "auto";
+        el.style.maxWidth = "none";
+      } else {
+        // 回退: 底部安全 sheet(无右轨时)。
+        el.style.left = "8px"; el.style.right = "8px"; el.style.bottom = "16px"; el.style.top = "auto";
+        el.style.height = "auto"; el.style.maxHeight = "70vh"; el.style.width = "auto"; el.style.maxWidth = "none";
+      }
+    }
+    place();
+    window.addEventListener("resize", place);
+    el.__cssosRailReplace = place;   // 调用方内容变化后可手动重排
+    return el;
+  };
 })();

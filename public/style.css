@@ -90,13 +90,13 @@ body {
    但 body 那一刻没拿到 → 键在 body[data-theme=light] 的 .bg 不翻 → 深底+深字=隐形。改键 html[data-theme]
    (html 一定有), 背景必随主题翻; 同时盖过 applyBackgroundPalette 的深绿内联极光。 */
 html[data-theme="light"] .bg,
-body[data-theme="light"] .bg {
+html[data-theme="light"] .bg {
   background: #f6efe4 !important;
 }
-html[data-theme="light"] .bg-blob-a, body[data-theme="light"] .bg-blob-a { background: radial-gradient(circle at top, rgba(0, 160, 96, 0.10), transparent 65%) !important; }
-html[data-theme="light"] .bg-blob-b, body[data-theme="light"] .bg-blob-b { background: radial-gradient(circle at 30% 30%, rgba(0, 140, 120, 0.07), transparent 60%) !important; }
-html[data-theme="light"] .bg-blob-c, body[data-theme="light"] .bg-blob-c { background: radial-gradient(circle at 70% 40%, rgba(0, 160, 90, 0.09), transparent 62%) !important; }
-html[data-theme="light"] .bg-grid, body[data-theme="light"] .bg-grid { opacity: 0.35; }
+html[data-theme="light"] .bg-blob-a, html[data-theme="light"] .bg-blob-a { background: radial-gradient(circle at top, rgba(0, 160, 96, 0.10), transparent 65%) !important; }
+html[data-theme="light"] .bg-blob-b, html[data-theme="light"] .bg-blob-b { background: radial-gradient(circle at 30% 30%, rgba(0, 140, 120, 0.07), transparent 60%) !important; }
+html[data-theme="light"] .bg-blob-c, html[data-theme="light"] .bg-blob-c { background: radial-gradient(circle at 70% 40%, rgba(0, 160, 90, 0.09), transparent 62%) !important; }
+html[data-theme="light"] .bg-grid, html[data-theme="light"] .bg-grid { opacity: 0.35; }
 
 .bg-blob {
   position: absolute;
@@ -419,7 +419,7 @@ html.cssos-app .bg-blob {
   color: var(--text);
 }
 
-body[data-theme="light"] .theme-toggle,
+html[data-theme="light"] .theme-toggle,
 html[data-theme="light"] .theme-toggle {
   color: rgba(28, 25, 20, 0.86);
 }
@@ -469,7 +469,7 @@ html[data-theme="light"] .theme-toggle {
   color: var(--text) !important;   /* CSSOS_WAVE_1215 — 随主题翻 */
 }
 /*
-body[data-theme="light"] .dock,
+html[data-theme="light"] .dock,
 html[data-theme="light"] .dock {
   background: rgba(255, 250, 242, 0.72);
   border-color: rgba(72, 97, 82, 0.16);
@@ -7468,7 +7468,7 @@ html.cssos-app #watch-panel .watch-frame {
   opacity: 0.92;
 }
 html[data-theme="light"] .watch-engine-percent,
-body[data-theme="light"] .watch-engine-percent {
+html[data-theme="light"] .watch-engine-percent {
   color: rgba(18, 22, 30, 0.9);
 }
 
@@ -12198,12 +12198,12 @@ html.cssos-pill-cascade .cssmv-pill-bar > *:has(~ [aria-selected="true"]) {
   color: var(--text, rgba(218, 255, 238, 0.80));
 }
 html[data-theme="light"] .pmv-secondary,
-body[data-theme="light"] .pmv-secondary {
+html[data-theme="light"] .pmv-secondary {
   background: rgba(0, 160, 100, 0.12);
   color: rgba(10, 35, 22, 0.85);
 }
 html[data-theme="light"] .pmv-back,
-body[data-theme="light"] .pmv-back {
+html[data-theme="light"] .pmv-back {
   background: rgba(0, 60, 35, 0.06);
   color: rgba(10, 35, 22, 0.80);
 }
@@ -13001,36 +13001,36 @@ html[data-theme="light"] .shelf-sub { color: #14241c !important; }
 
 /* Advanced Settings panel: dark text in light mode */
 html[data-theme="light"] #creation-language-picker .cssos-lang-cell,
-body[data-theme="light"] #creation-language-picker .cssos-lang-cell {
+html[data-theme="light"] #creation-language-picker .cssos-lang-cell {
   color: rgba(14, 40, 28, 0.88);
   border-color: rgba(0, 140, 90, 0.28);
   background: rgba(0, 180, 110, 0.07);
 }
 html[data-theme="light"] #creation-language-picker .cssos-lang-cell:hover,
-body[data-theme="light"] #creation-language-picker .cssos-lang-cell:hover {
+html[data-theme="light"] #creation-language-picker .cssos-lang-cell:hover {
   background: rgba(0, 180, 110, 0.14);
 }
 html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-selected,
-body[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-selected {
+html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-selected {
   background: rgba(0, 160, 100, 0.18);
   border-color: rgba(0, 140, 90, 0.60);
 }
 html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-default,
-body[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-default {
+html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-default {
   background: rgba(0, 150, 95, 0.26);
   border-color: rgba(0, 130, 85, 0.85);
   color: #002a1a;
 }
 html[data-theme="light"] #creation-language-picker .cssos-lang-picker-head,
-body[data-theme="light"] #creation-language-picker .cssos-lang-picker-head {
+html[data-theme="light"] #creation-language-picker .cssos-lang-picker-head {
   color: rgba(14, 40, 28, 0.90);
 }
 html[data-theme="light"] #creation-language-picker .cssos-lang-picker-sub,
-body[data-theme="light"] #creation-language-picker .cssos-lang-picker-sub {
+html[data-theme="light"] #creation-language-picker .cssos-lang-picker-sub {
   color: rgba(14, 40, 28, 0.60);
 }
 html[data-theme="light"] .cssos-lang-badge,
-body[data-theme="light"] .cssos-lang-badge {
+html[data-theme="light"] .cssos-lang-badge {
   background: rgba(0, 180, 110, 0.22);
   color: #00361f;
 }

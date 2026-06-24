@@ -7999,9 +7999,10 @@ function ensureAuthorAvatarModule() {
     menu.className = "cssos-author-menu";
     menu.style.cssText = [
       "position:fixed", "z-index:10055", /* CSSOS_WAVE_351 收敛: 99999 → 10055 (author menu) */ "min-width:240px",
-      "background:rgba(10,12,16,0.96)", "backdrop-filter:blur(20px) saturate(160%)",
-      "border:1px solid rgba(255,255,255,0.16)", "border-radius:12px",
-      "padding:6px", "box-shadow:0 12px 40px rgba(0,0,0,0.6)",
+      // CSSOS_WAVE_1201 — Jing: 透明玻璃(同评论框/信息包), 去掉 backdrop blur(合成层 + 不再黑底)。
+      "background:rgba(10,14,20,0.42)", "text-shadow:0 1px 4px rgba(0,0,0,0.7)",
+      "border:1px solid rgba(255,255,255,0.14)", "border-radius:12px",
+      "padding:6px", "box-shadow:0 12px 40px rgba(0,0,0,0.5)",
       "font:500 13px/1.4 -apple-system,system-ui,sans-serif",
       "color:rgba(255,255,255,0.95)", "user-select:none",
     ].join(";");
@@ -8011,6 +8012,11 @@ function ensureAuthorAvatarModule() {
     let mLeft = rect.left;
     if (rect.left > vw / 2) mLeft = rect.right - MW;          // 右侧头像 → 右对齐
     mLeft = Math.max(8, Math.min(mLeft, vw - MW - 8));        // 夹在视口内
+    // CSSOS_WAVE_1201 — Jing「还遮挡右轨, 往左移一点」: 把菜单右边缘卡在右轨左侧 → 不盖右轨。
+    try {
+      var _rail = document.getElementById("cssos-watch-social-rail");
+      if (_rail) { var _rr = _rail.getBoundingClientRect(); mLeft = Math.min(mLeft, Math.round(_rr.left - MW - 10)); mLeft = Math.max(8, mLeft); }
+    } catch (_eRail) {}
     let mTop = Math.min(rect.bottom + 6, vh - 60);            // 头像正下方; 底部留点边
     menu.style.left = `${Math.round(mLeft)}px`;
     menu.style.top = `${Math.round(mTop)}px`;
@@ -8190,9 +8196,9 @@ function ensureAuthorAvatarModule() {
         sub.className = "cssos-author-menu";
         sub.style.cssText = [
           "position:fixed", "z-index:10056", /* CSSOS_WAVE_351 收敛: 99999 → 10056 (author submenu, above parent menu 10055) */ "min-width:260px",
-          "background:rgba(10,12,16,0.96)", "backdrop-filter:blur(20px) saturate(160%)",
+          "background:rgba(10,14,20,0.42)", "text-shadow:0 1px 4px rgba(0,0,0,0.7)",
           "border:1px solid rgba(255,200,120,0.35)", "border-radius:12px",
-          "padding:6px", "box-shadow:0 12px 40px rgba(0,0,0,0.6)",
+          "padding:6px", "box-shadow:0 12px 40px rgba(0,0,0,0.5)",
           "font:500 13px/1.4 -apple-system,system-ui,sans-serif",
           "color:rgba(255,255,255,0.95)", "user-select:none",
         ].join(";");

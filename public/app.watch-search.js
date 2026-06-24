@@ -79,7 +79,10 @@
       var wrap = document.createElement("div"); wrap.style.cssText = "margin-bottom:14px;";
       var h = document.createElement("div"); h.textContent = title;
       h.style.cssText = "font:700 11px/1.2 inherit;letter-spacing:.04em;opacity:.7;margin-bottom:8px;text-transform:uppercase;";
-      var row = document.createElement("div"); row.style.cssText = "display:flex;flex-wrap:wrap;gap:7px;";
+      // CSSOS_WAVE_1201 — Jing「3 组胶囊」: 每组包进一条圆角胶囊【轨道】(半透明壳 + 细边), 段落在轨道里。
+      var row = document.createElement("div");
+      row.style.cssText = "display:flex;flex-wrap:wrap;gap:5px;padding:4px;border-radius:999px;" +
+        "background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);box-sizing:border-box;";
       chips.forEach(function (c) { row.appendChild(c); });
       wrap.appendChild(h); wrap.appendChild(row); return wrap;
     }

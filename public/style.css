@@ -10542,12 +10542,14 @@ html[data-theme="light"] .pay-card {
   width: min(440px, 100%);
   max-height: calc(100vh - 48px);
   overflow: auto;
-  background: linear-gradient(180deg, rgba(28, 30, 48, 0.96), rgba(18, 20, 34, 0.96));
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  /* CSSOS_WAVE_1201 — Jing: 透明玻璃背景(不再深色实底), 同评论/信息包风格; 文字加阴影保可读。 */
+  background: rgba(10, 14, 20, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 18px;
   padding: 22px 22px 18px;
   color: #f0f2f8;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   animation: cssPayPickerSlideIn 200ms cubic-bezier(.2, .8, .2, 1);
 }
 @keyframes cssPayPickerSlideIn {

@@ -89,6 +89,12 @@ body {
 body[data-theme="light"] .bg {
   background: #f6efe4;
 }
+/* CSSOS_WAVE_1217 — Jing「切到白天整界面还是绿/夜色」: 极光 blob 写死亮绿、无白天覆盖 → 白天仍偏绿。
+   白天用【低饱和软绿淡晕】, 让暖米底为主、绿只作点缀, 整界面真正翻成白天。 */
+body[data-theme="light"] .bg-blob-a { background: radial-gradient(circle at top, rgba(0, 160, 96, 0.10), transparent 65%); }
+body[data-theme="light"] .bg-blob-b { background: radial-gradient(circle at 30% 30%, rgba(0, 140, 120, 0.07), transparent 60%); }
+body[data-theme="light"] .bg-blob-c { background: radial-gradient(circle at 70% 40%, rgba(0, 160, 90, 0.09), transparent 62%); }
+body[data-theme="light"] .bg-grid { opacity: 0.35; }
 
 .bg-blob {
   position: absolute;

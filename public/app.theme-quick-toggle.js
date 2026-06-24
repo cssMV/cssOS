@@ -100,6 +100,16 @@
               : "system",
           },
         }));
+        // CSSOS_WAVE_1217 — Jing「切到白天整界面还是夜色, 必须刷新」: 双保险, 立刻把 data-theme 写到文档,
+        //   保证背景/UI 即时翻转, 不用刷新。
+        try { globalThis.applyDocumentThemeSettings?.(); } catch (_e) {}
+        try {
+          var _eff = nextMode === "light" || nextMode === "dark" ? nextMode
+            : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          document.documentElement.dataset.theme = _eff;
+          if (document.body) document.body.dataset.theme = _eff;
+          document.documentElement.style.colorScheme = _eff;
+        } catch (_e) {}
         closeMenu();
       });
     });

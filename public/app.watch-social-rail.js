@@ -85,6 +85,8 @@
   }
   function listenCents(w) { return Number((w && (w.current_listen_price_cents || w.listen_price_cents || w.suggested_listen_price_cents)) || 69); }
   function viewCents(w) { return Number((w && (w.current_view_price_cents || w.view_price_cents)) || 99); }
+  // CSSOS_WAVE_1167 — Jing 指令: 买断显示【系统建议价】, 不是 "买断" 字。current 优先, 否则 suggested, 兜底 599。
+  function buyoutCents(w) { return Number((w && (w.current_buyout_price_cents || w.suggested_buyout_price_cents || w.buyout_price_cents)) || 599); }
 
   // CSSOS_WAVE_1163 — Jing 指令: 头像必须是【正在播放作品的作者】, 绝不回退登录用户。
   //   从当前作品取作者 id/名/头像; 作品没带头像就按 id 拉(缓存), 拉到再重渲染。
@@ -149,13 +151,16 @@
       //   只剩透明 + 完整 logo(object-fit:contain, 尖角不截)。仅【文字兜底】(.is-text, 无 logo 图)时给半透明圆。
       // CSSOS_WAVE_1161 — Jing 指令: 头像和其它图标一样 = 【无边框的半透明圆】(不是全透明, 也不要白/黑环)。
       //   背景同 .csr-ic 的 rgba(255,255,255,0.12); 去掉一切 border/outline/box-shadow/焦点环。
+      // CSSOS_WAVE_1167 — Jing 指令: ➕ 关注角标不要被圈裁掉, 要【压在头像圈边框上】。故容器 overflow:visible,
+      //   圆形裁剪交给 img 自身 border-radius; ➕(.csr-follow)绝对定位、骑在底边、z-index 压住边框。
       ".csr-av{position:relative;width:46px;height:46px;border:0!important;outline:0!important;box-shadow:none!important;padding:0;margin:0;" +
-      "background:rgba(255,255,255,0.12);-webkit-appearance:none;appearance:none;border-radius:50%;overflow:hidden;display:flex;align-items:center;" +
+      "background:rgba(255,255,255,0.12);-webkit-appearance:none;appearance:none;border-radius:50%;overflow:visible;display:flex;align-items:center;" +
       "justify-content:center;font-weight:600;font-size:16px;color:#fff;}" +
       ".csr-av:focus,.csr-av:focus-visible{outline:0!important;box-shadow:none!important;}" +
       ".csr-av img{width:100%;height:100%;border:0;border-radius:50%;object-fit:cover;display:block;}" +
-      ".csr-av .csr-follow{position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:17px;height:17px;" +
-      "border-radius:50%;background:#00f5a0;color:#04241a;font-size:12px;display:flex;align-items:center;justify-content:center;}" +
+      // CSSOS_WAVE_1167 — ➕ 骑在头像底边上(压住圈边、不被裁): bottom:-2px 让它半压边框; z-index:2 在最上。
+      ".csr-av .csr-follow{position:absolute;bottom:-2px;left:50%;transform:translateX(-50%);width:17px;height:17px;z-index:2;" +
+      "border-radius:50%;background:#00f5a0;color:#04241a;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;}" +
       // CSSOS_WAVE_1119 — 左上返回键(成熟模式): 退出影院。点它=触发现成 watch-panel 关闭按钮。
       "#cssos-watch-backbtn{position:absolute;left:12px;top:12px;z-index:31;width:40px;height:40px;border-radius:50%;" +
       "background:rgba(20,16,12,0.55);border:0.5px solid rgba(255,255,255,0.18);color:#fff;font-size:22px;line-height:1;" +
@@ -322,8 +327,8 @@
       onClick: function (b) { dispatch("tip", b); }
     }));
 
-    // 6. 💎 买断 — 直接写"买断" — CSSOS_WAVE_1128
-    rail.appendChild(mkItem("💎", copy("Buyout", "买断"), {
+    // 6. 💎 买断 — 显示系统建议价(不是"买断"字) — CSSOS_WAVE_1167
+    rail.appendChild(mkItem("💎", fmtCents(buyoutCents(w)), {
       aria: copy("Buyout", "买断"), title: copy("Buyout — system-suggested price", "买断 — 系统建议价"),
       onClick: function (b) { dispatch("buyout", b); }
     }));

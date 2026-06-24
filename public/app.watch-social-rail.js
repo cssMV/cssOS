@@ -66,6 +66,10 @@
     try { if (typeof globalThis.isAdminEmailModule === "function") return !!globalThis.isAdminEmailModule(e); } catch (_e) {}
     return e.indexOf("@cssstudio.app") >= 0 || e === "jingdudc@gmail.com";
   }
+  // CSSOS_WAVE_1205 — Jing: 自己作品自己不能买卖/打赏。取 viewer 的 user id, 与作品 owner 比对。
+  function viewerUserId() {
+    try { var a = (typeof globalThis.cssosAuthState === "function") ? globalThis.cssosAuthState() : globalThis.authState; return String((a && a.user && (a.user.id || a.user.user_id)) || "").trim(); } catch (_e) { return ""; }
+  }
   // CSSOS_WAVE_1144 — Jing 指令: 评论增删后立即同步右轨计数。清缓存→下次 render 重新拉→重渲染。
   function invalidateStats(id) { try { if (id) delete _stats[id]; } catch (_e) {} }
   document.addEventListener("cssos:comments-changed", function (e) {
@@ -280,8 +284,14 @@
     //   · 打赏: viewer 是 staff 不可【给】(staff 仅接受); viewer 非 staff 时给 staff/非 staff 都行(staff↔staff 自然被挡)。
     var _staff = viewerIsStaff();
     var _ownerStaff = !!st.owner_is_staff;
-    var _noSale = _staff || _ownerStaff;   // 买卖不可
-    var _noTip = _staff;                    // 打赏: 只挡 staff 主动给
+    // CSSOS_WAVE_1205 — Jing: 自己作品自己不能买卖/打赏 → 本人作品全灰。owner id 优先 stats(_statsOwner)/作品字段, 再退邮箱。
+    var _ownerId = String((currentAuthor() || {}).id || w.owner_user_id || w.owner_id || "").trim();
+    var _viewerId = viewerUserId();
+    var _ownerEmail = String(w.owner_email || "").toLowerCase().trim();
+    var _ownWork = (!!_ownerId && !!_viewerId && _ownerId === _viewerId) ||
+                   (!!_ownerEmail && _ownerEmail === viewerEmail());
+    var _noSale = _staff || _ownerStaff || _ownWork;   // 买卖不可(任一方 staff, 或本人作品)
+    var _noTip = _staff || _ownWork;                    // 打赏不可(staff 主动给, 或本人作品)
 
     // 1. 作者头像 + 关注
     var av = document.createElement("button");
@@ -356,7 +366,7 @@
     // 3. 🎧 聆听 · 计数·¢69 — W1196: 任一方 staff → 不可买卖, 置灰
     rail.appendChild(mkItem("🎧", countPrice(st.listens, listenCents(w)), {
       disabled: _noSale, aria: copy("Listen", "聆听"),
-      title: _noSale ? copy("Staff works aren't for sale", "管理员/工作人员作品不参与买卖") : copy("Listen (audio / slideshow)", "聆听(音频/幻灯)"),
+      title: _noSale ? (_ownWork ? copy("You can't buy your own work", "自己的作品不能买卖") : copy("Staff works aren't for sale", "管理员/工作人员作品不参与买卖")) : copy("Listen (audio / slideshow)", "聆听(音频/幻灯)"),
       onClick: function (b) { dispatch("listen", b); }
     }));
 
@@ -369,14 +379,14 @@
     // 5. 💝 打赏 — W1196: staff 只能【接受】打赏(viewer 非 staff 即可给; staff 自己不可给)。
     rail.appendChild(mkItem("💝", st.tips > 0 ? (fmtMoney(st.tips_total_cents) + "/" + fmtCount(st.tips)) : ("0/" + copy("Tip", "打赏")), {
       disabled: _noTip, aria: copy("Tip the creator", "打赏作者"),
-      title: _noTip ? copy("Staff can only receive tips, not give", "管理员/工作人员只能接受打赏,不能打赏他人") : copy("Tip the creator — any amount", "打赏作者(金额随意)"),
+      title: _noTip ? (_ownWork ? copy("You can't tip your own work", "自己的作品不能打赏") : copy("Staff can only receive tips, not give", "管理员/工作人员只能接受打赏,不能打赏他人")) : copy("Tip the creator — any amount", "打赏作者(金额随意)"),
       onClick: function (b) { dispatch("tip", b); }
     }));
 
     // 6. 💎 买断 — 显示系统建议价(不是"买断"字) — CSSOS_WAVE_1167; W1196: 任一方 staff → 不可买卖, 置灰
     rail.appendChild(mkItem("💎", fmtCents(buyoutCents(w)), {
       disabled: _noSale, aria: copy("Buyout", "买断"),
-      title: _noSale ? copy("Staff works aren't for sale", "管理员/工作人员作品不参与买卖") : copy("Buyout — system-suggested price", "买断 — 系统建议价"),
+      title: _noSale ? (_ownWork ? copy("You can't buy your own work", "自己的作品不能买卖") : copy("Staff works aren't for sale", "管理员/工作人员作品不参与买卖")) : copy("Buyout — system-suggested price", "买断 — 系统建议价"),
       onClick: function (b) { dispatch("buyout", b); }
     }));
 

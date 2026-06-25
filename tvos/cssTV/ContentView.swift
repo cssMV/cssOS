@@ -105,7 +105,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Color.clear.ignoresSafeArea()   // W1305 — 试: 根背景改透明(原 Color.black)
+            Color.clear.ignoresSafeArea()   // W1307 — tvOS 无 systemBackground 常量; 透明=直接显示苹果系统窗口背景色本身
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -143,7 +143,7 @@ struct ContentView: View {
                 .focusSection()
         }
         .focusScope(focusNS)
-        .background(Color.clear.ignoresSafeArea())   // W1305 — 试: 根背景改透明(原 Color.black)
+        .background(Color.clear.ignoresSafeArea())   // W1307 — 透明=苹果系统窗口背景色
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .fullScreenCover(item: $selected) { w in

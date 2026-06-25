@@ -167,6 +167,11 @@ struct ContentView: View {
             CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域(focusNS 之外), 供 hero 往左 resetFocus 跳回
                 .focusSection()
+                // W1301 — Jing: 侧栏【绝对位置】固定独立层(满高 topLeading 锚定 + 最高 zIndex),
+                //   彻底脱离内容流, hero 轮换/重排再也碰不到它。
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .ignoresSafeArea()
+                .zIndex(100)
         }
         .background(Color.black.ignoresSafeArea())
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保

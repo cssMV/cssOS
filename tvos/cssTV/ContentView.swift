@@ -283,11 +283,18 @@ struct FeaturedHero: View {
     let onSelect: (CSSWork) -> Void
 
     @State private var index = 0
+    @State private var pauseAutoUntil: Date? = nil   // W1241 — 用户干预后暂停自动轮播到此刻
     private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
 
     private var current: CSSWork { works[min(index, works.count - 1)] }
     private var n: Int { max(works.count, 1) }
     private func go(_ delta: Int) { withAnimation { index = (index + delta + n) % n } }
+
+    // W1241 — 用户干预永远最高优先级: 遥控器切胶囊 → 自动轮播暂停, 10s 无操作才恢复。
+    private func userSwitch(_ delta: Int) {
+        go(delta)
+        pauseAutoUntil = Date().addingTimeInterval(10)
+    }
 
     private let capH: CGFloat = 46
     private var capR: CGFloat { capH / 2 }
@@ -323,7 +330,9 @@ struct FeaturedHero: View {
         .padding(.trailing, 16)
         .frame(height: capH)
         .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
-        .overlay(ConcavePill(side: side).stroke(Color.white.opacity(0.38), lineWidth: 1.5))
+        // W1241 — 接口只剩单条弯线: 激活段【不描边】(纯绿), 仅未激活段描一道细暗线,
+        //   避免凸/凹双描边在接口叠成发白"架上去"的粗线。
+        .overlay(active ? nil : ConcavePill(side: side).stroke(Color.white.opacity(0.26), lineWidth: 1))
     }
 
     @ViewBuilder
@@ -378,7 +387,7 @@ struct FeaturedHero: View {
                     }
                     .buttonStyle(.card)
                     .onMoveCommand { dir in
-                        if dir == .left { go(-1) } else if dir == .right { go(1) }
+                        if dir == .left { userSwitch(-1) } else if dir == .right { userSwitch(1) }
                     }
                     if !current.durationLabel.isEmpty {
                         Text(current.durationLabel)
@@ -389,18 +398,22 @@ struct FeaturedHero: View {
                 }
                 capsuleTrack    // W1238 — 胶囊宪法凹凸镶嵌
             }
-            // W1240 — 内容避开浮层侧栏(左 ~160), 胶囊贴近底边(下 30, 不那么高)。
+            // W1240/1241 — 内容避开浮层侧栏(左 ~160); 胶囊轨道再下移半个身位(下 8, 更贴底边)。
             .padding(.leading, 160)
             .padding(.trailing, 60)
             .padding(.top, 60)
-            .padding(.bottom, 30)
+            .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 720)
         .clipped()
         .ignoresSafeArea(.container, edges: .horizontal)   // W1239 — 满铺到边, 和 For You 一样宽(消右侧黑缝)
         .animation(.easeInOut(duration: 0.6), value: index)
-        .onReceive(timer) { _ in go(1) }
+        .onReceive(timer) { _ in
+            if let until = pauseAutoUntil, Date() < until { return }   // 用户干预期间不自动切
+            pauseAutoUntil = nil
+            go(1)
+        }
     }
 }
 

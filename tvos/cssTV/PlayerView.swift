@@ -12,9 +12,9 @@ struct VideoSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> PlayerLayerView {
         let v = PlayerLayerView()
         v.playerLayer.player = player
-        // CSSOS_WAVE_1228 — 画幅铁律: 2.39 电影宽银幕完整呈现(.resizeAspect = 上下黑边信箱),
-        // 绝不用 .resizeAspectFill 裁成 16:9 满屏丢掉宽银幕两侧。
-        v.playerLayer.videoGravity = .resizeAspect
+        // W1315 — Jing: 生成端已强制 2.39, 但有些源仍是 16:9。播放器【强制裁成 2.39】: resizeAspectFill
+        //   填满外层 2.39 框, 裁掉源的多余上下 → 一律呈现 2.39 宽银幕(外层框由 SwiftUI 约束成 2.39)。
+        v.playerLayer.videoGravity = .resizeAspectFill
         return v
     }
     func updateUIView(_ uiView: PlayerLayerView, context: Context) {}
@@ -41,15 +41,21 @@ struct PlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let vp = videoPlayer {
-                VideoSurface(player: vp).ignoresSafeArea()
-            } else if let cover = work.coverURL, let url = URL(string: cover) {
-                // 视频没准备好 → 先铺封面。
-                AsyncImage(url: url) { img in
-                    img.resizable().scaledToFill()
-                } placeholder: { Color.black }
-                .ignoresSafeArea()
+            // W1315 — 强制 2.39 宽银幕框(满宽 × 宽/2.39, 垂直居中, 上下电影黑边); 内容用 fill 裁满。
+            GeometryReader { geo in
+                let boxH = geo.size.width / 2.39
+                Group {
+                    if let vp = videoPlayer {
+                        VideoSurface(player: vp)
+                    } else if let cover = work.coverURL, let url = URL(string: cover) {
+                        AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.black }
+                    }
+                }
+                .frame(width: geo.size.width, height: boxH)
+                .clipped()
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)   // 垂直居中
             }
+            .ignoresSafeArea()
 
             // W1247 — 大屏逐字情绪字幕(招牌): 音频主时钟驱动, 底部卡拉OK + 中央逐字爆。
             if let sub = subtitle, let ap = audioPlayer {

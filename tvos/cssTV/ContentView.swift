@@ -76,6 +76,7 @@ struct ContentView: View {
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
     @State private var sidebarFocused = false
     @State private var refreshing = false             // W1299 — 刷新中
+    @Environment(\.scenePhase) private var scenePhase  // W1300 — 回前台自动刷新
 
     // W1299 — 用户手动刷新 feed(tvOS 无下拉刷新)。
     private func reloadFeed() {
@@ -163,7 +164,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onRefresh: { reloadFeed() }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域(focusNS 之外), 供 hero 往左 resetFocus 跳回
                 .focusSection()
         }
@@ -201,6 +202,10 @@ struct ContentView: View {
         }
         .onChange(of: auth.isSignedIn) { _, signed in
             if signed { Task { allWorks = await CSSBackend.fetchFeed() } }  // 登录后重拉 → 带 viewer_orders 解锁已购
+        }
+        // W1300 — tvOS 标准: App 回前台自动刷新 feed(无需可见刷新按钮, 不突兀)。
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active && !loading { reloadFeed() }
         }
     }
 }
@@ -322,7 +327,7 @@ struct EmojiBurstEffect: View {
 
 /// W1235 — 侧栏焦点项(用于折叠/展开判定)。
 enum SidebarItem: Hashable {
-    case avatar, collapse, refresh, favorites, search, create, category(HomeCategory)
+    case avatar, collapse, favorites, search, create, category(HomeCategory)
 }
 
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
@@ -332,7 +337,6 @@ struct CategorySidebar: View {
     @ObservedObject var auth: CSSAuth          // W1249 登录态
     var onLoginTap: () -> Void
     var onCreate: () -> Void                   // W1259 创作入口
-    var onRefresh: () -> Void = {}             // W1299 刷新 feed
     var onSearch: () -> Void                   // W1277 搜索入口
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
     var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
@@ -379,10 +383,7 @@ struct CategorySidebar: View {
             .buttonStyle(FlatButtonStyle())
             .focused($focus, equals: .collapse)
             .onMoveCommand { handleMove($0) }
-            .padding(.bottom, 6)
-
-            // W1299 — 刷新按钮(tvOS 无下拉刷新): 重新拉取 feed。
-            row(icon: "arrow.clockwise", label: "Refresh", item: .refresh) { onRefresh() }
+            .padding(.bottom, 10)
 
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
             Spacer().frame(height: 22)
@@ -455,7 +456,7 @@ struct CategorySidebar: View {
 
     // W1275 — 侧栏可聚焦项的视觉顺序(手动导航用)。
     private var orderedItems: [SidebarItem] {
-        var arr: [SidebarItem] = [.avatar, .collapse, .refresh, .favorites, .search]
+        var arr: [SidebarItem] = [.avatar, .collapse, .favorites, .search]
         for cat in HomeCategory.allCases {
             arr.append(.category(cat))
             if cat == .trilogy { arr.append(.create) }
@@ -565,6 +566,7 @@ struct FeaturedHero: View {
     @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
     @FocusState private var bridgeFocused: Bool      // W1283 — 胶囊左侧隐形桥: 落焦即跳回侧栏
     @State private var breathe = false               // W1284 — 下一个胶囊边框呼吸
+    @State private var autoAdvancing = false         // W1300 — 自动推进中(让 onChange 忽略此次焦点变化)
     private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
@@ -754,20 +756,24 @@ struct FeaturedHero: View {
         .ignoresSafeArea(.container, edges: .horizontal)       // W1245 — hero 内容也满铺基准, 与 rails(同满铺)同 leading → 对齐
         .animation(.easeInOut(duration: 0.2), value: playFocused)
         .animation(.easeInOut(duration: 0.6), value: index)
-        // W1298 — 用户干预最高权限: 把焦点移到【非激活】胶囊 = 干预 → index 跟随 + 暂停自动 10s。
-        //   (自动切换时焦点会跟随激活, f==index, 不算干预 → 不会自打断。)
+        // W1300 — 用户干预最高权限: 把焦点移到胶囊 = 干预 → index 跟随 + 暂停自动 10s。
+        //   关键: 自动推进时也会改 focusedCap(焦点跟随激活), 用 autoAdvancing 标志让 onChange【明确忽略】
+        //   这种自动变化, 否则会被误判成干预→每次推进即自暂停→"永不自动"(W1298 竞态真凶)。
         .onChange(of: focusedCap) { _, f in
+            if autoAdvancing { return }
             guard let f, f != index else { return }
             withAnimation(.easeInOut(duration: 0.4)) { index = f }
             pauseAutoUntil = Date().addingTimeInterval(10)
         }
         .onReceive(timer) { _ in
             if paused { return }                                      // W1290 — 侧栏有焦点 → 不轮换
-            if let until = pauseAutoUntil, Date() < until { return }  // W1298 — 干预后 10s 内不自动切(最高权限)
+            if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切(最高权限)
             pauseAutoUntil = nil
+            autoAdvancing = true
             let next = (index + 1) % n
             withAnimation(.easeInOut(duration: 0.6)) { index = next }
-            if focusedCap != nil { focusedCap = next }                // 焦点跟随激活胶囊(若焦点在胶囊上)
+            if focusedCap != nil { focusedCap = next }                // 焦点跟随激活胶囊
+            DispatchQueue.main.async { autoAdvancing = false }        // 下一拍复位: onChange 已忽略本次
         }
         // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
         .defaultFocus($focusedCap, 0)

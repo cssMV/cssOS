@@ -36,6 +36,21 @@ enum CSSBackend {
         return [flagship]
     }
 
+    /// W1279 — 全库搜索(后端 /api/works/market?q= 已支持: 标题/作者/风格/歌词 ILIKE)。
+    static func searchWorks(_ q: String, limit: Int = 40) async -> [CSSWork] {
+        let trimmed = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let enc = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(baseURL)/api/works/market?q=\(enc)&limit=\(limit)") else { return [] }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let decoder = JSONDecoder()
+            if let env = try? decoder.decode(FeedEnvelope.self, from: data), let list = env.resolved { return list }
+            if let arr = try? decoder.decode([CSSWork].self, from: data) { return arr }
+        } catch { print("[CSSBackend] searchWorks failed:", error) }
+        return []
+    }
+
     /// CSSOS_WAVE_1227 — 把一批作品分成 Apple TV 标准多行 rails(不再一堵扁平卡片墙)。
     /// For You(全部)/ Fresh(最新)/ 按 work_type(歌剧/电影/剧集/三部曲, 每类≥3才出)。
     static func buildRails(_ works: [CSSWork]) -> [CSSRail] {

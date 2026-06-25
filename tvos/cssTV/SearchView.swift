@@ -4,18 +4,39 @@
 import SwiftUI
 
 struct SearchView: View {
-    let allWorks: [CSSWork]
+    let allWorks: [CSSWork]          // 本地 feed: 即时预过滤, 同时后台查全库
     var onPick: (CSSWork) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var results: [CSSWork] = []
+    @State private var searching = false
+    @State private var searchTask: Task<Void, Never>? = nil
     @FocusState private var fieldFocused: Bool
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
     private let cols = [GridItem(.adaptive(minimum: 300, maximum: 360), spacing: 28)]
 
-    private var results: [CSSWork] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return [] }
-        return allWorks.filter { ($0.title ?? "").lowercased().contains(q) }
+    // W1279 — 全库搜索(后端), 输入防抖 0.3s; 先用本地命中即时占位。
+    private func runSearch(_ raw: String) {
+        searchTask?.cancel()
+        let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { results = []; searching = false; return }
+        // 本地即时预过滤(标题), 让用户立刻看到反馈。
+        let local = allWorks.filter { ($0.title ?? "").lowercased().contains(q.lowercased()) }
+        results = local
+        searching = true
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            let remote = await CSSBackend.searchWorks(q)
+            if Task.isCancelled { return }
+            await MainActor.run {
+                // 合并去重(后端为准, 本地补充), 保后端顺序。
+                var seen = Set<String>(); var merged: [CSSWork] = []
+                for w in remote + local where !seen.contains(w.id) { seen.insert(w.id); merged.append(w) }
+                results = merged
+                searching = false
+            }
+        }
     }
 
     var body: some View {
@@ -45,8 +66,13 @@ struct SearchView: View {
                     Spacer()
                 } else if results.isEmpty {
                     Spacer()
-                    Text("No works match “\(query)”").font(.system(size: 26))
-                        .foregroundStyle(.white.opacity(0.5))
+                    if searching {
+                        ProgressView().scaleEffect(1.4)
+                        Text("Searching…").font(.system(size: 24)).foregroundStyle(.white.opacity(0.5)).padding(.top, 8)
+                    } else {
+                        Text("No works match “\(query)”").font(.system(size: 26))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
                     Spacer()
                 } else {
                     ScrollView {
@@ -62,6 +88,7 @@ struct SearchView: View {
             }
         }
         .onAppear { fieldFocused = true }
+        .onChange(of: query) { _, q in runSearch(q) }   // W1279 — 输入即查(防抖 0.3s, 全库)
     }
 
     @ViewBuilder

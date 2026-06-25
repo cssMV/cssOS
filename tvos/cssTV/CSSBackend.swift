@@ -41,30 +41,29 @@ enum CSSBackend {
     static func buildRails(_ works: [CSSWork]) -> [CSSRail] {
         guard !works.isEmpty else { return [] }
         var rails: [CSSRail] = []
-        // W1259 — Jing 指定的 9 栏(i18n 英文默认)。每栏末尾自动追加「创作尾卡」。
-        func rail(_ id: String, _ title: String, _ items: [CSSWork], min: Int = 1) {
+        // W1274 — Jing: Today's Picks 第一、For You 第二; 每栏标题带 SF Symbol 图标; 末尾追加创作尾卡。
+        func rail(_ id: String, _ title: String, _ icon: String, _ items: [CSSWork], min: Int = 1) {
             guard items.count >= min else { return }
-            rails.append(CSSRail(id: id, title: title, works: items + [CSSWork.createCard]))
+            rails.append(CSSRail(id: id, title: title, works: items + [CSSWork.createCard], icon: icon))
         }
-        // ① For You — 全网最新(后端已按 created_at 排序)。
-        rail("foryou", "For You", works)
-        // ② Today's Picks — 算法推荐占位: 稳定伪随机重排(按 id 哈希), 不重复 For You 顺序。
-        //    TODO(后端): 接真推荐时换成 /api/works/recommend。
-        rail("today", "Today's Picks", works.sorted { $0.id.hashValue < $1.id.hashValue })
-        // ③ My Favorites — 本人有订单(收藏/已购)的; 未登录或空则不显。
-        rail("favorites", "My Favorites", works.filter { $0.isOwned })
-        // ④ Most Played — 占位排序(后端暂无播放数, 用 id 反向哈希区分); TODO 接 play_count。
-        rail("most-played", "Most Played", works.sorted { $0.id.hashValue > $1.id.hashValue })
-        // ⑤~⑨ 按类型。
-        let typeDefs: [(key: String, title: String, match: [String])] = [
-            ("triptych", "Trilogies",   ["triptych", "trilogy"]),
-            ("opera",    "Operas",      ["opera"]),
-            ("shortplay","Short Dramas",["shortplay", "short-play", "drama"]),
-            ("series",   "TV Series",   ["series"]),
-            ("film",     "Films",       ["film", "movie"]),
+        // ① Today's Picks(算法推荐占位: 按 id 哈希稳定重排; TODO 接 /api/works/recommend)。
+        rail("today", "Today's Picks", "sparkles", works.sorted { $0.id.hashValue < $1.id.hashValue })
+        // ② For You — 全网最新。
+        rail("foryou", "For You", "flame.fill", works)
+        // ③ My Favorites — 本人有订单(收藏/已购); 空则不显。
+        rail("favorites", "My Favorites", "heart.fill", works.filter { $0.isOwned })
+        // ④ Most Played — 占位排序(后端暂无播放数; TODO 接 play_count)。
+        rail("most-played", "Most Played", "chart.bar.fill", works.sorted { $0.id.hashValue > $1.id.hashValue })
+        // ⑤~⑨ 按类型(图标对齐侧栏)。
+        let typeDefs: [(key: String, title: String, icon: String, match: [String])] = [
+            ("triptych", "Trilogies",    "books.vertical.fill", ["triptych", "trilogy"]),
+            ("opera",    "Operas",        "theatermasks.fill",   ["opera"]),
+            ("shortplay","Short Dramas",  "film.fill",           ["shortplay", "short-play", "drama"]),
+            ("series",   "TV Series",     "tv.fill",             ["series"]),
+            ("film",     "Films",         "film.stack.fill",     ["film", "movie"]),
         ]
         for def in typeDefs {
-            rail(def.key, def.title, works.filter { def.match.contains(($0.workType ?? "").lowercased()) })
+            rail(def.key, def.title, def.icon, works.filter { def.match.contains(($0.workType ?? "").lowercased()) })
         }
         return rails
     }

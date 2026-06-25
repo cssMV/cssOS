@@ -131,6 +131,7 @@ struct CSSRail: Identifiable {
     let id: String
     let title: String
     let works: [CSSWork]
+    var icon: String = "sparkles"   // W1274 — 栏目标题图标(SF Symbol)
 }
 
 // MARK: - W1247 逐字情绪字幕(招牌)数据模型

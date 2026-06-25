@@ -194,8 +194,8 @@ struct EmojiBurstEffect: View {
 
     var body: some View {
         if active {
-            // 10fps: 跑在可聚焦菜单/胶囊里, 高帧会饿死遥控器输入(W1258 教训)。
-            TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
+            // W1274 — 降到 ~7fps(by:0.14): 跑在可聚焦元素里, 高帧饿死遥控器(W1258/1274 教训)。烟花仍连贯。
+            TimelineView(.periodic(from: .now, by: 0.14)) { ctx in
                 let elapsed = startT >= 0 ? max(0, ctx.date.timeIntervalSinceReferenceDate - startT) : 0
                 ZStack {
                     bigPop(elapsed)
@@ -283,13 +283,17 @@ struct CategorySidebar: View {
     var onCreate: () -> Void                   // W1259 创作入口
     @FocusState private var focus: SidebarItem?
     @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
+    @State private var avatarTick = 0          // W1274 — 每次聚焦头像 → 立即重爆一次
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // logo/头像合体徽章(整套 logo)。未登录点 = 登录; 已登录 = 金球↔头像周期切换。
-            Button { if !auth.isSignedIn { onLoginTap() } } label: {
+            // logo/头像合体徽章(整套 logo)。W1274: 未登录点=登录; 已登录点=【切换账号】(登出+重新登录)。
+            Button {
+                if auth.isSignedIn { Task { await auth.signOut(); onLoginTap() } }
+                else { onLoginTap() }
+            } label: {
                 HStack(spacing: 12) {
-                    LogoAvatarBadge(loggedIn: auth.isSignedIn, avatarURL: auth.user?.avatar)
+                    LogoAvatarBadge(loggedIn: auth.isSignedIn, avatarURL: auth.user?.avatar, burstTick: avatarTick)
                     if expanded {
                         Text(auth.isSignedIn ? (auth.user?.name ?? auth.user?.email ?? "Account") : "Sign in")
                             .font(.system(size: 19, weight: .semibold))
@@ -328,6 +332,7 @@ struct CategorySidebar: View {
         .frame(maxHeight: .infinity)
         // W1245 — Jing: 内容右移对齐 For You 后不再和侧栏打架, 侧栏背景【直接透明】(无底)。
         .onChange(of: focus) { _, newValue in
+            if newValue == .avatar { avatarTick += 1 }   // W1274 — 聚焦头像即重爆一次
             if newValue != nil {
                 if !expanded { withAnimation(.easeInOut(duration: 0.22)) { expanded = true } }
             } else {
@@ -347,10 +352,10 @@ struct CategorySidebar: View {
                 Image(systemName: icon)
                     .font(.system(size: 24, weight: hot ? .heavy : .semibold))   // 选中: 图标加粗
                     .frame(width: 34)
-                    // W1270 — Jing「左侧菜单请爆」: 改回【聚焦或选中(hot)即爆】, 导航每一项都爆;
-                    //   Home 默认仍不爆(启动时没聚焦也没选中)。背后大固定框防裁。
+                    // W1274 — 遥控器卡死根治: 菜单改回【选中(active)才爆】, 导航(聚焦)时不再每项 spin 一个
+                    //   TimelineView 饿死焦点输入; 选中(按下)才爆。Home 默认不选中→不爆。
                     .background(
-                        EmojiBurstEffect(active: hot, seed: abs(String(describing: item).hashValue),
+                        EmojiBurstEffect(active: active, seed: abs(String(describing: item).hashValue),
                                          bigEmojiSize: 64, bigPeriod: 8, smallSize: 16, smallSpread: 175,
                                          smallN: 18, continuousSmall: false, rightBias: true, immediate: true)
                             .frame(width: 180, height: 120).allowsHitTesting(false)
@@ -379,6 +384,7 @@ struct CategorySidebar: View {
 struct LogoAvatarBadge: View {
     var loggedIn: Bool = false                       // W1249 登录后传 true
     var avatarURL: String? = nil                     // W1249 用户头像
+    var burstTick: Int = 0                           // W1274 — 变化即重爆(聚焦头像时)
     private let orbAvatarFlipSeconds = 8.0
 
     @State private var showOrb = true
@@ -425,8 +431,10 @@ struct LogoAvatarBadge: View {
             // W1260 — logo/头像中心定期(~10s)来一次「情绪字幕」: 大 emoji 弹一次 + 小 emoji 烟花一阵, 然后安静。
             .background(
                 EmojiBurstEffect(active: true, seed: 42, bigEmojiSize: 92, bigPeriod: 8,
-                                 smallSize: 22, smallSpread: 240, smallN: 18, continuousSmall: false, rightBias: true)
+                                 smallSize: 22, smallSpread: 240, smallN: 18,
+                                 continuousSmall: false, rightBias: true, immediate: true)
                     .frame(width: 200, height: 200).allowsHitTesting(false)
+                    .id(burstTick)   // W1274 — 聚焦头像 tick 变 → 重建 → 立即爆一次
             )
         }
         .onReceive(flip) { _ in
@@ -665,7 +673,8 @@ struct RailRow: View {
         // W1245 — rail 标题与卡片左缘由父级 contentLeading 提供, 这里不再加 horizontal padding,
         //   与 hero 标题/Play/胶囊对齐; 卡片右侧可横滑出框。
         VStack(alignment: .leading, spacing: 14) {
-            Text(rail.title)
+            // W1274 — 栏目标题带图标。
+            Label(rail.title, systemImage: rail.icon)
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(.white.opacity(0.95))
             ScrollView(.horizontal, showsIndicators: false) {

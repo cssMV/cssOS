@@ -19,6 +19,12 @@ struct CSSWork: Codable, Identifiable {
     var durationSecs: Double?
     /// 作品类型(single/opera/film/series/triptych…)。CSSOS_WAVE_1227 首页分轨用。
     var workType: String?
+    /// W1249 聆听/观赏 gating。
+    var listenPriceCents: Int?
+    var buyoutPriceCents: Int?
+    var viewerOrders: [ViewerOrder]?
+
+    struct ViewerOrder: Codable {}   // 只关心"有没有/几条", 字段不限 → 空 Codable 容忍任意对象。
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -28,6 +34,21 @@ struct CSSWork: Codable, Identifiable {
         case coverURL = "cover_image"
         case durationSecs = "duration_secs"
         case workType = "work_type"
+        case listenPriceCents = "current_listen_price_cents"
+        case buyoutPriceCents = "current_buyout_price_cents"
+        case viewerOrders = "viewer_orders"
+    }
+
+    /// 收费(聆听价 > 0)。
+    var isPaid: Bool { (listenPriceCents ?? 0) > 0 }
+    /// 已拥有(本人在该作品上有订单)。
+    var isOwned: Bool { (viewerOrders?.isEmpty == false) }
+    /// 可免费直接播(免费 或 已拥有)。
+    var canPlayFree: Bool { !isPaid || isOwned }
+    var listenPriceLabel: String {
+        let c = listenPriceCents ?? 0
+        guard c > 0 else { return "" }
+        return "¥" + String(format: "%.2f", Double(c) / 100).replacingOccurrences(of: ".00", with: "")
     }
 
     var durationLabel: String {

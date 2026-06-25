@@ -64,7 +64,18 @@ struct ContentView: View {
     @State private var category: HomeCategory = .all
     @State private var loading = true
     @State private var selected: CSSWork?
+    @StateObject private var auth = CSSAuth()           // W1249 登录
+    @State private var showLogin = false
+    @State private var gateWork: CSSWork?               // 收费且未拥有 → 弹门
     @Namespace private var focusNS
+
+    // W1249 — 聆听/观赏 gating: 免费/已拥有直接播; 收费未拥有 → 弹门(tvOS 不接外部支付, 引导网页购买)。
+    private func choose(_ w: CSSWork) {
+        Task {
+            let h = await CSSBackend.hydrate(w)
+            if h.canPlayFree { selected = h } else { gateWork = h }
+        }
+    }
 
     /// 当前分类下的作品。
     private func works(for cat: HomeCategory) -> [CSSWork] {
@@ -96,16 +107,12 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured) { w in
-                                Task { selected = await CSSBackend.hydrate(w) }
-                            }
+                            FeaturedHero(works: featured) { choose($0) }
                             .prefersDefaultFocus(in: focusNS)   // hero 通栏(满铺左右)
                         }
                         VStack(alignment: .leading, spacing: 24) {
                             ForEach(rails) { rail in
-                                RailRow(rail: rail) { w in
-                                    Task { selected = await CSSBackend.hydrate(w) }
-                                }
+                                RailRow(rail: rail) { choose($0) }
                             }
                         }
                         .padding(.leading, FeaturedHero.contentLeading)   // W1245 — 和 hero 同 leading + 同满铺基准 → 对齐
@@ -120,7 +127,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $category)
+            CategorySidebar(selected: $category, auth: auth) { showLogin = true }
                 .focusSection()
         }
         .focusScope(focusNS)
@@ -128,9 +135,21 @@ struct ContentView: View {
         .fullScreenCover(item: $selected) { w in
             PlayerView(work: w)
         }
+        .fullScreenCover(isPresented: $showLogin) {
+            LoginView(auth: auth)
+        }
+        .alert("Paid work", isPresented: Binding(get: { gateWork != nil }, set: { if !$0 { gateWork = nil } })) {
+            Button("OK", role: .cancel) { gateWork = nil }
+        } message: {
+            Text("To listen to “\(gateWork?.title ?? "")”\(gateWork.map { $0.listenPriceLabel.isEmpty ? "" : " (\($0.listenPriceLabel))" } ?? ""), purchase it at cssstudio.app. Purchases aren’t available on Apple TV.")
+        }
         .task {
+            await auth.restore()
             allWorks = await CSSBackend.fetchFeed()
             loading = false
+        }
+        .onChange(of: auth.isSignedIn) { _, signed in
+            if signed { Task { allWorks = await CSSBackend.fetchFeed() } }  // 登录后重拉 → 带 viewer_orders 解锁已购
         }
     }
 }
@@ -151,16 +170,26 @@ enum SidebarItem: Hashable {
 ///   收起 = 只显图标(窄); 焦点进入侧栏任一项 = 展开显图标+标签(宽)。标签全英文(i18n)。
 struct CategorySidebar: View {
     @Binding var selected: HomeCategory
+    @ObservedObject var auth: CSSAuth          // W1249 登录态
+    var onLoginTap: () -> Void
     @FocusState private var focus: SidebarItem?
     @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // logo/头像合体徽章(整套 logo)。点 = 登录(待接)。焦点用缩放, 不用白底。
-            Button { } label: {
-                HStack { LogoAvatarBadge(); if expanded { Spacer() } }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .scaleEffect(focus == .avatar ? 1.06 : 1.0)
+            // logo/头像合体徽章(整套 logo)。未登录点 = 登录; 已登录 = 金球↔头像周期切换。
+            Button { if !auth.isSignedIn { onLoginTap() } } label: {
+                HStack(spacing: 12) {
+                    LogoAvatarBadge(loggedIn: auth.isSignedIn, avatarURL: auth.user?.avatar)
+                    if expanded {
+                        Text(auth.isSignedIn ? (auth.user?.name ?? "Account") : "Sign in")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+                        Spacer()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .scaleEffect(focus == .avatar ? 1.06 : 1.0)
             }
             .buttonStyle(FlatButtonStyle())
             .focused($focus, equals: .avatar)
@@ -224,7 +253,8 @@ struct CategorySidebar: View {
 ///  · 登录后 = 环照常自转; 中心【金球 ↔ 用户头像】每 8s 淡入淡出切换。
 /// 切换周期 = orbAvatarFlipSeconds(8s, 沉稳)。环自转 14s/圈。
 struct LogoAvatarBadge: View {
-    var loggedIn: Bool = false                       // 第③步接登录后传 true
+    var loggedIn: Bool = false                       // W1249 登录后传 true
+    var avatarURL: String? = nil                     // W1249 用户头像
     private let orbAvatarFlipSeconds = 8.0
 
     @State private var ringAngle: Double = 0
@@ -243,13 +273,24 @@ struct LogoAvatarBadge: View {
             }
             .rotationEffect(.degrees(ringAngle))
 
-            // W1243 — 取消 logo 上的 cssTV 文字(金球将切头像, 放不下)。仅登录头像态在环孔放头像。
+            // 登录头像态: 环孔放用户头像(有 URL 用真头像, 否则占位)。
             if loggedIn && !showOrb {
-                Image(systemName: "person.crop.circle.fill")
-                    .resizable().scaledToFit()
-                    .frame(width: 58, height: 58)
-                    .foregroundStyle(.white)
-                    .transition(.opacity)
+                Group {
+                    if let a = avatarURL, let url = URL(string: a) {
+                        AsyncImage(url: url) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: {
+                            Image(systemName: "person.crop.circle.fill").resizable().scaledToFit()
+                                .foregroundStyle(.white)
+                        }
+                    } else {
+                        Image(systemName: "person.crop.circle.fill").resizable().scaledToFit()
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: 58, height: 58)
+                .clipShape(Circle())
+                .transition(.opacity)
             }
         }
         .frame(width: 112, height: 112)   // W1243 — logo 适度放大(不做整条那么夸张)
@@ -517,5 +558,43 @@ struct WorkCard: View {
             }
         }
         .frame(width: cardWidth, alignment: .leading)
+    }
+}
+
+/// W1249 — 登录页(设备码流): 显示 cssstudio.app/tv + 6 位码, 后台轮询, 授权后自动关闭。
+struct LoginView: View {
+    @ObservedObject var auth: CSSAuth
+    @Environment(\.dismiss) private var dismiss
+    private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 26) {
+                Image("MirrorFull").resizable().scaledToFit().frame(width: 120, height: 120)
+                Text("Sign in to cssTV")
+                    .font(.system(size: 46, weight: .heavy)).foregroundStyle(.white)
+                Text("On your phone or computer, open")
+                    .font(.system(size: 24)).foregroundStyle(.white.opacity(0.8))
+                Text("cssstudio.app/tv")
+                    .font(.system(size: 38, weight: .bold)).foregroundStyle(brandGreen)
+                Text("and enter this code:")
+                    .font(.system(size: 24)).foregroundStyle(.white.opacity(0.8))
+                if let code = auth.deviceUserCode {
+                    Text(code)
+                        .font(.system(size: 78, weight: .black, design: .monospaced))
+                        .tracking(10).foregroundStyle(.white)
+                        .padding(.vertical, 10).padding(.horizontal, 40)
+                        .background(RoundedRectangle(cornerRadius: 18).stroke(brandGreen.opacity(0.5), lineWidth: 2))
+                } else {
+                    ProgressView().scaleEffect(1.6).padding(.vertical, 30)
+                }
+                Button("Cancel") { auth.cancelLogin(); dismiss() }
+                    .padding(.top, 18)
+            }
+            .padding(60)
+        }
+        .onAppear { Task { await auth.startDeviceLogin() } }
+        .onChange(of: auth.isSignedIn) { _, signed in if signed { dismiss() } }
     }
 }

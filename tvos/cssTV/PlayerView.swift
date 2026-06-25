@@ -12,8 +12,9 @@ struct VideoSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> PlayerLayerView {
         let v = PlayerLayerView()
         v.playerLayer.player = player
-        // CSSOS_WAVE_1228 — 画幅铁律: 忠实还原视频源画幅(.resizeAspect), 绝不下游强裁。源头 W1316 已修成 21:9 超宽屏。
-        v.playerLayer.videoGravity = .resizeAspect
+        // W1319 — 画幅铁律(desktop 同款): 播放器统一锁定最终 2.39 影院标准。resizeAspectFill 填满外层 2.39 框,
+        //   裁掉源多余上下。源头 W1316 已出 21:9(新作几乎不裁); 老的 16:9 也呈现 2.39(裁上下)。
+        v.playerLayer.videoGravity = .resizeAspectFill
         return v
     }
     func updateUIView(_ uiView: PlayerLayerView, context: Context) {}
@@ -40,15 +41,21 @@ struct PlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let vp = videoPlayer {
-                VideoSurface(player: vp).ignoresSafeArea()
-            } else if let cover = work.coverURL, let url = URL(string: cover) {
-                // 视频没准备好 → 先铺封面。
-                AsyncImage(url: url) { img in
-                    img.resizable().scaledToFill()
-                } placeholder: { Color.black }
-                .ignoresSafeArea()
+            // W1319 — 强制 2.39 宽银幕框(满宽 × 宽/2.39, 垂直居中, 上下电影黑边); 内容 fill 裁满。
+            GeometryReader { geo in
+                let boxH = geo.size.width / 2.39
+                Group {
+                    if let vp = videoPlayer {
+                        VideoSurface(player: vp)
+                    } else if let cover = work.coverURL, let url = URL(string: cover) {
+                        AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.black }
+                    }
+                }
+                .frame(width: geo.size.width, height: boxH)
+                .clipped()
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
             }
+            .ignoresSafeArea()
 
             // W1247 — 大屏逐字情绪字幕(招牌): 音频主时钟驱动, 底部卡拉OK + 中央逐字爆。
             if let sub = subtitle, let ap = audioPlayer {

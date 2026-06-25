@@ -108,13 +108,16 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .padding(.leading, sidebarCollapsedW)   // For You 避开收起态侧栏
+                        .padding(.leading, FeaturedHero.contentLeading)   // W1245 — 和 hero 同 leading + 同满铺基准 → 对齐
                         .padding(.top, 28)
+                        .ignoresSafeArea(.container, edges: .horizontal)
                     }
                 }
                 .padding(.bottom, 80)
             }
             .focusSection()
+            // W1245 — ScrollView 正常遵守安全区: hero 内容与 For You 同基准(safe+leading)→ 对齐;
+            //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
             CategorySidebar(selected: $category)
@@ -178,15 +181,7 @@ struct CategorySidebar: View {
         .padding(.horizontal, expanded ? 24 : 18)
         .frame(width: expanded ? 330 : 130)
         .frame(maxHeight: .infinity)
-        // W1240/1242 — 压在 hero 之上: 半透明(hero 透出来), 左稍实右柔渐变软化右缘。
-        .background(
-            LinearGradient(stops: [
-                .init(color: .black.opacity(0.55), location: 0.0),
-                .init(color: .black.opacity(0.48), location: 0.72),
-                .init(color: .black.opacity(0.0), location: 1.0),
-            ], startPoint: .leading, endPoint: .trailing)
-            .ignoresSafeArea()
-        )
+        // W1245 — Jing: 内容右移对齐 For You 后不再和侧栏打架, 侧栏背景【直接透明】(无底)。
         .onChange(of: focus) { _, newValue in
             if newValue != nil {
                 if !expanded { withAnimation(.easeInOut(duration: 0.22)) { expanded = true } }
@@ -348,70 +343,74 @@ struct FeaturedHero: View {
         }
     }
 
+    // W1245 — For You 用 contentLeading(safe 基准); hero 满铺基准多补偿一个安全区(~92pt)落同一左缘。
+    static let contentLeading: CGFloat = 210
+
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // W1236 — hero 框死成固定尺寸: 用 Color 占位定尺寸, 封面只在框内 overlay+裁切。
-            GeometryReader { geo in
-                Group {
-                    if let c = current.coverURL, let url = URL(string: c) {
-                        AsyncImage(url: url) { img in
-                            img.resizable().scaledToFill()
-                        } placeholder: { Color.white.opacity(0.06) }
-                    } else {
-                        Color.white.opacity(0.06)
-                    }
+        // W1245 — 关键: hero 内容【遵守安全区】(和 For You 同基准 → 左缘绝对对齐);
+        //   只把背景图/渐变/聚焦绿边放进 .background{} 单独【满铺】(ignoresSafeArea), 图仍通栏。
+        VStack(alignment: .leading, spacing: 14) {
+            Spacer()
+            Text(current.title ?? "Untitled")
+                .font(.system(size: 54, weight: .heavy))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .shadow(radius: 12)
+            HStack(spacing: 24) {
+                Button { onSelect(current) } label: {
+                    Label("Play", systemImage: "play.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .padding(.vertical, 14).padding(.horizontal, 30)
                 }
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipped()
-            }
-            .id(current.id)
-            .transition(.opacity)
-
-            LinearGradient(
-                colors: [.black.opacity(0.85), .black.opacity(0.25), .clear],
-                startPoint: .bottomLeading, endPoint: .topTrailing
-            )
-
-            // W1243 — 标题/Play/时长: 偏左但更避开侧栏(leading 210, 不和左侧打架), 坐在胶囊上方。
-            VStack(alignment: .leading, spacing: 14) {
-                Text(current.title ?? "Untitled")
-                    .font(.system(size: 54, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .shadow(radius: 12)
-                HStack(spacing: 24) {
-                    Button { onSelect(current) } label: {
-                        Label("Play", systemImage: "play.fill")
-                            .font(.system(size: 24, weight: .bold))
-                            .padding(.vertical, 14).padding(.horizontal, 30)
-                    }
-                    .buttonStyle(.card)
-                    .focused($playFocused)
-                    .onMoveCommand { dir in
-                        if dir == .left { userSwitch(-1) } else if dir == .right { userSwitch(1) }
-                    }
-                    if !current.durationLabel.isEmpty {
-                        Text(current.durationLabel)
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
+                .buttonStyle(.card)
+                .focused($playFocused)
+                .onMoveCommand { dir in
+                    if dir == .left { userSwitch(-1) } else if dir == .right { userSwitch(1) }
                 }
+                if !current.durationLabel.isEmpty {
+                    Text(current.durationLabel)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                Spacer()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 210)
-            .padding(.trailing, 60)
-            .padding(.bottom, 78)        // 坐在胶囊上方
-
-            // W1243 — 胶囊: 居中(ZStack .bottom 水平居中), 贴底。
             capsuleTrack
-                .padding(.bottom, 16)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 720)
-        .overlay { if playFocused { focusGlow } }          // W1244 — 聚焦时往里散绿辉光
-        .clipped()                                         // 裁掉外溢, 只留向内的辉光
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, Self.contentLeading)   // W1245 — 与 For You 同 leading + 同遵守安全区 → 必然对齐
+        .padding(.trailing, 60)
+        .padding(.top, 60)
+        .padding(.bottom, 16)
+        .frame(height: 720, alignment: .bottomLeading)
+        .background(alignment: .bottomLeading) {
+            ZStack {
+                GeometryReader { geo in
+                    Group {
+                        if let c = current.coverURL, let url = URL(string: c) {
+                            AsyncImage(url: url) { img in img.resizable().scaledToFill() }
+                                placeholder: { Color.white.opacity(0.06) }
+                        } else {
+                            Color.white.opacity(0.06)
+                        }
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                }
+                .id(current.id)
+                .transition(.opacity)
+
+                LinearGradient(
+                    colors: [.black.opacity(0.85), .black.opacity(0.25), .clear],
+                    startPoint: .bottomLeading, endPoint: .topTrailing
+                )
+
+                if playFocused { focusGlow }          // W1244 — 聚焦时往里散绿辉光(随满铺背景)
+            }
+            .clipped()
+            .ignoresSafeArea(.container, edges: .horizontal)   // 背景满铺通栏
+        }
+        .ignoresSafeArea(.container, edges: .horizontal)       // W1245 — hero 内容也满铺基准, 与 rails(同满铺)同 leading → 对齐
         .animation(.easeInOut(duration: 0.2), value: playFocused)
-        .ignoresSafeArea(.container, edges: .horizontal)   // W1239 — 满铺到边, 和 For You 一样宽(消右侧黑缝)
         .animation(.easeInOut(duration: 0.6), value: index)
         .onReceive(timer) { _ in
             if let until = pauseAutoUntil, Date() < until { return }   // 用户干预期间不自动切
@@ -464,11 +463,12 @@ struct RailRow: View {
     let onSelect: (CSSWork) -> Void
 
     var body: some View {
+        // W1245 — rail 标题与卡片左缘由父级 contentLeading 提供, 这里不再加 horizontal padding,
+        //   与 hero 标题/Play/胶囊对齐; 卡片右侧可横滑出框。
         VStack(alignment: .leading, spacing: 14) {
             Text(rail.title)
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(.white.opacity(0.95))
-                .padding(.horizontal, 80)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 36) {
                     ForEach(rail.works) { w in
@@ -476,8 +476,8 @@ struct RailRow: View {
                             .buttonStyle(.card)
                     }
                 }
-                .padding(.horizontal, 80)
                 .padding(.vertical, 24)   // 给焦点放大留出空间, 不被相邻行裁切
+                .padding(.trailing, 80)
             }
         }
         .padding(.bottom, 18)

@@ -365,8 +365,12 @@ struct EmotionSubtitleOverlay: View {
         if t < tok.startSec + 0.4 { charOp = max(0, (t - tok.startSec) / 0.4) }
         else if t < lineEnd { charOp = 1.0 }
         else { charOp = max(0, 1 - (t - lineEnd) / lineFade) }
-        let charSize: CGFloat = CGFloat(84 * (0.7 + tok.intensity))
-        let bgSize: CGFloat = CGFloat(150 * (0.7 + tok.intensity))
+        // W1337 — 字号随【情绪强度 × 随机】双重变化(不再大体一样大): 情绪越强越大 + 每字随机, 拉开差距。
+        let emoFactor = 0.55 + tok.intensity * 1.0                          // 情绪强→大(0.55~1.55)
+        let randFactor = 0.7 + CSSFx.rnd(abs(tok.id.hashValue), 17) * 0.7   // 每字随机 0.7~1.4
+        let sizeMul = emoFactor * randFactor
+        let charSize: CGFloat = CGFloat(70 * sizeMul)
+        let bgSize: CGFloat = CGFloat(130 * sizeMul)
         let scale: CGFloat = CGFloat(0.85 + 0.25 * cp)
         let pos: CGPoint = burstPosition(tok, size: size)
         let col: Color = randomColor(abs(tok.id.hashValue))   // W1321 — 逐字随机色(照桌面端, 不再行级情绪色)

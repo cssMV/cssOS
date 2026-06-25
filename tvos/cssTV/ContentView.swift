@@ -263,44 +263,42 @@ struct FeaturedHero: View {
     private var n: Int { max(works.count, 1) }
     private func go(_ delta: Int) { withAnimation { index = (index + delta + n) % n } }
 
-    // 胶囊宪法第②条: 激活段(index)排最前, 其余按序跟随。
-    private var orderedIndices: [Int] {
-        let rest = works.indices.filter { $0 != index }
-        return [index] + rest
-    }
+    private let capH: CGFloat = 46
+    private var capR: CGFloat { capH / 2 }
 
-    // 胶囊宪法【全 4 条】单轨道 + 段间缝6 + 激活段满高全圆 pill 在前 + 端角共边。
+    // 胶囊宪法【凹凸镶嵌】: 激活段两端圆(凸); 未激活段朝激活方向那端【半圆凹】, 与邻段圆头咬合。
+    //   位置序不变(不重排); 负间距 = 凹凸互嵌; 越靠近激活 zIndex 越高(凸盖凹)。
     private var capsuleTrack: some View {
-        HStack(spacing: 6) {
-            ForEach(orderedIndices, id: \.self) { i in
+        HStack(spacing: -capR) {
+            ForEach(works.indices, id: \.self) { i in
                 capsuleSegment(i)
+                    .zIndex(Double(works.count - abs(i - index)))
             }
         }
-        .frame(height: 50)
-        .background(Capsule().fill(Color.white.opacity(0.08)))
-        .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 1.5))
-        .clipShape(Capsule())
+        .frame(height: capH)
         .fixedSize(horizontal: true, vertical: false)
     }
 
     @ViewBuilder
     private func capsuleSegment(_ i: Int) -> some View {
         let active = (i == index)
-        let title = works[i].title ?? "Untitled"
-        let cover = works[i].coverURL
+        // 未激活: 凹在【朝向激活】的那侧。激活左边的 → 凹右; 激活右边的 → 凹左。
+        let side: ConcavePill.Side = active ? .none : (i < index ? .right : .left)
         HStack(spacing: 7) {
-            thumb(cover)
-                .frame(width: 28, height: 28)
+            thumb(works[i].coverURL)
+                .frame(width: 26, height: 26)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
-            Text(title)
-                .font(.system(size: 17, weight: active ? .bold : .medium))
+            Text(works[i].title ?? "Untitled")
+                .font(.system(size: 16, weight: active ? .bold : .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(active ? Color.white : Color.white.opacity(0.72))
-        .padding(.horizontal, 16)
-        .frame(maxHeight: .infinity)                                       // 同高对齐
-        .background(Capsule().fill(active ? Color.green.opacity(0.92) : Color.clear))
-        .overlay(Capsule().stroke(active ? Color.clear : Color.white.opacity(0.34), lineWidth: 1.5)) // 未激活弯线边框
+        // 凹侧多留 padding 给咬合区(凹侧 ~ r+8, 凸侧 16)。
+        .padding(.leading, side == .left ? capR + 8 : 16)
+        .padding(.trailing, side == .right ? capR + 8 : 16)
+        .frame(height: capH)
+        .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
+        .overlay(ConcavePill(side: side).stroke(Color.white.opacity(0.38), lineWidth: 1.5))
     }
 
     @ViewBuilder
@@ -318,21 +316,21 @@ struct FeaturedHero: View {
             // W1236 — hero 框死成固定尺寸: 用 Color 占位定尺寸, 封面只在框内 overlay+裁切。
             //   根因(Jing): 封面图有 2.39 有 16:9, 之前 AsyncImage 直接参与布局 → 不同比例撑得
             //   hero 忽大忽小"动来动去"。Color 锚定尺寸后, 任何比例的图都只裁切填充, 框恒定。
-            Color.black
-                .overlay(
-                    Group {
-                        if let c = current.coverURL, let url = URL(string: c) {
-                            AsyncImage(url: url) { img in
-                                img.resizable().scaledToFill()
-                            } placeholder: { Color.white.opacity(0.06) }
-                        } else {
-                            Color.white.opacity(0.06)
-                        }
+            GeometryReader { geo in
+                Group {
+                    if let c = current.coverURL, let url = URL(string: c) {
+                        AsyncImage(url: url) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: { Color.white.opacity(0.06) }
+                    } else {
+                        Color.white.opacity(0.06)
                     }
-                )
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
                 .clipped()
-                .id(current.id)
-                .transition(.opacity)
+            }
+            .id(current.id)
+            .transition(.opacity)
 
             LinearGradient(
                 colors: [.black.opacity(0.85), .black.opacity(0.25), .clear],
@@ -371,8 +369,46 @@ struct FeaturedHero: View {
         .frame(maxWidth: .infinity)
         .frame(height: 720)
         .clipped()
+        .ignoresSafeArea(.container, edges: .horizontal)   // W1239 — 满铺到边, 和 For You 一样宽(消右侧黑缝)
         .animation(.easeInOut(duration: 0.6), value: index)
         .onReceive(timer) { _ in go(1) }
+    }
+}
+
+/// W1239 — 凹凸镶嵌胶囊形状(胶囊宪法核心)。
+///   .none = 两端圆(激活/凸); .left = 右端圆、左端半圆凹; .right = 左端圆、右端半圆凹。
+struct ConcavePill: Shape {
+    enum Side { case none, left, right }
+    var side: Side = .none
+
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height, r = h / 2
+        var p = Path()
+        switch side {
+        case .none:
+            p.addRoundedRect(in: rect, cornerSize: CGSize(width: r, height: r), style: .circular)
+        case .left:
+            // 右端凸圆, 左端半圆凹(向 +x 内凹, 嵌邻段圆头)。
+            p.move(to: CGPoint(x: 0, y: 0))
+            p.addLine(to: CGPoint(x: w - r, y: 0))
+            p.addArc(center: CGPoint(x: w - r, y: r), radius: r,
+                     startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
+            p.addLine(to: CGPoint(x: 0, y: h))
+            p.addArc(center: CGPoint(x: 0, y: r), radius: r,
+                     startAngle: .degrees(90), endAngle: .degrees(-90), clockwise: true)
+            p.closeSubpath()
+        case .right:
+            // 左端凸圆, 右端半圆凹(向 -x 内凹)。
+            p.move(to: CGPoint(x: w, y: 0))
+            p.addLine(to: CGPoint(x: r, y: 0))
+            p.addArc(center: CGPoint(x: r, y: r), radius: r,
+                     startAngle: .degrees(-90), endAngle: .degrees(-270), clockwise: true)
+            p.addLine(to: CGPoint(x: w, y: h))
+            p.addArc(center: CGPoint(x: w, y: r), radius: r,
+                     startAngle: .degrees(90), endAngle: .degrees(270), clockwise: false)
+            p.closeSubpath()
+        }
+        return p
     }
 }
 

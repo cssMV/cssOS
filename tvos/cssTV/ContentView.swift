@@ -187,6 +187,7 @@ struct EmojiBurstEffect: View {
     var smallN: Int = 12
     var continuousSmall: Bool = true   // 小 emoji: true=一直爆; false=只在大爆窗口(定期情绪字幕)
     var rightBias: Bool = false        // W1262 — 往右爆: 粒子偏向右半边(盖过右侧名字/标题)
+    var immediate: Bool = false        // W1268 — true=选中即爆(菜单/胶囊); false=按 seed 错相(常驻不同时爆)
     private let pool = CSSFx.petals
     private let bigLife: Double = 1.8  // 一次大爆的生命(弹入+停留+淡出, 对齐桌面 dwell)
     @State private var startT: Double = -1   // W1267 — 激活时刻起点: elapsed=0 立即爆一次, 之后每 bigPeriod
@@ -202,7 +203,11 @@ struct EmojiBurstEffect: View {
                 }
                 .allowsHitTesting(false)
             }
-            .onAppear { startT = Date().timeIntervalSinceReferenceDate }   // 选中/出现即重置起点 → 马上爆
+            // W1268 — immediate(菜单/胶囊): 选中即爆(offset 0); 常驻(logo/创作卡): 按 seed 错相(0~7.9s)→ 不再同时爆。
+            .onAppear {
+                let off = immediate ? 0.0 : Double(abs(seed) % 80) / 10.0
+                startT = Date().timeIntervalSinceReferenceDate - off
+            }
         }
     }
 
@@ -347,7 +352,7 @@ struct CategorySidebar: View {
                     .background(
                         EmojiBurstEffect(active: active, seed: abs(String(describing: item).hashValue),
                                          bigEmojiSize: 64, bigPeriod: 8, smallSize: 16, smallSpread: 120,
-                                         smallN: 12, continuousSmall: false, rightBias: true)
+                                         smallN: 12, continuousSmall: false, rightBias: true, immediate: true)
                             .frame(width: 180, height: 120).allowsHitTesting(false)
                     )
                 if expanded {
@@ -487,7 +492,7 @@ struct FeaturedHero: View {
                     // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
                     .background(
                         EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60, bigPeriod: 8,
-                                         smallSize: 16, smallSpread: 130, smallN: 12, continuousSmall: false, rightBias: true)
+                                         smallSize: 16, smallSpread: 130, smallN: 12, continuousSmall: false, rightBias: true, immediate: true)
                             .frame(width: 140, height: 90).allowsHitTesting(false)
                     )
                 Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))

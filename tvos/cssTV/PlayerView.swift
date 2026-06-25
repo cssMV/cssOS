@@ -178,7 +178,7 @@ struct EmotionSubtitleOverlay: View {
     let lines: [CSSSubLine]
     let player: AVPlayer
     var themeEmoji: [String] = []          // W1251 — 作品主题 emoji(背景大 emoji + 字心烟花用)
-    private let burstDur = 1.1
+    private let burstDur = 2.4    // W1257 — 照搬桌面慢淡出(1.7~3.0s), 字心 emoji 爆→停留→淡出, 不再一爆即灭
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.05)) { _ in
@@ -223,12 +223,13 @@ struct EmotionSubtitleOverlay: View {
 
     // W1251 — 中央逐字爆: 背景大 emoji + 爆大字 + 字心小 emoji 烟花(高强度才放)。
     private func burstGroup(_ tok: CSSSubToken, t: Double, size: CGSize) -> some View {
-        let p: Double = (t - tok.startSec) / burstDur
-        let opacityRaw: Double = p < 0.15 ? p / 0.15 : (1 - (p - 0.15) / 0.85)
-        let opacity: Double = max(0, opacityRaw)
+        let p: Double = (t - tok.startSec) / burstDur            // 字心烟花相位(慢, 跑 sparkOut)
+        let cp: Double = min(1.0, (t - tok.startSec) / 1.1)      // 爆大字相位(快, 1.1s 收)
+        let charOpRaw: Double = cp < 0.15 ? cp / 0.15 : (1 - (cp - 0.15) / 0.85)
+        let charOp: Double = max(0, charOpRaw)
         let charSize: CGFloat = CGFloat(84 * (0.7 + tok.intensity))
         let bgSize: CGFloat = CGFloat(150 * (0.7 + tok.intensity))
-        let scale: CGFloat = CGFloat(0.85 + 0.25 * p)
+        let scale: CGFloat = CGFloat(0.85 + 0.25 * cp)
         let pos: CGPoint = burstPosition(tok, size: size)
         let col: Color = emotionColor(tok.emotion)
         let emoji: String = pickEmoji(tok)
@@ -236,7 +237,7 @@ struct EmotionSubtitleOverlay: View {
             // 背景大 emoji(淡, 衬在爆字后)
             Text(emoji)
                 .font(.system(size: bgSize))
-                .opacity(opacity * 0.30)
+                .opacity(charOp * 0.30)
                 .scaleEffect(scale)
             // 爆大字
             Text(tok.char)
@@ -245,25 +246,34 @@ struct EmotionSubtitleOverlay: View {
                 .shadow(color: col.opacity(0.7), radius: 26)
                 .shadow(color: .black.opacity(0.6), radius: 4)
                 .scaleEffect(scale)
-                .opacity(opacity * 0.92)
-            // 字心小 emoji 烟花(每个爆字都放 —— 之前 0.7 门槛把默认 0.6 的字全挡了)。
-            firework(emoji: emoji, p: p, baseOpacity: opacity)
+                .opacity(charOp * 0.92)
+            // 字心小 emoji 烟花: 照搬桌面 cssfxSparkOut(随机角度/距离/选字/字号 + 随机色 halo + 慢淡出)。
+            firework(p: p, seed: abs(tok.id.hashValue), maxDist: 160)
         }
         .position(pos)
     }
 
-    // 8 颗小 emoji 从中心向外飞 + 淡出。
-    private func firework(emoji: String, p: Double, baseOpacity: Double) -> some View {
-        let n = 8
-        let dist: CGFloat = CGFloat(p * 120)
-        let fade: Double = max(0, 1 - p) * baseOpacity
+    // W1257 — 字心烟花照搬桌面 _fireworkAt + cssfxSparkOut: 12 颗, 随机随色, 爆入→停留→淡出。
+    private func firework(p: Double, seed: Int, maxDist: CGFloat) -> some View {
+        let n = 12
+        let s = CSSFx.sparkOut(p)
         return ZStack {
             ForEach(0..<n, id: \.self) { i in
-                let ang: Double = Double(i) / Double(n) * 2 * .pi
+                let r1 = CSSFx.rnd(i, seed)
+                let r2 = CSSFx.rnd(i, seed &+ 5)
+                let r3 = CSSFx.rnd(i, seed &+ 9)
+                let r4 = CSSFx.rnd(i, seed &+ 13)
+                let ang: Double = r1 * 2 * .pi
+                let dist: CGFloat = CGFloat((7 + r2 * 22) / 29) * maxDist
+                let emoji = CSSFx.petals[Int(r3 * Double(CSSFx.petals.count)) % CSSFx.petals.count]
+                let fontVar: CGFloat = 0.6 + CGFloat(r4) * 0.9
                 Text(emoji)
-                    .font(.system(size: 34))
-                    .offset(x: CGFloat(cos(ang)) * dist, y: CGFloat(sin(ang)) * dist)
-                    .opacity(fade)
+                    .font(.system(size: 30 * fontVar))
+                    .scaleEffect(CGFloat(s.scale))
+                    .offset(x: CGFloat(cos(ang)) * dist * CGFloat(s.travel),
+                            y: CGFloat(sin(ang)) * dist * CGFloat(s.travel))
+                    .shadow(color: CSSFx.haloColor(i &+ seed).opacity(0.85), radius: 7)
+                    .opacity(s.opacity)
             }
         }
     }

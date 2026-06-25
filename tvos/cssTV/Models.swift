@@ -4,6 +4,41 @@
 // 画音分层铁律: videoURL = 静音视觉; audioURL = 独立真声音(永不用视频声)。
 
 import Foundation
+import SwiftUI
+
+// MARK: - W1257 情绪 FX 统一规范(一字照搬桌面 app.emotion-fx.js / cssfxSparkOut)。
+// 字幕字心烟花、侧栏选中、激活胶囊全调这套, 风格统一, 不再各搞一套。
+enum CSSFx {
+    /// 桌面 PETALS 池(app.emotion-fx.js:125)。
+    static let petals = ["🌸", "🌺", "🌷", "💮", "✨", "🎉", "💖", "🌟"]
+
+    /// 端口自桌面 @keyframes cssfxSparkOut(style.watch.css:1412):
+    ///   0% opacity0/scale0.4(中心) → 12% opacity1(爆入) → 62% opacity0.92/travel0.9/scale1.04(停留)
+    ///   → 100% opacity0/travel1.0/scale1.06(淡出)。曲线 cubic-bezier(0.2,0.7,0.3,1)。
+    /// p ∈ [0,1] 为粒子在自身生命周期内的相位。返回 (透明度, 行进比例 0~1, 缩放)。
+    static func sparkOut(_ p: Double) -> (opacity: Double, travel: Double, scale: Double) {
+        let scale: Double = p < 0.62 ? 0.4 + (1.04 - 0.4) * (p / 0.62)
+                                      : 1.04 + 0.02 * ((p - 0.62) / 0.38)
+        let opacity: Double
+        if p < 0.12 { opacity = p / 0.12 }
+        else if p < 0.62 { opacity = 1.0 - 0.08 * ((p - 0.12) / 0.50) }
+        else { opacity = 0.92 * (1 - (p - 0.62) / 0.38) }
+        let travel: Double = p < 0.12 ? 0
+            : (p < 0.62 ? 0.9 * ((p - 0.12) / 0.50) : 0.9 + 0.1 * ((p - 0.62) / 0.38))
+        return (max(0, opacity), travel, scale)
+    }
+
+    /// 稳定伪随机 [0,1)(给定整数对 → 同值, 用于每颗粒子/每轮的随机角度·距离·色相·选字)。
+    static func rnd(_ a: Int, _ b: Int) -> Double {
+        let s = sin(Double(a &* 127 &+ b &* 311) * 0.61803398875) * 43758.5453
+        return s - floor(s)
+    }
+
+    /// 随机色 halo(桌面 hsl(rand*360,92%,72%))。
+    static func haloColor(_ seed: Int) -> Color {
+        Color(hue: rnd(seed, 7), saturation: 0.92, brightness: 0.86)
+    }
+}
 
 /// 一首作品(MV)。字段映射 cssOS 后端 work 行(只取大屏影院需要的)。
 struct CSSWork: Codable, Identifiable {

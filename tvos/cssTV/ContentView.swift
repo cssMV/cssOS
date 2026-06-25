@@ -170,37 +170,54 @@ struct EmojiBurstEffect: View {
     var active: Bool
     var seed: Int = 0
     var bgSize: CGFloat = 54
-    var particleSize: CGFloat = 16
-    var spread: CGFloat = 32
-    private let pool = ["✨", "🌟", "💫", "⭐️", "🎉", "💗", "🔥", "🍃", "💧", "🌈", "🎵", "🪄"]
+    var particleN: Int = 12
+    var particleSize: CGFloat = 22
+    var spread: CGFloat = 60      // 最大行进距离(pt)
+    private let pool = CSSFx.petals
 
     var body: some View {
         if active {
-            TimelineView(.periodic(from: .now, by: 0.06)) { ctx in
+            TimelineView(.periodic(from: .now, by: 0.04)) { ctx in
                 let t = ctx.date.timeIntervalSinceReferenceDate
                 ZStack {
-                    // 背景大 emoji: 每 1.2s 随机换一个, 带脉动(招牌张扬, 不遮掩)。
-                    let bgIdx = (Int(t / 1.2) + seed) % pool.count
+                    // 背景大 emoji: 每 1.2s 换一个 + 脉动(招牌张扬)。
+                    let bgIdx = abs(Int(t / 1.2) + seed) % pool.count
                     let pulse: CGFloat = 1.0 + 0.18 * CGFloat(sin(t * 3.0 + Double(seed)))
-                    Text(pool[abs(bgIdx) % pool.count])
-                        .font(.system(size: bgSize))
-                        .scaleEffect(pulse)
-                        .opacity(0.55)
-                    // 字心不断爆小 emoji: 14 颗各自循环相位, 从中心飞出+淡出, 永不停。
-                    ForEach(0..<14, id: \.self) { i in
-                        let phase: Double = ((t * 0.9) + Double(i) / 14.0 + Double(seed) * 0.13).truncatingRemainder(dividingBy: 1)
-                        let ang: Double = (Double(i) / 14.0 + Double(seed) * 0.07) * 2 * .pi
-                        let dist: CGFloat = CGFloat(phase) * spread
-                        let idx: Int = abs(i + seed + Int(t * 2)) % pool.count
-                        Text(pool[idx])
-                            .font(.system(size: particleSize * (1.0 - 0.3 * CGFloat(phase))))
-                            .offset(x: CGFloat(cos(ang)) * dist, y: CGFloat(sin(ang)) * dist)
-                            .opacity((1 - phase) * 1.0)
+                    Text(pool[bgIdx]).font(.system(size: bgSize)).scaleEffect(pulse).opacity(0.5)
+                    // 字心爆小 emoji: 每颗各自跑一遍桌面 cssfxSparkOut(爆入→停留→淡出), 每轮重随机+随机色。
+                    ForEach(0..<particleN, id: \.self) { i in
+                        spark(i, t: t)
                     }
                 }
                 .allowsHitTesting(false)
             }
         }
+    }
+
+    @ViewBuilder
+    private func spark(_ i: Int, t: Double) -> some View {
+        let dur: Double = 1.7 + CSSFx.rnd(i, seed) * 1.3                 // 桌面 1.7~3.0s
+        let off: Double = CSSFx.rnd(i, seed &+ 1)
+        let prog: Double = t / dur + off
+        let cyc: Int = Int(floor(prog))                                 // 轮次 → 每轮重随机
+        let p: Double = prog - floor(prog)
+        let r1 = CSSFx.rnd(i &+ cyc &* 31, seed)
+        let r2 = CSSFx.rnd(i &+ cyc &* 31, seed &+ 5)
+        let r3 = CSSFx.rnd(i &+ cyc &* 31, seed &+ 9)
+        let r4 = CSSFx.rnd(i, seed &+ 13)
+        let ang: Double = r1 * 2 * .pi
+        let dist: CGFloat = CGFloat((7 + r2 * 22) / 29) * spread        // 桌面 7~29vmin → 归一到 spread
+        let emoji = pool[Int(r3 * Double(pool.count)) % pool.count]
+        let fontVar: CGFloat = 0.6 + CGFloat(r4) * 0.9                  // 桌面 0.6~1.5em
+        let s = CSSFx.sparkOut(p)
+        let halo = CSSFx.haloColor(i &+ cyc &* 7 &+ seed)
+        return Text(emoji)
+            .font(.system(size: particleSize * fontVar))
+            .scaleEffect(CGFloat(s.scale))
+            .offset(x: CGFloat(cos(ang)) * dist * CGFloat(s.travel),
+                    y: CGFloat(sin(ang)) * dist * CGFloat(s.travel))
+            .shadow(color: halo.opacity(0.85), radius: 7)               // 随机色 halo
+            .opacity(s.opacity)
     }
 }
 
@@ -278,7 +295,8 @@ struct CategorySidebar: View {
                     .font(.system(size: 24, weight: hot ? .heavy : .semibold))   // 选中: 图标加粗
                     .frame(width: 34)
                     // W1252 — 招牌: 选中项图标字心爆 emoji(背景大 + 不断小烟花)。
-                    .overlay { EmojiBurstEffect(active: active, seed: abs(String(describing: item).hashValue), bgSize: 92, particleSize: 32, spread: 60).allowsHitTesting(false) }
+                    // W1257 — 选中【或聚焦】即爆(修"只有 Home 爆": 原来只 active=选中才爆)。
+                    .overlay { EmojiBurstEffect(active: hot, seed: abs(String(describing: item).hashValue), bgSize: 84, particleN: 12, particleSize: 28, spread: 56).allowsHitTesting(false) }
                 if expanded {
                     Text(label)
                         .font(.system(size: 22, weight: hot ? .bold : .medium))   // 选中: 文字加粗
@@ -408,7 +426,7 @@ struct FeaturedHero: View {
                     .frame(width: 56, height: 56 / 2.39)          // 2.39 宽银幕缩略图(长扁)
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                     // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
-                    .overlay { EmojiBurstEffect(active: active, seed: i, bgSize: 78, particleSize: 28, spread: 52).allowsHitTesting(false) }
+                    .overlay { EmojiBurstEffect(active: active, seed: i, bgSize: 70, particleN: 12, particleSize: 24, spread: 50).allowsHitTesting(false) }
                 Text(works[i].title ?? "Untitled")
                     .font(.system(size: 16, weight: active ? .bold : .medium))
                     .lineLimit(1)

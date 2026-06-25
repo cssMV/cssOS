@@ -572,9 +572,10 @@ struct FeaturedHero: View {
                                 // W1269 — Create 卡无封面: 用一个大 emoji 当封面图(常驻), 招牌爆点缀其上。
                                 Text("✨").font(.system(size: 260)).opacity(0.9)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                // W1272 — Jing「Create hero 卡为何要等」: 改 immediate, 轮到它当 hero 时立即爆(和它的胶囊同时), 不再按 seed 延后。
                                 EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 8,
                                                  smallSize: 28, smallSpread: 340, smallN: 14,
-                                                 continuousSmall: false).allowsHitTesting(false)
+                                                 continuousSmall: false, immediate: true).allowsHitTesting(false)
                             }
                         } else if let c = current.coverURL, let url = URL(string: c) {
                             AsyncImage(url: url) { img in img.resizable().scaledToFill() }

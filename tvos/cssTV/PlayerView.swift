@@ -249,14 +249,12 @@ struct EmotionSubtitleOverlay: View {
         return HStack(spacing: 12) {
             ForEach(0..<n, id: \.self) { i in
                 Text(notePool[abs(seed &+ i &* 7) % notePool.count])
-                    .font(.system(size: 38, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .shadow(color: .black, radius: 2)
-                    .shadow(color: .black.opacity(0.9), radius: 4)
+                    .font(.system(size: 24, weight: .light))           // W1325 — 同传统字幕: 小、细
+                    .foregroundStyle(randomColor(seed &+ i &* 31).opacity(0.85))   // W1325 — 走传统字幕的随机变色
+                    .shadow(color: .black.opacity(0.85), radius: 2)
                     .offset(y: i % 2 == 0 ? -5 : 5)   // 高低错落, 像乐谱音符
             }
         }
-        .padding(.horizontal, 20)
     }
 
     private func activeBurstTokens(_ t: Double) -> [CSSSubToken] {

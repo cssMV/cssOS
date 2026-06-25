@@ -31921,11 +31921,6 @@ function handleGlobalAction(action) {
     globalThis.openWorkspacesPanelModule?.() || openPanel(workspacesPanel);
     return;
   }
-  // CSSOS_WAVE_1226 — cssTV 大屏入口: dock 📺 → 懒加载桩 cssosOpenCssTV(router 注册, 首点按需加载)。
-  if (action === "csstv") {
-    globalThis.cssosOpenCssTV?.();
-    return;
-  }
   if (action === "mic") {
     invokeMicClickAction("logo");
   }

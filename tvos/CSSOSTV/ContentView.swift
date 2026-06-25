@@ -75,8 +75,9 @@ struct RailRow: View {
 
 struct WorkCard: View {
     let work: CSSWork
-    // CSSOS_WAVE_1227 — 横向 rail 里卡片定宽; 16:9 封面(420×236)。
-    private let cardWidth: CGFloat = 420
+    // CSSOS_WAVE_1228 — 画幅铁律: 横屏一律 2.39:1 电影宽银幕, 绝不 16:9。卡片 480 宽 → 201 高。
+    private let cardWidth: CGFloat = 480
+    private let cinemaRatio: CGFloat = 2.39
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -91,7 +92,7 @@ struct WorkCard: View {
                     Color.white.opacity(0.08)
                 }
             }
-            .frame(width: cardWidth, height: cardWidth * 9 / 16)
+            .frame(width: cardWidth, height: cardWidth / cinemaRatio)
             .clipShape(RoundedRectangle(cornerRadius: 16))
 
             Text(work.title ?? "Untitled")

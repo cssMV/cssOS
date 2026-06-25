@@ -11,7 +11,9 @@ struct VideoSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> PlayerLayerView {
         let v = PlayerLayerView()
         v.playerLayer.player = player
-        v.playerLayer.videoGravity = .resizeAspectFill
+        // CSSOS_WAVE_1228 — 画幅铁律: 2.39 电影宽银幕完整呈现(.resizeAspect = 上下黑边信箱),
+        // 绝不用 .resizeAspectFill 裁成 16:9 满屏丢掉宽银幕两侧。
+        v.playerLayer.videoGravity = .resizeAspect
         return v
     }
     func updateUIView(_ uiView: PlayerLayerView, context: Context) {}

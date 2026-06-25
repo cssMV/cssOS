@@ -70,8 +70,6 @@
     // CSSOS_WAVE_662 第2步: face-safe 人脸避让分析器(顶层自启, 唯一消费者 watch-media-overlays 已守卫,
     //   缺失期 round-robin 优雅降级)。挂 cssos:work-id-changed(进 watch 放歌即触发, router 补发带原 detail)。
     "face-safe": { fns: [], events: ["cssos:work-id-changed"] },
-    // CSSOS_WAVE_1225 — cssTV 大屏浏览层: #cssTV 精确 hash 触发懒加载, 模块自开 + 暴露 cssosOpenCssTV 桩。
-    "csstv": { fns: ["cssosOpenCssTV", "cssosCloseCssTV"], hash: "#cssTV", hashExact: true },
   };
 
   function loadPanel(name, silent) {

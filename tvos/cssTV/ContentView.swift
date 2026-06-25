@@ -263,6 +263,56 @@ struct FeaturedHero: View {
     private var n: Int { max(works.count, 1) }
     private func go(_ delta: Int) { withAnimation { index = (index + delta + n) % n } }
 
+    // 胶囊宪法第②条: 激活段(index)排最前, 其余按序跟随。
+    private var orderedIndices: [Int] {
+        let rest = works.indices.filter { $0 != index }
+        return [index] + rest
+    }
+
+    // 胶囊宪法【全 4 条】单轨道 + 段间缝6 + 激活段满高全圆 pill 在前 + 端角共边。
+    private var capsuleTrack: some View {
+        HStack(spacing: 6) {
+            ForEach(orderedIndices, id: \.self) { i in
+                capsuleSegment(i)
+            }
+        }
+        .frame(height: 50)
+        .background(Capsule().fill(Color.white.opacity(0.08)))
+        .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 1.5))
+        .clipShape(Capsule())
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    private func capsuleSegment(_ i: Int) -> some View {
+        let active = (i == index)
+        let title = works[i].title ?? "Untitled"
+        let cover = works[i].coverURL
+        HStack(spacing: 7) {
+            thumb(cover)
+                .frame(width: 28, height: 28)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            Text(title)
+                .font(.system(size: 17, weight: active ? .bold : .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(active ? Color.white : Color.white.opacity(0.72))
+        .padding(.horizontal, 16)
+        .frame(maxHeight: .infinity)                                       // 同高对齐
+        .background(Capsule().fill(active ? Color.green.opacity(0.92) : Color.clear))
+        .overlay(Capsule().stroke(active ? Color.clear : Color.white.opacity(0.34), lineWidth: 1.5)) // 未激活弯线边框
+    }
+
+    @ViewBuilder
+    private func thumb(_ cover: String?) -> some View {
+        if let c = cover, let url = URL(string: c) {
+            AsyncImage(url: url) { img in img.resizable().scaledToFill() }
+                placeholder: { Color.white.opacity(0.12) }
+        } else {
+            Color.white.opacity(0.12)
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // W1236 — hero 框死成固定尺寸: 用 Color 占位定尺寸, 封面只在框内 overlay+裁切。
@@ -314,38 +364,7 @@ struct FeaturedHero: View {
                     }
                     Spacer()
                 }
-                // W1238 — 胶囊宪法【全 4 条】: ①每段=缩略图+标题(gap7) ②【激活段在前(左)】
-                //   ③激活两头圆全 pill ④单轨道(999圆角+1px边框+无padding+clip)+段间缝6、端角共边。
-                //   第②条 = 激活段始终排最前, 其余按序跟随(之前漏掉的那条)。
-                HStack(spacing: 6) {
-                    ForEach([index] + works.indices.filter { $0 != index }, id: \.self) { i in
-                        HStack(spacing: 7) {
-                            Group {
-                                if let c = works[i].coverURL, let url = URL(string: c) {
-                                    AsyncImage(url: url) { img in img.resizable().scaledToFill() }
-                                        placeholder: { Color.white.opacity(0.12) }
-                                } else { Color.white.opacity(0.12) }
-                            }
-                            .frame(width: 28, height: 28)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            Text(works[i].title ?? "Untitled")
-                                .font(.system(size: 17, weight: i == index ? .bold : .medium))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(i == index ? Color.white : Color.white.opacity(0.72))
-                        .padding(.horizontal, 16)
-                        .frame(maxHeight: .infinity)                                  // 所有段同高、对齐(不再一高一低)
-                        .background(Capsule().fill(i == index ? Color.green.opacity(0.92) : Color.clear))
-                        // 未激活段: 一圈弯线边框(= 该胶囊自身的边框, 与相邻段以弯线隔开)。
-                        .overlay(Capsule().stroke(i == index ? Color.clear : Color.white.opacity(0.34),
-                                                  lineWidth: 1.5))
-                    }
-                }
-                .frame(height: 50)                                                    // 轨道高度(段填满 → 对齐)
-                .background(Capsule().fill(Color.white.opacity(0.08)))                // 轨道底
-                .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 1.5)) // 轨道边框, 与胶囊共用
-                .clipShape(Capsule())                                                 // 端角共边, 首枚贴轨道左缘
-                .fixedSize(horizontal: true, vertical: false)                         // 宽度自适应内容
+                capsuleTrack    // W1238 — 胶囊宪法全 4 条
             }
             .padding(60)
         }

@@ -309,6 +309,7 @@ struct CategorySidebar: View {
             }
             .buttonStyle(FlatButtonStyle())
             .focused($focus, equals: .avatar)
+            .onMoveCommand { handleMove($0) }   // W1275 — 头像也接管方向键(左/右收标签, 上下导航)
             .padding(.bottom, 10)
 
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
@@ -374,6 +375,34 @@ struct CategorySidebar: View {
         }
         .buttonStyle(FlatButtonStyle())
         .focused($focus, equals: item)
+        .onMoveCommand { handleMove($0) }   // W1275 — 接管方向键: 左/右收标签, 上下手动导航
+    }
+
+    // W1275 — 侧栏可聚焦项的视觉顺序(手动导航用)。
+    private var orderedItems: [SidebarItem] {
+        var arr: [SidebarItem] = [.avatar, .favorites, .search]
+        for cat in HomeCategory.allCases {
+            arr.append(.category(cat))
+            if cat == .trilogy { arr.append(.create) }
+        }
+        return arr
+    }
+    private func moveFocus(_ delta: Int) {
+        guard let cur = focus, let idx = orderedItems.firstIndex(of: cur) else { return }
+        let ni = idx + delta
+        if ni >= 0 && ni < orderedItems.count { focus = orderedItems[ni] }
+    }
+    // W1275 — Jing 铁律: 左侧菜单【无论往左还是往右, 文字标签都收起】; 往右还离开侧栏进内容。
+    private func handleMove(_ dir: MoveCommandDirection) {
+        switch dir {
+        case .up:    moveFocus(-1)
+        case .down:  moveFocus(1)
+        case .left:  withAnimation(.easeInOut(duration: 0.22)) { expanded = false }
+        case .right:
+            withAnimation(.easeInOut(duration: 0.22)) { expanded = false }
+            focus = nil   // 离开侧栏 → 焦点引擎转到内容(hero prefersDefaultFocus 会接住, 第一个胶囊爆)
+        @unknown default: break
+        }
     }
 }
 

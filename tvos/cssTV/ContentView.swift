@@ -73,6 +73,7 @@ struct ContentView: View {
     @State private var showCreate = false               // W1259 创作台
     @State private var showSearch = false               // W1277 搜索
     @Namespace private var focusNS
+    @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
 
     // W1249/1259 — 创作尾卡 → 创作台; 否则 gating(免费/已拥有直接播; 收费未拥有 → 弹门)。
     private func choose(_ w: CSSWork) {
@@ -117,7 +118,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured, focusNS: focusNS) { choose($0) }
+                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS) { choose($0) }
                             // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
@@ -137,7 +138,8 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS)
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS)
+                .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                 .focusSection()
         }
         .focusScope(focusNS)
@@ -284,6 +286,7 @@ struct CategorySidebar: View {
     var onCreate: () -> Void                   // W1259 创作入口
     var onSearch: () -> Void                   // W1277 搜索入口
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
+    var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
     @Environment(\.resetFocus) private var resetFocus   // W1278 — 主动把焦点送到默认目标
     @FocusState private var focus: SidebarItem?
     @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
@@ -324,6 +327,7 @@ struct CategorySidebar: View {
                 row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
                     selected = cat
                 }
+                .prefersDefaultFocus(cat == .all, in: sidebarNS)   // W1283 — Home = 侧栏默认目标(hero 往左跳回它)
                 // W1259 — 「✨ Create」创作入口, 放在 Trilogy 之下(Jing 指定)。
                 if cat == .trilogy {
                     row(icon: "wand.and.stars", label: "Create", item: .create) { onCreate() }
@@ -484,12 +488,15 @@ struct LogoAvatarBadge: View {
 struct FeaturedHero: View {
     let works: [CSSWork]
     var focusNS: Namespace.ID                         // W1278 — 第一个胶囊 = 焦点域默认目标(侧栏右键跳来)
+    var sidebarNS: Namespace.ID                       // W1283 — 往左跳回侧栏用
     let onSelect: (CSSWork) -> Void
 
+    @Environment(\.resetFocus) private var resetFocus // W1283 — 往左把焦点送回侧栏
     @State private var index = 0
     @State private var pauseAutoUntil: Date? = nil   // W1241 — 用户干预后暂停自动轮播到此刻
     @FocusState private var playFocused: Bool        // W1244 — Play(=hero)是否聚焦
     @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
+    @FocusState private var bridgeFocused: Bool      // W1283 — 胶囊左侧隐形桥: 落焦即跳回侧栏
     private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
@@ -512,10 +519,18 @@ struct FeaturedHero: View {
     // W1250 — 胶囊宪法【凹凸镶嵌】+ 遥控器可操作: 固定顺序, 每段可聚焦。激活段(=index)两端圆(凸);
     //   左侧段凹右、右侧段凹左, 都朝激活咬合。聚焦哪段 → 它即激活(绿)、hero 跟着换。
     private var capsuleTrack: some View {
-        HStack(spacing: -capR) {
-            ForEach(works.indices, id: \.self) { i in
-                capsuleSegment(i)
-                    .zIndex(i == index ? Double(works.count + 1) : Double(works.count - abs(i - index)))
+        HStack(spacing: 0) {
+            // W1283 — 胶囊最左侧隐形"桥": 从第一个胶囊按左 → 落到它 → 立刻把焦点送回侧栏 Home。
+            //   不打断胶囊本身的左右/上下导航(桥只是它们的左邻居)。
+            Color.clear.frame(width: 1, height: capH)
+                .focusable()
+                .focused($bridgeFocused)
+                .onChange(of: bridgeFocused) { _, f in if f { resetFocus(in: sidebarNS) } }
+            HStack(spacing: -capR) {
+                ForEach(works.indices, id: \.self) { i in
+                    capsuleSegment(i)
+                        .zIndex(i == index ? Double(works.count + 1) : Double(works.count - abs(i - index)))
+                }
             }
         }
         .frame(height: capH)

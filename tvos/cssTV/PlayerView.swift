@@ -60,6 +60,15 @@ struct PlayerView: View {
                 .frame(width: geo.size.width, height: boxH)
                 .clipped()
                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
+
+                // W1334 — 照桌面端: 媒体框品牌绿描边 + 向外散发绿色辉光(box-shadow 0 0 22/46px green/cyan)。
+                Rectangle()
+                    .stroke(Color(red: 0, green: 0.96, blue: 0.63).opacity(0.6), lineWidth: 2)
+                    .frame(width: geo.size.width - 8, height: boxH - 4)
+                    .shadow(color: Color(red: 0, green: 0.96, blue: 0.63).opacity(0.55), radius: 22)
+                    .shadow(color: Color(red: 0.04, green: 0.97, blue: 1).opacity(0.35), radius: 46)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .allowsHitTesting(false)
             }
             .ignoresSafeArea()
 

@@ -131,14 +131,13 @@
 #watch-panel #watch-karaoke-line,
 #watch-panel #watch-subtitle {
   white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
+  /* CSSOS_WAVE_1255b — Jing「不要再加 … 截断, 没多少字幕那么长」: 去掉 ellipsis 截断,
+   *   overflow 改 visible, 整句完整显示(放宽 max-width 到 AI 助理之前)。 */
+  overflow: visible !important;
+  text-overflow: clip !important;
   word-break: keep-all !important;
   overflow-wrap: normal !important;
-  /* CSSOS_PHASE2_SUBTITLE_BOTTOM_LEFT 20260504 — Jing: shrink the
-   * max-width so the bottom-left anchored subtitle leaves space on
-   * the right for commerce / action chips and per-take pills. */
-  max-width: min(62%, 720px) !important;
+  max-width: min(88%, 1000px) !important;
   line-height: 1.2 !important;
 }
 /* The karaoke line wraps each cue in .watch-karaoke-prev / -current /

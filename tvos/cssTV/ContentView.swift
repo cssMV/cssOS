@@ -584,6 +584,13 @@ struct FeaturedHero: View {
                                      rightBias: true)
                         .frame(width: 140, height: 90).allowsHitTesting(false)
                 )
+                .background(
+                    // W1313 — Jing: 被甩到【最后一位】的胶囊, 到位后再补几颗小 emoji → 错觉"从第一位带过来的余晖落在这"。
+                    EmojiBurstEffect(active: n > 1 && positionInOrder(i) == n - 1,
+                                     seed: i &+ 777, bigEmojiSize: 0, bigPeriod: 0,
+                                     smallSize: 14, smallSpread: 95, smallN: 8, rightBias: false)
+                        .frame(width: 120, height: 80).allowsHitTesting(false)
+                )
             Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
                 .font(.system(size: 16, weight: active ? .bold : .medium))
                 .lineLimit(1)

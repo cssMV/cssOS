@@ -42670,7 +42670,8 @@ app.post("/api/auth/device/approve", express.json({ limit: "1kb" }), async (req,
 });
 
 // 4) /tv 授权页(极简, 英文默认)。已登录显示输码框; 未登录引导先登录。
-app.get("/tv", async (req, res) => {
+//    W1250 — /cssTV 品牌别名(两条路径同一页, /tv 保持惯例好记)。
+app.get(["/tv", "/cssTV"], async (req, res) => {
   noStore(res); res.type("html");
   let signedIn = false;
   try { signedIn = !!(await getSessionUser(req)); } catch { /* ignore */ }

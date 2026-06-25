@@ -182,7 +182,7 @@ struct CategorySidebar: View {
                 HStack(spacing: 12) {
                     LogoAvatarBadge(loggedIn: auth.isSignedIn, avatarURL: auth.user?.avatar)
                     if expanded {
-                        Text(auth.isSignedIn ? (auth.user?.name ?? "Account") : "Sign in")
+                        Text(auth.isSignedIn ? (auth.user?.name ?? auth.user?.email ?? "Account") : "Sign in")
                             .font(.system(size: 19, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.85)).lineLimit(1)
                         Spacer()
@@ -257,45 +257,47 @@ struct LogoAvatarBadge: View {
     var avatarURL: String? = nil                     // W1249 用户头像
     private let orbAvatarFlipSeconds = 8.0
 
-    @State private var ringAngle: Double = 0
     @State private var showOrb = true
     private let flip = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack {
-            // 整套 logo 自转: 未登录(或金球态)= MirrorFull(环+金球); 登录后头像态 = 只 MirrorRing。
-            Group {
-                if !loggedIn || showOrb {
-                    Image("MirrorFull").resizable().scaledToFit().transition(.opacity)
-                } else {
-                    Image("MirrorRing").resizable().scaledToFit().transition(.opacity)
-                }
-            }
-            .rotationEffect(.degrees(ringAngle))
-
-            // 登录头像态: 环孔放用户头像(有 URL 用真头像, 否则占位)。
-            if loggedIn && !showOrb {
+        // W1250 — 魔镜【永远转】: 用 TimelineView 按绝对时间算角度驱动旋转, 不会被登录后 flip 的
+        //   withAnimation 取消(旧 ringAngle repeatForever 动画就是被它掐断 → 登录后停转的真凶)。
+        //   金球/环转, 头像保持正立(在旋转层之外)。
+        TimelineView(.animation) { ctx in
+            let secs = ctx.date.timeIntervalSinceReferenceDate
+            let angle = secs.truncatingRemainder(dividingBy: 14.0) / 14.0 * 360.0   // 14s/圈
+            ZStack {
                 Group {
-                    if let a = avatarURL, let url = URL(string: a) {
-                        AsyncImage(url: url) { img in
-                            img.resizable().scaledToFill()
-                        } placeholder: {
+                    if !loggedIn || showOrb {
+                        Image("MirrorFull").resizable().scaledToFit().transition(.opacity)
+                    } else {
+                        Image("MirrorRing").resizable().scaledToFit().transition(.opacity)
+                    }
+                }
+                .rotationEffect(.degrees(angle))
+
+                // 登录头像态: 环孔放用户头像(正立不转)。
+                if loggedIn && !showOrb {
+                    Group {
+                        if let a = avatarURL, let url = URL(string: a) {
+                            AsyncImage(url: url) { img in
+                                img.resizable().scaledToFill()
+                            } placeholder: {
+                                Image(systemName: "person.crop.circle.fill").resizable().scaledToFit()
+                                    .foregroundStyle(.white)
+                            }
+                        } else {
                             Image(systemName: "person.crop.circle.fill").resizable().scaledToFit()
                                 .foregroundStyle(.white)
                         }
-                    } else {
-                        Image(systemName: "person.crop.circle.fill").resizable().scaledToFit()
-                            .foregroundStyle(.white)
                     }
+                    .frame(width: 58, height: 58)
+                    .clipShape(Circle())
+                    .transition(.opacity)
                 }
-                .frame(width: 58, height: 58)
-                .clipShape(Circle())
-                .transition(.opacity)
             }
-        }
-        .frame(width: 112, height: 112)   // W1243 — logo 适度放大(不做整条那么夸张)
-        .onAppear {
-            withAnimation(.linear(duration: 14).repeatForever(autoreverses: false)) { ringAngle = 360 }
+            .frame(width: 112, height: 112)
         }
         .onReceive(flip) { _ in
             guard loggedIn else { return }            // 未登录: 永远完整 logo, 不切头像
@@ -314,6 +316,7 @@ struct FeaturedHero: View {
     @State private var index = 0
     @State private var pauseAutoUntil: Date? = nil   // W1241 — 用户干预后暂停自动轮播到此刻
     @FocusState private var playFocused: Bool        // W1244 — Play(=hero)是否聚焦
+    @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
     private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
@@ -330,24 +333,16 @@ struct FeaturedHero: View {
     private var n: Int { max(works.count, 1) }
     private func go(_ delta: Int) { withAnimation { index = (index + delta + n) % n } }
 
-    // W1241 — 用户干预永远最高优先级: 遥控器切胶囊 → 自动轮播暂停, 10s 无操作才恢复。
-    private func userSwitch(_ delta: Int) {
-        go(delta)
-        pauseAutoUntil = Date().addingTimeInterval(10)
-    }
-
     private let capH: CGFloat = 46
     private var capR: CGFloat { capH / 2 }
 
-    // 激活段自动到第一位(Jing: 效果好, 保留), 其余按序跟随 → 全部在激活右侧。
-    private var orderedIndices: [Int] { [index] + works.indices.filter { $0 != index } }
-
-    // 胶囊宪法【凹凸镶嵌】: 激活段(第一个)两端圆(凸); 其余段左端【半圆凹】嵌前一段圆头。
+    // W1250 — 胶囊宪法【凹凸镶嵌】+ 遥控器可操作: 固定顺序, 每段可聚焦。激活段(=index)两端圆(凸);
+    //   左侧段凹右、右侧段凹左, 都朝激活咬合。聚焦哪段 → 它即激活(绿)、hero 跟着换。
     private var capsuleTrack: some View {
         HStack(spacing: -capR) {
-            ForEach(Array(orderedIndices.enumerated()), id: \.element) { pos, i in
-                capsuleSegment(i, active: pos == 0)
-                    .zIndex(Double(works.count - pos))   // 激活(第一)最高, 凸盖右邻的凹
+            ForEach(works.indices, id: \.self) { i in
+                capsuleSegment(i)
+                    .zIndex(i == index ? Double(works.count + 1) : Double(works.count - abs(i - index)))
             }
         }
         .frame(height: capH)
@@ -355,23 +350,30 @@ struct FeaturedHero: View {
     }
 
     @ViewBuilder
-    private func capsuleSegment(_ i: Int, active: Bool) -> some View {
-        let side: ConcavePill.Side = active ? .none : .left   // 激活右侧的段一律凹左
-        HStack(spacing: 8) {
-            thumb(works[i].coverURL)
-                .frame(width: 56, height: 56 / 2.39)          // 2.39 宽银幕缩略图(长扁)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-            Text(works[i].title ?? "Untitled")
-                .font(.system(size: 16, weight: active ? .bold : .medium))
-                .lineLimit(1)
+    private func capsuleSegment(_ i: Int) -> some View {
+        let active = (i == index)
+        let focused = (focusedCap == i)
+        let side: ConcavePill.Side = active ? .none : (i < index ? .right : .left)
+        Button { onSelect(works[i]) } label: {
+            HStack(spacing: 8) {
+                thumb(works[i].coverURL)
+                    .frame(width: 56, height: 56 / 2.39)          // 2.39 宽银幕缩略图(长扁)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                Text(works[i].title ?? "Untitled")
+                    .font(.system(size: 16, weight: active ? .bold : .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(active ? Color.white : Color.white.opacity(0.72))
+            .padding(.leading, active ? 16 : capR + 10)           // 凹侧留咬合区
+            .padding(.trailing, side == .right ? capR + 10 : 16)
+            .frame(height: capH)
+            .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
+            .overlay(active ? nil : ConcavePill(side: side).stroke(Color.white.opacity(0.10), lineWidth: 1))
+            .overlay(focused ? ConcavePill(side: side).stroke(brandGreen, lineWidth: 3) : nil)  // 聚焦绿描边
+            .scaleEffect(focused ? 1.08 : 1.0)
         }
-        .foregroundStyle(active ? Color.white : Color.white.opacity(0.72))
-        .padding(.leading, active ? 16 : capR + 10)           // 凹侧(左)留咬合区
-        .padding(.trailing, 16)
-        .frame(height: capH)
-        .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
-        // W1241/1242/1244 — 接口单弯线, 描边再淡一点点(更柔): 激活不描边, 未激活极细暗线。
-        .overlay(active ? nil : ConcavePill(side: side).stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .buttonStyle(FlatButtonStyle())
+        .focused($focusedCap, equals: i)
     }
 
     @ViewBuilder
@@ -407,9 +409,6 @@ struct FeaturedHero: View {
                 }
                 .buttonStyle(.card)
                 .focused($playFocused)
-                .onMoveCommand { dir in
-                    if dir == .left { userSwitch(-1) } else if dir == .right { userSwitch(1) }
-                }
                 if !current.durationLabel.isEmpty {
                     Text(current.durationLabel)
                         .font(.system(size: 22, weight: .medium))
@@ -421,7 +420,7 @@ struct FeaturedHero: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 60)
         .padding(.top, 60)
-        .padding(.bottom, 30)
+        .padding(.bottom, 14)          // W1250 — Jing: 胶囊再下来一半(30→14), 更贴底
         .frame(height: 720, alignment: .bottom)
         .background(alignment: .bottomLeading) {
             ZStack {
@@ -445,7 +444,7 @@ struct FeaturedHero: View {
                     startPoint: .bottomLeading, endPoint: .topTrailing
                 )
 
-                if playFocused { focusGlow }          // W1244 — 聚焦时往里散绿辉光(随满铺背景)
+                if playFocused || focusedCap != nil { focusGlow }   // W1244/1250 — Play 或任一胶囊聚焦 → 绿辉光
             }
             .clipped()
             .ignoresSafeArea(.container, edges: .horizontal)   // 背景满铺通栏
@@ -453,8 +452,16 @@ struct FeaturedHero: View {
         .ignoresSafeArea(.container, edges: .horizontal)       // W1245 — hero 内容也满铺基准, 与 rails(同满铺)同 leading → 对齐
         .animation(.easeInOut(duration: 0.2), value: playFocused)
         .animation(.easeInOut(duration: 0.6), value: index)
+        // W1250 — 遥控器聚焦胶囊 → index 跟随, 并暂停自动轮播 10s(用户干预最高优先级)。
+        .onChange(of: focusedCap) { _, f in
+            if let f {
+                withAnimation(.easeInOut(duration: 0.4)) { index = f }
+                pauseAutoUntil = Date().addingTimeInterval(10)
+            }
+        }
         .onReceive(timer) { _ in
-            if let until = pauseAutoUntil, Date() < until { return }   // 用户干预期间不自动切
+            if focusedCap != nil { return }                           // 用户正在操作胶囊, 不自动切
+            if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切
             pauseAutoUntil = nil
             go(1)
         }

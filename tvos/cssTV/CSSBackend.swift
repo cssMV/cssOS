@@ -63,8 +63,8 @@ enum CSSBackend {
         }
         // ① Today's Picks(算法推荐占位: 按 id 哈希稳定重排; TODO 接 /api/works/recommend)。
         rail("today", "Today's Picks", "sparkles", works.sorted { $0.id.hashValue < $1.id.hashValue })
-        // ② For You — 全网最新。
-        rail("foryou", "For You", "flame.fill", works)
+        // ② For You — 严格从新到旧(W1281: 后端"媒体优先"档会把老成品顶到真正最新前面 → 客户端按 created_at 重排)。
+        rail("foryou", "For You", "flame.fill", works.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") })
         // ③ My Favorites — 本人有订单(收藏/已购); 空则不显。
         rail("favorites", "My Favorites", "heart.fill", works.filter { $0.isOwned })
         // ④ Most Played — 占位排序(后端暂无播放数; TODO 接 play_count)。

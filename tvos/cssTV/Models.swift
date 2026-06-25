@@ -82,6 +82,8 @@ struct CSSWork: Codable, Identifiable {
     var durationSecs: Double?
     /// 作品类型(single/opera/film/series/triptych…)。CSSOS_WAVE_1227 首页分轨用。
     var workType: String?
+    /// 创建时间(ISO8601 串)。W1281 — For You 严格从新到旧排序用(字典序=时间序)。
+    var createdAt: String?
     /// W1249 聆听/观赏 gating。
     var listenPriceCents: Int?
     var buyoutPriceCents: Int?
@@ -97,6 +99,7 @@ struct CSSWork: Codable, Identifiable {
         case coverURL = "cover_image"
         case durationSecs = "duration_secs"
         case workType = "work_type"
+        case createdAt = "created_at"
         case listenPriceCents = "current_listen_price_cents"
         case buyoutPriceCents = "current_buyout_price_cents"
         case viewerOrders = "viewer_orders"

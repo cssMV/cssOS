@@ -186,6 +186,7 @@ struct EmojiBurstEffect: View {
     var smallSpread: CGFloat = 72      // 小 emoji 最大行进距离(pt) —— 飞远一点
     var smallN: Int = 12
     var continuousSmall: Bool = true   // 小 emoji: true=一直爆; false=只在大爆窗口(定期情绪字幕)
+    var rightBias: Bool = false        // W1262 — 往右爆: 粒子偏向右半边(盖过右侧名字/标题)
     private let pool = CSSFx.petals
     private let bigLife: Double = 1.8  // 一次大爆的生命(弹入+停留+淡出, 对齐桌面 dwell)
 
@@ -244,7 +245,8 @@ struct EmojiBurstEffect: View {
         let r2 = CSSFx.rnd(i &+ cyc &* 31, seed &+ 5)
         let r3 = CSSFx.rnd(i &+ cyc &* 31, seed &+ 9)
         let r4 = CSSFx.rnd(i, seed &+ 13)
-        let ang: Double = r1 * 2 * .pi
+        // W1262 — rightBias: 角度收到右半边(-80°~+80°), 粒子往右飞盖过名字/标题; 否则全向。
+        let ang: Double = rightBias ? (r1 * 1.55 - 0.775) * .pi : r1 * 2 * .pi
         let dist: CGFloat = CGFloat((7 + r2 * 22) / 29) * smallSpread    // 桌面 7~29vmin → smallSpread
         let emoji = pool[Int(r3 * Double(pool.count)) % pool.count]
         let fontVar: CGFloat = 0.6 + CGFloat(r4) * 0.9                   // 桌面 0.6~1.5em
@@ -343,8 +345,8 @@ struct CategorySidebar: View {
                     // W1260 — 招牌爆放在【icon 背后的大固定框】里(不被 icon 的 34pt 小框裁切): background 居中、给足空间。
                     .background(
                         EmojiBurstEffect(active: hot, seed: abs(String(describing: item).hashValue),
-                                         bigEmojiSize: 64, bigPeriod: 4, smallSize: 16, smallSpread: 66,
-                                         smallN: 12, continuousSmall: true)
+                                         bigEmojiSize: 64, bigPeriod: 4, smallSize: 16, smallSpread: 120,
+                                         smallN: 12, continuousSmall: true, rightBias: true)
                             .frame(width: 180, height: 120).allowsHitTesting(false)
                     )
                 if expanded {
@@ -417,7 +419,7 @@ struct LogoAvatarBadge: View {
             // W1260 — logo/头像中心定期(~10s)来一次「情绪字幕」: 大 emoji 弹一次 + 小 emoji 烟花一阵, 然后安静。
             .background(
                 EmojiBurstEffect(active: true, seed: 42, bigEmojiSize: 92, bigPeriod: 10,
-                                 smallSize: 22, smallSpread: 86, smallN: 10, continuousSmall: false)
+                                 smallSize: 22, smallSpread: 170, smallN: 12, continuousSmall: false, rightBias: true)
                     .frame(width: 200, height: 200).allowsHitTesting(false)
             )
         }
@@ -484,7 +486,7 @@ struct FeaturedHero: View {
                     // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
                     .background(
                         EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60, bigPeriod: 4,
-                                         smallSize: 16, smallSpread: 60, smallN: 12, continuousSmall: true)
+                                         smallSize: 16, smallSpread: 130, smallN: 12, continuousSmall: true, rightBias: true)
                             .frame(width: 140, height: 90).allowsHitTesting(false)
                     )
                 Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))

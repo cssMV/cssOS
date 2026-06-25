@@ -117,7 +117,8 @@ struct ContentView: View {
                     .blur(radius: 40)
                     .opacity(0.45)
                     .overlay(
-                        LinearGradient(colors: [.black.opacity(0.25), .black.opacity(0.7), .black],
+                        // W1294 — Jing「Today's Picks 别黑」: 渐变不再淡到纯黑, 底部留半透 → 模糊底图透到栏目后面。
+                        LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.4), .black.opacity(0.55)],
                                        startPoint: .top, endPoint: .bottom)
                     )
                     .ignoresSafeArea()

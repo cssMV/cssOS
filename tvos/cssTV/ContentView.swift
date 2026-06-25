@@ -170,14 +170,16 @@ struct EmojiBurstEffect: View {
     var active: Bool
     var seed: Int = 0
     var bgSize: CGFloat = 54
-    var particleN: Int = 12
+    var particleN: Int = 9
     var particleSize: CGFloat = 22
     var spread: CGFloat = 60      // 最大行进距离(pt)
     private let pool = CSSFx.petals
 
     var body: some View {
         if active {
-            TimelineView(.periodic(from: .now, by: 0.04)) { ctx in
+            // W1258 — 帧率从 0.04(25fps)降到 0.1(10fps): 它跑在【可聚焦胶囊/菜单】的内容里,
+            //   25fps 重绘会饿死主线程 → 遥控器按不动焦点。10fps 烟花照样流畅, 输入不再卡。
+            TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
                 let t = ctx.date.timeIntervalSinceReferenceDate
                 ZStack {
                     // 背景大 emoji: 每 1.2s 换一个 + 脉动(招牌张扬)。

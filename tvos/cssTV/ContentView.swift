@@ -151,16 +151,16 @@ struct ContentView: View {
                 }
                 .padding(.bottom, 80)
             }
+            .focusScope(focusNS)   // W1292 — focusNS 只套内容(hero+rails); 侧栏在 focusNS 之外, hero 重排再也波及不到它(Jing: 左侧另成一层)
             .focusSection()
             // W1245 — ScrollView 正常遵守安全区: hero 内容与 For You 同基准(safe+leading)→ 对齐;
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
             CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
-                .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
+                .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域(focusNS 之外), 供 hero 往左 resetFocus 跳回
                 .focusSection()
         }
-        .focusScope(focusNS)
         .background(Color.black.ignoresSafeArea())
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }

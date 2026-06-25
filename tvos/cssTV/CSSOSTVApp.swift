@@ -5,6 +5,7 @@ import SwiftUI
 
 @main
 struct CSSOSTVApp: App {
+    init() { CSSFonts.registerBundled() }   // W1323 — 启动注册打包花体
     var body: some Scene {
         WindowGroup {
             ContentView()

@@ -332,7 +332,14 @@ struct EmotionSubtitleOverlay: View {
     // W1321 — 随机字体 + 随机颜色(照桌面端)。tvOS 四种系统字形 + 随机字重做字体变化。
     private let fontDesigns: [Font.Design] = [.default, .serif, .rounded, .monospaced]
     private func randomFont(_ size: CGFloat, seed: Int) -> Font {
-        let d = fontDesigns[abs(seed) % fontDesigns.count]
+        // W1323 — 先从打包花体里挑(中文毛笔/细线 + 后续英文 Google 花体); 没有再退系统字形。
+        let custom = CSSFonts.custom
+        let total = custom.count + fontDesigns.count
+        let idx = abs(seed) % max(total, 1)
+        if idx < custom.count {
+            return .custom(custom[idx], size: size)
+        }
+        let d = fontDesigns[(idx - custom.count) % fontDesigns.count]
         let weights: [Font.Weight] = [.semibold, .bold, .heavy, .black]
         let w = weights[abs(seed / 7) % weights.count]
         return .system(size: size, weight: w, design: d)

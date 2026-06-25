@@ -22948,6 +22948,12 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
   // CSSOS_WAVE_202 — 240s timeout wrapper (Runway / Luma can be slowest).
   // eslint-disable-next-line @typescript-eslint/no-shadow
   const fetch = makeTimeoutFetch(VIDEO_ROUTER_TIMEOUT_MS);
+  // CSSOS_WAVE_1316 — 画幅铁律【源头根治】: 调用方传 "2.39:1"(铁律), 但各 provider 分支只认 9:16/1:1/21:9,
+  //   "2.39:1" 掉进 `: "16:9"` 默认值 → 生成出 16:9(用户看到的真凶)。AI 视频模型原生最宽 = 21:9(2.33,
+  //   最接近 2.39)→ 入口统一把 2.39:1/2.35:1 归一化成 21:9, 所有分支都吃到最宽超宽屏。
+  if (req.aspect_ratio === "2.39:1" || req.aspect_ratio === "2.35:1") {
+    req.aspect_ratio = "21:9";
+  }
   // CSSOS_WAVE_1293 — 同封面: 视频里的人物一律美, 禁丑/脏脸/畸形(图1「混沌の海」脏脸即此处)。
   if (req.prompt && !/beautiful refined aesthetic/i.test(req.prompt)) {
     req.prompt = req.prompt.replace(/\s+$/, "") +

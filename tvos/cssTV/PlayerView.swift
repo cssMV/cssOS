@@ -372,12 +372,15 @@ struct EmotionSubtitleOverlay: View {
         let col: Color = randomColor(abs(tok.id.hashValue))   // W1321 — 逐字随机色(照桌面端, 不再行级情绪色)
         let emoji: String = pickEmoji(tok)
         return ZStack {
-            // 背景大 emoji(爆瞬间衬一下, 一次性淡出)
-            Text(emoji)
-                .font(.system(size: bgSize))
-                .opacity(burstOp * 0.30)
-                .scaleEffect(scale)
-            // 爆大字 — W1321 随机字体
+            // W1336 — 背景大emoji + 烟花【只在爆瞬间(p<1)渲染】, 爆完即移出视图树(不留 0 透明度占内存)。
+            if p < 1.0 {
+                Text(emoji)
+                    .font(.system(size: bgSize))
+                    .opacity(burstOp * 0.30)
+                    .scaleEffect(scale)
+                firework(p: p, seed: abs(tok.id.hashValue), maxDist: 220)   // 18 粒子, 爆完即清
+            }
+            // 爆大字: 停留到行尾, 整行一起淡出(停留阶段视图树里只剩这一个字)。
             Text(tok.char)
                 .font(randomFont(charSize, seed: abs(tok.id.hashValue)))
                 .foregroundStyle(col)
@@ -385,8 +388,6 @@ struct EmotionSubtitleOverlay: View {
                 .shadow(color: .black.opacity(0.6), radius: 4)
                 .scaleEffect(scale)
                 .opacity(charOp * 0.92)
-            // 字心小 emoji 烟花: 照搬桌面 cssfxSparkOut(随机角度/距离/选字/字号 + 随机色 halo + 慢淡出)。
-            firework(p: p, seed: abs(tok.id.hashValue), maxDist: 220)
         }
         .position(pos)
     }

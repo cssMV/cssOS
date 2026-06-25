@@ -474,20 +474,23 @@ struct EmotionSubtitleOverlay: View {
         //   · 左/右竖排: 一律【上→下】(任何语言, 绝无下→上)。
         //   · 横排: 拉丁一律左→右; 亚洲可右→左(隔行)。
         let isCJK = tok.char.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
-        let frac = CGFloat((Double(j) + 0.5) / Double(n))
-        let m: CGFloat = 0.06
+        // W1338 — 半重叠: 每字步进(0.028)< 字宽 → 相邻字约半重叠; 居中成句; 加随机错落。
+        let advance = 0.028
+        var along = 0.5 + (Double(j) - Double(n - 1) / 2) * advance
+        along = min(max(along, 0.05), 0.95)
+        let frac = CGFloat(along)
         let jit = CGFloat((CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.06)
         let edge = li % 4   // 所有语言都用四边
         switch edge {
         case 0:  // 上 横排
             let f = (isCJK && li % 8 >= 4) ? 1 - frac : frac   // 亚洲隔行可右→左
-            return CGPoint(x: size.width * (m + f * (1 - 2 * m)), y: size.height * (0.16 + jit))
+            return CGPoint(x: size.width * f, y: size.height * (0.16 + jit))
         case 1:  // 下 横排(一律左→右)
-            return CGPoint(x: size.width * (m + frac * (1 - 2 * m)), y: size.height * (0.84 + jit))
+            return CGPoint(x: size.width * frac, y: size.height * (0.84 + jit))
         case 2:  // 左 竖排(上→下)
-            return CGPoint(x: size.width * (0.07 + jit), y: size.height * (m + frac * (1 - 2 * m)))
+            return CGPoint(x: size.width * (0.07 + jit), y: size.height * frac)
         default: // 右 竖排(上→下)
-            return CGPoint(x: size.width * (0.93 + jit), y: size.height * (m + frac * (1 - 2 * m)))
+            return CGPoint(x: size.width * (0.93 + jit), y: size.height * frac)
         }
     }
 

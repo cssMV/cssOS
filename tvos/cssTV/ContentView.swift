@@ -74,7 +74,20 @@ struct ContentView: View {
     @State private var showSearch = false               // W1277 搜索
     @Namespace private var focusNS
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
-    @State private var sidebarFocused = false         // W1290 — 侧栏有焦点时暂停 hero 轮换(否则重排踢走侧栏焦点)
+    @State private var sidebarFocused = false
+    @State private var refreshing = false             // W1299 — 刷新中
+
+    // W1299 — 用户手动刷新 feed(tvOS 无下拉刷新)。
+    private func reloadFeed() {
+        Task {
+            await MainActor.run { refreshing = true }
+            let fresh = await CSSBackend.fetchFeed()
+            await MainActor.run {
+                if !fresh.isEmpty { allWorks = fresh }
+                refreshing = false
+            }
+        }
+    }         // W1290 — 侧栏有焦点时暂停 hero 轮换(否则重排踢走侧栏焦点)
 
     // W1249/1259 — 创作尾卡 → 创作台; 否则 gating(免费/已拥有直接播; 收费未拥有 → 弹门)。
     private func choose(_ w: CSSWork) {
@@ -150,7 +163,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onRefresh: { reloadFeed() }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域(focusNS 之外), 供 hero 往左 resetFocus 跳回
                 .focusSection()
         }
@@ -178,6 +191,13 @@ struct ContentView: View {
             await auth.restore()
             allWorks = await CSSBackend.fetchFeed()
             loading = false
+        }
+        .overlay(alignment: .top) {   // W1299 — 刷新中的细顶条提示
+            if refreshing {
+                ProgressView().scaleEffect(0.8).padding(8)
+                    .background(Capsule().fill(.black.opacity(0.5)))
+                    .padding(.top, 8)
+            }
         }
         .onChange(of: auth.isSignedIn) { _, signed in
             if signed { Task { allWorks = await CSSBackend.fetchFeed() } }  // 登录后重拉 → 带 viewer_orders 解锁已购
@@ -302,7 +322,7 @@ struct EmojiBurstEffect: View {
 
 /// W1235 — 侧栏焦点项(用于折叠/展开判定)。
 enum SidebarItem: Hashable {
-    case avatar, collapse, favorites, search, create, category(HomeCategory)
+    case avatar, collapse, refresh, favorites, search, create, category(HomeCategory)
 }
 
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
@@ -312,6 +332,7 @@ struct CategorySidebar: View {
     @ObservedObject var auth: CSSAuth          // W1249 登录态
     var onLoginTap: () -> Void
     var onCreate: () -> Void                   // W1259 创作入口
+    var onRefresh: () -> Void = {}             // W1299 刷新 feed
     var onSearch: () -> Void                   // W1277 搜索入口
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
     var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
@@ -358,7 +379,10 @@ struct CategorySidebar: View {
             .buttonStyle(FlatButtonStyle())
             .focused($focus, equals: .collapse)
             .onMoveCommand { handleMove($0) }
-            .padding(.bottom, 10)
+            .padding(.bottom, 6)
+
+            // W1299 — 刷新按钮(tvOS 无下拉刷新): 重新拉取 feed。
+            row(icon: "arrow.clockwise", label: "Refresh", item: .refresh) { onRefresh() }
 
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
             Spacer().frame(height: 22)
@@ -431,7 +455,7 @@ struct CategorySidebar: View {
 
     // W1275 — 侧栏可聚焦项的视觉顺序(手动导航用)。
     private var orderedItems: [SidebarItem] {
-        var arr: [SidebarItem] = [.avatar, .collapse, .favorites, .search]
+        var arr: [SidebarItem] = [.avatar, .collapse, .refresh, .favorites, .search]
         for cat in HomeCategory.allCases {
             arr.append(.category(cat))
             if cat == .trilogy { arr.append(.create) }

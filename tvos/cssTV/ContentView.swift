@@ -115,25 +115,25 @@ struct CategorySidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("css").font(.system(size: 30, weight: .heavy)).foregroundStyle(.white)
-                Text("TV").font(.system(size: 30, weight: .heavy)).foregroundStyle(.green)
-            }
-            .padding(.bottom, 20)
-
-            // W1233 — 用户区(头像 + 收藏)。登录/收藏后端待接(第③步), 先占位入口。
+            // W1234 — logo 与头像合体: 转动的魔镜 logo ↔ 用户头像周期切换, 点 = 登录(待接)。
             Button { } label: {
-                HStack(spacing: 16) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 24)).frame(width: 30)
-                    Text("Sign in · 登录").font(.system(size: 22, weight: .medium))
+                HStack(spacing: 14) {
+                    LogoAvatarBadge()
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text("css").font(.system(size: 26, weight: .heavy)).foregroundStyle(.white)
+                            Text("TV").font(.system(size: 26, weight: .heavy)).foregroundStyle(.green)
+                        }
+                        Text("Sign in · 登录").font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
                     Spacer()
                 }
-                .foregroundStyle(Color.white.opacity(0.85))
-                .padding(.vertical, 12).padding(.horizontal, 18)
+                .padding(.vertical, 10).padding(.horizontal, 12)
                 .frame(width: 240, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .padding(.bottom, 14)
             Button { } label: {
                 HStack(spacing: 16) {
                     Image(systemName: "heart.fill")
@@ -192,6 +192,41 @@ struct CategorySidebar: View {
         .frame(width: 320)
         .frame(maxHeight: .infinity)
         .background(Color.black)
+    }
+}
+
+/// W1234 — 合体徽章: 持续转动的魔镜 logo, 每 6s 与用户头像淡入淡出互换。
+/// logo 用线上透明魔镜图(assets/mirror-1.webp), AsyncImage 系统原生解 webp。
+struct LogoAvatarBadge: View {
+    @State private var angle: Double = 0
+    @State private var showLogo = true
+    private let flip = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ZStack {
+            if showLogo {
+                AsyncImage(url: URL(string: "https://cssstudio.app/assets/mirror-1.webp")) { img in
+                    img.resizable().scaledToFit()
+                } placeholder: {
+                    Image(systemName: "sparkles").font(.system(size: 30)).foregroundStyle(.green)
+                }
+                .rotationEffect(.degrees(angle))
+                .transition(.opacity)
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable().scaledToFit()
+                    .foregroundStyle(.white.opacity(0.85))
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: 64, height: 64)
+        .onAppear {
+            // 魔镜恒定自转(线性, 永不停)。
+            withAnimation(.linear(duration: 12).repeatForever(autoreverses: false)) { angle = 360 }
+        }
+        .onReceive(flip) { _ in
+            withAnimation(.easeInOut(duration: 0.6)) { showLogo.toggle() }
+        }
     }
 }
 

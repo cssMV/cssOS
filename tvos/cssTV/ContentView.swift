@@ -418,7 +418,7 @@ struct LogoAvatarBadge: View {
             .frame(width: 112, height: 112)
             // W1260 — logo/头像中心定期(~10s)来一次「情绪字幕」: 大 emoji 弹一次 + 小 emoji 烟花一阵, 然后安静。
             .background(
-                EmojiBurstEffect(active: true, seed: 42, bigEmojiSize: 92, bigPeriod: 10,
+                EmojiBurstEffect(active: true, seed: 42, bigEmojiSize: 92, bigPeriod: 8,
                                  smallSize: 22, smallSpread: 170, smallN: 12, continuousSmall: false, rightBias: true)
                     .frame(width: 200, height: 200).allowsHitTesting(false)
             )
@@ -563,7 +563,7 @@ struct FeaturedHero: View {
                                 LinearGradient(colors: [Color(red: 0.02, green: 0.12, blue: 0.08),
                                                         Color(red: 0.0, green: 0.05, blue: 0.04)],
                                                startPoint: .top, endPoint: .bottom)
-                                EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 10,
+                                EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 8,
                                                  smallSize: 28, smallSpread: 340, smallN: 14,
                                                  continuousSmall: false).allowsHitTesting(false)
                             }

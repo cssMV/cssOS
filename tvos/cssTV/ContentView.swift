@@ -147,8 +147,22 @@ struct CategorySidebar: View {
             }
             .buttonStyle(.plain)
 
-            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 240, height: 1)
-                .padding(.vertical, 10)
+            // W1234 — 头像/收藏 与 搜索/分类 之间留一个空行。
+            Spacer().frame(height: 28)
+
+            // 搜索入口(后端待接, 先占位)。
+            Button { } label: {
+                HStack(spacing: 16) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 22, weight: .semibold)).frame(width: 30)
+                    Text("搜索 · Search").font(.system(size: 22, weight: .medium))
+                    Spacer()
+                }
+                .foregroundStyle(Color.white.opacity(0.85))
+                .padding(.vertical, 12).padding(.horizontal, 18)
+                .frame(width: 240, alignment: .leading)
+            }
+            .buttonStyle(.plain)
 
             ForEach(HomeCategory.allCases) { cat in
                 Button { selected = cat } label: {

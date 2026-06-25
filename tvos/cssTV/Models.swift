@@ -28,6 +28,21 @@ enum CSSFx {
         return (max(0, opacity), travel, scale)
     }
 
+    /// 端口自桌面 cssfxCenterPop(大 emoji/大字: 过冲弹入 → 停留 → 淡出, 一次, 不循环)。
+    /// p ∈ [0,1] 为这一次爆的生命相位。返回 (透明度, 缩放)。
+    static func centerPop(_ p: Double) -> (opacity: Double, scale: Double) {
+        let scale: Double
+        if p < 0.13 { scale = 0.42 + (1.28 - 0.42) * (p / 0.13) }          // 弹入过冲到 1.28
+        else if p < 0.30 { scale = 1.28 - 0.28 * ((p - 0.13) / 0.17) }      // 回落到 1.0
+        else if p < 0.64 { scale = 1.0 }                                    // 停留(dwell)
+        else { scale = 1.0 + 0.10 * ((p - 0.64) / 0.36) }                   // 淡出时微涨到 1.10
+        let opacity: Double
+        if p < 0.13 { opacity = p / 0.13 }                                  // 爆入
+        else if p < 0.64 { opacity = 1.0 }                                  // 停留满
+        else { opacity = 1.0 - (p - 0.64) / 0.36 }                          // 慢淡出
+        return (max(0, opacity), scale)
+    }
+
     /// 稳定伪随机 [0,1)(给定整数对 → 同值, 用于每颗粒子/每轮的随机角度·距离·色相·选字)。
     static func rnd(_ a: Int, _ b: Int) -> Double {
         let s = sin(Double(a &* 127 &+ b &* 311) * 0.61803398875) * 43758.5453

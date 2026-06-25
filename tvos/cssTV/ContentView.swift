@@ -62,7 +62,9 @@ enum HomeCategory: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @State private var allWorks: [CSSWork] = []
-    @State private var category: HomeCategory = .all
+    // W1260 — Home 不再默认选中: pickedCategory=nil 时侧栏不高亮任何项, 内容仍按 .all(For You…)。
+    @State private var pickedCategory: HomeCategory? = nil
+    private var category: HomeCategory { pickedCategory ?? .all }
     @State private var loading = true
     @State private var selected: CSSWork?
     @StateObject private var auth = CSSAuth()           // W1249 登录
@@ -134,7 +136,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $category, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true })
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true })
                 .focusSection()
         }
         .focusScope(focusNS)
@@ -178,56 +180,82 @@ struct FlatButtonStyle: ButtonStyle {
 struct EmojiBurstEffect: View {
     var active: Bool
     var seed: Int = 0
-    var bgSize: CGFloat = 54
-    var particleN: Int = 9
-    var particleSize: CGFloat = 22
-    var spread: CGFloat = 60      // 最大行进距离(pt)
+    var bigEmojiSize: CGFloat = 80     // 背景大 emoji(比小图标/字大)
+    var bigPeriod: Double = 4.0        // 大 emoji 每隔多久【弹一次】(桌面: 爆一次即停留, 不脉动)
+    var smallSize: CGFloat = 22
+    var smallSpread: CGFloat = 72      // 小 emoji 最大行进距离(pt) —— 飞远一点
+    var smallN: Int = 12
+    var continuousSmall: Bool = true   // 小 emoji: true=一直爆; false=只在大爆窗口(定期情绪字幕)
     private let pool = CSSFx.petals
+    private let bigLife: Double = 1.8  // 一次大爆的生命(弹入+停留+淡出, 对齐桌面 dwell)
 
     var body: some View {
         if active {
-            // W1258 — 帧率从 0.04(25fps)降到 0.1(10fps): 它跑在【可聚焦胶囊/菜单】的内容里,
-            //   25fps 重绘会饿死主线程 → 遥控器按不动焦点。10fps 烟花照样流畅, 输入不再卡。
+            // 10fps: 跑在可聚焦菜单/胶囊里, 高帧会饿死遥控器输入(W1258 教训)。
             TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
-                let t = ctx.date.timeIntervalSinceReferenceDate
+                let t = ctx.date.timeIntervalSinceReferenceDate + Double(seed) * 0.37
                 ZStack {
-                    // 背景大 emoji: 每 1.2s 换一个 + 脉动(招牌张扬)。
-                    let bgIdx = abs(Int(t / 1.2) + seed) % pool.count
-                    let pulse: CGFloat = 1.0 + 0.18 * CGFloat(sin(t * 3.0 + Double(seed)))
-                    Text(pool[bgIdx]).font(.system(size: bgSize)).scaleEffect(pulse).opacity(0.5)
-                    // 字心爆小 emoji: 每颗各自跑一遍桌面 cssfxSparkOut(爆入→停留→淡出), 每轮重随机+随机色。
-                    ForEach(0..<particleN, id: \.self) { i in
-                        spark(i, t: t)
-                    }
+                    bigPop(t)
+                    smallSparks(t)
                 }
                 .allowsHitTesting(false)
             }
         }
     }
 
+    /// 大 emoji: 每 bigPeriod 弹一次(过冲弹入→停留→淡出, 然后消失), 不是不停脉动。每次换一个随机 emoji。
     @ViewBuilder
-    private func spark(_ i: Int, t: Double) -> some View {
-        let dur: Double = 1.7 + CSSFx.rnd(i, seed) * 1.3                 // 桌面 1.7~3.0s
-        let off: Double = CSSFx.rnd(i, seed &+ 1)
-        let prog: Double = t / dur + off
-        let cyc: Int = Int(floor(prog))                                 // 轮次 → 每轮重随机
-        let p: Double = prog - floor(prog)
+    private func bigPop(_ t: Double) -> some View {
+        let bcyc = Int(floor(t / bigPeriod))
+        let since = t - Double(bcyc) * bigPeriod
+        if since < bigLife {
+            let s = CSSFx.centerPop(since / bigLife)
+            let emoji = pool[Int(CSSFx.rnd(bcyc, seed) * Double(pool.count)) % pool.count]
+            Text(emoji)
+                .font(.system(size: bigEmojiSize))
+                .scaleEffect(CGFloat(s.scale))
+                .opacity(s.opacity * 0.82)
+        }
+    }
+
+    @ViewBuilder
+    private func smallSparks(_ t: Double) -> some View {
+        let bcyc = Int(floor(t / bigPeriod))
+        let since = t - Double(bcyc) * bigPeriod
+        if continuousSmall || since < bigLife {
+            ForEach(0..<smallN, id: \.self) { i in
+                spark(i, t: t, bcyc: bcyc, since: since)
+            }
+        }
+    }
+
+    private func spark(_ i: Int, t: Double, bcyc: Int, since: Double) -> some View {
+        let cyc: Int
+        let p: Double
+        if continuousSmall {
+            let dur = 1.7 + CSSFx.rnd(i, seed) * 1.3                     // 桌面 1.7~3.0s
+            let off = CSSFx.rnd(i, seed &+ 1)
+            let prog = t / dur + off
+            cyc = Int(floor(prog)); p = prog - floor(prog)
+        } else {
+            cyc = bcyc; p = min(1.0, since / bigLife)                    // 与大爆同相位, 一次
+        }
         let r1 = CSSFx.rnd(i &+ cyc &* 31, seed)
         let r2 = CSSFx.rnd(i &+ cyc &* 31, seed &+ 5)
         let r3 = CSSFx.rnd(i &+ cyc &* 31, seed &+ 9)
         let r4 = CSSFx.rnd(i, seed &+ 13)
         let ang: Double = r1 * 2 * .pi
-        let dist: CGFloat = CGFloat((7 + r2 * 22) / 29) * spread        // 桌面 7~29vmin → 归一到 spread
+        let dist: CGFloat = CGFloat((7 + r2 * 22) / 29) * smallSpread    // 桌面 7~29vmin → smallSpread
         let emoji = pool[Int(r3 * Double(pool.count)) % pool.count]
-        let fontVar: CGFloat = 0.6 + CGFloat(r4) * 0.9                  // 桌面 0.6~1.5em
+        let fontVar: CGFloat = 0.6 + CGFloat(r4) * 0.9                   // 桌面 0.6~1.5em
         let s = CSSFx.sparkOut(p)
         let halo = CSSFx.haloColor(i &+ cyc &* 7 &+ seed)
         return Text(emoji)
-            .font(.system(size: particleSize * fontVar))
+            .font(.system(size: smallSize * fontVar))
             .scaleEffect(CGFloat(s.scale))
             .offset(x: CGFloat(cos(ang)) * dist * CGFloat(s.travel),
                     y: CGFloat(sin(ang)) * dist * CGFloat(s.travel))
-            .shadow(color: halo.opacity(0.85), radius: 7)               // 随机色 halo
+            .shadow(color: halo.opacity(0.85), radius: 7)
             .opacity(s.opacity)
     }
 }
@@ -240,7 +268,7 @@ enum SidebarItem: Hashable {
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
 ///   收起 = 只显图标(窄); 焦点进入侧栏任一项 = 展开显图标+标签(宽)。标签全英文(i18n)。
 struct CategorySidebar: View {
-    @Binding var selected: HomeCategory
+    @Binding var selected: HomeCategory?       // W1260 — nil = 不高亮(Home 不默认)
     @ObservedObject var auth: CSSAuth          // W1249 登录态
     var onLoginTap: () -> Void
     var onCreate: () -> Void                   // W1259 创作入口
@@ -312,7 +340,13 @@ struct CategorySidebar: View {
                     .frame(width: 34)
                     // W1252 — 招牌: 选中项图标字心爆 emoji(背景大 + 不断小烟花)。
                     // W1257 — 选中【或聚焦】即爆(修"只有 Home 爆": 原来只 active=选中才爆)。
-                    .overlay { EmojiBurstEffect(active: hot, seed: abs(String(describing: item).hashValue), bgSize: 84, particleN: 12, particleSize: 28, spread: 56).allowsHitTesting(false) }
+                    // W1260 — 招牌爆放在【icon 背后的大固定框】里(不被 icon 的 34pt 小框裁切): background 居中、给足空间。
+                    .background(
+                        EmojiBurstEffect(active: hot, seed: abs(String(describing: item).hashValue),
+                                         bigEmojiSize: 64, bigPeriod: 4, smallSize: 26, smallSpread: 66,
+                                         smallN: 12, continuousSmall: true)
+                            .frame(width: 180, height: 120).allowsHitTesting(false)
+                    )
                 if expanded {
                     Text(label)
                         .font(.system(size: 22, weight: hot ? .bold : .medium))   // 选中: 文字加粗
@@ -380,6 +414,12 @@ struct LogoAvatarBadge: View {
                 }
             }
             .frame(width: 112, height: 112)
+            // W1260 — logo/头像中心定期(~10s)来一次「情绪字幕」: 大 emoji 弹一次 + 小 emoji 烟花一阵, 然后安静。
+            .background(
+                EmojiBurstEffect(active: true, seed: 42, bigEmojiSize: 92, bigPeriod: 10,
+                                 smallSize: 22, smallSpread: 86, smallN: 10, continuousSmall: false)
+                    .frame(width: 200, height: 200).allowsHitTesting(false)
+            )
         }
         .onReceive(flip) { _ in
             guard loggedIn else { return }            // 未登录: 永远完整 logo, 不切头像
@@ -442,7 +482,11 @@ struct FeaturedHero: View {
                     .frame(width: 56, height: 56 / 2.39)          // 2.39 宽银幕缩略图(长扁)
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                     // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
-                    .overlay { EmojiBurstEffect(active: active, seed: i, bgSize: 70, particleN: 12, particleSize: 24, spread: 50).allowsHitTesting(false) }
+                    .background(
+                        EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60, bigPeriod: 4,
+                                         smallSize: 24, smallSpread: 60, smallN: 12, continuousSmall: true)
+                            .frame(width: 140, height: 90).allowsHitTesting(false)
+                    )
                 Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
                     .font(.system(size: 16, weight: active ? .bold : .medium))
                     .lineLimit(1)
@@ -517,8 +561,9 @@ struct FeaturedHero: View {
                                 LinearGradient(colors: [Color(red: 0.02, green: 0.12, blue: 0.08),
                                                         Color(red: 0.0, green: 0.05, blue: 0.04)],
                                                startPoint: .top, endPoint: .bottom)
-                                EmojiBurstEffect(active: true, seed: 99, bgSize: 240, particleN: 14,
-                                                 particleSize: 44, spread: 340).allowsHitTesting(false)
+                                EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 6,
+                                                 smallSize: 44, smallSpread: 340, smallN: 14,
+                                                 continuousSmall: false).allowsHitTesting(false)
                             }
                         } else if let c = current.coverURL, let url = URL(string: c) {
                             AsyncImage(url: url) { img in img.resizable().scaledToFill() }
@@ -643,7 +688,8 @@ struct WorkCard: View {
                                             Color(red: 0.0, green: 0.06, blue: 0.05)],
                                    startPoint: .top, endPoint: .bottom)
                     EmojiBurstEffect(active: true, seed: abs(work.id.hashValue) % 97,
-                                     bgSize: 90, particleN: 11, particleSize: 26, spread: 90)
+                                     bigEmojiSize: 88, bigPeriod: 5, smallSize: 26, smallSpread: 92,
+                                     smallN: 11, continuousSmall: false)
                         .allowsHitTesting(false)
                     Label("Create", systemImage: "wand.and.stars")
                         .font(.system(size: 26, weight: .heavy)).foregroundStyle(brandGreen)

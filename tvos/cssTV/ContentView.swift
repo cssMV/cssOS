@@ -188,11 +188,10 @@ struct CategorySidebar: View {
                     Spacer()
                 }
             }
-            .foregroundStyle(active ? Color.green : Color.white.opacity(0.85))
+            // W1237 — 取消白底框: 聚焦/选中都【变颜色】(品牌绿), 像 Home。其余半透白。
+            .foregroundStyle((active || focus == item) ? Color.green : Color.white.opacity(0.72))
             .padding(.vertical, 12).padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 14)
-                .fill(active ? Color.white.opacity(0.10) : Color.clear))
         }
         .buttonStyle(.plain)
         .focused($focus, equals: item)

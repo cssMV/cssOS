@@ -349,12 +349,14 @@ struct FeaturedHero: View {
     var body: some View {
         // W1245 — 关键: hero 内容【遵守安全区】(和 For You 同基准 → 左缘绝对对齐);
         //   只把背景图/渐变/聚焦绿边放进 .background{} 单独【满铺】(ignoresSafeArea), 图仍通栏。
-        VStack(alignment: .leading, spacing: 14) {
+        // W1246 — Jing: 标题/Play/胶囊全部【水平居中】, 彻底不与左侧侧栏打架。
+        VStack(alignment: .center, spacing: 14) {
             Spacer()
             Text(current.title ?? "Untitled")
                 .font(.system(size: 54, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(2)
+                .multilineTextAlignment(.center)
                 .shadow(radius: 12)
             HStack(spacing: 24) {
                 Button { onSelect(current) } label: {
@@ -372,16 +374,14 @@ struct FeaturedHero: View {
                         .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(.white.opacity(0.85))
                 }
-                Spacer()
             }
             capsuleTrack
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, Self.contentLeading)   // W1245 — 与 For You 同 leading + 同遵守安全区 → 必然对齐
-        .padding(.trailing, 60)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 60)
         .padding(.top, 60)
-        .padding(.bottom, 16)
-        .frame(height: 720, alignment: .bottomLeading)
+        .padding(.bottom, 30)
+        .frame(height: 720, alignment: .bottom)
         .background(alignment: .bottomLeading) {
             ZStack {
                 GeometryReader { geo in

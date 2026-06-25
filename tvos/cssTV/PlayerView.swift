@@ -439,10 +439,11 @@ struct EmotionSubtitleOverlay: View {
         let toks = lines[li].tokens ?? []
         let j = toks.firstIndex(where: { $0.id == tok.id }) ?? 0
         let n = max(toks.count, 1)
-        // CJK(中日韩) → 右到左
+        // W1330 — 方向: 拉丁语【只能左→右】; 亚洲语言可左可右(隔行交替); 任何语言绝不下→上。
         let isCJK = tok.char.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
+        let rtl = isCJK && (li % 2 == 1)
         var frac = (Double(j) + 0.5) / Double(n)
-        if isCJK { frac = 1 - frac }
+        if rtl { frac = 1 - frac }
         let xMargin = 0.06
         let x = xMargin + frac * (1 - 2 * xMargin)
         // 这一行靠上/下边(隔行交替), 加轻微上下错落(不整齐但成句)。

@@ -208,8 +208,8 @@ struct EmotionSubtitleOverlay: View {
                                 karaokeLine(toks, t: t)
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, 96)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)   // W1320 — 传统字幕小小的、左下角(不抢情绪字幕戏)
+                        .padding(.leading, 60).padding(.bottom, 70)
                     }
                 }
             }
@@ -222,17 +222,15 @@ struct EmotionSubtitleOverlay: View {
 
     // W1251 — 传统底部卡拉OK字幕: 不再压黑底/半透底, 改【白字 + 黑阴影描边】(多层黑 shadow = 描边)。
     private func karaokeLine(_ toks: [CSSSubToken], t: Double) -> some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 1) {
             ForEach(toks) { tok in
                 Text(tok.char)
-                    .font(.system(size: 42, weight: .heavy))
+                    .font(.system(size: 24, weight: .semibold))   // W1320 — 小小的(原 42 抢戏)
                     .foregroundStyle(t >= tok.startSec ? Color.white : Color.white.opacity(0.45))
                     .shadow(color: .black, radius: 1)
-                    .shadow(color: .black, radius: 2)
-                    .shadow(color: .black.opacity(0.9), radius: 4)
+                    .shadow(color: .black.opacity(0.9), radius: 3)
             }
         }
-        .padding(.horizontal, 20)
     }
 
     // W1317 — 器乐段判定 + 随机小音符行(替代 "[Music...]")。

@@ -343,7 +343,7 @@ struct CategorySidebar: View {
                     // W1260 — 招牌爆放在【icon 背后的大固定框】里(不被 icon 的 34pt 小框裁切): background 居中、给足空间。
                     .background(
                         EmojiBurstEffect(active: hot, seed: abs(String(describing: item).hashValue),
-                                         bigEmojiSize: 64, bigPeriod: 4, smallSize: 26, smallSpread: 66,
+                                         bigEmojiSize: 64, bigPeriod: 4, smallSize: 16, smallSpread: 66,
                                          smallN: 12, continuousSmall: true)
                             .frame(width: 180, height: 120).allowsHitTesting(false)
                     )
@@ -484,7 +484,7 @@ struct FeaturedHero: View {
                     // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
                     .background(
                         EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60, bigPeriod: 4,
-                                         smallSize: 24, smallSpread: 60, smallN: 12, continuousSmall: true)
+                                         smallSize: 16, smallSpread: 60, smallN: 12, continuousSmall: true)
                             .frame(width: 140, height: 90).allowsHitTesting(false)
                     )
                 Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
@@ -561,8 +561,8 @@ struct FeaturedHero: View {
                                 LinearGradient(colors: [Color(red: 0.02, green: 0.12, blue: 0.08),
                                                         Color(red: 0.0, green: 0.05, blue: 0.04)],
                                                startPoint: .top, endPoint: .bottom)
-                                EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 6,
-                                                 smallSize: 44, smallSpread: 340, smallN: 14,
+                                EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 10,
+                                                 smallSize: 28, smallSpread: 340, smallN: 14,
                                                  continuousSmall: false).allowsHitTesting(false)
                             }
                         } else if let c = current.coverURL, let url = URL(string: c) {
@@ -688,7 +688,7 @@ struct WorkCard: View {
                                             Color(red: 0.0, green: 0.06, blue: 0.05)],
                                    startPoint: .top, endPoint: .bottom)
                     EmojiBurstEffect(active: true, seed: abs(work.id.hashValue) % 97,
-                                     bigEmojiSize: 88, bigPeriod: 5, smallSize: 26, smallSpread: 92,
+                                     bigEmojiSize: 88, bigPeriod: 8, smallSize: 18, smallSpread: 92,
                                      smallN: 11, continuousSmall: false)
                         .allowsHitTesting(false)
                     Label("Create", systemImage: "wand.and.stars")

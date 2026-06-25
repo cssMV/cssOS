@@ -16,15 +16,26 @@ enum CSSFx {
     ///   0% opacity0/scale0.4(中心) → 12% opacity1(爆入) → 62% opacity0.92/travel0.9/scale1.04(停留)
     ///   → 100% opacity0/travel1.0/scale1.06(淡出)。曲线 cubic-bezier(0.2,0.7,0.3,1)。
     /// p ∈ [0,1] 为粒子在自身生命周期内的相位。返回 (透明度, 行进比例 0~1, 缩放)。
+    /// 烟花小粒: 【爆出(0~20%)→ 停留/延时(20~58%, 几乎不动)→ 慢淡出(58~100%)】。Jing: 爆了不要马上消失。
     static func sparkOut(_ p: Double) -> (opacity: Double, travel: Double, scale: Double) {
-        let scale: Double = p < 0.62 ? 0.4 + (1.04 - 0.4) * (p / 0.62)
-                                      : 1.04 + 0.02 * ((p - 0.62) / 0.38)
+        let travel: Double
         let opacity: Double
-        if p < 0.12 { opacity = p / 0.12 }
-        else if p < 0.62 { opacity = 1.0 - 0.08 * ((p - 0.12) / 0.50) }
-        else { opacity = 0.92 * (1 - (p - 0.62) / 0.38) }
-        let travel: Double = p < 0.12 ? 0
-            : (p < 0.62 ? 0.9 * ((p - 0.12) / 0.50) : 0.9 + 0.1 * ((p - 0.62) / 0.38))
+        let scale: Double
+        if p < 0.20 {                                   // 爆出: 快速飞到 0.85 + 弹入
+            let k = p / 0.20
+            travel = 0.85 * k
+            opacity = min(1.0, p / 0.10)
+            scale = 0.45 + 0.65 * k
+        } else if p < 0.58 {                            // 停留: 几乎不动、满不透明(这就是"稍停延时")
+            travel = 0.85 + 0.07 * ((p - 0.20) / 0.38)
+            opacity = 1.0
+            scale = 1.05
+        } else {                                        // 慢淡出
+            let k = (p - 0.58) / 0.42
+            travel = 0.92 + 0.10 * k
+            opacity = 1.0 - k
+            scale = 1.05 + 0.06 * k
+        }
         return (max(0, opacity), travel, scale)
     }
 

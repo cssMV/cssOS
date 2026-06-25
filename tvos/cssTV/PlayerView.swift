@@ -268,7 +268,7 @@ struct EmotionSubtitleOverlay: View {
                 let emoji = CSSFx.petals[Int(r3 * Double(CSSFx.petals.count)) % CSSFx.petals.count]
                 let fontVar: CGFloat = 0.6 + CGFloat(r4) * 0.9
                 Text(emoji)
-                    .font(.system(size: 30 * fontVar))
+                    .font(.system(size: 18 * fontVar))   // W1261 — 小粒真的小(原 30 太大像喷泉)
                     .scaleEffect(CGFloat(s.scale))
                     .offset(x: CGFloat(cos(ang)) * dist * CGFloat(s.travel),
                             y: CGFloat(sin(ang)) * dist * CGFloat(s.travel))

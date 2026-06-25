@@ -575,9 +575,13 @@ struct FeaturedHero: View {
                 .frame(width: 56, height: 56 / 2.39)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .background(
+                    // W1310(重加 W1289): 激活(第一位)的小 emoji 特别向右、铺满整条轨道(像甩向最后一位的余晖); 其余常规。
                     EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60,
                                      bigPeriod: works[i].isCreateCard ? 12 : 0,
-                                     smallSize: 16, smallSpread: 185, smallN: 18, rightBias: true)
+                                     smallSize: 16,
+                                     smallSpread: active ? 560 : 185,
+                                     smallN: active ? 30 : 18,
+                                     rightBias: true)
                         .frame(width: 140, height: 90).allowsHitTesting(false)
                 )
             Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))

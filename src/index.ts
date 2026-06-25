@@ -42573,6 +42573,126 @@ app.post("/api/auth/handoff/exchange", express.json({ limit: "1kb" }), async (re
   }
 });
 
+/* CSSOS_WAVE_1248 — Apple TV(cssTV)设备码登录流。
+ * tvOS 无内置浏览器, 用标准 device-code: 电视取码 → 用户在 cssstudio.app/tv 输码授权 → 电视轮询拿会话。
+ * 设备码短命(5 分钟), 用内存 Map(免迁移; 服务重启则用户重取码)。 */
+type TvDeviceCode = {
+  user_code: string;
+  user_id: string | null;
+  provider: string;
+  status: "pending" | "authorized";
+  expires_at: number;
+};
+const tvDeviceCodes = new Map<string, TvDeviceCode>(); // device_code → record
+const tvUserCodeIndex = new Map<string, string>();       // user_code → device_code
+const TV_DEVICE_TTL_MS = 5 * 60 * 1000;
+function tvGcDeviceCodes() {
+  const now = Date.now();
+  for (const [dc, rec] of tvDeviceCodes) {
+    if (rec.expires_at < now) {
+      tvDeviceCodes.delete(dc);
+      tvUserCodeIndex.delete(rec.user_code);
+    }
+  }
+}
+function tvMakeUserCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 去掉易混 I/O/0/1
+  let s = "";
+  for (let i = 0; i < 6; i++) s += alphabet[crypto.randomInt(0, alphabet.length)];
+  return s.slice(0, 3) + "-" + s.slice(3); // e.g. K7P-Q2M
+}
+
+// 1) 电视取码。
+app.post("/api/auth/device/code", express.json({ limit: "1kb" }), (_req, res) => {
+  noStore(res);
+  tvGcDeviceCodes();
+  const device_code = crypto.randomBytes(24).toString("hex");
+  let user_code = tvMakeUserCode();
+  let guard = 0;
+  while (tvUserCodeIndex.has(user_code) && guard++ < 10) user_code = tvMakeUserCode();
+  const rec: TvDeviceCode = {
+    user_code, user_id: null, provider: "tv", status: "pending",
+    expires_at: Date.now() + TV_DEVICE_TTL_MS,
+  };
+  tvDeviceCodes.set(device_code, rec);
+  tvUserCodeIndex.set(user_code, device_code);
+  return res.json({
+    ok: true, device_code, user_code,
+    verification_uri: "https://cssstudio.app/tv",
+    interval: 3, expires_in: Math.floor(TV_DEVICE_TTL_MS / 1000),
+  });
+});
+
+// 2) 电视轮询。授权成功时在【本请求】上设会话 cookie(电视 URLSession 拿到即登录)。
+app.post("/api/auth/device/poll", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  tvGcDeviceCodes();
+  const device_code = String((req.body && (req.body as any).device_code) || "").trim();
+  const rec = device_code ? tvDeviceCodes.get(device_code) : undefined;
+  if (!rec) return res.json({ ok: true, status: "expired" });
+  if (rec.expires_at < Date.now()) {
+    tvDeviceCodes.delete(device_code); tvUserCodeIndex.delete(rec.user_code);
+    return res.json({ ok: true, status: "expired" });
+  }
+  if (rec.status === "authorized" && rec.user_id) {
+    setAuthSession(req, rec.user_id, rec.provider);
+    // 一次性消费。
+    tvDeviceCodes.delete(device_code); tvUserCodeIndex.delete(rec.user_code);
+    let user: any = null;
+    try {
+      const u = await getSessionUser(req);
+      if (u) user = { id: u.id, name: u.display_name, email: u.email, avatar: u.avatar_url };
+    } catch { /* ignore */ }
+    return res.json({ ok: true, status: "authorized", user });
+  }
+  return res.json({ ok: true, status: "pending" });
+});
+
+// 3) 网页授权(需登录): 用户输码 → 绑定其 user_id。
+app.post("/api/auth/device/approve", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: "not_signed_in" });
+    tvGcDeviceCodes();
+    const raw = String((req.body && (req.body as any).user_code) || "").trim().toUpperCase();
+    const user_code = raw.includes("-") ? raw : (raw.length === 6 ? raw.slice(0, 3) + "-" + raw.slice(3) : raw);
+    const dc = tvUserCodeIndex.get(user_code);
+    const rec = dc ? tvDeviceCodes.get(dc) : undefined;
+    if (!rec || rec.expires_at < Date.now()) return res.status(404).json({ ok: false, error: "invalid_or_expired" });
+    rec.user_id = user.id;
+    rec.status = "authorized";
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[device/approve] failed", err);
+    return res.status(500).json({ ok: false, error: "internal" });
+  }
+});
+
+// 4) /tv 授权页(极简, 英文默认)。已登录显示输码框; 未登录引导先登录。
+app.get("/tv", async (req, res) => {
+  noStore(res); res.type("html");
+  let signedIn = false;
+  try { signedIn = !!(await getSessionUser(req)); } catch { /* ignore */ }
+  const body = signedIn
+    ? `<h1>Connect your TV</h1><p>Enter the code shown on your Apple TV.</p>
+       <input id="c" autocomplete="off" autocapitalize="characters" placeholder="XXX-XXX" maxlength="7"/>
+       <button onclick="go()">Connect</button><p id="m"></p>
+       <script>function go(){var c=document.getElementById('c').value.trim();
+       fetch('/api/auth/device/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_code:c})})
+       .then(r=>r.json()).then(d=>{document.getElementById('m').textContent=d.ok?'✓ Connected! Your TV will sign in shortly.':'Invalid or expired code.';})
+       .catch(()=>{document.getElementById('m').textContent='Network error.';});}</script>`
+    : `<h1>Connect your TV</h1><p>Please <a href="/?login=1">sign in</a> first, then return to this page.</p>`;
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><title>cssTV — Connect</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{background:#010101;color:#e8fdf4;font:16px -apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+    @media(prefers-color-scheme:light){body{background:#f6efe4;color:#1c1914}}
+    div{max-width:420px;padding:32px;text-align:center}h1{font-size:24px}
+    input{font-size:28px;letter-spacing:.2em;text-align:center;padding:12px;border-radius:12px;border:1px solid rgba(0,245,160,.4);background:transparent;color:inherit;width:80%}
+    button{margin-top:16px;font-size:18px;padding:12px 28px;border-radius:999px;border:0;background:hsl(155,68%,40%);color:#fff;cursor:pointer}
+    a{color:hsl(155,72%,52%)}</style></head><body><div>${body}</div></body></html>`);
+});
+
 /* CSSOS_WAVE_98C_AUTH_RETURN 20260508 — Jing
  * Universal Link landing for iOS Capacitor app. After OAuth completes
  * in SFSafariViewController (system Safari), the provider redirects

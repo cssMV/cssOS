@@ -134,6 +134,7 @@ struct ContentView: View {
                 .padding(.bottom, 80)
             }
             .focusSection()
+            .ignoresSafeArea(.container, edges: .top)   // W1308 — Jing: 整个滚动内容顶到屏顶, 不留任何顶部安全区
             // W1245 — ScrollView 正常遵守安全区: hero 内容与 For You 同基准(safe+leading)→ 对齐;
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 

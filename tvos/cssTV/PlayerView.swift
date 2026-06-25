@@ -33,6 +33,7 @@ struct PlayerView: View {
     // CSSOS_WAVE_1229 — 音频主时钟: audio 上的周期观察者驱动同步; audio.ended 退出。
     @State private var clockObserver: Any?
     @State private var endObserver: NSObjectProtocol?
+    @State private var subtitle: CSSBackend.CSSSubtitleData?   // W1247 逐字情绪字幕
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -47,6 +48,13 @@ struct PlayerView: View {
                     img.resizable().scaledToFill()
                 } placeholder: { Color.black }
                 .ignoresSafeArea()
+            }
+
+            // W1247 — 大屏逐字情绪字幕(招牌): 音频主时钟驱动, 底部卡拉OK + 中央逐字爆。
+            if let sub = subtitle, let ap = audioPlayer {
+                EmotionSubtitleOverlay(lines: sub.lines, player: ap)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
             }
 
             // 标题浮层(几秒后淡出)。
@@ -106,6 +114,13 @@ struct PlayerView: View {
                 ) { _ in onAudioEnded() }
             }
         }
+        // W1247 — 异步拉逐字情绪字幕(招牌)。
+        let wid = work.id
+        Task {
+            let s = await CSSBackend.fetchSubtitles(workId: wid)
+            await MainActor.run { subtitle = s }
+        }
+
         // 同时起播; 此后由主时钟保持对齐。
         videoPlayer?.play()
         audioPlayer?.play()
@@ -152,5 +167,102 @@ struct PlayerView: View {
         videoPlayer?.pause(); videoPlayer = nil
         audioPlayer?.pause(); audioPlayer = nil
         try? AVAudioSession.sharedInstance().setActive(false)
+    }
+}
+
+/// W1247 — 大屏逐字情绪字幕(平台招牌)。【音频主时钟】驱动(TimelineView 每帧读 audioPlayer.currentTime):
+///  · 底部卡拉OK行: 当前行逐字, 已唱亮 / 未唱暗(逐字擦除)。
+///  · 中央逐字爆: 每字唱到就在【四周散布的安全区】爆一个大字(情绪配色 + 按强度放大, 短暂淡出)。
+///    刻意避开正中(胶囊宪法/情绪字幕宪法: 中央爆会"爆脸")。
+struct EmotionSubtitleOverlay: View {
+    let lines: [CSSSubLine]
+    let player: AVPlayer
+    private let burstDur = 1.1
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.05)) { _ in
+            let t = player.currentTime().seconds
+            GeometryReader { geo in
+                ZStack {
+                    ForEach(activeBurstTokens(t)) { tok in
+                        burstChar(tok, t: t, size: geo.size)
+                    }
+                    if let line = currentLine(t), let toks = line.tokens, !toks.isEmpty {
+                        karaokeLine(toks, t: t)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, 96)
+                    }
+                }
+            }
+        }
+    }
+
+    private func currentLine(_ t: Double) -> CSSSubLine? {
+        lines.first { t >= $0.startSec && t <= $0.endSec && ($0.tokens?.isEmpty == false) }
+    }
+
+    private func karaokeLine(_ toks: [CSSSubToken], t: Double) -> some View {
+        HStack(spacing: 2) {
+            ForEach(toks) { tok in
+                Text(tok.char)
+                    .font(.system(size: 42, weight: .heavy))
+                    .foregroundStyle(t >= tok.startSec ? Color.white : Color.white.opacity(0.32))
+                    .shadow(color: .black.opacity(0.85), radius: 6)
+            }
+        }
+        .padding(.horizontal, 30).padding(.vertical, 12)
+        .background(Capsule().fill(Color.black.opacity(0.35)))
+    }
+
+    private func activeBurstTokens(_ t: Double) -> [CSSSubToken] {
+        lines.flatMap { $0.tokens ?? [] }.filter { t >= $0.startSec && t < $0.startSec + burstDur }
+    }
+
+    private func burstChar(_ tok: CSSSubToken, t: Double, size: CGSize) -> some View {
+        let p: Double = (t - tok.startSec) / burstDur               // 0→1
+        let opacityRaw: Double = p < 0.15 ? p / 0.15 : (1 - (p - 0.15) / 0.85)
+        let opacity: Double = max(0, opacityRaw) * 0.92             // 快入慢出
+        let fontSize: CGFloat = CGFloat(84 * (0.7 + tok.intensity)) // 强度越大越大
+        let scale: CGFloat = CGFloat(0.85 + 0.25 * p)
+        let pos: CGPoint = burstPosition(tok, size: size)
+        let col: Color = emotionColor(tok.emotion)
+        return Text(tok.char)
+            .font(.system(size: fontSize, weight: .black))
+            .foregroundStyle(col)
+            .shadow(color: col.opacity(0.7), radius: 26)
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .position(pos)
+    }
+
+    // 四周 8 个安全区(避开正中防爆脸), 由 token 哈希定位 → 随机散布但稳定。
+    private func burstPosition(_ tok: CSSSubToken, size: CGSize) -> CGPoint {
+        let zones: [(CGFloat, CGFloat)] = [
+            (0.16, 0.22), (0.50, 0.15), (0.84, 0.22),
+            (0.13, 0.50),               (0.87, 0.50),
+            (0.18, 0.76), (0.50, 0.82), (0.82, 0.76),
+        ]
+        let z = zones[abs(tok.id.hashValue) % zones.count]
+        return CGPoint(x: size.width * z.0, y: size.height * z.1)
+    }
+
+    // 情绪 → 配色(对齐 web 6 情绪)。
+    private func emotionColor(_ e: String?) -> Color {
+        switch (e ?? "").lowercased() {
+        case "haunting", "sad", "melancholy", "sorrow", "grief", "lonely":
+            return Color(red: 0.45, green: 0.65, blue: 1.0)
+        case "calm", "serene", "peaceful", "tender", "gentle":
+            return Color(red: 0.30, green: 0.95, blue: 0.80)
+        case "joy", "happy", "bright", "playful", "excited":
+            return Color(red: 1.0, green: 0.85, blue: 0.30)
+        case "love", "romantic", "warm", "longing":
+            return Color(red: 1.0, green: 0.50, blue: 0.70)
+        case "anger", "intense", "powerful", "fierce", "rage":
+            return Color(red: 1.0, green: 0.45, blue: 0.30)
+        case "hope", "resolve", "triumphant", "uplifting", "soar":
+            return Color(red: 0.40, green: 1.0, blue: 0.60)
+        default:
+            return .white
+        }
     }
 }

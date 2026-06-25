@@ -43,3 +43,50 @@ struct CSSRail: Identifiable {
     let title: String
     let works: [CSSWork]
 }
+
+// MARK: - W1247 逐字情绪字幕(招牌)数据模型
+// 源: GET /api/works/:id/language-tracks → subtitle_take1_json_url → subtitle-take1.json
+// 时间单位 = 毫秒。languages[].sections[].lines[].tokens[]。
+
+struct CSSSubtitleDoc: Codable {
+    let languages: [CSSSubLanguage]
+    let themeEmoji: [String]?
+    enum CodingKeys: String, CodingKey { case languages; case themeEmoji = "theme_emoji" }
+}
+struct CSSSubLanguage: Codable {
+    let lang: String
+    let sections: [CSSSubSection]
+}
+struct CSSSubSection: Codable {
+    let tag: String?
+    let emotion: String?
+    let lines: [CSSSubLine]
+}
+struct CSSSubLine: Codable, Identifiable {
+    let text: String?
+    let tStart: Double            // ms
+    let tEnd: Double              // ms
+    let tokens: [CSSSubToken]?
+    let adlib: Bool?
+    var id: String { "\(tStart)-\(text ?? "")" }
+    var startSec: Double { tStart / 1000 }
+    var endSec: Double { tEnd / 1000 }
+    enum CodingKeys: String, CodingKey { case text; case tStart = "t_start"; case tEnd = "t_end"; case tokens; case adlib }
+}
+struct CSSSubToken: Codable, Identifiable {
+    let char: String
+    let tStart: Double            // ms
+    let tEnd: Double              // ms
+    let volume: Double?
+    let pitchHz: Double?
+    let emotion: String?
+    let emotionIntensity: Double?
+    var id: String { "\(char)-\(tStart)" }
+    var startSec: Double { tStart / 1000 }
+    var endSec: Double { tEnd / 1000 }
+    var intensity: Double { emotionIntensity ?? 0.6 }
+    enum CodingKeys: String, CodingKey {
+        case char; case tStart = "t_start"; case tEnd = "t_end"
+        case volume; case pitchHz = "pitch_hz"; case emotion; case emotionIntensity = "emotion_intensity"
+    }
+}

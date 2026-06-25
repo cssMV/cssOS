@@ -82,6 +82,54 @@ enum CSSBackend {
         return work
     }
 
+    // MARK: - W1247 逐字情绪字幕
+    /// 选定语言的字幕(扁平到行)+ 主题 emoji。
+    struct CSSSubtitleData {
+        let lang: String
+        let lines: [CSSSubLine]
+        let themeEmoji: [String]
+    }
+
+    /// 拉某作品的逐字情绪字幕。language-tracks → subtitle JSON → 选语言(母语优先, 否则 token 最多的)。
+    static func fetchSubtitles(workId: String) async -> CSSSubtitleData? {
+        // 1) language-tracks 拿 subtitle JSON URL + 母语。
+        guard let ltURL = URL(string: "\(baseURL)/api/works/\(workId)/language-tracks") else { return nil }
+        var jsonURLStr: String?
+        var originLang: String?
+        do {
+            let (data, _) = try await URLSession.shared.data(from: ltURL)
+            let lt = try JSONDecoder().decode(LanguageTracksEnvelope.self, from: data)
+            originLang = lt.origin_voice
+            jsonURLStr = lt.tracks?.first(where: { $0.subtitle_take1_json_url != nil })?.subtitle_take1_json_url
+        } catch { print("[CSSBackend] language-tracks failed:", error) }
+        // 兜底: 直接拼 CDN 路径。
+        let urlStr = jsonURLStr ?? "https://cdn.cssstudio.app/works/\(workId)/subtitle-take1.json"
+        guard let jsonURL = URL(string: urlStr) else { return nil }
+        // 2) 拉字幕 JSON。
+        do {
+            let (data, _) = try await URLSession.shared.data(from: jsonURL)
+            let doc = try JSONDecoder().decode(CSSSubtitleDoc.self, from: data)
+            guard !doc.languages.isEmpty else { return nil }
+            // 3) 选语言: 母语优先, 否则 token 最多的那门。
+            func tokenCount(_ l: CSSSubLanguage) -> Int {
+                l.sections.reduce(0) { $0 + $1.lines.reduce(0) { $0 + ($1.tokens?.count ?? 0) } }
+            }
+            let chosen = doc.languages.first(where: { $0.lang == originLang })
+                ?? doc.languages.max(by: { tokenCount($0) < tokenCount($1) })
+                ?? doc.languages[0]
+            // 扁平到行(带 tokens 的)。
+            let lines = chosen.sections.flatMap { $0.lines }
+            return CSSSubtitleData(lang: chosen.lang, lines: lines, themeEmoji: doc.themeEmoji ?? [])
+        } catch { print("[CSSBackend] subtitle JSON failed:", error) }
+        return nil
+    }
+
+    private struct LanguageTracksEnvelope: Codable {
+        let origin_voice: String?
+        let tracks: [Track]?
+        struct Track: Codable { let lang: String?; let subtitle_take1_json_url: String? }
+    }
+
     private struct FeedEnvelope: Codable {
         let works: [CSSWork]?
         let data: DataField?

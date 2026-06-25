@@ -351,8 +351,8 @@ struct CategorySidebar: View {
                     //   Home 默认仍不爆(启动时没聚焦也没选中)。背后大固定框防裁。
                     .background(
                         EmojiBurstEffect(active: hot, seed: abs(String(describing: item).hashValue),
-                                         bigEmojiSize: 64, bigPeriod: 8, smallSize: 16, smallSpread: 120,
-                                         smallN: 12, continuousSmall: false, rightBias: true, immediate: true)
+                                         bigEmojiSize: 64, bigPeriod: 8, smallSize: 16, smallSpread: 175,
+                                         smallN: 18, continuousSmall: false, rightBias: true, immediate: true)
                             .frame(width: 180, height: 120).allowsHitTesting(false)
                     )
                 if expanded {
@@ -425,7 +425,7 @@ struct LogoAvatarBadge: View {
             // W1260 — logo/头像中心定期(~10s)来一次「情绪字幕」: 大 emoji 弹一次 + 小 emoji 烟花一阵, 然后安静。
             .background(
                 EmojiBurstEffect(active: true, seed: 42, bigEmojiSize: 92, bigPeriod: 8,
-                                 smallSize: 22, smallSpread: 170, smallN: 12, continuousSmall: false, rightBias: true)
+                                 smallSize: 22, smallSpread: 240, smallN: 18, continuousSmall: false, rightBias: true)
                     .frame(width: 200, height: 200).allowsHitTesting(false)
             )
         }
@@ -492,7 +492,7 @@ struct FeaturedHero: View {
                     // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
                     .background(
                         EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60, bigPeriod: 8,
-                                         smallSize: 16, smallSpread: 130, smallN: 12, continuousSmall: false, rightBias: true, immediate: true)
+                                         smallSize: 16, smallSpread: 185, smallN: 18, continuousSmall: false, rightBias: true, immediate: true)
                             .frame(width: 140, height: 90).allowsHitTesting(false)
                     )
                 Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
@@ -574,7 +574,7 @@ struct FeaturedHero: View {
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 // W1272 — Jing「Create hero 卡为何要等」: 改 immediate, 轮到它当 hero 时立即爆(和它的胶囊同时), 不再按 seed 延后。
                                 EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 8,
-                                                 smallSize: 28, smallSpread: 340, smallN: 14,
+                                                 smallSize: 28, smallSpread: 470, smallN: 20,
                                                  continuousSmall: false, immediate: true).allowsHitTesting(false)
                             }
                         } else if let c = current.coverURL, let url = URL(string: c) {
@@ -702,8 +702,8 @@ struct WorkCard: View {
                     // W1269 — 大 emoji 当封面图(常驻)。
                     Text("✨").font(.system(size: 110)).opacity(0.9)
                     EmojiBurstEffect(active: true, seed: abs(work.id.hashValue) % 97,
-                                     bigEmojiSize: 88, bigPeriod: 8, smallSize: 18, smallSpread: 92,
-                                     smallN: 11, continuousSmall: false)
+                                     bigEmojiSize: 88, bigPeriod: 8, smallSize: 18, smallSpread: 135,
+                                     smallN: 16, continuousSmall: false)
                         .allowsHitTesting(false)
                     Label("Create", systemImage: "wand.and.stars")
                         .font(.system(size: 22, weight: .heavy)).foregroundStyle(brandGreen)

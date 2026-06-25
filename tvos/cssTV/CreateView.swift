@@ -18,7 +18,7 @@ struct CreateView: View {
             Color.black.ignoresSafeArea()
             // 招牌大爆背景(复用统一 FX)。
             EmojiBurstEffect(active: true, seed: 7, bigEmojiSize: 240, bigPeriod: 8, smallSize: 30,
-                             smallSpread: 360, smallN: 16, continuousSmall: false)
+                             smallSpread: 500, smallN: 22, continuousSmall: false)
                 .opacity(0.6)
                 .allowsHitTesting(false)
 

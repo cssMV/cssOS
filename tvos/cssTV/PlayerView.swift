@@ -253,14 +253,14 @@ struct EmotionSubtitleOverlay: View {
                 .scaleEffect(scale)
                 .opacity(charOp * 0.92)
             // 字心小 emoji 烟花: 照搬桌面 cssfxSparkOut(随机角度/距离/选字/字号 + 随机色 halo + 慢淡出)。
-            firework(p: p, seed: abs(tok.id.hashValue), maxDist: 160)
+            firework(p: p, seed: abs(tok.id.hashValue), maxDist: 220)
         }
         .position(pos)
     }
 
     // W1257 — 字心烟花照搬桌面 _fireworkAt + cssfxSparkOut: 12 颗, 随机随色, 爆入→停留→淡出。
     private func firework(p: Double, seed: Int, maxDist: CGFloat) -> some View {
-        let n = 12
+        let n = 18
         let s = CSSFx.sparkOut(p)
         return ZStack {
             ForEach(0..<n, id: \.self) { i in

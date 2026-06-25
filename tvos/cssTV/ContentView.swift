@@ -497,6 +497,7 @@ struct FeaturedHero: View {
     @FocusState private var playFocused: Bool        // W1244 — Play(=hero)是否聚焦
     @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
     @FocusState private var bridgeFocused: Bool      // W1283 — 胶囊左侧隐形桥: 落焦即跳回侧栏
+    @State private var breathe = false               // W1284 — 下一个胶囊边框呼吸
     private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
@@ -527,49 +528,67 @@ struct FeaturedHero: View {
                 .focused($bridgeFocused)
                 .onChange(of: bridgeFocused) { _, f in if f { resetFocus(in: sidebarNS) } }
             HStack(spacing: -capR) {
-                ForEach(works.indices, id: \.self) { i in
+                // W1284 — 旋转胶囊宪法: 激活恒在第一位; 其余按原序排在右; 轮换时滑动重排(下一个边框呼吸)。
+                ForEach(rotatedOrder, id: \.self) { i in
                     capsuleSegment(i)
-                        .zIndex(i == index ? Double(works.count + 1) : Double(works.count - abs(i - index)))
+                        .zIndex(i == index ? Double(works.count + 1) : Double(works.count - positionInOrder(i)))
                 }
             }
+            .animation(.easeInOut(duration: 0.5), value: index)   // 重排滑动
         }
         .frame(height: capH)
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    // W1284 — 显示顺序: 把 index(激活)转到第一位, 其后按 work 原序绕回。
+    private var rotatedOrder: [Int] { (0..<n).map { (index + $0) % n } }
+    private func positionInOrder(_ i: Int) -> Int { ((i - index) % n + n) % n }   // 0=第一位
+    /// 下一个等待者(第二位): 边框呼吸提示"时间到我上位"。
+    private func isNextWaiting(_ i: Int) -> Bool { n > 1 && positionInOrder(i) == 1 }
+
     @ViewBuilder
     private func capsuleSegment(_ i: Int) -> some View {
         let active = (i == index)
         let focused = (focusedCap == i)
-        let side: ConcavePill.Side = active ? .none : (i < index ? .right : .left)
+        // W1284 — 激活恒在第一位, 其余全在它右侧 → 一律凹左(朝左咬合)。
+        let side: ConcavePill.Side = active ? .none : .left
+        let waiting = isNextWaiting(i)   // 第二位: 边框呼吸
         Button { onSelect(works[i]) } label: {
-            HStack(spacing: 8) {
-                thumb(works[i].coverURL)
-                    .frame(width: 56, height: 56 / 2.39)          // 2.39 宽银幕缩略图(长扁)
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                    // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
-                    .background(
-                        EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60,
-                                         bigPeriod: works[i].isCreateCard ? 12 : 0,   // W1276 — Create 周期爆; 其余选中爆一次
-                                         smallSize: 16, smallSpread: 185, smallN: 18, rightBias: true)
-                            .frame(width: 140, height: 90).allowsHitTesting(false)
-                    )
-                Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
-                    .font(.system(size: 16, weight: active ? .bold : .medium))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(active ? Color.white : Color.white.opacity(0.72))
-            .padding(.leading, active ? 16 : capR + 10)           // 凹侧留咬合区
-            .padding(.trailing, side == .right ? capR + 10 : 16)
-            .frame(height: capH)
-            .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
-            .overlay(active ? nil : ConcavePill(side: side).stroke(Color.white.opacity(0.10), lineWidth: 1))
-            .overlay(focused ? ConcavePill(side: side).stroke(brandGreen, lineWidth: 3) : nil)  // 聚焦绿描边
-            .scaleEffect(focused ? 1.08 : 1.0)
+            capsuleLabel(i, active: active, side: side, waiting: waiting, focused: focused)
         }
         .buttonStyle(FlatButtonStyle())
         .focused($focusedCap, equals: i)
         .prefersDefaultFocus(i == 0, in: focusNS)   // W1278 — 第一个胶囊作 hero 默认焦点(侧栏右键 resetFocus 跳此)
+    }
+
+    // W1284 — 拆出胶囊内容(给编译器减负, 避免单表达式类型检查超时)。
+    @ViewBuilder
+    private func capsuleLabel(_ i: Int, active: Bool, side: ConcavePill.Side, waiting: Bool, focused: Bool) -> some View {
+        let breatheStroke: Color = waiting && !focused ? brandGreen.opacity(breathe ? 0.95 : 0.35) : .clear
+        let breatheW: CGFloat = waiting && !focused ? (breathe ? 3 : 1.5) : 0
+        HStack(spacing: 8) {
+            thumb(works[i].coverURL)
+                .frame(width: 56, height: 56 / 2.39)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .background(
+                    EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60,
+                                     bigPeriod: works[i].isCreateCard ? 12 : 0,
+                                     smallSize: 16, smallSpread: 185, smallN: 18, rightBias: true)
+                        .frame(width: 140, height: 90).allowsHitTesting(false)
+                )
+            Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
+                .font(.system(size: 16, weight: active ? .bold : .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(active ? Color.white : Color.white.opacity(0.72))
+        .padding(.leading, active ? 16 : capR + 10)
+        .padding(.trailing, side == .right ? capR + 10 : 16)
+        .frame(height: capH)
+        .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
+        .overlay(ConcavePill(side: side).stroke(active ? Color.clear : Color.white.opacity(0.10), lineWidth: active ? 0 : 1))
+        .overlay(ConcavePill(side: side).stroke(breatheStroke, lineWidth: breatheW))         // 呼吸
+        .overlay(ConcavePill(side: side).stroke(focused ? brandGreen : Color.clear, lineWidth: focused ? 3 : 0))  // 聚焦
+        .scaleEffect(focused ? 1.08 : 1.0)
     }
 
     @ViewBuilder
@@ -677,6 +696,8 @@ struct FeaturedHero: View {
         }
         // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
         .defaultFocus($focusedCap, 0)
+        // W1284 — 启动边框呼吸(下一个等待者), 1.1s 一呼一吸。
+        .onAppear { withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathe = true } }
     }
 }
 

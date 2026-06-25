@@ -226,13 +226,14 @@ struct EmotionSubtitleOverlay: View {
         let lineSeed = Int((toks.first?.tStart ?? 0))
         let sungCol = randomColor(lineSeed)
         let unsungCol = randomColor(lineSeed &+ 97)
+        // W1322 — Jing: 传统字幕【细细小小】不抢戏。随机字形但【细体 .light】、18 号。
+        let design = fontDesigns[abs(lineSeed) % fontDesigns.count]
         return HStack(spacing: 1) {
             ForEach(toks) { tok in
                 Text(tok.char)
-                    .font(randomFont(24, seed: lineSeed))          // W1321 — 随机字体(整行一致)
-                    .foregroundStyle(t >= tok.startSec ? sungCol : unsungCol.opacity(0.6))   // W1321 — 随机双色
-                    .shadow(color: .black, radius: 1)
-                    .shadow(color: .black.opacity(0.9), radius: 3)
+                    .font(.system(size: 18, weight: .light, design: design))   // 细、小
+                    .foregroundStyle(t >= tok.startSec ? sungCol.opacity(0.85) : unsungCol.opacity(0.45))
+                    .shadow(color: .black.opacity(0.85), radius: 2)
             }
         }
     }

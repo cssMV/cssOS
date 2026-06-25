@@ -147,7 +147,10 @@
     //   改【左右对称】minmax(0,1fr) auto minmax(44px,1fr) → 价格条(中列)真正居中, 字幕左、AI 右对称留位。
     // CSSOS_WAVE_1122 — 对称三列: [字幕 左, ≥72px 防挤到0] [多语言 中, auto 居中] [备用 右]。字幕给最小宽度
     //   是吸取上次"多语言挤爆字幕只显两字"的教训 —— 字幕永远保住至少 72px, 不再归零。
-    line.style.cssText = "display:grid;grid-template-columns:minmax(72px,1fr) auto minmax(72px,1fr);align-items:center;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
+    // CSSOS_WAVE_1255 — Jing「传统字幕可以长到右下角 AI 助理前面」: 右列原 minmax(72px,1fr) 对称占了半幅,
+    //   把字幕卡在约一半就截断。改右列 minmax(44px,auto)(只留 AI 按钮自身宽), 字幕左列 1fr 即可一路长到
+    //   价格条/AI 之前(价格条空时直抵 AI 前)。
+    line.style.cssText = "display:grid;grid-template-columns:minmax(72px,1fr) auto minmax(44px,auto);align-items:center;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
     if (sub) {
       sub.style.setProperty("min-width", "0", "important");
       sub.style.setProperty("white-space", "nowrap", "important");

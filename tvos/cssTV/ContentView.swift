@@ -660,6 +660,8 @@ struct FeaturedHero: View {
             pauseAutoUntil = nil
             go(1)
         }
+        // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
+        .defaultFocus($focusedCap, 0)
     }
 }
 

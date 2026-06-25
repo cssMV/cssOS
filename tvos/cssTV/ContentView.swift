@@ -74,6 +74,7 @@ struct ContentView: View {
     @State private var showSearch = false               // W1277 搜索
     @Namespace private var focusNS
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
+    @State private var heroBackdrop: String? = nil   // W1288 — 当前 hero 封面 → 全屏环境底图
 
     // W1249/1259 — 创作尾卡 → 创作台; 否则 gating(免费/已拥有直接播; 收费未拥有 → 弹门)。
     private func choose(_ w: CSSWork) {
@@ -107,6 +108,22 @@ struct ContentView: View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
 
+            // W1288 — Apple TV 风格: 当前 hero 封面作全屏环境底图(模糊+暗化), 向下渐隐到黑 → 栏目区不再硬黑切断。
+            if let bd = heroBackdrop, let url = URL(string: bd) {
+                AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.clear }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .blur(radius: 40)
+                    .opacity(0.45)
+                    .overlay(
+                        LinearGradient(colors: [.black.opacity(0.25), .black.opacity(0.7), .black],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
+                    .ignoresSafeArea()
+                    .animation(.easeInOut(duration: 0.6), value: heroBackdrop)
+                    .allowsHitTesting(false)
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if loading {
@@ -118,7 +135,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS) { choose($0) }
+                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, backdrop: $heroBackdrop) { choose($0) }
                             // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
@@ -506,6 +523,7 @@ struct FeaturedHero: View {
     let works: [CSSWork]
     var focusNS: Namespace.ID                         // W1278 — 第一个胶囊 = 焦点域默认目标(侧栏右键跳来)
     var sidebarNS: Namespace.ID                       // W1283 — 往左跳回侧栏用
+    @Binding var backdrop: String?                    // W1288 — 把当前封面上报给 ContentView 作全屏底图
     let onSelect: (CSSWork) -> Void
 
     @Environment(\.resetFocus) private var resetFocus // W1283 — 往左把焦点送回侧栏
@@ -715,7 +733,12 @@ struct FeaturedHero: View {
         // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
         .defaultFocus($focusedCap, 0)
         // W1284 — 启动边框呼吸(下一个等待者), 1.1s 一呼一吸。
-        .onAppear { withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathe = true } }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathe = true }
+            backdrop = current.isCreateCard ? nil : current.coverURL   // W1288 — 初始底图
+        }
+        // W1288 — hero 轮换/聚焦切换 → 更新全屏环境底图。
+        .onChange(of: index) { _, _ in backdrop = current.isCreateCard ? nil : current.coverURL }
     }
 }
 

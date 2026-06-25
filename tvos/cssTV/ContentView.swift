@@ -730,19 +730,20 @@ struct FeaturedHero: View {
         .ignoresSafeArea(.container, edges: .horizontal)       // W1245 — hero 内容也满铺基准, 与 rails(同满铺)同 leading → 对齐
         .animation(.easeInOut(duration: 0.2), value: playFocused)
         .animation(.easeInOut(duration: 0.6), value: index)
-        // W1250 — 遥控器聚焦胶囊 → index 跟随, 并暂停自动轮播 10s(用户干预最高优先级)。
+        // W1298 — 用户干预最高权限: 把焦点移到【非激活】胶囊 = 干预 → index 跟随 + 暂停自动 10s。
+        //   (自动切换时焦点会跟随激活, f==index, 不算干预 → 不会自打断。)
         .onChange(of: focusedCap) { _, f in
-            if let f {
-                withAnimation(.easeInOut(duration: 0.4)) { index = f }
-                pauseAutoUntil = Date().addingTimeInterval(10)
-            }
+            guard let f, f != index else { return }
+            withAnimation(.easeInOut(duration: 0.4)) { index = f }
+            pauseAutoUntil = Date().addingTimeInterval(10)
         }
         .onReceive(timer) { _ in
-            if paused { return }                                      // W1290 — 侧栏有焦点 → 不轮换(否则重排踢走侧栏焦点)
-            if focusedCap != nil { return }                           // 用户正在操作胶囊, 不自动切
-            if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切
+            if paused { return }                                      // W1290 — 侧栏有焦点 → 不轮换
+            if let until = pauseAutoUntil, Date() < until { return }  // W1298 — 干预后 10s 内不自动切(最高权限)
             pauseAutoUntil = nil
-            go(1)
+            let next = (index + 1) % n
+            withAnimation(.easeInOut(duration: 0.6)) { index = next }
+            if focusedCap != nil { focusedCap = next }                // 焦点跟随激活胶囊(若焦点在胶囊上)
         }
         // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
         .defaultFocus($focusedCap, 0)

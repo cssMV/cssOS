@@ -711,6 +711,9 @@ function mergePanelBehaviorSettings(baseValue = {}, overlayValue = {}) {
 function updatePanelBehaviorSettings(mutator) {
   const current = readPanelBehaviorSettingsLocal();
   const draft = sanitizePanelBehaviorSettings(mutator(current));
+  // CSSOS_WAVE_1222 — Jing「开机不是我选的主题」根因: 此函数(切主题走它)只 apply 不【持久化】→
+  //   选择不存盘, 重开读到旧值。补上 writePanelBehaviorSettingsLocal, 让主题/所有设置存盘, 下次开机即生效。
+  try { writePanelBehaviorSettingsLocal(draft); } catch (_e) {}
   applyPanelBehaviorSettings(draft);
   void renderAdvancedPanelSettings();
   return draft;

@@ -117,8 +117,8 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured) { choose($0) }
-                            .prefersDefaultFocus(in: focusNS)   // hero 通栏(满铺左右)
+                            FeaturedHero(works: featured, focusNS: focusNS) { choose($0) }
+                            // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
                             ForEach(rails) { rail in
@@ -137,7 +137,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true })
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS)
                 .focusSection()
         }
         .focusScope(focusNS)
@@ -283,6 +283,8 @@ struct CategorySidebar: View {
     var onLoginTap: () -> Void
     var onCreate: () -> Void                   // W1259 创作入口
     var onSearch: () -> Void                   // W1277 搜索入口
+    var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
+    @Environment(\.resetFocus) private var resetFocus   // W1278 — 主动把焦点送到默认目标
     @FocusState private var focus: SidebarItem?
     @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
     @State private var avatarTick = 0          // W1274 — 每次聚焦头像 → 立即重爆一次
@@ -403,7 +405,8 @@ struct CategorySidebar: View {
         case .left:  withAnimation(.easeInOut(duration: 0.22)) { expanded = false }
         case .right:
             withAnimation(.easeInOut(duration: 0.22)) { expanded = false }
-            focus = nil   // 离开侧栏 → 焦点引擎转到内容(hero prefersDefaultFocus 会接住, 第一个胶囊爆)
+            focus = nil
+            resetFocus(in: focusNS)   // W1278 — 主动把焦点送到 hero 第一个胶囊(光 focus=nil 跳不过去)
         @unknown default: break
         }
     }
@@ -480,6 +483,7 @@ struct LogoAvatarBadge: View {
 /// ▶Play 按钮为焦点目标: Select 即播当前; 在其上 ←→ 切精选, ↓ 进下面 rails。
 struct FeaturedHero: View {
     let works: [CSSWork]
+    var focusNS: Namespace.ID                         // W1278 — 第一个胶囊 = 焦点域默认目标(侧栏右键跳来)
     let onSelect: (CSSWork) -> Void
 
     @State private var index = 0
@@ -550,6 +554,7 @@ struct FeaturedHero: View {
         }
         .buttonStyle(FlatButtonStyle())
         .focused($focusedCap, equals: i)
+        .prefersDefaultFocus(i == 0, in: focusNS)   // W1278 — 第一个胶囊作 hero 默认焦点(侧栏右键 resetFocus 跳此)
     }
 
     @ViewBuilder

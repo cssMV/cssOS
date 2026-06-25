@@ -116,11 +116,7 @@ struct ContentView: View {
                     .clipped()
                     .blur(radius: 40)
                     .opacity(0.45)
-                    .overlay(
-                        // W1294 — Jing「Today's Picks 别黑」: 渐变不再淡到纯黑, 底部留半透 → 模糊底图透到栏目后面。
-                        LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.4), .black.opacity(0.55)],
-                                       startPoint: .top, endPoint: .bottom)
-                    )
+                    // W1295 — Jing: 不要渐变, 直接透明(去掉黑色渐变叠层); 栏目直接浮在模糊底图上。
                     .ignoresSafeArea()
                     .animation(.easeInOut(duration: 0.6), value: heroBackdrop)
                     .allowsHitTesting(false)

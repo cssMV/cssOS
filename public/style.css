@@ -4204,7 +4204,10 @@ body.cssos-cinema-mode #logo-panel .mirror-img {
   height: 100%;
   object-fit: contain;
   opacity: 0;
-  filter: drop-shadow(0 0 26px rgba(0, 245, 160, 0.35));
+  /* CSSOS_WAVE_1223 — Jing「删掉魔镜背景, 照搬 splash 的裸图, 不然永远有圈圈」:
+     这道 26px 绿色 drop-shadow 光晕 + 下方 clip-path:circle 一起在夜色底上凭空造出
+     一个绿圆盘(splash 的 <img> 没有任何 filter/clip → 完美融合)。删掉光晕, 让大厅魔镜
+     和 splash 一样是透明裸图, 圈圈消失。 */
   animation: mirrorFadeA 16s ease-in-out infinite;
   pointer-events: none;
   z-index: 1;
@@ -10068,7 +10071,6 @@ body.cssos-nonlogo-front #logo-panel * {
   contain: paint;
 }
 
-.mirror-img,
 .mirror-video {
   object-fit: cover;
   object-position: center;
@@ -10078,6 +10080,19 @@ body.cssos-nonlogo-front #logo-panel * {
   mask-image: radial-gradient(circle at 50% 50%, #000 99.2%, transparent 100%);
   -webkit-clip-path: circle(50% at 50% 50%);
   clip-path: circle(50% at 50% 50%);
+}
+/* CSSOS_WAVE_1223 — Jing「照搬 splash 的裸图」: 静态魔镜 logo 图不再 cover 填满 + 剪正圆
+   (那会把透明 webp 撑满成一个实心圆盘)。改回 contain + 透明裸图, 和 splash 的 <img> 一模一样,
+   四个尖尖角之间的透明区直接露出主界面背景 → 零圈圈、完美融合。视频层(上)仍保持圆形。 */
+.mirror-img {
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  border-radius: 0;
+  -webkit-mask-image: none;
+  mask-image: none;
+  -webkit-clip-path: none;
+  clip-path: none;
 }
 /* CSSOS_LOGO_MIRROR_COVER_END */
 

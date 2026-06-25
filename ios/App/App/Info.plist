@@ -71,5 +71,17 @@
 	<true/>
 	<key>UIStatusBarHidden~ipad</key>
 	<true/>
+	<!-- CSSOS_WAVE_1251 20260625 — Apple 拒因 2.1(a): 点 Record 报错 / 点 Take Video 崩溃。
+	     真凶 = 缺相机/麦克风/相册 Usage Description。iOS 访问相机无 NSCameraUsageDescription
+	     会【硬崩溃】, 访问麦克风无 NSMicrophoneUsageDescription 会报错。补齐 4 个 key,
+	     描述具体(苹果拒空泛文案)。WKWebView getUserMedia 有这些 key 才会弹系统授权而非崩溃。 -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>CSS Studio uses the microphone so you can record your own voice to sing and create music videos.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>CSS Studio uses the camera so you can capture video and photos to include in your music videos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CSS Studio accesses your photo library so you can use your own photos and videos in your music videos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>CSS Studio saves the music videos and images you create to your photo library.</string>
 </dict>
 </plist>

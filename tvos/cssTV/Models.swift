@@ -84,6 +84,11 @@ struct CSSWork: Codable, Identifiable {
     var workType: String?
     /// 创建时间(ISO8601 串)。W1281 — For You 严格从新到旧排序用(字典序=时间序)。
     var createdAt: String?
+    /// W1329 — 多部作品的子作品(各 part)。market 序列化带 children。
+    var children: [CSSWork]?
+    /// W1329 — 媒体兜底列(多部 children 媒体常在 preview 列, 非 work_assets)。
+    var previewAudio: String?
+    var previewVideo: String?
     /// W1249 聆听/观赏 gating。
     var listenPriceCents: Int?
     var buyoutPriceCents: Int?
@@ -100,6 +105,9 @@ struct CSSWork: Codable, Identifiable {
         case durationSecs = "duration_secs"
         case workType = "work_type"
         case createdAt = "created_at"
+        case children
+        case previewAudio = "preview_audio_url"
+        case previewVideo = "preview_video_url"
         case listenPriceCents = "current_listen_price_cents"
         case buyoutPriceCents = "current_buyout_price_cents"
         case viewerOrders = "viewer_orders"
@@ -127,6 +135,15 @@ struct CSSWork: Codable, Identifiable {
     static let createCardId = "__cssos_create__"
     static var createCard: CSSWork { CSSWork(id: createCardId) }
     var isCreateCard: Bool { id == Self.createCardId }
+
+    // W1329 — 可播媒体(work_assets 优先, 兜底 preview 列)。
+    var bestAudio: String? { audioURL ?? previewAudio }
+    var bestVideo: String? { videoURL ?? previewVideo }
+    /// 连播队列: 有子作品(多部)→ 各 part 按序; 否则 → 自己一首。
+    var playbackParts: [CSSWork] {
+        if let ch = children, !ch.isEmpty { return ch }
+        return [self]
+    }
 
     // W1326 — 多部作品(三部曲/歌剧/剧集/电影): 卡片显示为叠卡 + 类型徽章, 播放连续播整部。
     var isMultiPart: Bool {

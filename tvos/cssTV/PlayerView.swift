@@ -36,7 +36,12 @@ struct PlayerView: View {
     @State private var clockObserver: Any?
     @State private var endObserver: NSObjectProtocol?
     @State private var subtitle: CSSBackend.CSSSubtitleData?   // W1247 逐字情绪字幕
+    @State private var partIndex = 0                           // W1329 — 多部连播当前枝丫
     @Environment(\.dismiss) private var dismiss
+
+    // W1329 — 连播队列(多部=各 part; 单曲=自己一首)+ 当前 part。
+    private var parts: [CSSWork] { work.playbackParts }
+    private var currentPart: CSSWork { parts[min(partIndex, max(parts.count - 1, 0))] }
 
     var body: some View {
         ZStack {
@@ -48,7 +53,7 @@ struct PlayerView: View {
                 Group {
                     if let vp = videoPlayer {
                         VideoSurface(player: vp)
-                    } else if let cover = work.coverURL, let url = URL(string: cover) {
+                    } else if let cover = currentPart.coverURL, let url = URL(string: cover) {
                         AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.black }
                     }
                 }
@@ -71,13 +76,23 @@ struct PlayerView: View {
                     Spacer()
                     HStack {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(work.title ?? "Untitled")
+                            Text(currentPart.title ?? "Untitled")
                                 .font(.system(size: 44, weight: .bold))
                                 .foregroundStyle(.white)
-                            if !work.durationLabel.isEmpty {
-                                Text(work.durationLabel)
-                                    .font(.system(size: 24, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.7))
+                            HStack(spacing: 12) {
+                                if !currentPart.durationLabel.isEmpty {
+                                    Text(currentPart.durationLabel)
+                                        .font(.system(size: 24, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
+                                // W1329 — 多部连播分部指示。
+                                if parts.count > 1 {
+                                    Text("\(partIndex + 1) / \(parts.count)")
+                                        .font(.system(size: 22, weight: .heavy))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 10).padding(.vertical, 3)
+                                        .background(Capsule().fill(Color.green.opacity(0.85)))
+                                }
                             }
                         }
                         Spacer()
@@ -102,40 +117,50 @@ struct PlayerView: View {
         // 音频会话: 让声音从电视外放。
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
+        loadPart(0)   // W1329 — 从第一枝丫起播; 播完自动接下一枝丫
+    }
 
-        if let v = work.videoURL, let vurl = URL(string: v) {
+    // W1329 — 加载并起播第 idx 个枝丫(多部连播核心)。
+    private func loadPart(_ idx: Int) {
+        // 拆上一枝丫的播放器/观察者(不关音频会话)。
+        if let o = clockObserver { audioPlayer?.removeTimeObserver(o); clockObserver = nil }
+        if let e = endObserver { NotificationCenter.default.removeObserver(e); endObserver = nil }
+        videoPlayer?.pause(); videoPlayer = nil
+        audioPlayer?.pause(); audioPlayer = nil
+        subtitle = nil
+        partIndex = idx
+        let part = parts[min(idx, max(parts.count - 1, 0))]
+
+        if let v = part.bestVideo, let vurl = URL(string: v) {   // W1329 — 兜底 preview 列
             let p = AVPlayer(url: vurl)
-            p.isMuted = true            // 画音分层: 视频永远静音
-            p.actionAtItemEnd = .none    // 结尾不暂停: 由音频主时钟决定循环/收尾
+            p.isMuted = true
+            p.actionAtItemEnd = .none
             videoPlayer = p
         }
-        if let a = work.audioURL, let aurl = URL(string: a) {
+        if let a = part.bestAudio, let aurl = URL(string: a) {
             let p = AVPlayer(url: aurl)
             audioPlayer = p
-            if let item = p.currentItem { meter.attach(to: item) }   // W1328 — 实时音量表(器乐段 emoji 用)
-            // CSSOS_WAVE_1229 — 音频主时钟: audio 周期观察者每 0.2s 把视频拽回音频时刻。
+            if let item = p.currentItem { meter.attach(to: item) }
             let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
             clockObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { t in
                 syncVideoToAudio(t.seconds)
             }
-            // 切歌铁律: 只看 audio.ended(音频播完 = 本作品结束)。
             if let item = p.currentItem {
                 endObserver = NotificationCenter.default.addObserver(
                     forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
                 ) { _ in onAudioEnded() }
             }
         }
-        // W1247 — 异步拉逐字情绪字幕(招牌)。
-        let wid = work.id
+        // 逐字情绪字幕: 按【当前枝丫】拉(每部各自字幕)。
+        let wid = part.id
         Task {
             let s = await CSSBackend.fetchSubtitles(workId: wid)
-            await MainActor.run { subtitle = s }
+            await MainActor.run { if partIndex == idx { subtitle = s } }
         }
-
-        // 同时起播; 此后由主时钟保持对齐。
         videoPlayer?.play()
         audioPlayer?.play()
-        // 标题 5 秒后淡出。
+        // 每切一部短暂显标题(让观众知道进了下一部)。
+        showTitle = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             withAnimation(.easeOut(duration: 0.6)) { showTitle = false }
         }
@@ -169,9 +194,13 @@ struct PlayerView: View {
     }
 
     private func onAudioEnded() {
-        // 本作品播完 → 退出影院(下一里程碑: 自动续播下一首)。
-        stop()
-        dismiss()
+        // W1329 — 多部连播: 还有下一枝丫 → 接着播; 全部播完 → 退出影院。
+        if partIndex + 1 < parts.count {
+            loadPart(partIndex + 1)
+        } else {
+            stop()
+            dismiss()
+        }
     }
 
     private func stop() {

@@ -22948,6 +22948,11 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
   // CSSOS_WAVE_202 — 240s timeout wrapper (Runway / Luma can be slowest).
   // eslint-disable-next-line @typescript-eslint/no-shadow
   const fetch = makeTimeoutFetch(VIDEO_ROUTER_TIMEOUT_MS);
+  // CSSOS_WAVE_1293 — 同封面: 视频里的人物一律美, 禁丑/脏脸/畸形(图1「混沌の海」脏脸即此处)。
+  if (req.prompt && !/beautiful refined aesthetic/i.test(req.prompt)) {
+    req.prompt = req.prompt.replace(/\s+$/, "") +
+      ", beautiful refined aesthetic, any human subject rendered attractive elegant and gorgeous with clean flattering features and graceful styling; never ugly, grimy, dirty-faced, disfigured, or unflattering";
+  }
   const order = videoProviderOrder(req.prefer);
   let lastErr = "";
   for (const provider of order) {
@@ -23504,6 +23509,13 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
       signal: AbortSignal.timeout(IMAGE_ROUTER_TIMEOUT_MS),
     });
   };
+
+  // CSSOS_WAVE_1293 — Jing 审美铁律: 凡出现人物一律【美】(俊美/秀丽/优雅), 绝不丑陋/脏污/畸形脸。
+  //   不强行往每张图塞女性(尊重男性人物如德川家康/孔子、非人场景), 只在出现人脸时拔高颜值 + 禁丑。
+  if (req.prompt && !/beautiful refined aesthetic/i.test(req.prompt)) {
+    req.prompt = req.prompt.replace(/\s+$/, "") +
+      ", beautiful refined aesthetic, any human subject rendered attractive elegant and gorgeous with clean flattering features and graceful styling, tasteful appealing beauty; never ugly, grimy, dirty-faced, disfigured, or unflattering";
+  }
 
   const order = imageProviderOrder(req.prefer);
   let lastErr = "no_providers_available";

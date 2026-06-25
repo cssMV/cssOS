@@ -10,15 +10,28 @@ import Combine
 enum HomeCategory: String, CaseIterable, Identifiable {
     case all, mv, opera, trilogy, shortplay, series, film
     var id: String { rawValue }
-    var title: String {
+    /// LocalizedStringKey: SwiftUI Text 自动按 .strings 本地化, 英文默认, 绝不中文硬编码。
+    var title: LocalizedStringKey {
         switch self {
         case .all: return "Home"
         case .mv: return "MV"
-        case .opera: return "歌剧"
-        case .trilogy: return "三部曲"
-        case .shortplay: return "短剧"
-        case .series: return "电视剧"
-        case .film: return "电影"
+        case .opera: return "Opera"
+        case .trilogy: return "Trilogy"
+        case .shortplay: return "Short Drama"
+        case .series: return "Series"
+        case .film: return "Film"
+        }
+    }
+    /// rail 标题用(纯英文 String, 供 CSSRail.title)。
+    var railTitle: String {
+        switch self {
+        case .all: return "Home"
+        case .mv: return "MV"
+        case .opera: return "Operas"
+        case .trilogy: return "Trilogies"
+        case .shortplay: return "Short Dramas"
+        case .series: return "Series"
+        case .film: return "Films"
         }
     }
     var icon: String {
@@ -62,7 +75,7 @@ struct ContentView: View {
     private var rails: [CSSRail] {
         if category == .all { return CSSBackend.buildRails(allWorks) }
         let f = works(for: category)
-        return f.isEmpty ? [] : [CSSRail(id: category.rawValue, title: category.title, works: f)]
+        return f.isEmpty ? [] : [CSSRail(id: category.rawValue, title: category.railTitle, works: f)]
     }
 
     var body: some View {
@@ -75,7 +88,7 @@ struct ContentView: View {
                     if loading {
                         ProgressView().scaleEffect(1.6).frame(maxWidth: .infinity, minHeight: 500)
                     } else if featured.isEmpty && rails.isEmpty {
-                        Text("暂无该类型作品 · Nothing here yet")
+                        Text("Nothing here yet")
                             .font(.system(size: 28, weight: .medium))
                             .foregroundStyle(.white.opacity(0.6))
                             .frame(maxWidth: .infinity, minHeight: 500)
@@ -109,82 +122,71 @@ struct ContentView: View {
     }
 }
 
-/// W1232 — 左侧分类侧栏(HBO 左导航)。每项 = 图标 + 标签, 选中高亮; 上下移动切换。
+/// W1235 — 侧栏焦点项(用于折叠/展开判定)。
+enum SidebarItem: Hashable {
+    case avatar, favorites, search, category(HomeCategory)
+}
+
+/// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
+///   收起 = 只显图标(窄); 焦点进入侧栏任一项 = 展开显图标+标签(宽)。标签全英文(i18n)。
 struct CategorySidebar: View {
     @Binding var selected: HomeCategory
+    @FocusState private var focus: SidebarItem?
+    private var expanded: Bool { focus != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // W1234d — logo 与头像合体: cssTV 直接印在金球上(像桌面端), 不再旁边单独文字。
-            //   点 = 登录(待接); 登录后金球↔头像周期切换。
+        VStack(alignment: .leading, spacing: 6) {
+            // logo/头像合体徽章(整套 logo)。点 = 登录(待接)。
             Button { } label: {
-                HStack {
-                    LogoAvatarBadge()
-                    Spacer()
-                }
-                .padding(.vertical, 8).padding(.horizontal, 12)
-                .frame(width: 240, alignment: .leading)
+                HStack { LogoAvatarBadge(); if expanded { Spacer() } }
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 12)
-            Button { } label: {
-                HStack(spacing: 16) {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 22)).frame(width: 30)
-                    Text("收藏 · Favorites").font(.system(size: 22, weight: .medium))
-                    Spacer()
-                }
-                .foregroundStyle(Color.white.opacity(0.85))
-                .padding(.vertical, 12).padding(.horizontal, 18)
-                .frame(width: 240, alignment: .leading)
-            }
-            .buttonStyle(.plain)
+            .focused($focus, equals: .avatar)
+            .padding(.bottom, 10)
 
-            // W1234 — 头像/收藏 与 搜索/分类 之间留一个空行。
-            Spacer().frame(height: 28)
-
-            // 搜索入口(后端待接, 先占位)。
-            Button { } label: {
-                HStack(spacing: 16) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 22, weight: .semibold)).frame(width: 30)
-                    Text("搜索 · Search").font(.system(size: 22, weight: .medium))
-                    Spacer()
-                }
-                .foregroundStyle(Color.white.opacity(0.85))
-                .padding(.vertical, 12).padding(.horizontal, 18)
-                .frame(width: 240, alignment: .leading)
-            }
-            .buttonStyle(.plain)
+            row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
+            Spacer().frame(height: 22)
+            row(icon: "magnifyingglass", label: "Search", item: .search) { }
 
             ForEach(HomeCategory.allCases) { cat in
-                Button { selected = cat } label: {
-                    HStack(spacing: 16) {
-                        Image(systemName: cat.icon)
-                            .font(.system(size: 22, weight: .semibold))
-                            .frame(width: 30)
-                        Text(cat.title)
-                            .font(.system(size: 22, weight: selected == cat ? .bold : .medium))
-                        Spacer()
-                    }
-                    .foregroundStyle(selected == cat ? Color.green : Color.white.opacity(0.85))
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 18)
-                    .frame(width: 240, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(selected == cat ? Color.white.opacity(0.10) : Color.clear)
-                    )
+                row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
+                    selected = cat
                 }
-                .buttonStyle(.plain)
             }
             Spacer()
         }
-        .padding(.top, 60)
-        .padding(.horizontal, 28)
-        .frame(width: 320)
+        .padding(.top, 56)
+        .padding(.horizontal, expanded ? 24 : 18)
+        .frame(width: expanded ? 330 : 130)
         .frame(maxHeight: .infinity)
-        .background(Color.black)
+        .background(Color.black.opacity(0.98))
+        .animation(.easeInOut(duration: 0.22), value: expanded)
+    }
+
+    @ViewBuilder
+    private func row(icon: String, label: LocalizedStringKey, item: SidebarItem,
+                     active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 24, weight: .semibold))
+                    .frame(width: 34)
+                if expanded {
+                    Text(label)
+                        .font(.system(size: 22, weight: active ? .bold : .medium))
+                        .lineLimit(1)
+                    Spacer()
+                }
+            }
+            .foregroundStyle(active ? Color.green : Color.white.opacity(0.85))
+            .padding(.vertical, 12).padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14)
+                .fill(active ? Color.white.opacity(0.10) : Color.clear))
+        }
+        .buttonStyle(.plain)
+        .focused($focus, equals: item)
     }
 }
 
@@ -202,31 +204,30 @@ struct LogoAvatarBadge: View {
 
     var body: some View {
         ZStack {
-            // 外环: 恒定自转。
-            Image("MirrorRing")
-                .resizable().scaledToFit()
-                .rotationEffect(.degrees(ringAngle))
-            // 中心: 金球(上印 cssTV), 或(登录后)与头像轮换。
+            // 整套 logo 自转: 未登录(或金球态)= MirrorFull(环+金球); 登录后头像态 = 只 MirrorRing。
             Group {
                 if !loggedIn || showOrb {
-                    ZStack {
-                        Image("MirrorOrb")
-                            .resizable().scaledToFit()
-                        // cssTV 印在金球上(桌面端同款)。金球亮金底 → 墨字读得清。
-                        HStack(spacing: 1) {
-                            Text("css").foregroundStyle(Color(red: 0.05, green: 0.12, blue: 0.07))
-                            Text("TV").foregroundStyle(Color(red: 0.0, green: 0.32, blue: 0.18))
-                        }
-                        .font(.system(size: 17, weight: .heavy))
-                    }
-                    .transition(.opacity)
+                    Image("MirrorFull").resizable().scaledToFit().transition(.opacity)
                 } else {
-                    Image(systemName: "person.crop.circle.fill")
-                        .resizable().scaledToFit()
-                        .padding(18)
-                        .foregroundStyle(.white)
-                        .transition(.opacity)
+                    Image("MirrorRing").resizable().scaledToFit().transition(.opacity)
                 }
+            }
+            .rotationEffect(.degrees(ringAngle))
+
+            // 中心叠加(不随环转, 保持正): 金球态印 cssTV; 头像态放用户头像(嵌环孔)。
+            if !loggedIn || showOrb {
+                HStack(spacing: 1) {
+                    Text("css").foregroundStyle(Color(red: 0.05, green: 0.12, blue: 0.07))
+                    Text("TV").foregroundStyle(Color(red: 0.0, green: 0.32, blue: 0.18))
+                }
+                .font(.system(size: 16, weight: .heavy))
+                .transition(.opacity)
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable().scaledToFit()
+                    .frame(width: 44, height: 44)
+                    .foregroundStyle(.white)
+                    .transition(.opacity)
             }
         }
         .frame(width: 92, height: 92)

@@ -41,15 +41,16 @@ enum CSSBackend {
     static func buildRails(_ works: [CSSWork]) -> [CSSRail] {
         guard !works.isEmpty else { return [] }
         var rails: [CSSRail] = []
-        rails.append(CSSRail(id: "foryou", title: "For You · 为你精选", works: works))
+        // i18n: 英文默认, 绝不中文硬编码。
+        rails.append(CSSRail(id: "foryou", title: "For You", works: works))
         if works.count > 6 {
-            rails.append(CSSRail(id: "fresh", title: "Fresh · 最新上架", works: Array(works.prefix(18))))
+            rails.append(CSSRail(id: "fresh", title: "Fresh", works: Array(works.prefix(18))))
         }
         let typeDefs: [(key: String, title: String, match: [String])] = [
-            ("opera",    "Operas · 歌剧",      ["opera"]),
-            ("film",     "Films · 电影",       ["film", "movie"]),
-            ("series",   "Series · 剧集短剧",  ["series", "shortplay", "short-play", "drama"]),
-            ("triptych", "Trilogies · 三部曲", ["triptych", "trilogy"]),
+            ("opera",    "Operas",    ["opera"]),
+            ("film",     "Films",     ["film", "movie"]),
+            ("series",   "Series",    ["series", "shortplay", "short-play", "drama"]),
+            ("triptych", "Trilogies", ["triptych", "trilogy"]),
         ]
         for def in typeDefs {
             let group = works.filter { def.match.contains(($0.workType ?? "").lowercased()) }

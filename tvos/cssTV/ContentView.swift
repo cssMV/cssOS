@@ -248,23 +248,16 @@ struct LogoAvatarBadge: View {
             }
             .rotationEffect(.degrees(ringAngle))
 
-            // 中心叠加(不随环转, 保持正): 金球态印 cssTV; 头像态放用户头像(嵌环孔)。
-            if !loggedIn || showOrb {
-                HStack(spacing: 1) {
-                    Text("css").foregroundStyle(Color(red: 0.05, green: 0.12, blue: 0.07))
-                    Text("TV").foregroundStyle(Color(red: 0.0, green: 0.32, blue: 0.18))
-                }
-                .font(.system(size: 16, weight: .heavy))
-                .transition(.opacity)
-            } else {
+            // W1243 — 取消 logo 上的 cssTV 文字(金球将切头像, 放不下)。仅登录头像态在环孔放头像。
+            if loggedIn && !showOrb {
                 Image(systemName: "person.crop.circle.fill")
                     .resizable().scaledToFit()
-                    .frame(width: 44, height: 44)
+                    .frame(width: 58, height: 58)
                     .foregroundStyle(.white)
                     .transition(.opacity)
             }
         }
-        .frame(width: 92, height: 92)
+        .frame(width: 112, height: 112)   // W1243 — logo 适度放大(不做整条那么夸张)
         .onAppear {
             withAnimation(.linear(duration: 14).repeatForever(autoreverses: false)) { ringAngle = 360 }
         }
@@ -345,10 +338,8 @@ struct FeaturedHero: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
+        ZStack(alignment: .bottom) {
             // W1236 — hero 框死成固定尺寸: 用 Color 占位定尺寸, 封面只在框内 overlay+裁切。
-            //   根因(Jing): 封面图有 2.39 有 16:9, 之前 AsyncImage 直接参与布局 → 不同比例撑得
-            //   hero 忽大忽小"动来动去"。Color 锚定尺寸后, 任何比例的图都只裁切填充, 框恒定。
             GeometryReader { geo in
                 Group {
                     if let c = current.coverURL, let url = URL(string: c) {
@@ -370,15 +361,14 @@ struct FeaturedHero: View {
                 startPoint: .bottomLeading, endPoint: .topTrailing
             )
 
+            // W1243 — 标题/Play/时长: 偏左但更避开侧栏(leading 210, 不和左侧打架), 坐在胶囊上方。
             VStack(alignment: .leading, spacing: 14) {
-                Spacer()
                 Text(current.title ?? "Untitled")
                     .font(.system(size: 54, weight: .heavy))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .shadow(radius: 12)
                 HStack(spacing: 24) {
-                    // ▶Play: 焦点目标。Select 播; 其上 ←→ 切精选。
                     Button { onSelect(current) } label: {
                         Label("Play", systemImage: "play.fill")
                             .font(.system(size: 24, weight: .bold))
@@ -393,15 +383,16 @@ struct FeaturedHero: View {
                             .font(.system(size: 22, weight: .medium))
                             .foregroundStyle(.white.opacity(0.85))
                     }
-                    Spacer()
                 }
-                capsuleTrack    // W1238 — 胶囊宪法凹凸镶嵌
             }
-            // W1240/1241 — 内容避开浮层侧栏(左 ~160); 胶囊轨道再下移半个身位(下 8, 更贴底边)。
-            .padding(.leading, 160)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 210)
             .padding(.trailing, 60)
-            .padding(.top, 60)
-            .padding(.bottom, 8)
+            .padding(.bottom, 78)        // 坐在胶囊上方
+
+            // W1243 — 胶囊: 居中(ZStack .bottom 水平居中), 贴底。
+            capsuleTrack
+                .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 720)

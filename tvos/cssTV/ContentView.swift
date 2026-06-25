@@ -105,7 +105,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Color.black.ignoresSafeArea()
+            Color.clear.ignoresSafeArea()   // W1305 — 试: 根背景改透明(原 Color.black)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -143,7 +143,7 @@ struct ContentView: View {
                 .focusSection()
         }
         .focusScope(focusNS)
-        .background(Color.black.ignoresSafeArea())
+        .background(Color.clear.ignoresSafeArea())   // W1305 — 试: 根背景改透明(原 Color.black)
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .fullScreenCover(item: $selected) { w in
@@ -677,7 +677,7 @@ struct FeaturedHero: View {
                 if playFocused || focusedCap != nil { focusGlow }   // W1244/1250 — Play 或任一胶囊聚焦 → 绿辉光
             }
             .clipped()
-            .ignoresSafeArea(.container, edges: .horizontal)   // 背景满铺通栏
+            .ignoresSafeArea(.container, edges: [.horizontal, .top])   // W1306 — 大图顶到屏顶(含上边), 不留顶部跑马场
         }
         .ignoresSafeArea(.container, edges: .horizontal)       // W1245 — hero 内容也满铺基准, 与 rails(同满铺)同 leading → 对齐
         .animation(.easeInOut(duration: 0.2), value: playFocused)

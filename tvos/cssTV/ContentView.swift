@@ -314,10 +314,11 @@ struct FeaturedHero: View {
                     }
                     Spacer()
                 }
-                // W1234d — 胶囊宪法: 单轨道(999圆角 + 1px边框 + 无 padding + clip), 段间留缝6;
-                //   每段 = 缩略图 + 标题(gap7), 激活段【满高全圆 pill】贴轨道边、品牌绿、端角与轨道共边。
+                // W1238 — 胶囊宪法【全 4 条】: ①每段=缩略图+标题(gap7) ②【激活段在前(左)】
+                //   ③激活两头圆全 pill ④单轨道(999圆角+1px边框+无padding+clip)+段间缝6、端角共边。
+                //   第②条 = 激活段始终排最前, 其余按序跟随(之前漏掉的那条)。
                 HStack(spacing: 6) {
-                    ForEach(works.indices, id: \.self) { i in
+                    ForEach([index] + works.indices.filter { $0 != index }, id: \.self) { i in
                         HStack(spacing: 7) {
                             Group {
                                 if let c = works[i].coverURL, let url = URL(string: c) {

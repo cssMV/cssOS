@@ -41,22 +41,30 @@ enum CSSBackend {
     static func buildRails(_ works: [CSSWork]) -> [CSSRail] {
         guard !works.isEmpty else { return [] }
         var rails: [CSSRail] = []
-        // i18n: 英文默认, 绝不中文硬编码。
-        rails.append(CSSRail(id: "foryou", title: "For You", works: works))
-        if works.count > 6 {
-            rails.append(CSSRail(id: "fresh", title: "Fresh", works: Array(works.prefix(18))))
+        // W1259 — Jing 指定的 9 栏(i18n 英文默认)。每栏末尾自动追加「创作尾卡」。
+        func rail(_ id: String, _ title: String, _ items: [CSSWork], min: Int = 1) {
+            guard items.count >= min else { return }
+            rails.append(CSSRail(id: id, title: title, works: items + [CSSWork.createCard]))
         }
+        // ① For You — 全网最新(后端已按 created_at 排序)。
+        rail("foryou", "For You", works)
+        // ② Today's Picks — 算法推荐占位: 稳定伪随机重排(按 id 哈希), 不重复 For You 顺序。
+        //    TODO(后端): 接真推荐时换成 /api/works/recommend。
+        rail("today", "Today's Picks", works.sorted { $0.id.hashValue < $1.id.hashValue })
+        // ③ My Favorites — 本人有订单(收藏/已购)的; 未登录或空则不显。
+        rail("favorites", "My Favorites", works.filter { $0.isOwned })
+        // ④ Most Played — 占位排序(后端暂无播放数, 用 id 反向哈希区分); TODO 接 play_count。
+        rail("most-played", "Most Played", works.sorted { $0.id.hashValue > $1.id.hashValue })
+        // ⑤~⑨ 按类型。
         let typeDefs: [(key: String, title: String, match: [String])] = [
-            ("opera",    "Operas",    ["opera"]),
-            ("film",     "Films",     ["film", "movie"]),
-            ("series",   "Series",    ["series", "shortplay", "short-play", "drama"]),
-            ("triptych", "Trilogies", ["triptych", "trilogy"]),
+            ("triptych", "Trilogies",   ["triptych", "trilogy"]),
+            ("opera",    "Operas",      ["opera"]),
+            ("shortplay","Short Dramas",["shortplay", "short-play", "drama"]),
+            ("series",   "TV Series",   ["series"]),
+            ("film",     "Films",       ["film", "movie"]),
         ]
         for def in typeDefs {
-            let group = works.filter { def.match.contains(($0.workType ?? "").lowercased()) }
-            if group.count >= 3 {
-                rails.append(CSSRail(id: def.key, title: def.title, works: group))
-            }
+            rail(def.key, def.title, works.filter { def.match.contains(($0.workType ?? "").lowercased()) })
         }
         return rails
     }
@@ -128,6 +136,20 @@ enum CSSBackend {
         let origin_voice: String?
         let tracks: [Track]?
         struct Track: Codable { let lang: String?; let subtitle_take1_json_url: String? }
+    }
+
+    // W1259 — 创作台: 把提示词发给后端 AI 助理(开始创作)。返回是否成功送达。
+    static func castMV(prompt: String) async -> Bool {
+        guard let url = URL(string: "\(baseURL)/api/agent/chat") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["message": prompt, "source": "csstv"])
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            if let http = resp as? HTTPURLResponse { return (200...299).contains(http.statusCode) }
+        } catch { print("[CSSBackend] castMV failed:", error) }
+        return false
     }
 
     private struct FeedEnvelope: Codable {

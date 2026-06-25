@@ -68,10 +68,12 @@ struct ContentView: View {
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
     @State private var gateWork: CSSWork?               // 收费且未拥有 → 弹门
+    @State private var showCreate = false               // W1259 创作台
     @Namespace private var focusNS
 
-    // W1249 — 聆听/观赏 gating: 免费/已拥有直接播; 收费未拥有 → 弹门(tvOS 不接外部支付, 引导网页购买)。
+    // W1249/1259 — 创作尾卡 → 创作台; 否则 gating(免费/已拥有直接播; 收费未拥有 → 弹门)。
     private func choose(_ w: CSSWork) {
+        if w.isCreateCard { showCreate = true; return }
         Task {
             let h = await CSSBackend.hydrate(w)
             if h.canPlayFree { selected = h } else { gateWork = h }
@@ -83,7 +85,11 @@ struct ContentView: View {
         if cat == .all { return allWorks }
         return allWorks.filter { cat.matches.contains(($0.workType ?? "").lowercased()) }
     }
-    private var featured: [CSSWork] { Array(works(for: category).prefix(5)) }
+    // W1259 — hero 末尾追加一张创作卡(「Want an MV like this?」)。
+    private var featured: [CSSWork] {
+        let real = Array(works(for: category).prefix(5))
+        return real.isEmpty ? [] : real + [CSSWork.createCard]
+    }
     private var rails: [CSSRail] {
         if category == .all { return CSSBackend.buildRails(allWorks) }
         let f = works(for: category)
@@ -128,7 +134,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $category, auth: auth) { showLogin = true }
+            CategorySidebar(selected: $category, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true })
                 .focusSection()
         }
         .focusScope(focusNS)
@@ -140,6 +146,9 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $showLogin) {
             LoginView(auth: auth)
+        }
+        .fullScreenCover(isPresented: $showCreate) {
+            CreateView(auth: auth)
         }
         .alert("Paid work", isPresented: Binding(get: { gateWork != nil }, set: { if !$0 { gateWork = nil } })) {
             Button("OK", role: .cancel) { gateWork = nil }
@@ -225,7 +234,7 @@ struct EmojiBurstEffect: View {
 
 /// W1235 — 侧栏焦点项(用于折叠/展开判定)。
 enum SidebarItem: Hashable {
-    case avatar, favorites, search, category(HomeCategory)
+    case avatar, favorites, search, create, category(HomeCategory)
 }
 
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
@@ -234,6 +243,7 @@ struct CategorySidebar: View {
     @Binding var selected: HomeCategory
     @ObservedObject var auth: CSSAuth          // W1249 登录态
     var onLoginTap: () -> Void
+    var onCreate: () -> Void                   // W1259 创作入口
     @FocusState private var focus: SidebarItem?
     @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
 
@@ -267,6 +277,10 @@ struct CategorySidebar: View {
             ForEach(HomeCategory.allCases) { cat in
                 row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
                     selected = cat
+                }
+                // W1259 — 「✨ Create」创作入口, 放在 Trilogy 之下(Jing 指定)。
+                if cat == .trilogy {
+                    row(icon: "wand.and.stars", label: "Create", item: .create) { onCreate() }
                 }
             }
             Spacer()
@@ -429,7 +443,7 @@ struct FeaturedHero: View {
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                     // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
                     .overlay { EmojiBurstEffect(active: active, seed: i, bgSize: 70, particleN: 12, particleSize: 24, spread: 50).allowsHitTesting(false) }
-                Text(works[i].title ?? "Untitled")
+                Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
                     .font(.system(size: 16, weight: active ? .bold : .medium))
                     .lineLimit(1)
             }
@@ -465,7 +479,7 @@ struct FeaturedHero: View {
         // W1246 — Jing: 标题/Play/胶囊全部【水平居中】, 彻底不与左侧侧栏打架。
         VStack(alignment: .center, spacing: 14) {
             Spacer()
-            Text(current.title ?? "Untitled")
+            Text(current.isCreateCard ? "Want an MV like this?" : (current.title ?? "Untitled"))
                 .font(.system(size: 54, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(2)
@@ -473,7 +487,8 @@ struct FeaturedHero: View {
                 .shadow(radius: 12)
             HStack(spacing: 24) {
                 Button { onSelect(current) } label: {
-                    Label("Play", systemImage: "play.fill")
+                    Label(current.isCreateCard ? "Create ✨" : "Play",
+                          systemImage: current.isCreateCard ? "wand.and.stars" : "play.fill")
                         .font(.system(size: 24, weight: .bold))
                         .padding(.vertical, 14).padding(.horizontal, 30)
                 }
@@ -496,7 +511,16 @@ struct FeaturedHero: View {
             ZStack {
                 GeometryReader { geo in
                     Group {
-                        if let c = current.coverURL, let url = URL(string: c) {
+                        if current.isCreateCard {
+                            // W1259 — 创作卡 hero: 品牌渐变 + 招牌大爆(中央)。
+                            ZStack {
+                                LinearGradient(colors: [Color(red: 0.02, green: 0.12, blue: 0.08),
+                                                        Color(red: 0.0, green: 0.05, blue: 0.04)],
+                                               startPoint: .top, endPoint: .bottom)
+                                EmojiBurstEffect(active: true, seed: 99, bgSize: 240, particleN: 14,
+                                                 particleSize: 44, spread: 340).allowsHitTesting(false)
+                            }
+                        } else if let c = current.coverURL, let url = URL(string: c) {
                             AsyncImage(url: url) { img in img.resizable().scaledToFill() }
                                 placeholder: { Color.white.opacity(0.06) }
                         } else {
@@ -608,10 +632,23 @@ struct WorkCard: View {
     private let cardWidth: CGFloat = 480
     private let cinemaRatio: CGFloat = 2.39
 
+    private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
-                if let c = work.coverURL, let url = URL(string: c) {
+                if work.isCreateCard {
+                    // W1259 — 创作尾卡: 品牌渐变 + 招牌大爆 + ✨Create。
+                    LinearGradient(colors: [Color(red: 0.03, green: 0.16, blue: 0.10),
+                                            Color(red: 0.0, green: 0.06, blue: 0.05)],
+                                   startPoint: .top, endPoint: .bottom)
+                    EmojiBurstEffect(active: true, seed: abs(work.id.hashValue) % 97,
+                                     bgSize: 90, particleN: 11, particleSize: 26, spread: 90)
+                        .allowsHitTesting(false)
+                    Label("Create", systemImage: "wand.and.stars")
+                        .font(.system(size: 26, weight: .heavy)).foregroundStyle(brandGreen)
+                        .shadow(color: .black.opacity(0.6), radius: 4)
+                } else if let c = work.coverURL, let url = URL(string: c) {
                     AsyncImage(url: url) { img in
                         img.resizable().scaledToFill()
                     } placeholder: {
@@ -623,12 +660,14 @@ struct WorkCard: View {
             }
             .frame(width: cardWidth, height: cardWidth / cinemaRatio)
             .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(work.isCreateCard
+                ? RoundedRectangle(cornerRadius: 16).stroke(brandGreen.opacity(0.5), lineWidth: 2) : nil)
 
-            Text(work.title ?? "Untitled")
+            Text(work.isCreateCard ? "Want an MV like this?" : (work.title ?? "Untitled"))
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(work.isCreateCard ? brandGreen : .white)
                 .lineLimit(1)
-            if !work.durationLabel.isEmpty {
+            if !work.isCreateCard && !work.durationLabel.isEmpty {
                 Text(work.durationLabel)
                     .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(.white.opacity(0.65))

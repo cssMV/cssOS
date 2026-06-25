@@ -91,6 +91,11 @@ struct CSSWork: Codable, Identifiable {
         let m = Int(s) / 60, ss = Int(s) % 60
         return String(format: "♪ %d:%02d", m, ss)
     }
+
+    // W1259 — 「Want an MV like this?」创作尾卡哨兵(每条 rail / hero 末尾各放一张, 点它进创作台)。
+    static let createCardId = "__cssos_create__"
+    static var createCard: CSSWork { CSSWork(id: createCardId) }
+    var isCreateCard: Bool { id == Self.createCardId }
 }
 
 /// CSSOS_WAVE_1227 — 首页一行 rail(标题 + 该行作品)。Apple TV 标准横向行布局。

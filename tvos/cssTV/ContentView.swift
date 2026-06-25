@@ -337,7 +337,7 @@ struct CategorySidebar: View {
             }
             Spacer()
         }
-        .padding(.top, 96)   // W1309 — 界面延到屏顶后, 侧栏 logo 下压避开电视过扫描(原 56)
+        .padding(.top, 60)   // W1312 — 苹果 tvOS 标准安全区顶部 60(Jing: 96→60)
         .padding(.horizontal, expanded ? 24 : 18)
         .frame(width: expanded ? 360 : 130)   // W1277 — 加宽, 让 Short Drama 等长标签放得下(略压卡片可接受)
         .frame(maxHeight: .infinity)

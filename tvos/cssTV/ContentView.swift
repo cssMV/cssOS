@@ -344,8 +344,8 @@ struct CategorySidebar: View {
                     //   默认爆的是 logo/头像(8s 同 Create)。背后大固定框防裁。
                     .background(
                         EmojiBurstEffect(active: active, seed: abs(String(describing: item).hashValue),
-                                         bigEmojiSize: 64, bigPeriod: 4, smallSize: 16, smallSpread: 120,
-                                         smallN: 12, continuousSmall: true, rightBias: true)
+                                         bigEmojiSize: 64, bigPeriod: 8, smallSize: 16, smallSpread: 120,
+                                         smallN: 12, continuousSmall: false, rightBias: true)
                             .frame(width: 180, height: 120).allowsHitTesting(false)
                     )
                 if expanded {
@@ -484,8 +484,8 @@ struct FeaturedHero: View {
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                     // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
                     .background(
-                        EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60, bigPeriod: 4,
-                                         smallSize: 16, smallSpread: 130, smallN: 12, continuousSmall: true, rightBias: true)
+                        EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60, bigPeriod: 8,
+                                         smallSize: 16, smallSpread: 130, smallN: 12, continuousSmall: false, rightBias: true)
                             .frame(width: 140, height: 90).allowsHitTesting(false)
                     )
                 Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))

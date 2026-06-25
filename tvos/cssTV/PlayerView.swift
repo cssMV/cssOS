@@ -52,7 +52,7 @@ struct PlayerView: View {
 
             // W1247 — 大屏逐字情绪字幕(招牌): 音频主时钟驱动, 底部卡拉OK + 中央逐字爆。
             if let sub = subtitle, let ap = audioPlayer {
-                EmotionSubtitleOverlay(lines: sub.lines, player: ap)
+                EmotionSubtitleOverlay(lines: sub.lines, player: ap, themeEmoji: sub.themeEmoji)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
@@ -177,6 +177,7 @@ struct PlayerView: View {
 struct EmotionSubtitleOverlay: View {
     let lines: [CSSSubLine]
     let player: AVPlayer
+    var themeEmoji: [String] = []          // W1251 — 作品主题 emoji(背景大 emoji + 字心烟花用)
     private let burstDur = 1.1
 
     var body: some View {
@@ -185,7 +186,7 @@ struct EmotionSubtitleOverlay: View {
             GeometryReader { geo in
                 ZStack {
                     ForEach(activeBurstTokens(t)) { tok in
-                        burstChar(tok, t: t, size: geo.size)
+                        burstGroup(tok, t: t, size: geo.size)
                     }
                     if let line = currentLine(t), let toks = line.tokens, !toks.isEmpty {
                         karaokeLine(toks, t: t)
@@ -201,38 +202,91 @@ struct EmotionSubtitleOverlay: View {
         lines.first { t >= $0.startSec && t <= $0.endSec && ($0.tokens?.isEmpty == false) }
     }
 
+    // W1251 — 传统底部卡拉OK字幕: 不再压黑底/半透底, 改【白字 + 黑阴影描边】(多层黑 shadow = 描边)。
     private func karaokeLine(_ toks: [CSSSubToken], t: Double) -> some View {
         HStack(spacing: 2) {
             ForEach(toks) { tok in
                 Text(tok.char)
                     .font(.system(size: 42, weight: .heavy))
-                    .foregroundStyle(t >= tok.startSec ? Color.white : Color.white.opacity(0.32))
-                    .shadow(color: .black.opacity(0.85), radius: 6)
+                    .foregroundStyle(t >= tok.startSec ? Color.white : Color.white.opacity(0.45))
+                    .shadow(color: .black, radius: 1)
+                    .shadow(color: .black, radius: 2)
+                    .shadow(color: .black.opacity(0.9), radius: 4)
             }
         }
-        .padding(.horizontal, 30).padding(.vertical, 12)
-        .background(Capsule().fill(Color.black.opacity(0.35)))
+        .padding(.horizontal, 20)
     }
 
     private func activeBurstTokens(_ t: Double) -> [CSSSubToken] {
         lines.flatMap { $0.tokens ?? [] }.filter { t >= $0.startSec && t < $0.startSec + burstDur }
     }
 
-    private func burstChar(_ tok: CSSSubToken, t: Double, size: CGSize) -> some View {
-        let p: Double = (t - tok.startSec) / burstDur               // 0→1
+    // W1251 — 中央逐字爆: 背景大 emoji + 爆大字 + 字心小 emoji 烟花(高强度才放)。
+    private func burstGroup(_ tok: CSSSubToken, t: Double, size: CGSize) -> some View {
+        let p: Double = (t - tok.startSec) / burstDur
         let opacityRaw: Double = p < 0.15 ? p / 0.15 : (1 - (p - 0.15) / 0.85)
-        let opacity: Double = max(0, opacityRaw) * 0.92             // 快入慢出
-        let fontSize: CGFloat = CGFloat(84 * (0.7 + tok.intensity)) // 强度越大越大
+        let opacity: Double = max(0, opacityRaw)
+        let charSize: CGFloat = CGFloat(84 * (0.7 + tok.intensity))
+        let bgSize: CGFloat = CGFloat(150 * (0.7 + tok.intensity))
         let scale: CGFloat = CGFloat(0.85 + 0.25 * p)
         let pos: CGPoint = burstPosition(tok, size: size)
         let col: Color = emotionColor(tok.emotion)
-        return Text(tok.char)
-            .font(.system(size: fontSize, weight: .black))
-            .foregroundStyle(col)
-            .shadow(color: col.opacity(0.7), radius: 26)
-            .scaleEffect(scale)
-            .opacity(opacity)
-            .position(pos)
+        let emoji: String = pickEmoji(tok)
+        return ZStack {
+            // 背景大 emoji(淡, 衬在爆字后)
+            Text(emoji)
+                .font(.system(size: bgSize))
+                .opacity(opacity * 0.30)
+                .scaleEffect(scale)
+            // 爆大字
+            Text(tok.char)
+                .font(.system(size: charSize, weight: .black))
+                .foregroundStyle(col)
+                .shadow(color: col.opacity(0.7), radius: 26)
+                .shadow(color: .black.opacity(0.6), radius: 4)
+                .scaleEffect(scale)
+                .opacity(opacity * 0.92)
+            // 字心小 emoji 烟花(从字心向四周炸开淡出)
+            if tok.intensity >= 0.7 {
+                firework(emoji: emoji, p: p, baseOpacity: opacity)
+            }
+        }
+        .position(pos)
+    }
+
+    // 8 颗小 emoji 从中心向外飞 + 淡出。
+    private func firework(emoji: String, p: Double, baseOpacity: Double) -> some View {
+        let n = 8
+        let dist: CGFloat = CGFloat(p * 95)
+        let fade: Double = max(0, 1 - p) * baseOpacity
+        return ZStack {
+            ForEach(0..<n, id: \.self) { i in
+                let ang: Double = Double(i) / Double(n) * 2 * .pi
+                Text(emoji)
+                    .font(.system(size: 26))
+                    .offset(x: CGFloat(cos(ang)) * dist, y: CGFloat(sin(ang)) * dist)
+                    .opacity(fade)
+            }
+        }
+    }
+
+    private func pickEmoji(_ tok: CSSSubToken) -> String {
+        if !themeEmoji.isEmpty {
+            return themeEmoji[abs(tok.id.hashValue) % themeEmoji.count]
+        }
+        return emotionEmoji(tok.emotion)
+    }
+
+    private func emotionEmoji(_ e: String?) -> String {
+        switch (e ?? "").lowercased() {
+        case "haunting", "sad", "melancholy", "sorrow", "grief", "lonely": return "💧"
+        case "calm", "serene", "peaceful", "tender", "gentle": return "🍃"
+        case "joy", "happy", "bright", "playful", "excited": return "✨"
+        case "love", "romantic", "warm", "longing": return "💗"
+        case "anger", "intense", "powerful", "fierce", "rage": return "🔥"
+        case "hope", "resolve", "triumphant", "uplifting", "soar": return "🌟"
+        default: return "✨"
+        }
     }
 
     // 四周 8 个安全区(避开正中防爆脸), 由 token 哈希定位 → 随机散布但稳定。

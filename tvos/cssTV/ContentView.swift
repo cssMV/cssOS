@@ -5,6 +5,7 @@
 
 import SwiftUI
 import Combine
+import UIKit   // W1251 — UIApplication.isIdleTimerDisabled(禁屏保)
 
 /// W1232 — 左侧分类(映射 work_type)。
 enum HomeCategory: String, CaseIterable, Identifiable {
@@ -132,6 +133,8 @@ struct ContentView: View {
         }
         .focusScope(focusNS)
         .background(Color.black.ignoresSafeArea())
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .fullScreenCover(item: $selected) { w in
             PlayerView(work: w)
         }

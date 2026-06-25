@@ -439,18 +439,25 @@ struct EmotionSubtitleOverlay: View {
         let toks = lines[li].tokens ?? []
         let j = toks.firstIndex(where: { $0.id == tok.id }) ?? 0
         let n = max(toks.count, 1)
-        // W1330 — 方向: 拉丁语【只能左→右】; 亚洲语言可左可右(隔行交替); 任何语言绝不下→上。
+        // W1332 — 情绪字幕宪法(cssTV=横屏大屏, 等同桌面四边爆):
+        //   · 拉丁语: 只上/下两边(横排, 一律左→右)。
+        //   · 亚洲语言: 四边(上/下横排 + 左/右竖排), 横排隔行可右→左; 竖排一律上→下。绝无下→上。
         let isCJK = tok.char.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
-        let rtl = isCJK && (li % 2 == 1)
-        var frac = (Double(j) + 0.5) / Double(n)
-        if rtl { frac = 1 - frac }
-        let xMargin = 0.06
-        let x = xMargin + frac * (1 - 2 * xMargin)
-        // 这一行靠上/下边(隔行交替), 加轻微上下错落(不整齐但成句)。
-        let onTop = (li % 2 == 1)
-        let jitterY = (CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.07
-        let baseY = onTop ? 0.17 : 0.83
-        return CGPoint(x: size.width * CGFloat(x), y: size.height * CGFloat(baseY + jitterY))
+        let frac = CGFloat((Double(j) + 0.5) / Double(n))
+        let m: CGFloat = 0.06
+        let jit = CGFloat((CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.06)
+        let edge = isCJK ? (li % 4) : (li % 2)   // 拉丁 2 边; 亚洲 4 边
+        switch edge {
+        case 0:  // 上 横排
+            let f = (isCJK && li % 8 >= 4) ? 1 - frac : frac   // 亚洲隔行可右→左
+            return CGPoint(x: size.width * (m + f * (1 - 2 * m)), y: size.height * (0.16 + jit))
+        case 1:  // 下 横排(一律左→右)
+            return CGPoint(x: size.width * (m + frac * (1 - 2 * m)), y: size.height * (0.84 + jit))
+        case 2:  // 左 竖排(上→下)
+            return CGPoint(x: size.width * (0.07 + jit), y: size.height * (m + frac * (1 - 2 * m)))
+        default: // 右 竖排(上→下)
+            return CGPoint(x: size.width * (0.93 + jit), y: size.height * (m + frac * (1 - 2 * m)))
+        }
     }
 
     // 情绪 → 配色(对齐 web 6 情绪)。

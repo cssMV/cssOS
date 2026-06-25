@@ -302,7 +302,7 @@ struct EmojiBurstEffect: View {
 
 /// W1235 — 侧栏焦点项(用于折叠/展开判定)。
 enum SidebarItem: Hashable {
-    case avatar, favorites, search, create, category(HomeCategory)
+    case avatar, collapse, favorites, search, create, category(HomeCategory)
 }
 
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
@@ -346,6 +346,18 @@ struct CategorySidebar: View {
             .buttonStyle(FlatButtonStyle())
             .focused($focus, equals: .avatar)
             .onMoveCommand { handleMove($0) }   // W1275 — 头像也接管方向键(左/右收标签, 上下导航)
+
+            // W1297 — Jing: 用户名附近一个【不显眼】的折叠按钮, 按一下直接收/展标签(除遥控器左/右)。
+            Button { withAnimation(.easeInOut(duration: 0.22)) { expanded.toggle() } } label: {
+                Image(systemName: expanded ? "chevron.compact.left" : "chevron.compact.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(focus == .collapse ? 0.9 : 0.32))
+                    .frame(width: 34, height: 22)
+                    .scaleEffect(focus == .collapse ? 1.18 : 1.0)
+            }
+            .buttonStyle(FlatButtonStyle())
+            .focused($focus, equals: .collapse)
+            .onMoveCommand { handleMove($0) }
             .padding(.bottom, 10)
 
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
@@ -419,7 +431,7 @@ struct CategorySidebar: View {
 
     // W1275 — 侧栏可聚焦项的视觉顺序(手动导航用)。
     private var orderedItems: [SidebarItem] {
-        var arr: [SidebarItem] = [.avatar, .favorites, .search]
+        var arr: [SidebarItem] = [.avatar, .collapse, .favorites, .search]
         for cat in HomeCategory.allCases {
             arr.append(.category(cat))
             if cat == .trilogy { arr.append(.create) }

@@ -277,7 +277,18 @@ struct FeaturedHero: View {
 
     @State private var index = 0
     @State private var pauseAutoUntil: Date? = nil   // W1241 — 用户干预后暂停自动轮播到此刻
+    @FocusState private var playFocused: Bool        // W1244 — Play(=hero)是否聚焦
     private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
+
+    // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
+    private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)   // #00f5a0
+    private var focusGlow: some View {
+        ZStack {
+            Rectangle().stroke(brandGreen, lineWidth: 5)
+            Rectangle().stroke(brandGreen.opacity(0.85), lineWidth: 26).blur(radius: 24)
+        }
+        .allowsHitTesting(false)
+    }
 
     private var current: CSSWork { works[min(index, works.count - 1)] }
     private var n: Int { max(works.count, 1) }
@@ -323,8 +334,8 @@ struct FeaturedHero: View {
         .padding(.trailing, 16)
         .frame(height: capH)
         .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
-        // W1241/1242 — 接口单弯线 + 描边压暗(尤其凹尖头不要发白): 激活不描边, 未激活细暗线。
-        .overlay(active ? nil : ConcavePill(side: side).stroke(Color.white.opacity(0.14), lineWidth: 1))
+        // W1241/1242/1244 — 接口单弯线, 描边再淡一点点(更柔): 激活不描边, 未激活极细暗线。
+        .overlay(active ? nil : ConcavePill(side: side).stroke(Color.white.opacity(0.10), lineWidth: 1))
     }
 
     @ViewBuilder
@@ -375,6 +386,7 @@ struct FeaturedHero: View {
                             .padding(.vertical, 14).padding(.horizontal, 30)
                     }
                     .buttonStyle(.card)
+                    .focused($playFocused)
                     .onMoveCommand { dir in
                         if dir == .left { userSwitch(-1) } else if dir == .right { userSwitch(1) }
                     }
@@ -396,7 +408,9 @@ struct FeaturedHero: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 720)
-        .clipped()
+        .overlay { if playFocused { focusGlow } }          // W1244 — 聚焦时往里散绿辉光
+        .clipped()                                         // 裁掉外溢, 只留向内的辉光
+        .animation(.easeInOut(duration: 0.2), value: playFocused)
         .ignoresSafeArea(.container, edges: .horizontal)   // W1239 — 满铺到边, 和 For You 一样宽(消右侧黑缝)
         .animation(.easeInOut(duration: 0.6), value: index)
         .onReceive(timer) { _ in

@@ -4,6 +4,7 @@
 import SwiftUI
 import AVKit
 import AVFoundation
+import UIKit   // W1266 — UIApplication.isIdleTimerDisabled(播放时禁屏保)
 
 /// 无控件、铺满全屏的视频层(AVPlayerLayer 包装, tvOS 不显示 transport)。
 struct VideoSurface: UIViewRepresentable {
@@ -89,6 +90,8 @@ struct PlayerView: View {
     }
 
     private func start() {
+        // W1266 — 播放时禁屏保(自绘 AVPlayerLayer 不会自动阻止屏保, 否则赏 MV 中途黑屏跳屏保)。
+        UIApplication.shared.isIdleTimerDisabled = true
         // 音频会话: 让声音从电视外放。
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -135,6 +138,8 @@ struct PlayerView: View {
     /// - 视频比音频短很多 = 循环视觉, 铺满音频时长(到尾无痕回 0)。
     /// - 同长 MV = 漂移 > 0.4s 就把视频 seek 回音频当前时刻。
     private func syncVideoToAudio(_ audioTime: Double) {
+        // W1266 — 每 0.2s 重新断言禁屏保(防系统在长 MV 中途把它重置 → 跳屏保)。
+        if !UIApplication.shared.isIdleTimerDisabled { UIApplication.shared.isIdleTimerDisabled = true }
         guard let vp = videoPlayer, let ap = audioPlayer, audioTime.isFinite else { return }
         guard ap.timeControlStatus == .playing else {
             if vp.timeControlStatus != .paused { vp.pause() }

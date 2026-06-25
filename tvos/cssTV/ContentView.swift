@@ -644,7 +644,7 @@ struct FeaturedHero: View {
         .padding(.horizontal, 60)
         .padding(.top, 60)
         .padding(.bottom, 14)          // W1250 — Jing: 胶囊再下来一半(30→14), 更贴底
-        .frame(height: 720, alignment: .bottom)
+        .frame(height: UIScreen.main.bounds.width / 2.39, alignment: .bottom)   // W1311 — 画幅铁律: 严格 2.39 超宽屏(满宽到顶)
         .background(alignment: .bottomLeading) {
             ZStack {
                 GeometryReader { geo in

@@ -13074,10 +13074,13 @@ html[data-theme="light"] .cssos-lang-badge {
 .watch-language-pill.cssmv-pill-bar {
   position: absolute;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 20px) + 76px);
+  /* CSSOS_WAVE_1254 — Jing「胶囊离底太高(给 Next up 占位却空着)」: 76px→44px, 落到传统字幕之上;
+     Next up 出现时自身更高、压在胶囊之上(底栈从下到上: 字幕→胶囊→Next up)。 */
+  bottom: calc(env(safe-area-inset-bottom, 20px) + 44px);
   transform: translateX(-50%);
   width: auto;
-  max-width: min(86%, 520px);
+  /* CSSOS_WAVE_1254 — 缩右端: 居中胶囊窄屏不再伸到右轨(右轨 right:14px 宽46px)。86%→70%。 */
+  max-width: min(70%, 520px);
   margin: 0 !important;
   height: 36px;
   min-height: 36px;

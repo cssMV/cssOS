@@ -340,11 +340,10 @@ struct CategorySidebar: View {
                 Image(systemName: icon)
                     .font(.system(size: 24, weight: hot ? .heavy : .semibold))   // 选中: 图标加粗
                     .frame(width: 34)
-                    // W1252 — 招牌: 选中项图标字心爆 emoji(背景大 + 不断小烟花)。
-                    // W1257 — 选中【或聚焦】即爆(修"只有 Home 爆": 原来只 active=选中才爆)。
-                    // W1260 — 招牌爆放在【icon 背后的大固定框】里(不被 icon 的 34pt 小框裁切): background 居中、给足空间。
+                    // W1264 — Jing 厘清: 菜单【选中(active)才爆】, 不是聚焦就爆; Home 因不默认选中→默认不爆;
+                    //   默认爆的是 logo/头像(8s 同 Create)。背后大固定框防裁。
                     .background(
-                        EmojiBurstEffect(active: hot, seed: abs(String(describing: item).hashValue),
+                        EmojiBurstEffect(active: active, seed: abs(String(describing: item).hashValue),
                                          bigEmojiSize: 64, bigPeriod: 4, smallSize: 16, smallSpread: 120,
                                          smallN: 12, continuousSmall: true, rightBias: true)
                             .frame(width: 180, height: 120).allowsHitTesting(false)

@@ -167,10 +167,9 @@ struct ContentView: View {
             CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域(focusNS 之外), 供 hero 往左 resetFocus 跳回
                 .focusSection()
-                // W1301 — Jing: 侧栏【绝对位置】固定独立层(满高 topLeading 锚定 + 最高 zIndex),
-                //   彻底脱离内容流, hero 轮换/重排再也碰不到它。
+                // W1303 — 绝对位置固定独立层, 但【留在安全区内】(W1301 的 ignoresSafeArea 把它推进电视左边
+                //   过扫描区/屏幕外 → 标签只剩右半截"gn in/ama"。去掉它即完整显示)。
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .ignoresSafeArea()
                 .zIndex(100)
         }
         .background(Color.black.ignoresSafeArea())

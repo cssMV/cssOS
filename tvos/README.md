@@ -11,29 +11,40 @@ same cssOS backend APIs. No WebView.
   **audio = independent track** (separate AVPlayer) → 画音分层铁律. Title overlay auto-fades after 5s.
 - Menu key on the Siri Remote exits the player (SwiftUI default).
 
-## Files (`tvos/CSSOSTV/`)
+## Project lives IN this repo (W1230)
+
+The buildable Xcode project is **`tvos/cssTV.xcodeproj`** with sources under **`tvos/cssTV/`**
+(Xcode 16 file-system-synchronized group → drop a `.swift` in the folder, it's in the target).
+The old throwaway copy in `~/Downloads/cssTV` is **abandoned** — single source of truth is here.
+
+Files (`tvos/cssTV/`):
 - `CSSOSTVApp.swift` — `@main` SwiftUI App.
-- `ContentView.swift` — home grid + navigation to player.
-- `PlayerView.swift` — AVPlayer cinema (video + separate audio).
-- `CSSBackend.swift` — API client (`baseURL = https://cssstudio.app`), feed + hydrate + flagship sample.
-- `Models.swift` — `CSSWork` (maps `final_mv_url` / `audio_track_1_url` / `cover_image` / `duration_secs`).
+- `ContentView.swift` — home **rails** (For You / Fresh / by work_type) + navigation to player.
+- `PlayerView.swift` — AVPlayer cinema; **audio master clock** drives video; 2.39 letterbox.
+- `CSSBackend.swift` — API client (`baseURL = https://cssstudio.app`): feed + `buildRails` + hydrate + flagship.
+- `Models.swift` — `CSSWork` (`final_mv_url`/`audio_track_1_url`/`cover_image`/`duration_secs`/`work_type`) + `CSSRail`.
 
-## How to add the tvOS target in Xcode (one time)
-1. Open `ios/App/App.xcworkspace` (or `App.xcodeproj`).
-2. **File ▸ New ▸ Target… ▸ tvOS ▸ App**. Product Name: `CSSOSTV`. Interface: **SwiftUI**, Language: **Swift**.
-   Bundle id suggestion: `app.cssstudio.tv` (Apple TV needs its **own** App Store record, like visionOS).
-3. Xcode generates a `CSSOSTVApp.swift` + `ContentView.swift` in the new target — **delete those two**,
-   then **drag the 5 files from `tvos/CSSOSTV/` into the CSSOSTV group** (check "Copy items if needed"
-   and target = **CSSOSTV** only).
-4. Scheme selector → **CSSOSTV**; destination → **Living AppleTV Room** (already network-paired) or a
-   tvOS Simulator. ▶ Run.
+## Build & install to the Apple TV
 
+Xcode: open `tvos/cssTV.xcodeproj`, scheme **cssTV**, destination **Living AppleTV Room** → ▶ Run.
+
+CLI (paired device `Living AppleTV Room`, signs with your Apple Development cert):
+```sh
+cd tvos
+xcodebuild build -project cssTV.xcodeproj -scheme cssTV \
+  -destination 'platform=tvOS,id=<DEVICE_ID>' -allowProvisioningUpdates
+APP=$(xcodebuild -project cssTV.xcodeproj -scheme cssTV \
+  -destination 'platform=tvOS,id=<DEVICE_ID>' -showBuildSettings \
+  | awk -F' = ' '/ TARGET_BUILD_DIR/{d=$2}/ FULL_PRODUCT_NAME/{n=$2}END{print d"/"n}')
+xcrun devicectl device install app --device <DEVICE_ID> "$APP"
+xcrun devicectl device process launch --device <DEVICE_ID> --terminate-existing CSSStudio.cssTV
+```
+Get `<DEVICE_ID>` from `xcrun devicectl list devices`. Bundle id: `CSSStudio.cssTV`.
 No App Transport Security changes needed — all media URLs are `https`.
 
-## Next milestones (after iOS approval)
-1. **音频主时钟同步** — drive video off the audio clock (reuse the web app's audio-master approach) so
-   picture & song never drift on long tracks.
-2. **逐字情绪字幕** on the big screen — fetch `aligned_lyrics`, render per-word emotion text in SwiftUI.
-3. **Sign in** (device-code / QR) + **聆听/观赏** entitlement, mirroring iOS commerce + the staff rules.
-4. **For-You rails** (by civilization / festival), Top Shelf extension, Siri Remote focus polish.
-5. App Store: separate bundle `app.cssstudio.tv`, screenshots, submit.
+## Roadmap (5 steps)
+1. ✅ **音频主时钟同步**（W1229）— audio periodic observer drives video; `audio.ended` 切歌; short video loops.
+2. ⏳ **逐字情绪字幕** on the big screen — fetch subtitle JSON, render per-word emotion bursts in SwiftUI by `audioPlayer.currentTime`.
+3. ⏳ **Sign in** (device-code / QR) + **聆听/观赏** entitlement, mirroring iOS commerce + staff rules.
+4. ✅ **For-You rails**（W1227）— For You / Fresh / by work_type. TODO: by civilization / festival, Top Shelf.
+5. ⏳ App Store: separate bundle, screenshots, submit.

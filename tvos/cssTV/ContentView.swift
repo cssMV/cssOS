@@ -119,7 +119,36 @@ struct CategorySidebar: View {
                 Text("css").font(.system(size: 30, weight: .heavy)).foregroundStyle(.white)
                 Text("TV").font(.system(size: 30, weight: .heavy)).foregroundStyle(.green)
             }
-            .padding(.bottom, 28)
+            .padding(.bottom, 20)
+
+            // W1233 — 用户区(头像 + 收藏)。登录/收藏后端待接(第③步), 先占位入口。
+            Button { } label: {
+                HStack(spacing: 16) {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 24)).frame(width: 30)
+                    Text("Sign in · 登录").font(.system(size: 22, weight: .medium))
+                    Spacer()
+                }
+                .foregroundStyle(Color.white.opacity(0.85))
+                .padding(.vertical, 12).padding(.horizontal, 18)
+                .frame(width: 240, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            Button { } label: {
+                HStack(spacing: 16) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 22)).frame(width: 30)
+                    Text("收藏 · Favorites").font(.system(size: 22, weight: .medium))
+                    Spacer()
+                }
+                .foregroundStyle(Color.white.opacity(0.85))
+                .padding(.vertical, 12).padding(.horizontal, 18)
+                .frame(width: 240, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 240, height: 1)
+                .padding(.vertical, 10)
 
             ForEach(HomeCategory.allCases) { cat in
                 Button { selected = cat } label: {
@@ -210,13 +239,33 @@ struct FeaturedHero: View {
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     Spacer()
-                    // 圆点指示。
-                    HStack(spacing: 10) {
-                        ForEach(works.indices, id: \.self) { i in
-                            Circle()
-                                .fill(i == index ? Color.white : Color.white.opacity(0.35))
-                                .frame(width: 12, height: 12)
+                }
+                // W1233 — 胶囊指示器(替代圆点, 套胶囊宪法): 每枚 = 缩略图 + 标题, 宽度自适应标题;
+                // 激活胶囊两头圆 + 品牌绿填充, 其余半透明。
+                HStack(spacing: 12) {
+                    ForEach(works.indices, id: \.self) { i in
+                        HStack(spacing: 10) {
+                            Group {
+                                if let c = works[i].coverURL, let url = URL(string: c) {
+                                    AsyncImage(url: url) { img in img.resizable().scaledToFill() }
+                                        placeholder: { Color.white.opacity(0.12) }
+                                } else { Color.white.opacity(0.12) }
+                            }
+                            .frame(width: 30, height: 30)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            Text(works[i].title ?? "Untitled")
+                                .font(.system(size: 18, weight: i == index ? .bold : .medium))
+                                .lineLimit(1)
+                                .foregroundStyle(i == index ? Color.white : Color.white.opacity(0.7))
                         }
+                        .padding(.vertical, 7)
+                        .padding(.horizontal, 14)
+                        .background(
+                            Capsule().fill(i == index ? Color.green.opacity(0.85) : Color.white.opacity(0.12))
+                        )
+                        .overlay(
+                            Capsule().stroke(Color.white.opacity(i == index ? 0 : 0.18), lineWidth: 1)
+                        )
                     }
                 }
             }

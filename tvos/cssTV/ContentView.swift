@@ -75,6 +75,7 @@ struct ContentView: View {
     @Namespace private var focusNS
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
     @State private var heroBackdrop: String? = nil   // W1288 — 当前 hero 封面 → 全屏环境底图
+    @State private var sidebarFocused = false         // W1290 — 侧栏有焦点时暂停 hero 轮换(否则重排踢走侧栏焦点)
 
     // W1249/1259 — 创作尾卡 → 创作台; 否则 gating(免费/已拥有直接播; 收费未拥有 → 弹门)。
     private func choose(_ w: CSSWork) {
@@ -135,7 +136,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, backdrop: $heroBackdrop) { choose($0) }
+                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, backdrop: $heroBackdrop, paused: sidebarFocused) { choose($0) }
                             // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
@@ -155,7 +156,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS)
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                 .focusSection()
         }
@@ -321,6 +322,7 @@ struct CategorySidebar: View {
     var onSearch: () -> Void                   // W1277 搜索入口
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
     var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
+    @Binding var sidebarFocused: Bool           // W1290 — 上报: 侧栏是否有焦点(有→hero 暂停轮换)
     @Environment(\.resetFocus) private var resetFocus   // W1278 — 主动把焦点送到默认目标
     @FocusState private var focus: SidebarItem?
     @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
@@ -375,6 +377,7 @@ struct CategorySidebar: View {
         .frame(maxHeight: .infinity)
         // W1245 — Jing: 内容右移对齐 For You 后不再和侧栏打架, 侧栏背景【直接透明】(无底)。
         .onChange(of: focus) { _, newValue in
+            sidebarFocused = (newValue != nil)            // W1290 — 侧栏有焦点 → hero 暂停轮换
             if newValue == .avatar { avatarTick += 1 }   // W1274 — 聚焦头像即重爆一次
             if newValue != nil {
                 if !expanded { withAnimation(.easeInOut(duration: 0.22)) { expanded = true } }
@@ -524,6 +527,7 @@ struct FeaturedHero: View {
     var focusNS: Namespace.ID                         // W1278 — 第一个胶囊 = 焦点域默认目标(侧栏右键跳来)
     var sidebarNS: Namespace.ID                       // W1283 — 往左跳回侧栏用
     @Binding var backdrop: String?                    // W1288 — 把当前封面上报给 ContentView 作全屏底图
+    var paused: Bool = false                          // W1290 — 侧栏有焦点时暂停自动轮换(防重排踢侧栏焦点)
     let onSelect: (CSSWork) -> Void
 
     @Environment(\.resetFocus) private var resetFocus // W1283 — 往左把焦点送回侧栏
@@ -730,6 +734,7 @@ struct FeaturedHero: View {
             }
         }
         .onReceive(timer) { _ in
+            if paused { return }                                      // W1290 — 侧栏有焦点 → 不轮换(否则重排踢走侧栏焦点)
             if focusedCap != nil { return }                           // 用户正在操作胶囊, 不自动切
             if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切
             pauseAutoUntil = nil

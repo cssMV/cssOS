@@ -1,27 +1,90 @@
-// CSSOS_WAVE_1172 / W1227 / W1231 — 首页: HBO Max 风格。
-// 顶部 = 自动循环的 featured hero(~5 部精选, 大幅 2.39 背景 + 标题 + 圆点指示, 每 6s 轮播);
-// 下面 = Apple TV 标准多行 rails(For You / Fresh / 按类型)。选一首 → 进影院播放。
+// CSSOS_WAVE_1172 / W1227 / W1231 / W1232 — 首页: HBO Max 风格。
+// 左侧 = 分类侧栏(Home/MV/歌剧/三部曲/短剧/电视剧/电影); 右侧主区:
+//   顶部 = featured hero(~5 部精选, 2.39 大幅, 方向键左右可切 + 6s 自动轮播 + 圆点);
+//   下面 = 多行 rails。选一首 → 进影院播放。
 
 import SwiftUI
 import Combine
 
+/// W1232 — 左侧分类(映射 work_type)。
+enum HomeCategory: String, CaseIterable, Identifiable {
+    case all, mv, opera, trilogy, shortplay, series, film
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: return "Home"
+        case .mv: return "MV"
+        case .opera: return "歌剧"
+        case .trilogy: return "三部曲"
+        case .shortplay: return "短剧"
+        case .series: return "电视剧"
+        case .film: return "电影"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .all: return "house.fill"
+        case .mv: return "music.note"
+        case .opera: return "theatermasks.fill"
+        case .trilogy: return "books.vertical.fill"
+        case .shortplay: return "film.fill"
+        case .series: return "tv.fill"
+        case .film: return "film.stack.fill"
+        }
+    }
+    /// 命中的 work_type(all = 不过滤)。
+    var matches: [String] {
+        switch self {
+        case .all: return []
+        case .mv: return ["single", "song", "mv"]
+        case .opera: return ["opera"]
+        case .trilogy: return ["triptych", "trilogy"]
+        case .shortplay: return ["shortplay", "short-play", "drama"]
+        case .series: return ["series"]
+        case .film: return ["film", "movie"]
+        }
+    }
+}
+
 struct ContentView: View {
-    @State private var rails: [CSSRail] = []
-    @State private var featured: [CSSWork] = []
+    @State private var allWorks: [CSSWork] = []
+    @State private var category: HomeCategory = .all
     @State private var loading = true
     @State private var selected: CSSWork?
+    @Namespace private var focusNS
+
+    /// 当前分类下的作品。
+    private func works(for cat: HomeCategory) -> [CSSWork] {
+        if cat == .all { return allWorks }
+        return allWorks.filter { cat.matches.contains(($0.workType ?? "").lowercased()) }
+    }
+    private var featured: [CSSWork] { Array(works(for: category).prefix(5)) }
+    private var rails: [CSSRail] {
+        if category == .all { return CSSBackend.buildRails(allWorks) }
+        let f = works(for: category)
+        return f.isEmpty ? [] : [CSSRail(id: category.rawValue, title: category.title, works: f)]
+    }
 
     var body: some View {
-        NavigationStack {
+        HStack(spacing: 0) {
+            CategorySidebar(selected: $category)
+                .focusSection()
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     if loading {
                         ProgressView().scaleEffect(1.6).frame(maxWidth: .infinity, minHeight: 500)
+                    } else if featured.isEmpty && rails.isEmpty {
+                        Text("暂无该类型作品 · Nothing here yet")
+                            .font(.system(size: 28, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
                             FeaturedHero(works: featured) { w in
                                 Task { selected = await CSSBackend.hydrate(w) }
                             }
+                            .prefersDefaultFocus(in: focusNS)
                         }
                         ForEach(rails) { rail in
                             RailRow(rail: rail) { w in
@@ -32,23 +95,66 @@ struct ContentView: View {
                 }
                 .padding(.bottom, 80)
             }
-            .background(Color.black.ignoresSafeArea())
-            .fullScreenCover(item: $selected) { w in
-                PlayerView(work: w)
-            }
+            .focusSection()
+        }
+        .focusScope(focusNS)
+        .background(Color.black.ignoresSafeArea())
+        .fullScreenCover(item: $selected) { w in
+            PlayerView(work: w)
         }
         .task {
-            let works = await CSSBackend.fetchFeed()
-            featured = Array(works.prefix(5))
-            rails = CSSBackend.buildRails(works)
+            allWorks = await CSSBackend.fetchFeed()
             loading = false
         }
     }
 }
 
-/// CSSOS_WAVE_1231 — HBO Max 风格顶部 featured hero: ~5 部精选自动循环轮播。
-/// 大幅 2.39 电影宽银幕背景 + 渐变压暗 + 标题/▶播放 + 5 圆点指示。每 6s 自动切, 循环。
-/// 焦点落在 hero 上时为可播按钮(遥控器 Select 即播当前那部)。
+/// W1232 — 左侧分类侧栏(HBO 左导航)。每项 = 图标 + 标签, 选中高亮; 上下移动切换。
+struct CategorySidebar: View {
+    @Binding var selected: HomeCategory
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("css").font(.system(size: 30, weight: .heavy)).foregroundStyle(.white)
+                Text("TV").font(.system(size: 30, weight: .heavy)).foregroundStyle(.green)
+            }
+            .padding(.bottom, 28)
+
+            ForEach(HomeCategory.allCases) { cat in
+                Button { selected = cat } label: {
+                    HStack(spacing: 16) {
+                        Image(systemName: cat.icon)
+                            .font(.system(size: 22, weight: .semibold))
+                            .frame(width: 30)
+                        Text(cat.title)
+                            .font(.system(size: 22, weight: selected == cat ? .bold : .medium))
+                        Spacer()
+                    }
+                    .foregroundStyle(selected == cat ? Color.green : Color.white.opacity(0.85))
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 18)
+                    .frame(width: 240, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(selected == cat ? Color.white.opacity(0.10) : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.top, 60)
+        .padding(.horizontal, 28)
+        .frame(width: 320)
+        .frame(maxHeight: .infinity)
+        .background(Color.black)
+    }
+}
+
+/// CSSOS_WAVE_1231 / W1232 — HBO Max 顶部 featured hero。
+/// 2.39 大幅背景 + 渐变压暗 + 标题/▶Play/♪时长 + 圆点。方向键 ←→ 手动切, 6s 自动轮播。
+/// ▶Play 按钮为焦点目标: Select 即播当前; 在其上 ←→ 切精选, ↓ 进下面 rails。
 struct FeaturedHero: View {
     let works: [CSSWork]
     let onSelect: (CSSWork) -> Void
@@ -57,73 +163,70 @@ struct FeaturedHero: View {
     private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
 
     private var current: CSSWork { works[min(index, works.count - 1)] }
+    private var n: Int { max(works.count, 1) }
+    private func go(_ delta: Int) { withAnimation { index = (index + delta + n) % n } }
 
     var body: some View {
-        Button { onSelect(current) } label: {
-            ZStack(alignment: .bottomLeading) {
-                // 背景: 当前精选封面, 2.39 宽银幕满宽; 切换淡入淡出。
-                Group {
-                    if let c = current.coverURL, let url = URL(string: c) {
-                        AsyncImage(url: url) { img in
-                            img.resizable().scaledToFill()
-                        } placeholder: { Color.white.opacity(0.06) }
-                    } else {
-                        Color.white.opacity(0.06)
-                    }
+        ZStack(alignment: .bottomLeading) {
+            // 背景: 当前精选封面, 2.39 满宽; 切换淡入淡出。
+            Group {
+                if let c = current.coverURL, let url = URL(string: c) {
+                    AsyncImage(url: url) { img in
+                        img.resizable().scaledToFill()
+                    } placeholder: { Color.white.opacity(0.06) }
+                } else {
+                    Color.white.opacity(0.06)
                 }
-                .id(current.id)
-                .transition(.opacity)
+            }
+            .id(current.id)
+            .transition(.opacity)
 
-                // 压暗渐变(左下信息可读)。
-                LinearGradient(
-                    colors: [.black.opacity(0.85), .black.opacity(0.25), .clear],
-                    startPoint: .bottomLeading, endPoint: .topTrailing
-                )
+            LinearGradient(
+                colors: [.black.opacity(0.85), .black.opacity(0.25), .clear],
+                startPoint: .bottomLeading, endPoint: .topTrailing
+            )
 
-                // 左上品牌 + 左下标题/播放/圆点。
-                VStack(alignment: .leading) {
-                    HStack(spacing: 10) {
-                        Text("css").font(.system(size: 30, weight: .heavy)).foregroundStyle(.white)
-                        Text("TV").font(.system(size: 30, weight: .heavy)).foregroundStyle(.green)
-                        Spacer()
+            VStack(alignment: .leading, spacing: 18) {
+                Spacer()
+                Text(current.title ?? "Untitled")
+                    .font(.system(size: 56, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .shadow(radius: 12)
+                HStack(spacing: 24) {
+                    // ▶Play: 焦点目标。Select 播; 其上 ←→ 切精选。
+                    Button { onSelect(current) } label: {
+                        Label("Play", systemImage: "play.fill")
+                            .font(.system(size: 24, weight: .bold))
+                            .padding(.vertical, 14).padding(.horizontal, 30)
+                    }
+                    .buttonStyle(.card)
+                    .onMoveCommand { dir in
+                        if dir == .left { go(-1) } else if dir == .right { go(1) }
+                    }
+                    if !current.durationLabel.isEmpty {
+                        Text(current.durationLabel)
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.85))
                     }
                     Spacer()
-                    Text(current.title ?? "Untitled")
-                        .font(.system(size: 56, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .shadow(radius: 12)
-                    HStack(spacing: 20) {
-                        Label("Play", systemImage: "play.fill")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundStyle(.white)
-                        if !current.durationLabel.isEmpty {
-                            Text(current.durationLabel)
-                                .font(.system(size: 22, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.8))
-                        }
-                        Spacer()
-                        // 圆点指示(5)。
-                        HStack(spacing: 10) {
-                            ForEach(works.indices, id: \.self) { i in
-                                Circle()
-                                    .fill(i == index ? Color.white : Color.white.opacity(0.35))
-                                    .frame(width: 12, height: 12)
-                            }
+                    // 圆点指示。
+                    HStack(spacing: 10) {
+                        ForEach(works.indices, id: \.self) { i in
+                            Circle()
+                                .fill(i == index ? Color.white : Color.white.opacity(0.35))
+                                .frame(width: 12, height: 12)
                         }
                     }
                 }
-                .padding(60)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 720)            // 2.39 宽银幕大幅 hero
-            .clipped()
+            .padding(60)
         }
-        .buttonStyle(.card)
+        .frame(maxWidth: .infinity)
+        .frame(height: 720)
+        .clipped()
         .animation(.easeInOut(duration: 0.6), value: index)
-        .onReceive(timer) { _ in
-            withAnimation { index = (index + 1) % max(works.count, 1) }
-        }
+        .onReceive(timer) { _ in go(1) }
     }
 }
 

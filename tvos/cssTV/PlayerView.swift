@@ -193,9 +193,16 @@ struct EmotionSubtitleOverlay: View {
                         burstGroup(tok, t: t, size: geo.size)
                     }
                     if let line = currentLine(t), let toks = line.tokens, !toks.isEmpty {
-                        karaokeLine(toks, t: t)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                            .padding(.bottom, 96)
+                        Group {
+                            // W1317 — Jing: 前奏/间奏/尾声器乐段不显示生硬的 "[Music...]", 改随机几个小音符。
+                            if isInstrumental(line) {
+                                instrumentalNotesLine(seed: Int(line.tStart))
+                            } else {
+                                karaokeLine(toks, t: t)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 96)
                     }
                 }
             }
@@ -221,8 +228,31 @@ struct EmotionSubtitleOverlay: View {
         .padding(.horizontal, 20)
     }
 
+    // W1317 — 器乐段判定 + 随机小音符行(替代 "[Music...]")。
+    private func isInstrumental(_ line: CSSSubLine) -> Bool {
+        if line.adlib == true { return true }
+        return (line.tokens?.first?.char ?? "").contains("Music")
+    }
+    private let notePool = ["♪", "♫", "♩", "♬", "🎵", "🎶"]
+    private func instrumentalNotesLine(seed: Int) -> some View {
+        let n = 3 + abs(seed) % 3   // 3~5 个
+        return HStack(spacing: 12) {
+            ForEach(0..<n, id: \.self) { i in
+                Text(notePool[abs(seed &+ i &* 7) % notePool.count])
+                    .font(.system(size: 38, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .shadow(color: .black, radius: 2)
+                    .shadow(color: .black.opacity(0.9), radius: 4)
+                    .offset(y: i % 2 == 0 ? -5 : 5)   // 高低错落, 像乐谱音符
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
     private func activeBurstTokens(_ t: Double) -> [CSSSubToken] {
-        lines.flatMap { $0.tokens ?? [] }.filter { t >= $0.startSec && t < $0.startSec + burstDur }
+        lines.flatMap { $0.tokens ?? [] }
+            .filter { !$0.char.contains("Music") }   // W1317 — 中央爆排除 "[Music...]" 器乐标记
+            .filter { t >= $0.startSec && t < $0.startSec + burstDur }
     }
 
     // W1251 — 中央逐字爆: 背景大 emoji + 爆大字 + 字心小 emoji 烟花(高强度才放)。

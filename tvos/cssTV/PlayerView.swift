@@ -332,14 +332,26 @@ struct EmotionSubtitleOverlay: View {
     }
 
     // 四周 8 个安全区(避开正中防爆脸), 由 token 哈希定位 → 随机散布但稳定。
+    // W1318 — 情绪字幕宪法: 同一行的字按【阅读顺序沿一条边铺开】(整体读得出一句, 错落有致),
+    //   沿上/下边框爆(绝不正中央=爆脸), 可靠边半溢出; 亚洲语言【右→左】。
     private func burstPosition(_ tok: CSSSubToken, size: CGSize) -> CGPoint {
-        let zones: [(CGFloat, CGFloat)] = [
-            (0.16, 0.22), (0.50, 0.15), (0.84, 0.22),
-            (0.13, 0.50),               (0.87, 0.50),
-            (0.18, 0.76), (0.50, 0.82), (0.82, 0.76),
-        ]
-        let z = zones[abs(tok.id.hashValue) % zones.count]
-        return CGPoint(x: size.width * z.0, y: size.height * z.1)
+        guard let li = lines.firstIndex(where: { ($0.tokens ?? []).contains(where: { $0.id == tok.id }) }) else {
+            return CGPoint(x: size.width * 0.5, y: size.height * 0.85)
+        }
+        let toks = lines[li].tokens ?? []
+        let j = toks.firstIndex(where: { $0.id == tok.id }) ?? 0
+        let n = max(toks.count, 1)
+        // CJK(中日韩) → 右到左
+        let isCJK = tok.char.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
+        var frac = (Double(j) + 0.5) / Double(n)
+        if isCJK { frac = 1 - frac }
+        let xMargin = 0.06
+        let x = xMargin + frac * (1 - 2 * xMargin)
+        // 这一行靠上/下边(隔行交替), 加轻微上下错落(不整齐但成句)。
+        let onTop = (li % 2 == 1)
+        let jitterY = (CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.07
+        let baseY = onTop ? 0.17 : 0.83
+        return CGPoint(x: size.width * CGFloat(x), y: size.height * CGFloat(baseY + jitterY))
     }
 
     // 情绪 → 配色(对齐 web 6 情绪)。

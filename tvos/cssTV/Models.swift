@@ -127,6 +127,20 @@ struct CSSWork: Codable, Identifiable {
     static let createCardId = "__cssos_create__"
     static var createCard: CSSWork { CSSWork(id: createCardId) }
     var isCreateCard: Bool { id == Self.createCardId }
+
+    // W1326 — 多部作品(三部曲/歌剧/剧集/电影): 卡片显示为叠卡 + 类型徽章, 播放连续播整部。
+    var isMultiPart: Bool {
+        ["triptych", "trilogy", "opera", "series", "film", "movie"].contains((workType ?? "").lowercased())
+    }
+    var typeBadge: String {   // i18n: 英文默认
+        switch (workType ?? "").lowercased() {
+        case "triptych", "trilogy": return "Trilogy"
+        case "opera": return "Opera"
+        case "series": return "Series"
+        case "film", "movie": return "Film"
+        default: return ""
+        }
+    }
 }
 
 /// CSSOS_WAVE_1227 — 首页一行 rail(标题 + 该行作品)。Apple TV 标准横向行布局。

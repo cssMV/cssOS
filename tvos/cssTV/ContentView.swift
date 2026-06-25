@@ -791,8 +791,18 @@ struct WorkCard: View {
 
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
+    private var coverH: CGFloat { cardWidth / cinemaRatio }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // W1326 — 多部作品: 主封面后面垫两张错位卡 = 叠卡(一眼看出是多部) + 右上类型徽章。
+            ZStack(alignment: .topTrailing) {
+                if work.isMultiPart {
+                    RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.12))
+                        .frame(width: cardWidth, height: coverH).offset(x: 16, y: -16)
+                    RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.20))
+                        .frame(width: cardWidth, height: coverH).offset(x: 8, y: -8)
+                }
             ZStack {
                 if work.isCreateCard {
                     // W1259 — 创作尾卡: 品牌渐变 + 招牌大爆 + ✨Create。
@@ -819,10 +829,22 @@ struct WorkCard: View {
                     Color.white.opacity(0.08)
                 }
             }
-            .frame(width: cardWidth, height: cardWidth / cinemaRatio)
+            .frame(width: cardWidth, height: coverH)
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(work.isCreateCard
                 ? RoundedRectangle(cornerRadius: 16).stroke(brandGreen.opacity(0.5), lineWidth: 2) : nil)
+
+                // W1326 — 右上类型徽章(多部才显)。
+                if work.isMultiPart {
+                    Text(work.typeBadge)
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background(Capsule().fill(brandGreen.opacity(0.92)))
+                        .padding(10)
+                }
+            }
+            .frame(width: cardWidth, height: coverH)
 
             Text(work.isCreateCard ? "Want an MV like this?" : (work.title ?? "Untitled"))
                 .font(.system(size: 24, weight: .semibold))

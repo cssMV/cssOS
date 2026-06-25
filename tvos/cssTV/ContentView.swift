@@ -144,6 +144,7 @@ struct ContentView: View {
                 .focusSection()
         }
         .focusScope(focusNS)
+        .ignoresSafeArea(.container, edges: .top)   // W1309 — 第四次: 整个界面延到屏顶, 顶部零安全区(hero 真正顶到头)
         .background(Color.clear.ignoresSafeArea())   // W1307 — 透明=苹果系统窗口背景色
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
@@ -336,7 +337,7 @@ struct CategorySidebar: View {
             }
             Spacer()
         }
-        .padding(.top, 56)
+        .padding(.top, 96)   // W1309 — 界面延到屏顶后, 侧栏 logo 下压避开电视过扫描(原 56)
         .padding(.horizontal, expanded ? 24 : 18)
         .frame(width: expanded ? 360 : 130)   // W1277 — 加宽, 让 Short Drama 等长标签放得下(略压卡片可接受)
         .frame(maxHeight: .infinity)

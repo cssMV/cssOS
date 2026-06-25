@@ -246,10 +246,8 @@ struct EmotionSubtitleOverlay: View {
                 .shadow(color: .black.opacity(0.6), radius: 4)
                 .scaleEffect(scale)
                 .opacity(opacity * 0.92)
-            // 字心小 emoji 烟花(从字心向四周炸开淡出)
-            if tok.intensity >= 0.7 {
-                firework(emoji: emoji, p: p, baseOpacity: opacity)
-            }
+            // 字心小 emoji 烟花(每个爆字都放 —— 之前 0.7 门槛把默认 0.6 的字全挡了)。
+            firework(emoji: emoji, p: p, baseOpacity: opacity)
         }
         .position(pos)
     }
@@ -257,13 +255,13 @@ struct EmotionSubtitleOverlay: View {
     // 8 颗小 emoji 从中心向外飞 + 淡出。
     private func firework(emoji: String, p: Double, baseOpacity: Double) -> some View {
         let n = 8
-        let dist: CGFloat = CGFloat(p * 95)
+        let dist: CGFloat = CGFloat(p * 120)
         let fade: Double = max(0, 1 - p) * baseOpacity
         return ZStack {
             ForEach(0..<n, id: \.self) { i in
                 let ang: Double = Double(i) / Double(n) * 2 * .pi
                 Text(emoji)
-                    .font(.system(size: 26))
+                    .font(.system(size: 34))
                     .offset(x: CGFloat(cos(ang)) * dist, y: CGFloat(sin(ang)) * dist)
                     .opacity(fade)
             }

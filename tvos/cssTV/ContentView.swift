@@ -164,6 +164,44 @@ struct FlatButtonStyle: ButtonStyle {
     }
 }
 
+/// W1252 — 平台招牌【选中爆 emoji】效果(可复用): 选中元素背后随机大 emoji + 字心不断爆小 emoji 烟花。
+///   用于侧栏选中项、激活胶囊。active=false 时完全不渲染(零开销)。
+struct EmojiBurstEffect: View {
+    var active: Bool
+    var seed: Int = 0
+    var bgSize: CGFloat = 54
+    var particleSize: CGFloat = 16
+    var spread: CGFloat = 32
+    private let pool = ["✨", "🌟", "💫", "⭐️", "🎉", "💗", "🔥", "🍃", "💧", "🌈", "🎵", "🪄"]
+
+    var body: some View {
+        if active {
+            TimelineView(.periodic(from: .now, by: 0.06)) { ctx in
+                let t = ctx.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    // 背景大 emoji: 每 1.6s 随机换一个(淡)。
+                    let bgIdx = (Int(t / 1.6) + seed) % pool.count
+                    Text(pool[abs(bgIdx) % pool.count])
+                        .font(.system(size: bgSize))
+                        .opacity(0.22)
+                    // 字心不断爆小 emoji: 6 颗各自循环相位, 从中心飞出+淡出, 永不停。
+                    ForEach(0..<6, id: \.self) { i in
+                        let phase: Double = ((t * 0.8) + Double(i) / 6.0 + Double(seed) * 0.13).truncatingRemainder(dividingBy: 1)
+                        let ang: Double = (Double(i) / 6.0 + Double(seed) * 0.07) * 2 * .pi
+                        let dist: CGFloat = CGFloat(phase) * spread
+                        let idx: Int = abs(i + seed + Int(t)) % pool.count
+                        Text(pool[idx])
+                            .font(.system(size: particleSize))
+                            .offset(x: CGFloat(cos(ang)) * dist, y: CGFloat(sin(ang)) * dist)
+                            .opacity((1 - phase) * 0.9)
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
 /// W1235 — 侧栏焦点项(用于折叠/展开判定)。
 enum SidebarItem: Hashable {
     case avatar, favorites, search, category(HomeCategory)
@@ -187,7 +225,10 @@ struct CategorySidebar: View {
                     if expanded {
                         Text(auth.isSignedIn ? (auth.user?.name ?? auth.user?.email ?? "Account") : "Sign in")
                             .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)   // W1252 — 完整显示, 哪怕溢出压到视频上
+                            .shadow(color: .black.opacity(0.8), radius: 3)
                         Spacer()
                     }
                 }
@@ -234,6 +275,8 @@ struct CategorySidebar: View {
                 Image(systemName: icon)
                     .font(.system(size: 24, weight: hot ? .heavy : .semibold))   // 选中: 图标加粗
                     .frame(width: 34)
+                    // W1252 — 招牌: 选中项图标字心爆 emoji(背景大 + 不断小烟花)。
+                    .overlay { EmojiBurstEffect(active: active, seed: abs(String(describing: item).hashValue), bgSize: 46, particleSize: 13, spread: 24) }
                 if expanded {
                     Text(label)
                         .font(.system(size: 22, weight: hot ? .bold : .medium))   // 选中: 文字加粗
@@ -362,6 +405,8 @@ struct FeaturedHero: View {
                 thumb(works[i].coverURL)
                     .frame(width: 56, height: 56 / 2.39)          // 2.39 宽银幕缩略图(长扁)
                     .clipShape(RoundedRectangle(cornerRadius: 5))
+                    // W1252 — 招牌: 激活胶囊缩略图字心爆 emoji(背景大 + 不断小烟花)。
+                    .overlay { EmojiBurstEffect(active: active, seed: i, bgSize: 40, particleSize: 12, spread: 22) }
                 Text(works[i].title ?? "Untitled")
                     .font(.system(size: 16, weight: active ? .bold : .medium))
                     .lineLimit(1)

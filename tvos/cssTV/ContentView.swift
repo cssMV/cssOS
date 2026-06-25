@@ -74,21 +74,6 @@ struct ContentView: View {
     @State private var showSearch = false               // W1277 搜索
     @Namespace private var focusNS
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
-    @State private var sidebarFocused = false
-    @State private var refreshing = false             // W1299 — 刷新中
-    @Environment(\.scenePhase) private var scenePhase  // W1300 — 回前台自动刷新
-
-    // W1299 — 用户手动刷新 feed(tvOS 无下拉刷新)。
-    private func reloadFeed() {
-        Task {
-            await MainActor.run { refreshing = true }
-            let fresh = await CSSBackend.fetchFeed()
-            await MainActor.run {
-                if !fresh.isEmpty { allWorks = fresh }
-                refreshing = false
-            }
-        }
-    }         // W1290 — 侧栏有焦点时暂停 hero 轮换(否则重排踢走侧栏焦点)
 
     // W1249/1259 — 创作尾卡 → 创作台; 否则 gating(免费/已拥有直接播; 收费未拥有 → 弹门)。
     private func choose(_ w: CSSWork) {
@@ -122,16 +107,6 @@ struct ContentView: View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
 
-            // W1296 — Jing: 全屏环境底图 = 【裸图】(无模糊/无暗化/无渐变, 省内存)。【静态】取首个作品封面,
-            //   不再随 hero 轮换更新 → ContentView 不再每 8s 重渲染 → 不再断言 hero 焦点踢走侧栏(真凶)。
-            if let bd = featured.first?.coverURL, let url = URL(string: bd) {
-                AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.clear }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if loading {
@@ -143,7 +118,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, paused: sidebarFocused) { choose($0) }
+                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS) { choose($0) }
                             // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
@@ -158,20 +133,16 @@ struct ContentView: View {
                 }
                 .padding(.bottom, 80)
             }
-            .focusScope(focusNS)   // W1292 — focusNS 只套内容(hero+rails); 侧栏在 focusNS 之外, hero 重排再也波及不到它(Jing: 左侧另成一层)
             .focusSection()
             // W1245 — ScrollView 正常遵守安全区: hero 内容与 For You 同基准(safe+leading)→ 对齐;
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS, sidebarFocused: $sidebarFocused)
-                .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域(focusNS 之外), 供 hero 往左 resetFocus 跳回
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS)
+                .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                 .focusSection()
-                // W1303 — 绝对位置固定独立层, 但【留在安全区内】(W1301 的 ignoresSafeArea 把它推进电视左边
-                //   过扫描区/屏幕外 → 标签只剩右半截"gn in/ama"。去掉它即完整显示)。
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .zIndex(100)
         }
+        .focusScope(focusNS)
         .background(Color.black.ignoresSafeArea())
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
@@ -197,19 +168,8 @@ struct ContentView: View {
             allWorks = await CSSBackend.fetchFeed()
             loading = false
         }
-        .overlay(alignment: .top) {   // W1299 — 刷新中的细顶条提示
-            if refreshing {
-                ProgressView().scaleEffect(0.8).padding(8)
-                    .background(Capsule().fill(.black.opacity(0.5)))
-                    .padding(.top, 8)
-            }
-        }
         .onChange(of: auth.isSignedIn) { _, signed in
             if signed { Task { allWorks = await CSSBackend.fetchFeed() } }  // 登录后重拉 → 带 viewer_orders 解锁已购
-        }
-        // W1300 — tvOS 标准: App 回前台自动刷新 feed(无需可见刷新按钮, 不突兀)。
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active && !loading { reloadFeed() }
         }
     }
 }
@@ -218,23 +178,6 @@ struct ContentView: View {
 struct FlatButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.contentShape(Rectangle())
-    }
-}
-
-/// W1286 — Jing: 右侧栏目卡片【保持透明背景】(卡片自身够显眼, 不要 tvOS .card 的灰色 platter 底板)。
-///   去掉 platter, 聚焦时用放大 + 轻微上浮表现焦点。
-struct PlainCardButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { FocusCard(configuration: configuration) }
-    struct FocusCard: View {
-        let configuration: Configuration
-        @Environment(\.isFocused) private var focused: Bool
-        var body: some View {
-            configuration.label
-                .scaleEffect(focused ? 1.1 : 1.0)
-                .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: focused ? 18 : 0, y: focused ? 10 : 0)
-                .animation(.easeOut(duration: 0.18), value: focused)
-                .contentShape(Rectangle())
-        }
     }
 }
 
@@ -331,7 +274,7 @@ struct EmojiBurstEffect: View {
 
 /// W1235 — 侧栏焦点项(用于折叠/展开判定)。
 enum SidebarItem: Hashable {
-    case avatar, collapse, favorites, search, create, category(HomeCategory)
+    case avatar, favorites, search, create, category(HomeCategory)
 }
 
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
@@ -344,7 +287,6 @@ struct CategorySidebar: View {
     var onSearch: () -> Void                   // W1277 搜索入口
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
     var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
-    @Binding var sidebarFocused: Bool           // W1290 — 上报: 侧栏是否有焦点(有→hero 暂停轮换)
     @Environment(\.resetFocus) private var resetFocus   // W1278 — 主动把焦点送到默认目标
     @FocusState private var focus: SidebarItem?
     @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
@@ -375,18 +317,6 @@ struct CategorySidebar: View {
             .buttonStyle(FlatButtonStyle())
             .focused($focus, equals: .avatar)
             .onMoveCommand { handleMove($0) }   // W1275 — 头像也接管方向键(左/右收标签, 上下导航)
-
-            // W1297 — Jing: 用户名附近一个【不显眼】的折叠按钮, 按一下直接收/展标签(除遥控器左/右)。
-            Button { withAnimation(.easeInOut(duration: 0.22)) { expanded.toggle() } } label: {
-                Image(systemName: expanded ? "chevron.compact.left" : "chevron.compact.right")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white.opacity(focus == .collapse ? 0.9 : 0.32))
-                    .frame(width: 34, height: 22)
-                    .scaleEffect(focus == .collapse ? 1.18 : 1.0)
-            }
-            .buttonStyle(FlatButtonStyle())
-            .focused($focus, equals: .collapse)
-            .onMoveCommand { handleMove($0) }
             .padding(.bottom, 10)
 
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
@@ -411,7 +341,6 @@ struct CategorySidebar: View {
         .frame(maxHeight: .infinity)
         // W1245 — Jing: 内容右移对齐 For You 后不再和侧栏打架, 侧栏背景【直接透明】(无底)。
         .onChange(of: focus) { _, newValue in
-            sidebarFocused = (newValue != nil)            // W1290 — 侧栏有焦点 → hero 暂停轮换
             if newValue == .avatar { avatarTick += 1 }   // W1274 — 聚焦头像即重爆一次
             if newValue != nil {
                 if !expanded { withAnimation(.easeInOut(duration: 0.22)) { expanded = true } }
@@ -460,7 +389,7 @@ struct CategorySidebar: View {
 
     // W1275 — 侧栏可聚焦项的视觉顺序(手动导航用)。
     private var orderedItems: [SidebarItem] {
-        var arr: [SidebarItem] = [.avatar, .collapse, .favorites, .search]
+        var arr: [SidebarItem] = [.avatar, .favorites, .search]
         for cat in HomeCategory.allCases {
             arr.append(.category(cat))
             if cat == .trilogy { arr.append(.create) }
@@ -560,7 +489,6 @@ struct FeaturedHero: View {
     let works: [CSSWork]
     var focusNS: Namespace.ID                         // W1278 — 第一个胶囊 = 焦点域默认目标(侧栏右键跳来)
     var sidebarNS: Namespace.ID                       // W1283 — 往左跳回侧栏用
-    var paused: Bool = false                          // W1290 — 侧栏有焦点时暂停自动轮换(防重排踢侧栏焦点)
     let onSelect: (CSSWork) -> Void
 
     @Environment(\.resetFocus) private var resetFocus // W1283 — 往左把焦点送回侧栏
@@ -645,15 +573,10 @@ struct FeaturedHero: View {
                 .frame(width: 56, height: 56 / 2.39)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .background(
-                    // W1289 — 激活(第一位)的小 emoji 特别向右、铺满整条轨道(像甩向最后一位的余晖); 其余常规。
                     EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60,
                                      bigPeriod: works[i].isCreateCard ? 12 : 0,
-                                     smallSize: 16,
-                                     smallSpread: active ? 560 : 185,
-                                     smallN: active ? 30 : 18,
-                                     rightBias: true)
-                        .frame(width: 140, height: 90)   // 原点在胶囊; 粒子靠大 smallSpread 飞出框向右铺满(背景不裁剪)
-                        .allowsHitTesting(false)
+                                     smallSize: 16, smallSpread: 185, smallN: 18, rightBias: true)
+                        .frame(width: 140, height: 90).allowsHitTesting(false)
                 )
             Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
                 .font(.system(size: 16, weight: active ? .bold : .medium))
@@ -759,29 +682,23 @@ struct FeaturedHero: View {
         .ignoresSafeArea(.container, edges: .horizontal)       // W1245 — hero 内容也满铺基准, 与 rails(同满铺)同 leading → 对齐
         .animation(.easeInOut(duration: 0.2), value: playFocused)
         .animation(.easeInOut(duration: 0.6), value: index)
-        // W1300 — 用户干预最高权限: 把焦点移到胶囊 = 干预 → index 跟随 + 暂停自动 10s。
-        //   关键: 自动推进时也会改 focusedCap(焦点跟随激活), 用 autoAdvancing 标志让 onChange【明确忽略】
-        //   这种自动变化, 否则会被误判成干预→每次推进即自暂停→"永不自动"(W1298 竞态真凶)。
+        // W1250 — 遥控器聚焦胶囊 → index 跟随, 并暂停自动轮播 10s(用户干预最高优先级)。
         .onChange(of: focusedCap) { _, f in
-            // 用户把焦点移到某胶囊 = 干预 → 它即激活 + 暂停自动 10s(最高权限)。
-            guard let f, f != index else { return }
-            withAnimation(.easeInOut(duration: 0.4)) { index = f }
-            pauseAutoUntil = Date().addingTimeInterval(10)
+            if let f {
+                withAnimation(.easeInOut(duration: 0.4)) { index = f }
+                pauseAutoUntil = Date().addingTimeInterval(10)
+            }
         }
         .onReceive(timer) { _ in
-            if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切(最高权限)
+            if focusedCap != nil { return }                           // 用户正在操作胶囊, 不自动切
+            if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切
             pauseAutoUntil = nil
-            // W1302 — Jing「我进去不动, 侧栏永远被踢」根治: 自动轮换【只动画面】(index/绿色激活),
-            //   绝不再 `focusedCap=next` 抢焦点(W1300 真凶: 每8s把焦点夺回hero → 用户回不去侧栏)。
-            //   焦点留在用户放的地方; 用户按方向键才改焦点(=干预)。
-            withAnimation(.easeInOut(duration: 0.6)) { index = (index + 1) % n }
+            go(1)
         }
         // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
         .defaultFocus($focusedCap, 0)
         // W1284 — 启动边框呼吸(下一个等待者), 1.1s 一呼一吸。
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathe = true }
-        }
+        .onAppear { withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathe = true } }
     }
 }
 
@@ -839,7 +756,7 @@ struct RailRow: View {
                 LazyHStack(spacing: 36) {
                     ForEach(rail.works) { w in
                         Button { onSelect(w) } label: { WorkCard(work: w) }
-                            .buttonStyle(PlainCardButtonStyle())   // W1286 — 透明背景, 无灰 platter
+                            .buttonStyle(.card)
                     }
                 }
                 .padding(.vertical, 24)   // 给焦点放大留出空间, 不被相邻行裁切

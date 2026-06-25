@@ -195,37 +195,46 @@ struct CategorySidebar: View {
     }
 }
 
-/// W1234 — 合体徽章: 持续转动的魔镜 logo, 每 6s 与用户头像淡入淡出互换。
-/// logo 用线上透明魔镜图(assets/mirror-1.webp), AsyncImage 系统原生解 webp。
+/// W1234c — 魔镜合体徽章(环 + 中心金球 两层, 分离图)。
+///  · 未登录 = 完整 logo: 自转的环 + 中心金球。
+///  · 登录后 = 环照常自转; 中心【金球 ↔ 用户头像】每 8s 淡入淡出切换。
+/// 切换周期 = orbAvatarFlipSeconds(8s, 沉稳)。环自转 14s/圈。
 struct LogoAvatarBadge: View {
-    @State private var angle: Double = 0
-    @State private var showLogo = true
-    private let flip = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
+    var loggedIn: Bool = false                       // 第③步接登录后传 true
+    private let orbAvatarFlipSeconds = 8.0
+
+    @State private var ringAngle: Double = 0
+    @State private var showOrb = true
+    private let flip = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
-            if showLogo {
-                AsyncImage(url: URL(string: "https://cssstudio.app/assets/mirror-1.webp")) { img in
-                    img.resizable().scaledToFit()
-                } placeholder: {
-                    Image(systemName: "sparkles").font(.system(size: 30)).foregroundStyle(.green)
+            // 外环: 恒定自转。
+            Image("MirrorRing")
+                .resizable().scaledToFit()
+                .rotationEffect(.degrees(ringAngle))
+            // 中心: 金球, 或(登录后)与头像轮换。
+            Group {
+                if !loggedIn || showOrb {
+                    Image("MirrorOrb")
+                        .resizable().scaledToFit()
+                        .transition(.opacity)
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .resizable().scaledToFit()
+                        .padding(18)
+                        .foregroundStyle(.white)
+                        .transition(.opacity)
                 }
-                .rotationEffect(.degrees(angle))
-                .transition(.opacity)
-            } else {
-                Image(systemName: "person.crop.circle.fill")
-                    .resizable().scaledToFit()
-                    .foregroundStyle(.white.opacity(0.85))
-                    .transition(.opacity)
             }
         }
-        .frame(width: 64, height: 64)
+        .frame(width: 76, height: 76)
         .onAppear {
-            // 魔镜恒定自转(线性, 永不停)。
-            withAnimation(.linear(duration: 12).repeatForever(autoreverses: false)) { angle = 360 }
+            withAnimation(.linear(duration: 14).repeatForever(autoreverses: false)) { ringAngle = 360 }
         }
         .onReceive(flip) { _ in
-            withAnimation(.easeInOut(duration: 0.6)) { showLogo.toggle() }
+            guard loggedIn else { return }            // 未登录: 永远完整 logo, 不切头像
+            withAnimation(.easeInOut(duration: 0.6)) { showOrb.toggle() }
         }
     }
 }

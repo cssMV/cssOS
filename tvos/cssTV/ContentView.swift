@@ -178,11 +178,11 @@ struct CategorySidebar: View {
         .padding(.horizontal, expanded ? 24 : 18)
         .frame(width: expanded ? 330 : 130)
         .frame(maxHeight: .infinity)
-        // W1240 — 压在 hero 之上: 左实右柔渐变, 软化右缘融进画面。
+        // W1240/1242 — 压在 hero 之上: 半透明(hero 透出来), 左稍实右柔渐变软化右缘。
         .background(
             LinearGradient(stops: [
-                .init(color: .black.opacity(0.96), location: 0.0),
-                .init(color: .black.opacity(0.94), location: 0.72),
+                .init(color: .black.opacity(0.55), location: 0.0),
+                .init(color: .black.opacity(0.48), location: 0.72),
                 .init(color: .black.opacity(0.0), location: 1.0),
             ], startPoint: .leading, endPoint: .trailing)
             .ignoresSafeArea()
@@ -330,9 +330,8 @@ struct FeaturedHero: View {
         .padding(.trailing, 16)
         .frame(height: capH)
         .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
-        // W1241 — 接口只剩单条弯线: 激活段【不描边】(纯绿), 仅未激活段描一道细暗线,
-        //   避免凸/凹双描边在接口叠成发白"架上去"的粗线。
-        .overlay(active ? nil : ConcavePill(side: side).stroke(Color.white.opacity(0.26), lineWidth: 1))
+        // W1241/1242 — 接口单弯线 + 描边压暗(尤其凹尖头不要发白): 激活不描边, 未激活细暗线。
+        .overlay(active ? nil : ConcavePill(side: side).stroke(Color.white.opacity(0.14), lineWidth: 1))
     }
 
     @ViewBuilder

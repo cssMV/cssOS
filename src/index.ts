@@ -41083,6 +41083,13 @@ app.get("/api/works/market", async (req, res) => {
                         OR ($5 <> '' AND length($5) >= 4 AND (
                               w.id::text ILIKE $5 || '%'
                               OR replace(w.id::text, '-', '') ILIKE replace($5, '-', '') || '%')))
+           -- CSSOS_WAVE_1291 — Jing「Welcome/Birthday 系统卡: 用户在信箱先欣赏过才公开进 For You」:
+           --   凡有【未 viewed(pending/delivered)gift audit】的作品, 先不进市场/For You; 收件人首次播放
+           --   → /api/personalization/inbox/:auditId/viewed 把 audit 标 viewed → 此条不再命中 → 作品现身。
+           --   用户自己创作的作品没有 gift audit, 完全不受影响。
+           AND NOT EXISTS (
+                 SELECT 1 FROM system_gift_audit sga
+                  WHERE sga.work_id = w.id AND sga.status IN ('pending', 'delivered'))
          -- CSSOS_WAVE_425 20260525 — Jing「死媒体降权: 让活媒体作品优先推」: works
          -- whose primary media (final_mv / audio_track_1) lives on our own domain
          -- (cssstudio.app local or cdn.cssstudio.app R2) are guaranteed to play;

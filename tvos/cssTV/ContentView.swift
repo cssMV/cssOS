@@ -189,18 +189,20 @@ struct EmojiBurstEffect: View {
     var rightBias: Bool = false        // W1262 — 往右爆: 粒子偏向右半边(盖过右侧名字/标题)
     private let pool = CSSFx.petals
     private let bigLife: Double = 1.8  // 一次大爆的生命(弹入+停留+淡出, 对齐桌面 dwell)
+    @State private var startT: Double = -1   // W1267 — 激活时刻起点: elapsed=0 立即爆一次, 之后每 bigPeriod
 
     var body: some View {
         if active {
             // 10fps: 跑在可聚焦菜单/胶囊里, 高帧会饿死遥控器输入(W1258 教训)。
             TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
-                let t = ctx.date.timeIntervalSinceReferenceDate + Double(seed) * 0.37
+                let elapsed = startT >= 0 ? max(0, ctx.date.timeIntervalSinceReferenceDate - startT) : 0
                 ZStack {
-                    bigPop(t)
-                    smallSparks(t)
+                    bigPop(elapsed)
+                    smallSparks(elapsed)
                 }
                 .allowsHitTesting(false)
             }
+            .onAppear { startT = Date().timeIntervalSinceReferenceDate }   // 选中/出现即重置起点 → 马上爆
         }
     }
 

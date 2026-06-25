@@ -30,6 +30,7 @@ struct PlayerView: View {
 
     @State private var videoPlayer: AVPlayer?
     @State private var audioPlayer: AVPlayer?
+    @StateObject private var meter = AudioMeter()   // W1328 — 实时音量表
     @State private var showTitle = true
     // CSSOS_WAVE_1229 — 音频主时钟: audio 上的周期观察者驱动同步; audio.ended 退出。
     @State private var clockObserver: Any?
@@ -59,7 +60,7 @@ struct PlayerView: View {
 
             // W1247 — 大屏逐字情绪字幕(招牌): 音频主时钟驱动, 底部卡拉OK + 中央逐字爆。
             if let sub = subtitle, let ap = audioPlayer {
-                EmotionSubtitleOverlay(lines: sub.lines, player: ap, themeEmoji: sub.themeEmoji)
+                EmotionSubtitleOverlay(lines: sub.lines, player: ap, themeEmoji: sub.themeEmoji, level: meter.level)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
@@ -111,6 +112,7 @@ struct PlayerView: View {
         if let a = work.audioURL, let aurl = URL(string: a) {
             let p = AVPlayer(url: aurl)
             audioPlayer = p
+            if let item = p.currentItem { meter.attach(to: item) }   // W1328 — 实时音量表(器乐段 emoji 用)
             // CSSOS_WAVE_1229 — 音频主时钟: audio 周期观察者每 0.2s 把视频拽回音频时刻。
             let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
             clockObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { t in
@@ -189,6 +191,7 @@ struct EmotionSubtitleOverlay: View {
     let lines: [CSSSubLine]
     let player: AVPlayer
     var themeEmoji: [String] = []          // W1251 — 作品主题 emoji(背景大 emoji + 字心烟花用)
+    var level: CGFloat = 0                 // W1328 — 实时音量(0~1): 器乐段 emoji 多/少响应
     private let burstDur = 2.4    // W1257 — 照搬桌面慢淡出(1.7~3.0s), 字心 emoji 爆→停留→淡出, 不再一爆即灭
 
     var body: some View {
@@ -238,14 +241,19 @@ struct EmotionSubtitleOverlay: View {
     }
     private func instrumentalField(_ t: Double, size: CGSize) -> some View {
         let pool = themeEmoji.isEmpty ? ["🎵", "🎶", "✨", "🌸", "🍃", "💧"] : themeEmoji
+        // W1328 — 响应音量: 音量小→只飘几颗(4)、淡; 音量大→飘满(24)、亮、飘快。
+        let active = 4 + Int(level * 20)
         return ZStack {
-            ForEach(0..<16) { i in
-                let prog = (t / (3.0 + CSSFx.rnd(i, 1) * 2.5) + CSSFx.rnd(i, 2)).truncatingRemainder(dividingBy: 1)
-                let op = prog < 0.15 ? prog / 0.15 : (prog > 0.7 ? (1 - prog) / 0.3 : 1.0)
-                Text(pool[Int(CSSFx.rnd(i, 4) * Double(pool.count)) % pool.count])
-                    .font(.system(size: 26))
-                    .position(edgePoint(i, prog, size))
-                    .opacity(max(0, op) * 0.8)
+            ForEach(0..<24) { i in
+                if i < active {
+                    let speed = 1.0 + Double(level) * 1.2   // 音量大飘更快
+                    let prog = (t * speed / (3.0 + CSSFx.rnd(i, 1) * 2.5) + CSSFx.rnd(i, 2)).truncatingRemainder(dividingBy: 1)
+                    let op = prog < 0.15 ? prog / 0.15 : (prog > 0.7 ? (1 - prog) / 0.3 : 1.0)
+                    Text(pool[Int(CSSFx.rnd(i, 4) * Double(pool.count)) % pool.count])
+                        .font(.system(size: 22 + level * 12))   // 音量大稍大
+                        .position(edgePoint(i, prog, size))
+                        .opacity(max(0, op) * (0.45 + Double(level) * 0.5))
+                }
             }
         }
     }

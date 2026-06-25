@@ -222,11 +222,15 @@ struct EmotionSubtitleOverlay: View {
 
     // W1251 — 传统底部卡拉OK字幕: 不再压黑底/半透底, 改【白字 + 黑阴影描边】(多层黑 shadow = 描边)。
     private func karaokeLine(_ toks: [CSSSubToken], t: Double) -> some View {
-        HStack(spacing: 1) {
+        // W1321 — 整行随机字体 + 随机双色(已唱/未唱), 照桌面端; 每行不同, 行内一致(读得出一句)。
+        let lineSeed = Int((toks.first?.tStart ?? 0))
+        let sungCol = randomColor(lineSeed)
+        let unsungCol = randomColor(lineSeed &+ 97)
+        return HStack(spacing: 1) {
             ForEach(toks) { tok in
                 Text(tok.char)
-                    .font(.system(size: 24, weight: .semibold))   // W1320 — 小小的(原 42 抢戏)
-                    .foregroundStyle(t >= tok.startSec ? Color.white : Color.white.opacity(0.45))
+                    .font(randomFont(24, seed: lineSeed))          // W1321 — 随机字体(整行一致)
+                    .foregroundStyle(t >= tok.startSec ? sungCol : unsungCol.opacity(0.6))   // W1321 — 随机双色
                     .shadow(color: .black, radius: 1)
                     .shadow(color: .black.opacity(0.9), radius: 3)
             }
@@ -270,7 +274,7 @@ struct EmotionSubtitleOverlay: View {
         let bgSize: CGFloat = CGFloat(150 * (0.7 + tok.intensity))
         let scale: CGFloat = CGFloat(0.85 + 0.25 * cp)
         let pos: CGPoint = burstPosition(tok, size: size)
-        let col: Color = emotionColor(tok.emotion)
+        let col: Color = randomColor(abs(tok.id.hashValue))   // W1321 — 逐字随机色(照桌面端, 不再行级情绪色)
         let emoji: String = pickEmoji(tok)
         return ZStack {
             // 背景大 emoji(淡, 衬在爆字后)
@@ -278,9 +282,9 @@ struct EmotionSubtitleOverlay: View {
                 .font(.system(size: bgSize))
                 .opacity(charOp * 0.30)
                 .scaleEffect(scale)
-            // 爆大字
+            // 爆大字 — W1321 随机字体
             Text(tok.char)
-                .font(.system(size: charSize, weight: .black))
+                .font(randomFont(charSize, seed: abs(tok.id.hashValue)))
                 .foregroundStyle(col)
                 .shadow(color: col.opacity(0.7), radius: 26)
                 .shadow(color: .black.opacity(0.6), radius: 4)
@@ -322,6 +326,18 @@ struct EmotionSubtitleOverlay: View {
             return themeEmoji[abs(tok.id.hashValue) % themeEmoji.count]
         }
         return emotionEmoji(tok.emotion)
+    }
+
+    // W1321 — 随机字体 + 随机颜色(照桌面端)。tvOS 四种系统字形 + 随机字重做字体变化。
+    private let fontDesigns: [Font.Design] = [.default, .serif, .rounded, .monospaced]
+    private func randomFont(_ size: CGFloat, seed: Int) -> Font {
+        let d = fontDesigns[abs(seed) % fontDesigns.count]
+        let weights: [Font.Weight] = [.semibold, .bold, .heavy, .black]
+        let w = weights[abs(seed / 7) % weights.count]
+        return .system(size: size, weight: w, design: d)
+    }
+    private func randomColor(_ seed: Int) -> Color {
+        Color(hue: CSSFx.rnd(seed, 3), saturation: 0.72, brightness: 0.98)
     }
 
     private func emotionEmoji(_ e: String?) -> String {

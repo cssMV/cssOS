@@ -118,21 +118,26 @@ html[data-theme="light"] .bg-grid, html[data-theme="light"] .bg-grid { opacity: 
   animation: none;
 }
 
+/* CSSOS_WAVE_1223b — Jing「晚上绿色和绿色打架, 照搬白天=删掉背景光斑」:
+   白天主题这三个绿光斑被压到 0.07~0.10, 在奶油底上几乎不可见 → 完美融合。
+   晚上是纯黑底, 绿色对比极强, 三个 52vmax 大光斑在屏幕中央叠成一个绿圆盘, 再撞墨绿 logo
+   = 绿打绿、永远有圈。白天既然等于删了, 晚上也删干净: 设 transparent, 夜色 = 纯净 #010101,
+   logo 浮在上面零圈圈。要找回氛围光以后单独再议, 别在主题里偷偷加。 */
 .bg-blob-a {
-  background: radial-gradient(circle at top, rgba(0, 200, 140, 0.22), transparent 70%);
+  background: transparent;
   top: -15vmax;
   left: -10vmax;
 }
 
 .bg-blob-b {
-  background: radial-gradient(circle at 30% 30%, rgba(0, 180, 160, 0.15), transparent 66%);
+  background: transparent;
   bottom: -20vmax;
   right: -15vmax;
   animation-delay: -8s;
 }
 
 .bg-blob-c {
-  background: radial-gradient(circle at 70% 40%, rgba(0, 200, 120, 0.17), transparent 68%);
+  background: transparent;
   top: 25vmax;
   left: 20vmax;
   animation-delay: -14s;

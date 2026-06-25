@@ -433,6 +433,7 @@
       "dock.cssmv": "CSS MV",
       "dock.deliveryOps": "Ops",
       "dock.foryou": "For You",
+      "dock.csstv": "cssTV",
       "dock.language": "Language",
       "dock.login": "Login",
       "dock.lyrics": "Lyrics",

@@ -67,7 +67,7 @@
     // CSSOS_WAVE_662 线B第1步: mv-language-picker(同步返回 handle 的 mount, 经 eager shim 懒加载)。
     "mv-language-picker": "app.mv-language-picker.js?v=20260531-w587b-cap",
     // CSSOS_WAVE_1225 — cssTV 大屏浏览层。hash #cssTV 触发懒加载, 模块自注入样式 + 自开。
-    "csstv":              "app.csstv-panel.js?v=20260624-w1225-csstv",
+    "csstv":              "app.csstv-panel.js?v=20260624-w1226-csstv",
   });
 
   // CSSOS_WAVE_527 — 面板依赖: 加载某面板后, 内核自动按需加载其卫星模块(也从首屏移除)。

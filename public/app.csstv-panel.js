@@ -100,7 +100,7 @@
 
   async function fetchMarket() {
     try {
-      var res = await fetch("/api/works/market?limit=30", { credentials: "include" });
+      var res = await fetch("/api/works/market?limit=60", { credentials: "include" });
       if (!res.ok) return [];
       var data = await res.json();
       var works = (data && (data.works || data.items)) || [];
@@ -108,14 +108,35 @@
     } catch (_e) { return []; }
   }
 
+  // work_type → rail 标题(中英)。多部类型优先呈现, 普通单曲归 Songs。
+  var TYPE_RAILS = [
+    { match: ["opera"], key: "opera", title: "Operas · 歌剧" },
+    { match: ["film", "movie"], key: "film", title: "Films · 电影" },
+    { match: ["series", "shortplay", "short-play", "drama"], key: "series", title: "Series · 剧集短剧" },
+    { match: ["triptych", "trilogy"], key: "triptych", title: "Trilogies · 三部曲" },
+  ];
+
   function buildRails(works) {
     if (!works.length) return [];
-    // v1: 两条 rail —— 全部(For You)+ 免费试听优先(Free to play)。简单切分, 后续可加"继续观看"等。
+    var rails = [];
+    // 1) For You —— 全部
+    rails.push({ key: "foryou", title: "For You · 为你精选", works: works });
+    // 2) Fresh —— 最新(API 通常已 recent-first, 取前 18)
+    if (works.length > 6) rails.push({ key: "fresh", title: "Fresh · 最新上架", works: works.slice(0, 18) });
+    // 3) 按 work_type 分类 rail(每类 ≥3 才出, 防稀疏)
+    var seenType = {};
+    TYPE_RAILS.forEach(function (def) {
+      var group = works.filter(function (w) {
+        var t = String(w.work_type || "").toLowerCase();
+        return def.match.indexOf(t) >= 0;
+      });
+      if (group.length >= 3) { rails.push({ key: def.key, title: def.title, works: group }); group.forEach(function (w) { seenType[workId(w)] = 1; }); }
+    });
+    // 4) Free to play —— 免费试听
     var free = works.filter(function (w) {
       return !(Number(w.current_listen_price_cents || w.listen_price_cents) > 0);
     });
-    var rails = [{ key: "foryou", title: "For You", works: works }];
-    if (free.length) rails.push({ key: "free", title: "Free to play · 免费试听", works: free });
+    if (free.length >= 3) rails.push({ key: "free", title: "Free to play · 免费试听", works: free });
     return rails;
   }
 

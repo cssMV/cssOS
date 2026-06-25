@@ -2088,6 +2088,8 @@
       </div>
       <!-- CSSOS_WAVE_862 — Jing: 为你创作(For You)默认第二位(话筒之后), 静态 HTML 同步, 避免 JS 跑前飞位。 -->
       <div data-action="foryou" data-pill-key="foryou">✨ <span data-i18n="dock.foryou">For You</span></div>
+      <!-- CSSOS_WAVE_1226 — cssTV 大屏入口: 📺 → handleGlobalAction("csstv") → cssosOpenCssTV 桩(懒加载)。 -->
+      <div data-action="csstv" data-pill-key="csstv">📺 <span data-i18n="dock.csstv">cssTV</span></div>
       <div data-action="mv-pipeline" data-pill-key="mv-pipeline">🎞️ <span data-i18n="dock.mvPipeline">MV Pipeline</span></div>
       <div data-action="works" data-pill-key="works">🗂 <span data-i18n="dock.works">Works</span></div>
       <!-- CSSOS_WAVE_486 20260529 — Jing: 删除 🎬 CSS MV dock 项。它和 🎞️ MV

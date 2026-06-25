@@ -132,7 +132,7 @@ enum SidebarItem: Hashable {
 struct CategorySidebar: View {
     @Binding var selected: HomeCategory
     @FocusState private var focus: SidebarItem?
-    private var expanded: Bool { focus != nil }
+    @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -161,7 +161,16 @@ struct CategorySidebar: View {
         .frame(width: expanded ? 330 : 130)
         .frame(maxHeight: .infinity)
         .background(Color.black.opacity(0.98))
-        .animation(.easeInOut(duration: 0.22), value: expanded)
+        .onChange(of: focus) { _, newValue in
+            if newValue != nil {
+                if !expanded { withAnimation(.easeInOut(duration: 0.22)) { expanded = true } }
+            } else {
+                // 焦点离开: 延迟 0.2s 再收起; 期间焦点回到侧栏任一项就不收(消除项间跳动抖动)。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    if focus == nil { withAnimation(.easeInOut(duration: 0.22)) { expanded = false } }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -257,18 +266,24 @@ struct FeaturedHero: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // 背景: 当前精选封面, 2.39 满宽; 切换淡入淡出。
-            Group {
-                if let c = current.coverURL, let url = URL(string: c) {
-                    AsyncImage(url: url) { img in
-                        img.resizable().scaledToFill()
-                    } placeholder: { Color.white.opacity(0.06) }
-                } else {
-                    Color.white.opacity(0.06)
-                }
-            }
-            .id(current.id)
-            .transition(.opacity)
+            // W1236 — hero 框死成固定尺寸: 用 Color 占位定尺寸, 封面只在框内 overlay+裁切。
+            //   根因(Jing): 封面图有 2.39 有 16:9, 之前 AsyncImage 直接参与布局 → 不同比例撑得
+            //   hero 忽大忽小"动来动去"。Color 锚定尺寸后, 任何比例的图都只裁切填充, 框恒定。
+            Color.black
+                .overlay(
+                    Group {
+                        if let c = current.coverURL, let url = URL(string: c) {
+                            AsyncImage(url: url) { img in
+                                img.resizable().scaledToFill()
+                            } placeholder: { Color.white.opacity(0.06) }
+                        } else {
+                            Color.white.opacity(0.06)
+                        }
+                    }
+                )
+                .clipped()
+                .id(current.id)
+                .transition(.opacity)
 
             LinearGradient(
                 colors: [.black.opacity(0.85), .black.opacity(0.25), .clear],
@@ -317,16 +332,19 @@ struct FeaturedHero: View {
                                 .font(.system(size: 17, weight: i == index ? .bold : .medium))
                                 .lineLimit(1)
                         }
-                        .foregroundStyle(i == index ? Color.white : Color.white.opacity(0.7))
-                        .padding(.horizontal, 14)
-                        .frame(maxHeight: .infinity)                                  // 贴满轨道高度
-                        .background(Capsule().fill(i == index ? Color.green.opacity(0.9) : Color.clear))
+                        .foregroundStyle(i == index ? Color.white : Color.white.opacity(0.72))
+                        .padding(.horizontal, 16)
+                        .frame(maxHeight: .infinity)                                  // 所有段同高、对齐(不再一高一低)
+                        .background(Capsule().fill(i == index ? Color.green.opacity(0.92) : Color.clear))
+                        // 未激活段: 一圈弯线边框(= 该胶囊自身的边框, 与相邻段以弯线隔开)。
+                        .overlay(Capsule().stroke(i == index ? Color.clear : Color.white.opacity(0.34),
+                                                  lineWidth: 1.5))
                     }
                 }
-                .frame(height: 46)                                                    // 轨道高度
-                .background(Capsule().fill(Color.white.opacity(0.10)))                // 轨道底(段间缝露出)
-                .overlay(Capsule().stroke(Color.white.opacity(0.28), lineWidth: 1))   // 轨道边框 = 与激活胶囊共用
-                .clipShape(Capsule())                                                 // overflow hidden, 端角共边
+                .frame(height: 50)                                                    // 轨道高度(段填满 → 对齐)
+                .background(Capsule().fill(Color.white.opacity(0.08)))                // 轨道底
+                .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 1.5)) // 轨道边框, 与胶囊共用
+                .clipShape(Capsule())                                                 // 端角共边, 首枚贴轨道左缘
                 .fixedSize(horizontal: true, vertical: false)                         // 宽度自适应内容
             }
             .padding(60)

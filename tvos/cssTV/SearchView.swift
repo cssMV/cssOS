@@ -43,16 +43,14 @@ struct SearchView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             VStack(spacing: 28) {
+                // W1280 — 🔍 在框内(桌面端一致), 去掉 Close(遥控 Menu 键退出)。
                 HStack(spacing: 16) {
                     Image(systemName: "magnifyingglass").font(.system(size: 30, weight: .semibold))
                         .foregroundStyle(brandGreen)
-                    TextField("Search works by title — hold 🎙 to speak", text: $query)
+                    TextField("Search cssTV — hold 🎙 to speak", text: $query)
                         .textFieldStyle(.plain)
                         .font(.system(size: 30, weight: .semibold))
                         .focused($fieldFocused)
-                    Button("Close") { dismiss() }
-                        .font(.system(size: 20)).buttonStyle(.plain)
-                        .foregroundStyle(.white.opacity(0.6))
                 }
                 .padding(22)
                 .background(RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.08)))

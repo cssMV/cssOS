@@ -33,12 +33,25 @@
     return effectiveTheme === "dark" ? "◑" : "◐";
   }
 
+  // CSSOS_WAVE_1224 — 胶囊宪法第1条: 每段 = 小图标 + 标签。旧版 textContent = 纯标签,
+  //   把 HTML 里的 "☀ Light" 抹成 "Light" → 图标丢失。改为渲染 图标span + 标签span。
+  function menuItemIcon(mode) {
+    if (mode === "light") return "☀";
+    if (mode === "dark") return "☾";
+    return "◐"; // system
+  }
   function refreshThemeQuickMenuLabels() {
     menu.querySelectorAll("[data-theme-mode]").forEach((button) => {
       const mode = String(button.getAttribute("data-theme-mode") || "system")
         .trim()
         .toLowerCase();
-      button.textContent = themeModeLabel(mode);
+      const ico = document.createElement("span");
+      ico.className = "seg-ico";
+      ico.textContent = menuItemIcon(mode);
+      const label = document.createElement("span");
+      label.className = "seg-label";
+      label.textContent = themeModeLabel(mode);
+      button.replaceChildren(ico, label);
     });
   }
 

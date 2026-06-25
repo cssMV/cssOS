@@ -125,7 +125,11 @@
         filter:drop-shadow(0 6px 28px rgba(0,245,160,0.28));}
       @keyframes cssosSplashBreath{0%,100%{transform:scale(0.965);opacity:.82}
         50%{transform:scale(1.035);opacity:1}}
-      @media (prefers-color-scheme: light){#cssos-launch-splash{background:#f6efe4;}}
+      /* CSSOS_WAVE_1224 — splash 底色跟【用户选的主题】(pre-paint 已把 data-theme 写到 <html>),
+         不再只跟系统暗色。白天用户即使设备是暗色, splash 也是奶油底, 不会先黑一下。 */
+      html[data-theme="light"] #cssos-launch-splash{background:#f6efe4;}
+      html[data-theme="dark"] #cssos-launch-splash{background:#020302;}
+      @media (prefers-color-scheme: light){html:not([data-theme]) #cssos-launch-splash{background:#f6efe4;}}
       #cssos-launch-splash.cssos-splash-hide{opacity:0;pointer-events:none;}
     </style>
     <script>

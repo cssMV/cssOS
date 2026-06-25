@@ -1063,6 +1063,11 @@ async function hydrateBehaviorDefaultsFromServer(force = false) {
       ? mergePanelBehaviorSettings(local, remote)
       : local
   );
+  // CSSOS_WAVE_1224 — Jing「选了白天, 开机却先黑一下才换白天」根因: 登录用户的主题存在【服务器】,
+  //   本函数 fetch 回来只 apply 不【回写 localStorage】→ 下次开机 pre-paint 读空的 local → system →
+  //   跟随系统暗 → 首帧黑 → 等本函数把服务器白天 apply 才匆匆翻白。回写 merged 到 local, 让下次开机
+  //   的 pre-paint(<head> 内联脚本读同一个 key)首帧就拿到白天, 零闪。
+  try { writePanelBehaviorSettingsLocal(merged); } catch (_e) {}
   applyPanelBehaviorSettings(merged);
   return merged;
 }

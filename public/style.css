@@ -460,18 +460,27 @@ html[data-theme="light"] .theme-toggle {
   white-space: nowrap;
 }
 
-/* Active pill: always brand green (override nth-child purple/blue/etc.) */
-.theme-menu > .theme-menu-item.active,
-.theme-menu > .theme-menu-item.is-active {
+/* CSSOS_WAVE_1224 — 激活胶囊永远品牌绿。基底 [data-segmented] 有 6 色 nth-child 调色板
+   (dark=第3个→紫, system=第2个→蓝), 与旧绿覆盖【同特异度】却在文件更前 → 紫/蓝赢。
+   这里加 [data-segmented](.theme-menu 自身就带它)把特异度提到 (0,4,0) 压过 nth-child 的 (0,3,0)。 */
+.theme-menu[data-segmented] > .theme-menu-item.active,
+.theme-menu[data-segmented] > .theme-menu-item.is-active {
   background: hsla(155, 68%, 36%, 0.90) !important;
   color: #fff !important;
   font-weight: 700 !important;
 }
 
-/* Hover for inactive */
-.theme-menu > .theme-menu-item:not(.active):not(.is-active):hover {
+/* Hover for inactive — 同样压过 nth-child 的 6 色 hover, 统一品牌绿 */
+.theme-menu[data-segmented] > .theme-menu-item:not(.active):not(.is-active):hover {
   background: rgba(0, 245, 160, 0.14) !important;
   color: var(--text) !important;   /* CSSOS_WAVE_1215 — 随主题翻 */
+}
+
+/* CSSOS_WAVE_1224 — 胶囊宪法第1条: 每段 = 小图标 + 标签, 图标在前, gap≈7px。 */
+.theme-menu-item .seg-ico { font-size: 13px; line-height: 1; }
+.theme-menu-item .seg-label { line-height: 1; }
+.theme-menu[data-segmented] > .theme-menu-item {
+  gap: 7px !important;
 }
 /*
 html[data-theme="light"] .dock,

@@ -71,6 +71,7 @@ struct ContentView: View {
     @State private var showLogin = false
     @State private var gateWork: CSSWork?               // 收费且未拥有 → 弹门
     @State private var showCreate = false               // W1259 创作台
+    @State private var showSearch = false               // W1277 搜索
     @Namespace private var focusNS
 
     // W1249/1259 — 创作尾卡 → 创作台; 否则 gating(免费/已拥有直接播; 收费未拥有 → 弹门)。
@@ -136,7 +137,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true })
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true })
                 .focusSection()
         }
         .focusScope(focusNS)
@@ -151,6 +152,9 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $showCreate) {
             CreateView(auth: auth)
+        }
+        .fullScreenCover(isPresented: $showSearch) {
+            SearchView(allWorks: allWorks) { w in showSearch = false; choose(w) }
         }
         .alert("Paid work", isPresented: Binding(get: { gateWork != nil }, set: { if !$0 { gateWork = nil } })) {
             Button("OK", role: .cancel) { gateWork = nil }
@@ -278,6 +282,7 @@ struct CategorySidebar: View {
     @ObservedObject var auth: CSSAuth          // W1249 登录态
     var onLoginTap: () -> Void
     var onCreate: () -> Void                   // W1259 创作入口
+    var onSearch: () -> Void                   // W1277 搜索入口
     @FocusState private var focus: SidebarItem?
     @State private var expanded = false        // W1236 — 防抖: 焦点项间跳动的 nil 闪烁不立即收起
     @State private var avatarTick = 0          // W1274 — 每次聚焦头像 → 立即重爆一次
@@ -311,7 +316,7 @@ struct CategorySidebar: View {
 
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
             Spacer().frame(height: 22)
-            row(icon: "magnifyingglass", label: "Search", item: .search) { }
+            row(icon: "magnifyingglass", label: "Search", item: .search) { onSearch() }
 
             ForEach(HomeCategory.allCases) { cat in
                 row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
@@ -326,7 +331,7 @@ struct CategorySidebar: View {
         }
         .padding(.top, 56)
         .padding(.horizontal, expanded ? 24 : 18)
-        .frame(width: expanded ? 330 : 130)
+        .frame(width: expanded ? 360 : 130)   // W1277 — 加宽, 让 Short Drama 等长标签放得下(略压卡片可接受)
         .frame(maxHeight: .infinity)
         // W1245 — Jing: 内容右移对齐 For You 后不再和侧栏打架, 侧栏背景【直接透明】(无底)。
         .onChange(of: focus) { _, newValue in
@@ -362,7 +367,8 @@ struct CategorySidebar: View {
                     Text(label)
                         .font(.system(size: 22, weight: hot ? .bold : .medium))   // 选中: 文字加粗
                         .lineLimit(1)
-                    Spacer()
+                        .fixedSize(horizontal: true, vertical: false)   // W1277 — 完整显示(如 Short Drama), 不截断
+                    Spacer(minLength: 0)
                 }
             }
             // W1237/1240 — 无白底框: 聚焦/选中都【变品牌绿】, 像 Home; 其余半透白。

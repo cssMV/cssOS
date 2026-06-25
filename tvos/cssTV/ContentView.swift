@@ -78,13 +78,15 @@ struct ContentView: View {
         return f.isEmpty ? [] : [CSSRail(id: category.rawValue, title: category.railTitle, works: f)]
     }
 
+    // W1240 — 通栏: 内容(hero+rails)铺满整屏, 侧栏浮在其上。收起态侧栏宽度, 给 rails 让位。
+    private let sidebarCollapsedW: CGFloat = 130
+
     var body: some View {
-        HStack(spacing: 0) {
-            CategorySidebar(selected: $category)
-                .focusSection()
+        ZStack(alignment: .topLeading) {
+            Color.black.ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 0) {
                     if loading {
                         ProgressView().scaleEffect(1.6).frame(maxWidth: .infinity, minHeight: 500)
                     } else if featured.isEmpty && rails.isEmpty {
@@ -97,18 +99,26 @@ struct ContentView: View {
                             FeaturedHero(works: featured) { w in
                                 Task { selected = await CSSBackend.hydrate(w) }
                             }
-                            .prefersDefaultFocus(in: focusNS)
+                            .prefersDefaultFocus(in: focusNS)   // hero 通栏(满铺左右)
                         }
-                        ForEach(rails) { rail in
-                            RailRow(rail: rail) { w in
-                                Task { selected = await CSSBackend.hydrate(w) }
+                        VStack(alignment: .leading, spacing: 24) {
+                            ForEach(rails) { rail in
+                                RailRow(rail: rail) { w in
+                                    Task { selected = await CSSBackend.hydrate(w) }
+                                }
                             }
                         }
+                        .padding(.leading, sidebarCollapsedW)   // For You 避开收起态侧栏
+                        .padding(.top, 28)
                     }
                 }
                 .padding(.bottom, 80)
             }
             .focusSection()
+
+            // 侧栏浮层(压在 hero 之上)。
+            CategorySidebar(selected: $category)
+                .focusSection()
         }
         .focusScope(focusNS)
         .background(Color.black.ignoresSafeArea())
@@ -119,6 +129,13 @@ struct ContentView: View {
             allWorks = await CSSBackend.fetchFeed()
             loading = false
         }
+    }
+}
+
+/// W1240 — 扁平按钮风格: 去掉 tvOS 默认白色焦点底。焦点态由我们自己用品牌绿变色表达。
+struct FlatButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.contentShape(Rectangle())
     }
 }
 
@@ -136,12 +153,13 @@ struct CategorySidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // logo/头像合体徽章(整套 logo)。点 = 登录(待接)。
+            // logo/头像合体徽章(整套 logo)。点 = 登录(待接)。焦点用缩放, 不用白底。
             Button { } label: {
                 HStack { LogoAvatarBadge(); if expanded { Spacer() } }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .scaleEffect(focus == .avatar ? 1.06 : 1.0)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FlatButtonStyle())
             .focused($focus, equals: .avatar)
             .padding(.bottom, 10)
 
@@ -160,7 +178,15 @@ struct CategorySidebar: View {
         .padding(.horizontal, expanded ? 24 : 18)
         .frame(width: expanded ? 330 : 130)
         .frame(maxHeight: .infinity)
-        .background(Color.black.opacity(0.98))
+        // W1240 — 压在 hero 之上: 左实右柔渐变, 软化右缘融进画面。
+        .background(
+            LinearGradient(stops: [
+                .init(color: .black.opacity(0.96), location: 0.0),
+                .init(color: .black.opacity(0.94), location: 0.72),
+                .init(color: .black.opacity(0.0), location: 1.0),
+            ], startPoint: .leading, endPoint: .trailing)
+            .ignoresSafeArea()
+        )
         .onChange(of: focus) { _, newValue in
             if newValue != nil {
                 if !expanded { withAnimation(.easeInOut(duration: 0.22)) { expanded = true } }
@@ -173,27 +199,27 @@ struct CategorySidebar: View {
         }
     }
 
-    @ViewBuilder
     private func row(icon: String, label: LocalizedStringKey, item: SidebarItem,
                      active: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        let hot = active || focus == item     // 选中或聚焦
+        return Button(action: action) {
             HStack(spacing: 16) {
                 Image(systemName: icon)
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: 24, weight: hot ? .heavy : .semibold))   // 选中: 图标加粗
                     .frame(width: 34)
                 if expanded {
                     Text(label)
-                        .font(.system(size: 22, weight: active ? .bold : .medium))
+                        .font(.system(size: 22, weight: hot ? .bold : .medium))   // 选中: 文字加粗
                         .lineLimit(1)
                     Spacer()
                 }
             }
-            // W1237 — 取消白底框: 聚焦/选中都【变颜色】(品牌绿), 像 Home。其余半透白。
-            .foregroundStyle((active || focus == item) ? Color.green : Color.white.opacity(0.72))
+            // W1237/1240 — 无白底框: 聚焦/选中都【变品牌绿】, 像 Home; 其余半透白。
+            .foregroundStyle(hot ? Color.green : Color.white.opacity(0.72))
             .padding(.vertical, 12).padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FlatButtonStyle())
         .focused($focus, equals: item)
     }
 }
@@ -266,13 +292,15 @@ struct FeaturedHero: View {
     private let capH: CGFloat = 46
     private var capR: CGFloat { capH / 2 }
 
-    // 胶囊宪法【凹凸镶嵌】: 激活段两端圆(凸); 未激活段朝激活方向那端【半圆凹】, 与邻段圆头咬合。
-    //   位置序不变(不重排); 负间距 = 凹凸互嵌; 越靠近激活 zIndex 越高(凸盖凹)。
+    // 激活段自动到第一位(Jing: 效果好, 保留), 其余按序跟随 → 全部在激活右侧。
+    private var orderedIndices: [Int] { [index] + works.indices.filter { $0 != index } }
+
+    // 胶囊宪法【凹凸镶嵌】: 激活段(第一个)两端圆(凸); 其余段左端【半圆凹】嵌前一段圆头。
     private var capsuleTrack: some View {
         HStack(spacing: -capR) {
-            ForEach(works.indices, id: \.self) { i in
-                capsuleSegment(i)
-                    .zIndex(Double(works.count - abs(i - index)))
+            ForEach(Array(orderedIndices.enumerated()), id: \.element) { pos, i in
+                capsuleSegment(i, active: pos == 0)
+                    .zIndex(Double(works.count - pos))   // 激活(第一)最高, 凸盖右邻的凹
             }
         }
         .frame(height: capH)
@@ -280,22 +308,19 @@ struct FeaturedHero: View {
     }
 
     @ViewBuilder
-    private func capsuleSegment(_ i: Int) -> some View {
-        let active = (i == index)
-        // 未激活: 凹在【朝向激活】的那侧。激活左边的 → 凹右; 激活右边的 → 凹左。
-        let side: ConcavePill.Side = active ? .none : (i < index ? .right : .left)
-        HStack(spacing: 7) {
+    private func capsuleSegment(_ i: Int, active: Bool) -> some View {
+        let side: ConcavePill.Side = active ? .none : .left   // 激活右侧的段一律凹左
+        HStack(spacing: 8) {
             thumb(works[i].coverURL)
-                .frame(width: 26, height: 26)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .frame(width: 56, height: 56 / 2.39)          // 2.39 宽银幕缩略图(长扁)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
             Text(works[i].title ?? "Untitled")
                 .font(.system(size: 16, weight: active ? .bold : .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(active ? Color.white : Color.white.opacity(0.72))
-        // 凹侧多留 padding 给咬合区(凹侧 ~ r+8, 凸侧 16)。
-        .padding(.leading, side == .left ? capR + 8 : 16)
-        .padding(.trailing, side == .right ? capR + 8 : 16)
+        .padding(.leading, active ? 16 : capR + 10)           // 凹侧(左)留咬合区
+        .padding(.trailing, 16)
         .frame(height: capH)
         .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
         .overlay(ConcavePill(side: side).stroke(Color.white.opacity(0.38), lineWidth: 1.5))
@@ -337,10 +362,10 @@ struct FeaturedHero: View {
                 startPoint: .bottomLeading, endPoint: .topTrailing
             )
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 Spacer()
                 Text(current.title ?? "Untitled")
-                    .font(.system(size: 56, weight: .heavy))
+                    .font(.system(size: 54, weight: .heavy))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .shadow(radius: 12)
@@ -362,9 +387,13 @@ struct FeaturedHero: View {
                     }
                     Spacer()
                 }
-                capsuleTrack    // W1238 — 胶囊宪法全 4 条
+                capsuleTrack    // W1238 — 胶囊宪法凹凸镶嵌
             }
-            .padding(60)
+            // W1240 — 内容避开浮层侧栏(左 ~160), 胶囊贴近底边(下 30, 不那么高)。
+            .padding(.leading, 160)
+            .padding(.trailing, 60)
+            .padding(.top, 60)
+            .padding(.bottom, 30)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 720)

@@ -196,6 +196,10 @@ struct EmotionSubtitleOverlay: View {
             let t = player.currentTime().seconds
             GeometryReader { geo in
                 ZStack {
+                    // W1327 — 前奏/间奏/尾声/无歌声段落: 小 emoji 从屏幕四边飘入(器乐段才显)。
+                    if isInstrumentalNow(t) {
+                        instrumentalField(t, size: geo.size).allowsHitTesting(false)
+                    }
                     ForEach(activeBurstTokens(t)) { tok in
                         burstGroup(tok, t: t, size: geo.size)
                     }
@@ -216,6 +220,36 @@ struct EmotionSubtitleOverlay: View {
         }
     }
 
+    // W1327 — 器乐段判定: 当前无唱词行, 或当前行是 [Music...] 标记。
+    private func isInstrumentalNow(_ t: Double) -> Bool {
+        if let line = currentLine(t) { return isInstrumental(line) }
+        return true   // 没有任何唱词行覆盖此刻 = 无歌声段
+    }
+    // W1327 — 小 emoji 从四边飘入(沿边、向内漂 30%, 淡入淡出, 稳定循环)。
+    private func edgePoint(_ i: Int, _ prog: Double, _ size: CGSize) -> CGPoint {
+        let along = CGFloat(CSSFx.rnd(i, 3))
+        let depth = CGFloat(prog) * 0.30
+        switch i % 4 {
+        case 0:  return CGPoint(x: size.width * along, y: size.height * depth)        // 上
+        case 1:  return CGPoint(x: size.width * along, y: size.height * (1 - depth))  // 下
+        case 2:  return CGPoint(x: size.width * depth, y: size.height * along)        // 左
+        default: return CGPoint(x: size.width * (1 - depth), y: size.height * along)  // 右
+        }
+    }
+    private func instrumentalField(_ t: Double, size: CGSize) -> some View {
+        let pool = themeEmoji.isEmpty ? ["🎵", "🎶", "✨", "🌸", "🍃", "💧"] : themeEmoji
+        return ZStack {
+            ForEach(0..<16) { i in
+                let prog = (t / (3.0 + CSSFx.rnd(i, 1) * 2.5) + CSSFx.rnd(i, 2)).truncatingRemainder(dividingBy: 1)
+                let op = prog < 0.15 ? prog / 0.15 : (prog > 0.7 ? (1 - prog) / 0.3 : 1.0)
+                Text(pool[Int(CSSFx.rnd(i, 4) * Double(pool.count)) % pool.count])
+                    .font(.system(size: 26))
+                    .position(edgePoint(i, prog, size))
+                    .opacity(max(0, op) * 0.8)
+            }
+        }
+    }
+
     private func currentLine(_ t: Double) -> CSSSubLine? {
         lines.first { t >= $0.startSec && t <= $0.endSec && ($0.tokens?.isEmpty == false) }
     }
@@ -231,7 +265,7 @@ struct EmotionSubtitleOverlay: View {
         return HStack(spacing: 1) {
             ForEach(toks) { tok in
                 Text(tok.char)
-                    .font(.system(size: 18, weight: .light, design: design))   // 细、小
+                    .font(.system(size: 8, weight: .light, design: design))   // W1327 — Jing: 缩到 8(更不抢戏)
                     .foregroundStyle(t >= tok.startSec ? sungCol.opacity(0.85) : unsungCol.opacity(0.45))
                     .shadow(color: .black.opacity(0.85), radius: 2)
             }

@@ -16,26 +16,28 @@ enum CSSFx {
     ///   0% opacity0/scale0.4(中心) → 12% opacity1(爆入) → 62% opacity0.92/travel0.9/scale1.04(停留)
     ///   → 100% opacity0/travel1.0/scale1.06(淡出)。曲线 cubic-bezier(0.2,0.7,0.3,1)。
     /// p ∈ [0,1] 为粒子在自身生命周期内的相位。返回 (透明度, 行进比例 0~1, 缩放)。
-    /// 烟花小粒: 【爆出(0~20%)→ 停留/延时(20~58%, 几乎不动)→ 慢淡出(58~100%)】。Jing: 爆了不要马上消失。
+    /// 烟花小粒(照桌面手感): 【快速冲出(前15%, ease-out)→ 原地冻结不动 → 原地淡出】。
+    /// Jing: 不要"边走边淡懒洋洋飘走"; 是爆出来僵住, 然后淡掉, 才有节奏。
     static func sparkOut(_ p: Double) -> (opacity: Double, travel: Double, scale: Double) {
+        // travel: 前 15% ease-out 冲到 0.9, 之后【冻结】(常量 0.9)——淡出阶段绝不再移动。
         let travel: Double
-        let opacity: Double
-        let scale: Double
-        if p < 0.20 {                                   // 爆出: 快速飞到 0.85 + 弹入
-            let k = p / 0.20
-            travel = 0.85 * k
-            opacity = min(1.0, p / 0.10)
-            scale = 0.45 + 0.65 * k
-        } else if p < 0.58 {                            // 停留: 几乎不动、满不透明(这就是"稍停延时")
-            travel = 0.85 + 0.07 * ((p - 0.20) / 0.38)
-            opacity = 1.0
-            scale = 1.05
-        } else {                                        // 慢淡出
-            let k = (p - 0.58) / 0.42
-            travel = 0.92 + 0.10 * k
-            opacity = 1.0 - k
-            scale = 1.05 + 0.06 * k
+        if p < 0.15 {
+            let k = p / 0.15
+            travel = 0.9 * (1 - (1 - k) * (1 - k))   // ease-out, 快出
+        } else {
+            travel = 0.9                             // 冻结, 原地不动
         }
+        // opacity: 爆入(0~10%)→ 停留满(10~55%)→ 原地淡出(55~100%)。
+        let opacity: Double
+        if p < 0.10 { opacity = p / 0.10 }
+        else if p < 0.55 { opacity = 1.0 }
+        else { opacity = 1.0 - (p - 0.55) / 0.45 }
+        // scale: 弹入过冲(0.5→1.2)→ 落定 1.0 → 停 → 淡出微涨。
+        let scale: Double
+        if p < 0.15 { scale = 0.5 + 0.7 * (p / 0.15) }
+        else if p < 0.30 { scale = 1.2 - 0.2 * ((p - 0.15) / 0.15) }
+        else if p < 0.55 { scale = 1.0 }
+        else { scale = 1.0 + 0.06 * ((p - 0.55) / 0.45) }
         return (max(0, opacity), travel, scale)
     }
 

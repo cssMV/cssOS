@@ -270,18 +270,18 @@ struct EmotionSubtitleOverlay: View {
     }
     private func instrumentalField(_ t: Double, size: CGSize) -> some View {
         let pool = themeEmoji.isEmpty ? ["🎵", "🎶", "✨", "🌸", "🍃", "💧"] : themeEmoji
-        // W1328 — 响应音量: 音量小→只飘几颗(4)、淡; 音量大→飘满(24)、亮、飘快。
+        // W1331 — 响应音量【只改飘多飘少】(数量), 不碰速度/字号(那会让 emoji 抖)。
+        //   速度、大小、轨迹全部恒定; 音量只决定显示几颗(4~24)。
         let active = 4 + Int(level * 20)
         return ZStack {
             ForEach(0..<24) { i in
                 if i < active {
-                    let speed = 1.0 + Double(level) * 1.2   // 音量大飘更快
-                    let prog = (t * speed / (3.0 + CSSFx.rnd(i, 1) * 2.5) + CSSFx.rnd(i, 2)).truncatingRemainder(dividingBy: 1)
+                    let prog = (t / (3.0 + CSSFx.rnd(i, 1) * 2.5) + CSSFx.rnd(i, 2)).truncatingRemainder(dividingBy: 1)
                     let op = prog < 0.15 ? prog / 0.15 : (prog > 0.7 ? (1 - prog) / 0.3 : 1.0)
                     Text(pool[Int(CSSFx.rnd(i, 4) * Double(pool.count)) % pool.count])
-                        .font(.system(size: 22 + level * 12))   // 音量大稍大
-                        .position(edgePoint(i, prog, size))
-                        .opacity(max(0, op) * (0.45 + Double(level) * 0.5))
+                        .font(.system(size: 26))             // 恒定
+                        .position(edgePoint(i, prog, size))   // 恒定轨迹, 不随音量跳
+                        .opacity(max(0, op) * 0.8)
                 }
             }
         }

@@ -181,6 +181,23 @@ struct FlatButtonStyle: ButtonStyle {
     }
 }
 
+/// W1286 — Jing: 右侧栏目卡片【保持透明背景】(卡片自身够显眼, 不要 tvOS .card 的灰色 platter 底板)。
+///   去掉 platter, 聚焦时用放大 + 轻微上浮表现焦点。
+struct PlainCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { FocusCard(configuration: configuration) }
+    struct FocusCard: View {
+        let configuration: Configuration
+        @Environment(\.isFocused) private var focused: Bool
+        var body: some View {
+            configuration.label
+                .scaleEffect(focused ? 1.1 : 1.0)
+                .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: focused ? 18 : 0, y: focused ? 10 : 0)
+                .animation(.easeOut(duration: 0.18), value: focused)
+                .contentShape(Rectangle())
+        }
+    }
+}
+
 /// W1252 — 平台招牌【选中爆 emoji】效果(可复用): 选中元素背后随机大 emoji + 字心不断爆小 emoji 烟花。
 ///   用于侧栏选中项、激活胶囊。active=false 时完全不渲染(零开销)。
 struct EmojiBurstEffect: View {
@@ -756,7 +773,7 @@ struct RailRow: View {
                 LazyHStack(spacing: 36) {
                     ForEach(rail.works) { w in
                         Button { onSelect(w) } label: { WorkCard(work: w) }
-                            .buttonStyle(.card)
+                            .buttonStyle(PlainCardButtonStyle())   // W1286 — 透明背景, 无灰 platter
                     }
                 }
                 .padding(.vertical, 24)   // 给焦点放大留出空间, 不被相邻行裁切

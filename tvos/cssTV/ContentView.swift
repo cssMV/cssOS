@@ -564,8 +564,10 @@ struct FeaturedHero: View {
     // W1284 — 拆出胶囊内容(给编译器减负, 避免单表达式类型检查超时)。
     @ViewBuilder
     private func capsuleLabel(_ i: Int, active: Bool, side: ConcavePill.Side, waiting: Bool, focused: Bool) -> some View {
-        let breatheStroke: Color = waiting && !focused ? brandGreen.opacity(breathe ? 0.95 : 0.35) : .clear
-        let breatheW: CGFloat = waiting && !focused ? (breathe ? 3 : 1.5) : 0
+        // W1285 — 下一个等待者改【内呼吸】: 仅内部填充色在淡白↔淡绿之间轻微脉动, 不加粗边框。
+        let breathingFill: Color = active
+            ? Color.green.opacity(0.95)
+            : (waiting && !focused ? brandGreen.opacity(breathe ? 0.26 : 0.10) : Color.white.opacity(0.12))
         HStack(spacing: 8) {
             thumb(works[i].coverURL)
                 .frame(width: 56, height: 56 / 2.39)
@@ -584,9 +586,8 @@ struct FeaturedHero: View {
         .padding(.leading, active ? 16 : capR + 10)
         .padding(.trailing, side == .right ? capR + 10 : 16)
         .frame(height: capH)
-        .background(ConcavePill(side: side).fill(active ? Color.green.opacity(0.95) : Color.white.opacity(0.12)))
+        .background(ConcavePill(side: side).fill(breathingFill))   // W1285 — 内呼吸(填充色微脉动)
         .overlay(ConcavePill(side: side).stroke(active ? Color.clear : Color.white.opacity(0.10), lineWidth: active ? 0 : 1))
-        .overlay(ConcavePill(side: side).stroke(breatheStroke, lineWidth: breatheW))         // 呼吸
         .overlay(ConcavePill(side: side).stroke(focused ? brandGreen : Color.clear, lineWidth: focused ? 3 : 0))  // 聚焦
         .scaleEffect(focused ? 1.08 : 1.0)
     }

@@ -18,7 +18,7 @@ enum CSSBackend {
     )
 
     /// 拉「为你创作 / 市场」一批公开作品做大屏网格。失败则退回旗舰单卡, 保证骨架永远有东西播。
-    static func fetchFeed(limit: Int = 24) async -> [CSSWork] {
+    static func fetchFeed(limit: Int = 48) async -> [CSSWork] {   // W1287 — 拉多点, 确保新作(三部曲等)进来供 For You 按时间排
         guard let url = URL(string: "\(baseURL)/api/works/market?limit=\(limit)") else { return [flagship] }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
@@ -61,8 +61,8 @@ enum CSSBackend {
             guard items.count >= min else { return }
             rails.append(CSSRail(id: id, title: title, works: items + [CSSWork.createCard], icon: icon))
         }
-        // ① Today's Picks(算法推荐占位: 按 id 哈希稳定重排; TODO 接 /api/works/recommend)。
-        rail("today", "Today's Picks", "sparkles", works.sorted { $0.id.hashValue < $1.id.hashValue })
+        // ① Today's Picks = 系统推荐: 用后端原生序(置顶/活媒体/curation 在前), 这才是"算法推荐"。
+        rail("today", "Today's Picks", "sparkles", works)
         // ② For You — 严格从新到旧(W1281: 后端"媒体优先"档会把老成品顶到真正最新前面 → 客户端按 created_at 重排)。
         rail("foryou", "For You", "flame.fill", works.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") })
         // ③ My Favorites — 本人有订单(收藏/已购); 空则不显。

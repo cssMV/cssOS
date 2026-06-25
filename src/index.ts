@@ -41103,8 +41103,12 @@ app.get("/api/works/market", async (req, res) => {
          ORDER BY
            (CASE WHEN w.admin_pinned_at IS NOT NULL THEN 0 ELSE 1 END) ASC,
            w.admin_pinned_at DESC NULLS LAST,
-           (CASE WHEN COALESCE(fm_asset.url, a1_asset.url, a2_asset.url, '') LIKE '%cssstudio.app%'
-                   OR (COALESCE(fm_asset.url, a1_asset.url, a2_asset.url, '') = ''
+           -- CSSOS_WAVE_1287 — Jing「唐伯虎三部曲等新作不进 For You」根因: 这些作品媒体存在
+           --   w.preview_audio_url / preview_video_url 列上(非 work_assets 表), 旧 CASE 只查 fm/a1/a2
+           --   资产 → 误判'死媒体'降到底档 → 超 3 天宽限被埋出 feed 限额。音频本可播(serializer 兜底
+           --   preview_audio_url)。把 preview 列也算进'活媒体'判断 → 多部作品根正常按时间冒头。
+           (CASE WHEN COALESCE(fm_asset.url, a1_asset.url, a2_asset.url, w.preview_audio_url, w.preview_video_url, '') LIKE '%cssstudio.app%'
+                   OR (COALESCE(fm_asset.url, a1_asset.url, a2_asset.url, w.preview_audio_url, w.preview_video_url, '') = ''
                        AND w.created_at > now() - interval '3 days')
                  THEN 0 ELSE 1 END) ASC,
            w.created_at DESC, w.updated_at DESC

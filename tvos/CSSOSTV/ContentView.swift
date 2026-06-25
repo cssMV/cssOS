@@ -1,42 +1,37 @@
-// CSSOS_WAVE_1172 — 首页: 大屏作品网格(为你创作 / 市场)。选一首 → 进影院播放。
-// 骨架: 先拉 market 公开作品; 拿不到就只放旗舰单卡。每张卡显封面 + 标题 + ♪时长(时长铁律)。
+// CSSOS_WAVE_1172 / W1227 — 首页: Apple TV 标准多行 rails(不再一堵扁平卡片墙)。
+// 每行 = 标题 + 横向滚动作品卡(封面 + 标题 + ♪时长, 时长铁律)。选一首 → 进影院播放。
+// 骨架: 先拉 market 公开作品 → buildRails 分轨; 拿不到就只放旗舰单卡。
 
 import SwiftUI
 
 struct ContentView: View {
-    @State private var works: [CSSWork] = []
+    @State private var rails: [CSSRail] = []
     @State private var loading = true
     @State private var selected: CSSWork?
-
-    private let columns = [GridItem(.adaptive(minimum: 360, maximum: 480), spacing: 48)]
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 16) {
                         Text("CSS Studio").font(.system(size: 56, weight: .heavy))
                         Text("Apple TV").font(.system(size: 28, weight: .semibold)).foregroundStyle(.green)
                         Spacer()
                     }
-                    .padding(.top, 24)
+                    .padding(.horizontal, 80)
+                    .padding(.top, 40)
+                    .padding(.bottom, 12)
 
                     if loading {
-                        ProgressView().scaleEffect(1.6).frame(maxWidth: .infinity, minHeight: 400)
+                        ProgressView().scaleEffect(1.6).frame(maxWidth: .infinity, minHeight: 500)
                     } else {
-                        LazyVGrid(columns: columns, spacing: 56) {
-                            ForEach(works) { w in
-                                Button {
-                                    Task { selected = await CSSBackend.hydrate(w) }
-                                } label: {
-                                    WorkCard(work: w)
-                                }
-                                .buttonStyle(.card)
+                        ForEach(rails) { rail in
+                            RailRow(rail: rail) { w in
+                                Task { selected = await CSSBackend.hydrate(w) }
                             }
                         }
                     }
                 }
-                .padding(.horizontal, 80)
                 .padding(.bottom, 80)
             }
             .background(Color.black.ignoresSafeArea())
@@ -45,14 +40,44 @@ struct ContentView: View {
             }
         }
         .task {
-            works = await CSSBackend.fetchFeed()
+            let works = await CSSBackend.fetchFeed()
+            rails = CSSBackend.buildRails(works)
             loading = false
         }
     }
 }
 
+/// CSSOS_WAVE_1227 — 一行 rail: 标题 + 横向滚动卡片(tvOS 焦点引擎天然处理左右选中)。
+struct RailRow: View {
+    let rail: CSSRail
+    let onSelect: (CSSWork) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(rail.title)
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.white.opacity(0.95))
+                .padding(.horizontal, 80)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 36) {
+                    ForEach(rail.works) { w in
+                        Button { onSelect(w) } label: { WorkCard(work: w) }
+                            .buttonStyle(.card)
+                    }
+                }
+                .padding(.horizontal, 80)
+                .padding(.vertical, 24)   // 给焦点放大留出空间, 不被相邻行裁切
+            }
+        }
+        .padding(.bottom, 18)
+    }
+}
+
 struct WorkCard: View {
     let work: CSSWork
+    // CSSOS_WAVE_1227 — 横向 rail 里卡片定宽; 16:9 封面(420×236)。
+    private let cardWidth: CGFloat = 420
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
@@ -66,18 +91,19 @@ struct WorkCard: View {
                     Color.white.opacity(0.08)
                 }
             }
-            .frame(height: 240)
+            .frame(width: cardWidth, height: cardWidth * 9 / 16)
             .clipShape(RoundedRectangle(cornerRadius: 16))
 
             Text(work.title ?? "Untitled")
-                .font(.system(size: 26, weight: .semibold))
+                .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             if !work.durationLabel.isEmpty {
                 Text(work.durationLabel)
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(.white.opacity(0.65))
             }
         }
+        .frame(width: cardWidth, alignment: .leading)
     }
 }

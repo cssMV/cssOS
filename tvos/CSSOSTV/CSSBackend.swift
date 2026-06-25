@@ -36,6 +36,30 @@ enum CSSBackend {
         return [flagship]
     }
 
+    /// CSSOS_WAVE_1227 — 把一批作品分成 Apple TV 标准多行 rails(不再一堵扁平卡片墙)。
+    /// For You(全部)/ Fresh(最新)/ 按 work_type(歌剧/电影/剧集/三部曲, 每类≥3才出)。
+    static func buildRails(_ works: [CSSWork]) -> [CSSRail] {
+        guard !works.isEmpty else { return [] }
+        var rails: [CSSRail] = []
+        rails.append(CSSRail(id: "foryou", title: "For You · 为你精选", works: works))
+        if works.count > 6 {
+            rails.append(CSSRail(id: "fresh", title: "Fresh · 最新上架", works: Array(works.prefix(18))))
+        }
+        let typeDefs: [(key: String, title: String, match: [String])] = [
+            ("opera",    "Operas · 歌剧",      ["opera"]),
+            ("film",     "Films · 电影",       ["film", "movie"]),
+            ("series",   "Series · 剧集短剧",  ["series", "shortplay", "short-play", "drama"]),
+            ("triptych", "Trilogies · 三部曲", ["triptych", "trilogy"]),
+        ]
+        for def in typeDefs {
+            let group = works.filter { def.match.contains(($0.workType ?? "").lowercased()) }
+            if group.count >= 3 {
+                rails.append(CSSRail(id: def.key, title: def.title, works: group))
+            }
+        }
+        return rails
+    }
+
     /// 拉单首作品的可播放地址(市场卡片常不带 final_mv_url → 用此端点补全)。失败则原样返回。
     static func hydrate(_ work: CSSWork) async -> CSSWork {
         guard work.videoURL == nil || work.audioURL == nil,

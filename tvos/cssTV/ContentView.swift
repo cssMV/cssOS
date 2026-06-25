@@ -571,7 +571,6 @@ struct FeaturedHero: View {
     @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
     @FocusState private var bridgeFocused: Bool      // W1283 — 胶囊左侧隐形桥: 落焦即跳回侧栏
     @State private var breathe = false               // W1284 — 下一个胶囊边框呼吸
-    @State private var autoAdvancing = false         // W1300 — 自动推进中(让 onChange 忽略此次焦点变化)
     private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
@@ -765,20 +764,18 @@ struct FeaturedHero: View {
         //   关键: 自动推进时也会改 focusedCap(焦点跟随激活), 用 autoAdvancing 标志让 onChange【明确忽略】
         //   这种自动变化, 否则会被误判成干预→每次推进即自暂停→"永不自动"(W1298 竞态真凶)。
         .onChange(of: focusedCap) { _, f in
-            if autoAdvancing { return }
+            // 用户把焦点移到某胶囊 = 干预 → 它即激活 + 暂停自动 10s(最高权限)。
             guard let f, f != index else { return }
             withAnimation(.easeInOut(duration: 0.4)) { index = f }
             pauseAutoUntil = Date().addingTimeInterval(10)
         }
         .onReceive(timer) { _ in
-            if paused { return }                                      // W1290 — 侧栏有焦点 → 不轮换
             if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切(最高权限)
             pauseAutoUntil = nil
-            autoAdvancing = true
-            let next = (index + 1) % n
-            withAnimation(.easeInOut(duration: 0.6)) { index = next }
-            if focusedCap != nil { focusedCap = next }                // 焦点跟随激活胶囊
-            DispatchQueue.main.async { autoAdvancing = false }        // 下一拍复位: onChange 已忽略本次
+            // W1302 — Jing「我进去不动, 侧栏永远被踢」根治: 自动轮换【只动画面】(index/绿色激活),
+            //   绝不再 `focusedCap=next` 抢焦点(W1300 真凶: 每8s把焦点夺回hero → 用户回不去侧栏)。
+            //   焦点留在用户放的地方; 用户按方向键才改焦点(=干预)。
+            withAnimation(.easeInOut(duration: 0.6)) { index = (index + 1) % n }
         }
         // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
         .defaultFocus($focusedCap, 0)

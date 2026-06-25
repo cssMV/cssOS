@@ -447,7 +447,7 @@ struct FeaturedHero: View {
     @State private var pauseAutoUntil: Date? = nil   // W1241 — 用户干预后暂停自动轮播到此刻
     @FocusState private var playFocused: Bool        // W1244 — Play(=hero)是否聚焦
     @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
-    private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)   // #00f5a0
@@ -569,6 +569,9 @@ struct FeaturedHero: View {
                                 LinearGradient(colors: [Color(red: 0.02, green: 0.12, blue: 0.08),
                                                         Color(red: 0.0, green: 0.05, blue: 0.04)],
                                                startPoint: .top, endPoint: .bottom)
+                                // W1269 — Create 卡无封面: 用一个大 emoji 当封面图(常驻), 招牌爆点缀其上。
+                                Text("✨").font(.system(size: 260)).opacity(0.9)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 8,
                                                  smallSize: 28, smallSpread: 340, smallN: 14,
                                                  continuousSmall: false).allowsHitTesting(false)
@@ -695,13 +698,16 @@ struct WorkCard: View {
                     LinearGradient(colors: [Color(red: 0.03, green: 0.16, blue: 0.10),
                                             Color(red: 0.0, green: 0.06, blue: 0.05)],
                                    startPoint: .top, endPoint: .bottom)
+                    // W1269 — 大 emoji 当封面图(常驻)。
+                    Text("✨").font(.system(size: 110)).opacity(0.9)
                     EmojiBurstEffect(active: true, seed: abs(work.id.hashValue) % 97,
                                      bigEmojiSize: 88, bigPeriod: 8, smallSize: 18, smallSpread: 92,
                                      smallN: 11, continuousSmall: false)
                         .allowsHitTesting(false)
                     Label("Create", systemImage: "wand.and.stars")
-                        .font(.system(size: 26, weight: .heavy)).foregroundStyle(brandGreen)
+                        .font(.system(size: 22, weight: .heavy)).foregroundStyle(brandGreen)
                         .shadow(color: .black.opacity(0.6), radius: 4)
+                        .offset(y: 54)
                 } else if let c = work.coverURL, let url = URL(string: c) {
                     AsyncImage(url: url) { img in
                         img.resizable().scaledToFill()

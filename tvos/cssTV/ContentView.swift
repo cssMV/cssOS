@@ -115,25 +115,18 @@ struct CategorySidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // W1234 — logo 与头像合体: 转动的魔镜 logo ↔ 用户头像周期切换, 点 = 登录(待接)。
+            // W1234d — logo 与头像合体: cssTV 直接印在金球上(像桌面端), 不再旁边单独文字。
+            //   点 = 登录(待接); 登录后金球↔头像周期切换。
             Button { } label: {
-                HStack(spacing: 14) {
+                HStack {
                     LogoAvatarBadge()
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
-                            Text("css").font(.system(size: 26, weight: .heavy)).foregroundStyle(.white)
-                            Text("TV").font(.system(size: 26, weight: .heavy)).foregroundStyle(.green)
-                        }
-                        Text("Sign in · 登录").font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
                     Spacer()
                 }
-                .padding(.vertical, 10).padding(.horizontal, 12)
+                .padding(.vertical, 8).padding(.horizontal, 12)
                 .frame(width: 240, alignment: .leading)
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 14)
+            .padding(.bottom, 12)
             Button { } label: {
                 HStack(spacing: 16) {
                     Image(systemName: "heart.fill")
@@ -213,12 +206,20 @@ struct LogoAvatarBadge: View {
             Image("MirrorRing")
                 .resizable().scaledToFit()
                 .rotationEffect(.degrees(ringAngle))
-            // 中心: 金球, 或(登录后)与头像轮换。
+            // 中心: 金球(上印 cssTV), 或(登录后)与头像轮换。
             Group {
                 if !loggedIn || showOrb {
-                    Image("MirrorOrb")
-                        .resizable().scaledToFit()
-                        .transition(.opacity)
+                    ZStack {
+                        Image("MirrorOrb")
+                            .resizable().scaledToFit()
+                        // cssTV 印在金球上(桌面端同款)。金球亮金底 → 墨字读得清。
+                        HStack(spacing: 1) {
+                            Text("css").foregroundStyle(Color(red: 0.05, green: 0.12, blue: 0.07))
+                            Text("TV").foregroundStyle(Color(red: 0.0, green: 0.32, blue: 0.18))
+                        }
+                        .font(.system(size: 17, weight: .heavy))
+                    }
+                    .transition(.opacity)
                 } else {
                     Image(systemName: "person.crop.circle.fill")
                         .resizable().scaledToFit()
@@ -228,7 +229,7 @@ struct LogoAvatarBadge: View {
                 }
             }
         }
-        .frame(width: 76, height: 76)
+        .frame(width: 92, height: 92)
         .onAppear {
             withAnimation(.linear(duration: 14).repeatForever(autoreverses: false)) { ringAngle = 360 }
         }
@@ -298,34 +299,34 @@ struct FeaturedHero: View {
                     }
                     Spacer()
                 }
-                // W1233 — 胶囊指示器(替代圆点, 套胶囊宪法): 每枚 = 缩略图 + 标题, 宽度自适应标题;
-                // 激活胶囊两头圆 + 品牌绿填充, 其余半透明。
-                HStack(spacing: 12) {
+                // W1234d — 胶囊宪法: 单轨道(999圆角 + 1px边框 + 无 padding + clip), 段间留缝6;
+                //   每段 = 缩略图 + 标题(gap7), 激活段【满高全圆 pill】贴轨道边、品牌绿、端角与轨道共边。
+                HStack(spacing: 6) {
                     ForEach(works.indices, id: \.self) { i in
-                        HStack(spacing: 10) {
+                        HStack(spacing: 7) {
                             Group {
                                 if let c = works[i].coverURL, let url = URL(string: c) {
                                     AsyncImage(url: url) { img in img.resizable().scaledToFill() }
                                         placeholder: { Color.white.opacity(0.12) }
                                 } else { Color.white.opacity(0.12) }
                             }
-                            .frame(width: 30, height: 30)
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .frame(width: 28, height: 28)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
                             Text(works[i].title ?? "Untitled")
-                                .font(.system(size: 18, weight: i == index ? .bold : .medium))
+                                .font(.system(size: 17, weight: i == index ? .bold : .medium))
                                 .lineLimit(1)
-                                .foregroundStyle(i == index ? Color.white : Color.white.opacity(0.7))
                         }
-                        .padding(.vertical, 7)
+                        .foregroundStyle(i == index ? Color.white : Color.white.opacity(0.7))
                         .padding(.horizontal, 14)
-                        .background(
-                            Capsule().fill(i == index ? Color.green.opacity(0.85) : Color.white.opacity(0.12))
-                        )
-                        .overlay(
-                            Capsule().stroke(Color.white.opacity(i == index ? 0 : 0.18), lineWidth: 1)
-                        )
+                        .frame(maxHeight: .infinity)                                  // 贴满轨道高度
+                        .background(Capsule().fill(i == index ? Color.green.opacity(0.9) : Color.clear))
                     }
                 }
+                .frame(height: 46)                                                    // 轨道高度
+                .background(Capsule().fill(Color.white.opacity(0.10)))                // 轨道底(段间缝露出)
+                .overlay(Capsule().stroke(Color.white.opacity(0.28), lineWidth: 1))   // 轨道边框 = 与激活胶囊共用
+                .clipShape(Capsule())                                                 // overflow hidden, 端角共边
+                .fixedSize(horizontal: true, vertical: false)                         // 宽度自适应内容
             }
             .padding(60)
         }

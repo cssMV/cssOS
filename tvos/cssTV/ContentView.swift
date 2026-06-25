@@ -194,6 +194,7 @@ struct EmojiBurstEffect: View {
     var smallSpread: CGFloat = 72
     var smallN: Int = 12
     var rightBias: Bool = false
+    var leftBias: Bool = false   // W1314 — 向左半边爆(最后一位胶囊用, 与激活的右甩对冲)
     private let pool = CSSFx.petals
     private let bigLife: Double = 1.8
     private let window: Double = 3.6   // 一次爆总时长; 之后【停 TimelineView】→ 空闲零开销(不再每次内存爆)
@@ -258,7 +259,9 @@ struct EmojiBurstEffect: View {
         let r2 = CSSFx.rnd(i, fireSeed &+ 5)
         let r3 = CSSFx.rnd(i, fireSeed &+ 9)
         let r4 = CSSFx.rnd(i, fireSeed &+ 13)
-        let ang: Double = rightBias ? (r1 * 1.55 - 0.775) * .pi : r1 * 2 * .pi
+        let ang: Double = leftBias ? (r1 * 1.55 - 0.775) * .pi + .pi   // 左半边(右半镜像 180°)
+            : rightBias ? (r1 * 1.55 - 0.775) * .pi                    // 右半边
+            : r1 * 2 * .pi                                             // 全向
         let dist: CGFloat = CGFloat((7 + r2 * 22) / 29) * smallSpread
         let emoji = pool[Int(r3 * Double(pool.count)) % pool.count]
         let fontVar: CGFloat = 0.6 + CGFloat(r4) * 0.9
@@ -588,7 +591,7 @@ struct FeaturedHero: View {
                     // W1313 — Jing: 被甩到【最后一位】的胶囊, 到位后再补几颗小 emoji → 错觉"从第一位带过来的余晖落在这"。
                     EmojiBurstEffect(active: n > 1 && positionInOrder(i) == n - 1,
                                      seed: i &+ 777, bigEmojiSize: 0, bigPeriod: 0,
-                                     smallSize: 14, smallSpread: 95, smallN: 8, rightBias: false)
+                                     smallSize: 14, smallSpread: 95, smallN: 8, leftBias: true)   // W1314 — 反向左爆, 与右甩对冲
                         .frame(width: 120, height: 80).allowsHitTesting(false)
                 )
             Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))

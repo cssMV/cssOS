@@ -337,18 +337,34 @@ struct EmotionSubtitleOverlay: View {
         }
     }
 
+    private let lineFade = 1.1   // W1335 — 整行一起淡出时长
+
+    // W1335 — 某字所在行的结束时刻(字停留到行尾, 再整行淡出)。
+    private func lineEndFor(_ tok: CSSSubToken) -> Double {
+        for line in lines where (line.tokens ?? []).contains(where: { $0.id == tok.id }) {
+            return line.endSec
+        }
+        return tok.endSec
+    }
+
     private func activeBurstTokens(_ t: Double) -> [CSSSubToken] {
         lines.flatMap { $0.tokens ?? [] }
             .filter { !$0.char.contains("Music") }   // W1317 — 中央爆排除 "[Music...]" 器乐标记
-            .filter { t >= $0.startSec && t < $0.startSec + burstDur }
+            // W1335 — 字爆出后停留到【整行结束 + 淡出】, 不再各自一爆即灭。
+            .filter { t >= $0.startSec && t < lineEndFor($0) + lineFade }
     }
 
-    // W1251 — 中央逐字爆: 背景大 emoji + 爆大字 + 字心小 emoji 烟花(高强度才放)。
+    // W1251/W1335 — 中央逐字爆: 字爆出→停留到行尾→整行一起淡出; 背景emoji/烟花是爆瞬间的一次性效果。
     private func burstGroup(_ tok: CSSSubToken, t: Double, size: CGSize) -> some View {
-        let p: Double = (t - tok.startSec) / burstDur            // 字心烟花相位(慢, 跑 sparkOut)
-        let cp: Double = min(1.0, (t - tok.startSec) / 1.1)      // 爆大字相位(快, 1.1s 收)
-        let charOpRaw: Double = cp < 0.15 ? cp / 0.15 : (1 - (cp - 0.15) / 0.85)
-        let charOp: Double = max(0, charOpRaw)
+        let p: Double = (t - tok.startSec) / burstDur            // 字心烟花相位(一次性)
+        let cp: Double = min(1.0, (t - tok.startSec) / 1.1)      // 弹入相位(1.1s 收)
+        let burstOp: Double = cp < 0.15 ? cp / 0.15 : max(0, 1 - (cp - 0.15) / 0.85)  // 背景emoji瞬时
+        // W1335 — 字本身: 弹入(0.4s)→停留到行尾→整行淡出。
+        let lineEnd = lineEndFor(tok)
+        let charOp: Double
+        if t < tok.startSec + 0.4 { charOp = max(0, (t - tok.startSec) / 0.4) }
+        else if t < lineEnd { charOp = 1.0 }
+        else { charOp = max(0, 1 - (t - lineEnd) / lineFade) }
         let charSize: CGFloat = CGFloat(84 * (0.7 + tok.intensity))
         let bgSize: CGFloat = CGFloat(150 * (0.7 + tok.intensity))
         let scale: CGFloat = CGFloat(0.85 + 0.25 * cp)
@@ -356,10 +372,10 @@ struct EmotionSubtitleOverlay: View {
         let col: Color = randomColor(abs(tok.id.hashValue))   // W1321 — 逐字随机色(照桌面端, 不再行级情绪色)
         let emoji: String = pickEmoji(tok)
         return ZStack {
-            // 背景大 emoji(淡, 衬在爆字后)
+            // 背景大 emoji(爆瞬间衬一下, 一次性淡出)
             Text(emoji)
                 .font(.system(size: bgSize))
-                .opacity(charOp * 0.30)
+                .opacity(burstOp * 0.30)
                 .scaleEffect(scale)
             // 爆大字 — W1321 随机字体
             Text(tok.char)

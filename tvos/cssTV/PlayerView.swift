@@ -439,14 +439,15 @@ struct EmotionSubtitleOverlay: View {
         let toks = lines[li].tokens ?? []
         let j = toks.firstIndex(where: { $0.id == tok.id }) ?? 0
         let n = max(toks.count, 1)
-        // W1332 — 情绪字幕宪法(cssTV=横屏大屏, 等同桌面四边爆):
-        //   · 拉丁语: 只上/下两边(横排, 一律左→右)。
-        //   · 亚洲语言: 四边(上/下横排 + 左/右竖排), 横排隔行可右→左; 竖排一律上→下。绝无下→上。
+        // W1333 — 情绪字幕宪法(cssTV=横屏大屏, 四边爆, 所有语言):
+        //   · 四边都可爆: 上/下=横排, 左/右=竖排。
+        //   · 左/右竖排: 一律【上→下】(任何语言, 绝无下→上)。
+        //   · 横排: 拉丁一律左→右; 亚洲可右→左(隔行)。
         let isCJK = tok.char.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
         let frac = CGFloat((Double(j) + 0.5) / Double(n))
         let m: CGFloat = 0.06
         let jit = CGFloat((CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.06)
-        let edge = isCJK ? (li % 4) : (li % 2)   // 拉丁 2 边; 亚洲 4 边
+        let edge = li % 4   // 所有语言都用四边
         switch edge {
         case 0:  // 上 横排
             let f = (isCJK && li % 8 >= 4) ? 1 - frac : frac   // 亚洲隔行可右→左

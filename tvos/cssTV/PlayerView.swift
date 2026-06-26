@@ -129,13 +129,20 @@ struct PlayerView: View {
                     let maxY = geo.size.height - 60 - halfPill                  // 离屏底 ≥60(过扫描)
                     let minY = boxBottom + 28 + halfPill                        // 离画框 ≥28
                     let y = max(minY, min(bandMid, maxY))
+                    let si = langTracks.firstIndex(where: { $0.id == selectedTrackId }) ?? 0
                     HStack {
                         Spacer()
-                        HStack(spacing: 12) {
+                        HStack(spacing: 14) {
                             Image(systemName: "globe").font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(.white.opacity(0.65))
-                            ForEach(langTracks) { tr in
-                                langCapsule(tr)
+                            // W1371 — 凹凸镶嵌(胶囊宪法): 选中=凸(两头圆), 左邻凹右、右邻凹左, 都朝选中咬合; 负间距重叠。
+                            HStack(spacing: -25) {   // -capR 咬合
+                                ForEach(Array(langTracks.enumerated()), id: \.element.id) { pair in
+                                    let j = pair.offset
+                                    let side: ConcavePill.Side = j == si ? .none : (j < si ? .right : .left)
+                                    langCapsule(pair.element, side: side)
+                                        .zIndex(j == si ? 100 : Double(langTracks.count - abs(j - si)))
+                                }
                             }
                         }
                         .padding(.horizontal, 18).padding(.vertical, 8)
@@ -222,20 +229,24 @@ struct PlayerView: View {
         }
     }
 
-    // W1366 — 单个语言胶囊(胶囊宪法: 两头圆, 激活=品牌绿填充, 否则半透明描边; 母语带🔒)。
+    // W1371 — 单个语言胶囊(胶囊宪法·凹凸镶嵌): 用 ConcavePill 与 hero 同款。
+    //   side=.none 凸(选中, 两头圆), .left/.right 朝选中那侧凹; 凹侧内边距加大让字不被咬。
     @ViewBuilder
-    private func langCapsule(_ tr: CSSBackend.CSSLangTrack) -> some View {
-        let on = tr.id == selectedTrackId
+    private func langCapsule(_ tr: CSSBackend.CSSLangTrack, side: ConcavePill.Side) -> some View {
+        let on = side == .none
         let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
+        let capR: CGFloat = 25
         Button { switchTrack(tr) } label: {
             HStack(spacing: 6) {
                 if tr.isDefault { Image(systemName: "lock.fill").font(.system(size: 13, weight: .bold)) }
                 Text(tr.label).font(.system(size: 22, weight: on ? .bold : .medium))
             }
-            .padding(.horizontal, 22).frame(height: 50)
+            .padding(.leading, side == .left ? capR + 10 : 18)
+            .padding(.trailing, side == .right ? capR + 10 : 18)
+            .frame(height: 50)
             .foregroundStyle(on ? Color.black : Color.white.opacity(0.92))
-            .background(Capsule().fill(on ? brandGreen : Color.white.opacity(0.14)))
-            .overlay(Capsule().stroke(on ? Color.clear : Color.white.opacity(0.22), lineWidth: 1))
+            .background(ConcavePill(side: side).fill(on ? brandGreen : Color.white.opacity(0.16)))
+            .overlay(ConcavePill(side: side).stroke(on ? Color.clear : Color.white.opacity(0.22), lineWidth: 1))
             .shadow(color: .black.opacity(0.5), radius: 4)
         }
         .buttonStyle(.plain)

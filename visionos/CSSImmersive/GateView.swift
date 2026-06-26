@@ -335,7 +335,7 @@ enum StarfieldVolume {
         return ModelEntity(mesh: unitPlane, materials: [m])   // 共用网格
     }
 
-    @MainActor static func make(into anchor: Entity, count: Int = 220) {
+    @MainActor static func make(into anchor: Entity, count: Int = 300) {
         var stars: [(ModelEntity, TextureResource?)] = []
         for _ in 0..<count {
             // 均匀分布在【整个球面】→ 四周(含侧后)都有星, 包围感。

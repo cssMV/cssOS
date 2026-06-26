@@ -208,8 +208,11 @@ struct ImmersiveView: View {
             envModel = env.children.first as? ModelEntity
             // W1391 — 影院里也铺【体积星空】(四周包围, 有远有近 + 偶发流星), 与大厅一致(cosmos 场景)。
             if settings.environment == "cosmos" {
+                // W1393 — Jing「影院星星跟着头转=头晕」: 必须 trackingMode=.once → 放置一次后【世界固定】,
+                //   不再持续跟头(与大厅星空一致)。密度也与大厅一致(共用网格后内存是零头, 不必省)。
                 let starAnchor = AnchorEntity(.head)
-                StarfieldVolume.make(into: starAnchor, count: 170)   // 影院里有视频解码, 星数更省
+                starAnchor.anchoring.trackingMode = .once
+                StarfieldVolume.make(into: starAnchor, count: 300)
                 content.add(starAnchor)
             }
 

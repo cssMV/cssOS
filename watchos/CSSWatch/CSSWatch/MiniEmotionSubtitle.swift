@@ -9,7 +9,8 @@ struct MiniEmotionSubtitle: View {
     let lineId: Int
     @State private var bursts: [Burst] = []
     @State private var curLine = -1               // 当前正在累积的行
-    @State private var seqInLine = 0              // 本行第几个字(决定位置, 顺序连成一句)
+    @State private var seqInLine = 0              // 本行第几个字(决定竖排位置, 自上而下连成一句)
+    @State private var lineSide: CGFloat = -1     // 本句靠哪边(-1左 / +1右), 逐句换边
     @State private var idleWork: DispatchWorkItem? // 这行唱完(久无新字)→ 整句一起淡出
 
     var body: some View {
@@ -28,20 +29,19 @@ struct MiniEmotionSubtitle: View {
         if lineId != curLine {
             fadeLine(curLine)
             curLine = lineId
-            seqInLine = 0                 // 新行 → 从顶部中间重新开始铺
+            seqInLine = 0                         // 新行从这一列顶部重新开始
+            lineSide = (lineId % 2 == 0) ? -1 : 1 // 整句【竖排成列】: 偶数行靠左、奇数行靠右(下一句换边)
         }
         let emo = t.emotion ?? ""
         let intensity = t.emotionIntensity ?? 0
         let pool = Self.emojiPool(for: emo)
-        // W1442 — 位置【有序】(从顶部正中开始, 1右2左3右…交替沿弧线往两边、往下铺) → 字按唱序连成一句可读歌词。
-        //   只位置有序; 颜色/字体/大小/emoji 仍随机(情绪字幕宪法)。
-        let step = 21.0                                   // 每个字沿弧线的角度间隔(度)
-        let k = Double((seqInLine + 1) / 2)               // 离中心第几圈
-        let sign: Double = (seqInLine % 2 == 1) ? 1 : -1  // 奇数→右, 偶数→左
-        let deg = max(-150, min(150, sign * k * step))    // 封顶 ±150°(绕到两侧偏下, 不碰正下标题)
-        let a = deg * .pi / 180
-        let R: CGFloat = 100 + CGFloat.random(in: -5...5)  // 半径基本固定 → 字落在同一条弧上(半字出框); 微抖防呆板
-        let pos = CGSize(width: R * sin(a), height: -R * cos(a))
+        // W1443 — 一整句【竖排成一列】(靠一侧边框, 自上而下按唱序排) → 左一句 / 右一句, 各自从上到下读得通。
+        //   下一句换到另一侧。半字出框靠边。颜色/字体/大小/emoji 仍随机(情绪字幕宪法)。
+        let x = lineSide * (90 + CGFloat.random(in: -4...4))   // 靠左(-)或靠右(+)边框, 半字出框
+        let yTop: CGFloat = -102                               // 这一列从屏幕上沿开始
+        let stepY: CGFloat = 25                                // 每个字往下一格
+        let y = min(yTop + CGFloat(seqInLine) * stepY, 92)     // 封底(别压到正下方标题)
+        let pos = CGSize(width: x, height: y)
         seqInLine += 1
         let bg = pool.randomElement() ?? "✨"                              // ① 大背景 emoji
         let nSpark = 3 + Int(intensity * 4)

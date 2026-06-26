@@ -247,13 +247,12 @@ struct GateView: View {
     private func runBeamRitual() {
         guard let anchor = refs.orbAnchor else { return }
         Task { @MainActor in
-            for _ in 0..<6 {   // W1414 — 波次减少(原10), 间隔拉长 → 不再机关枪
-                // W1411 — 光点跟着金球【当前远近】射出: 每波读金球实时位置(dolly 推拉中也跟着走); 大厅态用大厅金球位。
+            // W1421 — 顺序烟花: 一团(大emoji+小emoji随机参差淡出)整团淡完才爆下一团, 不重叠。2 团后开门。
+            for _ in 0..<2 {
                 let origin = showLobby ? GateView.lobbyOrbCenter : (refs.orb?.position ?? GateView.orbCenter)
-                fireWave(from: anchor, origin: origin)
-                try? await Task.sleep(nanoseconds: 800_000_000)
+                await SpatialSubtitleSystem.fireworkShell(at: origin, into: anchor, emotion: "joy")
             }
-            withAnimation(.easeInOut(duration: 0.45)) { showLobby = true }   // 光点散 → 圣殿大门浮现
+            withAnimation(.easeInOut(duration: 0.45)) { showLobby = true }   // 烟花散 → 圣殿大门浮现
             try? await Task.sleep(nanoseconds: 250_000_000)
             await auth.signInViaOrb()
         }
@@ -270,16 +269,7 @@ struct GateView: View {
     ///   明暗不一, 像扫描光。
     /// W1378 — 一波光点: 全部【从金球中心射出】, 向用户方向(+Z)冲并散开穿过。每颗大小/速度/
     ///   起射时刻/明暗/颜色各异。锚在世界固定的 gate anchor, 用户转头光束不跟随。
-    /// W1412 — Jing「金球喷出随机随色 3D 小 emoji」: 不再是光点小球, 改成从球心迸出一群【随机 3D emoji】,
-    ///   向用户方向(+Z)冲并散开、穿过、淡出。每颗 emoji/大小/速度/起射时刻/明暗各异 + 轻翻滚(3D 感)。
-    // W1417 — 全部选【MeshPetal3D 有真 3D 网格】的 glyph(避开 ✨🌟⭐ 那种扁星卡片): 立体花/火/心/宝石/雪花…
-    static let gateEmojiPool = ["🌸", "🌷", "🔥", "💖", "💗", "💧", "❄️", "💠", "🍃", "🌿", "🎉", "☀️"]
-
-    @MainActor private func fireWave(from anchor: Entity, origin: SIMD3<Float>) {
-        // W1420 — Jing「照抄影院字心小烟花, 别闭门造车」: 直接复用 SpatialSubtitleSystem.fireworkBurst
-        //   (与影院完全同款: 小 emoji + 0.55s easeOut 短距扩散 + 停留 + 0.9s 渐隐)。emotion 用 joy(✨🌟🎉)。
-        SpatialSubtitleSystem.fireworkBurst(at: origin, into: anchor, emotion: "joy", intensity: 0.8)
-    }
+    // W1421 — 金球烟花改用 SpatialSubtitleSystem.fireworkShell(大emoji+小emoji随机参差淡出, 顺序不重叠)。
 }
 
 // W1391 — 体积星空: 真 3D 散布于用户【四周】(有远有近=包围感), 每颗随机形状/角数/距离,

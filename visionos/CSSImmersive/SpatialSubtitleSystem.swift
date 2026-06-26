@@ -222,6 +222,62 @@ enum SpatialSubtitleSystem {
         }
     }
 
+    /// W1421 — 金球烟花(Jing 详规): 一团 = 1 个【大 emoji】+ 一群【小 emoji 从大 emoji 中心爆开】→ 停留 →
+    ///   小 emoji 各自【随机停留长短 + 随机淡出时长 + 随机步数】参差消失(不齐刷刷)→ 整团淡完才 return
+    ///   (调用方据此【上一团爆完才爆下一团】, 不重叠)。
+    static func fireworkShell(at center: SIMD3<Float>, into root: Entity, emotion: String = "joy") async {
+        let pool = emojiPool(for: emotion)
+        var maxLife: Double = 0
+
+        // ① 大 emoji(中心, 出现 → 停留 → 淡出)。
+        let big = emojiEntity(pool.randomElement() ?? "🎉", size: 0.20, opacity: 0)
+        big.position = center
+        root.addChild(big)
+        big.components.set(OpacityComponent(opacity: 0.92))
+        let bigHold = Double.random(in: 0.7...1.2), bigFade = Double.random(in: 0.7...1.2)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(bigHold * 1_000_000_000))
+            let st = 20
+            for k in 0...st {
+                if big.scene == nil { return }
+                big.components.set(OpacityComponent(opacity: Float(0.92 * (1 - Double(k) / Double(st)))))
+                try? await Task.sleep(nanoseconds: UInt64(bigFade / Double(st + 1) * 1_000_000_000))
+            }
+            big.removeFromParent()
+        }
+        maxLife = max(maxLife, bigHold + bigFade)
+
+        // ② 小 emoji 从大 emoji 中心爆开(0.55s 短距扩散), 每颗随机停留/淡出。
+        let n = Int.random(in: 12...18)
+        for _ in 0..<n {
+            guard let g = pool.randomElement() else { continue }
+            let s = emojiEntity(g, size: CGFloat.random(in: 0.04...0.07), opacity: 0.95)
+            s.position = center
+            root.addChild(s)
+            let ang = Float.random(in: 0 ..< (2 * .pi))
+            let r = Float.random(in: 0.14...0.42)
+            var to = s.transform
+            to.translation = center + SIMD3<Float>(cos(ang) * r, sin(ang) * r, Float.random(in: -0.05...0.15))
+            s.move(to: to, relativeTo: root, duration: 0.55, timingFunction: .easeOut)
+            let hold = Double.random(in: 0.3...1.4)        // 随机停留
+            let fadeDur = Double.random(in: 0.5...1.5)     // 随机淡出时长
+            let st = Int.random(in: 14...26)               // 随机步数=随机节奏
+            maxLife = max(maxLife, 0.55 + hold + fadeDur)
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64((0.55 + hold) * 1_000_000_000))
+                for k in 0...st {
+                    if s.scene == nil { return }
+                    s.components.set(OpacityComponent(opacity: Float(0.95 * (1 - Double(k) / Double(st)))))
+                    try? await Task.sleep(nanoseconds: UInt64(fadeDur / Double(st + 1) * 1_000_000_000))
+                }
+                s.removeFromParent()
+            }
+        }
+
+        // 等整团全部淡完再返回 → 上一团爆完才爆下一团。
+        try? await Task.sleep(nanoseconds: UInt64((maxLife + 0.2) * 1_000_000_000))
+    }
+
     // MARK: - W1399 Gap2: 行容器 + 整句一起淡出 ------------------------------------------------
     static var lineContainers: [Int: Entity] = [:]
     private static var lineOrder: [Int] = []

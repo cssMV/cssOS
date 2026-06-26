@@ -272,16 +272,19 @@ struct GateView: View {
     ///   起射时刻/明暗/颜色各异。锚在世界固定的 gate anchor, 用户转头光束不跟随。
     /// W1412 — Jing「金球喷出随机随色 3D 小 emoji」: 不再是光点小球, 改成从球心迸出一群【随机 3D emoji】,
     ///   向用户方向(+Z)冲并散开、穿过、淡出。每颗 emoji/大小/速度/起射时刻/明暗各异 + 轻翻滚(3D 感)。
-    static let gateEmojiPool = ["✨", "🌟", "💫", "⭐️", "🌸", "💖", "🔥", "🎉", "💎", "🌈", "☀️", "💠", "🪷", "❄️"]
+    // W1417 — 全部选【MeshPetal3D 有真 3D 网格】的 glyph(避开 ✨🌟⭐ 那种扁星卡片): 立体花/火/心/宝石/雪花…
+    static let gateEmojiPool = ["🌸", "🌷", "🔥", "💖", "💗", "💧", "❄️", "💠", "🍃", "🌿", "🎉", "☀️"]
 
     @MainActor private func fireWave(from anchor: Entity, origin: SIMD3<Float>) {
         let c = origin
         let n = Int.random(in: 5...10)   // W1413 — 不再机关枪(原 14~24 太密)
         for _ in 0..<n {
-            let glyph = GateView.gateEmojiPool.randomElement() ?? "✨"
+            let glyph = GateView.gateEmojiPool.randomElement() ?? "🌸"
             let sz = Float.random(in: 0.07...0.14)
-            // W1414 — Jing「3D 感轻翻滚, 别是不转的扁卡片」: 双面 emoji 卡(翻到背面也有图)+ spinTumble 翻滚 = 3D 感。
-            let node: Entity = CathedralFX.emojiCard(glyph, size: sz)
+            // W1417 — Jing「要真 3D, 别扁卡片」: 用 MeshPetal3D 真 3D 网格(立体几何), 无网格才回退双面卡。
+            let m3 = MeshPetal3D.make(for: glyph)
+            let node: Entity = m3 ?? CathedralFX.emojiCard(glyph, size: sz)
+            if m3 != nil { let s = max(0.5, sz / 0.08) * MeshPetal3D.sizeMul(); node.scale = SIMD3<Float>(s, s, s) }
             // 起点 = 金球中心(微抖, 像从球心迸出)
             let start = c + SIMD3<Float>(Float.random(in: -0.03...0.03), Float.random(in: -0.03...0.03), 0)
             node.position = start

@@ -23,7 +23,7 @@ struct MiniEmotionSubtitle: View {
         guard let t = token else { return }
         let s = t.resolved.trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty else { return }
-        // 换行了 → 上一整句一起淡出(招牌行为: 整句爆完才一起消失, 全平台一致)。
+        // 逐字爆(每个字唱到才单独爆出, 一字一团); 换行了 → 上一整句【一起淡出】(招牌行为, 全平台一致)。
         if lineId != curLine {
             fadeLine(curLine)
             curLine = lineId

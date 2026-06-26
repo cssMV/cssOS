@@ -29,6 +29,7 @@ final class CathedralSettings: ObservableObject {
     @Published var menuOpen: Bool = false
     /// W964 — 已自动进殿过一次(避免退出后重开窗口又被自动拉进去)。
     @Published var hasEnteredOnce: Bool = false
+    @Published var lastDiag: String = ""   // W1413 — 临时诊断: enterCinema 跑没跑 + fetch 拿到几条
     /// W982 — AI 助理窗是否已开(防止每点一次创作就新建一个窗)。
     @Published var aiWindowOpen: Bool = false
     /// W975 — 跨窗→沉浸事件: 可拖拽控制窗里点打赏 → 自增 → ImmersiveView 观察到 → 圣殿里金光飞向银幕。

@@ -454,7 +454,7 @@ struct ImmersiveView: View {
             let toks = (player.variants[safe: player.activeIndex]?.alignedLyrics ?? [])
                 .reduce(0) { $0 + ($1.tokens?.count ?? 0) }
             let lns = (player.variants[safe: player.activeIndex]?.alignedLyrics ?? []).count
-            diagText = "DIAG  variants:\(n)  lines:\(lns)  tokens:\(toks)"
+            diagText = "DIAG v:\(n) l:\(lns) t:\(toks)  [\(settings.lastDiag)]"
             try? await Task.sleep(nanoseconds: 14_000_000_000)
             diagText = ""
         }

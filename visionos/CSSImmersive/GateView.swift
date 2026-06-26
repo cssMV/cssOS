@@ -192,16 +192,19 @@ struct GateView: View {
         // W1410 — 情绪字幕 + 多语言胶囊【都能显示】的关键: 大厅作品 toWork 不带 variants/lyrics →
         //   进影院【前】用真 id 拉 subtitle JSON 一次给齐(各语言变体 + 逐字 orig 歌词), 注入后再 load,
         //   这样 ImmersiveView 建银幕/胶囊时就有多变体, 字幕也有逐字 token。无 subtitle JSON 的作品则照常单语言无字幕。
+        settings.lastDiag = "enter id=\(work.id.prefix(8))…"   // W1413 — 证明本路径在跑
         if (w.variants ?? []).isEmpty {
             // W1411 — 别用 videoURL 守卫(纯音频/secure 视频作品 videoURL 可能为 nil → 被误挡)。歌词只需 workID。
             let v = w.videoURL ?? w.audioURL ?? ""
             let langs = await CSSBackend.fetchLanguageVariants(workID: w.id, video: v, audio: w.audioURL ?? v)
+            settings.lastDiag = "id=\(work.id.prefix(8)) langs=\(langs.count)"   // W1413 — fetch 拿到几条
             if !langs.isEmpty {
                 w.alignedLyrics = langs.first(where: { $0.id == "orig" })?.alignedLyrics ?? langs.first?.alignedLyrics
                 let others = langs.filter { $0.id != "orig" }
                 w.variants = others.isEmpty ? nil : others
             } else if let lines = await CSSBackend.fetchAlignedLyrics(workID: w.id), !lines.isEmpty {
                 w.alignedLyrics = lines   // 单语言但有逐字字幕 → 至少情绪字幕出
+                settings.lastDiag = "id=\(work.id.prefix(8)) langs=0 alt=\(lines.count)"
             }
         }
         player.load(w)                         // 装载(ImmersiveView 读同一 PlayerController, 此时已带多变体+歌词)
@@ -273,30 +276,29 @@ struct GateView: View {
 
     @MainActor private func fireWave(from anchor: Entity, origin: SIMD3<Float>) {
         let c = origin
-        let n = Int.random(in: 14...24)
+        let n = Int.random(in: 5...10)   // W1413 — 不再机关枪(原 14~24 太密)
         for _ in 0..<n {
             let glyph = GateView.gateEmojiPool.randomElement() ?? "✨"
-            let sz = Float.random(in: 0.05...0.13)
-            let m3 = MeshPetal3D.make(for: glyph)                       // 真 3D 网格(花瓣/星等)
-            let node: Entity = m3 ?? CathedralFX.emojiPlane(glyph, size: sz)   // 无 3D 网格的回退贴图
-            if m3 != nil { let s = max(0.5, sz / 0.08) * MeshPetal3D.sizeMul(); node.scale = SIMD3<Float>(s, s, s) }
+            let sz = Float.random(in: 0.07...0.14)
+            // W1413 — Jing「参照影院前奏小 emoji, 别用难看的星卡片」: 用真 emoji 贴图(同 musicEdgeEmoji), 不用 MeshPetal3D。
+            let node: Entity = CathedralFX.emojiPlane(glyph, size: sz)
             // 起点 = 金球中心(微抖, 像从球心迸出)
             let start = c + SIMD3<Float>(Float.random(in: -0.03...0.03), Float.random(in: -0.03...0.03), 0)
             node.position = start
-            node.components.set(OpacityComponent(opacity: Float.random(in: 0.7...1.0)))
-            let delay = Double.random(in: 0 ... 0.5)
-            let dur = Double.random(in: 0.6...1.8)
-            // 终点 = 从球心向用户(+Z)冲并散开、穿过用户。
-            let end = c + SIMD3<Float>(Float.random(in: -0.5...0.5), Float.random(in: -0.4...0.4),
-                                       Float.random(in: 1.6...2.4))
+            node.components.set(OpacityComponent(opacity: 0))
+            let delay = Double.random(in: 0 ... 0.9)
+            let dur = Double.random(in: 1.3...2.6)   // 慢飘(像前奏 emoji 飘进来, 不是子弹)
+            // 终点 = 从球心向用户(+Z)柔缓散开穿过。
+            let end = c + SIMD3<Float>(Float.random(in: -0.6...0.6), Float.random(in: -0.45...0.5),
+                                       Float.random(in: 1.6...2.6))
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 anchor.addChild(node)
-                CathedralFX.spinTumble(node, dur: dur + 0.3)            // 3D 轻翻滚
+                node.components.set(OpacityComponent(opacity: Float.random(in: 0.85...1.0)))
                 var t = node.transform
                 t.translation = end
-                node.move(to: t, relativeTo: anchor, duration: dur,
-                          timingFunction: Bool.random() ? .easeIn : .easeInOut)
-                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) { node.removeFromParent() }
+                node.move(to: t, relativeTo: anchor, duration: dur, timingFunction: .easeOut)
+                DispatchQueue.main.asyncAfter(deadline: .now() + dur - 0.5) { node.components.set(OpacityComponent(opacity: 0)) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.1) { node.removeFromParent() }
             }
         }
     }

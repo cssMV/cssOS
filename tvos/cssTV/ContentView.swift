@@ -723,9 +723,14 @@ struct FeaturedHero: View {
             //   .defaultFocus 在多焦点域(侧栏 + hero)下被 logo 抢; 这里启动一次性强制矫正, didInitFocus 守护只跑一次, 不反复踢。
             if !didInitFocus {
                 didInitFocus = true
-                DispatchQueue.main.async {
-                    focusedCap = 0
-                    resetFocus(in: focusNS)
+                // W1349 — 真机开机焦点引擎就绪有时序: 单次 async 常被侧栏(leftmost)抢先 → 焦点落侧栏 →
+                //   侧栏一被聚焦就展开标签。多档重试(0/0.25/0.5/0.8s)扛过时序, 把焦点稳稳钉到 hero 第一个胶囊,
+                //   侧栏从而保持收起=只图标。didInitFocus 守护整体只跑一次。
+                for delay in [0.0, 0.25, 0.5, 0.8] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        focusedCap = 0
+                        resetFocus(in: focusNS)
+                    }
                 }
             }
         }

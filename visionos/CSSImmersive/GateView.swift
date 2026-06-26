@@ -16,6 +16,7 @@ struct GateView: View {
     @EnvironmentObject var router: GateRouter
     @State private var refs = GateViewRefs()
     @State private var showLobby = false   // W1376 — 大厅沉浸面板显隐(捏魔镜→光束→登录→显)
+    @State private var dragBase: SIMD3<Float>? = nil   // W1377 — 捏住金球拖动整个门
 
     var body: some View {
         // W1376 — Jing 铁律「沉浸里一切皆沉浸, 零 2D」: 星空 + 魔镜 3D 实体 + 大厅 LobbyView 作为
@@ -56,13 +57,27 @@ struct GateView: View {
                 .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
             }
         }
-        // 凝视 + 捏魔镜 → 发射光点仪式(同一沉浸空间)。
-        .gesture(SpatialTapGesture().targetedToAnyEntity().onEnded { v in
-            let n = v.entity.name
-            if n == "gate-orb" || n == "orb-body" || n == "magic-mirror-orb" {
-                if !router.fireBeams { router.fireBeams = true }
-            }
-        })
+        // W1377 — Jing「删拖拽条, 捏住金球直接拖动」: 统一手势 —— 捏住金球拖 → 整个门(魔镜+大厅同锚)
+        //   跟着走; 轻捏一下(几乎没动)→ 发射光点。只对金球生效, 大厅卡片的捏选不受影响。
+        .gesture(
+            DragGesture()
+                .targetedToAnyEntity()
+                .onChanged { value in
+                    let n = value.entity.name
+                    guard n == "gate-orb" || n == "orb-body" || n == "magic-mirror-orb",
+                          let anchor = refs.orbAnchor else { return }
+                    if dragBase == nil { dragBase = anchor.position }
+                    let d = value.translation3D
+                    anchor.position = dragBase! + SIMD3<Float>(Float(d.x) * 0.001, Float(-d.y) * 0.001, 0)
+                }
+                .onEnded { value in
+                    let n = value.entity.name
+                    guard n == "gate-orb" || n == "orb-body" || n == "magic-mirror-orb" else { return }
+                    let moved = abs(value.translation3D.x) + abs(value.translation3D.y) + abs(value.translation3D.z)
+                    if moved < 12, !router.fireBeams { router.fireBeams = true }   // 几乎没动 = 捏一下 → 光点
+                    dragBase = nil
+                }
+        )
         .onChange(of: router.fireBeams) { _, want in
             guard want else { return }
             router.fireBeams = false

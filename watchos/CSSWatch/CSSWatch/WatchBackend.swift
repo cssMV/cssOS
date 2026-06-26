@@ -16,7 +16,12 @@ enum WatchBackend {
             guard !id.isEmpty else { return nil }
             let title = (w["title"] as? String) ?? "—"
             let rawCover = (w["cover_image"] as? String) ?? (w["preview_image_url"] as? String) ?? ""
-            let cover = thumbJpg(rawCover)   // W1437 — 走 jpg 代理(watchOS 模拟器无 webp 解码器)
+            // W1438 — 真机用原 webp(体积更小, watchOS7+ 支持); 仅【模拟器】走 jpg 代理(模拟器无 webp 解码器)。
+            #if targetEnvironment(simulator)
+            let cover = thumbJpg(rawCover)
+            #else
+            let cover = rawCover
+            #endif
             let audio = ((w["audio_track_1_url"] as? String).flatMap { $0.isEmpty ? nil : $0 })
                 ?? (w["preview_audio_url"] as? String) ?? ""
             guard !audio.isEmpty else { return nil }

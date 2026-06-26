@@ -157,13 +157,15 @@ struct InstrumentalEdgeEmoji: View {
             case 2: start = CGSize(width: .random(in: -90...90), height: -110)   // 上
             default: start = CGSize(width: .random(in: -90...90), height: 110)   // 下
             }
+            // W1429 — 只往里飘一点点(≤1/3 屏): 从边框朝中央拉 16~30%, 留在外圈, 不穿屏。
+            let pull = CGFloat.random(in: 0.16...0.30)
             let m = Mote(emoji: pool.randomElement() ?? "✨", start: start,
-                         end: CGSize(width: start.width * 0.25 + .random(in: -20...20),
-                                     height: start.height * 0.25 + .random(in: -20...20)),
-                         size: .random(in: 12...20))
+                         end: CGSize(width: start.width * (1 - pull) + .random(in: -8...8),
+                                     height: start.height * (1 - pull) + .random(in: -8...8)),
+                         size: .random(in: 11...18))
             motes.append(m)
             let id = m.id
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { motes.removeAll { $0.id == id } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.9) { motes.removeAll { $0.id == id } }   // 更短命
         }
         if motes.count > 24 { motes.removeFirst(motes.count - 24) }
     }
@@ -183,8 +185,8 @@ private struct MoteView: View {
             .offset(arrived ? mote.end : mote.start)
             .opacity(fade ? 0 : 0.9)
             .onAppear {
-                withAnimation(.easeOut(duration: 2.4)) { arrived = true }     // 从边框往里飘
-                withAnimation(.easeIn(duration: 0.8).delay(2.0)) { fade = true }
+                withAnimation(.easeOut(duration: 1.3)) { arrived = true }     // 从边框往里飘一点点
+                withAnimation(.easeIn(duration: 0.5).delay(1.2)) { fade = true }
             }
     }
 }

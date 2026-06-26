@@ -19,6 +19,9 @@ struct ImmersiveView: View {
     /// CSSOS_WAVE_940 — 特效容器 + 环境引用(随情绪变色)。W952 去掉地板。
     @State private var fxRoot = Entity()
     @State private var envModel: ModelEntity? = nil
+    // W1400 — 影院弧形银幕【捏住拖动】(沉浸内自由摆位/拉远近, 无拖拽条): 所有银幕+字幕挂这个容器, 拖它即整组移动。
+    @State private var cinemaRoot = Entity()
+    @State private var cinemaDragBase: SIMD3<Float>? = nil
     // W952 — 独立计时器: 保证天女散花全程飘(脱离字幕时钟; 即便 burst 没发也有花)。
     private let petalTimer = Timer.publish(every: 1.4, on: .main, in: .common).autoconnect()
     // W958 — 字幕/打赏贴视频底边: 视线高 ~1.5, 视频中心在 1.5、半高=screenHeight/2 → 底边=1.5-半高。
@@ -220,6 +223,8 @@ struct ImmersiveView: View {
             // CSSOS_WAVE_1106 — Jing「影院里有两个魔镜球, 一个孤零零浮在视频框上」: 删掉这颗悬浮
             //   logo 金球(品牌存在感改由控制窗里的折叠魔镜承担), 影院中央只留画面, 不再有孤球。
 
+            // W1400 — 银幕容器(可整组捏住拖动)。
+            content.add(cinemaRoot)
             // 2) 每个变体一块弧形银幕, 摆到环绕弧线上, 配一个标签。
             for (i, v) in player.variants.enumerated() {
                 let player = self.player
@@ -234,7 +239,7 @@ struct ImmersiveView: View {
                 screen.components.set(InputTargetComponent())
                 screen.generateCollisionShapes(recursive: false)
                 ImmersiveScene.placeOnArc(screen, angleDegrees: v.angleDegrees, radius: Float(settings.radius))
-                content.add(screen)
+                cinemaRoot.addChild(screen)   // W1400 — 挂容器(随拖动整组移动)
                 // CSSOS_WAVE_1106 — 纯音频作品(无 final_mv_url)→ 银幕贴作品封面(否则空 VideoMaterial=黑屏)。
                 if (v.videoURL ?? "").isEmpty, let cover = player.work?.coverURL, !cover.isEmpty {
                     ImmersiveScene.applyCoverTexture(cover, to: screen)
@@ -245,7 +250,7 @@ struct ImmersiveView: View {
             // 3) 字幕浮层: 贴在视频【底边】(同屏半径, 紧贴下沿)。
             if let subtitle = attachments.entity(for: "subtitle") {
                 ImmersiveScene.placeOnArc(subtitle, angleDegrees: 0, radius: Float(settings.radius) - 0.05, height: subtitleHeight)
-                content.add(subtitle)
+                cinemaRoot.addChild(subtitle)   // W1400 — 字幕随银幕一起拖动
             }
 
             // 3b) W981 — 空间控制球簇: 头部锚定在视野【下方】, 跟着你、不挡中央, 凝视高亮+捏合触发。
@@ -351,6 +356,18 @@ struct ImmersiveView: View {
                         player.setActive(idx)
                     }
                 }
+        )
+        // W1400 — 捏住银幕【移动】→ 整组影院跟手 3D 自由摆位/拉远近(无拖拽条)。minDist 大 → 纯捏让给上面的选屏 tap。
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 30)
+                .targetedToAnyEntity()
+                .onChanged { value in
+                    guard value.entity.name.hasPrefix("screen-") else { return }
+                    let cur = value.convert(value.location3D, from: .local, to: .scene)
+                    if cinemaDragBase == nil { cinemaDragBase = cinemaRoot.position(relativeTo: nil) - cur }
+                    cinemaRoot.setPosition(cinemaDragBase! + cur, relativeTo: nil)
+                }
+                .onEnded { _ in cinemaDragBase = nil }
         )
         // CSSOS_WAVE_938/940 — 逐字事件驱动: 身边炸字 + 全套空间特效。
         // W1399 — Gap2: 某行结束 → 整行字一起淡出。

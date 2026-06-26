@@ -30,7 +30,7 @@ struct MiniEmotionSubtitle: View {
             fadeLine(curLine)
             curLine = lineId
             seqInLine = 0                         // 新行从这一列顶部重新开始
-            lineSide = (lineId % 2 == 0) ? -1 : 1 // 整句【竖排成列】: 偶数行靠左、奇数行靠右(下一句换边)
+            lineSide = Bool.random() ? -1 : 1     // 整句【竖排成列】: 这一句随机靠左或靠右; 但全句锁同一侧自上而下 → 连成完整一句
         }
         let emo = t.emotion ?? ""
         let intensity = t.emotionIntensity ?? 0

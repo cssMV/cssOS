@@ -291,7 +291,7 @@ enum StarfieldVolume {
     /// 多种角数 + 随机旋转的星形 sprite(4~8 角), 每颗星随机选一张 → 形状各异。
     static let sprites: [TextureResource] = {
         var arr: [TextureResource] = []
-        for pts in [3, 4, 5, 6, 7, 8, 9, 10, 12, 6, 8] {   // W1398 — 角数更多样, 少用五角(5 只一个)
+        for pts in [6, 7, 8, 9, 10, 12, 6, 8, 7] {   // W1401 — Jing: 必须 6 角以上(去掉 3/4/5 角)
             let px = 128
             let r = UIGraphicsImageRenderer(size: CGSize(width: px, height: px))
             let img = r.image { ctx in

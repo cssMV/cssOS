@@ -115,7 +115,7 @@ enum ImmersiveScene {
                 let b = CGFloat.random(in: 0.5...1.0)
                 c.setFillColor(UIColor(white: 1, alpha: b).cgColor)
                 ImmersiveScene.fillStar(in: c, cx: x, cy: y, radius: s,
-                                        points: Bool.random() ? 5 : 4,
+                                        points: Bool.random() ? 6 : 7,   // W1401 — 6 角以上
                                         rotation: CGFloat.random(in: 0 ..< .pi))
             }
             // 两百颗彩色亮星(更大的多角星 + 柔光晕)
@@ -124,10 +124,10 @@ enum ImmersiveScene {
                 let y = CGFloat.random(in: 0 ..< CGFloat(h))
                 let hue = CGFloat.random(in: 0...1)
                 let col = UIColor(hue: hue, saturation: 0.5, brightness: 1, alpha: 1)
-                c.setShadow(offset: .zero, blur: 11, color: col.withAlphaComponent(0.9).cgColor)  // 光晕
+                // W1401 — Jing「不要圆形的」真凶: 这道 blur:11 柔光晕把星形糊成圆光斑 → 去掉。
                 c.setFillColor(col.cgColor)
                 ImmersiveScene.fillStar(in: c, cx: x, cy: y, radius: CGFloat.random(in: 6...12),
-                                        points: [5, 6].randomElement()!,
+                                        points: [6, 7, 8].randomElement()!,   // W1401 — 6 角以上
                                         rotation: CGFloat.random(in: 0 ..< .pi))
             }
             c.setShadow(offset: .zero, blur: 0, color: nil)

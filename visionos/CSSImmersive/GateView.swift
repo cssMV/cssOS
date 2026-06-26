@@ -236,7 +236,7 @@ struct GateView: View {
         for i in 0..<40 {
             let s = ModelEntity(mesh: .generateSphere(radius: Float.random(in: 0.006...0.013)))
             var m = UnlitMaterial(color: .white)
-            m.blending = .transparent(opacity: Float.random(in: 0.35...0.7))   // 常态就微亮可见
+            m.blending = .transparent(opacity: .init(floatLiteral: Float.random(in: 0.35...0.7)))   // 常态就微亮可见
             s.model?.materials = [m]
             // 主要铺在【金球背后】的正前视野里(金球在 z=-1.4), 再撒一些到四周。
             let frontField = i < 28
@@ -278,7 +278,7 @@ struct GateView: View {
             let t = Float(k) / 8
             star.scale = SIMD3<Float>(repeating: rest * (1 + (grow - 1) * t))
             var m = UnlitMaterial(color: color)
-            m.blending = .transparent(opacity: 0.5 + 0.5 * t)
+            m.blending = .transparent(opacity: .init(floatLiteral: 0.5 + 0.5 * t))
             star.model?.materials = [m]
             try? await Task.sleep(nanoseconds: 28_000_000)
         }
@@ -289,7 +289,7 @@ struct GateView: View {
             star.scale = SIMD3<Float>(repeating: rest * (grow - (grow - 1) * t))
             let mixWhite = UIColor(hue: hue, saturation: CGFloat((1 - t)) * 0.7, brightness: 1.0, alpha: 1.0)
             var m = UnlitMaterial(color: mixWhite)
-            m.blending = .transparent(opacity: 1.0 - 0.5 * t)
+            m.blending = .transparent(opacity: .init(floatLiteral: 1.0 - 0.5 * t))
             star.model?.materials = [m]
             try? await Task.sleep(nanoseconds: 34_000_000)
         }

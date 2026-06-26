@@ -524,7 +524,11 @@ struct EmotionSubtitleOverlay: View {
         let sizeMul = emoFactor * randFactor
         let charSize: CGFloat = CGFloat(70 * sizeMul)
         let bgSize: CGFloat = CGFloat(130 * sizeMul)
-        let scale: CGFloat = CGFloat(0.85 + 0.25 * cp)
+        // W1434 — Jing「全平台统一手表那个撞边框弹一下手感」: 弹入用 easeOutBack(过冲再回弹), 不再平滑到位。
+        let bp: Double = min(1.0, (t - tok.startSec) / 0.5)     // 弹入相位 0.5s(更脆)
+        let s1 = 1.70158
+        let eob = 1 + (s1 + 1) * pow(bp - 1, 3) + s1 * pow(bp - 1, 2)   // 0→1 过冲回弹
+        let scale: CGFloat = CGFloat(0.55 + 0.55 * eob)        // 弹到 ~1.1 过冲 → 回弹 ~1.1 稳定
         let pos: CGPoint = burstPosition(tok, size: size)
         let col: Color = randomColor(abs(tok.id.hashValue))   // W1321 — 逐字随机色(照桌面端, 不再行级情绪色)
         let emoji: String = pickEmoji(tok)

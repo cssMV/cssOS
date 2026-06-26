@@ -185,11 +185,20 @@ enum SpatialSubtitleSystem {
         let container = lineContainer(event.lineIndex, in: root)
         container.addChild(group)
 
-        // W971 — 砰地爆开(0.22s 快弹)。之后【停住驻留】, 不再单字淡 —— 等整句一起淡(fadeLine)。
-        var pop = group.transform
-        pop.scale = SIMD3<Float>(repeating: 1.0 + 0.55 * intensity)
-        group.move(to: pop, relativeTo: container, duration: 0.22, timingFunction: .easeOut)
+        // W1434 — Jing「全平台统一手表那个【撞边框弹一下】手感」: 爆出时【过冲再回弹】(spring 感),
+        //   而非一冲到位。① 0.16s 弹到过冲尺寸 → ② 0.13s 回弹到稳定尺寸 = 弹一下。emoji 烟花(③)同时已爆。
         group.components.set(OpacityComponent(opacity: 1))
+        let stable: Float = 1.0 + 0.55 * intensity
+        let overshoot: Float = stable + 0.28          // 过冲(弹出去一点)
+        var pop = group.transform
+        pop.scale = SIMD3<Float>(repeating: overshoot)
+        group.move(to: pop, relativeTo: container, duration: 0.16, timingFunction: .easeOut)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            guard group.scene != nil else { return }
+            var settle = group.transform
+            settle.scale = SIMD3<Float>(repeating: stable)
+            group.move(to: settle, relativeTo: container, duration: 0.13, timingFunction: .easeInOut)   // 回弹
+        }
     }
 
     /// W1420 — 通用【字心烟花】: 与影院字心小烟花(spawnBurst ③)完全同款参数。

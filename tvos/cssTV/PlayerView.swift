@@ -61,17 +61,17 @@ struct PlayerView: View {
                 .clipped()
                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
-                // W1340 — 照首页 hero focusGlow(锐边 + 厚模糊边), 但【往外发光】: 模糊绿边画在比框略大的矩形上,
-                //   模糊向外溢进上下黑边, 不盖视频。
+                // W1343 — 照桌面端 box-shadow: 0 0 22px green / 0 0 46px cyan: 亮绿锐边 + 多层向外散发的绿/青辉光。
                 let bg = Color(red: 0, green: 0.96, blue: 0.63)
-                ZStack {
-                    Rectangle().stroke(bg.opacity(0.75), lineWidth: 28).blur(radius: 22)   // 往外厚辉光
-                        .frame(width: geo.size.width + 26, height: boxH + 26)
-                    Rectangle().stroke(bg, lineWidth: 3)                                   // 锐利绿边
-                        .frame(width: geo.size.width, height: boxH)
-                }
-                .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                .allowsHitTesting(false)
+                let cy = Color(red: 0.04, green: 0.97, blue: 1)
+                Rectangle()
+                    .strokeBorder(bg, lineWidth: 3)
+                    .frame(width: geo.size.width, height: boxH)
+                    .shadow(color: bg.opacity(0.85), radius: 14)   // 内层强绿光
+                    .shadow(color: bg.opacity(0.6), radius: 30)    // 中层绿光
+                    .shadow(color: cy.opacity(0.45), radius: 50)   // 外层青光(往外散)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .allowsHitTesting(false)
             }
             .ignoresSafeArea()
 

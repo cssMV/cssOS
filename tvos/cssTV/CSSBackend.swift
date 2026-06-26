@@ -59,7 +59,7 @@ enum CSSBackend {
         // W1274 — Jing: Today's Picks 第一、For You 第二; 每栏标题带 SF Symbol 图标; 末尾追加创作尾卡。
         func rail(_ id: String, _ title: String, _ icon: String, _ items: [CSSWork], min: Int = 1) {
             guard items.count >= min else { return }
-            rails.append(CSSRail(id: id, title: title, works: items + [CSSWork.createCard], icon: icon))
+            rails.append(CSSRail(id: id, title: title, works: items, icon: icon))   // W1367 — tvOS 纯欣赏: 行尾不再加创作卡
         }
         // ① Today's Picks = 系统推荐: 用后端原生序(置顶/活媒体/curation 在前), 这才是"算法推荐"。
         rail("today", "Today's Picks", "sparkles", works)

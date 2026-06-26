@@ -15,6 +15,15 @@ import simd
 
 enum MagicMirrorOrb {
 
+    /// W1370 — 通用贴图加载(按资产名)。给静态尖角托盘 "MirrorRing" 用。
+    static func namedTexture(_ name: String) -> TextureResource? {
+        if let ui = UIImage(named: name), let cg = ui.cgImage,
+           let t = try? TextureResource(image: cg, options: .init(semantic: .color)) {
+            return t
+        }
+        return nil
+    }
+
     /// 金球贴图(复用资产 "MirrorOrb"); 缺图则程序生成金色径向光球。
     static func orbTexture() -> TextureResource? {
         if let ui = UIImage(named: "MirrorOrb"), let cg = ui.cgImage,
@@ -64,6 +73,19 @@ enum MagicMirrorOrb {
         halo.position = [0, 0, -0.01]
         root.addChild(halo)
 
+        // W1370 — Jing: 静态【尖角托盘】(四尖角绿宝石框 MirrorRing), 不旋转; 圆金球在其中心孔里转。
+        //   修「圆金球转在方块上」——之前没托盘, 方 plane 整块转=像方块。现在=魔镜本体(托盘静、球转)。
+        if style == .plane, let ringTex = namedTexture("MirrorRing") {
+            let tray = ModelEntity(mesh: .generatePlane(width: size * 1.12, height: size * 1.12))
+            var tm = UnlitMaterial()
+            tm.color = .init(tint: .white, texture: .init(ringTex))
+            tm.blending = .transparent(opacity: 1.0)
+            tray.model?.materials = [tm]
+            tray.position = [0, 0, -0.004]   // 略后于金球, 静止不转
+            tray.name = "mirror-tray"
+            root.addChild(tray)
+        }
+
         // 金球本体: 平面 or 真 3D 球。
         let orb: ModelEntity
         if style == .sphere {
@@ -80,7 +102,7 @@ enum MagicMirrorOrb {
             m.clearcoatRoughness = 0.1
             orb.model?.materials = [m]
         } else {
-            orb = ModelEntity(mesh: .generatePlane(width: size, height: size))  // 平贴金球
+            orb = ModelEntity(mesh: .generatePlane(width: size * 0.58, height: size * 0.58))  // W1370 — 缩小, 嵌入托盘中心孔
             if let tex = orbTexture() {
                 var m = UnlitMaterial()
                 m.color = .init(tint: .white, texture: .init(tex))

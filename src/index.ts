@@ -13295,11 +13295,16 @@ app.get("/api/img-thumb", async (req, res) => {
     try { url = new URL(src); } catch { return res.status(400).send("bad u"); }
     if (url.protocol !== "https:" && url.protocol !== "http:") return res.status(400).send("bad scheme");
     if (!thumbHostAllowed(url)) return res.status(403).send("host not allowed");
-    const key = crypto.createHash("sha1").update(w + "|" + src).digest("hex");
-    const cachePath = path.join(THUMB_CACHE_DIR, key + ".webp");
+    // CSSOS — fmt=jpg 输出 jpeg(Apple Watch 模拟器无 webp 解码器, 需 jpg)。默认仍 webp, 纯加不拆。
+    const fmtQ = String(req.query.fmt || "").toLowerCase();
+    const fmt = (fmtQ === "jpg" || fmtQ === "jpeg") ? "jpg" : "webp";
+    const ext = fmt === "jpg" ? "jpg" : "webp";
+    const mime = fmt === "jpg" ? "image/jpeg" : "image/webp";
+    const key = crypto.createHash("sha1").update(fmt + "|" + w + "|" + src).digest("hex");
+    const cachePath = path.join(THUMB_CACHE_DIR, key + "." + ext);
     if (fs.existsSync(cachePath)) {
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-      res.type("image/webp");
+      res.type(mime);
       return res.sendFile(cachePath);
     }
     // CSSOS_WAVE_449 20260527 — Jing: 1×1 透明 WebP 占位图 (base64).
@@ -13319,6 +13324,7 @@ app.get("/api/img-thumb", async (req, res) => {
       if (!r.ok) {
         // For expired/404 upstream URLs return a silent transparent placeholder
         // instead of propagating the error code — eliminates console 404 storms.
+        if (fmt === "jpg") { res.setHeader("Cache-Control", "public, max-age=300"); return res.status(404).end(); }
         res.setHeader("Cache-Control", "public, max-age=300");
         res.type("image/webp");
         return res.send(THUMB_PLACEHOLDER_WEBP);
@@ -13326,14 +13332,13 @@ app.get("/api/img-thumb", async (req, res) => {
       buf = Buffer.from(await r.arrayBuffer());
     } finally { clearTimeout(to); }
     if (buf.length > 25 * 1024 * 1024) return res.status(413).send("too large");
-    const out = await sharp(buf, { failOn: "none" })
-      .rotate()
-      .resize({ width: w, withoutEnlargement: true })
-      .webp({ quality: 72 })
-      .toBuffer();
+    const pipe = sharp(buf, { failOn: "none" }).rotate().resize({ width: w, withoutEnlargement: true });
+    const out = fmt === "jpg"
+      ? await pipe.jpeg({ quality: 82 }).toBuffer()
+      : await pipe.webp({ quality: 72 }).toBuffer();
     try { fs.writeFileSync(cachePath, out); fs.chmodSync(cachePath, 0o644); } catch { /* noop */ }
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    res.type("image/webp");
+    res.type(mime);
     return res.send(out);
   } catch (_e) {
     return res.status(500).send("thumb error");

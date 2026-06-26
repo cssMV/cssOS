@@ -1,6 +1,7 @@
 // CSS Watch — 主界面: 正方形封面 + 半圆爆情绪字幕 + 加载时魔镜金球转 + 表冠音量 / 滑动切歌 / 点按暂停。
 import SwiftUI
 import UIKit
+import ImageIO
 
 struct ContentView: View {
     @StateObject private var player = WatchPlayer()
@@ -118,14 +119,27 @@ private struct CoverImage: View {
         .task(id: urlString) {
             image = nil; kenBurns = false
             guard let url = URL(string: urlString), !urlString.isEmpty else { return }
-            if let (data, _) = try? await URLSession.shared.data(from: url), let ui = UIImage(data: data) {
-                image = Self.centerSquare(ui)   // W1430 — 从超宽幅(2.39:1)截取中央正方形, 手表绝不用宽屏
-                kenBurns = true
+            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            if let ui = Self.decodeSquare(data) {   // W1437 — ImageIO 解码(吃 webp, 比 UIImage(data:) 稳)+ 中央方裁
+                image = ui; kenBurns = true
             }
         }
     }
 
-    /// 中央正方形裁切: 取图中心边长 = min(宽,高) 的方块。手表只显示方图, 永不宽屏。
+    /// 用 ImageIO(CGImageSource)解码(webp/jpg/png 都吃, 绕开 UIImage(data:) 对 webp 失败)→ 中央正方形裁切。
+    static func decodeSquare(_ data: Data) -> UIImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            return UIImage(data: data).map { centerSquare($0) }   // 回退
+        }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        let side = min(w, h)
+        let rect = CGRect(x: ((w - side) / 2).rounded(), y: ((h - side) / 2).rounded(), width: side, height: side)
+        if let c = cg.cropping(to: rect) { return UIImage(cgImage: c) }
+        return UIImage(cgImage: cg)
+    }
+
+    /// 中央正方形裁切(UIImage 回退路径用)。
     static func centerSquare(_ img: UIImage) -> UIImage {
         guard let cg = img.cgImage else { return img }
         let w = CGFloat(cg.width), h = CGFloat(cg.height)

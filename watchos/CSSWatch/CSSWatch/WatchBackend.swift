@@ -15,13 +15,21 @@ enum WatchBackend {
             let id = (w["id"] as? String) ?? ""
             guard !id.isEmpty else { return nil }
             let title = (w["title"] as? String) ?? "—"
-            let cover = (w["cover_image"] as? String) ?? (w["preview_image_url"] as? String) ?? ""
+            let rawCover = (w["cover_image"] as? String) ?? (w["preview_image_url"] as? String) ?? ""
+            let cover = thumbJpg(rawCover)   // W1437 — 走 jpg 代理(watchOS 模拟器无 webp 解码器)
             let audio = ((w["audio_track_1_url"] as? String).flatMap { $0.isEmpty ? nil : $0 })
                 ?? (w["preview_audio_url"] as? String) ?? ""
             guard !audio.isEmpty else { return nil }
             let dur = (w["duration_secs"] as? Int) ?? Int((w["duration_secs"] as? Double) ?? 0)
             return CSSWatchWork(id: id, title: title, coverURL: cover, audioURL: audio, durationSecs: dur)
         }
+    }
+
+    /// W1437 — 封面经 /api/img-thumb 转 jpg(避开 webp; 顺带缩到 ~390px 适配表盘、省流)。
+    static func thumbJpg(_ raw: String, w: Int = 390) -> String {
+        guard raw.hasPrefix("http"),
+              let enc = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return raw }
+        return "\(base)/api/img-thumb?u=\(enc)&w=\(w)&fmt=jpg"
     }
 
     /// 拉该作品母语逐字字幕(subtitle JSON)。

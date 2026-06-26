@@ -100,3 +100,43 @@ struct FlowRow: Layout {
         }
     }
 }
+
+// W1409 — 沉浸内【多语言/多声线胶囊条】(胶囊宪法: 单一共用轨道 + 各段图标+标签 + 激活段高亮凸出在前 + 两头圆)。
+//   gaze 抬起高亮、捏合切激活屏(语言/声线)。只在多变体时显示(单语言作品不出现)。
+struct LangVoiceCapsuleBar: View {
+    @EnvironmentObject var player: PlayerController
+
+    var body: some View {
+        if player.variants.count > 1 {
+            HStack(spacing: 4) {
+                ForEach(Array(player.variants.enumerated()), id: \.offset) { i, v in
+                    seg(i: i, v: v)
+                }
+            }
+            .padding(6)
+            .background(.ultraThinMaterial, in: Capsule())          // 共用轨道
+            .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1))
+        }
+    }
+
+    @ViewBuilder private func seg(i: Int, v: CSSVariant) -> some View {
+        let active = (i == player.activeIndex)
+        let icon = (v.id == "main") ? "🎤" : "🌐"                    // 原唱声线 / 语言版
+        let label = (v.id == "main") ? L("Original", "原唱") : v.label
+        Button { player.setActive(i) } label: {
+            HStack(spacing: 7) {
+                Text(icon).font(.system(size: 17))
+                Text(label).font(.system(size: 17, weight: .semibold, design: .rounded)).lineLimit(1)
+            }
+            .padding(.horizontal, 20)
+            .frame(minHeight: 56)
+            .background { if active { Capsule().fill(Color.green.opacity(0.32)) } }
+            .overlay { if active { Capsule().strokeBorder(Color.green.opacity(0.7), lineWidth: 1.5) } }
+            .foregroundStyle(active ? Color.green : .white.opacity(0.88))
+            .contentShape(Capsule())
+            .scaleEffect(active ? 1.06 : 1.0)                        // 激活段凸出在前
+        }
+        .buttonStyle(.plain)
+        .hoverEffect()
+    }
+}

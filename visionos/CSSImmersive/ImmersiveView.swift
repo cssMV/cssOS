@@ -259,6 +259,11 @@ struct ImmersiveView: View {
                 cluster.position = SIMD3<Float>(0, -0.42, -0.95)   // 视野下方 HUD
                 headAnchor.addChild(cluster)
             }
+            // W1409 — 多语言/多声线胶囊条: 控制球簇【上方】一行(只在多变体时由视图自身显示)。
+            if let lv = attachments.entity(for: "langvoice") {
+                lv.position = SIMD3<Float>(0, -0.28, -0.95)
+                headAnchor.addChild(lv)
+            }
             content.add(headAnchor)
 
             // 3c) W964 — 空间菜单浮层: 浮在你正前方稍上, 默认隐藏, 点空间魔镜 logo 才显。
@@ -342,6 +347,10 @@ struct ImmersiveView: View {
             }
             Attachment(id: "welcome") {
                 CathedralWelcomeView()
+            }
+            // W1409 — 沉浸内【多语言/多声线胶囊条】(胶囊宪法: 共用轨道 + 各段图标+标签 + 激活高亮)。
+            Attachment(id: "langvoice") {
+                LangVoiceCapsuleBar().environmentObject(player)
             }
         }
         // 注视 + 捏合某块银幕 → 手动切激活屏(转头是自动, 这是手动备选)。

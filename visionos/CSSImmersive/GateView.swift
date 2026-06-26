@@ -286,20 +286,30 @@ struct GateView: View {
             let start = c + SIMD3<Float>(Float.random(in: -0.03...0.03), Float.random(in: -0.03...0.03), 0)
             node.position = start
             node.components.set(OpacityComponent(opacity: 0))
-            let delay = Double.random(in: 0 ... 1.0)
-            let dur = Double.random(in: 2.4...3.8)   // W1415 — 匹配影院前奏 emoji 速度(原 1.6~3.0 仍像子弹)
-            // 终点 = 从球心向用户(+Z)柔缓散开(行程缩短 → 同速更慢, 不再嗖一下)。
-            let end = c + SIMD3<Float>(Float.random(in: -0.5...0.5), Float.random(in: -0.4...0.45),
-                                       Float.random(in: 1.1...1.9))
+            // W1416 — Jing「像烟花从球心爆, 停留一下, 淡出」(同情绪字幕字心烟花, 不再飞穿用户):
+            //   ① 快速向四周【爆出】短距离 → ② 停留 → ③ 原地淡出。
+            let delay = Double.random(in: 0 ... 0.5)
+            let ang = Float.random(in: 0 ..< (2 * .pi))
+            let r = Float.random(in: 0.22...0.55)                       // 爆出半径(短, 留在球周围)
+            let end = c + SIMD3<Float>(cos(ang) * r, sin(ang) * r, Float.random(in: -0.05...0.30))
+            let expand = Double.random(in: 0.4...0.65)                  // ① 爆出(快)
+            let hold = Double.random(in: 0.5...1.2)                     // ② 停留
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 anchor.addChild(node)
                 node.components.set(OpacityComponent(opacity: Float.random(in: 0.85...1.0)))
-                CathedralFX.spinTumble(node, dur: dur + 0.5)   // 3D 轻翻滚
+                CathedralFX.spinTumble(node, dur: expand + hold + 1.2)  // 3D 轻翻滚
                 var t = node.transform
                 t.translation = end
-                node.move(to: t, relativeTo: anchor, duration: dur, timingFunction: .easeOut)
-                DispatchQueue.main.asyncAfter(deadline: .now() + dur - 0.6) { node.components.set(OpacityComponent(opacity: 0)) }
-                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.1) { node.removeFromParent() }
+                node.move(to: t, relativeTo: anchor, duration: expand, timingFunction: .easeOut)   // 爆出
+                Task { @MainActor in                                   // 停留 → 原地淡出
+                    try? await Task.sleep(nanoseconds: UInt64((expand + hold) * 1_000_000_000))
+                    for k in 0...18 {
+                        if node.scene == nil { return }
+                        node.components.set(OpacityComponent(opacity: Float(0.92 * (1 - Double(k) / 18))))
+                        try? await Task.sleep(nanoseconds: 48_000_000)   // ~0.9s 淡出
+                    }
+                    node.removeFromParent()
+                }
             }
         }
     }

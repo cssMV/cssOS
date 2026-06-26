@@ -108,13 +108,16 @@ struct LangVoiceCapsuleBar: View {
 
     var body: some View {
         if player.variants.count > 1 {
-            HStack(spacing: 4) {
+            // W1416 — Jing「胶囊与轨道零间隙→共用边框」: 去掉外 padding, 各段满高贴住轨道内沿,
+            //   激活段填满整条高度 + 外层 clipShape 把两头切成轨道圆角 = 零间隙共用边框。
+            HStack(spacing: 0) {
                 ForEach(Array(player.variants.enumerated()), id: \.offset) { i, v in
                     seg(i: i, v: v)
                 }
             }
-            .padding(6)
-            .background(.ultraThinMaterial, in: Capsule())          // 共用轨道
+            .frame(height: 60)
+            .background(.ultraThinMaterial)
+            .clipShape(Capsule())                                   // 段高亮裁进轨道圆角 → 零间隙共边
             .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 1))
         }
     }
@@ -128,13 +131,11 @@ struct LangVoiceCapsuleBar: View {
                 Text(icon).font(.system(size: 17))
                 Text(label).font(.system(size: 17, weight: .semibold, design: .rounded)).lineLimit(1)
             }
-            .padding(.horizontal, 20)
-            .frame(minHeight: 56)
-            .background { if active { Capsule().fill(Color.green.opacity(0.32)) } }
-            .overlay { if active { Capsule().strokeBorder(Color.green.opacity(0.7), lineWidth: 1.5) } }
+            .padding(.horizontal, 22)
+            .frame(maxHeight: .infinity)                            // 满高 → 贴住轨道上下沿(共边)
+            .background(active ? Color.green.opacity(0.30) : Color.clear)
             .foregroundStyle(active ? Color.green : .white.opacity(0.88))
-            .contentShape(Capsule())
-            .scaleEffect(active ? 1.06 : 1.0)                        // 激活段凸出在前
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .hoverEffect()

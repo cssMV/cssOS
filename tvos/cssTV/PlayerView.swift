@@ -63,17 +63,13 @@ struct PlayerView: View {
                 .clipped()
                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
-                // W1343 — 照桌面端 box-shadow: 0 0 22px green / 0 0 46px cyan: 亮绿锐边 + 多层向外散发的绿/青辉光。
-                let bg = Color(red: 0, green: 0.96, blue: 0.63)
-                let cy = Color(red: 0.04, green: 0.97, blue: 1)
-                Rectangle()
-                    .strokeBorder(bg, lineWidth: 3)
-                    .frame(width: geo.size.width, height: boxH)
-                    .shadow(color: bg.opacity(0.85), radius: 14)   // 内层强绿光
-                    .shadow(color: bg.opacity(0.6), radius: 30)    // 中层绿光
-                    .shadow(color: cy.opacity(0.45), radius: 50)   // 外层青光(往外散)
-                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                    .allowsHitTesting(false)
+                // W1348 — 取消静态绿光; 改为【边框进度条】(一字照搬桌面 app.watch-stage-bars.js):
+                //   沿 2.39 画框四周走一圈的描边, 长度 = 音频主时钟 currentTime/duration, 颜色 6 段流动 + 柔光。
+                if let ap = audioPlayer {
+                    BorderProgressBar(player: ap, width: geo.size.width, height: boxH)
+                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                        .allowsHitTesting(false)
+                }
             }
             .ignoresSafeArea()
 
@@ -225,6 +221,46 @@ struct PlayerView: View {
         videoPlayer?.pause(); videoPlayer = nil
         audioPlayer?.pause(); audioPlayer = nil
         try? AVAudioSession.sharedInstance().setActive(false)
+    }
+}
+
+/// W1348 — 边框进度条(照搬桌面 app.watch-stage-bars.js 的 .cssmv-border-bar)。
+///  · 沿 2.39 画框四周走一圈的圆角矩形描边, trim 长度 = 音频主时钟 currentTime/duration(0→1 绕一圈)。
+///  · 颜色: 6 段 seeded-hue 角向渐变缓慢流动(桌面"随机颜色波动"), 同色 drop-shadow 柔光向外散。
+///  · 未播/无时长 → trim=0 不显示(安静)。播完 → 满圈。【音频主时钟】铁律, 不读视频时钟。
+struct BorderProgressBar: View {
+    let player: AVPlayer
+    let width: CGFloat
+    let height: CGFloat
+
+    // 桌面同款 6 段色相偏移(app.watch-stage-bars.js HUE_OFFSETS)。
+    private static let hueOffsets: [Double] = [0, 36, 90, 180, 270, 360]
+    private func flowingColors(_ phase: Double) -> [Color] {
+        let seed = (phase * 18).truncatingRemainder(dividingBy: 360)   // 缓慢转色(~20s 一圈)
+        return Self.hueOffsets.map { off in
+            let h = (seed + off).truncatingRemainder(dividingBy: 360) / 360
+            return Color(hue: h, saturation: 0.92, brightness: 0.6)
+        }
+    }
+
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let phase = tl.date.timeIntervalSinceReferenceDate
+            let d = player.currentItem?.duration.seconds ?? 0
+            let t = player.currentTime().seconds
+            let prog = (d > 1 && t.isFinite && t >= 0) ? max(0, min(1, t / d)) : 0
+            let seedHue = (phase * 18).truncatingRemainder(dividingBy: 360) / 360
+            let glow = Color(hue: seedHue, saturation: 0.92, brightness: 0.62)
+            Rectangle()
+                .trim(from: 0, to: prog)
+                .stroke(
+                    AngularGradient(gradient: Gradient(colors: flowingColors(phase)), center: .center),
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+                )
+                .frame(width: width, height: height)
+                .shadow(color: glow.opacity(0.85), radius: 9)    // 内层柔光
+                .shadow(color: glow.opacity(0.5), radius: 22)     // 外层散光(向外发)
+        }
     }
 }
 

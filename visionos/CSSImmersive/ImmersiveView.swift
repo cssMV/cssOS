@@ -173,6 +173,7 @@ struct ImmersiveView: View {
     @State private var lastPetalAt: Date = .distantPast
     @State private var lastEmotion: String = ""
     @State private var lastBurstAt: Date = .distantPast   // W1070 — 判间奏(近期无爆字=器乐段)
+    @State private var diagText: String = ""              // W1411 — 临时诊断: 变体数/歌词token数
     @AppStorage("cssOrbSphere") private var orbSphere = false  // W1052 — 大厅 logo 金球: 平面/3D 球体
     @AppStorage("cssPetal3D") private var petal3D = false      // W1054 — 天女散花: emoji 卡 / 真 3D 网格
 
@@ -264,6 +265,10 @@ struct ImmersiveView: View {
                 lv.position = SIMD3<Float>(0, -0.28, -0.95)
                 headAnchor.addChild(lv)
             }
+            if let dg = attachments.entity(for: "diag") {   // W1411 — 顶部诊断读数
+                dg.position = SIMD3<Float>(0, 0.42, -1.1)
+                headAnchor.addChild(dg)
+            }
             content.add(headAnchor)
 
             // 3c) W964 — 空间菜单浮层: 浮在你正前方稍上, 默认隐藏, 点空间魔镜 logo 才显。
@@ -352,6 +357,16 @@ struct ImmersiveView: View {
             Attachment(id: "langvoice") {
                 LangVoiceCapsuleBar().environmentObject(player)
             }
+            // W1411 — 临时诊断读数(变体数/歌词token数), 几秒后自隐。
+            Attachment(id: "diag") {
+                if !diagText.isEmpty {
+                    Text(diagText)
+                        .font(.system(size: 22, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.yellow)
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(.black.opacity(0.55), in: Capsule())
+                }
+            }
         }
         // 注视 + 捏合某块银幕 → 手动切激活屏(转头是自动, 这是手动备选)。
         .gesture(
@@ -431,6 +446,18 @@ struct ImmersiveView: View {
             }
         }
         .onDisappear { player.pauseAll() }
+        // W1411 — 临时诊断: 进影院后读 player 实际拿到的变体数 + 当前变体逐字 token 数, 显示 14s。
+        .task(id: player.work?.id) {
+            diagText = ""
+            try? await Task.sleep(nanoseconds: 1_800_000_000)   // 等 enterCinema 注入完
+            let n = player.variants.count
+            let toks = (player.variants[safe: player.activeIndex]?.alignedLyrics ?? [])
+                .reduce(0) { $0 + ($1.tokens?.count ?? 0) }
+            let lns = (player.variants[safe: player.activeIndex]?.alignedLyrics ?? []).count
+            diagText = "DIAG  variants:\(n)  lines:\(lns)  tokens:\(toks)"
+            try? await Task.sleep(nanoseconds: 14_000_000_000)
+            diagText = ""
+        }
     }
 }
 

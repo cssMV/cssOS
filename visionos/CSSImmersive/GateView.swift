@@ -192,7 +192,9 @@ struct GateView: View {
         // W1410 — 情绪字幕 + 多语言胶囊【都能显示】的关键: 大厅作品 toWork 不带 variants/lyrics →
         //   进影院【前】用真 id 拉 subtitle JSON 一次给齐(各语言变体 + 逐字 orig 歌词), 注入后再 load,
         //   这样 ImmersiveView 建银幕/胶囊时就有多变体, 字幕也有逐字 token。无 subtitle JSON 的作品则照常单语言无字幕。
-        if (w.variants ?? []).isEmpty, let v = w.videoURL {
+        if (w.variants ?? []).isEmpty {
+            // W1411 — 别用 videoURL 守卫(纯音频/secure 视频作品 videoURL 可能为 nil → 被误挡)。歌词只需 workID。
+            let v = w.videoURL ?? w.audioURL ?? ""
             let langs = await CSSBackend.fetchLanguageVariants(workID: w.id, video: v, audio: w.audioURL ?? v)
             if !langs.isEmpty {
                 w.alignedLyrics = langs.first(where: { $0.id == "orig" })?.alignedLyrics ?? langs.first?.alignedLyrics
@@ -241,10 +243,10 @@ struct GateView: View {
     //   且光束飞完 → 直接显圣殿大门(浏览公开, 不卡登录), 同时静默走 Optic ID 同步收藏。
     private func runBeamRitual() {
         guard let anchor = refs.orbAnchor else { return }
-        // W1385 — 光束起点动态: 已在大厅(showLobby)→ 从【大厅顶部金球中心】射出; 还在大门 → 从 gate 金球中心射。
-        let origin = showLobby ? GateView.lobbyOrbCenter : GateView.orbCenter
         Task { @MainActor in
             for _ in 0..<10 {
+                // W1411 — 光点跟着金球【当前远近】射出: 每波读金球实时位置(dolly 推拉中也跟着走); 大厅态用大厅金球位。
+                let origin = showLobby ? GateView.lobbyOrbCenter : (refs.orb?.position ?? GateView.orbCenter)
                 fireWave(from: anchor, origin: origin)
                 try? await Task.sleep(nanoseconds: 550_000_000)
             }

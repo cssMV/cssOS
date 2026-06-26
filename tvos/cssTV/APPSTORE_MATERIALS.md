@@ -109,3 +109,33 @@ App id 6784525214 · tvOS 1.0 · Build **1.0 (2)** 已挂载 · 图标(分层)�
 5. 最后点 **Add for Review → Submit**
 
 > ⚠️ 教训:ASC 整页 Save 是原子的——任一必填项(如电话)报错,整页(含文本框)都不保存,表现为"文本框反复变空"。
+
+---
+
+## 7. ✅ ASC 全部填妥(2026-06-26)—— 只差点 "Add for Review → Submit"
+
+版本页 **"Unable to Add for Review" 报错已清空,"Add for Review" 按钮已变蓝可点**。全部必填项已保存:
+
+| 项 | 状态 |
+|---|---|
+| 截图 4 张(01 情绪字幕招牌打头) | ✅ |
+| Promotional Text / Description / Keywords / Support+Marketing URL | ✅ |
+| Copyright = `2026 CSS Studio` | ✅ |
+| Category = Entertainment / Music | ✅ |
+| **Pricing = Free**(175 国 $0.00,已 Confirm+Save) | ✅ |
+| Age Rating = **4+**(全 None/No,UGC=No 策展口径) | ✅ |
+| Content Rights = No(非第三方) | ✅ |
+| App Privacy 数据问卷(Email+UserID·App Functionality·关联身份·不追踪)+ **已 Published** | ✅ |
+| Privacy Policy URL `https://cssstudio.app/privacy.html` + **Apple TV 隐私政策全文**(tvOS 专用,已粘) | ✅ |
+| Review Notes(免内购/免账号即审/Top Shelf 放顶排)/ Contact(Jing Du · admin@cssstudio.app · 电话已补)/ Sign-in required = 取消 | ✅ |
+| App Encryption = "None of the algorithms"(免出口合规) | ✅ |
+| Build **1.0 (2)** 已挂 + 分层魔镜图标(Included Assets) | ✅ |
+
+### 唯一剩下(Jing 本人点):
+**版本页右上 "Add for Review" → Submit**(正式提交审核 = 发布动作,代填工具不代点)。
+
+### 收尾踩坑备忘
+- ASC 整页 Save 原子:任一必填(Copyright/电话)报错 → 整页含文本框都不存,表现为"文本框反复变空"。补齐必填后一次 Save 全保住。
+- 大 textarea(Promo/Description/Notes)要用真实键盘 type 填(form_input 设值不触发 React onChange);小 input/select 用 form_input 即可。
+- tvOS 图标不单独上传,来自 build 的分层 imagestack;ASC 头部小缩略图 build 处理完会自动刷出魔镜图。
+- tvOS 专用 "Apple TV Privacy Policy" 要在框里放**政策全文**(电视端读),不是 URL。

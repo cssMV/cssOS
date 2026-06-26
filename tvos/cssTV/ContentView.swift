@@ -126,8 +126,9 @@ struct ContentView: View {
                                 RailRow(rail: rail) { choose($0) }
                             }
                         }
-                        // W1341 — Jing: 不再分左右两栏(侧栏已绝对浮层)。内容通栏, 只让开折叠侧栏宽度(防第一张卡被盖)。
-                        .padding(.leading, sidebarCollapsedW + 24)
+                        // W1342 — Jing: 真通栏。侧栏竖列只到 Today's Picks, 卡片在其下方不会被盖 → 内容贴到最左,
+                        //   只留一点安全区(防电视过扫描切边)。
+                        .padding(.leading, 60)
                         .padding(.top, 28)
                         .ignoresSafeArea(.container, edges: .horizontal)
                     }

@@ -61,14 +61,17 @@ struct PlayerView: View {
                 .clipped()
                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
-                // W1334 — 照桌面端: 媒体框品牌绿描边 + 向外散发绿色辉光(box-shadow 0 0 22/46px green/cyan)。
-                Rectangle()
-                    .stroke(Color(red: 0, green: 0.96, blue: 0.63).opacity(0.6), lineWidth: 2)
-                    .frame(width: geo.size.width - 8, height: boxH - 4)
-                    .shadow(color: Color(red: 0, green: 0.96, blue: 0.63).opacity(0.55), radius: 22)
-                    .shadow(color: Color(red: 0.04, green: 0.97, blue: 1).opacity(0.35), radius: 46)
-                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                    .allowsHitTesting(false)
+                // W1340 — 照首页 hero focusGlow(锐边 + 厚模糊边), 但【往外发光】: 模糊绿边画在比框略大的矩形上,
+                //   模糊向外溢进上下黑边, 不盖视频。
+                let bg = Color(red: 0, green: 0.96, blue: 0.63)
+                ZStack {
+                    Rectangle().stroke(bg.opacity(0.75), lineWidth: 28).blur(radius: 22)   // 往外厚辉光
+                        .frame(width: geo.size.width + 26, height: boxH + 26)
+                    Rectangle().stroke(bg, lineWidth: 3)                                   // 锐利绿边
+                        .frame(width: geo.size.width, height: boxH)
+                }
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                .allowsHitTesting(false)
             }
             .ignoresSafeArea()
 
@@ -474,16 +477,15 @@ struct EmotionSubtitleOverlay: View {
         //   · 左/右竖排: 一律【上→下】(任何语言, 绝无下→上)。
         //   · 横排: 拉丁一律左→右; 亚洲可右→左(隔行)。
         let isCJK = tok.char.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
-        // W1338 — 半重叠: 每字步进(0.028)< 字宽 → 相邻字约半重叠; 居中成句; 加随机错落。
-        let advance = 0.028
-        var along = 0.5 + (Double(j) - Double(n - 1) / 2) * advance
-        along = min(max(along, 0.05), 0.95)
-        let frac = CGFloat(along)
-        let jit = CGFloat((CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.06)
+        // W1339 — 均匀铺满整条边【自适应】: 短句撑开不重叠; 长句字多→间距自然变小→自然半重叠(铺不下时才挤),
+        //   不再强制重叠。frac 沿边等分。
+        let m: CGFloat = 0.05
+        let frac = CGFloat(m) + CGFloat((Double(j) + 0.5) / Double(n)) * (1 - 2 * CGFloat(m))
+        let jit = CGFloat((CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.05)
         let edge = li % 4   // 所有语言都用四边
         switch edge {
         case 0:  // 上 横排
-            let f = (isCJK && li % 8 >= 4) ? 1 - frac : frac   // 亚洲隔行可右→左
+            let f = (isCJK && li % 8 >= 4) ? (1 - frac) : frac   // 亚洲隔行可右→左
             return CGPoint(x: size.width * f, y: size.height * (0.16 + jit))
         case 1:  // 下 横排(一律左→右)
             return CGPoint(x: size.width * frac, y: size.height * (0.84 + jit))

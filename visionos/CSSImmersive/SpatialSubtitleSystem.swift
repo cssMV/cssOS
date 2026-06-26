@@ -197,7 +197,7 @@ enum SpatialSubtitleSystem {
     private static var lineOrder: [Int] = []
 
     /// 取/建某行的容器(挂在 root, 自身 OpacityComponent 控整行淡出 = RealityKit 层级透明度)。
-    @MainActor static func lineContainer(_ idx: Int, in root: Entity) -> Entity {
+    static func lineContainer(_ idx: Int, in root: Entity) -> Entity {
         if let c = lineContainers[idx], c.scene != nil { return c }
         let c = Entity()
         c.components.set(OpacityComponent(opacity: 1))
@@ -212,7 +212,7 @@ enum SpatialSubtitleSystem {
     }
 
     /// 整行字【一起淡出】(~1.1s)再回收 —— 行尾由 PlayerController.lineFadeSubject 触发。
-    @MainActor static func fadeLine(_ idx: Int, in root: Entity) {
+    static func fadeLine(_ idx: Int, in root: Entity) {
         guard let c = lineContainers[idx] else { return }
         lineContainers[idx] = nil
         lineOrder.removeAll { $0 == idx }
@@ -228,7 +228,7 @@ enum SpatialSubtitleSystem {
     }
 
     /// 换作品/进影院 → 清空所有行容器(防跨作品残留)。
-    @MainActor static func reset(in root: Entity) {
+    static func reset(in root: Entity) {
         lineContainers.removeAll(); lineOrder.removeAll()
         root.children.forEach { $0.removeFromParent() }
     }

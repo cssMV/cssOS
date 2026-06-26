@@ -159,9 +159,10 @@ enum MagicMirrorOrb {
                 let breatheAmp = 0.09 + 0.04 * (energy / 4.4)    // W1389 — 呼吸幅度再调大(还不明显 → 0.055→0.09)
                 let breathe = 1.0 + breatheAmp * sin(t * (1.4 + energy * 0.7))
                 root.scale = [breathe, breathe, breathe]
-                // W1403 — Jing「远到和星星一样, 不小心以为是一颗星」: 非对称推拉, 近~0.4m 到眼前 → 远~8m 混进星里。
+                // W1405 — 近~0.4m 到眼前 → 远~8m 混进星里; 【默认起点(t=0)= 欢迎词那么远近(z=bp.z≈-1.44)】,
+                //   一进来就看见金球(不是飘在天边像没有)。相位偏移 -0.8125 使 t=0 时 ph≈0.137 → z=bp.z。
                 if let bp = basePos {
-                    let ph = (sin(t * 0.38) + 1) * 0.5    // 0..1, 慢
+                    let ph = (sin(t * 0.38 - 0.8125) + 1) * 0.5    // 0..1, 慢; t=0→0.137
                     let zNear: Float = -0.40
                     let zFar: Float = -8.0
                     let z = zNear + (zFar - zNear) * ph

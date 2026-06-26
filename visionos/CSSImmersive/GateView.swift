@@ -191,6 +191,12 @@ struct GateView: View {
         player.load(work)                      // 装载作品(ImmersiveView 读同一 PlayerController)
         settings.hasEnteredOnce = true
         withAnimation(.easeInOut(duration: 0.35)) { showCinema = true }   // 同空间内切到影院(零空间切换)
+        // W1405 — 情绪字幕能显示的关键: 大厅/市场作品不带 aligned_lyrics → 进影院后异步拉 subtitle JSON 注入。
+        if (work.alignedLyrics ?? []).isEmpty {
+            if let lines = await CSSBackend.fetchAlignedLyrics(workID: work.id), !lines.isEmpty {
+                player.applyAlignedLyrics(lines)
+            }
+        }
     }
 
     // W1382 — 咒语创作(原 ContentView.startSpell 搬来): 进度走 CreationOrbView attachment。

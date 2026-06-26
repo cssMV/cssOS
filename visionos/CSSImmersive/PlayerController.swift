@@ -75,6 +75,14 @@ final class PlayerController: ObservableObject {
         startHeadTracking()
     }
 
+    /// W1405 — 情绪字幕能显示的关键: 大厅/市场作品不带 aligned_lyrics(toWork 为 nil), 进影院后异步拉
+    ///   subtitle JSON 注入 → 逐字 token 有了, 字幕时钟下一 tick 即开始爆字。
+    func applyAlignedLyrics(_ lines: [SubtitleLine]) {
+        guard !lines.isEmpty else { return }
+        for i in variants.indices { variants[i].alignedLyrics = lines }   // 各变体先共用 orig(多语言以后细分)
+        buildFireTokens()   // 重建发射表; timeObserver 已在跑, 下一 tick 生效
+    }
+
     /// CSSOS_WAVE_939 — SharePlay 媒体同步用: 当前激活屏的画面播放器。
     var activeVideoPlayer: AVPlayer? { videoPlayers[safe: activeIndex] }
 

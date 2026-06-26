@@ -287,10 +287,10 @@ struct GateView: View {
             node.position = start
             node.components.set(OpacityComponent(opacity: 0))
             let delay = Double.random(in: 0 ... 1.0)
-            let dur = Double.random(in: 1.6...3.0)   // 慢飘(像前奏 emoji 飘进, 不是子弹)
-            // 终点 = 从球心向用户(+Z)柔缓散开穿过。
-            let end = c + SIMD3<Float>(Float.random(in: -0.6...0.6), Float.random(in: -0.45...0.5),
-                                       Float.random(in: 1.6...2.6))
+            let dur = Double.random(in: 2.4...3.8)   // W1415 — 匹配影院前奏 emoji 速度(原 1.6~3.0 仍像子弹)
+            // 终点 = 从球心向用户(+Z)柔缓散开(行程缩短 → 同速更慢, 不再嗖一下)。
+            let end = c + SIMD3<Float>(Float.random(in: -0.5...0.5), Float.random(in: -0.4...0.45),
+                                       Float.random(in: 1.1...1.9))
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 anchor.addChild(node)
                 node.components.set(OpacityComponent(opacity: Float.random(in: 0.85...1.0)))

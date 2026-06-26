@@ -33003,8 +33003,10 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
          mp.tips_enabled,
          mp.visibility,
          mp.rights_scope,
-         final_mv_asset.url AS final_mv_url,
-         audio_track_1_asset.url AS audio_track_1_url,
+         -- CSSOS_WAVE_1346 — 多部子作品可播字段根治: 媒体常在 preview 列(非 work_assets)→ coalesce 兜底,
+         --   否则 children 的 audio/mv URL 为空 → 桌面端连播断在第二部(market_children_must_carry_playable_fields)。
+         COALESCE(final_mv_asset.url, w.preview_video_url) AS final_mv_url,
+         COALESCE(audio_track_1_asset.url, w.preview_audio_url) AS audio_track_1_url,
          audio_track_2_asset.url AS audio_track_2_url,
          subtitle_asset.url AS subtitle_srt_url
        FROM user_works w
@@ -33082,8 +33084,10 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          mp.tips_enabled,
          mp.visibility,
          mp.rights_scope,
-         final_mv_asset.url AS final_mv_url,
-         audio_track_1_asset.url AS audio_track_1_url,
+         -- CSSOS_WAVE_1346 — 多部子作品可播字段根治: 媒体常在 preview 列(非 work_assets)→ coalesce 兜底,
+         --   否则 children 的 audio/mv URL 为空 → 桌面端连播断在第二部(market_children_must_carry_playable_fields)。
+         COALESCE(final_mv_asset.url, w.preview_video_url) AS final_mv_url,
+         COALESCE(audio_track_1_asset.url, w.preview_audio_url) AS audio_track_1_url,
          audio_track_2_asset.url AS audio_track_2_url,
          subtitle_asset.url AS subtitle_srt_url
        FROM user_works w

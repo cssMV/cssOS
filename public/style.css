@@ -13075,13 +13075,12 @@ html[data-theme="light"] .cssos-lang-badge {
   position: absolute;
   /* CSSOS_WAVE_1254 — Jing「胶囊离底太高(给 Next up 占位却空着)」: 76px→44px, 落到传统字幕之上。 */
   bottom: calc(env(safe-area-inset-bottom, 20px) + 44px);
-  /* CSSOS_WAVE_1256 — Jing「胶囊往左缩短, 右端让开右轨」根治: 原来 left:50% 居中 → 缩宽度两头一起缩,
-     右端仍在中线区够到右轨。改成【右端锚定 right:66px(清掉右轨 14+46px)、往左生长】, 绝不压右轨。 */
-  left: auto;
-  right: 66px;
-  transform: none;
+  /* CSSOS_WAVE_1345 — Jing「胶囊跑右下角, 恢复到中间」: 撤销 W1256 的右锚定, 回【水平居中】(left:50%+translateX)。 */
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
   width: auto;
-  max-width: min(78%, 560px);
+  max-width: min(86%, 720px);
   margin: 0 !important;
   height: 36px;
   min-height: 36px;

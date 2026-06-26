@@ -62,8 +62,12 @@ cssWatch 是 cssOS 的 Apple Watch 伴侣 —— 纯粹、好看地欣赏。
 
 ## 截图 (Screenshots)
 - 尺寸: 模拟器 Apple Watch Series 11 46mm 原生 **416×496**(对应 ASC 的 46mm 槽位; 若 ASC 要别的尺寸, 换对应 watch 模拟器重截)。
-- 已截备选(scratchpad/shot4, shot8 = 封面+樱花殿宇+对称角标; 还需 1 张爆字招牌图 + 可选 1 张器乐四边 emoji + 1 张魔镜启动)。
-- 建议 3~5 张: ①爆字招牌 ②封面幻灯 ③器乐 emoji 飘入 ④(可选)魔镜启动金球。
+- **已选定 5 张(W1441, scratchpad 模拟器原生 416×496)**:
+  1. **爆字招牌(主图)** `v24.png` —「lost,」绿字撞顶边框 + ✦火花 + 🔥(招牌情绪字幕,最强)。备选 `v12.png`(品红「obscu」+🌊🔥)、`v28.png`(青「has」+🌸🌸)。
+  2. **封面幻灯** `shot4.png` / `shot8.png` — 孔子/书院 + 樱花殿宇,正方裁切,对称角标(系统时间/倒计时同行)。
+  3. **器乐四边 emoji** — 可从「The Sea of Chaos」器乐段截(海浪封面 + 飘入 emoji)。
+  4. **魔镜启动** — 加载态金球(可选)。
+- ⚠️ 上架前**最好用真机重截**一遍(真机走 webp 原图、字体渲染更准),模拟器图先占位/审稿用。
 
 ## 加密合规 (Export Compliance)
 - 仅用 https(标准加密), 选 "None of the algorithms" / 标准加密豁免(同 cssTV)。

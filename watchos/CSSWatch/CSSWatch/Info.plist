@@ -22,11 +22,7 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>WKApplication</key>
 	<true/>
-	<key>WKWatchOnly</key>
-	<true/>
-	<key>WKBackgroundModes</key>
-	<array>
-		<string>audio</string>
-	</array>
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>app.cssstudio.watch</string>
 </dict>
 </plist>

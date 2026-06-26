@@ -14,10 +14,14 @@
 		BF0100000000000000000005 /* WatchPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR0100000000000000000005 /* WatchPlayer.swift */; };
 		BF0100000000000000000006 /* MiniEmotionSubtitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR0100000000000000000006 /* MiniEmotionSubtitle.swift */; };
 		BF0100000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FR01000000000000000000A5 /* Assets.xcassets */; };
+		BF0200000000000000000001 /* HostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR0200000000000000000001 /* HostApp.swift */; };
+		BF0200000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FR02000000000000000000A5 /* Assets.xcassets */; };
+		BF0200000000000000000009 /* CSSWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 00000000000000000000A001 /* CSSWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		00000000000000000000A001 /* CSSWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CSSWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		00000000000000000000A002 /* CSSWatchHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CSSWatchHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FR0100000000000000000001 /* CSSWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSWatchApp.swift; sourceTree = "<group>"; };
 		FR0100000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		FR0100000000000000000003 /* WatchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModels.swift; sourceTree = "<group>"; };
@@ -25,6 +29,8 @@
 		FR0100000000000000000005 /* WatchPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchPlayer.swift; sourceTree = "<group>"; };
 		FR0100000000000000000006 /* MiniEmotionSubtitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniEmotionSubtitle.swift; sourceTree = "<group>"; };
 		FR01000000000000000000A5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FR0200000000000000000001 /* HostApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostApp.swift; sourceTree = "<group>"; };
+		FR02000000000000000000A5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -42,9 +48,19 @@
 			path = CSSWatch;
 			sourceTree = "<group>";
 		};
+		GRP200000000000000000001 /* CSSWatchHost */ = {
+			isa = PBXGroup;
+			children = (
+				FR0200000000000000000001 /* HostApp.swift */,
+				FR02000000000000000000A5 /* Assets.xcassets */,
+			);
+			path = CSSWatchHost;
+			sourceTree = "<group>";
+		};
 		PROD10000000000000000001 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				00000000000000000000A002 /* CSSWatchHost.app */,
 				00000000000000000000A001 /* CSSWatch.app */,
 			);
 			name = Products;
@@ -53,6 +69,7 @@
 		MAIN10000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				GRP200000000000000000001 /* CSSWatchHost */,
 				GRP100000000000000000001 /* CSSWatch */,
 				PROD10000000000000000001 /* Products */,
 			);
@@ -77,6 +94,24 @@
 			productReference = 00000000000000000000A001 /* CSSWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
+		TGT200000000000000000001 /* CSSWatchHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = TCL200000000000000000001 /* Build configuration list for PBXNativeTarget "CSSWatchHost" */;
+			buildPhases = (
+				SRCS20000000000000000001 /* Sources */,
+				RSRC20000000000000000001 /* Resources */,
+				EMBD20000000000000000001 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DEP200000000000000000001 /* PBXTargetDependency */,
+			);
+			name = CSSWatchHost;
+			productName = CSSWatchHost;
+			productReference = 00000000000000000000A002 /* CSSWatchHost.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -87,6 +122,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					TGT100000000000000000001 = {
+						ProvisioningStyle = Automatic;
+					};
+					TGT200000000000000000001 = {
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -105,6 +143,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				TGT200000000000000000001 /* CSSWatchHost */,
 				TGT100000000000000000001 /* CSSWatch */,
 			);
 		};
@@ -124,6 +163,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		SRCS20000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF0200000000000000000001 /* HostApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -135,7 +182,47 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		RSRC20000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF0200000000000000000005 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		EMBD20000000000000000001 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				BF0200000000000000000009 /* CSSWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		CIP200000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = PROJ10000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = TGT100000000000000000001;
+			remoteInfo = CSSWatch;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		DEP200000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = TGT100000000000000000001 /* CSSWatch */;
+			targetProxy = CIP200000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		PD0100000000000000000001 /* Debug */ = {
@@ -154,11 +241,9 @@
 					"DEBUG=1",
 				);
 				ONLY_ACTIVE_ARCH = YES;
-				SDKROOT = watchos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Debug;
 		};
@@ -172,11 +257,9 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				SDKROOT = watchos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
 		};
@@ -189,14 +272,11 @@
 				DEVELOPMENT_TEAM = QBG9PRVBYZ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = CSSWatch/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "CSS Watch";
-				INFOPLIST_KEY_WKApplication = YES;
-				INFOPLIST_KEY_WKWatchOnly = YES;
-				INFOPLIST_KEY_WKBackgroundModes = audio;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.watch;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.watch.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
@@ -212,17 +292,64 @@
 				DEVELOPMENT_TEAM = QBG9PRVBYZ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = CSSWatch/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "CSS Watch";
-				INFOPLIST_KEY_WKApplication = YES;
-				INFOPLIST_KEY_WKWatchOnly = YES;
-				INFOPLIST_KEY_WKBackgroundModes = audio;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.watch;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.watch.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		TD0200000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QBG9PRVBYZ;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = cssWatch;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.watch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		TR0200000000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QBG9PRVBYZ;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = cssWatch;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.watch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -243,6 +370,15 @@
 			buildConfigurations = (
 				TD0100000000000000000001 /* Debug */,
 				TR0100000000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		TCL200000000000000000001 /* Build configuration list for PBXNativeTarget "CSSWatchHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				TD0200000000000000000001 /* Debug */,
+				TR0200000000000000000001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

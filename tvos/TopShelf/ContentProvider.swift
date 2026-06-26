@@ -16,7 +16,7 @@ final class ContentProvider: TVTopShelfContentProvider {
                 let item = TVTopShelfCarouselItem(identifier: w.id)
                 item.title = w.title
                 if let s = w.style, !s.isEmpty { item.summary = s }   // 风格当简介
-                item.imageShape = .hdtv                                // 16:9 大幅(影院感)
+                // carousel item 大图为系统固定宽幅(无 imageShape, 自动 16:9 大幅)。
                 if let c = w.cover, let url = URL(string: c) {
                     item.setImageURL(url, for: [.screenScale1x, .screenScale2x])
                 }

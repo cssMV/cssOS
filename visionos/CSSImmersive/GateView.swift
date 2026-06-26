@@ -90,11 +90,14 @@ struct GateView: View {
         }
         // W1379 — 捏金球(纯捏, 不移动)→ 发射光点。SpatialTapGesture 才识别纯捏(DragGesture 需移动→纯捏不触发, 这是 W1377 进不了门的真凶)。
         // W1384 — 手势【只盯金球】(.has(GateOrbMarker)), 不再 targetedToAnyEntity → 大厅卡片的捏不再被截走。
+        // W1385 — 大厅态把金球手势【让位给子视图(卡片)】: including:.subviews → RealityView 自身手势停用,
+        //   大厅 attachment 里卡片的 onTapGesture 才能收到捏。大门态 .all → 金球手势正常。这是"捏不进卡片"真凶。
         .gesture(
             SpatialTapGesture().targetedToEntity(where: .has(GateOrbMarker.self)).onEnded { _ in
                 bumpSpin()                                  // 捏瞬间转速猛增(发力感)
                 if !router.fireBeams { router.fireBeams = true }
-            }
+            },
+            including: showLobby ? .subviews : .all
         )
         // 捏住金球【移动】→ 整个门(魔镜+大厅同锚)自由跟手走(3D)。minDist 大 → 纯捏让给上面的 tap。
         .simultaneousGesture(
@@ -105,7 +108,8 @@ struct GateView: View {
                     if dragBase == nil { dragBase = anchor.position(relativeTo: nil) - cur }
                     anchor.setPosition(dragBase! + cur, relativeTo: nil)
                 }
-                .onEnded { _ in dragBase = nil }
+                .onEnded { _ in dragBase = nil },
+            including: showLobby ? .subviews : .all
         )
         .onChange(of: router.fireBeams) { _, want in
             guard want else { return }
@@ -185,9 +189,11 @@ struct GateView: View {
     //   且光束飞完 → 直接显圣殿大门(浏览公开, 不卡登录), 同时静默走 Optic ID 同步收藏。
     private func runBeamRitual() {
         guard let anchor = refs.orbAnchor else { return }
+        // W1385 — 光束起点动态: 已在大厅(showLobby)→ 从【大厅顶部金球中心】射出; 还在大门 → 从 gate 金球中心射。
+        let origin = showLobby ? GateView.lobbyOrbCenter : GateView.orbCenter
         Task { @MainActor in
             for _ in 0..<10 {
-                fireWave(from: anchor)
+                fireWave(from: anchor, origin: origin)
                 try? await Task.sleep(nanoseconds: 550_000_000)
             }
             withAnimation(.easeInOut(duration: 0.45)) { showLobby = true }   // 光点散 → 圣殿大门浮现
@@ -198,6 +204,8 @@ struct GateView: View {
 
     /// 金球所在(gate anchor 局部坐标): 与 body 里 orb.position 一致。
     private static let orbCenter = SIMD3<Float>(0, 0.12, -1.4)
+    /// W1385 — 大厅顶部金球中心(LobbyView 面板 [0,-0.32,-1.45], 金球在面板顶部 → 约高 0.18m)。
+    private static let lobbyOrbCenter = SIMD3<Float>(0, -0.14, -1.44)
 
     /// 一波光束: 随机数量、随机色, 从眼前真冲进眼心、穿到脑后(快 = "射")。
     /// CSSOS_WAVE_1096 — Jing「光束太规则显假, 要像影视剧扫描眼睛那种不规则光束」:
@@ -206,8 +214,8 @@ struct GateView: View {
     ///   明暗不一, 像扫描光。
     /// W1378 — 一波光点: 全部【从金球中心射出】, 向用户方向(+Z)冲并散开穿过。每颗大小/速度/
     ///   起射时刻/明暗/颜色各异。锚在世界固定的 gate anchor, 用户转头光束不跟随。
-    @MainActor private func fireWave(from anchor: Entity) {
-        let c = GateView.orbCenter
+    @MainActor private func fireWave(from anchor: Entity, origin: SIMD3<Float>) {
+        let c = origin
         let n = Int.random(in: 22...40)
         for _ in 0..<n {
             let color = UIColor(hue: CGFloat.random(in: 0...1),

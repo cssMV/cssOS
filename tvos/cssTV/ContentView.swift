@@ -81,12 +81,14 @@ struct ContentView: View {
     @State private var selected: CSSWork?
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
+    @State private var showCreate = false               // W1259 创作台
     @State private var showSearch = false               // W1277 搜索
     @Namespace private var focusNS
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
 
-    // W1367 — tvOS 纯欣赏: 直接进影院(无创作、无 gating)。
+    // W1249/1259 — 创作尾卡 → 创作台; 否则 gating(免费/已拥有直接播; 收费未拥有 → 弹门)。
     private func choose(_ w: CSSWork) {
+        if w.isCreateCard { showCreate = true; return }
         Task {
             let h = await CSSBackend.hydrate(w)
             selected = h   // W1365 — TV 全免费: 直接进影院, 不再 gate
@@ -98,9 +100,10 @@ struct ContentView: View {
         if cat == .all { return allWorks }
         return allWorks.filter { cat.matches.contains(($0.workType ?? "").lowercased()) }
     }
-    // W1367 — Jing/App Store 3.1.1: tvOS 纯欣赏, 移除创作。hero 不再追加创作卡。
+    // W1259 — hero 末尾追加一张创作卡(「Want an MV like this?」)。
     private var featured: [CSSWork] {
-        Array(works(for: category).prefix(5))
+        let real = Array(works(for: category).prefix(5))
+        return real.isEmpty ? [] : real + [CSSWork.createCard]
     }
     private var rails: [CSSRail] {
         if category == .all { return CSSBackend.buildRails(allWorks) }
@@ -149,7 +152,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS)
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onCreate: { showCreate = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                 .focusSection()
         }
@@ -163,6 +166,9 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $showLogin) {
             LoginView(auth: auth)
+        }
+        .fullScreenCover(isPresented: $showCreate) {
+            CreateView(auth: auth)
         }
         .fullScreenCover(isPresented: $showSearch) {
             SearchView(allWorks: allWorks) { w in showSearch = false; choose(w) }
@@ -291,6 +297,7 @@ struct CategorySidebar: View {
     @Binding var selected: HomeCategory?       // W1260 — nil = 不高亮(Home 不默认)
     @ObservedObject var auth: CSSAuth          // W1249 登录态
     var onLoginTap: () -> Void
+    var onCreate: () -> Void                   // W1259 创作入口
     var onSearch: () -> Void                   // W1277 搜索入口
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
     var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
@@ -335,7 +342,10 @@ struct CategorySidebar: View {
                     selected = cat
                 }
                 .prefersDefaultFocus(cat == .all, in: sidebarNS)   // W1283 — Home = 侧栏默认目标(hero 往左跳回它)
-                // W1367 — tvOS 纯欣赏: 移除侧栏「Create」创作入口。
+                // W1259 — 「✨ Create」创作入口, 放在 Trilogy 之下(Jing 指定)。
+                if cat == .trilogy {
+                    row(icon: "wand.and.stars", label: "Create", item: .create) { onCreate() }
+                }
             }
             Spacer()
         }
@@ -396,6 +406,7 @@ struct CategorySidebar: View {
         var arr: [SidebarItem] = [.avatar, .favorites, .search]
         for cat in HomeCategory.allCases {
             arr.append(.category(cat))
+            if cat == .trilogy { arr.append(.create) }
         }
         return arr
     }

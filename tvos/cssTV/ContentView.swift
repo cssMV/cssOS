@@ -6,6 +6,7 @@
 import SwiftUI
 import Combine
 import UIKit   // W1251 — UIApplication.isIdleTimerDisabled(禁屏保)
+import AVFoundation   // W1358 — hero 焦点静音预览(AVPlayer)
 
 /// W1232 — 左侧分类(映射 work_type)。
 enum HomeCategory: String, CaseIterable, Identifiable {
@@ -507,6 +508,11 @@ struct FeaturedHero: View {
     @State private var breathe = false               // W1284 — 下一个胶囊边框呼吸
     @State private var didInitFocus = false           // W1347 — 启动只强制一次初始焦点(绝不反复踢侧栏)
     @State private var kenBurns = false               // W1357 — 聚焦 hero 时封面缓慢推拉(Ken Burns)
+    // W1358 — 焦点静音预览(HBO 顶部那条): 聚焦停留 1.2s → 该 MV 静音循环; 失焦/换枝即销毁。
+    @State private var previewPlayer: AVPlayer?
+    @State private var previewWorkId: String?
+    @State private var previewLoopObs: NSObjectProtocol?
+    @State private var dwellWork: DispatchWorkItem?
 
     // W1357 — Apple/HBO 式焦点渐显: hero 被"hover"(=Play 或任一胶囊聚焦)即视为选中态。
     //   焦点在 hero → 元信息渐显 + Ken Burns 推拉 + 压暗加深; 焦点移到 rails/侧栏 → 全部收起。
@@ -520,6 +526,35 @@ struct FeaturedHero: View {
         }
         if !current.durationLabel.isEmpty { parts.append(current.durationLabel) }
         return parts.joined(separator: "   ·   ")
+    }
+
+    // W1358 — 焦点静音预览: 防抖 1.2s 后启动, 失焦/换枝/离场即彻底销毁(避开旧 TimelineView 抢焦点+内存坑:
+    //   这里用 AVPlayerLayer 直出, 不跑逐帧 SwiftUI; 且只在真有视频(bestVideo)时启, 幻灯片作品不启)。
+    private func cancelHeroPreview() {
+        dwellWork?.cancel(); dwellWork = nil
+        if let o = previewLoopObs { NotificationCenter.default.removeObserver(o); previewLoopObs = nil }
+        previewPlayer?.pause()
+        previewPlayer = nil
+        previewWorkId = nil
+    }
+    private func scheduleHeroPreview() {
+        cancelHeroPreview()
+        guard !current.isCreateCard, let v = current.bestVideo, let url = URL(string: v) else { return }
+        let wid = current.id
+        let work = DispatchWorkItem {
+            guard heroFocused, current.id == wid else { return }   // 1.2s 后仍聚焦同一枝才启
+            let p = AVPlayer(url: url)
+            p.isMuted = true                                       // 画音分层: 预览只放静音视觉
+            previewLoopObs = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime, object: p.currentItem, queue: .main) { _ in
+                    p.seek(to: .zero); p.play()                    // 循环
+                }
+            previewPlayer = p
+            previewWorkId = wid
+            p.play()
+        }
+        dwellWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
     }
     private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
 
@@ -713,6 +748,16 @@ struct FeaturedHero: View {
                     // W1357 — Ken Burns: 封面极缓推拉(8s 一来回, 常驻一次性点火), 营造"活着"的呼吸感。
                     .scaleEffect(kenBurns ? 1.05 : 1.0)
                     .animation(.easeInOut(duration: 8).repeatForever(autoreverses: true), value: kenBurns)
+                    // W1358 — 焦点静音预览: 启动后盖在封面上(仅当前枝), 失焦/换枝即销毁回封面。
+                    .overlay {
+                        if let pp = previewPlayer, previewWorkId == current.id {
+                            VideoSurface(player: pp)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .clipped()
+                                .transition(.opacity)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 }
                 .id(current.id)
                 .transition(.opacity)
@@ -740,6 +785,16 @@ struct FeaturedHero: View {
                 pauseAutoUntil = Date().addingTimeInterval(10)
             }
         }
+        // W1358 — 焦点静音预览生命周期: 聚焦 hero → 防抖启动; 失焦 → 立即销毁。
+        .onChange(of: heroFocused) { _, f in
+            if f { scheduleHeroPreview() } else { cancelHeroPreview() }
+        }
+        // 换枝(聚焦切胶囊 / 自动轮播)→ 先销毁旧预览, 若仍聚焦再为新枝防抖启动。
+        .onChange(of: index) { _, _ in
+            cancelHeroPreview()
+            if heroFocused { scheduleHeroPreview() }
+        }
+        .onDisappear { cancelHeroPreview() }
         .onReceive(timer) { _ in
             if focusedCap != nil { return }                           // 用户正在操作胶囊, 不自动切
             if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切

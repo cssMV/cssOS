@@ -415,8 +415,11 @@ struct ImmersiveView: View {
             if Date().timeIntervalSince(lastBurstAt) > 1.6 {
                 instrPhase += 1.4
                 let p = instrPhase
-                let env = Float(0.5 + 0.30 * sin(p * 0.5) + 0.15 * sin(p * 1.7 + 1.1) + 0.05 * sin(p * 3.3))
-                let e = max(0.05, min(1, env))
+                let s1 = sin(p * 0.5)
+                let s2 = sin(p * 1.7 + 1.1)
+                let s3 = sin(p * 3.3)
+                let envD: Double = 0.5 + 0.30 * s1 + 0.15 * s2 + 0.05 * s3
+                let e = Float(max(0.05, min(1.0, envD)))
                 let count = 2 + Int(e * 11)   // 能量越大涌入越多
                 CathedralFX.musicEdgeEmoji(into: fxRoot, emotion: lastEmotion.isEmpty ? "calm" : lastEmotion,
                                            count: count, around: player.headPos, energy: e)

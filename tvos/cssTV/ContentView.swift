@@ -607,7 +607,8 @@ struct FeaturedHero: View {
         .frame(height: capH)
         .background(ConcavePill(side: side).fill(breathingFill))   // W1285 — 内呼吸(填充色微脉动)
         .overlay(ConcavePill(side: side).stroke(active ? Color.clear : Color.white.opacity(0.10), lineWidth: active ? 0 : 1))
-        .overlay(ConcavePill(side: side).stroke(focused ? brandGreen : Color.clear, lineWidth: focused ? 3 : 0))  // 聚焦
+        // W1350 — Jing: 删去聚焦时的额外绿描边。聚焦胶囊永远=激活胶囊(已绿填充), 轨道本身有边框, 再描一圈纯属重复。
+        //   聚焦反馈仅靠放大即可。
         .scaleEffect(focused ? 1.08 : 1.0)
     }
 
@@ -849,9 +850,10 @@ struct WorkCard: View {
                 }
             }
             .frame(width: cardWidth, height: coverH)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            // W1350 — Jing: 卡片封面只圆【上边】两角, 下边方角(下方紧接标题/时长等内容, 圆角会割裂)。
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16))
             .overlay(work.isCreateCard
-                ? RoundedRectangle(cornerRadius: 16).stroke(brandGreen.opacity(0.5), lineWidth: 2) : nil)
+                ? UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16).stroke(brandGreen.opacity(0.5), lineWidth: 2) : nil)
 
                 // W1326 — 右上类型徽章(多部才显)。
                 if work.isMultiPart {

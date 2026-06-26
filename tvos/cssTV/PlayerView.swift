@@ -41,7 +41,6 @@ struct PlayerView: View {
     // W1364 — 多语言/多声线: 影院右下语言胶囊, 热切音频+字幕, 母语默认锁定。
     @State private var langTracks: [CSSBackend.CSSLangTrack] = []
     @State private var selectedTrackId: String?
-    @FocusState private var langPillFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     // W1329 — 连播队列(多部=各 part; 单曲=自己一首)+ 当前 part。
@@ -120,35 +119,27 @@ struct PlayerView: View {
                 .transition(.opacity)
             }
 
-            // W1364 — 多语言/多声线胶囊(右下角), ≥2 条可播轨才显示。母语默认锁定+高亮。
+            // W1366 — 多语言/多声线: 胶囊宪法(像 hero 那样的两头圆胶囊), ≥2 条可播轨才显示。
+            //   位置: 放在 2.39 视频框【下边缘之下】的黑边里, 绝不压到画框。母语🔒默认高亮。
             if langTracks.count >= 2 {
-                VStack {
-                    Spacer()
+                GeometryReader { geo in
+                    let boxBottom = geo.size.height / 2 + (geo.size.width / 2.39) / 2   // 视频框下边缘 y
                     HStack {
                         Spacer()
-                        HStack(spacing: 10) {
-                            Image(systemName: "globe").font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.7))
+                        HStack(spacing: 12) {
+                            Image(systemName: "globe").font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.65))
                             ForEach(langTracks) { tr in
-                                let on = tr.id == selectedTrackId
-                                Button { switchTrack(tr) } label: {
-                                    HStack(spacing: 4) {
-                                        if tr.isDefault { Image(systemName: "lock.fill").font(.system(size: 12)) }
-                                        Text(tr.label).font(.system(size: 20, weight: on ? .bold : .medium))
-                                    }
-                                    .padding(.horizontal, 16).padding(.vertical, 9)
-                                    .background(Capsule().fill(on ? Color.green.opacity(0.9) : Color.white.opacity(0.14)))
-                                    .foregroundStyle(on ? Color.black : Color.white)
-                                }
-                                .buttonStyle(.plain)
+                                langCapsule(tr)
                             }
                         }
-                        .padding(.horizontal, 18).padding(.vertical, 10)
-                        .background(Capsule().fill(.black.opacity(0.5)))
                         .focusSection()
-                        .padding(.trailing, 56).padding(.bottom, 44)
+                        .padding(.trailing, 56)
                     }
+                    .frame(width: geo.size.width)
+                    .position(x: geo.size.width / 2, y: min(geo.size.height - 36, boxBottom + 34))   // 框下 34pt, 不超屏底
                 }
+                .ignoresSafeArea()
                 .allowsHitTesting(true)
             }
         }
@@ -222,6 +213,25 @@ struct PlayerView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             withAnimation(.easeOut(duration: 0.6)) { showTitle = false }
         }
+    }
+
+    // W1366 — 单个语言胶囊(胶囊宪法: 两头圆, 激活=品牌绿填充, 否则半透明描边; 母语带🔒)。
+    @ViewBuilder
+    private func langCapsule(_ tr: CSSBackend.CSSLangTrack) -> some View {
+        let on = tr.id == selectedTrackId
+        let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
+        Button { switchTrack(tr) } label: {
+            HStack(spacing: 6) {
+                if tr.isDefault { Image(systemName: "lock.fill").font(.system(size: 13, weight: .bold)) }
+                Text(tr.label).font(.system(size: 22, weight: on ? .bold : .medium))
+            }
+            .padding(.horizontal, 22).frame(height: 50)
+            .foregroundStyle(on ? Color.black : Color.white.opacity(0.92))
+            .background(Capsule().fill(on ? brandGreen : Color.white.opacity(0.14)))
+            .overlay(Capsule().stroke(on ? Color.clear : Color.white.opacity(0.22), lineWidth: 1))
+            .shadow(color: .black.opacity(0.5), radius: 4)
+        }
+        .buttonStyle(.plain)
     }
 
     // W1364 — 切换语言×声线: 只换音频(主时钟)+ 字幕, 视频画面不动(画音分层铁律)。

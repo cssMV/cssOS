@@ -117,8 +117,9 @@ struct CSSWork: Codable, Identifiable {
     var isPaid: Bool { (listenPriceCents ?? 0) > 0 }
     /// 已拥有(本人在该作品上有订单)。
     var isOwned: Bool { (viewerOrders?.isEmpty == false) }
-    /// 可免费直接播(免费 或 已拥有)。
-    var canPlayFree: Bool { !isPaid || isOwned }
+    /// W1365 — Jing: tvOS 端【全免费可看】(扫清 App Store 3.1.1: 不在 TV 上 gate/标价/引导站外购买)。
+    ///   付费/解锁留给 Web/未来 StoreKit; TV 纯欣赏入口, 任何作品直接可播。
+    var canPlayFree: Bool { true }
     var listenPriceLabel: String {
         let c = listenPriceCents ?? 0
         guard c > 0 else { return "" }

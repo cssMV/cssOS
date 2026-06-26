@@ -81,7 +81,6 @@ struct ContentView: View {
     @State private var selected: CSSWork?
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
-    @State private var gateWork: CSSWork?               // 收费且未拥有 → 弹门
     @State private var showCreate = false               // W1259 创作台
     @State private var showSearch = false               // W1277 搜索
     @Namespace private var focusNS
@@ -92,7 +91,7 @@ struct ContentView: View {
         if w.isCreateCard { showCreate = true; return }
         Task {
             let h = await CSSBackend.hydrate(w)
-            if h.canPlayFree { selected = h } else { gateWork = h }
+            selected = h   // W1365 — TV 全免费: 直接进影院, 不再 gate
         }
     }
 
@@ -174,11 +173,7 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $showSearch) {
             SearchView(allWorks: allWorks) { w in showSearch = false; choose(w) }
         }
-        .alert("Paid work", isPresented: Binding(get: { gateWork != nil }, set: { if !$0 { gateWork = nil } })) {
-            Button("OK", role: .cancel) { gateWork = nil }
-        } message: {
-            Text("To listen to “\(gateWork?.title ?? "")”\(gateWork.map { $0.listenPriceLabel.isEmpty ? "" : " (\($0.listenPriceLabel))" } ?? ""), purchase it at cssstudio.app. Purchases aren’t available on Apple TV.")
-        }
+        // W1365 — TV 全免费: 删去付费门 alert(原引导站外 cssstudio.app 购买 = App Store 3.1.1 雷)。
         .task {
             await auth.restore()
             allWorks = await CSSBackend.fetchFeed()

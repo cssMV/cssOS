@@ -113,6 +113,8 @@ enum MagicMirrorOrb {
             }
         }
         orb.name = "orb-body"
+        // W1373 — Jing: 金球在托盘上略偏低(托盘底尖角长、中心孔偏上)→ 往上挪一点点对正中心孔。
+        if style == .plane { orb.position = [0, size * 0.045, 0] }
         root.addChild(orb)
 
         // W1372 — visionOS 凝视/手捏: 3D 魔镜必须有【碰撞盒 + 输入目标 + 凝视高亮】, 系统才会把它当可交互目标,

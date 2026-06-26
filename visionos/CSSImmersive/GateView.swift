@@ -267,34 +267,36 @@ struct GateView: View {
     ///   明暗不一, 像扫描光。
     /// W1378 — 一波光点: 全部【从金球中心射出】, 向用户方向(+Z)冲并散开穿过。每颗大小/速度/
     ///   起射时刻/明暗/颜色各异。锚在世界固定的 gate anchor, 用户转头光束不跟随。
+    /// W1412 — Jing「金球喷出随机随色 3D 小 emoji」: 不再是光点小球, 改成从球心迸出一群【随机 3D emoji】,
+    ///   向用户方向(+Z)冲并散开、穿过、淡出。每颗 emoji/大小/速度/起射时刻/明暗各异 + 轻翻滚(3D 感)。
+    static let gateEmojiPool = ["✨", "🌟", "💫", "⭐️", "🌸", "💖", "🔥", "🎉", "💎", "🌈", "☀️", "💠", "🪷", "❄️"]
+
     @MainActor private func fireWave(from anchor: Entity, origin: SIMD3<Float>) {
         let c = origin
-        let n = Int.random(in: 22...40)
+        let n = Int.random(in: 14...24)
         for _ in 0..<n {
-            let color = UIColor(hue: CGFloat.random(in: 0...1),
-                                saturation: CGFloat.random(in: 0.7...1.0),
-                                brightness: 1.0, alpha: 1.0)
-            let r = Float.random(in: 0.006...0.026)
-            let dot = ModelEntity(mesh: .generateSphere(radius: r))
-            dot.model?.materials = [UnlitMaterial(color: color)]
+            let glyph = GateView.gateEmojiPool.randomElement() ?? "✨"
+            let sz = Float.random(in: 0.05...0.13)
+            let m3 = MeshPetal3D.make(for: glyph)                       // 真 3D 网格(花瓣/星等)
+            let node: Entity = m3 ?? CathedralFX.emojiPlane(glyph, size: sz)   // 无 3D 网格的回退贴图
+            if m3 != nil { let s = max(0.5, sz / 0.08) * MeshPetal3D.sizeMul(); node.scale = SIMD3<Float>(s, s, s) }
             // 起点 = 金球中心(微抖, 像从球心迸出)
-            let start = c + SIMD3<Float>(Float.random(in: -0.03...0.03),
-                                         Float.random(in: -0.03...0.03), 0)
-            dot.position = start
-            dot.components.set(OpacityComponent(opacity: Float.random(in: 0.55...1.0)))
+            let start = c + SIMD3<Float>(Float.random(in: -0.03...0.03), Float.random(in: -0.03...0.03), 0)
+            node.position = start
+            node.components.set(OpacityComponent(opacity: Float.random(in: 0.7...1.0)))
             let delay = Double.random(in: 0 ... 0.5)
-            let dur = Double.random(in: 0.5...1.8)
-            // 终点 = 从球心向用户(+Z)冲并散开、穿过用户(用户在 gate anchor 原点附近)。
-            let end = c + SIMD3<Float>(Float.random(in: -0.5...0.5),
-                                       Float.random(in: -0.4...0.4),
+            let dur = Double.random(in: 0.6...1.8)
+            // 终点 = 从球心向用户(+Z)冲并散开、穿过用户。
+            let end = c + SIMD3<Float>(Float.random(in: -0.5...0.5), Float.random(in: -0.4...0.4),
                                        Float.random(in: 1.6...2.4))
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                anchor.addChild(dot)
-                var t = dot.transform
+                anchor.addChild(node)
+                CathedralFX.spinTumble(node, dur: dur + 0.3)            // 3D 轻翻滚
+                var t = node.transform
                 t.translation = end
-                dot.move(to: t, relativeTo: anchor, duration: dur,
-                         timingFunction: Bool.random() ? .easeIn : .easeInOut)
-                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) { dot.removeFromParent() }
+                node.move(to: t, relativeTo: anchor, duration: dur,
+                          timingFunction: Bool.random() ? .easeIn : .easeInOut)
+                DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) { node.removeFromParent() }
             }
         }
     }

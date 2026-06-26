@@ -98,10 +98,9 @@ struct ContentView: View {
                 dismissWindow(id: "launch")
             }
         }
-        // 沉浸大厅回传: 选作品 → 进影院; 创作 → 开 AI 窗; 咒语 → 创作。
-        .onChange(of: router.enterToken) { _, _ in
-            if let w = router.pendingWork { Task { await enterCinema(work: w) } }
-        }
+        // W1412 — 真凶: 选作品进影院由【GateView 同空间注入路径】独占处理(W1389/W1410)。
+        //   ContentView 这条旧路径会用未注入的原始 work + 开独立 ImmersiveCinema 空间抢赢 → DIAG variants:1 lines:0。
+        //   故移除此 enterToken 监听(创作/咒语仍保留)。
         .onChange(of: router.doCreate) { _, v in
             if v { router.doCreate = false; openWindow(id: "ai") }
         }

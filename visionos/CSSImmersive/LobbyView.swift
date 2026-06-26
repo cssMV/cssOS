@@ -270,6 +270,11 @@ private struct CoverCardView: View {
     var body: some View {
         let group = HoverEffectGroup(ns, behavior: .activatesGroup)
         let brandGreen = Color(red: 0, green: 245.0/255.0, blue: 160.0/255.0)   // 平台绿 #00f5a0
+        // W1387 — 卡片捏不动真凶: 卡片在横向 ScrollView 里, .onTapGesture 抢不过滚动手势(被当成滚动吃掉)。
+        //   改成 Button(.plain 保持卡片外观)= 系统级可点目标, 与滚动正确分流(捏=进影院、拖=滚动)。
+        Button {
+            onEnter(it.toWork())
+        } label: {
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 if let u = URL(string: it.coverURL), !it.coverURL.isEmpty {
@@ -299,7 +304,8 @@ private struct CoverCardView: View {
             Text(durationLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 .frame(width: 170, alignment: .leading)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { onEnter(it.toWork()) }
+        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 18))
+        }
+        .buttonStyle(.plain)
     }
 }

@@ -209,7 +209,7 @@ struct ImmersiveView: View {
             // W1391 — 影院里也铺【体积星空】(四周包围, 有远有近 + 偶发流星), 与大厅一致(cosmos 场景)。
             if settings.environment == "cosmos" {
                 let starAnchor = AnchorEntity(.head)
-                StarfieldVolume.make(into: starAnchor, count: 260)
+                StarfieldVolume.make(into: starAnchor, count: 170)   // 影院里有视频解码, 星数更省
                 content.add(starAnchor)
             }
 

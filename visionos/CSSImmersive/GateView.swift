@@ -323,17 +323,19 @@ enum StarfieldVolume {
         return try? TextureResource(image: cg, options: .init(semantic: .color))
     }()
 
-    @MainActor static func starPlane(width: Float, tint: UIColor, opacity: Float, tex: TextureResource?) -> ModelEntity {
-        let p = ModelEntity(mesh: .generatePlane(width: width, height: width))
+    /// W1392 — 内存优化: 全体星(及流星)共用【同一张 1×1 网格】, 大小靠 scale →
+    ///   不再每颗 generatePlane 各生成一份网格(数百份→1 份)。贴图本就共享。
+    static let unitPlane: MeshResource = .generatePlane(width: 1, height: 1)
+
+    @MainActor static func starPlane(tint: UIColor, opacity: Float, tex: TextureResource?) -> ModelEntity {
         var m = UnlitMaterial()
         if let tex { m.color = .init(tint: tint, texture: .init(tex)) } else { m.color = .init(tint: tint) }
         m.blending = .transparent(opacity: .init(floatLiteral: opacity))
         m.opacityThreshold = nil
-        p.model?.materials = [m]
-        return p
+        return ModelEntity(mesh: unitPlane, materials: [m])   // 共用网格
     }
 
-    @MainActor static func make(into anchor: Entity, count: Int = 300) {
+    @MainActor static func make(into anchor: Entity, count: Int = 220) {
         var stars: [(ModelEntity, TextureResource?)] = []
         for _ in 0..<count {
             // 均匀分布在【整个球面】→ 四周(含侧后)都有星, 包围感。
@@ -347,7 +349,8 @@ enum StarfieldVolume {
             let w = Float.random(in: 0.02...0.05) * (1 + rad * 0.05)
             let op = Float.random(in: 0.28...0.8) * (rad < 3 ? 1.0 : 0.78)
             let tex = sprites.randomElement() ?? nil
-            let star = starPlane(width: w, tint: .white, opacity: op, tex: tex)
+            let star = starPlane(tint: .white, opacity: op, tex: tex)
+            star.scale = SIMD3<Float>(repeating: w)   // 大小靠缩放(共用网格)
             star.position = pos
             star.orientation = simd_quatf(from: SIMD3<Float>(0, 0, 1), to: -simd_normalize(pos))   // 面向用户
             anchor.addChild(star)
@@ -400,7 +403,9 @@ enum StarfieldVolume {
 
     @MainActor static func meteor(in anchor: Entity) async {
         let len = Float.random(in: 0.55...1.0)
-        let m = ModelEntity(mesh: .generatePlane(width: len, height: Float.random(in: 0.03...0.06)))
+        let thick = Float.random(in: 0.03...0.06)
+        let m = ModelEntity(mesh: unitPlane)   // 共用网格, 拖尾长短/粗细靠缩放
+        m.scale = SIMD3<Float>(len, thick, 1)
         let tint = UIColor(hue: CGFloat.random(in: 0...1), saturation: CGFloat.random(in: 0...0.35), brightness: 1, alpha: 1)
         func paint(_ op: Float) {
             var mat = UnlitMaterial()

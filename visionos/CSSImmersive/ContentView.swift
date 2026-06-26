@@ -81,21 +81,11 @@ struct ContentView: View {
                     .buttonStyle(.plain).padding(20).help(L("Collapse to mirror", "折叠为魔镜"))
                 }
             } else {
-                // CSSOS_WAVE_1106 — Jing「圣殿大门缩为魔镜, 尖角托盘不动、金球旋转, 点魔镜才显菜单」:
-                //   折叠态 = 只显自转魔镜金球(浮在星空沉浸背景前), 点它 → 展开大厅菜单。窗口紧贴
-                //   金球大小, 没有白底大窗。
-                VStack(spacing: 14) {
-                    MagicMirrorOrbView(size: 0.2, sphere: orbSphere,
-                        onTap: { withAnimation(.easeInOut(duration: 0.28)) { menuExpanded = true } })
-                        .frame(width: 240, height: 240)
-                        .offset(z: -34)   // W1372 — 魔镜往后推, 与窗口拖拽条同深度(否则浮太前遮住拖拽条, 捏不到)
-                    Text(L("Tap the mirror to enter", "点魔镜进入"))
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                .padding(28)
-                .contentShape(Circle())
-                .onTapGesture { withAnimation(.easeInOut(duration: 0.28)) { menuExpanded = true } }
-                .frame(minWidth: 300, idealWidth: 320, minHeight: 320, idealHeight: 340)
+                // W1374 — Jing「一启动就进沉浸, 魔镜在星空里转, 不要 2D 窗」:
+                //   入口魔镜已搬进沉浸 GateView(3D 实体在星空里自转 + 可凝视捏)。这个 2D 窗折叠态
+                //   【不再显示任何东西】, 仅作宿主驱动 openGate/进影院逻辑。捏沉浸魔镜→光束→登录后
+                //   onChange(isSignedIn) 自动 menuExpanded=true 显大厅。
+                Color.clear.frame(width: 1, height: 1)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: inImmersive)
@@ -130,6 +120,10 @@ struct ContentView: View {
         .onChange(of: auth.isSignedIn) { _, signed in
             if signed {
                 showSignIn = false
+                // W1374 — 沉浸魔镜捏→光束→登录成功 → 自动展开大厅(2D 窗从隐形变成作品墙面板)。
+                if !menuExpanded && pendingSpell.isEmpty {
+                    withAnimation(.easeInOut(duration: 0.3)) { menuExpanded = true }
+                }
                 if !pendingSpell.isEmpty { let s = pendingSpell; pendingSpell = ""; startSpell(s) }
             }
         }

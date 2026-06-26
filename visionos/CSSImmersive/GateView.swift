@@ -25,7 +25,21 @@ struct GateView: View {
             let head = AnchorEntity(.head)
             content.add(head)
             refs.head = head
+            // W1374 — Jing「一启动就进沉浸, 魔镜在星空里转, 不要 2D 窗」:
+            //   魔镜直接做成 3D 实体放进沉浸空间(不再困在 2D 窗), 锚在头前 ~1.4m、略低于视线。
+            //   自转 + 凝视高亮 + 可捏(make 已带 InputTarget/Collision/Hover)。
+            let orb = MagicMirrorOrb.make(size: 0.22)
+            orb.name = "gate-orb"
+            let orbAnchor = AnchorEntity(.head)
+            orb.position = [0, -0.05, -1.4]
+            orbAnchor.anchoring.trackingMode = .once   // 锚定一次, 不死锁头部(可自然停在星空里)
+            orbAnchor.addChild(orb)
+            content.add(orbAnchor)
         }
+        // W1374 — 凝视 + 手捏魔镜 → 发射光点仪式(同一沉浸空间, 不退出 2D)。
+        .gesture(SpatialTapGesture().targetedToAnyEntity().onEnded { _ in
+            if !router.fireBeams { router.fireBeams = true }
+        })
         // 捏金球 → 头部锚点光点仪式(同一空间, 不退出) → Optic ID。
         .onChange(of: router.fireBeams) { _, want in
             guard want else { return }

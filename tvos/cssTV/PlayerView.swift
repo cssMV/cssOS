@@ -119,11 +119,16 @@ struct PlayerView: View {
                 .transition(.opacity)
             }
 
-            // W1366 — 多语言/多声线: 胶囊宪法(像 hero 那样的两头圆胶囊), ≥2 条可播轨才显示。
-            //   位置: 放在 2.39 视频框【下边缘之下】的黑边里, 绝不压到画框。母语🔒默认高亮。
+            // W1370 — 多语言/多声线: 胶囊宪法(像 hero 那样的两头圆胶囊), ≥2 条可播轨才显示。
+            //   位置铁律: 放在 2.39 视频框【下边缘之下】那条黑边的【中线】, 既不压画框、又不进电视过扫描区。
             if langTracks.count >= 2 {
                 GeometryReader { geo in
+                    let halfPill: CGFloat = 25                                  // 胶囊半高(≈50/2)
                     let boxBottom = geo.size.height / 2 + (geo.size.width / 2.39) / 2   // 视频框下边缘 y
+                    let bandMid = boxBottom + (geo.size.height - boxBottom) / 2 // 下方黑边中线
+                    let maxY = geo.size.height - 60 - halfPill                  // 离屏底 ≥60(过扫描)
+                    let minY = boxBottom + 28 + halfPill                        // 离画框 ≥28
+                    let y = max(minY, min(bandMid, maxY))
                     HStack {
                         Spacer()
                         HStack(spacing: 12) {
@@ -133,11 +138,13 @@ struct PlayerView: View {
                                 langCapsule(tr)
                             }
                         }
+                        .padding(.horizontal, 18).padding(.vertical, 8)
+                        .background(Capsule().fill(.black.opacity(0.42)))      // 胶囊轨道底(像 hero 轨道)
                         .focusSection()
                         .padding(.trailing, 56)
                     }
                     .frame(width: geo.size.width)
-                    .position(x: geo.size.width / 2, y: min(geo.size.height - 36, boxBottom + 34))   // 框下 34pt, 不超屏底
+                    .position(x: geo.size.width / 2, y: y)
                 }
                 .ignoresSafeArea()
                 .allowsHitTesting(true)

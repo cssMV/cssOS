@@ -120,10 +120,7 @@ struct ContentView: View {
         .onChange(of: auth.isSignedIn) { _, signed in
             if signed {
                 showSignIn = false
-                // W1374 — 沉浸魔镜捏→光束→登录成功 → 自动展开大厅(2D 窗从隐形变成作品墙面板)。
-                if !menuExpanded && pendingSpell.isEmpty {
-                    withAnimation(.easeInOut(duration: 0.3)) { menuExpanded = true }
-                }
+                // W1376 — 大厅已沉浸化(GateView attachment), 2D 窗不再展开任何面板, 保持隐形宿主(零 2D)。
                 if !pendingSpell.isEmpty { let s = pendingSpell; pendingSpell = ""; startSpell(s) }
             }
         }

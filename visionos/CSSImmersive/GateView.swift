@@ -9,42 +9,68 @@ import SwiftUI
 import RealityKit
 import UIKit
 
-private final class GateViewRefs { var head: Entity? }
+private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity? }
 
 struct GateView: View {
     @EnvironmentObject var auth: CSSAuth
     @EnvironmentObject var router: GateRouter
     @State private var refs = GateViewRefs()
+    @State private var showLobby = false   // W1376 — 大厅沉浸面板显隐(捏魔镜→光束→登录→显)
 
     var body: some View {
-        // CSSOS_WAVE_1104 — Jing「用原生窗口的隐藏拖拽条; 大门别太高」: 大厅面板已移回原生
-        //   窗口(ContentView 渲染 LobbyView, 系统自带拖拽条 + 眼高摆放)。GateSpace 此处只负责
-        //   【星空 + 光点背景 + 头部锚点(光点仪式)】, 不再放大厅 attachment / 自定义拖拽条。
-        RealityView { content in
+        // W1376 — Jing 铁律「沉浸里一切皆沉浸, 零 2D」: 星空 + 魔镜 3D 实体 + 大厅 LobbyView 作为
+        //   沉浸 attachment(悬浮星空里), 全部在 GateSpace 内。2D 窗(ContentView)仅作隐形逻辑宿主。
+        RealityView { content, attachments in
             content.add(ImmersiveScene.makeEnvironment(named: "cosmos"))
             let head = AnchorEntity(.head)
             content.add(head)
             refs.head = head
-            // W1374 — Jing「一启动就进沉浸, 魔镜在星空里转, 不要 2D 窗」:
-            //   魔镜直接做成 3D 实体放进沉浸空间(不再困在 2D 窗), 锚在头前 ~1.4m、略低于视线。
-            //   自转 + 凝视高亮 + 可捏(make 已带 InputTarget/Collision/Hover)。
+            // 魔镜 3D 实体(头前 1.4m, 略上移给下方大厅腾位; 自转 + 可凝视捏)。
             let orb = MagicMirrorOrb.make(size: 0.22)
             orb.name = "gate-orb"
-            let orbAnchor = AnchorEntity(.head)
-            orb.position = [0, -0.05, -1.4]
-            orbAnchor.anchoring.trackingMode = .once   // 锚定一次, 不死锁头部(可自然停在星空里)
-            orbAnchor.addChild(orb)
-            content.add(orbAnchor)
+            let anchor = AnchorEntity(.head)
+            orb.position = [0, 0.12, -1.4]
+            anchor.anchoring.trackingMode = .once
+            anchor.addChild(orb)
+            content.add(anchor)
+            refs.orbAnchor = anchor
+            // 大厅沉浸面板(初始隐藏, 与魔镜同锚, 悬在其下方)。
+            if let lobby = attachments.entity(for: "lobby") {
+                lobby.position = [0, -0.32, -1.45]
+                lobby.isEnabled = false
+                anchor.addChild(lobby)
+                refs.lobby = lobby
+            }
+        } update: { _, _ in
+            refs.lobby?.isEnabled = showLobby
+        } attachments: {
+            Attachment(id: "lobby") {
+                LobbyView(
+                    onEnter: { router.enter($0) },         // → ContentView 宿主接力开 ImmersiveCinema
+                    onCreate: { router.doCreate = true },
+                    onSpell: { router.spell = $0 },
+                    signedIn: auth.isSignedIn,
+                    onSignIn: { router.fireBeams = true }
+                )
+                .frame(width: 980, height: 720)
+                .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
+            }
         }
-        // W1374 — 凝视 + 手捏魔镜 → 发射光点仪式(同一沉浸空间, 不退出 2D)。
-        .gesture(SpatialTapGesture().targetedToAnyEntity().onEnded { _ in
-            if !router.fireBeams { router.fireBeams = true }
+        // 凝视 + 捏魔镜 → 发射光点仪式(同一沉浸空间)。
+        .gesture(SpatialTapGesture().targetedToAnyEntity().onEnded { v in
+            let n = v.entity.name
+            if n == "gate-orb" || n == "orb-body" || n == "magic-mirror-orb" {
+                if !router.fireBeams { router.fireBeams = true }
+            }
         })
-        // 捏金球 → 头部锚点光点仪式(同一空间, 不退出) → Optic ID。
         .onChange(of: router.fireBeams) { _, want in
             guard want else { return }
             router.fireBeams = false
             runBeamRitual()
+        }
+        // 光束飞完 → 登录成功 → 大厅沉浸面板浮现(零 2D)。
+        .onChange(of: auth.isSignedIn) { _, signed in
+            if signed { withAnimation(.easeInOut(duration: 0.4)) { showLobby = true } }
         }
     }
 

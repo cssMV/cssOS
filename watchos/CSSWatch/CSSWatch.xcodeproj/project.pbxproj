@@ -13,6 +13,7 @@
 		BF0100000000000000000004 /* WatchBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR0100000000000000000004 /* WatchBackend.swift */; };
 		BF0100000000000000000005 /* WatchPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR0100000000000000000005 /* WatchPlayer.swift */; };
 		BF0100000000000000000006 /* MiniEmotionSubtitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR0100000000000000000006 /* MiniEmotionSubtitle.swift */; };
+		BF0100000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FR01000000000000000000A5 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +24,7 @@
 		FR0100000000000000000004 /* WatchBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBackend.swift; sourceTree = "<group>"; };
 		FR0100000000000000000005 /* WatchPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchPlayer.swift; sourceTree = "<group>"; };
 		FR0100000000000000000006 /* MiniEmotionSubtitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniEmotionSubtitle.swift; sourceTree = "<group>"; };
+		FR01000000000000000000A5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -35,6 +37,7 @@
 				FR0100000000000000000004 /* WatchBackend.swift */,
 				FR0100000000000000000005 /* WatchPlayer.swift */,
 				FR0100000000000000000006 /* MiniEmotionSubtitle.swift */,
+				FR01000000000000000000A5 /* Assets.xcassets */,
 			);
 			path = CSSWatch;
 			sourceTree = "<group>";
@@ -63,6 +66,7 @@
 			buildConfigurationList = TCL100000000000000000001 /* Build configuration list for PBXNativeTarget "CSSWatch" */;
 			buildPhases = (
 				SRCS10000000000000000001 /* Sources */,
+				RSRC10000000000000000001 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -122,6 +126,17 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXResourcesBuildPhase section */
+		RSRC10000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF0100000000000000000007 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin XCBuildConfiguration section */
 		PD0100000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -168,6 +183,7 @@
 		TD0100000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = QBG9PRVBYZ;
@@ -188,6 +204,7 @@
 		TR0100000000000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = QBG9PRVBYZ;

@@ -45,6 +45,12 @@ final class WatchPlayer: ObservableObject {
                                             queue: .main) { [weak self] t in
             Task { @MainActor in self?.tick(t.seconds) }
         }
+        // 放完 → 自动下一首(一直有歌、一直有字爆)。
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
+        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
+                                               object: p.currentItem, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.next() }
+        }
         p.play(); isPlaying = true
     }
 

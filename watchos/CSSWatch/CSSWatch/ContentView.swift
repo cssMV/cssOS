@@ -21,7 +21,7 @@ struct ContentView: View {
             InstrumentalEdgeEmoji(active: player.instrumental, emotion: player.lastEmotion)
 
             // 招牌: 靠边框爆情绪字幕(半字出框; 大 emoji 当背景, 小 emoji 从字心爆烟花)。
-            MiniEmotionSubtitle(token: player.burst, tick: player.burstTick)
+            MiniEmotionSubtitle(token: player.burst, tick: player.burstTick, lineId: player.burstLineId)
 
             // 左上角: 音乐时长倒计时(右上角是系统时间)。
             if !player.loading, !player.remainingText.isEmpty {

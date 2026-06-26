@@ -11,6 +11,7 @@ final class WatchPlayer: ObservableObject {
     @Published var loading = true
     @Published var burst: WSubToken? = nil   // 当前要爆的字
     @Published var burstTick = 0             // 每个新字 +1(驱动动画重建)
+    @Published var burstLineId = 0           // 当前字所属行(换行→上一行整句一起淡出)
     @Published var volume: Double = 0.85     // W1426 — 表冠调音量
     @Published var showVol = false           // 调音量时短暂显示指示
     @Published var elapsed: Double = 0       // W1427 — 已播秒(左上角倒计时)
@@ -48,16 +49,19 @@ final class WatchPlayer: ObservableObject {
         index = i
         var w = works[i]
         if w.lines.isEmpty { w.lines = await WatchBackend.fetchLines(workID: w.id); works[i] = w }
-        fireTokens = w.lines.flatMap { $0.tokens ?? [] }
-            .filter { tk in
+        var flat: [WSubToken] = []
+        for (li, line) in w.lines.enumerated() {
+            for var tk in (line.tokens ?? []) {
                 let s = tk.resolved.trimmingCharacters(in: .whitespaces)
-                guard !s.isEmpty else { return false }
-                if let f = s.first, "[【#(（♪".contains(f) { return false }   // 滤 [Music]/段落头/拟声等非歌词
-                if s.count > 12 { return false }                              // 整句散文(非逐字)不当字爆
-                return true
+                if s.isEmpty { continue }
+                if let f = s.first, "[【#(（♪".contains(f) { continue }   // 滤 [Music]/段落头/拟声等非歌词
+                if s.count > 12 { continue }                              // 整句散文(非逐字)不当字爆
+                tk.lineId = li                                            // 标行号 → 整句一起淡出
+                flat.append(tk)
             }
-            .sorted { $0.startSec < $1.startSec }
-        nextFire = 0; lastSec = 0; burst = nil; elapsed = 0; duration = 0; lastBurstSec = -10
+        }
+        fireTokens = flat.sorted { $0.startSec < $1.startSec }
+        nextFire = 0; lastSec = 0; burst = nil; burstLineId = -1; elapsed = 0; duration = 0; lastBurstSec = -10
         guard let url = URL(string: w.audioURL) else { return }
         if let old = timeObs, let pl = player { pl.removeTimeObserver(old); timeObs = nil }
         let p = AVPlayer(url: url)
@@ -95,7 +99,8 @@ final class WatchPlayer: ObservableObject {
         if sec + 0.05 < lastSec { nextFire = fireTokens.firstIndex { $0.startSec >= sec } ?? fireTokens.count }
         lastSec = sec
         while nextFire < fireTokens.count, sec >= fireTokens[nextFire].startSec {
-            burst = fireTokens[nextFire]; burstTick += 1; lastBurstSec = sec
+            burst = fireTokens[nextFire]; burstLineId = fireTokens[nextFire].lineId
+            burstTick += 1; lastBurstSec = sec
             if let e = fireTokens[nextFire].emotion, !e.isEmpty { lastEmotion = e }
             nextFire += 1
         }

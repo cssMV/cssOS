@@ -6,7 +6,10 @@ import SwiftUI
 struct MiniEmotionSubtitle: View {
     let token: WSubToken?
     let tick: Int
+    let lineId: Int
     @State private var bursts: [Burst] = []
+    @State private var curLine = -1               // 当前正在累积的行
+    @State private var idleWork: DispatchWorkItem? // 这行唱完(久无新字)→ 整句一起淡出
 
     var body: some View {
         ZStack {
@@ -20,6 +23,11 @@ struct MiniEmotionSubtitle: View {
         guard let t = token else { return }
         let s = t.resolved.trimmingCharacters(in: .whitespaces)
         guard !s.isEmpty else { return }
+        // 换行了 → 上一整句一起淡出(招牌行为: 整句爆完才一起消失, 全平台一致)。
+        if lineId != curLine {
+            fadeLine(curLine)
+            curLine = lineId
+        }
         let emo = t.emotion ?? ""
         let intensity = t.emotionIntensity ?? 0
         let pool = Self.emojiPool(for: emo)
@@ -37,6 +45,7 @@ struct MiniEmotionSubtitle: View {
                                     size: CGFloat.random(in: 10...16)))
         }
         let b = Burst(text: s,
+                      lineId: lineId,
                       color: Color(hue: Double.random(in: 0...1),                 // ② 随机色
                                    saturation: Double.random(in: 0.6...1.0), brightness: 1.0),
                       pos: pos,
@@ -44,10 +53,21 @@ struct MiniEmotionSubtitle: View {
                       design: Self.designs.randomElement() ?? .rounded,            // 随机字体
                       bgEmoji: bg, sparks: sparks)
         bursts.append(b)
-        if bursts.count > 9 { bursts.removeFirst() }
-        let id = b.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: 1.2...2.0)) {
-            bursts.removeAll { $0.id == id }
+        if bursts.count > 14 { bursts.removeFirst() }   // 安全上限(整句通常远少于此)
+        // 这行的兜底淡出: 久无新字(行唱完/进器乐)→ 整句一起淡出。每来一字就重置。
+        idleWork?.cancel()
+        let lid = lineId
+        let w = DispatchWorkItem { fadeLine(lid) }
+        idleWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6, execute: w)
+    }
+
+    /// 把某一行的所有字标记淡出 → 一起淡出后整批移除。
+    private func fadeLine(_ id: Int) {
+        guard id >= 0, bursts.contains(where: { $0.lineId == id && !$0.fading }) else { return }
+        for i in bursts.indices where bursts[i].lineId == id { bursts[i].fading = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+            bursts.removeAll { $0.lineId == id }
         }
     }
 
@@ -74,18 +94,20 @@ struct SparkSeed: Identifiable {
 struct Burst: Identifiable {
     let id = UUID()
     let text: String
+    let lineId: Int
     let color: Color
     let pos: CGSize
     let sizeMul: CGFloat
     let design: Font.Design
     let bgEmoji: String
     let sparks: [SparkSeed]
+    var fading = false   // 整句一起淡出时由父级翻 true(不再每字各自定时消失)
 }
 
 private struct BurstView: View {
     let burst: Burst
     @State private var pop = false
-    @State private var fade = false
+    @State private var gone = false
 
     var body: some View {
         ZStack {
@@ -102,10 +124,13 @@ private struct BurstView: View {
         }
         .offset(burst.pos)                  // 直接到边框位(半字出框)
         .scaleEffect(pop ? 1 : 0.2)
-        .opacity(fade ? 0 : 1)
+        .opacity(gone ? 0 : 1)
         .onAppear {
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.5)) { pop = true }
-            withAnimation(.easeIn(duration: 0.55).delay(0.65)) { fade = true }
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.5)) { pop = true }   // 撞边框弹一下
+        }
+        // W1441 — 不再每字各自淡出; 整行唱完/换行时父级翻 fading → 整句一起淡。
+        .onChange(of: burst.fading) { _, f in
+            if f { withAnimation(.easeIn(duration: 0.6)) { gone = true } }
         }
     }
 }

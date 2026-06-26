@@ -32,6 +32,7 @@ struct WSubToken: Codable {
     var tEnd: Double?
     var emotion: String?
     var emotionIntensity: Double?
+    var lineId: Int = 0   // 非 JSON 字段: 播放器展平时标注本字属于第几行(用于整句一起淡出)
     enum CodingKeys: String, CodingKey {
         case char, text, emotion
         case tStart = "t_start"

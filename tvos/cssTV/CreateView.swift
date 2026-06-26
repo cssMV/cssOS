@@ -25,11 +25,12 @@ struct CreateView: View {
             VStack(spacing: 26) {
                 Text("✨ Cast an MV")
                     .font(.system(size: 60, weight: .heavy)).foregroundStyle(.white)
-                Text("Tell the magic mirror what to create — in any language and voice. Hold the mic on your Siri Remote to speak it.")
+                // W1369 — 语音优先 + 「CSS」咒语: 按住 Siri Remote 🎙 念 "CSS, …"。
+                Text("Hold the 🎙 mic on your Siri Remote and say the spell:  “CSS,”  then your idea — in any language.")
                     .font(.system(size: 24)).foregroundStyle(.white.opacity(0.82))
-                    .multilineTextAlignment(.center).frame(maxWidth: 900)
+                    .multilineTextAlignment(.center).frame(maxWidth: 920)
 
-                TextField("e.g. an epic anthem about the Yellow River", text: $prompt)
+                TextField("e.g. “CSS, an epic anthem about the Yellow River”", text: $prompt)
                     .textFieldStyle(.plain)
                     .font(.system(size: 30, weight: .semibold))
                     .padding(20)
@@ -58,11 +59,26 @@ struct CreateView: View {
             }
             .padding(60)
         }
-        .onAppear { if prompt.isEmpty { prompt = seedPrompt } }
+        // W1369 — 进来即聚焦输入框 → 用户可立刻按住 🎙 念咒语, 无需先选框。
+        .onAppear {
+            if prompt.isEmpty { prompt = seedPrompt }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { fieldFocused = true }
+        }
+    }
+
+    /// W1369 — 剥掉开头的「CSS」唤醒咒语(说/打都剥): "CSS, …" / "css …" / "css。" → 只留灵感本体。
+    private func stripSpell(_ s: String) -> String {
+        var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.lowercased().hasPrefix("css") {
+            t = String(t.dropFirst(3))
+            // 剥掉紧跟的标点/空白(逗号/句号/中文标点等)。
+            t = t.drop(while: { $0 == "," || $0 == "，" || $0 == "." || $0 == "。" || $0 == " " || $0 == "、" || $0 == ":" || $0 == "：" }).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return t
     }
 
     private func cast() {
-        let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let p = stripSpell(prompt)
         guard !p.isEmpty else { return }
         guard auth.isSignedIn else {
             status = "Please sign in first (the ✨ badge, top-left) to create."

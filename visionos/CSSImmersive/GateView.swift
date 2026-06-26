@@ -11,6 +11,9 @@ import UIKit
 
 private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var speedRef: MagicMirrorOrb.SpeedRef? }
 
+// W1384 — 金球标记: 手势只盯带此标记的实体(金球), 不再 targetedToAnyEntity 截走大厅卡片的捏。
+struct GateOrbMarker: Component {}
+
 struct GateView: View {
     @EnvironmentObject var auth: CSSAuth
     @EnvironmentObject var router: GateRouter
@@ -40,6 +43,7 @@ struct GateView: View {
             let speed = MagicMirrorOrb.SpeedRef()   // W1383 — 捏的瞬间转速猛增(发力感)
             let orb = MagicMirrorOrb.make(size: 0.22, speedRef: speed)
             orb.name = "gate-orb"
+            orb.components.set(GateOrbMarker())   // W1384 — 标记金球, 手势只盯它
             refs.speedRef = speed
             let anchor = AnchorEntity(.head)
             orb.position = [0, 0.12, -1.4]
@@ -85,26 +89,21 @@ struct GateView: View {
             }
         }
         // W1379 — 捏金球(纯捏, 不移动)→ 发射光点。SpatialTapGesture 才识别纯捏(DragGesture 需移动→纯捏不触发, 这是 W1377 进不了门的真凶)。
+        // W1384 — 手势【只盯金球】(.has(GateOrbMarker)), 不再 targetedToAnyEntity → 大厅卡片的捏不再被截走。
         .gesture(
-            SpatialTapGesture().targetedToAnyEntity().onEnded { value in
-                let n = value.entity.name
-                if n == "gate-orb" || n == "orb-body" || n == "magic-mirror-orb" {
-                    bumpSpin()                              // W1383 — 捏瞬间转速猛增(发力感)
-                    if !router.fireBeams { router.fireBeams = true }
-                }
+            SpatialTapGesture().targetedToEntity(where: .has(GateOrbMarker.self)).onEnded { _ in
+                bumpSpin()                                  // 捏瞬间转速猛增(发力感)
+                if !router.fireBeams { router.fireBeams = true }
             }
         )
-        // 捏住金球【移动】→ 整个门(魔镜+大厅同锚)自由跟手走(3D, 不再困在平面轨道)。
-        //   minimumDistance 较大 → 纯捏让给上面的 tap, 不抢。
+        // 捏住金球【移动】→ 整个门(魔镜+大厅同锚)自由跟手走(3D)。minDist 大 → 纯捏让给上面的 tap。
         .simultaneousGesture(
-            DragGesture(minimumDistance: 30).targetedToAnyEntity()
+            DragGesture(minimumDistance: 30).targetedToEntity(where: .has(GateOrbMarker.self))
                 .onChanged { value in
-                    let n = value.entity.name
-                    guard n == "gate-orb" || n == "orb-body" || n == "magic-mirror-orb",
-                          let anchor = refs.orbAnchor else { return }
+                    guard let anchor = refs.orbAnchor else { return }
                     let cur = value.convert(value.location3D, from: .local, to: .scene)
                     if dragBase == nil { dragBase = anchor.position(relativeTo: nil) - cur }
-                    anchor.setPosition(dragBase! + cur, relativeTo: nil)   // 跟手 3D 自由拖
+                    anchor.setPosition(dragBase! + cur, relativeTo: nil)
                 }
                 .onEnded { _ in dragBase = nil }
         )

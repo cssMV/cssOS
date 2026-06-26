@@ -163,8 +163,9 @@ enum MagicMirrorOrb {
                 root.scale = [breathe, breathe, breathe]
                 // W1407 — dolly: 起点=欢迎词深度(ph≈0.137)、首动先靠近(再远到星海); 且【每次经过欢迎词深度稍停 ~0.9s】。
                 if let bp = basePos {
-                    let off: Float = 3.9541          // 相位: t=0→ph≈0.137(欢迎词深度)且先靠近
-                    let welcomePh: Float = 0.137
+                    // W1408 — zFar=-18 后重算: 欢迎词深度(-1.44)对应 ph=0.0591; off=π+1.080 使 t=0 在该深度且先靠近。
+                    let off: Float = 4.2216
+                    let welcomePh: Float = 0.0591
                     let phNow = (sin(dollyT * 0.38 + off) + 1) * 0.5
                     if dwellLeft > 0 {
                         dwellLeft -= dt                          // 停在欢迎词深度
@@ -178,7 +179,7 @@ enum MagicMirrorOrb {
                         }
                     }
                     let ph = (sin(dollyT * 0.38 + off) + 1) * 0.5
-                    let z: Float = -0.40 + (-8.0 - (-0.40)) * ph   // 近 -0.4 → 远 -8(混进星里)
+                    let z: Float = -0.40 + (-18.0 - (-0.40)) * ph   // W1408 — 近 -0.4 → 远 -18(缩成小星星那么小)
                     root.position = SIMD3<Float>(bp.x, bp.y, z)
                 }
 

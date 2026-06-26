@@ -86,3 +86,26 @@ All content is AI-generated or platform-original. No real, identifiable living p
 - [ ] 截图 / App 预览视频(按 shot-list)
 - [ ] 年龄分级问卷在 ASC 里点选
 - [ ] App Privacy 问卷按 §1 在 ASC 里点选
+
+---
+
+## 6. ASC 网页填写进度(2026-06-26 由 Claude in Chrome 代填)
+
+App id 6784525214 · tvOS 1.0 · Build **1.0 (2)** 已挂载 · 图标(分层)随 build 已带。
+
+### ✅ 已填(经 ASC 验证保存)
+- App Information:Category = Entertainment / Music;Content Rights = No(非第三方);Age Rating = **4+**(全 None/No,UGC=No 策展口径)
+- App Privacy:Privacy Policy URL = https://cssstudio.app/privacy.html;数据 = Email + User ID(App Functionality、关联身份、**不追踪**)→ 待你点 **Publish**
+- 截图:4 张已上传(01 情绪字幕招牌打头)
+
+### ⏳ 表单已填好、但卡在"电话必填"未能 Save —— 你来收尾
+**真凶**:App Review Information → Contact Information → **Phone number 必填**(带 `+` 国家码),空着导致整页 Save 被拒、文本回滚。
+1. 填 **Phone number**(如 `+1...` / `+86...`)→ 点 **Save**:这一存,下面这些已在框里的内容就保住了
+   - Promotional Text / Description / Keywords / Support URL / Marketing URL(均已键入)
+   - Review Notes(已键入)、Contact 姓名+邮箱(Jing / Du / admin@cssstudio.app)、Sign-in required = 取消
+2. App Privacy 页点 **Publish**
+3. App Encryption = "None of the algorithms"(已答,免出口合规)
+4. 版本发布方式默认 = Automatically release(可改 Manually)
+5. 最后点 **Add for Review → Submit**
+
+> ⚠️ 教训:ASC 整页 Save 是原子的——任一必填项(如电话)报错,整页(含文本框)都不保存,表现为"文本框反复变空"。

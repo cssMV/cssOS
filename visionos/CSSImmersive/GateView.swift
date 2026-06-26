@@ -8,6 +8,7 @@
 import SwiftUI
 import RealityKit
 import UIKit
+import simd
 
 private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var welcome: Entity?; var speedRef: MagicMirrorOrb.SpeedRef? }
 
@@ -84,8 +85,8 @@ struct GateView: View {
                 anchor.addChild(welcome)
                 refs.welcome = welcome
             }
-            // W1386 — 少量【偶尔闪烁】的星(零解码、零新分配 → 内存可忽略): 让星空像活的。
-            GateView.addTwinkleStars(to: anchor)
+            // W1391 — 体积星空: 真 3D 散布四周(有远有近=包围感), 随机形状/角数, 随机闪烁 + 偶发流星。
+            StarfieldVolume.make(into: anchor)
         } update: { _, _ in
             refs.lobby?.isEnabled = showLobby && !creating
             refs.orb?.isEnabled = !showLobby && !creating   // W1381 — 进圣殿大门 → gate 金球消失
@@ -239,158 +240,6 @@ struct GateView: View {
         }
     }
 
-    // W1389 — 星形 sprite(多角星, 透明底): 复用 ImmersiveScene.fillStar, 与天空盒星星同形(不再圆球)。缓存一次。
-    static let starSprite: TextureResource? = {
-        let px = 128
-        let r = UIGraphicsImageRenderer(size: CGSize(width: px, height: px))
-        let img = r.image { ctx in
-            let c = ctx.cgContext
-            c.setFillColor(UIColor.white.cgColor)
-            ImmersiveScene.fillStar(in: c, cx: 64, cy: 64, radius: 58, points: 5, rotation: 0)
-        }
-        guard let cg = img.cgImage else { return nil }
-        return try? TextureResource(image: cg, options: .init(semantic: .color))
-    }()
-
-    /// 用星形贴图建一颗星平面(朝 +Z 面向用户), 给定色与不透明度。
-    @MainActor static func makeStarPlane(width: Float, tint: UIColor, opacity: Float) -> ModelEntity {
-        let p = ModelEntity(mesh: .generatePlane(width: width, height: width))
-        var m = UnlitMaterial()
-        if let tex = starSprite { m.color = .init(tint: tint, texture: .init(tex)) }
-        else { m.color = .init(tint: tint) }
-        m.blending = .transparent(opacity: .init(floatLiteral: opacity))
-        m.opacityThreshold = nil
-        p.model?.materials = [m]
-        return p
-    }
-
-    // W1389 — 活的星空: 金球背后铺一片【常态微亮】的多角星, 随机挑几颗【同时变色+变大+变亮】闪一下再复原。
-    //   内存可忽略: 40 颗小平面共用一张星形贴图, 无解码; 闪烁只改 scale/材质 → 零新分配。
-    @MainActor static func addTwinkleStars(to anchor: Entity) {
-        var stars: [ModelEntity] = []
-        for i in 0..<40 {
-            let w = Float.random(in: 0.03...0.075)
-            let s = makeStarPlane(width: w, tint: .white, opacity: Float.random(in: 0.35...0.7))   // 常态就微亮可见
-            // 主要铺在【金球背后】的正前视野里(金球在 z≈-1.44), 再撒一些到四周。
-            if i < 28 {
-                s.position = [Float.random(in: -1.3...1.3),
-                              Float.random(in: -0.5...1.4),
-                              Float.random(in: -4.5 ... -1.9)]   // 金球之后, 形成背景星幕
-            } else {
-                let az = Float(i) / 40 * 2 * .pi + Float.random(in: -0.3...0.3)
-                let el = Float.random(in: -0.4...0.9)
-                let rad = Float.random(in: 3.0...4.5)
-                s.position = [rad * cos(el) * sin(az), rad * sin(el) + 0.4, -rad * cos(el) * cos(az)]
-            }
-            anchor.addChild(s)
-            stars.append(s)
-        }
-        // 闪烁: 每隔随机间隔挑 1~3 颗, 各自变随机色 + 胀大 + 提亮, 再缓缓复原。多颗错峰 → 星空灵动。
-        Task { @MainActor in
-            while !Task.isCancelled {
-                if anchor.scene == nil { try? await Task.sleep(nanoseconds: 200_000_000); continue }
-                let burst = Int.random(in: 1...3)
-                for _ in 0..<burst {
-                    guard let star = stars.randomElement() else { continue }
-                    Task { @MainActor in await twinkleOne(star) }
-                }
-                try? await Task.sleep(nanoseconds: UInt64.random(in: 350_000_000...1_100_000_000))
-            }
-        }
-        // W1390 — 偶尔一颗【拖尾流星】划过天际(每隔 7~20s 一颗)。
-        Task { @MainActor in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64.random(in: 7_000_000_000...20_000_000_000))
-                if anchor.scene == nil { continue }
-                await flyMeteor(in: anchor)
-            }
-        }
-    }
-
-    // W1390 — 流星拖尾贴图(头亮→尾透明的横向渐变), 缓存一次。
-    static let meteorTex: TextureResource? = {
-        let w = 256, h = 32
-        let r = UIGraphicsImageRenderer(size: CGSize(width: w, height: h))
-        let img = r.image { ctx in
-            let c = ctx.cgContext
-            let cols = [UIColor.white.withAlphaComponent(0).cgColor,
-                        UIColor.white.withAlphaComponent(0.12).cgColor,
-                        UIColor.white.withAlphaComponent(0.85).cgColor,
-                        UIColor.white.cgColor] as CFArray
-            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: cols, locations: [0, 0.62, 0.94, 1.0])!
-            c.drawLinearGradient(g, start: CGPoint(x: 0, y: CGFloat(h) / 2),
-                                 end: CGPoint(x: CGFloat(w), y: CGFloat(h) / 2), options: [])   // 头(亮)在右(+X)
-        }
-        guard let cg = img.cgImage else { return nil }
-        return try? TextureResource(image: cg, options: .init(semantic: .color))
-    }()
-
-    /// 一颗拖尾流星: 从高处一侧斜飞到对侧, 头亮尾淡, 快速划过 + 头尾淡入淡出。
-    @MainActor static func flyMeteor(in anchor: Entity) async {
-        let len = Float.random(in: 0.55...1.0)
-        let meteor = ModelEntity(mesh: .generatePlane(width: len, height: Float.random(in: 0.03...0.06)))
-        let tint = UIColor(hue: CGFloat.random(in: 0...1), saturation: CGFloat.random(in: 0...0.35), brightness: 1.0, alpha: 1.0)
-        func paint(_ op: Float) {
-            var m = UnlitMaterial()
-            if let tex = meteorTex { m.color = .init(tint: tint, texture: .init(tex)) } else { m.color = .init(tint: tint) }
-            m.blending = .transparent(opacity: .init(floatLiteral: op))
-            m.opacityThreshold = nil
-            meteor.model?.materials = [m]
-        }
-        let z = Float.random(in: -4.5 ... -2.6)
-        let fromLeft = Bool.random()
-        let y0 = Float.random(in: 0.6...1.7)
-        let x0 = fromLeft ? Float.random(in: -2.4 ... -1.2) : Float.random(in: 1.2...2.4)
-        let x1 = fromLeft ? Float.random(in: 1.2...2.4) : Float.random(in: -2.4 ... -1.2)
-        let y1 = y0 - Float.random(in: 0.6...1.5)
-        let start = SIMD3<Float>(x0, y0, z), end = SIMD3<Float>(x1, y1, z)
-        let angle = atan2(end.y - start.y, end.x - start.x)   // 让头(+X)朝飞行方向
-        meteor.orientation = simd_quatf(angle: angle, axis: [0, 0, 1])
-        meteor.position = start
-        paint(0)
-        anchor.addChild(meteor)
-        let steps = 28
-        let dur = Double.random(in: 0.7...1.3)
-        for k in 0...steps {
-            let t = Float(k) / Float(steps)
-            meteor.position = start + (end - start) * t
-            let op: Float = t < 0.16 ? t / 0.16 : (1 - (t - 0.16) / 0.84)   // 快速淡入 → 渐隐
-            paint(max(0, op))
-            try? await Task.sleep(nanoseconds: UInt64(dur * 1_000_000_000 / Double(steps)))
-        }
-        meteor.removeFromParent()
-    }
-
-    /// 一颗星闪一下: 同时【变色 + 变大 + 变亮】→ 保持一下 → 缓缓复原回白色微亮。
-    @MainActor static func twinkleOne(_ star: ModelEntity) async {
-        let rest = star.scale.x
-        let hue = CGFloat.random(in: 0...1)
-        let grow = Float.random(in: 1.8...3.2)
-        func paint(_ tint: UIColor, _ op: Float) {
-            var m = UnlitMaterial()
-            if let tex = starSprite { m.color = .init(tint: tint, texture: .init(tex)) } else { m.color = .init(tint: tint) }
-            m.blending = .transparent(opacity: .init(floatLiteral: op))
-            m.opacityThreshold = nil
-            star.model?.materials = [m]
-        }
-        // 涨: 变色+胀大+提亮
-        for k in 0...8 {
-            let t = Float(k) / 8
-            star.scale = SIMD3<Float>(repeating: rest * (1 + (grow - 1) * t))
-            paint(UIColor(hue: hue, saturation: CGFloat.random(in: 0.5...0.95), brightness: 1.0, alpha: 1.0), 0.5 + 0.5 * t)
-            try? await Task.sleep(nanoseconds: 28_000_000)
-        }
-        try? await Task.sleep(nanoseconds: UInt64.random(in: 120_000_000...360_000_000))
-        // 退: 缩回 + 褪回白色微亮
-        for k in 0...12 {
-            let t = Float(k) / 12
-            star.scale = SIMD3<Float>(repeating: rest * (grow - (grow - 1) * t))
-            paint(UIColor(hue: hue, saturation: CGFloat(1 - t) * 0.7, brightness: 1.0, alpha: 1.0), 1.0 - 0.5 * t)
-            try? await Task.sleep(nanoseconds: 34_000_000)
-        }
-        star.scale = SIMD3<Float>(repeating: rest)
-    }
-
     /// W1389 — 启动金球 = 大厅顶部金球位(同一坐标 → 消失即重现的错觉)。两态光束同源。
     static let lobbyOrbCenter = SIMD3<Float>(0, -0.14, -1.44)
     private static let orbCenter = lobbyOrbCenter
@@ -432,5 +281,149 @@ struct GateView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) { dot.removeFromParent() }
             }
         }
+    }
+}
+
+// W1391 — 体积星空: 真 3D 散布于用户【四周】(有远有近=包围感), 每颗随机形状/角数/距离,
+//   随机闪烁(变色+胀大+提亮) + 偶发拖尾流星。取代旧的"贴在远球上的平面星点"(无景深)。
+//   大厅 + 影院共用。共享少量星形贴图 → 零解码, 内存可忽略。
+enum StarfieldVolume {
+    /// 多种角数 + 随机旋转的星形 sprite(4~8 角), 每颗星随机选一张 → 形状各异。
+    static let sprites: [TextureResource] = {
+        var arr: [TextureResource] = []
+        for pts in [4, 5, 5, 6, 6, 7, 8] {
+            let px = 128
+            let r = UIGraphicsImageRenderer(size: CGSize(width: px, height: px))
+            let img = r.image { ctx in
+                ctx.cgContext.setFillColor(UIColor.white.cgColor)
+                ImmersiveScene.fillStar(in: ctx.cgContext, cx: 64, cy: 64, radius: 58,
+                                        points: pts, rotation: CGFloat.random(in: 0 ..< .pi))
+            }
+            if let cg = img.cgImage, let t = try? TextureResource(image: cg, options: .init(semantic: .color)) {
+                arr.append(t)
+            }
+        }
+        return arr
+    }()
+
+    /// 流星拖尾贴图(头亮→尾透明的横向渐变), 缓存一次。
+    static let meteorTex: TextureResource? = {
+        let w = 256, h = 32
+        let r = UIGraphicsImageRenderer(size: CGSize(width: w, height: h))
+        let img = r.image { ctx in
+            let cols = [UIColor.white.withAlphaComponent(0).cgColor,
+                        UIColor.white.withAlphaComponent(0.12).cgColor,
+                        UIColor.white.withAlphaComponent(0.85).cgColor,
+                        UIColor.white.cgColor] as CFArray
+            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: cols, locations: [0, 0.62, 0.94, 1.0])!
+            ctx.cgContext.drawLinearGradient(g, start: CGPoint(x: 0, y: CGFloat(h) / 2),
+                                             end: CGPoint(x: CGFloat(w), y: CGFloat(h) / 2), options: [])
+        }
+        guard let cg = img.cgImage else { return nil }
+        return try? TextureResource(image: cg, options: .init(semantic: .color))
+    }()
+
+    @MainActor static func starPlane(width: Float, tint: UIColor, opacity: Float, tex: TextureResource?) -> ModelEntity {
+        let p = ModelEntity(mesh: .generatePlane(width: width, height: width))
+        var m = UnlitMaterial()
+        if let tex { m.color = .init(tint: tint, texture: .init(tex)) } else { m.color = .init(tint: tint) }
+        m.blending = .transparent(opacity: .init(floatLiteral: opacity))
+        m.opacityThreshold = nil
+        p.model?.materials = [m]
+        return p
+    }
+
+    @MainActor static func make(into anchor: Entity, count: Int = 300) {
+        var stars: [(ModelEntity, TextureResource?)] = []
+        for _ in 0..<count {
+            // 均匀分布在【整个球面】→ 四周(含侧后)都有星, 包围感。
+            let u = Float.random(in: -1...1)
+            let phi = Float.random(in: 0 ..< 2 * .pi)
+            let rr = (1 - u * u).squareRoot()
+            var dir = SIMD3<Float>(rr * cos(phi), u, rr * sin(phi))
+            if abs(dir.z - 1) < 0.001 { dir.x += 0.02 }   // 避开 from==to 退化
+            let rad = Float.random(in: 1.3...8.0)         // 有远有近
+            let pos = dir * rad + SIMD3<Float>(0, 0.2, 0)
+            let w = Float.random(in: 0.02...0.05) * (1 + rad * 0.05)
+            let op = Float.random(in: 0.28...0.8) * (rad < 3 ? 1.0 : 0.78)
+            let tex = sprites.randomElement() ?? nil
+            let star = starPlane(width: w, tint: .white, opacity: op, tex: tex)
+            star.position = pos
+            star.orientation = simd_quatf(from: SIMD3<Float>(0, 0, 1), to: -simd_normalize(pos))   // 面向用户
+            anchor.addChild(star)
+            stars.append((star, tex))
+        }
+        // 闪烁: 每隔随机间隔挑 1~3 颗变色+胀大+提亮再复原。
+        Task { @MainActor in
+            while !Task.isCancelled {
+                if anchor.scene == nil { try? await Task.sleep(nanoseconds: 200_000_000); continue }
+                for _ in 0..<Int.random(in: 1...3) {
+                    if let s = stars.randomElement() { Task { @MainActor in await twinkle(s.0, tex: s.1) } }
+                }
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 350_000_000...1_100_000_000))
+            }
+        }
+        // 偶发拖尾流星。
+        Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 7_000_000_000...20_000_000_000))
+                if anchor.scene != nil { await meteor(in: anchor) }
+            }
+        }
+    }
+
+    @MainActor static func twinkle(_ star: ModelEntity, tex: TextureResource?) async {
+        let rest = star.scale.x
+        let hue = CGFloat.random(in: 0...1)
+        let grow = Float.random(in: 1.8...3.4)
+        func paint(_ tint: UIColor, _ op: Float) {
+            var m = UnlitMaterial()
+            if let tex { m.color = .init(tint: tint, texture: .init(tex)) } else { m.color = .init(tint: tint) }
+            m.blending = .transparent(opacity: .init(floatLiteral: op)); m.opacityThreshold = nil
+            star.model?.materials = [m]
+        }
+        for k in 0...8 {
+            let t = Float(k) / 8
+            star.scale = SIMD3<Float>(repeating: rest * (1 + (grow - 1) * t))
+            paint(UIColor(hue: hue, saturation: CGFloat.random(in: 0.5...0.95), brightness: 1, alpha: 1), 0.5 + 0.5 * t)
+            try? await Task.sleep(nanoseconds: 28_000_000)
+        }
+        try? await Task.sleep(nanoseconds: UInt64.random(in: 120_000_000...360_000_000))
+        for k in 0...12 {
+            let t = Float(k) / 12
+            star.scale = SIMD3<Float>(repeating: rest * (grow - (grow - 1) * t))
+            paint(UIColor(hue: hue, saturation: CGFloat(1 - t) * 0.7, brightness: 1, alpha: 1), 1.0 - 0.5 * t)
+            try? await Task.sleep(nanoseconds: 34_000_000)
+        }
+        star.scale = SIMD3<Float>(repeating: rest)
+    }
+
+    @MainActor static func meteor(in anchor: Entity) async {
+        let len = Float.random(in: 0.55...1.0)
+        let m = ModelEntity(mesh: .generatePlane(width: len, height: Float.random(in: 0.03...0.06)))
+        let tint = UIColor(hue: CGFloat.random(in: 0...1), saturation: CGFloat.random(in: 0...0.35), brightness: 1, alpha: 1)
+        func paint(_ op: Float) {
+            var mat = UnlitMaterial()
+            if let tex = meteorTex { mat.color = .init(tint: tint, texture: .init(tex)) } else { mat.color = .init(tint: tint) }
+            mat.blending = .transparent(opacity: .init(floatLiteral: op)); mat.opacityThreshold = nil
+            m.model?.materials = [mat]
+        }
+        let z = Float.random(in: -4.5 ... -2.6)
+        let fromLeft = Bool.random()
+        let y0 = Float.random(in: 0.6...1.7)
+        let x0 = fromLeft ? Float.random(in: -2.4 ... -1.2) : Float.random(in: 1.2...2.4)
+        let x1 = fromLeft ? Float.random(in: 1.2...2.4) : Float.random(in: -2.4 ... -1.2)
+        let y1 = y0 - Float.random(in: 0.6...1.5)
+        let start = SIMD3<Float>(x0, y0, z), end = SIMD3<Float>(x1, y1, z)
+        m.orientation = simd_quatf(angle: atan2(end.y - start.y, end.x - start.x), axis: [0, 0, 1])
+        m.position = start; paint(0); anchor.addChild(m)
+        let steps = 28, dur = Double.random(in: 0.7...1.3)
+        for k in 0...steps {
+            let t = Float(k) / Float(steps)
+            m.position = start + (end - start) * t
+            paint(max(0, t < 0.16 ? t / 0.16 : (1 - (t - 0.16) / 0.84)))
+            try? await Task.sleep(nanoseconds: UInt64(dur * 1_000_000_000 / Double(steps)))
+        }
+        m.removeFromParent()
     }
 }

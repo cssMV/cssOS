@@ -206,6 +206,12 @@ struct ImmersiveView: View {
             let env = ImmersiveScene.makeEnvironment(named: settings.environment)
             content.add(env)
             envModel = env.children.first as? ModelEntity
+            // W1391 — 影院里也铺【体积星空】(四周包围, 有远有近 + 偶发流星), 与大厅一致(cosmos 场景)。
+            if settings.environment == "cosmos" {
+                let starAnchor = AnchorEntity(.head)
+                StarfieldVolume.make(into: starAnchor, count: 260)
+                content.add(starAnchor)
+            }
 
             // CSSOS_WAVE_1106 — Jing「影院里有两个魔镜球, 一个孤零零浮在视频框上」: 删掉这颗悬浮
             //   logo 金球(品牌存在感改由控制窗里的折叠魔镜承担), 影院中央只留画面, 不再有孤球。

@@ -24,18 +24,19 @@ struct ContentView: View {
 
             // 左上角: 音乐时长倒计时(右上角是系统时间)。
             if !player.loading, !player.remainingText.isEmpty {
+                // W1433 — 左上倒计时与右上系统时间【同样大、对称】(去胶囊底, 加阴影保证可读)。
                 VStack {
                     HStack {
                         Text(player.remainingText)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(.black.opacity(0.4), in: Capsule())
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.65), radius: 3)
+                            .shadow(color: .black.opacity(0.4), radius: 1)
                         Spacer()
                     }
                     Spacer()
                 }
-                .padding(.leading, 10).padding(.top, 6)
+                .padding(.leading, 13).padding(.top, 3)
             }
 
             // 加载时: 魔镜(尖角托盘 + 金球居中【自转】), 和别的平台一样。

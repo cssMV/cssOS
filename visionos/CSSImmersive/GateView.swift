@@ -9,7 +9,7 @@ import SwiftUI
 import RealityKit
 import UIKit
 
-private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var speedRef: MagicMirrorOrb.SpeedRef? }
+private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var welcome: Entity?; var speedRef: MagicMirrorOrb.SpeedRef? }
 
 // W1384 — 金球标记: 手势只盯带此标记的实体(金球), 不再 targetedToAnyEntity 截走大厅卡片的捏。
 struct GateOrbMarker: Component {}
@@ -66,10 +66,19 @@ struct GateView: View {
                 anchor.addChild(creation)
                 refs.creation = creation
             }
+            // W1386 — 金球下方欢迎词(仅大门态显, 进大厅后隐)。
+            if let welcome = attachments.entity(for: "welcome") {
+                welcome.position = [0, -0.07, -1.4]   // 金球([0,0.12,-1.4])正下方
+                anchor.addChild(welcome)
+                refs.welcome = welcome
+            }
+            // W1386 — 少量【偶尔闪烁】的星(零解码、零新分配 → 内存可忽略): 让星空像活的。
+            GateView.addTwinkleStars(to: anchor)
         } update: { _, _ in
             refs.lobby?.isEnabled = showLobby && !creating
             refs.orb?.isEnabled = !showLobby && !creating   // W1381 — 进圣殿大门 → gate 金球消失
             refs.creation?.isEnabled = creating              // W1382 — 创作时显进度球, 盖住大厅/金球
+            refs.welcome?.isEnabled = !showLobby && !creating   // W1386 — 欢迎词只在大门态
         } attachments: {
             Attachment(id: "lobby") {
                 LobbyView(
@@ -86,6 +95,20 @@ struct GateView: View {
             Attachment(id: "creation") {
                 CreationOrbView(spell: creatingSpell, stage: creatingStage, progress: creatingProgress)
                     .frame(width: 700, height: 520)
+            }
+            // W1386 — 金球下方欢迎词(金球孤零零转 → 加一句迎宾)。
+            Attachment(id: "welcome") {
+                VStack(spacing: 8) {
+                    Text(L("Welcome to CSS Vision", "欢迎来到 CSS Vision"))
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(L("Gaze the orb · pinch to enter the sanctuary",
+                           "凝视魔镜 · 捏合步入圣殿"))
+                        .font(.system(size: 18, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
+                .multilineTextAlignment(.center)
             }
         }
         // W1379 — 捏金球(纯捏, 不移动)→ 发射光点。SpatialTapGesture 才识别纯捏(DragGesture 需移动→纯捏不触发, 这是 W1377 进不了门的真凶)。
@@ -199,6 +222,38 @@ struct GateView: View {
             withAnimation(.easeInOut(duration: 0.45)) { showLobby = true }   // 光点散 → 圣殿大门浮现
             try? await Task.sleep(nanoseconds: 250_000_000)
             await auth.signInViaOrb()
+        }
+    }
+
+    // W1386 — 少量偶尔闪烁的星(让星空像活的)。内存可忽略: 18 颗微小 emissive 球, 无贴图/无解码;
+    //   一个 Task 每隔随机间隔挑【一颗】淡入淡出 → 几乎不耗 CPU、零新分配。
+    @MainActor static func addTwinkleStars(to anchor: Entity) {
+        var stars: [ModelEntity] = []
+        for i in 0..<18 {
+            let s = ModelEntity(mesh: .generateSphere(radius: Float.random(in: 0.004...0.009)))
+            var m = UnlitMaterial(color: UIColor(white: 1, alpha: 1))
+            m.blending = .transparent(opacity: 0.0)
+            s.model?.materials = [m]
+            // 散布在四周中远景(避开正前金球区), 半球壳上随机。
+            let az = Float(i) / 18 * 2 * .pi + Float.random(in: -0.3...0.3)
+            let el = Float.random(in: -0.5...0.9)
+            let rad = Float.random(in: 2.6...4.2)
+            s.position = [rad * cos(el) * sin(az), rad * sin(el) + 0.4, -rad * cos(el) * cos(az)]
+            s.components.set(OpacityComponent(opacity: 0))
+            anchor.addChild(s)
+            stars.append(s)
+        }
+        Task { @MainActor in
+            while !Task.isCancelled {
+                if anchor.scene == nil { try? await Task.sleep(nanoseconds: 200_000_000); continue }
+                guard let star = stars.randomElement() else { break }
+                // 淡入 → 停 → 淡出(一颗闪一下), 随机峰值亮度。
+                let peak = Float.random(in: 0.6...1.0)
+                for k in 0...8 { star.components.set(OpacityComponent(opacity: peak * Float(k) / 8)); try? await Task.sleep(nanoseconds: 30_000_000) }
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 250_000_000...700_000_000))
+                for k in 0...10 { star.components.set(OpacityComponent(opacity: peak * (1 - Float(k) / 10))); try? await Task.sleep(nanoseconds: 35_000_000) }
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 700_000_000...2_200_000_000))   // 下一颗的间隔
+            }
         }
     }
 

@@ -192,6 +192,36 @@ enum SpatialSubtitleSystem {
         group.components.set(OpacityComponent(opacity: 1))
     }
 
+    /// W1420 — 通用【字心烟花】: 与影院字心小烟花(spawnBurst ③)完全同款参数。
+    ///   从 center 爆出一群小 emoji → 0.55s easeOut 向四周扩散短距 → 停留 → 0.9s 渐隐。
+    ///   金球喷射直接复用这套, 不再各写各的(参数一字不差)。
+    static func fireworkBurst(at center: SIMD3<Float>, into root: Entity, emotion: String = "joy", intensity: Float = 0.8) {
+        let pool = emojiPool(for: emotion)
+        let sparkN = 6 + Int(intensity * 10)
+        for _ in 0..<sparkN {
+            guard let g = pool.randomElement() else { continue }
+            let s = emojiEntity(g, size: CGFloat.random(in: 0.045...0.075), opacity: 0.95)   // 小!
+            s.position = center + SIMD3<Float>(0, 0, 0.02)
+            root.addChild(s)
+            let ang = Float.random(in: 0...(2 * .pi))
+            let r = Float.random(in: 0.14...0.40) * (0.7 + 0.6 * intensity)                  // 短
+            var to = s.transform
+            to.translation = center + SIMD3<Float>(cos(ang) * r, sin(ang) * r, Float.random(in: -0.04...0.12))
+            s.move(to: to, relativeTo: root, duration: 0.55, timingFunction: .easeOut)        // 0.55s 扩散
+            let hold = 0.55 + Double.random(in: 0.5...1.1)
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(hold * 1_000_000_000))
+                let steps = 22
+                for k in 0...steps {
+                    if s.scene == nil { return }
+                    s.components.set(OpacityComponent(opacity: Float(0.95 * (1.0 - Double(k) / Double(steps)))))
+                    try? await Task.sleep(nanoseconds: 40_000_000)
+                }
+                s.removeFromParent()
+            }
+        }
+    }
+
     // MARK: - W1399 Gap2: 行容器 + 整句一起淡出 ------------------------------------------------
     static var lineContainers: [Int: Entity] = [:]
     private static var lineOrder: [Int] = []

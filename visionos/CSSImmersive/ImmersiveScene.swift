@@ -56,9 +56,10 @@ enum ImmersiveScene {
         // CSSOS_WAVE_1105 — Jing「星空只有两颗星」根因: 存在 env_cosmos.imageset 全景图(几乎全黑、
         //   只有 2 颗亮点), 被优先加载顶掉了程序星空。修: cosmos 一律走程序生成的密集星空(下面
         //   已加密加亮), 不用那张弱图。其它场景仍可用 env_<name> 全景图。
-        // W1391 — Jing「取消贴在远球上的平面星点(无景深)」: cosmos 天空盒只留深空底色,
-        //   星星改由 StarfieldVolume 真 3D 散布四周(有远有近=包围感)。starfieldMaterial 保留备用。
-        if name == "cosmos" { return UnlitMaterial(color: UIColor(red: 0.012, green: 0.012, blue: 0.05, alpha: 1)) }
+        // W1394 — Jing「密度要接近从前」: 两层叠加 = 密集星空天空盒(7000+颗, 一张贴图≈零成本、
+        //   世界固定不跟头)作【远景背幕】, 再由 StarfieldVolume 叠 300 颗真 3D 近景星(景深/包围/闪烁/流星)。
+        //   = 密度回到从前 + 又有远近层次。(W1391 曾误删背幕致稀薄, 此处恢复。)
+        if name == "cosmos" { return starfieldMaterial() }
         if let img = UIImage(named: "env_\(name)"), let cg = img.cgImage,
            let tex = try? TextureResource(image: cg, options: .init(semantic: .color)) {
             var unlit = UnlitMaterial()

@@ -178,6 +178,7 @@ struct ImmersiveView: View {
             // 0) 特效 + 爆字幕根容器。
             content.add(fxRoot)
             content.add(burstRoot)
+            SpatialSubtitleSystem.reset(in: burstRoot)   // W1399 — 进影院清空上一作品残留行容器
             // W1069 — 截图展示模式: 模拟器音频不起播→爆字幕不触发, 这里定时强制喷一个真实情绪爆字幕
             //   (中央大字 + emoji + 四溅), 保证能截到"影院+逐字情绪字幕"招牌图。仅 env 设置时生效。
             let _showcase = ProcessInfo.processInfo.environment["CSS_SHOWCASE"] ?? ""
@@ -352,6 +353,10 @@ struct ImmersiveView: View {
                 }
         )
         // CSSOS_WAVE_938/940 — 逐字事件驱动: 身边炸字 + 全套空间特效。
+        // W1399 — Gap2: 某行结束 → 整行字一起淡出。
+        .onReceive(player.lineFadeSubject) { idx in
+            SpatialSubtitleSystem.fadeLine(idx, in: burstRoot)
+        }
         .onReceive(player.burstSubject) { event in
             lastBurstAt = Date()   // W1070 — 有爆字=在唱(非器乐段)
             // 身边炸字。

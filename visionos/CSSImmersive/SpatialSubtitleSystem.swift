@@ -13,6 +13,7 @@ struct BurstEvent {
     let text: String
     let emotion: String
     let intensity: Double   // 0..1 → 决定大小/亮度
+    var lineIndex: Int = 0  // W1399 — Gap2: 同一行的字归入同一容器, 行尾【整句一起淡出】
 }
 
 enum SpatialSubtitleSystem {
@@ -110,11 +111,6 @@ enum SpatialSubtitleSystem {
         let t = String(event.text).trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return }
 
-        // 活跃 group 上限 18, 超出回收最旧。
-        if root.children.count > 18, let oldest = root.children.first {
-            oldest.removeFromParent()
-        }
-
         let intensity = Float(max(0, min(1, event.intensity)))
         let pool = emojiPool(for: event.emotion)
         let group = Entity()
@@ -185,21 +181,55 @@ enum SpatialSubtitleSystem {
 
         group.components.set(OpacityComponent(opacity: 0))
         group.scale = SIMD3<Float>(repeating: 0.3)
-        root.addChild(group)
+        // W1399 — Gap2: 字归入【本行容器】(不再各自定时淡出); 整行到行尾由 fadeLine 一起淡出。
+        let container = lineContainer(event.lineIndex, in: root)
+        container.addChild(group)
 
-        // W971 — 三段分明: ①砰地爆开(0.22s 快弹, 略过冲再回弹更"爆")。
+        // W971 — 砰地爆开(0.22s 快弹)。之后【停住驻留】, 不再单字淡 —— 等整句一起淡(fadeLine)。
         var pop = group.transform
         pop.scale = SIMD3<Float>(repeating: 1.0 + 0.55 * intensity)
-        group.move(to: pop, relativeTo: root, duration: 0.22, timingFunction: .easeOut)
+        group.move(to: pop, relativeTo: container, duration: 0.22, timingFunction: .easeOut)
         group.components.set(OpacityComponent(opacity: 1))
+    }
 
-        // ②明显停住驻留 ~2.4s(全程不动不淡)→ ③才慢慢淡出(1.1s 柔和淡出)。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
-            var drift = group.transform
-            drift.translation += up * 0.12
-            group.move(to: drift, relativeTo: root, duration: 1.1, timingFunction: .easeInOut)
-            group.components.set(OpacityComponent(opacity: 0))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.15) { group.removeFromParent() }
+    // MARK: - W1399 Gap2: 行容器 + 整句一起淡出 ------------------------------------------------
+    static var lineContainers: [Int: Entity] = [:]
+    private static var lineOrder: [Int] = []
+
+    /// 取/建某行的容器(挂在 root, 自身 OpacityComponent 控整行淡出 = RealityKit 层级透明度)。
+    @MainActor static func lineContainer(_ idx: Int, in root: Entity) -> Entity {
+        if let c = lineContainers[idx], c.scene != nil { return c }
+        let c = Entity()
+        c.components.set(OpacityComponent(opacity: 1))
+        root.addChild(c)
+        lineContainers[idx] = c
+        lineOrder.append(idx)
+        while lineOrder.count > 4 {   // 安全上限: 最多 4 行同时在场(防 seek/漏淡积累)
+            let old = lineOrder.removeFirst()
+            if old != idx { fadeLine(old, in: root) }
         }
+        return c
+    }
+
+    /// 整行字【一起淡出】(~1.1s)再回收 —— 行尾由 PlayerController.lineFadeSubject 触发。
+    @MainActor static func fadeLine(_ idx: Int, in root: Entity) {
+        guard let c = lineContainers[idx] else { return }
+        lineContainers[idx] = nil
+        lineOrder.removeAll { $0 == idx }
+        Task { @MainActor in
+            let steps = 26
+            for k in 0...steps {
+                if c.scene == nil { return }
+                c.components.set(OpacityComponent(opacity: Float(1.0 - Double(k) / Double(steps))))
+                try? await Task.sleep(nanoseconds: 42_000_000)   // ~1.1s
+            }
+            c.removeFromParent()
+        }
+    }
+
+    /// 换作品/进影院 → 清空所有行容器(防跨作品残留)。
+    @MainActor static func reset(in root: Entity) {
+        lineContainers.removeAll(); lineOrder.removeAll()
+        root.children.forEach { $0.removeFromParent() }
     }
 }

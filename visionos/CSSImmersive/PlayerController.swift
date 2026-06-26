@@ -23,10 +23,14 @@ final class PlayerController: ObservableObject {
 
     /// CSSOS_WAVE_938 — 逐字爆字幕事件流(空间爆字幕订阅它在用户身边炸字)。
     let burstSubject = PassthroughSubject<BurstEvent, Never>()
-    private struct FireToken { let text: String; let start: Double; let emotion: String; let intensity: Double }
+    /// W1399 — Gap2: 某行结束 → 发该行号, 订阅方把整行字一起淡出。
+    let lineFadeSubject = PassthroughSubject<Int, Never>()
+    private struct FireToken { let text: String; let start: Double; let emotion: String; let intensity: Double; let lineIndex: Int }
     private var fireTokens: [FireToken] = []
     private var nextFireIdx = 0
     private var lastTickSec: Double = 0
+    private var lineSpans: [(idx: Int, end: Double)] = []   // 每行(行号, 结束秒), 按结束排序
+    private var nextLineEndIdx = 0
 
     /// 每块银幕一个画面播放器。
     private var variantVideoURLs: [String?] = []   // W950 — 懒解码用: 切到才装项
@@ -147,36 +151,48 @@ final class PlayerController: ObservableObject {
     /// 把激活屏的逐字 token 摊平成带绝对时间的发射表(有 tokens 用 tokens, 否则按行发整行)。
     private func buildFireTokens() {
         fireTokens.removeAll(); nextFireIdx = 0; lastTickSec = 0
+        lineSpans.removeAll(); nextLineEndIdx = 0
         let lines = variants[safe: activeIndex]?.alignedLyrics ?? []
-        for line in lines {
+        for (li, line) in lines.enumerated() {
+            var lineMaxEnd = line.endSeconds
             if let toks = line.tokens, !toks.isEmpty {
                 for tk in toks {
                     let txt = tk.resolvedText.trimmingCharacters(in: .whitespaces)
                     guard !txt.isEmpty else { continue }
                     fireTokens.append(FireToken(text: txt, start: tk.startSeconds,
                                                 emotion: tk.emotion ?? "",
-                                                intensity: tk.emotionIntensity ?? 0.6))
+                                                intensity: tk.emotionIntensity ?? 0.6, lineIndex: li))
+                    lineMaxEnd = max(lineMaxEnd, tk.endSeconds)
                 }
             } else {
                 let txt = line.resolvedText.trimmingCharacters(in: .whitespaces)
                 if !txt.isEmpty {
-                    fireTokens.append(FireToken(text: txt, start: line.startSeconds, emotion: "", intensity: 0.7))
+                    fireTokens.append(FireToken(text: txt, start: line.startSeconds, emotion: "", intensity: 0.7, lineIndex: li))
                 }
             }
+            // 行尾淡出时刻: 行/末字结束后留 0.5s 余韵再整句淡出。
+            if lineMaxEnd > 0 { lineSpans.append((idx: li, end: lineMaxEnd + 0.5)) }
         }
         fireTokens.sort { $0.start < $1.start }
+        lineSpans.sort { $0.end < $1.end }
     }
 
     /// 时间推进到某字 start 就发一次爆字; 回退(seek)则重定位发射指针。
     private func fireBursts(at sec: Double) {
-        if sec + 0.05 < lastTickSec {   // 明显回退 → 重定位
+        if sec + 0.05 < lastTickSec {   // 明显回退 → 重定位两个指针
             nextFireIdx = fireTokens.firstIndex(where: { $0.start >= sec }) ?? fireTokens.count
+            nextLineEndIdx = lineSpans.firstIndex(where: { $0.end >= sec }) ?? lineSpans.count
         }
         lastTickSec = sec
         while nextFireIdx < fireTokens.count, sec >= fireTokens[nextFireIdx].start {
             let f = fireTokens[nextFireIdx]
-            burstSubject.send(BurstEvent(text: f.text, emotion: f.emotion, intensity: f.intensity))
+            burstSubject.send(BurstEvent(text: f.text, emotion: f.emotion, intensity: f.intensity, lineIndex: f.lineIndex))
             nextFireIdx += 1
+        }
+        // W1399 — Gap2: 时间越过某行结束 → 通知订阅方把整行字一起淡出。
+        while nextLineEndIdx < lineSpans.count, sec >= lineSpans[nextLineEndIdx].end {
+            lineFadeSubject.send(lineSpans[nextLineEndIdx].idx)
+            nextLineEndIdx += 1
         }
     }
 

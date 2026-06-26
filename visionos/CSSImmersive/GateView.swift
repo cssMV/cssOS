@@ -9,14 +9,24 @@ import SwiftUI
 import RealityKit
 import UIKit
 
-private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity? }
+private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity? }
 
 struct GateView: View {
     @EnvironmentObject var auth: CSSAuth
     @EnvironmentObject var router: GateRouter
+    @EnvironmentObject var player: PlayerController     // W1382 — 编排搬进沉浸: 进影院装载作品
+    @EnvironmentObject var settings: CathedralSettings
+    @Environment(\.openImmersiveSpace) private var openImmersiveSpace   // 从沉浸里开影院(系统自动换掉 GateSpace)
+    @Environment(\.openWindow) private var openWindow                   // 创作=开 AI 输入窗(按需)
     @State private var refs = GateViewRefs()
     @State private var showLobby = false   // W1376 — 大厅沉浸面板显隐(捏魔镜→光束→登录→显)
     @State private var dragBase: SIMD3<Float>? = nil   // W1377 — 捏住金球拖动整个门
+    // W1382 — 创作管线 + 进度球搬进沉浸(原在 2D 宿主窗 ContentView)。
+    @State private var creating = false
+    @State private var creatingSpell = ""
+    @State private var creatingStage = ""
+    @State private var creatingProgress = 0.0
+    @State private var pendingSpell = ""
 
     var body: some View {
         // W1376 — Jing 铁律「沉浸里一切皆沉浸, 零 2D」: 星空 + 魔镜 3D 实体 + 大厅 LobbyView 作为
@@ -43,13 +53,21 @@ struct GateView: View {
                 anchor.addChild(lobby)
                 refs.lobby = lobby
             }
+            // W1382 — 创作进度球 attachment(头前正中, 初始隐藏)。
+            if let creation = attachments.entity(for: "creation") {
+                creation.position = [0, 0, -1.4]
+                creation.isEnabled = false
+                anchor.addChild(creation)
+                refs.creation = creation
+            }
         } update: { _, _ in
-            refs.lobby?.isEnabled = showLobby
-            refs.orb?.isEnabled = !showLobby   // W1381 — 进圣殿大门 → gate 金球消失, 只剩大厅(自带 logo 金球)
+            refs.lobby?.isEnabled = showLobby && !creating
+            refs.orb?.isEnabled = !showLobby && !creating   // W1381 — 进圣殿大门 → gate 金球消失
+            refs.creation?.isEnabled = creating              // W1382 — 创作时显进度球, 盖住大厅/金球
         } attachments: {
             Attachment(id: "lobby") {
                 LobbyView(
-                    onEnter: { router.enter($0) },         // → ContentView 宿主接力开 ImmersiveCinema
+                    onEnter: { router.enter($0) },
                     onCreate: { router.doCreate = true },
                     onSpell: { router.spell = $0 },
                     signedIn: auth.isSignedIn,
@@ -57,6 +75,11 @@ struct GateView: View {
                 )
                 .frame(width: 980, height: 720)
                 .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
+            }
+            // W1382 — 创作进度球(原 ContentView 2D overlay, 现沉浸 attachment)。
+            Attachment(id: "creation") {
+                CreationOrbView(spell: creatingSpell, stage: creatingStage, progress: creatingProgress)
+                    .frame(width: 700, height: 520)
             }
         }
         // W1379 — 捏金球(纯捏, 不移动)→ 发射光点。SpatialTapGesture 才识别纯捏(DragGesture 需移动→纯捏不触发, 这是 W1377 进不了门的真凶)。
@@ -87,9 +110,58 @@ struct GateView: View {
             router.fireBeams = false
             runBeamRitual()
         }
-        // 光束飞完 → 登录成功 → 大厅沉浸面板浮现(零 2D)。
+        // 光束飞完 → 登录成功 → 大厅沉浸面板浮现 + 接力待办咒语(零 2D)。
         .onChange(of: auth.isSignedIn) { _, signed in
-            if signed { withAnimation(.easeInOut(duration: 0.4)) { showLobby = true } }
+            if signed {
+                withAnimation(.easeInOut(duration: 0.4)) { showLobby = true }
+                if !pendingSpell.isEmpty { let s = pendingSpell; pendingSpell = ""; startSpell(s) }
+            }
+        }
+        // W1382 — 编排全搬进沉浸: 选作品→进影院; 创作→开AI窗; 咒语→创作管线(原在2D宿主窗)。
+        .onChange(of: router.enterToken) { _, _ in
+            if let w = router.pendingWork { Task { await enterCinema(work: w) } }
+        }
+        .onChange(of: router.doCreate) { _, v in
+            if v { router.doCreate = false; openWindow(id: "ai") }
+        }
+        .onChange(of: router.spell) { _, s in
+            if let s { router.spell = nil; startSpell(s) }
+        }
+    }
+
+    // W1382 — 进影院: 装载作品 + 开 ImmersiveCinema(系统自动换掉当前 GateSpace)。
+    private func enterCinema(work: CSSWork) async {
+        player.load(work)
+        _ = await openImmersiveSpace(id: "ImmersiveCinema")
+        settings.hasEnteredOnce = true
+    }
+
+    // W1382 — 咒语创作(原 ContentView.startSpell 搬来): 进度走 CreationOrbView attachment。
+    private func startSpell(_ spell: String) {
+        let s = spell.trimmingCharacters(in: .whitespaces)
+        guard !s.isEmpty, !creating else { return }
+        guard auth.isSignedIn else { pendingSpell = s; router.fireBeams = true; return }   // 未登录→先光束登录, 记住咒语
+        creatingSpell = s; creatingProgress = 0.05
+        creatingStage = L("Reading your spell…", "解读咒语…")
+        withAnimation(.easeInOut(duration: 0.3)) { creating = true }
+        let stages: [(String, Double)] = [
+            (L("Weaving the lyrics…", "吟唱歌词…"), 0.30),
+            (L("Painting the cover…", "绘制封面…"), 0.50),
+            (L("Composing the music…", "谱写旋律…"), 0.72),
+            (L("Filming the visuals…", "绘制画面…"), 0.88),
+            (L("Final mix…", "合成成片…"), 0.97),
+        ]
+        Task {
+            for (label, p) in stages {
+                try? await Task.sleep(nanoseconds: 1_400_000_000)
+                if !creating { return }
+                creatingStage = label; creatingProgress = p
+            }
+        }
+        Task {
+            let work = await CSSBackend.createFromPrompt(s)
+            withAnimation { creating = false }
+            if let w = work { await enterCinema(work: w) } else { creatingStage = "" }
         }
     }
 

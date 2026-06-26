@@ -63,6 +63,8 @@ struct CSSImmersiveApp: App {
             GateView()
                 .environmentObject(auth)
                 .environmentObject(router)
+                .environmentObject(player)      // W1382 — 编排搬进 GateView, 需 player/settings
+                .environmentObject(settings)
         }
         .immersionStyle(selection: .constant(.full), in: .full)
     }

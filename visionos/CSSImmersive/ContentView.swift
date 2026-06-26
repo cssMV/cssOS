@@ -89,9 +89,14 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: inImmersive)
-        // W1093 — 启动即进沉浸大厅。
+        // W1382 — 启动即进沉浸大厅; GateSpace 开好后【自删宿主窗】(编排/创作已全搬进 GateView)→ 零 2D、无抓取条。
+        //   截图展示模式(CSS_SHOWCASE)保留窗(它在本窗渲染目标画面)。
         .task {
             if !gateOpened { await openGate() }
+            let showcase = ProcessInfo.processInfo.environment["CSS_SHOWCASE"] ?? ""
+            if gateOpened && showcase.isEmpty {
+                dismissWindow(id: "launch")
+            }
         }
         // 沉浸大厅回传: 选作品 → 进影院; 创作 → 开 AI 窗; 咒语 → 创作。
         .onChange(of: router.enterToken) { _, _ in

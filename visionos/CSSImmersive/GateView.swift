@@ -297,6 +297,68 @@ struct GateView: View {
                 try? await Task.sleep(nanoseconds: UInt64.random(in: 350_000_000...1_100_000_000))
             }
         }
+        // W1390 — 偶尔一颗【拖尾流星】划过天际(每隔 7~20s 一颗)。
+        Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 7_000_000_000...20_000_000_000))
+                if anchor.scene == nil { continue }
+                await flyMeteor(in: anchor)
+            }
+        }
+    }
+
+    // W1390 — 流星拖尾贴图(头亮→尾透明的横向渐变), 缓存一次。
+    static let meteorTex: TextureResource? = {
+        let w = 256, h = 32
+        let r = UIGraphicsImageRenderer(size: CGSize(width: w, height: h))
+        let img = r.image { ctx in
+            let c = ctx.cgContext
+            let cols = [UIColor.white.withAlphaComponent(0).cgColor,
+                        UIColor.white.withAlphaComponent(0.12).cgColor,
+                        UIColor.white.withAlphaComponent(0.85).cgColor,
+                        UIColor.white.cgColor] as CFArray
+            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: cols, locations: [0, 0.62, 0.94, 1.0])!
+            c.drawLinearGradient(g, start: CGPoint(x: 0, y: CGFloat(h) / 2),
+                                 end: CGPoint(x: CGFloat(w), y: CGFloat(h) / 2), options: [])   // 头(亮)在右(+X)
+        }
+        guard let cg = img.cgImage else { return nil }
+        return try? TextureResource(image: cg, options: .init(semantic: .color))
+    }()
+
+    /// 一颗拖尾流星: 从高处一侧斜飞到对侧, 头亮尾淡, 快速划过 + 头尾淡入淡出。
+    @MainActor static func flyMeteor(in anchor: Entity) async {
+        let len = Float.random(in: 0.55...1.0)
+        let meteor = ModelEntity(mesh: .generatePlane(width: len, height: Float.random(in: 0.03...0.06)))
+        let tint = UIColor(hue: CGFloat.random(in: 0...1), saturation: CGFloat.random(in: 0...0.35), brightness: 1.0, alpha: 1.0)
+        func paint(_ op: Float) {
+            var m = UnlitMaterial()
+            if let tex = meteorTex { m.color = .init(tint: tint, texture: .init(tex)) } else { m.color = .init(tint: tint) }
+            m.blending = .transparent(opacity: .init(floatLiteral: op))
+            m.opacityThreshold = nil
+            meteor.model?.materials = [m]
+        }
+        let z = Float.random(in: -4.5 ... -2.6)
+        let fromLeft = Bool.random()
+        let y0 = Float.random(in: 0.6...1.7)
+        let x0 = fromLeft ? Float.random(in: -2.4 ... -1.2) : Float.random(in: 1.2...2.4)
+        let x1 = fromLeft ? Float.random(in: 1.2...2.4) : Float.random(in: -2.4 ... -1.2)
+        let y1 = y0 - Float.random(in: 0.6...1.5)
+        let start = SIMD3<Float>(x0, y0, z), end = SIMD3<Float>(x1, y1, z)
+        let angle = atan2(end.y - start.y, end.x - start.x)   // 让头(+X)朝飞行方向
+        meteor.orientation = simd_quatf(angle: angle, axis: [0, 0, 1])
+        meteor.position = start
+        paint(0)
+        anchor.addChild(meteor)
+        let steps = 28
+        let dur = Double.random(in: 0.7...1.3)
+        for k in 0...steps {
+            let t = Float(k) / Float(steps)
+            meteor.position = start + (end - start) * t
+            let op: Float = t < 0.16 ? t / 0.16 : (1 - (t - 0.16) / 0.84)   // 快速淡入 → 渐隐
+            paint(max(0, op))
+            try? await Task.sleep(nanoseconds: UInt64(dur * 1_000_000_000 / Double(steps)))
+        }
+        meteor.removeFromParent()
     }
 
     /// 一颗星闪一下: 同时【变色 + 变大 + 变亮】→ 保持一下 → 缓缓复原回白色微亮。

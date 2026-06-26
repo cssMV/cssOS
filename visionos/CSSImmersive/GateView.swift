@@ -19,7 +19,8 @@ struct GateView: View {
     @EnvironmentObject var router: GateRouter
     @EnvironmentObject var player: PlayerController     // W1382 — 编排搬进沉浸: 进影院装载作品
     @EnvironmentObject var settings: CathedralSettings
-    @Environment(\.openImmersiveSpace) private var openImmersiveSpace   // 从沉浸里开影院(系统自动换掉 GateSpace)
+    @Environment(\.openImmersiveSpace) private var openImmersiveSpace   // 从沉浸里开影院
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace  // W1388 — 开影院前必须先关 GateSpace(否则 open 静默 .error)
     @Environment(\.openWindow) private var openWindow                   // 创作=开 AI 输入窗(按需)
     @State private var refs = GateViewRefs()
     @State private var showLobby = false   // W1376 — 大厅沉浸面板显隐(捏魔镜→光束→登录→显)
@@ -171,11 +172,14 @@ struct GateView: View {
         }
     }
 
-    // W1382 — 进影院: 装载作品 + 开 ImmersiveCinema(系统自动换掉当前 GateSpace)。
+    // W1388 — 进影院(卡片捏出声却进不去的真凶): visionOS 一次只允许一个 ImmersiveSpace,
+    //   GateSpace 还开着时直接 openImmersiveSpace 会静默返回 .error → 必须【先 dismiss 当前再 open】。
+    //   enterCinema 由独立 Task 调用(非 .task), 不随 GateView 消失而取消 → dismiss 后仍能续开影院。
     private func enterCinema(work: CSSWork) async {
-        player.load(work)
-        _ = await openImmersiveSpace(id: "ImmersiveCinema")
+        player.load(work)                      // 共享 PlayerController(注入到两个空间)→ 先装载
         settings.hasEnteredOnce = true
+        await dismissImmersiveSpace()          // 先关 GateSpace
+        _ = await openImmersiveSpace(id: "ImmersiveCinema")   // 再开影院
     }
 
     // W1382 — 咒语创作(原 ContentView.startSpell 搬来): 进度走 CreationOrbView attachment。
@@ -225,36 +229,71 @@ struct GateView: View {
         }
     }
 
-    // W1386 — 少量偶尔闪烁的星(让星空像活的)。内存可忽略: 18 颗微小 emissive 球, 无贴图/无解码;
-    //   一个 Task 每隔随机间隔挑【一颗】淡入淡出 → 几乎不耗 CPU、零新分配。
+    // W1388 — 活的星空: 金球背后铺一片【常态微亮】的星, 随机挑几颗【同时变色+变大+变亮】闪一下再复原。
+    //   内存可忽略: 40 颗微小 emissive 球, 无贴图/无解码; 闪烁只改 scale/opacity/材质色 → 零新分配。
     @MainActor static func addTwinkleStars(to anchor: Entity) {
         var stars: [ModelEntity] = []
-        for i in 0..<18 {
-            let s = ModelEntity(mesh: .generateSphere(radius: Float.random(in: 0.004...0.009)))
-            var m = UnlitMaterial(color: UIColor(white: 1, alpha: 1))
-            m.blending = .transparent(opacity: 0.0)
+        for i in 0..<40 {
+            let s = ModelEntity(mesh: .generateSphere(radius: Float.random(in: 0.006...0.013)))
+            var m = UnlitMaterial(color: .white)
+            m.blending = .transparent(opacity: Float.random(in: 0.35...0.7))   // 常态就微亮可见
             s.model?.materials = [m]
-            // 散布在四周中远景(避开正前金球区), 半球壳上随机。
-            let az = Float(i) / 18 * 2 * .pi + Float.random(in: -0.3...0.3)
-            let el = Float.random(in: -0.5...0.9)
-            let rad = Float.random(in: 2.6...4.2)
-            s.position = [rad * cos(el) * sin(az), rad * sin(el) + 0.4, -rad * cos(el) * cos(az)]
-            s.components.set(OpacityComponent(opacity: 0))
+            // 主要铺在【金球背后】的正前视野里(金球在 z=-1.4), 再撒一些到四周。
+            let frontField = i < 28
+            if frontField {
+                s.position = [Float.random(in: -1.3...1.3),
+                              Float.random(in: -0.5...1.4),
+                              Float.random(in: -4.5 ... -1.9)]   // 金球(-1.4)之后, 形成背景星幕
+            } else {
+                let az = Float(i) / 40 * 2 * .pi + Float.random(in: -0.3...0.3)
+                let el = Float.random(in: -0.4...0.9)
+                let rad = Float.random(in: 3.0...4.5)
+                s.position = [rad * cos(el) * sin(az), rad * sin(el) + 0.4, -rad * cos(el) * cos(az)]
+            }
             anchor.addChild(s)
             stars.append(s)
         }
+        // 闪烁: 每隔随机间隔挑 1~3 颗, 各自变随机色 + 胀大 + 提亮, 再缓缓复原。多颗错峰 → 星空灵动。
         Task { @MainActor in
             while !Task.isCancelled {
                 if anchor.scene == nil { try? await Task.sleep(nanoseconds: 200_000_000); continue }
-                guard let star = stars.randomElement() else { break }
-                // 淡入 → 停 → 淡出(一颗闪一下), 随机峰值亮度。
-                let peak = Float.random(in: 0.6...1.0)
-                for k in 0...8 { star.components.set(OpacityComponent(opacity: peak * Float(k) / 8)); try? await Task.sleep(nanoseconds: 30_000_000) }
-                try? await Task.sleep(nanoseconds: UInt64.random(in: 250_000_000...700_000_000))
-                for k in 0...10 { star.components.set(OpacityComponent(opacity: peak * (1 - Float(k) / 10))); try? await Task.sleep(nanoseconds: 35_000_000) }
-                try? await Task.sleep(nanoseconds: UInt64.random(in: 700_000_000...2_200_000_000))   // 下一颗的间隔
+                let burst = Int.random(in: 1...3)
+                for _ in 0..<burst {
+                    guard let star = stars.randomElement() else { continue }
+                    Task { @MainActor in await twinkleOne(star) }
+                }
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 350_000_000...1_100_000_000))
             }
         }
+    }
+
+    /// 一颗星闪一下: 同时【变色 + 变大 + 变亮】→ 保持一下 → 缓缓复原回白色微亮。
+    @MainActor static func twinkleOne(_ star: ModelEntity) async {
+        let rest = star.scale.x
+        let hue = CGFloat.random(in: 0...1)
+        let color = UIColor(hue: hue, saturation: CGFloat.random(in: 0.5...0.95), brightness: 1.0, alpha: 1.0)
+        let grow = Float.random(in: 1.8...3.2)
+        // 涨: 变色+胀大+提亮
+        for k in 0...8 {
+            let t = Float(k) / 8
+            star.scale = SIMD3<Float>(repeating: rest * (1 + (grow - 1) * t))
+            var m = UnlitMaterial(color: color)
+            m.blending = .transparent(opacity: 0.5 + 0.5 * t)
+            star.model?.materials = [m]
+            try? await Task.sleep(nanoseconds: 28_000_000)
+        }
+        try? await Task.sleep(nanoseconds: UInt64.random(in: 120_000_000...360_000_000))
+        // 退: 缩回 + 褪回白色微亮
+        for k in 0...12 {
+            let t = Float(k) / 12
+            star.scale = SIMD3<Float>(repeating: rest * (grow - (grow - 1) * t))
+            let mixWhite = UIColor(hue: hue, saturation: CGFloat((1 - t)) * 0.7, brightness: 1.0, alpha: 1.0)
+            var m = UnlitMaterial(color: mixWhite)
+            m.blending = .transparent(opacity: 1.0 - 0.5 * t)
+            star.model?.materials = [m]
+            try? await Task.sleep(nanoseconds: 34_000_000)
+        }
+        star.scale = SIMD3<Float>(repeating: rest)
     }
 
     /// 金球所在(gate anchor 局部坐标): 与 body 里 orb.position 一致。

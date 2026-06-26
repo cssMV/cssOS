@@ -141,12 +141,14 @@ enum MagicMirrorOrb {
             let spin: Float = 0.45        // 转速(弧度/秒)
             let dt: Float = 1.0 / 60.0
             var everInScene = false   // W1381 — 修金球不转: 实体入场景前 root.scene==nil 会让旧条件一次不转就退出。
+            var basePos: SIMD3<Float>? = nil   // W1388 — 呼吸时缓慢推拉(dolly)的基准位
             while !Task.isCancelled {
                 if root.scene == nil {
                     if everInScene { break }                              // 曾入场又离场 → 结束(自动回收)
                     try? await Task.sleep(nanoseconds: 50_000_000); continue   // 还没入场景 → 等
                 }
                 everInScene = true
+                if basePos == nil { basePos = root.position }
                 t += dt
                 angle += dir * spin * (speedRef?.mult ?? 1) * dt   // W1061 — 进度越快球转越快
                 orb.orientation = simd_quatf(angle: angle, axis: axis)
@@ -154,9 +156,14 @@ enum MagicMirrorOrb {
                 // W1063 — energy = 进度调速倍率: 进度越靠后, 呼吸越快、起伏越大、微光越亮、脉动越密。
                 let energy = max(0.6, min(4.4, speedRef?.mult ?? 1))
                 // 缩放呼吸(漂浮感): 频率 + 幅度都随 energy 涨。
-                let breatheAmp = 0.035 + 0.03 * (energy / 4.4)
+                let breatheAmp = 0.055 + 0.03 * (energy / 4.4)   // W1388 — 呼吸幅度调大一点点(原 0.035 几乎看不出)
                 let breathe = 1.0 + breatheAmp * sin(t * (1.4 + energy * 0.7))
                 root.scale = [breathe, breathe, breathe]
+                // W1388 — Jing「呼吸同时慢慢拉近再拉远」: z 方向缓慢 dolly(±0.09m, 周期 ~7s)。
+                if let bp = basePos {
+                    let dolly = 0.09 * sin(t * 0.9)
+                    root.position = SIMD3<Float>(bp.x, bp.y, bp.z + dolly)
+                }
 
                 // 随机发光脉动: 到点"涌起"再衰减; energy 越高间隔越短(脉动越急促)。
                 if t >= nextFlashAt {

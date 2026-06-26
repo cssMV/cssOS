@@ -259,12 +259,15 @@ struct ImmersiveView: View {
                 cluster.position = SIMD3<Float>(0, -0.42, -0.95)   // 视野下方 HUD
                 headAnchor.addChild(cluster)
             }
-            // W1409 — 多语言/多声线胶囊条: 控制球簇【上方】一行(只在多变体时由视图自身显示)。
-            if let lv = attachments.entity(for: "langvoice") {
-                lv.position = SIMD3<Float>(0, -0.28, -0.95)
-                headAnchor.addChild(lv)
-            }
             content.add(headAnchor)
+            // W1418 — Jing「多语言胶囊放视频框【右下角外侧】, 别在控制台」: 挂 cinemaRoot(跟视频走/世界固定/不跟头),
+            //   摆到银幕右边沿外侧 + 底边高度(贴框外右下)。
+            if let lv = attachments.entity(for: "langvoice") {
+                let rightAngle = Float(settings.arcDegrees) / 2 + 5   // 右边沿稍外侧
+                ImmersiveScene.placeOnArc(lv, angleDegrees: rightAngle,
+                                          radius: Float(settings.radius) - 0.05, height: subtitleHeight - 0.02)
+                cinemaRoot.addChild(lv)
+            }
 
             // 3c) W964 — 空间菜单浮层: 浮在你正前方稍上, 默认隐藏, 点空间魔镜 logo 才显。
             if let menu = attachments.entity(for: "menu") {

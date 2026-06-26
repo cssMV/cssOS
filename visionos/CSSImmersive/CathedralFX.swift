@@ -117,15 +117,19 @@ enum CathedralFX {
     // ── W1070 间奏/前奏/尾声: emoji 从【四边】飞进画面中央(对应桌面"四边框小 emoji 飘进媒体框")──
     //   没在唱的器乐段触发(ImmersiveView 按"近期无爆字"判定); 左/右/上/下各发射, 飘向画面深处中央后淡出。
     //   注: 真·音量同步需音频分析器(Vision 暂无)→ 现版定时发射, 数量可由调用方按强度给。
+    // W1402 — energy(0..1): 能量越大 → emoji 越大、飞得越快(为"响应音量"留的旋钮; 现由合成包络驱动)。
     static func musicEdgeEmoji(into root: Entity, emotion: String, count: Int,
-                               around center: SIMD3<Float> = SIMD3<Float>(0, 1.5, 0)) {
+                               around center: SIMD3<Float> = SIMD3<Float>(0, 1.5, 0),
+                               energy: Float = 0.6) {
         let mesh3D = (UserDefaults.standard.object(forKey: "cssPetal3D") as? Bool) ?? false
         let pool = SpatialSubtitleSystem.emojiPool(for: emotion)
+        let e = max(0, min(1, energy))
+        let szBase = 0.05 + 0.10 * e   // 能量大→emoji大
         for i in 0..<max(1, count) {
             let glyph = pool.randomElement() ?? "✨"
             let node: Entity = (mesh3D ? MeshPetal3D.make(for: glyph) : nil)
-                ?? emojiPlane(glyph, size: Float.random(in: 0.06...0.11))
-            if mesh3D { let s = Float.random(in: 0.7...1.2); node.scale = SIMD3<Float>(s, s, s) }
+                ?? emojiPlane(glyph, size: Float.random(in: szBase * 0.8 ... szBase * 1.35))
+            if mesh3D { let s = (0.6 + 0.8 * e) * Float.random(in: 0.85...1.15); node.scale = SIMD3<Float>(s, s, s) }
             let spread = Float.random(in: -1.3...1.3)
             var start = center
             switch i % 4 {
@@ -139,7 +143,7 @@ enum CathedralFX {
             root.addChild(node)
             var to = node.transform
             to.translation = center + SIMD3<Float>(Float.random(in: -0.3...0.3), Float.random(in: -0.2...0.3), -1.7)
-            let dur = Double.random(in: 2.2...3.6)
+            let dur = Double.random(in: 2.2...3.6) / Double(0.7 + 0.8 * e)   // 能量大→飞得快
             node.move(to: to, relativeTo: nil, duration: dur, timingFunction: .easeOut)
             DispatchQueue.main.asyncAfter(deadline: .now() + dur - 0.6) { node.components.set(OpacityComponent(opacity: 0)) }
             DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.1) { node.removeFromParent() }

@@ -173,6 +173,7 @@ struct ImmersiveView: View {
     @State private var lastPetalAt: Date = .distantPast
     @State private var lastEmotion: String = ""
     @State private var lastBurstAt: Date = .distantPast   // W1070 — 判间奏(近期无爆字=器乐段)
+    @State private var instrPhase: Double = 0              // W1402 — 器乐段能量包络相位
     @AppStorage("cssOrbSphere") private var orbSphere = false  // W1052 — 大厅 logo 金球: 平面/3D 球体
     @AppStorage("cssPetal3D") private var petal3D = false      // W1054 — 天女散花: emoji 卡 / 真 3D 网格
 
@@ -409,9 +410,16 @@ struct ImmersiveView: View {
             SpatialTip.flyTip(to: angle, into: fxRoot)
         }
         .onReceive(petalTimer) { _ in
-            // W1070 — 间奏/前奏/尾声(近期 1.6s 无爆字=器乐段): emoji 从四边飞进画面; 否则天女散花。
+            // W1402 — 间奏/前奏/尾声(近期 1.6s 无爆字=器乐段): emoji 从四边飞进画面, 随【能量包络】起伏涌动。
+            //   能量=多正弦合成包络(暂代真音量; 真音量数据源待定: 原生 MTAudioProcessingTap / 后端 vol_curve)。
             if Date().timeIntervalSince(lastBurstAt) > 1.6 {
-                CathedralFX.musicEdgeEmoji(into: fxRoot, emotion: lastEmotion.isEmpty ? "calm" : lastEmotion, count: 6, around: player.headPos)
+                instrPhase += 1.4
+                let p = instrPhase
+                let env = Float(0.5 + 0.30 * sin(p * 0.5) + 0.15 * sin(p * 1.7 + 1.1) + 0.05 * sin(p * 3.3))
+                let e = max(0.05, min(1, env))
+                let count = 2 + Int(e * 11)   // 能量越大涌入越多
+                CathedralFX.musicEdgeEmoji(into: fxRoot, emotion: lastEmotion.isEmpty ? "calm" : lastEmotion,
+                                           count: count, around: player.headPos, energy: e)
             } else {
                 CathedralFX.petalRain(into: fxRoot, emotion: lastEmotion.isEmpty ? "calm" : lastEmotion, count: 6, around: player.headPos, mesh3D: petal3D)
             }

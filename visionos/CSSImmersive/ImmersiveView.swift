@@ -420,7 +420,7 @@ struct ImmersiveView: View {
                 let s3 = sin(p * 3.3)
                 let envD: Double = 0.5 + 0.30 * s1 + 0.15 * s2 + 0.05 * s3
                 let e = Float(max(0.05, min(1.0, envD)))
-                let count = 2 + Int(e * 11)   // 能量越大涌入越多
+                let count = 1 + Int(e * 15)   // W1403 — 响应音量=【密度】: 安静很少、响时很多(1~16)
                 CathedralFX.musicEdgeEmoji(into: fxRoot, emotion: lastEmotion.isEmpty ? "calm" : lastEmotion,
                                            count: count, around: player.headPos, energy: e)
             } else {

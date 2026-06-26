@@ -159,10 +159,13 @@ enum MagicMirrorOrb {
                 let breatheAmp = 0.09 + 0.04 * (energy / 4.4)    // W1389 — 呼吸幅度再调大(还不明显 → 0.055→0.09)
                 let breathe = 1.0 + breatheAmp * sin(t * (1.4 + energy * 0.7))
                 root.scale = [breathe, breathe, breathe]
-                // W1402 — Jing「近到眼前, 远在天边」: dolly ±1.1m(近~0.34m 到眼前, 远~2.5m), 周期 ~14s(慢)。
+                // W1403 — Jing「远到和星星一样, 不小心以为是一颗星」: 非对称推拉, 近~0.4m 到眼前 → 远~8m 混进星里。
                 if let bp = basePos {
-                    let dolly = 1.10 * sin(t * 0.45)
-                    root.position = SIMD3<Float>(bp.x, bp.y, bp.z + dolly)
+                    let ph = (sin(t * 0.38) + 1) * 0.5    // 0..1, 慢
+                    let zNear: Float = -0.40
+                    let zFar: Float = -8.0
+                    let z = zNear + (zFar - zNear) * ph
+                    root.position = SIMD3<Float>(bp.x, bp.y, z)
                 }
 
                 // 随机发光脉动: 到点"涌起"再衰减; energy 越高间隔越短(脉动越急促)。

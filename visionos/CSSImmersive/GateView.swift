@@ -284,28 +284,26 @@ struct GateView: View {
             // W1417 — Jing「要真 3D, 别扁卡片」: 用 MeshPetal3D 真 3D 网格(立体几何), 无网格才回退双面卡。
             let m3 = MeshPetal3D.make(for: glyph)
             let node: Entity = m3 ?? CathedralFX.emojiCard(glyph, size: sz)
-            if m3 != nil { let s = max(0.5, sz / 0.08) * MeshPetal3D.sizeMul(); node.scale = SIMD3<Float>(s, s, s) }
-            // 起点 = 金球中心(微抖, 像从球心迸出)
-            let start = c + SIMD3<Float>(Float.random(in: -0.03...0.03), Float.random(in: -0.03...0.03), 0)
-            node.position = start
-            node.components.set(OpacityComponent(opacity: 0))
-            // W1416 — Jing「像烟花从球心爆, 停留一下, 淡出」(同情绪字幕字心烟花, 不再飞穿用户):
-            //   ① 快速向四周【爆出】短距离 → ② 停留 → ③ 原地淡出。
-            let delay = Double.random(in: 0 ... 0.5)
+            let baseScale: Float = (m3 != nil) ? max(0.5, sz / 0.08) * MeshPetal3D.sizeMul() : 1.0
+            // W1419 — Jing「要烟花爆, 不是子弹飞」: 真凶="向外滑行"动作=飞=子弹。改成【原地炸开】:
+            //   emoji 直接出现在球周围散开位置, 从 0【放大爆出】(不位移), 停住翻滚, 原地淡出。零滑行=零飞。
             let ang = Float.random(in: 0 ..< (2 * .pi))
-            let r = Float.random(in: 0.22...0.55)                       // 爆出半径(短, 留在球周围)
-            let end = c + SIMD3<Float>(cos(ang) * r, sin(ang) * r, Float.random(in: -0.05...0.30))
-            let expand = Double.random(in: 0.4...0.65)                  // ① 爆出(快)
-            let hold = Double.random(in: 0.5...1.2)                     // ② 停留
+            let r = Float.random(in: 0.18...0.5)                        // 散开半径(直接出现在此, 不滑过去)
+            let pos = c + SIMD3<Float>(cos(ang) * r, sin(ang) * r, Float.random(in: -0.05...0.25))
+            node.position = pos
+            node.scale = SIMD3<Float>(repeating: baseScale * 0.01)     // 从极小爆开
+            node.components.set(OpacityComponent(opacity: 0))
+            let delay = Double.random(in: 0 ... 0.35)                   // 错峰一点点(整体仍是一团爆)
+            let hold = Double.random(in: 0.6...1.4)                     // 停留
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 anchor.addChild(node)
                 node.components.set(OpacityComponent(opacity: Float.random(in: 0.85...1.0)))
-                CathedralFX.spinTumble(node, dur: expand + hold + 1.2)  // 3D 轻翻滚
-                var t = node.transform
-                t.translation = end
-                node.move(to: t, relativeTo: anchor, duration: expand, timingFunction: .easeOut)   // 爆出
-                Task { @MainActor in                                   // 停留 → 原地淡出
-                    try? await Task.sleep(nanoseconds: UInt64((expand + hold) * 1_000_000_000))
+                CathedralFX.spinTumble(node, dur: hold + 1.6)          // 3D 翻滚
+                var pop = node.transform
+                pop.scale = SIMD3<Float>(repeating: baseScale)         // ① 原地放大爆出(0.18s, 无位移)
+                node.move(to: pop, relativeTo: anchor, duration: 0.18, timingFunction: .easeOut)
+                Task { @MainActor in                                   // ② 停留 → ③ 原地淡出
+                    try? await Task.sleep(nanoseconds: UInt64(hold * 1_000_000_000))
                     for k in 0...18 {
                         if node.scene == nil { return }
                         node.components.set(OpacityComponent(opacity: Float(0.92 * (1 - Double(k) / 18))))

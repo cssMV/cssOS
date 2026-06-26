@@ -517,11 +517,17 @@ struct EmotionSubtitleOverlay: View {
         //   · 左/右竖排: 一律【上→下】(任何语言, 绝无下→上)。
         //   · 横排: 拉丁一律左→右; 亚洲可右→左(隔行)。
         let isCJK = tok.char.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
-        // W1339 — 均匀铺满整条边【自适应】: 短句撑开不重叠; 长句字多→间距自然变小→自然半重叠(铺不下时才挤),
-        //   不再强制重叠。frac 沿边等分。
+        // W1360 — Jing: 不再刻意铺满整条边、不再刻意半重叠。改【自然字距 + 居中】:
+        //   每句以画面中线为中心, 字按固定小间距排开(读起来是一句话, 不疏远);
+        //   只有真排不下(超出可用区)时才自动收紧间距(此时才自然变密)。
         let m: CGFloat = 0.05
-        let frac = CGFloat(m) + CGFloat((Double(j) + 0.5) / Double(n)) * (1 - 2 * CGFloat(m))
-        let jit = CGFloat((CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.05)
+        let avail = 1 - 2 * m                       // 可用轴长(留两端边距)
+        let step0: CGFloat = 0.052                  // 自然字距(轴长比例)
+        let span = CGFloat(n - 1) * step0
+        let step = (n > 1 && span > avail) ? avail / CGFloat(n - 1) : step0   // 太长才收紧
+        let start = 0.5 - CGFloat(n - 1) * step / 2 // 整句居中
+        let frac = max(m, min(1 - m, start + CGFloat(j) * step))
+        let jit = CGFloat((CSSFx.rnd(j, abs(tok.id.hashValue)) - 0.5) * 0.03)
         let edge = li % 4   // 所有语言都用四边
         switch edge {
         case 0:  // 上 横排

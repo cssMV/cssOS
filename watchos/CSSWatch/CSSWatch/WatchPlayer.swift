@@ -11,6 +11,8 @@ final class WatchPlayer: ObservableObject {
     @Published var loading = true
     @Published var burst: WSubToken? = nil   // 当前要爆的字
     @Published var burstTick = 0             // 每个新字 +1(驱动动画重建)
+    @Published var volume: Double = 0.85     // W1426 — 表冠调音量
+    @Published var showVol = false           // 调音量时短暂显示指示
 
     private var player: AVPlayer?
     private var fireTokens: [WSubToken] = []
@@ -34,7 +36,13 @@ final class WatchPlayer: ObservableObject {
         var w = works[i]
         if w.lines.isEmpty { w.lines = await WatchBackend.fetchLines(workID: w.id); works[i] = w }
         fireTokens = w.lines.flatMap { $0.tokens ?? [] }
-            .filter { !$0.resolved.trimmingCharacters(in: .whitespaces).isEmpty }
+            .filter { tk in
+                let s = tk.resolved.trimmingCharacters(in: .whitespaces)
+                guard !s.isEmpty else { return false }
+                if let f = s.first, "[【#(（♪".contains(f) { return false }   // 滤 [Music]/段落头/拟声等非歌词
+                if s.count > 12 { return false }                              // 整句散文(非逐字)不当字爆
+                return true
+            }
             .sorted { $0.startSec < $1.startSec }
         nextFire = 0; lastSec = 0; burst = nil
         guard let url = URL(string: w.audioURL) else { return }
@@ -51,7 +59,19 @@ final class WatchPlayer: ObservableObject {
                                                object: p.currentItem, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.next() }
         }
+        p.volume = Float(volume)
         p.play(); isPlaying = true
+    }
+
+    private var volHideWork: DispatchWorkItem?
+    func setVolume(_ v: Double) {
+        volume = min(1, max(0, v))
+        player?.volume = Float(volume)
+        showVol = true
+        volHideWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.showVol = false }
+        volHideWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: w)
     }
 
     private func tick(_ sec: Double) {

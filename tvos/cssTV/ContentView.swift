@@ -506,6 +506,21 @@ struct FeaturedHero: View {
     @FocusState private var bridgeFocused: Bool      // W1283 — 胶囊左侧隐形桥: 落焦即跳回侧栏
     @State private var breathe = false               // W1284 — 下一个胶囊边框呼吸
     @State private var didInitFocus = false           // W1347 — 启动只强制一次初始焦点(绝不反复踢侧栏)
+    @State private var kenBurns = false               // W1357 — 聚焦 hero 时封面缓慢推拉(Ken Burns)
+
+    // W1357 — Apple/HBO 式焦点渐显: hero 被"hover"(=Play 或任一胶囊聚焦)即视为选中态。
+    //   焦点在 hero → 元信息渐显 + Ken Burns 推拉 + 压暗加深; 焦点移到 rails/侧栏 → 全部收起。
+    private var heroFocused: Bool { playFocused || focusedCap != nil }
+    /// 焦点渐显的副信息行(平时藏, 聚焦才浮): 类型 · 分部数 · 时长。
+    private var heroMetaLine: String {
+        var parts: [String] = []
+        if current.isMultiPart {
+            let n = current.children?.count ?? 0
+            parts.append(n > 0 ? "\(current.typeBadge) · \(n) parts" : current.typeBadge)
+        }
+        if !current.durationLabel.isEmpty { parts.append(current.durationLabel) }
+        return parts.joined(separator: "   ·   ")
+    }
     private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
@@ -637,6 +652,16 @@ struct FeaturedHero: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .shadow(radius: 12)
+            // W1357 — 焦点渐显的元信息行(Apple/HBO 式): 聚焦 hero 才浮现, 失焦淡出。
+            if !current.isCreateCard && !heroMetaLine.isEmpty {
+                Text(heroMetaLine)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .shadow(radius: 6)
+                    .opacity(heroFocused ? 1 : 0)
+                    .offset(y: heroFocused ? 0 : 8)
+                    .animation(.easeInOut(duration: 0.3), value: heroFocused)
+            }
             HStack(spacing: 24) {
                 Button { onSelect(current) } label: {
                     Label(current.isCreateCard ? "Create ✨" : "Play",
@@ -685,14 +710,20 @@ struct FeaturedHero: View {
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
+                    // W1357 — Ken Burns: 封面极缓推拉(8s 一来回, 常驻一次性点火), 营造"活着"的呼吸感。
+                    .scaleEffect(kenBurns ? 1.05 : 1.0)
+                    .animation(.easeInOut(duration: 8).repeatForever(autoreverses: true), value: kenBurns)
                 }
                 .id(current.id)
                 .transition(.opacity)
 
+                // W1357 — 压暗: 聚焦 hero 时渐变加深(标题/元信息更跳); 失焦回浅。
                 LinearGradient(
-                    colors: [.black.opacity(0.85), .black.opacity(0.25), .clear],
+                    colors: [.black.opacity(heroFocused ? 0.92 : 0.78),
+                             .black.opacity(heroFocused ? 0.4 : 0.22), .clear],
                     startPoint: .bottomLeading, endPoint: .topTrailing
                 )
+                .animation(.easeInOut(duration: 0.4), value: heroFocused)
 
                 if playFocused || focusedCap != nil { focusGlow }   // W1244/1250 — Play 或任一胶囊聚焦 → 绿辉光
             }
@@ -720,6 +751,7 @@ struct FeaturedHero: View {
         // W1284 — 启动边框呼吸(下一个等待者), 1.1s 一呼一吸。
         .onAppear {
             withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathe = true }
+            kenBurns = true   // W1357 — 点火 Ken Burns 推拉(动画在 scaleEffect 上声明)
             // W1347 — Jing: 进入平台默认焦点必须落在第一个激活胶囊(确认即播放), 绝不落侧栏 logo(一按就退出登录)。
             //   .defaultFocus 在多焦点域(侧栏 + hero)下被 logo 抢; 这里启动一次性强制矫正, didInitFocus 守护只跑一次, 不反复踢。
             if !didInitFocus {

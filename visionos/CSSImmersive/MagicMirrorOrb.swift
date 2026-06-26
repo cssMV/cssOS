@@ -159,9 +159,9 @@ enum MagicMirrorOrb {
                 let breatheAmp = 0.09 + 0.04 * (energy / 4.4)    // W1389 — 呼吸幅度再调大(还不明显 → 0.055→0.09)
                 let breathe = 1.0 + breatheAmp * sin(t * (1.4 + energy * 0.7))
                 root.scale = [breathe, breathe, breathe]
-                // W1395 — Jing「来到眼前更近一些, 再远离」: z 方向 dolly 再加大(±0.22→±0.4m), 周期 ~8s。
+                // W1398 — Jing「近可再近, 远可再远, 动作稍慢」: dolly ±0.6m, 周期 ~12.6s(更慢更大)。
                 if let bp = basePos {
-                    let dolly = 0.40 * sin(t * 0.8)
+                    let dolly = 0.60 * sin(t * 0.5)
                     root.position = SIMD3<Float>(bp.x, bp.y, bp.z + dolly)
                 }
 

@@ -291,7 +291,7 @@ enum StarfieldVolume {
     /// 多种角数 + 随机旋转的星形 sprite(4~8 角), 每颗星随机选一张 → 形状各异。
     static let sprites: [TextureResource] = {
         var arr: [TextureResource] = []
-        for pts in [4, 5, 5, 6, 6, 7, 8] {
+        for pts in [3, 4, 5, 6, 7, 8, 9, 10, 12, 6, 8] {   // W1398 — 角数更多样, 少用五角(5 只一个)
             let px = 128
             let r = UIGraphicsImageRenderer(size: CGSize(width: px, height: px))
             let img = r.image { ctx in
@@ -335,7 +335,7 @@ enum StarfieldVolume {
         return ModelEntity(mesh: unitPlane, materials: [m])   // 共用网格
     }
 
-    @MainActor static func make(into anchor: Entity, count: Int = 900) {   // W1395 — 近景星密度翻几倍(共用网格, 内存仍零头)
+    @MainActor static func make(into anchor: Entity, count: Int = 2200) {   // W1398 — 近景星密度大增, 逼近背景密度(共用网格内存零头; 若掉帧再降)
         var stars: [(ModelEntity, TextureResource?, UIColor, Float)] = []   // (实体, 贴图, 本色, 本亮度)
         for _ in 0..<count {
             // 均匀分布在【整个球面】→ 四周(含侧后)都有星, 包围感。
@@ -370,11 +370,18 @@ enum StarfieldVolume {
                 try? await Task.sleep(nanoseconds: UInt64.random(in: 350_000_000...1_100_000_000))
             }
         }
-        // 偶发拖尾流星。
+        // 偶发拖尾流星(一次 1~3 颗, 偶尔成群, 不太多)。
         Task { @MainActor in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64.random(in: 7_000_000_000...20_000_000_000))
-                if anchor.scene != nil { await meteor(in: anchor) }
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 6_000_000_000...16_000_000_000))
+                if anchor.scene == nil { continue }
+                let n = [1, 1, 1, 2, 2, 3].randomElement() ?? 1   // 多数 1~2 颗, 偶尔 3
+                for i in 0..<n {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: UInt64(i) * UInt64.random(in: 120_000_000...420_000_000))
+                        if anchor.scene != nil { await meteor(in: anchor) }
+                    }
+                }
             }
         }
     }

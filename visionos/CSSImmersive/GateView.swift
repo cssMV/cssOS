@@ -336,7 +336,7 @@ enum StarfieldVolume {
     }
 
     @MainActor static func make(into anchor: Entity, count: Int = 900) {   // W1395 — 近景星密度翻几倍(共用网格, 内存仍零头)
-        var stars: [(ModelEntity, TextureResource?)] = []
+        var stars: [(ModelEntity, TextureResource?, UIColor, Float)] = []   // (实体, 贴图, 本色, 本亮度)
         for _ in 0..<count {
             // 均匀分布在【整个球面】→ 四周(含侧后)都有星, 包围感。
             let u = Float.random(in: -1...1)
@@ -346,22 +346,26 @@ enum StarfieldVolume {
             if abs(dir.z - 1) < 0.001 { dir.x += 0.02 }   // 避开 from==to 退化
             let rad = Float.random(in: 1.3...8.0)         // 有远有近
             let pos = dir * rad + SIMD3<Float>(0, 0.2, 0)
-            let w = Float.random(in: 0.02...0.05) * (1 + rad * 0.05)
-            let op = Float.random(in: 0.28...0.8) * (rad < 3 ? 1.0 : 0.78)
+            let w = Float.random(in: 0.025...0.10) * (1 + rad * 0.05)   // W1396 — 允许更大
+            let op = Float.random(in: 0.3...0.85) * (rad < 3 ? 1.0 : 0.8)
             let tex = sprites.randomElement() ?? nil
-            let star = starPlane(tint: .white, opacity: op, tex: tex)
+            // W1396 — 约 40% 的星带随机色(其余白): 真实夜空=多数白、少数偏蓝/金/红。
+            let tint: UIColor = Float.random(in: 0...1) < 0.40
+                ? UIColor(hue: CGFloat.random(in: 0...1), saturation: CGFloat.random(in: 0.4...0.9), brightness: 1, alpha: 1)
+                : .white
+            let star = starPlane(tint: tint, opacity: op, tex: tex)
             star.scale = SIMD3<Float>(repeating: w)   // 大小靠缩放(共用网格)
             star.position = pos
             star.orientation = simd_quatf(from: SIMD3<Float>(0, 0, 1), to: -simd_normalize(pos))   // 面向用户
             anchor.addChild(star)
-            stars.append((star, tex))
+            stars.append((star, tex, tint, op))
         }
         // 闪烁: 每隔随机间隔挑 1~3 颗变色+胀大+提亮再复原。
         Task { @MainActor in
             while !Task.isCancelled {
                 if anchor.scene == nil { try? await Task.sleep(nanoseconds: 200_000_000); continue }
                 for _ in 0..<Int.random(in: 1...3) {
-                    if let s = stars.randomElement() { Task { @MainActor in await twinkle(s.0, tex: s.1) } }
+                    if let s = stars.randomElement() { Task { @MainActor in await twinkle(s.0, tex: s.1, restTint: s.2, restOp: s.3) } }
                 }
                 try? await Task.sleep(nanoseconds: UInt64.random(in: 350_000_000...1_100_000_000))
             }
@@ -375,9 +379,9 @@ enum StarfieldVolume {
         }
     }
 
-    @MainActor static func twinkle(_ star: ModelEntity, tex: TextureResource?) async {
+    @MainActor static func twinkle(_ star: ModelEntity, tex: TextureResource?, restTint: UIColor, restOp: Float) async {
         let rest = star.scale.x
-        let hue = CGFloat.random(in: 0...1)
+        let flash = UIColor(hue: CGFloat.random(in: 0...1), saturation: 0.85, brightness: 1, alpha: 1)
         let grow = Float.random(in: 1.8...3.4)
         func paint(_ tint: UIColor, _ op: Float) {
             var m = UnlitMaterial()
@@ -385,19 +389,20 @@ enum StarfieldVolume {
             m.blending = .transparent(opacity: .init(floatLiteral: op)); m.opacityThreshold = nil
             star.model?.materials = [m]
         }
-        for k in 0...8 {
+        for k in 0...8 {   // 涨: 变闪烁色 + 胀大 + 提亮
             let t = Float(k) / 8
             star.scale = SIMD3<Float>(repeating: rest * (1 + (grow - 1) * t))
-            paint(UIColor(hue: hue, saturation: CGFloat.random(in: 0.5...0.95), brightness: 1, alpha: 1), 0.5 + 0.5 * t)
+            paint(flash, 0.5 + 0.5 * t)
             try? await Task.sleep(nanoseconds: 28_000_000)
         }
         try? await Task.sleep(nanoseconds: UInt64.random(in: 120_000_000...360_000_000))
-        for k in 0...12 {
+        for k in 0...12 {   // 退: 缩回 + 亮度渐回各自本亮度
             let t = Float(k) / 12
             star.scale = SIMD3<Float>(repeating: rest * (grow - (grow - 1) * t))
-            paint(UIColor(hue: hue, saturation: CGFloat(1 - t) * 0.7, brightness: 1, alpha: 1), 1.0 - 0.5 * t)
+            paint(flash, 1.0 + (restOp - 1.0) * t)
             try? await Task.sleep(nanoseconds: 34_000_000)
         }
+        paint(restTint, restOp)   // W1396 — 落回这颗星【各自的本色/本亮度】(不再统一白)
         star.scale = SIMD3<Float>(repeating: rest)
     }
 

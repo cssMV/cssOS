@@ -37,6 +37,7 @@ struct PlayerView: View {
     @State private var endObserver: NSObjectProtocol?
     @State private var subtitle: CSSBackend.CSSSubtitleData?   // W1247 逐字情绪字幕
     @State private var partIndex = 0                           // W1329 — 多部连播当前枝丫
+    @State private var videoEnded = false                      // W1344 — 短视频播完 → 转封面/幻灯
     @Environment(\.dismiss) private var dismiss
 
     // W1329 — 连播队列(多部=各 part; 单曲=自己一首)+ 当前 part。
@@ -51,7 +52,8 @@ struct PlayerView: View {
             GeometryReader { geo in
                 let boxH = geo.size.width / 2.39
                 Group {
-                    if let vp = videoPlayer {
+                    // W1344 — 短视频播完即转封面/幻灯(videoEnded), 不再循环铺满。
+                    if let vp = videoPlayer, !videoEnded {
                         VideoSurface(player: vp)
                     } else if let cover = currentPart.coverURL, let url = URL(string: cover) {
                         AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.black }
@@ -140,6 +142,7 @@ struct PlayerView: View {
         videoPlayer?.pause(); videoPlayer = nil
         audioPlayer?.pause(); audioPlayer = nil
         subtitle = nil
+        videoEnded = false   // W1344 — 新枝丫: 重置
         partIndex = idx
         let part = parts[min(idx, max(parts.count - 1, 0))]
 
@@ -194,8 +197,9 @@ struct PlayerView: View {
         let vDur = vp.currentItem?.duration.seconds ?? 0
         let aDur = ap.currentItem?.duration.seconds ?? 0
         let vt = vp.currentTime().seconds
+        // W1344 — 短视频(明显短于音频): 播完【一次】即转封面/幻灯, 不再循环铺满。
         if vDur > 1, aDur > 1, vDur < aDur * 0.8 {
-            if vt >= vDur - 0.25 { vp.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) }
+            if vt >= vDur - 0.1, !videoEnded { vp.pause(); videoEnded = true }
             return
         }
         if vt.isFinite, abs(vt - audioTime) > 0.4 {

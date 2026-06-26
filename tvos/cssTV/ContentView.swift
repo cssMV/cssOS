@@ -505,6 +505,7 @@ struct FeaturedHero: View {
     @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
     @FocusState private var bridgeFocused: Bool      // W1283 — 胶囊左侧隐形桥: 落焦即跳回侧栏
     @State private var breathe = false               // W1284 — 下一个胶囊边框呼吸
+    @State private var didInitFocus = false           // W1347 — 启动只强制一次初始焦点(绝不反复踢侧栏)
     private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
@@ -716,7 +717,18 @@ struct FeaturedHero: View {
         // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
         .defaultFocus($focusedCap, 0)
         // W1284 — 启动边框呼吸(下一个等待者), 1.1s 一呼一吸。
-        .onAppear { withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathe = true } }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { breathe = true }
+            // W1347 — Jing: 进入平台默认焦点必须落在第一个激活胶囊(确认即播放), 绝不落侧栏 logo(一按就退出登录)。
+            //   .defaultFocus 在多焦点域(侧栏 + hero)下被 logo 抢; 这里启动一次性强制矫正, didInitFocus 守护只跑一次, 不反复踢。
+            if !didInitFocus {
+                didInitFocus = true
+                DispatchQueue.main.async {
+                    focusedCap = 0
+                    resetFocus(in: focusNS)
+                }
+            }
+        }
     }
 }
 

@@ -36,7 +36,7 @@ struct ContentView: View {
                     }
                     Spacer()
                 }
-                .padding(.leading, 16).padding(.top, 5)
+                .padding(.leading, 16).padding(.top, 15)   // W1436 — 下移到与右上系统时间同一行(原 5 太高)
             }
 
             // 加载时: 魔镜(尖角托盘 + 金球居中【自转】), 和别的平台一样。

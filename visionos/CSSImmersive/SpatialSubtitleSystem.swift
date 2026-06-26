@@ -45,10 +45,24 @@ enum SpatialSubtitleSystem {
         }
     }
 
+    // W1397 — 情绪字幕宪法「每字随机字体」: 字体池(拉丁显示字体; CJK 缺字时系统自动回退中文字体, 安全)。
+    static let fontPool: [UIFont] = {
+        let s: CGFloat = 130
+        let names = ["Georgia-Bold", "SnellRoundhand-Black", "Chalkduster", "Papyrus",
+                     "MarkerFelt-Wide", "Copperplate-Bold", "Futura-Bold", "AvenirNext-Heavy",
+                     "Baskerville-Bold", "TrebuchetMS-Bold", "DINCondensed-Bold", "Zapfino"]
+        var pool: [UIFont] = [.systemFont(ofSize: s, weight: .heavy),
+                              .systemFont(ofSize: s, weight: .black),
+                              .monospacedSystemFont(ofSize: s, weight: .black)]
+        for n in names { if let f = UIFont(name: n, size: s) { pool.append(f) } }
+        return pool
+    }()
+
     // W977 — 把文字画成贴图平面(UIGraphics)→ CJK/拉丁/任意字符都可靠渲染(绕开 generateText 的 CJK 空网格坑)。
-    static func textPlane(_ text: String, color: UIColor, heightMeters: Float) -> ModelEntity {
+    // W1397 — 可传入随机字体(每字不同); 缺省回退系统 heavy。
+    static func textPlane(_ text: String, color: UIColor, heightMeters: Float, font: UIFont? = nil) -> ModelEntity {
         let fontSize: CGFloat = 130
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .heavy)
+        let font = font ?? UIFont.systemFont(ofSize: fontSize, weight: .heavy)
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let s = NSString(string: text)
         let sz = s.size(withAttributes: attrs)
@@ -128,9 +142,17 @@ enum SpatialSubtitleSystem {
             group.addChild(bgE)
         }
 
-        // ② 主字(情绪色)。W977 — 真凶: generateText 渲染 CJK/emoji 常出空网格(汉字看不见)。
-        //   改成【把字画成贴图】(UIGraphics, 和花瓣同一条可靠路), CJK/拉丁/任意字都必出。
-        let word = textPlane(t, color: color(for: event.emotion), heightMeters: Float(0.16 + 0.18 * Double(intensity)))
+        // ② 主字。W1397 — 情绪字幕宪法「每字随机大小/色/字体」:
+        //   · 字体: 从 fontPool 随机一款(拉丁显出花体, CJK 自动回退中文字体);
+        //   · 大小: 在情绪强度基线上再 ×随机(0.72~1.4) → 每字大小错落;
+        //   · 颜色: 每字一随机鲜艳色(中央爆双色体系的"每字一色"), 偶尔落回情绪色。
+        let charFont = fontPool.randomElement()
+        let sizeJitter = Float.random(in: 0.72...1.4)
+        let charHeight = Float(0.14 + 0.20 * Double(intensity)) * sizeJitter
+        let charColor: UIColor = Float.random(in: 0...1) < 0.78
+            ? UIColor(hue: CGFloat.random(in: 0...1), saturation: CGFloat.random(in: 0.6...1.0), brightness: 1, alpha: 1)
+            : color(for: event.emotion)
+        let word = textPlane(t, color: charColor, heightMeters: charHeight, font: charFont)
         word.components.set(OpacityComponent(opacity: 1))
         group.addChild(word)
 

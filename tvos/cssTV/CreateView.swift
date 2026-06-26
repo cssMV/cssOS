@@ -74,9 +74,11 @@ struct CreateView: View {
             let ok = await CSSBackend.castMV(prompt: p)
             await MainActor.run {
                 casting = false
+                // W1368 — App Store 3.1.1「对买闭嘴」: 文案绝不提外部站点/充值/购买。
+                //   成功=中性"生成中, 稍后进 For You"; 失败=中性"再试一次"。
                 status = ok
-                    ? "✨ Idea received! Your MV is generating — open cssstudio.app to watch it come to life, then it'll appear here in For You."
-                    : "Couldn't reach the studio. Please try again, or create on cssstudio.app."
+                    ? "✨ Idea received! Your MV is generating — it'll appear here in For You when it's ready."
+                    : "Couldn't start it just now. Please try again."
             }
         }
     }

@@ -11,6 +11,7 @@ import AVFoundation
 import Combine
 import ARKit
 import simd
+import MediaToolbox   // W1404 — 原生音量表 MTAudioProcessingTap
 
 @MainActor
 final class PlayerController: ObservableObject {
@@ -41,6 +42,11 @@ final class PlayerController: ObservableObject {
     private var timeObserver: Any?
     private var observedPlayer: AVPlayer?
 
+    /// W1404 — 原生音量表(直通 tap 读 RMS, 不静音)。情绪字幕器乐段 emoji 密度【响应真音量】。
+    private let audioLevelTap = AudioLevelTap()
+    var currentAudioLevel: Float { audioLevelTap.level }
+    private func attachAudioTap() { audioLevelTap.attach(to: activeClock.currentItem) }
+
     // ── 加载 ────────────────────────────────────────────────────────────────
     func load(_ w: CSSWork) {
         teardown()
@@ -64,6 +70,7 @@ final class PlayerController: ObservableObject {
         }
         activeIndex = 0
         applyActiveAudio()
+        attachAudioTap()   // W1404 — 挂音量表到激活有声那路
         installTimeObserver()
         startHeadTracking()
     }
@@ -112,6 +119,7 @@ final class PlayerController: ObservableObject {
         videoPlayers[safe: idx]?.seek(to: t); videoPlayers[safe: idx]?.play()
         (audioPlayers[safe: idx] ?? nil)?.seek(to: t)
         (audioPlayers[safe: idx] ?? nil)?.play()
+        attachAudioTap()        // W1404 — 音量表改跟新激活屏的有声那条
         installTimeObserver()   // 字幕时钟改跟新激活屏
         onActiveSwitched?(idx)
     }
@@ -284,4 +292,71 @@ final class PlayerController: ObservableObject {
 // 安全下标。
 extension Array {
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+}
+
+// W1404 — 原生音量表: 给激活音轨挂 MTAudioProcessingTap【直通】(读 RMS, 声音照常播, 不静音 ——
+//   原生 AVFoundation tap 与网页端 createMediaElementSource 静音劫持是两回事, 不犯铁律)。
+//   音频线程算 RMS → 平滑成 0..1 电平; 主线程读 level 驱动器乐段 emoji 密度【响应真音量】。
+final class AudioLevelTap {
+    var level: Float = 0                 // 音频线程写 / 主线程读: 仅驱动视觉, 容许良性竞争
+    private var attachedItem: AVPlayerItem?
+
+    func attach(to item: AVPlayerItem?) {
+        guard let item, item !== attachedItem else { return }
+        attachedItem = item
+        Task { [weak self] in
+            guard let self else { return }
+            guard let track = try? await item.asset.loadTracks(withMediaType: .audio).first else { return }
+            await MainActor.run {
+                guard item === self.attachedItem else { return }   // 期间又换屏 → 放弃
+                self.install(on: item, track: track)
+            }
+        }
+    }
+
+    private func install(on item: AVPlayerItem, track: AVAssetTrack) {
+        let unmanaged = Unmanaged.passRetained(self)
+        var callbacks = MTAudioProcessingTapCallbacks(
+            version: kMTAudioProcessingTapCallbacksVersion_0,
+            clientInfo: UnsafeMutableRawPointer(unmanaged.toOpaque()),
+            init: tapInit, finalize: tapFinalize, prepare: nil, unprepare: nil, process: tapProcess)
+        var tap: Unmanaged<MTAudioProcessingTap>?
+        let err = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks,
+                                             kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
+        guard err == noErr, let tap else { unmanaged.release(); return }
+        let params = AVMutableAudioMixInputParameters(track: track)
+        params.audioTapProcessor = tap.takeRetainedValue()
+        let mix = AVMutableAudioMix()
+        mix.inputParameters = [params]
+        item.audioMix = mix
+    }
+
+    fileprivate func push(rms: Float) {
+        let norm = min(1, rms * 6)            // 增益: 乐曲 RMS 多在 0.02~0.25
+        level = level * 0.82 + norm * 0.18    // 平滑
+    }
+}
+
+private let tapInit: MTAudioProcessingTapInitCallback = { _, clientInfo, storageOut in
+    storageOut.pointee = clientInfo
+}
+private let tapFinalize: MTAudioProcessingTapFinalizeCallback = { tap in
+    Unmanaged<AudioLevelTap>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release()
+}
+private let tapProcess: MTAudioProcessingTapProcessCallback = { tap, frames, flags, bufferListInOut, framesOut, flagsOut in
+    let status = MTAudioProcessingTapGetSourceAudio(tap, frames, bufferListInOut, flagsOut, nil, framesOut)
+    guard status == noErr else { return }
+    let me = Unmanaged<AudioLevelTap>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
+    let abl = UnsafeMutableAudioBufferListPointer(bufferListInOut)
+    var sum: Float = 0
+    var count = 0
+    for buf in abl {
+        guard let mdata = buf.mData else { continue }
+        let n = Int(buf.mDataByteSize) / MemoryLayout<Float>.size
+        let p = mdata.assumingMemoryBound(to: Float.self)
+        var i = 0
+        while i < n { let s = p[i]; sum += s * s; i += 1 }
+        count += n
+    }
+    if count > 0 { me.push(rms: (sum / Float(count)).squareRoot()) }
 }

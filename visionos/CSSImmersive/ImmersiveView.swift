@@ -173,7 +173,6 @@ struct ImmersiveView: View {
     @State private var lastPetalAt: Date = .distantPast
     @State private var lastEmotion: String = ""
     @State private var lastBurstAt: Date = .distantPast   // W1070 — 判间奏(近期无爆字=器乐段)
-    @State private var instrPhase: Double = 0              // W1402 — 器乐段能量包络相位
     @AppStorage("cssOrbSphere") private var orbSphere = false  // W1052 — 大厅 logo 金球: 平面/3D 球体
     @AppStorage("cssPetal3D") private var petal3D = false      // W1054 — 天女散花: emoji 卡 / 真 3D 网格
 
@@ -413,14 +412,9 @@ struct ImmersiveView: View {
             // W1402 — 间奏/前奏/尾声(近期 1.6s 无爆字=器乐段): emoji 从四边飞进画面, 随【能量包络】起伏涌动。
             //   能量=多正弦合成包络(暂代真音量; 真音量数据源待定: 原生 MTAudioProcessingTap / 后端 vol_curve)。
             if Date().timeIntervalSince(lastBurstAt) > 1.6 {
-                instrPhase += 1.4
-                let p = instrPhase
-                let s1 = sin(p * 0.5)
-                let s2 = sin(p * 1.7 + 1.1)
-                let s3 = sin(p * 3.3)
-                let envD: Double = 0.5 + 0.30 * s1 + 0.15 * s2 + 0.05 * s3
-                let e = Float(max(0.05, min(1.0, envD)))
-                let count = 1 + Int(e * 15)   // W1403 — 响应音量=【密度】: 安静很少、响时很多(1~16)
+                // W1404 — 响应【真音量】: 原生 MTAudioProcessingTap 实时 RMS → emoji 密度。安静很少、响时很多。
+                let e = max(0.06, min(1.0, player.currentAudioLevel))   // 留低基线: 静默也飘几颗
+                let count = 1 + Int(e * 15)
                 CathedralFX.musicEdgeEmoji(into: fxRoot, emotion: lastEmotion.isEmpty ? "calm" : lastEmotion,
                                            count: count, around: player.headPos, energy: e)
             } else {

@@ -31,7 +31,9 @@ struct CSSImmersiveApp: App {
         //   展开态由 LobbyView 自己的 glassBackgroundEffect(圆角 44)定义窗形 → 圆角干净、
         //   不再有方角苹果窗框突出。代价: plain 无系统拖拽条(可后续按需补)。
         .windowStyle(.plain)
-        .defaultSize(width: 320, height: 340)   // 启动折叠态紧贴金球; contentSize 折叠↔展开自动伸缩
+        // W1380 — Jing「干掉宿主窗抓取条」: 大门/大厅/影院全已沉浸化, 宿主窗仅作隐形逻辑host。
+        //   缩到 1×1 → 抓取条宽=窗宽=1pt, 基本不可见(plain 无玻璃)。若仍碍眼再做"全搬沉浸+dismiss窗"重构。
+        .defaultSize(width: 1, height: 1)
         .windowResizability(.contentSize)
 
         // W975 — 可拖拽控制窗(原生 WindowGroup, 自带抓取条): 交易 + 多语言/多声线整合一窗。

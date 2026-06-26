@@ -140,7 +140,13 @@ enum MagicMirrorOrb {
             var nextFlashAt: Float = 0.6  // 下次随机脉动时间(秒)
             let spin: Float = 0.45        // 转速(弧度/秒)
             let dt: Float = 1.0 / 60.0
-            while !Task.isCancelled && root.scene != nil {
+            var everInScene = false   // W1381 — 修金球不转: 实体入场景前 root.scene==nil 会让旧条件一次不转就退出。
+            while !Task.isCancelled {
+                if root.scene == nil {
+                    if everInScene { break }                              // 曾入场又离场 → 结束(自动回收)
+                    try? await Task.sleep(nanoseconds: 50_000_000); continue   // 还没入场景 → 等
+                }
+                everInScene = true
                 t += dt
                 angle += dir * spin * (speedRef?.mult ?? 1) * dt   // W1061 — 进度越快球转越快
                 orb.orientation = simd_quatf(angle: angle, axis: axis)

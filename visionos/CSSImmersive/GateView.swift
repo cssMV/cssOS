@@ -9,7 +9,7 @@ import SwiftUI
 import RealityKit
 import UIKit
 
-private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity? }
+private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity? }
 
 struct GateView: View {
     @EnvironmentObject var auth: CSSAuth
@@ -35,6 +35,7 @@ struct GateView: View {
             anchor.addChild(orb)
             content.add(anchor)
             refs.orbAnchor = anchor
+            refs.orb = orb   // W1381 — 进大厅后隐藏这枚 gate 金球(大厅自带 logo 金球, 避免两个)
             // 大厅沉浸面板(初始隐藏, 与魔镜同锚, 悬在其下方)。
             if let lobby = attachments.entity(for: "lobby") {
                 lobby.position = [0, -0.32, -1.45]
@@ -44,6 +45,7 @@ struct GateView: View {
             }
         } update: { _, _ in
             refs.lobby?.isEnabled = showLobby
+            refs.orb?.isEnabled = !showLobby   // W1381 — 进圣殿大门 → gate 金球消失, 只剩大厅(自带 logo 金球)
         } attachments: {
             Attachment(id: "lobby") {
                 LobbyView(

@@ -320,12 +320,12 @@ final class AudioLevelTap {
             version: kMTAudioProcessingTapCallbacksVersion_0,
             clientInfo: UnsafeMutableRawPointer(unmanaged.toOpaque()),
             init: tapInit, finalize: tapFinalize, prepare: nil, unprepare: nil, process: tapProcess)
-        var tap: Unmanaged<MTAudioProcessingTap>?
+        var tap: MTAudioProcessingTap?
         let err = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks,
                                              kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
         guard err == noErr, let tap else { unmanaged.release(); return }
         let params = AVMutableAudioMixInputParameters(track: track)
-        params.audioTapProcessor = tap.takeRetainedValue()
+        params.audioTapProcessor = tap
         let mix = AVMutableAudioMix()
         mix.inputParameters = [params]
         item.audioMix = mix

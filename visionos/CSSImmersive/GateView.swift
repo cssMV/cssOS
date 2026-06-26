@@ -9,7 +9,7 @@ import SwiftUI
 import RealityKit
 import UIKit
 
-private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity? }
+private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var speedRef: MagicMirrorOrb.SpeedRef? }
 
 struct GateView: View {
     @EnvironmentObject var auth: CSSAuth
@@ -37,8 +37,10 @@ struct GateView: View {
             content.add(head)
             refs.head = head
             // 魔镜 3D 实体(头前 1.4m, 略上移给下方大厅腾位; 自转 + 可凝视捏)。
-            let orb = MagicMirrorOrb.make(size: 0.22)
+            let speed = MagicMirrorOrb.SpeedRef()   // W1383 — 捏的瞬间转速猛增(发力感)
+            let orb = MagicMirrorOrb.make(size: 0.22, speedRef: speed)
             orb.name = "gate-orb"
+            refs.speedRef = speed
             let anchor = AnchorEntity(.head)
             orb.position = [0, 0.12, -1.4]
             anchor.anchoring.trackingMode = .once
@@ -87,6 +89,7 @@ struct GateView: View {
             SpatialTapGesture().targetedToAnyEntity().onEnded { value in
                 let n = value.entity.name
                 if n == "gate-orb" || n == "orb-body" || n == "magic-mirror-orb" {
+                    bumpSpin()                              // W1383 — 捏瞬间转速猛增(发力感)
                     if !router.fireBeams { router.fireBeams = true }
                 }
             }
@@ -126,6 +129,19 @@ struct GateView: View {
         }
         .onChange(of: router.spell) { _, s in
             if let s { router.spell = nil; startSpell(s) }
+        }
+    }
+
+    // W1383 — 捏瞬间转速猛增 → ~0.9s 衰减回常速(发力感; 替代凝视加速——苹果隐私不给读注视点)。
+    private func bumpSpin() {
+        guard let s = refs.speedRef else { return }
+        s.mult = 8
+        Task { @MainActor in
+            for i in 1...18 {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                s.mult = max(1, 8 - 7 * Float(i) / 18)
+            }
+            s.mult = 1
         }
     }
 

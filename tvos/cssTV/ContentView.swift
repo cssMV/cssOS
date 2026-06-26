@@ -8,6 +8,17 @@ import Combine
 import UIKit   // W1251 — UIApplication.isIdleTimerDisabled(禁屏保)
 import AVFoundation   // W1358 — hero 焦点静音预览(AVPlayer)
 
+// W1359 — 黑边可读性修饰: 透明底偶尔露出偏亮的系统窗口色(像白天)时, 白字会糊。
+//   多层黑色阴影叠出"描边"效果(SwiftUI 无文字描边 API, 用四向短阴影模拟), 任何底色上都清晰。
+extension View {
+    func cssBlackEdge() -> some View {
+        self
+            .shadow(color: .black.opacity(0.85), radius: 1)
+            .shadow(color: .black.opacity(0.7), radius: 3)
+            .shadow(color: .black.opacity(0.5), radius: 6)
+    }
+}
+
 /// W1232 — 左侧分类(映射 work_type)。
 enum HomeCategory: String, CaseIterable, Identifiable {
     case all, mv, opera, trilogy, shortplay, series, film
@@ -875,6 +886,7 @@ struct RailRow: View {
             Label(rail.title, systemImage: rail.icon)
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(.white.opacity(0.95))
+                .cssBlackEdge()   // W1359 — 透明底偏亮(像白天)时白字仍可读
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 36) {
                     ForEach(rail.works) { w in
@@ -958,10 +970,12 @@ struct WorkCard: View {
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(work.isCreateCard ? brandGreen : .white)
                 .lineLimit(1)
+                .cssBlackEdge()   // W1359
             if !work.isCreateCard && !work.durationLabel.isEmpty {
                 Text(work.durationLabel)
                     .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.65))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .cssBlackEdge()   // W1359
             }
         }
         .frame(width: cardWidth, alignment: .leading)

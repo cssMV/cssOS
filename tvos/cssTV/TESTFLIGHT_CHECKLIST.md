@@ -1,8 +1,8 @@
 # cssTV — TestFlight / App Store 提交清单
 
 > tvOS 原生 App「cssTV」(bundle: `CSSStudio.cssTV`, Team `QBG9PRVBYZ`)。
-> 定位:**纯欣赏 + 创作(消费已有余额),TV 端不卖任何东西**。
-> 更新:2026-06-25(随 W1365–W1371 落地)。逐项勾选,空格=未做。
+> 定位:**纯欣赏(TV 只看,不创作、不卖任何东西)**。决策 2026-06-26:先纯欣赏上架,创作走 Web/未来 IAP。
+> 更新:2026-06-26(随 W1365–W1372 落地)。逐项勾选,空格=未做。
 
 ---
 
@@ -14,7 +14,7 @@
 - [x] 多语言 / 多声线胶囊(凹凸镶嵌,热切音频+字幕,母语🔒默认)
 - [x] 多部连播 + 短视频转幻灯
 - [x] 搜索(后端全库)
-- [x] 创作台「Cast an MV」语音优先(🎙 念「CSS,…」,唤醒词自动剥离)
+- [x] ~~创作台~~ **已移除(纯欣赏上架决策)**;CreateView 代码保留未引用,日后接 IAP 可一键恢复(git revert)
 - [x] 设备码登录(`cssstudio.app/tv` + 6 位码)
 - [x] 分层视差图标 + 静态 Top Shelf 兜底 + Top Shelf carousel 扩展(代码就绪)
 - [x] 运行时禁屏保
@@ -22,9 +22,8 @@
 ## B. App Store 合规(3.1.1 等)
 
 - [x] **观看免费**(无 gate / 无价格 / 无购买)
-- [x] **创作消费已有余额**,余额不足=中性提示("Couldn't start it just now. Please try again."),**零购买引导**
+- [x] **创作已移除** → TV 端零数字消费,3.1.1 **彻底无风险**(无 gate/价格/订阅/创作/购买/外部购买引导)
 - [x] TV 端全局**无**「充值 / 桌面 / 购买 / 订阅 / 外部站点」字样或按钮(仅保留登录用 `cssstudio.app/tv`,属设备码登录,Apple 允许)
-- [ ] ⚠️ **残留风险点(中等,可申辩)**:Apple 审核可能主张「创作=解锁功能,需 IAP」。论证=Netflix/Spotify 式"消费已购、App 内不提购买"。若被拒,退路:(1) 创作改 StoreKit 卖算力,或 (2) TV 暂时移除创作(W1367 已验证可一键移除)
 - [ ] **Sign in with Apple(4.8)**:确认设备码登录是否需并列 Apple 登录;如需则加
 
 ## C. 隐私 / 法务
@@ -62,6 +61,8 @@
 
 ---
 
-### 最短上架路径
-1. 补 C(隐私)+ D(素材 + demo 账号)→ Archive 上传 → TestFlight 验 Top Shelf。
-2. 提交审核;若因"创作需 IAP"被拒 → 一键 W1367 式移除创作先纯欣赏上架,再迭代 IAP。
+### 最短上架路径(已选:纯欣赏)
+1. 补 C(隐私政策 + 数据披露)+ D(截图/描述/分级 + demo 账号 + Review Notes)。
+2. Archive(Distribution 签名)→ 上传 ASC → TestFlight 内部组,**重点验 Top Shelf carousel 真机轮播**(正式签名应被系统调起)。
+3. 提交审核。3.1.1 已无风险(纯欣赏),主要看隐私表填全 + reviewer 能登录。
+4. 上架后再迭代:创作回归(走 StoreKit IAP)、桌面黑屏探针、Top Shelf 深链。

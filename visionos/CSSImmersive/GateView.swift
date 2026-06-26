@@ -188,15 +188,23 @@ struct GateView: View {
     //   GateSpace 还开着时直接 openImmersiveSpace 会静默返回 .error → 必须【先 dismiss 当前再 open】。
     //   enterCinema 由独立 Task 调用(非 .task), 不随 GateView 消失而取消 → dismiss 后仍能续开影院。
     private func enterCinema(work: CSSWork) async {
-        player.load(work)                      // 装载作品(ImmersiveView 读同一 PlayerController)
-        settings.hasEnteredOnce = true
-        withAnimation(.easeInOut(duration: 0.35)) { showCinema = true }   // 同空间内切到影院(零空间切换)
-        // W1405 — 情绪字幕能显示的关键: 大厅/市场作品不带 aligned_lyrics → 进影院后异步拉 subtitle JSON 注入。
-        if (work.alignedLyrics ?? []).isEmpty {
-            if let lines = await CSSBackend.fetchAlignedLyrics(workID: work.id), !lines.isEmpty {
-                player.applyAlignedLyrics(lines)
+        var w = work
+        // W1410 — 情绪字幕 + 多语言胶囊【都能显示】的关键: 大厅作品 toWork 不带 variants/lyrics →
+        //   进影院【前】用真 id 拉 subtitle JSON 一次给齐(各语言变体 + 逐字 orig 歌词), 注入后再 load,
+        //   这样 ImmersiveView 建银幕/胶囊时就有多变体, 字幕也有逐字 token。无 subtitle JSON 的作品则照常单语言无字幕。
+        if (w.variants ?? []).isEmpty, let v = w.videoURL {
+            let langs = await CSSBackend.fetchLanguageVariants(workID: w.id, video: v, audio: w.audioURL ?? v)
+            if !langs.isEmpty {
+                w.alignedLyrics = langs.first(where: { $0.id == "orig" })?.alignedLyrics ?? langs.first?.alignedLyrics
+                let others = langs.filter { $0.id != "orig" }
+                w.variants = others.isEmpty ? nil : others
+            } else if let lines = await CSSBackend.fetchAlignedLyrics(workID: w.id), !lines.isEmpty {
+                w.alignedLyrics = lines   // 单语言但有逐字字幕 → 至少情绪字幕出
             }
         }
+        player.load(w)                         // 装载(ImmersiveView 读同一 PlayerController, 此时已带多变体+歌词)
+        settings.hasEnteredOnce = true
+        withAnimation(.easeInOut(duration: 0.35)) { showCinema = true }   // 同空间内切到影院(零空间切换)
     }
 
     // W1382 — 咒语创作(原 ContentView.startSpell 搬来): 进度走 CreationOrbView attachment。
@@ -424,20 +432,21 @@ enum StarfieldVolume {
         let thick = Float.random(in: 0.03...0.06)
         let m = ModelEntity(mesh: unitPlane)   // 共用网格, 拖尾长短/粗细靠缩放
         m.scale = SIMD3<Float>(len, thick, 1)
-        let tint = UIColor(hue: CGFloat.random(in: 0...1), saturation: CGFloat.random(in: 0...0.35), brightness: 1, alpha: 1)
+        let tint = UIColor(hue: CGFloat.random(in: 0...1), saturation: CGFloat.random(in: 0.55...1.0), brightness: 1, alpha: 1)   // W1410 — 尾巴随机色
         func paint(_ op: Float) {
             var mat = UnlitMaterial()
             if let tex = meteorTex { mat.color = .init(tint: tint, texture: .init(tex)) } else { mat.color = .init(tint: tint) }
             mat.blending = .transparent(opacity: .init(floatLiteral: op)); mat.opacityThreshold = nil
             m.model?.materials = [mat]
         }
-        let z = Float.random(in: -4.5 ... -2.6)
-        let fromLeft = Bool.random()
-        let y0 = Float.random(in: 0.6...1.7)
-        let x0 = fromLeft ? Float.random(in: -2.4 ... -1.2) : Float.random(in: 1.2...2.4)
-        let x1 = fromLeft ? Float.random(in: 1.2...2.4) : Float.random(in: -2.4 ... -1.2)
-        let y1 = y0 - Float.random(in: 0.6...1.5)
-        let start = SIMD3<Float>(x0, y0, z), end = SIMD3<Float>(x1, y1, z)
+        // W1410 — 多方向: 从天际一侧任意角度斜划到对侧(横/竖/斜都行), 飞到天际外消失。
+        let z0 = Float.random(in: -5.0 ... -2.6)
+        let a = Float.random(in: 0 ..< (2 * .pi))                    // 入场方向(任意)
+        let r0 = Float.random(in: 2.2...3.2)
+        let start = SIMD3<Float>(cos(a) * r0, 0.7 + sin(a) * r0 * 0.85, z0)
+        let across = a + .pi + Float.random(in: -1.0...1.0)          // 出场方向≈对侧 + 随机散
+        let r1 = Float.random(in: 2.4...3.6)
+        let end = SIMD3<Float>(cos(across) * r1, 0.7 + sin(across) * r1 * 0.85, z0 + Float.random(in: -0.6...0.6))
         m.orientation = simd_quatf(angle: atan2(end.y - start.y, end.x - start.x), axis: [0, 0, 1])
         m.position = start; paint(0); anchor.addChild(m)
         let steps = 28, dur = Double.random(in: 0.7...1.3)

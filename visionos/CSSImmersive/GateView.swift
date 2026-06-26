@@ -24,6 +24,7 @@ struct GateView: View {
     @Environment(\.openWindow) private var openWindow                   // 创作=开 AI 输入窗(按需)
     @State private var refs = GateViewRefs()
     @State private var showLobby = false   // W1376 — 大厅沉浸面板显隐(捏魔镜→光束→登录→显)
+    @State private var showCinema = false  // W1389 — 同空间内切到影院(不再切独立 ImmersiveCinema 空间)
     @State private var dragBase: SIMD3<Float>? = nil   // W1377 — 捏住金球拖动整个门
     // W1382 — 创作管线 + 进度球搬进沉浸(原在 2D 宿主窗 ContentView)。
     @State private var creating = false
@@ -33,6 +34,16 @@ struct GateView: View {
     @State private var pendingSpell = ""
 
     var body: some View {
+        // W1389 — 卡片进不去真凶根治: 不再切到独立 ImmersiveCinema 空间(GateSpace 还开着时 open 另一个会静默 .error,
+        //   且宿主窗已关 → dismiss 后零场景无法续开)。改成【同一个 GateSpace 内】切 gate↔cinema → 零空间切换, 稳。
+        if showCinema {
+            ImmersiveView()
+        } else {
+            gateBody
+        }
+    }
+
+    private var gateBody: some View {
         // W1376 — Jing 铁律「沉浸里一切皆沉浸, 零 2D」: 星空 + 魔镜 3D 实体 + 大厅 LobbyView 作为
         //   沉浸 attachment(悬浮星空里), 全部在 GateSpace 内。2D 窗(ContentView)仅作隐形逻辑宿主。
         RealityView { content, attachments in
@@ -47,7 +58,7 @@ struct GateView: View {
             orb.components.set(GateOrbMarker())   // W1384 — 标记金球, 手势只盯它
             refs.speedRef = speed
             let anchor = AnchorEntity(.head)
-            orb.position = [0, 0.12, -1.4]
+            orb.position = GateView.lobbyOrbCenter   // W1389 — 启动金球落在大厅顶部金球位 → 消失即重现的错觉(像同一枚)
             anchor.anchoring.trackingMode = .once
             anchor.addChild(orb)
             content.add(anchor)
@@ -69,7 +80,7 @@ struct GateView: View {
             }
             // W1386 — 金球下方欢迎词(仅大门态显, 进大厅后隐)。
             if let welcome = attachments.entity(for: "welcome") {
-                welcome.position = [0, -0.07, -1.4]   // 金球([0,0.12,-1.4])正下方
+                welcome.position = [0, -0.42, -1.43]   // W1389 — 金球已下移到大厅金球位 → 欢迎词随之下移到其正下方
                 anchor.addChild(welcome)
                 refs.welcome = welcome
             }
@@ -176,10 +187,9 @@ struct GateView: View {
     //   GateSpace 还开着时直接 openImmersiveSpace 会静默返回 .error → 必须【先 dismiss 当前再 open】。
     //   enterCinema 由独立 Task 调用(非 .task), 不随 GateView 消失而取消 → dismiss 后仍能续开影院。
     private func enterCinema(work: CSSWork) async {
-        player.load(work)                      // 共享 PlayerController(注入到两个空间)→ 先装载
+        player.load(work)                      // 装载作品(ImmersiveView 读同一 PlayerController)
         settings.hasEnteredOnce = true
-        await dismissImmersiveSpace()          // 先关 GateSpace
-        _ = await openImmersiveSpace(id: "ImmersiveCinema")   // 再开影院
+        withAnimation(.easeInOut(duration: 0.35)) { showCinema = true }   // 同空间内切到影院(零空间切换)
     }
 
     // W1382 — 咒语创作(原 ContentView.startSpell 搬来): 进度走 CreationOrbView attachment。
@@ -229,21 +239,43 @@ struct GateView: View {
         }
     }
 
-    // W1388 — 活的星空: 金球背后铺一片【常态微亮】的星, 随机挑几颗【同时变色+变大+变亮】闪一下再复原。
-    //   内存可忽略: 40 颗微小 emissive 球, 无贴图/无解码; 闪烁只改 scale/opacity/材质色 → 零新分配。
+    // W1389 — 星形 sprite(多角星, 透明底): 复用 ImmersiveScene.fillStar, 与天空盒星星同形(不再圆球)。缓存一次。
+    static let starSprite: TextureResource? = {
+        let px = 128
+        let r = UIGraphicsImageRenderer(size: CGSize(width: px, height: px))
+        let img = r.image { ctx in
+            let c = ctx.cgContext
+            c.setFillColor(UIColor.white.cgColor)
+            ImmersiveScene.fillStar(in: c, cx: 64, cy: 64, radius: 58, points: 5, rotation: 0)
+        }
+        guard let cg = img.cgImage else { return nil }
+        return try? TextureResource(image: cg, options: .init(semantic: .color))
+    }()
+
+    /// 用星形贴图建一颗星平面(朝 +Z 面向用户), 给定色与不透明度。
+    @MainActor static func makeStarPlane(width: Float, tint: UIColor, opacity: Float) -> ModelEntity {
+        let p = ModelEntity(mesh: .generatePlane(width: width, height: width))
+        var m = UnlitMaterial()
+        if let tex = starSprite { m.color = .init(tint: tint, texture: .init(tex)) }
+        else { m.color = .init(tint: tint) }
+        m.blending = .transparent(opacity: .init(floatLiteral: opacity))
+        m.opacityThreshold = nil
+        p.model?.materials = [m]
+        return p
+    }
+
+    // W1389 — 活的星空: 金球背后铺一片【常态微亮】的多角星, 随机挑几颗【同时变色+变大+变亮】闪一下再复原。
+    //   内存可忽略: 40 颗小平面共用一张星形贴图, 无解码; 闪烁只改 scale/材质 → 零新分配。
     @MainActor static func addTwinkleStars(to anchor: Entity) {
         var stars: [ModelEntity] = []
         for i in 0..<40 {
-            let s = ModelEntity(mesh: .generateSphere(radius: Float.random(in: 0.006...0.013)))
-            var m = UnlitMaterial(color: .white)
-            m.blending = .transparent(opacity: .init(floatLiteral: Float.random(in: 0.35...0.7)))   // 常态就微亮可见
-            s.model?.materials = [m]
-            // 主要铺在【金球背后】的正前视野里(金球在 z=-1.4), 再撒一些到四周。
-            let frontField = i < 28
-            if frontField {
+            let w = Float.random(in: 0.03...0.075)
+            let s = makeStarPlane(width: w, tint: .white, opacity: Float.random(in: 0.35...0.7))   // 常态就微亮可见
+            // 主要铺在【金球背后】的正前视野里(金球在 z≈-1.44), 再撒一些到四周。
+            if i < 28 {
                 s.position = [Float.random(in: -1.3...1.3),
                               Float.random(in: -0.5...1.4),
-                              Float.random(in: -4.5 ... -1.9)]   // 金球(-1.4)之后, 形成背景星幕
+                              Float.random(in: -4.5 ... -1.9)]   // 金球之后, 形成背景星幕
             } else {
                 let az = Float(i) / 40 * 2 * .pi + Float.random(in: -0.3...0.3)
                 let el = Float.random(in: -0.4...0.9)
@@ -271,15 +303,19 @@ struct GateView: View {
     @MainActor static func twinkleOne(_ star: ModelEntity) async {
         let rest = star.scale.x
         let hue = CGFloat.random(in: 0...1)
-        let color = UIColor(hue: hue, saturation: CGFloat.random(in: 0.5...0.95), brightness: 1.0, alpha: 1.0)
         let grow = Float.random(in: 1.8...3.2)
+        func paint(_ tint: UIColor, _ op: Float) {
+            var m = UnlitMaterial()
+            if let tex = starSprite { m.color = .init(tint: tint, texture: .init(tex)) } else { m.color = .init(tint: tint) }
+            m.blending = .transparent(opacity: .init(floatLiteral: op))
+            m.opacityThreshold = nil
+            star.model?.materials = [m]
+        }
         // 涨: 变色+胀大+提亮
         for k in 0...8 {
             let t = Float(k) / 8
             star.scale = SIMD3<Float>(repeating: rest * (1 + (grow - 1) * t))
-            var m = UnlitMaterial(color: color)
-            m.blending = .transparent(opacity: .init(floatLiteral: 0.5 + 0.5 * t))
-            star.model?.materials = [m]
+            paint(UIColor(hue: hue, saturation: CGFloat.random(in: 0.5...0.95), brightness: 1.0, alpha: 1.0), 0.5 + 0.5 * t)
             try? await Task.sleep(nanoseconds: 28_000_000)
         }
         try? await Task.sleep(nanoseconds: UInt64.random(in: 120_000_000...360_000_000))
@@ -287,19 +323,15 @@ struct GateView: View {
         for k in 0...12 {
             let t = Float(k) / 12
             star.scale = SIMD3<Float>(repeating: rest * (grow - (grow - 1) * t))
-            let mixWhite = UIColor(hue: hue, saturation: CGFloat((1 - t)) * 0.7, brightness: 1.0, alpha: 1.0)
-            var m = UnlitMaterial(color: mixWhite)
-            m.blending = .transparent(opacity: .init(floatLiteral: 1.0 - 0.5 * t))
-            star.model?.materials = [m]
+            paint(UIColor(hue: hue, saturation: CGFloat(1 - t) * 0.7, brightness: 1.0, alpha: 1.0), 1.0 - 0.5 * t)
             try? await Task.sleep(nanoseconds: 34_000_000)
         }
         star.scale = SIMD3<Float>(repeating: rest)
     }
 
-    /// 金球所在(gate anchor 局部坐标): 与 body 里 orb.position 一致。
-    private static let orbCenter = SIMD3<Float>(0, 0.12, -1.4)
-    /// W1385 — 大厅顶部金球中心(LobbyView 面板 [0,-0.32,-1.45], 金球在面板顶部 → 约高 0.18m)。
-    private static let lobbyOrbCenter = SIMD3<Float>(0, -0.14, -1.44)
+    /// W1389 — 启动金球 = 大厅顶部金球位(同一坐标 → 消失即重现的错觉)。两态光束同源。
+    static let lobbyOrbCenter = SIMD3<Float>(0, -0.14, -1.44)
+    private static let orbCenter = lobbyOrbCenter
 
     /// 一波光束: 随机数量、随机色, 从眼前真冲进眼心、穿到脑后(快 = "射")。
     /// CSSOS_WAVE_1096 — Jing「光束太规则显假, 要像影视剧扫描眼睛那种不规则光束」:

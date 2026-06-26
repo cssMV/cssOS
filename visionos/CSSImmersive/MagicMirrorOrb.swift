@@ -156,12 +156,12 @@ enum MagicMirrorOrb {
                 // W1063 — energy = 进度调速倍率: 进度越靠后, 呼吸越快、起伏越大、微光越亮、脉动越密。
                 let energy = max(0.6, min(4.4, speedRef?.mult ?? 1))
                 // 缩放呼吸(漂浮感): 频率 + 幅度都随 energy 涨。
-                let breatheAmp = 0.055 + 0.03 * (energy / 4.4)   // W1388 — 呼吸幅度调大一点点(原 0.035 几乎看不出)
+                let breatheAmp = 0.09 + 0.04 * (energy / 4.4)    // W1389 — 呼吸幅度再调大(还不明显 → 0.055→0.09)
                 let breathe = 1.0 + breatheAmp * sin(t * (1.4 + energy * 0.7))
                 root.scale = [breathe, breathe, breathe]
-                // W1388 — Jing「呼吸同时慢慢拉近再拉远」: z 方向缓慢 dolly(±0.09m, 周期 ~7s)。
+                // W1389 — Jing「步伐再大一点」: z 方向 dolly 加大(±0.09→±0.22m), 周期 ~8s, 明显地拉近再拉远。
                 if let bp = basePos {
-                    let dolly = 0.09 * sin(t * 0.9)
+                    let dolly = 0.22 * sin(t * 0.8)
                     root.position = SIMD3<Float>(bp.x, bp.y, bp.z + dolly)
                 }
 

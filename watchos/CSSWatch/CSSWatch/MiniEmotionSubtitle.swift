@@ -40,7 +40,7 @@ struct MiniEmotionSubtitle: View {
                       color: Color(hue: Double.random(in: 0...1),                 // ② 随机色
                                    saturation: Double.random(in: 0.6...1.0), brightness: 1.0),
                       pos: pos,
-                      sizeMul: CGFloat.random(in: 0.65...1.5),                      // 随机大小
+                      sizeMul: CGFloat.random(in: 0.6...1.05),                       // W1428 — 随机大小(整体缩小, 别占半屏/全屏)
                       design: Self.designs.randomElement() ?? .rounded,            // 随机字体
                       bgEmoji: bg, sparks: sparks)
         bursts.append(b)
@@ -89,11 +89,11 @@ private struct BurstView: View {
 
     var body: some View {
         ZStack {
-            // ① 大 emoji 背景(比字大很多, 字幕的底)。
-            Text(burst.bgEmoji).font(.system(size: 108 * burst.sizeMul)).opacity(0.32)
-            // ② 字(随机字体/随机色/随机大小)。
+            // ① 大 emoji 背景(比字大, 字幕的底; W1428 — 整体缩小 108→58)。
+            Text(burst.bgEmoji).font(.system(size: 58 * burst.sizeMul)).opacity(0.30)
+            // ② 字(随机字体/随机色/随机大小; W1428 — 34→24)。
             Text(burst.text)
-                .font(.system(size: 34 * burst.sizeMul, weight: .heavy, design: burst.design))
+                .font(.system(size: 24 * burst.sizeMul, weight: .heavy, design: burst.design))
                 .foregroundStyle(burst.color)
                 .shadow(color: burst.color.opacity(0.8), radius: 7)
                 .shadow(color: .black.opacity(0.7), radius: 2)

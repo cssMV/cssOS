@@ -247,11 +247,11 @@ struct GateView: View {
     private func runBeamRitual() {
         guard let anchor = refs.orbAnchor else { return }
         Task { @MainActor in
-            for _ in 0..<10 {
+            for _ in 0..<6 {   // W1414 — 波次减少(原10), 间隔拉长 → 不再机关枪
                 // W1411 — 光点跟着金球【当前远近】射出: 每波读金球实时位置(dolly 推拉中也跟着走); 大厅态用大厅金球位。
                 let origin = showLobby ? GateView.lobbyOrbCenter : (refs.orb?.position ?? GateView.orbCenter)
                 fireWave(from: anchor, origin: origin)
-                try? await Task.sleep(nanoseconds: 550_000_000)
+                try? await Task.sleep(nanoseconds: 800_000_000)
             }
             withAnimation(.easeInOut(duration: 0.45)) { showLobby = true }   // 光点散 → 圣殿大门浮现
             try? await Task.sleep(nanoseconds: 250_000_000)
@@ -280,24 +280,25 @@ struct GateView: View {
         for _ in 0..<n {
             let glyph = GateView.gateEmojiPool.randomElement() ?? "✨"
             let sz = Float.random(in: 0.07...0.14)
-            // W1413 — Jing「参照影院前奏小 emoji, 别用难看的星卡片」: 用真 emoji 贴图(同 musicEdgeEmoji), 不用 MeshPetal3D。
-            let node: Entity = CathedralFX.emojiPlane(glyph, size: sz)
+            // W1414 — Jing「3D 感轻翻滚, 别是不转的扁卡片」: 双面 emoji 卡(翻到背面也有图)+ spinTumble 翻滚 = 3D 感。
+            let node: Entity = CathedralFX.emojiCard(glyph, size: sz)
             // 起点 = 金球中心(微抖, 像从球心迸出)
             let start = c + SIMD3<Float>(Float.random(in: -0.03...0.03), Float.random(in: -0.03...0.03), 0)
             node.position = start
             node.components.set(OpacityComponent(opacity: 0))
-            let delay = Double.random(in: 0 ... 0.9)
-            let dur = Double.random(in: 1.3...2.6)   // 慢飘(像前奏 emoji 飘进来, 不是子弹)
+            let delay = Double.random(in: 0 ... 1.0)
+            let dur = Double.random(in: 1.6...3.0)   // 慢飘(像前奏 emoji 飘进, 不是子弹)
             // 终点 = 从球心向用户(+Z)柔缓散开穿过。
             let end = c + SIMD3<Float>(Float.random(in: -0.6...0.6), Float.random(in: -0.45...0.5),
                                        Float.random(in: 1.6...2.6))
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 anchor.addChild(node)
                 node.components.set(OpacityComponent(opacity: Float.random(in: 0.85...1.0)))
+                CathedralFX.spinTumble(node, dur: dur + 0.5)   // 3D 轻翻滚
                 var t = node.transform
                 t.translation = end
                 node.move(to: t, relativeTo: anchor, duration: dur, timingFunction: .easeOut)
-                DispatchQueue.main.asyncAfter(deadline: .now() + dur - 0.5) { node.components.set(OpacityComponent(opacity: 0)) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + dur - 0.6) { node.components.set(OpacityComponent(opacity: 0)) }
                 DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.1) { node.removeFromParent() }
             }
         }

@@ -35,10 +35,11 @@ struct MiniEmotionSubtitle: View {
         let emo = t.emotion ?? ""
         let intensity = t.emotionIntensity ?? 0
         let pool = Self.emojiPool(for: emo)
-        // W1443 — 一整句【竖排成一列】(靠一侧边框, 自上而下按唱序排) → 左一句 / 右一句, 各自从上到下读得通。
-        //   下一句换到另一侧。半字出框靠边。颜色/字体/大小/emoji 仍随机(情绪字幕宪法)。
-        let x = lineSide * (90 + CGFloat.random(in: -4...4))   // 靠左(-)或靠右(+)边框, 半字出框
-        let yTop: CGFloat = -102                               // 这一列从屏幕上沿开始
+        // W1444 — 一整句【从顶部中间往随机一侧(左或右)斜下铺】, 自上而下按唱序排 → 整句锁同一侧, 读得通一句。
+        //   首字在顶部正中, 往下逐字偏向该侧、到边框为止(半字出框); 下一句随机换侧。颜色/字体/大小/emoji 仍随机(宪法)。
+        let stepX: CGFloat = 20
+        let x = lineSide * min(92, CGFloat(seqInLine) * stepX + CGFloat.random(in: 0...6))  // 0(中)→±92(边)
+        let yTop: CGFloat = -100                               // 从屏幕上沿(顶中)开始
         let stepY: CGFloat = 25                                // 每个字往下一格
         let y = min(yTop + CGFloat(seqInLine) * stepY, 92)     // 封底(别压到正下方标题)
         let pos = CGSize(width: x, height: y)

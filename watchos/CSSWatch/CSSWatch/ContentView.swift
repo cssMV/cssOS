@@ -118,8 +118,19 @@ private struct CoverImage: View {
             image = nil; kenBurns = false
             guard let url = URL(string: urlString), !urlString.isEmpty else { return }
             if let (data, _) = try? await URLSession.shared.data(from: url), let ui = UIImage(data: data) {
-                image = ui; kenBurns = true
+                image = Self.centerSquare(ui)   // W1430 — 从超宽幅(2.39:1)截取中央正方形, 手表绝不用宽屏
+                kenBurns = true
             }
         }
+    }
+
+    /// 中央正方形裁切: 取图中心边长 = min(宽,高) 的方块。手表只显示方图, 永不宽屏。
+    static func centerSquare(_ img: UIImage) -> UIImage {
+        guard let cg = img.cgImage else { return img }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        let side = min(w, h)
+        let rect = CGRect(x: ((w - side) / 2).rounded(), y: ((h - side) / 2).rounded(), width: side, height: side)
+        if let c = cg.cropping(to: rect) { return UIImage(cgImage: c) }
+        return img
     }
 }

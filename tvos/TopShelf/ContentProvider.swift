@@ -7,17 +7,19 @@ final class ContentProvider: TVTopShelfContentProvider {
 
     override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
         Task {
-            let works = await fetchWorks()
+            // W1362 — 搬 App 内 hero: 改 carousel 大幅轮播(一张大图 + 标题/风格, 自动切换),
+            //   而非一排小封面。top shelf 版式由系统画, 胶囊无法搬入(系统决定 chrome)。
+            let works = Array((await fetchWorks()).prefix(8))   // 一次性快照 ~8 首精选(top shelf 无滑动懒加载接口)
             guard !works.isEmpty else { completionHandler(nil); return }
 
-            let items: [TVTopShelfSectionedItem] = works.map { w in
-                let item = TVTopShelfSectionedItem(identifier: w.id)
+            let items: [TVTopShelfCarouselItem] = works.map { w in
+                let item = TVTopShelfCarouselItem(identifier: w.id)
                 item.title = w.title
-                item.imageShape = .hdtv   // 16:9 大幅(影院感)
+                if let s = w.style, !s.isEmpty { item.summary = s }   // 风格当简介
+                item.imageShape = .hdtv                                // 16:9 大幅(影院感)
                 if let c = w.cover, let url = URL(string: c) {
                     item.setImageURL(url, for: [.screenScale1x, .screenScale2x])
                 }
-                // 点击 → 深链打开 app 直接播该作品(主 app 注册了 csstv:// scheme 并处理)。
                 if let deep = URL(string: "csstv://play/\(w.id)") {
                     item.displayAction = TVTopShelfAction(url: deep)
                     item.playAction = TVTopShelfAction(url: deep)
@@ -25,15 +27,13 @@ final class ContentProvider: TVTopShelfContentProvider {
                 return item
             }
 
-            let collection = TVTopShelfItemCollection(items: items)
-            collection.title = "cssOS — For You"
-            let content = TVTopShelfSectionedContent(sections: [collection])
+            let content = TVTopShelfCarouselContent(style: .details, items: items)
             completionHandler(content)
         }
     }
 
     // 极简模型 + 拉取(JSONSerialization, 零依赖)。
-    private struct W { let id: String; let title: String?; let cover: String? }
+    private struct W { let id: String; let title: String?; let cover: String?; let style: String? }
 
     private func fetchWorks() async -> [W] {
         guard let url = URL(string: "https://cssstudio.app/api/works/market?limit=12") else { return [] }
@@ -43,7 +43,7 @@ final class ContentProvider: TVTopShelfContentProvider {
             ?? (root["works"] as? [[String: Any]]) ?? []
         return works.compactMap { d in
             guard let id = d["id"] as? String else { return nil }
-            return W(id: id, title: d["title"] as? String, cover: d["cover_image"] as? String)
+            return W(id: id, title: d["title"] as? String, cover: d["cover_image"] as? String, style: d["style"] as? String)
         }
     }
 }

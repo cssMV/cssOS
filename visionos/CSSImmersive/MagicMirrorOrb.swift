@@ -115,6 +115,13 @@ enum MagicMirrorOrb {
         orb.name = "orb-body"
         root.addChild(orb)
 
+        // W1372 — visionOS 凝视/手捏: 3D 魔镜必须有【碰撞盒 + 输入目标 + 凝视高亮】, 系统才会把它当可交互目标,
+        //   否则看它不亮、捏它没反应。碰撞盒覆盖托盘范围, 厚一点便于命中。
+        let hit = size * 1.12
+        root.components.set(CollisionComponent(shapes: [.generateBox(width: hit, height: hit, depth: 0.04)]))
+        root.components.set(InputTargetComponent())
+        root.components.set(HoverEffectComponent())   // 凝视(获得焦点)→ 系统高亮反馈
+
         animate(root: root, orb: orb, halo: halo, clockwise: clockwise, spinY: style == .sphere, speedRef: speedRef)
         return root
     }
@@ -172,10 +179,13 @@ struct MagicMirrorOrbView: View {
     var clockwise: Bool = true
     var sphere: Bool = false
     var speedRef: MagicMirrorOrb.SpeedRef? = nil   // W1061 — 外部动态调速(进度联动)
+    var onTap: (() -> Void)? = nil                 // W1372 — 手捏魔镜触发(凝视+pinch)
     var body: some View {
         RealityView { content in
             content.add(MagicMirrorOrb.make(size: size, clockwise: clockwise,
                                             style: sphere ? .sphere : .plane, speedRef: speedRef))
         } update: { _ in }
+        // W1372 — 空间手捏: 凝视魔镜实体 + pinch → 触发(实体已带 InputTarget/Collision)。
+        .gesture(SpatialTapGesture().targetedToAnyEntity().onEnded { _ in onTap?() })
     }
 }

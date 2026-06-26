@@ -85,8 +85,10 @@ struct ContentView: View {
                 //   折叠态 = 只显自转魔镜金球(浮在星空沉浸背景前), 点它 → 展开大厅菜单。窗口紧贴
                 //   金球大小, 没有白底大窗。
                 VStack(spacing: 14) {
-                    MagicMirrorOrbView(size: 0.2, sphere: orbSphere)
+                    MagicMirrorOrbView(size: 0.2, sphere: orbSphere,
+                        onTap: { withAnimation(.easeInOut(duration: 0.28)) { menuExpanded = true } })
                         .frame(width: 240, height: 240)
+                        .offset(z: -34)   // W1372 — 魔镜往后推, 与窗口拖拽条同深度(否则浮太前遮住拖拽条, 捏不到)
                     Text(L("Tap the mirror to enter", "点魔镜进入"))
                         .font(.callout).foregroundStyle(.secondary)
                 }

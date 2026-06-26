@@ -114,7 +114,7 @@ enum MagicMirrorOrb {
         }
         orb.name = "orb-body"
         // W1373 — Jing: 金球在托盘上略偏低(托盘底尖角长、中心孔偏上)→ 往上挪一点点对正中心孔。
-        if style == .plane { orb.position = [0, size * 0.045, 0] }
+        if style == .plane { orb.position = [0, size * 0.02, 0] }   // W1375 — 0.045 太高 → 降到 0.02
         root.addChild(orb)
 
         // W1372 — visionOS 凝视/手捏: 3D 魔镜必须有【碰撞盒 + 输入目标 + 凝视高亮】, 系统才会把它当可交互目标,
@@ -122,7 +122,8 @@ enum MagicMirrorOrb {
         let hit = size * 1.12
         root.components.set(CollisionComponent(shapes: [.generateBox(width: hit, height: hit, depth: 0.04)]))
         root.components.set(InputTargetComponent())
-        root.components.set(HoverEffectComponent())   // 凝视(获得焦点)→ 系统高亮反馈
+        // W1375 — Jing「删掉魔镜半透明方背景」: 不加 HoverEffectComponent(它=凝视时的圆角方块高亮=那个半透明方背景)。
+        //   魔镜保持干干净净; 凝视反馈改日后用"转速加快"表达, 不靠系统方块高亮。
 
         animate(root: root, orb: orb, halo: halo, clockwise: clockwise, spinY: style == .sphere, speedRef: speedRef)
         return root

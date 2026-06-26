@@ -212,7 +212,7 @@ struct ImmersiveView: View {
                 //   不再持续跟头(与大厅星空一致)。密度也与大厅一致(共用网格后内存是零头, 不必省)。
                 let starAnchor = AnchorEntity(.head)
                 starAnchor.anchoring.trackingMode = .once
-                StarfieldVolume.make(into: starAnchor, count: 300)
+                StarfieldVolume.make(into: starAnchor, count: 700)   // W1395 — 影院近景星也加密(略低于大厅, 给视频解码留余量)
                 content.add(starAnchor)
             }
 

@@ -16,8 +16,27 @@ struct ContentView: View {
 
             RadialGradient(colors: [.clear, .black.opacity(0.5)], center: .center, startRadius: 38, endRadius: 135)
 
-            // 招牌: 半圆爆情绪字幕(顶部铺向两边; 大 emoji 当背景, 小 emoji 从字心爆烟花)。
+            // 器乐段: 小 emoji 从四边框响应音量往里飘(前奏/间奏/尾声/无歌声)。
+            InstrumentalEdgeEmoji(active: player.instrumental, emotion: player.lastEmotion)
+
+            // 招牌: 靠边框爆情绪字幕(半字出框; 大 emoji 当背景, 小 emoji 从字心爆烟花)。
             MiniEmotionSubtitle(token: player.burst, tick: player.burstTick)
+
+            // 左上角: 音乐时长倒计时(右上角是系统时间)。
+            if !player.loading, !player.remainingText.isEmpty {
+                VStack {
+                    HStack {
+                        Text(player.remainingText)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(.black.opacity(0.4), in: Capsule())
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .padding(.leading, 10).padding(.top, 6)
+            }
 
             // 加载时: 魔镜(尖角托盘 + 金球居中【自转】), 和别的平台一样。
             if player.loading {

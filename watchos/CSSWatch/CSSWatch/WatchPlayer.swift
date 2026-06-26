@@ -13,6 +13,19 @@ final class WatchPlayer: ObservableObject {
     @Published var burstTick = 0             // 每个新字 +1(驱动动画重建)
     @Published var volume: Double = 0.85     // W1426 — 表冠调音量
     @Published var showVol = false           // 调音量时短暂显示指示
+    @Published var elapsed: Double = 0       // W1427 — 已播秒(左上角倒计时)
+    @Published var duration: Double = 0
+    private var lastBurstSec: Double = -10
+    @Published var lastEmotion: String = "calm"   // W1427 — 器乐段 emoji 用近期情绪
+
+    /// 器乐段(前奏/间奏/尾声/无歌声): 近期无字爆。
+    var instrumental: Bool { duration > 0 && elapsed - lastBurstSec > 1.6 }
+    /// 左上角: 剩余时长倒计时 m:ss。
+    var remainingText: String {
+        guard duration > 0 else { return "" }
+        let r = max(0, duration - elapsed)
+        return String(format: "%d:%02d", Int(r) / 60, Int(r) % 60)
+    }
 
     private var player: AVPlayer?
     private var fireTokens: [WSubToken] = []
@@ -44,7 +57,7 @@ final class WatchPlayer: ObservableObject {
                 return true
             }
             .sorted { $0.startSec < $1.startSec }
-        nextFire = 0; lastSec = 0; burst = nil
+        nextFire = 0; lastSec = 0; burst = nil; elapsed = 0; duration = 0; lastBurstSec = -10
         guard let url = URL(string: w.audioURL) else { return }
         if let old = timeObs, let pl = player { pl.removeTimeObserver(old); timeObs = nil }
         let p = AVPlayer(url: url)
@@ -76,10 +89,14 @@ final class WatchPlayer: ObservableObject {
 
     private func tick(_ sec: Double) {
         guard sec.isFinite else { return }
+        let e = floor(sec)
+        if e != elapsed { elapsed = e }   // W1427b — 倒计时降到 1Hz, 别每 0.06s 全界面重渲染(会饿死器乐 emoji 定时器)
+        if duration <= 0, let d = player?.currentItem?.duration.seconds, d.isFinite, d > 0 { duration = d }
         if sec + 0.05 < lastSec { nextFire = fireTokens.firstIndex { $0.startSec >= sec } ?? fireTokens.count }
         lastSec = sec
         while nextFire < fireTokens.count, sec >= fireTokens[nextFire].startSec {
-            burst = fireTokens[nextFire]; burstTick += 1
+            burst = fireTokens[nextFire]; burstTick += 1; lastBurstSec = sec
+            if let e = fireTokens[nextFire].emotion, !e.isEmpty { lastEmotion = e }
             nextFire += 1
         }
     }

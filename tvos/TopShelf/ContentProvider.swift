@@ -9,7 +9,7 @@ final class ContentProvider: TVTopShelfContentProvider {
         Task {
             // W1362 — 搬 App 内 hero: 改 carousel 大幅轮播(一张大图 + 标题/风格, 自动切换),
             //   而非一排小封面。top shelf 版式由系统画, 胶囊无法搬入(系统决定 chrome)。
-            let works = Array((await fetchWorks()).prefix(8))   // 一次性快照 ~8 首精选(top shelf 无滑动懒加载接口)
+            let works = Array((await fetchWorks()).prefix(10))   // 一次性快照 10 首精选(top shelf 无滑动懒加载接口)
             guard !works.isEmpty else { completionHandler(nil); return }
 
             let items: [TVTopShelfCarouselItem] = works.map { w in

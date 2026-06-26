@@ -28,15 +28,15 @@ struct ContentView: View {
                 VStack {
                     HStack {
                         Text(player.remainingText)
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .font(.system(size: 17, weight: .medium))   // W1435 — 与系统时间一致(原22粗体过大被切)
                             .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.65), radius: 3)
-                            .shadow(color: .black.opacity(0.4), radius: 1)
+                            .lineLimit(1).fixedSize()                    // 永不被截
+                            .shadow(color: .black.opacity(0.6), radius: 2)
                         Spacer()
                     }
                     Spacer()
                 }
-                .padding(.leading, 13).padding(.top, 3)
+                .padding(.leading, 16).padding(.top, 5)
             }
 
             // 加载时: 魔镜(尖角托盘 + 金球居中【自转】), 和别的平台一样。

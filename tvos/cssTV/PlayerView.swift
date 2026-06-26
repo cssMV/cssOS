@@ -38,6 +38,10 @@ struct PlayerView: View {
     @State private var subtitle: CSSBackend.CSSSubtitleData?   // W1247 逐字情绪字幕
     @State private var partIndex = 0                           // W1329 — 多部连播当前枝丫
     @State private var videoEnded = false                      // W1344 — 短视频播完 → 转封面/幻灯
+    // W1364 — 多语言/多声线: 影院右下语言胶囊, 热切音频+字幕, 母语默认锁定。
+    @State private var langTracks: [CSSBackend.CSSLangTrack] = []
+    @State private var selectedTrackId: String?
+    @FocusState private var langPillFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     // W1329 — 连播队列(多部=各 part; 单曲=自己一首)+ 当前 part。
@@ -115,6 +119,38 @@ struct PlayerView: View {
                 )
                 .transition(.opacity)
             }
+
+            // W1364 — 多语言/多声线胶囊(右下角), ≥2 条可播轨才显示。母语默认锁定+高亮。
+            if langTracks.count >= 2 {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 10) {
+                            Image(systemName: "globe").font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+                            ForEach(langTracks) { tr in
+                                let on = tr.id == selectedTrackId
+                                Button { switchTrack(tr) } label: {
+                                    HStack(spacing: 4) {
+                                        if tr.isDefault { Image(systemName: "lock.fill").font(.system(size: 12)) }
+                                        Text(tr.label).font(.system(size: 20, weight: on ? .bold : .medium))
+                                    }
+                                    .padding(.horizontal, 16).padding(.vertical, 9)
+                                    .background(Capsule().fill(on ? Color.green.opacity(0.9) : Color.white.opacity(0.14)))
+                                    .foregroundStyle(on ? Color.black : Color.white)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(Capsule().fill(.black.opacity(0.5)))
+                        .focusSection()
+                        .padding(.trailing, 56).padding(.bottom, 44)
+                    }
+                }
+                .allowsHitTesting(true)
+            }
         }
         .onAppear(perform: start)
         .onDisappear(perform: stop)
@@ -168,6 +204,17 @@ struct PlayerView: View {
             let s = await CSSBackend.fetchSubtitles(workId: wid)
             await MainActor.run { if partIndex == idx { subtitle = s } }
         }
+        // W1364 — 拉该枝丫的语言×声线轨, ≥2 条才出胶囊; 高亮默认(母语)。
+        langTracks = []; selectedTrackId = nil
+        Task {
+            let ts = await CSSBackend.fetchLanguageTracks(workId: wid)
+            await MainActor.run {
+                if partIndex == idx {
+                    langTracks = ts
+                    selectedTrackId = (ts.first(where: { $0.isDefault }) ?? ts.first)?.id
+                }
+            }
+        }
         videoPlayer?.play()
         audioPlayer?.play()
         // 每切一部短暂显标题(让观众知道进了下一部)。
@@ -175,6 +222,41 @@ struct PlayerView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             withAnimation(.easeOut(duration: 0.6)) { showTitle = false }
         }
+    }
+
+    // W1364 — 切换语言×声线: 只换音频(主时钟)+ 字幕, 视频画面不动(画音分层铁律)。
+    //   重挂音频轨从 0 起, 重新接 meter/时钟/结束观察者; 字幕按该轨语言重拉。
+    private func switchTrack(_ track: CSSBackend.CSSLangTrack) {
+        guard track.id != selectedTrackId, let aurl = URL(string: track.audioURL) else { return }
+        selectedTrackId = track.id
+        // 拆旧音频观察者(视频与会话保留)。
+        if let o = clockObserver { audioPlayer?.removeTimeObserver(o); clockObserver = nil }
+        if let e = endObserver { NotificationCenter.default.removeObserver(e); endObserver = nil }
+        audioPlayer?.pause(); audioPlayer = nil
+        let p = AVPlayer(url: aurl)
+        audioPlayer = p
+        if let item = p.currentItem { meter.attach(to: item) }
+        let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
+        clockObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { t in
+            syncVideoToAudio(t.seconds)
+        }
+        if let item = p.currentItem {
+            endObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in onAudioEnded() }
+        }
+        // 视频回 0 与新音轨对齐(短视频会重新铺满)。
+        videoEnded = false
+        videoPlayer?.seek(to: .zero)
+        // 字幕按该语言重拉。
+        subtitle = nil
+        let lang = track.lang
+        let subURL = track.subtitleURL
+        Task {
+            let s = await CSSBackend.fetchSubtitle(jsonURL: subURL, lang: lang)
+            await MainActor.run { if selectedTrackId == track.id { subtitle = s } }
+        }
+        p.play()
+        videoPlayer?.play()
     }
 
     /// CSSOS_WAVE_1229 — 音频是主时钟, 画面跟它走。

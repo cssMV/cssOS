@@ -152,6 +152,70 @@ enum CSSBackend {
         struct Track: Codable { let lang: String?; let subtitle_take1_json_url: String? }
     }
 
+    // MARK: - W1364 多语言/多声线
+    /// 一条可播的语言×声线轨(只取 ready 且有音频的)。
+    struct CSSLangTrack: Identifiable {
+        let lang: String          // orig / zh / ja / en …
+        let voice: String         // auto / 具体声线
+        let audioURL: String
+        let subtitleURL: String?
+        let isDefault: Bool
+        var id: String { "\(lang)|\(voice)" }
+        /// 胶囊显示名(母语锁定时给🔒)。i18n: 英文/语言原生缩写。
+        var label: String {
+            let base: String
+            switch lang.lowercased() {
+            case "orig": base = "Original"
+            case "zh", "zh-cn", "zh-hans": base = "中文"
+            case "ja": base = "日本語"
+            case "en": base = "English"
+            case "ko": base = "한국어"
+            case "fr": base = "Français"
+            case "es": base = "Español"
+            case "de": base = "Deutsch"
+            default: base = lang.uppercased()
+            }
+            return base
+        }
+    }
+
+    private struct LangTracksFull: Codable {
+        let origin_voice: String?
+        let tracks: [T]?
+        struct T: Codable {
+            let lang: String?; let voice: String?; let status: String?
+            let is_default: Bool?; let audio_url: String?; let subtitle_take1_json_url: String?
+        }
+    }
+
+    /// 拉作品的全部可播语言×声线轨(给影院语言胶囊)。
+    static func fetchLanguageTracks(workId: String) async -> [CSSLangTrack] {
+        guard let url = URL(string: "\(baseURL)/api/works/\(workId)/language-tracks") else { return [] }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let env = try? JSONDecoder().decode(LangTracksFull.self, from: data),
+              let ts = env.tracks else { return [] }
+        return ts.compactMap { t in
+            guard let lang = t.lang, let audio = t.audio_url, !audio.isEmpty,
+                  (t.status ?? "ready") == "ready" else { return nil }
+            return CSSLangTrack(lang: lang, voice: t.voice ?? "auto", audioURL: audio,
+                                subtitleURL: t.subtitle_take1_json_url,
+                                isDefault: t.is_default ?? false)
+        }
+    }
+
+    /// 按指定字幕 JSON URL + 语言码取该语言的逐字字幕(语言切换用)。
+    static func fetchSubtitle(jsonURL urlStr: String?, lang: String) async -> CSSSubtitleData? {
+        let s = urlStr ?? ""
+        guard let url = URL(string: s.isEmpty ? "x" : s) else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let doc = try? JSONDecoder().decode(CSSSubtitleDoc.self, from: data),
+              !doc.languages.isEmpty else { return nil }
+        let chosen = doc.languages.first(where: { $0.lang == lang })
+            ?? doc.languages[0]
+        let lines = chosen.sections.flatMap { $0.lines }
+        return CSSSubtitleData(lang: chosen.lang, lines: lines, themeEmoji: doc.themeEmoji ?? [])
+    }
+
     // W1259 — 创作台: 把提示词发给后端 AI 助理(开始创作)。返回是否成功送达。
     static func castMV(prompt: String) async -> Bool {
         guard let url = URL(string: "\(baseURL)/api/agent/chat") else { return false }

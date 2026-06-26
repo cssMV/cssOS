@@ -142,6 +142,8 @@ enum MagicMirrorOrb {
             let dt: Float = 1.0 / 60.0
             var everInScene = false   // W1381 — 修金球不转: 实体入场景前 root.scene==nil 会让旧条件一次不转就退出。
             var basePos: SIMD3<Float>? = nil   // W1388 — 呼吸时缓慢推拉(dolly)的基准位
+            var dollyT: Float = 0              // W1407 — 独立 dolly 相位(可在欢迎词深度暂停, 不影响呼吸/自转)
+            var dwellLeft: Float = 0           // W1407 — 经过欢迎词深度时的停顿剩余秒
             while !Task.isCancelled {
                 if root.scene == nil {
                     if everInScene { break }                              // 曾入场又离场 → 结束(自动回收)
@@ -159,13 +161,24 @@ enum MagicMirrorOrb {
                 let breatheAmp = 0.09 + 0.04 * (energy / 4.4)    // W1389 — 呼吸幅度再调大(还不明显 → 0.055→0.09)
                 let breathe = 1.0 + breatheAmp * sin(t * (1.4 + energy * 0.7))
                 root.scale = [breathe, breathe, breathe]
-                // W1406 — 起点(t=0)= 欢迎词那么远近(z=bp.z≈-1.44), 一进来就看见金球; 且【首动先靠近用户】
-                //   (再远离)。相位 π+0.8125: t=0 时 ph≈0.137 → z=bp.z, 且 d(ph)/dt<0 → z 先向 -0.4(更近)走。
+                // W1407 — dolly: 起点=欢迎词深度(ph≈0.137)、首动先靠近(再远到星海); 且【每次经过欢迎词深度稍停 ~0.9s】。
                 if let bp = basePos {
-                    let ph = (sin(t * 0.38 + 3.9541) + 1) * 0.5    // 0..1, 慢; t=0→0.137 且先减小(靠近)
-                    let zNear: Float = -0.40
-                    let zFar: Float = -8.0
-                    let z = zNear + (zFar - zNear) * ph
+                    let off: Float = 3.9541          // 相位: t=0→ph≈0.137(欢迎词深度)且先靠近
+                    let welcomePh: Float = 0.137
+                    let phNow = (sin(dollyT * 0.38 + off) + 1) * 0.5
+                    if dwellLeft > 0 {
+                        dwellLeft -= dt                          // 停在欢迎词深度
+                        if dwellLeft <= 0 { dollyT += dt }       // 出停顿: 强制推进一帧, 越过交点防卡死
+                    } else {
+                        let phNext = (sin((dollyT + dt) * 0.38 + off) + 1) * 0.5
+                        if (phNow - welcomePh) * (phNext - welcomePh) <= 0 {
+                            dwellLeft = 0.9                      // 即将经过欢迎词深度 → 稍停
+                        } else {
+                            dollyT += dt
+                        }
+                    }
+                    let ph = (sin(dollyT * 0.38 + off) + 1) * 0.5
+                    let z: Float = -0.40 + (-8.0 - (-0.40)) * ph   // 近 -0.4 → 远 -8(混进星里)
                     root.position = SIMD3<Float>(bp.x, bp.y, z)
                 }
 

@@ -71,7 +71,9 @@ enum MagicMirrorOrb {
             halo.model?.materials = [hm]
         }
         halo.position = [0, 0, -0.01]
-        root.addChild(halo)
+        // W1371 — Jing「删掉背景方块金球」: halo 是 size×1.6 的方 plane 贴金球图 = 那块金色方块背景。
+        //   不再加进场景(实体保留供 animate 调用, 不显示)→ 魔镜本体干净浮空, 无方块。
+        // root.addChild(halo)   // ← 故意不加: 删背景方块
 
         // W1370 — Jing: 静态【尖角托盘】(四尖角绿宝石框 MirrorRing), 不旋转; 圆金球在其中心孔里转。
         //   修「圆金球转在方块上」——之前没托盘, 方 plane 整块转=像方块。现在=魔镜本体(托盘静、球转)。
@@ -102,7 +104,7 @@ enum MagicMirrorOrb {
             m.clearcoatRoughness = 0.1
             orb.model?.materials = [m]
         } else {
-            orb = ModelEntity(mesh: .generatePlane(width: size * 0.58, height: size * 0.58))  // W1370 — 缩小, 嵌入托盘中心孔
+            orb = ModelEntity(mesh: .generatePlane(width: size * 0.44, height: size * 0.44))  // W1371 — 再缩小, 不压住托盘内尖角
             if let tex = orbTexture() {
                 var m = UnlitMaterial()
                 m.color = .init(tint: .white, texture: .init(tex))

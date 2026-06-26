@@ -126,7 +126,8 @@ struct ContentView: View {
                                 RailRow(rail: rail) { choose($0) }
                             }
                         }
-                        .padding(.leading, FeaturedHero.contentLeading)   // W1245 — 和 hero 同 leading + 同满铺基准 → 对齐
+                        // W1341 — Jing: 不再分左右两栏(侧栏已绝对浮层)。内容通栏, 只让开折叠侧栏宽度(防第一张卡被盖)。
+                        .padding(.leading, sidebarCollapsedW + 24)
                         .padding(.top, 28)
                         .ignoresSafeArea(.container, edges: .horizontal)
                     }

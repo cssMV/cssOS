@@ -7846,8 +7846,13 @@ function ensureAuthorAvatarModule() {
        * 自己的头像". When the pipeline is mid-output, ownerId is still
        * empty (work not committed). Fall back to the SIGNED-IN user so
        * the avatar always renders. Menu code below uses ownerId === my-id
-       * to gray out Follow/Block (can't follow/block self). */
-      if (!ownerId) {
+       * to gray out Follow/Block (can't follow/block self).
+       * CSSOS_WAVE_1257 20260626 — Jing 回归修复: 头像必须是【作品作者】, 不是登录用户。
+       *   只有【真正创作中】(还没落库 → 没有 workId)才回退到我自己(那确实是我的新作品);
+       *   一旦在【看已有作品】(有 committedWorkId)却 ownerId 空, 绝不回退登录用户头像 ——
+       *   宁可显示作者名首字母兜底, 也不能把别人作品标成我自己。 */
+      const committedWorkId = String(ps?.workId || ps?.id || ps?.work_id || "").trim();
+      if (!ownerId && !committedWorkId) {
         const auth = (typeof globalThis.cssosAuthState === "function")
           ? globalThis.cssosAuthState()
           : globalThis.authState;

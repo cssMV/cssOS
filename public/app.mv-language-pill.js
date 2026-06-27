@@ -760,8 +760,14 @@
       bar.style.cssText = [
         "position:absolute",
         "bottom:12px",
-        "right:12px",
-        "left:auto",
+        // CSSOS_WAVE_1257 20260626 — Jing 回归修复: 多语言/多声线胶囊【底部居中】(原右下角)。
+        //   不用 transform:translateX 居中 —— 会和 lang-flag-pills 的展开动画(transform:scaleX)打架;
+        //   改用 left:0+right:0+margin:auto+宽度自适应 的绝对居中(不碰 transform)。
+        "left:0",
+        "right:0",
+        "margin-left:auto",
+        "margin-right:auto",
+        "width:fit-content",
         "top:auto",
         "max-width:calc(100% - 24px)",
         "z-index:30",

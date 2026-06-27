@@ -96,13 +96,13 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=w713-mqtpwvug" />
+    <link rel="stylesheet" href="style.css?v=w713-mqvpma9h" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
-    <link rel="stylesheet" href="app.core-ui.css?v=w713-mqtpwvug" />
+    <link rel="stylesheet" href="app.core-ui.css?v=w713-mqvpma9h" />
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
          规则)此前【从未被任何页面加载】→ 字幕词无颜色规则、继承父淡绿白 = Jing 的"还绿"; 随机色/稳定/
          中央爆/[Music...] 一整轮 CSS 全部失效。在 style.css 之后加载它, 让 watch 面板按设计生效。 -->
-    <link rel="stylesheet" href="style.watch.css?v=w713-mqtpwvug" />
+    <link rel="stylesheet" href="style.watch.css?v=w713-mqvpma9h" />
     <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
 
   </head>
@@ -2132,68 +2132,68 @@
          on every deploy so a stale device auto-reloads to the latest build. -->
     <script>window.__CSSOS_BUILD = "20260604-w622";</script>
     <!-- CSSOS_WAVE_513 — neutralize JS-injected :has() (iOS/macOS WebKit crash). MUST be first. -->
-    <script src="bundle.app1.w713-mqtpwvug.js"></script>
+    <script src="bundle.app1.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_518 — diag probe removed (crash investigation done). -->
 
     <!-- CSSOS_WAVE_490k — :has() storm fix: maintain document-level state classes in JS. -->
-    <script src="bundle.app2.w713-mqtpwvug.js"></script>
+    <script src="bundle.app2.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_365 20260523 — Jing: 重新挂回内存遥测探针(此前未在 index.html
          引用 → 5/18 起没有任何样本, OOM 排查完全失明, 尤其 iOS 一条样本都没有).
          每 30s + pagehide/visibility sendBeacon 到 /api/telemetry/memory, 极轻量.
          恢复后才能"边改边看遥测的 dom_nodes/images", 据此决定 OOM 第二刀砍哪里. -->
-    <script src="bundle.app3.w713-mqtpwvug.js"></script>
+    <script src="bundle.app3.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_249 20260520 — Jing: 极早定义 compactLyricLines 全局,
          根治播放时每帧轮询抛 ReferenceError 压垮 webview 看门狗 →
          强刷返回主界面的崩溃. 必须早于所有调用方(watch-audio-polling 等). -->
-    <script src="bundle.app4.w713-mqtpwvug.js"></script>
+    <script src="bundle.app4.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_255 — 相同输入重生成: 覆盖旧作品 vs 输出新作品 的选择+记忆.
          独立模块, 高级设置面板回滚动荡时也能用; 暴露 cssosResolveRegenOutputMode(). -->
-    <script src="bundle.app5.w713-mqtpwvug.js"></script>
+    <script src="bundle.app5.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_259 — 钱漏#3 接线: 给 mv 生成注入 reuse_ok(重试/续跑复用),
          用户主动重生成时开"求新窗口"强制出新. 必须早加载以包好 fetch. -->
-    <script src="bundle.app6.w713-mqtpwvug.js"></script>
+    <script src="bundle.app6.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
          nav, dead-anchor reloads, double-tap fires. Must load early so
          CSS rules apply before any panel renders. -->
-    <script src="bundle.app7.w713-mqtpwvug.js"></script>
+    <script src="bundle.app7.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_192 — on first user gesture, request true fullscreen
          on the document so iOS hides the top time bar + auto-hides the
          home indicator after a few seconds of no touch. Touch devices
          only; PWA / standalone skipped (already chrome-less). -->
-    <script src="bundle.app8.w713-mqtpwvug.js"></script>
+    <script src="bundle.app8.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_194 — lock the app to portrait. Three layers:
          manifest "orientation":"portrait" handles PWA, screen.orientation
          .lock("portrait") covers Chrome Android, and an iOS Safari
          rotate-back overlay covers what Apple won't let us lock. -->
-    <script src="bundle.app9.w713-mqtpwvug.js"></script>
+    <script src="bundle.app9.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_195 — Screen Wake Lock: keep display awake while
          any media element is playing OR the MV pipeline is running.
          Auto-releases when everything goes idle so battery survives. -->
-    <script src="bundle.app10.w713-mqtpwvug.js"></script>
+    <script src="bundle.app10.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_196 — civilization → lyric-language map. Loads
          BEFORE person-mv-panel.js so seed-builders can call into it. -->
-    <script src="bundle.app11.w713-mqtpwvug.js"></script>
+    <script src="bundle.app11.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
-    <script src="bundle.app12.w713-mqtpwvug.js"></script>
+    <script src="bundle.app12.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_123 — injects civilization/era/gender into /api/mv/music
          POSTs so Suno differentiates per culture instead of defaulting
          every figure to a soft female ballad. -->
-    <script src="bundle.app13.w713-mqtpwvug.js"></script>
+    <script src="bundle.app13.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
     <!-- CSSOS_WAVE_524 — 面板源清单(name→src): 内核动态注入的唯一真相源. 必须在 panel-loader 之前. -->
-    <script src="bundle.app14.w713-mqtpwvug.js"></script>
+    <script src="bundle.app14.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_499 — 通用面板路由(内核动态注入按需加载的地基). -->
-    <script src="bundle.app15.w713-mqtpwvug.js"></script>
+    <script src="bundle.app15.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_520 — 内核「关谁销毁谁」: 面板关闭即回收 video/audio 解码缓冲 + blob + 停常驻循环. -->
-    <script src="bundle.app16.w713-mqtpwvug.js"></script>
+    <script src="bundle.app16.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_526 — 内核 LRU: 同时最多 5 面板, 开第6个淘汰最久未用者并回收内存; 播放中的MV面板豁免. -->
-    <script src="bundle.app17.w713-mqtpwvug.js"></script>
+    <script src="bundle.app17.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->
     <script defer src="app.ios-statusbar-cinema.js?v=20260513-wave117-always"></script>
     <!-- CSSOS_WAVE_115 — iOS native payment gate. MUST load FIRST so it
          sets html[data-ios-native] before any payment surface renders. -->
-    <script src="bundle.app18.w713-mqtpwvug.js"></script>
+    <script src="bundle.app18.w713-mqvpma9h.js"></script>
     <script src="/i18n/constants.js"></script>
     <script src="/i18n/catalog.js"></script>
     <!-- CSSOS_WAVE_1107b 20260622 — i18n 字典曾因服务器权限掉到 600 → nginx 500 → I18N 不载入 →
@@ -2203,45 +2203,45 @@
     <script src="/i18n/platforms.js?v=20260622-w1107b"></script>
     <script src="/i18n/index.js?v=20260622-w1107b"></script>
     <script src="/i18n/runtime.js?v=20260622-w1107b"></script>
-    <script src="bundle.app19.w713-mqtpwvug.js"></script>
+    <script src="bundle.app19.w713-mqvpma9h.js"></script>
     <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
          Share-link router parses ?cssMV=<id> on boot and opens the MV
          panel via openMarketWorkPreview. Loaded BEFORE app.js so the
          fetch is in flight before the rest of boot. The router waits
          for openMarketWorkPreview to be defined before invoking, so
          load-order timing isn't critical — this is just the head start. -->
-    <script src="bundle.app20.w713-mqtpwvug.js"></script>
+    <script src="bundle.app20.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
-    <script src="bundle.app21.w713-mqtpwvug.js"></script>
+    <script src="bundle.app21.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_294 — 可复用苹果风浮层搜索: 自动接管 [data-search-float="swipe"]
          的搜索壳(Works Center 等), 下滑显示/上滑隐藏. -->
-    <script src="bundle.app22.w713-mqtpwvug.js"></script>
+    <script src="bundle.app22.w713-mqvpma9h.js"></script>
     <script defer src="app.engine-picker-tabs.js?v=20260614-w773-kie320"></script>
     <script defer src="app.flagship-badges.js?v=20260614-w788"></script>
     <script defer src="app.video-slideshow-fallback.js?v=20260615-w789"></script>
-    <script src="bundle.app23.w713-mqtpwvug.js"></script>
+    <script src="bundle.app23.w713-mqvpma9h.js"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
          by app.delivery-digest-ui.js, which loads further along. -->
-    <script src="bundle.app24.w713-mqtpwvug.js"></script>
+    <script src="bundle.app24.w713-mqvpma9h.js"></script>
     <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
          dropdown + setLocale event dispatch + auto-mirror locale into
          the dropdown so language-panel picks show up here. -->
-    <script src="bundle.app25.w713-mqtpwvug.js"></script>
+    <script src="bundle.app25.w713-mqvpma9h.js"></script>
     <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: dynamic title placeholder
          + clear hardcoded Chinese GuFeng / Feminine pre-roll labels. -->
-    <script src="bundle.app26.w713-mqtpwvug.js"></script>
+    <script src="bundle.app26.w713-mqvpma9h.js"></script>
     <!-- CSSMV_CREATION_CIV_DEFAULTS 20260425 #101 — Jing: civ-derived
          random fills for BPM/key/workType/vocalStyle/instrumentation/
          ensembleStyle in Advanced Settings. Re-rolls on locale flip. -->
-    <script src="bundle.app27.w713-mqtpwvug.js"></script>
+    <script src="bundle.app27.w713-mqvpma9h.js"></script>
     <!-- CSSOS_PHASE2_UNIVERSAL_ENTRY_VOICE 20260427 #161 — Jing
          app.voice-submit.js was previously untracked / never loaded; the
          browser silently fell back to the legacy createRun path because
          submitVoiceOrFallbackTitleModule was undefined. Wiring it now so
          voice-entry routes through MV Pipeline runAll. -->
-    <script src="bundle.app28.w713-mqtpwvug.js"></script>
+    <script src="bundle.app28.w713-mqvpma9h.js"></script>
     <!-- CSSOS_PHASE2_WATCH_FONT_MANIFEST_WIRED 20260420 — Jing (#80):
          "随机中文字体好像没有明显变化 ... 我点击星星按钮，也闪了一下，但是好像字体都一样"
          Root cause: this script was missing from index.html, so
@@ -2251,29 +2251,29 @@
          to system-ui for every token — so every font looked the same.
          Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
          see the manifest on first call. -->
-    <script src="bundle.app29.w713-mqtpwvug.js"></script>
+    <script src="bundle.app29.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
-    <script src="bundle.app30.w713-mqtpwvug.js"></script>
+    <script src="bundle.app30.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_581 20260531 — Jing — 给现有作品加语言的弹窗(选语言→报价→提交). -->
     <!-- CSSOS_WAVE_584 20260531 — Jing — 多声线: 给现有作品加声线(同语言换音色重唱). -->
-    <script src="bundle.app31.w713-mqtpwvug.js"></script>
+    <script src="bundle.app31.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
-    <script src="bundle.app32.w713-mqtpwvug.js"></script>
+    <script src="bundle.app32.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
          只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
-    <script src="bundle.app33.w713-mqtpwvug.js"></script>
+    <script src="bundle.app33.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_1119 — 右轨配套: 左下标题摘要(标题·进度·@作者·时长·摘要)+ 弹幕(评论左下窄道弹入上飘)。
          纯叠加层, 不碰 emotion-fx/字幕/bottom-stack。 -->
-    <script src="bundle.app34.w713-mqtpwvug.js"></script>
+    <script src="bundle.app34.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
-    <script src="bundle.app35.w713-mqtpwvug.js"></script>
+    <script src="bundle.app35.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_120C — Admin-only "see-a-bug → tell-me" inbox FAB. -->
-    <script src="bundle.app36.w713-mqtpwvug.js"></script>
+    <script src="bundle.app36.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_527 — app.mv-import.js 已移除: mv-pipeline 的"导入"子功能, 随 mv-pipeline 按需加载(见 app.panel-manifest.js CSSOS_PANEL_DEPS). 回退: 改回普通 src. -->
 
-    <script src="bundle.app37.w713-mqtpwvug.js"></script>
+    <script src="bundle.app37.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_129 20260514 — REVERTED to eager load. The Wave 117
          lazy-load experiment caused a crash storm: 33+ functions in this
          module are bare-called from 14+ other files (loadWatchCommerce,
@@ -2282,33 +2282,33 @@
          the market panel loaded (crash-guard logged 35 hits/session).
          market-commerce is NOT an island; it must load eagerly. The
          mv-pipeline-panel lazy-load (a true island) stays. -->
-    <script src="bundle.app38.w713-mqtpwvug.js"></script>
+    <script src="bundle.app38.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_576 20260531 — Jing — 通用【左凹向激活】兜底(宪法 :has 在 iOS 被剥, 左凹失效). -->
-    <script src="bundle.app39.w713-mqtpwvug.js"></script>
+    <script src="bundle.app39.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_220A 20260519 — Jing: title edit/refine button was
          implemented but never loaded. Wiring it in now. -->
-    <script src="bundle.app40.w713-mqtpwvug.js"></script>
+    <script src="bundle.app40.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_544 20260531 — Jing — 作品中心编辑基础+展示信息(标题/风格/歌词/封面/画幅/定价). -->
     <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
-    <script src="bundle.app41.w713-mqtpwvug.js"></script>
+    <script src="bundle.app41.w713-mqvpma9h.js"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
-    <script src="bundle.app42.w713-mqtpwvug.js"></script>
+    <script src="bundle.app42.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_1107 20260622 — Jing/App Store 2.1 拒因: 订阅/会员面板是苹果审核头号关卡,
          懒加载首点失败 → "Panel failed to load" → 拒。改回 eager 常驻, 付费墙永不加载失败。
          (W534 曾改懒加载瘦身; 付费墙不参与瘦身。) 同步: manifest 删 subscription / router 删 stub. -->
-    <script src="bundle.app43.w713-mqtpwvug.js"></script>
+    <script src="bundle.app43.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_546 20260531 — Jing — 作品中心: 标注未完成草稿 + 继续合成/编辑补救. -->
-    <script src="bundle.app44.w713-mqtpwvug.js"></script>
+    <script src="bundle.app44.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
 
-    <script src="bundle.app45.w713-mqtpwvug.js"></script>
+    <script src="bundle.app45.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_523 — system-mvs-panel (15KB) 按需加载: 通用 panel-router, dock 按钮 data-action="system-mvs" 触发. 回退: 改回普通 src. -->
     <!-- CSSOS_WAVE_531 — app.engine-accounts.js 已移除: 自建HTML+CSS共享。market 渲染计费面板调 renderEngineAccountsCard(桩)→ 按需加载渲染卡片. 回退: 改回普通 src. -->
 
-    <script src="bundle.app46.w713-mqtpwvug.js"></script>
+    <script src="bundle.app46.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_534 — app.subscription-panel.js 已移除: user-admin 同款安全图案(handleGlobalAction 有 subscription case + 静态HTML壳 + ?.()守卫). 由通用 router 桩 openSubscriptionPanelModule 按需加载. HTML 壳暂留(dom-globals 抓引用). 回退: 改回普通 src. -->
 
-    <script src="bundle.app47.w713-mqtpwvug.js"></script>
+    <script src="bundle.app47.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_117_LAZY 20260513 — notifications-panel is the first
          panel migrated to true on-demand loading. Inert <script type=...>
          tag (browser ignores it). Real script injected by cssosLoadPanel()
@@ -2317,7 +2317,7 @@
     <!-- CSSOS_WAVE_535 — credit-panel + workspaces-panel 已移除: user-admin 同款安全图案(handleGlobalAction 有 credit/workspaces case + 静态壳 + ?.()守卫). 通用 router 桩 openX 按需加载. 回退: 改回普通 src. -->
     <!-- CSSOS_WAVE_522 — user-admin-panel (49KB) 按需加载: 通用 panel-router 桩入口+dock动作, 点击才载.
          孤岛已实测(全 ?.() 调用/无渲染期裸调); 管理员专属, 对用户/审核零影响. 回退: 改回普通 src. -->
-    <script src="bundle.app48.w713-mqtpwvug.js"></script>
+    <script src="bundle.app48.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js (444 KB) is pure
          UI for the MV Pipeline panel: cinema/storm mode, stage badges,
          tier label. It does NOT call any /api/mv/* endpoint — the real
@@ -2325,68 +2325,68 @@
          So we can safely lazy-load it on first interaction with the
          MV Pipeline dock icon ([data-action="mv-pipeline"]) instead of
          on every page load. Saves ~444 KB from first-paint on mobile. -->
-    <script src="bundle.app49.w713-mqtpwvug.js"></script>
+    <script src="bundle.app49.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_533 — person-mv 还原为普通 eager 模块(Jing 决定): 懒加载方式反复打不开(W511/W532),
          其余 7 个模块懒加载均正常。person-mv 自建 HTML + 自注入 CSS(显示)+ JS(动作)= 完整自包含模块,
          eager 一次性加载即可靠工作。代价: 237KB 留在首屏, 换取 People MV 稳定可开。 -->
-    <script src="bundle.app50.w713-mqtpwvug.js"></script>
+    <script src="bundle.app50.w713-mqvpma9h.js"></script>
     <!-- CSSOS_PERSON_MV_WAVE69 20260508 — Jing — TikTok-style content plaza. -->
-    <script src="bundle.app51.w713-mqtpwvug.js"></script>
+    <script src="bundle.app51.w713-mqvpma9h.js"></script>
     <!-- CSSOS_PERSON_MV_WAVE71 20260508 — Jing — personal stats deep page. -->
     <!-- CSSOS_PERSON_MV_WAVE64+65 20260508 — Jing — UI surface for waves 51/54/55 + shortcuts cheatsheet. -->
-    <script src="bundle.app52.w713-mqtpwvug.js"></script>
+    <script src="bundle.app52.w713-mqvpma9h.js"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
-    <script src="bundle.app53.w713-mqtpwvug.js"></script>
+    <script src="bundle.app53.w713-mqvpma9h.js"></script>
     <!-- CSSMV_NO_FALLBACK_TITLE 20260425 #109 — Jing: no "Untitled" /
          "CSS MV" / "未标题" placeholder; kick lyrics engine when title
          is missing. -->
-    <script src="bundle.app54.w713-mqtpwvug.js"></script>
+    <script src="bundle.app54.w713-mqvpma9h.js"></script>
     <!-- CSSMV_PANEL_DOCK_ORDER 20260425 #116 — Jing: light-theme paint
          for .panel-settings + per-panel dock-order option (admin sets
          default, regular users override their own). -->
-    <script src="bundle.app55.w713-mqtpwvug.js"></script>
+    <script src="bundle.app55.w713-mqvpma9h.js"></script>
     <!-- CSSMV_CONSOLE_NOISE 20260425 #118 — Jing: silence cover-webp
          404 noise + transient endpoint NetworkError rejections; load
          early so it catches everything from boot. -->
-    <script src="bundle.app56.w713-mqtpwvug.js"></script>
+    <script src="bundle.app56.w713-mqvpma9h.js"></script>
     <!-- CSSMV_CONTEXT_MENU_FALLBACKS 20260425 #111 — Jing: dead-link
          recovery for right-click menu entries. -->
-    <script src="bundle.app57.w713-mqtpwvug.js"></script>
+    <script src="bundle.app57.w713-mqvpma9h.js"></script>
     <!-- CSSMV_SUBTITLE_CLEANER 20260425 #113 — Jing: strip section
          markers (**Verse 1**, [Chorus], …) and "/" separators from
          rendered subtitles + titles. Lyrics editor stays raw. -->
-    <script src="bundle.app58.w713-mqtpwvug.js"></script>
+    <script src="bundle.app58.w713-mqvpma9h.js"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505c — Jing
          These 19 helpers must load AFTER all the file-level helpers above
          (especially app.delivery-digest-ui.js which defines
          renderDeliveryDigestSummaryModule that app.cssmv-governance.js
          calls at top-level), but BEFORE app.boot.js so the bridges are
          present when boot wires up event handlers. -->
-    <script src="bundle.app59.w713-mqtpwvug.js"></script>
+    <script src="bundle.app59.w713-mqvpma9h.js"></script>
     <!-- cssmv-governance MUST load LAST in this group: its top-level call
          to renderDeliveryDigestSummaryModule() must run after that fn is
          defined (delivery-digest-ui.js loads earlier in the file). -->
-    <script src="bundle.app60.w713-mqtpwvug.js"></script>
+    <script src="bundle.app60.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_530 — app.dm-panel.js 已移除: 完整三件套自包含模块, #dm hash + cssosOpenDmWith 按需加载. eager 仅留 💌 stub. 回退: 改回普通 src. -->
-    <script src="bundle.app61.w713-mqtpwvug.js"></script>
+    <script src="bundle.app61.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_529 — app.premium-modal.js 已移除: 完整三件套自包含模块, 仅 #premium hash 触发, 由通用 router(hash 能力)按需注入. 回退: 改回普通 src. -->
 
-    <script src="bundle.app62.w713-mqtpwvug.js"></script>
+    <script src="bundle.app62.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_107 20260509 — iOS native OAuth handoff listener.
          Must load before app.boot.js so the appUrlOpen listener is
          armed before any first-frame work begins. -->
-    <script src="bundle.app63.w713-mqtpwvug.js"></script>
+    <script src="bundle.app63.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_108 20260509 — global tap-vs-swipe guard.
          Must load BEFORE app.home-activity-bar.js so the bar can
          delegate via cssosTapGuard.bindDelegated. Other panels can
          opt-in to the same swipe immunity at any time. -->
-    <script src="bundle.app64.w713-mqtpwvug.js"></script>
+    <script src="bundle.app64.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_108B 20260509 — playback staging.
          "Don't yank the user out of what they're watching" — taps
          during playback are queued and fired on `ended`. Must load
          BEFORE the activity bar so the bar can route through it. -->
-    <script src="bundle.app65.w713-mqtpwvug.js"></script>
+    <script src="bundle.app65.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_108B 20260509 — pin MV Pipeline + Person MV
          to dock positions 1 and 2 (per Jing — they were getting
          clipped at the back). Loaded after app.boot.js below so
@@ -2404,11 +2404,11 @@
          Default: "pill"; fallback: "icon" (Advanced Settings → Dock). -->
     <script src="app.dock-pill.js?v=20260529-w487-activefirst" defer></script>
     <!-- CSSOS_WAVE_588 — 轻量崩溃探针: 打点 DOM/图/幻灯/堆 + 最后动作, 崩溃重载后回显趋势(用数据定位)。 -->
-    <script src="bundle.app66.w713-mqtpwvug.js"></script>
+    <script src="bundle.app66.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_588 — 引导式 toast: 失败提示带 CTA(去充值/登录/重试), 不让用户卡死。 -->
-    <script src="bundle.app67.w713-mqtpwvug.js"></script>
+    <script src="bundle.app67.w713-mqvpma9h.js"></script>
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 统一空态助手 cssosEmptyState。 -->
-    <script src="bundle.app68.w713-mqtpwvug.js"></script>
+    <script src="bundle.app68.w713-mqvpma9h.js"></script>
     <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
          Self-diagnosing version. Stamps the document so you can verify
          from console that this script actually ran. On every click on a
@@ -2993,8 +2993,5 @@
       })();
     </script>
     <script src="/app.webvitals.js" defer></script>
-    <!-- W1422 — Now Playing 遥控底座: navigator.mediaSession → 锁屏 / 控制中心 / AirPods / Apple Watch 自带「正在播放」
-         显示并遥控 cssOS(标题/封面/播放暂停/上下首/进度)。此文件早已写好却从未被加载(孤儿)→ 现接上。 -->
-    <script src="app.media-session.js?v=20260626-w1422-applewatch" defer></script>
   </body>
 </html>

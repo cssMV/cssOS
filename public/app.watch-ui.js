@@ -7847,12 +7847,14 @@ function ensureAuthorAvatarModule() {
        * empty (work not committed). Fall back to the SIGNED-IN user so
        * the avatar always renders. Menu code below uses ownerId === my-id
        * to gray out Follow/Block (can't follow/block self).
-       * CSSOS_WAVE_1257 20260626 — Jing 回归修复: 头像必须是【作品作者】, 不是登录用户。
-       *   只有【真正创作中】(还没落库 → 没有 workId)才回退到我自己(那确实是我的新作品);
-       *   一旦在【看已有作品】(有 committedWorkId)却 ownerId 空, 绝不回退登录用户头像 ——
-       *   宁可显示作者名首字母兜底, 也不能把别人作品标成我自己。 */
-      const committedWorkId = String(ps?.workId || ps?.id || ps?.work_id || "").trim();
-      if (!ownerId && !committedWorkId) {
+       * CSSOS_WAVE_1257 20260626 — Jing 铁律: 作品作者是【确定的事实】, 绝不能"空了就拿登录用户顶"
+       *   —— 不是你就不是你, 怎么可能用别人来兜底? 那就乱套了。
+       *   所以兜底到我自己【只允许一种情况】: 我【此刻正在创作输出】我自己的新作品(那确实是我)。
+       *   用肯定信号 <html>.cssmv-pipeline-running(setPipelineRunning 在生成时挂, 结束即摘)判定,
+       *   而不是"ownerId 空"这种否定条件 —— 看任何已有作品(不在生成中)绝不退回登录用户头像。 */
+      var _imCreatingNow = false;
+      try { _imCreatingNow = document.documentElement.classList.contains("cssmv-pipeline-running"); } catch (_e) {}
+      if (!ownerId && _imCreatingNow) {
         const auth = (typeof globalThis.cssosAuthState === "function")
           ? globalThis.cssosAuthState()
           : globalThis.authState;

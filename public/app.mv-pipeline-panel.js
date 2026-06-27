@@ -10262,6 +10262,23 @@
     }
   };
 
+  /* CSSOS_WAVE_1446k — 零成本重播入口: 用已有的多部作品 work_id 队列, 直接进【W1446k 影院
+   * 纯播放器】重播, 验证播放期修复(不打断/不回绕重播/底栏 i/N/Next up/切歌回收/零 OOM),
+   * 无需重新生成(不烧钱)。opts = { title, total, workIds:[...] }(每部 take1+take2 依序排)。 */
+  globalThis.cssmvReplayMultipartCinema = function (opts) {
+    opts = opts || {};
+    var ids = (opts.workIds || []).filter(Boolean);
+    if (!ids.length || typeof globalThis.openMvPipelinePanel !== "function") return;
+    globalThis.openMvPipelinePanel({
+      cinema: true, queue: ids, forceNew: false,
+      multipart: true, multipartTotal: opts.total || ids.length,
+      personName: opts.title || "",
+    });
+    // 重播 = 所有部都已就绪, 不在生成 → 末尾停住不循环。
+    try { if (cinemaSt) cinemaSt._allPartsDone = true; } catch (_e) {}
+    return true;
+  };
+
   /* CSSOS_PHASE2_MV_WAVE6 20260507 — End-of-MV replay CTAs + style picker + Storm fan-out
    *
    * Three features layered on top of cinema mode:

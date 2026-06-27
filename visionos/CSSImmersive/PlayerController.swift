@@ -191,6 +191,7 @@ final class PlayerController: ObservableObject {
         }
         fireTokens.sort { $0.start < $1.start }
         lineSpans.sort { $0.end < $1.end }
+        NSLog("[CSSDIAG] buildFireTokens lines=\(lines.count) tokens=\(fireTokens.count) active=\(activeIndex) variants=\(variants.count) work=\(work?.id.prefix(8) ?? "nil")")
     }
 
     /// 时间推进到某字 start 就发一次爆字; 回退(seek)则重定位发射指针。

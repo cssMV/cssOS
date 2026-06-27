@@ -59,12 +59,15 @@ struct GateView: View {
             orb.components.set(GateOrbMarker())   // W1384 — 标记金球, 手势只盯它
             refs.speedRef = speed
             let anchor = AnchorEntity(.head)
-            orb.position = GateView.lobbyOrbCenter   // W1389 — 启动金球落在大厅顶部金球位 → 消失即重现的错觉(像同一枚)
+            orb.position = GateView.introP1Eyes      // W1422 — 启动先出现在【用户眼前】, 再走三停三爆之旅
             anchor.anchoring.trackingMode = .once
             anchor.addChild(orb)
             content.add(anchor)
             refs.orbAnchor = anchor
             refs.orb = orb   // W1381 — 进大厅后隐藏这枚 gate 金球(大厅自带 logo 金球, 避免两个)
+            // W1422 — Jing「启动金球三处停, 每停爆一次」: 用户眼前 → 欢迎词 → 最远处, 各停爆一团, 再回落金球位。
+            let _orb = orb, _anchor = anchor
+            Task { @MainActor in await runOrbIntro(_orb, in: _anchor) }
             // 大厅沉浸面板(初始隐藏, 与魔镜同锚, 悬在其下方)。
             if let lobby = attachments.entity(for: "lobby") {
                 lobby.position = [0, -0.32, -1.45]
@@ -261,6 +264,32 @@ struct GateView: View {
     /// W1389 — 启动金球 = 大厅顶部金球位(同一坐标 → 消失即重现的错觉)。两态光束同源。
     static let lobbyOrbCenter = SIMD3<Float>(0, -0.14, -1.44)
     private static let orbCenter = lobbyOrbCenter
+
+    // W1422 — Jing「启动金球【三处停, 每停爆一次】」: 入场之旅三航点(相对头锚, z 负=前方)。
+    //   ① 用户眼前(很近, 眼高) ② 欢迎词(大厅金球位, 欢迎词就在其下) ③ 最远处(深空, 略上)。
+    static let introP1Eyes = SIMD3<Float>(0, 0.05, -0.55)    // 用户眼前
+    static let introP2Welcome = lobbyOrbCenter                // 欢迎词
+    static let introP3Far = SIMD3<Float>(0, 0.55, -7.0)       // 最远处
+
+    /// W1422 — 启动金球入场: 在【用户眼前 → 欢迎词 → 最远处】各停一下、各爆一团烟花, 再回落到大厅金球位(保持可捏)。
+    @MainActor
+    private func runOrbIntro(_ orb: Entity, in anchor: Entity) async {
+        let stops = [GateView.introP1Eyes, GateView.introP2Welcome, GateView.introP3Far]
+        for p in stops {
+            // 飞到该航点(P1 已在原地 → 跳过移动)。
+            if simd_distance(orb.position(relativeTo: anchor), p) > 0.001 {
+                var t = orb.transform; t.translation = p
+                orb.move(to: t, relativeTo: anchor, duration: 0.85, timingFunction: .easeInOut)
+                try? await Task.sleep(nanoseconds: 900_000_000)
+            }
+            // 停一下 → 爆一团(整团淡完才返回, fireworkShell 已 @MainActor 主线程安全)。
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            await SpatialSubtitleSystem.fireworkShell(at: p, into: anchor, emotion: "joy")
+        }
+        // 旅程结束 → 回落到大厅金球位(可捏的常驻位)。
+        var rest = orb.transform; rest.translation = GateView.lobbyOrbCenter
+        orb.move(to: rest, relativeTo: anchor, duration: 0.8, timingFunction: .easeInOut)
+    }
 
     /// 一波光束: 随机数量、随机色, 从眼前真冲进眼心、穿到脑后(快 = "射")。
     /// CSSOS_WAVE_1096 — Jing「光束太规则显假, 要像影视剧扫描眼睛那种不规则光束」:

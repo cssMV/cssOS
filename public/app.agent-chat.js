@@ -452,8 +452,27 @@
       label: (loc.indexOf("zh") === 0) ? "🍂 三部曲模板《杜甫·登高》" : "🍂 Trilogy template 《Du Fu · Climbing High》",
       prompt: DUFU_PROMPT
     };
+    // CSSOS_WAVE_1446p 20260627 — Jing 内置《苏东坡·明月三部曲》(改编苏轼《水调歌头·明月几时有》)。
+    //   京典 10 节; 每部高潮副歌【必须逐字】含「人有悲欢离合 / 月有阴晴圆缺」(required hooks)。
+    var SUDONGPO_PROMPT = [
+      "用京典模板(10 节: Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro)把苏轼(苏东坡)《水调歌头·明月几时有》改编为《苏东坡·明月三部曲》。work_type: triptych(三部曲,3 部各一首)。语言:中文。文明:中华文明(北宋)。人物:苏轼(苏东坡),北宋豪放派词宗,中秋月下把酒问天、怀念胞弟子由。",
+      "原词(苏轼《水调歌头·明月几时有》,忠于原词意象/用典,不要臆造):",
+      "明月几时有?把酒问青天。不知天上宫阙,今夕是何年。我欲乘风归去,又恐琼楼玉宇,高处不胜寒。起舞弄清影,何似在人间。",
+      "转朱阁,低绮户,照无眠。不应有恨,何事长向别时圆?人有悲欢离合,月有阴晴圆缺,此事古难全。但愿人长久,千里共婵娟。",
+      "【小节标签格式】标签用英文 + 中文小节标题,例如 [Verse 1: 把酒问天]、[Chorus 1: 悲欢离合]。这些标签是非歌词标记,必须放方括号内。",
+      "【硬性要求】每首的高潮副歌(Chorus)必须逐字包含以下两句(required hooks),绝不改动:",
+      "人有悲欢离合",
+      "月有阴晴圆缺",
+      "【音乐风格(英文,Suno 要求)】epic Chinese, guofeng, Song-dynasty literati elegance, guqin, xiao flute, pipa, moonlit ethereal strings, choir; mood: cosmic questioning → tender yearning → serene transcendence.",
+      "三部递进(忠于原词意象):Ⅰ《明月几时有》— 把酒问天、天上宫阙、乘风归去、高处不胜寒,叩问宇宙苍茫;Ⅱ《起舞弄影》— 起舞弄清影、何似在人间、转朱阁低绮户、照无眠,人间天上之间的徘徊与无眠;Ⅲ《千里婵娟》— 人有悲欢离合、月有阴晴圆缺、此事古难全,终于但愿人长久、千里共婵娟,于残缺中见圆满、于离别中得永恒。"
+    ].join("\n");
+    var sudongpoTpl = {
+      label: (loc.indexOf("zh") === 0) ? "🌕 三部曲模板《苏东坡·明月》" : "🌕 Trilogy template 《Su Dongpo · Moon》",
+      prompt: SUDONGPO_PROMPT
+    };
     var seeds = loc.indexOf("zh") === 0 ? [
       dufuTpl,
+      sudongpoTpl,
       libaiTpl,
       tangbohuTpl,
       trilogyTpl,
@@ -463,6 +482,7 @@
       "孙悟空 × 凌霄宝殿，唐风",
     ] : loc.indexOf("ja") === 0 ? [
       dufuTpl,
+      sudongpoTpl,
       libaiTpl,
       tangbohuTpl,
       trilogyTpl,
@@ -471,6 +491,7 @@
       "葛飾北斎 × 富士山",
     ] : [
       dufuTpl,
+      sudongpoTpl,
       libaiTpl,
       tangbohuTpl,
       trilogyTpl,

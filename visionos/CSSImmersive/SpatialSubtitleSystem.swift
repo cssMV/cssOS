@@ -234,6 +234,11 @@ enum SpatialSubtitleSystem {
     /// W1421 — 金球烟花(Jing 详规): 一团 = 1 个【大 emoji】+ 一群【小 emoji 从大 emoji 中心爆开】→ 停留 →
     ///   小 emoji 各自【随机停留长短 + 随机淡出时长 + 随机步数】参差消失(不齐刷刷)→ 整团淡完才 return
     ///   (调用方据此【上一团爆完才爆下一团】, 不重叠)。
+    // W1411 — Jing「一捏金球就闪退、进不去圣殿」真凶: 本函数是 async 非隔离, 从 Task{@MainActor} await 它时
+    //   【不继承调用方 actor】→ 跑到后台协作线程 → 里面 textPlane/emojiEntity 构造 TextureResource/UnlitMaterial/
+    //   3D 网格(RealityKit 资源)在非主线程 → SIGTRAP 闪退(visionos_realitykit_mainactor_material 铁律)。
+    //   标 @MainActor → 整个仪式留在主线程, 资源构造合法, 不再闪退。
+    @MainActor
     static func fireworkShell(at center: SIMD3<Float>, into root: Entity, emotion: String = "joy") async {
         let pool = emojiPool(for: emotion)
         var maxLife: Double = 0

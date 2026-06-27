@@ -21593,6 +21593,13 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
             [part.id, tier.audio_url],
           );
           made += 1;
+          // CSSOS_WAVE_1447b — 视觉层: 给本部点火【幻灯帧池】(便宜的图), 不烧 5s 视频 stub
+          // (遵 [视频战略] 铁律: 主入口 lite 不烧视频)。点火即走, 不阻塞音频循环。
+          // 幻灯+音频+情绪字幕 = 现场首播三件套, 终片 compose 仅回看, 不阻塞首播。
+          void enqueueSlideshowPoolGeneration(part.id, 6).catch(() => {});
+          // CSSOS_WAVE_1447b — 情绪字幕层: 音频既出, 触发逐字对齐(whisperX)生成本部情绪字幕。
+          // 同别处"音频生成后即转写"的惯例(line 21283/40818)。点火即走, 不阻塞。
+          void enqueueKaraokeTranscription(part.id).catch(() => {});
         }
       } catch (e) {
         // 单部失败不致命 — 继续下一部, 下次触发会幂等重试缺的部。

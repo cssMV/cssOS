@@ -89,11 +89,13 @@
       const target = loc[2] || loc[loc.length - 1] || "";
       if (!target) return "?";
       // 解析 "fn@file:line:col" (Safari) 或 "at fn (file:line:col)" (V8)。
-      const m = target.match(/(?:at\s+)?([^\s(@]+)?\s*[@(]?\s*([^)\s@]*?:\d+):\d+\)?/);
+      // CSSOS_WAVE_1446o — 连【列号】一起留(file:line:col): 压缩后整包是一两行, 没列号根本
+      // 定位不到泄漏那一句(digest 只报 bundle.min.js:2 无从下手)。带上列号即可精确点名。
+      const m = target.match(/(?:at\s+)?([^\s(@]+)?\s*[@(]?\s*([^)\s@]*?:\d+:\d+)\)?/);
       if (m) {
         const fn = (m[1] && m[1] !== "<anonymous>" && !/^https?$/.test(m[1])) ? m[1] : "";
         const file = String(m[2] || "").split("/").pop();
-        return ((fn ? fn + "@" : "") + file).slice(0, 60);
+        return ((fn ? fn + "@" : "") + file).slice(0, 70);
       }
       return target.replace(/^at\s+/, "").slice(0, 60);
     } catch (_) {}

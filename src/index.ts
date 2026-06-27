@@ -6009,6 +6009,9 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
 const VALID_STRUCTURE_ROLES = new Set([
   "single", "root", "part", "act", "scene", "episode", "chapter",
   "theme_song", "ending_song", "interlude", "thread",
+  // CSSOS_WAVE_1446n — 多部 take2 子节点(同部第二个 take)。挂在 root 下、parent=take1,
+  // 不再是顶层孤儿 single; 树渲染器按 part/scene/episode 过滤, take2 不会被当成重复的"部"。
+  "take2",
 ]);
 app.post("/api/works/structure-node", express.json({ limit: "64kb" }), async (req, res) => {
   noStore(res);

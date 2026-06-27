@@ -8210,6 +8210,12 @@
             language: state.language || state.lyricsLanguage || "en",
             engineCosts: engineCosts,
             engineMeta: engineMeta,
+            // CSSOS_WAVE_1446n 20260627 — Jing「take2 兄弟是 role=single 孤儿(没挂 root)污染库」:
+            // 捕获【此刻】take1 的树挂接 + take1 的 work_id(spawnTake2Mv 是 async, 等它 commit 时
+            // 编排器可能已切到下一部, state.structureContext 已变 → 必须现在按值捕获)。
+            structureContext: state.structureContext
+              ? Object.assign({}, state.structureContext) : null,
+            take1WorkId: _wid || null,
           });
         }
       } catch (take2Err) {
@@ -8383,6 +8389,22 @@
       });
       const committedBWid = committedB && (committedB.work_id || committedB.workId || committedB.id);
       try { console.info("[mv-pipeline][take2] sibling MV committed:", composedB.mv_url, "wid:", committedBWid); } catch (_e) {}
+      // CSSOS_WAVE_1446n — 多部 take2 挂回树: 不当顶层孤儿 single, 而是挂到三部曲 root 下、
+      // 作为 take1 那一部的【take2 子节点】(parent=take1, root=rootId, 同 sequence)。这样作品库
+      // 里看到的是「root → 3 部, 每部带 take2」的干净树, 不是一堆游离 single。单曲 take2(无
+      // structureContext)保持原样(role=single, 独立作品), 不受影响。
+      try {
+        var _t2sc = args.structureContext;
+        if (committedBWid && _t2sc && _t2sc.rootId) {
+          void postJson("/api/works/" + encodeURIComponent(committedBWid) + "/structure", {
+            work_type: _t2sc.workType || "triptych",
+            parent_work_id: args.take1WorkId || _t2sc.rootId,
+            root_work_id: _t2sc.rootId,
+            structure_role: "take2",
+            sequence_index: Number.isFinite(_t2sc.sequenceIndex) ? _t2sc.sequenceIndex : 0,
+          }).catch(function (e) { try { console.warn("[take2] structure link failed (non-fatal)", e); } catch (_e2) {} });
+        }
+      } catch (_t2linkErr) {}
       /* CSSOS_WAVE_220B_TWO_TITLES 20260520 — Jing: give Take 2 its OWN
        * cover pool (5-image slideshow), same as Take 1, so ♪2 isn't a
        * single static image. Reads the user's "Cover images" count.

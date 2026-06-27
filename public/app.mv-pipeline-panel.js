@@ -10030,6 +10030,18 @@
       // 2) Serialize: full 6-capsule runAll() per part.
       for (var i = 0; i < parts.length; i++) {
         var p = parts[i] || {};
+        // CSSOS_WAVE_1446f 20260627 — Jing「进到第二部, 但第一部的输出信息没清」:
+        // 上一部的生成 hero(左下角歌词打字机 .cinema-hero-lyrics + 进度条 + 阶段文字)
+        // 残留到下一部。每跑下一部前重置 loading hero —— 清掉上一部的歌词列与进度。
+        if (i > 0) {
+          try {
+            if (cinemaSt && cinemaSt.stage && typeof renderCinemaHeroLoading === "function") {
+              renderCinemaHeroLoading(cinemaSt.stage, cinemaSt.person);
+            } else {
+              document.querySelectorAll("[data-cinema-lyrics]").forEach(function (el) { el.textContent = ""; });
+            }
+          } catch (_eReset) {}
+        }
         try {
           var elT = panel && panel.querySelector("#mvp-title");
           var elL = panel && panel.querySelector("#mvp-lyrics");

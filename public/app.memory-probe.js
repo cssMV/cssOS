@@ -85,14 +85,14 @@
       const frames = stack.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
       // 只保留带 :行:列 的真实栈帧(丢掉 V8 的 "Error" 前缀行)。
       let loc = frames.filter(function (ln) { return /:\d+:\d+/.test(ln); });
-      // CSSOS_WAVE_1446q — 跳过【所有埋点包装层】, 找真正的业务调用方:
-      //  ① 本探针自己(memory-probe / origSet…);
-      //  ② Sentry SDK(bundle.min.js / sentry-cdn) —— Sentry 包装了 rAF/setInterval/AudioContext,
-      //     真实 rAF 穿过它, 栈停在 Sentry 就报错位置(bundle.min.js:70952)而非真源。
-      // 按 URL 子串过滤(压缩后无函数名, 但 URL 文件名仍在)→ 留下第一帧业务代码 = 真调用方。
-      const _wrap = /memory-probe|sentry-cdn|bundle\.min\.js|origSet|origRaf/i;
-      const _appLoc = loc.filter(function (ln) { return !_wrap.test(ln); });
-      const target = _appLoc[0] || loc[2] || loc[loc.length - 1] || "";
+      // CSSOS_WAVE_1446r — 组合拳找真业务调用方(前几次都卡在埋点层):
+      //  ① 本探针自己(captureSite + setInterval/raf 包装)= 栈顶恒定 2 帧 → 按【序号】无条件跳过
+      //     (打包后文件名变 bundle.appN, 按 URL "memory-probe" 过滤失效, 但函数名 captureSite 也兜一道);
+      //  ② Sentry SDK(bundle.min.js / sentry-cdn)包装了 rAF/setInterval/AudioContext → 按【URL】滤掉;
+      //  剩下第一帧 = 真正发起 rAF/setInterval 的业务代码。
+      const _wrap = /captureSite|sentry-cdn|bundle\.min\.js|origSet|origRaf|memory-probe/i;
+      const _rest = loc.slice(2).filter(function (ln) { return !_wrap.test(ln); });
+      const target = _rest[0] || loc.filter(function (ln) { return !_wrap.test(ln); })[0] || loc[2] || loc[loc.length - 1] || "";
       if (!target) return "?";
       // 解析 "fn@file:line:col" (Safari) 或 "at fn (file:line:col)" (V8)。
       // CSSOS_WAVE_1446o — 连【列号】一起留(file:line:col): 压缩后整包是一两行, 没列号根本

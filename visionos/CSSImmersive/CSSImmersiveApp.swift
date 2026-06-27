@@ -10,8 +10,6 @@ struct CSSImmersiveApp: App {
     @StateObject private var settings = CathedralSettings()   // W949
     @StateObject private var auth = CSSAuth()                 // W1062 — Vision 鉴权(Apple + Optic ID)
     @StateObject private var router = GateRouter()            // W1093 — 沉浸大厅 ↔ 窗口编排
-    // CSSOS_WAVE_1091 — 影院数码表冠调沉浸: .progressive(0.2…1.0, 初始 0.7), 转表冠在"开窗↔全包围"间调。
-    @State private var cinemaImmersion: ImmersionStyle = .progressive(0.2...1.0, initialAmount: 1.0)
 
     var body: some Scene {
         WindowGroup(id: "launch") {       // W964 — 给窗口 id, 进殿后 dismissWindow 真正关掉(消除拖拽条)
@@ -50,15 +48,12 @@ struct CSSImmersiveApp: App {
         }
         .defaultSize(width: 600, height: 520)
 
-        ImmersiveSpace(id: "ImmersiveCinema") {
-            ImmersiveView()
-                .environmentObject(player)
-                .environmentObject(settings)
-        }
-        // CSSOS_WAVE_1091 — 数码表冠调沉浸: progressive 传送门, 转表冠在 0.2(开窗)↔1.0(全包围)间调, 初始 1.0(满档180°)。
-        .immersionStyle(selection: $cinemaImmersion, in: .progressive(0.2...1.0, initialAmount: 1.0))
+        // W1412 — Jing 铁律「删掉另一套, 只保留一套」: 删除独立 ImmersiveCinema 空间。
+        //   影院只在【GateSpace 内】由 GateView showCinema→ImmersiveView 渲染(零空间切换), 不再有第二个 ImmersiveSpace
+        //   与 GateSpace 互抢(两个空间同时只能开一个 → open 静默 .error 是"捏卡片进不去"的祸根)。
+        //   cinemaImmersion 仅剩 GateSpace 用 .full; 表冠调沉浸档后续要的话在 GateSpace 上做。
 
-        // CSSOS_WAVE_1093 — 圣殿大门·沉浸大厅: 星空 + 大厅面板(attachment) + 头部锚点光束 + Optic ID。
+        // CSSOS_WAVE_1093 — 圣殿大门·沉浸大厅(唯一沉浸空间): 星空 + 大厅 + 光束 + Optic ID + 影院(showCinema)。
         ImmersiveSpace(id: "GateSpace") {
             GateView()
                 .environmentObject(auth)

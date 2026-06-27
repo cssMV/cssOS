@@ -340,40 +340,17 @@ struct ContentView: View {
         .padding(40)
     }
 
-    // CSSOS_WAVE_1059/1093 — 从沉浸大厅选定作品 → 先关大厅沉浸 → 开影院沉浸(同时只能开一个)。
-    private func enterCinema(work: CSSWork) async {
-        loading = true
-        defer { loading = false }
-        if gateOpened { await dismissImmersiveSpace(); gateOpened = false }
-        player.load(work)
-        let result = await openImmersiveSpace(id: "ImmersiveCinema")
-        if case .opened = result {
-            inImmersive = true
-            settings.hasEnteredOnce = true
-        }
-    }
+    // W1412 — Jing 铁律「必须删掉另一套, 只保留一套」: 进影院【唯一路径】= router.enter(work) →
+    //   GateView 监听 enterToken → showCinema=true → 同 GateSpace 内渲染 ImmersiveView(零空间切换、带字幕/多变体注入)。
+    //   原 ContentView 这套(dismiss 大门 + 开独立 ImmersiveCinema 空间)已彻底删除 —— 两个 ImmersiveSpace 互抢是
+    //   "捏卡片进不去/抢赢未注入 work" 的祸根。所有想进影院的地方都改调 router.enter。
+    private func enterCinema(work: CSSWork) async { router.enter(work) }
 
     private func enterCinema() async {
-        loading = true
-        defer { loading = false }
-        let work: CSSWork
         let id = workIdInput.trimmingCharacters(in: .whitespaces)
-        if id.isEmpty {
-            // 第一束光: 直接拉我们自己的《混沌の海》(带真逐字情绪字幕), 拉不到再离线兜底。
-            work = await CSSBackend.defaultWork()
-        } else if let w = try? await CSSBackend.fetchWork(id: id) {
-            work = w
-        } else {
-            work = CSSBackend.offlineFallback()
-        }
-        player.load(work)
-        let result = await openImmersiveSpace(id: "ImmersiveCinema")
-        if case .opened = result {
-            inImmersive = true
-            settings.hasEnteredOnce = true
-            // W981 — 空间原生: 进殿即关大门窗 + 不再开 2D 控制窗。控制全交给空间【控制球簇】(视野下方 HUD)
-            //   + ⚙设置(in-space 菜单) + 🤖AI 窗(按需)。抛弃 2D 窗口思维。
-            dismissWindow(id: "launch")
-        }
+        let work: CSSWork = id.isEmpty
+            ? await CSSBackend.defaultWork()
+            : ((try? await CSSBackend.fetchWork(id: id)) ?? CSSBackend.offlineFallback())
+        router.enter(work)
     }
 }

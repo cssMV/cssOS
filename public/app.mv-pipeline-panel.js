@@ -10030,12 +10030,20 @@
       // 2) Serialize: full 6-capsule runAll() per part.
       for (var i = 0; i < parts.length; i++) {
         var p = parts[i] || {};
-        // CSSOS_WAVE_1446f 20260627 — Jing「进到第二部, 但第一部的输出信息没清」:
-        // 上一部的生成 hero(左下角歌词打字机 .cinema-hero-lyrics + 进度条 + 阶段文字)
-        // 残留到下一部。每跑下一部前重置 loading hero —— 清掉上一部的歌词列与进度。
+        // CSSOS_WAVE_1446f/h 20260627 — Jing「前一部继续播, 后面部后台出, 别用生成画面盖住正在播的」:
+        // 关键 = 播放优先。若此刻【正在播放前一部】(cinema-video 有源且未暂停), 后面部就【后台静默出片】
+        // —— 绝不重渲染 loading hero(那会盖住正在播的画面), 只悄悄清掉左下角上一部的歌词打字机残留。
+        // 仅当【没在播放】(hero 还显示着)时, 才重置 loading hero 清上一部残留。run-finish 把出完的部
+        // 排进队列, cinemaPlayCurrent 在前一部 ended 后自动接力 —— 谁先完先播、播满时长不打断。
         if (i > 0) {
           try {
-            if (cinemaSt && cinemaSt.stage && typeof renderCinemaHeroLoading === "function") {
+            var _cv = cinemaSt && cinemaSt.stage && cinemaSt.stage.querySelector(".cinema-video");
+            var _playing = !!(_cv && (_cv.currentSrc || _cv.src) && !_cv.paused && !_cv.ended);
+            if (_playing) {
+              // 后台出片: 不碰 hero(不盖播放), 只清歌词列残留。
+              document.querySelectorAll("[data-cinema-lyrics]").forEach(function (el) { el.textContent = ""; });
+            } else if (cinemaSt && cinemaSt.stage && typeof renderCinemaHeroLoading === "function") {
+              // 还没在播(hero 显示中): 重置 hero 清上一部残留。
               renderCinemaHeroLoading(cinemaSt.stage, cinemaSt.person);
             } else {
               document.querySelectorAll("[data-cinema-lyrics]").forEach(function (el) { el.textContent = ""; });

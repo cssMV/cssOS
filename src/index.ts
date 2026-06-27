@@ -7913,6 +7913,25 @@ async function runAgentTool(
         }
       }
 
+      // CSSOS_WAVE_1446g 20260627 — Jing「part 标题要显示乐章名, 不要 (1/3)」: 当某部标题
+      // 回退成通用 "(N/M)"(首部 [Part I] marker 被 LLM 吞 → W1077 重建成无名 "Part I" →
+      // splitHierarchy 解析不出乐章名), 从该部【自己的歌词正文】里捞乐章名补回:
+      // 优先行内 [Part X — 乐章名], 其次正文里的《乐章名》。仅改通用回退标题, 不碰已正确的。
+      if (!operaActs && (wt === "triptych" || wt === "shortplay" || wt === "series" || wt === "film")) {
+        const _genericRe = /\(\d+\s*\/\s*\d+\)\s*$/;
+        const _isGenericMv = (s: string) => !s || /^(part|act|scene|episode|chapter|season)\s*[ivx0-9]+$/i.test(s.trim());
+        for (const pt of parts) {
+          const t = String(pt.title || "");
+          if (!_genericRe.test(t)) continue; // already has a real movement name
+          const body = String(pt.lyrics || "");
+          let mv = "";
+          const m1 = body.match(/\[\s*(?:Part|Act|Scene|Episode|Chapter|Season)\s+[IVX0-9]+\s*[—\-:：]\s*([^\]\n]+?)\s*\]/i);
+          if (m1 && m1[1] && !_isGenericMv(m1[1])) mv = m1[1].trim();
+          if (!mv) { const m2 = body.match(/《([^》\n]{2,16})》/); if (m2 && m2[1]) mv = m2[1].trim(); }
+          if (mv) pt.title = `${title} · ${mv}`;
+        }
+      }
+
       // CSSOS_WAVE_166 20260515 — Jing: "Creation took too long and the
       // server cut it off." Cover generation was running SERIALLY — for a
       // triptych that's 3 × ~30s = ~90s of cover work alone, which on top

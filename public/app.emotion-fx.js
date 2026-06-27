@@ -380,6 +380,15 @@
           "--sk-dur:" + (1.7 + Math.random() * 1.3).toFixed(2) + "s;";   // W726 — 慢一点淡出(延时, 别太快消失)
         frag.appendChild(p);
       }
+      // CSSOS_WAVE_1446q 20260627 — Jing 真机 OOM 根治: 字心烟花 spark-dot 只靠 per-call
+      // setTimeout(3400ms) 删, 无硬上限 → 高潮段逐字爆得快(每秒数字×30 dot)时创建盖过删除
+      // → span 在 cssfx-spark 层无限累积 → DOM 破 OOM 阈值强退。加【硬顶】: 追加前若层内
+      // 已超上限, 立即删最旧的, 把同时驻留的 spark 钉死在可控范围(视觉无差, 你也看不清 >180 个)。
+      var SPARK_CAP = 600;
+      try {
+        var _over = (layer.childElementCount || 0) + nn - SPARK_CAP;
+        for (var _q = 0; _q < _over && layer.firstChild; _q++) layer.removeChild(layer.firstChild);
+      } catch (_eCap) {}
       layer.appendChild(frag);
       setTimeout(function () {
         try { var kids = layer.querySelectorAll(".cssfx-spark-dot"); for (var z = 0; z < Math.min(kids.length, nn); z++) if (kids[z]) layer.removeChild(kids[z]); } catch (_e) {}
@@ -468,6 +477,13 @@
         + (_burstFont ? "font-family:" + _burstFont + ";" : "");
       if (_charColor) el.style.color = _charColor;
       grp.appendChild(el);
+      // CSSOS_WAVE_1446q — 中央爆字 grp(每个含 emoji+word 两个 DIV)同样加硬顶: 高潮段逐字爆快
+      // 时 grp 靠 per-line setTimeout 删追不上 → DIV 无限累积(DOM+2345/min)→ OOM。超上限即删最旧。
+      try {
+        var GRP_CAP = 120;
+        var _go = (layer.childElementCount || 0) - GRP_CAP;
+        for (var _g = 0; _g < _go && layer.firstChild; _g++) layer.removeChild(layer.firstChild);
+      } catch (_eGc) {}
       layer.appendChild(grp);
       _lineStage.els.push(grp);
       // CSSOS_WAVE_721 #3 — 以【该字为中心】炸开小烟花(小 emoji 向四周扩散, 不透明→透明),

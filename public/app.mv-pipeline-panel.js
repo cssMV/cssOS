@@ -10022,6 +10022,27 @@
     } catch (_e) {}
   }
 
+  /* CSSOS_WAVE_1446j — 等影院真的开始播放当前部(cinema-video 未暂停且已起播), 或超时。
+   * 让"播放优先"保护在下一部 runAll 启动前已经生效。 */
+  function _waitUntilCinemaPlaying(timeoutMs) {
+    return new Promise(function (resolve) {
+      var t0 = (globalThis.performance && performance.now) ? performance.now() : 0;
+      var deadline = timeoutMs || 9000;
+      var iv = setInterval(function () {
+        var done = false;
+        try {
+          var v = cinemaSt && cinemaSt.stage && cinemaSt.stage.querySelector(".cinema-video");
+          var au = document.getElementById("watch-audio-preview");
+          var playing = (v && !v.paused && !v.ended && Number(v.currentTime || 0) > 0) ||
+                        (au && !au.paused && !au.ended && Number(au.currentTime || 0) > 0);
+          var elapsed = ((globalThis.performance && performance.now) ? performance.now() : (t0 + deadline)) - t0;
+          if (playing || elapsed >= deadline) done = true;
+        } catch (_e) { done = true; }
+        if (done) { try { clearInterval(iv); } catch (_e2) {} resolve(); }
+      }, 250);
+    });
+  }
+
   /* CSSOS_WAVE_1446 20260627 — Jing「多部也进影院 6 胶囊边出边播」。
    * Drive a flat multi-part work (triptych/series/shortplay/film) through the
    * cinema by running the FULL 6-capsule runAll() ONCE PER PART, serialized.
@@ -10112,6 +10133,26 @@
           role: p.role || "part",
           sequenceIndex: Number.isFinite(p.sequence_index) ? p.sequence_index : (i + 1),
         };
+        // CSSOS_WAVE_1446j 20260627 — Jing「第二部开始, 正在播的第一部还是被打断」根因:
+        // runAll 入口的【单音频裁判】(防重叠播放, ~3828-3863)会 pause+杀掉所有音视频元素,
+        // 除非标了 dataset.cssmvSafeStream="1"。它掐掉 watch-audio-preview(影院音频/情绪字幕
+        // 主时钟)→ part2 的 runAll 一启动就把 part1 的音乐掐了。修: 跑下一部前, 把【此刻正在
+        // 播放】的影院媒体(cinema-video + watch-audio-preview + watch-video)标成 safe-stream,
+        // 裁判放过它们 → part1 继续播满两首(take1/take2)不被打断, 自然 ended 才换下一部。
+        try {
+          var _protect = [
+            cinemaSt && cinemaSt.stage && cinemaSt.stage.querySelector(".cinema-video"),
+            document.getElementById("watch-audio-preview"),
+            document.getElementById("watch-video"),
+          ];
+          _protect.forEach(function (el) {
+            try {
+              if (el && !el.paused && !el.ended && Number(el.currentTime || 0) > 0) {
+                el.dataset.cssmvSafeStream = "1";
+              }
+            } catch (_eP) {}
+          });
+        } catch (_eProt) {}
         try {
           await runAll({
             _bypassTierPrompt: true, // don't interrupt the trilogy mid-stream
@@ -10126,6 +10167,13 @@
           });
         } catch (_eRun) {
           try { console.warn("[multipart-cinema] part failed", i, _eRun); } catch (_e) {}
+        }
+        // CSSOS_WAVE_1446j — 时序: runAll 在 commit 时 resolve, 但 part 真正开始播放
+        // (run-finish→cinemaPlayCurrent→video.play)略晚一拍。生成下一部前先等这一部
+        // 真的在播(最多 9s), 否则下一部 runAll 启动时这部还没"在播"→ W1446h/j 的保护
+        // 落空 → hero 盖上 + 裁判掐音。等到在播, 保护才生效, 才能"播满不打断"。
+        if (i < parts.length - 1) {
+          try { await _waitUntilCinemaPlaying(9000); } catch (_eW) {}
         }
       }
     } catch (_eAll) {

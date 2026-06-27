@@ -1372,8 +1372,7 @@
       var _mpc = j.multipart_cinema ||
         ((j.tool_calls || []).map(function (t) { return t && t.multipart_cinema; })
           .filter(Boolean)[0]) || null;
-      if (_mpc && Array.isArray(_mpc.parts_plan) && _mpc.parts_plan.length &&
-          typeof globalThis.cssmvRunMultipartCinema === "function") {
+      if (_mpc && Array.isArray(_mpc.parts_plan) && _mpc.parts_plan.length) {
         var _mpcTitle = String(_mpc.root_title || "").trim();
         try {
           renderSystem(tr(
@@ -1381,7 +1380,36 @@
             "正在影院里逐部创作 —— 每出完一部就接着播。"
           ) + (_mpcTitle ? "《" + _mpcTitle + "》" : ""));
         } catch (_eSys) {}
-        try { globalThis.cssmvRunMultipartCinema(_mpc); } catch (_eMpc) {}
+        // CSSOS_WAVE_1446c 20260627 — Jing 真机验证暴露真凶: cssmvRunMultipartCinema
+        // 的【定义】在 app.mv-pipeline-panel.js, 那是 <script type="cssos-lazy"> 懒加载
+        // 重模块 —— AI 助理响应时它【还没加载】→ 函数 undefined → 旧条件直接跳过 → 死局。
+        // 修: 不要求函数已存在; 若未加载, 先用常驻 shim 的 cssosLoadPanel("mv-pipeline")
+        // 懒加载真面板(单曲进影院走的也是这条懒加载链), 加载完再跑编排器。
+        var _fireMpc = function () {
+          try {
+            if (typeof globalThis.cssmvRunMultipartCinema === "function") {
+              globalThis.cssmvRunMultipartCinema(_mpc);
+            }
+          } catch (_eMpc) {}
+        };
+        if (typeof globalThis.cssmvRunMultipartCinema === "function") {
+          _fireMpc();
+        } else if (typeof globalThis.cssosLoadPanel === "function") {
+          try {
+            var _lp = globalThis.cssosLoadPanel("mv-pipeline");
+            if (_lp && typeof _lp.then === "function") _lp.then(_fireMpc).catch(_fireMpc);
+            else setTimeout(_fireMpc, 1200);
+          } catch (_eLp) { setTimeout(_fireMpc, 1200); }
+        } else {
+          // Last resort: openMvPipelinePanel (shim is always loaded) triggers the
+          // same lazy load; retry the orchestrator once the heavy module lands.
+          try {
+            if (typeof globalThis.openMvPipelinePanel === "function") {
+              globalThis.openMvPipelinePanel({ cinema: true, queue: [], forceNew: true, noAutoRun: true });
+            }
+          } catch (_eOp) {}
+          setTimeout(_fireMpc, 1500);
+        }
         try { updateMeta({ turns_this_hour: j.turns_this_hour, turns_per_hour_limit: j.turns_this_hour + j.turns_remaining }); } catch (_eM) {}
         return; // cinema owns the output now — no chat cards.
       }

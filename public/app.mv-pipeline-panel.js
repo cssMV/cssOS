@@ -10040,11 +10040,21 @@
           if (elS) elS.value = plan.style || "";
           if (elP) elP.value = p.title || plan.root_title || "";
         } catch (_eDom) {}
+        var _partPrompt = p.title || plan.root_title || "";
         state.title = p.title || "";
+        state.prompt = _partPrompt;
         state.lyrics = p.lyrics || "";
         state.style = plan.style || "";
         if (plan.language) state.language = plan.language;
         if (plan.civilization) state.civilization = plan.civilization;
+        // CSSOS_WAVE_1446e 20260627 — Jing 真机验证暴露: 各部 prompt 不同 → runAll 入口
+        // 的 W212 防串台逻辑判定 promptChanged → 清空 state.lyrics + #mvp-lyrics → 当成
+        // 没词、重新生成歌词(hasLyrics=false, 还丢了 required_hooks)。修: 把
+        // _lastPipelinePrompt/_lastPipelineLyrics 对齐当前部, 让 promptChanged=false →
+        // W212 不再清 → 各部用【create_work 生成的精校歌词】跑足本媒体, 绝不重生成。
+        state._lastPipelinePrompt = _partPrompt;
+        state._lastPipelineLyrics = "";
+        try { window.__cssosW217PromptChanged = false; } catch (_eW217) {}
         // Link this part under the shared root at commit time.
         state.structureContext = {
           workType: plan.work_type || "triptych",

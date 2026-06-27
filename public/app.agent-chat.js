@@ -1389,6 +1389,13 @@
           try {
             if (typeof globalThis.cssmvRunMultipartCinema === "function") {
               globalThis.cssmvRunMultipartCinema(_mpc);
+              // CSSOS_WAVE_1446d 20260627 — Jing「进影院时 AI 助理要退到后台, 别挡影院」:
+              // 收起聊天面板(与单曲 seed 路径一致, renderSeedCard 同样 togglePanel)。
+              // 仅在编排器真的调起后收起 —— 懒加载失败则保留聊天, 不留空屏。
+              try {
+                var _ap = document.getElementById("cssos-agent-panel");
+                if (_ap && _ap.getAttribute("data-open") === "1") togglePanel();
+              } catch (_eTog) {}
             }
           } catch (_eMpc) {}
         };

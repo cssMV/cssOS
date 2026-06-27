@@ -2376,7 +2376,7 @@
     <!-- CSSOS_WAVE_546 20260531 — Jing — 作品中心: 标注未完成草稿 + 继续合成/编辑补救. -->
     <script src="app.draft-rescue-badge.js?v=20260531-w551-resume-api"></script>
     <script src="app.api-billing.js?v=20260602-w588o-authupsell"></script>
-    <script src="app.agent-chat.js?v=20260604-w616-huan"></script>
+    <script src="app.agent-chat.js?v=20260627-w1445-multipart-cinema"></script>
     <script src="app.generation-progress-badge.js?v=20260604-w614"></script>
     <script src="app.agent-overflow-menu.js?v=20260603-w595b-restore"></script>
     <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>

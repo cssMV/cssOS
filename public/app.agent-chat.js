@@ -1383,16 +1383,38 @@
           }, []);
       if (liveCards && liveCards.length) {
         try { renderWorkCards(liveCards); } catch (err) { console.warn("[agent-chat] work-card render failed", err); }
-        // CSSOS_WAVE_600 — Jing「点信息包直接进 MV 面板实时输出」: 多部作品新建后, 自动把第一部
-        // 送进 MV 面板播放/续跑(realtime); 卡片已持久化(后端 session + hydrate), 用户下次回到
-        // AI 助理仍能看到这几张卡片。仅在【不在影院】时自动进(在影院则后台续播, 不打断)。
+        // CSSOS_WAVE_600 / W1445 — Jing「多部也进影院 6 胶囊边出边播」: 作品新建后, 不是把
+        // 三张卡片摆在聊天里手点生成, 而是【自动并行生成每一部的音乐】(复用 per-part
+        // /generate-audio 端点), 谁先出完就【先进 MV 面板播谁】, 其余继续后台生成 →
+        // 影院的多部 Next-up 机制接力播(谁先完先播 = 边出边播)。卡片仍渲染+持久化, 用户
+        // 回到 AI 助理还能看到。仅在【不在影院】时自动进(在影院则后台续播, 不打断)。
         try {
           var _inCine = !!(document.body && document.body.dataset && document.body.dataset.cinema === "true");
-          var _first = liveCards.find(function (c) { return c && (c.work_id || c.id); });
-          var _wid = _first && (_first.work_id || _first.id);
-          if (!_inCine && _wid) {
-            // 稍候一拍, 让卡片先渲染、用户瞥见结果, 再进 MV 面板。
-            setTimeout(function () { try { openWorkById(_wid); } catch (_e) {} }, 900);
+          var _parts = liveCards.filter(function (c) { return c && (c.work_id || c.id); });
+          var _first = _parts[0];
+          var _rootId = _first && (_first.root_work_id || _first.work_id || _first.id);
+          if (!_inCine && _parts.length) {
+            // 多部: 进影院根作品(Next-up 接力); 单曲: 直接进那一部。
+            var _enterId = (_parts.length > 1 && _rootId) ? _rootId : (_first.work_id || _first.id);
+            var _entered = false;
+            var _enterCinema = function () {
+              if (_entered) return;
+              _entered = true;
+              try { openWorkById(_enterId); } catch (_e) {}
+            };
+            // 并行自动生成各部音乐; 第一部音频就绪即进影院(server 继续生成其余)。
+            _parts.forEach(function (c) {
+              var _id = c.work_id || c.id;
+              if (!_id || c.audio_url) { if (c.audio_url) _enterCinema(); return; }
+              fetch("/api/agent/work/" + encodeURIComponent(_id) + "/generate-audio", {
+                method: "POST", credentials: "include",
+              }).then(function (r) { return r.json(); }).then(function (j) {
+                if (j && j.ok && j.audio_url) { c.audio_url = j.audio_url; _enterCinema(); }
+              }).catch(function () {});
+            });
+            // 兜底: 若 12s 内没有任何一部回音频(慢/失败), 仍进影院(占位幻灯+稍后接力),
+            // 绝不把用户卡在聊天里成死胡同。
+            setTimeout(_enterCinema, 12000);
           }
         } catch (_e) {}
       }

@@ -210,6 +210,13 @@ struct ImmersiveView: View {
             let env = ImmersiveScene.makeEnvironment(named: settings.environment)
             content.add(env)
             envModel = env.children.first as? ModelEntity
+            // W1410 — Jing「捏就退出」: 把【环境天幕】(空白处, 非银幕)设为可捏中靶 → 捏空白即干净退出。
+            //   捏银幕仍是"选屏"(银幕更近、先被命中); 只有捏到没有银幕的空白(命中外层天幕)才退出。
+            if let em = envModel {
+                em.name = "cathedral-exit-bg"
+                em.components.set(InputTargetComponent())
+                em.generateCollisionShapes(recursive: false)
+            }
             // W1391 — 影院里也铺【体积星空】(四周包围, 有远有近 + 偶发流星), 与大厅一致(cosmos 场景)。
             if settings.environment == "cosmos" {
                 // W1393 — Jing「影院星星跟着头转=头晕」: 必须 trackingMode=.once → 放置一次后【世界固定】,
@@ -366,6 +373,8 @@ struct ImmersiveView: View {
                         settings.menuOpen.toggle()          // W961 — 点空间魔镜 logo → 开/关菜单
                     } else if name.hasPrefix("screen-"), let idx = Int(name.dropFirst("screen-".count)) {
                         player.setActive(idx)
+                    } else if name == "cathedral-exit-bg" {
+                        exitCathedral()                     // W1410 — Jing「捏就退出」: 捏空白(环境天幕)→ 干净退出
                     }
                 }
         )

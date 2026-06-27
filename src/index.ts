@@ -7857,6 +7857,62 @@ async function runAgentTool(
         parts.push({ title, lyrics: lyricsText });
       }
 
+      // CSSOS_WAVE_1446b 20260627 — Jing 铁律「三部曲必须真出 3 部, 不能像《唐伯虎》
+      // 只出 2 部、还要手动补第三部」: FINAL hard guard. The part-by-part primary
+      // path (7488 forces outerPlan=3 + 7548 seed-fills) always yields 3 markers,
+      // but when it THROWS and we fall back to the single big call (7575+), the
+      // LLM can truncate to 2 parts → splitHierarchy parses only 2 → no guard
+      // forced the 3rd. Here, for flat fixed-count types, if fewer parts than
+      // expected survived parsing, GENERATE the missing part(s) with REAL 京典
+      // lyrics (never a stub, never leave it for the user to add by hand).
+      if (!operaActs && parts.length) {
+        const flatExpected =
+          wt === "triptych"  ? 3 :
+          wt === "shortplay" ? 5 :
+          wt === "series"    ? 4 :
+          wt === "film"      ? 4 : 0;
+        if (flatExpected && parts.length < flatExpected) {
+          const missingIdx = Array.from(
+            { length: flatExpected - parts.length },
+            (_v, k) => parts.length + k,
+          );
+          console.warn(
+            "[create_work] %s parsed only %d/%d parts — generating %d missing part(s) with real lyrics",
+            wt, parts.length, flatExpected, missingIdx.length,
+          );
+          try {
+            const filled = await mapWithConcurrency(missingIdx, 3, async (i) => {
+              const pSys = buildJingdianSystemPrompt(lang, "single", "", civilization);
+              let pUser = buildJingdianUserPrompt(
+                lang, style,
+                `${theme || title} —— Part ${i + 1} of ${flatExpected} of ${wt} 《${title}》`,
+                "single", "", civilization,
+              );
+              if (requiredHooks.length) {
+                pUser += `\n\nMANDATORY chorus lines (verbatim, do not paraphrase or translate):\n` +
+                  requiredHooks.map((h, k) => `${k + 1}. ${h}`).join("\n");
+              }
+              const r = await callLlm({
+                messages: [{ role: "system", content: pSys }, { role: "user", content: pUser }],
+                prefer: ["anthropic", "openai"], prefer_model: CAPABLE_TEXT_MODELS,
+                max_tokens: 3600, temperature: 0.85,
+              });
+              const body = (r && r.ok && r.content) ? r.content.trim() : "";
+              return {
+                i,
+                title: `${title} (${i + 1}/${flatExpected})`,
+                lyrics: body || `[seed] ${theme || title}`,
+              };
+            });
+            filled.sort((a, b) => a.i - b.i).forEach((g) => {
+              parts.push({ title: g.title, lyrics: g.lyrics });
+            });
+          } catch (_fillErr) {
+            console.warn("[create_work] missing-part backfill failed:", (_fillErr as Error)?.message);
+          }
+        }
+      }
+
       // CSSOS_WAVE_166 20260515 — Jing: "Creation took too long and the
       // server cut it off." Cover generation was running SERIALLY — for a
       // triptych that's 3 × ~30s = ~90s of cover work alone, which on top

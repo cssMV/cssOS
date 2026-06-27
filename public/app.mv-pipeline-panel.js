@@ -8575,6 +8575,12 @@
       // we don't double-fire; the run-finish handler still registers so each
       // part joins the queue + plays (谁先完先播).
       noAutoRun: !!opts.noAutoRun,
+      // CSSOS_WAVE_1446k — 多部影院: 纯播放器模式。播到末尾不回绕重播, 等下一部入队续播;
+      // multipartTotal=部数(用于底栏 i/N)。_allPartsDone=全部部出完(末尾停住不循环)。
+      multipart: !!opts.multipart,
+      multipartTotal: Number(opts.multipartTotal || 0) || 0,
+      _allPartsDone: false,
+      _waitingAtEnd: false,
       person: {
         name: opts.personName || "",
         nameEn: opts.personNameEn || "",
@@ -8709,6 +8715,14 @@
             const loading = stage.querySelector(".cinema-loading");
             if (loading) loading.hidden = true;
             cinemaPlayCurrent();
+          } else if (cinemaSt._waitingAtEnd) {
+            // CSSOS_WAVE_1446k — 多部影院: 之前播到末尾在等下一部, 现在新 take 入队 → 续播,
+            // 不打断、不重播。前一首自然 ended 后停在末尾, 这里把它推进到刚入队的下一首。
+            cinemaSt._waitingAtEnd = false;
+            if (cinemaSt.idx < cinemaSt.queue.length - 1) {
+              cinemaSt.idx += 1;
+              cinemaPlayCurrent();
+            }
           }
         } catch (_e) {}
       };
@@ -9027,6 +9041,12 @@
     if (!cinemaSt || !cinemaSt.queue.length) return;
     const wid = cinemaSt.queue[cinemaSt.idx];
     if (!wid) return;
+    // CSSOS_WAVE_1446k — Jing「播一半又强退(内存又爆)」根治: 多部连播 6 首歌时, 每切一首
+    // 先回收上一首的生成残留 + 折叠面板媒体, 防播放期 DOM 累积破 OOM 阈值 → 强制重载。
+    // 影院字幕本身是单行(有界), 这里清的是生成 hero/聊天面板等非播放重型 DOM。
+    if (cinemaSt.multipart) {
+      try { if (typeof _reclaimMultipartDom === "function") _reclaimMultipartDom(); } catch (_eR) {}
+    }
     // CSSOS_WAVE_121_STEP_4 20260514 — async-loader ownership self-check.
     // cinemaPlayCurrent does two awaits (work fetch + subtitle fetch +
     // video.play). If the user advances the cinema queue (teaser card,
@@ -9099,8 +9119,20 @@
       // 聆听 / 欣赏 / 买断 / 打赏(中外两线). All chips route through the
       // canonical dispatchMarketWorkPayment dispatcher — tip opens the
       // Wave 116 unified picker (inline Stripe + NihaoPay).
-      const titleStr = (title || "untitled") + (creator ? " · " + creator : "") +
-        " · " + (cinemaSt.idx + 1) + "/" + cinemaSt.queue.length;
+      // CSSOS_WAVE_1446k — Jing「底栏应显示 1/3、2/3、3/3(第几部/共几部), 不是 1/1」:
+      // 多部影院按【部(乐章)】计数, 而非队列里的歌数。take1/take2 同乐章 = 同一部, 用
+      // 标题里 · 后的乐章名识别, 第一次见到就分配部号 → 1/N、2/N、3/N。
+      let _counter;
+      if (cinemaSt.multipart && cinemaSt.multipartTotal) {
+        const _mv = String(title || "").split("·").pop().trim() || String(title || "");
+        if (!cinemaSt._seenParts) cinemaSt._seenParts = [];
+        let _pi = cinemaSt._seenParts.indexOf(_mv);
+        if (_pi < 0) { cinemaSt._seenParts.push(_mv); _pi = cinemaSt._seenParts.length - 1; }
+        _counter = (_pi + 1) + "/" + cinemaSt.multipartTotal;
+      } else {
+        _counter = (cinemaSt.idx + 1) + "/" + cinemaSt.queue.length;
+      }
+      const titleStr = (title || "untitled") + (creator ? " · " + creator : "") + " · " + _counter;
       strip.innerHTML = '<span class="cinema-strip-title"></span>' +
         '<span class="cinema-price-strip" style="display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:10px;align-items:center;"></span>';
       const titleEl = strip.querySelector(".cinema-strip-title");
@@ -9180,6 +9212,9 @@
     video.onended = function () {
       const teaser = stage.querySelector(".cinema-teaser");
       if (teaser) teaser.hidden = true;
+      // CSSOS_WAVE_1446k — 多部影院: 一首结束【直接接续下一首】(take1→take2→下一部),
+      // 不在每首之间弹片尾 CTA(那是单曲用的)。cinemaSkip 已处理: 末尾不回绕、等下一部入队。
+      if (cinemaSt && cinemaSt.multipart) { cinemaSkip(+1); return; }
       // CSSOS_PHASE2_MV_WAVE6 20260507 — End-of-MV CTAs overlay (5s).
       try { showEndOfMvCtas(stage); } catch (_e) { cinemaSkip(+1); }
     };
@@ -9187,8 +9222,18 @@
   function cinemaSkip(delta) {
     if (!cinemaSt) return;
     const next = cinemaSt.idx + delta;
+    // CSSOS_WAVE_1446k 20260627 — Jing「三部曲播完又从第一部第一首开始重播 / 播一半强退」根治:
+    // 多部影院【绝不回绕从头重播】。播到队列末尾且还有部在【后台生成中】→ 停在末尾、标记
+    // _waitingAtEnd, 等下一部 take 入队(run-finish 会续播); 全部部都出完了 → 停在最后一首,
+    // 不循环(避免无限连播堆 DOM → 播放期 OOM 强退)。前进/后退仍正常, 只是不在末尾回绕。
+    if (cinemaSt.multipart && delta > 0 && next >= cinemaSt.queue.length) {
+      if (!cinemaSt._allPartsDone) {
+        cinemaSt._waitingAtEnd = true; // 等后台下一部入队 → run-finish 续播
+      }
+      return; // 不回绕、不重播、不前进
+    }
     if (next < 0 || next >= cinemaSt.queue.length) {
-      // wrap or exit at end — wrap so loop is endless
+      // 非多部: 保留无限循环(单人物 MV 画廊用)。
       cinemaSt.idx = (next + cinemaSt.queue.length) % cinemaSt.queue.length;
     } else {
       cinemaSt.idx = next;
@@ -9208,9 +9253,35 @@
     v.muted = !v.muted;
   }
   async function showCinemaTeaser() {
-    if (!cinemaSt || !cinemaSt.personId) return;
+    if (!cinemaSt) return;
     const teaser = cinemaSt.stage.querySelector(".cinema-teaser");
     if (!teaser) return;
+    // CSSOS_WAVE_1446k — Jing「第二首快播完, 第二部已就绪, 弹 Next up 卡片, 自然接, 不打断」:
+    // 多部影院: 末 10s 若【下一首已入队】→ 弹"Next up · <下一首标题>"卡片(不抢播, ended 自然接);
+    // 没下一首(下一部还在后台生成)→ 弹"下一部生成中…"提示, 让用户知道不是卡死, 在等待。
+    if (cinemaSt.multipart) {
+      try {
+        const nextWid = cinemaSt.queue[cinemaSt.idx + 1];
+        if (nextWid) {
+          const nw = await __fetchWorkPublic(nextWid).catch(function () { return null; });
+          const ntitle = (nw && (nw.title || nw.name)) || "下一首";
+          const ncover = nw && (nw.cover_image || nw.preview_image_url || nw.poster_url);
+          teaser.innerHTML = '<div class="cinema-teaser-label">⏭ Next up · ' + w6Esc(ntitle) + '</div>' +
+            '<div class="cinema-teaser-row"><div class="cinema-teaser-card" data-work-id="' +
+            w6Esc(String(nextWid)) + '" style="position:relative;overflow:hidden;background:' +
+            (ncover ? "url('" + String(ncover).replace(/'/g, "%27") + "') center/cover," : "") +
+            'linear-gradient(135deg,#012019,#003a2c);"></div></div>';
+        } else if (!cinemaSt._allPartsDone) {
+          teaser.innerHTML = '<div class="cinema-teaser-label">⏳ ' +
+            w6Esc(trI18n("Next part is still being created…", "下一部还在创作中…")) + '</div>';
+        } else {
+          teaser.hidden = true; return;
+        }
+        teaser.hidden = false;
+        return;
+      } catch (_eMp) { try { teaser.hidden = true; } catch (_e2) {} return; }
+    }
+    if (!cinemaSt.personId) return;
     try {
       const r = await fetch("/api/person-mv/persons/" + encodeURIComponent(cinemaSt.personId) + "/codex", { credentials: "include" });
       const j = await r.json().catch(function(){ return null; });
@@ -10071,6 +10142,7 @@
         if (typeof globalThis.openMvPipelinePanel === "function") {
           globalThis.openMvPipelinePanel({
             cinema: true, queue: [], forceNew: true, noAutoRun: true,
+            multipart: true, multipartTotal: plan.parts_plan.length,
             personName: plan.root_title || "",
             personMusicStyleHint: plan.style || "",
           });
@@ -10182,6 +10254,9 @@
       // CRITICAL: structureContext is never auto-cleared and would otherwise
       // pollute the NEXT single-work run (attaching it to this root). Reset it.
       try { state.structureContext = null; } catch (_eClr) {}
+      // CSSOS_WAVE_1446k — 全部部都生成完: 标记之, 让 cinemaSkip 在末尾停住(不回绕重播),
+      // 也不再 _waitingAtEnd 干等。播放器继续把队列里剩下的 take 播完。
+      try { if (cinemaSt) cinemaSt._allPartsDone = true; } catch (_eD) {}
       // CSSOS_WAVE_1446i — 收尾再回收一次, 把多部生成残留清干净。
       _reclaimMultipartDom();
     }

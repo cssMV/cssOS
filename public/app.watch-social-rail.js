@@ -385,7 +385,14 @@
     }));
 
     // 6. 💎 买断 — 显示系统建议价(不是"买断"字) — CSSOS_WAVE_1167; W1196: 任一方 staff → 不可买卖, 置灰
-    rail.appendChild(mkItem("💎", fmtCents(buyoutCents(w)), {
+    // CSSOS_WAVE_1258 — Jing 铁律: 买断【0/未设/管理员·staff 作品】= 【无价之宝 priceless】, 绝不是免费/0!
+    //   priceless 与 0 天差地别。priceless 判定对齐 market-commerce: is_priceless || owner_is_admin || 作者是 staff。
+    var _priceless = !!(w.is_priceless || w.owner_is_admin || _ownerStaff);
+    var _bc = buyoutCents(w);
+    var _buyoutText = _priceless
+      ? copy("Priceless", "无价之宝")
+      : (_bc > 0 ? fmtCents(_bc) : copy("Priceless", "无价之宝"));   // 没设价(0)也按无价之宝, 绝不显 0/免费
+    rail.appendChild(mkItem("💎", _buyoutText, {
       disabled: _noSale, aria: copy("Buyout", "买断"),
       title: _noSale ? (_ownWork ? copy("You can't buy your own work", "自己的作品不能买卖") : copy("Staff works aren't for sale", "管理员/工作人员作品不参与买卖")) : copy("Buyout — system-suggested price", "买断 — 系统建议价"),
       onClick: function (b) { dispatch("buyout", b); }

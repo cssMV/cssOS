@@ -73,21 +73,29 @@
   // 旧版只数"有多少个定时器/多少 DOM 节点"(症状), 不知道【是谁建的、堆在哪】(位置)。
   // 反复"抓到根因"又复发, 就是因为只有症状靠猜。这里加位置: 下一次真实 OOM 报告
   // 直接带"哪个函数泄漏了 N 个定时器 + 哪个 DOM 容器在膨胀"。
+  // CSSOS_WAVE_1446m 20260627 — Jing 长会话 OOM 真凶定位修复: 旧 captureSite 靠【函数名正则】
+  // 跳过探针自己的帧(memory-probe/captureSite/setInterval…), 但前端【打包压缩后所有帧都是匿名
+  // bundle.appN.js:2:X、无函数名】→ 正则永远不匹配 → 返回了【setInterval 包装帧自身】(就是
+  // digest 里那条没用的 ivsrc=bundle.app3:2:659)。修: 只看【带 :line:col 位置的帧】, 按序号
+  // 无条件跳过前两帧(captureSite 本身 + setInterval/raf 包装), 返回第三帧 = 真正的调用方。
+  // 不依赖函数名 → 抗压缩。V8(Error 前缀行) / Safari(无前缀) 两种栈格式都兼容。
   function captureSite() {
     try {
       const stack = (new Error()).stack || "";
-      const lines = stack.split("\n").slice(1);
-      for (const ln of lines) {
-        if (/memory-probe|captureSite|setInterval|requestAnimationFrame|origSet/.test(ln)) continue;
-        const m = ln.match(/at\s+([^\s(]+)\s*\(?([^)\s]*?:\d+):\d+\)?/);
-        if (m) {
-          const fn = (m[1] && m[1] !== "<anonymous>") ? m[1] : "";
-          const loc = String(m[2] || "").split("/").pop();
-          return ((fn ? fn + "@" : "") + loc).slice(0, 60);
-        }
-        const t = ln.trim().replace(/^at\s+/, "");
-        if (t) return t.slice(0, 60);
+      const frames = stack.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
+      // 只保留带 :行:列 的真实栈帧(丢掉 V8 的 "Error" 前缀行)。
+      const loc = frames.filter(function (ln) { return /:\d+:\d+/.test(ln); });
+      // loc[0]=captureSite, loc[1]=setInterval/raf 包装, loc[2]=真调用方。
+      const target = loc[2] || loc[loc.length - 1] || "";
+      if (!target) return "?";
+      // 解析 "fn@file:line:col" (Safari) 或 "at fn (file:line:col)" (V8)。
+      const m = target.match(/(?:at\s+)?([^\s(@]+)?\s*[@(]?\s*([^)\s@]*?:\d+):\d+\)?/);
+      if (m) {
+        const fn = (m[1] && m[1] !== "<anonymous>" && !/^https?$/.test(m[1])) ? m[1] : "";
+        const file = String(m[2] || "").split("/").pop();
+        return ((fn ? fn + "@" : "") + file).slice(0, 60);
       }
+      return target.replace(/^at\s+/, "").slice(0, 60);
     } catch (_) {}
     return "?";
   }

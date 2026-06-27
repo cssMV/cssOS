@@ -434,7 +434,26 @@
       label: (loc.indexOf("zh") === 0) ? "🌸 三部曲模板《唐伯虎》" : "🌸 Trilogy template 《Tang Bohu》",
       prompt: TANGBOHU_PROMPT
     };
+    // CSSOS_WAVE_1426 20260627 — Jing 内置《杜甫·登高三部曲》。京典 10 节; 每部高潮副歌【必须逐字】
+    //   含「无边落木萧萧下 / 不尽长江滚滚来」(required hooks); 风格英文 epic + guofeng。
+    var DUFU_PROMPT = [
+      "用京典模板(10 节: Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro)把杜甫《登高》改编为《杜甫·登高三部曲》。work_type: triptych(三部曲,3 部各一首)。语言:中文。文明:中华文明(盛唐)。人物:杜甫,沉郁顿挫的诗圣,晚年漂泊夔州、登高望远。",
+      "原诗(杜甫《登高》,七律之冠,忠于原诗意象/用典,不要臆造):",
+      "风急天高猿啸哀,渚清沙白鸟飞回。无边落木萧萧下,不尽长江滚滚来。",
+      "万里悲秋常作客,百年多病独登台。艰难苦恨繁霜鬓,潦倒新停浊酒杯。",
+      "【小节标签格式】标签用英文 + 中文小节标题,例如 [Verse 1: 风急天高]、[Chorus 1: 落木长江]。这些标签是非歌词标记,必须放方括号内。",
+      "【硬性要求】每首的高潮副歌(Chorus)必须逐字包含以下两句(required hooks),绝不改动:",
+      "无边落木萧萧下",
+      "不尽长江滚滚来",
+      "【音乐风格(英文,Suno 要求)】epic Chinese, guofeng, autumnal grandeur, guqin, erhu, dizi flute, pipa, taiko drums, cinematic strings, choir; mood: desolate → sorrowful → transcendent.",
+      "三部递进(忠于原诗意象):Ⅰ《风急天高》— 秋江峡口、猿啸鸟回、登台远眺、萧瑟苍茫;Ⅱ《万里悲秋》— 万里作客、百年多病、独登高台、身世飘零;Ⅲ《潦倒停杯》— 艰难苦恨、霜鬓潦倒、新停浊酒,却于落木长江间见天地永恒、悲怆中得超脱。"
+    ].join("\n");
+    var dufuTpl = {
+      label: (loc.indexOf("zh") === 0) ? "🍂 三部曲模板《杜甫·登高》" : "🍂 Trilogy template 《Du Fu · Climbing High》",
+      prompt: DUFU_PROMPT
+    };
     var seeds = loc.indexOf("zh") === 0 ? [
+      dufuTpl,
       libaiTpl,
       tangbohuTpl,
       trilogyTpl,
@@ -443,6 +462,7 @@
       "拿破仑 × 凯旋门，单曲就行",
       "孙悟空 × 凌霄宝殿，唐风",
     ] : loc.indexOf("ja") === 0 ? [
+      dufuTpl,
       libaiTpl,
       tangbohuTpl,
       trilogyTpl,
@@ -450,6 +470,7 @@
       "紫式部 × 源氏物語の単曲",
       "葛飾北斎 × 富士山",
     ] : [
+      dufuTpl,
       libaiTpl,
       tangbohuTpl,
       trilogyTpl,

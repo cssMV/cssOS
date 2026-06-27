@@ -2714,26 +2714,79 @@ async function backfillSeedLyrics(): Promise<number> {
 
 // CSSOS_WAVE_613 — 后台生成进度: 给一个多部作品的 root 返回 {total, ready, pending} 叶子计数,
 // 供前端卡片显示「X/N 已就绪」进度角标。pending = 还是 "[seed]" 占位的叶子(后台队列待补)。
+// CSSOS_WAVE_1447 — 宪法「后端引擎/前端TV」: 此端点是 TV 的订阅源, 增补每部的
+// 音频就绪状态 + parts 列表, 让前端只靠轮询就能"哪部音频好了就播哪部", 永不驱动生成。
 app.get("/api/works/:id/generation-progress", async (req, res) => {
   const workId = String(req.params.id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
   try {
-    const r = await withClient((c) => c.query<{ total: string; pending: string }>(
-      `SELECT COUNT(*)::text AS total,
-              COUNT(*) FILTER (WHERE lyrics_preview LIKE '[seed]%')::text AS pending
+    const r = await withClient((c) => c.query<{
+      id: string; title: string; sequence_index: number;
+      structure_role: string; is_seed: boolean; preview_audio_url: string | null;
+      preview_video_url: string | null; cover_image: string | null;
+    }>(
+      `SELECT id::text, title, sequence_index, structure_role,
+              (lyrics_preview LIKE '[seed]%') AS is_seed,
+              preview_audio_url, preview_video_url, cover_image
          FROM user_works
         WHERE (root_work_id = $1::uuid OR id = $1::uuid)
           AND structure_role IN ('part', 'scene', 'episode')
-          AND status <> 'deleted'`,
+          AND status <> 'deleted'
+        ORDER BY sequence_index ASC, created_at ASC`,
       [workId],
     ));
-    const total = Number(r.rows[0]?.total || 0);
-    const pending = Number(r.rows[0]?.pending || 0);
-    return res.json({ ok: true, total, ready: Math.max(0, total - pending), pending, generating: pending > 0 });
+    const rows = r.rows || [];
+    const total = rows.length;
+    // pending = 歌词还是占位(等 W612 补词) 或 还没生成音频(等 1447 引擎补音)。
+    const pending = rows.filter((p) => p.is_seed || !p.preview_audio_url).length;
+    const audioReady = rows.filter((p) => !!p.preview_audio_url).length;
+    const parts = rows.map((p) => ({
+      id: p.id,
+      title: p.title,
+      sequence_index: p.sequence_index,
+      role: p.structure_role,
+      audio_url: p.preview_audio_url || null,
+      video_url: p.preview_video_url || null,
+      cover_url: p.cover_image || null,
+      has_audio: !!p.preview_audio_url,
+      lyrics_pending: !!p.is_seed,
+    }));
+    return res.json({
+      ok: true, total, ready: Math.max(0, total - pending), pending,
+      audio_ready: audioReady, generating: pending > 0, parts,
+    });
   } catch (err) {
     console.warn("[generation-progress] failed:", err instanceof Error ? err.message : String(err));
     return res.status(500).json({ ok: false, error: "progress_failed" });
   }
+});
+
+// CSSOS_WAVE_1447 — 宪法落地 #0「后端驱动多部生成」: 点火端点。
+// 前端(TV)只触发一次, 立刻返回; 真正的逐部生成在 cssOS.service 进程里跑完,
+// 与浏览器彻底解耦 —— 刷新/关标签/OOM自愈 都不会中断, 也不会让生成断在半路。
+// 之后前端只需轮询上面的 generation-progress, 哪部 has_audio 就播哪部。
+app.post("/api/works/:id/generate-parts", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const rootId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(rootId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  try {
+    const own = await withClient((c) => c.query<{ user_id: string }>(
+      `SELECT user_id::text FROM user_works WHERE id = $1::uuid LIMIT 1`, [rootId]));
+    if (!own.rows[0]) return res.status(404).json({ ok: false, error: "not_found" });
+    if (String(own.rows[0].user_id) !== String(userId)) {
+      return res.status(403).json({ ok: false, error: "not_your_work" });
+    }
+  } catch (_e) {
+    return res.status(500).json({ ok: false, error: "load_failed" });
+  }
+  // 点火即走 — 不 await 生成, 立刻返回。引擎在后台跑。
+  setTimeout(() => {
+    enqueueMultipartPartsGeneration(rootId, String(userId)).catch((err) => {
+      console.warn("[multipart-gen] background failed:", err instanceof Error ? err.message : String(err));
+    });
+  }, 30);
+  return res.json({ ok: true, started: true, root_work_id: rootId });
 });
 
 // POST /api/works/:id/language-tracks — add language tracks to an EXISTING
@@ -21491,6 +21544,67 @@ async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Pro
     console.warn("[slideshow] enqueueSlideshowPoolGeneration failed:", err);
   } finally {
     _slideshowGenInflight.delete(workId); // CSSOS_WAVE_619 — 释放防重入标志
+  }
+}
+
+// CSSOS_WAVE_1447 — 宪法「后端是引擎, 前端(MV影院)是 TV」落地核心。
+// 点火即走的后台作业: 逐部为 root 下所有 part 生成音频(callMusicGen → preview_audio_url),
+// 跑在 cssOS.service 进程里, 与浏览器彻底解耦。浏览器刷新/关标签/OOM自愈 都不影响 ——
+// 生成不在前端, 就不可能被前端卡住或断在半路(对照旧前端编排器 cssmvRunMultipartCinema 的脆弱)。
+// 幂等: 已有音频的部跳过; 歌词还是 [seed] 占位的部跳过(等 W612 worker 先补词)。
+// 防重入: 同 root 单飞, 防双触发重复烧钱。
+// TODO(1447b): 视频 + compose/commit 服务端化接进本循环(目前仅音频层)。
+// TODO(1447c): 非 credit-exempt 用户的逐部计费(现 owner-only 触发 + 单飞已是天然成本边界)。
+const _multipartGenInflight = new Set<string>();
+async function enqueueMultipartPartsGeneration(rootId: string, _userId: string): Promise<void> {
+  if (!rootId || _multipartGenInflight.has(rootId)) return;
+  _multipartGenInflight.add(rootId);
+  try {
+    const pool = getPool();
+    const partsR = await pool.query<{
+      id: string; title: string; style: string | null;
+      lyrics_preview: string | null; preview_audio_url: string | null;
+    }>(
+      `SELECT id::text, title, style, lyrics_preview, preview_audio_url
+         FROM user_works
+        WHERE (root_work_id = $1::uuid OR id = $1::uuid)
+          AND structure_role IN ('part', 'scene', 'episode')
+          AND status <> 'deleted'
+        ORDER BY sequence_index ASC, created_at ASC`,
+      [rootId],
+    );
+    const parts = partsR.rows || [];
+    let made = 0;
+    for (const part of parts) {
+      if (part.preview_audio_url) continue; // 幂等: 已生成
+      const lyr = String(part.lyrics_preview || "");
+      if (lyr.startsWith("[seed]")) continue; // 歌词未补全, 等下一轮(W612 先补词)
+      try {
+        const tier = await callMusicGen({
+          prompt: [part.title, part.style, lyr.slice(0, 300)].filter(Boolean).join(" — "),
+          lyrics: lyr,
+          duration_secs: 60,
+        });
+        if (tier && tier.ok && tier.audio_url) {
+          // 仅在仍为空时写入(防与 owner 手点 generate-audio 竞态)。
+          await pool.query(
+            `UPDATE user_works SET preview_audio_url = $2, updated_at = now()
+               WHERE id = $1::uuid AND preview_audio_url IS NULL`,
+            [part.id, tier.audio_url],
+          );
+          made += 1;
+        }
+      } catch (e) {
+        // 单部失败不致命 — 继续下一部, 下次触发会幂等重试缺的部。
+        console.warn(`[multipart-gen] part ${part.id} audio failed:`,
+          e instanceof Error ? e.message : String(e));
+      }
+    }
+    console.info(`[multipart-gen] root ${rootId}: generated audio for ${made}/${parts.length} part(s)`);
+  } catch (err) {
+    console.warn("[multipart-gen] enqueueMultipartPartsGeneration failed:", err);
+  } finally {
+    _multipartGenInflight.delete(rootId); // 释放单飞标志
   }
 }
 

@@ -154,7 +154,9 @@
       "#watch-panel .panel-actions .icon-btn[aria-label=\"Close\"]{display:none !important;}" +
       // CSSOS_WAVE_1128 — Jing 指令: AI 助理换小机器人收回右轨底部(=右轨第7个图标, 用右轨统一间距),
       //   隐藏旧悬浮 AI FAB(避免"太靠近"+重复)。
-      "#cssos-agent-fab{display:none !important;}" +
+      // CSSOS_WAVE_1427 — Jing「外面也要保留 AI 助理」: 只在【影院/watch 面板打开】时藏 FAB(让右轨 🤖 接管);
+      //   离开影院(主界面/市场)body 去掉 .cssos-watch-on → 全局 FAB 恢复显示。原全局无条件隐藏=外面也没了。
+      "body.cssos-watch-on #cssos-agent-fab{display:none !important;}" +
       // 右轨现含 AI(7 项), bottom 下移到 20px, 让 🤖 落在右下角(旧 FAB 位置), 全轨用统一 9px 间距。
       "#cssos-watch-social-rail{position:absolute;right:14px;bottom:20px;" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
@@ -271,6 +273,8 @@
   function render() {
     injectHideCss();
     ensureBackBtn();
+    // CSSOS_WAVE_1427 — 影院开=藏 FAB(右轨🤖接管); 离开影院=去 class → 主界面全局 FAB 恢复。
+    document.body.classList.toggle("cssos-watch-on", watchOpen());
     if (!watchOpen()) { var r0 = document.getElementById("cssos-watch-social-rail"); if (r0) r0.style.display = "none"; return; }
     var rail = buildRail();
     if (!rail) return;

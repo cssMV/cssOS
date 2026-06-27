@@ -9992,6 +9992,36 @@
   // settings "apply render" button) can start the pipeline without re-opening.
   globalThis.cssmvRunPipeline = function (opts) { return runAll(opts || {}); };
 
+  /* CSSOS_WAVE_1446i 20260627 — Jing 真机暴露「音乐中断强退」= OOM 自愈强制重载
+   * (遥测 oom_selfheal: DOM 6173→7123, +3879/min)。多部串行跑 3 条管线时, 生成残留
+   * (hero 封面/歌词打字机)+ 折叠聊天面板的媒体 + 平台杂项节点层层堆积 → 破 OOM 阈值
+   * → 整页重载 → 杀死编排器 JS(于是第三部永不跑)+ 打断正在播的音乐。逐部之间 + 收尾
+   * 主动回收这些【非播放、非招牌字幕】的重型 DOM, 把多部会话的内存压回单曲水平。
+   * 绝不碰正在播放的影院 video / 情绪字幕核心(招牌)。 */
+  function _reclaimMultipartDom() {
+    try {
+      // 生成 hero 残留: 歌词打字机文本 + 封面底图。
+      document.querySelectorAll("[data-cinema-lyrics]").forEach(function (el) {
+        try { el.textContent = ""; } catch (_e) {}
+      });
+      document.querySelectorAll("[data-cinema-cover]").forEach(function (el) {
+        try { el.style.backgroundImage = ""; el.classList.remove("is-shown"); } catch (_e) {}
+      });
+      // 折叠的 AI 助理面板: 释放其媒体(图/视频/音频)+ 平台回收扫(不碰影院面板)。
+      var msgs = document.getElementById("cssos-agent-messages");
+      if (msgs) {
+        try {
+          msgs.querySelectorAll("img,video,audio").forEach(function (el) {
+            try { el.removeAttribute("src"); if (el.load) el.load(); } catch (_e) {}
+          });
+        } catch (_e) {}
+      }
+      if (typeof globalThis.cssosReclaimPanel === "function") {
+        try { globalThis.cssosReclaimPanel("cssos-agent-panel"); } catch (_e) {}
+      }
+    } catch (_e) {}
+  }
+
   /* CSSOS_WAVE_1446 20260627 — Jing「多部也进影院 6 胶囊边出边播」。
    * Drive a flat multi-part work (triptych/series/shortplay/film) through the
    * cinema by running the FULL 6-capsule runAll() ONCE PER PART, serialized.
@@ -10036,17 +10066,16 @@
         // 仅当【没在播放】(hero 还显示着)时, 才重置 loading hero 清上一部残留。run-finish 把出完的部
         // 排进队列, cinemaPlayCurrent 在前一部 ended 后自动接力 —— 谁先完先播、播满时长不打断。
         if (i > 0) {
+          // CSSOS_WAVE_1446i — 跑下一部前回收上一部的重型 DOM, 防 OOM 强退。
+          _reclaimMultipartDom();
           try {
             var _cv = cinemaSt && cinemaSt.stage && cinemaSt.stage.querySelector(".cinema-video");
             var _playing = !!(_cv && (_cv.currentSrc || _cv.src) && !_cv.paused && !_cv.ended);
             if (_playing) {
-              // 后台出片: 不碰 hero(不盖播放), 只清歌词列残留。
-              document.querySelectorAll("[data-cinema-lyrics]").forEach(function (el) { el.textContent = ""; });
+              // 后台出片: 不碰 hero(不盖播放), 只清歌词列残留(已在回收里清)。
             } else if (cinemaSt && cinemaSt.stage && typeof renderCinemaHeroLoading === "function") {
               // 还没在播(hero 显示中): 重置 hero 清上一部残留。
               renderCinemaHeroLoading(cinemaSt.stage, cinemaSt.person);
-            } else {
-              document.querySelectorAll("[data-cinema-lyrics]").forEach(function (el) { el.textContent = ""; });
             }
           } catch (_eReset) {}
         }
@@ -10105,6 +10134,8 @@
       // CRITICAL: structureContext is never auto-cleared and would otherwise
       // pollute the NEXT single-work run (attaching it to this root). Reset it.
       try { state.structureContext = null; } catch (_eClr) {}
+      // CSSOS_WAVE_1446i — 收尾再回收一次, 把多部生成残留清干净。
+      _reclaimMultipartDom();
     }
   };
 

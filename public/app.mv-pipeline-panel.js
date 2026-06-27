@@ -3858,6 +3858,12 @@
       document.querySelectorAll("audio").forEach((el) => {
         if (el.id === "watch-audio-preview") return;
         if (el.id === "mic-capture-audio") return;
+        // CSSOS_WAVE_1446s 20260627 — Jing「第一部播一半被第二部输出打断」根因: 影院的【预览
+        // 音乐】用 <audio data-cinema-audio>(无 id), 不在豁免名单 → 后一部 runAll 启动时这个单音频
+        // 裁判把它 pause+muted → 正在播的前一部音乐被掐, 用户空等。修: 豁免 data-cinema-audio ——
+        // 它是影院当前正在播的预览音乐, 合法占用音频, 不该被生成动作打断。后一部生成完自己接管时
+        // (hero startMusic)才换源, 那是有意切换, 不是这里乱掐。
+        if (el.hasAttribute && el.hasAttribute("data-cinema-audio")) return;
         try { el.pause(); } catch (_e) {}
         try { el.muted = true; } catch (_e) {}
       });

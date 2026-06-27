@@ -8570,6 +8570,11 @@
       keyHandler: null,
       seed: opts.seed || null,
       forceNew: !!opts.forceNew,
+      // CSSOS_WAVE_1446 — multipart-cinema orchestrator drives runAll itself
+      // (one full 6-capsule run per part). Suppress the empty-queue auto-run so
+      // we don't double-fire; the run-finish handler still registers so each
+      // part joins the queue + plays (谁先完先播).
+      noAutoRun: !!opts.noAutoRun,
       person: {
         name: opts.personName || "",
         nameEn: opts.personNameEn || "",
@@ -8677,8 +8682,9 @@
         }
       } catch (_e) {}
       // fire normal pipeline run in background
+      // CSSOS_WAVE_1446 — skip when the multipart orchestrator drives runs itself.
       try {
-        if (typeof globalThis.cssmvRunPipeline === "function") {
+        if (!cinemaSt.noAutoRun && typeof globalThis.cssmvRunPipeline === "function") {
           globalThis.cssmvRunPipeline({ seed: cinemaSt.seed });
         }
       } catch (_e) {}
@@ -9985,6 +9991,92 @@
   // Exposed so callers that have already mounted the panel (e.g. advanced
   // settings "apply render" button) can start the pipeline without re-opening.
   globalThis.cssmvRunPipeline = function (opts) { return runAll(opts || {}); };
+
+  /* CSSOS_WAVE_1446 20260627 — Jing「多部也进影院 6 胶囊边出边播」。
+   * Drive a flat multi-part work (triptych/series/shortplay/film) through the
+   * cinema by running the FULL 6-capsule runAll() ONCE PER PART, serialized.
+   * Each part:
+   *   - pre-fills #mvp-lyrics with that part's curated lyrics (自带词 → lyrics
+   *     capsule is skipped, AI never rewrites hand/curated lyrics — iron rule),
+   *   - sets state.structureContext so commit links the freshly-made part work
+   *     under the shared root (parent/root/role/sequence),
+   *   - awaits runAll() (singleton-safe: state.running is false again before the
+   *     next part starts).
+   * Each commit fires `cssmv:run-finish` → the cinema finish-handler pushes the
+   * new work_id into cinemaSt.queue and plays it; whoever finishes first plays
+   * first (边出边播). No placeholder rows are pre-created (backend shell-only),
+   * so there are ZERO duplicate works. Take2 is captured per part automatically
+   * by the existing single-path commit (alt_audio_url + take2 sibling).
+   * `plan` = { root_work_id, root_title, style, language, civilization,
+   *            work_type, parts_plan:[{title, lyrics, role, sequence_index}] }. */
+  globalThis.cssmvRunMultipartCinema = async function (plan) {
+    try {
+      if (!plan || !Array.isArray(plan.parts_plan) || !plan.parts_plan.length) return;
+      var rootId = plan.root_work_id;
+      if (!rootId) return;
+      // 1) Enter the cinema (empty queue) so the run-finish handler is live and
+      //    the user lands in the MV panel immediately.
+      try {
+        if (typeof globalThis.openMvPipelinePanel === "function") {
+          globalThis.openMvPipelinePanel({
+            cinema: true, queue: [], forceNew: true, noAutoRun: true,
+            personName: plan.root_title || "",
+            personMusicStyleHint: plan.style || "",
+          });
+        }
+      } catch (_eOpen) {}
+      var panel = document.getElementById(PANEL_ID);
+      var parts = plan.parts_plan;
+      // 2) Serialize: full 6-capsule runAll() per part.
+      for (var i = 0; i < parts.length; i++) {
+        var p = parts[i] || {};
+        try {
+          var elT = panel && panel.querySelector("#mvp-title");
+          var elL = panel && panel.querySelector("#mvp-lyrics");
+          var elS = panel && panel.querySelector("#mvp-style");
+          var elP = panel && panel.querySelector("#mvp-prompt");
+          if (elT) elT.value = p.title || "";
+          if (elL) elL.value = p.lyrics || "";
+          if (elS) elS.value = plan.style || "";
+          if (elP) elP.value = p.title || plan.root_title || "";
+        } catch (_eDom) {}
+        state.title = p.title || "";
+        state.lyrics = p.lyrics || "";
+        state.style = plan.style || "";
+        if (plan.language) state.language = plan.language;
+        if (plan.civilization) state.civilization = plan.civilization;
+        // Link this part under the shared root at commit time.
+        state.structureContext = {
+          workType: plan.work_type || "triptych",
+          rootId: rootId,
+          parentId: rootId,
+          role: p.role || "part",
+          sequenceIndex: Number.isFinite(p.sequence_index) ? p.sequence_index : (i + 1),
+        };
+        try {
+          await runAll({
+            _bypassTierPrompt: true, // don't interrupt the trilogy mid-stream
+            seed: {
+              title: p.title || "",
+              prompt: p.title || plan.root_title || "",
+              style: plan.style || "",
+              lyrics: p.lyrics || "",
+              language: plan.language || "",
+              work_type: "single",
+            },
+          });
+        } catch (_eRun) {
+          try { console.warn("[multipart-cinema] part failed", i, _eRun); } catch (_e) {}
+        }
+      }
+    } catch (_eAll) {
+      try { console.warn("[multipart-cinema] orchestrator error", _eAll); } catch (_e) {}
+    } finally {
+      // CRITICAL: structureContext is never auto-cleared and would otherwise
+      // pollute the NEXT single-work run (attaching it to this root). Reset it.
+      try { state.structureContext = null; } catch (_eClr) {}
+    }
+  };
 
   /* CSSOS_PHASE2_MV_WAVE6 20260507 — End-of-MV replay CTAs + style picker + Storm fan-out
    *

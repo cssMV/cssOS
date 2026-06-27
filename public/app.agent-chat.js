@@ -1364,6 +1364,27 @@
       var toolNames = (j.tool_calls || []).map(function (t) { return t.name; });
       if (j.reply) renderMsg("assistant", j.reply, toolNames);
       if (j.seed) renderSeedCard(j.seed);
+      // CSSOS_WAVE_1446 20260627 — Jing「多部也进影院 6 胶囊边出边播」: when the
+      // backend ran the shell-only path (CSSOS_MULTIPART_CINEMA=1), it returns
+      // multipart_cinema { root_work_id, parts_plan[...] } INSTEAD of work_cards.
+      // Drive the cinema orchestrator: each part runs the full 6-capsule runAll,
+      // streaming into the cinema (谁先完先播). Replaces the chat-card path.
+      var _mpc = j.multipart_cinema ||
+        ((j.tool_calls || []).map(function (t) { return t && t.multipart_cinema; })
+          .filter(Boolean)[0]) || null;
+      if (_mpc && Array.isArray(_mpc.parts_plan) && _mpc.parts_plan.length &&
+          typeof globalThis.cssmvRunMultipartCinema === "function") {
+        var _mpcTitle = String(_mpc.root_title || "").trim();
+        try {
+          renderSystem(tr(
+            "Creating the parts in the cinema — they play as each finishes. ",
+            "正在影院里逐部创作 —— 每出完一部就接着播。"
+          ) + (_mpcTitle ? "《" + _mpcTitle + "》" : ""));
+        } catch (_eSys) {}
+        try { globalThis.cssmvRunMultipartCinema(_mpc); } catch (_eMpc) {}
+        try { updateMeta({ turns_this_hour: j.turns_this_hour, turns_per_hour_limit: j.turns_this_hour + j.turns_remaining }); } catch (_eM) {}
+        return; // cinema owns the output now — no chat cards.
+      }
       // CSSOS_WAVE_136 20260513 — rich work-cards from chat-to-creation.
       // The backend create_work tool returns one or more user_works rows
       // with cover + lyrics; render each as a clickable card that deep-

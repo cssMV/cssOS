@@ -8150,6 +8150,35 @@ async function runAgentTool(
         };
       }
 
+      // CSSOS_WAVE_1446 20260627 — Jing「多部也进影院 6 胶囊边出边播」: 当
+      // CSSOS_MULTIPART_CINEMA=1 时, 对【flat 多部】(triptych/series/shortplay/film,
+      // 不含 opera 树) 走 shell-only —— 只建 root(上面已建), 不插占位 part 行, 改为把各部
+      // 歌词随 parts_plan 返回。前端 cssmvRunMultipartCinema 串行对每部跑足本 runAll
+      // (6 胶囊 + take2), commit 时各部以真 work 挂 root, cssmv:run-finish 进影院队列
+      // 谁先完先播。零占位 = 零重复。默认关 → 现行行为(插占位 + 卡片)零变化。
+      const shellOnlyCinema =
+        process.env.CSSOS_MULTIPART_CINEMA === "1" && isMultiPart && !isOperaTree && rootId;
+      if (shellOnlyCinema) {
+        const partsPlan = parts.map((p, i) => ({
+          title: p.title,
+          lyrics: p.lyrics,
+          role: "part",
+          sequence_index: i + 1,
+        }));
+        return {
+          multipart_cinema: true,
+          root_work_id: rootId,
+          root_title: title,
+          style: style || "",
+          language: lang,
+          civilization: civilization || "",
+          work_type: wt,
+          provider: lyricsProvider,
+          parts_plan: partsPlan,
+          count: partsPlan.length,
+        };
+      }
+
       // INSERT user_works for each part (flat: single or triptych).
       for (let i = 0; i < parts.length; i += 1) {
         const part = parts[i]!;
@@ -8614,6 +8643,9 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
           input: toolInput,
           result_summary: summary,
           ...(fullResult && fullResult.work_cards ? { work_cards: fullResult.work_cards } : {}),
+          // CSSOS_WAVE_1446 — carry the shell-only multipart-cinema payload so the
+          // response shaper can hoist it to top-level; frontend orchestrates 6 胶囊.
+          ...(fullResult && fullResult.multipart_cinema ? { multipart_cinema: fullResult } : {}),
         } as any);
         toolResults.push({
           type: "tool_result",
@@ -8734,9 +8766,15 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
   // doesn't have to dig through tool_calls. We collect cards from every
   // create_work invocation in this turn (rare to have >1, but supported).
   const work_cards: any[] = [];
+  // CSSOS_WAVE_1446 — hoist the shell-only multipart-cinema payload (if any) so
+  // the chat frontend drives cssmvRunMultipartCinema (6 胶囊 边出边播).
+  let multipart_cinema: any = null;
   for (const tc of toolCallsLog as any[]) {
     if (tc && tc.name === "create_work" && Array.isArray(tc.work_cards)) {
       work_cards.push(...tc.work_cards);
+    }
+    if (tc && tc.multipart_cinema && !multipart_cinema) {
+      multipart_cinema = tc.multipart_cinema;
     }
   }
 
@@ -8746,6 +8784,7 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
     seed,
     tool_calls: toolCallsLog,
     work_cards, // [] when no creation happened
+    multipart_cinema, // null unless CSSOS_MULTIPART_CINEMA shell-only path fired
     turns_this_hour: used + 1,
     turns_remaining: Math.max(0, AGENT_TURNS_PER_USER_PER_HOUR - used - 1),
     stop_reason: stopReason,

@@ -8740,12 +8740,11 @@
           const wasEmpty = cinemaSt.queue.length === 0;
           cinemaSt.queue.push(wid);
           if (wasEmpty) {
-            // CSSOS_WAVE_1446t 20260627 — Jing「6 胶囊总想隐藏, 请驻留不隐藏」: 多部三部曲生成
-            // 期间, 进度 hero(6 胶囊 + 进度条 + 1/N)必须【全程常驻】, 让用户清楚进度到哪一部哪
-            // 一阶段。所以多部时【不隐藏】loading hero(略遮挡可接受, 情绪字幕仍爆在上层、音乐照常)。
-            // 单曲保持原样(出片即藏 hero 让画面干净)。
+            // CSSOS_WAVE_1446t→撤回 20260627 — Jing 复议:「空闲藏(画面干净)+ 用户一操作就显示
+            // (随时能查进度)」才是最佳平衡, 不必强制常驻挡画面。恢复出片即藏 hero(配合
+            // armCinemaInfoAutoHide 的"10s 藏 / 活动即显")。
             const loading = stage.querySelector(".cinema-loading");
-            if (loading && !(cinemaSt && cinemaSt.multipart)) loading.hidden = true;
+            if (loading) loading.hidden = true;
             cinemaPlayCurrent();
           } else if (cinemaSt._waitingAtEnd) {
             // CSSOS_WAVE_1446k — 多部影院: 之前播到末尾在等下一部, 现在新 take 入队 → 续播,
@@ -8904,14 +8903,15 @@
      * playing video stay visible: a clean frame after 10s. */
     function infoEls() {
       const root = loading || stage;
-      // CSSOS_WAVE_1446t — Jing「6 胶囊总想隐藏, 多部三部曲生成期间请驻留」: 多部时把
-      // .cinema-hero-progress(6 胶囊+进度条+1/N)排除出 10s 自动隐藏 → 全程常驻显进度。
-      // 单曲保持 W159b 原样(10s 后藏 6 胶囊求干净画面)。
-      const _mp = !!(cinemaSt && cinemaSt.multipart);
-      const _sel = ".cinema-hero-name, .cinema-hero-sub, .cinema-hero-chips," +
-        " .cinema-hero-status-line, .cinema-hero-intro, .cinema-hero-lyrics" +
-        (_mp ? "" : ", .cinema-hero-progress");
-      return Array.prototype.slice.call(root.querySelectorAll(_sel));
+      // CSSOS_WAVE_1446t→撤回 — Jing 复议: 6 胶囊"10s 自动藏 / 用户活动即显"才是最佳平衡(不老
+      // 挡画面、又随时能查进度)。恢复把 .cinema-hero-progress 纳入自动隐藏(单曲/多部一致)。
+      return Array.prototype.slice.call(
+        root.querySelectorAll(
+          ".cinema-hero-name, .cinema-hero-sub, .cinema-hero-chips," +
+          " .cinema-hero-status-line, .cinema-hero-intro," +
+          " .cinema-hero-progress, .cinema-hero-lyrics"
+        )
+      );
     }
     let hideTimer = 0;
     function showAll() {

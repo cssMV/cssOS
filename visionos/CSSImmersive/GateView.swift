@@ -10,7 +10,7 @@ import RealityKit
 import UIKit
 import simd
 
-private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var welcome: Entity?; var speedRef: MagicMirrorOrb.SpeedRef? }
+private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var welcome: Entity?; var speedRef: MagicMirrorOrb.SpeedRef?; var journey: Task<Void, Never>? }
 
 // W1384 — 金球标记: 手势只盯带此标记的实体(金球), 不再 targetedToAnyEntity 截走大厅卡片的捏。
 struct GateOrbMarker: Component {}
@@ -65,9 +65,9 @@ struct GateView: View {
             content.add(anchor)
             refs.orbAnchor = anchor
             refs.orb = orb   // W1381 — 进大厅后隐藏这枚 gate 金球(大厅自带 logo 金球, 避免两个)
-            // W1422 — Jing「启动金球三处停, 每停爆一次」: 用户眼前 → 欢迎词 → 最远处, 各停爆一团, 再回落金球位。
+            // W1423 — 启动金球【循环巡游·三处停稳爆】, 直到用户捏打断。句柄存 refs.journey 供捏时 cancel。
             let _orb = orb, _anchor = anchor
-            Task { @MainActor in await runOrbIntro(_orb, in: _anchor) }
+            refs.journey = Task { @MainActor in await runOrbIntro(_orb, in: _anchor) }
             // 大厅沉浸面板(初始隐藏, 与魔镜同锚, 悬在其下方)。
             if let lobby = attachments.entity(for: "lobby") {
                 lobby.position = [0, -0.32, -1.45]
@@ -133,6 +133,7 @@ struct GateView: View {
         //   大厅 attachment 里卡片的 onTapGesture 才能收到捏。大门态 .all → 金球手势正常。这是"捏不进卡片"真凶。
         .gesture(
             SpatialTapGesture().targetedToEntity(where: .has(GateOrbMarker.self)).onEnded { _ in
+                refs.journey?.cancel(); refs.journey = nil  // W1423 — 用户捏 → 立刻打断三处巡游(不再继续爆)
                 bumpSpin()                                  // 捏瞬间转速猛增(发力感)
                 if !router.fireBeams { router.fireBeams = true }
             },
@@ -250,11 +251,10 @@ struct GateView: View {
     private func runBeamRitual() {
         guard let anchor = refs.orbAnchor else { return }
         Task { @MainActor in
-            // W1421 — 顺序烟花: 一团(大emoji+小emoji随机参差淡出)整团淡完才爆下一团, 不重叠。2 团后开门。
-            for _ in 0..<2 {
-                let origin = showLobby ? GateView.lobbyOrbCenter : (refs.orb?.position ?? GateView.orbCenter)
-                await SpatialSubtitleSystem.fireworkShell(at: origin, into: anchor, emotion: "joy")
-            }
+            // W1423 — Jing 定稿: 用户捏的那一下【只爆这一次】(在金球当前位置), 烟花散即开圣殿大门 → 登录。
+            //   (不再放 2 团; 三处巡游爆已被 cancel, 这是收尾的"捏一下进殿"那一爆。)
+            let origin = refs.orb?.position ?? GateView.orbCenter
+            await SpatialSubtitleSystem.fireworkShell(at: origin, into: anchor, emotion: "joy")
             withAnimation(.easeInOut(duration: 0.45)) { showLobby = true }   // 烟花散 → 圣殿大门浮现
             try? await Task.sleep(nanoseconds: 250_000_000)
             await auth.signInViaOrb()
@@ -271,24 +271,27 @@ struct GateView: View {
     static let introP2Welcome = lobbyOrbCenter                // 欢迎词
     static let introP3Far = SIMD3<Float>(0, 0.55, -7.0)       // 最远处
 
-    /// W1422 — 启动金球入场: 在【用户眼前 → 欢迎词 → 最远处】各停一下、各爆一团烟花, 再回落到大厅金球位(保持可捏)。
+    /// W1423 — Jing 定稿逻辑: 启动金球【循环巡游】用户眼前 → 欢迎词 → 最远处, 每到一处【停稳→爆一次】,
+    ///   一直循环【直到用户捏】(捏 = 外部 cancel 本任务)。捏的那一下只爆一次就进圣殿(见 runBeamRitual)。
+    ///   关键: 每处必须先飞到位 + 明显【停稳】再爆, 整团烟花淡完才走下一处; 任何时刻可被捏打断。
     @MainActor
     private func runOrbIntro(_ orb: Entity, in anchor: Entity) async {
         let stops = [GateView.introP1Eyes, GateView.introP2Welcome, GateView.introP3Far]
-        for p in stops {
-            // 飞到该航点(P1 已在原地 → 跳过移动)。
-            if simd_distance(orb.position(relativeTo: anchor), p) > 0.001 {
+        while !Task.isCancelled {
+            for p in stops {
+                if Task.isCancelled { return }
+                // 飞到该处。
                 var t = orb.transform; t.translation = p
-                orb.move(to: t, relativeTo: anchor, duration: 0.85, timingFunction: .easeInOut)
-                try? await Task.sleep(nanoseconds: 900_000_000)
+                orb.move(to: t, relativeTo: anchor, duration: 0.9, timingFunction: .easeInOut)
+                try? await Task.sleep(nanoseconds: 950_000_000)
+                if Task.isCancelled { return }
+                // 【停稳】: 明显静止一拍, 让用户看清金球停住了。
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if Task.isCancelled { return }
+                // 停稳后【爆一次】(整团淡完才走下一处; 被 cancel 则中途返回, 不再爆)。
+                await SpatialSubtitleSystem.fireworkShell(at: p, into: anchor, emotion: "joy")
             }
-            // 停一下 → 爆一团(整团淡完才返回, fireworkShell 已 @MainActor 主线程安全)。
-            try? await Task.sleep(nanoseconds: 280_000_000)
-            await SpatialSubtitleSystem.fireworkShell(at: p, into: anchor, emotion: "joy")
         }
-        // 旅程结束 → 回落到大厅金球位(可捏的常驻位)。
-        var rest = orb.transform; rest.translation = GateView.lobbyOrbCenter
-        orb.move(to: rest, relativeTo: anchor, duration: 0.8, timingFunction: .easeInOut)
     }
 
     /// 一波光束: 随机数量、随机色, 从眼前真冲进眼心、穿到脑后(快 = "射")。

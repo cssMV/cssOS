@@ -294,23 +294,7 @@
         : (document.getElementById("cssos-watch-priceline") || document.getElementById("cssos-watch-bottomflow"));
       if (_tgt && fold.parentNode !== _tgt) _tgt.appendChild(fold);
       if (typeof globalThis.cssosScheduleBottomFlow === "function") globalThis.cssosScheduleBottomFlow();
-      // CSSOS_WAVE_1264 — Jing「多语言激活胶囊在第一位; ⚙Settings/✎Fine-tune(emotion-fx 注入, CSS order
-      //   -2/-1 排在多语言之前)藏到左边, 右滑才显」。折叠态把轨道滚到激活的多语言 cap → 前面的 ⚙✎ 滚出左侧隐藏。
-      //   不碰 emotion-fx, 纯 scrollLeft。尊重用户手动滑动(手动滑过 4s 内不自动归位)。
-      if (bar && _expanded === "none") {
-        if (bar.dataset.scrollWired !== "1") {
-          bar.dataset.scrollWired = "1";
-          bar.addEventListener("scroll", function () { bar.dataset.userScrollAt = String(Date.now()); }, { passive: true });
-        }
-        if (Date.now() - (Number(bar.dataset.userScrollAt) || 0) > 4000) {
-          requestAnimationFrame(function () {
-            try {
-              var ac = bar.querySelector(".cssos-mode-cap.active") || bar.querySelector(".cssos-mode-cap[data-mode=\"" + curMode() + "\"]");
-              if (ac) bar.scrollLeft = Math.max(0, ac.offsetLeft - 4);
-            } catch (_e) {}
-          });
-        }
-      }
+      // CSSOS_WAVE_1264 撤销(Jing: 别复杂化, 现状可接受) — 原"折叠态滚到多语言cap隐藏⚙✎"已移除。
     } catch (_e) {}
   }
   function paintModeSwitch(bar) {

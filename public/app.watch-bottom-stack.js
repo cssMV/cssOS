@@ -246,9 +246,9 @@
       // 点名汇报关键元素(含父容器), 不受过滤/数量限制影响。
       [["fold", document.getElementById("cssos-lang-fold")],
        ["pill", document.getElementById("watch-language-pill")],
-       ["cap", document.querySelector("#watch-panel .cssmv-capsule")],
+       ["sub", document.getElementById("watch-subtitle")],
        ["price", document.getElementById("cssos-watch-priceline")],
-       ["sub", document.getElementById("watch-subtitle")]].forEach(function (pair) {
+       ["aifab", document.getElementById("cssos-agent-fab")]].forEach(function (pair) {
         var el = pair[1]; if (!el) { items.push(pair[0] + ":none"); return; }
         var r = el.getBoundingClientRect();
         var par = el.parentNode && el.parentNode.id ? el.parentNode.id.replace("cssos-watch-", "").replace("cssos-", "") : (el.parentNode && el.parentNode.className ? String(el.parentNode.className).split(" ")[0].slice(0, 10) : "?");

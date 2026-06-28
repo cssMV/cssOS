@@ -8412,6 +8412,19 @@ async function runAgentTool(
         // 浏览器重载/关标签/OOM 就断, 剩余部永不生成。现在: ①真建 part 行(真歌词, 非占位)
         // ②点火后端引擎 enqueueMultipartPartsGeneration(逐部 callMusicGen+幻灯帧池+情绪字幕,
         // 跑在 cssOS.service 进程, 与浏览器彻底解耦)③返回带 part id 的 plan 供前端纯订阅播放。
+        // CSSOS_WAVE_1453 H2 — 点火前预检余额(Jing: 按部扣, 三部=3 次)。$0 用户在烧任何 Suno 前
+        // 就 402, 不建行不点火。staff/admin 豁免。引擎里每部成功再实扣(此处只 gate)。
+        {
+          const _exempt = await isCreditExempt(String(ctx.userId)).catch(() => false);
+          if (!_exempt) {
+            const _need = parts.length * CSSOS_AGENT_COSTS.generate_audio;
+            const _bal = await getCreditBalance(String(ctx.userId)).catch(() => 0);
+            if (_bal < _need) {
+              return { error: "insufficient_credit", need: _need, have: _bal,
+                hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
+            }
+          }
+        }
         const partsPlan: Array<{ id: string; title: string; role: string; sequence_index: number }> = [];
         for (let i = 0; i < parts.length; i += 1) {
           const part = parts[i]!;
@@ -21800,6 +21813,15 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
             [part.id, stableAudio],
           ).catch(() => {});
           made += 1;
+          // CSSOS_WAVE_1453 H2 — 按部扣费(Jing: 三部=3 次生成)。每部一次 callMusicGen(Suno 出 2
+          // take, take2 是同次调用副产品, 不另收)。debitCredits 内部自动豁免 staff/admin。余额不足
+          // (中途耗尽)→ 停止后续部, 封顶损失(点火前已预检, 这是兜底)。
+          const _dr = await debitCredits(_userId, CSSOS_AGENT_COSTS.generate_audio, "multipart_part_audio",
+            { root_work_id: rootId, part_id: part.id });
+          if (!_dr.ok) {
+            console.warn(`[multipart-gen] debit 余额不足 → 停在 part ${part.id}(已生成的保留)`);
+            break;
+          }
           // CSSOS_WAVE_1447b — 视觉层: 给本部点火【幻灯帧池】(便宜的图), 不烧 5s 视频 stub。
           void enqueueSlideshowPoolGeneration(part.id, 6).catch(() => {});
           // CSSOS_WAVE_1447b — 情绪字幕层: 触发逐字对齐(whisperX/groq)写 whisper_words。

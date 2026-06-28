@@ -34274,8 +34274,35 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       // 对齐用【真实语言】(orig→检测); 写回 subtitle 仍用 tr.lang 作轨标识。
       const alignLang = realLangCodes.has(String(tr.lang)) ? String(tr.lang) : detectLyricLang(reLyrics);
       const emo = await annotateEmotions(parseLyricsToSections(reLyrics), alignLang);
-      // CSSOS_WAVE_674 ② — 优先用人声 stem 做强制对齐(onset 更准); 没有则回退全混。
-      const alignAudio = (tr.vocal_url && String(tr.vocal_url).trim()) ? String(tr.vocal_url) : tr.audio_url;
+      // CSSOS_WAVE_1267 — Jing「🥇 保证 stem 就位」: 强制对齐前若本轨没有人声 stem, 先跑 Demucs 分离 + 落库,
+      //   让对齐永远落在【干净人声】上(全混音对齐=器乐搅扰→咬字飘移 + 无refText时ASR别字的真因)。
+      //   慢(Demucs CPU~4min/轨)但准; 幂等(分离后落库, 下次 vocal_url 已在即跳过)。失败则回退全混。
+      let _vocalForAlign = (tr.vocal_url && String(tr.vocal_url).trim()) ? String(tr.vocal_url) : "";
+      if (!_vocalForAlign && tr.audio_url) {
+        try {
+          const _tag = `${tr.lang}-${tr.track_order}`;
+          const _sep = await separateStemsViaService(tr.audio_url, `works/${workId}/stems/${_tag}`);
+          if (_sep) {
+            const _isU = (v: string) => /^https?:\/\//i.test(v);
+            let _vu: string | null = null, _iu: string | null = null;
+            if (_sep.uploaded && _isU(_sep.vocals)) { _vu = _sep.vocals; _iu = _isU(_sep.instrumental) ? _sep.instrumental : null; }
+            else {
+              try { _vu = await uploadToR2(_sep.vocals, `works/${workId}/stems/${_tag}-vocal.mp3`, "audio/mpeg"); } catch (_e) {}
+              try { _iu = await uploadToR2(_sep.instrumental, `works/${workId}/stems/${_tag}-instrumental.mp3`, "audio/mpeg"); } catch (_e) {}
+              if (_sep.job) await demucsCleanup(_sep.job);
+            }
+            if (_vu) {
+              _vocalForAlign = _vu;
+              await withClient((c) => c.query(
+                `UPDATE work_language_tracks SET vocal_url=$4, instrumental_url=COALESCE($5,instrumental_url), stems_status='ready' WHERE work_id=$1::uuid AND lang=$2 AND track_order=$3`,
+                [workId, tr.lang, tr.track_order, _vu, _iu],
+              )).catch(() => {});
+            }
+          }
+        } catch (_e) { /* 分离失败 → 回退全混 */ }
+      }
+      // CSSOS_WAVE_674 ② / 1267 — 强制对齐落在【人声 stem】上(onset 更准); 分离不成才回退全混。
+      const alignAudio = _vocalForAlign || tr.audio_url;
       // W735 — 熟歌词模式已有实唱时间线 → 直接复用(省一次 Whisper); 否则正常强制对齐书面词。
       let tl: Array<{ word: string; start: number; end: number }>;
       if (forceEven) {

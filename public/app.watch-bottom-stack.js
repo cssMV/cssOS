@@ -329,13 +329,12 @@
   function alignAgentFab() {
     var fab = document.getElementById("cssos-agent-fab");
     if (!fab) return;
-    var isApp = false;
-    try { isApp = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
-    if (!isApp) { fab.style.removeProperty("bottom"); return; }
+    // CSSOS_WAVE_1263 — Jing: AI 助理要和字幕/多语言【同一行】(左中右)。原来只 App 实测对齐, 桌面用 CSS
+    //   默认 bottom → 飘在别处不贴那一行。改: App+桌面【都】实测字幕行竖直中心, 把 FAB 中心对齐过去 = 同一行。
     var sub = document.getElementById("watch-subtitle");
-    if (!sub) return;
+    if (!sub) { fab.style.removeProperty("bottom"); return; }
     var sr = sub.getBoundingClientRect();
-    if (!sr || !sr.height) return;
+    if (!sr || !sr.height) { fab.style.removeProperty("bottom"); return; }
     var fabH = fab.offsetHeight || 42;
     var subCenterFromBottom = window.innerHeight - (sr.top + sr.height / 2);
     var bottomPx = Math.max(8, Math.round(subCenterFromBottom - fabH / 2));

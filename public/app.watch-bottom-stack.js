@@ -237,24 +237,23 @@
       var lang = document.getElementById("cssos-lang-fold") || document.getElementById("watch-language-pill");
       // 等"加载后状态": 多语言已出现再采样(此时 Settings/Fine-tune 等也已冒出)。桌面/App 都采。
       if (!lang) return;
-      var vh = window.innerHeight;
-      var R = function (el) { if (!el) return null; var r = el.getBoundingClientRect(); return (r.width || r.height) ? [Math.round(r.left), Math.round(r.right), Math.round(r.top), Math.round(r.bottom)] : null; };
-      // 广扫【底部 ~160px 区域】所有有框的胶囊/控件(不限容器, 这样能逮到难找的 Settings/Fine-tune),
-      //   报 tag/id/class(截断)+ 左右坐标 → 我一眼看出谁伸到右轨、谁是第一颗。
+      var vh = window.innerHeight, vw = window.innerWidth;
+      // 只报【胶囊尺寸】元素: 排除全宽包裹层(w>vw*0.8)和太小/太高的; 底部 ~150px 内。压成短字符串避免被截。
       var host = document.getElementById("watch-panel") || document.body;
       var all = host.querySelectorAll("button,div,span,a");
       var items = [];
-      for (var i = 0; i < all.length && items.length < 34; i++) {
+      for (var i = 0; i < all.length && items.length < 14; i++) {
         var el = all[i]; var r = el.getBoundingClientRect();
-        if (r.width >= 28 && r.height >= 14 && r.bottom > vh - 160 && r.top < vh - 2) {
+        if (r.width >= 28 && r.width <= vw * 0.8 && r.height >= 14 && r.height <= 72 && r.bottom > vh - 150 && r.top < vh - 4) {
           var cls = (el.className && el.className.baseVal !== undefined) ? el.className.baseVal : String(el.className || "");
-          var txt = (el.textContent || "").replace(/\s+/g, "").slice(0, 10);
-          items.push({ t: el.tagName, id: el.id || "", c: cls.slice(0, 40), x: [Math.round(r.left), Math.round(r.right)], tx: txt });
+          var tag = el.id || (el.textContent || "").replace(/\s+/g, "").slice(0, 8) || cls.split(" ")[0] || el.tagName;
+          items.push(tag.slice(0, 16) + ":" + Math.round(r.left) + "-" + Math.round(r.right));
         }
       }
       _layoutProbed = true;
-      var data = { plat: isApp ? "app" : "desktop", vw: window.innerWidth, vh: vh, rail: R(document.getElementById("cssos-watch-social-rail")), flow: R(document.getElementById("cssos-watch-bottomflow")), items: items };
-      fetch("/api/telemetry/error", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "layout_probe " + JSON.stringify(data), code: "layout_probe", panel: "cinema" }) }).catch(function () {});
+      var rr = document.getElementById("cssos-watch-social-rail"); var rrx = rr ? rr.getBoundingClientRect() : null;
+      var msg = "layout_probe " + (isApp ? "app" : "desk") + " vw" + vw + " railL" + (rrx ? Math.round(rrx.left) : "?") + " | " + items.join(" , ");
+      fetch("/api/telemetry/error", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: msg.slice(0, 380), code: "layout_probe", panel: "cinema" }) }).catch(function () {});
     } catch (_e) {}
   }
 

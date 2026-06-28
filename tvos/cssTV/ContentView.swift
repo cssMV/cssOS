@@ -765,6 +765,23 @@ struct FeaturedHero: View {
                 )
                 .animation(.easeInOut(duration: 0.4), value: heroFocused)
 
+                // CSSOS_WAVE_1464 — 短剧/连续剧/电影目前只有【预告片】: 右上角标明"预告 · 正片 Coming soon",
+                // 不让用户以为是正片(资金到位才做正片)。
+                if ["shortplay", "short-play", "drama", "series", "film", "movie"]
+                    .contains((current.workType ?? "").lowercased()) {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Text("预告 · TRAILER").font(.system(size: 22, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16).padding(.vertical, 7)
+                            .background(Capsule().fill(Color.red.opacity(0.88)))
+                        Text("正片 Coming soon").font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .padding(44)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .allowsHitTesting(false)
+                }
+
                 if playFocused || focusedCap != nil { focusGlow }   // W1244/1250 — Play 或任一胶囊聚焦 → 绿辉光
             }
             .clipped()

@@ -757,25 +757,22 @@
       // Use inline style: bottom:12px right:12px; the pill is inside .watch-screen
       // which is position:relative. Cinema idle-hide rules in app.watch-ui.js
       // already reference #watch-language-pill so auto-hide still works.
+      // CSSOS_WAVE_1258 20260628 — 撤回 W1257 的 absolute 居中。W1257 想让胶囊「底部居中」, 但用
+      //   position:absolute 直接挂 .watch-screen = [[lang_voice_pill_center_rootcause]] (W1110) 点名的
+      //   「胶囊总跑中央/浮在视频上」反模式: 收编前/收编失败时 bar 就绝对居中浮在视频上。
+      //   正解(保留 W1257 的"底部居中"意图): bar 不自定位, 交给 #cssos-lang-fold 底部栈
+      //   (#cssos-watch-bottomflow align-items:center 本就底部居中)收编。只保留轨道横滚/不换行。
       bar.style.cssText = [
-        "position:absolute",
-        "bottom:12px",
-        // CSSOS_WAVE_1257 20260626 — Jing 回归修复: 多语言/多声线胶囊【底部居中】(原右下角)。
-        //   不用 transform:translateX 居中 —— 会和 lang-flag-pills 的展开动画(transform:scaleX)打架;
-        //   改用 left:0+right:0+margin:auto+宽度自适应 的绝对居中(不碰 transform)。
-        "left:0",
-        "right:0",
-        "margin-left:auto",
-        "margin-right:auto",
-        "width:fit-content",
-        "top:auto",
-        "max-width:calc(100% - 24px)",
-        "z-index:30",
+        "position:static",
         "overflow-x:auto",
         "flex-wrap:nowrap",
       ].join(";");
+      // screen 保持 relative(别的 absolute 层如情绪字幕靠它定位, 绝不动)。
       screen.style.position = screen.style.position || "relative";
-      screen.appendChild(bar);
+      // 优先直接进底部 fold 栈(若已建); 否则退到 screen, 由 lang-flag-pills 的 enhance() 幂等收编进 fold。
+      var _langFold = document.getElementById("cssos-lang-fold");
+      if (_langFold) _langFold.appendChild(bar);
+      else screen.appendChild(bar);
     }
     // Default active = is_default track, else first ready, else first.
     if (!_activeLang) {

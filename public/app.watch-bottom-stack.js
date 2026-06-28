@@ -54,8 +54,13 @@
       f.id = "cssos-watch-bottomflow";
       f.dataset.noFrameToggle = "1";
       // 唯一的绝对定位锚点: 底部居中、坐在 Dock 上方(--cssos-dock-clear 让位), 随之上移。
+      // CSSOS_WAVE_1259 — Jing「App 端底部栈不要压住右轨」。右轨(app.watch-social-rail.js)=
+      //   right:14px + 46px 宽 ≈ 占右边 60px。App(窄屏)右侧让出 64px 给右轨, 整条左移避让
+      //   (Jing 明确: 不一定居中, 不压右轨即可)。桌面宽屏维持 right:8px 不变。
+      var _isApp = false;
+      try { _isApp = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
       f.style.cssText = [
-        "position:absolute", "left:8px", "right:8px",   // W762 全宽容器(CTA 卡片条铺开)
+        "position:absolute", "left:8px", _isApp ? "right:64px" : "right:8px",   // W762 全宽容器(CTA 卡片条铺开)
         // CSSOS_WAVE_883 — Jing「价格条距 home 指示条 = 指示条距底边(对称)」。
         // home 指示条约离底边 8px、自身高 ~5px(顶约离底 13px)。安全区 inset(~34)整段加上去会把价格条
         // 顶到安全区之上、离指示条一大截。改: inset - 13px(≈指示条顶位)+ 留 8px 对称间隔, 即贴指示条上方

@@ -2725,14 +2725,16 @@ app.get("/api/works/:id/generation-progress", async (req, res) => {
       structure_role: string; is_seed: boolean; preview_audio_url: string | null;
       preview_video_url: string | null; cover_image: string | null;
     }>(
+      // CSSOS_WAVE_1450 — 纳入 take2 兄弟(每部双 take → 影院播两首)。排序: 同 sequence_index
+      // 下 take1(role≠take2)先于 take2, 保证播放顺序 part1·take1 → part1·take2 → part2…
       `SELECT id::text, title, sequence_index, structure_role,
               (lyrics_preview LIKE '[seed]%') AS is_seed,
               preview_audio_url, preview_video_url, cover_image
          FROM user_works
         WHERE (root_work_id = $1::uuid OR id = $1::uuid)
-          AND structure_role IN ('part', 'scene', 'episode')
+          AND structure_role IN ('part', 'scene', 'episode', 'take2')
           AND status <> 'deleted'
-        ORDER BY sequence_index ASC, created_at ASC`,
+        ORDER BY sequence_index ASC, (structure_role = 'take2') ASC, created_at ASC`,
       [workId],
     ));
     const rows = r.rows || [];
@@ -21701,14 +21703,71 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
                WHERE id = $1::uuid AND preview_audio_url IS NULL`,
             [part.id, tier.audio_url],
           );
+          // CSSOS_WAVE_1450 — 落 audio_track_1 资产。关键: enqueueKaraokeTranscription 只读
+          // work_assets.audio_track_1(不读 preview_audio_url)→ 不建此资产字幕永远空转。
+          // 建了它: karaoke 找到音频 → 写 whisper_words → 公开接口出 karaoke_words → 影院出情绪字幕。
+          await pool.query(
+            `INSERT INTO work_assets (work_id, asset_type, url, meta)
+               VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
+               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+            [part.id, tier.audio_url],
+          ).catch(() => {});
           made += 1;
-          // CSSOS_WAVE_1447b — 视觉层: 给本部点火【幻灯帧池】(便宜的图), 不烧 5s 视频 stub
-          // (遵 [视频战略] 铁律: 主入口 lite 不烧视频)。点火即走, 不阻塞音频循环。
-          // 幻灯+音频+情绪字幕 = 现场首播三件套, 终片 compose 仅回看, 不阻塞首播。
+          // CSSOS_WAVE_1447b — 视觉层: 给本部点火【幻灯帧池】(便宜的图), 不烧 5s 视频 stub。
           void enqueueSlideshowPoolGeneration(part.id, 6).catch(() => {});
-          // CSSOS_WAVE_1447b — 情绪字幕层: 音频既出, 触发逐字对齐(whisperX)生成本部情绪字幕。
-          // 同别处"音频生成后即转写"的惯例(line 21283/40818)。点火即走, 不阻塞。
+          // CSSOS_WAVE_1447b — 情绪字幕层: 触发逐字对齐(whisperX/groq)写 whisper_words。
           void enqueueKaraokeTranscription(part.id).catch(() => {});
+          // CSSOS_WAVE_1450 — Take 2 兄弟: Suno 每次出两 take, 别丢(否则 N 部三部曲只 N 首,
+          // 不是 2N)。建 take2 兄弟 work(structure_role='take2', 挂同 root/parent=本部, 同乐章名
+          // → 影院按部计数仍 i/N、但播两首)。各自 audio_track_1 资产 + 幻灯 + 情绪字幕。
+          const altUrl = String((tier as any).alt_audio_url || "").trim();
+          if (altUrl) {
+            try {
+              const t2Id = crypto.randomUUID();
+              await withClient(async (client) => {
+                await client.query("BEGIN");
+                try {
+                  // 复制本部字段, 仅改 id/parent/role/audio。take2 标题与本部相同(同乐章 → 计数同部)。
+                  await client.query(
+                    `INSERT INTO user_works
+                       (id, user_id, title, style, work_type, lyrics_preview, cover_image,
+                        status, suggested_listen_price_cents, suggested_buyout_price_cents,
+                        parent_work_id, root_work_id, structure_role, sequence_index,
+                        preview_audio_url, language, civilization, created_at, updated_at)
+                     SELECT $1::uuid, user_id, title, style, work_type, lyrics_preview, cover_image,
+                            'published', 100, 0,
+                            $2::uuid, root_work_id, 'take2', sequence_index,
+                            $3, language, civilization, now(), now()
+                       FROM user_works WHERE id = $2::uuid`,
+                    [t2Id, part.id, altUrl],
+                  );
+                  await client.query(
+                    `INSERT INTO work_market_profiles
+                       (work_id, owner_user_id, visibility, current_listen_price_cents,
+                        current_buyout_price_cents, buyout_enabled, tips_enabled,
+                        rights_scope, created_at, updated_at)
+                     SELECT $1::uuid, user_id, 'public', 100, 0, false, true,
+                            'personal_use', now(), now()
+                       FROM user_works WHERE id = $1::uuid
+                     ON CONFLICT (work_id) DO NOTHING`,
+                    [t2Id],
+                  );
+                  await client.query("COMMIT");
+                } catch (eIn) { await client.query("ROLLBACK"); throw eIn; }
+              });
+              await pool.query(
+                `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                   VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
+                   ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+                [t2Id, altUrl],
+              ).catch(() => {});
+              void enqueueSlideshowPoolGeneration(t2Id, 6).catch(() => {});
+              void enqueueKaraokeTranscription(t2Id).catch(() => {});
+            } catch (e2) {
+              console.warn(`[multipart-gen] take2 sibling for ${part.id} failed:`,
+                e2 instanceof Error ? e2.message : String(e2));
+            }
+          }
         }
       } catch (e) {
         // 单部失败不致命 — 继续下一部, 下次触发会幂等重试缺的部。

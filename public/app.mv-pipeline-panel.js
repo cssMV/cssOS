@@ -9161,6 +9161,14 @@
       try {
         if (Array.isArray(w.aligned_lyrics) && w.aligned_lyrics.length) {
           cinemaSt._aligned = w.aligned_lyrics;
+        } else if (Array.isArray(w.karaoke_words) && w.karaoke_words.length) {
+          // CSSOS_WAVE_1450 — 后端引擎 part 的情绪字幕源 = whisper_words(公开接口出 karaoke_words,
+          // 每字 {text, t_start, t_end(ms), emotion})。映射成影院 _aligned 行(逐字 + 情绪色)。
+          cinemaSt._aligned = w.karaoke_words.map(function (k) {
+            var s = Number(k && (k.t_start != null ? k.t_start : (k.start_ms != null ? k.start_ms : (k.ts_ms || 0)))) / 1000;
+            var e = Number(k && (k.t_end != null ? k.t_end : (k.end_ms != null ? k.end_ms : 0))) / 1000;
+            return { start_s: s, end_s: e, text: String((k && (k.text || k.word)) || "").trim(), emotion: (k && k.emotion) || "" };
+          }).filter(function (r) { return r.text && r.end_s > r.start_s; });
         } else if (w.subtitle_srt_url && typeof globalThis.parseSrtToAlignedLyricsModule === "function") {
           const sr = await fetch(w.subtitle_srt_url, { credentials: "include" });
           if (sr.ok) {
@@ -10267,13 +10275,13 @@
           var j = await r.json().catch(function () { return null; });
           if (cinemaSt !== ownSt) return;
           if (j && j.ok && Array.isArray(j.parts)) {
-            j.parts.slice().sort(function (a, b) {
-              return (Number(a && a.sequence_index) || 0) - (Number(b && b.sequence_index) || 0);
-            }).forEach(function (p) {
-              if (p && p.has_audio && p.id) firePart(p.id); // 哪部音频好了就入队播
+            // 按后端返回顺序入队(已 ORDER BY sequence_index, take1 先于 take2) —— 不在前端重排,
+            // 否则会打乱 part1·take1 → part1·take2 → part2… 的播放顺序。
+            j.parts.forEach(function (p) {
+              if (p && p.has_audio && p.id) firePart(p.id); // 哪首音频好了就入队播
             });
-            if (j.generating === false || Number(j.audio_ready) >= total) {
-              // 全部部出音频 → 标记完成(cinemaSkip 末尾停住不回绕)+ 停轮询。
+            if (j.generating === false) {
+              // 所有部 + take2 都出音频 → 标记完成(cinemaSkip 末尾停住不回绕)+ 停轮询。
               try { if (cinemaSt) cinemaSt._allPartsDone = true; } catch (_eD) {}
               stopped = true;
               return;

@@ -2766,16 +2766,25 @@ app.get("/api/works/:id/generation-progress", async (req, res) => {
 // 与浏览器彻底解耦 —— 刷新/关标签/OOM自愈 都不会中断, 也不会让生成断在半路。
 // 之后前端只需轮询上面的 generation-progress, 哪部 has_audio 就播哪部。
 app.post("/api/works/:id/generate-parts", async (req, res) => {
-  const userId = (req.session as any)?.user_id;
-  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  // CSSOS_WAVE_1448b — admin-token 旁路(仿紧邻 /language-tracks): ops/验证用。
+  // 有效 token → 代作品 owner 点火引擎, 跳过 session。无 token 走原 owner-only 路径。
+  const adminTokenExpected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const isAdminToken = !!adminTokenExpected &&
+    String(req.headers["x-admin-token"] || "").trim() === adminTokenExpected;
+  let userId = (req.session as any)?.user_id;
   const rootId = String(req.params.id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(rootId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
   try {
     const own = await withClient((c) => c.query<{ user_id: string }>(
       `SELECT user_id::text FROM user_works WHERE id = $1::uuid LIMIT 1`, [rootId]));
     if (!own.rows[0]) return res.status(404).json({ ok: false, error: "not_found" });
-    if (String(own.rows[0].user_id) !== String(userId)) {
-      return res.status(403).json({ ok: false, error: "not_your_work" });
+    if (isAdminToken) {
+      userId = own.rows[0].user_id; // 代 owner 点火
+    } else {
+      if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+      if (String(own.rows[0].user_id) !== String(userId)) {
+        return res.status(403).json({ ok: false, error: "not_your_work" });
+      }
     }
   } catch (_e) {
     return res.status(500).json({ ok: false, error: "load_failed" });

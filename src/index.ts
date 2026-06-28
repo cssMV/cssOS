@@ -8435,7 +8435,7 @@ async function runAgentTool(
                 hint: "Not enough generation rights for this trilogy — subscribe or buy a generation pack." };
             }
             // 闸 B: COGS 钱包够不够(每部都付第三方引擎费, 与生成权无关)。
-            const _cogs = CSSOS_AGENT_COSTS.create_work_single + CSSOS_AGENT_COSTS.generate_audio;
+            const _cogs = GENERATION_PRICE_CENTS;
             const _need = parts.length * _cogs;
             const _bal = await getCreditBalance(String(ctx.userId)).catch(() => 0);
             if (_bal < _need) {
@@ -9336,6 +9336,11 @@ const CSSOS_AGENT_COSTS = {
   epic_render:          30,   // ~$0.30 Suno full Epic re-render (V4_5PLUS) — W781「一键 Epic 版」
   dm_send:              0,    // free
 } as const;
+
+// CSSOS_WAVE_1455b — Jing: 每次生成的【售价】= 99¢/次(不是 Suno 原始成本 ~11¢)。"1 次生成" = 1 个
+// Suno 调用 = 1 部 = take1+take2 两首歌, 按【1 次】收, 不按 2 首算。三部曲 = 3 次 = 297¢。超出免费生成权
+// 额度后按此价收(或买生成权包)。改价改这里。
+const GENERATION_PRICE_CENTS = 99;
 
 async function getCreditBalance(userId: string): Promise<number> {
   try {

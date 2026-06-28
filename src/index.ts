@@ -7269,7 +7269,7 @@ async function runAgentTool(
   input: any,
   ctx: { userId: string; uiLocale: string;
          musicPrefer?: string[]; musicModelMap?: Record<string, string>; musicEngineId?: string;
-         videoPrefer?: string[]; videoEngineId?: string },
+         videoPrefer?: string[]; videoEngineId?: string; dryRun?: boolean },
 ): Promise<any> {
   const inp = input && typeof input === "object" ? input : {};
   switch (name) {
@@ -8440,7 +8440,7 @@ async function runAgentTool(
         // 逐场生成, 树无关)。返回 multipart_cinema + 扁平 scene plan(全局序), 前端纯订阅播放(player
         // 本就吃后端 generation-progress 的扁平叶子列表, 跨幕按全局 sequence_index 排)。开关关→旧路。
         if (shellOnlyTreeCinema && treeScenePlan.length) {
-          await persistRootGenEngineConfig(rootId, { prefer: ctx.musicPrefer || [], prefer_model: ctx.musicModelMap || {}, engine_id: ctx.musicEngineId || "", video_prefer: ctx.videoPrefer || [], video_engine_id: ctx.videoEngineId || "" });
+          await persistRootGenEngineConfig(rootId, { prefer: ctx.musicPrefer || [], prefer_model: ctx.musicModelMap || {}, engine_id: ctx.musicEngineId || "", video_prefer: ctx.videoPrefer || [], video_engine_id: ctx.videoEngineId || "", dry_run: !!ctx.dryRun });
           setTimeout(() => {
             enqueueMultipartPartsGeneration(rootId, String(ctx.userId)).catch((err) =>
               console.warn("[multipart-gen] tree bg failed:", err instanceof Error ? err.message : String(err)));
@@ -8528,7 +8528,7 @@ async function runAgentTool(
           partsPlan.push({ id: workId, title: part.title, role: partRole, sequence_index: partSeq });
         }
         // 点火即走后端引擎: 三部音频+幻灯+情绪字幕全在服务端跑完, 不依赖浏览器。
-        await persistRootGenEngineConfig(rootId, { prefer: ctx.musicPrefer || [], prefer_model: ctx.musicModelMap || {}, engine_id: ctx.musicEngineId || "" });
+        await persistRootGenEngineConfig(rootId, { prefer: ctx.musicPrefer || [], prefer_model: ctx.musicModelMap || {}, engine_id: ctx.musicEngineId || "", video_prefer: ctx.videoPrefer || [], video_engine_id: ctx.videoEngineId || "", dry_run: !!ctx.dryRun });
         setTimeout(() => {
           enqueueMultipartPartsGeneration(rootId, String(ctx.userId)).catch((err) => {
             console.warn("[multipart-cinema] engine fire failed:", err);
@@ -8997,7 +8997,8 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
             musicModelMap: userPreferredModelMap(req as any, "music"),
             musicEngineId: String((req.body as any)?.music_engine_id || "").trim(),
             videoPrefer: userPreferredOrder(req as any, "video"),
-            videoEngineId: String((req.body as any)?.video_engine_id || "").trim() });
+            videoEngineId: String((req.body as any)?.video_engine_id || "").trim(),
+            dryRun: !!(req.body as any)?.dry_run });
         } catch (err) {
           result = { error: err instanceof Error ? err.message : String(err) };
         }
@@ -9521,25 +9522,26 @@ async function checkGenerationGatesOrError(userId: string, leafCount: number): P
 async function persistRootGenEngineConfig(
   rootId: string,
   cfg: { prefer?: string[]; prefer_model?: Record<string, string>; engine_id?: string;
-         video_prefer?: string[]; video_engine_id?: string },
+         video_prefer?: string[]; video_engine_id?: string; dry_run?: boolean },
 ): Promise<void> {
   const prefer = (cfg.prefer || []).filter(Boolean);
   const engineId = String(cfg.engine_id || "").trim();
   const preferModel = cfg.prefer_model || {};
   const videoPrefer = (cfg.video_prefer || []).filter(Boolean);     // CSSOS_WAVE_1461 — 叙事视频引擎
   const videoEngineId = String(cfg.video_engine_id || "").trim();
+  const dryRun = !!cfg.dry_run;                                     // CSSOS_WAVE_1463 — 模拟(免费占位)
   if (!prefer.length && !engineId && !Object.keys(preferModel).length
-      && !videoPrefer.length && !videoEngineId) return; // 无任何选择 → 默认(Suno + Veo)
+      && !videoPrefer.length && !videoEngineId && !dryRun) return; // 无任何选择 → 默认(Suno + Veo)
   try {
     await withClient((c) => c.query(
       `INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1::uuid, 'gen_engine', '', $2::jsonb)
          ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
          DO UPDATE SET meta = EXCLUDED.meta`,
       [rootId, JSON.stringify({ prefer, prefer_model: preferModel, engine_id: engineId,
-        video_prefer: videoPrefer, video_engine_id: videoEngineId })]));
+        video_prefer: videoPrefer, video_engine_id: videoEngineId, dry_run: dryRun })]));
   } catch { /* non-fatal: 退默认引擎 */ }
 }
-async function readRootGenEngineConfig(rootId: string): Promise<{ prefer: string[]; prefer_model: Record<string, string>; engine_id: string; video_prefer: string[]; video_engine_id: string }> {
+async function readRootGenEngineConfig(rootId: string): Promise<{ prefer: string[]; prefer_model: Record<string, string>; engine_id: string; video_prefer: string[]; video_engine_id: string; dry_run: boolean }> {
   try {
     const r = await withClient((c) => c.query<{ meta: any }>(
       `SELECT meta FROM work_assets WHERE work_id = $1::uuid AND asset_type = 'gen_engine' LIMIT 1`, [rootId]));
@@ -9550,8 +9552,9 @@ async function readRootGenEngineConfig(rootId: string): Promise<{ prefer: string
       engine_id: String(m.engine_id || ""),
       video_prefer: Array.isArray(m.video_prefer) ? m.video_prefer : [],
       video_engine_id: String(m.video_engine_id || ""),
+      dry_run: !!m.dry_run,
     };
-  } catch { return { prefer: [], prefer_model: {}, engine_id: "", video_prefer: [], video_engine_id: "" }; }
+  } catch { return { prefer: [], prefer_model: {}, engine_id: "", video_prefer: [], video_engine_id: "", dry_run: false }; }
 }
 
 /* CSSOS_WAVE_139B 20260514 — Jing: credit top-up.
@@ -22106,6 +22109,28 @@ async function stitchNarrativeRootVideo(rootId: string): Promise<void> {
   finally { for (const f of tmp) { try { fs.unlinkSync(f); } catch {} } _stitchInflight.delete(rootId); }
 }
 
+// CSSOS_WAVE_1463 — 「模拟/dry-run」占位短片: ffmpeg 生成一段纯色+静音的 2.39 画幅短片(本机算力, 零第三方
+// 费用), 代替 Veo 跑通【路由→落R2→进度→拼长片→字幕尝试→市场→cssTV】整条链验证, 全绿再花钱点真 Veo。
+// 每场颜色按 seed 变, 拼出来能看出分段。返回 R2 稳定链或 ""。
+async function makeStubVideoClip(seed: string): Promise<string> {
+  const tmp: string[] = [];
+  try {
+    let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+    const hex = (h & 0xffffff).toString(16).padStart(6, "0");
+    const dir = os.tmpdir(); const tag = crypto.randomBytes(5).toString("hex");
+    const out = path.join(dir, `stub-${tag}.mp4`); tmp.push(out);
+    const r = await spawnFfmpeg(["-y", "-loglevel", "error",
+      "-f", "lavfi", "-i", `color=c=0x${hex}:s=1280x536:d=3`,
+      "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+      "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", out]);
+    if (r.code !== 0 || !fs.existsSync(out)) { console.warn("[stub] ffmpeg failed:", r.stderr.slice(0, 200)); return ""; }
+    const buf = fs.readFileSync(out);
+    const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
+    return (await uploadBufferToR2(buf, `artifacts/video/stub-${sha}.mp4`, "video/mp4").catch(() => null)) || "";
+  } catch (e) { console.warn("[stub] failed:", e instanceof Error ? e.message : String(e)); return ""; }
+  finally { for (const f of tmp) { try { fs.unlinkSync(f); } catch {} } }
+}
+
 const _multipartGenInflight = new Set<string>();
 async function enqueueMultipartPartsGeneration(rootId: string, _userId: string): Promise<void> {
   if (!rootId || _multipartGenInflight.has(rootId)) return;
@@ -22170,25 +22195,30 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
       // ── CSSOS_WAVE_1459 叙事视频分支(讲故事引擎 Veo/Kling, 与 Suno 唱段分流)──────────────
       if (_isNarrativeVideo) {
         try {
-          const vid = await callVideoGen({
-            prompt: [part.title, part.style, lyr.slice(0, 500),
-              "cinematic narrative scene with natural dialogue, ambient sound and filmic score, no on-screen text"].filter(Boolean).join(", "),
-            duration_secs: 8,
-            aspect_ratio: "2.39:1", // 画幅铁律
-            ...(_eng.video_prefer.length ? { prefer: _eng.video_prefer } : { prefer: ["google"] }), // 用户选的视频引擎, 默认 Veo 3.1
-          });
-          if (vid && vid.ok && vid.video_url) {
-            const stableVid = await persistRemoteVideoToStable(vid.video_url); // 落 R2
-            // 闸 A 生成权(按次, 与引擎无关)
-            if (_monthlyAllowance < 1e9) {
+          // CSSOS_WAVE_1463 — 模拟(dry_run): 用免费 ffmpeg 占位短片代替 Veo, 跑通整条链验证、不扣权不扣费。
+          let stableVid = "";
+          if (_eng.dry_run) {
+            stableVid = await makeStubVideoClip(part.id);
+          } else {
+            const vid = await callVideoGen({
+              prompt: [part.title, part.style, lyr.slice(0, 500),
+                "cinematic narrative scene with natural dialogue, ambient sound and filmic score, no on-screen text"].filter(Boolean).join(", "),
+              duration_secs: 8,
+              aspect_ratio: "2.39:1", // 画幅铁律
+              ...(_eng.video_prefer.length ? { prefer: _eng.video_prefer } : { prefer: ["google"] }), // 用户选的视频引擎, 默认 Veo 3.1
+            });
+            if (vid && vid.ok && vid.video_url) stableVid = await persistRemoteVideoToStable(vid.video_url); // 落 R2
+          }
+          if (stableVid) {
+            // 闸 A/B 只在【非模拟】扣(dry_run 不扣权不扣费)。
+            if (!_eng.dry_run && _monthlyAllowance < 1e9) {
               const _hasRight = await consumeOneGenerationRight(_userId, _monthlyAllowance);
               if (!_hasRight) { console.warn(`[multipart-gen] 无生成权(视频)→ 停在 ${part.id}`); break; }
+              const _vcogs = await generationCostCents(_eng.video_engine_id || "veo/get-1080p-video");
+              const _vdr = await debitCredits(_userId, _vcogs, "multipart_generation_cogs",
+                { root_work_id: rootId, part_id: part.id, kind: "video" });
+              if (!_vdr.ok) { console.warn(`[multipart-gen] COGS 不足(视频)→ 停在 ${part.id}`); break; }
             }
-            // 闸 B 生成费用(视频引擎价 × 1.3)
-            const _vcogs = await generationCostCents(_eng.video_engine_id || "veo/get-1080p-video");
-            const _vdr = await debitCredits(_userId, _vcogs, "multipart_generation_cogs",
-              { root_work_id: rootId, part_id: part.id, kind: "video" });
-            if (!_vdr.ok) { console.warn(`[multipart-gen] COGS 不足(视频)→ 停在 ${part.id}`); break; }
             await pool.query(
               `UPDATE user_works SET preview_video_url = $2, updated_at = now()
                  WHERE id = $1::uuid AND preview_video_url IS NULL`, [part.id, stableVid]);

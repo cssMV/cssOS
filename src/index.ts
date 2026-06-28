@@ -7506,10 +7506,17 @@ async function runAgentTool(
       const wt = validWorkTypes.has(_effectiveWt) ? _effectiveWt : "single";
 
       // CSSOS_WAVE_138 Part B — cost meter.
+      // CSSOS_WAVE_1454 — 后端驱动多部(triptych/shortplay/series/film + 开关开)的计费【收口到引擎
+      // 按部计次】(免费 3/月 + 超出按量付), 这里【跳过 create_work 旧扣费】, 否则与引擎双扣。
+      // opera(树)/single/开关关 仍走旧 create_work 扣费。
+      const _backendMultipartBilling = process.env.CSSOS_MULTIPART_CINEMA === "1"
+        && ["triptych", "shortplay", "series", "film"].includes(wt);
       const debitCost = costForCreateWork(wt);
-      const debitR = await debitCredits(ctx.userId, debitCost, "create_work", { work_type: wt, title });
-      if (!debitR.ok) {
-        return { error: "insufficient_credit", need: debitCost, have: debitR.balance, hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
+      if (!_backendMultipartBilling) {
+        const debitR = await debitCredits(ctx.userId, debitCost, "create_work", { work_type: wt, title });
+        if (!debitR.ok) {
+          return { error: "insufficient_credit", need: debitCost, have: debitR.balance, hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
+        }
       }
 
       // CSSOS_WAVE_185 20260516 — original per-tier monthly cap.
@@ -7847,8 +7854,12 @@ async function runAgentTool(
       if (!lyricsText) {
         // CSSOS_WAVE_142 — refund the credit we debited up-front. Even
         // staff-exempt users get a clean ledger entry via creditUserBalance.
+        // CSSOS_WAVE_1454 — backend-multipart 没在此扣 create_work(收口到引擎按部计费)→ 不退,
+        // 否则白送钱(它的费在引擎成功才扣, 此处歌词失败不会进引擎)。
         try {
-          await creditUserBalance(ctx.userId, debitCost, "create_work_refund", { reason: "lyrics_generation_failed", title, work_type: wt });
+          if (!_backendMultipartBilling) {
+            await creditUserBalance(ctx.userId, debitCost, "create_work_refund", { reason: "lyrics_generation_failed", title, work_type: wt });
+          }
         } catch (_) {}
         return { error: "lyrics_generation_failed", hint: "Free-tier LLM providers all timed out or returned short output. Credits refunded. Try again in a few minutes (most providers reset at UTC 00:00)." };
       }
@@ -8412,16 +8423,22 @@ async function runAgentTool(
         // 浏览器重载/关标签/OOM 就断, 剩余部永不生成。现在: ①真建 part 行(真歌词, 非占位)
         // ②点火后端引擎 enqueueMultipartPartsGeneration(逐部 callMusicGen+幻灯帧池+情绪字幕,
         // 跑在 cssOS.service 进程, 与浏览器彻底解耦)③返回带 part id 的 plan 供前端纯订阅播放。
-        // CSSOS_WAVE_1453 H2 — 点火前预检余额(Jing: 按部扣, 三部=3 次)。$0 用户在烧任何 Suno 前
-        // 就 402, 不建行不点火。staff/admin 豁免。引擎里每部成功再实扣(此处只 gate)。
+        // CSSOS_WAVE_1454 — 点火前预检余额(Jing: 免费档每月 3 次免费, 超出按量付)。先扣本月免费
+        // 额度, 只对【付费部数】预检余额; 不够在烧任何 Suno 前就 402(前端 W139B 自动弹充值)。
+        // staff/admin 的 limit=无限 → 永远 free → 跳过 gate。引擎里每部成功再原子计次/实扣。
         {
-          const _exempt = await isCreditExempt(String(ctx.userId)).catch(() => false);
-          if (!_exempt) {
-            const _need = parts.length * CSSOS_AGENT_COSTS.generate_audio;
-            const _bal = await getCreditBalance(String(ctx.userId)).catch(() => 0);
-            if (_bal < _need) {
-              return { error: "insufficient_credit", need: _need, have: _bal,
-                hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
+          const _limit = await monthlyFreeGenLimit(String(ctx.userId));
+          if (_limit < 1e9) { // 非豁免
+            const _used = await peekGenerationUsedThisMonth(String(ctx.userId));
+            const _freeRemaining = Math.max(0, _limit - _used);
+            const _paidParts = Math.max(0, parts.length - _freeRemaining);
+            if (_paidParts > 0) {
+              const _need = _paidParts * (CSSOS_AGENT_COSTS.create_work_single + CSSOS_AGENT_COSTS.generate_audio);
+              const _bal = await getCreditBalance(String(ctx.userId)).catch(() => 0);
+              if (_bal < _need) {
+                return { error: "insufficient_credit", need: _need, have: _bal,
+                  hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
+              }
             }
           }
         }
@@ -9326,6 +9343,47 @@ async function getCreditBalance(userId: string): Promise<number> {
     if (!r.rows.length) return 0;
     return Number(r.rows[0]!.balance) || 0;
   } catch (_) { return 0; }
+}
+
+// CSSOS_WAVE_1454 — 每月免费生成计次(Jing: 免费档 3 次/月, 超出按量付/买生成权包)。
+function _currentYearMonthUTC(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+// 只读本月已计次数(不自增), 给点火前预检估算 free/paid 部数用。
+async function peekGenerationUsedThisMonth(userId: string): Promise<number> {
+  try {
+    const r = await withClient((c) => c.query<{ used: string }>(
+      `SELECT used FROM generation_meter WHERE user_id = $1::uuid AND ym = $2`,
+      [userId, _currentYearMonthUTC()]));
+    return Number(r.rows[0]?.used || 0) || 0;
+  } catch { return 0; }
+}
+// 原子自增并返回【自增后的】used(防 re-fire/并发重复计次)。出错返回大数 → 当作超额(收费), 偏安全。
+async function bumpGenerationUsedThisMonth(userId: string): Promise<number> {
+  try {
+    const r = await withClient((c) => c.query<{ used: string }>(
+      `INSERT INTO generation_meter (user_id, ym, used) VALUES ($1::uuid, $2, 1)
+         ON CONFLICT (user_id, ym) DO UPDATE SET used = generation_meter.used + 1, updated_at = now()
+         RETURNING used`,
+      [userId, _currentYearMonthUTC()]));
+    return Number(r.rows[0]?.used || 1) || 1;
+  } catch { return 1e9; }
+}
+// CSSOS_WAVE_1454 — 用户月度【免费生成额度】(专用, 不复用有"拦截"语义的 monthlyGenerationLimit)。
+// Jing: 免费/guest 档 3 次/月(=1 部三部曲), 超出按量付; 付费档暂 0(纯按量付, 待 Jing 定各档数);
+// admin/exempt 无限免费。改这里调额度。
+const FREE_MONTHLY_GENERATIONS: Record<string, number> = { free: 3, guest: 3 };
+async function monthlyFreeGenLimit(userId: string): Promise<number> {
+  try {
+    if (await isCreditExempt(userId)) return 1e9; // staff/admin 全免
+    const ur = await withClient((c) => c.query<{ id: string; email: string | null }>(
+      `SELECT id, email FROM users WHERE id = $1::uuid LIMIT 1`, [userId]));
+    const u = ur.rows[0];
+    if (!u) return 0;
+    const access = await resolveUserAccessProfile({ id: u.id, email: u.email });
+    return FREE_MONTHLY_GENERATIONS[String(access.tier)] || 0;
+  } catch { return 0; }
 }
 
 /* CSSOS_WAVE_139B 20260514 — Jing: credit top-up.
@@ -16144,7 +16202,9 @@ function membershipPolicyForTier(tier: MembershipTier) {
     };
   }
   if (tier === "free") {
-    // W219 free — true free with friction, not a quota cage.
+    // CSSOS_WAVE_1454 — Jing: 免费 3 次/月免费生成 → 走【专用免费额度 freeMonthlyGenerations】(见
+    // monthlyFreeGenLimit), 【不】用 monthlyGenerationLimit —— 那字段在旧代码(7538/31044)是
+    // "超额拦截"语义(超了拒绝), 而我们要"超额按量付", 复用会拦死免费用户。保持 null=旧拦截 inert。
     return {
       ...base,
       maxOutputLengthSeconds: 60,
@@ -21760,6 +21820,8 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
     );
     const parts = partsR.rows || [];
     let made = 0;
+    // CSSOS_WAVE_1454 — 本月免费生成额度(免费档 3; admin/exempt=无限)。按部计次, 前 limit 次免费, 超出按量付。
+    const _freeLimit = await monthlyFreeGenLimit(_userId);
     // CSSOS_WAVE_1453 — 持久认领 + 有界重试(防 boot-resume 跨重启双花 / 防某部永久失败卡死影院)。
     const NOW = Date.now();
     const CLAIM_TTL_MS = 15 * 60 * 1000; // 认领 15 分钟有效: 重启后这段时间内不重打 Suno(它早做完了)
@@ -21813,14 +21875,19 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
             [part.id, stableAudio],
           ).catch(() => {});
           made += 1;
-          // CSSOS_WAVE_1453 H2 — 按部扣费(Jing: 三部=3 次生成)。每部一次 callMusicGen(Suno 出 2
-          // take, take2 是同次调用副产品, 不另收)。debitCredits 内部自动豁免 staff/admin。余额不足
-          // (中途耗尽)→ 停止后续部, 封顶损失(点火前已预检, 这是兜底)。
-          const _dr = await debitCredits(_userId, CSSOS_AGENT_COSTS.generate_audio, "multipart_part_audio",
-            { root_work_id: rootId, part_id: part.id });
-          if (!_dr.ok) {
-            console.warn(`[multipart-gen] debit 余额不足 → 停在 part ${part.id}(已生成的保留)`);
-            break;
+          // CSSOS_WAVE_1454 — 按部计次免费/收费(Jing: 免费档每月 3 次免费=1 部三部曲, 超出按量付/
+          // 买生成权包)。每部一次 callMusicGen(take2 是同次调用副产品, 不计次不另收)。本月第 ≤limit
+          // 次免费(不扣钱包), 第 limit+1 次起按量付(规划+音乐=create_work_single+generate_audio)。
+          // admin/exempt 的 _freeLimit=无限 → 永远走免费分支。原子自增防 re-fire 重复计次。
+          const _used = await bumpGenerationUsedThisMonth(_userId);
+          if (_used > _freeLimit) {
+            const _cost = CSSOS_AGENT_COSTS.create_work_single + CSSOS_AGENT_COSTS.generate_audio;
+            const _dr = await debitCredits(_userId, _cost, "multipart_generation",
+              { root_work_id: rootId, part_id: part.id, used: _used, free_limit: _freeLimit });
+            if (!_dr.ok) {
+              console.warn(`[multipart-gen] 余额不足(本月第 ${_used} 次, 超 ${_freeLimit} 免费)→ 停在 part ${part.id}`);
+              break;
+            }
           }
           // CSSOS_WAVE_1447b — 视觉层: 给本部点火【幻灯帧池】(便宜的图), 不烧 5s 视频 stub。
           void enqueueSlideshowPoolGeneration(part.id, 6).catch(() => {});

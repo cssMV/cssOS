@@ -9357,7 +9357,10 @@ const CSSOS_AGENT_COSTS = {
 const GENERATION_RIGHT_PRICE_CENTS = 99;     // 生成权单价(买包用), 不含引擎费
 const GENERATION_COGS_MARKUP = 1.30;         // 生成费用加成系数(引擎实际费 ×此); 待 Jing 确认确切值
 // 一次生成的【生成费用】= 引擎实际费(规划+音乐) × 加成, 用户自付。
-function generationCostCents(): number {
+// TODO(多引擎): Kie 有 24 个音乐引擎, Suno 只是默认(像歌词三强, 用户可选其他)。生成费用必须【按用户
+// 实际选的引擎的真实 kie 价 ×1.30 动态算】——目前固定用 Suno 估算(generate_audio=10¢)。等多引擎选择
+// 上来时, 给本函数传 engine/model, 查 kie 价表(或读实际计费)× markup。生成权(99¢)与引擎无关, 不变。
+function generationCostCents(/* engine?: string */): number {
   return Math.max(1, Math.round(
     (CSSOS_AGENT_COSTS.create_work_single + CSSOS_AGENT_COSTS.generate_audio) * GENERATION_COGS_MARKUP));
 }

@@ -229,9 +229,9 @@
 
   // CSSOS_WAVE_1261 — 远程布局探针(临时诊断: Chrome 被组织策略挡住 cssstudio.app, 无法本地看活 DOM)。
   //   App 进影院加载完后量一次底部各元素 + 右轨的 bounding rect, 上报遥测 → 让我精确看到谁压右轨。修对即删。
-  var _layoutProbed = false;
+  var _probeN = 0;
   function layoutProbe() {
-    if (_layoutProbed) return;
+    if (_probeN >= 2) return;
     try {
       var isApp = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640;
       var lang = document.getElementById("cssos-lang-fold") || document.getElementById("watch-language-pill");
@@ -250,9 +250,10 @@
           items.push(tag.slice(0, 16) + ":" + Math.round(r.left) + "-" + Math.round(r.right));
         }
       }
-      _layoutProbed = true;
+      _probeN += 1;
       var rr = document.getElementById("cssos-watch-social-rail"); var rrx = rr ? rr.getBoundingClientRect() : null;
-      var msg = "layout_probe " + (isApp ? "app" : "desk") + " vw" + vw + " railL" + (rrx ? Math.round(rrx.left) : "?") + " | " + items.join(" , ");
+      var nonce = String(Date.now()).slice(-6);   // 唯一化绕过遥测去重
+      var msg = "layout_probe#" + nonce + " " + (isApp ? "app" : "desk") + " vw" + vw + " railL" + (rrx ? Math.round(rrx.left) : "?") + " | " + items.join(" , ");
       fetch("/api/telemetry/error", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: msg.slice(0, 380), code: "layout_probe", panel: "cinema" }) }).catch(function () {});
     } catch (_e) {}
   }
@@ -289,7 +290,6 @@
     }
     // 字幕保持自身居中定位, 仅确保不被列遮挡: 它自己的 bottom 由情绪字幕引擎管, 这里不动。
     try { alignAgentFab(); } catch (_e) {}
-    try { layoutProbe(); } catch (_e) {}   // W1261 — 一次性远程量尺(修对即删)
   }
 
   // CSSOS_WAVE_906 — Jing「传统字幕和 AI 助理不在同一行(同行则 AI 太高)」根治: AI 助理 FAB 是 position:fixed,
@@ -340,6 +340,9 @@
       });
     } catch (_e) {}
     schedule();
+    // W1261c — 延迟量尺: 8s/14s 各采一次"加载后settled状态"(早期采会抓到加载中假象)。修对即删。
+    setTimeout(function () { try { layoutProbe(); } catch (_e) {} }, 8000);
+    setTimeout(function () { try { layoutProbe(); } catch (_e) {} }, 14000);
   }
 
   if (document.readyState === "loading") {

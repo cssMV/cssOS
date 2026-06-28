@@ -22206,7 +22206,11 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               duration_secs: 8,
               aspect_ratio: "2.39:1", // 画幅铁律 → 21:9 超宽屏
               native_audio: true,     // CSSOS_WAVE_1466 — 叙事【有声有画】: 视频原生出对白/环境音
-              ...(_eng.video_prefer.length ? { prefer: _eng.video_prefer } : { prefer: ["veo", "seedance"] }), // 默认 Veo 3(原生对白旗舰), seedance 兜底
+              // CSSOS_WAVE_1468 — 叙事强制 seedance(原生 21:9+有声): exclusive 不兜底别的引擎,
+              //   超时只在 seedance 上重试(retries:2), 杜绝掉成 16:9 的 veo。
+              prefer: _eng.video_prefer.length ? _eng.video_prefer : ["seedance"],
+              exclusive: true,
+              retries: 2,
             });
             if (vid && vid.ok && vid.video_url) stableVid = await persistRemoteVideoToStable(vid.video_url); // 落 R2
           }
@@ -23907,6 +23911,10 @@ type VideoGenRequest = {
   /* CSSOS_WAVE_1466 — 叙事视频要【有声有画】: 视频原生出声(对白/环境音), 不是画音分层的静音画面。
    * 音乐 MV 仍默认静音(铁律: 音频走独立 Suno 轨)。仅叙事(短剧/连续剧/电影)置 true。 */
   native_audio?: boolean;
+  /* CSSOS_WAVE_1468 — 叙事强制单引擎: exclusive=true 时只用 prefer 列表里的引擎, 绝不兜底到别的
+   * (杜绝 seedance 超时→掉 veo 变 16:9)。retries=超时/失败时对同一引擎的重试次数(默认 0)。 */
+  exclusive?: boolean;
+  retries?: number;
 };
 type VideoGenResponse = {
   ok: boolean;
@@ -23959,7 +23967,7 @@ async function callVeoKie(req: VideoGenRequest, model: string): Promise<{ ok: bo
  *   replicate — $20 funded, generic per-call cost
  *   runway   — premium, last because $$$
  */
-function videoProviderOrder(prefer?: string[]): string[] {
+function videoProviderOrder(prefer?: string[], exclusiveOnly?: boolean): string[] {
   // Tier order: fal(free) → replicate(cheap) → kling(standard) → luma(premium) → runway(premium)
   const env = String(process.env.VIDEO_PROVIDER_ORDER || "fal,replicate,kling,luma,runway,seedance")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -23967,6 +23975,8 @@ function videoProviderOrder(prefer?: string[]): string[] {
   const valid = (p: string) => (VIDEO_PROVIDERS as readonly string[]).includes(p);
   if (prefer && prefer.length) {
     const head = prefer.filter(valid);
+    // CSSOS_WAVE_1468 — exclusive: 只用 prefer 引擎, 不接兜底尾巴(叙事强制 seedance)。
+    if (exclusiveOnly) return head;
     const tail = tierSortProviders(env.filter((p) => valid(p) && !head.includes(p)));
     return [...head, ...tail];
   }
@@ -23988,8 +23998,16 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
     req.prompt = req.prompt.replace(/\s+$/, "") +
       ", beautiful refined aesthetic, any human subject rendered attractive elegant and gorgeous with clean flattering features and graceful styling; never ugly, grimy, dirty-faced, disfigured, or unflattering";
   }
-  const order = videoProviderOrder(req.prefer);
+  const order = videoProviderOrder(req.prefer, req.exclusive);
   let lastErr = "";
+  // CSSOS_WAVE_1468 — 叙事强制单引擎 + 超时只重试不兜底: exclusive 时 order 只含 prefer 引擎,
+  //   配 retries 在同一引擎上重打(seedance kie_timeout 偶发, 重试拿下, 绝不掉 16:9 的 veo)。
+  const _maxTries = 1 + Math.max(0, Math.min(5, Math.round(req.retries || 0)));
+  for (let _try = 0; _try < _maxTries; _try++) {
+    if (_try > 0) {
+      console.warn(`[video-router] retry ${_try}/${_maxTries - 1} (exclusive=${!!req.exclusive}, last=${lastErr.slice(0, 60)}) order=[${order.join(",")}]`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
   for (const provider of order) {
     if (await isEngineDisabled(provider)) continue;
     try {
@@ -24283,6 +24301,7 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
       console.warn(`[video-router] ${provider} threw:`, lastErr.slice(0, 200));
       continue;
     }
+  }
   }
   return { ok: false, provider: "none", error: lastErr || "no_video_provider_succeeded" };
 }

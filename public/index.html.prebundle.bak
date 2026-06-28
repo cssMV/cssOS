@@ -398,6 +398,10 @@
                 <div class="watch-commerce-actions" id="watch-commerce-actions" hidden></div>
                 <!-- CSSOS_WAVE_733 — Jing: 播放时低调显示当前 work 🆔, 跟 chrome(is-playback-clean)一起显隐。 -->
                 <div class="watch-work-id" id="watch-work-id" aria-hidden="true"></div>
+                <!-- CSSOS_WAVE_1469 — App 锁竖屏, 看 21:9 超宽片(电影/预告/短剧/连续剧)时
+                     提供 TikTok 式临时横屏: CSS 把 .watch-screen 转 90° 填满竖屏。
+                     仅当视频真实宽高比 ≥ 2.0(超宽)时由 JS 显示此按钮。 -->
+                <button id="watch-landscape-toggle" class="watch-landscape-toggle" type="button" hidden aria-label="横屏观看 / Landscape">⤢</button>
               </div>
               <div class="watch-frame-progress" id="watch-frame-progress" hidden>
                 <div class="watch-frame-progress-line"><span id="watch-frame-progress-fill"></span></div>

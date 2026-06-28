@@ -12790,3 +12790,39 @@ globalThis.pickWatchRandomFontModule = pickWatchRandomFontModule;
   else document.addEventListener("DOMContentLoaded", boot, { once: true });
   globalThis.cssosRecomputeBottomStack = schedule;
 })();
+
+/* CSSOS_WAVE_1469 — App 临时横屏切换(TikTok 式)。App 原生锁竖屏铁律不动:
+   不改设备朝向, 点按钮把 .watch-screen CSS 转 90° 填满竖屏看 21:9 超宽片。
+   按钮只在视频真实宽高比 ≥ 2.0(超宽: 电影/预告/短剧/连续剧)时出现; 竖屏人物 MV 不显示。
+   换片(loadedmetadata)/退片(emptied)/关面板时自动复位, 绝不卡在横屏态。 */
+(function cssosLandscapeToggleModule() {
+  var ULTRA_WIDE = 2.0; // 21:9 ≈ 2.33 命中; 16:9 ≈ 1.78 / 竖屏 不命中
+  function el(id) { return document.getElementById(id); }
+  function resetRotate() { document.documentElement.classList.remove("cssos-cinema-landscape"); }
+  function wire() {
+    var btn = el("watch-landscape-toggle");
+    var vid = el("watch-video");
+    if (!btn || !vid) return;
+    function isWide() {
+      return vid.videoWidth > 0 && vid.videoHeight > 0 &&
+        (vid.videoWidth / vid.videoHeight) >= ULTRA_WIDE;
+    }
+    function sync() {
+      if (isWide()) { btn.hidden = false; }
+      else { btn.hidden = true; resetRotate(); }
+    }
+    vid.addEventListener("loadedmetadata", sync);
+    vid.addEventListener("loadeddata", sync);
+    vid.addEventListener("emptied", function () { btn.hidden = true; resetRotate(); });
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation(); e.preventDefault();
+      document.documentElement.classList.toggle("cssos-cinema-landscape");
+    });
+    // 退出影院/关面板/换作品 → 复位, 不卡横屏。
+    window.addEventListener("cssos:cinema-exit", resetRotate);
+    document.addEventListener("panelclose", resetRotate);
+    if (vid.readyState >= 1) sync();
+  }
+  if (document.readyState === "complete" || document.readyState === "interactive") wire();
+  else document.addEventListener("DOMContentLoaded", wire, { once: true });
+})();

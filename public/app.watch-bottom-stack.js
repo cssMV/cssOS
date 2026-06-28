@@ -97,6 +97,13 @@
       el.style.setProperty("align-self", "stretch", "important");
       el.style.setProperty("width", "100%", "important");
       el.style.setProperty("max-width", "100%", "important");
+    } else if (el.id === "cssos-lang-fold") {
+      // CSSOS_WAVE_1260 — App 端多语言独立成行【居左】(容器 W1259 已 right:64px 让位右轨 → 居左即不压右轨);
+      //   桌面端多语言不在本列(并入 priceline 中列), 不会走到这分支。
+      var _isAppMf = false;
+      try { _isAppMf = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
+      el.style.setProperty("align-self", _isAppMf ? "flex-start" : "center", "important");
+      el.style.setProperty("max-width", "100%", "important");
     } else {
       el.style.setProperty("align-self", "center", "important");   // W767 — 底部居中(原 flex-start 靠左)
     }
@@ -133,9 +140,13 @@
     }
     if (sub && sub.parentNode !== line) line.appendChild(sub);
     if (price && price.parentNode !== line) line.appendChild(price);
-    // CSSOS_WAVE_1122 — Jing 指令: 多语言并进本行(中列居中)。价格条已拆(右轨接管), 中列让给多语言。
+    // CSSOS_WAVE_1122 — 桌面: 多语言并进本行(中列居中)。
+    // CSSOS_WAVE_1260 — App: 多语言【独立成行·居左】(字幕上方), 不并进 priceline → 由 ORDER(adopt)
+    //   收编为 bottomflow 独立行, 故 App 端这里【不】把 lang 收进本行。
+    var _isAppPL = false;
+    try { _isAppPL = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
     var lang = document.getElementById("cssos-lang-fold");
-    if (lang && lang.parentNode !== line) line.appendChild(lang);
+    if (lang && !_isAppPL && lang.parentNode !== line) line.appendChild(lang);
     // CSSOS_WAVE_881 — Jing 拍板布局(按平台分):
     //   桌面端 = 三件套【一行】: [传统字幕 左] [价格条 中] [AI助理 右]  → grid 1fr auto 1fr。
     //   App 端  = 【两行】(窄屏一行塞不下): 上行 [传统字幕(左) ⟷ AI助理(右, FAB 抬高一行落此处)],
@@ -196,8 +207,9 @@
       price.style.setProperty("grid-column", "2", "important");
       price.style.setProperty("max-width", isApp ? "min(58vw, 420px)" : "min(72vw, 640px)", "important");
     }
-    // CSSOS_WAVE_1122 — 多语言并入中列居中(清掉它自身的绝对定位, 由本行 grid 接管)。
-    if (lang) {
+    // CSSOS_WAVE_1122 — 桌面: 多语言并入中列居中(清掉它自身的绝对定位, 由本行 grid 接管)。
+    // CSSOS_WAVE_1260 — App 端多语言已独立成行(不在本网格), 这段中列样式仅桌面跑; App 居左由 makeFlowChild 接管。
+    if (lang && !isApp) {
       lang.style.setProperty("position", "static", "important");
       ["left", "right", "bottom", "top"].forEach(function (p) { lang.style.setProperty(p, "auto", "important"); });
       lang.style.setProperty("transform", "none", "important");
@@ -221,9 +233,16 @@
     if (!f) return;
     try { ensurePriceLine(); } catch (_e) {}
     // 收集当前存在的成员(按 ORDER)。
+    // CSSOS_WAVE_1260 — Jing「App 端: 最底=传统字幕(居左), 上一行=多语言(居左, 不压右轨)」。
+    //   App 把 #cssos-lang-fold 加入 ORDER(priceline 之上一行); 桌面维持 W1122(多语言并入 priceline 中列)。
+    var _isAppOrd = false;
+    try { _isAppOrd = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
+    var order = _isAppOrd
+      ? ["#cssos-watch-priceline", "#cssos-lang-fold", "#cssos-up-next-strip", "#cssos-create-cta"]
+      : ORDER;
     var els = [];
-    for (var i = 0; i < ORDER.length; i++) {
-      var el = document.querySelector(ORDER[i]);
+    for (var i = 0; i < order.length; i++) {
+      var el = document.querySelector(order[i]);
       if (el) els.push(el);
     }
     // 仅当【成员集合或顺序变化】时才重排, 避免每帧 appendChild churn。

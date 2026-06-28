@@ -283,7 +283,13 @@
       //   bottom-stack(W1122)把它放进 #cssos-watch-priceline(与字幕同一行), 而这里原把它放进
       //   #cssos-watch-bottomflow(独立行)→ 来回搬=闪+点击handler失效。统一【优先放进 priceline】,
       //   两边目标一致, 不再来回搬。priceline 在 bottomflow 内, CSS 显示门(bottomflow 后代)仍成立。
-      var _tgt = document.getElementById("cssos-watch-priceline") || document.getElementById("cssos-watch-bottomflow");
+      // CSSOS_WAVE_1260 — Jing「App: 多语言独立成行(字幕上方·居左)」。App 端目标=bottomflow(独立行),
+      //   桌面端=priceline(与字幕同一行·中列)。两边与 app.watch-bottom-stack.js 的收编目标一致, 不来回搬。
+      var _isAppLF = false;
+      try { _isAppLF = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640; } catch (_e) {}
+      var _tgt = _isAppLF
+        ? document.getElementById("cssos-watch-bottomflow")
+        : (document.getElementById("cssos-watch-priceline") || document.getElementById("cssos-watch-bottomflow"));
       if (_tgt && fold.parentNode !== _tgt) _tgt.appendChild(fold);
       if (typeof globalThis.cssosScheduleBottomFlow === "function") globalThis.cssosScheduleBottomFlow();
     } catch (_e) {}

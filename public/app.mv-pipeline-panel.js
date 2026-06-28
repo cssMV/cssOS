@@ -8865,6 +8865,8 @@
     // CSSOS_WAVE_1449 — 退影院: 清幻灯轮播定时器 + 多部订阅轮询定时器(OOM 安全)。
     try { if (cinemaSt._slideshowTimer) { clearInterval(cinemaSt._slideshowTimer); cinemaSt._slideshowTimer = null; } } catch (_e) {}
     try { if (cinemaSt._mpPollTimer) { clearTimeout(cinemaSt._mpPollTimer); cinemaSt._mpPollTimer = null; } } catch (_e) {}
+    // CSSOS_WAVE_1451 — 用户退出多部影院 → 本会话标记此 root 已退出, 刷新不再自动续播它(尊重用户干预)。
+    try { if (cinemaSt._mpRootId) sessionStorage.setItem("cssos_mp_exited_" + cinemaSt._mpRootId, "1"); } catch (_e) {}
     // CSSOS_PHASE2_MV_WAVE6 20260507 — Jing
     // Tear down end-of-MV CTAs overlay + storm grid + bound key handlers.
     if (cinemaSt._w6KeyHandler) {
@@ -10255,6 +10257,8 @@
           });
         }
       } catch (_eOpen) {}
+      // CSSOS_WAVE_1451 — 记录本影院的多部 root, 供退出时标记"本会话已退出"(刷新不再自动开)。
+      try { if (cinemaSt) cinemaSt._mpRootId = rootId; } catch (_eR) {}
       // 2) 纯订阅: 轮询后端进度, 哪部 has_audio 就入队播放(谁先完先播)。
       //    只需 rootId + total; part id 从后端 generation-progress 取(不依赖 plan 里的 id)。
       var ownSt = cinemaSt;               // 认领本次影院实例, 影院被换/关就停轮询

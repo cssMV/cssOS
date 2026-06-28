@@ -1548,3 +1548,44 @@
     build();
   }
 })();
+
+/* CSSOS_WAVE_1451 — 浏览器刷新后自动续播最新输出的三部曲(Jing 铁律: 后端继续输出, 前端刷新后
+ * 自动回到正在/刚输出的三部曲, 从 1,2,3 播, 除非用户干预)。app.agent-chat.js 是 eager 加载。
+ * on-load 查 /api/works/my-latest-multipart, 若 2 小时内有【正在/刚生成】的多部 root 且本会话
+ * 未退出过它 → 加载 mv-pipeline 面板 + cssmvRunMultipartCinema 纯订阅。不打断: 已有影院开着
+ * (刚 chip 点火)则跳过; 退出影院后本会话不再自动开该 root(除非新 root)。*/
+(function cssosMultipartResumeOnLoad() {
+  "use strict";
+  function exitedKey(id) { return "cssos_mp_exited_" + id; }
+  async function tryResume() {
+    try {
+      if (document.getElementById("cssos-cinema-stage")) return; // 已有影院(刚点火)→ 不重复开
+      var r = await fetch("/api/works/my-latest-multipart", { credentials: "include" });
+      var j = await r.json().catch(function () { return null; });
+      var root = j && j.ok && j.root;
+      if (!root || !root.root_work_id) return;
+      if (!root.generating && !root.has_audio) return;            // 没东西可播
+      try { if (sessionStorage.getItem(exitedKey(root.root_work_id))) return; } catch (_e) {} // 本会话已退出
+      var total = Math.max(1, Number(root.total) || 3);
+      var plan = {
+        root_work_id: root.root_work_id,
+        root_title: root.title || "",
+        work_type: "triptych",
+        backend_driven: true,
+        parts_plan: Array.apply(null, { length: total }).map(function (_x, i) { return { sequence_index: i + 1 }; }),
+      };
+      var fire = function () {
+        try { if (typeof globalThis.cssmvRunMultipartCinema === "function") globalThis.cssmvRunMultipartCinema(plan); } catch (_e) {}
+      };
+      if (typeof globalThis.cssmvRunMultipartCinema === "function") fire();
+      else if (typeof globalThis.cssosLoadPanel === "function") {
+        var lp = globalThis.cssosLoadPanel("mv-pipeline");
+        if (lp && typeof lp.then === "function") lp.then(fire).catch(fire);
+        else setTimeout(fire, 1200);
+      }
+    } catch (_e) {}
+  }
+  function boot() { setTimeout(tryResume, 2800); } // 让首屏先渲染, 不抢初始加载
+  if (document.readyState === "complete" || document.readyState === "interactive") boot();
+  else document.addEventListener("DOMContentLoaded", boot);
+})();

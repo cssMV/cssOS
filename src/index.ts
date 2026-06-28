@@ -2800,6 +2800,59 @@ app.post("/api/works/:id/generate-parts", async (req, res) => {
   return res.json({ ok: true, started: true, root_work_id: rootId });
 });
 
+// CSSOS_WAVE_1451 — 「浏览器刷新后自动续播最新输出的三部曲」(Jing 铁律: 后端继续输出, 前端
+// 刷新后自动回到正在/刚输出的三部曲, 从 1,2,3 播, 除非用户干预)。返回当前 session 用户【最近的
+// 多部 root】(2 小时内, 有 part 子节点), 含 root_work_id / 标题 / 部数 / 是否仍在生成 / 是否已有可播音频。
+// 前端 on-load 拿它重新订阅影院。纯读, 零副作用。
+app.get("/api/works/my-latest-multipart", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.json({ ok: true, root: null });
+  try {
+    const r = await withClient((c) => c.query<{
+      id: string; title: string; parts: number; generating: boolean; has_audio: boolean;
+    }>(
+      `SELECT root.id::text, root.title,
+              (SELECT count(*)::int FROM user_works p
+                 WHERE p.root_work_id = root.id
+                   AND p.structure_role IN ('part','scene','episode')) AS parts,
+              EXISTS(SELECT 1 FROM user_works p
+                 WHERE p.root_work_id = root.id
+                   AND p.structure_role IN ('part','scene','episode','take2')
+                   AND p.preview_audio_url IS NULL) AS generating,
+              EXISTS(SELECT 1 FROM user_works p
+                 WHERE p.root_work_id = root.id
+                   AND p.structure_role IN ('part','scene','episode','take2')
+                   AND p.preview_audio_url IS NOT NULL) AS has_audio
+         FROM user_works root
+        WHERE root.user_id = $1::uuid
+          AND root.parent_work_id IS NULL
+          AND root.status <> 'deleted'
+          AND root.created_at > now() - interval '2 hours'
+          AND EXISTS(SELECT 1 FROM user_works c
+                       WHERE c.root_work_id = root.id
+                         AND c.structure_role IN ('part','scene','episode'))
+        ORDER BY root.created_at DESC
+        LIMIT 1`,
+      [userId],
+    ));
+    const row = r.rows[0];
+    if (!row || !row.parts) return res.json({ ok: true, root: null });
+    return res.json({
+      ok: true,
+      root: {
+        root_work_id: row.id,
+        title: row.title || "",
+        total: row.parts,
+        generating: row.generating,
+        has_audio: row.has_audio,
+      },
+    });
+  } catch (err) {
+    console.warn("[my-latest-multipart] failed:", err instanceof Error ? err.message : String(err));
+    return res.json({ ok: true, root: null });
+  }
+});
+
 // POST /api/works/:id/language-tracks — add language tracks to an EXISTING
 // work. Body: { languages: string[] }  (codes, selection order; the work's
 // existing default counts as the free 1st, so EVERY new language is paid).
@@ -24352,9 +24405,13 @@ async function enqueueKaraokeTranscription(workId: string): Promise<void> {
         : words;
       await withClient((c) =>
         c.query(
+          // CSSOS_WAVE_1450 — work_assets 唯一索引是【部分索引】(work_id,asset_type) WHERE
+          // asset_type<>'slideshow_frame'。ON CONFLICT 必须带相同谓词, 否则 planner 报
+          // "no unique or exclusion constraint matching" → whisper_words 永远存不下(karaoke 干完活白干,
+          // 情绪字幕没源)。补上谓词后 DO UPDATE 正常落库 → 公开接口出 karaoke_words → 影院出逐字情绪字幕。
           `INSERT INTO work_assets (work_id, asset_type, url, meta)
            VALUES ($1, 'whisper_words', $2, $3::jsonb)
-           ON CONFLICT (work_id, asset_type)
+           ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
            DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
           [
             workId,

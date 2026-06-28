@@ -227,6 +227,34 @@
     return line;
   }
 
+  // CSSOS_WAVE_1261 — 远程布局探针(临时诊断: Chrome 被组织策略挡住 cssstudio.app, 无法本地看活 DOM)。
+  //   App 进影院加载完后量一次底部各元素 + 右轨的 bounding rect, 上报遥测 → 让我精确看到谁压右轨。修对即删。
+  var _layoutProbed = false;
+  function layoutProbe() {
+    if (_layoutProbed) return;
+    try {
+      var isApp = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640;
+      if (!isApp) return;
+      var rail = document.getElementById("cssos-watch-social-rail");
+      var lang = document.getElementById("cssos-lang-fold") || document.getElementById("watch-language-pill");
+      var cap = document.querySelector("#watch-panel .cssmv-capsule");
+      // 仅在【加载后状态】采样: 多语言 + 控制胶囊都在(即你说的"加载完冒出来撑长")。
+      if (!lang || !cap) return;
+      var R = function (el) { if (!el) return null; var r = el.getBoundingClientRect(); return (r.width || r.height) ? { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width) } : null; };
+      var data = {
+        vw: window.innerWidth, vh: window.innerHeight,
+        flow: R(document.getElementById("cssos-watch-bottomflow")),
+        price: R(document.getElementById("cssos-watch-priceline")),
+        lang: R(lang),
+        sub: R(document.getElementById("watch-subtitle")),
+        cap: R(cap),
+        rail: R(rail),
+      };
+      _layoutProbed = true;
+      fetch("/api/telemetry/error", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "layout_probe " + JSON.stringify(data), code: "layout_probe", panel: "cinema" }) }).catch(function () {});
+    } catch (_e) {}
+  }
+
   var lastSig = "";
   function adopt() {
     var f = ensureFlow();
@@ -259,6 +287,7 @@
     }
     // 字幕保持自身居中定位, 仅确保不被列遮挡: 它自己的 bottom 由情绪字幕引擎管, 这里不动。
     try { alignAgentFab(); } catch (_e) {}
+    try { layoutProbe(); } catch (_e) {}   // W1261 — 一次性远程量尺(修对即删)
   }
 
   // CSSOS_WAVE_906 — Jing「传统字幕和 AI 助理不在同一行(同行则 AI 太高)」根治: AI 助理 FAB 是 position:fixed,

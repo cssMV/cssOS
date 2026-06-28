@@ -22206,7 +22206,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               duration_secs: 8,
               aspect_ratio: "2.39:1", // 画幅铁律 → 21:9 超宽屏
               native_audio: true,     // CSSOS_WAVE_1466 — 叙事【有声有画】: 视频原生出对白/环境音
-              ...(_eng.video_prefer.length ? { prefer: _eng.video_prefer } : { prefer: ["seedance"] }), // 默认 seedance(kie, 能用); Veo 待接
+              ...(_eng.video_prefer.length ? { prefer: _eng.video_prefer } : { prefer: ["veo", "seedance"] }), // 默认 Veo 3(原生对白旗舰), seedance 兜底
             });
             if (vid && vid.ok && vid.video_url) stableVid = await persistRemoteVideoToStable(vid.video_url); // 落 R2
           }
@@ -23915,7 +23915,43 @@ type VideoGenResponse = {
   poll_url?: string;
   error?: string;
 };
-const VIDEO_PROVIDERS = ["fal", "kling", "luma", "replicate", "runway", "seedance"] as const;
+const VIDEO_PROVIDERS = ["veo", "fal", "kling", "luma", "replicate", "runway", "seedance"] as const;
+// CSSOS_WAVE_1467 — Google Veo 3(讲故事旗舰: 原生对白+音=有声有画内置)。kie 专用端点(非 jobs/createTask):
+//   POST /api/v1/veo/generate {prompt, aspect_ratio, model:"veo3_fast"|"veo3"|"veo3_quality", duration}
+//   → {data:{taskId}}; GET /api/v1/veo/record-info?taskId= → {data:{successFlag(0生成/1成功), response:{resultUrls:[mp4]}}}。
+//   返回 tempfile 链(24h 过期)→ 上游 persistRemoteVideoToStable 落 R2。schema 由真探针实测确认(W1467)。
+async function callVeoKie(req: VideoGenRequest, model: string): Promise<{ ok: boolean; video_url?: string; error?: string }> {
+  const key = (process.env.KIE_API_KEY || "").trim();
+  if (!key) return { ok: false, error: "no_kie_key" };
+  const ar = (req.aspect_ratio === "9:16") ? "9:16" : "16:9"; // Veo 原生只 16:9 / 9:16
+  const dur = Math.max(4, Math.min(8, Math.round(req.duration_secs || 8)));
+  try {
+    console.warn(`[KIE-SPEND] model=veo:${model} at=${new Date().toISOString()} caller=callVeoKie`);
+    const cr = await fetch("https://api.kie.ai/api/v1/veo/generate", {
+      method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: String(req.prompt || "").slice(0, 5000), aspect_ratio: ar, model, duration: dur }),
+    });
+    const cj: any = await cr.json().catch(() => null);
+    const taskId = String(cj?.data?.taskId || "").trim();
+    if (!taskId) return { ok: false, error: `veo_no_task: ${JSON.stringify(cj).slice(0, 160)}` };
+    const deadline = Date.now() + 600_000; let delay = 4000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, delay)); delay = Math.min(delay + 1000, 9000);
+      const pr = await fetch(`https://api.kie.ai/api/v1/veo/record-info?taskId=${encodeURIComponent(taskId)}`,
+        { headers: { Authorization: `Bearer ${key}` } });
+      const pj: any = await pr.json().catch(() => null);
+      const flag = Number(pj?.data?.successFlag ?? 0);
+      if (flag === 1) {
+        const resp = pj?.data?.response || {};
+        const url = Array.isArray(resp.resultUrls) && resp.resultUrls[0] ? String(resp.resultUrls[0]) : "";
+        if (url) { bumpEngineUsage("veo:" + model); return { ok: true, video_url: url }; }
+        return { ok: false, error: "veo_no_url" };
+      }
+      if (flag === 2 || flag === 3) return { ok: false, error: `veo_fail: ${String(pj?.data?.errorMessage || "").slice(0, 160)}` };
+    }
+    return { ok: false, error: "veo_timeout" };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+}
 /* Order rationale (free/time-limited first, paid last):
  *   fal       — free tier credits (first because cheapest)
  *   kling     — $9.8 trial pack (100 units, 30-day expiry → use up first)
@@ -23957,6 +23993,16 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
   for (const provider of order) {
     if (await isEngineDisabled(provider)) continue;
     try {
+      if (provider === "veo") {
+        // CSSOS_WAVE_1467 — Google Veo 3(讲故事旗舰: 原生对白+环境音+配乐=有声有画内置)。kie 专用端点。
+        // 默认 veo3_fast(性价比); 可经 prefer_model/cookie 切 veo3 / veo3_quality。
+        const veoModel = await resolveEngineModel("video", "veo", req, process.env.VEO_MODEL, "veo3_fast");
+        const vr = await callVeoKie(req, veoModel);
+        if (vr.ok && vr.video_url) return { ok: true, provider: "veo", video_url: vr.video_url };
+        lastErr = vr.error || "veo_failed";
+        if (isCreditsError(0, lastErr)) console.warn("[video-router] veo credits exhausted, falling through");
+        continue;
+      }
       if (provider === "seedance") {
         // CSSOS_WAVE_660 — kie.ai Seedance 2.0(收费档电影级人物 MV, 多镜头一致/角色锚定).
         // 画音分层铁律: generate_audio=false(只取画面, 音乐走我们独立音轨)。image_url → first_frame

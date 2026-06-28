@@ -5466,6 +5466,50 @@ async function alignViaWhisperXService(
   }
 }
 
+// CSSOS_WAVE_1271 20260628 — MMS-FA 强制对齐服务接入口(治【长尾语言】)。
+// whisperX/wav2vec2 只覆盖 ~50 语种; 之外的语言(藏语/斯瓦希里/盖尔语/各小语种)它【无对齐模型】→ 返回空。
+// Meta MMS forced-aligner 用【单模型覆盖 1100+ 语种】, 作为 whisperX 之后、OpenAI 之前的兜底。
+// 契约同 whisperX: POST {url}/align body {audio_url, ref_text, lang?} → {words:[{word,start,end,score}]}(秒)。
+// 仅在【有 refText(已知歌词→强制对齐)】时调用; 未配置 MMS_ALIGN_URL → 跳过。任何失败静默回退。
+async function alignViaMmsService(
+  audioUrl: string,
+  language?: string,
+  refText?: string,
+): Promise<LyricTimelineEntry[] | undefined> {
+  const base = (process.env.MMS_ALIGN_URL || "").trim().replace(/\/+$/, "");
+  if (!base || !audioUrl || !refText || !refText.trim()) return undefined;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 300_000);
+    const resp = await fetch(`${base}/align`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio_url: audioUrl, lang: language || null, ref_text: refText }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) { console.warn("[mms] align failed:", resp.status); return undefined; }
+    const j: any = await resp.json().catch(() => null);
+    const words = Array.isArray(j?.words) ? j.words : [];
+    const timeline: LyricTimelineEntry[] = words
+      .map((w: any) => ({
+        text: String(w?.word ?? w?.text ?? "").replace(/\s+/g, " ").trim(),
+        start_s: Math.max(0, Number(w?.start ?? w?.start_s ?? 0)),
+        end_s: Math.max(0, Number(w?.end ?? w?.end_s ?? 0)),
+        unit: "word" as const,
+      }))
+      .filter((e: LyricTimelineEntry) => e.text && e.end_s > e.start_s);
+    if (timeline.length) {
+      console.log("[mms] aligned", timeline.length, "words (long-tail lang fallback)");
+      return timeline;
+    }
+    return undefined;
+  } catch (err) {
+    console.warn("[mms] threw:", err instanceof Error ? err.message : err);
+    return undefined;
+  }
+}
+
 async function alignWordsViaWhisper(
   audioUrl: string,
   language?: string,
@@ -5475,6 +5519,9 @@ async function alignWordsViaWhisper(
   // CSSOS_WAVE_648/B — 优先自建 whisperX(根治路径, refText→强制对齐已知歌词); 未配置/失败回退 OpenAI。
   const viaX = await alignViaWhisperXService(audioUrl, language, refText);
   if (viaX && viaX.length) return viaX;
+  // CSSOS_WAVE_1271 — whisperX 给不出(长尾语种无 wav2vec2 对齐模型) → MMS-FA 强制对齐兜底(1100+语种单模型)。
+  const viaMms = await alignViaMmsService(audioUrl, language, refText);
+  if (viaMms && viaMms.length) return viaMms;
   if (!(process.env.OPENAI_API_KEY || "").trim()) return undefined;
   let tmp = "";
   try {

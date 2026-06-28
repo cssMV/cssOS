@@ -2735,7 +2735,7 @@ app.get("/api/works/:id/generation-progress", async (req, res) => {
                           WHERE a.work_id = w.id AND a.asset_type = 'gen_lock' LIMIT 1), false) AS gen_failed
          FROM user_works w
         WHERE (w.root_work_id = $1::uuid OR w.id = $1::uuid)
-          AND w.structure_role IN ('part', 'scene', 'episode', 'take2')
+          AND w.structure_role IN ('part', 'scene', 'episode', 'theme_song', 'interlude', 'ending_song', 'take2')
           AND w.status <> 'deleted'
         ORDER BY w.sequence_index ASC, (w.structure_role = 'take2') ASC, w.created_at ASC`,
       [workId],
@@ -2820,7 +2820,7 @@ app.get("/api/works/my-latest-multipart", async (req, res) => {
       `SELECT root.id::text, root.title,
               (SELECT count(*)::int FROM user_works p
                  WHERE p.root_work_id = root.id
-                   AND p.structure_role IN ('part','scene','episode')) AS parts,
+                   AND p.structure_role IN ('part','scene','episode', 'theme_song', 'interlude', 'ending_song')) AS parts,
               EXISTS(SELECT 1 FROM user_works p
                  WHERE p.root_work_id = root.id
                    AND p.structure_role IN ('part','scene','episode','take2')
@@ -2836,7 +2836,7 @@ app.get("/api/works/my-latest-multipart", async (req, res) => {
           AND root.created_at > now() - interval '7 days'
           AND EXISTS(SELECT 1 FROM user_works c
                        WHERE c.root_work_id = root.id
-                         AND c.structure_role IN ('part','scene','episode'))
+                         AND c.structure_role IN ('part','scene','episode', 'theme_song', 'interlude', 'ending_song'))
         ORDER BY root.created_at DESC
         LIMIT 1`,
       [userId],
@@ -8297,8 +8297,19 @@ async function runAgentTool(
       // scene is structure_role='scene' under the act, carrying real
       // lyrics + its own cover. Scenes are the playable leaves.
       const cards: any[] = [];
+      // CSSOS_WAVE_1456 — 树型(歌剧/连续剧/电影)开关开时, 建行前先双闸预检(避免被拦用户也建空场景行)。
+      const shellOnlyTreeCinema = process.env.CSSOS_MULTIPART_CINEMA === "1" && isOperaTree && !!operaActs && !!rootId;
+      if (shellOnlyTreeCinema && operaActs) {
+        const _leafCount = operaActs.reduce((a, act) => a + ((act.scenes && act.scenes.length) || 0), 0);
+        const _ge = await checkGenerationGatesOrError(String(ctx.userId), _leafCount);
+        if (_ge) return _ge;
+      }
       if (isOperaTree && operaActs && rootId) {
         let sceneCoverIdx = 0;
+        // CSSOS_WAVE_1456 — 树型(歌剧/连续剧/电影)叶子场景【全局序号】, 让引擎/播放器跨幕正确排序
+        // (旧 si+1 每幕重启 → act2 场1 会排在 act1 场2 前)。同时收集 scene 叶子供 shell-only 点火引擎。
+        let sceneSeqGlobal = 0;
+        const treeScenePlan: Array<{ id: string; title: string; role: string; sequence_index: number }> = [];
         for (let ai = 0; ai < operaActs.length; ai += 1) {
           const act = operaActs[ai]!;
           const actId = crypto.randomUUID();
@@ -8344,6 +8355,7 @@ async function runAgentTool(
             const sceneId = crypto.randomUUID();
             const sceneCover = covers[sceneCoverIdx] || null;
             sceneCoverIdx += 1;
+            sceneSeqGlobal += 1; // 全局递增, 跨幕单调
             try {
               await withClient(async (client) => {
                 await client.query("BEGIN");
@@ -8360,7 +8372,7 @@ async function runAgentTool(
                               $8::uuid, $9::uuid, 'scene', $10,
                               now(), now())`,
                     [sceneId, ctx.userId, scene.title, style || "", wt, scene.lyrics, sceneCover,
-                     actId, rootId, si + 1],
+                     actId, rootId, sceneSeqGlobal],
                   );
                   await client.query(
                     `INSERT INTO work_market_profiles
@@ -8378,6 +8390,7 @@ async function runAgentTool(
             } catch (errOuter) {
               return { error: "work_insert_failed", detail: "scene_insert:" + ((errOuter as Error)?.message || String(errOuter)) };
             }
+            treeScenePlan.push({ id: sceneId, title: scene.title, role: "scene", sequence_index: sceneSeqGlobal });
             sceneCards.push({
               work_id: sceneId,
               title: scene.title,
@@ -8387,7 +8400,7 @@ async function runAgentTool(
               deeplink: `/?cssMV=${sceneId}`,
               root_work_id: rootId,
               structure_role: "scene",
-              sequence_index: si + 1,
+              sequence_index: sceneSeqGlobal,
               audio_url: null,
               video_url: null,
             });
@@ -8410,6 +8423,28 @@ async function runAgentTool(
             audio_url: null,
             video_url: null,
           });
+        }
+        // CSSOS_WAVE_1456 — 树型进【后端引擎 + 前端订阅影院】(歌剧/连续剧/电影 也"谁也截不停")。
+        // scene 行已建好带真歌词 → 点火 enqueueMultipartPartsGeneration(它按 root + role IN(…scene…)
+        // 逐场生成, 树无关)。返回 multipart_cinema + 扁平 scene plan(全局序), 前端纯订阅播放(player
+        // 本就吃后端 generation-progress 的扁平叶子列表, 跨幕按全局 sequence_index 排)。开关关→旧路。
+        if (shellOnlyTreeCinema && treeScenePlan.length) {
+          setTimeout(() => {
+            enqueueMultipartPartsGeneration(rootId, String(ctx.userId)).catch((err) =>
+              console.warn("[multipart-gen] tree bg failed:", err instanceof Error ? err.message : String(err)));
+          }, 30);
+          return {
+            multipart_cinema: true,
+            root_work_id: rootId,
+            root_title: title,
+            style: style || "",
+            language: lang,
+            civilization: civilization || "",
+            work_type: wt,
+            provider: lyricsProvider,
+            parts_plan: treeScenePlan,
+            count: treeScenePlan.length,
+          };
         }
         return {
           work_cards: cards,
@@ -8435,27 +8470,8 @@ async function runAgentTool(
         // 浏览器重载/关标签/OOM 就断, 剩余部永不生成。现在: ①真建 part 行(真歌词, 非占位)
         // ②点火后端引擎 enqueueMultipartPartsGeneration(逐部 callMusicGen+幻灯帧池+情绪字幕,
         // 跑在 cssOS.service 进程, 与浏览器彻底解耦)③返回带 part id 的 plan 供前端纯订阅播放。
-        // CSSOS_WAVE_1455 — 点火前【双闸预检】(Jing: 生成权 ⊥ 生成费用, 缺一不可), 在烧任何 Suno 前
-        // 拦住。staff/admin 的 allowance=无限 → 跳过。
-        {
-          const _allowance = await monthlyFreeGenLimit(String(ctx.userId));
-          if (_allowance < 1e9) { // 非豁免
-            // 闸 A: 生成权够不够(整部三部曲需 parts.length 次)。无权拦 —— 钱包有钱也不放行。
-            const _rights = await generationRightsAvailable(String(ctx.userId), _allowance);
-            if (_rights < parts.length) {
-              return { error: "no_generation_rights", need_rights: parts.length, have_rights: _rights,
-                hint: "Not enough generation rights for this trilogy — subscribe or buy a generation pack." };
-            }
-            // 闸 B: COGS 钱包够不够(每部都付第三方引擎费, 与生成权无关)。
-            const _cogs = await generationCostCents();
-            const _need = parts.length * _cogs;
-            const _bal = await getCreditBalance(String(ctx.userId)).catch(() => 0);
-            if (_bal < _need) {
-              return { error: "insufficient_credit", need: _need, have: _bal,
-                hint: "Top up your wallet to cover the engine generation cost." };
-            }
-          }
-        }
+        // CSSOS_WAVE_1455/1456 — 点火前【双闸预检】(生成权 ⊥ 生成费用), 共用 helper。
+        { const _ge = await checkGenerationGatesOrError(String(ctx.userId), parts.length); if (_ge) return _ge; }
         const partsPlan: Array<{ id: string; title: string; role: string; sequence_index: number }> = [];
         for (let i = 0; i < parts.length; i += 1) {
           const part = parts[i]!;
@@ -9457,6 +9473,26 @@ async function consumeOneGenerationRight(userId: string, monthlyAllowance: numbe
     if (r.rows.length) return true; // 消费了一次额外生成权(包/发放)
   } catch {}
   return false; // 无生成权
+}
+// CSSOS_WAVE_1456 — 点火前【双闸预检】(flat 三部曲 + tree 歌剧/连续剧/电影 共用, 防漂移)。
+// leafCount = 这次要生成的【叶子(部/场/集)数】。无权 → no_generation_rights; 钱包不够 → insufficient_credit。
+// staff/admin(allowance=无限)→ 跳过。返回 error 对象(调用方直接 return)或 null(放行)。
+async function checkGenerationGatesOrError(userId: string, leafCount: number): Promise<any | null> {
+  const allowance = await monthlyFreeGenLimit(userId);
+  if (allowance >= 1e9) return null; // 豁免
+  const rights = await generationRightsAvailable(userId, allowance);
+  if (rights < leafCount) {
+    return { error: "no_generation_rights", need_rights: leafCount, have_rights: rights,
+      hint: "Not enough generation rights — subscribe or buy a generation pack." };
+  }
+  const cogs = await generationCostCents();
+  const need = leafCount * cogs;
+  const bal = await getCreditBalance(userId).catch(() => 0);
+  if (bal < need) {
+    return { error: "insufficient_credit", need, have: bal,
+      hint: "Top up your wallet to cover the engine generation cost." };
+  }
+  return null;
 }
 
 /* CSSOS_WAVE_139B 20260514 — Jing: credit top-up.
@@ -21953,7 +21989,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               (SELECT meta FROM work_assets a WHERE a.work_id = w.id AND a.asset_type = 'gen_lock' LIMIT 1) AS gen_lock
          FROM user_works w
         WHERE (w.root_work_id = $1::uuid OR w.id = $1::uuid)
-          AND w.structure_role IN ('part', 'scene', 'episode')
+          AND w.structure_role IN ('part', 'scene', 'episode', 'theme_song', 'interlude', 'ending_song')
           AND w.status <> 'deleted'
         ORDER BY w.sequence_index ASC, w.created_at ASC`,
       [rootId],
@@ -54154,7 +54190,7 @@ async function start() {
                 AND EXISTS(
                   SELECT 1 FROM user_works p
                    WHERE p.root_work_id = root.id
-                     AND p.structure_role IN ('part','scene','episode')
+                     AND p.structure_role IN ('part','scene','episode', 'theme_song', 'interlude', 'ending_song')
                      AND p.preview_audio_url IS NULL
                      AND p.lyrics_preview NOT LIKE '[seed]%')`,
           );

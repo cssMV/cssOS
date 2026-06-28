@@ -117,6 +117,21 @@
     if (!id) { try { var wid = robustWorkId(); if (wid && _statsOwner[wid]) id = _statsOwner[wid]; } catch (_e) {} }
     var name = String(w.owner_display_name || w.owner_name || ow.name || ow.display_name || "").trim();
     var avatar = String(w.owner_avatar_url || w.avatar_url || ow.avatar_url || "").trim();
+    // CSSOS_WAVE_1268 — Jing 铁律: 解析不出作者时兜底到【系统管理员 CSS Studio(admin@cssstudio.app)】,
+    //   绝不兜底登录用户(=合法偷别人作品)或作品标题(=诬作品无作者)。后台/系统输出本就该挂系统管理员。
+    //   只有【我正创作输出】(html.cssmv-pipeline-running)才用登录用户(那确实是我的)。
+    if (!id) {
+      var _running = false;
+      try { _running = !!(document.documentElement && document.documentElement.classList.contains("cssmv-pipeline-running")); } catch (_e) {}
+      if (_running) {
+        try {
+          var _a = (typeof globalThis.cssosAuthState === "function") ? globalThis.cssosAuthState() : globalThis.authState;
+          var _u = _a && _a.user;
+          if (_u) { id = String(_u.id || _u.user_id || "").trim(); name = name || String(_u.display_name || _u.name || "").trim(); avatar = avatar || String(_u.avatar_url || "").trim(); }
+        } catch (_e) {}
+      }
+      if (!id) { id = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb"; name = name || "CSS Studio"; }   // 系统管理员
+    }
     if (id && _authorCache[id]) { name = name || _authorCache[id].name; avatar = avatar || _authorCache[id].avatar; }
     return { id: id, name: name, avatar: avatar };
   }
@@ -308,7 +323,7 @@
     var au = currentAuthor();
     if (au.id && !au.avatar) fetchAuthor(au.id);   // 作品没带头像 → 按作者 id 拉
     var avatarUrl = au.avatar;
-    var nameForInitial = String(au.name || w.title || "C").trim();
+    var nameForInitial = String(au.name || "CSS Studio").trim();   // W1268 — 绝不用作品标题当作者名(诬无作者)
     if (avatarUrl) { var im = document.createElement("img"); im.src = avatarUrl; im.alt = ""; av.appendChild(im); }
     else { av.classList.add("is-text"); av.textContent = nameForInitial.charAt(0).toUpperCase() || "C"; }   // W1159 仅文字兜底给半透明圆
     var fol = document.createElement("span"); fol.className = "csr-follow"; fol.textContent = "+"; av.appendChild(fol);

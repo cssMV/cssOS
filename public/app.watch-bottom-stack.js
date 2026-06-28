@@ -166,7 +166,9 @@
     // CSSOS_WAVE_1255 — Jing「传统字幕可以长到右下角 AI 助理前面」: 右列原 minmax(72px,1fr) 对称占了半幅,
     //   把字幕卡在约一半就截断。改右列 minmax(44px,auto)(只留 AI 按钮自身宽), 字幕左列 1fr 即可一路长到
     //   价格条/AI 之前(价格条空时直抵 AI 前)。
-    line.style.cssText = "display:grid;grid-template-columns:minmax(72px,1fr) auto minmax(44px,auto);align-items:center;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
+    // CSSOS_WAVE_1262 — Jing 诊断: 网格不对称(右列 minmax44,auto)→ 左列1fr把中列多语言挤到右边, 没居中。
+    //   改【左右对称 1fr】→ 中列(桌面=多语言/价格)真正居中。字幕左、AI 右对称留位。
+    line.style.cssText = "display:grid;grid-template-columns:minmax(72px,1fr) auto minmax(72px,1fr);align-items:center;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
     if (sub) {
       sub.style.setProperty("min-width", "0", "important");
       sub.style.setProperty("white-space", "nowrap", "important");
@@ -288,6 +290,24 @@
     } else {
       // 集合未变: 仅在某成员被别的模块重置回绝对定位时才纠正(幂等守卫内部判断)。
       els.forEach(function (e) { makeFlowChild(e, false); });
+    }
+    // CSSOS_WAVE_1262 — App 端【每轮强制】把多语言收进底部栈、独立行、居左(防某隐藏 owner 把它塞回
+    //   priceline 中列 = 探针实测它跑中右压右轨的真因)。priceline 之后插入 → column-reverse 落在字幕上方一行。
+    if (_isAppOrd) {
+      var _lf = document.getElementById("cssos-lang-fold");
+      if (_lf && f) {
+        var _pl = document.getElementById("cssos-watch-priceline");
+        if (_lf.parentNode !== f || (_pl && _pl.parentNode === f && _lf.previousSibling !== _pl)) {
+          if (_pl && _pl.parentNode === f && _pl.nextSibling) f.insertBefore(_lf, _pl.nextSibling);
+          else f.appendChild(_lf);
+        }
+        _lf.style.setProperty("position", "static", "important");
+        _lf.style.setProperty("align-self", "flex-start", "important");
+        ["left", "right", "top", "bottom"].forEach(function (p) { _lf.style.setProperty(p, "auto", "important"); });
+        _lf.style.setProperty("transform", "none", "important");
+        _lf.style.setProperty("margin", "0", "important");
+        _lf.style.setProperty("max-width", "calc(100% - 2px)", "important");   // 容器已 right:64 让位右轨 → 居左即不压
+      }
     }
     // 字幕保持自身居中定位, 仅确保不被列遮挡: 它自己的 bottom 由情绪字幕引擎管, 这里不动。
     try { alignAgentFab(); } catch (_e) {}

@@ -5116,11 +5116,13 @@ async function dispatchMarketWorkPayment(workId, orderKind, button) {
       ? window.cssPaymentsCheckout.openPicker
       : null;
     if (!tipPicker) {
-      await startStripeCheckoutForWork(id, "tip", button, { tipAmountCents: 200 });
+      await startStripeCheckoutForWork(id, "tip", button, { tipAmountCents: 100 });
       return;
     }
-    // Default suggested tip: $2.00. User can override.
-    const defaultTipCents = 200;
+    // CSSOS_WAVE_1449 — Jing: platform tip is a single unified $1.00 across
+    // every tip entry point (was $2.00 here, inconsistent with the $1.00
+    // floor + "Tips start at $1.00." used everywhere else).
+    const defaultTipCents = 100;
     tipPicker({
       title: loginCopy("Tip the creator"),
       subtitle: loginCopy("Choose an amount and a payment method."),

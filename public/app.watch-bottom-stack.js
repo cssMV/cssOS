@@ -307,6 +307,16 @@
         _lf.style.setProperty("transform", "none", "important");
         _lf.style.setProperty("margin", "0", "important");
         _lf.style.setProperty("max-width", "calc(100% - 2px)", "important");   // 容器已 right:64 让位右轨 → 居左即不压
+        // CSSOS_WAVE_1262b — 真凶: 探针实测里面的 #watch-language-pill 轨道【绝对定位 + max-width:96vw≈397px】
+        //   逃出外壳、又长又压右轨(外壳因此塌成宽0)。这里【每轮强制】把轨道本身 static + 封顶宽度清右轨。
+        var _bar = document.getElementById("watch-language-pill");
+        if (_bar) {
+          _bar.style.setProperty("position", "static", "important");
+          ["left", "right", "top", "bottom"].forEach(function (p) { _bar.style.setProperty(p, "auto", "important"); });
+          _bar.style.setProperty("transform", "none", "important");
+          _bar.style.setProperty("margin", "0", "important");
+          _bar.style.setProperty("max-width", "calc(100vw - 84px)", "important");   // 414→330; 右缘≤8+330=338 < 右轨353
+        }
       }
     }
     // 字幕保持自身居中定位, 仅确保不被列遮挡: 它自己的 bottom 由情绪字幕引擎管, 这里不动。

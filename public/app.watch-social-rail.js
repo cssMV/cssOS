@@ -185,7 +185,9 @@
       "border-radius:50%;background:#00f5a0;color:#04241a;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;}" +
       // CSSOS_WAVE_1119 — 左上返回键(成熟模式): 退出影院。点它=触发现成 watch-panel 关闭按钮。
       // CSSOS_WAVE_1254 — 返回键跟刘海(和搜索框/右上⋯同行): top 改 notch-aware, 不再写死 12px 跑到上面。
-      "#cssos-watch-backbtn{position:absolute;left:12px;top:calc(env(safe-area-inset-top, 0px) + 2px);z-index:31;width:40px;height:40px;border-radius:50%;" +
+      // CSSOS_WAVE_1265 — Jing「返回按钮太贴边, 要和右上 ⋯/关闭 一样留间距」。原 top:safe+2(桌面 safe=0 → 2px 贴顶)
+      //   改 top:safe+14、left:14, 与右上按钮(top≈12/14)对称, 不再死贴左上角。
+      "#cssos-watch-backbtn{position:absolute;left:14px;top:calc(env(safe-area-inset-top, 0px) + 14px);z-index:31;width:40px;height:40px;border-radius:50%;" +
       "background:rgba(20,16,12,0.55);border:0.5px solid rgba(255,255,255,0.18);color:#fff;font-size:22px;line-height:1;" +
       "display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;}" +
       "#cssos-watch-backbtn:active{transform:scale(0.92);}";

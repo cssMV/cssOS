@@ -21709,7 +21709,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
           await pool.query(
             `INSERT INTO work_assets (work_id, asset_type, url, meta)
                VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
-               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+               ON CONFLICT DO NOTHING`,
             [part.id, tier.audio_url],
           ).catch(() => {});
           made += 1;
@@ -21758,7 +21758,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               await pool.query(
                 `INSERT INTO work_assets (work_id, asset_type, url, meta)
                    VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
-                   ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+                   ON CONFLICT DO NOTHING`,
                 [t2Id, altUrl],
               ).catch(() => {});
               void enqueueSlideshowPoolGeneration(t2Id, 6).catch(() => {});
@@ -40000,7 +40000,7 @@ app.post("/api/admin/person-mv/groups/:group_id/generate-collective-mv", express
             await client.query(
               `INSERT INTO work_assets (work_id, asset_type, url, meta)
                  VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
-               ON CONFLICT (work_id, asset_type) DO UPDATE SET url = EXCLUDED.url`,
+               ON CONFLICT DO NOTHING`,
               [workId, result.audio_url],
             );
           }

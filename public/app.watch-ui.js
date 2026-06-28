@@ -6504,7 +6504,15 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
             fontStyle;
           return `<span class="${cls}" style="${inlineStyle}">${safe}</span>`;
         }).join("");
-        sub.innerHTML = spans;
+        // CSSOS_WAVE_1266 — Jing「左下传统字幕总闪烁」根治: 此渲染器每帧重 roll 每字随机抖动(cryptoFloat)
+        //   + 重写 innerHTML → 每帧重建 DOM、字样式每帧变 = 闪烁。加签名守卫: 同一句歌词(chars+情绪+有无逐字
+        //   时间轴)只重建一次 DOM, 内容没变就【不重写 innerHTML】。每帧脉动靠下面的 --karaoke-emphasis / --amp-*
+        //   CSS 变量在现有 span 上继续, 逐字色/字体/情绪招牌效果完全不动(本就该每句一套随机, 不该每帧抖)。
+        var _kSig = chars.join("") + "|" + (emotion || "") + "|" + (charTimings ? "t" : "n");
+        if (sub.dataset.karaSig !== _kSig || sub.dataset.cssmvOrigin !== "karaoke-live" || !sub.firstChild) {
+          sub.innerHTML = spans;
+          sub.dataset.karaSig = _kSig;
+        }
         sub.dataset.cssmvOrigin = "karaoke-live";
         sub.dataset.emotion = emotion || "";
         sub.style.setProperty("--karaoke-emphasis", emphasis.toFixed(2));

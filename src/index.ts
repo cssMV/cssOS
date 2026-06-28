@@ -7268,7 +7268,8 @@ async function runAgentTool(
   name: string,
   input: any,
   ctx: { userId: string; uiLocale: string;
-         musicPrefer?: string[]; musicModelMap?: Record<string, string>; musicEngineId?: string },
+         musicPrefer?: string[]; musicModelMap?: Record<string, string>; musicEngineId?: string;
+         videoPrefer?: string[]; videoEngineId?: string },
 ): Promise<any> {
   const inp = input && typeof input === "object" ? input : {};
   switch (name) {
@@ -8439,7 +8440,7 @@ async function runAgentTool(
         // 逐场生成, 树无关)。返回 multipart_cinema + 扁平 scene plan(全局序), 前端纯订阅播放(player
         // 本就吃后端 generation-progress 的扁平叶子列表, 跨幕按全局 sequence_index 排)。开关关→旧路。
         if (shellOnlyTreeCinema && treeScenePlan.length) {
-          await persistRootGenEngineConfig(rootId, { prefer: ctx.musicPrefer || [], prefer_model: ctx.musicModelMap || {}, engine_id: ctx.musicEngineId || "" });
+          await persistRootGenEngineConfig(rootId, { prefer: ctx.musicPrefer || [], prefer_model: ctx.musicModelMap || {}, engine_id: ctx.musicEngineId || "", video_prefer: ctx.videoPrefer || [], video_engine_id: ctx.videoEngineId || "" });
           setTimeout(() => {
             enqueueMultipartPartsGeneration(rootId, String(ctx.userId)).catch((err) =>
               console.warn("[multipart-gen] tree bg failed:", err instanceof Error ? err.message : String(err)));
@@ -8994,7 +8995,9 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
           result = await runAgentTool(toolName, toolInput, { userId, uiLocale,
             musicPrefer: userPreferredOrder(req as any, "music"),
             musicModelMap: userPreferredModelMap(req as any, "music"),
-            musicEngineId: String((req.body as any)?.music_engine_id || "").trim() });
+            musicEngineId: String((req.body as any)?.music_engine_id || "").trim(),
+            videoPrefer: userPreferredOrder(req as any, "video"),
+            videoEngineId: String((req.body as any)?.video_engine_id || "").trim() });
         } catch (err) {
           result = { error: err instanceof Error ? err.message : String(err) };
         }
@@ -9517,21 +9520,26 @@ async function checkGenerationGatesOrError(userId: string, leafCount: number): P
 // 逐部生成时【路由(callMusicGen prefer/model)+ 计费(generationCostCents 按真实引擎价)】。Suno 默认。
 async function persistRootGenEngineConfig(
   rootId: string,
-  cfg: { prefer?: string[]; prefer_model?: Record<string, string>; engine_id?: string },
+  cfg: { prefer?: string[]; prefer_model?: Record<string, string>; engine_id?: string;
+         video_prefer?: string[]; video_engine_id?: string },
 ): Promise<void> {
   const prefer = (cfg.prefer || []).filter(Boolean);
   const engineId = String(cfg.engine_id || "").trim();
   const preferModel = cfg.prefer_model || {};
-  if (!prefer.length && !engineId && !Object.keys(preferModel).length) return; // 无选择 → 默认 Suno
+  const videoPrefer = (cfg.video_prefer || []).filter(Boolean);     // CSSOS_WAVE_1461 — 叙事视频引擎
+  const videoEngineId = String(cfg.video_engine_id || "").trim();
+  if (!prefer.length && !engineId && !Object.keys(preferModel).length
+      && !videoPrefer.length && !videoEngineId) return; // 无任何选择 → 默认(Suno + Veo)
   try {
     await withClient((c) => c.query(
       `INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1::uuid, 'gen_engine', '', $2::jsonb)
          ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
          DO UPDATE SET meta = EXCLUDED.meta`,
-      [rootId, JSON.stringify({ prefer, prefer_model: preferModel, engine_id: engineId })]));
-  } catch { /* non-fatal: 退默认 Suno */ }
+      [rootId, JSON.stringify({ prefer, prefer_model: preferModel, engine_id: engineId,
+        video_prefer: videoPrefer, video_engine_id: videoEngineId })]));
+  } catch { /* non-fatal: 退默认引擎 */ }
 }
-async function readRootGenEngineConfig(rootId: string): Promise<{ prefer: string[]; prefer_model: Record<string, string>; engine_id: string }> {
+async function readRootGenEngineConfig(rootId: string): Promise<{ prefer: string[]; prefer_model: Record<string, string>; engine_id: string; video_prefer: string[]; video_engine_id: string }> {
   try {
     const r = await withClient((c) => c.query<{ meta: any }>(
       `SELECT meta FROM work_assets WHERE work_id = $1::uuid AND asset_type = 'gen_engine' LIMIT 1`, [rootId]));
@@ -9540,8 +9548,10 @@ async function readRootGenEngineConfig(rootId: string): Promise<{ prefer: string
       prefer: Array.isArray(m.prefer) ? m.prefer : [],
       prefer_model: (m.prefer_model && typeof m.prefer_model === "object") ? m.prefer_model : {},
       engine_id: String(m.engine_id || ""),
+      video_prefer: Array.isArray(m.video_prefer) ? m.video_prefer : [],
+      video_engine_id: String(m.video_engine_id || ""),
     };
-  } catch { return { prefer: [], prefer_model: {}, engine_id: "" }; }
+  } catch { return { prefer: [], prefer_model: {}, engine_id: "", video_prefer: [], video_engine_id: "" }; }
 }
 
 /* CSSOS_WAVE_139B 20260514 — Jing: credit top-up.
@@ -22047,6 +22057,55 @@ async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Pro
 // 防重入: 同 root 单飞, 防双触发重复烧钱。
 // TODO(1447b): 视频 + compose/commit 服务端化接进本循环(目前仅音频层)。
 // TODO(1447c): 非 credit-exempt 用户的逐部计费(现 owner-only 触发 + 单飞已是天然成本边界)。
+// CSSOS_WAVE_1462 — 叙事长片拼接: 全场景视频出完后, ffmpeg 按 sequence 顺序 concat 成【单个完整长片】→
+// R2 → root.preview_video_url + final_mv(可下载/分享一整部电影/连续剧)。影院本就顺序连播各场景(边出
+// 边播), 这步额外产出"整部"。点火即走, 幂等(root 已有视频 或 场景没出齐 → 跳过)。
+const _stitchInflight = new Set<string>();
+async function stitchNarrativeRootVideo(rootId: string): Promise<void> {
+  if (!rootId || _stitchInflight.has(rootId)) return;
+  _stitchInflight.add(rootId);
+  const tmp: string[] = [];
+  try {
+    const pool = getPool();
+    const rr = await pool.query<{ wt: string | null; pv: string | null }>(
+      `SELECT work_type AS wt, preview_video_url AS pv FROM user_works WHERE id = $1::uuid`, [rootId]);
+    const root = rr.rows[0];
+    if (!root || root.pv) return;                                       // 已拼过 → 幂等跳过
+    if (!["shortplay", "series", "film"].includes(String(root.wt || ""))) return; // 仅叙事格式
+    const totalR = await pool.query<{ n: string }>(
+      `SELECT count(*)::text n FROM user_works WHERE root_work_id=$1::uuid
+         AND structure_role IN ('episode','scene','chapter') AND status<>'deleted'`, [rootId]);
+    const total = Number(totalR.rows[0]?.n || 0) || 0;
+    const sc = await pool.query<{ url: string }>(
+      `SELECT preview_video_url AS url FROM user_works
+        WHERE root_work_id=$1::uuid AND structure_role IN ('episode','scene','chapter')
+          AND status<>'deleted' AND preview_video_url IS NOT NULL
+        ORDER BY sequence_index ASC, created_at ASC`, [rootId]);
+    const scenes = (sc.rows || []).filter((s) => s.url);
+    if (scenes.length < 2 || scenes.length < total) return;             // 出齐(≥2)才拼
+    const dir = os.tmpdir(); const tag = crypto.randomBytes(5).toString("hex");
+    for (let i = 0; i < scenes.length; i++) {
+      const f = path.join(dir, `stitch-${tag}-${i}.mp4`);
+      const r = await fetch(scenes[i]!.url); if (!r.ok) return;
+      fs.writeFileSync(f, Buffer.from(await r.arrayBuffer())); tmp.push(f);
+    }
+    const listPath = path.join(dir, `stitch-${tag}.txt`);
+    fs.writeFileSync(listPath, tmp.map((f) => `file '${f}'`).join("\n")); tmp.push(listPath);
+    const outPath = path.join(dir, `stitch-${tag}-out.mp4`); tmp.push(outPath);
+    const r = await spawnFfmpeg(["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", listPath,
+      "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-movflags", "+faststart", outPath]);
+    if (r.code !== 0 || !fs.existsSync(outPath)) { console.warn("[stitch] ffmpeg failed:", r.stderr.slice(0, 300)); return; }
+    const buf = fs.readFileSync(outPath);
+    const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
+    const url = await uploadBufferToR2(buf, `artifacts/mv/film-${rootId.slice(0, 8)}-${sha}.mp4`, "video/mp4").catch(() => null);
+    if (!url) return;
+    await pool.query(`UPDATE user_works SET preview_video_url=$2, updated_at=now() WHERE id=$1::uuid AND preview_video_url IS NULL`, [rootId, url]);
+    await pool.query(`INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1::uuid,'final_mv',$2,'{}'::jsonb) ON CONFLICT DO NOTHING`, [rootId, url]).catch(() => {});
+    console.info(`[stitch] root ${rootId}: ${scenes.length} 场景 → 整部长片`);
+  } catch (e) { console.warn("[stitch] failed:", e instanceof Error ? e.message : String(e)); }
+  finally { for (const f of tmp) { try { fs.unlinkSync(f); } catch {} } _stitchInflight.delete(rootId); }
+}
+
 const _multipartGenInflight = new Set<string>();
 async function enqueueMultipartPartsGeneration(rootId: string, _userId: string): Promise<void> {
   if (!rootId || _multipartGenInflight.has(rootId)) return;
@@ -22116,7 +22175,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               "cinematic narrative scene with natural dialogue, ambient sound and filmic score, no on-screen text"].filter(Boolean).join(", "),
             duration_secs: 8,
             aspect_ratio: "2.39:1", // 画幅铁律
-            ...(_eng.prefer.length ? { prefer: _eng.prefer } : { prefer: ["google"] }), // 默认 Veo 3.1(原生对白+音)
+            ...(_eng.video_prefer.length ? { prefer: _eng.video_prefer } : { prefer: ["google"] }), // 用户选的视频引擎, 默认 Veo 3.1
           });
           if (vid && vid.ok && vid.video_url) {
             const stableVid = await persistRemoteVideoToStable(vid.video_url); // 落 R2
@@ -22126,7 +22185,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               if (!_hasRight) { console.warn(`[multipart-gen] 无生成权(视频)→ 停在 ${part.id}`); break; }
             }
             // 闸 B 生成费用(视频引擎价 × 1.3)
-            const _vcogs = await generationCostCents(_eng.engine_id || "veo/get-1080p-video");
+            const _vcogs = await generationCostCents(_eng.video_engine_id || "veo/get-1080p-video");
             const _vdr = await debitCredits(_userId, _vcogs, "multipart_generation_cogs",
               { root_work_id: rootId, part_id: part.id, kind: "video" });
             if (!_vdr.ok) { console.warn(`[multipart-gen] COGS 不足(视频)→ 停在 ${part.id}`); break; }
@@ -22138,7 +22197,10 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
                  VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb) ON CONFLICT DO NOTHING`,
               [part.id, stableVid]).catch(() => {});
             made += 1;
-            // 叙事视频=输出本身(自带对白/音/画); 无 take2/Suno 音轨/幻灯。字幕(从对白转写)=待办。
+            // CSSOS_WAVE_1460 — 叙事视频对白→情绪字幕: 转写视频音轨(Veo 自带对白)→ whisper_words →
+            // karaoke_words → 影院逐字情绪字幕(与唱段同款体验)。点火即走。
+            void enqueueKaraokeTranscription(part.id).catch(() => {});
+            // 叙事视频=输出本身(自带对白/音/画); 无 take2/Suno 音轨/幻灯。
           }
         } catch (e) {
           console.warn(`[multipart-gen] narrative video ${part.id} failed:`, e instanceof Error ? e.message : String(e));
@@ -22258,7 +22320,9 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
           e instanceof Error ? e.message : String(e));
       }
     }
-    console.info(`[multipart-gen] root ${rootId}: generated audio for ${made}/${parts.length} part(s)`);
+    console.info(`[multipart-gen] root ${rootId}: generated ${made}/${parts.length} leaf(s)`);
+    // CSSOS_WAVE_1462 — 叙事格式全场景出完 → 拼成整部长片(幂等; 没出齐自动跳过, 下次再触发会拼)。
+    void stitchNarrativeRootVideo(rootId).catch(() => {});
   } catch (err) {
     console.warn("[multipart-gen] enqueueMultipartPartsGeneration failed:", err);
   } finally {
@@ -24804,8 +24868,13 @@ type WhisperWord = { text: string; t_start: number; t_end: number };
 async function enqueueKaraokeTranscription(workId: string): Promise<void> {
   const lookup = await withClient((c) =>
     c.query<{ audio_url: string | null; has_words: boolean }>(
+      // CSSOS_WAVE_1460 — 无 audio_track_1 时回退【视频对白】(叙事视频叶子: Veo 出片自带对白, 转写它
+      // 的音轨 → whisper_words → 情绪字幕)。groq/whisper 能直接吃 mp4 提取对白。不写 audio_track_1=不双音。
       `SELECT
-         (SELECT url FROM work_assets WHERE work_id = $1 AND asset_type = 'audio_track_1' LIMIT 1) AS audio_url,
+         COALESCE(
+           (SELECT url FROM work_assets WHERE work_id = $1 AND asset_type = 'audio_track_1' LIMIT 1),
+           (SELECT preview_video_url FROM user_works WHERE id = $1::uuid)
+         ) AS audio_url,
          EXISTS(
            SELECT 1 FROM work_assets
            WHERE work_id = $1 AND asset_type = 'whisper_words'

@@ -1354,6 +1354,10 @@
     input.style.height = "auto";
     btn.disabled = true;
     var typingEl = renderTyping();
+    // CSSOS_WAVE_1461 — 把用户选的【音乐/视频引擎 kie id】随创作请求发后端 → 精确路由 + 按真实引擎计费
+    // (唱段=音乐引擎/默认 Suno; 叙事=视频引擎/默认 Veo)。防御式读, 无选择则空=后端走默认。
+    var _esel = (function () { try { return JSON.parse(localStorage.getItem("cssmv.engine-selections.v1") || "{}") || {}; } catch (_e) { return {}; } })();
+    var _engId = function (kind) { try { var k = _esel[kind]; return k ? String(k.id || k.model || k.engine_id || "").trim() : ""; } catch (_e) { return ""; } };
     try {
       var r = await fetch("/api/agent/chat", {
         method: "POST",
@@ -1363,6 +1367,8 @@
           message: msg,
           session_id: ensureSessionId(),
           ui_locale: uiLocale(),
+          music_engine_id: _engId("music"),
+          video_engine_id: _engId("video"),
           // CSSOS_WAVE_167 — pasted-image payloads. Backend dedupes media
           // type, persists each to disk, and threads them into the user
           // turn as Claude image content blocks.

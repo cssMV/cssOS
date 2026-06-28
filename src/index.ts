@@ -6391,7 +6391,12 @@ app.post("/api/works/create-multipart", express.json({ limit: "1mb" }), async (r
         parts_lyrics: derivedParts,     // multi BYO, in order (verbatim)
         aspect: b.aspect,               // W998 — creator viewport aspect → cover orientation
       },
-      { userId, uiLocale },
+      { userId, uiLocale,
+        // CSSOS_WAVE_1457 — 多引擎: 把用户选的音乐引擎(provider 偏好/模型/kie 引擎 id)带进 create_work,
+        // 持久化到 root, 后端引擎逐部生成时用它(路由 + 计费按真实引擎)。Suno 只是默认。
+        musicPrefer: userPreferredOrder(req as any, "music"),
+        musicModelMap: userPreferredModelMap(req as any, "music"),
+        musicEngineId: String((b as any)?.music_engine_id || "").trim() },
     );
     if (result && (result as any).error) {
       return res.status(400).json({ ok: false, error: (result as any).error });
@@ -7258,7 +7263,8 @@ const AGENT_TOOLS = [
 async function runAgentTool(
   name: string,
   input: any,
-  ctx: { userId: string; uiLocale: string },
+  ctx: { userId: string; uiLocale: string;
+         musicPrefer?: string[]; musicModelMap?: Record<string, string>; musicEngineId?: string },
 ): Promise<any> {
   const inp = input && typeof input === "object" ? input : {};
   switch (name) {
@@ -8429,6 +8435,7 @@ async function runAgentTool(
         // 逐场生成, 树无关)。返回 multipart_cinema + 扁平 scene plan(全局序), 前端纯订阅播放(player
         // 本就吃后端 generation-progress 的扁平叶子列表, 跨幕按全局 sequence_index 排)。开关关→旧路。
         if (shellOnlyTreeCinema && treeScenePlan.length) {
+          await persistRootGenEngineConfig(rootId, { prefer: ctx.musicPrefer || [], prefer_model: ctx.musicModelMap || {}, engine_id: ctx.musicEngineId || "" });
           setTimeout(() => {
             enqueueMultipartPartsGeneration(rootId, String(ctx.userId)).catch((err) =>
               console.warn("[multipart-gen] tree bg failed:", err instanceof Error ? err.message : String(err)));
@@ -8516,6 +8523,7 @@ async function runAgentTool(
           partsPlan.push({ id: workId, title: part.title, role: partRole, sequence_index: partSeq });
         }
         // 点火即走后端引擎: 三部音频+幻灯+情绪字幕全在服务端跑完, 不依赖浏览器。
+        await persistRootGenEngineConfig(rootId, { prefer: ctx.musicPrefer || [], prefer_model: ctx.musicModelMap || {}, engine_id: ctx.musicEngineId || "" });
         setTimeout(() => {
           enqueueMultipartPartsGeneration(rootId, String(ctx.userId)).catch((err) => {
             console.warn("[multipart-cinema] engine fire failed:", err);
@@ -8979,7 +8987,10 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
         const toolInput = tb.input || {};
         let result: any;
         try {
-          result = await runAgentTool(toolName, toolInput, { userId, uiLocale });
+          result = await runAgentTool(toolName, toolInput, { userId, uiLocale,
+            musicPrefer: userPreferredOrder(req as any, "music"),
+            musicModelMap: userPreferredModelMap(req as any, "music"),
+            musicEngineId: String((req.body as any)?.music_engine_id || "").trim() });
         } catch (err) {
           result = { error: err instanceof Error ? err.message : String(err) };
         }
@@ -9493,6 +9504,36 @@ async function checkGenerationGatesOrError(userId: string, leafCount: number): P
       hint: "Top up your wallet to cover the engine generation cost." };
   }
   return null;
+}
+// CSSOS_WAVE_1457 — 多引擎: 把用户选的音乐引擎(provider 偏好/模型/kie id)持久化到 root, 供后端引擎
+// 逐部生成时【路由(callMusicGen prefer/model)+ 计费(generationCostCents 按真实引擎价)】。Suno 默认。
+async function persistRootGenEngineConfig(
+  rootId: string,
+  cfg: { prefer?: string[]; prefer_model?: Record<string, string>; engine_id?: string },
+): Promise<void> {
+  const prefer = (cfg.prefer || []).filter(Boolean);
+  const engineId = String(cfg.engine_id || "").trim();
+  const preferModel = cfg.prefer_model || {};
+  if (!prefer.length && !engineId && !Object.keys(preferModel).length) return; // 无选择 → 默认 Suno
+  try {
+    await withClient((c) => c.query(
+      `INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1::uuid, 'gen_engine', '', $2::jsonb)
+         ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
+         DO UPDATE SET meta = EXCLUDED.meta`,
+      [rootId, JSON.stringify({ prefer, prefer_model: preferModel, engine_id: engineId })]));
+  } catch { /* non-fatal: 退默认 Suno */ }
+}
+async function readRootGenEngineConfig(rootId: string): Promise<{ prefer: string[]; prefer_model: Record<string, string>; engine_id: string }> {
+  try {
+    const r = await withClient((c) => c.query<{ meta: any }>(
+      `SELECT meta FROM work_assets WHERE work_id = $1::uuid AND asset_type = 'gen_engine' LIMIT 1`, [rootId]));
+    const m = r.rows[0]?.meta || {};
+    return {
+      prefer: Array.isArray(m.prefer) ? m.prefer : [],
+      prefer_model: (m.prefer_model && typeof m.prefer_model === "object") ? m.prefer_model : {},
+      engine_id: String(m.engine_id || ""),
+    };
+  } catch { return { prefer: [], prefer_model: {}, engine_id: "" }; }
 }
 
 /* CSSOS_WAVE_139B 20260514 — Jing: credit top-up.
@@ -21981,11 +22022,11 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
   try {
     const pool = getPool();
     const partsR = await pool.query<{
-      id: string; title: string; style: string | null;
+      id: string; title: string; style: string | null; work_type: string | null;
       lyrics_preview: string | null; preview_audio_url: string | null;
       gen_lock: { started_at?: number; attempts?: number; failed?: boolean } | null;
     }>(
-      `SELECT w.id::text, w.title, w.style, w.lyrics_preview, w.preview_audio_url,
+      `SELECT w.id::text, w.title, w.style, w.work_type, w.lyrics_preview, w.preview_audio_url,
               (SELECT meta FROM work_assets a WHERE a.work_id = w.id AND a.asset_type = 'gen_lock' LIMIT 1) AS gen_lock
          FROM user_works w
         WHERE (w.root_work_id = $1::uuid OR w.id = $1::uuid)
@@ -21998,6 +22039,8 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
     let made = 0;
     // CSSOS_WAVE_1455 — 月度免费生成权额度(免费档 3; admin/exempt=无限)。生成权按次, 与 COGS 分开。
     const _monthlyAllowance = await monthlyFreeGenLimit(_userId);
+    // CSSOS_WAVE_1457 — 读 root 的音乐引擎选择(路由 + 计费按真实引擎; 空=默认 Suno)。
+    const _eng = await readRootGenEngineConfig(rootId);
     // CSSOS_WAVE_1453 — 持久认领 + 有界重试(防 boot-resume 跨重启双花 / 防某部永久失败卡死影院)。
     const NOW = Date.now();
     const CLAIM_TTL_MS = 15 * 60 * 1000; // 认领 15 分钟有效: 重启后这段时间内不重打 Suno(它早做完了)
@@ -22028,10 +22071,16 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
       // 认领: callMusicGen 之前先落 started_at+attempts(进程崩了也留痕, 重启后 15min 内不重打)。
       await writeGenLock(part.id, { started_at: NOW, attempts: attempts + 1 });
       try {
+        // CSSOS_WAVE_1458 — 按类型时长: 长片(歌剧/连续剧/电影)单场更长 + V4_5PLUS 防截断; 歌/三部曲 60s。
+        const _isLongForm = ["opera", "series", "film"].includes(String(part.work_type || ""));
         const tier = await callMusicGen({
           prompt: [part.title, part.style, lyr.slice(0, 300)].filter(Boolean).join(" — "),
           lyrics: lyr,
-          duration_secs: 60,
+          duration_secs: _isLongForm ? 240 : 60,
+          ...(_isLongForm ? { sunoModel: "V4_5PLUS" } : {}),
+          // CSSOS_WAVE_1457 多引擎: 用户选的音乐引擎(provider 偏好/模型); 空=router 默认(Suno)。
+          ...(_eng.prefer.length ? { prefer: _eng.prefer } : {}),
+          ...(Object.keys(_eng.prefer_model).length ? { prefer_model: _eng.prefer_model } : {}),
         });
         if (tier && tier.ok && tier.audio_url) {
           // CSSOS_WAVE_1453 H1 — Suno 返回的是临时链(kie/tempfile, 几天就 404)→ 必须落我们
@@ -22062,7 +22111,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
             }
           }
           // ── 闸 B: 生成费用(第三方引擎实价×1.3, 从 kie 目录动态取): 永远用户自付。debitCredits 豁免 admin。
-          const _cogs = await generationCostCents(/* TODO: 用户选的音乐引擎 id */);
+          const _cogs = await generationCostCents(_eng.engine_id || undefined);
           const _dr = await debitCredits(_userId, _cogs, "multipart_generation_cogs",
             { root_work_id: rootId, part_id: part.id });
           if (!_dr.ok) {

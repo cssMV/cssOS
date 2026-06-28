@@ -470,7 +470,28 @@
       label: (loc.indexOf("zh") === 0) ? "🌕 三部曲模板《苏东坡·明月》" : "🌕 Trilogy template 《Su Dongpo · Moon》",
       prompt: SUDONGPO_PROMPT
     };
+    // CSSOS_WAVE_1272 20260628 — Jing 内置《李清照·声声慢三部曲》(改编李清照《声声慢·寻寻觅觅》)。
+    //   京典 10 节; 副歌【必须逐字】含「寻寻觅觅,冷冷清清,凄凄惨惨戚戚 / 这次第,怎一个愁字了得」。
+    //   十四叠字慢板=验证 W1270 音高感知 onset(抒情拖腔)的标杆; 李清照=女性词人→指定女声。
+    var LIQINGZHAO_PROMPT = [
+      "用京典模板(10 节: Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro)把李清照《声声慢·寻寻觅觅》改编为《李清照·声声慢三部曲》。work_type: triptych(三部曲,3 部各一首)。语言:中文。文明:中华文明(南宋)。人物:李清照,婉约派词宗、千古第一才女,南渡后家国零落、孤身漂泊,于秋日黄昏独对梧桐细雨。",
+      "原词(李清照《声声慢·寻寻觅觅》,忠于原词意象/用典,不要臆造):",
+      "寻寻觅觅,冷冷清清,凄凄惨惨戚戚。乍暖还寒时候,最难将息。三杯两盏淡酒,怎敌他、晚来风急?雁过也,正伤心,却是旧时相识。",
+      "满地黄花堆积,憔悴损,如今有谁堪摘?守着窗儿,独自怎生得黑?梧桐更兼细雨,到黄昏、点点滴滴。这次第,怎一个愁字了得!",
+      "【小节标签格式】标签用英文 + 中文小节标题,例如 [Verse 1: 寻寻觅觅]、[Chorus 1: 晚来风急]。这些标签是非歌词标记,必须放方括号内。",
+      "【硬性要求】每首的高潮副歌(Chorus)必须逐字包含以下两句(required hooks),绝不改动:",
+      "寻寻觅觅,冷冷清清,凄凄惨惨戚戚",
+      "这次第,怎一个愁字了得",
+      "【演唱声线】李清照为女性词人,务必用女声演唱。",
+      "【音乐风格(英文,Suno 要求)】graceful Chinese wanyue ci, Song-dynasty literati melancholy, guqin, guzheng, xiao flute, pipa, erhu, soft rain ambience, sparse cinematic strings; female vocal; mood: desolate → grieving → bottomless sorrow.",
+      "三部递进(忠于原词意象):Ⅰ《寻寻觅觅》— 十四叠字起、乍暖还寒、三杯淡酒怎敌晚来风急,孤清愁绪初起;Ⅱ《旧时相识》— 雁过伤心却是旧识、满地黄花堆积憔悴损、物是人非无人堪摘;Ⅲ《怎一个愁字》— 守窗独坐怎生得黑、梧桐细雨到黄昏点点滴滴,愁到极处,一个『愁』字再也说不尽。"
+    ].join("\n");
+    var liqingzhaoTpl = {
+      label: (loc.indexOf("zh") === 0) ? "💧 三部曲模板《李清照·声声慢》" : "💧 Trilogy template 《Li Qingzhao · Slow Notes》",
+      prompt: LIQINGZHAO_PROMPT
+    };
     var seeds = loc.indexOf("zh") === 0 ? [
+      liqingzhaoTpl,
       dufuTpl,
       sudongpoTpl,
       libaiTpl,
@@ -481,6 +502,7 @@
       "拿破仑 × 凯旋门，单曲就行",
       "孙悟空 × 凌霄宝殿，唐风",
     ] : loc.indexOf("ja") === 0 ? [
+      liqingzhaoTpl,
       dufuTpl,
       sudongpoTpl,
       libaiTpl,
@@ -490,6 +512,7 @@
       "紫式部 × 源氏物語の単曲",
       "葛飾北斎 × 富士山",
     ] : [
+      liqingzhaoTpl,
       dufuTpl,
       sudongpoTpl,
       libaiTpl,

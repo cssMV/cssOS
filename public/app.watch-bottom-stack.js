@@ -168,7 +168,8 @@
     //   价格条/AI 之前(价格条空时直抵 AI 前)。
     // CSSOS_WAVE_1262 — Jing 诊断: 网格不对称(右列 minmax44,auto)→ 左列1fr把中列多语言挤到右边, 没居中。
     //   改【左右对称 1fr】→ 中列(桌面=多语言/价格)真正居中。字幕左、AI 右对称留位。
-    line.style.cssText = "display:grid;grid-template-columns:minmax(72px,1fr) auto minmax(72px,1fr);align-items:center;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
+    // CSSOS_WAVE_1263 — Jing「字幕/多语言/AI 都要贴底」: 网格三列【底部对齐】end(原 center 让较矮的字幕显得偏上)。
+    line.style.cssText = "display:grid;grid-template-columns:minmax(72px,1fr) auto minmax(72px,1fr);align-items:end;column-gap:6px;width:100%;min-width:0;min-height:" + AI_FAB_H + ";box-sizing:border-box;";
     if (sub) {
       sub.style.setProperty("min-width", "0", "important");
       sub.style.setProperty("white-space", "nowrap", "important");
@@ -180,7 +181,7 @@
       sub.style.setProperty("transform", "none", "important");
       sub.style.setProperty("opacity", "1", "important");
       sub.style.setProperty("justify-self", "start", "important");
-      sub.style.setProperty("align-self", "center", "important");   // 上下居中, 与 AI 平
+      sub.style.setProperty("align-self", "end", "important");   // W1263 — 底部对齐, 与多语言/AI 贴底齐平
       sub.style.setProperty("grid-row", "1", "important");          // 上行
       sub.style.setProperty("grid-column", "1", "important");       // 左列(右列 52px 留给 AI FAB)
       // CSSOS_WAVE_1126 — Jing 报「多语言整合后点不动」: 传统字幕是纯展示文字, 其左列的框(1fr)可能盖住
@@ -201,7 +202,7 @@
       price.style.setProperty("transform", "none", "important");
       price.style.setProperty("margin", "0", "important");
       price.style.setProperty("justify-self", "center", "important");
-      price.style.setProperty("align-self", "center", "important");
+      price.style.setProperty("align-self", "end", "important");   // W1263 贴底
       // CSSOS_WAVE_864 — 价格条自适应 + 装不下横滑: min-width:0(可收缩)+ 有界 max-width → 宪法 overflow-x:auto 接管。
       price.style.setProperty("min-width", "0", "important");
       // CSSOS_WAVE_1020 — 统一单行: 价格条恒在【中列】, 窄屏靠宪法横滑收纳, 不再下沉成第二行。
@@ -219,7 +220,7 @@
       lang.style.setProperty("grid-row", "1", "important");
       lang.style.setProperty("grid-column", "2", "important");       // 中列
       lang.style.setProperty("justify-self", "center", "important"); // 居中
-      lang.style.setProperty("align-self", "center", "important");
+      lang.style.setProperty("align-self", "end", "important");   // W1263 贴底
       lang.style.setProperty("min-width", "0", "important");
       lang.style.setProperty("max-width", isApp ? "min(64vw, 460px)" : "min(70vw, 680px)", "important");
       lang.style.setProperty("pointer-events", "auto", "important");
@@ -335,9 +336,8 @@
     if (!sub) { fab.style.removeProperty("bottom"); return; }
     var sr = sub.getBoundingClientRect();
     if (!sr || !sr.height) { fab.style.removeProperty("bottom"); return; }
-    var fabH = fab.offsetHeight || 42;
-    var subCenterFromBottom = window.innerHeight - (sr.top + sr.height / 2);
-    var bottomPx = Math.max(8, Math.round(subCenterFromBottom - fabH / 2));
+    // W1263 — 对齐字幕【底边】(而非中心), 让 AI 和字幕/多语言一起贴底齐平。
+    var bottomPx = Math.max(8, Math.round(window.innerHeight - sr.bottom));
     fab.style.setProperty("bottom", bottomPx + "px", "important");
   }
 

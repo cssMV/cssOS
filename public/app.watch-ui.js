@@ -12807,8 +12807,22 @@ globalThis.pickWatchRandomFontModule = pickWatchRandomFontModule;
       return vid.videoWidth > 0 && vid.videoHeight > 0 &&
         (vid.videoWidth / vid.videoHeight) >= ULTRA_WIDE;
     }
+    // CSSOS_WAVE_1469c — 底部居中, 垂直顶到整条底栈(#cssos-watch-bottomflow)之上,
+    //   绝不压多语言行。横屏态(.watch-screen 已 rotate)底栈通常隐藏 → 回落兜底偏移。
+    function reposition() {
+      if (btn.hidden) return;
+      var bottom = 96;
+      if (!document.documentElement.classList.contains("cssos-cinema-landscape")) {
+        var flow = document.getElementById("cssos-watch-bottomflow");
+        if (flow) {
+          var h = Math.round(flow.getBoundingClientRect().height || 0);
+          if (h > 0) bottom = h + 16; // 顶在底栈之上 16px
+        }
+      }
+      btn.style.bottom = "calc(" + bottom + "px + env(safe-area-inset-bottom, 0px))";
+    }
     function sync() {
-      if (isWide()) { btn.hidden = false; }
+      if (isWide()) { btn.hidden = false; reposition(); }
       else { btn.hidden = true; resetRotate(); }
     }
     vid.addEventListener("loadedmetadata", sync);
@@ -12817,10 +12831,27 @@ globalThis.pickWatchRandomFontModule = pickWatchRandomFontModule;
     btn.addEventListener("click", function (e) {
       e.stopPropagation(); e.preventDefault();
       document.documentElement.classList.toggle("cssos-cinema-landscape");
+      reposition();
     });
     // 退出影院/关面板/换作品 → 复位, 不卡横屏。
     window.addEventListener("cssos:cinema-exit", resetRotate);
     document.addEventListener("panelclose", resetRotate);
+    window.addEventListener("resize", reposition);
+    // 底栈高度随多语言/Next-up/价格条异步变化 → 跟随重定位。
+    try {
+      var flowWatch = document.getElementById("cssos-watch-bottomflow");
+      if (flowWatch && typeof ResizeObserver === "function") {
+        new ResizeObserver(reposition).observe(flowWatch);
+      }
+      var _origRecompute = globalThis.cssosRecomputeBottomStack;
+      if (typeof _origRecompute === "function") {
+        globalThis.cssosRecomputeBottomStack = function () {
+          var r = _origRecompute.apply(this, arguments);
+          try { reposition(); } catch (_e) {}
+          return r;
+        };
+      }
+    } catch (_e) {}
     if (vid.readyState >= 1) sync();
   }
   if (document.readyState === "complete" || document.readyState === "interactive") wire();

@@ -145,7 +145,9 @@
       // CSSOS_WAVE_587j — Jing「胶囊撑满轨道, 别空一截; Want an MV 别被截断」:
       //  · 轨道高度=胶囊高度(40px)+ 子胶囊撑满(height:100%, 居中), 消除宪法 42px 容器底部的空缝。
       //  · max-width 放宽到 min(96vw,980px), 桌面端 6 颗满文字胶囊放得下不被圆角裁切; 窄屏仍可横滑。
-      "#watch-language-pill{overflow-x:auto !important;max-width:min(96vw,980px) !important;height:40px !important;min-height:40px !important;align-items:center !important;scrollbar-width:none;}",
+      // CSSOS_WAVE_1262c — Jing「左中右是 flex 一行, 不该有绝对定位; max-width:96vw≈397px 才是'太长压右轨'真根」。
+      //   改根: App(窄屏)封顶 = 视口宽 - 84px(给右轨≈60+左10+余量), 自动清右轨; 桌面保持 980。纯 CSS, 无绝对、无强制。
+      "#watch-language-pill{overflow-x:auto !important;max-width:min(calc(100vw - 84px),980px) !important;height:40px !important;min-height:40px !important;align-items:center !important;scrollbar-width:none;}",
       // CSSOS_WAVE_678j — Jing「别平均胶囊长度, 要自适应」: 宪法列是 minmax(max-content,1fr), 那个 1fr 在轨道比
       // 内容宽时把每颗等分拉成平均宽 → 长文案(Want an MV like this)分不到够宽被截断。语言条单独改 max-content
       //(每颗按内容自适应)+ 左对齐。凹咬靠固定 +20px 重叠, 与基础宽无关, 不受影响。仅覆盖本条, 不动全局宪法。

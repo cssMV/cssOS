@@ -22204,8 +22204,9 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               prompt: [part.title, part.style, lyr.slice(0, 500),
                 "cinematic narrative scene with natural dialogue, ambient sound and filmic score, no on-screen text"].filter(Boolean).join(", "),
               duration_secs: 8,
-              aspect_ratio: "2.39:1", // 画幅铁律
-              ...(_eng.video_prefer.length ? { prefer: _eng.video_prefer } : { prefer: ["google"] }), // 用户选的视频引擎, 默认 Veo 3.1
+              aspect_ratio: "2.39:1", // 画幅铁律 → 21:9 超宽屏
+              native_audio: true,     // CSSOS_WAVE_1466 — 叙事【有声有画】: 视频原生出对白/环境音
+              ...(_eng.video_prefer.length ? { prefer: _eng.video_prefer } : { prefer: ["seedance"] }), // 默认 seedance(kie, 能用); Veo 待接
             });
             if (vid && vid.ok && vid.video_url) stableVid = await persistRemoteVideoToStable(vid.video_url); // 落 R2
           }
@@ -23903,6 +23904,9 @@ type VideoGenRequest = {
   prefer?: string[];
   /* Per-provider model override (from cookie cssos_video_<provider>_model). */
   prefer_model?: Record<string, string>;
+  /* CSSOS_WAVE_1466 — 叙事视频要【有声有画】: 视频原生出声(对白/环境音), 不是画音分层的静音画面。
+   * 音乐 MV 仍默认静音(铁律: 音频走独立 Suno 轨)。仅叙事(短剧/连续剧/电影)置 true。 */
+  native_audio?: boolean;
 };
 type VideoGenResponse = {
   ok: boolean;
@@ -23965,7 +23969,9 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         const sdModel = await resolveEngineModel("video", "seedance", req, process.env.SEEDANCE_MODEL, "bytedance/seedance-2");
         const input: Record<string, unknown> = {
           prompt: String(req.prompt || "").slice(0, 20000),
-          generate_audio: false,
+          // CSSOS_WAVE_1466 — 叙事(有声有画)→ generate_audio:true(对白/环境音随画面出);
+          // 音乐 MV 默认 false(画音分层铁律, 音频走独立 Suno 轨)。
+          generate_audio: !!req.native_audio,
           resolution: "720p",
           aspect_ratio: ar,
           duration: dur,

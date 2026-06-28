@@ -1532,6 +1532,27 @@
           setTimeout(function () { try { globalThis.cssosOpenCreditsTopup(); } catch (_) {} }, 400);
         }
       }
+      // CSSOS_WAVE_1455c — 生成权不足(权 ⊥ 费): 引导【订阅 / 买生成权包】, 不死胡同。
+      var noRights = (j.tool_calls || []).find(function (t) {
+        return t && t.result_summary && t.result_summary.indexOf("no_generation_rights") >= 0;
+      });
+      if (noRights) {
+        var _msg = tr("Out of generation rights this month. Subscribe for more, or buy a generation pack.",
+          "本月生成权用完了。订阅获取更多，或购买生成权包。");
+        if (typeof globalThis.cssosGuidedToast === "function") {
+          globalThis.cssosGuidedToast(_msg, { actions: [
+            { label: tr("Buy generation pack", "买生成权包"), onClick: function () {
+                fetch("/api/works/buy-generation-rights", { method: "POST", credentials: "include",
+                  headers: { "content-type": "application/json" }, body: JSON.stringify({ count: 3 }) })
+                  .then(function (r) { return r.json(); })
+                  .then(function (d) {
+                    if (d && d.ok) renderSystem(tr("Added 3 generation rights. Try again.", "已添加 3 次生成权，请重试。"));
+                    else if (d && d.error === "insufficient_credit" && typeof globalThis.cssosOpenCreditsTopup === "function") globalThis.cssosOpenCreditsTopup();
+                  }).catch(function () {});
+              } },
+          ] });
+        } else { renderSystem(_msg); }
+      }
       updateMeta({ turns_this_hour: j.turns_this_hour, turns_per_hour_limit: j.turns_this_hour + j.turns_remaining });
     } catch (err) {
       clearTyping();

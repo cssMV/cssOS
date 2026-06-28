@@ -7513,6 +7513,18 @@ async function runAgentTool(
         && ["triptych", "shortplay", "series", "film"].includes(wt);
       const debitCost = costForCreateWork(wt);
       if (!_backendMultipartBilling) {
+        // CSSOS_WAVE_1455c — ④ 单曲也上【生成权闸】(1 单曲 = 1 次生成权; 无权拦, 钱包有钱也不行)。
+        // 与生成费用(下面 debitCost / pipeline)分开。staff/admin 的 allowance=无限 → 跳过。
+        if (wt === "single") {
+          const _allow = await monthlyFreeGenLimit(String(ctx.userId));
+          if (_allow < 1e9) {
+            const _hasRight = await consumeOneGenerationRight(String(ctx.userId), _allow);
+            if (!_hasRight) {
+              return { error: "no_generation_rights", need_rights: 1, have_rights: 0,
+                hint: "Not enough generation rights — subscribe or buy a generation pack." };
+            }
+          }
+        }
         const debitR = await debitCredits(ctx.userId, debitCost, "create_work", { work_type: wt, title });
         if (!debitR.ok) {
           return { error: "insufficient_credit", need: debitCost, have: debitR.balance, hint: "Earn credits via plays / forks / boost, or top up in Settings → Subscription." };
@@ -8435,7 +8447,7 @@ async function runAgentTool(
                 hint: "Not enough generation rights for this trilogy — subscribe or buy a generation pack." };
             }
             // 闸 B: COGS 钱包够不够(每部都付第三方引擎费, 与生成权无关)。
-            const _cogs = GENERATION_PRICE_CENTS;
+            const _cogs = generationCostCents();
             const _need = parts.length * _cogs;
             const _bal = await getCreditBalance(String(ctx.userId)).catch(() => 0);
             if (_bal < _need) {
@@ -9337,10 +9349,18 @@ const CSSOS_AGENT_COSTS = {
   dm_send:              0,    // free
 } as const;
 
-// CSSOS_WAVE_1455b — Jing: 每次生成的【售价】= 99¢/次(不是 Suno 原始成本 ~11¢)。"1 次生成" = 1 个
-// Suno 调用 = 1 部 = take1+take2 两首歌, 按【1 次】收, 不按 2 首算。三部曲 = 3 次 = 297¢。超出免费生成权
-// 额度后按此价收(或买生成权包)。改价改这里。
-const GENERATION_PRICE_CENTS = 99;
+// CSSOS_WAVE_1455c — 生成权 ⊥ 生成费用(两笔分开, Jing 铁律):
+//   ① 生成权售价 = 99¢/次(= 买【生成权包】的单价; 这是"权利", 不含引擎费)。"1 次生成"=1 个 Suno
+//      调用=1 部=take1+take2 两首歌, 按【1 次】算。三部曲 = 3 次生成权。
+//   ② 生成费用 = 第三方引擎【实际费】× (1+加成)(用户自付, 是引擎收的不是我们赚的)。引擎实际费随
+//      引擎不同(Suno 音乐 ~10¢ + 歌词 LLM ~1¢)。加成 Jing 之前说 ~30%(记忆未记, 暂用 1.30 待确认)。
+const GENERATION_RIGHT_PRICE_CENTS = 99;     // 生成权单价(买包用), 不含引擎费
+const GENERATION_COGS_MARKUP = 1.30;         // 生成费用加成系数(引擎实际费 ×此); 待 Jing 确认确切值
+// 一次生成的【生成费用】= 引擎实际费(规划+音乐) × 加成, 用户自付。
+function generationCostCents(): number {
+  return Math.max(1, Math.round(
+    (CSSOS_AGENT_COSTS.create_work_single + CSSOS_AGENT_COSTS.generate_audio) * GENERATION_COGS_MARKUP));
+}
 
 async function getCreditBalance(userId: string): Promise<number> {
   try {
@@ -10012,7 +10032,73 @@ app.post("/api/works/:work_id/resume", express.json({ limit: "8kb" }), async (re
 /* GET /api/agent/cost-rates — public; frontend shows fee preview. */
 app.get("/api/agent/cost-rates", (_req, res) => {
   noStore(res);
-  return res.json({ ok: true, rates: CSSOS_AGENT_COSTS });
+  return res.json({
+    ok: true,
+    rates: CSSOS_AGENT_COSTS,
+    // CSSOS_WAVE_1455c — 生成定价(权 ⊥ 费): 生成权 99¢/次(包单价), 生成费用=引擎实际费×加成。
+    generation: {
+      right_price_cents: GENERATION_RIGHT_PRICE_CENTS,   // 生成权售价(买包)
+      cost_cents: generationCostCents(),                  // 生成费用(引擎费×加成, 用户自付)
+      cogs_markup: GENERATION_COGS_MARKUP,
+      free_monthly_rights: FREE_MONTHLY_GENERATIONS,      // 各档每月免费生成权
+      note: "1 generation = 1 engine call = 1 part (take1+take2). Right and cost are separate.",
+    },
+  });
+});
+
+// CSSOS_WAVE_1455c — 买生成权包(用钱包余额付): body {count} → 扣 99¢×count → gen_rights += count。
+// 显式购买(与"生成时不自动从钱包买权"不冲突)。staff/admin 免费拿(直接加, 不扣)。
+app.post("/api/works/buy-generation-rights", express.json({ limit: "1kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const count = Math.max(1, Math.min(100, Math.floor(Number((req.body || {}).count) || 1)));
+  try {
+    const exempt = await isCreditExempt(String(userId));
+    if (!exempt) {
+      const cost = count * GENERATION_RIGHT_PRICE_CENTS;
+      const dr = await debitCredits(String(userId), cost, "buy_generation_rights", { count });
+      if (!dr.ok) {
+        return res.status(402).json({ ok: false, error: "insufficient_credit", need: cost, have: dr.balance });
+      }
+    }
+    await withClient((c) => c.query(
+      `INSERT INTO user_credits (user_id, balance, gen_rights) VALUES ($1::uuid, 0, $2)
+         ON CONFLICT (user_id) DO UPDATE SET gen_rights = user_credits.gen_rights + $2, updated_at = now()`,
+      [userId, count]));
+    const bal = await withClient((c) => c.query<{ gen_rights: number }>(
+      `SELECT gen_rights FROM user_credits WHERE user_id = $1::uuid`, [userId]));
+    return res.json({ ok: true, granted: count, gen_rights: Number(bal.rows[0]?.gen_rights || count) });
+  } catch (err) {
+    console.warn("[buy-generation-rights] failed:", err instanceof Error ? err.message : String(err));
+    return res.status(500).json({ ok: false, error: "buy_failed" });
+  }
+});
+
+// CSSOS_WAVE_1455c — 系统【免费发放】生成权(过年过节等; admin-token, ops)。只给【权】不含 COGS。
+app.post("/api/admin/grant-generation-rights", express.json({ limit: "2kb" }), async (req, res) => {
+  const adminTokenExpected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!adminTokenExpected || String(req.headers["x-admin-token"] || "").trim() !== adminTokenExpected) {
+    return res.status(403).json({ ok: false, error: "forbidden" });
+  }
+  const b = req.body || {};
+  const count = Math.max(1, Math.min(1000, Math.floor(Number(b.count) || 0)));
+  const targetUserId = String(b.user_id || "").trim();
+  try {
+    if (targetUserId) {
+      await withClient((c) => c.query(
+        `INSERT INTO user_credits (user_id, balance, gen_rights) VALUES ($1::uuid, 0, $2)
+           ON CONFLICT (user_id) DO UPDATE SET gen_rights = user_credits.gen_rights + $2, updated_at = now()`,
+        [targetUserId, count]));
+      return res.json({ ok: true, granted: count, user_id: targetUserId });
+    }
+    // 无 user_id → 全体发放(过节). 给所有有 user_credits 行的用户 + 没行的也建。
+    const r = await withClient((c) => c.query(
+      `UPDATE user_credits SET gen_rights = gen_rights + $1, updated_at = now()`, [count]));
+    return res.json({ ok: true, granted_each: count, affected: r.rowCount || 0 });
+  } catch (err) {
+    console.warn("[grant-generation-rights] failed:", err instanceof Error ? err.message : String(err));
+    return res.status(500).json({ ok: false, error: "grant_failed" });
+  }
 });
 
 /* CSSOS_WAVE_139B 20260514 — credit-pack top-up endpoints.

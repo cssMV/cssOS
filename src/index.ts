@@ -2723,25 +2723,30 @@ app.get("/api/works/:id/generation-progress", async (req, res) => {
     const r = await withClient((c) => c.query<{
       id: string; title: string; sequence_index: number;
       structure_role: string; is_seed: boolean; preview_audio_url: string | null;
-      preview_video_url: string | null; cover_image: string | null;
+      preview_video_url: string | null; cover_image: string | null; gen_failed: boolean;
     }>(
       // CSSOS_WAVE_1450 — 纳入 take2 兄弟(每部双 take → 影院播两首)。排序: 同 sequence_index
       // 下 take1(role≠take2)先于 take2, 保证播放顺序 part1·take1 → part1·take2 → part2…
-      `SELECT id::text, title, sequence_index, structure_role,
-              (lyrics_preview LIKE '[seed]%') AS is_seed,
-              preview_audio_url, preview_video_url, cover_image
-         FROM user_works
-        WHERE (root_work_id = $1::uuid OR id = $1::uuid)
-          AND structure_role IN ('part', 'scene', 'episode', 'take2')
-          AND status <> 'deleted'
-        ORDER BY sequence_index ASC, (structure_role = 'take2') ASC, created_at ASC`,
+      // CSSOS_WAVE_1453 — 带出 gen_failed(引擎对永久失败的部打的终态标), 让 pending 不再永真。
+      `SELECT w.id::text, w.title, w.sequence_index, w.structure_role,
+              (w.lyrics_preview LIKE '[seed]%') AS is_seed,
+              w.preview_audio_url, w.preview_video_url, w.cover_image,
+              COALESCE((SELECT (a.meta->>'failed')::boolean FROM work_assets a
+                          WHERE a.work_id = w.id AND a.asset_type = 'gen_lock' LIMIT 1), false) AS gen_failed
+         FROM user_works w
+        WHERE (w.root_work_id = $1::uuid OR w.id = $1::uuid)
+          AND w.structure_role IN ('part', 'scene', 'episode', 'take2')
+          AND w.status <> 'deleted'
+        ORDER BY w.sequence_index ASC, (w.structure_role = 'take2') ASC, w.created_at ASC`,
       [workId],
     ));
     const rows = r.rows || [];
     const total = rows.length;
-    // pending = 歌词还是占位(等 W612 补词) 或 还没生成音频(等 1447 引擎补音)。
-    const pending = rows.filter((p) => p.is_seed || !p.preview_audio_url).length;
+    // pending = 歌词还是占位 或 还没生成音频; 但【已判定 gen_failed 的部不算 pending】→ 否则
+    // 某部 Suno 永久失败会让 generating 永真 → 影院永远卡在"下一部创作中…"(H4)。
+    const pending = rows.filter((p) => !p.gen_failed && (p.is_seed || !p.preview_audio_url)).length;
     const audioReady = rows.filter((p) => !!p.preview_audio_url).length;
+    const failed = rows.filter((p) => p.gen_failed && !p.preview_audio_url).length;
     const parts = rows.map((p) => ({
       id: p.id,
       title: p.title,
@@ -2752,10 +2757,11 @@ app.get("/api/works/:id/generation-progress", async (req, res) => {
       cover_url: p.cover_image || null,
       has_audio: !!p.preview_audio_url,
       lyrics_pending: !!p.is_seed,
+      failed: !!p.gen_failed && !p.preview_audio_url,
     }));
     return res.json({
       ok: true, total, ready: Math.max(0, total - pending), pending,
-      audio_ready: audioReady, generating: pending > 0, parts,
+      audio_ready: audioReady, failed, generating: pending > 0, parts,
     });
   } catch (err) {
     console.warn("[generation-progress] failed:", err instanceof Error ? err.message : String(err));
@@ -21728,21 +21734,48 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
     const partsR = await pool.query<{
       id: string; title: string; style: string | null;
       lyrics_preview: string | null; preview_audio_url: string | null;
+      gen_lock: { started_at?: number; attempts?: number; failed?: boolean } | null;
     }>(
-      `SELECT id::text, title, style, lyrics_preview, preview_audio_url
-         FROM user_works
-        WHERE (root_work_id = $1::uuid OR id = $1::uuid)
-          AND structure_role IN ('part', 'scene', 'episode')
-          AND status <> 'deleted'
-        ORDER BY sequence_index ASC, created_at ASC`,
+      `SELECT w.id::text, w.title, w.style, w.lyrics_preview, w.preview_audio_url,
+              (SELECT meta FROM work_assets a WHERE a.work_id = w.id AND a.asset_type = 'gen_lock' LIMIT 1) AS gen_lock
+         FROM user_works w
+        WHERE (w.root_work_id = $1::uuid OR w.id = $1::uuid)
+          AND w.structure_role IN ('part', 'scene', 'episode')
+          AND w.status <> 'deleted'
+        ORDER BY w.sequence_index ASC, w.created_at ASC`,
       [rootId],
     );
     const parts = partsR.rows || [];
     let made = 0;
+    // CSSOS_WAVE_1453 — 持久认领 + 有界重试(防 boot-resume 跨重启双花 / 防某部永久失败卡死影院)。
+    const NOW = Date.now();
+    const CLAIM_TTL_MS = 15 * 60 * 1000; // 认领 15 分钟有效: 重启后这段时间内不重打 Suno(它早做完了)
+    const MAX_ATTEMPTS = 3;
+    const writeGenLock = (workId: string, meta: object) =>
+      pool.query(
+        `INSERT INTO work_assets (work_id, asset_type, url, meta)
+           VALUES ($1::uuid, 'gen_lock', '', $2::jsonb)
+           ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
+           DO UPDATE SET meta = EXCLUDED.meta`,
+        [workId, JSON.stringify(meta)],
+      ).catch(() => {});
     for (const part of parts) {
       if (part.preview_audio_url) continue; // 幂等: 已生成
       const lyr = String(part.lyrics_preview || "");
       if (lyr.startsWith("[seed]")) continue; // 歌词未补全, 等下一轮(W612 先补词)
+      // H3/H4: 读持久认领状态。
+      const lock = part.gen_lock || {};
+      if (lock.failed) continue; // 终态: 判定失败, 不再重试(progress 也不算它 pending → 不卡死)
+      const attempts = Number(lock.attempts || 0);
+      const startedAt = Number(lock.started_at || 0);
+      if (startedAt && (NOW - startedAt) < CLAIM_TTL_MS) continue; // 有效认领中 → 防跨重启/并发双触发重打 Suno
+      if (attempts >= MAX_ATTEMPTS) {
+        await writeGenLock(part.id, { ...lock, attempts, failed: true });
+        console.warn(`[multipart-gen] part ${part.id} 连续 ${attempts} 次失败 → gen_failed(终态)`);
+        continue;
+      }
+      // 认领: callMusicGen 之前先落 started_at+attempts(进程崩了也留痕, 重启后 15min 内不重打)。
+      await writeGenLock(part.id, { started_at: NOW, attempts: attempts + 1 });
       try {
         const tier = await callMusicGen({
           prompt: [part.title, part.style, lyr.slice(0, 300)].filter(Boolean).join(" — "),
@@ -21750,20 +21783,21 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
           duration_secs: 60,
         });
         if (tier && tier.ok && tier.audio_url) {
+          // CSSOS_WAVE_1453 H1 — Suno 返回的是临时链(kie/tempfile, 几天就 404)→ 必须落我们
+          // /artifacts/audio/ 稳定存储, 否则隔天回来播放 404=作品哑掉, 自相矛盾"绝对不丢"。
+          const stableAudio = await persistRemoteAudioToStable(tier.audio_url);
           // 仅在仍为空时写入(防与 owner 手点 generate-audio 竞态)。
           await pool.query(
             `UPDATE user_works SET preview_audio_url = $2, updated_at = now()
                WHERE id = $1::uuid AND preview_audio_url IS NULL`,
-            [part.id, tier.audio_url],
+            [part.id, stableAudio],
           );
-          // CSSOS_WAVE_1450 — 落 audio_track_1 资产。关键: enqueueKaraokeTranscription 只读
-          // work_assets.audio_track_1(不读 preview_audio_url)→ 不建此资产字幕永远空转。
-          // 建了它: karaoke 找到音频 → 写 whisper_words → 公开接口出 karaoke_words → 影院出情绪字幕。
+          // CSSOS_WAVE_1450 — 落 audio_track_1 资产(稳定链)。karaoke 只读它 → 写 whisper_words → 情绪字幕。
           await pool.query(
             `INSERT INTO work_assets (work_id, asset_type, url, meta)
                VALUES ($1::uuid, 'audio_track_1', $2, '{}'::jsonb)
                ON CONFLICT DO NOTHING`,
-            [part.id, tier.audio_url],
+            [part.id, stableAudio],
           ).catch(() => {});
           made += 1;
           // CSSOS_WAVE_1447b — 视觉层: 给本部点火【幻灯帧池】(便宜的图), 不烧 5s 视频 stub。
@@ -21773,7 +21807,9 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
           // CSSOS_WAVE_1450 — Take 2 兄弟: Suno 每次出两 take, 别丢(否则 N 部三部曲只 N 首,
           // 不是 2N)。建 take2 兄弟 work(structure_role='take2', 挂同 root/parent=本部, 同乐章名
           // → 影院按部计数仍 i/N、但播两首)。各自 audio_track_1 资产 + 幻灯 + 情绪字幕。
-          const altUrl = String((tier as any).alt_audio_url || "").trim();
+          const altUrl0 = String((tier as any).alt_audio_url || "").trim();
+          // H1 — take2 音频也落稳定存储(否则 take2 也几天后哑掉)。
+          const altUrl = altUrl0 ? await persistRemoteAudioToStable(altUrl0) : "";
           if (altUrl) {
             try {
               const t2Id = crypto.randomUUID();
@@ -34013,6 +34049,7 @@ app.get("/cssapi/v1/mv", async (req, res) => {
               WHERE w.user_id = $1
                 AND fm.url IS NOT NULL
                 AND COALESCE((fm.meta->>'take_index')::int, 1) <> 2
+                AND w.structure_role <> 'take2'
            ),
            roots AS (
              SELECT DISTINCT pl.root_id AS id,
@@ -34094,6 +34131,7 @@ app.get("/cssapi/v1/mv", async (req, res) => {
               -- both takes as separate items. Take 1 carries both audio
               -- URLs and the toggle plays them sequentially.
               AND COALESCE((fm.meta->>'take_index')::int, 1) <> 2
+                AND w.structure_role <> 'take2'
               ${cursorClause}
             ORDER BY w.created_at DESC, w.id DESC
             LIMIT $1`,

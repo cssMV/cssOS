@@ -1566,6 +1566,15 @@
       if (!root || !root.root_work_id) return;
       if (!root.generating && !root.has_audio) return;            // 没东西可播
       try { if (localStorage.getItem(exitedKey(root.root_work_id))) return; } catch (_e) {} // 用户已看过/退出(持久, 关机也记得)
+      // CSSOS_WAVE_1453 M1 — 防骚扰: 生成中的【总是重连】(回到正在出的现场); 但【已完整输出】的
+      // 只自动开【一次】(否则用户没经 ×退出而是导航离开 → 7 天内每次进站都被强行扔进影院)。
+      if (!root.generating) {
+        try {
+          var shownKey = "cssos_mp_shown_" + root.root_work_id;
+          if (localStorage.getItem(shownKey)) return;            // 完整作品已自动开过一次 → 不再骚扰
+          localStorage.setItem(shownKey, "1");
+        } catch (_e) {}
+      }
       var total = Math.max(1, Number(root.total) || 3);
       var plan = {
         root_work_id: root.root_work_id,

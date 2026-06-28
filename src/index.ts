@@ -2827,7 +2827,7 @@ app.get("/api/works/my-latest-multipart", async (req, res) => {
         WHERE root.user_id = $1::uuid
           AND root.parent_work_id IS NULL
           AND root.status <> 'deleted'
-          AND root.created_at > now() - interval '2 hours'
+          AND root.created_at > now() - interval '7 days'
           AND EXISTS(SELECT 1 FROM user_works c
                        WHERE c.root_work_id = root.id
                          AND c.structure_role IN ('part','scene','episode'))
@@ -53866,6 +53866,43 @@ async function start() {
     try { startHandoffGcLoop(); } catch (err) {
       console.warn("[handoff-gc] failed to start loop:", err);
     }
+    // CSSOS_WAVE_1452 — 服务器启动续跑(金标准): 开机扫描【有未完成部的多部 root】接着把剩余部
+    // 生成完。连我们服务器重启/部署/崩溃都不丢半成品三部曲(对照: 引擎是进程内后台作业, 进程没了
+    // 作业就没了 → 不续跑就永远缺部)。幂等(引擎跳过已有音频的部)+ 单飞(_multipartGenInflight)
+    // → 重复扫不重复烧钱。错峰点火防 Suno 拥塞。排除 [seed](歌词未补全, 归 W612 词工)。
+    try {
+      setTimeout(async () => {
+        try {
+          const pool = getPool();
+          const r = await pool.query<{ id: string; user_id: string }>(
+            `SELECT DISTINCT root.id::text, root.user_id::text
+               FROM user_works root
+              WHERE root.parent_work_id IS NULL
+                AND root.status <> 'deleted'
+                AND root.created_at > now() - interval '24 hours'
+                AND EXISTS(
+                  SELECT 1 FROM user_works p
+                   WHERE p.root_work_id = root.id
+                     AND p.structure_role IN ('part','scene','episode')
+                     AND p.preview_audio_url IS NULL
+                     AND p.lyrics_preview NOT LIKE '[seed]%')`,
+          );
+          const roots = r.rows || [];
+          if (roots.length) {
+            console.info(`[boot-resume] ${roots.length} multipart root(s) with unfinished parts → resuming`);
+            roots.forEach((row, i) => {
+              setTimeout(() => {
+                enqueueMultipartPartsGeneration(row.id, row.user_id).catch((e) =>
+                  console.warn("[boot-resume] root", row.id, "failed:",
+                    e instanceof Error ? e.message : String(e)));
+              }, i * 5000); // 错峰 5s/个
+            });
+          }
+        } catch (e) {
+          console.warn("[boot-resume] scan failed:", e instanceof Error ? e.message : String(e));
+        }
+      }, 8000); // 开机 8s 后扫, 让服务先稳
+    } catch (_e) {}
     // CSSOS_WAVE_1082b — 静态权限自愈(根治反复的 i18n/静态 600→nginx 500→全站漏键):
     //   开机 + 每 30 分钟扫 public 顶层 + i18n/ 的 .js/.css/.json, 发现非 world-readable(600)
     //   就尽力 chmod 644(node 以 www-data 跑, 仅当文件可被本进程 chmod 时生效); 修不了则写

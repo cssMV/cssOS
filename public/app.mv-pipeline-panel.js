@@ -8865,8 +8865,9 @@
     // CSSOS_WAVE_1449 — 退影院: 清幻灯轮播定时器 + 多部订阅轮询定时器(OOM 安全)。
     try { if (cinemaSt._slideshowTimer) { clearInterval(cinemaSt._slideshowTimer); cinemaSt._slideshowTimer = null; } } catch (_e) {}
     try { if (cinemaSt._mpPollTimer) { clearTimeout(cinemaSt._mpPollTimer); cinemaSt._mpPollTimer = null; } } catch (_e) {}
-    // CSSOS_WAVE_1451 — 用户退出多部影院 → 本会话标记此 root 已退出, 刷新不再自动续播它(尊重用户干预)。
-    try { if (cinemaSt._mpRootId) sessionStorage.setItem("cssos_mp_exited_" + cinemaSt._mpRootId, "1"); } catch (_e) {}
+    // CSSOS_WAVE_1451/1452 — 用户退出多部影院 → 持久标记此 root 已看过, 刷新/关机/隔天都不再自动
+    // 续播它(localStorage 持久, 尊重"除非用户干预"; 未看过被关机打断的仍会自动续播)。
+    try { if (cinemaSt._mpRootId) localStorage.setItem("cssos_mp_exited_" + cinemaSt._mpRootId, "1"); } catch (_e) {}
     // CSSOS_PHASE2_MV_WAVE6 20260507 — Jing
     // Tear down end-of-MV CTAs overlay + storm grid + bound key handlers.
     if (cinemaSt._w6KeyHandler) {

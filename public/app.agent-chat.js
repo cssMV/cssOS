@@ -1565,7 +1565,7 @@
       var root = j && j.ok && j.root;
       if (!root || !root.root_work_id) return;
       if (!root.generating && !root.has_audio) return;            // 没东西可播
-      try { if (sessionStorage.getItem(exitedKey(root.root_work_id))) return; } catch (_e) {} // 本会话已退出
+      try { if (localStorage.getItem(exitedKey(root.root_work_id))) return; } catch (_e) {} // 用户已看过/退出(持久, 关机也记得)
       var total = Math.max(1, Number(root.total) || 3);
       var plan = {
         root_work_id: root.root_work_id,

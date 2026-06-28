@@ -8447,7 +8447,7 @@ async function runAgentTool(
                 hint: "Not enough generation rights for this trilogy — subscribe or buy a generation pack." };
             }
             // 闸 B: COGS 钱包够不够(每部都付第三方引擎费, 与生成权无关)。
-            const _cogs = generationCostCents();
+            const _cogs = await generationCostCents();
             const _need = parts.length * _cogs;
             const _bal = await getCreditBalance(String(ctx.userId)).catch(() => 0);
             if (_bal < _need) {
@@ -9355,14 +9355,22 @@ const CSSOS_AGENT_COSTS = {
 //   ② 生成费用 = 第三方引擎【实际费】× (1+加成)(用户自付, 是引擎收的不是我们赚的)。引擎实际费随
 //      引擎不同(Suno 音乐 ~10¢ + 歌词 LLM ~1¢)。加成 Jing 之前说 ~30%(记忆未记, 暂用 1.30 待确认)。
 const GENERATION_RIGHT_PRICE_CENTS = 99;     // 生成权单价(买包用), 不含引擎费
-const GENERATION_COGS_MARKUP = 1.30;         // 生成费用加成系数(引擎实际费 ×此); 待 Jing 确认确切值
-// 一次生成的【生成费用】= 引擎实际费(规划+音乐) × 加成, 用户自付。
-// TODO(多引擎): Kie 有 24 个音乐引擎, Suno 只是默认(像歌词三强, 用户可选其他)。生成费用必须【按用户
-// 实际选的引擎的真实 kie 价 ×1.30 动态算】——目前固定用 Suno 估算(generate_audio=10¢)。等多引擎选择
-// 上来时, 给本函数传 engine/model, 查 kie 价表(或读实际计费)× markup。生成权(99¢)与引擎无关, 不变。
-function generationCostCents(/* engine?: string */): number {
-  return Math.max(1, Math.round(
-    (CSSOS_AGENT_COSTS.create_work_single + CSSOS_AGENT_COSTS.generate_audio) * GENERATION_COGS_MARKUP));
+// 默认音乐引擎 = 主 Suno 生成歌曲(kie 目录 id; 实价 kie $0.06 → ×1.3 = $0.078 ≈ 8¢)。
+const DEFAULT_MUSIC_ENGINE_ID = "ai-music-api/generate";
+// CSSOS_WAVE_1455e — 一次生成的【生成费用】= 用户实际选的引擎的真实 kie 价 × 1.3(= 目录 usdOurs), 用户
+// 自付。【多引擎已天然支持】: Kie 24 音乐引擎的价都在 fetchKieCatalog(W523)目录里(usdKie/usdOurs),
+// 传 engineId 即按那个引擎算; 默认 Suno generate。markup 复用 KIE_MARKUP(=1.3, 单一源, 与目录一致)。
+// 生成权(99¢)与引擎无关, 不变。目录拉取失败 → 退回 generate_audio×KIE_MARKUP 估算。
+async function generationCostCents(engineId?: string): Promise<number> {
+  try {
+    const cat = await fetchKieCatalog();
+    const music: KieCatalogEntry[] = (cat?.stages?.music || []) as KieCatalogEntry[];
+    const wantId = engineId || DEFAULT_MUSIC_ENGINE_ID;
+    const entry = music.find((e) => e.id === wantId)
+      || music.find((e) => e.id === DEFAULT_MUSIC_ENGINE_ID && (e.usdOurs || 0) > 0);
+    if (entry && (entry.usdOurs || 0) > 0) return Math.max(1, Math.round(entry.usdOurs * 100));
+  } catch { /* fall through to estimate */ }
+  return Math.max(1, Math.round(CSSOS_AGENT_COSTS.generate_audio * KIE_MARKUP));
 }
 
 async function getCreditBalance(userId: string): Promise<number> {
@@ -10033,18 +10041,19 @@ app.post("/api/works/:work_id/resume", express.json({ limit: "8kb" }), async (re
 });
 
 /* GET /api/agent/cost-rates — public; frontend shows fee preview. */
-app.get("/api/agent/cost-rates", (_req, res) => {
+app.get("/api/agent/cost-rates", async (_req, res) => {
   noStore(res);
   return res.json({
     ok: true,
     rates: CSSOS_AGENT_COSTS,
-    // CSSOS_WAVE_1455c — 生成定价(权 ⊥ 费): 生成权 99¢/次(包单价), 生成费用=引擎实际费×加成。
+    // CSSOS_WAVE_1455c/e — 生成定价(权 ⊥ 费): 生成权 99¢/次(包单价); 生成费用=引擎实价×1.3(kie 目录动态)。
     generation: {
       right_price_cents: GENERATION_RIGHT_PRICE_CENTS,   // 生成权售价(买包)
-      cost_cents: generationCostCents(),                  // 生成费用(引擎费×加成, 用户自付)
-      cogs_markup: GENERATION_COGS_MARKUP,
+      cost_cents: await generationCostCents(),            // 默认引擎(Suno generate)生成费用, kie 价×1.3
+      cogs_markup: KIE_MARKUP,                            // = 1.3, 与 kie 目录同一加成源
+      default_music_engine: DEFAULT_MUSIC_ENGINE_ID,
       free_monthly_rights: FREE_MONTHLY_GENERATIONS,      // 各档每月免费生成权
-      note: "1 generation = 1 engine call = 1 part (take1+take2). Right and cost are separate.",
+      note: "1 generation = 1 engine call = 1 part (take1+take2). Right(99c) is engine-independent; cost varies by chosen engine (kie price ×1.3).",
     },
   });
 });
@@ -22016,8 +22025,8 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               break;
             }
           }
-          // ── 闸 B: 生成费用(COGS, 第三方引擎费): 永远用户自付, 从钱包扣。debitCredits 内部豁免 staff/admin。
-          const _cogs = CSSOS_AGENT_COSTS.create_work_single + CSSOS_AGENT_COSTS.generate_audio;
+          // ── 闸 B: 生成费用(第三方引擎实价×1.3, 从 kie 目录动态取): 永远用户自付。debitCredits 豁免 admin。
+          const _cogs = await generationCostCents(/* TODO: 用户选的音乐引擎 id */);
           const _dr = await debitCredits(_userId, _cogs, "multipart_generation_cogs",
             { root_work_id: rootId, part_id: part.id });
           if (!_dr.ok) {

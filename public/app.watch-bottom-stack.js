@@ -234,23 +234,26 @@
     if (_layoutProbed) return;
     try {
       var isApp = document.documentElement.classList.contains("cssos-app") || (window.innerWidth || 9999) < 640;
-      if (!isApp) return;
-      var rail = document.getElementById("cssos-watch-social-rail");
       var lang = document.getElementById("cssos-lang-fold") || document.getElementById("watch-language-pill");
-      var cap = document.querySelector("#watch-panel .cssmv-capsule");
-      // 仅在【加载后状态】采样: 多语言 + 控制胶囊都在(即你说的"加载完冒出来撑长")。
-      if (!lang || !cap) return;
-      var R = function (el) { if (!el) return null; var r = el.getBoundingClientRect(); return (r.width || r.height) ? { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width) } : null; };
-      var data = {
-        vw: window.innerWidth, vh: window.innerHeight,
-        flow: R(document.getElementById("cssos-watch-bottomflow")),
-        price: R(document.getElementById("cssos-watch-priceline")),
-        lang: R(lang),
-        sub: R(document.getElementById("watch-subtitle")),
-        cap: R(cap),
-        rail: R(rail),
-      };
+      // 等"加载后状态": 多语言已出现再采样(此时 Settings/Fine-tune 等也已冒出)。桌面/App 都采。
+      if (!lang) return;
+      var vh = window.innerHeight;
+      var R = function (el) { if (!el) return null; var r = el.getBoundingClientRect(); return (r.width || r.height) ? [Math.round(r.left), Math.round(r.right), Math.round(r.top), Math.round(r.bottom)] : null; };
+      // 广扫【底部 ~160px 区域】所有有框的胶囊/控件(不限容器, 这样能逮到难找的 Settings/Fine-tune),
+      //   报 tag/id/class(截断)+ 左右坐标 → 我一眼看出谁伸到右轨、谁是第一颗。
+      var host = document.getElementById("watch-panel") || document.body;
+      var all = host.querySelectorAll("button,div,span,a");
+      var items = [];
+      for (var i = 0; i < all.length && items.length < 34; i++) {
+        var el = all[i]; var r = el.getBoundingClientRect();
+        if (r.width >= 28 && r.height >= 14 && r.bottom > vh - 160 && r.top < vh - 2) {
+          var cls = (el.className && el.className.baseVal !== undefined) ? el.className.baseVal : String(el.className || "");
+          var txt = (el.textContent || "").replace(/\s+/g, "").slice(0, 10);
+          items.push({ t: el.tagName, id: el.id || "", c: cls.slice(0, 40), x: [Math.round(r.left), Math.round(r.right)], tx: txt });
+        }
+      }
       _layoutProbed = true;
+      var data = { plat: isApp ? "app" : "desktop", vw: window.innerWidth, vh: vh, rail: R(document.getElementById("cssos-watch-social-rail")), flow: R(document.getElementById("cssos-watch-bottomflow")), items: items };
       fetch("/api/telemetry/error", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "layout_probe " + JSON.stringify(data), code: "layout_probe", panel: "cinema" }) }).catch(function () {});
     } catch (_e) {}
   }

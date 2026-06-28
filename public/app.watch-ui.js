@@ -2968,10 +2968,19 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
         if (watchSubtitle.dataset.subColorKey !== _rcKey) {
           watchSubtitle.dataset.subColorKey = _rcKey;
           if (_dlg) {
-            watchSubtitle.style.setProperty("--sub-unsung", "rgba(255,255,255,0.96)");
-            watchSubtitle.style.setProperty("--sub-sung", "rgba(255,255,255,0.96)");
+            // CSSOS_WAVE_1465 对白模式: 白字 + 黑描边 + 淡阴影(电影字幕标准, 白色画面也清晰), 不擦色。
+            watchSubtitle.style.setProperty("--sub-unsung", "rgba(255,255,255,0.98)");
+            watchSubtitle.style.setProperty("--sub-sung", "rgba(255,255,255,0.98)");
             watchSubtitle.style.setProperty("--sub-sung-h", "0");
-          } else if (globalThis.cssosSubRandomColor === false) {
+            watchSubtitle.style.textShadow =
+              "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 2px 4px rgba(0,0,0,0.85)";
+            try { watchSubtitle.style.webkitTextStroke = "0.5px rgba(0,0,0,0.55)"; } catch (_e) {}
+          } else {
+            // 非对白(唱词)→ 还原卡拉OK描边(清掉对白的强描边)。
+            watchSubtitle.style.textShadow = "";
+            try { watchSubtitle.style.webkitTextStroke = ""; } catch (_e) {}
+          }
+          if (_dlg) { /* handled above */ } else if (globalThis.cssosSubRandomColor === false) {
             watchSubtitle.style.setProperty("--sub-unsung", "rgba(235,245,255,0.62)");
             watchSubtitle.style.setProperty("--sub-sung", "rgba(255,238,150,0.98)");
             watchSubtitle.style.setProperty("--sub-sung-h", "48");

@@ -8560,6 +8560,10 @@
        * has the same panel-constitution affordances as any other panel. */
       stage.innerHTML =
         '<video class="cinema-video" playsinline></video>' +
+        // CSSOS_WAVE_1449 — 无视频(后端"音频+幻灯"part)回退视觉层: 幻灯帧轮播。
+        // 默认隐藏; cinemaPlayCurrent 在【有音频无视频】时显示并轮播 cover_slides。
+        // 在 video 之上、字幕之下(z-index via CSS)。特斯拉浏览器式: 没视频就放音频+图。
+        '<div class="cinema-slideshow" hidden></div>' +
         '<div class="cinema-subs"><div class="cinema-subs-line" hidden></div></div>' +
         '<div class="cinema-strip"></div>' +
         '<div class="cinema-teaser" hidden></div>' +
@@ -8858,6 +8862,9 @@
       try { globalThis.removeEventListener("cssmv:run-finish", cinemaSt._finishHandler); } catch (_e) {}
       cinemaSt._finishHandler = null;
     }
+    // CSSOS_WAVE_1449 — 退影院: 清幻灯轮播定时器 + 多部订阅轮询定时器(OOM 安全)。
+    try { if (cinemaSt._slideshowTimer) { clearInterval(cinemaSt._slideshowTimer); cinemaSt._slideshowTimer = null; } } catch (_e) {}
+    try { if (cinemaSt._mpPollTimer) { clearTimeout(cinemaSt._mpPollTimer); cinemaSt._mpPollTimer = null; } } catch (_e) {}
     // CSSOS_PHASE2_MV_WAVE6 20260507 — Jing
     // Tear down end-of-MV CTAs overlay + storm grid + bound key handlers.
     if (cinemaSt._w6KeyHandler) {
@@ -9070,6 +9077,43 @@
     });
   }
 
+  // CSSOS_WAVE_1449 — 无视频回退的幻灯轮播器(自包含, 不耦合 watch-ui 的 cover-slideshow)。
+  // 后端"音频+幻灯"part 无烧录视频 → video 元素直接播 mp3(音频), 这层提供视觉。
+  function _cinemaSlideshowStop() {
+    try {
+      if (cinemaSt && cinemaSt._slideshowTimer) {
+        clearInterval(cinemaSt._slideshowTimer); cinemaSt._slideshowTimer = null;
+      }
+    } catch (_e) {}
+    try {
+      var el = cinemaSt && cinemaSt.stage && cinemaSt.stage.querySelector(".cinema-slideshow");
+      if (el) { el.hidden = true; el.style.backgroundImage = ""; } // 收起+释放图(OOM 安全)
+    } catch (_e) {}
+  }
+  function _cinemaSlideshowStart(slides) {
+    _cinemaSlideshowStop();
+    if (!cinemaSt || !cinemaSt.stage) return;
+    var el = cinemaSt.stage.querySelector(".cinema-slideshow");
+    if (!el) return;
+    var list = (slides || []).filter(Boolean);
+    if (!list.length) { el.hidden = true; return; }
+    // video(z0)<slideshow(z1)<subs(z5): 幻灯在黑底视频之上、字幕之下。
+    el.style.cssText = "position:absolute;inset:0;z-index:1;background-position:center;" +
+      "background-size:cover;background-repeat:no-repeat;transition:opacity .8s ease;opacity:1;";
+    el.hidden = false;
+    var i = 0;
+    var show = function (idx) {
+      try { el.style.backgroundImage = "url('" + String(list[idx]).replace(/'/g, "%27") + "')"; } catch (_e) {}
+    };
+    show(0);
+    if (list.length > 1) {
+      cinemaSt._slideshowTimer = setInterval(function () {
+        if (!cinemaSt) return;
+        i = (i + 1) % list.length;
+        show(i);
+      }, 6000); // 6s/帧
+    }
+  }
   async function cinemaPlayCurrent() {
     if (!cinemaSt || !cinemaSt.queue.length) return;
     const wid = cinemaSt.queue[cinemaSt.idx];
@@ -9128,12 +9172,27 @@
       } catch (_e) {}
     } catch (_e) {}
     if (!__stillOwner()) return; // final guard before any DOM writes
-    if (!videoUrl) {
-      // skip to next
+    // CSSOS_WAVE_1449 — 播放源解析: 优先视频(final_mv); 无视频但有音频 → 音频+幻灯回退
+    // (后端"音频+幻灯"part / 任何无烧录视频的作品都能播, 不再黑屏跳过)。video 元素直接
+    // 播 mp3(音频), 幻灯层补视觉; ontimeupdate/onended/字幕/计数 全 key 在 video 上, 透明复用。
+    const _audioUrl = (w.audio_track_1_url || w.preview_audio_url || w.audio_url ||
+      (w.assets && (w.assets.audio_url || w.assets.audio_track_1)) || "") || "";
+    const _slides = (Array.isArray(w.cover_slides) && w.cover_slides.length)
+      ? w.cover_slides
+      : (w.cover_image ? [w.cover_image] : (w.preview_image_url ? [w.preview_image_url] : []));
+    const _playSrc = videoUrl || _audioUrl;
+    if (!_playSrc) {
+      // 既无视频也无音频 → 跳到下一首
+      _cinemaSlideshowStop();
       if (cinemaSt.idx < cinemaSt.queue.length - 1) { cinemaSt.idx += 1; return cinemaPlayCurrent(); }
       return;
     }
-    video.src = videoUrl;
+    if (!videoUrl && _audioUrl) {
+      _cinemaSlideshowStart(_slides); // 无视频: 起幻灯视觉
+    } else {
+      _cinemaSlideshowStop();          // 有真视频: 收起幻灯层
+    }
+    video.src = _playSrc;
     video.muted = false;
     video.autoplay = true;
     try { await video.play(); } catch (_e) {}
@@ -10165,133 +10224,69 @@
    * `plan` = { root_work_id, root_title, style, language, civilization,
    *            work_type, parts_plan:[{title, lyrics, role, sequence_index}] }. */
   globalThis.cssmvRunMultipartCinema = async function (plan) {
+    // CSSOS_WAVE_1449 20260628 — 宪法落地: 前端是【纯 TV】。
+    // 不再前端逐部 runAll 驱动生成(旧 W1446 = 违宪: 浏览器一重载/关标签/OOM 就断, 剩余部永不出)。
+    // 后端 create_work(shell-only)已建好 part 行 + 点火引擎 enqueueMultipartPartsGeneration
+    // (三部音频+幻灯帧池+情绪字幕全在 cssOS.service 跑)。前端只做三件事:
+    //   ① 进影院  ② 轮询 generation-progress  ③ 哪部 has_audio 就 dispatch cssmv:run-finish 入队播放。
+    // 复用现成 finishHandler(@~8735: push 队列 + 首部起播 / 末尾续播)。
+    // 浏览器刷新/关标签/OOM 都不影响后端生成; 刷新后重开订阅、续播未播的 ready 部。
     try {
       if (!plan || !Array.isArray(plan.parts_plan) || !plan.parts_plan.length) return;
       var rootId = plan.root_work_id;
       if (!rootId) return;
-      // 1) Enter the cinema (empty queue) so the run-finish handler is live and
-      //    the user lands in the MV panel immediately.
+      var total = plan.parts_plan.length;
+      // 1) 进影院(空队列)+ 多部模式 → finishHandler 上线, 用户立刻落地 MV 面板。
       try {
         if (typeof globalThis.openMvPipelinePanel === "function") {
           globalThis.openMvPipelinePanel({
             cinema: true, queue: [], forceNew: true, noAutoRun: true,
-            multipart: true, multipartTotal: plan.parts_plan.length,
+            multipart: true, multipartTotal: total,
             personName: plan.root_title || "",
             personMusicStyleHint: plan.style || "",
           });
         }
       } catch (_eOpen) {}
-      var panel = document.getElementById(PANEL_ID);
-      var parts = plan.parts_plan;
-      // 2) Serialize: full 6-capsule runAll() per part.
-      for (var i = 0; i < parts.length; i++) {
-        var p = parts[i] || {};
-        // CSSOS_WAVE_1446f/h 20260627 — Jing「前一部继续播, 后面部后台出, 别用生成画面盖住正在播的」:
-        // 关键 = 播放优先。若此刻【正在播放前一部】(cinema-video 有源且未暂停), 后面部就【后台静默出片】
-        // —— 绝不重渲染 loading hero(那会盖住正在播的画面), 只悄悄清掉左下角上一部的歌词打字机残留。
-        // 仅当【没在播放】(hero 还显示着)时, 才重置 loading hero 清上一部残留。run-finish 把出完的部
-        // 排进队列, cinemaPlayCurrent 在前一部 ended 后自动接力 —— 谁先完先播、播满时长不打断。
-        if (i > 0) {
-          // CSSOS_WAVE_1446i — 跑下一部前回收上一部的重型 DOM, 防 OOM 强退。
-          _reclaimMultipartDom();
-          try {
-            var _cv = cinemaSt && cinemaSt.stage && cinemaSt.stage.querySelector(".cinema-video");
-            var _playing = !!(_cv && (_cv.currentSrc || _cv.src) && !_cv.paused && !_cv.ended);
-            if (_playing) {
-              // 后台出片: 不碰 hero(不盖播放), 只清歌词列残留(已在回收里清)。
-            } else if (cinemaSt && cinemaSt.stage && typeof renderCinemaHeroLoading === "function") {
-              // 还没在播(hero 显示中): 重置 hero 清上一部残留。
-              renderCinemaHeroLoading(cinemaSt.stage, cinemaSt.person);
+      // 2) 纯订阅: 轮询后端进度, 哪部 has_audio 就入队播放(谁先完先播)。
+      //    只需 rootId + total; part id 从后端 generation-progress 取(不依赖 plan 里的 id)。
+      var ownSt = cinemaSt;               // 认领本次影院实例, 影院被换/关就停轮询
+      var seen = Object.create(null);     // 已入队 part id, 防重
+      var stopped = false;
+      var firePart = function (wid) {
+        if (!wid || seen[wid]) return;
+        seen[wid] = true;
+        try {
+          globalThis.dispatchEvent(new CustomEvent("cssmv:run-finish", { detail: { work_id: String(wid) } }));
+        } catch (_eF) {}
+      };
+      var poll = async function () {
+        if (stopped || cinemaSt !== ownSt) return; // 影院已换/关 → 停
+        try {
+          var r = await fetch("/api/works/" + encodeURIComponent(rootId) + "/generation-progress",
+            { credentials: "include" });
+          var j = await r.json().catch(function () { return null; });
+          if (cinemaSt !== ownSt) return;
+          if (j && j.ok && Array.isArray(j.parts)) {
+            j.parts.slice().sort(function (a, b) {
+              return (Number(a && a.sequence_index) || 0) - (Number(b && b.sequence_index) || 0);
+            }).forEach(function (p) {
+              if (p && p.has_audio && p.id) firePart(p.id); // 哪部音频好了就入队播
+            });
+            if (j.generating === false || Number(j.audio_ready) >= total) {
+              // 全部部出音频 → 标记完成(cinemaSkip 末尾停住不回绕)+ 停轮询。
+              try { if (cinemaSt) cinemaSt._allPartsDone = true; } catch (_eD) {}
+              stopped = true;
+              return;
             }
-          } catch (_eReset) {}
+          }
+        } catch (_ePoll) {}
+        if (!stopped && cinemaSt === ownSt) {
+          ownSt._mpPollTimer = setTimeout(poll, 4000);
         }
-        try {
-          var elT = panel && panel.querySelector("#mvp-title");
-          var elL = panel && panel.querySelector("#mvp-lyrics");
-          var elS = panel && panel.querySelector("#mvp-style");
-          var elP = panel && panel.querySelector("#mvp-prompt");
-          if (elT) elT.value = p.title || "";
-          if (elL) elL.value = p.lyrics || "";
-          if (elS) elS.value = plan.style || "";
-          if (elP) elP.value = p.title || plan.root_title || "";
-        } catch (_eDom) {}
-        var _partPrompt = p.title || plan.root_title || "";
-        state.title = p.title || "";
-        state.prompt = _partPrompt;
-        state.lyrics = p.lyrics || "";
-        state.style = plan.style || "";
-        if (plan.language) state.language = plan.language;
-        if (plan.civilization) state.civilization = plan.civilization;
-        // CSSOS_WAVE_1446e 20260627 — Jing 真机验证暴露: 各部 prompt 不同 → runAll 入口
-        // 的 W212 防串台逻辑判定 promptChanged → 清空 state.lyrics + #mvp-lyrics → 当成
-        // 没词、重新生成歌词(hasLyrics=false, 还丢了 required_hooks)。修: 把
-        // _lastPipelinePrompt/_lastPipelineLyrics 对齐当前部, 让 promptChanged=false →
-        // W212 不再清 → 各部用【create_work 生成的精校歌词】跑足本媒体, 绝不重生成。
-        state._lastPipelinePrompt = _partPrompt;
-        state._lastPipelineLyrics = "";
-        try { window.__cssosW217PromptChanged = false; } catch (_eW217) {}
-        // Link this part under the shared root at commit time.
-        state.structureContext = {
-          workType: plan.work_type || "triptych",
-          rootId: rootId,
-          parentId: rootId,
-          role: p.role || "part",
-          sequenceIndex: Number.isFinite(p.sequence_index) ? p.sequence_index : (i + 1),
-        };
-        // CSSOS_WAVE_1446j 20260627 — Jing「第二部开始, 正在播的第一部还是被打断」根因:
-        // runAll 入口的【单音频裁判】(防重叠播放, ~3828-3863)会 pause+杀掉所有音视频元素,
-        // 除非标了 dataset.cssmvSafeStream="1"。它掐掉 watch-audio-preview(影院音频/情绪字幕
-        // 主时钟)→ part2 的 runAll 一启动就把 part1 的音乐掐了。修: 跑下一部前, 把【此刻正在
-        // 播放】的影院媒体(cinema-video + watch-audio-preview + watch-video)标成 safe-stream,
-        // 裁判放过它们 → part1 继续播满两首(take1/take2)不被打断, 自然 ended 才换下一部。
-        try {
-          var _protect = [
-            cinemaSt && cinemaSt.stage && cinemaSt.stage.querySelector(".cinema-video"),
-            document.getElementById("watch-audio-preview"),
-            document.getElementById("watch-video"),
-          ];
-          _protect.forEach(function (el) {
-            try {
-              if (el && !el.paused && !el.ended && Number(el.currentTime || 0) > 0) {
-                el.dataset.cssmvSafeStream = "1";
-              }
-            } catch (_eP) {}
-          });
-        } catch (_eProt) {}
-        try {
-          await runAll({
-            _bypassTierPrompt: true, // don't interrupt the trilogy mid-stream
-            seed: {
-              title: p.title || "",
-              prompt: p.title || plan.root_title || "",
-              style: plan.style || "",
-              lyrics: p.lyrics || "",
-              language: plan.language || "",
-              work_type: "single",
-            },
-          });
-        } catch (_eRun) {
-          try { console.warn("[multipart-cinema] part failed", i, _eRun); } catch (_e) {}
-        }
-        // CSSOS_WAVE_1446j — 时序: runAll 在 commit 时 resolve, 但 part 真正开始播放
-        // (run-finish→cinemaPlayCurrent→video.play)略晚一拍。生成下一部前先等这一部
-        // 真的在播(最多 9s), 否则下一部 runAll 启动时这部还没"在播"→ W1446h/j 的保护
-        // 落空 → hero 盖上 + 裁判掐音。等到在播, 保护才生效, 才能"播满不打断"。
-        if (i < parts.length - 1) {
-          try { await _waitUntilCinemaPlaying(9000); } catch (_eW) {}
-        }
-      }
+      };
+      poll(); // 立即一次, 之后每 4s
     } catch (_eAll) {
-      try { console.warn("[multipart-cinema] orchestrator error", _eAll); } catch (_e) {}
-    } finally {
-      // CRITICAL: structureContext is never auto-cleared and would otherwise
-      // pollute the NEXT single-work run (attaching it to this root). Reset it.
-      try { state.structureContext = null; } catch (_eClr) {}
-      // CSSOS_WAVE_1446k — 全部部都生成完: 标记之, 让 cinemaSkip 在末尾停住(不回绕重播),
-      // 也不再 _waitingAtEnd 干等。播放器继续把队列里剩下的 take 播完。
-      try { if (cinemaSt) cinemaSt._allPartsDone = true; } catch (_eD) {}
-      // CSSOS_WAVE_1446i — 收尾再回收一次, 把多部生成残留清干净。
-      _reclaimMultipartDom();
+      try { console.warn("[multipart-cinema] subscribe error", _eAll); } catch (_e) {}
     }
   };
 

@@ -8346,12 +8346,60 @@ async function runAgentTool(
       const shellOnlyCinema =
         process.env.CSSOS_MULTIPART_CINEMA === "1" && isMultiPart && !isOperaTree && rootId;
       if (shellOnlyCinema) {
-        const partsPlan = parts.map((p, i) => ({
-          title: p.title,
-          lyrics: p.lyrics,
-          role: "part",
-          sequence_index: i + 1,
-        }));
+        // CSSOS_WAVE_1449 20260628 — 宪法「后端是引擎, 前端是 TV」真落地。
+        // 旧 W1446 shell-only 只返回 parts_plan、不建 part 行 → 生成全靠前端 runAll 驱动 →
+        // 浏览器重载/关标签/OOM 就断, 剩余部永不生成。现在: ①真建 part 行(真歌词, 非占位)
+        // ②点火后端引擎 enqueueMultipartPartsGeneration(逐部 callMusicGen+幻灯帧池+情绪字幕,
+        // 跑在 cssOS.service 进程, 与浏览器彻底解耦)③返回带 part id 的 plan 供前端纯订阅播放。
+        const partsPlan: Array<{ id: string; title: string; role: string; sequence_index: number }> = [];
+        for (let i = 0; i < parts.length; i += 1) {
+          const part = parts[i]!;
+          const coverUrl = covers[i] || "";
+          const workId = crypto.randomUUID();
+          const partRole = String(part.role || "").trim() || "part";
+          const partSeq = i + 1;
+          try {
+            await withClient(async (client) => {
+              await client.query("BEGIN");
+              try {
+                await client.query(
+                  `INSERT INTO user_works
+                     (id, user_id, title, style, work_type, lyrics_preview,
+                      cover_image, status, suggested_listen_price_cents,
+                      suggested_buyout_price_cents,
+                      parent_work_id, root_work_id, structure_role, sequence_index,
+                      created_at, updated_at)
+                    VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6,
+                            $7, 'published', 100, 0,
+                            $8::uuid, $9::uuid, $10, $11,
+                            now(), now())`,
+                  [workId, ctx.userId, part.title, style || "", wt, part.lyrics, coverUrl || null,
+                   rootId, rootId, partRole, partSeq],
+                );
+                await client.query(
+                  `INSERT INTO work_market_profiles
+                     (work_id, owner_user_id, visibility, current_listen_price_cents,
+                      current_buyout_price_cents, buyout_enabled, tips_enabled,
+                      rights_scope, created_at, updated_at)
+                    VALUES ($1::uuid, $2::uuid, 'public', 100, 0, false, true,
+                            'personal_use', now(), now())
+                    ON CONFLICT (work_id) DO NOTHING`,
+                  [workId, ctx.userId],
+                );
+                await client.query("COMMIT");
+              } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
+            });
+          } catch (errOuter) {
+            return { error: "work_insert_failed", detail: (errOuter as Error)?.message || String(errOuter) };
+          }
+          partsPlan.push({ id: workId, title: part.title, role: partRole, sequence_index: partSeq });
+        }
+        // 点火即走后端引擎: 三部音频+幻灯+情绪字幕全在服务端跑完, 不依赖浏览器。
+        setTimeout(() => {
+          enqueueMultipartPartsGeneration(rootId, String(ctx.userId)).catch((err) => {
+            console.warn("[multipart-cinema] engine fire failed:", err);
+          });
+        }, 30);
         return {
           multipart_cinema: true,
           root_work_id: rootId,
@@ -8363,6 +8411,7 @@ async function runAgentTool(
           provider: lyricsProvider,
           parts_plan: partsPlan,
           count: partsPlan.length,
+          backend_driven: true,
         };
       }
 

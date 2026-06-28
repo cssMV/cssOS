@@ -81,21 +81,21 @@ function buildSubscriptionPanelMarkupModule() {
     },
     {
       tier: "starter",
-      price: 14.99,
+      price: 9.99,
       label: tr("Starter"),
       note: tr("Longer generation and paid creation lane."),
       limit: tr("30 creations / month")
     },
     {
       tier: "pro",
-      price: 39.99,
+      price: 29.99,
       label: tr("Pro"),
       note: tr("Opera, triptych, advanced settings, longer video."),
       limit: tr("100 creations / month")
     },
     {
       tier: "studio",
-      price: 129.99,
+      price: 99.99,
       label: tr("Studio"),
       note: tr("Studio lanes, team workflow, heavier output."),
       limit: tr("300 creations / month")
@@ -329,32 +329,26 @@ function subscriptionPlansCatalogModule() {
     },
     {
       tier: "starter",
-      price: 14.99,
+      price: 9.99,
       label: tr("Starter"),
       limit: tr("30 creations / month"),
       note: tr("Longer duration and paid creation lane.")
     },
     {
       tier: "pro",
-      price: 39.99,
+      price: 29.99,
       label: tr("Pro"),
       limit: tr("100 creations / month"),
       note: tr("Structured works and advanced settings.")
     },
     {
       tier: "studio",
-      price: 129.99,
+      price: 99.99,
       label: tr("Studio"),
       limit: tr("300 creations / month"),
       note: tr("Workspace lanes and team workflow.")
-    },
-    {
-      tier: "enterprise",
-      price: 399.99,
-      label: tr("Enterprise"),
-      limit: tr("Dedicated route policy"),
-      note: tr("Enterprise API and isolated limits.")
     }
+    // CSSOS_WAVE_1448 — Enterprise retired as a purchasable tier (Jing).
   ];
 }
 

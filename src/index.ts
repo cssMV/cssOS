@@ -10614,15 +10614,19 @@ type IapProductDef = {
 // Enterprise tier added in W219. Contact-sales tier ($999+/mo) is NOT
 // in this catalog — it's a custom sales lead, not a self-serve SKU.
 const IAP_PRODUCT_CATALOG: Record<string, IapProductDef> = {
+  // CSSOS_WAVE_1448 20260627 — Jing: pricing reset. Studio Annual anchored
+  // at $999.99 (was mis-entered as $1000 → Apple Guideline 3 review hold).
+  // Annual = monthly × 10 (~17% off). Enterprise tier RETIRED as a
+  // purchasable SKU (capability gates kept for a separate wave). Apple IAP
+  // is the single source of truth; web ≡ iOS at every tier.
   // Subscriptions — monthly
-  "app.cssstudio.studio.starter.monthly":    { id: "app.cssstudio.studio.starter.monthly",    kind: "subscription", tier: "starter",    amount_cents: 1499,   period_days: 30 },
-  "app.cssstudio.studio.pro.monthly":        { id: "app.cssstudio.studio.pro.monthly",        kind: "subscription", tier: "pro",        amount_cents: 3999,  period_days: 30 },
-  "app.cssstudio.studio.studio.monthly":     { id: "app.cssstudio.studio.studio.monthly",     kind: "subscription", tier: "studio",     amount_cents: 12999,  period_days: 30 },
-  "app.cssstudio.studio.enterprise.monthly": { id: "app.cssstudio.studio.enterprise.monthly", kind: "subscription", tier: "enterprise", amount_cents: 39999, period_days: 30 },
-  // Subscriptions — annual (~17% off)
-  "app.cssstudio.studio.starter.annual":     { id: "app.cssstudio.studio.starter.annual",     kind: "subscription", tier: "starter",    amount_cents: 14999,   period_days: 365 },
-  "app.cssstudio.studio.pro.annual":         { id: "app.cssstudio.studio.pro.annual",         kind: "subscription", tier: "pro",        amount_cents: 39999,  period_days: 365 },
-  "app.cssstudio.studio.studio.annual":      { id: "app.cssstudio.studio.studio.annual",      kind: "subscription", tier: "studio",     amount_cents: 100000,  period_days: 365 },
+  "app.cssstudio.studio.starter.monthly":    { id: "app.cssstudio.studio.starter.monthly",    kind: "subscription", tier: "starter",    amount_cents: 999,   period_days: 30 },
+  "app.cssstudio.studio.pro.monthly":        { id: "app.cssstudio.studio.pro.monthly",        kind: "subscription", tier: "pro",        amount_cents: 2999,  period_days: 30 },
+  "app.cssstudio.studio.studio.monthly":     { id: "app.cssstudio.studio.studio.monthly",     kind: "subscription", tier: "studio",     amount_cents: 9999,  period_days: 30 },
+  // Subscriptions — annual (monthly × 10, ~17% off)
+  "app.cssstudio.studio.starter.annual":     { id: "app.cssstudio.studio.starter.annual",     kind: "subscription", tier: "starter",    amount_cents: 9999,   period_days: 365 },
+  "app.cssstudio.studio.pro.annual":         { id: "app.cssstudio.studio.pro.annual",         kind: "subscription", tier: "pro",        amount_cents: 29999,  period_days: 365 },
+  "app.cssstudio.studio.studio.annual":      { id: "app.cssstudio.studio.studio.annual",      kind: "subscription", tier: "studio",     amount_cents: 99999,  period_days: 365 },
   // Credit packs (one-time consumables)
   "app.cssstudio.studio.credits.100":   { id: "app.cssstudio.studio.credits.100",   kind: "credit_pack", credits: 100,   amount_cents: 99 },
   "app.cssstudio.studio.credits.500":   { id: "app.cssstudio.studio.credits.500",   kind: "credit_pack", credits: 500,   amount_cents: 499 },
@@ -44763,10 +44767,11 @@ app.post("/api/billing/membership/change", async (req, res) => {
     // retired in W219.5 — do NOT re-sync to it.
     const tierPriceCents: Record<string, number> = {
       free:        0,
-      starter:   1499,    // $14.99/mo — CSSOS_WAVE_816: align to Apple IAP price (was $4.99, mismatched)
-      pro:       3999,    // $39.99/mo — W816b
-      studio:   12999,    // $129.99/mo — W816b
-      enterprise:39999,  // $399.99/mo — W816b
+      starter:    999,    // $9.99/mo  — CSSOS_WAVE_1448: align to Apple IAP price
+      pro:       2999,    // $29.99/mo — W1448
+      studio:    9999,    // $99.99/mo — W1448
+      // enterprise RETIRED as a purchasable tier (W1448). No new buys; the
+      // capability gates elsewhere still recognize grandfathered "enterprise".
     };
     const tierDisplayName: Record<string, string> = {
       free: "Free",

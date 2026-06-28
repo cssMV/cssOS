@@ -269,17 +269,28 @@ acceptable.
 
 ### Tier matrix (single source of truth — Apple IAP catalog)
 
-| Tier | Monthly | Annual (~17% off) |
+**W1448 pricing reset (Jing).** Studio Annual anchored at **$999.99**
+(the prior $1000 entry triggered an Apple Guideline 3 review hold).
+Annual = monthly × 10 (~17% off), all `.99` endings. **Enterprise tier
+RETIRED as a purchasable SKU** — removed from the IAP catalog, the
+`tierPriceCents` ladder, and the frontend plan modal. (Enterprise
+*capability gates* in `membershipPolicyForTier` and the tier-permission
+arrays are intentionally left intact for grandfathered access and a
+separate capability-layer wave; only its PRICE/purchase surfaces are gone.)
+
+| Tier | Monthly | Annual (monthly × 10) |
 |---|---|---|
 | free | $0 | — |
-| starter | $4.99 | $49.90 |
-| pro | $14.99 | $149.90 |
-| studio | $49.99 | $499.90 |
-| enterprise | $199.99 | $1,999.90 |
+| starter | $9.99 | $99.99 |
+| pro | $29.99 | $299.99 |
+| studio | $99.99 | $999.99 |
 | contact | $999+ (custom) | — |
 
 Stripe `tierPriceCents` and any future Alipay/WeChat/NihaoPay
-integration MUST mirror these exact amounts. rust-api's
+integration MUST mirror these exact amounts. **Apple ASC, the backend
+`IAP_PRODUCT_CATALOG`, `scripts/iap-sync.mjs`, `tierPriceCents`, and the
+frontend plan modal must all stay identical — consistency across surfaces
+is the hard rule (Jing), independent of the absolute price.** rust-api's
 `membership_tier_plan` copy is retired (W219.5); do not re-sync.
 
 ### Capability axes (per `membershipPolicyForTier`)

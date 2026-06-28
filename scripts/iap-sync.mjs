@@ -45,36 +45,39 @@ if (!KID || !ISSUER || !KEY_PATH) {
 const KEY = fs.readFileSync(KEY_PATH);
 
 /* ----- Catalog: source of truth (mirrors IAP_PRODUCT_CATALOG in src/index.ts) ----- */
+// CSSOS_WAVE_1448 20260627 — Jing pricing reset. Studio Annual = $999.99.
+// Annual = monthly × 10 (~17% off). Mirrors IAP_PRODUCT_CATALOG in
+// src/index.ts. Enterprise retired as a purchasable SKU.
 const CATALOG = {
   "app.cssstudio.studio.starter.monthly": {
     name: "Starter Monthly",
     description: "Bigger quotas. Longer videos. Faster queue.",
-    usd: "4.99",
+    usd: "9.99",
   },
   "app.cssstudio.studio.pro.monthly": {
     name: "Pro Monthly",
     description: "Pro tier: full civ × era MV pipeline access.",
-    usd: "14.99",
+    usd: "29.99",
   },
   "app.cssstudio.studio.studio.monthly": {
     name: "Studio Monthly",
     description: "Studio tier: unlimited + opera + collab.",
-    usd: "49.99",
+    usd: "99.99",
   },
   "app.cssstudio.studio.starter.annual": {
     name: "Starter Annual",
     description: "Bigger quotas. Save vs monthly. Faster queue.",
-    usd: "49.99",
+    usd: "99.99",
   },
   "app.cssstudio.studio.pro.annual": {
     name: "Pro Annual",
     description: "Pro tier: full pipeline, annual savings.",
-    usd: "149.99",
+    usd: "299.99",
   },
   "app.cssstudio.studio.studio.annual": {
     name: "Studio Annual",
     description: "Studio tier: unlimited + collab, annual.",
-    usd: "499.99",
+    usd: "999.99",
   },
 };
 

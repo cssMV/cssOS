@@ -2960,10 +2960,18 @@ function renderWatchKaraokeOverlayModule(progress = 0) {
         var _ck = String(karaokeTimeline.length) + ":" +
           Number((karaokeTimeline[0] && karaokeTimeline[0].start_s) || 0).toFixed(1) + ":" +
           String((karaokeTimeline[0] && karaokeTimeline[0].text) || "").slice(0, 10);
-        var _rcKey = _ck + "|" + (globalThis.cssosSubRandomColor === false ? "fixed" : "rand");
+        // CSSOS_WAVE_1465 — 对白模式开关骨架(叙事视频: 短剧/连续剧/电影): 底部走【传统电影字幕·白字
+        // 不擦色】(--sung 与 --unsung 同色 → 无卡拉OK逐字高亮)。四边框情绪爆字(emotion-fx)是另一套,
+        // 不受影响照常爆。默认对白模式由 cssosDialogueSubMode 开启(载入叙事视频作品时置位)。细调留真预告。
+        var _dlg = globalThis.cssosDialogueSubMode === true;
+        var _rcKey = _ck + "|" + (_dlg ? "dialogue" : (globalThis.cssosSubRandomColor === false ? "fixed" : "rand"));
         if (watchSubtitle.dataset.subColorKey !== _rcKey) {
           watchSubtitle.dataset.subColorKey = _rcKey;
-          if (globalThis.cssosSubRandomColor === false) {
+          if (_dlg) {
+            watchSubtitle.style.setProperty("--sub-unsung", "rgba(255,255,255,0.96)");
+            watchSubtitle.style.setProperty("--sub-sung", "rgba(255,255,255,0.96)");
+            watchSubtitle.style.setProperty("--sub-sung-h", "0");
+          } else if (globalThis.cssosSubRandomColor === false) {
             watchSubtitle.style.setProperty("--sub-unsung", "rgba(235,245,255,0.62)");
             watchSubtitle.style.setProperty("--sub-sung", "rgba(255,238,150,0.98)");
             watchSubtitle.style.setProperty("--sub-sung-h", "48");

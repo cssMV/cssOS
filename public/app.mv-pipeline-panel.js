@@ -9157,6 +9157,12 @@
         (w.assets && (w.assets.video_url || w.assets.video || (w.assets.video && w.assets.video.url))) || null;
       title = w.title || w.name || "";
       creator = w.owner_name || w.creator || w.user_name || w.created_by || "";
+      // CSSOS_WAVE_1465 — 对白模式开关(骨架): 叙事视频(短剧/连续剧/电影)→ 底部走传统电影字幕·白字
+      // 不擦色(见 app.watch-ui.js cssosDialogueSubMode); 唱词作品→卡拉OK擦色。四边框情绪爆字两者都留。
+      try {
+        globalThis.cssosDialogueSubMode = ["shortplay", "short-play", "drama", "series", "film", "movie"]
+          .includes(String(w.work_type || "").toLowerCase());
+      } catch (_eDlg) {}
       // CSSOS_PERSON_MV_CINEMA_SUBS 20260507 — Jing
       // Resolve emotion-aligned subtitles. Priority: aligned_lyrics
       // array (already parsed) > subtitle_srt_url (fetch + parse).

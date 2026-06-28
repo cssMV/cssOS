@@ -239,17 +239,18 @@
       if (!lang) return;
       var vh = window.innerHeight, vw = window.innerWidth;
       // 只报【胶囊尺寸】元素: 排除全宽包裹层(w>vw*0.8)和太小/太高的; 底部 ~150px 内。压成短字符串避免被截。
-      var host = document.getElementById("watch-panel") || document.body;
-      var all = host.querySelectorAll("button,div,span,a");
       var items = [];
-      for (var i = 0; i < all.length && items.length < 14; i++) {
-        var el = all[i]; var r = el.getBoundingClientRect();
-        if (r.width >= 28 && r.width <= vw * 0.8 && r.height >= 14 && r.height <= 72 && r.bottom > vh - 150 && r.top < vh - 4) {
-          var cls = (el.className && el.className.baseVal !== undefined) ? el.className.baseVal : String(el.className || "");
-          var tag = el.id || (el.textContent || "").replace(/\s+/g, "").slice(0, 8) || cls.split(" ")[0] || el.tagName;
-          items.push(tag.slice(0, 16) + ":" + Math.round(r.left) + "-" + Math.round(r.right));
-        }
-      }
+      // 点名汇报关键元素(含父容器), 不受过滤/数量限制影响。
+      [["fold", document.getElementById("cssos-lang-fold")],
+       ["pill", document.getElementById("watch-language-pill")],
+       ["cap", document.querySelector("#watch-panel .cssmv-capsule")],
+       ["price", document.getElementById("cssos-watch-priceline")],
+       ["sub", document.getElementById("watch-subtitle")]].forEach(function (pair) {
+        var el = pair[1]; if (!el) { items.push(pair[0] + ":none"); return; }
+        var r = el.getBoundingClientRect();
+        var par = el.parentNode && el.parentNode.id ? el.parentNode.id.replace("cssos-watch-", "").replace("cssos-", "") : (el.parentNode && el.parentNode.className ? String(el.parentNode.className).split(" ")[0].slice(0, 10) : "?");
+        items.push(pair[0] + "@" + par + ":" + Math.round(r.left) + "-" + Math.round(r.right) + "(t" + Math.round(r.top) + ")");
+      });
       _probeN += 1;
       var rr = document.getElementById("cssos-watch-social-rail"); var rrx = rr ? rr.getBoundingClientRect() : null;
       var nonce = String(Date.now()).slice(-6);   // 唯一化绕过遥测去重

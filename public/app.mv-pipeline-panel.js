@@ -10283,7 +10283,7 @@
             // 按后端返回顺序入队(已 ORDER BY sequence_index, take1 先于 take2) —— 不在前端重排,
             // 否则会打乱 part1·take1 → part1·take2 → part2… 的播放顺序。
             j.parts.forEach(function (p) {
-              if (p && p.has_audio && p.id) firePart(p.id); // 哪首音频好了就入队播
+              if (p && (p.has_audio || p.has_video) && p.id) firePart(p.id); // CSSOS_WAVE_1459 — 音频或视频(叙事片)好了就入队播
             });
             if (j.generating === false) {
               // 所有部 + take2 都出音频 → 标记完成(cinemaSkip 末尾停住不回绕)+ 停轮询。

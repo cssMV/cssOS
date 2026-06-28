@@ -2744,9 +2744,12 @@ app.get("/api/works/:id/generation-progress", async (req, res) => {
     const total = rows.length;
     // pending = 歌词还是占位 或 还没生成音频; 但【已判定 gen_failed 的部不算 pending】→ 否则
     // 某部 Suno 永久失败会让 generating 永真 → 影院永远卡在"下一部创作中…"(H4)。
-    const pending = rows.filter((p) => !p.gen_failed && (p.is_seed || !p.preview_audio_url)).length;
-    const audioReady = rows.filter((p) => !!p.preview_audio_url).length;
-    const failed = rows.filter((p) => p.gen_failed && !p.preview_audio_url).length;
+    // CSSOS_WAVE_1459 — 一部"完成" = 有音频【或视频】(叙事视频叶子无音频, 输出是视频)→ 否则视频部
+    // 永远 pending、generating 永真、影院卡死。
+    const _done = (p: any) => !!p.preview_audio_url || !!p.preview_video_url;
+    const pending = rows.filter((p) => !p.gen_failed && (p.is_seed || !_done(p))).length;
+    const audioReady = rows.filter((p) => _done(p)).length;
+    const failed = rows.filter((p) => p.gen_failed && !_done(p)).length;
     const parts = rows.map((p) => ({
       id: p.id,
       title: p.title,
@@ -2756,8 +2759,9 @@ app.get("/api/works/:id/generation-progress", async (req, res) => {
       video_url: p.preview_video_url || null,
       cover_url: p.cover_image || null,
       has_audio: !!p.preview_audio_url,
+      has_video: !!p.preview_video_url,
       lyrics_pending: !!p.is_seed,
-      failed: !!p.gen_failed && !p.preview_audio_url,
+      failed: !!p.gen_failed && !_done(p),
     }));
     return res.json({
       ok: true, total, ready: Math.max(0, total - pending), pending,
@@ -9391,10 +9395,14 @@ const DEFAULT_MUSIC_ENGINE_ID = "ai-music-api/generate";
 async function generationCostCents(engineId?: string): Promise<number> {
   try {
     const cat = await fetchKieCatalog();
-    const music: KieCatalogEntry[] = (cat?.stages?.music || []) as KieCatalogEntry[];
+    // 搜 music + video 两段(叙事用视频引擎 Veo 在 video 段, 唱段用 Suno 在 music 段)。
+    const pool0: KieCatalogEntry[] = [
+      ...((cat?.stages?.music || []) as KieCatalogEntry[]),
+      ...((cat?.stages?.video || []) as KieCatalogEntry[]),
+    ];
     const wantId = engineId || DEFAULT_MUSIC_ENGINE_ID;
-    const entry = music.find((e) => e.id === wantId)
-      || music.find((e) => e.id === DEFAULT_MUSIC_ENGINE_ID && (e.usdOurs || 0) > 0);
+    const entry = pool0.find((e) => e.id === wantId && (e.usdOurs || 0) > 0)
+      || pool0.find((e) => e.id === DEFAULT_MUSIC_ENGINE_ID && (e.usdOurs || 0) > 0);
     if (entry && (entry.usdOurs || 0) > 0) return Math.max(1, Math.round(entry.usdOurs * 100));
   } catch { /* fall through to estimate */ }
   return Math.max(1, Math.round(CSSOS_AGENT_COSTS.generate_audio * KIE_MARKUP));
@@ -21894,6 +21902,30 @@ async function persistRemoteAudioToStable(url: string): Promise<string> {
   return u;
 }
 
+// CSSOS_WAVE_1459 — 视频转存稳定 R2(叙事视频引擎 Veo/Kling 返回临时链, 几天 404)。下载→uploadBufferToR2
+// →返回 cdn.cssstudio.app 稳定链。遵 [所有输出落 R2 铁律]。已是本域/已转存直接返回。
+async function persistRemoteVideoToStable(url: string): Promise<string> {
+  const u = String(url || "").trim();
+  if (!u || !/^https?:\/\//i.test(u)) return u;
+  let host = ""; try { host = new URL(u).hostname.toLowerCase(); } catch { return u; }
+  if (host === "cssstudio.app" || u.includes("/artifacts/mv/") || u.includes("/artifacts/video/")) return u;
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 120000);
+    let buf: Buffer | null = null;
+    try {
+      const r = await fetch(u, { signal: ctrl.signal, redirect: "follow" });
+      if (r.ok) buf = Buffer.from(await r.arrayBuffer());
+    } finally { clearTimeout(to); }
+    if (buf && buf.byteLength > 4096 && buf.byteLength < 300 * 1024 * 1024) {
+      const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
+      const r2 = await uploadBufferToR2(buf, `artifacts/video/vid-${sha}.mp4`, "video/mp4").catch(() => null);
+      if (r2) return r2;
+    }
+  } catch (e) { console.warn("[rehost-video] failed, keep url:", (e as Error)?.message || e); }
+  return u;
+}
+
 const _slideshowGenInflight = new Set<string>();
 async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Promise<void> {
   if (!workId) return;
@@ -22022,11 +22054,12 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
   try {
     const pool = getPool();
     const partsR = await pool.query<{
-      id: string; title: string; style: string | null; work_type: string | null;
-      lyrics_preview: string | null; preview_audio_url: string | null;
+      id: string; title: string; style: string | null; work_type: string | null; structure_role: string | null;
+      lyrics_preview: string | null; preview_audio_url: string | null; preview_video_url: string | null;
       gen_lock: { started_at?: number; attempts?: number; failed?: boolean } | null;
     }>(
-      `SELECT w.id::text, w.title, w.style, w.work_type, w.lyrics_preview, w.preview_audio_url,
+      `SELECT w.id::text, w.title, w.style, w.work_type, w.structure_role, w.lyrics_preview,
+              w.preview_audio_url, w.preview_video_url,
               (SELECT meta FROM work_assets a WHERE a.work_id = w.id AND a.asset_type = 'gen_lock' LIMIT 1) AS gen_lock
          FROM user_works w
         WHERE (w.root_work_id = $1::uuid OR w.id = $1::uuid)
@@ -22054,7 +22087,12 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
         [workId, JSON.stringify(meta)],
       ).catch(() => {});
     for (const part of parts) {
-      if (part.preview_audio_url) continue; // 幂等: 已生成
+      // CSSOS_WAVE_1459 — 引擎分流: 叙事格式【短剧/连续剧/电影的剧情叶子】走【讲故事视频引擎 Veo】
+      // (对白+配乐+画面), 不用 Suno; 唱段(歌剧 + 主题曲/间奏/片尾曲 + 三部曲/单曲)走 Suno。
+      const _role = String(part.structure_role || "");
+      const _isNarrativeVideo = ["shortplay", "series", "film"].includes(String(part.work_type || ""))
+        && ["episode", "scene", "chapter"].includes(_role);
+      if (_isNarrativeVideo ? part.preview_video_url : part.preview_audio_url) continue; // 幂等: 已生成
       const lyr = String(part.lyrics_preview || "");
       if (lyr.startsWith("[seed]")) continue; // 歌词未补全, 等下一轮(W612 先补词)
       // H3/H4: 读持久认领状态。
@@ -22068,11 +22106,49 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
         console.warn(`[multipart-gen] part ${part.id} 连续 ${attempts} 次失败 → gen_failed(终态)`);
         continue;
       }
-      // 认领: callMusicGen 之前先落 started_at+attempts(进程崩了也留痕, 重启后 15min 内不重打)。
+      // 认领: 生成之前先落 started_at+attempts(进程崩了也留痕, 重启后 15min 内不重打)。
       await writeGenLock(part.id, { started_at: NOW, attempts: attempts + 1 });
+      // ── CSSOS_WAVE_1459 叙事视频分支(讲故事引擎 Veo/Kling, 与 Suno 唱段分流)──────────────
+      if (_isNarrativeVideo) {
+        try {
+          const vid = await callVideoGen({
+            prompt: [part.title, part.style, lyr.slice(0, 500),
+              "cinematic narrative scene with natural dialogue, ambient sound and filmic score, no on-screen text"].filter(Boolean).join(", "),
+            duration_secs: 8,
+            aspect_ratio: "2.39:1", // 画幅铁律
+            ...(_eng.prefer.length ? { prefer: _eng.prefer } : { prefer: ["google"] }), // 默认 Veo 3.1(原生对白+音)
+          });
+          if (vid && vid.ok && vid.video_url) {
+            const stableVid = await persistRemoteVideoToStable(vid.video_url); // 落 R2
+            // 闸 A 生成权(按次, 与引擎无关)
+            if (_monthlyAllowance < 1e9) {
+              const _hasRight = await consumeOneGenerationRight(_userId, _monthlyAllowance);
+              if (!_hasRight) { console.warn(`[multipart-gen] 无生成权(视频)→ 停在 ${part.id}`); break; }
+            }
+            // 闸 B 生成费用(视频引擎价 × 1.3)
+            const _vcogs = await generationCostCents(_eng.engine_id || "veo/get-1080p-video");
+            const _vdr = await debitCredits(_userId, _vcogs, "multipart_generation_cogs",
+              { root_work_id: rootId, part_id: part.id, kind: "video" });
+            if (!_vdr.ok) { console.warn(`[multipart-gen] COGS 不足(视频)→ 停在 ${part.id}`); break; }
+            await pool.query(
+              `UPDATE user_works SET preview_video_url = $2, updated_at = now()
+                 WHERE id = $1::uuid AND preview_video_url IS NULL`, [part.id, stableVid]);
+            await pool.query(
+              `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                 VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb) ON CONFLICT DO NOTHING`,
+              [part.id, stableVid]).catch(() => {});
+            made += 1;
+            // 叙事视频=输出本身(自带对白/音/画); 无 take2/Suno 音轨/幻灯。字幕(从对白转写)=待办。
+          }
+        } catch (e) {
+          console.warn(`[multipart-gen] narrative video ${part.id} failed:`, e instanceof Error ? e.message : String(e));
+        }
+        continue; // 叙事视频处理完, 跳过下面 Suno 唱段路径
+      }
       try {
-        // CSSOS_WAVE_1458 — 按类型时长: 长片(歌剧/连续剧/电影)单场更长 + V4_5PLUS 防截断; 歌/三部曲 60s。
-        const _isLongForm = ["opera", "series", "film"].includes(String(part.work_type || ""));
+        // CSSOS_WAVE_1458/1459 — Suno 唱段路径只剩歌剧(长片单场更长+V4_5PLUS 防截断)+ 歌/三部曲/插曲(60s);
+        // 短剧/连续剧/电影的剧情叶子已走叙事视频分支(上面 continue)。
+        const _isLongForm = String(part.work_type || "") === "opera";
         const tier = await callMusicGen({
           prompt: [part.title, part.style, lyr.slice(0, 300)].filter(Boolean).join(" — "),
           lyrics: lyr,

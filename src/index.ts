@@ -23996,8 +23996,9 @@ const MUSIC_PROVIDERS = ["huggingface_music", "fal_music", "mubert", "replicate_
  *   suno       — paid via kie.ai (highest quality, last because $$)
  */
 function musicProviderOrder(prefer?: string[]): string[] {
-  // CSSOS_WAVE_1494 — 账单收口 kie: 免费 huggingface_music 先, 首个付费档=suno(kie), replicate/fal_music 压尾。
-  const env = String(process.env.MUSIC_PROVIDER_ORDER || "huggingface_music,suno,deepinfra_music,mubert,stability,elevenlabs,replicate_music,fal_music")
+  // CSSOS_WAVE_1495 — 架构宪法: 第三方只走 kie。音乐默认仅 suno(kie)。直连 huggingface/fal/replicate_music…
+  // 不进默认(仅 env MUSIC_PROVIDER_ORDER 应急)。见 third_party_only_via_kie。
+  const env = String(process.env.MUSIC_PROVIDER_ORDER || "suno")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (MUSIC_PROVIDERS as readonly string[]).includes(p));
@@ -24706,8 +24707,9 @@ async function callVeoKie(req: VideoGenRequest, model: string): Promise<{ ok: bo
  *   runway   — premium, last because $$$
  */
 function videoProviderOrder(prefer?: string[], exclusiveOnly?: boolean): string[] {
-  // Tier order: fal(free) → replicate(cheap) → kling(standard) → luma(premium) → runway(premium)
-  const env = String(process.env.VIDEO_PROVIDER_ORDER || "fal,replicate,kling,luma,runway,seedance")
+  // CSSOS_WAVE_1495 — 架构宪法: 第三方只走 kie。视频默认 seedance→veo(均 kie)。直连 fal/replicate/kling/luma/runway
+  // 不进默认(仅 env VIDEO_PROVIDER_ORDER 应急)。便宜画面用自家 ffmpeg ken-burns。见 third_party_only_via_kie。
+  const env = String(process.env.VIDEO_PROVIDER_ORDER || "seedance,veo")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   // CSSOS_WAVE_528 20260606 — Jing: prefer = 优先(不再排他), 选中引擎排最前, 其余按 env 跟在后兜底。
   const valid = (p: string) => (VIDEO_PROVIDERS as readonly string[]).includes(p);
@@ -25232,8 +25234,9 @@ function imageProviderOrder(prefer?: string[]): string[] {
   // Tier order: fal/huggingface/pollinations(free) → fireworks/deepinfra/stability_image/together/replicate(cheap) → openai(premium).
   // pollinations promoted up the free tier — no-key reliable. fireworks/deepinfra/stability_image
   // lead the cheap tier (fast FLUX-schnell variants and Stability core).
-  // CSSOS_WAVE_1494 — 账单收口 kie: nanobanana(kie) 优先, 免费档兜中, replicate/fal 压尾(止散落付费)。
-  const env = String(process.env.IMAGE_PROVIDER_ORDER || "nanobanana,huggingface,pollinations,fireworks,deepinfra,stability_image,together,fal,replicate,openai")
+  // CSSOS_WAVE_1495 — 架构宪法: 第三方只走 kie。图像默认仅 nanobanana(kie)。直连 fal/replicate/openai…
+  // 一律不进默认(代码保留, 仅 env IMAGE_PROVIDER_ORDER 应急可临时启用)。见 third_party_only_via_kie。
+  const env = String(process.env.IMAGE_PROVIDER_ORDER || "nanobanana")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (IMAGE_PROVIDERS as readonly string[]).includes(p));

@@ -2921,14 +2921,65 @@ const IFILM_CONST_TIMEEMPIRE: IFilmConstitution = {
   max_beats: 6,
 };
 
-async function loadIFilmConstitution(workId: string): Promise<IFilmConstitution> {
+/* CSSOS_WAVE_1480 — ④ 任意 film 自动生成宪法: 从作品数据(标题/梗概/文明/场景)LLM 现写
+ * 世界观/人物/铁律/多结局集 → 存库, 之后缓存复用。不止《时间的帝国》, 任何 film 都能开互动。 */
+const _ifilmConstInflight = new Set<string>();
+async function generateIFilmConstitution(workId: string): Promise<IFilmConstitution | null> {
+  if (_ifilmConstInflight.has(workId)) return null;
+  _ifilmConstInflight.add(workId);
   try {
-    const r = await getPool().query<{ meta: any }>(
-      `SELECT meta FROM work_assets WHERE work_id=$1::uuid AND asset_type='ifilm_constitution' LIMIT 1`, [workId]);
-    const c = r.rows[0]?.meta?.constitution;
-    if (c && c.endings && c.rails) return c as IFilmConstitution;
-  } catch { /* fall through */ }
-  return IFILM_CONST_TIMEEMPIRE;
+    const pool = getPool();
+    const wr = await pool.query<{ title: string | null; lyrics: string | null; style: string | null; civ: string | null }>(
+      `SELECT title, lyrics_preview AS lyrics, style, civilization AS civ FROM user_works WHERE id=$1::uuid`, [workId]);
+    const w = wr.rows[0]; if (!w) return null;
+    const sc = await pool.query<{ s: string | null }>(
+      `SELECT COALESCE(lyrics_preview, title) AS s FROM user_works WHERE root_work_id=$1::uuid AND status<>'deleted'
+         ORDER BY sequence_index NULLS FIRST LIMIT 8`, [workId]);
+    const scenes = (sc.rows || []).map((r) => r.s).filter(Boolean).slice(0, 8);
+    const sys = [
+      "你是 cssOS 3D 互动电影的【世界观架构师】。把给定的影片资料铸成一部【互动电影宪法】: 固定的世界观/人物/铁律/多结局集, 供生成式导演在其内现写无限线程。",
+      "要求: 人物 2-4 个(含男女主或主配); 铁律 2-3 条(必须含'某些核心关系不可被用户破坏'与'最终必坠入结局集'与'用户是神视角有限影响者'); 结局集 2-3 个【多结局】(主角可成功可失败, 互相对立); max_beats 给 5-8。",
+      "严格输出 JSON: {\"premise\":\"<≤60字世界观>\",\"characters\":[{\"name\":\"\",\"role\":\"<≤20字>\"}],\"rails\":[\"\"],\"endings\":[{\"id\":\"<英文小写id>\",\"label\":\"<≤12字>\",\"synopsis\":\"<≤40字>\"}],\"max_beats\":6}",
+    ].join("\n");
+    const usr = [
+      `影片标题: ${w.title || "未命名"}`,
+      w.civ ? `文明/背景: ${w.civ}` : "",
+      w.style ? `风格: ${w.style}` : "",
+      scenes.length ? `情节线索(歌词/场景摘要):\n${scenes.map((s, i) => `  ${i + 1}. ${String(s).slice(0, 80)}`).join("\n")}` : "",
+    ].filter(Boolean).join("\n");
+    const resp = await callLlm({ messages: [{ role: "system", content: sys }, { role: "user", content: usr }], temperature: 0.9, max_tokens: 700 });
+    const m = String(resp.content || "").match(/\{[\s\S]*\}/);
+    const j = m ? JSON.parse(m[0]) : {};
+    const endings = Array.isArray(j.endings) ? j.endings.filter((e: any) => e?.id && e?.label).slice(0, 3) : [];
+    const rails = Array.isArray(j.rails) ? j.rails.map((x: any) => String(x).slice(0, 120)).slice(0, 4) : [];
+    if (endings.length < 2 || rails.length < 2) return null;        // 质量门: 不够则放弃, 用样例兜底
+    const c: IFilmConstitution = {
+      title: String(w.title || "互动电影").slice(0, 40),
+      premise: String(j.premise || "").slice(0, 200),
+      characters: (Array.isArray(j.characters) ? j.characters : []).filter((x: any) => x?.name).slice(0, 4).map((x: any) => ({ name: String(x.name).slice(0, 16), role: String(x.role || "").slice(0, 40) })),
+      rails, endings, max_beats: Math.max(5, Math.min(Number(j.max_beats) || 6, 8)),
+    };
+    await pool.query(`INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1::uuid,'ifilm_constitution','',$2::jsonb)
+       ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame' DO UPDATE SET meta=EXCLUDED.meta`,
+      [workId, JSON.stringify({ constitution: c })]).catch(() => {});
+    console.log(`[ifilm-const] generated for ${workId.slice(0, 8)} <- ${c.title}`);
+    return c;
+  } catch (e) { console.warn("[ifilm-const] gen err", e instanceof Error ? e.message : String(e)); return null; }
+  finally { _ifilmConstInflight.delete(workId); }
+}
+
+async function loadIFilmConstitution(workId: string): Promise<IFilmConstitution> {
+  if (/^[0-9a-f-]{36}$/i.test(workId)) {                            // 真实作品 → 查库, 没有就自动生成
+    try {
+      const r = await getPool().query<{ meta: any }>(
+        `SELECT meta FROM work_assets WHERE work_id=$1::uuid AND asset_type='ifilm_constitution' LIMIT 1`, [workId]);
+      const c = r.rows[0]?.meta?.constitution;
+      if (c && c.endings && c.rails) return c as IFilmConstitution;
+    } catch { /* fall through */ }
+    const gen = await generateIFilmConstitution(workId).catch(() => null);
+    if (gen) return gen;
+  }
+  return IFILM_CONST_TIMEEMPIRE;                                    // demo id / 生成失败 → 样例兜底
 }
 
 async function directIFilmNext(c: IFilmConstitution, s: IFilmSession, interaction: { gaze?: string; gesture?: string; utterance?: string }):

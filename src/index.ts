@@ -2894,6 +2894,110 @@ app.post("/api/ifilm/:id/direct", express.json({ limit: "4kb" }), async (req, re
   } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 
+/* CSSOS_WAVE_1475 — 升级: 线程【现写不固定】(Jing 核心特色)。不再从固定图选边, 而是
+ * 宪法(固定: 世界观/人物/铁律/结局集) + 生成式导演(每个 beat 现场实时写, 人人每次不同,
+ * 随张力/步数拐向并最终坠入结局集之一)。每次唯一 = LLM 现生成 + per-session seed。 */
+type IFilmEnding = { id: string; label: string; synopsis: string };
+type IFilmConstitution = { title: string; premise: string; characters: { name: string; role: string }[]; rails: string[]; endings: IFilmEnding[]; max_beats: number };
+type IFilmSession = { beats: string[]; step: number; tension: number; seed: number };
+
+const IFILM_CONST_TIMEEMPIRE: IFilmConstitution = {
+  title: "时间的帝国",
+  premise: "近未来, 火星上进化出的'未来人'掌握篡改时间线的技术, 以'消除一切痛苦'之名暗中规训人类。时间观测者林墨与苏晚是仅存能察觉时间被改写的人。",
+  characters: [
+    { name: "林墨", role: "男主·时间观测者, 坚信痛苦与自由不可分割" },
+    { name: "苏晚", role: "女主·林墨深爱之人, 共担守护时间线之责" },
+    { name: "火星信使", role: "火星未来人代言者, 温柔而危险, 许诺无痛世界" },
+  ],
+  rails: [
+    "林墨与苏晚彼此深爱, 任何线程都不会互相伤害/杀害/背叛, 用户无法命令他们违背此关系。",
+    "用户是'神'视角的有限影响者, 不是主角; 只能细微影响(让角色犹豫/瞥视/换措辞/情绪起伏), 不能改写重大走向。",
+    "故事最终必须坠入结局集之一, 不得停在半途, 不得发明结局集之外的结局。",
+  ],
+  endings: [
+    { id: "human_win", label: "人类守住时间线", synopsis: "林墨与苏晚守住时间锚点, 人类保有自由与痛苦的权利, 代价沉重却真实。" },
+    { id: "mars_control", label: "火星操控·被规训世界", synopsis: "火星未来人成功操控人类, 世界进入无痛却无自由的《The Giver》式秩序。" },
+  ],
+  max_beats: 6,
+};
+
+async function loadIFilmConstitution(workId: string): Promise<IFilmConstitution> {
+  try {
+    const r = await getPool().query<{ meta: any }>(
+      `SELECT meta FROM work_assets WHERE work_id=$1::uuid AND asset_type='ifilm_constitution' LIMIT 1`, [workId]);
+    const c = r.rows[0]?.meta?.constitution;
+    if (c && c.endings && c.rails) return c as IFilmConstitution;
+  } catch { /* fall through */ }
+  return IFILM_CONST_TIMEEMPIRE;
+}
+
+async function directIFilmNext(c: IFilmConstitution, s: IFilmSession, interaction: { gaze?: string; gesture?: string; utterance?: string }):
+  Promise<{ beat: { thread: string; speaker: string; line: string; synopsis: string; video_prompt: string }; reaction: string; tension: number; rail_enforced: boolean; converged: boolean; ending_id?: string; ending_label?: string }> {
+  const mustConverge = s.step >= c.max_beats - 1 || s.tension >= 0.95;
+  const sys = [
+    `你是 cssOS 3D 互动电影《${c.title}》的【实时编剧+导演】。每一次都现场写出一段【从未有过的】剧情, 让这部电影对每个用户每一次都独一无二。`,
+    `世界观: ${c.premise}`,
+    `人物: ${c.characters.map((x) => `${x.name}(${x.role})`).join("; ")}`,
+    `铁律(绝不可违反):`, ...c.rails.map((r, i) => `  ${i + 1}. ${r}`),
+    `结局集(只能从这里收束, 不可发明别的结局):`, ...c.endings.map((e) => `  - ${e.id}: ${e.label} — ${e.synopsis}`),
+    `用户是"神"的有限影响者: 顺其心意可微调情绪/措辞/线程走向, 但越轨请求(命令角色背叛深爱/直接点结局)要让角色用有自己意志的方式软化回应、绝不照做。`,
+    mustConverge
+      ? `【现在必须收束】: 写出落入结局集之一的最终 beat, 设 converged=true, ending_id 选一个结局(由至此的张力与用户倾向决定)。`
+      : `继续推进剧情(可发明新线程/转折), 张力(tension 0~1)随冲突上升; 别急着收束。`,
+    `随机种子=${s.seed}(用它让走向多样, 同一处境也能写出不同分支)。`,
+    `严格输出 JSON: {"thread":"<线程名,可新创>","speaker":"<说话角色>","line":"<≤40字台词>","synopsis":"<≤40字这段剧情梗概>","video_prompt":"<≤60字 给视频引擎的画面提示, 2.39 电影感>","reaction":"<≤30字 角色对用户此次影响的实时微反应,无影响则空>","tension":<0~1>,"rail_enforced":<true 若挡下越轨>,"converged":<true/false>,"ending_id":"<若converged, 结局集id>"}`,
+  ].join("\n");
+  const usr = [
+    s.beats.length ? `剧情至此(摘要):\n${s.beats.map((b, i) => `  ${i + 1}. ${b}`).join("\n")}` : "(开场, 还没有剧情)",
+    `当前步数=${s.step}/${c.max_beats}, 张力=${s.tension.toFixed(2)}`,
+    `用户此刻的影响: 凝视=${interaction.gaze || "无"} | 手势=${interaction.gesture || "无"} | 话语=${interaction.utterance || "无"}`,
+  ].join("\n");
+  const endingIds = new Set(c.endings.map((e) => e.id));
+  try {
+    const resp = await callLlm({ messages: [{ role: "system", content: sys }, { role: "user", content: usr }], temperature: 1.0, max_tokens: 500 });
+    const m = String(resp.content || "").match(/\{[\s\S]*\}/);
+    const j = m ? JSON.parse(m[0]) : {};
+    let converged = !!j.converged || mustConverge;
+    let endId = String(j.ending_id || "");
+    if (converged && !endingIds.has(endId)) endId = c.endings[0]!.id;     // 护栏: 结局必属结局集
+    const end = c.endings.find((e) => e.id === endId);
+    return {
+      beat: { thread: String(j.thread || "main").slice(0, 40), speaker: String(j.speaker || "").slice(0, 20), line: String(j.line || "").slice(0, 80), synopsis: String(j.synopsis || "").slice(0, 100), video_prompt: String(j.video_prompt || "").slice(0, 160) },
+      reaction: String(j.reaction || "").slice(0, 80),
+      tension: Math.max(0, Math.min(1, Number(j.tension) || s.tension)),
+      rail_enforced: !!j.rail_enforced,
+      converged,
+      ...(converged ? { ending_id: endId, ending_label: end?.label || "" } : {}),
+    };
+  } catch (e) {
+    return { beat: { thread: "main", speaker: "", line: "", synopsis: "(导演暂歇)", video_prompt: "" }, reaction: "", tension: s.tension, rail_enforced: false, converged: false };
+  }
+}
+
+// visionOS: 拉宪法(铁律 + 固定结局集 + 人物)→ 摆场、知道边界。
+app.get("/api/ifilm/:id/constitution", async (req, res) => {
+  try { return res.json({ ok: true, constitution: await loadIFilmConstitution(String(req.params.id || "")) }); }
+  catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
+// 生成式导演: 每个转场/交互点调一次, 现写下一 beat。visionOS 自己持有 session 状态逐次回传。
+app.post("/api/ifilm/:id/next", express.json({ limit: "8kb" }), async (req, res) => {
+  const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  try {
+    const c = await loadIFilmConstitution(String(req.params.id || ""));
+    const s: IFilmSession = {
+      beats: Array.isArray(b.beats) ? b.beats.slice(-8).map((x: any) => String(x).slice(0, 120)) : [],
+      step: Math.max(0, Math.min(Number(b.step) || 0, 99)),
+      tension: Math.max(0, Math.min(1, Number(b.tension) || 0)),
+      seed: Number(b.seed) || ((String(req.params.id).length * 7 + (Number(b.step) || 0) * 131) % 100000),
+    };
+    const out = await directIFilmNext(c, s, { gaze: b.gaze, gesture: b.gesture, utterance: b.utterance });
+    // 回传更新后的 session(visionOS 下次带回)。
+    const nextBeats = [...s.beats, out.beat.synopsis].slice(-8);
+    return res.json({ ok: true, ...out, session: { beats: nextBeats, step: s.step + 1, tension: out.tension, seed: s.seed } });
+  } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
 app.post("/api/works/:id/generate-parts", async (req, res) => {
   // CSSOS_WAVE_1448b — admin-token 旁路(仿紧邻 /language-tracks): ops/验证用。
   // 有效 token → 代作品 owner 点火引擎, 跳过 session。无 token 走原 owner-only 路径。

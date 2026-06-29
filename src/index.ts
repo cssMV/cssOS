@@ -3201,12 +3201,26 @@ async function falRodinImageTo3D(imageUrl: string): Promise<string | null> {
 /* CSSOS_WAVE_1484 — FAL 没余额时回退 Replicate image→3D(firtoz/trellis, 出 GLB)。
  * GLB 非 USDZ → visionOS 需转换(见 IFILM_3D_SPEC.md §3D 模型管线 的 GLB→USDZ 说明)。
  * kie 无 3D 引擎(已实测), 故不走 kie。 */
+// GLB → USDZ: 调专用机(cssos-atelier) Blender 无头转换服务(W1485, 不碰生产 api-vm)。
+async function atelierGlb2Usdz(glbUrl: string): Promise<Buffer | null> {
+  const host = (process.env.IFILM_BLENDER_HOST || "http://10.128.0.5:7896").trim();
+  try {
+    const r = await fetch(`${host}/glb2usdz`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ glb_url: glbUrl }) });
+    if (!r.ok) { console.warn("[ifilm-avatar] blender convert", r.status); return null; }
+    const buf = Buffer.from(await r.arrayBuffer());
+    return buf.length > 1000 ? buf : null;
+  } catch (e) { console.warn("[ifilm-avatar] blender err", e instanceof Error ? e.message : String(e)); return null; }
+}
 async function replicateImageTo3D(imageUrl: string): Promise<string | null> {
   const tok = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim(); if (!tok) return null;
   const hdr = { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" };
   try {
-    const r = await fetch("https://api.replicate.com/v1/models/firtoz/trellis/predictions", {
-      method: "POST", headers: hdr, body: JSON.stringify({ input: { images: [imageUrl], texture_size: 1024, generate_model: true, save_gaussian_ply: false } }) });
+    // 动态取 firtoz/trellis 最新版本号(model-endpoint 直发 404, 必须 version + /v1/predictions)。
+    let version = "";
+    try { const m = await fetch("https://api.replicate.com/v1/models/firtoz/trellis", { headers: hdr }); const mj: any = await m.json().catch(() => null); version = String(mj?.latest_version?.id || ""); } catch { /* none */ }
+    if (!version) { console.warn("[ifilm-avatar] replicate no version"); return null; }
+    const r = await fetch("https://api.replicate.com/v1/predictions", {
+      method: "POST", headers: hdr, body: JSON.stringify({ version, input: { images: [imageUrl], texture_size: 1024, generate_model: true, save_gaussian_ply: false } }) });
     const j: any = await r.json().catch(() => null);
     if (!r.ok || !j?.id) { console.warn("[ifilm-avatar] replicate create", r.status, JSON.stringify(j).slice(0, 140)); return null; }
     const id = String(j.id); const deadline = Date.now() + 300_000;
@@ -3237,17 +3251,21 @@ async function ensureCharacterAvatar(workId: string, characterName: string): Pro
       if (!imgUrl && portrait.image_b64) imgUrl = await uploadBufferToR2(Buffer.from(portrait.image_b64, "base64"), `artifacts/ifilm-avatar/${hash}-src.png`, "image/png").catch(() => null);
       if (!imgUrl) { console.warn("[ifilm-avatar] no portrait"); return; }
       // ② image → 3D: 先 FAL Rodin(直出 USDZ); 没余额回退 Replicate trellis(GLB)。
-      let modelUrl = await falRodinImageTo3D(imgUrl); let ext = "usdz";
-      if (!modelUrl) { modelUrl = await replicateImageTo3D(imgUrl); ext = "glb"; }
-      if (!modelUrl) { console.warn("[ifilm-avatar] no model (both fal+replicate)"); return; }
-      // ③ 下载落 R2(按引擎扩展名)+ 绑定 model_url。
-      const remote = `artifacts/ifilm-avatar/${hash}.${ext}`;
+      //    GLB 经【专用机 Blender】转 USDZ → visionOS 永远拿到干净 USDZ(W1485)。
+      let usdzBytes: Buffer | null = null;       // 最终要落 R2 的 USDZ 字节(优先)
+      const usdzUrl = await falRodinImageTo3D(imgUrl);
+      if (usdzUrl) { const dl = await fetch(usdzUrl); if (dl.ok) usdzBytes = Buffer.from(await dl.arrayBuffer()); }
+      if (!usdzBytes) {                          // FAL 没出 → Replicate GLB → Blender 转 USDZ
+        const glbUrl = await replicateImageTo3D(imgUrl);
+        if (glbUrl) usdzBytes = await atelierGlb2Usdz(glbUrl);
+      }
+      if (!usdzBytes) { console.warn("[ifilm-avatar] no usdz (fal+replicate+blender all failed)"); return; }
+      // ③ 落 R2(统一 .usdz)+ 绑定 model_url。
+      const remote = `artifacts/ifilm-avatar/${hash}.usdz`;
       const finalUrl = `https://cdn.cssstudio.app/${remote}`;
-      const ct = ext === "glb" ? "model/gltf-binary" : "model/vnd.usdz+zip";
-      const dl = await fetch(modelUrl);
-      if (dl.ok) { await uploadBufferToR2(Buffer.from(await dl.arrayBuffer()), remote, ct).catch(() => null);
-        await persistIFilmAvatarUrl(workId, characterName, finalUrl);
-        console.log(`[ifilm-avatar] ${characterName} -> ${finalUrl} (${ext})`); }
+      await uploadBufferToR2(usdzBytes, remote, "model/vnd.usdz+zip").catch(() => null);
+      await persistIFilmAvatarUrl(workId, characterName, finalUrl);
+      console.log(`[ifilm-avatar] ${characterName} -> ${finalUrl} (usdz)`);
     } catch (e) { console.warn("[ifilm-avatar] err", e instanceof Error ? e.message : String(e)); }
     finally { _ifilmAvatarInflight.delete(hash); }
   })();

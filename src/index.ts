@@ -25230,6 +25230,24 @@ type ImageGenResponse = {
 };
 
 const IMAGE_PROVIDERS = ["fal", "huggingface", "pollinations", "fireworks", "deepinfra", "stability_image", "together", "replicate", "nanobanana", "openai"] as const;
+// CSSOS_WAVE_1496 — kie 图像全家桶: 文字生成器多模型轮换链(质量/风格多样 + 抽风自动跳备胎)。
+// 入参各异: 多数需 aspect_ratio; nano-banana 只认 prompt(多传即 500)。slug 已逐个 createTask 验证。
+// 工具类(Topaz 放大/Recraft 去背/Ideogram reframe/各家 edit)不在此链, 接各自功能。env NANOBANANA_MODEL 可锁单模型。
+const KIE_IMAGE_GEN_MODELS: { model: string; aspect: boolean }[] = [
+  { model: "google/nano-banana",          aspect: false },  // $0.02 Google, 默认
+  { model: "google/imagen4-fast",         aspect: true  },  // $0.02 Google Imagen4
+  { model: "ideogram/v3-text-to-image",   aspect: true  },  // 文字渲染强
+  { model: "flux-2/pro-text-to-image",    aspect: true  },  // $0.025 Flux2 Pro
+  { model: "seedream/4.5-text-to-image",  aspect: true  },  // $0.0325 ByteDance
+  { model: "grok-imagine/text-to-image",  aspect: true  },  // $0.02 Grok
+];
+let __kieImageRotor = 0;
+function kieAspectRatio(w: number, h: number): string {
+  const r = w / Math.max(1, h);
+  if (r > 1.25) return "16:9";
+  if (r < 0.8) return "9:16";
+  return "1:1";
+}
 function imageProviderOrder(prefer?: string[]): string[] {
   // Tier order: fal/huggingface/pollinations(free) → fireworks/deepinfra/stability_image/together/replicate(cheap) → openai(premium).
   // pollinations promoted up the free tier — no-key reliable. fireworks/deepinfra/stability_image
@@ -25336,20 +25354,26 @@ async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
     if (await isEngineDisabled(provider)) continue;
     try {
       if (provider === "nanobanana") {
-        // CSSOS_WAVE_660 — kie.ai Nano Banana(便宜档封面/图像), 走统一 callKieJob。返回临时
-        // aiquickdraw URL(24h 过期)→ 上游 rehost 入库(WAVE_339)。model-id 可 env 覆盖。
-        const nbModel = await resolveEngineModel("image", "nanobanana", req as any, process.env.NANOBANANA_MODEL, "google/nano-banana");
-        // CSSOS_WAVE_831 — KIE Nano Banana 拒绝 output_format 参数(报 "not within the
-        // range of allowed options" → 500, 每次封面变体都白烧调用)。绝不传该参数(见 ~33238 旗舰路径)。
-        const r = await callKieJob(nbModel, {
-          prompt: String(req.prompt || "").slice(0, 5000),
-        }, { timeoutMs: 300_000 });
-        if (r.ok && r.urls && r.urls.length) {
-          return { ok: true, status: 200, provider: "nanobanana", model: nbModel, image_url: String(r.urls[0]), raw: r };
+        // CSSOS_WAVE_1496 — kie 图像多模型轮换链(W660 起单 nano-banana → 现全家桶)。每次换头(风格多样),
+        // 失败自动跳下一个(备胎); aiquickdraw 临时 URL(24h)→ 上游 rehost 入库(WAVE_339)。
+        const locked = String(process.env.NANOBANANA_MODEL || "").trim();
+        const chain = locked ? [{ model: locked, aspect: !/nano-banana/.test(locked) }] : KIE_IMAGE_GEN_MODELS;
+        const ar = kieAspectRatio(w, h);
+        const start = __kieImageRotor++ % chain.length;
+        let kieErr = "kie_image_failed";
+        for (let k = 0; k < chain.length; k++) {
+          const spec = chain[(start + k) % chain.length]; if (!spec) continue;
+          const input: Record<string, unknown> = { prompt: String(req.prompt || "").slice(0, 5000) };
+          if (spec.aspect) input.aspect_ratio = ar;
+          const r = await callKieJob(spec.model, input, { timeoutMs: 300_000 });
+          if (r.ok && r.urls && r.urls.length) {
+            return { ok: true, status: 200, provider: "nanobanana", model: spec.model, image_url: String(r.urls[0]), raw: r };
+          }
+          kieErr = r.error || "kie_image_failed";
+          if (isCreditsError(0, kieErr)) { console.warn("[image-router] kie image credits exhausted, falling through"); break; }
+          console.warn(`[image-router] kie ${spec.model}: ${kieErr.slice(0, 160)}`);
         }
-        lastErr = r.error || "nanobanana_failed"; lastStatus = 0;
-        if (isCreditsError(0, lastErr)) console.warn("[image-router] nanobanana credits exhausted, falling through");
-        else console.warn(`[image-router] nanobanana: ${lastErr.slice(0, 200)}`);
+        lastErr = kieErr; lastStatus = 0;
         continue;
       }
       if (provider === "fal") {

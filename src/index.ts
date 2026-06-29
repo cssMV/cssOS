@@ -3198,36 +3198,60 @@ async function falRodinImageTo3D(imageUrl: string): Promise<string | null> {
     return null;
   } catch (e) { console.warn("[ifilm-avatar] rodin err", e instanceof Error ? e.message : String(e)); return null; }
 }
-async function ensureCharacterAvatar(workId: string, characterName: string): Promise<{ status: "ready" | "pending" | "skip"; model_url?: string }> {
+/* CSSOS_WAVE_1484 — FAL 没余额时回退 Replicate image→3D(firtoz/trellis, 出 GLB)。
+ * GLB 非 USDZ → visionOS 需转换(见 IFILM_3D_SPEC.md §3D 模型管线 的 GLB→USDZ 说明)。
+ * kie 无 3D 引擎(已实测), 故不走 kie。 */
+async function replicateImageTo3D(imageUrl: string): Promise<string | null> {
+  const tok = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim(); if (!tok) return null;
+  const hdr = { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" };
+  try {
+    const r = await fetch("https://api.replicate.com/v1/models/firtoz/trellis/predictions", {
+      method: "POST", headers: hdr, body: JSON.stringify({ input: { images: [imageUrl], texture_size: 1024, generate_model: true, save_gaussian_ply: false } }) });
+    const j: any = await r.json().catch(() => null);
+    if (!r.ok || !j?.id) { console.warn("[ifilm-avatar] replicate create", r.status, JSON.stringify(j).slice(0, 140)); return null; }
+    const id = String(j.id); const deadline = Date.now() + 300_000;
+    while (Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, 6000));
+      const st = await fetch(`https://api.replicate.com/v1/predictions/${id}`, { headers: hdr });
+      const sj: any = await st.json().catch(() => null);
+      const status = String(sj?.status || "");
+      if (status === "succeeded") { const o = sj.output; return (o && o.model_file) || (typeof o === "string" ? o : null); }
+      if (status === "failed" || status === "canceled") { console.warn("[ifilm-avatar] replicate failed", JSON.stringify(sj?.error || "").slice(0, 120)); return null; }
+    }
+    return null;
+  } catch (e) { console.warn("[ifilm-avatar] replicate err", e instanceof Error ? e.message : String(e)); return null; }
+}
+async function ensureCharacterAvatar(workId: string, characterName: string): Promise<{ status: "ready" | "pending" | "skip"; model_url?: string; format?: string }> {
   const c = await loadIFilmConstitution(workId);
   const ch = (c.characters || []).find((x) => x.name === characterName);
   if (!ch) return { status: "skip" };
-  if (ch.model_url) return { status: "ready", model_url: ch.model_url };
+  if (ch.model_url) return { status: "ready", model_url: ch.model_url, format: ch.model_url.endsWith(".glb") ? "glb" : "usdz" };
   const hash = crypto.createHash("sha1").update(workId + "|" + characterName).digest("hex").slice(0, 24);
-  const remote = `artifacts/ifilm-avatar/${hash}.usdz`;
-  const url = `https://cdn.cssstudio.app/${remote}`;
-  try { const h = await fetch(url, { method: "HEAD" }); if (h.ok) { await persistIFilmAvatarUrl(workId, characterName, url); return { status: "ready", model_url: url }; } } catch { /* not ready */ }
-  if (_ifilmAvatarInflight.has(hash)) return { status: "pending", model_url: url };
+  if (_ifilmAvatarInflight.has(hash)) return { status: "pending" };
   _ifilmAvatarInflight.add(hash);
   (async () => {
     try {
-      // ① 生成角色肖像(全身/胸像, 干净背景利于 3D 重建)。
+      // ① 生成角色肖像(全身, 干净背景利于 3D 重建)。
       const portrait = await callImageGen({ prompt: `full-body character portrait of ${ch.name}, ${ch.role}, ${c.title} cinematic universe, neutral A-pose, front view, clean plain studio background, beautiful refined aesthetic, highly detailed`, size: "1024x1024" });
       let imgUrl = portrait.image_url || null;
       if (!imgUrl && portrait.image_b64) imgUrl = await uploadBufferToR2(Buffer.from(portrait.image_b64, "base64"), `artifacts/ifilm-avatar/${hash}-src.png`, "image/png").catch(() => null);
       if (!imgUrl) { console.warn("[ifilm-avatar] no portrait"); return; }
-      // ② image → 3D USDZ(Rodin)。
-      const modelUrl = await falRodinImageTo3D(imgUrl);
-      if (!modelUrl) { console.warn("[ifilm-avatar] no model"); return; }
-      // ③ 下载落 R2 + 绑定 model_url。
+      // ② image → 3D: 先 FAL Rodin(直出 USDZ); 没余额回退 Replicate trellis(GLB)。
+      let modelUrl = await falRodinImageTo3D(imgUrl); let ext = "usdz";
+      if (!modelUrl) { modelUrl = await replicateImageTo3D(imgUrl); ext = "glb"; }
+      if (!modelUrl) { console.warn("[ifilm-avatar] no model (both fal+replicate)"); return; }
+      // ③ 下载落 R2(按引擎扩展名)+ 绑定 model_url。
+      const remote = `artifacts/ifilm-avatar/${hash}.${ext}`;
+      const finalUrl = `https://cdn.cssstudio.app/${remote}`;
+      const ct = ext === "glb" ? "model/gltf-binary" : "model/vnd.usdz+zip";
       const dl = await fetch(modelUrl);
-      if (dl.ok) { await uploadBufferToR2(Buffer.from(await dl.arrayBuffer()), remote, "model/vnd.usdz+zip").catch(() => null);
-        await persistIFilmAvatarUrl(workId, characterName, url);
-        console.log(`[ifilm-avatar] ${characterName} -> ${url}`); }
+      if (dl.ok) { await uploadBufferToR2(Buffer.from(await dl.arrayBuffer()), remote, ct).catch(() => null);
+        await persistIFilmAvatarUrl(workId, characterName, finalUrl);
+        console.log(`[ifilm-avatar] ${characterName} -> ${finalUrl} (${ext})`); }
     } catch (e) { console.warn("[ifilm-avatar] err", e instanceof Error ? e.message : String(e)); }
     finally { _ifilmAvatarInflight.delete(hash); }
   })();
-  return { status: "pending", model_url: url };
+  return { status: "pending" };
 }
 // 把角色 model_url 写进存储的宪法(下次 loadIFilmConstitution 自带)。
 async function persistIFilmAvatarUrl(workId: string, characterName: string, modelUrl: string): Promise<void> {

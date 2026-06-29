@@ -125,6 +125,18 @@ USDZ 角色需:**网格 + 骨骼(skeleton)+ 蒙皮 + blendshapes(表情)+ 动画
 - 角色封面(我们已有)→ 第三方 photo-to-3D-avatar(如 Avaturn / RPM from photo)→ rigged USDZ。
 - 后端可加端点把作品角色封面送去生成 avatar、存 R2、回 USDZ url(下轮我做)。
 
+### 引擎路由 + GLB→USDZ 转换(W1484)
+`/avatar` 引擎链:**FAL Hyper3D/Rodin(直出 USDZ)→ 没余额自动回退 Replicate `firtoz/trellis`(出 GLB)**。
+（kie 无 image→3D 引擎，已实测 422/500，故不走 kie。）响应 `format` 字段标 `usdz` 或 `glb`。
+
+⚠️ **RealityKit 不能直接加载 GLB**，拿到 `.glb` 的 model_url 需先转 USDZ：
+- **本机一次性**：`Reality Composer Pro` 或 Xcode 自带 → 把 .glb 拖进去导出 .usdz；或命令行
+  `xcrun usdconvert input.glb output.usdz`（部分 Xcode 版本支持 glTF 输入）。
+- **Mac 服务器批量**：Apple [`usdzconvert`](https://developer.apple.com/augmented-reality/tools/)（USD Python Tools）支持 `usdzconvert in.glb out.usdz`。
+- **App 内运行时(进阶)**：用 [GLTFKit2](https://github.com/warrenm/GLTFKit2) 直接把 GLB 加载成 RealityKit/SceneKit 实体，免离线转换。M1 推荐：拿到 .glb 先离线转 .usdz 回填，或前端用 GLTFKit2。
+- **最省心**：见档 A，直接用预制 rigged USDZ（免转换+能动）。
+`IFilmModelLoader`（InteractiveFilm.swift）目前只认 USDZ；遇 `.glb` 的 model_url 需走上述转换或 GLTFKit2。
+
 ### 档 C — 北极星:实时/近实时生成 rigged 3D 角色
 - 等 AI 3D 角色生成成熟(Gaussian splatting + auto-rig)。届时导演的 `beat` 直接驱动新生成角色。
 

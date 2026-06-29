@@ -3379,6 +3379,9 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
             [workId, audioUrl],
           ),
         );
+        // CSSOS_WAVE_1473 — 新作出生即合成标准 2.39 视频(前向防腐, 不阻塞响应)。
+        //   persistRemoteAudioToStable 已把音频落 R2 → ensureCanonicalMV 用活媒体合成。
+        setTimeout(() => { void ensureCanonicalMV(workId).catch(() => {}); }, 200);
       }
 
       // ⑤ 情绪字幕(与桌面完全齐平): 逐字对齐 → 句法切段 → 情绪标注 → 逐字情绪强度 →
@@ -54577,6 +54580,30 @@ async function start() {
           console.warn("[boot-resume] scan failed:", e instanceof Error ? e.message : String(e));
         }
       }, 8000); // 开机 8s 后扫, 让服务先稳
+    } catch (_e) {}
+    // CSSOS_WAVE_1473 — 标准视频对账器(源头统一·单点兜住所有创作路径):
+    //   每 3 分钟找【活音频(R2)+ 无视频 + 未渲染】的作品, 批量合成标准 2.39 MP4。
+    //   新作出生 3 分钟内自动有视频(前向防腐); 存量活媒体逐步回填; 死临时链作品天然跳过
+    //   (只认 cdn.cssstudio.app 域)。所有端从此播同一个 preview_video_url = 哑播放器。
+    try {
+      const canonReconcile = async () => {
+        try {
+          const pool = getPool();
+          const due = await pool.query<{ id: string }>(
+            `SELECT id::text FROM user_works
+               WHERE status <> 'deleted'
+                 AND preview_audio_url LIKE '%cdn.cssstudio.app%'
+                 AND preview_video_url IS NULL
+                 AND NOT EXISTS (SELECT 1 FROM work_assets wa WHERE wa.work_id = user_works.id AND wa.asset_type = 'canonical_mv')
+               ORDER BY updated_at DESC LIMIT 3`);
+          for (const row of (due.rows || [])) {
+            const r = await ensureCanonicalMV(row.id).catch((e) => ({ ok: false, error: String(e) }));
+            if (r && (r as any).ok && !(r as any).skipped) console.info(`[canon-reconcile] ${row.id.slice(0, 8)} -> rendered`);
+          }
+        } catch (e) { console.warn("[canon-reconcile] scan failed:", e instanceof Error ? e.message : String(e)); }
+      };
+      setTimeout(canonReconcile, 25_000);          // 开机 25s 后首跑
+      setInterval(canonReconcile, 3 * 60 * 1000);  // 此后每 3 分钟
     } catch (_e) {}
     // CSSOS_WAVE_1082b — 静态权限自愈(根治反复的 i18n/静态 600→nginx 500→全站漏键):
     //   开机 + 每 30 分钟扫 public 顶层 + i18n/ 的 .js/.css/.json, 发现非 world-readable(600)

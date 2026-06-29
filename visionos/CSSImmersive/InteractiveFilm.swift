@@ -59,6 +59,10 @@ enum IFilmClient {
     static func avatar(_ id: String, character: String) async -> IFilmAvatarResponse? {
         await post("/api/ifilm/\(id)/avatar", body: ["character": character])
     }
+    struct BeatVideoResp: Codable { var ok: Bool; var status: String; var video_url: String? }
+    static func beatVideo(_ id: String, videoPrompt: String) async -> BeatVideoResp? {
+        await post("/api/ifilm/\(id)/beat-video", body: ["video_prompt": videoPrompt])
+    }
 }
 
 // MARK: - 引擎(编排: 宪法→循环 next→播语音→触碰)
@@ -72,6 +76,7 @@ final class IFilmEngine: ObservableObject {
     @Published var ended: Bool = false
     @Published var endingLabel: String = ""
     @Published var railBlocked: Bool = false
+    @Published var backdropVideoURL: URL?          // W1489 — beat 的世界背景视频(银幕用)
     private var session: IFilmSession?
     private let audio = AVPlayer()
     private var endObserver: NSObjectProtocol?
@@ -89,6 +94,11 @@ final class IFilmEngine: ObservableObject {
         guard let r = await IFilmClient.next(workId, session: session, gaze: gaze, gesture: gesture, utterance: utterance) else { return }
         session = r.session
         beat = r.beat; subtitle = r.subtitle; reaction = r.reaction ?? ""; railBlocked = r.rail_enforced
+        // W1489 — 世界背景视频: ready 就直接铺; pending 就后台轮询到 ready 再铺。
+        if let bv = r.beat_video {
+            if bv.status == "ready", let v = bv.video_url, let u = URL(string: v) { backdropVideoURL = u }
+            else if let vp = r.beat.video_prompt as String?, !vp.isEmpty { Task { await self.pollBeatVideo(vp) } }
+        }
         if let v = r.voice_url, let url = URL(string: v) { playVoice(url) { Task { await self.advance(gaze: nil, gesture: nil, utterance: nil) } } }
         else { try? await Task.sleep(nanoseconds: 2_500_000_000); await advance(gaze: nil, gesture: nil, utterance: nil) }
         if r.converged { ended = true; endingLabel = r.ending_label ?? "结局" }
@@ -99,6 +109,15 @@ final class IFilmEngine: ObservableObject {
         guard let r = await IFilmClient.touch(workId, character: character, touch: how) else { return }
         reaction = [r.motion, r.line].filter { !$0.isEmpty }.joined(separator: " · ")
         if let v = r.voice_url, let url = URL(string: v) { playVoice(url) {} }
+    }
+
+    // 轮询 beat 背景视频备料到 ready(seedance 分钟级), ready 后铺到银幕。
+    func pollBeatVideo(_ prompt: String) async {
+        for _ in 0..<20 {
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if let r = await IFilmClient.beatVideo(workId, videoPrompt: prompt), r.status == "ready",
+               let v = r.video_url, let u = URL(string: v) { backdropVideoURL = u; return }
+        }
     }
 
     private func playVoice(_ url: URL, onEnd: @escaping () -> Void) {
@@ -135,8 +154,13 @@ struct IFilmImmersiveView: View {
             let anchor = AnchorEntity(world: [0, 1.1, -1.4])
             anchor.name = "ifilm-hero"
             content.add(anchor)
+            // W1489 — 世界背景银幕(2.39, 主角身后): beat_video 铺这里。
+            let screen = ModelEntity(mesh: .generatePlane(width: 5.0, height: 2.09),
+                                     materials: [UnlitMaterial(color: .init(white: 0.04, alpha: 1))])
+            screen.name = "ifilm-backdrop"; screen.position = [0, 1.7, -3.2]
+            content.add(screen)
             if let sub = attachments.entity(for: "subtitle") {
-                sub.position = [0, 1.9, -1.4]; content.add(sub)
+                sub.position = [0, 0.7, -1.4]; content.add(sub)
             }
         } update: { content, _ in
             // 主角模型就绪 → 挂到锚点(只挂一次)。
@@ -144,6 +168,13 @@ struct IFilmImmersiveView: View {
                hero.children.isEmpty, let model = loadedHero {
                 model.scale = [0.9, 0.9, 0.9]
                 hero.addChild(model)
+            }
+            // W1489 — 背景视频就绪 → 贴到银幕(player 实例变就重绑, 防有声无画)。
+            if let url = engine.backdropVideoURL, appliedBackdrop != url,
+               let screen = content.entities.first(where: { $0.name == "ifilm-backdrop" }) as? ModelEntity {
+                let p = AVPlayer(url: url); p.isMuted = true   // 背景视频静音(对白走角色 voice)
+                screen.model?.materials = [VideoMaterial(avPlayer: p)]
+                p.play(); appliedBackdrop = url
             }
         } attachments: {
             Attachment(id: "subtitle") { IFilmSubtitleView(engine: engine) }
@@ -163,6 +194,7 @@ struct IFilmImmersiveView: View {
         }
     }
     @State private var loadedHero: ModelEntity?
+    @State private var appliedBackdrop: URL?       // W1489 — 已贴的背景视频(防重复贴)
 }
 
 // MARK: - 字幕/台词浮层(M1 简版: 台词 + 触碰反应 + 结局横幅; 逐字爆字幕下一步接 SpatialSubtitleSystem)

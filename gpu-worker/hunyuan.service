@@ -1,0 +1,19 @@
+[Unit]
+Description=cssOS Hunyuan3D-2 image->3D worker (:7898)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/ifilm
+Environment=PORT=7898
+Environment=HF_HOME=/srv/ifilm/.hf
+# DLVM conda base has the CUDA-enabled torch:
+ExecStart=/opt/conda/bin/python /srv/ifilm/hunyuan_server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

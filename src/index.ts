@@ -2980,6 +2980,54 @@ app.get("/api/ifilm/:id/constitution", async (req, res) => {
   catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 
+/* CSSOS_WAVE_1476 — 让 beat【可表演】: 角色把台词真说出来(实时 TTS)。没有声音的角色
+ * 演不了。OpenAI tts-1(短句 ~1-2s, 够实时), 结果存 R2; 同词同声哈希缓存复用省钱。 */
+// 角色 → ElevenLabs 预设音色(voice_id)。多语言模型 eleven_multilingual_v2 支持中文。
+const IFILM_VOICE: Record<string, string> = {
+  林墨: "ErXwobaYiN019PkySvjV",   // Antoni — 沉稳男声
+  苏晚: "EXAVITQu4vr4xnSDxMaL",   // Bella — 温柔女声
+  火星信使: "VR6AewLTigWG4xSOukaG", // Arnold — 冷峻
+  旁白: "yoZ06aMxZJJ28mfd3POQ",   // Sam
+};
+async function ifilmSpeak(text: string, character: string): Promise<string | null> {
+  const t = String(text || "").trim(); if (!t) return null;
+  const key = (process.env.ELEVENLABS_API_KEY || "").trim(); if (!key) return null;
+  const voiceId = IFILM_VOICE[character] || "EXAVITQu4vr4xnSDxMaL";
+  const sha = crypto.createHash("sha1").update(voiceId + "|" + t).digest("hex").slice(0, 24);
+  const remote = `artifacts/ifilm-voice/${sha}.mp3`;
+  try {
+    const probe = await fetch(`https://cdn.cssstudio.app/${remote}`, { method: "HEAD" });
+    if (probe.ok) return `https://cdn.cssstudio.app/${remote}`;     // 缓存命中
+  } catch { /* fall through to synth */ }
+  try {
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/mpeg" },
+      body: JSON.stringify({ text: t.slice(0, 400), model_id: "eleven_multilingual_v2",
+        voice_settings: { stability: 0.4, similarity_boost: 0.8 } }),
+    });
+    if (!r.ok) { console.warn("[ifilm-tts] elevenlabs", r.status, (await r.text().catch(() => "")).slice(0, 120)); return null; }
+    const buf = Buffer.from(await r.arrayBuffer());
+    return await uploadBufferToR2(buf, remote, "audio/mpeg").catch(() => null);
+  } catch (e) { console.warn("[ifilm-tts] err", e instanceof Error ? e.message : String(e)); return null; }
+}
+
+// 触碰/凝视即时微反应: 触碰主角 → 角色秒回一个有意志的小反应(不推进剧情, 不改结局)。
+// 这正是 3D 里"伸手碰主角、他瞥你一眼"那层——轻量、快、有边界。
+app.post("/api/ifilm/:id/touch", express.json({ limit: "2kb" }), async (req, res) => {
+  const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  const character = String(b.character || "林墨").slice(0, 20);
+  const touch = String(b.touch || "轻轻触碰").slice(0, 40);
+  try {
+    const c = await loadIFilmConstitution(String(req.params.id || ""));
+    const sys = `你是《${c.title}》里的角色【${character}】, 有自己的意志。用户(电影外的"神")刚刚${touch}你。给一个【即时、微小、有边界】的真实反应: 可以瞥他一眼/微表情/一句短话, 但绝不改变剧情或你的处境, 绝不打破第四面墙太多。只输出 JSON: {"line":"<≤20字台词,可空>","motion":"<≤12字动作:如 转头看你/后退半步/微微一笑>","emotion":"<一个情绪词>"}`;
+    const resp = await callLlm({ messages: [{ role: "system", content: sys }, { role: "user", content: `${touch}` }], temperature: 0.9, max_tokens: 120 });
+    const m = String(resp.content || "").match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : {};
+    const line = String(j.line || "").slice(0, 40);
+    const voice_url = line ? await ifilmSpeak(line, character) : null;
+    return res.json({ ok: true, character, line, motion: String(j.motion || "").slice(0, 24), emotion: String(j.emotion || "").slice(0, 12), voice_url });
+  } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
 // 生成式导演: 每个转场/交互点调一次, 现写下一 beat。visionOS 自己持有 session 状态逐次回传。
 app.post("/api/ifilm/:id/next", express.json({ limit: "8kb" }), async (req, res) => {
   const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
@@ -2992,9 +3040,11 @@ app.post("/api/ifilm/:id/next", express.json({ limit: "8kb" }), async (req, res)
       seed: Number(b.seed) || ((String(req.params.id).length * 7 + (Number(b.step) || 0) * 131) % 100000),
     };
     const out = await directIFilmNext(c, s, { gaze: b.gaze, gesture: b.gesture, utterance: b.utterance });
+    // W1476 — 让 beat 可表演: 角色把台词真说出来(实时 TTS → R2)。
+    const voice_url = await ifilmSpeak(out.beat.line, out.beat.speaker).catch(() => null);
     // 回传更新后的 session(visionOS 下次带回)。
     const nextBeats = [...s.beats, out.beat.synopsis].slice(-8);
-    return res.json({ ok: true, ...out, session: { beats: nextBeats, step: s.step + 1, tension: out.tension, seed: s.seed } });
+    return res.json({ ok: true, ...out, voice_url, session: { beats: nextBeats, step: s.step + 1, tension: out.tension, seed: s.seed } });
   } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 

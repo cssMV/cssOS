@@ -56,9 +56,10 @@
   document.getElementById('cast').innerHTML = CAST.map(c => `
     <div class="ch">
       <span class="badge">CAST</span>
-      <model-viewer src="${c.glb}" alt="${c.name}" auto-rotate rotation-per-second="22deg"
-        camera-controls touch-action="pan-y" interaction-prompt="none" exposure="1.1"
-        shadow-intensity="0.6" camera-orbit="0deg 80deg 105%" disable-zoom></model-viewer>
+      <model-viewer src="${c.glb}" alt="${c.name}" auto-rotate rotation-per-second="24deg"
+        camera-controls touch-action="pan-y" interaction-prompt="none" exposure="1.15"
+        shadow-intensity="0.5" camera-orbit="90deg 85deg 100%" min-camera-orbit="auto 60deg auto"
+        max-camera-orbit="auto 100deg auto" field-of-view="28deg" disable-zoom></model-viewer>
       <div class="name">${c.name}</div>
       <div class="role">${c.role}</div>
     </div>`).join('');

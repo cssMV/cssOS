@@ -88,7 +88,7 @@
   </div>
 
 <script>
-  const V = "?v=4";
+  const V = "?v=5";
   const CAST = [
     { name:"林墨", role:"时间观测者。坚信痛苦与自由不可分割。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb"+V },
     { name:"苏晚", role:"林墨深爱之人。共担守护时间线之责。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb"+V },
@@ -110,7 +110,7 @@
       <div class="tap">点按全屏 ⤢</div>
     </div>`).join('');
   document.getElementById('trList').innerHTML = TRAILERS.map(t => `
-    <a class="tr" href="https://cssstudio.app/?cssMV=${t.id}">
+    <a class="tr" href="https://cssstudio.app/?cssMV=${t.id}&teskip=1">
       <img src="${t.cover}" alt="${t.title}">
       <div><div class="ti">${t.title}</div><div class="pl">▶ 播放预告</div></div>
     </a>`).join('');

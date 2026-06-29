@@ -669,6 +669,18 @@
   async function bootShareLink() {
     var id = readShareWorkId();
     if (!id) return;
+    /* CSSOS_WAVE_1499 — 《时间帝国》开场人物介绍: 点开主作品先弹开场页(model-viewer 三角色登场),
+     * 开场页"进入电影/预告"链接带 &teskip=1 跳过, 本会话看过也跳过 → 防循环。 */
+    try {
+      var TE_FILM = "59578f73-7298-4aa7-b92c-38d5a649f2b8";
+      var _sp = new URL(window.location.href).searchParams;
+      var _skip = _sp.get("teskip") === "1" || sessionStorage.getItem("teIntroSeen") === "1";
+      if (id === TE_FILM && !_skip) {
+        sessionStorage.setItem("teIntroSeen", "1");
+        window.location.replace("/timeempire-intro.html");
+        return;
+      }
+    } catch (_e) {}
     /* CSSOS_WAVE_731 20260612 — Jing「分享链接被卡住」: 同步、尽早地点亮分享会话
      * 旗标 (在 stripShareParam 删掉 ?cssMV= 之前、在 async fetch 之前)。这样
      * app.autoplay-feed.js 那个延迟 1500ms 的「欣赏最新 MV?」提示 (hasBlockingDeepLink)

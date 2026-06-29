@@ -3011,6 +3011,41 @@ async function ifilmSpeak(text: string, character: string): Promise<string | nul
   } catch (e) { console.warn("[ifilm-tts] err", e instanceof Error ? e.message : String(e)); return null; }
 }
 
+/* CSSOS_WAVE_1477 — beat 接预渲染视频(边写边备料)。导演现写 beat.video_prompt →
+ * seedance 出一段 2.39 视频段缓存 R2, 银幕用它当画面。seedance 分钟级 → 不阻塞 /next,
+ * 点火即返回 pending, 前端轮询到 ready 换画面。同 prompt 哈希缓存复用(每人走同一情节
+ * 段时秒回)。voice 走独立 TTS(§2), 故视频不要原生音(native_audio:false)。 */
+const _ifilmVidInflight = new Set<string>();
+async function ensureBeatVideo(prompt: string): Promise<{ status: "ready" | "pending" | "skip"; video_url?: string }> {
+  const p = String(prompt || "").trim(); if (!p) return { status: "skip" };
+  const hash = crypto.createHash("sha1").update(p).digest("hex").slice(0, 24);
+  const remote = `artifacts/ifilm-beat/${hash}.mp4`;
+  const url = `https://cdn.cssstudio.app/${remote}`;
+  try { const h = await fetch(url, { method: "HEAD" }); if (h.ok) return { status: "ready", video_url: url }; } catch { /* not ready */ }
+  if (_ifilmVidInflight.has(hash)) return { status: "pending", video_url: url };
+  _ifilmVidInflight.add(hash);
+  (async () => {
+    try {
+      const vr = await callVideoGen({ prompt: p + ", cinematic, 2.39 ultra-wide, atmospheric depth", duration_secs: 6,
+        aspect_ratio: "2.39:1", native_audio: false, prefer: ["seedance"], exclusive: true, retries: 2 });
+      if (vr.ok && vr.video_url) {
+        const dl = await fetch(vr.video_url);
+        if (dl.ok) { await uploadBufferToR2(Buffer.from(await dl.arrayBuffer()), remote, "video/mp4").catch(() => null);
+          console.log(`[ifilm-beat] rendered ${hash} <- ${p.slice(0, 40)}`); }
+      } else { console.warn("[ifilm-beat] video failed:", vr.error); }
+    } catch (e) { console.warn("[ifilm-beat] err", e instanceof Error ? e.message : String(e)); }
+    finally { _ifilmVidInflight.delete(hash); }
+  })();
+  return { status: "pending", video_url: url };
+}
+
+// 前端轮询 beat 视频备料状态(ready→换银幕画面; pending→继续等/先显占位)。
+app.post("/api/ifilm/:id/beat-video", express.json({ limit: "2kb" }), async (req, res) => {
+  const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  try { return res.json({ ok: true, ...(await ensureBeatVideo(String(b.video_prompt || ""))) }); }
+  catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
 // 触碰/凝视即时微反应: 触碰主角 → 角色秒回一个有意志的小反应(不推进剧情, 不改结局)。
 // 这正是 3D 里"伸手碰主角、他瞥你一眼"那层——轻量、快、有边界。
 app.post("/api/ifilm/:id/touch", express.json({ limit: "2kb" }), async (req, res) => {
@@ -3042,9 +3077,11 @@ app.post("/api/ifilm/:id/next", express.json({ limit: "8kb" }), async (req, res)
     const out = await directIFilmNext(c, s, { gaze: b.gaze, gesture: b.gesture, utterance: b.utterance });
     // W1476 — 让 beat 可表演: 角色把台词真说出来(实时 TTS → R2)。
     const voice_url = await ifilmSpeak(out.beat.line, out.beat.speaker).catch(() => null);
+    // W1477 — 顺手点火 beat 视频备料(不阻塞; 前端拿 beat_video.video_url 轮询 /beat-video 到 ready)。
+    const beat_video = await ensureBeatVideo(out.beat.video_prompt).catch(() => ({ status: "skip" as const }));
     // 回传更新后的 session(visionOS 下次带回)。
     const nextBeats = [...s.beats, out.beat.synopsis].slice(-8);
-    return res.json({ ok: true, ...out, voice_url, session: { beats: nextBeats, step: s.step + 1, tension: out.tension, seed: s.seed } });
+    return res.json({ ok: true, ...out, voice_url, beat_video, session: { beats: nextBeats, step: s.step + 1, tension: out.tension, seed: s.seed } });
   } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 

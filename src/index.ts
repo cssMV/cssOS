@@ -2777,6 +2777,19 @@ app.get("/api/works/:id/generation-progress", async (req, res) => {
 // 前端(TV)只触发一次, 立刻返回; 真正的逐部生成在 cssOS.service 进程里跑完,
 // 与浏览器彻底解耦 —— 刷新/关标签/OOM自愈 都不会中断, 也不会让生成断在半路。
 // 之后前端只需轮询上面的 generation-progress, 哪部 has_audio 就播哪部。
+/* CSSOS_WAVE_1473 — 懒回填端点: 任意端(cssTV/web…)播放音乐 MV 前调一下, 后端确保有一条
+ * 标准视频(没有就现合成), 返回 url。已有则秒回。让原生端不必各做幻灯。 */
+app.post("/api/works/:id/ensure-canonical", async (req, res) => {
+  const id = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  try {
+    const r = await ensureCanonicalMV(id);
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 app.post("/api/works/:id/generate-parts", async (req, res) => {
   // CSSOS_WAVE_1448b — admin-token 旁路(仿紧邻 /language-tracks): ops/验证用。
   // 有效 token → 代作品 owner 点火引擎, 跳过 session。无 token 走原 owner-only 路径。
@@ -22064,6 +22077,66 @@ async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Pro
 // R2 → root.preview_video_url + final_mv(可下载/分享一整部电影/连续剧)。影院本就顺序连播各场景(边出
 // 边播), 这步额外产出"整部"。点火即走, 幂等(root 已有视频 或 场景没出齐 → 跳过)。
 const _stitchInflight = new Set<string>();
+/* CSSOS_WAVE_1473 — 【源头统一渲染】终结"各端各做幻灯/各踩 bug + 手动重推"循环。
+ * 后端把【封面/幻灯帧 + 音频】用 ffmpeg 合成一条标准 2.39 MP4(Ken Burns 慢推),写进
+ * preview_video_url。所有端(cssTV/cssWatch/visionOS/web)从此只播同一个 URL = 哑播放器,
+ * 不再为"音乐 MV 无视频/原生不会生成幻灯"改原生代码。纯 CPU ffmpeg, 不烧 AI 钱。
+ * 幂等(canonical_mv 标记); 已有真视频 → 跳过; 无音频(纯叙事)→ 跳过(走 stitch 那条)。 */
+const _canonInflight = new Set<string>();
+async function ensureCanonicalMV(workId: string): Promise<{ ok: boolean; url?: string; skipped?: string; error?: string }> {
+  if (!workId || _canonInflight.has(workId)) return { ok: false, skipped: "inflight" };
+  _canonInflight.add(workId);
+  const tmp: string[] = [];
+  try {
+    const pool = getPool();
+    const wr = await pool.query<{ audio: string | null; video: string | null; cover: string | null }>(
+      `SELECT preview_audio_url AS audio, preview_video_url AS video, cover_image AS cover FROM user_works WHERE id=$1::uuid`, [workId]);
+    const w = wr.rows[0];
+    if (!w) return { ok: false, error: "not_found" };
+    if (w.video) return { ok: true, url: w.video, skipped: "has_video" };   // 已有真视频 → 不动
+    if (!w.audio) return { ok: false, skipped: "no_audio" };                 // 无音频(纯叙事)→ 不归这条
+    const mk = await pool.query<{ url: string }>(
+      `SELECT url FROM work_assets WHERE work_id=$1::uuid AND asset_type='canonical_mv' AND url IS NOT NULL LIMIT 1`, [workId]);
+    if (mk.rows[0]?.url) {                                                    // 幂等: 已渲染过, 回填 preview 即可
+      await pool.query(`UPDATE user_works SET preview_video_url=COALESCE(preview_video_url,$2) WHERE id=$1::uuid`, [workId, mk.rows[0].url]);
+      return { ok: true, url: mk.rows[0].url, skipped: "exists" };
+    }
+    const fr = await pool.query<{ url: string }>(
+      `SELECT url FROM work_assets WHERE work_id=$1::uuid AND asset_type='slideshow_frame' AND url IS NOT NULL
+         ORDER BY (meta->>'seq')::int NULLS LAST, created_at LIMIT 1`, [workId]).catch(() => ({ rows: [] as { url: string }[] }));
+    const imgUrl = fr.rows[0]?.url || w.cover;
+    if (!imgUrl) return { ok: false, skipped: "no_image" };
+    const dir = os.tmpdir(); const tag = crypto.randomBytes(5).toString("hex");
+    const aPath = path.join(dir, `canon-${tag}.aud`); tmp.push(aPath);
+    { const r = await fetch(w.audio); if (!r.ok) return { ok: false, error: "audio_fetch_" + r.status };
+      fs.writeFileSync(aPath, Buffer.from(await r.arrayBuffer())); }
+    const imgPath = path.join(dir, `canon-${tag}.img`); tmp.push(imgPath);
+    { const r = await fetch(imgUrl); if (!r.ok) return { ok: false, error: "img_fetch_" + r.status };
+      fs.writeFileSync(imgPath, Buffer.from(await r.arrayBuffer())); }
+    const outPath = path.join(dir, `canon-${tag}.mp4`); tmp.push(outPath);
+    // 源放大→裁 2.39→zoompan 缓慢推近(Ken Burns)→1470x630 yuv420p; -shortest 自动对齐音频时长。
+    const vf = "scale=2940:1260:force_original_aspect_ratio=increase,crop=2940:1260," +
+      "zoompan=z='min(1.0+0.00018*on,1.18)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1470x630:fps=25,format=yuv420p";
+    const r = await spawnFfmpeg(["-y", "-loglevel", "error",
+      "-loop", "1", "-framerate", "25", "-i", imgPath, "-i", aPath,
+      "-vf", vf, "-map", "0:v", "-map", "1:a",
+      "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+      "-shortest", "-movflags", "+faststart", outPath]);
+    if (r.code !== 0 || !fs.existsSync(outPath)) { console.warn("[canon] ffmpeg failed:", r.stderr.slice(0, 300)); return { ok: false, error: "ffmpeg" }; }
+    const buf = fs.readFileSync(outPath);
+    const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
+    const url = await uploadBufferToR2(buf, `artifacts/mv/canon-${workId.slice(0, 8)}-${sha}.mp4`, "video/mp4").catch(() => null);
+    if (!url) return { ok: false, error: "r2" };
+    await pool.query(`UPDATE user_works SET preview_video_url=COALESCE(preview_video_url,$2), updated_at=now() WHERE id=$1::uuid`, [workId, url]);
+    await pool.query(`INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1::uuid,'canonical_mv',$2,'{}'::jsonb)
+       ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame' DO UPDATE SET url=EXCLUDED.url`, [workId, url]).catch(() => {});
+    console.log(`[canon] rendered work=${workId.slice(0, 8)} -> ${url}`);
+    return { ok: true, url };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  finally { _canonInflight.delete(workId); for (const f of tmp) { try { fs.unlinkSync(f); } catch { /* noop */ } } }
+}
+
 async function stitchNarrativeRootVideo(rootId: string): Promise<void> {
   if (!rootId || _stitchInflight.has(rootId)) return;
   _stitchInflight.add(rootId);

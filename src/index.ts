@@ -3167,6 +3167,88 @@ app.post("/api/ifilm/:id/beat-video", express.json({ limit: "2kb" }), async (req
   catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 
+/* CSSOS_WAVE_1482 — ⑥(第8章最后一项)photo → avatar USDZ。角色 → 生成肖像 →
+ * FAL Hyper3D/Rodin image-to-3D(直出 USDZ, 免转换)→ R2 → 写 characters[].model_url。
+ * 出的是【静态网格】(能绕能摸+语音+高亮反应, 但身体不动画)。真·rigged 可动角色要
+ * Ready Player Me / Avaturn 那种专门头像流(GLB+骨骼), 留作下一档(需其 SDK/凭据)。
+ * 异步缓存: 点火返回 pending, 前端轮询到 ready 拿 model_url。 */
+const _ifilmAvatarInflight = new Set<string>();
+async function falRodinImageTo3D(imageUrl: string): Promise<string | null> {
+  const key = (process.env.FAL_API_KEY || "").trim(); if (!key) return null;
+  try {
+    const sub = await fetch("https://queue.fal.run/fal-ai/hyper3d/rodin", {
+      method: "POST", headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ input_image_urls: [imageUrl], geometry_file_format: "usdz", material: "PBR", quality: "medium", tier: "Regular" }),
+    });
+    const sj = await sub.json() as any;
+    const statusUrl = sj.status_url, responseUrl = sj.response_url;
+    if (!statusUrl || !responseUrl) { console.warn("[ifilm-avatar] no queue urls", JSON.stringify(sj).slice(0, 160)); return null; }
+    const deadline = Date.now() + 240_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const st = await fetch(statusUrl, { headers: { Authorization: `Key ${key}` } });
+      const stj = await st.json() as any;
+      if (stj.status === "COMPLETED") {
+        const rr = await fetch(responseUrl, { headers: { Authorization: `Key ${key}` } });
+        const rj = await rr.json() as any;
+        return rj?.model_mesh?.url || rj?.model_glb?.url || rj?.model_usdz?.url || null;
+      }
+      if (stj.status === "FAILED" || stj.status === "ERROR") { console.warn("[ifilm-avatar] rodin failed"); return null; }
+    }
+    return null;
+  } catch (e) { console.warn("[ifilm-avatar] rodin err", e instanceof Error ? e.message : String(e)); return null; }
+}
+async function ensureCharacterAvatar(workId: string, characterName: string): Promise<{ status: "ready" | "pending" | "skip"; model_url?: string }> {
+  const c = await loadIFilmConstitution(workId);
+  const ch = (c.characters || []).find((x) => x.name === characterName);
+  if (!ch) return { status: "skip" };
+  if (ch.model_url) return { status: "ready", model_url: ch.model_url };
+  const hash = crypto.createHash("sha1").update(workId + "|" + characterName).digest("hex").slice(0, 24);
+  const remote = `artifacts/ifilm-avatar/${hash}.usdz`;
+  const url = `https://cdn.cssstudio.app/${remote}`;
+  try { const h = await fetch(url, { method: "HEAD" }); if (h.ok) { await persistIFilmAvatarUrl(workId, characterName, url); return { status: "ready", model_url: url }; } } catch { /* not ready */ }
+  if (_ifilmAvatarInflight.has(hash)) return { status: "pending", model_url: url };
+  _ifilmAvatarInflight.add(hash);
+  (async () => {
+    try {
+      // ① 生成角色肖像(全身/胸像, 干净背景利于 3D 重建)。
+      const portrait = await callImageGen({ prompt: `full-body character portrait of ${ch.name}, ${ch.role}, ${c.title} cinematic universe, neutral A-pose, front view, clean plain studio background, beautiful refined aesthetic, highly detailed`, size: "1024x1024" });
+      let imgUrl = portrait.image_url || null;
+      if (!imgUrl && portrait.image_b64) imgUrl = await uploadBufferToR2(Buffer.from(portrait.image_b64, "base64"), `artifacts/ifilm-avatar/${hash}-src.png`, "image/png").catch(() => null);
+      if (!imgUrl) { console.warn("[ifilm-avatar] no portrait"); return; }
+      // ② image → 3D USDZ(Rodin)。
+      const modelUrl = await falRodinImageTo3D(imgUrl);
+      if (!modelUrl) { console.warn("[ifilm-avatar] no model"); return; }
+      // ③ 下载落 R2 + 绑定 model_url。
+      const dl = await fetch(modelUrl);
+      if (dl.ok) { await uploadBufferToR2(Buffer.from(await dl.arrayBuffer()), remote, "model/vnd.usdz+zip").catch(() => null);
+        await persistIFilmAvatarUrl(workId, characterName, url);
+        console.log(`[ifilm-avatar] ${characterName} -> ${url}`); }
+    } catch (e) { console.warn("[ifilm-avatar] err", e instanceof Error ? e.message : String(e)); }
+    finally { _ifilmAvatarInflight.delete(hash); }
+  })();
+  return { status: "pending", model_url: url };
+}
+// 把角色 model_url 写进存储的宪法(下次 loadIFilmConstitution 自带)。
+async function persistIFilmAvatarUrl(workId: string, characterName: string, modelUrl: string): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return;
+  try {
+    const r = await getPool().query<{ meta: any }>(`SELECT meta FROM work_assets WHERE work_id=$1::uuid AND asset_type='ifilm_constitution' LIMIT 1`, [workId]);
+    const meta = r.rows[0]?.meta; const con = meta?.constitution;
+    if (!con?.characters) return;
+    const ch = con.characters.find((x: any) => x.name === characterName); if (!ch || ch.model_url) return;
+    ch.model_url = modelUrl;
+    await getPool().query(`UPDATE work_assets SET meta=$2 WHERE work_id=$1::uuid AND asset_type='ifilm_constitution'`, [workId, JSON.stringify(meta)]);
+  } catch (e) { console.warn("[ifilm-avatar] persist err", e instanceof Error ? e.message : String(e)); }
+}
+
+// 前端进场为每个角色调一次(或后台批量): 现没 3D 模型就现生成。ready→拿 model_url 加载 USDZ。
+app.post("/api/ifilm/:id/avatar", express.json({ limit: "2kb" }), async (req, res) => {
+  const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  try { return res.json({ ok: true, character: String(b.character || ""), ...(await ensureCharacterAvatar(String(req.params.id || ""), String(b.character || ""))) }); }
+  catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
 // 触碰/凝视即时微反应: 触碰主角 → 角色秒回一个有意志的小反应(不推进剧情, 不改结局)。
 // 这正是 3D 里"伸手碰主角、他瞥你一眼"那层——轻量、快、有边界。
 app.post("/api/ifilm/:id/touch", express.json({ limit: "2kb" }), async (req, res) => {

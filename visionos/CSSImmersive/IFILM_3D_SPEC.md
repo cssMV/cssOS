@@ -168,7 +168,14 @@ USDZ 角色需:**网格 + 骨骼(skeleton)+ 蒙皮 + blendshapes(表情)+ 动画
       同性别角色自动分到不同嗓子。`/next`、`/touch` 用说话角色的专属音色。
 - [x] **beat.video_prompt → seedance 预渲染空间视频缓存**(W1477,边写边备料)。
 - [x] **任意 film 自动生成宪法**(W1480)。
-- [ ] 档 B: 角色封面 → photo-to-avatar USDZ 端点 → 填 `characters[].model_url`(唯一剩项)。
+- [x] **photo → avatar USDZ**(W1482): `POST /api/ifilm/:id/avatar {character}` → 生成肖像 →
+      FAL Hyper3D/Rodin image-to-3D(**直出 USDZ**)→ R2 → 写 `characters[].model_url`。异步缓存,
+      点火 pending → 轮询 ready。**注**: 出的是【静态网格】(可绕行/触碰/语音/高亮反应, 身体不动画);
+      真·rigged 可动角色(全身动作/lip-sync)要 Ready Player Me / Avaturn 头像流(GLB+骨骼), 下一档。
+
+### 第 8 章全部完成 ✅ — 互动电影后端基座齐活
+visionOS 拿 `/constitution` → 每角色有 `voice_id`(专属嗓)+ `model_hint`(预制档)+ `model_url`(现生成静态 USDZ);
+`/next`(现写剧情+语音+逐字字幕+视频备料)、`/touch`(触碰反应)、`/threads`(多线程)、`/avatar`(3D 模型)、`/beat-video`(银幕画面)全部就绪。逻辑+素材全在后端,前端纯表演。
 
 ### visionOS 加载角色模型
 ```

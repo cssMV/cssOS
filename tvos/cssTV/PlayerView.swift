@@ -17,7 +17,13 @@ struct VideoSurface: UIViewRepresentable {
         v.playerLayer.videoGravity = .resizeAspectFill
         return v
     }
-    func updateUIView(_ uiView: PlayerLayerView, context: Context) {}
+    // CSSOS_WAVE_1471 — 多部连播真凶: 换集时 videoPlayer 换了新 AVPlayer 实例, 但此处原为空,
+    //   layer 仍绑着第一集那个(已暂停)player → 后续集"有声无画"。重绑到当前 player 即修。
+    func updateUIView(_ uiView: PlayerLayerView, context: Context) {
+        if uiView.playerLayer.player !== player {
+            uiView.playerLayer.player = player
+        }
+    }
 
     final class PlayerLayerView: UIView {
         override static var layerClass: AnyClass { AVPlayerLayer.self }

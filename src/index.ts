@@ -3201,6 +3201,17 @@ async function falRodinImageTo3D(imageUrl: string): Promise<string | null> {
 /* CSSOS_WAVE_1484 — FAL 没余额时回退 Replicate image→3D(firtoz/trellis, 出 GLB)。
  * GLB 非 USDZ → visionOS 需转换(见 IFILM_3D_SPEC.md §3D 模型管线 的 GLB→USDZ 说明)。
  * kie 无 3D 引擎(已实测), 故不走 kie。 */
+// 🌟 自家免费 image→USDZ: 专用机自托管 TripoSR + Blender(W1487, 零 per-call 成本)。
+//    avatar 主路, 不看任何第三方脸色、不烧余额。CPU ~17s/个。
+async function atelierTriposrUsdz(imageUrl: string): Promise<Buffer | null> {
+  const host = (process.env.IFILM_TSR_HOST || "http://10.128.0.5:7897").trim();
+  try {
+    const r = await fetch(`${host}/img2usdz`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image_url: imageUrl }) });
+    if (!r.ok) { console.warn("[ifilm-avatar] tsr", r.status); return null; }
+    const buf = Buffer.from(await r.arrayBuffer());
+    return buf.length > 1000 ? buf : null;
+  } catch (e) { console.warn("[ifilm-avatar] tsr err", e instanceof Error ? e.message : String(e)); return null; }
+}
 // GLB → USDZ: 调专用机(cssos-atelier) Blender 无头转换服务(W1485, 不碰生产 api-vm)。
 async function atelierGlb2Usdz(glbUrl: string): Promise<Buffer | null> {
   const host = (process.env.IFILM_BLENDER_HOST || "http://10.128.0.5:7896").trim();
@@ -3250,13 +3261,14 @@ async function ensureCharacterAvatar(workId: string, characterName: string): Pro
       let imgUrl = portrait.image_url || null;
       if (!imgUrl && portrait.image_b64) imgUrl = await uploadBufferToR2(Buffer.from(portrait.image_b64, "base64"), `artifacts/ifilm-avatar/${hash}-src.png`, "image/png").catch(() => null);
       if (!imgUrl) { console.warn("[ifilm-avatar] no portrait"); return; }
-      // ② image → 3D。W1486 — 成本优先: 既然 Blender 免费转 USDZ, 就走【便宜路】:
-      //    Replicate trellis(GLB, 几分钱)→ 专用机 Blender 转 USDZ。FAL Rodin 贵(~几毛~$1+)→
-      //    仅当便宜路失败才兜底。visionOS 永远拿干净 USDZ。
-      let usdzBytes: Buffer | null = null;       // 最终要落 R2 的 USDZ 字节
-      const glbUrl = await replicateImageTo3D(imgUrl);
-      if (glbUrl) usdzBytes = await atelierGlb2Usdz(glbUrl);
-      if (!usdzBytes) {                          // 便宜路没出 → FAL Rodin 直出 USDZ(贵, 兜底)
+      // ② image → 3D USDZ。W1487 — 主路【自家免费 TripoSR + Blender】(零成本, 不看第三方脸色)。
+      //    仅自家失败才兜底 Replicate(便宜 GLB)→ Blender; 再不行才 FAL Rodin(贵)。
+      let usdzBytes: Buffer | null = await atelierTriposrUsdz(imgUrl);   // 🌟 免费主路
+      if (!usdzBytes) {                          // 自家没出 → Replicate trellis(GLB)→ Blender
+        const glbUrl = await replicateImageTo3D(imgUrl);
+        if (glbUrl) usdzBytes = await atelierGlb2Usdz(glbUrl);
+      }
+      if (!usdzBytes) {                          // 再不行 → FAL Rodin 直出 USDZ(贵, 最后兜底)
         const usdzUrl = await falRodinImageTo3D(imgUrl);
         if (usdzUrl) { const dl = await fetch(usdzUrl); if (dl.ok) usdzBytes = Buffer.from(await dl.arrayBuffer()); }
       }

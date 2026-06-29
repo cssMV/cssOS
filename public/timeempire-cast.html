@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>时间帝国 · 开场人物介绍</title>
+<style>
+  :root { --bg:#0a0e12; --card:#121820; --mint:#46e3b1; --ink:#e8f0ef; --dim:#8aa0a0; --line:#1f2a30; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(120% 80% at 50% -10%, #122 0%, var(--bg) 60%); color:var(--ink);
+         font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif; min-height:100vh; padding:40px 20px 80px; }
+  header { text-align:center; margin-bottom:8px; }
+  h1 { font-size:30px; letter-spacing:2px; margin:0 0 4px; }
+  .sub { color:var(--dim); font-size:14px; letter-spacing:1px; }
+  .hint { max-width:680px; margin:18px auto 34px; text-align:center; color:var(--dim); font-size:13px; line-height:1.7;
+          background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 18px; }
+  .grid { display:grid; gap:20px; max-width:780px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:22px 22px 18px;
+          display:flex; flex-direction:column; gap:6px; }
+  .name { font-size:22px; font-weight:700; }
+  .role { color:var(--dim); font-size:14px; line-height:1.6; margin-bottom:12px; }
+  .btns { display:flex; gap:12px; flex-wrap:wrap; }
+  a.view { flex:1 1 200px; text-decoration:none; text-align:center; padding:13px 16px; border-radius:12px;
+           font-size:14px; font-weight:600; border:1px solid var(--line); transition:transform .12s; }
+  a.view:active { transform:scale(.97); }
+  a.free { background:#13241d; color:var(--mint); border-color:#1c4a3a; }
+  a.flag { background:#1b1622; color:#d9b3ff; border-color:#3a2a4a; }
+  a.view small { display:block; font-weight:400; opacity:.7; font-size:11px; margin-top:3px; }
+  footer { text-align:center; color:var(--dim); font-size:12px; margin-top:40px; line-height:1.8; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>时间的帝国</h1>
+    <div class="sub">开场 · 人物介绍 · CAST</div>
+  </header>
+  <div class="hint">
+    Mac / iPhone 上点按钮 → 用「快速查看 / AR Quick Look」360° 转着看 3D 立像。<br>
+    <b style="color:var(--mint)">免费有色</b> = 自家 TripoSR($0)　·　<b style="color:#d9b3ff">旗舰带纹理</b> = TRELLIS(精细)。对比一下哪个够用。
+  </div>
+  <div class="grid" id="cast"></div>
+  <footer>
+    CSS Studio · 时间的帝国 互动电影<br>
+    每个人物两版 3D 立像 — 你来判颜色。
+  </footer>
+<script>
+  const CAST = [
+    { name:"林墨", role:"男主 · 时间观测者，坚信痛苦与自由不可分割。",
+      free:"https://cdn.cssstudio.app/artifacts/timeempire-free-linmo/1a5f013318d5f733633d4cae.usdz",
+      flag:"https://cdn.cssstudio.app/artifacts/timeempire-linmo/99b9db1ff527c265c8407b45.usdz" },
+    { name:"苏晚", role:"女主 · 林墨深爱之人，共担守护时间线之责。",
+      free:"https://cdn.cssstudio.app/artifacts/timeempire-free-suwan/8a081dedd15ede5a51bf2821.usdz",
+      flag:"https://cdn.cssstudio.app/artifacts/timeempire-suwan/7ba439bd2e5b7da38b049cd2.usdz" },
+    { name:"火星信使", role:"火星未来人代言者，温柔而危险，许诺无痛世界。",
+      free:"https://cdn.cssstudio.app/artifacts/timeempire-free-marsenvoy/5bd9b6fe864d0ba8d089adbf.usdz",
+      flag:"https://cdn.cssstudio.app/artifacts/timeempire-marsenvoy/33f86b27fc5fd7f72668bd52.usdz" },
+  ];
+  document.getElementById('cast').innerHTML = CAST.map(c => `
+    <div class="card">
+      <div class="name">${c.name}</div>
+      <div class="role">${c.role}</div>
+      <div class="btns">
+        <a class="view free" rel="ar" href="${c.free}">免费有色版 <small>TripoSR · $0</small></a>
+        <a class="view flag" rel="ar" href="${c.flag}">旗舰带纹理版 <small>TRELLIS · 几分钱</small></a>
+      </div>
+    </div>`).join('');
+</script>
+</body>
+</html>

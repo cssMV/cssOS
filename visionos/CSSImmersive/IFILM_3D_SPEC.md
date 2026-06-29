@@ -162,11 +162,20 @@ USDZ 角色需:**网格 + 骨骼(skeleton)+ 蒙皮 + blendshapes(表情)+ 动画
 
 ---
 
-## 8. 后端待补(我下轮可做)
-- [ ] `constitution.characters[].model_url`(USDZ)+ `voice_id` 字段(角色 ↔ 模型/音色绑定)
-- [ ] beat.video_prompt → seedance 预渲染空间视频缓存(边写边备料)
-- [ ] 创作管线给任意 film 自动生成宪法(不止《时间的帝国》)
-- [ ] 档 B: 角色封面 → photo-to-avatar USDZ 端点
+## 8. 后端进度
+- [x] **角色 ↔ 音色/模型绑定**(W1481): `constitution.characters[]` 现带 `gender / voice_id(ElevenLabs) / model_hint`。
+      `model_hint` = `{male|female|neutral}_{adult|elder|youth}` → visionOS 映射到 bundle 内预制 rigged USDZ。
+      同性别角色自动分到不同嗓子。`/next`、`/touch` 用说话角色的专属音色。
+- [x] **beat.video_prompt → seedance 预渲染空间视频缓存**(W1477,边写边备料)。
+- [x] **任意 film 自动生成宪法**(W1480)。
+- [ ] 档 B: 角色封面 → photo-to-avatar USDZ 端点 → 填 `characters[].model_url`(唯一剩项)。
+
+### visionOS 加载角色模型
+```
+for ch in constitution.characters:
+    let url = ch.model_url ?? presetUSDZ(ch.model_hint)   // model_url 优先, 否则按档位用 bundle 预制
+    放置 USDZ(WorldAnchor) → 绑 voice(播 /next 或 /touch 返回的 voice_url, 已是该角色专属音色)
+```
 
 > 见记忆 `spatial_multithread_film_apple_exclusive`、`native_app_player_rebind_and_source_fix`。
 > 后端代码: src/index.ts `CSSOS_WAVE_1474/1475/1476`(directIFilmNext / ifilmSpeak / /touch)。

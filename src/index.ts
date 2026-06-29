@@ -2898,7 +2898,35 @@ app.post("/api/ifilm/:id/direct", express.json({ limit: "4kb" }), async (req, re
  * 宪法(固定: 世界观/人物/铁律/结局集) + 生成式导演(每个 beat 现场实时写, 人人每次不同,
  * 随张力/步数拐向并最终坠入结局集之一)。每次唯一 = LLM 现生成 + per-session seed。 */
 type IFilmEnding = { id: string; label: string; synopsis: string };
-type IFilmConstitution = { title: string; premise: string; characters: { name: string; role: string }[]; rails: string[]; endings: IFilmEnding[]; max_beats: number };
+/* CSSOS_WAVE_1481 — ⑤ 角色 ↔ 音色/模型绑定: 每个角色稳定专属 voice_id(ElevenLabs) +
+ * model_hint(visionOS 按档位加载预制 rigged USDZ; 将来 photo-to-avatar 填 model_url)。 */
+type IFilmCharacter = { name: string; role: string; gender?: "male" | "female" | "neutral"; voice_id?: string; model_hint?: string; model_url?: string };
+type IFilmConstitution = { title: string; premise: string; characters: IFilmCharacter[]; rails: string[]; endings: IFilmEnding[]; max_beats: number };
+const IFILM_VOICE_POOL = {
+  male: ["ErXwobaYiN019PkySvjV", "VR6AewLTigWG4xSOukaG", "pNInz6obpgDQGcFmaJgB", "TxGEqnHWrfWFTfGW9XjX"],   // Antoni/Arnold/Adam/Josh
+  female: ["EXAVITQu4vr4xnSDxMaL", "21m00Tcm4TlvDq8ikWAM", "MF3mGyEYCl7XYWbV9V6O", "AZnzlk1XvdvUeBnXmlld"],  // Bella/Rachel/Elli/Domi
+  neutral: ["yoZ06aMxZJJ28mfd3POQ"],                                                                          // Sam
+};
+function ifilmInferGender(ch: IFilmCharacter): "male" | "female" | "neutral" {
+  if (ch.gender) return ch.gender;
+  const s = (ch.name + " " + ch.role);
+  if (/女|她|母|姐|妹|娘|公主|王后|female|woman|girl|苏晚|莉莉|雅|妃/.test(s)) return "female";
+  if (/男|他|父|兄|弟|王|帝|将|male|man|boy|林墨|凯撒|阿瑞斯|信使/.test(s)) return "male";
+  return "neutral";
+}
+// 给宪法里每个角色补上稳定 voice_id + model_hint(同性别按序分配不同嗓子)。幂等。
+function bindIFilmCharacters(c: IFilmConstitution): IFilmConstitution {
+  const used: Record<string, number> = { male: 0, female: 0, neutral: 0 };
+  c.characters = (c.characters || []).map((ch) => {
+    const g = ifilmInferGender(ch);
+    const pool = IFILM_VOICE_POOL[g];
+    const voice_id = ch.voice_id || pool[used[g]! % pool.length]!;
+    used[g] = (used[g] || 0) + 1;
+    const archetype = /帝|王|长老|父|elder|king|emperor/.test(ch.name + ch.role) ? "elder" : /少|童|girl|boy/.test(ch.role) ? "youth" : "adult";
+    return { ...ch, gender: g, voice_id, model_hint: ch.model_hint || `${g}_${archetype}` };
+  });
+  return c;
+}
 type IFilmSession = { beats: string[]; step: number; tension: number; seed: number };
 
 const IFILM_CONST_TIMEEMPIRE: IFilmConstitution = {
@@ -2974,12 +3002,17 @@ async function loadIFilmConstitution(workId: string): Promise<IFilmConstitution>
       const r = await getPool().query<{ meta: any }>(
         `SELECT meta FROM work_assets WHERE work_id=$1::uuid AND asset_type='ifilm_constitution' LIMIT 1`, [workId]);
       const c = r.rows[0]?.meta?.constitution;
-      if (c && c.endings && c.rails) return c as IFilmConstitution;
+      if (c && c.endings && c.rails) return bindIFilmCharacters(c as IFilmConstitution);
     } catch { /* fall through */ }
     const gen = await generateIFilmConstitution(workId).catch(() => null);
-    if (gen) return gen;
+    if (gen) return bindIFilmCharacters(gen);
   }
-  return IFILM_CONST_TIMEEMPIRE;                                    // demo id / 生成失败 → 样例兜底
+  return bindIFilmCharacters(IFILM_CONST_TIMEEMPIRE);              // demo id / 生成失败 → 样例兜底
+}
+// 按说话角色名查其绑定的 voice_id(查不到 → 默认女声)。
+function ifilmVoiceForSpeaker(c: IFilmConstitution, speaker: string): string {
+  const ch = (c.characters || []).find((x) => x.name === speaker);
+  return ch?.voice_id || IFILM_VOICE[speaker] || "EXAVITQu4vr4xnSDxMaL";
 }
 
 async function directIFilmNext(c: IFilmConstitution, s: IFilmSession, interaction: { gaze?: string; gesture?: string; utterance?: string }):
@@ -3065,10 +3098,10 @@ function buildIfilmSubLine(chars: string[], starts: number[], ends: number[], te
   return { text: chars.join(""), t_start: t0, t_end: t1, tokens: toks };
 }
 // 带时间戳的语音合成: 返回 {voice_url, line(逐字时间轴字幕)}。缓存 mp3+json。
-async function ifilmSpeakTimed(text: string, character: string, tension: number): Promise<{ voice_url: string; subtitle: IFilmSubLine } | null> {
+async function ifilmSpeakTimed(text: string, character: string, tension: number, voiceOverride?: string): Promise<{ voice_url: string; subtitle: IFilmSubLine } | null> {
   const t = String(text || "").trim(); if (!t) return null;
   const key = (process.env.ELEVENLABS_API_KEY || "").trim(); if (!key) return null;
-  const voiceId = IFILM_VOICE[character] || "EXAVITQu4vr4xnSDxMaL";
+  const voiceId = voiceOverride || IFILM_VOICE[character] || "EXAVITQu4vr4xnSDxMaL";
   const sha = crypto.createHash("sha1").update(voiceId + "|" + t).digest("hex").slice(0, 24);
   const mp3 = `artifacts/ifilm-voice/${sha}.mp3`, jsn = `artifacts/ifilm-voice/${sha}.json`;
   const mp3url = `https://cdn.cssstudio.app/${mp3}`;
@@ -3146,8 +3179,8 @@ app.post("/api/ifilm/:id/touch", express.json({ limit: "2kb" }), async (req, res
     const resp = await callLlm({ messages: [{ role: "system", content: sys }, { role: "user", content: `${touch}` }], temperature: 0.9, max_tokens: 120 });
     const m = String(resp.content || "").match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : {};
     const line = String(j.line || "").slice(0, 40);
-    const voice_url = line ? await ifilmSpeak(line, character) : null;
-    return res.json({ ok: true, character, line, motion: String(j.motion || "").slice(0, 24), emotion: String(j.emotion || "").slice(0, 12), voice_url });
+    const spoken = line ? await ifilmSpeakTimed(line, character, 0.3, ifilmVoiceForSpeaker(c, character)).catch(() => null) : null;
+    return res.json({ ok: true, character, line, motion: String(j.motion || "").slice(0, 24), emotion: String(j.emotion || "").slice(0, 12), voice_url: spoken?.voice_url || null });
   } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 
@@ -3205,8 +3238,8 @@ app.post("/api/ifilm/:id/next", express.json({ limit: "8kb" }), async (req, res)
       seed: Number(b.seed) || ((String(req.params.id).length * 7 + (Number(b.step) || 0) * 131) % 100000),
     };
     const out = await directIFilmNext(c, s, { gaze: b.gaze, gesture: b.gesture, utterance: b.utterance });
-    // W1476/1479 — 让 beat 可表演: 角色把台词真说出来 + 逐字情绪字幕时间轴(招牌爆字幕)。
-    const spoken = await ifilmSpeakTimed(out.beat.line, out.beat.speaker, out.tension).catch(() => null);
+    // W1476/1479/1481 — 让 beat 可表演: 角色用【绑定的专属音色】说出台词 + 逐字情绪字幕。
+    const spoken = await ifilmSpeakTimed(out.beat.line, out.beat.speaker, out.tension, ifilmVoiceForSpeaker(c, out.beat.speaker)).catch(() => null);
     // W1477 — 顺手点火 beat 视频备料(不阻塞; 前端拿 beat_video.video_url 轮询 /beat-video 到 ready)。
     const beat_video = await ensureBeatVideo(out.beat.video_prompt).catch(() => ({ status: "skip" as const }));
     // 回传更新后的 session(visionOS 下次带回)。

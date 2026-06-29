@@ -14,27 +14,47 @@
   .stage { max-width:1080px; margin:0 auto; padding:46px 18px 90px; }
   .title { text-align:center; opacity:0; transform:translateY(14px); animation:rise .9s ease forwards; }
   .title h1 { font-size:clamp(30px,6vw,52px); letter-spacing:6px; margin:0; font-weight:800;
-    background:linear-gradient(180deg,#fff, #9fe9d3); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+    background:linear-gradient(180deg,#fff,#9fe9d3); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
   .title .k { color:var(--dim); letter-spacing:5px; font-size:13px; margin-top:8px; }
   .lead { text-align:center; color:var(--dim); max-width:640px; margin:16px auto 6px; line-height:1.8; font-size:14px;
     opacity:0; animation:rise .9s ease .25s forwards; }
   .cast { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin:40px 0 10px; }
   @media (max-width:760px){ .cast{ grid-template-columns:1fr; } }
   .ch { position:relative; background:linear-gradient(180deg,#0d161a,#0a1115); border:1px solid #15242a; border-radius:20px;
-    padding:14px 14px 20px; opacity:0; transform:translateY(26px) scale(.97); animation:enter .9s cubic-bezier(.2,.7,.2,1) forwards; }
+    padding:14px 14px 20px; opacity:0; transform:translateY(26px) scale(.97); animation:enter .9s cubic-bezier(.2,.7,.2,1) forwards; cursor:pointer; transition:border-color .2s; }
+  .ch:hover { border-color:#2c5a4a; }
   .ch:nth-child(1){ animation-delay:.5s; } .ch:nth-child(2){ animation-delay:.85s; } .ch:nth-child(3){ animation-delay:1.2s; }
-  model-viewer { width:100%; height:300px; --poster-color:transparent; background:radial-gradient(60% 60% at 50% 35%, rgba(70,227,177,.10) 0%, transparent 70%); }
+  model-viewer { width:100%; height:300px; --poster-color:transparent; background:radial-gradient(60% 60% at 50% 40%, rgba(70,227,177,.10) 0%, transparent 70%); }
   .name { font-size:21px; font-weight:700; text-align:center; margin-top:6px; }
   .role { color:var(--dim); font-size:13px; line-height:1.6; text-align:center; margin-top:5px; min-height:38px; }
   .badge { position:absolute; top:14px; left:14px; font-size:11px; color:var(--mint); border:1px solid #1c4a3a;
     background:#0c1f19; padding:3px 9px; border-radius:999px; letter-spacing:1px; }
-  .enter { display:block; width:min(320px,80%); margin:38px auto 0; text-align:center; text-decoration:none;
+  .tap { position:absolute; bottom:12px; right:14px; font-size:11px; color:var(--dim); }
+  .enter { display:block; width:min(320px,80%); margin:38px auto 0; text-align:center; cursor:pointer; border:0;
     padding:16px; border-radius:14px; font-weight:700; font-size:16px; letter-spacing:2px; color:#05201a;
     background:linear-gradient(180deg,#5cf0c0,#33c79a); box-shadow:0 8px 30px rgba(70,227,177,.25);
     opacity:0; animation:rise .8s ease 1.7s forwards; }
   .enter:active{ transform:scale(.98); }
-  .foot { text-align:center; color:#5b6f6f; font-size:11px; margin-top:26px; letter-spacing:1px;
-    opacity:0; animation:rise .8s ease 1.9s forwards; }
+  .foot { text-align:center; color:#5b6f6f; font-size:11px; margin-top:26px; letter-spacing:1px; opacity:0; animation:rise .8s ease 1.9s forwards; }
+  /* overlays */
+  .overlay { position:fixed; inset:0; background:rgba(3,6,9,.97); z-index:50; display:none; flex-direction:column;
+    backdrop-filter:blur(8px); }
+  .overlay.show { display:flex; }
+  .back { position:absolute; top:18px; left:18px; z-index:2; cursor:pointer; border:1px solid #243a3a; background:#0c1518;
+    color:var(--ink); padding:9px 16px; border-radius:999px; font-size:14px; }
+  .back:active{ transform:scale(.96); }
+  #fsViewer { flex:1; width:100%; }
+  #fsName { text-align:center; font-size:24px; font-weight:700; padding:6px 0 4px; }
+  #fsRole { text-align:center; color:var(--dim); font-size:13px; padding-bottom:26px; }
+  .trWrap { max-width:760px; margin:0 auto; padding:70px 18px 60px; width:100%; overflow-y:auto; }
+  .trH { text-align:center; font-size:22px; font-weight:800; letter-spacing:2px; }
+  .trSub { text-align:center; color:var(--dim); font-size:13px; margin:6px 0 26px; }
+  .tr { display:flex; gap:14px; align-items:center; text-decoration:none; color:var(--ink); background:#0d161a;
+    border:1px solid #15242a; border-radius:16px; padding:10px; margin-bottom:14px; transition:border-color .2s; }
+  .tr:hover{ border-color:#2c5a4a; }
+  .tr img { width:140px; height:80px; object-fit:cover; border-radius:10px; flex:none; background:#081012; }
+  .tr .ti { font-size:16px; font-weight:600; }
+  .tr .pl { color:var(--mint); font-size:13px; margin-top:4px; }
   @keyframes rise { to { opacity:1; transform:none; } }
   @keyframes enter { to { opacity:1; transform:none; } }
 </style>
@@ -44,25 +64,63 @@
     <div class="title"><h1>时间的帝国</h1><div class="k">开场 · 人物登场</div></div>
     <p class="lead">近未来，火星上进化出的「未来人」掌握篡改时间线的技术，以「消除一切痛苦」之名暗中规训人类。<br>仅存能察觉时间被改写的，是这三个人 ——</p>
     <div class="cast" id="cast"></div>
-    <a class="enter" href="https://cssstudio.app/?cssMV=59578f73-7298-4aa7-b92c-38d5a649f2b8">进入电影 ▶</a>
+    <button class="enter" onclick="openTrailers()">进入电影 ▶</button>
     <div class="foot">CSS STUDIO · 自家 3D 引擎 · 显原色立像</div>
   </div>
+
+  <!-- 全屏单角色 -->
+  <div class="overlay" id="fsChar">
+    <button class="back" onclick="closeFs()">← 返回</button>
+    <model-viewer id="fsViewer" auto-rotate rotation-per-second="24deg" camera-controls
+      interaction-prompt="none" exposure="1.15" shadow-intensity="0.5"
+      camera-orbit="90deg 85deg 95%" field-of-view="30deg"></model-viewer>
+    <div id="fsName"></div><div id="fsRole"></div>
+  </div>
+
+  <!-- 进入电影 → 三预告片 -->
+  <div class="overlay" id="trailers">
+    <button class="back" onclick="closeTrailers()">← 返回</button>
+    <div class="trWrap">
+      <div class="trH">时间的帝国 · 预告片</div>
+      <div class="trSub">正片尚未上映 — 先看这三支预告</div>
+      <div id="trList"></div>
+    </div>
+  </div>
+
 <script>
+  const V = "?v=3";
   const CAST = [
-    { name:"林墨", role:"时间观测者。坚信痛苦与自由不可分割。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb" },
-    { name:"苏晚", role:"林墨深爱之人。共担守护时间线之责。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb" },
-    { name:"火星信使", role:"火星未来人代言者。温柔而危险，许诺无痛世界。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/marsenvoy.glb" },
+    { name:"林墨", role:"时间观测者。坚信痛苦与自由不可分割。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb"+V },
+    { name:"苏晚", role:"林墨深爱之人。共担守护时间线之责。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb"+V },
+    { name:"火星信使", role:"火星未来人代言者。温柔而危险，许诺无痛世界。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/marsenvoy.glb"+V },
   ];
-  document.getElementById('cast').innerHTML = CAST.map(c => `
-    <div class="ch">
+  const TRAILERS = [
+    { id:"59578f73-7298-4aa7-b92c-38d5a649f2b8", title:"时间的帝国（电影预告）", cover:"https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
+    { id:"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", title:"时间的帝国 · 群星（预告）", cover:"https://cdn.cssstudio.app/covers/trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036.jpg" },
+    { id:"7dc49021-e47e-4f58-8881-faa7ec9abb02", title:"时间的帝国 · 对弈（预告）", cover:"https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" },
+  ];
+  document.getElementById('cast').innerHTML = CAST.map((c,i) => `
+    <div class="ch" onclick="openChar(${i})">
       <span class="badge">CAST</span>
       <model-viewer src="${c.glb}" alt="${c.name}" auto-rotate rotation-per-second="24deg"
         camera-controls touch-action="pan-y" interaction-prompt="none" exposure="1.15"
-        shadow-intensity="0.5" camera-orbit="90deg 85deg 100%" min-camera-orbit="auto 60deg auto"
-        max-camera-orbit="auto 100deg auto" field-of-view="28deg" disable-zoom></model-viewer>
+        shadow-intensity="0.5" camera-orbit="90deg 85deg 100%" field-of-view="28deg" disable-zoom></model-viewer>
       <div class="name">${c.name}</div>
       <div class="role">${c.role}</div>
+      <div class="tap">点按全屏 ⤢</div>
     </div>`).join('');
+  document.getElementById('trList').innerHTML = TRAILERS.map(t => `
+    <a class="tr" href="https://cssstudio.app/?cssMV=${t.id}">
+      <img src="${t.cover}" alt="${t.title}">
+      <div><div class="ti">${t.title}</div><div class="pl">▶ 播放预告</div></div>
+    </a>`).join('');
+
+  const fs = document.getElementById('fsChar'), fsV = document.getElementById('fsViewer');
+  function openChar(i){ const c=CAST[i]; fsV.src=c.glb; document.getElementById('fsName').textContent=c.name;
+    document.getElementById('fsRole').textContent=c.role; fs.classList.add('show'); }
+  function closeFs(){ fs.classList.remove('show'); }
+  function openTrailers(){ document.getElementById('trailers').classList.add('show'); }
+  function closeTrailers(){ document.getElementById('trailers').classList.remove('show'); }
 </script>
 </body>
 </html>

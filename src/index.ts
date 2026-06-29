@@ -22116,6 +22116,17 @@ async function ensureCanonicalMV(workId: string): Promise<{ ok: boolean; url?: s
     const imgPath = path.join(dir, `canon-${tag}.img`); tmp.push(imgPath);
     { const r = await fetch(imgUrl); if (!r.ok) return { ok: false, error: "img_fetch_" + r.status };
       fs.writeFileSync(imgPath, Buffer.from(await r.arrayBuffer())); }
+    // CSSOS_WAVE_1473c — 顺手 ffprobe 音频时长, 回填 duration_secs(铁律: 每张卡都显时长)。
+    let durSecs = 0;
+    try {
+      const probe = await new Promise<string>((resolve) => {
+        const pp = spawn("/usr/bin/ffprobe", ["-v", "error", "-show_entries", "format=duration",
+          "-of", "default=noprint_wrappers=1:nokey=1", aPath], { stdio: ["ignore", "pipe", "ignore"] });
+        let out = ""; pp.stdout.on("data", (c) => { out += String(c); });
+        pp.on("error", () => resolve("")); pp.on("close", () => resolve(out.trim()));
+      });
+      durSecs = Math.round(Number(probe) || 0);
+    } catch { /* noop */ }
     const outPath = path.join(dir, `canon-${tag}.mp4`); tmp.push(outPath);
     // 源放大→裁 2.39→zoompan 缓慢推近(Ken Burns)→1470x630 yuv420p; -shortest 自动对齐音频时长。
     const vf = "scale=2940:1260:force_original_aspect_ratio=increase,crop=2940:1260," +
@@ -22131,7 +22142,9 @@ async function ensureCanonicalMV(workId: string): Promise<{ ok: boolean; url?: s
     const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
     const url = await uploadBufferToR2(buf, `artifacts/mv/canon-${workId.slice(0, 8)}-${sha}.mp4`, "video/mp4").catch(() => null);
     if (!url) return { ok: false, error: "r2" };
-    await pool.query(`UPDATE user_works SET preview_video_url=COALESCE(preview_video_url,$2), updated_at=now() WHERE id=$1::uuid`, [workId, url]);
+    await pool.query(`UPDATE user_works SET preview_video_url=COALESCE(preview_video_url,$2),
+        duration_secs=CASE WHEN (duration_secs IS NULL OR duration_secs=0) AND $3::int>0 THEN $3::int ELSE duration_secs END,
+        updated_at=now() WHERE id=$1::uuid`, [workId, url, durSecs || 0]);
     await pool.query(`INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1::uuid,'canonical_mv',$2,'{}'::jsonb)
        ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame' DO UPDATE SET url=EXCLUDED.url`, [workId, url]).catch(() => {});
     console.log(`[canon] rendered work=${workId.slice(0, 8)} -> ${url}`);

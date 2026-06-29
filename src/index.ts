@@ -42268,6 +42268,9 @@ app.get("/api/works/market", async (req, res) => {
            -- (全平台 887 个 ready vs 仅 62 个 published) → 几乎所有用户成品都被挡在外面。
            -- 'ready' = 资产已提交 = 可播放, 正该出现在 For-You。'draft' 仍排除(未完成)。
            AND w.status IN ('published', 'ready')
+           -- CSSOS_WAVE_1473d — 隐藏死作品(音频源 404, 歌已丢, 无法播放): 体检打的 media_dead
+           --   标记 → 排除出市场/搜索/For-You, 用户绝不撞到死作品。可逆: 删标记即恢复。
+           AND NOT EXISTS (SELECT 1 FROM work_assets wmd WHERE wmd.work_id = w.id AND wmd.asset_type = 'media_dead')
            AND w.parent_work_id IS NULL
            -- CSSOS_IRON_RULE 20260525: For You feed = ALL public published
            -- works, free or paid. Admin works are free (price=0) and always
@@ -42474,6 +42477,9 @@ app.get("/api/works/market", async (req, res) => {
            -- (全平台 887 个 ready vs 仅 62 个 published) → 几乎所有用户成品都被挡在外面。
            -- 'ready' = 资产已提交 = 可播放, 正该出现在 For-You。'draft' 仍排除(未完成)。
            AND w.status IN ('published', 'ready')
+           -- CSSOS_WAVE_1473d — 隐藏死作品(音频源 404, 歌已丢, 无法播放): 体检打的 media_dead
+           --   标记 → 排除出市场/搜索/For-You, 用户绝不撞到死作品。可逆: 删标记即恢复。
+           AND NOT EXISTS (SELECT 1 FROM work_assets wmd WHERE wmd.work_id = w.id AND wmd.asset_type = 'media_dead')
                  AND w.parent_work_id IS NULL
                  AND (
                    (u.role = 'admin' OR u.email LIKE '%@cssstudio.app' OR u.email = 'jingdudc@gmail.com')

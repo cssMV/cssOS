@@ -73,7 +73,7 @@
     <button class="back" onclick="closeFs()">← 返回</button>
     <model-viewer id="fsViewer" auto-rotate rotation-per-second="24deg" camera-controls
       interaction-prompt="none" exposure="1.15" shadow-intensity="0.5"
-      camera-orbit="90deg 85deg 95%" field-of-view="30deg"></model-viewer>
+      camera-orbit="0deg 82deg 105%" field-of-view="30deg"></model-viewer>
     <div id="fsName"></div><div id="fsRole"></div>
   </div>
 
@@ -88,7 +88,7 @@
   </div>
 
 <script>
-  const V = "?v=3";
+  const V = "?v=4";
   const CAST = [
     { name:"林墨", role:"时间观测者。坚信痛苦与自由不可分割。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb"+V },
     { name:"苏晚", role:"林墨深爱之人。共担守护时间线之责。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb"+V },
@@ -104,7 +104,7 @@
       <span class="badge">CAST</span>
       <model-viewer src="${c.glb}" alt="${c.name}" auto-rotate rotation-per-second="24deg"
         camera-controls touch-action="pan-y" interaction-prompt="none" exposure="1.15"
-        shadow-intensity="0.5" camera-orbit="90deg 85deg 100%" field-of-view="28deg" disable-zoom></model-viewer>
+        shadow-intensity="0.5" camera-orbit="0deg 82deg 105%" field-of-view="28deg" disable-zoom></model-viewer>
       <div class="name">${c.name}</div>
       <div class="role">${c.role}</div>
       <div class="tap">点按全屏 ⤢</div>

@@ -75,3 +75,21 @@ node imageToUsdzBytes() 优先级:
 **批准后告诉我**,我就:建 g2-standard-8+L4 GPU worker → 装 CUDA+torch+Hunyuan3D → :7898 服务 → 复用 Blender → 接 imageToUsdzBytes(GPU 优先) → 按需开关控制器。约 30-40 分钟搭完,出旗舰级带纹理 3D 角色。
 
 > 在等期间:免费 CPU 灵体白模(已上线)继续用。
+
+---
+
+## 7. 🚫 GCP GPU 自助申请被 Sales 门锁死(2026-06-29 实测结论)
+不是填错,是 Google 对这个项目的硬限制。**两个 GPU 闸都锁 0/0 不可自助**:
+- `NVIDIA_L4_GPUS` = 0 → Edit 面板: "between 0 and 0 / not eligible / contact Sales"
+- **`GPUS_ALL_REGIONS`(全局 GPU 总闸)= 0** → 同样锁死。**这个最致命**: 它否决一切 GPU 创建,
+  哪怕分区 `NVIDIA_V100_GPUS`=1 也没用(建 VM 实测 `Quota 'GPUS_ALL_REGIONS' exceeded. Limit: 0`)。
+- CPU 类(`CPUS_ALL_REGIONS` 12→24)是自助秒批的,已抬到 24(无 GPU 也用不上,但无害)。
+
+**唯一的 GCP 出口 = contact Google Sales**(可能要 billing 历史/用量承诺;Claude 不替 Jing 发起对外联系)。
+
+### 绕开 GCP 的真实可行路(要旗舰带纹理 3D 又不等 Sales):
+1. **Replicate 按次付费**(已集成兜底): 充值后跑 Hunyuan3D/TRELLIS 模型 → 带纹理 GLB → atelier Blender → USDZ。零 GPU 拥有、零配额、~几分钱/次。**最快今天就能出活**。
+2. **RunPod / Lambda / Vast.ai 租卡**: 按小时租 GPU 跑 `gpu-worker/` 那套 Hunyuan3D 服务,绕开 GCP。
+3. **等 billing 历史攒够(~30天)** 再回 GCP 自助申请(届时大概率解锁)。
+
+> `gpu-worker/`(setup.sh + hunyuan_server.py + hunyuan.service)已就绪,GCP 解锁或换 RunPod 都能直接用。

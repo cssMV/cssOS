@@ -29,7 +29,9 @@
   .role { color:var(--dim); font-size:13px; line-height:1.6; text-align:center; margin-top:5px; min-height:38px; }
   .badge { position:absolute; top:14px; left:14px; font-size:11px; color:var(--mint); border:1px solid #1c4a3a;
     background:#0c1f19; padding:3px 9px; border-radius:999px; letter-spacing:1px; }
-  .tap { position:absolute; bottom:12px; right:14px; font-size:11px; color:var(--dim); }
+  .trlink { display:inline-block; margin-top:12px; text-decoration:none; color:var(--mint); font-size:13px; font-weight:600;
+    border:1px solid #1c4a3a; background:#0c1f19; padding:8px 16px; border-radius:999px; transition:background .15s; }
+  .trlink:hover { background:#123026; }
   .enter { display:block; width:min(320px,80%); margin:38px auto 0; text-align:center; cursor:pointer; border:0;
     padding:16px; border-radius:14px; font-weight:700; font-size:16px; letter-spacing:2px; color:#05201a;
     background:linear-gradient(180deg,#5cf0c0,#33c79a); box-shadow:0 8px 30px rgba(70,227,177,.25);
@@ -108,7 +110,7 @@
         shadow-intensity="0.5" camera-orbit="0deg 82deg 105%" field-of-view="28deg" disable-zoom></model-viewer>
       <div class="name">${c.name}</div>
       <div class="role">${c.role}</div>
-      <div class="tap">点按全屏 ⤢</div>
+      <a class="trlink" href="https://cssstudio.app/?cssMV=${c.tr}&teskip=1" onclick="event.stopPropagation()">▶ ${c.trName}</a>
     </div>`).join('');
   document.getElementById('trList').innerHTML = TRAILERS.map(t => `
     <a class="tr" href="https://cssstudio.app/?cssMV=${t.id}&teskip=1">

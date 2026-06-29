@@ -3063,6 +3063,48 @@ app.post("/api/ifilm/:id/touch", express.json({ limit: "2kb" }), async (req, res
   } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 
+/* CSSOS_WAVE_1478 — ② 多线程并行: 协调地播种 N 条平行线程(同一宇宙不同视角/支线),
+ * 前端为每条线程在一块环绕银幕上各跑独立 /next session(各自 seed/beats/thread)。
+ * 线程互不相同、各自现写, 但最终都坠入【同一个结局集】(可落不同结局)。 */
+async function proposeIFilmThreads(c: IFilmConstitution, count: number): Promise<Array<{ id: string; name: string; premise: string; focus: string; seed: number; angle_degrees: number }>> {
+  const n = Math.max(1, Math.min(count || 3, 6));
+  const angles = [0, -62, 62, -124, 124, 186];
+  const sys = [
+    `你是《${c.title}》的总编剧。为这部 3D 多线程互动电影【同时开 ${n} 条平行叙事线程】, 它们是同一宇宙、同一时间段的不同视角/支线(如: 主角抵抗线、反派渗透线、平民旁观线…)。`,
+    `世界观: ${c.premise}`,
+    `人物: ${c.characters.map((x) => x.name).join("、")}`,
+    `结局集(所有线程最终都坠入其一, 可落不同结局): ${c.endings.map((e) => e.label).join(" / ")}`,
+    `每条线程要【角度不同、互不重复】, 但共享世界观与结局集。严格输出 JSON 数组, ${n} 个元素:`,
+    `[{"name":"<线程名,4-8字>","premise":"<≤30字 这条线的切入点>","focus":"<聚焦的1-2个角色名>"}]`,
+  ].join("\n");
+  try {
+    const resp = await callLlm({ messages: [{ role: "system", content: sys }, { role: "user", content: `开 ${n} 条线程` }], temperature: 1.0, max_tokens: 600 });
+    const m = String(resp.content || "").match(/\[[\s\S]*\]/);
+    const arr: any[] = m ? JSON.parse(m[0]) : [];
+    return Array.from({ length: n }, (_, i) => ({
+      id: `t${i + 1}`,
+      name: String(arr[i]?.name || `线程${i + 1}`).slice(0, 16),
+      premise: String(arr[i]?.premise || "").slice(0, 60),
+      focus: String(arr[i]?.focus || c.characters[0]?.name || "").slice(0, 24),
+      seed: (i + 1) * 9173 + (c.title.length * 31),
+      angle_degrees: angles[i] ?? (i * 60),
+    }));
+  } catch {
+    return Array.from({ length: n }, (_, i) => ({ id: `t${i + 1}`, name: `线程${i + 1}`, premise: "", focus: c.characters[0]?.name || "", seed: (i + 1) * 9173, angle_degrees: angles[i] ?? i * 60 }));
+  }
+}
+
+// visionOS 进场调一次: 拿 N 条线程的播种(名/切入点/聚焦角色/seed/环绕角度)→ 摆 N 块银幕,
+//   每块跑独立 /next session(用该线程 seed + 把 premise 塞进首个 beats 摘要)。
+app.post("/api/ifilm/:id/threads", express.json({ limit: "2kb" }), async (req, res) => {
+  const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  try {
+    const c = await loadIFilmConstitution(String(req.params.id || ""));
+    const threads = await proposeIFilmThreads(c, Number(b.count) || 3);
+    return res.json({ ok: true, threads });
+  } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
 // 生成式导演: 每个转场/交互点调一次, 现写下一 beat。visionOS 自己持有 session 状态逐次回传。
 app.post("/api/ifilm/:id/next", express.json({ limit: "8kb" }), async (req, res) => {
   const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};

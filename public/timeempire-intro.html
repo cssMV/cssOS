@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>时间的帝国 · 开场</title>
+<script type="module" src="https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<style>
+  :root { --mint:#46e3b1; --ink:#eaf2f1; --dim:#90a6a6; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:#05080b; color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif; min-height:100vh; }
+  body { background:radial-gradient(130% 90% at 50% -20%, #0e2a24 0%, #05080b 55%); overflow-x:hidden; }
+  .stage { max-width:1080px; margin:0 auto; padding:46px 18px 90px; }
+  .title { text-align:center; opacity:0; transform:translateY(14px); animation:rise .9s ease forwards; }
+  .title h1 { font-size:clamp(30px,6vw,52px); letter-spacing:6px; margin:0; font-weight:800;
+    background:linear-gradient(180deg,#fff, #9fe9d3); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .title .k { color:var(--dim); letter-spacing:5px; font-size:13px; margin-top:8px; }
+  .lead { text-align:center; color:var(--dim); max-width:640px; margin:16px auto 6px; line-height:1.8; font-size:14px;
+    opacity:0; animation:rise .9s ease .25s forwards; }
+  .cast { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin:40px 0 10px; }
+  @media (max-width:760px){ .cast{ grid-template-columns:1fr; } }
+  .ch { position:relative; background:linear-gradient(180deg,#0d161a,#0a1115); border:1px solid #15242a; border-radius:20px;
+    padding:14px 14px 20px; opacity:0; transform:translateY(26px) scale(.97); animation:enter .9s cubic-bezier(.2,.7,.2,1) forwards; }
+  .ch:nth-child(1){ animation-delay:.5s; } .ch:nth-child(2){ animation-delay:.85s; } .ch:nth-child(3){ animation-delay:1.2s; }
+  model-viewer { width:100%; height:300px; --poster-color:transparent; background:radial-gradient(60% 60% at 50% 35%, rgba(70,227,177,.10) 0%, transparent 70%); }
+  .name { font-size:21px; font-weight:700; text-align:center; margin-top:6px; }
+  .role { color:var(--dim); font-size:13px; line-height:1.6; text-align:center; margin-top:5px; min-height:38px; }
+  .badge { position:absolute; top:14px; left:14px; font-size:11px; color:var(--mint); border:1px solid #1c4a3a;
+    background:#0c1f19; padding:3px 9px; border-radius:999px; letter-spacing:1px; }
+  .enter { display:block; width:min(320px,80%); margin:38px auto 0; text-align:center; text-decoration:none;
+    padding:16px; border-radius:14px; font-weight:700; font-size:16px; letter-spacing:2px; color:#05201a;
+    background:linear-gradient(180deg,#5cf0c0,#33c79a); box-shadow:0 8px 30px rgba(70,227,177,.25);
+    opacity:0; animation:rise .8s ease 1.7s forwards; }
+  .enter:active{ transform:scale(.98); }
+  .foot { text-align:center; color:#5b6f6f; font-size:11px; margin-top:26px; letter-spacing:1px;
+    opacity:0; animation:rise .8s ease 1.9s forwards; }
+  @keyframes rise { to { opacity:1; transform:none; } }
+  @keyframes enter { to { opacity:1; transform:none; } }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="title"><h1>时间的帝国</h1><div class="k">开场 · 人物登场</div></div>
+    <p class="lead">近未来，火星上进化出的「未来人」掌握篡改时间线的技术，以「消除一切痛苦」之名暗中规训人类。<br>仅存能察觉时间被改写的，是这三个人 ——</p>
+    <div class="cast" id="cast"></div>
+    <a class="enter" href="https://cssstudio.app/?cssMV=59578f73-7298-4aa7-b92c-38d5a649f2b8">进入电影 ▶</a>
+    <div class="foot">CSS STUDIO · 自家 3D 引擎 · 显原色立像</div>
+  </div>
+<script>
+  const CAST = [
+    { name:"林墨", role:"时间观测者。坚信痛苦与自由不可分割。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb" },
+    { name:"苏晚", role:"林墨深爱之人。共担守护时间线之责。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb" },
+    { name:"火星信使", role:"火星未来人代言者。温柔而危险，许诺无痛世界。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/marsenvoy.glb" },
+  ];
+  document.getElementById('cast').innerHTML = CAST.map(c => `
+    <div class="ch">
+      <span class="badge">CAST</span>
+      <model-viewer src="${c.glb}" alt="${c.name}" auto-rotate rotation-per-second="22deg"
+        camera-controls touch-action="pan-y" interaction-prompt="none" exposure="1.1"
+        shadow-intensity="0.6" camera-orbit="0deg 80deg 105%" disable-zoom></model-viewer>
+      <div class="name">${c.name}</div>
+      <div class="role">${c.role}</div>
+    </div>`).join('');
+</script>
+</body>
+</html>

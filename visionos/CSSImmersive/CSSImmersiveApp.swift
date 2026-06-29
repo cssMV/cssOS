@@ -62,5 +62,12 @@ struct CSSImmersiveApp: App {
                 .environmentObject(settings)
         }
         .immersionStyle(selection: .constant(.full), in: .full)
+
+        // CSSOS_WAVE_1483 — M1: 3D 互动电影(独立窗启动 + 独立沉浸空间, 零侵入 GateSpace)。
+        //   不与 GateSpace 同时开 → 不抢空间。开发期可从 App 的 ornament/调试入口 openWindow("ifilm")。
+        WindowGroup(id: "ifilm") { IFilmLauncherView() }
+            .defaultSize(width: 480, height: 280)
+        ImmersiveSpace(id: "IFilmSpace") { IFilmSpaceRoot() }
+            .immersionStyle(selection: .constant(.mixed), in: .mixed, .full)
     }
 }

@@ -3251,10 +3251,19 @@ async function replicateImageTo3D(imageUrl: string): Promise<string | null> {
  * 兜底 Replicate(便宜)→ Blender → FAL(贵)。带耗时日志 = CPU 何时该上 GPU 的信号。 */
 async function imageToUsdzBytes(imageUrl: string): Promise<Buffer | null> {
   const t0 = Date.now();
-  let usdzBytes: Buffer | null = await atelierTriposrUsdz(imageUrl); let via = "tsr";   // 免费主路
+  // CSSOS_WAVE_1493 — 旗舰带纹理路: GCP GPU 被 Sales 门锁死(L4+GPUS_ALL_REGIONS=0/0,见 GPU_3D_PLAN.md),
+  // 改走 Replicate TRELLIS 按次付费出【带纹理】GLB → Blender → USDZ(绕开 GCP 配额)。
+  // IFILM_3D_FLAGSHIP=replicate 时优先精细有色模型;否则默认免费 TripoSR 白模主路(零成本)。
+  const flagship = String(process.env.IFILM_3D_FLAGSHIP || "").trim().toLowerCase() === "replicate";
+  let usdzBytes: Buffer | null = null; let via = "";
+  if (flagship) {
+    const glbUrl = await replicateImageTo3D(imageUrl);                                  // 旗舰: 带纹理 GLB
+    if (glbUrl) { usdzBytes = await atelierGlb2Usdz(glbUrl); via = "replicate-trellis"; }
+  }
+  if (!usdzBytes) { usdzBytes = await atelierTriposrUsdz(imageUrl); if (usdzBytes) via = "tsr"; }   // 免费白模(主路/兜底)
   if (!usdzBytes) { const glbUrl = await replicateImageTo3D(imageUrl); if (glbUrl) { usdzBytes = await atelierGlb2Usdz(glbUrl); via = "replicate"; } }
   if (!usdzBytes) { const u = await falRodinImageTo3D(imageUrl); if (u) { const dl = await fetch(u); if (dl.ok) { usdzBytes = Buffer.from(await dl.arrayBuffer()); via = "fal"; } } }
-  console.log(`[3d] image->usdz via=${via} ok=${!!usdzBytes} ${Date.now() - t0}ms`);   // 算力监测
+  console.log(`[3d] image->usdz via=${via} flagship=${flagship} ok=${!!usdzBytes} ${Date.now() - t0}ms`);   // 算力监测
   return usdzBytes;
 }
 const _ensure3dInflight = new Set<string>();

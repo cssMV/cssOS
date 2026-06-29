@@ -3278,7 +3278,7 @@ async function ensureCharacterAvatar(workId: string, characterName: string): Pro
   const ch = (c.characters || []).find((x) => x.name === characterName);
   if (!ch) return { status: "skip" };
   if (ch.model_url) return { status: "ready", model_url: ch.model_url, format: ch.model_url.endsWith(".glb") ? "glb" : "usdz" };
-  const hash = crypto.createHash("sha1").update(workId + "|" + characterName + "|v2").digest("hex").slice(0, 24);   // v2 = 顶点色材质
+  const hash = crypto.createHash("sha1").update(workId + "|" + characterName + "|v3").digest("hex").slice(0, 24);   // v3 = GLB 顶点色材质
   if (_ifilmAvatarInflight.has(hash)) return { status: "pending" };
   _ifilmAvatarInflight.add(hash);
   (async () => {

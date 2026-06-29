@@ -2989,26 +2989,63 @@ const IFILM_VOICE: Record<string, string> = {
   火星信使: "VR6AewLTigWG4xSOukaG", // Arnold — 冷峻
   旁白: "yoZ06aMxZJJ28mfd3POQ",   // Sam
 };
-async function ifilmSpeak(text: string, character: string): Promise<string | null> {
+/* CSSOS_WAVE_1479 — ③ 逐字情绪字幕时间轴。ElevenLabs with-timestamps 一次调用同时拿
+ * 音频 + 每个字精确时间戳 → 直接拼成原生端 SubtitleLine(tokens[].char/t_start/t_end ms +
+ * emotion/emotion_intensity), 零额外对齐服务、零延迟。情绪/强度由张力派生 + 末字加重。 */
+type IFilmSubToken = { char: string; t_start: number; t_end: number; emotion: string; emotion_intensity: number };
+type IFilmSubLine = { text: string; t_start: number; t_end: number; tokens: IFilmSubToken[] };
+function ifilmEmotionForTension(tension: number): string {
+  if (tension >= 0.66) return "fear"; if (tension >= 0.4) return "tense";
+  if (tension <= 0.18) return "warm"; return "calm";
+}
+function buildIfilmSubLine(chars: string[], starts: number[], ends: number[], tension: number): IFilmSubLine {
+  const emo = ifilmEmotionForTension(tension);
+  const n = chars.length;
+  const toks: IFilmSubToken[] = [];
+  for (let i = 0; i < n; i++) {
+    const ch = chars[i] ?? "";
+    if (!ch.trim()) continue;                                      // 跳过空白(仍占时间但不出 token)
+    const ramp = n > 1 ? 0.45 + 0.55 * (i / (n - 1)) : 0.7;        // 强度随句推进上升, 末字最重
+    toks.push({ char: ch, t_start: Math.round((starts[i] ?? 0) * 1000), t_end: Math.round((ends[i] ?? 0) * 1000),
+      emotion: emo, emotion_intensity: Math.min(1, ramp + (tension - 0.4) * 0.3) });
+  }
+  const t0 = toks.length ? toks[0]!.t_start : 0;
+  const t1 = toks.length ? toks[toks.length - 1]!.t_end : 0;
+  return { text: chars.join(""), t_start: t0, t_end: t1, tokens: toks };
+}
+// 带时间戳的语音合成: 返回 {voice_url, line(逐字时间轴字幕)}。缓存 mp3+json。
+async function ifilmSpeakTimed(text: string, character: string, tension: number): Promise<{ voice_url: string; subtitle: IFilmSubLine } | null> {
   const t = String(text || "").trim(); if (!t) return null;
   const key = (process.env.ELEVENLABS_API_KEY || "").trim(); if (!key) return null;
   const voiceId = IFILM_VOICE[character] || "EXAVITQu4vr4xnSDxMaL";
   const sha = crypto.createHash("sha1").update(voiceId + "|" + t).digest("hex").slice(0, 24);
-  const remote = `artifacts/ifilm-voice/${sha}.mp3`;
+  const mp3 = `artifacts/ifilm-voice/${sha}.mp3`, jsn = `artifacts/ifilm-voice/${sha}.json`;
+  const mp3url = `https://cdn.cssstudio.app/${mp3}`;
   try {
-    const probe = await fetch(`https://cdn.cssstudio.app/${remote}`, { method: "HEAD" });
-    if (probe.ok) return `https://cdn.cssstudio.app/${remote}`;     // 缓存命中
-  } catch { /* fall through to synth */ }
+    const pj = await fetch(`https://cdn.cssstudio.app/${jsn}`);
+    if (pj.ok) { const a = await pj.json() as any; return { voice_url: mp3url, subtitle: buildIfilmSubLine(a.chars || [], a.starts || [], a.ends || [], tension) }; }
+  } catch { /* not cached */ }
   try {
-    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/mpeg" },
-      body: JSON.stringify({ text: t.slice(0, 400), model_id: "eleven_multilingual_v2",
-        voice_settings: { stability: 0.4, similarity_boost: 0.8 } }),
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`, {
+      method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: t.slice(0, 400), model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.4, similarity_boost: 0.8 } }),
     });
-    if (!r.ok) { console.warn("[ifilm-tts] elevenlabs", r.status, (await r.text().catch(() => "")).slice(0, 120)); return null; }
-    const buf = Buffer.from(await r.arrayBuffer());
-    return await uploadBufferToR2(buf, remote, "audio/mpeg").catch(() => null);
-  } catch (e) { console.warn("[ifilm-tts] err", e instanceof Error ? e.message : String(e)); return null; }
+    if (!r.ok) { console.warn("[ifilm-tts] ts", r.status, (await r.text().catch(() => "")).slice(0, 120)); return null; }
+    const j = await r.json() as any;
+    const audio = Buffer.from(String(j.audio_base64 || ""), "base64");
+    const al = j.alignment || j.normalized_alignment || {};
+    const chars: string[] = al.characters || [];
+    const starts: number[] = al.character_start_times_seconds || [];
+    const ends: number[] = al.character_end_times_seconds || [];
+    await uploadBufferToR2(audio, mp3, "audio/mpeg").catch(() => null);
+    await uploadBufferToR2(Buffer.from(JSON.stringify({ chars, starts, ends })), jsn, "application/json").catch(() => null);
+    return { voice_url: mp3url, subtitle: buildIfilmSubLine(chars, starts, ends, tension) };
+  } catch (e) { console.warn("[ifilm-tts] ts err", e instanceof Error ? e.message : String(e)); return null; }
+}
+// 简版(/touch 短反应用): 只要音频 url。
+async function ifilmSpeak(text: string, character: string): Promise<string | null> {
+  const r = await ifilmSpeakTimed(text, character, 0.3).catch(() => null);
+  return r?.voice_url || null;
 }
 
 /* CSSOS_WAVE_1477 — beat 接预渲染视频(边写边备料)。导演现写 beat.video_prompt →
@@ -3117,13 +3154,14 @@ app.post("/api/ifilm/:id/next", express.json({ limit: "8kb" }), async (req, res)
       seed: Number(b.seed) || ((String(req.params.id).length * 7 + (Number(b.step) || 0) * 131) % 100000),
     };
     const out = await directIFilmNext(c, s, { gaze: b.gaze, gesture: b.gesture, utterance: b.utterance });
-    // W1476 — 让 beat 可表演: 角色把台词真说出来(实时 TTS → R2)。
-    const voice_url = await ifilmSpeak(out.beat.line, out.beat.speaker).catch(() => null);
+    // W1476/1479 — 让 beat 可表演: 角色把台词真说出来 + 逐字情绪字幕时间轴(招牌爆字幕)。
+    const spoken = await ifilmSpeakTimed(out.beat.line, out.beat.speaker, out.tension).catch(() => null);
     // W1477 — 顺手点火 beat 视频备料(不阻塞; 前端拿 beat_video.video_url 轮询 /beat-video 到 ready)。
     const beat_video = await ensureBeatVideo(out.beat.video_prompt).catch(() => ({ status: "skip" as const }));
     // 回传更新后的 session(visionOS 下次带回)。
     const nextBeats = [...s.beats, out.beat.synopsis].slice(-8);
-    return res.json({ ok: true, ...out, voice_url, beat_video, session: { beats: nextBeats, step: s.step + 1, tension: out.tension, seed: s.seed } });
+    return res.json({ ok: true, ...out, voice_url: spoken?.voice_url || null, subtitle: spoken?.subtitle || null,
+      beat_video, session: { beats: nextBeats, step: s.step + 1, tension: out.tension, seed: s.seed } });
   } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 

@@ -3246,6 +3246,33 @@ async function replicateImageTo3D(imageUrl: string): Promise<string | null> {
     return null;
   } catch (e) { console.warn("[ifilm-avatar] replicate err", e instanceof Error ? e.message : String(e)); return null; }
 }
+/* CSSOS_WAVE_1488 — 🌟 平台通用 3D 原语: 任意图片 → USDZ。所有用到 3D 的地方都复用
+ * (用户头像 / 作品封面 / codex 立像 / 商品 / 节日…)。主路自家免费 TripoSR(atelier),
+ * 兜底 Replicate(便宜)→ Blender → FAL(贵)。带耗时日志 = CPU 何时该上 GPU 的信号。 */
+async function imageToUsdzBytes(imageUrl: string): Promise<Buffer | null> {
+  const t0 = Date.now();
+  let usdzBytes: Buffer | null = await atelierTriposrUsdz(imageUrl); let via = "tsr";   // 免费主路
+  if (!usdzBytes) { const glbUrl = await replicateImageTo3D(imageUrl); if (glbUrl) { usdzBytes = await atelierGlb2Usdz(glbUrl); via = "replicate"; } }
+  if (!usdzBytes) { const u = await falRodinImageTo3D(imageUrl); if (u) { const dl = await fetch(u); if (dl.ok) { usdzBytes = Buffer.from(await dl.arrayBuffer()); via = "fal"; } } }
+  console.log(`[3d] image->usdz via=${via} ok=${!!usdzBytes} ${Date.now() - t0}ms`);   // 算力监测
+  return usdzBytes;
+}
+const _ensure3dInflight = new Set<string>();
+async function ensure3DModel(imageUrl: string, prefix = "3d"): Promise<{ status: "ready" | "pending" | "skip"; model_url?: string }> {
+  const u = String(imageUrl || "").trim(); if (!u) return { status: "skip" };
+  const hash = crypto.createHash("sha1").update(u).digest("hex").slice(0, 24);
+  const remote = `artifacts/${prefix}/${hash}.usdz`;
+  const url = `https://cdn.cssstudio.app/${remote}`;
+  try { const h = await fetch(url, { method: "HEAD" }); if (h.ok) return { status: "ready", model_url: url }; } catch { /* not ready */ }
+  if (_ensure3dInflight.has(hash)) return { status: "pending", model_url: url };
+  _ensure3dInflight.add(hash);
+  (async () => {
+    try { const bytes = await imageToUsdzBytes(u); if (bytes) { await uploadBufferToR2(bytes, remote, "model/vnd.usdz+zip").catch(() => null); console.log(`[3d] cached ${url}`); } }
+    catch (e) { console.warn("[3d] err", e instanceof Error ? e.message : String(e)); }
+    finally { _ensure3dInflight.delete(hash); }
+  })();
+  return { status: "pending", model_url: url };
+}
 async function ensureCharacterAvatar(workId: string, characterName: string): Promise<{ status: "ready" | "pending" | "skip"; model_url?: string; format?: string }> {
   const c = await loadIFilmConstitution(workId);
   const ch = (c.characters || []).find((x) => x.name === characterName);
@@ -3261,18 +3288,9 @@ async function ensureCharacterAvatar(workId: string, characterName: string): Pro
       let imgUrl = portrait.image_url || null;
       if (!imgUrl && portrait.image_b64) imgUrl = await uploadBufferToR2(Buffer.from(portrait.image_b64, "base64"), `artifacts/ifilm-avatar/${hash}-src.png`, "image/png").catch(() => null);
       if (!imgUrl) { console.warn("[ifilm-avatar] no portrait"); return; }
-      // ② image → 3D USDZ。W1487 — 主路【自家免费 TripoSR + Blender】(零成本, 不看第三方脸色)。
-      //    仅自家失败才兜底 Replicate(便宜 GLB)→ Blender; 再不行才 FAL Rodin(贵)。
-      let usdzBytes: Buffer | null = await atelierTriposrUsdz(imgUrl);   // 🌟 免费主路
-      if (!usdzBytes) {                          // 自家没出 → Replicate trellis(GLB)→ Blender
-        const glbUrl = await replicateImageTo3D(imgUrl);
-        if (glbUrl) usdzBytes = await atelierGlb2Usdz(glbUrl);
-      }
-      if (!usdzBytes) {                          // 再不行 → FAL Rodin 直出 USDZ(贵, 最后兜底)
-        const usdzUrl = await falRodinImageTo3D(imgUrl);
-        if (usdzUrl) { const dl = await fetch(usdzUrl); if (dl.ok) usdzBytes = Buffer.from(await dl.arrayBuffer()); }
-      }
-      if (!usdzBytes) { console.warn("[ifilm-avatar] no usdz (fal+replicate+blender all failed)"); return; }
+      // ② image → 3D USDZ(平台通用原语 imageToUsdzBytes: 自家免费 TripoSR 主路 + 兜底)。
+      const usdzBytes = await imageToUsdzBytes(imgUrl);
+      if (!usdzBytes) { console.warn("[ifilm-avatar] no usdz (all engines failed)"); return; }
       // ③ 落 R2(统一 .usdz)+ 绑定 model_url。
       const remote = `artifacts/ifilm-avatar/${hash}.usdz`;
       const finalUrl = `https://cdn.cssstudio.app/${remote}`;
@@ -3302,6 +3320,28 @@ app.post("/api/ifilm/:id/avatar", express.json({ limit: "2kb" }), async (req, re
   const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
   try { return res.json({ ok: true, character: String(b.character || ""), ...(await ensureCharacterAvatar(String(req.params.id || ""), String(b.character || ""))) }); }
   catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
+/* CSSOS_WAVE_1488 — 🌟 平台通用 3D 端点: 任意图片 → 3D USDZ(自家免费, 缓存)。
+ * 所有用到 3D 的地方都调它: 用户头像 / 作品封面 / codex 立像 / 商品 / 节日场景…
+ * 点火 pending → 轮询 ready 拿 model_url。 */
+app.post("/api/3d/ensure", express.json({ limit: "2kb" }), async (req, res) => {
+  const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  const prefix = String(b.prefix || "3d").replace(/[^a-z0-9-]/gi, "").slice(0, 32) || "3d";
+  try { return res.json({ ok: true, ...(await ensure3DModel(String(b.image_url || ""), prefix)) }); }
+  catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
+// 用户 3D 头像: 拿用户 avatar_url → 3D USDZ(缓存)。Vision Pro / 任意端展示立体头像。
+app.post("/api/users/:id/avatar-3d", async (req, res) => {
+  const id = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: "invalid_user_id" });
+  try {
+    const r = await getPool().query<{ avatar_url: string | null }>(`SELECT avatar_url FROM users WHERE id=$1::uuid LIMIT 1`, [id]);
+    const av = r.rows[0]?.avatar_url;
+    if (!av) return res.json({ ok: false, error: "no_avatar" });
+    return res.json({ ok: true, ...(await ensure3DModel(av, "user-avatar-3d")) });
+  } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
 });
 
 // 触碰/凝视即时微反应: 触碰主角 → 角色秒回一个有意志的小反应(不推进剧情, 不改结局)。

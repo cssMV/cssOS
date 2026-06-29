@@ -3213,10 +3213,11 @@ async function atelierTriposrUsdz(imageUrl: string): Promise<Buffer | null> {
   } catch (e) { console.warn("[ifilm-avatar] tsr err", e instanceof Error ? e.message : String(e)); return null; }
 }
 // GLB → USDZ: 调专用机(cssos-atelier) Blender 无头转换服务(W1485, 不碰生产 api-vm)。
-async function atelierGlb2Usdz(glbUrl: string): Promise<Buffer | null> {
+async function atelierGlb2Usdz(glbUrl: string, keepTextures = false): Promise<Buffer | null> {
+  // keepTextures=true → 保留原始带纹理材质(旗舰 Replicate/TRELLIS);false → 灵体白模材质(免费 TripoSR)。
   const host = (process.env.IFILM_BLENDER_HOST || "http://10.128.0.5:7896").trim();
   try {
-    const r = await fetch(`${host}/glb2usdz`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ glb_url: glbUrl }) });
+    const r = await fetch(`${host}/glb2usdz`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ glb_url: glbUrl, keep_textures: keepTextures }) });
     if (!r.ok) { console.warn("[ifilm-avatar] blender convert", r.status); return null; }
     const buf = Buffer.from(await r.arrayBuffer());
     return buf.length > 1000 ? buf : null;
@@ -3258,7 +3259,7 @@ async function imageToUsdzBytes(imageUrl: string): Promise<Buffer | null> {
   let usdzBytes: Buffer | null = null; let via = "";
   if (flagship) {
     const glbUrl = await replicateImageTo3D(imageUrl);                                  // 旗舰: 带纹理 GLB
-    if (glbUrl) { usdzBytes = await atelierGlb2Usdz(glbUrl); via = "replicate-trellis"; }
+    if (glbUrl) { usdzBytes = await atelierGlb2Usdz(glbUrl, true); via = "replicate-trellis"; }  // keep_textures=保留纹理
   }
   if (!usdzBytes) { usdzBytes = await atelierTriposrUsdz(imageUrl); if (usdzBytes) via = "tsr"; }   // 免费白模(主路/兜底)
   if (!usdzBytes) { const glbUrl = await replicateImageTo3D(imageUrl); if (glbUrl) { usdzBytes = await atelierGlb2Usdz(glbUrl); via = "replicate"; } }

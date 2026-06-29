@@ -59,3 +59,19 @@ node imageToUsdzBytes() 优先级:
 
 > 见 [[blender_worker_glb2usdz_on_atelier]](免费 CPU 路)、[[spatial_multithread_film_apple_exclusive]]。
 > 决策:先 B(免费白模,已上线)后 A(本方案,旗舰逼真)。
+
+---
+
+## 6. 🎯 当前决策:先申请 L4 配额(Jing 2026-06-29)
+**只能 Jing 在 GCP 控制台点(配额申请绑账号)。精确步骤:**
+1. 打开 https://console.cloud.google.com/iam-admin/quotas (选对项目)
+2. 顶部筛选框输入 **`NVIDIA L4 GPUs`**(或先搜 `L4`)
+3. 勾选 **Region = us-central1** 那一行(当前 limit=0)→ 点 **EDIT QUOTAS**
+4. 新值填 **1**(够一台 worker;以后要并行再加)→ 填理由(如 "3D model inference worker")→ 提交
+5. 顺手也看一眼 **`GPUs (all regions)`** 这个全局配额,若=0 一并申请 ≥1
+6. (想用 Spot 省钱)再搜 **`Preemptible NVIDIA L4 GPUs`** us-central1 申请 1
+7. 审批:小额通常几分钟~几小时自动批,会发邮件
+
+**批准后告诉我**,我就:建 g2-standard-8+L4 GPU worker → 装 CUDA+torch+Hunyuan3D → :7898 服务 → 复用 Blender → 接 imageToUsdzBytes(GPU 优先) → 按需开关控制器。约 30-40 分钟搭完,出旗舰级带纹理 3D 角色。
+
+> 在等期间:免费 CPU 灵体白模(已上线)继续用。

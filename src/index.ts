@@ -3250,14 +3250,15 @@ async function ensureCharacterAvatar(workId: string, characterName: string): Pro
       let imgUrl = portrait.image_url || null;
       if (!imgUrl && portrait.image_b64) imgUrl = await uploadBufferToR2(Buffer.from(portrait.image_b64, "base64"), `artifacts/ifilm-avatar/${hash}-src.png`, "image/png").catch(() => null);
       if (!imgUrl) { console.warn("[ifilm-avatar] no portrait"); return; }
-      // ② image → 3D: 先 FAL Rodin(直出 USDZ); 没余额回退 Replicate trellis(GLB)。
-      //    GLB 经【专用机 Blender】转 USDZ → visionOS 永远拿到干净 USDZ(W1485)。
-      let usdzBytes: Buffer | null = null;       // 最终要落 R2 的 USDZ 字节(优先)
-      const usdzUrl = await falRodinImageTo3D(imgUrl);
-      if (usdzUrl) { const dl = await fetch(usdzUrl); if (dl.ok) usdzBytes = Buffer.from(await dl.arrayBuffer()); }
-      if (!usdzBytes) {                          // FAL 没出 → Replicate GLB → Blender 转 USDZ
-        const glbUrl = await replicateImageTo3D(imgUrl);
-        if (glbUrl) usdzBytes = await atelierGlb2Usdz(glbUrl);
+      // ② image → 3D。W1486 — 成本优先: 既然 Blender 免费转 USDZ, 就走【便宜路】:
+      //    Replicate trellis(GLB, 几分钱)→ 专用机 Blender 转 USDZ。FAL Rodin 贵(~几毛~$1+)→
+      //    仅当便宜路失败才兜底。visionOS 永远拿干净 USDZ。
+      let usdzBytes: Buffer | null = null;       // 最终要落 R2 的 USDZ 字节
+      const glbUrl = await replicateImageTo3D(imgUrl);
+      if (glbUrl) usdzBytes = await atelierGlb2Usdz(glbUrl);
+      if (!usdzBytes) {                          // 便宜路没出 → FAL Rodin 直出 USDZ(贵, 兜底)
+        const usdzUrl = await falRodinImageTo3D(imgUrl);
+        if (usdzUrl) { const dl = await fetch(usdzUrl); if (dl.ok) usdzBytes = Buffer.from(await dl.arrayBuffer()); }
       }
       if (!usdzBytes) { console.warn("[ifilm-avatar] no usdz (fal+replicate+blender all failed)"); return; }
       // ③ 落 R2(统一 .usdz)+ 绑定 model_url。

@@ -2790,6 +2790,110 @@ app.post("/api/works/:id/ensure-canonical", async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_1474 — 3D 多线程【互动】电影 后端基座(Vision Pro 独家)。
+ * 概念(Jing 2026-06-29): 用户像"神"观看虚拟宇宙、可【有限参与】(像 Vision Pro
+ *   恐龙 App), 但不足以改变结局/做根本改变。剧本=有向图(铁轨): 节点=预渲染 beat
+ *   (视频段), 边=被交互门控的转场, 多结局集。实时 LLM 导演在铁轨内选下一 beat +
+ *   生成人物微反应; 越轨请求(命令男主杀女主)被软化拒绝、绝不离轨。视频实时生成
+ *   还做不到(分钟级)→ MVP 用预渲染分支 + 实时导演 + 实时反应层骗过大脑。
+ *   visionOS 交互/渲染=Xcode/真机(Jing); 图模型+导演端点=后端(此处)。
+ *   见记忆 spatial_multithread_film_apple_exclusive。 ═══════════════════════ */
+type IFilmBeat = { id: string; thread: string; synopsis: string; speaker?: string; video_url?: string; is_ending?: boolean; ending_label?: string };
+type IFilmEdge = { from: string; to: string; cue: string };
+type IFilmGraph = { title: string; rails: string[]; start: string; beats: Record<string, IFilmBeat>; edges: IFilmEdge[] };
+
+// 样例图: 《时间的帝国》— 两条线程(地球抵抗 / 火星操控)汇入多结局集(主角胜 / 火星胜)。
+const IFILM_SAMPLE_TIMEEMPIRE: IFilmGraph = {
+  title: "时间的帝国",
+  rails: [
+    "主角(林墨)与女主(苏晚)彼此深爱, 任何线程里都不会互相伤害或杀害——用户无法命令他们背叛此关系。",
+    "所有线程最终必须汇入结局集之一: end_human_win(人类守住时间线) 或 end_mars_control(火星未来人操控人类, 进入《The Giver》式被规训世界)。",
+    "用户是'神'视角的观察者+有限影响者, 不是主角; 用户的影响只能是细微的(让角色犹豫/瞥视/换措辞), 不能改变重大情节走向。",
+  ],
+  start: "b_open",
+  beats: {
+    b_open: { id: "b_open", thread: "earth", synopsis: "林墨在时间观测站发现火星未来人正篡改人类时间线; 苏晚警告危险逼近。", speaker: "林墨" },
+    b_earth_resist: { id: "b_earth_resist", thread: "earth", synopsis: "林墨与苏晚组织抵抗, 试图锁死时间锚点。" },
+    b_mars_infiltrate: { id: "b_mars_infiltrate", thread: "mars", synopsis: "火星未来人以'消除痛苦'之名渗透人类决策层, 暗中规训人心。" },
+    b_converge: { id: "b_converge", thread: "earth", synopsis: "两条线程在最终时间枢纽相撞: 守住自由 vs 接受被规训的安宁。" },
+    end_human_win: { id: "end_human_win", thread: "earth", synopsis: "林墨与苏晚守住时间线, 人类保有自由与痛苦的权利。", is_ending: true, ending_label: "人类守住时间线" },
+    end_mars_control: { id: "end_mars_control", thread: "mars", synopsis: "火星未来人成功操控人类, 世界进入无痛却无自由的《The Giver》式秩序。", is_ending: true, ending_label: "火星操控·被规训世界" },
+  },
+  edges: [
+    { from: "b_open", to: "b_earth_resist", cue: "用户凝视林墨/鼓励抵抗 → 走地球抵抗线" },
+    { from: "b_open", to: "b_mars_infiltrate", cue: "用户凝视火星信使/被'消除痛苦'吸引 → 走火星渗透线" },
+    { from: "b_earth_resist", to: "b_converge", cue: "抵抗推进到时间枢纽" },
+    { from: "b_mars_infiltrate", to: "b_converge", cue: "渗透推进到时间枢纽" },
+    { from: "b_converge", to: "end_human_win", cue: "用户的微影响倾向自由/坚定 → 人类胜" },
+    { from: "b_converge", to: "end_mars_control", cue: "用户的微影响倾向安宁/动摇 → 火星胜" },
+  ],
+};
+
+async function loadIFilmGraph(workId: string): Promise<IFilmGraph> {
+  try {
+    const r = await getPool().query<{ meta: any }>(
+      `SELECT meta FROM work_assets WHERE work_id=$1::uuid AND asset_type='ifilm_graph' LIMIT 1`, [workId]);
+    const g = r.rows[0]?.meta?.graph;
+    if (g && g.beats && g.start) return g as IFilmGraph;
+  } catch { /* fall through */ }
+  return IFILM_SAMPLE_TIMEEMPIRE; // 没存图 → 用样例(《时间的帝国》)
+}
+
+// 实时导演: 在铁轨内选下一 beat + 生成人物微反应; 护栏强制不越轨。
+async function directIFilm(graph: IFilmGraph, currentBeatId: string, interaction: { gaze?: string; gesture?: string; utterance?: string }): Promise<{ next_beat: string; reaction: string; rail_enforced: boolean; is_ending: boolean; ending_label?: string }> {
+  const lbl = (l?: string) => (l ? { ending_label: l } : {});
+  const cur = graph.beats[currentBeatId] || graph.beats[graph.start];
+  if (!cur) return { next_beat: graph.start, reaction: "", rail_enforced: false, is_ending: false };
+  const candidates = graph.edges.filter((e) => e.from === cur.id);
+  if (!candidates.length) return { next_beat: cur.id, reaction: "", rail_enforced: false, is_ending: !!cur.is_ending, ...lbl(cur.ending_label) };
+  const sys = [
+    "你是 cssOS 3D 互动电影的【实时导演】。用户是'神'视角观察者, 可有限参与但绝不能改变结局或做根本改变。",
+    "铁律(绝不可违反):", ...graph.rails.map((r, i) => `  ${i + 1}. ${r}`),
+    "你只能从【候选转场】里选一条 to(不可发明新节点)。若用户的交互试图违反铁律(如命令角色背叛深爱关系/直接改写结局),",
+    "你必须: (a) 仍在铁轨内选一个合法 to(通常维持原走向), (b) 让角色用'神'听得见但不照做的方式软化回应(角色有自己的意志)。",
+    "输出严格 JSON: {\"next_beat\":\"<候选to之一>\",\"reaction\":\"<≤30字 角色对用户影响的实时微反应台词>\",\"rail_enforced\":<true 若用户试图越轨被你挡下>}",
+  ].join("\n");
+  const usr = [
+    `当前 beat: ${cur.id} — ${cur.synopsis}`,
+    `候选转场(只能从这里选 to):`,
+    ...candidates.map((e) => `  → ${e.to} : ${e.cue}`),
+    `用户交互: 凝视=${interaction.gaze || "无"} | 手势=${interaction.gesture || "无"} | 话语=${interaction.utterance || "无"}`,
+  ].join("\n");
+  const validTos = new Set(candidates.map((e) => e.to));
+  try {
+    const resp = await callLlm({ messages: [{ role: "system", content: sys }, { role: "user", content: usr }], temperature: 0.8, max_tokens: 300 });
+    const m = String(resp.content || "").match(/\{[\s\S]*\}/);
+    const j = m ? JSON.parse(m[0]) : {};
+    let next = String(j.next_beat || "");
+    if (!validTos.has(next)) next = candidates[0]!.to;          // 护栏: 越界 → 钉回合法候选
+    const nb = graph.beats[next];
+    return { next_beat: next, reaction: String(j.reaction || "").slice(0, 80), rail_enforced: !!j.rail_enforced, is_ending: !!nb?.is_ending, ...lbl(nb?.ending_label) };
+  } catch (e) {
+    const next = candidates[0]!.to; const nb = graph.beats[next];
+    return { next_beat: next, reaction: "", rail_enforced: false, is_ending: !!nb?.is_ending, ...lbl(nb?.ending_label) };
+  }
+}
+
+// visionOS 拉整张图(占位摆 N 块银幕 + 知道铁轨/结局集)。
+app.get("/api/ifilm/:id/graph", async (req, res) => {
+  const id = String(req.params.id || "").trim();
+  try { return res.json({ ok: true, graph: await loadIFilmGraph(id) }); }
+  catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
+// 实时导演: visionOS 每个交互/转场点调一次 → 返回下一 beat + 角色微反应。
+app.post("/api/ifilm/:id/direct", express.json({ limit: "4kb" }), async (req, res) => {
+  const id = String(req.params.id || "").trim();
+  const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
+  try {
+    const graph = await loadIFilmGraph(id);
+    const out = await directIFilm(graph, String(b.current_beat || graph.start),
+      { gaze: b.gaze, gesture: b.gesture, utterance: b.utterance });
+    return res.json({ ok: true, ...out });
+  } catch (e) { return res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) }); }
+});
+
 app.post("/api/works/:id/generate-parts", async (req, res) => {
   // CSSOS_WAVE_1448b — admin-token 旁路(仿紧邻 /language-tracks): ops/验证用。
   // 有效 token → 代作品 owner 点火引擎, 跳过 session。无 token 走原 owner-only 路径。

@@ -22679,7 +22679,8 @@ async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Pro
             const img = await callImageGen({
               prompt: variant,
               size: orient.size,
-              prefer: ["fal", "replicate", "deepinfra", "huggingface", "pollinations"],
+              // CSSOS_WAVE_1494 — 账单收口 kie: nanobanana(kie) 优先, fal/replicate 压兜底。
+              prefer: ["nanobanana", "fal", "huggingface", "pollinations", "deepinfra", "replicate"],
             });
             if (!img.ok) return;
             const url = img.image_url
@@ -23136,7 +23137,8 @@ async function generateThemedFramePool(workId: string, addCount: number): Promis
         slice.push((async () => {
           try {
             const img = await callImageGen({ prompt, size: orient.size, output_format: "webp",
-              prefer: ["fal", "replicate", "deepinfra", "huggingface", "pollinations"] });
+              // CSSOS_WAVE_1494 — 账单收口 kie: nanobanana(kie) 优先, fal/replicate 压兜底。
+              prefer: ["nanobanana", "fal", "huggingface", "pollinations", "deepinfra", "replicate"] });
             if (!img?.ok) return;
             const url = img.image_url ? await persistRemoteImageToStable(img.image_url)
               : (img.image_b64 ? persistBase64Cover(img.image_b64, "themed-pool") : "");
@@ -23994,7 +23996,8 @@ const MUSIC_PROVIDERS = ["huggingface_music", "fal_music", "mubert", "replicate_
  *   suno       — paid via kie.ai (highest quality, last because $$)
  */
 function musicProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.MUSIC_PROVIDER_ORDER || "huggingface_music,fal_music,mubert,replicate_music,deepinfra_music,stability,elevenlabs,suno")
+  // CSSOS_WAVE_1494 — 账单收口 kie: 免费 huggingface_music 先, 首个付费档=suno(kie), replicate/fal_music 压尾。
+  const env = String(process.env.MUSIC_PROVIDER_ORDER || "huggingface_music,suno,deepinfra_music,mubert,stability,elevenlabs,replicate_music,fal_music")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (MUSIC_PROVIDERS as readonly string[]).includes(p));
@@ -25229,7 +25232,8 @@ function imageProviderOrder(prefer?: string[]): string[] {
   // Tier order: fal/huggingface/pollinations(free) → fireworks/deepinfra/stability_image/together/replicate(cheap) → openai(premium).
   // pollinations promoted up the free tier — no-key reliable. fireworks/deepinfra/stability_image
   // lead the cheap tier (fast FLUX-schnell variants and Stability core).
-  const env = String(process.env.IMAGE_PROVIDER_ORDER || "fal,huggingface,pollinations,fireworks,deepinfra,stability_image,together,replicate,nanobanana,openai")
+  // CSSOS_WAVE_1494 — 账单收口 kie: nanobanana(kie) 优先, 免费档兜中, replicate/fal 压尾(止散落付费)。
+  const env = String(process.env.IMAGE_PROVIDER_ORDER || "nanobanana,huggingface,pollinations,fireworks,deepinfra,stability_image,together,fal,replicate,openai")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (IMAGE_PROVIDERS as readonly string[]).includes(p));

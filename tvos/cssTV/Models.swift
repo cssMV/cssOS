@@ -142,7 +142,9 @@ struct CSSWork: Codable, Identifiable {
     var bestVideo: String? { videoURL ?? previewVideo }
     /// 连播队列: 有子作品(多部)→ 各 part 按序; 否则 → 自己一首。
     var playbackParts: [CSSWork] {
-        if let ch = children, !ch.isEmpty { return ch }
+        // W1470 — 只取【有视频】的子项; 全无视频(如被包进无视频的 act 节点)→ 回退整片 root,
+        //   否则 cssTV 会去放空节点(黑屏不动)。叙事预告=单条整片, 正好走回退。
+        if let ch = children?.filter({ $0.bestVideo != nil }), !ch.isEmpty { return ch }
         return [self]
     }
 

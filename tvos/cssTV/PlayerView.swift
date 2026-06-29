@@ -185,9 +185,17 @@ struct PlayerView: View {
 
         if let v = part.bestVideo, let vurl = URL(string: v) {   // W1329 — 兜底 preview 列
             let p = AVPlayer(url: vurl)
-            p.isMuted = true
+            // W1470 — 只在【有独立音轨】时静音视频(音乐 MV 画音分层); 叙事预告声音烧在视频里
+            //   (有声有画, 无独立 audioURL)→ 不静音, 用视频自带声。
+            p.isMuted = (part.bestAudio != nil)
             p.actionAtItemEnd = .none
             videoPlayer = p
+            // W1470 — 无独立音轨(叙事): 没有音频主时钟, 改用【视频结束】驱动连播/退出。
+            if part.bestAudio == nil, let item = p.currentItem {
+                endObserver = NotificationCenter.default.addObserver(
+                    forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
+                ) { _ in onAudioEnded() }
+            }
         }
         if let a = part.bestAudio, let aurl = URL(string: a) {
             let p = AVPlayer(url: aurl)

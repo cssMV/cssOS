@@ -34107,6 +34107,9 @@ async function loadMineWorkDescendants(rootIds: string[]) {
        WHERE w.root_work_id IN (${placeholders})
          AND w.parent_work_id IS NOT NULL
          AND w.status <> 'deleted'
+         -- CSSOS_WAVE_1473e 治本: 剔除死子部(音频 404, 歌已丢)。活三部曲 root 带出死子部 →
+         --   连播放到死部"无法播放"。子部加载咽喉一处过滤 → 所有端只拿到能播的部分, 不必各端改。
+         AND NOT EXISTS (SELECT 1 FROM work_assets wmd WHERE wmd.work_id = w.id AND wmd.asset_type = 'media_dead')
        ORDER BY w.sequence_index ASC, w.created_at ASC`,
       rootIds,
     ),
@@ -34188,6 +34191,9 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
        WHERE w.root_work_id IN (${placeholders})
          AND w.parent_work_id IS NOT NULL
          AND w.status <> 'deleted'
+         -- CSSOS_WAVE_1473e 治本: 剔除死子部(音频 404, 歌已丢)。活三部曲 root 带出死子部 →
+         --   连播放到死部"无法播放"。子部加载咽喉一处过滤 → 所有端只拿到能播的部分, 不必各端改。
+         AND NOT EXISTS (SELECT 1 FROM work_assets wmd WHERE wmd.work_id = w.id AND wmd.asset_type = 'media_dead')
        ORDER BY w.sequence_index ASC, w.created_at ASC`,
       rootIds,
     ),

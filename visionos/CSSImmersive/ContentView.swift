@@ -142,6 +142,15 @@ struct ContentView: View {
                 creating = true
             case "cinema", "music":
                 Task { await enterCinema(work: await CSSBackend.defaultWork()) }
+            case "ifilm":
+                // W1490 — 3D 互动电影 M1 dev 入口(env 才生效, 生产零影响): 先关大门再开 IFilmSpace
+                //   (两个沉浸空间不能同开)。
+                Task {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await dismissImmersiveSpace()
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    _ = await openImmersiveSpace(id: "IFilmSpace")
+                }
             default:
                 break
             }

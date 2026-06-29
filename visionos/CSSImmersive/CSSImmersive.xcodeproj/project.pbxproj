@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1C5F86CE3478660C4B369C30 /* AIAssistantPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_3F9282DD-0790-4B30-8663-3250C44C3446" /* AIAssistantPanel.swift */; };
 		21220B65ABDA35075EFB8C3D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1DC83B92-9F10-4DF1-B012-3A8A061E6139" /* ContentView.swift */; };
+		AB12CD34EF5601234567890A /* InteractiveFilm.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC23DE45FA6712345678901B /* InteractiveFilm.swift */; };
 		224ECF3D3B764EEB854BBDA9 /* FuturePhases.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_37C224C6-9559-4EE6-AA48-79FD77872E04" /* FuturePhases.swift */; };
 		25CB37857D674A3E405D36CC /* CSSPayments.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_0FA60A8A-F9C2-49D3-B95D-E65D66BDF729" /* CSSPayments.swift */; };
 		396FC0DCEBDA8BC679AB1B70 /* CSSAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_59A9BF4A-D88A-4C1C-87ED-76C57214DCD3" /* CSSAppIntents.swift */; };
@@ -42,6 +43,7 @@
 		E02FD07F4CB126DC80F00491 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		"TEMP_0FA60A8A-F9C2-49D3-B95D-E65D66BDF729" /* CSSPayments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSPayments.swift; sourceTree = "<group>"; };
 		"TEMP_1DC83B92-9F10-4DF1-B012-3A8A061E6139" /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		BC23DE45FA6712345678901B /* InteractiveFilm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveFilm.swift; sourceTree = "<group>"; };
 		"TEMP_2C10E964-5696-40CB-85ED-ECCA56C58328" /* CSSAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSAuth.swift; sourceTree = "<group>"; };
 		"TEMP_2EBA4EB8-7C91-4CC2-A0D5-CFAAB6C3975D" /* CathedralFX.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CathedralFX.swift; sourceTree = "<group>"; };
 		"TEMP_3648AFD3-F59E-48E1-AA47-C10E67D3BBB9" /* CSSBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSBackend.swift; sourceTree = "<group>"; };
@@ -82,6 +84,7 @@
 				"TEMP_2EBA4EB8-7C91-4CC2-A0D5-CFAAB6C3975D" /* CathedralFX.swift */,
 				"TEMP_403E277D-411B-480D-97EB-4718ED667417" /* CathedralSettings.swift */,
 				"TEMP_1DC83B92-9F10-4DF1-B012-3A8A061E6139" /* ContentView.swift */,
+				BC23DE45FA6712345678901B /* InteractiveFilm.swift */,
 				"TEMP_C60F4104-2DC2-49D5-8E3B-AEA3CAFE9AE8" /* ControlsPanel.swift */,
 				"TEMP_D6FD2182-5323-41A2-9C2C-73CB56E92045" /* CreationOrbView.swift */,
 				"TEMP_37C224C6-9559-4EE6-AA48-79FD77872E04" /* FuturePhases.swift */,
@@ -200,6 +203,7 @@
 				4EFF3D903C8047FB5926772B /* CathedralFX.swift in Sources */,
 				8937CFEBDFF1695CEDEE0C68 /* CathedralSettings.swift in Sources */,
 				21220B65ABDA35075EFB8C3D /* ContentView.swift in Sources */,
+				AB12CD34EF5601234567890A /* InteractiveFilm.swift in Sources */,
 				F9AD821E7E628DABF79AB216 /* ControlsPanel.swift in Sources */,
 				6F1473B3577411F9084C34E6 /* CreationOrbView.swift in Sources */,
 				224ECF3D3B764EEB854BBDA9 /* FuturePhases.swift in Sources */,

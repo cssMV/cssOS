@@ -75,6 +75,7 @@
       interaction-prompt="none" exposure="1.15" shadow-intensity="0.5"
       camera-orbit="0deg 82deg 105%" field-of-view="30deg"></model-viewer>
     <div id="fsName"></div><div id="fsRole"></div>
+    <a id="fsTrailer" class="enter" style="animation:none;opacity:1;margin:0 auto 34px;max-width:300px">▶ 看预告</a>
   </div>
 
   <!-- 进入电影 → 三预告片 -->
@@ -88,11 +89,11 @@
   </div>
 
 <script>
-  const V = "?v=6";
+  const V = "?v=7";
   const CAST = [
-    { name:"林墨", role:"时间观测者。坚信痛苦与自由不可分割。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb"+V },
-    { name:"苏晚", role:"林墨深爱之人。共担守护时间线之责。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb"+V },
-    { name:"火星信使", role:"火星未来人代言者。温柔而危险，许诺无痛世界。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/marsenvoy.glb"+V },
+    { name:"林墨", role:"时间观测者。坚信痛苦与自由不可分割。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb"+V, tr:"59578f73-7298-4aa7-b92c-38d5a649f2b8", trName:"电影预告" },
+    { name:"苏晚", role:"林墨深爱之人。共担守护时间线之责。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb"+V, tr:"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", trName:"群星 · 预告" },
+    { name:"火星信使", role:"火星未来人代言者。温柔而危险，许诺无痛世界。", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/marsenvoy.glb"+V, tr:"7dc49021-e47e-4f58-8881-faa7ec9abb02", trName:"对弈 · 预告" },
   ];
   const TRAILERS = [
     { id:"59578f73-7298-4aa7-b92c-38d5a649f2b8", title:"时间的帝国（电影预告）", cover:"https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
@@ -117,7 +118,9 @@
 
   const fs = document.getElementById('fsChar'), fsV = document.getElementById('fsViewer');
   function openChar(i){ const c=CAST[i]; fsV.src=c.glb; document.getElementById('fsName').textContent=c.name;
-    document.getElementById('fsRole').textContent=c.role; fs.classList.add('show'); }
+    document.getElementById('fsRole').textContent=c.role;
+    const tb=document.getElementById('fsTrailer'); tb.href="https://cssstudio.app/?cssMV="+c.tr+"&teskip=1"; tb.textContent="▶ "+c.trName;
+    fs.classList.add('show'); }
   function closeFs(){ fs.classList.remove('show'); }
   function openTrailers(){ document.getElementById('trailers').classList.add('show'); }
   function closeTrailers(){ document.getElementById('trailers').classList.remove('show'); }

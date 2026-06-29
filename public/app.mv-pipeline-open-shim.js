@@ -105,5 +105,36 @@
     return null;
   }
   placeholder.__cssosShim = true;
-  globalThis.openMvPipelinePanel = placeholder;
+
+  /* CSSOS_WAVE_1500 — 持久《时间帝国》开场守卫: 包裹任何被赋值的真实 openMvPipelinePanel
+   * (重模块加载后会覆盖 shim, 故用 defineProperty getter 返回守卫、setter 捕获真实实现)。
+   * 点开主作品 59578f73(卡片/任意入口)先弹开场页; 与 share-link 守卫共用 teskip/sessionStorage 防循环。 */
+  var _teReal = placeholder;
+  function teGuardedOpen(opts) {
+    try {
+      var TE_FILM = "59578f73-7298-4aa7-b92c-38d5a649f2b8";
+      var q = (opts && (opts.queue || (opts.seed && opts.seed.queue))) || [];
+      var first = Array.isArray(q) ? q[0] : null;
+      var wid = typeof first === "string" ? first
+        : (first && (first.id || first.work_id)) || (opts && (opts.workId || opts.work_id)) || "";
+      var sp = new URL(window.location.href).searchParams;
+      var skip = sp.get("teskip") === "1" || sessionStorage.getItem("teIntroSeen") === "1";
+      if (String(wid) === TE_FILM && !skip) {
+        sessionStorage.setItem("teIntroSeen", "1");
+        window.location.assign("/timeempire-intro.html");
+        return null;
+      }
+    } catch (_e) {}
+    return _teReal.apply(this, arguments);
+  }
+  teGuardedOpen.__cssosShim = true;
+  try {
+    Object.defineProperty(globalThis, "openMvPipelinePanel", {
+      configurable: true,
+      get: function () { return teGuardedOpen; },
+      set: function (fn) { _teReal = fn; },
+    });
+  } catch (_e) {
+    globalThis.openMvPipelinePanel = placeholder;
+  }
 })();

@@ -7,7 +7,7 @@
 // → 旧 SW 缓存的【崩溃版 CSS】在 activate 时被全部清除(skipWaiting+clients.claim 已就位),
 // 卡死设备下次崩溃重载(=导航, 会重新拉 sw.js)即换新 SW → 清缓存 → 取到修复版 style.css,
 // 无需用户重装。每次有"必须送达所有客户端"的静态资源修复时, 都应顺手 bump 此版本号。
-const CACHE = "cssos-static-v751-w1499-te-intro";
+const CACHE = "cssos-static-v752-w1500-te-cardhook";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();

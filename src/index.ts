@@ -25233,12 +25233,11 @@ const IMAGE_PROVIDERS = ["fal", "huggingface", "pollinations", "fireworks", "dee
 // CSSOS_WAVE_1496 — kie 图像全家桶: 文字生成器多模型轮换链(质量/风格多样 + 抽风自动跳备胎)。
 // 入参各异: 多数需 aspect_ratio; nano-banana 只认 prompt(多传即 500)。slug 已逐个 createTask 验证。
 // 工具类(Topaz 放大/Recraft 去背/Ideogram reframe/各家 edit)不在此链, 接各自功能。env NANOBANANA_MODEL 可锁单模型。
+// 已逐个 createTask 验证 success 的 4 个(其余如 flux-2 需 resolution、seedream 需额外字段, 摸清入参再加)。
 const KIE_IMAGE_GEN_MODELS: { model: string; aspect: boolean }[] = [
   { model: "google/nano-banana",          aspect: false },  // $0.02 Google, 默认
   { model: "google/imagen4-fast",         aspect: true  },  // $0.02 Google Imagen4
   { model: "ideogram/v3-text-to-image",   aspect: true  },  // 文字渲染强
-  { model: "flux-2/pro-text-to-image",    aspect: true  },  // $0.025 Flux2 Pro
-  { model: "seedream/4.5-text-to-image",  aspect: true  },  // $0.0325 ByteDance
   { model: "grok-imagine/text-to-image",  aspect: true  },  // $0.02 Grok
 ];
 let __kieImageRotor = 0;

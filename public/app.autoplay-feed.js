@@ -162,11 +162,11 @@
       // CSSOS_WAVE_1503 — Jing「进平台提示窗加预告卡条」: 顶部一条左右滑动预告卡条(Next-up 风), 下方才是原内容。
       '<div style="font:700 12px/1 -apple-system,system-ui,sans-serif;letter-spacing:1px;color:rgba(0,245,160,0.85);margin-bottom:10px;">' + lc("TRAILERS", "预告片") + '</div>' +
       '<div id="cssos-ae-trailers" style="display:flex;gap:8px;overflow-x:auto;padding:2px 2px 12px;margin:0 -2px 16px;scrollbar-width:none;-webkit-overflow-scrolling:touch;">' +
-        ['{"id":"59578f73-7298-4aa7-b92c-38d5a649f2b8","t":"Empire of Time","c":"trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8"}',
-         '{"id":"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036","t":"Constellations","c":"trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036"}',
-         '{"id":"7dc49021-e47e-4f58-8881-faa7ec9abb02","t":"The Gambit","c":"trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02"}'
+        ['{"id":"59578f73-7298-4aa7-b92c-38d5a649f2b8","t":"时间的帝国","c":"trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8"}',
+         '{"id":"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036","t":"群星","c":"trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036"}',
+         '{"id":"7dc49021-e47e-4f58-8881-faa7ec9abb02","t":"对弈","c":"trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02"}'
         ].map(function (s) { var w = JSON.parse(s);
-          return '<a href="/?cssMV=' + w.id + '&teskip=1" style="flex:0 0 132px;height:98px;border-radius:12px;overflow:hidden;position:relative;text-decoration:none;border:1px solid rgba(0,245,160,0.18);background:#081012 url(https://cdn.cssstudio.app/covers/' + w.c + '.jpg) center/cover;">' +
+          return '<a href="/?cssMV=' + w.id + '" style="flex:0 0 132px;height:98px;border-radius:12px;overflow:hidden;position:relative;text-decoration:none;border:1px solid rgba(0,245,160,0.18);background:#081012 url(https://cdn.cssstudio.app/covers/' + w.c + '.jpg) center/cover;">' +
             '<div style="position:absolute;left:0;right:0;bottom:0;padding:20px 8px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.88));color:#fff;font:600 11px/1.25 inherit;">▶ ' + w.t + '</div></a>';
         }).join('') +
       '</div>' +
@@ -185,24 +185,6 @@
       lc("Remember — don’t ask again", "记住,下次不再问") + '</label>' +
       '</div>';
     document.body.appendChild(ov);
-    // CSSOS_WAVE_1503 — 拉 3 个精选作品把预告卡条补满到 6(失败则保留 3 张, 仍可左右滑)。
-    try {
-      fetch("/api/market?limit=3", { credentials: "include" })
-        .then(function (r) { return r.json(); })
-        .then(function (j) {
-          var strip = document.getElementById("cssos-ae-trailers"); if (!strip) return;
-          var items = (j && (j.items || j.works || j.results || j.data)) || [];
-          if (!Array.isArray(items)) return;
-          items.slice(0, 3).forEach(function (w) {
-            var id = w.id || w.work_id; var cov = w.cover_image || w.preview_image_url; var t = w.title || "Featured";
-            if (!id || !cov) return;
-            var a = document.createElement("a"); a.href = "/?cssMV=" + id;
-            a.style.cssText = "flex:0 0 132px;height:98px;border-radius:12px;overflow:hidden;position:relative;text-decoration:none;border:1px solid rgba(255,255,255,0.12);background:#081012 url('" + cov + "') center/cover;";
-            a.innerHTML = '<div style="position:absolute;left:0;right:0;bottom:0;padding:20px 8px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.88));color:#fff;font:600 11px/1.25 inherit;">▶ ' + String(t).slice(0, 24) + '</div>';
-            strip.appendChild(a);
-          });
-        }).catch(function () {});
-    } catch (_e) {}
     function close() { try { ov.remove(); } catch (_e) {} }
     function remembered() { var c = document.getElementById("cssos-autoenter-remember"); return !!(c && c.checked); }
     ov.addEventListener("click", function (e) { if (e.target === ov) { /* backdrop tap = later, no remember */ close(); } });

@@ -117,9 +117,14 @@
     { name:"Clara Sinclair", role:"The one Ethan loves. Sworn to guard the timeline at any cost.", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb"+V, tr:"23a60517-1bb5-4032-a95b-f0a7831e7e2a", trName:"Constellations · Trailer" },
   ];
   const TRAILERS = [
-    { id:"59578f73-7298-4aa7-b92c-38d5a649f2b8", title:"Empire of Time — Feature Trailer", cover:"https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
-    { id:"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", title:"Empire of Time · Constellations — Trailer", cover:"https://cdn.cssstudio.app/covers/trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036.jpg" },
-    { id:"7dc49021-e47e-4f58-8881-faa7ec9abb02", title:"Empire of Time · The Gambit — Trailer", cover:"https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" },
+    // English-dialogue cuts (default) — true separated trailers
+    { id:"4a844198-ee87-4023-bc78-aa89733da0aa", title:"Empire of Time — Feature Trailer", tag:"English", cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/feature/poster.jpg" },
+    { id:"23a60517-1bb5-4032-a95b-f0a7831e7e2a", title:"Constellations — Trailer", tag:"English", cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/constellations/poster.jpg" },
+    { id:"e208554a-427a-4273-ae07-8c5d7d042ab6", title:"The Gambit — Trailer", tag:"English", cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/poster.jpg" },
+    // Original Chinese cuts
+    { id:"59578f73-7298-4aa7-b92c-38d5a649f2b8", title:"Empire of Time — Feature Trailer", tag:"中文", cover:"https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
+    { id:"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", title:"Constellations — Trailer", tag:"中文", cover:"https://cdn.cssstudio.app/covers/trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036.jpg" },
+    { id:"7dc49021-e47e-4f58-8881-faa7ec9abb02", title:"The Gambit — Trailer", tag:"中文", cover:"https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" },
   ];
   document.getElementById('cast').innerHTML = CAST.map((c,i) => `
     <div class="ch" onclick="openChar(${i})">
@@ -134,7 +139,7 @@
   document.getElementById('trList').innerHTML = TRAILERS.map(t => `
     <a class="tr" href="https://cssstudio.app/?cssMV=${t.id}&teskip=1">
       <img src="${t.cover}" alt="${t.title}">
-      <div><div class="ti">${t.title}</div><div class="pl">▶ Play Trailer</div></div>
+      <div><div class="ti">${t.title} ${t.tag ? '<span style="font-size:11px;font-weight:600;color:#46e3b1;border:1px solid #1c4a3a;border-radius:999px;padding:1px 8px;margin-left:4px;">'+t.tag+'</span>' : ''}</div><div class="pl">▶ Play Trailer</div></div>
     </a>`).join('');
 
   const fs = document.getElementById('fsChar'), fsV = document.getElementById('fsViewer');

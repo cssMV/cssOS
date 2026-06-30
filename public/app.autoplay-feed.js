@@ -157,16 +157,20 @@
     ov.style.cssText = "position:fixed;inset:0;z-index:10090;display:flex;align-items:center;justify-content:center;" +
       "background:rgba(2,8,6,0.82);padding:24px;";
     ov.innerHTML =
-      '<div style="max-width:440px;width:100%;background:rgba(8,16,13,0.96);border:1px solid rgba(0,245,160,0.28);' +
+      '<div style="max-width:360px;width:100%;background:rgba(8,16,13,0.96);border:1px solid rgba(0,245,160,0.28);' +
       'border-radius:20px;padding:18px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,0.5);font:500 14px/1.5 -apple-system,system-ui,sans-serif;color:#eafff6;">' +
       // CSSOS_WAVE_1503 — Jing「进平台提示窗加预告卡条」: 顶部一条左右滑动预告卡条(Next-up 风), 下方才是原内容。
       '<div style="font:700 12px/1 -apple-system,system-ui,sans-serif;letter-spacing:1px;color:rgba(0,245,160,0.85);margin-bottom:10px;">' + lc("TRAILERS", "预告片") + '</div>' +
       '<div id="cssos-ae-trailers" style="display:flex;gap:8px;overflow-x:auto;padding:2px 2px 12px;margin:0 -2px 16px;scrollbar-width:none;-webkit-overflow-scrolling:touch;">' +
-        ['{"id":"59578f73-7298-4aa7-b92c-38d5a649f2b8","t":"时间的帝国","c":"trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8"}',
-         '{"id":"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036","t":"群星","c":"trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036"}',
-         '{"id":"7dc49021-e47e-4f58-8881-faa7ec9abb02","t":"对弈","c":"trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02"}'
-        ].map(function (s) { var w = JSON.parse(s);
-          return '<a href="/?cssMV=' + w.id + '" style="flex:0 0 132px;height:98px;border-radius:12px;overflow:hidden;position:relative;text-decoration:none;border:1px solid rgba(0,245,160,0.18);background:#081012 url(https://cdn.cssstudio.app/covers/' + w.c + '.jpg) center/cover;">' +
+        ([
+          { h: "https://cdn.cssstudio.app/artifacts/te-trailer-en/feature/final.mp4", t: "Empire of Time", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/feature/poster.jpg" },
+          { h: "https://cdn.cssstudio.app/artifacts/te-trailer-en/constellations/final.mp4", t: "Constellations", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/constellations/poster.jpg" },
+          { h: "https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/final.mp4", t: "The Gambit", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/poster.jpg" },
+          { h: "/?cssMV=59578f73-7298-4aa7-b92c-38d5a649f2b8", t: "时间的帝国", c: "https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
+          { h: "/?cssMV=13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", t: "群星", c: "https://cdn.cssstudio.app/covers/trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036.jpg" },
+          { h: "/?cssMV=7dc49021-e47e-4f58-8881-faa7ec9abb02", t: "对弈", c: "https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" }
+        ]).map(function (w) {
+          return '<a href="' + w.h + '" style="flex:0 0 132px;height:98px;border-radius:12px;overflow:hidden;position:relative;text-decoration:none;border:1px solid rgba(0,245,160,0.18);background:#081012 url(' + w.c + ') center/cover;">' +
             '<div style="position:absolute;left:0;right:0;bottom:0;padding:20px 8px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.88));color:#fff;font:600 11px/1.25 inherit;">▶ ' + w.t + '</div></a>';
         }).join('') +
       '</div>' +

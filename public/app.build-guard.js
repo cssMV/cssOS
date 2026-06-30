@@ -20,15 +20,27 @@
   //      sw.js → install+skipWaiting → activate+clients.claim → controllerchange)。
   //   ② 双重防护防循环: a) reloaded 一次性闸; b) 仅当【本来就有 controller】(=真·更新, 非首次
   //      安装的首次 claim)才 reload。首装不刷; 更新刷恰好一次; 之后无更新→无事件→无循环。
+  // CSSOS_WAVE_1509 20260630 — Apple 2.1(a) 拒审「间歇跳回启动屏」根治: App 加载线上内容
+  // (capacitor server.url=cssstudio.app), 频繁部署期每个新 SW → controllerchange → 立刻 reload()
+  // = 用户【使用中被猛地拽回启动屏】(审核员实测到的不稳定)。修复: 绝不在前台/使用中 reload;
+  // 把更新【推迟到 App 进入后台(document hidden / pagehide)】时静默执行 → 用户返回已是新版, 全程
+  // 无可见打断。前台一直不离开 → 更新一直等着, 永不打断(符合"用户干预最高优先级"铁律)。
   try {
     if (navigator.serviceWorker) {
       var hadController = !!navigator.serviceWorker.controller;
       var reloaded = false;
-      navigator.serviceWorker.addEventListener("controllerchange", function () {
+      var pendingReload = false;
+      function reloadWhenHidden() {
         if (reloaded) return;
-        reloaded = true;
-        if (hadController) { try { window.location.reload(); } catch (_e) {} }
+        if (document.visibilityState === "hidden") { reloaded = true; try { window.location.reload(); } catch (_e) {} }
+      }
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        if (reloaded || !hadController) return;   // 首装不刷; 已刷过不再刷
+        pendingReload = true;
+        reloadWhenHidden();                        // 已在后台 → 立刻静默刷; 否则等下次进后台
       });
+      document.addEventListener("visibilitychange", function () { if (pendingReload) reloadWhenHidden(); });
+      try { window.addEventListener("pagehide", function () { if (pendingReload) reloadWhenHidden(); }); } catch (_e) {}
     }
   } catch (_e) {}
 

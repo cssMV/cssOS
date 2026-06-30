@@ -78,30 +78,41 @@
     // CSSOS_WAVE_662 — 静默加载(opts.silent): 后台触发的面板(如 face-safe 切歌时、gift-inbox
     // 打开 profile 时)不弹 "Loading…" toast, 避免无谓打扰(用户没主动开任何东西)。
     const slowTimer = (opts && opts.silent) ? null : setTimeout(showLoadingToast, 400);
-    const p = new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = src;
-      s.async = false; // preserve execution-order semantics within a panel
-      s.dataset.cssosPanel = name;
-      s.onload = () => {
-        clearTimeout(slowTimer);
-        // CSSOS_WAVE_527 — 面板加载完, 按需连带加载其声明的卫星模块(也已移出首屏)。Fire-and-forget,
-        // 不阻塞本面板 resolve; 卫星失败不影响主面板。
-        try {
-          const deps = (globalThis.CSSOS_PANEL_DEPS && globalThis.CSSOS_PANEL_DEPS[name]) || null;
-          if (deps && deps.length) {
-            deps.forEach((d) => { try { loadOne(d).catch(() => {}); } catch (_e) {} });
+    // CSSOS_WAVE_1509 20260630 — Apple 2.1(a)「Settings 等 tab 加载不出」根治: 面板脚本加载失败
+    // (部署瞬间 502 / 弱网超时)之前【不自动重试】→ tab 永久空白, 要用户手动再点。改: 自动重试
+    // 最多 3 次(指数退避 0.7s/1.4s, 带 ?r= 防缓存住失败响应), 抗住短暂部署窗口/网络抖动。
+    const MAX_TRIES = 3;
+    function attempt(n) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src + (n > 0 ? (src.indexOf("?") >= 0 ? "&" : "?") + "r=" + n : "");
+        s.async = false; // preserve execution-order semantics within a panel
+        s.dataset.cssosPanel = name;
+        s.onload = () => {
+          clearTimeout(slowTimer);
+          // CSSOS_WAVE_527 — 面板加载完, 按需连带加载其声明的卫星模块(也已移出首屏)。Fire-and-forget。
+          try {
+            const deps = (globalThis.CSSOS_PANEL_DEPS && globalThis.CSSOS_PANEL_DEPS[name]) || null;
+            if (deps && deps.length) {
+              deps.forEach((d) => { try { loadOne(d).catch(() => {}); } catch (_e) {} });
+            }
+          } catch (_e) {}
+          resolve();
+        };
+        s.onerror = () => {
+          try { s.remove(); } catch (_e) {}
+          if (n + 1 < MAX_TRIES) {
+            setTimeout(() => { attempt(n + 1).then(resolve, reject); }, 700 * (n + 1));
+          } else {
+            clearTimeout(slowTimer);
+            cache.delete(name); // 彻底失败才清缓存允许将来再试
+            reject(new Error(`script_load_failed:${src}`));
           }
-        } catch (_e) {}
-        resolve();
-      };
-      s.onerror = (e) => {
-        clearTimeout(slowTimer);
-        cache.delete(name); // allow retry
-        reject(new Error(`script_load_failed:${src}`));
-      };
-      document.head.appendChild(s);
-    });
+        };
+        document.head.appendChild(s);
+      });
+    }
+    const p = attempt(0);
     cache.set(name, p);
     return p;
   }

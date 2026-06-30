@@ -67,7 +67,25 @@
     <p class="lead">A near-future America. Immortal Martians have quietly tampered with humanity's timeline for centuries — in the name of "ending all pain." Only three can sense that time itself has been rewritten —</p>
     <div class="cast" id="cast"></div>
     <button class="enter" onclick="openTrailers()">ENTER THE FILM ▶</button>
+    <button class="enter" style="background:#0c1f19;color:var(--mint);border:1px solid #1c4a3a;box-shadow:none;margin-top:14px" onclick="openSyn()">READ THE STORY</button>
     <div class="foot">CSS STUDIO · in-house 3D engine</div>
+  </div>
+
+  <!-- 故事梗概 STORY -->
+  <div class="overlay" id="synopsis">
+    <button class="back" onclick="closeSyn()">← Back</button>
+    <div class="trWrap" style="max-width:680px">
+      <div class="trH">EMPIRE OF TIME</div>
+      <div class="trSub">also known as “Empire of America” · a synopsis</div>
+      <div style="color:#cdddda;font-size:15px;line-height:1.95;letter-spacing:.2px">
+        <p><i>Some empires are built on land. This one is built on time.</i></p>
+        <p>For over a century, an immortal visitor from Mars has walked among us — wearing human faces, claiming human births. He holds to one truth: whoever can rewrite the timeline owns the past and commands the future. His edits are written into our wars, our elections, and our quietest catastrophes.</p>
+        <p>A novelist once stumbled onto his secret and warned the world in a single famous book. The warning was filed away as fiction.</p>
+        <p>Now, in a near-future America, a new Envoy — <b>xéth</b> — has surfaced from a false birth in the south, climbed through politics, and slipped into the highest office in the land. He means to crown a republic an empire, and to declare the first year of a new age.</p>
+        <p>Standing against him: <b>Ethan</b>, his old classmate — half human, half Martian, son of an immortal who chose our side — and <b>the woman he loves</b>. Across years of wits and shadows, the timeline forks toward a set of endings. In one, time is saved. In another, the Empire of Time begins.</p>
+        <p style="color:var(--dim);font-size:13px;margin-top:24px;border-top:1px solid #1f2a30;padding-top:16px">This is a work of science fiction. Characters, an envoy, a president, and events are invented and archetypal. Any resemblance you feel to real people or history is your own — and it is yours to keep.</p>
+      </div>
+    </div>
   </div>
 
   <!-- 全屏单角色 -->
@@ -126,6 +144,8 @@
   function closeFs(){ fs.classList.remove('show'); }
   function openTrailers(){ document.getElementById('trailers').classList.add('show'); }
   function closeTrailers(){ document.getElementById('trailers').classList.remove('show'); }
+  function openSyn(){ document.getElementById('synopsis').classList.add('show'); }
+  function closeSyn(){ document.getElementById('synopsis').classList.remove('show'); }
 </script>
 </body>
 </html>

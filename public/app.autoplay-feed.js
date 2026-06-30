@@ -163,9 +163,9 @@
       '<div style="font:700 12px/1 -apple-system,system-ui,sans-serif;letter-spacing:1px;color:rgba(0,245,160,0.85);margin-bottom:10px;">' + lc("TRAILERS", "预告片") + '</div>' +
       '<div id="cssos-ae-trailers" style="display:flex;gap:8px;overflow-x:auto;padding:2px 2px 12px;margin:0 -2px 16px;scrollbar-width:none;-webkit-overflow-scrolling:touch;">' +
         ([
-          { h: "https://cdn.cssstudio.app/artifacts/te-trailer-en/feature/final.mp4", t: "Empire of Time", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/feature/poster.jpg" },
-          { h: "https://cdn.cssstudio.app/artifacts/te-trailer-en/constellations/final.mp4", t: "Constellations", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/constellations/poster.jpg" },
-          { h: "https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/final.mp4", t: "The Gambit", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/poster.jpg" },
+          { h: "/?cssMV=4a844198-ee87-4023-bc78-aa89733da0aa", t: "Empire of Time", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/feature/poster.jpg" },
+          { h: "/?cssMV=23a60517-1bb5-4032-a95b-f0a7831e7e2a", t: "Constellations", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/constellations/poster.jpg" },
+          { h: "/?cssMV=e208554a-427a-4273-ae07-8c5d7d042ab6", t: "The Gambit", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/poster.jpg" },
           { h: "/?cssMV=59578f73-7298-4aa7-b92c-38d5a649f2b8", t: "时间的帝国", c: "https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
           { h: "/?cssMV=13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", t: "群星", c: "https://cdn.cssstudio.app/covers/trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036.jpg" },
           { h: "/?cssMV=7dc49021-e47e-4f58-8881-faa7ec9abb02", t: "对弈", c: "https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" }

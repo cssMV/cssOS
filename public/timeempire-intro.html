@@ -20,7 +20,7 @@
     opacity:0; animation:rise .9s ease .25s forwards; }
   .cast { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin:40px 0 10px; }
   @media (max-width:760px){ .cast{ grid-template-columns:1fr; } }
-  .ch { position:relative; background:linear-gradient(180deg,#0d161a,#0a1115); border:1px solid #15242a; border-radius:20px;
+  .ch { position:relative; display:flex; flex-direction:column; background:linear-gradient(180deg,#0d161a,#0a1115); border:1px solid #15242a; border-radius:20px;
     padding:14px 14px 20px; opacity:0; transform:translateY(26px) scale(.97); animation:enter .9s cubic-bezier(.2,.7,.2,1) forwards; cursor:pointer; transition:border-color .2s; }
   .ch:hover { border-color:#2c5a4a; }
   .ch:nth-child(1){ animation-delay:.5s; } .ch:nth-child(2){ animation-delay:.85s; } .ch:nth-child(3){ animation-delay:1.2s; }
@@ -29,8 +29,9 @@
   .role { color:var(--dim); font-size:13px; line-height:1.6; text-align:center; margin-top:5px; min-height:38px; }
   .badge { position:absolute; top:14px; left:14px; font-size:11px; color:var(--mint); border:1px solid #1c4a3a;
     background:#0c1f19; padding:3px 9px; border-radius:999px; letter-spacing:1px; }
-  .trlink { display:inline-block; margin-top:12px; text-decoration:none; color:var(--mint); font-size:13px; font-weight:600;
+  .trlink { align-self:center; margin-top:auto; padding-top:0; text-decoration:none; color:var(--mint); font-size:13px; font-weight:600;
     border:1px solid #1c4a3a; background:#0c1f19; padding:8px 16px; border-radius:999px; transition:background .15s; }
+  .role { margin-bottom:14px; }
   .trlink:hover { background:#123026; }
   .enter { display:block; width:min(320px,80%); margin:38px auto 0; text-align:center; cursor:pointer; border:0;
     padding:16px; border-radius:14px; font-weight:700; font-size:16px; letter-spacing:2px; color:#05201a;

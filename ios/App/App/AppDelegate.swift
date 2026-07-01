@@ -181,7 +181,20 @@ extension AppDelegate {
     }
 
     func cssmemFindWebView() -> WKWebView? {
-        return cssmemSearch(view: window?.rootViewController?.view)
+        // CSSOS_WAVE_1522 — 采用 UIScene 后系统窗归 scene 所有, AppDelegate.window 为 nil。
+        //   优先从已连接的 window scene 取 key window, 回退到旧 self.window。
+        var root: UIView? = window?.rootViewController?.view
+        if root == nil {
+            for scene in UIApplication.shared.connectedScenes {
+                if let ws = scene as? UIWindowScene {
+                    if let kw = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first {
+                        root = kw.rootViewController?.view
+                        if root != nil { break }
+                    }
+                }
+            }
+        }
+        return cssmemSearch(view: root)
     }
 
     private func cssmemSearch(view: UIView?) -> WKWebView? {

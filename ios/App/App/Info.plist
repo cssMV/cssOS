@@ -39,6 +39,27 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<!-- CSSOS_WAVE_1522 20260701 — iOS 27 崩溃根治: 未采用 UIScene 生命周期的老式 App 在
+	     iOS 27 被系统硬 trap (EXC_BREAKPOINT: ___UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption)
+	     → 启动即闪退。storyboard 驱动 App 的官方迁移法 = 加引用 Main storyboard 的 scene manifest,
+	     iOS 自动从 storyboard 建 UIWindowScene+window, 无需自写 SceneDelegate。 -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>

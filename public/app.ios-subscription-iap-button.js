@@ -320,9 +320,10 @@
       if (existing) { var staleWrap = existing.closest("#cssos-ios-restore-wrap"); (staleWrap || existing).remove(); }
       var track = document.createElement("div");
       track.id = "cssos-account-caps";
-      // CSSOS_WAVE_1517 — Jing: 轨道不够长时【左右滑动】不断行 → overflow-x:auto + 段 nowrap。
-      track.style.cssText = "display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid rgba(120,132,144,.30);max-width:440px;";
-      var segStyle = "flex:1 0 auto;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;border:none;border-radius:999px;padding:11px 16px;cursor:pointer;";
+      // CSSOS_WAVE_1520 — Jing: 删除账号必须【始终可见】(横向滑动会把 Delete 藏到右边 → 苹果判
+      //   无删号功能, 合规红线)。改真·均分 50/50(flex:1 1 0), 两段永远都在, 不滑动不隐藏。
+      track.style.cssText = "display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(120,132,144,.30);max-width:440px;";
+      var segStyle = "flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:999px;padding:11px 10px;cursor:pointer;";
       // 激活段: Restore(满圆凸, 蓝渐变)。makeRestoreBtn 已挂点击→runRestore。
       var rBtn = makeRestoreBtn();
       rBtn.className = "cssos-ios-restore"; // 保留基类供去重查询

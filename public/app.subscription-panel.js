@@ -274,11 +274,11 @@ function buildSubscriptionPanelMarkupModule() {
           <!-- CSSOS_WAVE_537 — Apple 3.1.2(c) 合规: App 内订阅页须含 自动续订声明 + 使用条款(EULA) + 隐私政策 功能性链接. -->
           <div class="subscription-legal" style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.14);font-size:12px;line-height:1.55;opacity:0.85;">
             <p style="margin:0 0 8px;">${escapeHtml(tr("Subscriptions are auto-renewable. Each plan's name, length, and price are shown above. Payment is charged to your Apple ID at confirmation of purchase. It renews automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple ID account settings."))}</p>
-            <!-- CSSOS_WAVE_1515/1517 — Jing: 胶囊宪法(2 段, 图标+标签, 激活段在前满圆凸, 轨道共边);
-                 轨道不够长时【左右滑动不断行】→ overflow-x:auto + 段 white-space:nowrap;flex:1 0 auto。 -->
-            <div style="display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid rgba(26,115,232,0.32);max-width:440px;">
-              <a href="/terms.html" target="_blank" rel="noopener" style="flex:1 0 auto;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;border-radius:999px;background:linear-gradient(120deg,#1a73e8,#4c9bff);color:#fff;padding:10px 16px;font:600 12.5px/1 -apple-system,system-ui,sans-serif;text-decoration:none;"><span style="font-size:13px;">📄</span>${escapeHtml(tr("Terms of Use (EULA)"))}</a>
-              <a href="/privacy.html" target="_blank" rel="noopener" style="flex:1 0 auto;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;border-radius:999px;background:transparent;color:#1a73e8;padding:10px 16px;font:600 12.5px/1 -apple-system,system-ui,sans-serif;text-decoration:none;"><span style="font-size:13px;">🔒</span>${escapeHtml(tr("Privacy Policy"))}</a>
+            <!-- CSSOS_WAVE_1515/1520 — Jing: 胶囊宪法(2 段均分 50/50, 图标+标签, 激活段在前满圆凸,
+                 轨道共边)。两段【永远都可见】(flex:1 1 0), 不横向滑动隐藏。 -->
+            <div style="display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(26,115,232,0.32);max-width:440px;">
+              <a href="/terms.html" target="_blank" rel="noopener" style="flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;background:linear-gradient(120deg,#1a73e8,#4c9bff);color:#fff;padding:10px 10px;font:600 12.5px/1 -apple-system,system-ui,sans-serif;text-decoration:none;"><span style="font-size:13px;">📄</span>${escapeHtml(tr("Terms of Use (EULA)"))}</a>
+              <a href="/privacy.html" target="_blank" rel="noopener" style="flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;background:transparent;color:#1a73e8;padding:10px 10px;font:600 12.5px/1 -apple-system,system-ui,sans-serif;text-decoration:none;"><span style="font-size:13px;">🔒</span>${escapeHtml(tr("Privacy Policy"))}</a>
             </div>
           </div>
         </div>

@@ -309,21 +309,24 @@
     //   激活段 = Restore(在前, 满圆凸, 蓝渐变填充); 未激活段 = Delete(在后, 透明红字)。
     //   轨道与胶囊共用边框零间隙, 只两段间留 6px 缝。Restore 是正常操作放前, Delete 危险放后。
     if (delBtn) {
-      var dz = delBtn.parentElement || panel;
+      // CSSOS_WAVE_1517 — 用【稳定的危险区容器】拿 dz(closest), 因为 delBtn 一旦被移进 track,
+      //   delBtn.parentElement 就变成 track → 旧代码把 paddingBottom 加到轨道上撑出巨大空框。
+      var dz = delBtn.closest(".subscription-account-danger-zone") || delBtn.parentElement || panel;
       if (panel.querySelector("#cssos-account-caps")) { dz.style.paddingBottom = "104px"; return; }
       // 清掉任何旧的独立 Restore 实例(底部回退 / 早期 inline)。
       if (existing) { var staleWrap = existing.closest("#cssos-ios-restore-wrap"); (staleWrap || existing).remove(); }
       var track = document.createElement("div");
       track.id = "cssos-account-caps";
-      track.style.cssText = "display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(120,132,144,.30);max-width:440px;";
+      // CSSOS_WAVE_1517 — Jing: 轨道不够长时【左右滑动】不断行 → overflow-x:auto + 段 nowrap。
+      track.style.cssText = "display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid rgba(120,132,144,.30);max-width:440px;";
       // 激活段: Restore(满圆凸, 蓝渐变)。makeRestoreBtn 已挂点击→runRestore。
       var rBtn = makeRestoreBtn();
       rBtn.className = "cssos-ios-restore"; // 保留基类供去重查询
       rBtn.innerHTML = '<span style="font-size:14px;">🔄</span> ' + esc(tr("Restore Purchases", "恢复购买"));
-      rBtn.style.cssText = "flex:1;display:flex;align-items:center;justify-content:center;gap:7px;border:none;border-radius:999px;background:linear-gradient(120deg,#0a84ff,#3aa0ff);color:#fff;padding:11px 14px;font:700 13px/1 -apple-system,system-ui,sans-serif;cursor:pointer;";
+      rBtn.style.cssText = "flex:1 0 auto;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;border:none;border-radius:999px;background:linear-gradient(120deg,#0a84ff,#3aa0ff);color:#fff;padding:11px 16px;font:700 13px/1 -apple-system,system-ui,sans-serif;cursor:pointer;";
       // 未激活段: Delete(透明, 红字)。复用已有 delBtn(其删号点击逻辑已绑定, 保留)。
       delBtn.innerHTML = '<span style="font-size:14px;">🗑</span> ' + esc(tr("Delete account", "删除账号"));
-      delBtn.style.cssText = "flex:1;display:flex;align-items:center;justify-content:center;gap:7px;border:none;border-radius:999px;background:transparent;color:#ff5a5a;padding:11px 14px;font:600 13px/1 -apple-system,system-ui,sans-serif;cursor:pointer;";
+      delBtn.style.cssText = "flex:1 0 auto;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;border:none;border-radius:999px;background:transparent;color:#ff5a5a;padding:11px 16px;font:600 13px/1 -apple-system,system-ui,sans-serif;cursor:pointer;";
       dz.insertBefore(track, delBtn);
       track.appendChild(rBtn);
       track.appendChild(delBtn); // 把 delBtn 从 dz 移进轨道(Restore 之后)

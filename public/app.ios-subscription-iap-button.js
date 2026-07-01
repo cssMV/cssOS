@@ -295,7 +295,41 @@
     host.appendChild(wrap);
   }
 
-  function refreshIosSubUi() { injectButtons(); fixPrices(); injectRestoreButton(); }
+  /* CSSOS_WAVE_1511 20260701 — Jing: 「10 Extra Generations 一直无法购买」。
+   * 真凶: Creator Boost 卡的 Stripe/NihaoPay 按钮在 iOS 被 ios-native-gate
+   * 全隐藏, 而 boost 档【没有】预注册的 StoreKit 产品(IAP_PRODUCT_CATALOG
+   * 只有 4 个积分包 + 订阅), 所以卡上两个付款按钮都没了 → 无处可点。
+   * 修: iOS 上给「10 Extra Generations」卡注入一个可用的 Apple 按钮, 打开
+   * 已上架、能用的积分包 IAP(cssosOpenCreditsTopup)。生成本就扣积分,
+   * 买积分 = 拿生成额度, 同一结果, 且无需向 App Store 新增产品(审核期不
+   * 能新建产品)。只碰 generation 这张卡, 其它 boost 卡不动。 */
+  function injectBoostIapButton() {
+    var genBtn = document.querySelector('[data-subscription-buy-boost="generation"]');
+    if (!genBtn) return;
+    var card = genBtn.closest(".boost-shop-card") || genBtn.closest(".pay-group") || genBtn.parentElement;
+    if (!card) return;
+    if (card.querySelector(".cssos-ios-iap-btn[data-iap-boost=\"generation\"]")) return;
+    injectStyles();
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cssos-ios-iap-btn";
+    btn.setAttribute("data-iap-boost", "generation");
+    btn.innerHTML = '<span class="apple-glyph"></span> ' + esc(tr("Get generations with Apple", "通过 Apple 获取生成额度"));
+    btn.addEventListener("click", function () {
+      if (typeof globalThis.cssosOpenCreditsTopup === "function") {
+        globalThis.cssosOpenCreditsTopup();
+      } else if (typeof globalThis.showToast === "function") {
+        globalThis.showToast(tr("Top-up isn't ready. Reopen the app and try again.", "充值暂不可用，请重开 App 再试。"));
+      }
+    });
+    card.appendChild(btn);
+    var hint = document.createElement("div");
+    hint.className = "cssos-ios-iap-hint";
+    hint.textContent = tr("Buy a credit pack — credits fund your generations.", "购买积分包 · 积分即可用于生成。");
+    card.appendChild(hint);
+  }
+
+  function refreshIosSubUi() { injectButtons(); fixPrices(); injectRestoreButton(); injectBoostIapButton(); }
 
   // Re-scan whenever the subscription panel renders (it lazy-loads
   // and re-renders after tier changes). Cheap: 8s × 30s = 4 passes.

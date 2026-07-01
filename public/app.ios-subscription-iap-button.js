@@ -263,6 +263,11 @@
         if (typeof globalThis.showToast === "function") globalThis.showToast(okMsg);
         if (typeof globalThis.fetchBillingStatus === "function") await globalThis.fetchBillingStatus().catch(function () {});
         if (typeof globalThis.renderSubscriptionPanelModule === "function") await globalThis.renderSubscriptionPanelModule();
+        // CSSOS_WAVE_1516 — Jing「点完 Restore 按钮消失」根因: renderSubscriptionPanelModule
+        //   重建面板会冲掉注入的 Restore 胶囊, 而 watcher 可能已停(8 passes 后)→ 不再补回。
+        //   修: 重渲染后立即重新注入(即时 + 250ms 兜底)。
+        try { refreshIosSubUi(); } catch (_e) {}
+        setTimeout(function () { try { refreshIosSubUi(); } catch (_e2) {} }, 250);
       } else {
         var e = String((r && r.error) || "");
         if (typeof globalThis.showToast === "function") globalThis.showToast(

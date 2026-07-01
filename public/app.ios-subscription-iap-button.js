@@ -57,7 +57,7 @@
       '.cssos-ios-restore:active{background:rgba(10,132,255,.12);}',
       '.cssos-ios-restore:disabled{opacity:.6;cursor:wait;}',
       /* CSSOS_WAVE_1512 — 与 Delete account 并排的紧凑蓝框变体(同尺寸的一对)。 */
-      '.cssos-ios-restore.cssos-ios-restore--inline{display:inline-block;width:auto;margin-left:10px;vertical-align:top;padding:9px 16px;border-radius:8px;border:1px solid rgba(10,132,255,.6);font:600 13px/1.2 -apple-system,system-ui,sans-serif;}',
+      '.cssos-ios-restore.cssos-ios-restore--inline{display:inline-block;width:auto;margin-right:10px;vertical-align:top;padding:9px 16px;border-radius:8px;border:1px solid rgba(10,132,255,.6);font:600 13px/1.2 -apple-system,system-ui,sans-serif;}',
       '.cssos-ios-restore-hint{text-align:center;font:400 14px/1.5 -apple-system,system-ui,sans-serif;color:rgba(90,100,110,.9);margin-bottom:10px;}',
     ].join("\n");
     document.head.appendChild(st);
@@ -255,7 +255,12 @@
     try {
       var r = await globalThis.cssosIapNative.restorePurchases();
       if (r && r.ok) {
-        if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Purchases restored.", "购买已恢复。"));
+        // CSSOS_WAVE_1514 — 恢复成功但 0 笔 → 明确告知"没有可恢复的购买"(别误报"已恢复")。
+        var count = Number(r.restored != null ? r.restored : (r.transactions ? r.transactions.length : 1)) || 0;
+        var okMsg = count > 0
+          ? tr("Purchases restored.", "购买已恢复。")
+          : tr("No previous purchases to restore.", "没有可恢复的历史购买。");
+        if (typeof globalThis.showToast === "function") globalThis.showToast(okMsg);
         if (typeof globalThis.fetchBillingStatus === "function") await globalThis.fetchBillingStatus().catch(function () {});
         if (typeof globalThis.renderSubscriptionPanelModule === "function") await globalThis.renderSubscriptionPanelModule();
       } else {
@@ -295,13 +300,14 @@
     var existing = panel.querySelector(".cssos-ios-restore");
     var delBtn = panel.querySelector("[data-subscription-delete-account]");
 
-    // 期望态: 和 Delete account 并排(登录用户)。
+    // 期望态: 和 Delete account 并排(登录用户)。CSSOS_WAVE_1514 — Jing: Restore 在【前】,
+    //   Delete account 在【后】(Restore 是正常操作, Delete 是危险操作, 危险的放后面更安全)。
     if (delBtn) {
       var dz = delBtn.parentElement || panel;
-      // 已正确并排(紧跟在 Delete 之后 + inline 变体) → 什么都不做。
+      // 已正确并排(Restore 紧邻在 Delete 之【前】+ inline 变体) → 什么都不做。
       if (existing
           && existing.classList.contains("cssos-ios-restore--inline")
-          && delBtn.nextElementSibling === existing) {
+          && delBtn.previousElementSibling === existing) {
         dz.style.paddingBottom = "104px";
         return;
       }
@@ -312,7 +318,7 @@
       }
       var inlineBtn = makeRestoreBtn();
       inlineBtn.classList.add("cssos-ios-restore--inline");
-      dz.insertBefore(inlineBtn, delBtn.nextSibling); // 两个 inline-block 落同一行, 说明在下一行
+      dz.insertBefore(inlineBtn, delBtn); // Restore 在前, Delete 在后(同一行)
       dz.style.paddingBottom = "104px"; // 清 Dock(话筒/底栏)
       return;
     }

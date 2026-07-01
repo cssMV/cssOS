@@ -224,11 +224,21 @@
       } else {
         return { ok: false, error: "iap_plugin_api_unknown" };
       }
-      // The plugin returns the bundle receipt; POST to server for verify.
+      // CSSOS_WAVE_1514 20260701 — Jing 真机: 「Restore did not complete: undefined is
+      //   not an object (evaluating 'result.receipt')」。真凶: @capgo/native-purchases 的
+      //   restorePurchases() 返回【交易数组】或 undefined, 不是带 .receipt 的对象; 旧代码
+      //   直接 result.receipt → 崩。防御式取 receipt: 兼容 对象 / 数组 / {transactions:[]},
+      //   且【没有 receipt 也算成功】(StoreKit 已在设备端重新恢复权益, 无需服务端校验)。
+      var r = result || {};
+      var txns = Array.isArray(r)
+        ? r
+        : (Array.isArray(r.transactions) ? r.transactions : []);
+      var first = txns[0] || {};
       var receiptB64 = String(
-        result.receipt || result.receiptData || result.transactionReceipt || ""
+        r.receipt || r.receiptData || r.transactionReceipt ||
+        first.receipt || first.receiptData || first.transactionReceipt || ""
       ).trim();
-      if (!receiptB64) return { ok: true, transactions: [] };
+      if (!receiptB64) return { ok: true, transactions: txns, restored: txns.length };
       var verifyR = await fetch("/api/iap/apple/verify", {
         method: "POST",
         credentials: "include",

@@ -791,10 +791,34 @@ async function renderSubscriptionPanelModule() {
         openLoginForCreation?.(tr("Sign in first to purchase Creator Boost."));
         return;
       }
-      if (typeof createCreatorBoostCheckout === "function") {
-        await createCreatorBoostCheckout(kind, quantity, button).catch(() => null);
+      // CSSOS_WAVE_1513 20260701 — Jing「10 Extra Generations 点了没反应」根治。真凶:
+      //   点击确实调到 createCreatorBoostCheckout, 但 /api/cssmv/boosts/checkout/create
+      //   失败(多为会话过期 401 / Stripe 临时不可用)时, 旧代码 .catch(()=>null) 把错误
+      //   【静默吞掉】→ 表现就是"点了毫无反应"= 死胡同(违反 guided-ux 铁律)。改: 显式
+      //   surface 真实原因(401 引导重新登录, 其它给可读错误 + 建议改用支付宝/微信)。
+      const _toast = (m) => { try { (globalThis.showToast || globalThis.cssosGuidedToast || function(){})(m); } catch (_e) {} };
+      const fn = (typeof createCreatorBoostCheckout === "function")
+        ? createCreatorBoostCheckout
+        : (typeof globalThis.createCreatorBoostCheckout === "function" ? globalThis.createCreatorBoostCheckout : null);
+      if (!fn) { _toast(tr("Checkout isn't ready yet. Please refresh and try again.")); return; }
+      try {
+        await fn(kind, quantity, button); // 成功会 window.location 跳 Stripe 结账页
         await loadCreatorBoostState?.(true).catch(() => null);
         await renderSubscriptionPanelModule();
+      } catch (err) {
+        const msg = String((err && err.message) || err || "");
+        if (/:401\b/.test(msg) || /AUTH_REQUIRED/i.test(msg)) {
+          openLoginForCreation?.(tr("Your session expired. Please sign in again to purchase."));
+        } else if (/STRIPE_NOT_CONFIGURED/i.test(msg)) {
+          _toast(tr("Card checkout is temporarily unavailable — please try Alipay / WeChat Pay, or try again shortly."));
+        } else if (/BOOST_KIND_DISABLED|BOOST_PURCHASE_ADMIN_ONLY/i.test(msg)) {
+          _toast(tr("This top-up isn't available for purchase right now."));
+        } else if (/Load failed|Failed to fetch|NetworkError/i.test(msg)) {
+          _toast(tr("Network hiccup — couldn't reach checkout. Please check your connection and try again."));
+        } else {
+          _toast(tr("Couldn't open checkout: ") + (msg || tr("unknown error")));
+        }
+        try { console.warn("[boost-buy] checkout failed:", msg); } catch (_e) {}
       }
     });
   });

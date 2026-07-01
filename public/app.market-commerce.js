@@ -4792,6 +4792,9 @@ async function createCreatorBoostCheckout(
   window.location.href = String(data.checkout_url);
   return data;
 }
+// CSSOS_WAVE_1513 — 防御式挂全局: subscription-panel(不同 bundle)按 typeof 引用它,
+// 显式挂 globalThis 杜绝跨文件/加载顺序导致的 undefined(见铁律 cross_file_symbol_defensive_ref)。
+try { globalThis.createCreatorBoostCheckout = createCreatorBoostCheckout; } catch (_e) {}
 
 // CSSOS_PHASE2_PAYMENTS 20260419 — Dual-gateway dispatcher for Creator Boost
 // auto-prompts (thumbnail regen, preview video regen, etc.). When availability

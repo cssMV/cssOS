@@ -51,10 +51,13 @@
       /* CSSOS_WAVE_1510 — Apple Guideline 4「字太小」: 11px→13px 提可读性。 */
       '.cssos-ios-iap-hint{font:500 13px/1.5 -apple-system,system-ui,sans-serif;color:rgba(0,0,0,.62);margin-top:6px;text-align:center;}',
       /* CSSOS_WAVE_1510 — Apple 3.1.1「恢复购买」按钮(逻辑 cssosIapNative.restorePurchases 早有, 缺可见按钮)。 */
-      '.cssos-ios-restore-wrap{padding:8px 0 20px;}',
+      /* CSSOS_WAVE_1512 — 回退态(未登录)底部留足 Dock 高度, 别和话筒/底栏打架。 */
+      '.cssos-ios-restore-wrap{padding:8px 0 104px;}',
       '.cssos-ios-restore{display:block;width:100%;padding:15px 18px;border-radius:14px;background:transparent;color:#0a84ff;border:1.5px solid #0a84ff;cursor:pointer;font:600 16px/1.2 -apple-system,system-ui,sans-serif;}',
       '.cssos-ios-restore:active{background:rgba(10,132,255,.12);}',
       '.cssos-ios-restore:disabled{opacity:.6;cursor:wait;}',
+      /* CSSOS_WAVE_1512 — 与 Delete account 并排的紧凑蓝框变体(同尺寸的一对)。 */
+      '.cssos-ios-restore.cssos-ios-restore--inline{display:inline-block;width:auto;margin-left:10px;vertical-align:top;padding:9px 16px;border-radius:8px;border:1px solid rgba(10,132,255,.6);font:600 13px/1.2 -apple-system,system-ui,sans-serif;}',
       '.cssos-ios-restore-hint{text-align:center;font:400 14px/1.5 -apple-system,system-ui,sans-serif;color:rgba(90,100,110,.9);margin-bottom:10px;}',
     ].join("\n");
     document.head.appendChild(st);
@@ -269,27 +272,47 @@
     }
   }
 
-  /* CSSOS_WAVE_1510 — Apple 3.1.1: 订阅面板底部注入一个显眼的「Restore Purchases」按钮(整面板一个)。 */
+  /* CSSOS_WAVE_1510 — Apple 3.1.1: 订阅面板注入一个显眼的「Restore Purchases」按钮(整面板一个)。
+   * CSSOS_WAVE_1512 20260701 — Jing: ①之前贴在面板最底和 Dock(话筒排)打架, 违反「每个面板底部
+   * 留 Dock 高度」铁律 ②Jing 建议和「Delete account」并排。修: 优先把 Restore 按钮插到
+   * Delete account 按钮【右边并排】(同一 danger-zone 行内), 并给该区加 Dock 高度底部留白;
+   * 未登录(无 delete 区)时才回退到面板底部, 同样留足底部空间清 Dock。 */
   function injectRestoreButton() {
     var panel = document.getElementById("subscription-panel");
     if (!panel) return;
-    if (panel.querySelector("#cssos-ios-restore-wrap")) return;
+    if (panel.querySelector(".cssos-ios-restore")) return; // 整面板只一颗
+    injectStyles();
+
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cssos-ios-restore";
+    btn.textContent = tr("Restore Purchases", "恢复购买");
+    btn.addEventListener("click", function () { runRestore(btn); });
+
+    // 优先: 和 Delete account 并排(登录用户)。
+    var delBtn = panel.querySelector("[data-subscription-delete-account]");
+    if (delBtn) {
+      // 让 Restore 视觉上与 Delete 同尺寸的一对(蓝框 vs 红框), 内联并排。
+      btn.classList.add("cssos-ios-restore--inline");
+      var dz = delBtn.parentElement || panel;
+      // 紧跟在 Delete 按钮之后 → 两个 inline-block 按钮落同一行, 说明文字在下一行。
+      dz.insertBefore(btn, delBtn.nextSibling);
+      // Dock 留白: danger-zone 是面板最后一块, 给它足够底部空间清掉 Dock(话筒/底栏)。
+      dz.style.paddingBottom = "104px";
+      return;
+    }
+
+    // 回退: 未登录/无 delete 区 → 面板底部, 带 hint + Dock 底部留白。
     var anyTier = panel.querySelector("[data-subscription-select-tier], [data-subscription-direct-tier]");
     var card = anyTier && anyTier.closest(".work-card");
     var host = (card && card.parentElement) || panel;
     if (!host) return;
-    injectStyles();
     var wrap = document.createElement("div");
     wrap.id = "cssos-ios-restore-wrap";
     wrap.className = "cssos-ios-restore-wrap";
     var hint = document.createElement("div");
     hint.className = "cssos-ios-restore-hint";
     hint.textContent = tr("Already subscribed on another device? Restore it here.", "在其他设备已订阅？点此恢复购买。");
-    var btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "cssos-ios-restore";
-    btn.textContent = tr("Restore Purchases", "恢复购买");
-    btn.addEventListener("click", function () { runRestore(btn); });
     wrap.appendChild(hint);
     wrap.appendChild(btn);
     host.appendChild(wrap);

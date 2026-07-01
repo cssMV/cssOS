@@ -277,32 +277,48 @@
    * 留 Dock 高度」铁律 ②Jing 建议和「Delete account」并排。修: 优先把 Restore 按钮插到
    * Delete account 按钮【右边并排】(同一 danger-zone 行内), 并给该区加 Dock 高度底部留白;
    * 未登录(无 delete 区)时才回退到面板底部, 同样留足底部空间清 Dock。 */
-  function injectRestoreButton() {
-    var panel = document.getElementById("subscription-panel");
-    if (!panel) return;
-    if (panel.querySelector(".cssos-ios-restore")) return; // 整面板只一颗
-    injectStyles();
-
+  function makeRestoreBtn() {
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "cssos-ios-restore";
     btn.textContent = tr("Restore Purchases", "恢复购买");
     btn.addEventListener("click", function () { runRestore(btn); });
+    return btn;
+  }
 
-    // 优先: 和 Delete account 并排(登录用户)。
+  /* CSSOS_WAVE_1512b 20260701 — 自我纠正, 防时序竞态: 若 Restore 先于 Delete account 渲染而落到
+   * 底部回退位, 一旦 Delete 出现就把它【挪到 Delete 旁边并排】(旧版 dedup 锁死会永远留底部)。 */
+  function injectRestoreButton() {
+    var panel = document.getElementById("subscription-panel");
+    if (!panel) return;
+    injectStyles();
+    var existing = panel.querySelector(".cssos-ios-restore");
     var delBtn = panel.querySelector("[data-subscription-delete-account]");
+
+    // 期望态: 和 Delete account 并排(登录用户)。
     if (delBtn) {
-      // 让 Restore 视觉上与 Delete 同尺寸的一对(蓝框 vs 红框), 内联并排。
-      btn.classList.add("cssos-ios-restore--inline");
       var dz = delBtn.parentElement || panel;
-      // 紧跟在 Delete 按钮之后 → 两个 inline-block 按钮落同一行, 说明文字在下一行。
-      dz.insertBefore(btn, delBtn.nextSibling);
-      // Dock 留白: danger-zone 是面板最后一块, 给它足够底部空间清掉 Dock(话筒/底栏)。
-      dz.style.paddingBottom = "104px";
+      // 已正确并排(紧跟在 Delete 之后 + inline 变体) → 什么都不做。
+      if (existing
+          && existing.classList.contains("cssos-ios-restore--inline")
+          && delBtn.nextElementSibling === existing) {
+        dz.style.paddingBottom = "104px";
+        return;
+      }
+      // 否则清掉任何位置不对的旧实例(底部回退 wrap 或散落的), 重新并排放置。
+      if (existing) {
+        var staleWrap = existing.closest("#cssos-ios-restore-wrap");
+        (staleWrap || existing).remove();
+      }
+      var inlineBtn = makeRestoreBtn();
+      inlineBtn.classList.add("cssos-ios-restore--inline");
+      dz.insertBefore(inlineBtn, delBtn.nextSibling); // 两个 inline-block 落同一行, 说明在下一行
+      dz.style.paddingBottom = "104px"; // 清 Dock(话筒/底栏)
       return;
     }
 
-    // 回退: 未登录/无 delete 区 → 面板底部, 带 hint + Dock 底部留白。
+    // 回退: 未登录/无 delete 区 → 面板底部, 带 hint + Dock 底部留白。只放一次。
+    if (existing) return;
     var anyTier = panel.querySelector("[data-subscription-select-tier], [data-subscription-direct-tier]");
     var card = anyTier && anyTier.closest(".work-card");
     var host = (card && card.parentElement) || panel;
@@ -314,7 +330,7 @@
     hint.className = "cssos-ios-restore-hint";
     hint.textContent = tr("Already subscribed on another device? Restore it here.", "在其他设备已订阅？点此恢复购买。");
     wrap.appendChild(hint);
-    wrap.appendChild(btn);
+    wrap.appendChild(makeRestoreBtn());
     host.appendChild(wrap);
   }
 

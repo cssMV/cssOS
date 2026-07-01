@@ -4007,7 +4007,7 @@ html[data-theme="light"] .works-fp-optin-desc {
     letter-spacing: 0.04em !important;
   }
   .mirror-subtitle {
-    font-size: clamp(6px, 1.9vw, 9px) !important;   /* CSSOS_WAVE_1208 还原原值 */
+    font-size: clamp(10px, 2.2vw, 12px) !important;   /* CSSOS_WAVE_1510 Apple Guideline4 提可读 */
     line-height: 1 !important;
     letter-spacing: 0.32em !important;
   }
@@ -12993,7 +12993,7 @@ html.cssos-pill-cascade .palette-color-tabs:not(:has(.active)) > .palette-color-
 .cssos-lang-cell input[type="checkbox"] { accent-color: #00f5a0; width: 15px; height: 15px; flex: 0 0 auto; margin: 0; }
 .cssos-lang-name { flex: 0 0 auto; font-weight: 500; white-space: nowrap; }
 .cssos-lang-badge {
-  font: 600 9px/1 ui-monospace, monospace; letter-spacing: 0.04em;
+  font: 600 11px/1 ui-monospace, monospace; letter-spacing: 0.04em;
   text-transform: uppercase; padding: 3px 6px; border-radius: 999px;
   background: rgba(0, 245, 160, 0.28); color: #003b29; white-space: nowrap;
 }

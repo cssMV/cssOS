@@ -48,7 +48,14 @@
       '.cssos-ios-iap-btn.is-locked{background:#3a3a3c;color:rgba(255,255,255,.55);cursor:not-allowed;opacity:1;}',
       '.cssos-ios-iap-btn.is-locked:hover{background:#3a3a3c;transform:none;}',
       '.cssos-ios-iap-btn .apple-glyph{font-size:18px;line-height:1;}',
-      '.cssos-ios-iap-hint{font:500 11px/1.4 -apple-system,system-ui,sans-serif;color:rgba(0,0,0,.55);margin-top:6px;text-align:center;}',
+      /* CSSOS_WAVE_1510 — Apple Guideline 4「字太小」: 11px→13px 提可读性。 */
+      '.cssos-ios-iap-hint{font:500 13px/1.5 -apple-system,system-ui,sans-serif;color:rgba(0,0,0,.62);margin-top:6px;text-align:center;}',
+      /* CSSOS_WAVE_1510 — Apple 3.1.1「恢复购买」按钮(逻辑 cssosIapNative.restorePurchases 早有, 缺可见按钮)。 */
+      '.cssos-ios-restore-wrap{padding:8px 0 20px;}',
+      '.cssos-ios-restore{display:block;width:100%;padding:15px 18px;border-radius:14px;background:transparent;color:#0a84ff;border:1.5px solid #0a84ff;cursor:pointer;font:600 16px/1.2 -apple-system,system-ui,sans-serif;}',
+      '.cssos-ios-restore:active{background:rgba(10,132,255,.12);}',
+      '.cssos-ios-restore:disabled{opacity:.6;cursor:wait;}',
+      '.cssos-ios-restore-hint{text-align:center;font:400 14px/1.5 -apple-system,system-ui,sans-serif;color:rgba(90,100,110,.9);margin-bottom:10px;}',
     ].join("\n");
     document.head.appendChild(st);
   }
@@ -233,7 +240,62 @@
       priceEl.setAttribute("data-iap-priced", "1");
     }
   }
-  function refreshIosSubUi() { injectButtons(); fixPrices(); }
+  /* CSSOS_WAVE_1510 — Apple 3.1.1: 触发已有的 restorePurchases() 恢复流程。 */
+  async function runRestore(btn) {
+    if (!globalThis.cssosIapNative || typeof globalThis.cssosIapNative.restorePurchases !== "function") {
+      if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Restore isn't available. Reopen the app and try again.", "恢复暂不可用，请重开 App 再试。"));
+      return;
+    }
+    btn.disabled = true;
+    var orig = btn.textContent;
+    btn.textContent = tr("Restoring…", "正在恢复…");
+    try {
+      var r = await globalThis.cssosIapNative.restorePurchases();
+      if (r && r.ok) {
+        if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Purchases restored.", "购买已恢复。"));
+        if (typeof globalThis.fetchBillingStatus === "function") await globalThis.fetchBillingStatus().catch(function () {});
+        if (typeof globalThis.renderSubscriptionPanelModule === "function") await globalThis.renderSubscriptionPanelModule();
+      } else {
+        var e = String((r && r.error) || "");
+        if (typeof globalThis.showToast === "function") globalThis.showToast(
+          e === "no_purchases" ? tr("No previous purchases to restore.", "没有可恢复的历史购买。")
+            : tr("Restore did not complete: ", "恢复未完成：") + (e || "unknown"));
+      }
+    } catch (e) {
+      if (typeof globalThis.showToast === "function") globalThis.showToast(tr("Restore error: ", "恢复出错：") + (e && e.message ? e.message : String(e)));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  }
+
+  /* CSSOS_WAVE_1510 — Apple 3.1.1: 订阅面板底部注入一个显眼的「Restore Purchases」按钮(整面板一个)。 */
+  function injectRestoreButton() {
+    var panel = document.getElementById("subscription-panel");
+    if (!panel) return;
+    if (panel.querySelector("#cssos-ios-restore-wrap")) return;
+    var anyTier = panel.querySelector("[data-subscription-select-tier], [data-subscription-direct-tier]");
+    var card = anyTier && anyTier.closest(".work-card");
+    var host = (card && card.parentElement) || panel;
+    if (!host) return;
+    injectStyles();
+    var wrap = document.createElement("div");
+    wrap.id = "cssos-ios-restore-wrap";
+    wrap.className = "cssos-ios-restore-wrap";
+    var hint = document.createElement("div");
+    hint.className = "cssos-ios-restore-hint";
+    hint.textContent = tr("Already subscribed on another device? Restore it here.", "在其他设备已订阅？点此恢复购买。");
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cssos-ios-restore";
+    btn.textContent = tr("Restore Purchases", "恢复购买");
+    btn.addEventListener("click", function () { runRestore(btn); });
+    wrap.appendChild(hint);
+    wrap.appendChild(btn);
+    host.appendChild(wrap);
+  }
+
+  function refreshIosSubUi() { injectButtons(); fixPrices(); injectRestoreButton(); }
 
   // Re-scan whenever the subscription panel renders (it lazy-loads
   // and re-renders after tier changes). Cheap: 8s × 30s = 4 passes.

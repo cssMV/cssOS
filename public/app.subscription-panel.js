@@ -276,9 +276,10 @@ function buildSubscriptionPanelMarkupModule() {
             <p style="margin:0 0 8px;">${escapeHtml(tr("Subscriptions are auto-renewable. Each plan's name, length, and price are shown above. Payment is charged to your Apple ID at confirmation of purchase. It renews automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple ID account settings."))}</p>
             <!-- CSSOS_WAVE_1515/1520 — Jing: 胶囊宪法(2 段均分 50/50, 图标+标签, 激活段在前满圆凸,
                  轨道共边)。两段【永远都可见】(flex:1 1 0), 不横向滑动隐藏。 -->
-            <div style="display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(26,115,232,0.32);max-width:440px;">
-              <a href="/terms.html" target="_blank" rel="noopener" style="flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;background:linear-gradient(120deg,#1a73e8,#4c9bff);color:#fff;padding:10px 10px;font:600 12.5px/1 -apple-system,system-ui,sans-serif;text-decoration:none;"><span style="font-size:13px;">📄</span>${escapeHtml(tr("Terms of Use (EULA)"))}</a>
-              <a href="/privacy.html" target="_blank" rel="noopener" style="flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;background:transparent;color:#1a73e8;padding:10px 10px;font:600 12.5px/1 -apple-system,system-ui,sans-serif;text-decoration:none;"><span style="font-size:13px;">🔒</span>${escapeHtml(tr("Privacy Policy"))}</a>
+            <!-- CSSOS_WAVE_1521 — 色调宪法(黑+绿): 激活段翠绿渐变+深墨字, 未激活段深绿字(浅底)。 -->
+            <div style="display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(10,143,95,0.30);max-width:440px;">
+              <a href="/terms.html" target="_blank" rel="noopener" style="flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#04120c;padding:10px 10px;font:600 12.5px/1 -apple-system,system-ui,sans-serif;text-decoration:none;"><span style="font-size:13px;">📄</span>${escapeHtml(tr("Terms of Use (EULA)"))}</a>
+              <a href="/privacy.html" target="_blank" rel="noopener" style="flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;background:transparent;color:#0a8f5f;padding:10px 10px;font:600 12.5px/1 -apple-system,system-ui,sans-serif;text-decoration:none;"><span style="font-size:13px;">🔒</span>${escapeHtml(tr("Privacy Policy"))}</a>
             </div>
           </div>
         </div>
@@ -716,7 +717,7 @@ async function renderSubscriptionPanelModule() {
         //   iOS 上此按钮会被 app.ios-subscription-iap-button.js 注入进 Restore/Delete 双段胶囊,
         //   桌面/其它端保持这颗独立圆头胶囊。
         '<button type="button" data-subscription-delete-account ' +
-        'style="display:inline-flex;align-items:center;gap:7px;background:transparent;border:1px solid rgba(255,80,80,0.5);color:#ff8080;padding:10px 20px;' +
+        'style="display:inline-flex;align-items:center;gap:7px;background:transparent;border:1px solid rgba(229,72,77,0.5);color:#e5484d;padding:10px 20px;' +
         'border-radius:999px;font:600 13px/1.2 -apple-system,system-ui,sans-serif;cursor:pointer;">' +
         '<span style="font-size:14px;">🗑</span>' + tr("Delete account", "删除账号") + "</button>" +
         '<div style="margin-top:8px;font-size:11.5px;line-height:1.5;color:rgba(255,255,255,0.55);max-width:520px;">' +

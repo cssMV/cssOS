@@ -322,19 +322,21 @@
       track.id = "cssos-account-caps";
       // CSSOS_WAVE_1520 — Jing: 删除账号必须【始终可见】(横向滑动会把 Delete 藏到右边 → 苹果判
       //   无删号功能, 合规红线)。改真·均分 50/50(flex:1 1 0), 两段永远都在, 不滑动不隐藏。
-      track.style.cssText = "display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(120,132,144,.30);max-width:440px;";
+      // CSSOS_WAVE_1521 — 色调宪法: 品牌黑+绿。激活段=翠绿渐变填充+深墨字(不再用蓝!),
+      //   危险段=透明+红描边字。见 memory/color_and_type_constitution。
+      track.style.cssText = "display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(10,143,95,.30);max-width:440px;";
       var segStyle = "flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:999px;padding:11px 10px;cursor:pointer;";
-      // 激活段: Restore(满圆凸, 蓝渐变)。makeRestoreBtn 已挂点击→runRestore。
+      // 激活段: Restore(满圆凸, 翠绿渐变 + 深墨字)。makeRestoreBtn 已挂点击→runRestore。
       var rBtn = makeRestoreBtn();
       rBtn.className = "cssos-ios-restore"; // 保留基类供去重查询
       rBtn.innerHTML = '<span style="font-size:14px;">🔄</span> ' + esc(tr("Restore Purchases", "恢复购买"));
-      rBtn.style.cssText = segStyle + "background:linear-gradient(120deg,#0a84ff,#3aa0ff);color:#fff;font:700 13px/1 -apple-system,system-ui,sans-serif;";
+      rBtn.style.cssText = segStyle + "background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#04120c;font:700 13px/1 -apple-system,system-ui,sans-serif;";
       // 未激活段: Delete(透明, 红字)—— 全新按钮, 点击直调删号流程(与原始按钮同一逻辑)。
       var dBtn = document.createElement("button");
       dBtn.type = "button";
       dBtn.className = "cssos-account-caps-delete";
       dBtn.innerHTML = '<span style="font-size:14px;">🗑</span> ' + esc(tr("Delete account", "删除账号"));
-      dBtn.style.cssText = segStyle + "background:transparent;color:#ff5a5a;font:600 13px/1 -apple-system,system-ui,sans-serif;";
+      dBtn.style.cssText = segStyle + "background:transparent;color:#e5484d;font:600 13px/1 -apple-system,system-ui,sans-serif;";
       dBtn.addEventListener("click", function () {
         if (typeof globalThis.cssosRunDeleteAccountFlow === "function") globalThis.cssosRunDeleteAccountFlow(dBtn);
         else if (typeof globalThis.handleGlobalAction === "function") globalThis.handleGlobalAction("profile");

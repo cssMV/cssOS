@@ -40,7 +40,7 @@
       "#cssos-user-stats .usp-heatmap{display:grid;grid-template-columns:30px repeat(24,1fr);gap:2px;margin:6px 0;font-size:10px;}",
       "#cssos-user-stats .usp-heat-cell{aspect-ratio:1/1;border-radius:2px;background:rgba(0,245,160,0.08);}",
       "#cssos-user-stats .usp-heat-row-label{display:flex;align-items:center;color:rgba(218,255,238,0.55);font-size:10px;}",
-      "#cssos-user-stats .usp-heat-col-label{color:rgba(218,255,238,0.4);font-size:9px;text-align:center;}",
+      "#cssos-user-stats .usp-heat-col-label{color:rgba(218,255,238,0.4);font-size:11px;text-align:center;}",
       "#cssos-user-stats .usp-streak-card{display:flex;gap:18px;align-items:center;padding:16px;background:rgba(0,245,160,0.06);border:1px solid rgba(0,245,160,0.18);border-radius:12px;}",
       "#cssos-user-stats .usp-streak-flame{font-size:46px;}",
       "#cssos-user-stats .usp-streak-num{font-size:28px;font-weight:700;color:#fff;}",

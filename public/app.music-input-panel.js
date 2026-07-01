@@ -402,7 +402,7 @@ function _miInjectStyle() {
     ".msrc-tabbar > .msrc-tab:nth-child(6n+6).active { background:hsla(95,70%,50%,0.50) !important; }",
     ".msrc-tab.coming-soon { opacity:0.55; }",
     ".msrc-tab .msrc-tab-icon { font-size:14px; }",
-    ".msrc-tab .msrc-tab-badge { font-size:9px; padding:1px 5px; border-radius:4px; background:rgba(255,200,0,0.18); color:#ffc83d; margin-left:2px; }",
+    ".msrc-tab .msrc-tab-badge { font-size:11px; padding:1px 5px; border-radius:4px; background:rgba(255,200,0,0.18); color:#ffc83d; margin-left:2px; }",
     ".msrc-pane { padding:6px 2px; }",
     ".msrc-pane-title { font-size:13px; font-weight:700; color:var(--text); margin:0 0 6px; }",
     ".msrc-pane-hint { font-size:11.5px; opacity:0.72; line-height:1.5; margin:0 0 12px; }",

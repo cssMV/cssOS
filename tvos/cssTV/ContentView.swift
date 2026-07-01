@@ -913,21 +913,28 @@ struct ConcavePill: Shape {
 struct RailRow: View {
     let rail: CSSRail
     let onSelect: (CSSWork) -> Void
+    // CSSOS_WAVE_1523 — Jing「栏目激活跟随」: 本栏任一卡聚焦 → 栏目=激活态(标题变品牌绿加粗),
+    //   焦点离开本栏即收回。与 hero/卡片同一套绿语言, 用户一眼看出"我在哪一栏、要放哪张"。
+    @FocusState private var focusedWork: String?
+    private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
+    private var railActive: Bool { focusedWork != nil }
 
     var body: some View {
         // W1245 — rail 标题与卡片左缘由父级 contentLeading 提供, 这里不再加 horizontal padding,
         //   与 hero 标题/Play/胶囊对齐; 卡片右侧可横滑出框。
         VStack(alignment: .leading, spacing: 14) {
-            // W1274 — 栏目标题带图标。
+            // W1274 — 栏目标题带图标。W1523 — 本栏激活时标题变品牌绿加粗。
             Label(rail.title, systemImage: rail.icon)
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(.white.opacity(0.95))
+                .font(.system(size: 30, weight: railActive ? .heavy : .bold))
+                .foregroundStyle(railActive ? brandGreen : .white.opacity(0.95))
                 .cssBlackEdge()   // W1359 — 透明底偏亮(像白天)时白字仍可读
+                .animation(.easeInOut(duration: 0.2), value: railActive)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 36) {
                     ForEach(rail.works) { w in
                         Button { onSelect(w) } label: { WorkCard(work: w) }
                             .buttonStyle(.card)
+                            .focused($focusedWork, equals: w.id)   // W1523 — 追踪本栏哪张卡聚焦
                     }
                 }
                 .padding(.vertical, 24)   // 给焦点放大留出空间, 不被相邻行裁切
@@ -940,6 +947,9 @@ struct RailRow: View {
 
 struct WorkCard: View {
     let work: CSSWork
+    // CSSOS_WAVE_1523 — Jing「栏目激活跟随」: 聚焦哪张卡 → 它即"激活态"(品牌绿边框+绿光晕+标题绿),
+    //   和 hero 激活胶囊同一套绿语言。Select 即播。@Environment(\.isFocused) 读本卡(=Button)是否聚焦。
+    @Environment(\.isFocused) private var focused: Bool
     // CSSOS_WAVE_1228 — 画幅铁律: 横屏一律 2.39:1 电影宽银幕, 绝不 16:9。卡片 480 宽 → 201 高。
     private let cardWidth: CGFloat = 480
     private let cinemaRatio: CGFloat = 2.39
@@ -1001,10 +1011,16 @@ struct WorkCard: View {
                 }
             }
             .frame(width: cardWidth, height: coverH)
+            // W1523 — 聚焦即激活: 品牌绿描边(上圆角同封面) + 向外绿光晕。失焦零渲染。
+            .overlay(
+                UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16)
+                    .stroke(brandGreen, lineWidth: focused ? 5 : 0)
+            )
+            .shadow(color: focused ? brandGreen.opacity(0.75) : .clear, radius: focused ? 22 : 0)
 
             Text(work.isCreateCard ? "Want an MV like this?" : (work.title ?? "Untitled"))
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(work.isCreateCard ? brandGreen : .white)
+                .foregroundStyle(work.isCreateCard ? brandGreen : (focused ? brandGreen : .white))
                 .lineLimit(1)
                 .cssBlackEdge()   // W1359
             if !work.isCreateCard && !work.durationLabel.isEmpty {

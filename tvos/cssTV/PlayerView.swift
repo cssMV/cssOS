@@ -32,7 +32,21 @@ struct VideoSurface: UIViewRepresentable {
 }
 
 struct PlayerView: View {
-    let work: CSSWork
+    // CSSOS_WAVE_1523 — Jing「循环列表播放」: 播放器接收【整个栏目队列】+ 起始下标。
+    //   播完当前作品的所有枝丫 → 自动接队列下一个(到尾绕回第一个), 无限循环, 只有 Menu 键退出。
+    //   无论从 hero/For You/任何栏目的哪个作品进, 都循环那一整栏。
+    let queue: [CSSWork]
+    let startIndex: Int
+    @State private var queueIndex: Int
+    @State private var work: CSSWork          // 当前正在播放的作品(先原始、hydrate 后替换)
+
+    init(queue: [CSSWork], startIndex: Int) {
+        self.queue = queue
+        let si = queue.isEmpty ? 0 : max(0, min(startIndex, queue.count - 1))
+        self.startIndex = si
+        _queueIndex = State(initialValue: si)
+        _work = State(initialValue: queue.isEmpty ? CSSWork(id: "") : queue[si])
+    }
 
     @State private var videoPlayer: AVPlayer?
     @State private var audioPlayer: AVPlayer?
@@ -174,7 +188,26 @@ struct PlayerView: View {
         // 音频会话: 让声音从电视外放。
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
-        loadPart(0)   // W1329 — 从第一枝丫起播; 播完自动接下一枝丫
+        playQueueItem(queueIndex)   // W1523 — hydrate 起始作品并起播; 播完自动接队列下一个(循环)
+    }
+
+    // CSSOS_WAVE_1523 — 播放队列中第 qi 个作品(下标自动绕回, 实现"循环整栏")。
+    //   队列里的作品来自 feed(标题/封面已有, 但可播媒体字段要 hydrate), 故先展示原始、hydrate 后 loadPart。
+    private func playQueueItem(_ qi: Int) {
+        guard !queue.isEmpty else { return }
+        let idx = ((qi % queue.count) + queue.count) % queue.count
+        queueIndex = idx
+        let raw = queue[idx]
+        work = raw
+        partIndex = 0
+        Task {
+            let h = await CSSBackend.hydrate(raw)
+            await MainActor.run {
+                guard queueIndex == idx else { return }   // 期间又切了别的 → 放弃这次
+                work = h
+                loadPart(0)
+            }
+        }
     }
 
     // W1329 — 加载并起播第 idx 个枝丫(多部连播核心)。
@@ -330,12 +363,13 @@ struct PlayerView: View {
     }
 
     private func onAudioEnded() {
-        // W1329 — 多部连播: 还有下一枝丫 → 接着播; 全部播完 → 退出影院。
+        // W1329 — 多部连播: 还有下一枝丫 → 接着播。
+        // W1523 — 本作品所有枝丫播完 → 接【队列下一个作品】(到尾绕回第一个), 循环整栏, 绝不自动退出;
+        //   只有用户按 Menu 键才退出(tvOS 自动 dismiss)。单个作品 = 队列长度 1 → 循环重播它自己。
         if partIndex + 1 < parts.count {
             loadPart(partIndex + 1)
         } else {
-            stop()
-            dismiss()
+            playQueueItem(queueIndex + 1)
         }
     }
 

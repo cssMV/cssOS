@@ -72,13 +72,24 @@ enum HomeCategory: String, CaseIterable, Identifiable {
     }
 }
 
+// CSSOS_WAVE_1523 — 滚动偏移偏好键: 内容顶部相对 ScrollView 的 minY(顶部=0, 下滚变负)。
+private struct CSSScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 struct ContentView: View {
     @State private var allWorks: [CSSWork] = []
     // W1260 — Home 不再默认选中: pickedCategory=nil 时侧栏不高亮任何项, 内容仍按 .all(For You…)。
     @State private var pickedCategory: HomeCategory? = nil
     private var category: HomeCategory { pickedCategory ?? .all }
     @State private var loading = true
-    @State private var selected: CSSWork?
+    // CSSOS_WAVE_1523 — Jing「循环列表播放」: 记住【整栏队列】+ 起始下标 → 播放器循环整栏。
+    @State private var playQueue: [CSSWork] = []
+    @State private var playStart: Int = 0
+    @State private var showPlayer = false
+    // CSSOS_WAVE_1523 — Jing「侧栏滚过 hero 后隐藏」: 追踪滚动偏移, 滚过 hero 就藏侧栏(不挡下方栏目), 回滚再显。
+    @State private var sidebarVisible = true
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
@@ -86,11 +97,14 @@ struct ContentView: View {
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
 
     // W1367 — tvOS 纯欣赏: 直接进影院(无创作、无 gating)。
-    private func choose(_ w: CSSWork) {
-        Task {
-            let h = await CSSBackend.hydrate(w)
-            selected = h   // W1365 — TV 全免费: 直接进影院, 不再 gate
-        }
+    // W1523 — Jing「循环列表」: 不再只传单个作品, 而是把【该作品所在的整栏列表】+ 起始下标交给播放器,
+    //   播放器循环整栏(hydrate 逐个在播放器内做)。无论从哪个作品进, 都循环那一整栏。
+    private func choose(_ w: CSSWork, in list: [CSSWork]) {
+        let lst = list.filter { !$0.isCreateCard }         // 滤掉创作尾卡(纯欣赏)
+        let q = lst.isEmpty ? [w] : lst
+        playQueue = q
+        playStart = q.firstIndex(where: { $0.id == w.id }) ?? 0
+        showPlayer = true
     }
 
     /// 当前分类下的作品。
@@ -126,12 +140,12 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS) { choose($0) }
+                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS) { choose($0, in: featured) }
                             // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
                             ForEach(rails) { rail in
-                                RailRow(rail: rail) { choose($0) }
+                                RailRow(rail: rail) { choose($0, in: rail.works) }
                             }
                         }
                         // W1342 — Jing: 真通栏。侧栏竖列只到 Today's Picks, 卡片在其下方不会被盖 → 内容贴到最左,
@@ -142,9 +156,24 @@ struct ContentView: View {
                     }
                 }
                 .padding(.bottom, 80)
+                // W1523 — 报告内容相对 ScrollView 的顶部偏移(用于侧栏滚过 hero 后自动隐藏)。
+                .background(GeometryReader { g in
+                    Color.clear.preference(key: CSSScrollOffsetKey.self,
+                                           value: g.frame(in: .named("cssScroll")).minY)
+                })
             }
+            .coordinateSpace(name: "cssScroll")
             .focusSection()
             .ignoresSafeArea(.container, edges: .top)   // W1308 — Jing: 整个滚动内容顶到屏顶, 不留任何顶部安全区
+            // W1523 — 滚过 hero(≈2.39 高度的一半多) → 藏侧栏(不挡下方栏目); 回滚上来再显。
+            .onPreferenceChange(CSSScrollOffsetKey.self) { minY in
+                let scrolledDown = -minY
+                let heroH = UIScreen.main.bounds.width / 2.39
+                let show = scrolledDown < heroH * 0.55
+                if show != sidebarVisible {
+                    withAnimation(.easeInOut(duration: 0.25)) { sidebarVisible = show }
+                }
+            }
             // W1245 — ScrollView 正常遵守安全区: hero 内容与 For You 同基准(safe+leading)→ 对齐;
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
@@ -152,20 +181,23 @@ struct ContentView: View {
             CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                 .focusSection()
+                // W1523 — 滚过 hero 后隐藏(不挡下方栏目); 回滚再显。焦点此时在 rails, 藏侧栏不丢焦点。
+                .opacity(sidebarVisible ? 1 : 0)
+                .allowsHitTesting(sidebarVisible)
         }
         .focusScope(focusNS)
         .ignoresSafeArea(.container, edges: .top)   // W1309 — 第四次: 整个界面延到屏顶, 顶部零安全区(hero 真正顶到头)
         .background(Color.clear.ignoresSafeArea())   // W1307 — 透明=苹果系统窗口背景色
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-        .fullScreenCover(item: $selected) { w in
-            PlayerView(work: w)
+        .fullScreenCover(isPresented: $showPlayer) {
+            PlayerView(queue: playQueue, startIndex: playStart)
         }
         .fullScreenCover(isPresented: $showLogin) {
             LoginView(auth: auth)
         }
         .fullScreenCover(isPresented: $showSearch) {
-            SearchView(allWorks: allWorks) { w in showSearch = false; choose(w) }
+            SearchView(allWorks: allWorks) { w in showSearch = false; choose(w, in: allWorks) }
         }
         // W1365 — TV 全免费: 删去付费门 alert(原引导站外 cssstudio.app 购买 = App Store 3.1.1 雷)。
         .task {
@@ -591,6 +623,9 @@ struct FeaturedHero: View {
         }
         .frame(height: capH)
         .fixedSize(horizontal: true, vertical: false)
+        // W1523 — Jing「默认焦点落 hero 绿色激活胶囊, 不落 logo」: prefersDefaultFocus 深嵌 ForEach 常失效,
+        //   改用 .defaultFocus 显式把初始焦点钉在激活胶囊(focusedCap==0), 进平台确认即播放。
+        .defaultFocus($focusedCap, 0)
     }
 
     // W1284 — 显示顺序: 把 index(激活)转到第一位, 其后按 work 原序绕回。

@@ -712,10 +712,13 @@ async function renderSubscriptionPanelModule() {
       dz.className = "subscription-account-danger-zone";
       dz.style.cssText = "margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,80,80,0.18);";
       dz.innerHTML =
+        // CSSOS_WAVE_1518 — Jing: 单个操作按钮也套胶囊风格(两头半圆 pill + 图标), 全平台统一。
+        //   iOS 上此按钮会被 app.ios-subscription-iap-button.js 注入进 Restore/Delete 双段胶囊,
+        //   桌面/其它端保持这颗独立圆头胶囊。
         '<button type="button" data-subscription-delete-account ' +
-        'style="background:transparent;border:1px solid rgba(255,80,80,0.5);color:#ff8080;padding:9px 16px;' +
-        'border-radius:8px;font:600 13px/1.2 -apple-system,system-ui,sans-serif;cursor:pointer;">' +
-        tr("Delete account", "删除账号") + "</button>" +
+        'style="display:inline-flex;align-items:center;gap:7px;background:transparent;border:1px solid rgba(255,80,80,0.5);color:#ff8080;padding:10px 20px;' +
+        'border-radius:999px;font:600 13px/1.2 -apple-system,system-ui,sans-serif;cursor:pointer;">' +
+        '<span style="font-size:14px;">🗑</span>' + tr("Delete account", "删除账号") + "</button>" +
         '<div style="margin-top:8px;font-size:11.5px;line-height:1.5;color:rgba(255,255,255,0.55);max-width:520px;">' +
         tr("Permanently delete your account and all generated works. 30-day purge with a 7-day grace window — sign in again within 7 days to cancel.",
            "永久删除你的账号和所有生成的作品。30 天彻底清除,前 7 天内重新登录可取消恢复。") +

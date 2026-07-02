@@ -86,6 +86,17 @@ struct PlayerView: View {
                 .clipped()
                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
+                // CSSOS 20260701 — Jing「全平台统一: 播放器画框绿色光晕边框」(照搬 web MV 面板那圈亮绿光)。
+                //   常驻品牌绿描边 + 双层向外散的绿柔光, 框住 2.39 影院画框。cssTV 大屏尤其需要。
+                //   与下方彩虹【边框进度条】分层共存: 绿光=氛围恒亮, 进度条=走时长。
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(red: 0.0, green: 0.96, blue: 0.63), lineWidth: 3)
+                    .frame(width: geo.size.width, height: boxH)
+                    .shadow(color: Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.9), radius: 16)
+                    .shadow(color: Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.5), radius: 34)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .allowsHitTesting(false)
+
                 // W1348 — 取消静态绿光; 改为【边框进度条】(一字照搬桌面 app.watch-stage-bars.js):
                 //   沿 2.39 画框四周走一圈的描边, 长度 = 音频主时钟 currentTime/duration, 颜色 6 段流动 + 柔光。
                 if let ap = audioPlayer {

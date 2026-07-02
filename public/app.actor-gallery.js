@@ -109,10 +109,11 @@
       "@keyframes agfade{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}" +
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
       /* 创建+搜索 = 凹凸镶嵌: Create 绿全圆胶囊(右端半圆【凸】)负边距【咬进】搜索框; 搜索框左侧【凹】容纳 */
-      /* 创建+搜索 = 胶囊宪法凹凸镶嵌: Create 凸(两头圆绿), Search 凹在左(咬合 Create 右圆头) */
-      "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;height:46px;position:relative;}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-create{position:relative;z-index:2;border:0;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;margin-right:-23px;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;min-width:160px;padding:0 20px 0 40px;border-radius:0 999px 999px 0;outline:none;font-size:15px;height:100%;box-sizing:border-box;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
+      /* 三胶囊 = 胶囊宪法凹凸镶嵌: 🙋成为演员(凹右)| ＋创建(绿凸中)| 搜索(凹左) */
+      "#" + ROOT_ID + " .ag-topcap{display:flex;align-items:stretch;height:46px;position:relative;}" +
+      "#" + ROOT_ID + " .ag-topcap .ag-signup{z-index:1;border:1px solid rgba(0,245,160,.4);border-right:0;background:rgba(0,245,160,.06);color:#e8fff5;font-weight:700;padding:0 22px 0 24px;white-space:nowrap;border-radius:999px 0 0 999px;cursor:pointer;margin-right:-23px;-webkit-mask:radial-gradient(circle 23px at 100% 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 100% 50%,transparent 22.5px,#000 23px);}" +
+      "#" + ROOT_ID + " .ag-topcap .ag-create{position:relative;z-index:2;border:0;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
+      "#" + ROOT_ID + " .ag-topcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;min-width:150px;padding:0 20px 0 40px;border-radius:0 999px 999px 0;outline:none;font-size:15px;height:100%;box-sizing:border-box;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
@@ -314,26 +315,38 @@
     refreshScript();
     if (nameInput) nameInput.addEventListener("input", refreshScript);
     startBtn.onclick = function () {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640 }, audio: true }).then(function (s) {
-        rpStream = s; vid.srcObject = s; recBtn.disabled = false; voiceBtn.disabled = false; capStatus.textContent = T("Camera on. Record your face turn-around.", "摄像头已开,录一段转头。");
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 480 } }, audio: true }).then(function (s) {
+        rpStream = s; vid.srcObject = s; vid.muted = true; vid.play().catch(function () {});   // 主动 play 防冻结
+        recBtn.disabled = false; voiceBtn.disabled = false; capStatus.textContent = T("Camera on. Record your face turn-around.", "摄像头已开,录一段转头。");
       }).catch(function () { capStatus.textContent = T("Camera/mic permission denied.", "摄像头/麦克风权限被拒。"); });
     };
+    function pickMime(video) {
+      var cands = video ? ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9", "video/webm", "video/mp4"]
+                        : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      for (var i = 0; i < cands.length; i++) { try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(cands[i])) return cands[i]; } catch (_e) {} }
+      return "";
+    }
     function recordTrack(kindKey, uploadKind, opts, seconds) {
-      if (!rpStream) return;
-      var stream = opts.videoOnly ? rpStream : (opts.audioOnly ? new MediaStream(rpStream.getAudioTracks()) : rpStream);
+      if (!rpStream) { capStatus.textContent = T("Start the camera first.", "请先开启摄像头。"); return; }
+      var isVideo = !opts.audioOnly;
+      var stream = opts.audioOnly ? new MediaStream(rpStream.getAudioTracks()) : rpStream;
+      var mime = pickMime(isVideo);
+      var mrOpts = isVideo ? { mimeType: mime || undefined, videoBitsPerSecond: 900000, audioBitsPerSecond: 64000 } : { mimeType: mime || undefined, audioBitsPerSecond: 64000 };
       var mr, chunks = [];
-      try { mr = new MediaRecorder(stream); } catch (e) { capStatus.textContent = T("Recording not supported on this browser.", "此浏览器不支持录制。"); return; }
-      mr.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+      try { mr = new MediaRecorder(stream, mrOpts); } catch (e) { try { mr = new MediaRecorder(stream); } catch (e2) { capStatus.textContent = T("Recording not supported on this browser.", "此浏览器不支持录制。"); return; } }
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
       mr.onstop = function () {
-        var blob = new Blob(chunks, { type: chunks[0] ? chunks[0].type : "video/webm" });
-        capStatus.textContent = "⏳ " + T("Uploading…", "上传中…");
+        if (!chunks.length) { capStatus.textContent = T("Nothing recorded, try again.", "没录到内容,请重试。"); return; }
+        var blob = new Blob(chunks, { type: chunks[0].type || (isVideo ? "video/webm" : "audio/webm") });
+        capStatus.textContent = "⏳ " + T("Uploading…", "上传中…") + " (" + Math.round(blob.size / 1024) + "KB)";
+        if (blob.size > 22 * 1024 * 1024) { capStatus.textContent = T("Recording too large — record a shorter clip.", "录制文件过大,请录短一点。"); return; }
         uploadCapture(uploadKind, blob).then(function (j) {
           if (j && j.ok) { captured[kindKey] = j.url; capStatus.textContent = "✅ " + T("Captured", "已采集") + " (" + kindKey + ")"; }
-          else capStatus.textContent = T("Upload failed.", "上传失败。");
-        }).catch(function () { capStatus.textContent = T("Upload failed.", "上传失败。"); });
+          else capStatus.textContent = T("Upload failed", "上传失败") + (j && j.code ? " · " + j.code : "") + ".";
+        }).catch(function (e) { capStatus.textContent = T("Upload failed (network).", "上传失败(网络)。"); });
       };
       mr.start(); capStatus.textContent = "⏺ " + T("Recording…", "录制中…") + " " + seconds + "s";
-      setTimeout(function () { try { mr.stop(); } catch (_e) {} }, seconds * 1000);
+      setTimeout(function () { try { if (mr.state !== "inactive") mr.stop(); } catch (_e) {} }, seconds * 1000);
     }
     recBtn.onclick = function () { recordTrack("face_video", "face_video", { videoOnly: false }, 5); };
     voiceBtn.onclick = function () { recordTrack("speech", "speech", { audioOnly: true }, 4); };
@@ -701,10 +714,10 @@
       '<div class="ag-bar">' +
         '<div class="ag-title">🎭 <b>' + esc(T("Digital Actors", "数字演员")) + '</b></div>' +
         '<div class="ag-spacer"></div>' +
-        '<button class="ag-sc-btn ag-signup" style="border:1px solid rgba(0,245,160,.5);border-radius:999px;padding:0 18px;height:46px;">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
-        '<div class="ag-searchcap">' +
+        '<div class="ag-topcap">' +   // 三胶囊: 🙋成为演员 | +创建(绿凸) | 搜索  凹凸镶嵌
+          '<button class="ag-signup">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
           '<button class="ag-create">＋ ' + esc(T("Create", "创建演员")) + '</button>' +
-          '<input class="ag-search" type="search" placeholder="' + esc(T("Search actors…", "搜索演员 / 文明 / 风格…")) + '">' +
+          '<input class="ag-search" type="search" placeholder="' + esc(T("Search actors…", "搜索演员…")) + '">' +
         '</div>' +
         '<button class="ag-x" aria-label="close">×</button>' +
       '</div>' +

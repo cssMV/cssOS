@@ -307,8 +307,8 @@
     var nameInput = scroll.querySelector('[data-k="name_en"]'), scriptEl = scroll.querySelector(".ag-consent-script");
     function consentScript() {
       var nm = (nameInput && nameInput.value.trim()) || (state.lang === "zh" ? "本人" : "me");
-      return T('📢 Read aloud: “I am ' + nm + ', and I consent to CSS Studio using my likeness and voice as my digital actor.”',
-               '📢 请照读:「我是' + nm + '本人,我同意 CSS Studio 将我的肖像和声音用作我的数字演员。」');
+      return T('📢 Read aloud: “I am ' + nm + ', and I consent to the CSS Studio platform using my likeness and voice as a digital actor. Thank you.”',
+               '📢 请照读:「我是' + nm + '本人,我同意 CSS Studio 平台将我的肖像声音用作数字演员,谢谢。」');
     }
     function refreshScript() { if (scriptEl) scriptEl.textContent = consentScript(); }
     refreshScript();
@@ -465,7 +465,9 @@
           '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
           (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + (state.ownedSet[a.actor_id] ? ' · ' + esc(T("free to watch", "本人免费欣赏")) : "") + '</h3><div class="ag-grid ag-sub-grid">' +
             mvs.map(function (m) { return '<div class="ag-card ag-appear" data-work="' + esc(m.work_id) + '" style="cursor:pointer"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
-              '</div><div class="ag-meta"><div class="ag-name">▶ ' + esc(m.title || "Untitled") + '</div></div></div>'; }).join("") + '</div></div>' : "");
+              '</div><div class="ag-meta"><div class="ag-name">▶ ' + esc(m.title || "Untitled") + '</div>' +
+              (state.ownedSet[a.actor_id] ? '<button class="ag-report" data-actor="' + esc(a.actor_id) + '" data-work="' + esc(m.work_id) + '" style="margin-top:4px;font-size:11px;background:rgba(255,120,120,.14);border:1px solid rgba(255,120,120,.4);color:#ffb3b3;border-radius:999px;padding:2px 9px;cursor:pointer">🚩 ' + esc(T("Report misuse", "举报滥用")) + '</button>' : "") +
+              '</div></div>'; }).join("") + '</div></div>' : "");
         // 封面切成 3D(正面旋转), 点封面在 2D↔3D 间切换。
         cardEl.__actor = a;
         showCover3D(cardEl, a);
@@ -474,9 +476,18 @@
         wireShowcase(inline, a.actor_id);
         if (state.ownedSet[a.actor_id]) {
           var own = document.createElement("div"); own.className = "ag-owner";
-          own.innerHTML = '<span class="ag-tag">🎬 ' + esc(T("Mine", "我的演员")) + ' · ' + esc(T("royalty", "版税")) + ' ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span><button class="ag-del">' + esc(T("Delete", "删除")) + '</button>';
+          own.innerHTML = '<span class="ag-tag">🎬 ' + esc(T("Mine", "我的演员")) + ' · ' + esc(T("royalty", "版税")) + ' ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span>' +
+            (a.is_real_person ? '<button class="ag-revoke ag-del">' + esc(T("Revoke consent", "撤回授权")) + '</button>' : '') +
+            '<button class="ag-del ag-del-actor">' + esc(T("Delete", "删除")) + '</button>';
           inline.appendChild(own);
-          own.querySelector(".ag-del").onclick = function () {
+          var revokeBtn = own.querySelector(".ag-revoke");
+          if (revokeBtn) revokeBtn.onclick = function () {
+            if (!window.confirm(T("Revoke consent? Your actor is taken down and can no longer be cast.", "撤回授权?演员将下架、不再可被选用。"))) return;
+            fetch("/api/actors/" + encodeURIComponent(a.actor_id) + "/revoke-consent", { method: "POST", credentials: "include" }).then(function (r) { return r.json(); }).then(function (jj) {
+              if (jj && jj.ok) { window.alert(T("Consent revoked. Actor taken down.", "已撤回授权,演员已下架。")); renderGrid(); } else window.alert(T("Failed.", "操作失败。"));
+            }).catch(function () {});
+          };
+          own.querySelector(".ag-del-actor").onclick = function () {
             if (!window.confirm(T("Delete this actor? This cannot be undone.", "删除此演员?此操作不可撤销。"))) return;
             fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "DELETE", credentials: "include" }).then(function (r) { return r.json(); }).then(function (jj) {
               if (jj && jj.ok) { delete state.ownedSet[a.actor_id]; state.actors = state.actors.filter(function (x) { return x.actor_id !== a.actor_id; }); renderGrid(); }
@@ -731,6 +742,16 @@
     el.querySelector(".ag-scroll").addEventListener("click", function (e) {
       var t = e.target;
       // 展开区内的交互元素(台词胶囊/选角/作者/出演子卡/model-viewer)不劫持。
+      // 🚩 举报滥用(演员本人)。
+      var rep = t.closest && t.closest(".ag-report");
+      if (rep) {
+        var rReason = window.prompt(T("Describe the misuse (e.g. defamatory / sexual / political misuse of your likeness):", "描述滥用情况(如:诽谤/色情/政治滥用你的肖像):"), "");
+        if (rReason != null) {
+          fetch("/api/actors/report-misuse", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ actor_id: rep.getAttribute("data-actor"), work_id: rep.getAttribute("data-work"), reason: rReason }) })
+            .then(function (r) { return r.json(); }).then(function (j) { window.alert(j && j.ok ? T("Reported. The platform will review; if confirmed, that user loses trust credit.", "已举报。平台将核实;属实将扣该用户信用分。") : T("Report failed.", "举报失败。")); }).catch(function () {});
+        }
+        return;
+      }
       // 出演作品卡 → 打开观看(演员本人对参演作品免费)。
       var appear = t.closest && t.closest(".ag-appear[data-work]");
       if (appear) {

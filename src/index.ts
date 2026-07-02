@@ -42952,6 +42952,104 @@ app.post("/api/admin/actors/:id/verify", express.json({ limit: "2kb" }), async (
   }
 });
 
+// CSSOS_WAVE_114 — 信用积分(行为信用分, 暂时隐藏, 平台唯一用"积分"处; 不能买卖/充值/转让, 与钱包 credits 无关)。
+async function adjustTrust(userId: string, delta: number, reason: string, payload: any = {}): Promise<number> {
+  if (!userId || !DATABASE_URL) return 0;
+  return await withClient(async (c) => {
+    const r = await c.query<{ trust_score: number }>(
+      `INSERT INTO user_trust (user_id, trust_score, updated_at) VALUES ($1::uuid, GREATEST(0, 100 + $2), now())
+       ON CONFLICT (user_id) DO UPDATE SET trust_score = GREATEST(0, user_trust.trust_score + $2), updated_at = now()
+       RETURNING trust_score`, [userId, delta]);
+    await c.query(`INSERT INTO trust_events (user_id, delta, reason, payload) VALUES ($1::uuid,$2,$3,$4::jsonb)`,
+      [userId, delta, reason, JSON.stringify(payload)]).catch(() => {});
+    return Number(r.rows[0]?.trust_score ?? 100);
+  });
+}
+
+// 演员本人举报某作品滥用了他的数字演员(恶意/违规)。记录待审; 核实后扣被举报者信用分。
+app.post("/api/actors/report-misuse", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const b = (req.body || {}) as Record<string, any>;
+    const actorId = String(b.actor_id || "").trim();
+    const workId = String(b.work_id || "").trim();
+    const category = String(b.category || "other").slice(0, 40);
+    const reason = String(b.reason || "").slice(0, 1000) || null;
+    // 只有【演员本人(owner)】能举报自己的演员被滥用。
+    const own = await withClient((c) => c.query<{ owner_user_id: string | null }>(
+      `SELECT owner_user_id::text AS owner_user_id FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [actorId]));
+    if (!own.rows[0] || String(own.rows[0].owner_user_id || "") !== String(user.id)) return res.status(403).json({ ok: false, code: "NOT_YOUR_ACTOR" });
+    // 找作品创作者(被举报者)。
+    let reportedUser: string | null = null;
+    if (/^[0-9a-f-]{8,40}$/i.test(workId)) {
+      const w = await withClient((c) => c.query<{ owner_user_id: string | null }>(`SELECT owner_user_id::text AS owner_user_id FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+      reportedUser = w.rows[0]?.owner_user_id || null;
+    }
+    const ins = await withClient((c) => c.query<{ report_id: string }>(
+      `INSERT INTO actor_misuse_reports (actor_id, work_id, reporter_user_id, reported_user_id, category, reason)
+       VALUES ($1,$2,$3::uuid,$4::uuid,$5,$6) RETURNING report_id`,
+      [actorId, /^[0-9a-f-]{8,40}$/i.test(workId) ? workId : null, user.id, reportedUser, category, reason]));
+    return res.json({ ok: true, report_id: ins.rows[0]?.report_id, status: "pending", hint: "已举报, 平台将核实; 核实属实将扣该用户信用分。你也可撤回对该演员的授权。" });
+  } catch (err) {
+    console.warn("[actors] report-misuse failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "REPORT_FAILED" });
+  }
+});
+
+// admin 核实举报: confirm → 扣被举报者信用分(默认 -15) + 隐藏作品; dismiss → 驳回。
+app.post("/api/admin/misuse/:id/resolve", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    const internalOk = !!CSSOS_INTERNAL_TOKEN && String(req.headers["x-cssos-internal-token"] || "") === CSSOS_INTERNAL_TOKEN;
+    if (!internalOk && (!user || roleForEmail(user.email) !== "admin")) return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    const id = String(req.params.id || "").trim();
+    const confirm = String((req.body || {}).decision || "confirm") === "confirm";
+    const penalty = Math.max(0, Math.min(100, Math.round(Number((req.body || {}).penalty || 15)) || 15));
+    const rep = await withClient((c) => c.query<{ reported_user_id: string | null; work_id: string | null; status: string }>(
+      `SELECT reported_user_id::text AS reported_user_id, work_id::text AS work_id, status FROM actor_misuse_reports WHERE report_id=$1 LIMIT 1`, [id]));
+    const r = rep.rows[0];
+    if (!r) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (r.status !== "pending") return res.status(409).json({ ok: false, code: "ALREADY_RESOLVED" });
+    if (confirm) {
+      if (r.reported_user_id) await adjustTrust(r.reported_user_id, -penalty, "actor_misuse:" + id, { report_id: id, work_id: r.work_id }).catch(() => {});
+      if (r.work_id) await withClient((c) => c.query(`UPDATE user_works SET visibility='private' WHERE id=$1::uuid`, [r.work_id])).catch(() => {});
+    }
+    await withClient((c) => c.query(
+      `UPDATE actor_misuse_reports SET status=$2, trust_penalty=$3, reviewer=$4, reviewed_at=now() WHERE report_id=$1`,
+      [id, confirm ? "confirmed" : "dismissed", confirm ? penalty : 0, user?.email || "internal"]));
+    return res.json({ ok: true, report_id: id, status: confirm ? "confirmed" : "dismissed", penalty: confirm ? penalty : 0 });
+  } catch (err) {
+    console.warn("[actors] misuse resolve failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "RESOLVE_FAILED" });
+  }
+});
+
+// 演员本人撤回授权: 立即下架(private) + 记撤销审计。已生成的旧作品由举报/核实处理。
+app.post("/api/actors/:id/revoke-consent", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const own = await withClient((c) => c.query<{ owner_user_id: string | null; is_real_person: boolean; rights_granted: any }>(
+      `SELECT owner_user_id::text AS owner_user_id, is_real_person, rights_granted FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const row = own.rows[0];
+    if (!row || String(row.owner_user_id || "") !== String(user.id)) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    await withClient(async (c) => {
+      await c.query(`UPDATE digital_actors SET visibility='private', consent_revoked_at=now(), updated_at=now() WHERE actor_id=$1`, [id]);
+      await c.query(`INSERT INTO actor_consents (actor_id, user_id, action, rights, terms_version) VALUES ($1,$2::uuid,'revoke',$3,$4)`,
+        [id, user.id, JSON.stringify(row.rights_granted || {}), "1.0"]);
+    });
+    return res.json({ ok: true, actor_id: id, hint: "已撤回授权, 演员已下架不再可被选用。" });
+  } catch (err) {
+    console.warn("[actors] revoke-consent failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "REVOKE_FAILED" });
+  }
+});
+
 app.patch("/api/actors/:id", express.json({ limit: "4kb" }), async (req, res) => {
   noStore(res);
   try {

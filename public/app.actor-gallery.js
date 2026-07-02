@@ -105,6 +105,15 @@
       "#" + ROOT_ID + " .ag-recbtn:disabled{background:rgba(0,245,160,.18);color:rgba(207,238,224,.7);box-shadow:none;cursor:default;}" +
       "#" + ROOT_ID + " .ag-recbtn.recording{background:#ff5a6a;color:#fff;}" +
       "#" + ROOT_ID + " .ag-capchip{flex:1 1 0;border:1px solid rgba(0,245,160,.4);background:rgba(0,245,160,.06);color:#d6ffee;font-size:14px;font-weight:700;padding:9px 0;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-rt-label{font-size:13px;color:#a9e9cf;margin:8px 0;font-weight:600;}" +
+      "#" + ROOT_ID + " .ag-arch-row{display:flex;flex-wrap:wrap;gap:8px;}" +
+      "#" + ROOT_ID + " .ag-arch{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-arch.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
+      "#" + ROOT_ID + " .ag-subgroup{margin-top:12px;}" +
+      "#" + ROOT_ID + " .ag-subgroup-t{font-size:12px;color:#8fdcc0;margin:0 0 6px;}" +
+      "#" + ROOT_ID + " .ag-subrow{display:flex;flex-wrap:wrap;gap:6px;}" +
+      "#" + ROOT_ID + " .ag-sub{border:1px solid rgba(0,245,160,.25);background:transparent;color:#bff5e0;font-size:12.5px;padding:5px 11px;border-radius:999px;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-sub.on{background:rgba(0,245,160,.85);color:" + INK + ";border-color:transparent;font-weight:700;}" +
       /* 就地展开 = 同一个框: 展开的卡横跨整行, 封面变大(显 3D/视频), 详情接着信息往下排 */
       "#" + ROOT_ID + " .ag-card.expanded{grid-column:1/-1;border-color:" + GREEN + ";box-shadow:0 0 26px rgba(0,245,160,.4);}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover{aspect-ratio:auto;height:min(58vh,420px);cursor:pointer;}" +
@@ -129,7 +138,7 @@
     document.head.appendChild(st);
   }
 
-  var state = { filter: "all", search: "", actors: [], rows: 1, ownedSet: {} };
+  var state = { filter: "all", search: "", actors: [], rows: 1, ownedSet: {}, archetype: "" };
 
   function coverInner(a, big) {
     var foc = (a.cover_focal_x != null && a.cover_focal_x >= 0)
@@ -164,6 +173,7 @@
       if (state.filter === "civilization" && a.origin_type !== "civilization") return false;
       if (state.filter === "premium" && !a.is_premium) return false;
       if (state.filter === "owned" && !state.ownedSet[a.actor_id]) return false;
+      if (state.archetype && !(Array.isArray(a.archetypes) && a.archetypes.indexOf(state.archetype) >= 0)) return false;
       if (state.search) {
         var q = state.search.toLowerCase();
         var hay = (a.name_zh + " " + a.name_en + " " + (a.civilization || "") + " " + (a.persona || "")).toLowerCase();
@@ -222,6 +232,67 @@
       }).catch(function () {});
   }
 
+  /* CSSOS_WAVE_116 戏路 taxonomy —— 单一数据源。增减戏路只改这张表(key 与后端一致)。
+     每项: key(后端认) · emoji · [en,zh] 大类名 · subs=[[en,zh]...] 细分。 */
+  var ROLE_TAXONOMY = [
+    { key: "hero", emoji: "🦸", en: "Hero", zh: "正派", subs: [["Hero / Knight", "英雄/骑士"], ["Guardian", "守护者"], ["Boy/Girl-next-door", "邻家/暖男"], ["Idealist", "理想主义者"]] },
+    { key: "villain", emoji: "😈", en: "Villain", zh: "反派", subs: [["Tyrant", "枭雄"], ["Schemer", "阴谋家"], ["Maniac", "疯批"], ["Cold killer", "冷面杀手"], ["Fallen one", "堕落者"]] },
+    { key: "antihero", emoji: "⚖️", en: "Anti-hero", zh: "亦正亦邪", subs: [["Anti-hero", "反英雄"], ["Rogue", "浪子"], ["Double agent", "双面间谍"], ["Gray bounty hunter", "灰色赏金客"]] },
+    { key: "ruler", emoji: "👑", en: "Ruler", zh: "王者/权谋", subs: [["Emperor", "帝王"], ["Queen", "女王"], ["Power minister", "权臣"], ["Godfather", "教父"]] },
+    { key: "action", emoji: "🗡", en: "Action", zh: "动作/硬汉", subs: [["Warrior", "战士"], ["Mercenary", "佣兵"], ["Avenger", "复仇者"], ["Tough detective", "硬汉警探"]] },
+    { key: "sage", emoji: "🧙", en: "Sage", zh: "智者/导师", subs: [["Mentor", "导师"], ["Scholar", "学者"], ["Prophet", "先知"], ["Hermit", "隐士"]] },
+    { key: "charmer", emoji: "💃", en: "Charmer", zh: "魅力/浪漫", subs: [["Lover", "情人"], ["Muse", "缪斯"], ["Socialite", "交际花"], ["Idol", "偶像"]] },
+    { key: "tragic", emoji: "💔", en: "Tragic", zh: "悲情", subs: [["Martyr", "殉道者"], ["Orphan", "弃儿"], ["Fallen noble", "落魄贵族"], ["Devoted heart", "痴情人"]] },
+    { key: "comic", emoji: "🎭", en: "Comic", zh: "丑角/喜剧", subs: [["Comedian", "谐星"], ["Trickster", "捣蛋鬼"], ["Goofball", "憨憨"], ["Snarker", "毒舌吐槽"]] },
+    { key: "enigma", emoji: "🧊", en: "Enigma", zh: "冷面/神秘", subs: [["Mystery figure", "神秘客"], ["Ice beauty", "冷美人"], ["Masked one", "面具人"], ["Mastermind", "幕后黑手"]] },
+    { key: "youth", emoji: "🌱", en: "Youth", zh: "成长/少年", subs: [["Young hero", "少年英雄"], ["Underdog", "逆袭者"], ["Girl genius", "天才少女"], ["Beginner", "初心者"]] },
+  ];
+  function archLabel(key) { for (var i = 0; i < ROLE_TAXONOMY.length; i++) if (ROLE_TAXONOMY[i].key === key) return ROLE_TAXONOMY[i]; return null; }
+  // 图鉴筛选/卡片用的 en→本地化短标签。
+  function archShort(key) { var a = archLabel(key); return a ? (a.emoji + " " + T(a.en, a.zh)) : key; }
+  // 戏路选择器 markup(大类多选 + 选中展开细分)。
+  function roleTaxonomyMarkup() {
+    var row = ROLE_TAXONOMY.map(function (a) {
+      return '<button type="button" class="ag-arch" data-arch="' + a.key + '">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</button>';
+    }).join("");
+    return '<div class="ag-roletax">' +
+      '<div class="ag-rt-label">' + esc(T("Role range — pick your archetypes (multi-select)", "戏路 —— 选大类(可多选)")) + '</div>' +
+      '<div class="ag-arch-row">' + row + '</div>' +
+      '<div class="ag-subroles"></div>' +
+    '</div>';
+  }
+  // 绑定戏路选择器; 返回 { archetypes(), subRoles() } getters。
+  function wireRoleTaxonomy(scope) {
+    var subWrap = scope.querySelector(".ag-subroles");
+    var chosenSubs = {};   // key: en-label -> true
+    function rebuildSubs() {
+      var selected = [].slice.call(scope.querySelectorAll(".ag-arch.on")).map(function (b) { return b.getAttribute("data-arch"); });
+      subWrap.innerHTML = selected.map(function (k) {
+        var a = archLabel(k); if (!a) return "";
+        var chips = a.subs.map(function (s) {
+          var on = chosenSubs[s[0]] ? " on" : "";
+          return '<button type="button" class="ag-sub' + on + '" data-sub="' + esc(s[0]) + '">' + esc(T(s[0], s[1])) + '</button>';
+        }).join("");
+        return '<div class="ag-subgroup"><div class="ag-subgroup-t">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</div><div class="ag-subrow">' + chips + '</div></div>';
+      }).join("");
+      subWrap.querySelectorAll(".ag-sub").forEach(function (c) {
+        c.onclick = function () { var k = c.getAttribute("data-sub"); if (chosenSubs[k]) delete chosenSubs[k]; else chosenSubs[k] = true; c.classList.toggle("on"); };
+      });
+    }
+    scope.querySelectorAll(".ag-arch").forEach(function (b) {
+      b.onclick = function () { b.classList.toggle("on"); rebuildSubs(); };
+    });
+    return {
+      archetypes: function () { return [].slice.call(scope.querySelectorAll(".ag-arch.on")).map(function (b) { return b.getAttribute("data-arch"); }); },
+      subRoles: function () {
+        var sel = {}; scope.querySelectorAll(".ag-arch.on").forEach(function (b) { sel[b.getAttribute("data-arch")] = true; });
+        // 只保留仍属于已选大类的细分。
+        var valid = {}; ROLE_TAXONOMY.forEach(function (a) { if (sel[a.key]) a.subs.forEach(function (s) { valid[s[0]] = true; }); });
+        return Object.keys(chosenSubs).filter(function (k) { return valid[k]; });
+      },
+    };
+  }
+
   function renderCreateForm() {
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
     if (!scroll) return;
@@ -234,16 +305,19 @@
         '<label>' + esc(T("Appearance / vibe description *", "外貌 / 气质描述 *")) + '<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="' + esc(T("e.g. a silver-haired violet-eyed futuristic diva, cold and mysterious", "如: 银发碧眼的未来感歌姬,冷冽而神秘")) + '"></textarea></label>' +
         '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
         '<label>' + esc(T("Style", "风格")) + '<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="synthwave" /></label>' +
+        roleTaxonomyMarkup() +
         '<label>' + esc(T("Cast price (¢, 0=free; you earn 70%)", "选角价(¢, 0=免费; 你得 70%)")) + '<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="500" value="0" /></label>' +
         '<button class="ag-cast ag-submit">✨ ' + esc(T("Generate & publish", "生成并发布演员")) + '</button>' +
         '<div class="ag-form-msg ag-empty"></div>' +
       '</div></div>';
     scroll.querySelector(".ag-back").onclick = function () { renderGrid(); };
+    var roleTax = wireRoleTaxonomy(scroll);
     var submit = scroll.querySelector(".ag-submit");
     var msg = scroll.querySelector(".ag-form-msg");
     submit.onclick = function () {
       var payload = {};
       scroll.querySelectorAll(".ag-in").forEach(function (el) { payload[el.getAttribute("data-k")] = el.value; });
+      payload.archetypes = roleTax.archetypes(); payload.sub_roles = roleTax.subRoles();
       if (!payload.name_en || String(payload.name_en).trim().length < 2) { msg.textContent = T("Please enter a stage name.", "请填艺名。"); return; }
       if (!payload.description || String(payload.description).trim().length < 10) { msg.textContent = T("Description too short (≥10 chars).", "描述太短(≥10 字)。"); return; }
       submit.disabled = true; msg.textContent = "⏳ " + T("Generating the actor's face… (~10-20s)", "正在生成演员的脸…(约 10-20 秒)");
@@ -283,7 +357,8 @@
       '<div class="ag-sub" style="margin-bottom:14px;max-width:640px">' + esc(T("Clone yourself into a digital actor — no scheduling limits, works 24/7. Use yourself free; when others cast you, you earn 80% (platform 20%). You watch every work you're in for free, and can report or revoke anytime. Verified before going public.", "把自己变成数字演员 —— 分身有术、不受档期阻拦、24/7 接戏。自选自演免费;别人选用你,你拿 80%(平台 20%)。你参演的每支作品都免费欣赏,随时可举报/撤权。核验通过才公开。")) + '</div>' +
       '<div class="ag-form">' +
         '<label>' + esc(T("Your name / stage name *", "你的名字 / 艺名 *")) + '<input class="ag-in" data-k="name_en" maxlength="80" /></label>' +
-        '<label>' + esc(T("Your role range (what you like to play)", "你的戏路(擅长/想演的角色)")) + '<textarea class="ag-in" data-k="role_range" maxlength="300" rows="2"></textarea></label>' +
+        roleTaxonomyMarkup() +
+        '<label>' + esc(T("A one-line vibe (optional — e.g. “commanding presence, eyes that speak”)", "一句 vibe(选填 —— 如「气场强、眼神会说话」)")) + '<textarea class="ag-in" data-k="role_range" maxlength="300" rows="2"></textarea></label>' +
         '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
         '<label>' + esc(T("Cast price others pay (¢, 0=free; you keep 80%)", "他人选用你的价(¢, 0=免费; 你留 80%)")) + '<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="9999" value="0" /></label>' +
         '<label class="ag-check"><input type="checkbox" data-k="is_public_figure"> ' + esc(T("I'm a public figure / celebrity (needs agency verification)", "我是公众人物/明星(需经纪公司核验)")) + '</label>' +
@@ -452,11 +527,13 @@
     }
     recBtn.onclick = function () { recordTrack("face_video", "face_video", { videoOnly: false }, 8, recBtn); };
     voiceBtn.onclick = function () { recordTrack("speech", "speech", { audioOnly: true }, 8, voiceBtn); };
+    var roleTax = wireRoleTaxonomy(scroll);
     var submit = scroll.querySelector(".ag-rp-submit"), msg = scroll.querySelector(".ag-form-msg");
     submit.onclick = function () {
       var p = {};
       scroll.querySelectorAll(".ag-in").forEach(function (el) { p[el.getAttribute("data-k")] = el.value; });
       scroll.querySelectorAll("[data-k][type=checkbox]").forEach(function (el) { p[el.getAttribute("data-k")] = el.checked; });
+      p.archetypes = roleTax.archetypes(); p.sub_roles = roleTax.subRoles();
       if (!p.name_en || String(p.name_en).trim().length < 2) { msg.textContent = T("Please enter your name.", "请填名字。"); return; }
       if (!p.grant_likeness) { msg.textContent = T("You must grant likeness consent.", "必须勾选授权肖像。"); return; }
       if (!captured.face_video) { msg.textContent = T("Please capture your face first.", "请先采集你的脸。"); return; }
@@ -830,6 +907,11 @@
         '<button class="ag-chip" data-f="premium">💎 ' + esc(T("Premium", "溢价")) + '</button>' +
         '<button class="ag-chip" data-f="owned">🎬 ' + esc(T("Mine", "我的演员")) + '</button>' +
       '</div>' +
+      // 戏路大类筛选(横滑)
+      '<div class="ag-filters ag-archfilters">' +
+        '<button class="ag-chip ag-af on" data-arch="">' + esc(T("All roles", "全部戏路")) + '</button>' +
+        ROLE_TAXONOMY.map(function (a) { return '<button class="ag-chip ag-af" data-arch="' + a.key + '">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</button>'; }).join("") +
+      '</div>' +
       '<div class="ag-scroll"></div>';
     document.body.appendChild(el);
     el.querySelector(".ag-x").onclick = close;
@@ -839,16 +921,26 @@
     if (signupBtn) signupBtn.onclick = function () { renderRealPersonSignup(); };
     // 5 个筛选 = 凹凸镶嵌胶囊轨道: 优先用平台 cssosMakePillBar(胶囊宪法), 否则退回普通 chip。
     var filterBar = el.querySelector(".ag-filters");
-    el.querySelectorAll(".ag-chip").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-f")); });
+    filterBar.querySelectorAll(".ag-chip").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-f")); });
     function applyFilterKey(key) { state.filter = key; resetRows(); renderGrid(); }
     if (typeof window.cssosMakePillBar === "function") {
       filterBar.classList.add("ag-pillbar");
       window.cssosMakePillBar(filterBar, { mono: true, compact: true, textColor: "dark", activeKey: "all", onActivate: applyFilterKey });
     } else {
-      el.querySelectorAll(".ag-chip").forEach(function (c) {
+      filterBar.querySelectorAll(".ag-chip").forEach(function (c) {
         c.onclick = function () {
-          el.querySelectorAll(".ag-chip").forEach(function (x) { x.classList.toggle("on", x === c); });
+          filterBar.querySelectorAll(".ag-chip").forEach(function (x) { x.classList.toggle("on", x === c); });
           applyFilterKey(c.getAttribute("data-f"));
+        };
+      });
+    }
+    // 戏路大类筛选(独立行, 客户端过滤)。
+    var archBar = el.querySelector(".ag-archfilters");
+    if (archBar) {
+      archBar.querySelectorAll(".ag-af").forEach(function (c) {
+        c.onclick = function () {
+          archBar.querySelectorAll(".ag-af").forEach(function (x) { x.classList.toggle("on", x === c); });
+          state.archetype = c.getAttribute("data-arch") || ""; resetRows(); renderGrid();
         };
       });
     }

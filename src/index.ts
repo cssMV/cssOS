@@ -42675,6 +42675,8 @@ app.get("/api/actors", async (req, res) => {
     if (origin === "synthetic" || origin === "civilization" || origin === "real_person") { params.push(origin); where.push(`origin_type = $${params.length}`); }
     if (premium === "1") where.push(`is_premium = true`);
     if (tier) { params.push(tier); where.push(`curation_tier = $${params.length}`); }
+    const archetype = String(req.query.archetype || "").trim().toLowerCase();   // 按戏路大类筛选
+    if ((ACTOR_ARCHETYPE_KEYS as readonly string[]).includes(archetype)) { params.push(archetype); where.push(`archetypes @> ARRAY[$${params.length}]::text[]`); }
     if (search) {
       params.push(`%${search}%`);
       where.push(`(lower(name_zh) LIKE $${params.length} OR lower(name_en) LIKE $${params.length} ` +
@@ -42687,7 +42689,7 @@ app.get("/api/actors", async (req, res) => {
              gender, age_range, appearance_tags, voice_style, style_descriptor, tags,
              model_3d_url, is_premium, cast_price_cents, license_model, curation_tier,
              popularity_score, cast_count, owner_user_id::text AS owner_user_id, creator_royalty,
-             visibility
+             visibility, role_range, archetypes, sub_roles
         FROM digital_actors
         WHERE ${where.join(" AND ")}
         ORDER BY (curation_tier='S') DESC, popularity_score DESC, name_en ASC
@@ -42794,6 +42796,39 @@ app.post("/api/actors/:id/cast", express.json({ limit: "4kb" }), async (req, res
  * 变现: 选角真扣 credits 时按版税分账给创作者(见 works-create 选角段)。 */
 const UGC_CREATOR_ROYALTY = 0.70;   // 创作者分成 70%, 平台 30%
 
+// CSSOS_WAVE_116 — 戏路大类 taxonomy(后端只认 key + 表情路由; 细分标签由前端 taxonomy 提供, 存自由字符串)。
+//   增减大类只需改这两张表(前端 taxonomy 表也同步 key)。留有余地。
+const ACTOR_ARCHETYPE_KEYS = [
+  "hero", "villain", "antihero", "ruler", "action", "sage", "charmer", "tragic", "comic", "enigma", "youth",
+] as const;
+// casting 注入 / 说话视频时按大类路由面部表情(取演员首个大类)。
+const ARCHETYPE_EXPRESSION: Record<string, string> = {
+  hero: "noble, radiant and courageous; an uplifted determined gaze, inspiring valiant charisma",
+  villain: "menacing, cold and sinister; a cruel piercing smirk, dangerous unforgettable malice",
+  antihero: "brooding and morally-gray; a guarded intense stare, dangerous charm with hidden pain",
+  ruler: "regal, commanding and imperious; a sovereign composed authority, chin high, absolute presence",
+  action: "fierce, hardened and unflinching; a battle-ready determined jaw, adrenaline and grit",
+  sage: "wise, serene and knowing; a calm penetrating gaze, ancient composure and quiet gravitas",
+  charmer: "alluring, warm and magnetic; a captivating soft smile, effortless romantic radiance",
+  tragic: "sorrowful and haunted; a wounded soulful gaze, aching beauty of a fated heart",
+  comic: "playful, mischievous and bright; a rascally grin, quick expressive comedic sparkle",
+  enigma: "cold, mysterious and unreadable; a masked distant stare, magnetic secretive stillness",
+  youth: "bright, earnest and hopeful; a fresh open-hearted gaze, spirited coming-of-age energy",
+};
+function parseArchetypes(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const set = new Set(ACTOR_ARCHETYPE_KEYS as readonly string[]);
+  const out: string[] = [];
+  for (const x of v) { const k = String(x || "").trim().toLowerCase(); if (set.has(k) && !out.includes(k)) out.push(k); }
+  return out.slice(0, 6);   // 一个演员最多 6 个大类, 够宽也不滥。
+}
+function parseSubRoles(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const x of v) { const s = String(x || "").trim().slice(0, 40); if (s && !out.includes(s)) out.push(s); }
+  return out.slice(0, 16);
+}
+
 // CSSOS_WAVE_113 — kie 所有对口型模型都限 ≤15s。长台词(20-30s)→ 视频引擎排队/失败。
 //   解: 把音轨截到 14s 喂视频模型(完整详细台词仍在【音频】播), 视频=演员开口的前 14s 精彩片段。
 //   R2 缓存(同音源哈希复用)。返回截断音频 URL; 失败回原 URL。
@@ -42827,6 +42862,7 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
       ? String(body.gender).toLowerCase() : "neutral";
     const style = String(body.style_descriptor || body.style || "").trim().slice(0, 120) || null;
     const world = String(body.civilization || body.world || "").trim().slice(0, 60) || "Original";
+    const archetypes = parseArchetypes(body.archetypes), subRoles = parseSubRoles(body.sub_roles);
     const priceCents = Math.max(0, Math.min(500, Math.round(Number(body.cast_price_cents || 0)) || 0));
     // 每人最多创建 20 个(防刷)。
     const cnt = await withClient((c) => c.query<{ n: string }>(`SELECT count(*) n FROM digital_actors WHERE owner_user_id=$1::uuid`, [user.id]));
@@ -42872,11 +42908,12 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
           actor_id, name_zh, name_en, name_native, origin_type, civilization, persona, face_prompt,
           gender, style_descriptor, cover_image, cover_focal_x, cover_focal_y, reference_images,
           is_premium, cast_price_cents, license_model, owner_user_id, creator_royalty,
-          visibility, source_status, curation_tier
-       ) VALUES ($1,$2,$3,$4,'synthetic',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid,$18,'public','ad_hoc','B')`,
+          archetypes, sub_roles, visibility, source_status, curation_tier
+       ) VALUES ($1,$2,$3,$4,'synthetic',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid,$18,$19,$20,'public','ad_hoc','B')`,
       // name_en/persona/style = 英文默认显示; name_zh/name_native = 原文母语版
       [actorId, dispNative || dispNameEn, dispNameEn, dispNative || null, world, dispPersona, facePrompt, gender, dispStyle, coverUrl || null, fx, fy,
-       coverUrl ? [coverUrl] : [], priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free", user.id, UGC_CREATOR_ROYALTY]));
+       coverUrl ? [coverUrl] : [], priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free", user.id, UGC_CREATOR_ROYALTY,
+       archetypes, subRoles]));
     return res.json({ ok: true, actor_id: actorId, cover_image: coverUrl || null, creator_royalty: UGC_CREATOR_ROYALTY });
   } catch (err) {
     console.warn("[actors] create failed:", (err as Error)?.message || err);
@@ -42903,6 +42940,7 @@ app.post("/api/actors/real-person", express.json({ limit: "16kb" }), async (req,
     const rights = { likeness: !!b.grant_likeness, voice: !!b.grant_voice, singing: !!b.grant_singing };
     if (!rights.likeness) return res.status(400).json({ ok: false, code: "CONSENT_REQUIRED", hint: "必须勾选授权本人肖像用于数字演员" });
     const roleRange = String(b.role_range || "").trim().slice(0, 300) || null;
+    const archetypes = parseArchetypes(b.archetypes), subRoles = parseSubRoles(b.sub_roles);
     const priceCents = Math.max(0, Math.min(9999, Math.round(Number(b.cast_price_cents || 0)) || 0));
     const isPublicFigure = !!b.is_public_figure;
     const agency = String(b.agency_name || "").trim().slice(0, 120) || null;
@@ -42916,12 +42954,13 @@ app.post("/api/actors/real-person", express.json({ limit: "16kb" }), async (req,
             actor_id, name_zh, name_en, origin_type, is_real_person, is_public_figure, agency_name,
             persona, role_range, gender, owner_user_id, creator_royalty, is_premium, cast_price_cents,
             license_model, rights_granted, consent_signed_at, verification_status, likeness_capture, voice_capture,
-            visibility, source_status, curation_tier
-         ) VALUES ($1,$2,$3,'real_person',true,$4,$5,$6,$7,$8,$9::uuid,$10,$11,$12,$13,$14,now(),'unverified',$15,$16,'private','ad_hoc','B')`,
+            archetypes, sub_roles, visibility, source_status, curation_tier
+         ) VALUES ($1,$2,$3,'real_person',true,$4,$5,$6,$7,$8,$9::uuid,$10,$11,$12,$13,$14,now(),'unverified',$15,$16,$17,$18,'private','ad_hoc','B')`,
         [actorId, nameEn, nameEn, isPublicFigure, agency, roleRange, roleRange, gender, user.id,
          0.80, priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free",
          JSON.stringify({ ...rights, terms_version: REAL_ACTOR_TERMS_VERSION }),
-         likenessCapture ? JSON.stringify(likenessCapture) : null, voiceCapture ? JSON.stringify(voiceCapture) : null]);
+         likenessCapture ? JSON.stringify(likenessCapture) : null, voiceCapture ? JSON.stringify(voiceCapture) : null,
+         archetypes, subRoles]);
       await c.query(
         `INSERT INTO actor_consents (actor_id, user_id, action, rights, terms_version, ip_hash)
          VALUES ($1,$2::uuid,'grant',$3,$4,$5)`,
@@ -43280,7 +43319,7 @@ app.post("/api/actors/:id/talking-video", async (req, res) => {
     const internalOk = !!CSSOS_INTERNAL_TOKEN && String(req.headers["x-cssos-internal-token"] || "") === CSSOS_INTERNAL_TOKEN;
     const id = String(req.params.id || "").trim();
     await seedDigitalActorsOnce();
-    const ar = await withClient((c) => c.query<any>(`SELECT actor_id, cover_image, reference_images, owner_user_id::text AS owner_user_id, showcase FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const ar = await withClient((c) => c.query<any>(`SELECT actor_id, cover_image, reference_images, owner_user_id::text AS owner_user_id, showcase, archetypes FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
     const a = ar.rows[0];
     if (!a) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     const isAdmin = !!user && roleForEmail(user.email) === "admin";
@@ -43299,6 +43338,15 @@ app.post("/api/actors/:id/talking-video", async (req, res) => {
       hero: "noble, heroic and righteous; radiant valiant expression, determined uplifted gaze, inspiring and courageous, a born protagonist",
       villain: "menacing, sinister and wicked; a cold cruel smirk, dangerous piercing eyes, delicious villainous malice, chilling and unforgettable",
     };
+    // 戏路大类 → 表情路由: 用演员声明的大类细化每段表情(正派段取正向大类, 反派段取暗黑大类)。
+    const acts: string[] = Array.isArray(a.archetypes) ? a.archetypes : [];
+    const POS = ["hero", "ruler", "action", "sage", "charmer", "youth"], DARK = ["villain", "antihero", "enigma"];
+    function archExprFor(seg: string): string {
+      let pick = acts[0];
+      if (seg === "hero") pick = acts.find((k) => POS.includes(k)) || pick;
+      else if (seg === "villain") pick = acts.find((k) => DARK.includes(k)) || pick;
+      return (pick && ARCHETYPE_EXPRESSION[pick]) || "";
+    }
     const out: Record<string, unknown> = {};
     for (const seg of segs) {
       const clip = clips[seg];
@@ -43306,9 +43354,10 @@ app.post("/api/actors/:id/talking-video", async (req, res) => {
       if (clip.video_url && !force) { out[seg] = clip.video_url; continue; }
       // 截到 14s 喂视频模型(全对口型模型限 ≤15s); 完整台词仍在音频播。
       const vidAudio = await actorVideoAudio14s(String(clip.voice_url));
+      const archExpr = archExprFor(seg);
       const r = await callKieJob("omnihuman-1-5", {
         image_url: String(face), audio_url: vidAudio,
-        prompt: SEG_EXPRESSION[seg] || "natural expressive delivery",
+        prompt: (SEG_EXPRESSION[seg] || "natural expressive delivery") + (archExpr ? "; specifically embodying " + archExpr : ""),
       }, { timeoutMs: 300_000 });   // 14s 视频, omnihuman ~2-4min
       if (!r.ok || !r.urls?.length) { out[seg] = null; continue; }
       let vurl = r.urls[0]!;

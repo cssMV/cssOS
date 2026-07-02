@@ -42673,6 +42673,7 @@ const ACTOR_VOICE_POOL: Record<string, string> = {
   male: "ErXwobaYiN019PkySvjV",         // Antoni 沉稳男声
   androgynous: "21m00Tcm4TlvDq8ikWAM",  // Rachel 中性
   nonbinary: "21m00Tcm4TlvDq8ikWAM",
+  neutral: "21m00Tcm4TlvDq8ikWAM",
 };
 function actorVoiceId(actor: { gender?: string | null; voice_model_ref?: string | null }): string {
   if (actor.voice_model_ref && /^[A-Za-z0-9]{16,}$/.test(actor.voice_model_ref)) return actor.voice_model_ref;
@@ -42696,9 +42697,11 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
       `, ${actor.origin_type === "civilization" ? "historical figure of " + (actor.civilization || "") : "an original digital actor"}` +
       `. ${actor.persona || ""} ${actor.style_descriptor ? "Style: " + actor.style_descriptor + "." : ""}`;
     const sys = "You are a casting/voice director. Write THREE short spoken lines for a digital actor's audition reel. " +
-      "Reply STRICT JSON: {\"lang\":\"<BCP47 of the lines>\",\"intro\":\"<≤30 words, first-person self-introduction, in character>\"," +
+      "Reply STRICT JSON: {\"lang\":\"<BCP47 of the lines>\",\"voice_gender\":\"<male|female|neutral — the actor's voice gender>\"," +
+      "\"intro\":\"<≤30 words, first-person self-introduction, in character>\"," +
       "\"hero\":\"<≤22 words, a noble/heroic line showing the actor as a righteous protagonist>\"," +
       "\"villain\":\"<≤22 words, a menacing line showing the actor as a compelling antagonist>\"}. " +
+      "voice_gender: infer from the actor's identity — male historical men (Confucius, Einstein…) → male; women → female. " +
       "Write the lines in the actor's most fitting native language (English for original synthetic actors unless their world implies otherwise; " +
       "the heritage language for historical figures). NEVER default to Chinese unless the actor is genuinely Chinese. Make them vivid and performable.";
     const lr = await callLlm({
@@ -42708,7 +42711,9 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
     if (!lr.ok) return res.status(502).json({ ok: false, code: "LLM_FAILED", detail: lr.error || "" });
     let script: any = {};
     try { script = JSON.parse(String(lr.content || "{}").trim()); } catch { return res.status(502).json({ ok: false, code: "LLM_PARSE" }); }
-    const voiceId = actorVoiceId(actor);
+    // 声线性别: 演员自带 gender 优先; 缺(文明演员多为 null)→ 用 LLM 推断的 voice_gender。男演员男声/女演员女声。
+    const gEff = String(actor.gender || script.voice_gender || "").toLowerCase();
+    const voiceId = actorVoiceId({ gender: gEff, voice_model_ref: actor.voice_model_ref });
     const name = actor.name_zh || actor.name_en;
     // ② 每段合成真人声 + 逐字时间轴(tension: 介绍 0.3 / 正派 0.5 / 反派 0.78)。
     const clips: Record<string, unknown> = {};
@@ -42719,8 +42724,12 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
       if (spoken) clips[seg[0]] = { text, voice_url: spoken.voice_url, subtitle: spoken.subtitle };
     }
     if (!Object.keys(clips).length) return res.status(502).json({ ok: false, code: "TTS_ALL_FAILED" });
-    const showcase = { lang: script.lang || "en", clips, generated_at: new Date().toISOString() };
-    await withClient((c) => c.query(`UPDATE digital_actors SET showcase=$2, updated_at=now() WHERE actor_id=$1`, [id, JSON.stringify(showcase)]));
+    const showcase = { lang: script.lang || "en", voice_gender: gEff || null, clips, generated_at: new Date().toISOString() };
+    // 顺手把推断出的性别回填(文明演员原 gender=null), 让选角筛选/未来复用一致。
+    const persistGender = !actor.gender && (gEff === "male" || gEff === "female") ? gEff : null;
+    await withClient((c) => c.query(
+      `UPDATE digital_actors SET showcase=$2, gender=COALESCE(gender,$3), updated_at=now() WHERE actor_id=$1`,
+      [id, JSON.stringify(showcase), persistGender]));
     return res.json({ ok: true, data: { showcase, cached: false } });
   } catch (err) {
     console.warn("[actors] showcase failed:", (err as Error)?.message || err);

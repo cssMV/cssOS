@@ -71,7 +71,7 @@
     document.head.appendChild(st);
   }
 
-  var state = { filter: "all", search: "", actors: [] };
+  var state = { filter: "all", search: "", actors: [], rows: 1 };
 
   function coverInner(a, big) {
     var foc = (a.cover_focal_x != null && a.cover_focal_x >= 0)
@@ -113,13 +113,27 @@
     });
   }
 
+  function colsFor(scroll) {
+    // 网格 minmax(210px) + gap 18 → 估算每行列数(与 CSS 同步)。
+    var w = (scroll && scroll.clientWidth) || 800;
+    return Math.max(1, Math.floor((w + 18) / (210 + 18)));
+  }
   function renderGrid() {
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
     if (!scroll) return;
     var list = applyFilter(state.actors);
     if (!list.length) { scroll.innerHTML = '<div class="ag-empty">' + (state.actors.length ? "没有匹配的演员。" : "暂无演员。") + '</div>'; return; }
-    scroll.innerHTML = '<div class="ag-grid">' + list.map(actorCard).join("") + '</div>';
+    // 默认显示一行, 点「加载更多一行」逐行追加。
+    var cols = colsFor(scroll);
+    var show = Math.min(list.length, Math.max(cols, state.rows * cols));
+    var more = list.length - show;
+    scroll.innerHTML =
+      '<div class="ag-grid">' + list.slice(0, show).map(actorCard).join("") + '</div>' +
+      (more > 0 ? '<div style="text-align:center;margin-top:20px;"><button class="ag-chip ag-more">加载更多一行 ▾（还有 ' + more + ' 位）</button></div>' : "");
+    var mb = scroll.querySelector(".ag-more");
+    if (mb) mb.onclick = function () { state.rows += 1; renderGrid(); };
   }
+  function resetRows() { state.rows = 1; }
 
   function skeleton(scroll) {
     var s = "";
@@ -338,11 +352,11 @@
       c.onclick = function () {
         state.filter = c.getAttribute("data-f");
         el.querySelectorAll(".ag-chip").forEach(function (x) { x.classList.toggle("on", x === c); });
-        renderGrid();
+        resetRows(); renderGrid();
       };
     });
     var si = el.querySelector(".ag-search");
-    si.oninput = function () { state.search = si.value.trim(); renderGrid(); };
+    si.oninput = function () { state.search = si.value.trim(); resetRows(); renderGrid(); };
     el.querySelector(".ag-scroll").addEventListener("click", function (e) {
       var card = e.target.closest && e.target.closest(".ag-card[data-actor]");
       if (card) renderDetail(card.getAttribute("data-actor"));

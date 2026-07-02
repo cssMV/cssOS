@@ -3117,7 +3117,7 @@ async function ifilmSpeakTimed(text: string, character: string, tension: number,
   try {
     const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`, {
       method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: t.slice(0, 400), model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.4, similarity_boost: 0.8 } }),
+      body: JSON.stringify({ text: t.slice(0, 900), model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.4, similarity_boost: 0.8 } }),
     });
     if (!r.ok) { console.warn("[ifilm-tts] ts", r.status, (await r.text().catch(() => "")).slice(0, 120)); return null; }
     const j = await r.json() as any;
@@ -42955,20 +42955,21 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
     const persona = `${actor.name_en}${actor.name_zh && actor.name_zh !== actor.name_en ? " (" + actor.name_zh + ")" : ""}` +
       `, ${actor.origin_type === "civilization" ? "historical figure of " + (actor.civilization || "") : "an original digital actor"}` +
       `. ${actor.persona || ""} ${actor.style_descriptor ? "Style: " + actor.style_descriptor + "." : ""}`;
-    const sys = "You are a casting/voice director. Write THREE short spoken lines for a digital actor's audition reel. " +
-      "Reply STRICT JSON: {\"lang\":\"<BCP47 of the lines>\",\"voice_gender\":\"<male|female|neutral>\"," +
-      "\"intro\":\"<≤30 words, first-person self-introduction, in character>\"," +
-      "\"hero\":\"<≤22 words, a noble/heroic line as a righteous protagonist>\"," +
-      "\"villain\":\"<≤22 words, a menacing line as a compelling antagonist>\"," +
-      "\"intro_en\":\"<natural English translation of intro>\",\"hero_en\":\"<English translation of hero>\",\"villain_en\":\"<English translation of villain>\"}. " +
-      "voice_gender: infer from identity — male historical men (Confucius, Einstein…) → male; women → female. " +
-      "LANGUAGE RULE (important): for a HISTORICAL/CIVILIZATION figure you MUST write the three lines in that figure's own heritage/native language " +
-      "(Confucius → Chinese, Einstein → German, a Greek philosopher → Greek, Rumi → Persian, an Egyptian → Arabic, etc.) — the actor speaks their MOTHER TONGUE. " +
-      "For an original synthetic actor, use the language implied by their world/style (default English). NEVER default to Chinese unless the actor is genuinely Chinese. " +
-      "Always fill intro_en/hero_en/villain_en with faithful English translations (if the lines are already English, repeat them). Make the lines vivid and performable.";
+    const sys = "You are the actor themself, recording a charismatic AUDITION PITCH REEL to win a role from a creator who is casting for their music-video / short-film. " +
+      "Write THREE first-person spoken monologues — vivid, self-promoting, magnetic, a little swagger — that make the creator feel: 'cast this actor and my work will soar.' " +
+      "Each monologue MUST be 3 to 4 full sentences (long, rich, specific — NOT a single line). " +
+      "Reply STRICT JSON: {\"lang\":\"<BCP47>\",\"voice_gender\":\"<male|female|neutral>\"," +
+      "\"intro\":\"<3-4 sentences: introduce yourself in vivid detail — your name, your background/origin story, your artistic identity and signature, the one unmistakable quality only YOU bring, and why audiences never forget you>\"," +
+      "\"hero\":\"<3-4 sentences: name the SPECIFIC kinds of righteous/heroic protagonists you excel at (give 2-3 concrete role archetypes), describe how you inhabit them; then pitch the creator directly and persuasively: 'cast me as your lead and I will do X, Y, Z for your story'; close with the reciprocal-fame promise — you put me on the stage, I make your work famous and unforgettable>\"," +
+      "\"villain\":\"<3-4 sentences: name the SPECIFIC kinds of compelling villains/antagonists you were born to play (2-3 concrete archetypes), describe the menace you bring; then pitch the creator: 'cast me as your villain and here is how I make your story unforgettable'; close with the same reciprocal-fame swagger — you lift me up, I make your masterpiece legendary>\"," +
+      "\"intro_en\":\"<faithful English translation of intro>\",\"hero_en\":\"<English translation of hero>\",\"villain_en\":\"<English translation of villain>\"}. " +
+      "voice_gender: infer from identity (Confucius/Einstein → male; women → female). " +
+      "LANGUAGE RULE: a HISTORICAL/CIVILIZATION figure MUST speak their own heritage/native tongue (Confucius→Chinese, Einstein→German, a Greek→Greek, Rumi→Persian, an Egyptian→Arabic). " +
+      "An original synthetic actor uses the language of their world (default English). NEVER default to Chinese unless the actor is genuinely Chinese. " +
+      "Always fill the *_en fields with faithful English translations (repeat if already English). Keep each monologue roughly 40-65 words (3-4 sentences) — long enough to feel like a real, confident, intelligent actor selling themselves, but tight enough to perform as spoken audio. Make it feel ALIVE, charismatic, self-promoting and irresistibly castable — the creator should think 'casting this actor will make my work soar'. Never robotic, never a bare one-liner.";
     const lr = await callLlm({
       messages: [{ role: "system", content: sys }, { role: "user", content: persona }],
-      max_tokens: 300, temperature: 0.9, response_format: { type: "json_object" },
+      max_tokens: 1200, temperature: 0.92, response_format: { type: "json_object" },
     });
     if (!lr.ok) return res.status(502).json({ ok: false, code: "LLM_FAILED", detail: lr.error || "" });
     let script: any = {};

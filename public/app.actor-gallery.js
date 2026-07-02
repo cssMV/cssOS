@@ -250,4 +250,44 @@
   window.addEventListener("hashchange", checkHash);
   if (document.readyState !== "loading") checkHash();
   else window.addEventListener("DOMContentLoaded", checkHash);
+
+  /* ── 永久入口: 🎭 Dock 按钮(照搬 person-mv-open-shim 模式)─────────────── */
+  function registerDockAction() {
+    try {
+      var map = window.__cssosDockActionMap = window.__cssosDockActionMap || {};
+      map["actors"] = function () { open(); };
+      window.dockActionMap = window.__cssosDockActionMap;
+    } catch (_e) {}
+  }
+  function mountDockItem() {
+    var dock = document.querySelector(".dock") || document.querySelector("#dock");
+    if (!dock) return false;
+    if (dock.querySelector('[data-action="actors"]')) return true;
+    var item = document.createElement("button");
+    item.className = "dock-item"; item.type = "button";
+    item.setAttribute("data-action", "actors");
+    item.setAttribute("data-actions", "click");
+    item.setAttribute("data-tooltip", "Digital Actors");
+    item.setAttribute("aria-label", "Digital Actors");
+    item.innerHTML = '<span class="dock-ico" aria-hidden="true">🎭</span><span class="dock-label">Actors</span>';
+    // 挂在人物 MV(person-mv)之后, 与文明宇宙相邻。
+    var ref = dock.querySelector('[data-action="person-mv"], [data-action="cssmv"], [data-action="watch"]');
+    if (ref && ref.nextSibling) dock.insertBefore(item, ref.nextSibling); else dock.appendChild(item);
+    item.addEventListener("click", function () { open(); });   // 直连兜底(dock 分发未接管时也能开)
+    return true;
+  }
+  function ensureDockItem(retries) {
+    if (mountDockItem()) return;
+    if (retries <= 0) return;
+    setTimeout(function () { ensureDockItem(retries - 1); }, 400);
+  }
+  registerDockAction();
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { ensureDockItem(20); });
+  else ensureDockItem(20);
+  // dock 若重渲染把按钮抹掉 → 观察补回(防御式, 同其他模块做法)。
+  try {
+    var mo = new MutationObserver(function () { mountDockItem(); });
+    var dockEl = document.querySelector(".dock") || document.querySelector("#dock");
+    if (dockEl) mo.observe(dockEl, { childList: true });
+  } catch (_e) {}
 })();

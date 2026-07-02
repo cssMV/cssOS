@@ -42585,6 +42585,64 @@ app.post("/api/actors/:id/cast", express.json({ limit: "4kb" }), async (req, res
   }
 });
 
+// CSSOS_WAVE_113 — 给【合成演员】按 face_prompt 生成锁定 headshot(admin, 花钱)。
+//   headshot → 稳定存储 → face-focal(:7898)检测焦点 → 落 cover_image + cover_focal + reference_images。
+//   reference_images = 身份锁参考图, 后续选角注入靠它保持一致。只处理 synthetic 且无封面(或 ?force=1)。
+const FACE_FOCAL_URL = (process.env.FACE_FOCAL_URL || "http://10.128.0.5:7898").replace(/\/$/, "");
+app.post("/api/admin/actors/generate-faces", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    const internalOk = !!CSSOS_INTERNAL_TOKEN &&
+      String(req.headers["x-cssos-internal-token"] || "") === CSSOS_INTERNAL_TOKEN;
+    if (!internalOk && (!user || roleForEmail(user.email) !== "admin")) return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    await seedDigitalActorsOnce();
+    const force = String(req.query.force || "") === "1";
+    const onlyId = String(req.query.actor_id || "").trim();
+    const rows = (await withClient((c) =>
+      c.query<{ actor_id: string; face_prompt: string | null; name_en: string }>(
+        `SELECT actor_id, face_prompt, name_en FROM digital_actors
+          WHERE origin_type='synthetic' ${onlyId ? "AND actor_id=$1" : ""}
+            ${force ? "" : "AND (cover_image IS NULL OR cover_image='')"}`,
+        onlyId ? [onlyId] : []))).rows;
+    const out: Array<Record<string, unknown>> = [];
+    for (const a of rows) {
+      try {
+        const prompt = `${a.face_prompt || a.name_en}, professional character headshot portrait, ` +
+          `head and shoulders, front view, clean neutral studio background, cinematic soft lighting, ` +
+          `photorealistic, highly detailed, sharp focus on face`;
+        const img = await callImageGen({ prompt, size: "1024x1024" });
+        if (!img || !img.ok) { out.push({ actor_id: a.actor_id, ok: false, err: img?.error || "gen_failed" }); continue; }
+        let coverUrl = img.image_url ? await persistRemoteImageToStable(img.image_url)
+          : (img.image_b64 ? persistBase64Cover(img.image_b64, "digital-actor") : "");
+        if (!coverUrl) { out.push({ actor_id: a.actor_id, ok: false, err: "no_image_url" }); continue; }
+        // face-focal 检测(失败不阻断)。
+        let fx: number | null = null, fy: number | null = null;
+        try {
+          const dr = await fetch(`${FACE_FOCAL_URL}/detect`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ image_url: coverUrl }), signal: AbortSignal.timeout(30000),
+          });
+          const dj: any = await dr.json();
+          if (dj && dj.found) { fx = dj.focal_x; fy = dj.focal_y; }
+        } catch {}
+        await withClient((c) =>
+          c.query(
+            `UPDATE digital_actors SET cover_image=$2, cover_focal_x=$3, cover_focal_y=$4,
+                    reference_images=ARRAY[$2]::text[], updated_at=now() WHERE actor_id=$1`,
+            [a.actor_id, coverUrl, fx, fy]));
+        out.push({ actor_id: a.actor_id, ok: true, cover_image: coverUrl, focal: fx != null ? [fx, fy] : null });
+      } catch (e) {
+        out.push({ actor_id: a.actor_id, ok: false, err: (e as Error)?.message || "err" });
+      }
+    }
+    return res.json({ ok: true, generated: out });
+  } catch (err) {
+    console.warn("[actors] generate-faces failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "GEN_FAILED" });
+  }
+});
+
 /* CSSOS_PIPELINE_DRYRUN 20260507 — Jing
  * End-to-end demo without going through the full creation flow.
  * Hits each engine in sequence so we can verify the whole chain

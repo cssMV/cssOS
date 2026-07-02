@@ -42643,6 +42643,69 @@ app.post("/api/admin/actors/generate-faces", async (req, res) => {
   }
 });
 
+// CSSOS_WAVE_113 — 演员「开口说话」showcase: 自我介绍 + 正派/反派技能展示。
+//   LLM 写 3 段台词(母语/风格, i18n 铁律非中文人物绝不中文)→ ifilmSpeakTimed 真人声 TTS
+//   + 逐字情绪字幕时间轴 → 存 digital_actors.showcase 缓存。前端点按钮即"活"起来开口演。
+const ACTOR_VOICE_POOL: Record<string, string> = {
+  female: "EXAVITQu4vr4xnSDxMaL",       // Bella 温柔女声
+  male: "ErXwobaYiN019PkySvjV",         // Antoni 沉稳男声
+  androgynous: "21m00Tcm4TlvDq8ikWAM",  // Rachel 中性
+  nonbinary: "21m00Tcm4TlvDq8ikWAM",
+};
+function actorVoiceId(actor: { gender?: string | null; voice_model_ref?: string | null }): string {
+  if (actor.voice_model_ref && /^[A-Za-z0-9]{16,}$/.test(actor.voice_model_ref)) return actor.voice_model_ref;
+  return ACTOR_VOICE_POOL[String(actor.gender || "").toLowerCase()] || ACTOR_VOICE_POOL.female || "EXAVITQu4vr4xnSDxMaL";
+}
+app.get("/api/actors/:id/showcase", async (req, res) => {
+  noStore(res);
+  try {
+    await seedDigitalActorsOnce();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const regen = String(req.query.regen || "") === "1";
+    const ar = await withClient((c) => c.query<any>(`SELECT * FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const actor = ar.rows[0];
+    if (!actor) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (actor.showcase && !regen) return res.json({ ok: true, data: { showcase: actor.showcase, cached: true } });
+    if (!(process.env.ELEVENLABS_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "TTS_UNAVAILABLE" });
+
+    // ① LLM 写 3 段台词(自我介绍 / 正派 / 反派), 该演员母语或英文, 绝不给非中文演员用中文。
+    const persona = `${actor.name_en}${actor.name_zh && actor.name_zh !== actor.name_en ? " (" + actor.name_zh + ")" : ""}` +
+      `, ${actor.origin_type === "civilization" ? "historical figure of " + (actor.civilization || "") : "an original digital actor"}` +
+      `. ${actor.persona || ""} ${actor.style_descriptor ? "Style: " + actor.style_descriptor + "." : ""}`;
+    const sys = "You are a casting/voice director. Write THREE short spoken lines for a digital actor's audition reel. " +
+      "Reply STRICT JSON: {\"lang\":\"<BCP47 of the lines>\",\"intro\":\"<≤30 words, first-person self-introduction, in character>\"," +
+      "\"hero\":\"<≤22 words, a noble/heroic line showing the actor as a righteous protagonist>\"," +
+      "\"villain\":\"<≤22 words, a menacing line showing the actor as a compelling antagonist>\"}. " +
+      "Write the lines in the actor's most fitting native language (English for original synthetic actors unless their world implies otherwise; " +
+      "the heritage language for historical figures). NEVER default to Chinese unless the actor is genuinely Chinese. Make them vivid and performable.";
+    const lr = await callLlm({
+      messages: [{ role: "system", content: sys }, { role: "user", content: persona }],
+      max_tokens: 300, temperature: 0.9, response_format: { type: "json_object" },
+    });
+    if (!lr.ok) return res.status(502).json({ ok: false, code: "LLM_FAILED", detail: lr.error || "" });
+    let script: any = {};
+    try { script = JSON.parse(String(lr.content || "{}").trim()); } catch { return res.status(502).json({ ok: false, code: "LLM_PARSE" }); }
+    const voiceId = actorVoiceId(actor);
+    const name = actor.name_zh || actor.name_en;
+    // ② 每段合成真人声 + 逐字时间轴(tension: 介绍 0.3 / 正派 0.5 / 反派 0.78)。
+    const clips: Record<string, unknown> = {};
+    for (const seg of [["intro", 0.3], ["hero", 0.5], ["villain", 0.78]] as Array<[string, number]>) {
+      const text = String(script[seg[0]] || "").trim();
+      if (!text) continue;
+      const spoken = await ifilmSpeakTimed(text, name, seg[1], voiceId).catch(() => null);
+      if (spoken) clips[seg[0]] = { text, voice_url: spoken.voice_url, subtitle: spoken.subtitle };
+    }
+    if (!Object.keys(clips).length) return res.status(502).json({ ok: false, code: "TTS_ALL_FAILED" });
+    const showcase = { lang: script.lang || "en", clips, generated_at: new Date().toISOString() };
+    await withClient((c) => c.query(`UPDATE digital_actors SET showcase=$2, updated_at=now() WHERE actor_id=$1`, [id, JSON.stringify(showcase)]));
+    return res.json({ ok: true, data: { showcase, cached: false } });
+  } catch (err) {
+    console.warn("[actors] showcase failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "SHOWCASE_FAILED" });
+  }
+});
+
 /* CSSOS_PIPELINE_DRYRUN 20260507 — Jing
  * End-to-end demo without going through the full creation flow.
  * Hits each engine in sequence so we can verify the whole chain

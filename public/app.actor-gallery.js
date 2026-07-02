@@ -58,6 +58,13 @@
       "#" + ROOT_ID + " .ag-persona{color:rgba(232,255,245,.88);margin:10px 0;}" +
       "#" + ROOT_ID + " .ag-cast{background:" + GREEN + ";color:" + INK + ";border:none;border-radius:999px;padding:12px 26px;font-size:16px;font-weight:800;cursor:pointer;margin-top:8px;box-shadow:0 0 20px rgba(0,245,160,.35);}" +
       "#" + ROOT_ID + " .ag-cast:hover{filter:brightness(1.08);}" +
+      "#" + ROOT_ID + " .ag-showcase{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}" +
+      "#" + ROOT_ID + " .ag-sc-btn{background:rgba(0,245,160,.1);border:1px solid rgba(0,245,160,.35);color:#d6ffee;border-radius:999px;padding:9px 18px;font-size:14px;font-weight:700;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-sc-btn:hover{background:rgba(0,245,160,.2);}" +
+      "#" + ROOT_ID + " .ag-sc-btn.playing{background:" + GREEN + ";color:" + INK + ";}" +
+      "#" + ROOT_ID + " .ag-stage{min-height:44px;margin-top:14px;font-size:26px;font-weight:800;line-height:1.35;letter-spacing:.5px;}" +
+      "#" + ROOT_ID + " .ag-stage .tk{color:rgba(255,255,255,.28);transition:color .08s,text-shadow .08s;}" +
+      "#" + ROOT_ID + " .ag-stage .tk.on{color:" + GREEN + ";text-shadow:0 0 16px rgba(0,245,160,.7);}" +
       "#" + ROOT_ID + " .ag-sec{margin-top:30px;}" +
       "#" + ROOT_ID + " .ag-sec h3{font-size:16px;color:" + GREEN + ";margin:0 0 12px;}" +
       "#" + ROOT_ID + " .ag-empty{color:rgba(207,238,224,.55);font-size:14px;padding:8px 0;}";
@@ -176,6 +183,12 @@
               (a.persona ? '<div class="ag-persona">' + esc(a.persona) + '</div>' : "") +
               (a.voice_style ? '<div class="ag-sub">🎙 ' + esc(a.voice_style) + '</div>' : "") +
               (tags.length ? '<div class="ag-tags">' + tags.map(function (t) { return '<span class="ag-tag">' + esc(t) + '</span>'; }).join("") + '</div>' : "") +
+              '<div class="ag-showcase">' +
+                '<button class="ag-sc-btn" data-seg="intro">▶ 自我介绍</button>' +
+                '<button class="ag-sc-btn" data-seg="hero">😇 正派</button>' +
+                '<button class="ag-sc-btn" data-seg="villain">😈 反派</button>' +
+              '</div>' +
+              '<div class="ag-stage" aria-live="polite"></div>' +
               '<button class="ag-cast">🎬 选 ' + esc(a.name_zh || a.name_en) + ' 主演</button>' +
             '</div>' +
           '</div>' +
@@ -190,14 +203,73 @@
             rel.map(function (r2) { return actorCard(r2); }).join("") + '</div></div>' : "") +
           '</div>';
         scroll.innerHTML = html;
-        scroll.querySelector(".ag-back").onclick = function () { renderGrid(); };
+        scroll.querySelector(".ag-back").onclick = function () { stopShowcase(); renderGrid(); };
         var castBtn = scroll.querySelector(".ag-cast");
         if (castBtn) castBtn.onclick = function () { openCast(a); };
+        wireShowcase(scroll, a.actor_id);
       })
       .catch(function () { scroll.innerHTML = '<div class="ag-empty">加载失败。</div>'; });
   }
 
+  /* ── 开口说话 showcase 播放器 ─────────────────────────────────────── */
+  var scAudio = null, scRAF = 0, scCache = {};
+  function stopShowcase() {
+    if (scAudio) { try { scAudio.pause(); } catch (_e) {} scAudio = null; }
+    if (scRAF) { cancelAnimationFrame(scRAF); scRAF = 0; }
+    var root = document.getElementById(ROOT_ID);
+    if (root) root.querySelectorAll(".ag-sc-btn.playing").forEach(function (b) { b.classList.remove("playing"); });
+  }
+  function playClip(clip, btn, stage) {
+    stopShowcase();
+    if (!clip || !clip.voice_url) { stage.textContent = "(此段暂缺)"; return; }
+    var toks = (clip.subtitle && clip.subtitle.tokens) || [];
+    // 逐字 token span(t_start/t_end 毫秒), 播放时按音频时间点亮(卡拉OK)。
+    if (toks.length) {
+      stage.innerHTML = toks.map(function (t, i) { return '<span class="tk" data-i="' + i + '">' + esc(t.char) + '</span>'; }).join("");
+    } else { stage.textContent = clip.text || ""; }
+    var spans = stage.querySelectorAll(".tk");
+    btn.classList.add("playing");
+    scAudio = new Audio(clip.voice_url);
+    scAudio.play().catch(function () { stage.textContent = "▶ 点一下允许播放声音"; });
+    function tick() {
+      if (!scAudio) return;
+      var ms = scAudio.currentTime * 1000;
+      for (var i = 0; i < spans.length; i++) {
+        var t = toks[i]; if (!t) continue;
+        spans[i].classList.toggle("on", ms >= t.t_start - 40);
+      }
+      scRAF = requestAnimationFrame(tick);
+    }
+    scRAF = requestAnimationFrame(tick);
+    scAudio.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
+  }
+  function wireShowcase(scroll, actorId) {
+    var stage = scroll.querySelector(".ag-stage");
+    var btns = scroll.querySelectorAll(".ag-sc-btn");
+    btns.forEach(function (btn) {
+      btn.onclick = function () {
+        var seg = btn.getAttribute("data-seg");
+        function go(sc) {
+          var clips = (sc && sc.clips) || {};
+          playClip(clips[seg], btn, stage);
+        }
+        if (scCache[actorId]) { go(scCache[actorId]); return; }
+        stage.textContent = "⏳ 演员正在准备台词…(首次约 10-20 秒)";
+        btns.forEach(function (b) { b.disabled = true; });
+        fetch("/api/actors/" + encodeURIComponent(actorId) + "/showcase", { credentials: "include" })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            btns.forEach(function (b) { b.disabled = false; });
+            if (j && j.ok && j.data && j.data.showcase) { scCache[actorId] = j.data.showcase; go(j.data.showcase); }
+            else { stage.textContent = (j && j.code === "TTS_UNAVAILABLE") ? "语音功能未配置。" : "台词生成失败,请重试。"; }
+          })
+          .catch(function () { btns.forEach(function (b) { b.disabled = false; }); stage.textContent = "网络错误,请重试。"; });
+      };
+    });
+  }
+
   function close() {
+    stopShowcase();
     var el = document.getElementById(ROOT_ID);
     if (el) el.remove();
   }

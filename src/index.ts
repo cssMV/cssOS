@@ -42930,7 +42930,7 @@ app.post("/api/actors/:id/talking-video", async (req, res) => {
       const r = await callKieJob("omnihuman-1-5", {
         image_url: String(face), audio_url: String(clip.voice_url),
         prompt: SEG_EXPRESSION[seg] || "natural expressive delivery",
-      }, { timeoutMs: 290_000 });
+      }, { timeoutMs: 590_000 });   // 长台词视频(20-30s)omnihuman 慢, 给足 ~10min
       if (!r.ok || !r.urls?.length) { out[seg] = null; continue; }
       let vurl = r.urls[0]!;
       try { const vb = Buffer.from(await (await fetch(vurl)).arrayBuffer()); if (vb.length > 1000) { const key = `artifacts/actor-talking/${id}-${seg}.mp4`; await uploadBufferToR2(vb, key, "video/mp4"); vurl = `https://cdn.cssstudio.app/${key}`; } } catch {}

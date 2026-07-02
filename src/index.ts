@@ -44004,10 +44004,18 @@ app.post("/api/works", async (req, res) => {
             const ap = await client.query<{ cast_price_cents: number; is_premium: boolean }>(
               `SELECT cast_price_cents, is_premium FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [castActorId]);
             const priceSnap = ap.rows[0]?.is_premium ? Number(ap.rows[0]?.cast_price_cents || 0) : 0;
+            // CSSOS_WAVE_113 变现真扣费: 溢价演员 → 真扣用户 credits(=cents; admin/staff 自动豁免)。
+            //   余额不足 → 不扣、记 cast_price_cents=0(免费出演一次, 不阻断已建档作品), 打日志。
+            let chargedCents = 0;
+            if (priceSnap > 0) {
+              const d = await debitCredits(user.id, priceSnap, "actor_cast:" + castActorId, { work_id: workId, actor_id: castActorId });
+              if (d.ok) chargedCents = priceSnap;
+              else console.warn(`[works-create] actor cast unpaid (insufficient credits, recorded free): ${castActorId} need=${priceSnap} bal=${d.balance}`);
+            }
             await client.query(
               `INSERT INTO actor_castings (actor_id, work_id, created_by_user_id, role_name, cast_price_cents)
                VALUES ($1, $2::uuid, $3::uuid, $4, $5)`,
-              [castActorId, workId, user.id, String(req.body?.__actorRole || "").slice(0, 120) || null, priceSnap]);
+              [castActorId, workId, user.id, String(req.body?.__actorRole || "").slice(0, 120) || null, chargedCents]);
             await client.query(
               `UPDATE digital_actors SET cast_count=cast_count+1, popularity_score=popularity_score+1, updated_at=now() WHERE actor_id=$1`,
               [castActorId]);

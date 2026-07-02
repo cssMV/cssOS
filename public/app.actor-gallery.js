@@ -315,10 +315,33 @@
     refreshScript();
     if (nameInput) nameInput.addEventListener("input", refreshScript);
     startBtn.onclick = function () {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 480 } }, audio: true }).then(function (s) {
-        rpStream = s; vid.srcObject = s; vid.muted = true; vid.play().catch(function () {});   // 主动 play 防冻结
-        recBtn.disabled = false; voiceBtn.disabled = false; capStatus.textContent = T("Camera on. Record your face turn-around.", "摄像头已开,录一段转头。");
-      }).catch(function () { capStatus.textContent = T("Camera/mic permission denied.", "摄像头/麦克风权限被拒。"); });
+      capStatus.textContent = T("Opening camera…", "正在开启摄像头…");
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true }).then(function (s) {
+        rpStream = s; vid.srcObject = s; vid.muted = true;
+        vid.onloadedmetadata = function () { try { vid.play(); } catch (_e) {} };   // 拿到首帧再 play, 防黑屏
+        vid.play().catch(function () {});
+        recBtn.disabled = false; voiceBtn.disabled = false;
+        // 诊断: 黑屏是"没拿到画面"还是"拿到了没画上"? 800ms 后回报轨道状态 + 分辨率。
+        setTimeout(function () {
+          var vt = (s.getVideoTracks && s.getVideoTracks()[0]) || null;
+          var w = vid.videoWidth || 0, h = vid.videoHeight || 0;
+          if (vt && vt.readyState === "live" && w > 0) {
+            capStatus.textContent = "✅ " + T("Camera on", "摄像头已开") + " (" + w + "×" + h + "). " + T("Record your face turn-around.", "录一段转头。");
+          } else if (vt && vt.readyState === "live") {
+            // 轨道活着但没帧 = 另一 App 占用摄像头 / 隐私开关关闭。
+            capStatus.textContent = "⚠️ " + T("Camera track is live but no image — another app may be using the camera, or the lens is covered. Close Zoom/FaceTime/Photo Booth and retry.", "摄像头轨道正常但无画面——可能被别的 App(Zoom/FaceTime/Photo Booth)占用,或镜头被遮挡。关掉那些 App 再试。");
+          } else {
+            capStatus.textContent = "⚠️ " + T("Camera did not start (" + (vt ? vt.readyState : "no track") + "). Check System Settings › Privacy › Camera.", "摄像头未启动(" + (vt ? vt.readyState : "无轨道") + ")。检查 系统设置 › 隐私 › 摄像头。");
+          }
+        }, 800);
+      }).catch(function (err) {
+        var nm = (err && err.name) || "";
+        capStatus.textContent = (nm === "NotAllowedError")
+          ? T("Camera/mic permission denied — allow it in the browser and retry.", "摄像头/麦克风权限被拒——请在浏览器允许后重试。")
+          : (nm === "NotReadableError")
+            ? T("Camera is in use by another app. Close it and retry.", "摄像头正被别的 App 占用,关掉再试。")
+            : T("Camera/mic permission denied.", "摄像头/麦克风权限被拒。") + (nm ? " (" + nm + ")" : "");
+      });
     };
     function pickMime(video) {
       var cands = video ? ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9", "video/webm", "video/mp4"]

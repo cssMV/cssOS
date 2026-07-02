@@ -4465,7 +4465,9 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   const isPortraitCover = fallbackSize === PHONE_FULLSCREEN.size;
   // 源头人脸感知构图: 把电影/竖屏 framing 附到 prompt, 引擎构图时就把人脸摆进合规画幅。
   const composedFraming = isPortraitCover ? PHONE_FULLSCREEN.framing : CINEMA_LANDSCAPE.framing;
-  const composedPrompt = prompt ? `${prompt}, ${composedFraming}` : composedFraming;
+  // CSSOS_WAVE_113 — 选角注入: 若指定数字演员, 把锁定 face_prompt 注入封面, 让封面主角=该演员。
+  const actorSuffix = await buildActorPromptSuffix(String((body as any).actor_id || "")).catch(() => "");
+  const composedPrompt = (prompt ? `${prompt}, ${composedFraming}` : composedFraming) + actorSuffix;
 
   // CSSOS_PHASE2_COVER_TIER_FIRST 20260507 — Jing
   // Routing principle: free → cheap → standard → premium, best-of-tier first.
@@ -13985,7 +13987,9 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
     if (__reuse) return res.json({ ...__reuse, reused: true, cost_cents: 0 });
     __mvInstallResultCapture("video", userId, body, res);
   }
-  const prompt = String((body as any).prompt || "").trim();
+  // CSSOS_WAVE_113 — 选角注入: 视频画面也注入演员锁定 face_prompt, 主角=该演员且跨镜头一致。
+  const __actorVidSuffix = await buildActorPromptSuffix(String((body as any).actor_id || "")).catch(() => "");
+  const prompt = (String((body as any).prompt || "").trim() + __actorVidSuffix).trim();
   // WAVE_444: accept any valid ratio; default → cinema 2.39:1 (never 16:9)
   const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "2.39:1").trim();
   // Normalise to a canonical key; portrait variants → "9:16" for provider compat
@@ -42363,6 +42367,24 @@ app.patch("/api/landmark-mv/landmarks/:id", express.json({ limit: "8kb" }), asyn
  * 变现: 平台自营溢价演员(owner=NULL, is_premium/cast_price_cents)。
  * ═══════════════════════════════════════════════════════════════════ */
 
+// CSSOS_WAVE_113 — 选角注入(C): 取演员锁定 face_prompt/persona 拼成 prompt 后缀,
+//   注入封面/视频生成 → 输出真带该演员的画面。空/无效 actorId → 返回 ""(不影响非选角作品)。
+async function buildActorPromptSuffix(actorId: string): Promise<string> {
+  const id = String(actorId || "").trim();
+  if (!id || !DATABASE_URL) return "";
+  try {
+    const r = await withClient((c) =>
+      c.query<{ name_en: string; name_zh: string; face_prompt: string | null; persona: string | null }>(
+        `SELECT name_en, name_zh, face_prompt, persona FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const a = r.rows[0];
+    if (!a) return "";
+    const name = a.name_en || a.name_zh;
+    const look = String(a.face_prompt || a.persona || "").trim();
+    if (!look) return `, starring the digital actor ${name}`;
+    return `, starring ${name} — the same consistent character throughout: ${look}`;
+  } catch { return ""; }
+}
+
 // 平台自营【原创合成脸】演员种子(无真人; face_prompt = 锁定身份描述, 生成时复述保持一致)。
 const SEED_DIGITAL_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-aria-nova", name_zh: "艾莉亚·诺瓦", name_en: "Aria Nova", origin_type: "synthetic",
@@ -43964,6 +43986,24 @@ app.post("/api/works", async (req, res) => {
             );
           } catch (linkErr) {
             console.warn("[works-create] person_mvs link failed (non-fatal):", (linkErr as Error)?.message || linkErr);
+          }
+        }
+        // CSSOS_WAVE_113 — 选角闭环: 作品带 actor_id → 记 actor_castings(计费快照)+ 人气自增。
+        const castActorId = String(req.body?.actor_id || req.body?.__actorId || "").trim();
+        if (castActorId) {
+          try {
+            const ap = await client.query<{ cast_price_cents: number; is_premium: boolean }>(
+              `SELECT cast_price_cents, is_premium FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [castActorId]);
+            const priceSnap = ap.rows[0]?.is_premium ? Number(ap.rows[0]?.cast_price_cents || 0) : 0;
+            await client.query(
+              `INSERT INTO actor_castings (actor_id, work_id, created_by_user_id, role_name, cast_price_cents)
+               VALUES ($1, $2::uuid, $3::uuid, $4, $5)`,
+              [castActorId, workId, user.id, String(req.body?.__actorRole || "").slice(0, 120) || null, priceSnap]);
+            await client.query(
+              `UPDATE digital_actors SET cast_count=cast_count+1, popularity_score=popularity_score+1, updated_at=now() WHERE actor_id=$1`,
+              [castActorId]);
+          } catch (castErr) {
+            console.warn("[works-create] actor casting link failed (non-fatal):", (castErr as Error)?.message || castErr);
           }
         }
         await client.query("COMMIT");

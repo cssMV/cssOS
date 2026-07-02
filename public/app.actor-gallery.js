@@ -143,6 +143,9 @@
 
   function openCast(actor) {
     var name = actor.name_zh || actor.name_en;
+    // C 选角注入: 记下待选角演员 → fetch 拦截器把 actor_id 注入生成/建档调用, 后端注入锁定形象+记选角。
+    window.__cssosCastActorId = actor.actor_id;
+    window.__cssosCastActorName = name;
     var prompt = "用数字演员「" + name + "」主演,创作一支 MV。" +
       (actor.face_prompt ? "该演员形象: " + actor.face_prompt + "。" : "") +
       (actor.voice_style ? "声线: " + actor.voice_style + "。" : "") +
@@ -156,6 +159,40 @@
       alert("已选定演员: " + name);
     }
   }
+
+  /* C 选角注入拦截器: 待选角期间, 给生成/建档调用体注入 actor_id → 后端把演员锁定形象
+   * 注入封面/视频 + 记 actor_castings。work 建档成功后清掉待选角(避免泄漏到无关创作)。 */
+  (function installCastInterceptor() {
+    if (window.__cssosActorFetchPatched) return;
+    window.__cssosActorFetchPatched = true;
+    var INJECT = /\/api\/mv\/(cover|video|lyrics)\b/;
+    var CREATE = /\/api\/works(\?|$)/;
+    var orig = window.fetch;
+    window.fetch = function (input, init) {
+      try {
+        var aid = window.__cssosCastActorId;
+        if (aid && init && typeof init.body === "string") {
+          var url = (typeof input === "string") ? input : (input && input.url) || "";
+          var method = String((init.method || "GET")).toUpperCase();
+          var isCreate = CREATE.test(url) && method === "POST";
+          if ((INJECT.test(url) || isCreate)) {
+            var b = JSON.parse(init.body);
+            if (b && typeof b === "object" && !Array.isArray(b)) {
+              if (!b.actor_id) b.actor_id = aid;
+              if (isCreate) { b.__actorId = aid; }
+              init = Object.assign({}, init, { body: JSON.stringify(b) });
+              if (isCreate) {
+                // 建档完成即视为选角落定, 清待选角。
+                var p = orig.call(this, input, init);
+                return p.then(function (res) { try { window.__cssosCastActorId = null; } catch (_e) {} return res; });
+              }
+            }
+          }
+        }
+      } catch (_e) { /* 注入失败不影响原请求 */ }
+      return orig.call(this, input, init);
+    };
+  })();
 
   function renderDetail(id) {
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");

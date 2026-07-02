@@ -531,7 +531,6 @@ struct FeaturedHero: View {
     @State private var pauseAutoUntil: Date? = nil   // W1241 — 用户干预后暂停自动轮播到此刻
     @FocusState private var playFocused: Bool        // W1244 — Play(=hero)是否聚焦
     @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
-    @FocusState private var bridgeFocused: Bool      // W1283 — 胶囊左侧隐形桥: 落焦即跳回侧栏
     @State private var breathe = false               // W1284 — 下一个胶囊边框呼吸
     @State private var didInitFocus = false           // W1347 — 启动只强制一次初始焦点(绝不反复踢侧栏)
     @State private var kenBurns = false               // W1357 — 聚焦 hero 时封面缓慢推拉(Ken Burns)
@@ -605,27 +604,27 @@ struct FeaturedHero: View {
     // W1250 — 胶囊宪法【凹凸镶嵌】+ 遥控器可操作: 固定顺序, 每段可聚焦。激活段(=index)两端圆(凸);
     //   左侧段凹右、右侧段凹左, 都朝激活咬合。聚焦哪段 → 它即激活(绿)、hero 跟着换。
     private var capsuleTrack: some View {
-        HStack(spacing: 0) {
-            // W1283 — 胶囊最左侧隐形"桥": 从第一个胶囊按左 → 落到它 → 立刻把焦点送回侧栏 Home。
-            //   不打断胶囊本身的左右/上下导航(桥只是它们的左邻居)。
-            Color.clear.frame(width: 1, height: capH)
-                .focusable()
-                .focused($bridgeFocused)
-                .onChange(of: bridgeFocused) { _, f in if f { resetFocus(in: sidebarNS) } }
-            HStack(spacing: -capR) {
-                // W1284 — 旋转胶囊宪法: 激活恒在第一位; 其余按原序排在右; 轮换时滑动重排(下一个边框呼吸)。
-                ForEach(rotatedOrder, id: \.self) { i in
-                    capsuleSegment(i)
-                        .zIndex(i == index ? Double(works.count + 1) : Double(works.count - positionInOrder(i)))
-                }
+        // W1527 — Jing「侧栏抢焦 + 过不到 hero」根治: 删掉左侧隐形"桥"。
+        //   旧桥(一落焦就 resetFocus 回侧栏)= 侧栏按右 resetFocus(focusNS) 因 prefersDefaultFocus
+        //   深嵌 ForEach 失效 → 落到首个 focusable(=桥)→ 被桥立刻弹回侧栏 → 永远过不去。
+        //   现在: 无桥; 侧栏→右 resetFocus 落到真胶囊; hero→左 由 onMoveCommand 显式送回侧栏(不误伤胶囊间导航)。
+        HStack(spacing: -capR) {
+            // W1284 — 旋转胶囊宪法: 激活恒在第一位; 其余按原序排在右; 轮换时滑动重排(下一个边框呼吸)。
+            ForEach(rotatedOrder, id: \.self) { i in
+                capsuleSegment(i)
+                    .zIndex(i == index ? Double(works.count + 1) : Double(works.count - positionInOrder(i)))
             }
-            .animation(.easeInOut(duration: 0.5), value: index)   // 重排滑动
         }
+        .animation(.easeInOut(duration: 0.5), value: index)   // 重排滑动
         .frame(height: capH)
         .fixedSize(horizontal: true, vertical: false)
-        // W1523 — Jing「默认焦点落 hero 绿色激活胶囊, 不落 logo」: prefersDefaultFocus 深嵌 ForEach 常失效,
-        //   改用 .defaultFocus 显式把初始焦点钉在激活胶囊(focusedCap==0), 进平台确认即播放。
+        // W1527 — hero 最左胶囊(=激活, positionInOrder 0)按左 → 送回侧栏; 其余左/右=胶囊间导航照旧。
+        .onMoveCommand { dir in
+            if dir == .left, focusedCap == index { resetFocus(in: sidebarNS) }
+        }
+        // W1523 — 默认焦点落 hero 激活胶囊(非 logo): 深嵌 prefersDefaultFocus 失效 → 用 defaultFocus 钉死。
         .defaultFocus($focusedCap, 0)
+        .prefersDefaultFocus(true, in: focusNS)   // W1527 — 让 resetFocus(in: focusNS) 可靠落到本胶囊轨(非深嵌, 生效)
     }
 
     // W1284 — 显示顺序: 把 index(激活)转到第一位, 其后按 work 原序绕回。
@@ -646,7 +645,7 @@ struct FeaturedHero: View {
         }
         .buttonStyle(FlatButtonStyle())
         .focused($focusedCap, equals: i)
-        .prefersDefaultFocus(i == 0, in: focusNS)   // W1278 — 第一个胶囊作 hero 默认焦点(侧栏右键 resetFocus 跳此)
+        // W1527 — 默认焦点改由 capsuleTrack 容器级 prefersDefaultFocus 承担(深嵌 ForEach 这层不可靠, 移除)。
     }
 
     // W1284 — 拆出胶囊内容(给编译器减负, 避免单表达式类型检查超时)。

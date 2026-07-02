@@ -110,7 +110,10 @@
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
       /* 创建+搜索 = 凹凸镶嵌: Create 绿全圆胶囊(右端半圆【凸】)负边距【咬进】搜索框; 搜索框左侧【凹】容纳 */
       /* 三胶囊 = 胶囊宪法凹凸镶嵌: 🙋成为演员(凹右)| ＋创建(绿凸中)| 搜索(凹左) */
-      "#" + ROOT_ID + " .ag-topcap{display:flex;align-items:stretch;height:46px;position:relative;}" +
+      "#" + ROOT_ID + " .ag-topcap{display:flex;align-items:stretch;height:46px;position:relative;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;}" +
+      "#" + ROOT_ID + " .ag-topcap::-webkit-scrollbar{display:none;}" +
+      "#" + ROOT_ID + " .ag-topcap>*{flex:0 0 auto;}" +   // 胶囊各自不收缩, 溢出靠横滑
+      "@media(max-width:760px){#" + ROOT_ID + " .ag-bar{flex-wrap:wrap;}#" + ROOT_ID + " .ag-topcap{order:3;flex:1 1 100%;width:100%;margin-top:10px;}}" +
       "#" + ROOT_ID + " .ag-topcap .ag-signup{position:relative;z-index:2;border:0;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
       "#" + ROOT_ID + " .ag-topcap .ag-create{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;font-weight:700;padding:0 22px 0 40px;white-space:nowrap;border-radius:0 999px 999px 0;cursor:pointer;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
       "#" + ROOT_ID + " .ag-topcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;min-width:150px;padding:0 20px 0 40px;border-radius:0 999px 999px 0;outline:none;font-size:15px;height:100%;box-sizing:border-box;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +

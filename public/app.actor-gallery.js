@@ -307,7 +307,7 @@
     // 口头授权脚本(照读)= 声音样本 + 口头同意记录 + 防冒充活体(念出"我是XX本人…"还要对得上脸)。
     var nameInput = scroll.querySelector('[data-k="name_en"]'), scriptEl = scroll.querySelector(".ag-consent-script");
     function consentScript() {
-      var nm = (nameInput && nameInput.value.trim()) || (state.lang === "zh" ? "本人" : "me");
+      var nm = (nameInput && nameInput.value.trim()) || T("me", "本人");
       return T('📢 Read aloud: “I am ' + nm + ', and I consent to the CSS Studio platform using my likeness and voice as a digital actor. Thank you.”',
                '📢 请照读:「我是' + nm + '本人,我同意 CSS Studio 平台将我的肖像声音用作数字演员,谢谢。」');
     }

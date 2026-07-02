@@ -48,7 +48,7 @@ backfill() {
   echo "[face-focal] 回填现有封面焦点(经 api-vm 上的 node 脚本, 内网直连 worker)"
   # worker 只在 atelier 内网; 用 ssh 隧道让 api-vm 可达, 或直接在本机跑脚本走 atelier 公网。
   # 这里在本机跑, worker URL 由 FACE_FOCAL_URL 指定(默认 atelier 公网 :7898)。
-  FACE_FOCAL_URL="${FACE_FOCAL_URL:-http://34.57.237.208:7898}" \
+  FACE_FOCAL_URL="${FACE_FOCAL_URL:-http://34.171.124.42:7898}" \
     node "$(dirname "$0")/backfill_cover_focal.mjs"
 }
 

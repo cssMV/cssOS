@@ -19,12 +19,16 @@ import io
 import numpy as np
 import requests
 import cv2
-import mediapipe as mp
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 app = FastAPI()
-_mp_fd = mp.solutions.face_detection
+
+# CSSOS 20260701 — 用 OpenCV Haar 级联(opencv 自带, 无需下载模型 / 无 mediapipe 版本坑)。
+# 正脸 + 侧脸两套级联都跑, 合并取面积最大的人脸当主体焦点。够用: 只需脸中心大致位置。
+_cascade_dir = cv2.data.haarcascades
+_fd_front = cv2.CascadeClassifier(_cascade_dir + "haarcascade_frontalface_default.xml")
+_fd_profile = cv2.CascadeClassifier(_cascade_dir + "haarcascade_profileface.xml")
 
 
 class DetectReq(BaseModel):
@@ -50,36 +54,41 @@ def health():
     return {"ok": True, "service": "face-focal", "port": 7898}
 
 
+def _detect_faces(gray):
+    # 两套级联合并; 也跑水平翻转的 profile 抓另一侧脸。
+    boxes = []
+    for casc in (_fd_front, _fd_profile):
+        found = casc.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
+        boxes.extend([tuple(int(v) for v in b) for b in found])
+    flipped = cv2.flip(gray, 1)
+    fw = gray.shape[1]
+    for (x, y, w, h) in _fd_profile.detectMultiScale(flipped, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)):
+        boxes.append((fw - int(x) - int(w), int(y), int(w), int(h)))  # 翻回原图坐标
+    return boxes
+
+
 @app.post("/detect")
 def detect(req: DetectReq):
     img = _load_image(req)
     if img is None:
         return {"found": False, "error": "no_image"}
     h, w = img.shape[:2]
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    # model_selection=1 = 全图范围(封面可能远景); min conf 0.5。
-    with _mp_fd.FaceDetection(model_selection=1, min_detection_confidence=0.5) as fd:
-        res = fd.process(rgb)
-    if not res.detections:
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.equalizeHist(gray)
+    boxes = _detect_faces(gray)
+    if not boxes:
         return {"found": False, "faces": 0}
-    # 取面积最大的人脸(主体)。
-    best = None
-    best_area = -1.0
-    for d in res.detections:
-        bb = d.location_data.relative_bounding_box
-        area = max(0.0, bb.width) * max(0.0, bb.height)
-        if area > best_area:
-            best_area = area
-            best = bb
-    cx = best.xmin + best.width / 2.0
-    cy = best.ymin + best.height / 2.0
+    # 取面积最大的人脸(主体)。box = (x, y, bw, bh) 像素。
+    bx, by, bw, bh = max(boxes, key=lambda b: b[2] * b[3])
+    cx = (bx + bw / 2.0) / w
+    cy = (by + bh / 2.0) / h
     # 焦点上移 12% 框高给头顶留空,再 clamp。
-    fy = cy - best.height * 0.12
+    fy = cy - (bh / h) * 0.12
     fx = min(max(cx, 0.0), 1.0)
     fy = min(max(fy, 0.08), 0.85)
     return {
         "found": True,
-        "faces": len(res.detections),
+        "faces": len(boxes),
         "focal_x": round(fx, 4),
         "focal_y": round(fy, 4),
     }

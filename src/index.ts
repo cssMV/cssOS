@@ -42682,6 +42682,24 @@ app.post("/api/actors/:id/cast", express.json({ limit: "4kb" }), async (req, res
  *   DELETE /api/actors/:id        删自己的演员
  * 变现: 选角真扣 credits 时按版税分账给创作者(见 works-create 选角段)。 */
 const UGC_CREATOR_ROYALTY = 0.70;   // 创作者分成 70%, 平台 30%
+
+// CSSOS_WAVE_113 — kie 所有对口型模型都限 ≤15s。长台词(20-30s)→ 视频引擎排队/失败。
+//   解: 把音轨截到 14s 喂视频模型(完整详细台词仍在【音频】播), 视频=演员开口的前 14s 精彩片段。
+//   R2 缓存(同音源哈希复用)。返回截断音频 URL; 失败回原 URL。
+async function actorVideoAudio14s(voiceUrl: string): Promise<string> {
+  try {
+    const sha = crypto.createHash("sha1").update("v14|" + voiceUrl).digest("hex").slice(0, 20);
+    const key = `artifacts/actor-talking/aud14-${sha}.mp3`;
+    const url = `https://cdn.cssstudio.app/${key}`;
+    try { const h = await fetch(url, { method: "HEAD" }); if (h.ok) return url; } catch {}   // 已缓存
+    const tmp = path.join(os.tmpdir(), `actor-aud14-${crypto.randomBytes(4).toString("hex")}.mp3`);
+    await _spawnP("ffmpeg", ["-y", "-loglevel", "error", "-i", voiceUrl, "-t", "14", "-c:a", "libmp3lame", "-q:a", "4", tmp]);
+    const buf = fs.readFileSync(tmp); try { fs.unlinkSync(tmp); } catch {}
+    if (buf.length < 500) return voiceUrl;
+    await uploadBufferToR2(buf, key, "audio/mpeg");
+    return url;
+  } catch { return voiceUrl; }
+}
 app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -42927,10 +42945,12 @@ app.post("/api/actors/:id/talking-video", async (req, res) => {
       const clip = clips[seg];
       if (!clip || !clip.voice_url) continue;
       if (clip.video_url && !force) { out[seg] = clip.video_url; continue; }
+      // 截到 14s 喂视频模型(全对口型模型限 ≤15s); 完整台词仍在音频播。
+      const vidAudio = await actorVideoAudio14s(String(clip.voice_url));
       const r = await callKieJob("omnihuman-1-5", {
-        image_url: String(face), audio_url: String(clip.voice_url),
+        image_url: String(face), audio_url: vidAudio,
         prompt: SEG_EXPRESSION[seg] || "natural expressive delivery",
-      }, { timeoutMs: 590_000 });   // 长台词视频(20-30s)omnihuman 慢, 给足 ~10min
+      }, { timeoutMs: 300_000 });   // 14s 视频, omnihuman ~2-4min
       if (!r.ok || !r.urls?.length) { out[seg] = null; continue; }
       let vurl = r.urls[0]!;
       try { const vb = Buffer.from(await (await fetch(vurl)).arrayBuffer()); if (vb.length > 1000) { const key = `artifacts/actor-talking/${id}-${seg}.mp4`; await uploadBufferToR2(vb, key, "video/mp4"); vurl = `https://cdn.cssstudio.app/${key}`; } } catch {}

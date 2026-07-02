@@ -290,7 +290,7 @@
         '<div class="ag-capture">' +
           '<div style="font-weight:700;margin:6px 0">📸 ' + esc(T("Capture your face (turn slowly ~8s)", "采集你的脸(缓慢转头约 8 秒)")) + '</div>' +
           '<div style="font-size:12.5px;color:#a9e9cf;margin:-2px 0 8px;line-height:1.5">💡 ' + esc(T("Record in good lighting, with no hat, and your full face visible. Thank you.", "请在光线充足、不戴帽子、脸部完整露出的环境中录制。谢谢。")) + '</div>' +
-          '<video class="ag-cam" autoplay muted playsinline style="width:100%;max-width:320px;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;"></video>' +
+          '<video class="ag-cam" autoplay muted playsinline style="width:100%;max-width:520px;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;"></video>' +
           '<div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">' +
             '<button class="ag-sc-btn ag-cam-start">🎥 ' + esc(T("Start camera", "开启摄像头")) + '</button>' +
             '<button class="ag-sc-btn ag-cam-rec" disabled>⏺ ' + esc(T("Record 8s turn-around", "录 8 秒转圈")) + '</button>' +

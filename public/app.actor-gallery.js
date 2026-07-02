@@ -319,7 +319,11 @@
       capStatus.textContent = T("Opening camera…", "正在开启摄像头…");
       navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true }).then(function (s) {
         rpStream = s; vid.srcObject = s; vid.muted = true;
+        vid.setAttribute("data-live-capture", "1");   // 标记: 全局媒体裁判应跳过
         vid.onloadedmetadata = function () { try { vid.play(); } catch (_e) {} };   // 拿到首帧再 play, 防黑屏
+        // 根治「冻在第一帧」: 平台有多个全局裁判会 pause 所有 <video>(防重叠), 连摄像头预览也被摁停。
+        // 只要采集流还活着, 被谁暂停都立刻自恢复。
+        vid.onpause = function () { if (rpStream && rpStream.active) { try { vid.play(); } catch (_e) {} } };
         vid.play().catch(function () {});
         recBtn.disabled = false; voiceBtn.disabled = false;
         // 诊断: 黑屏是"没拿到画面"还是"拿到了没画上"? 800ms 后回报轨道状态 + 分辨率。

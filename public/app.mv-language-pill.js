@@ -102,6 +102,7 @@
         else { try { a.pause(); } catch (_e) {} a.muted = true; }
       });
       [].forEach.call(document.querySelectorAll("video"), function (v) {
+        if (v.getAttribute && v.getAttribute("data-live-capture") === "1") return;   // 摄像头采集预览: 裁判豁免, 绝不暂停
         if (v === winner) { v.muted = false; try { v.volume = 1; } catch (_e) {} }
         // CSSOS_WAVE_587c — 主视频 muted=true(保留可自动播放, 又不放出烧录原声); 杂散视频 pause+mute。
         else if (v === mainV) { v.muted = true; }

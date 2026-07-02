@@ -42431,6 +42431,25 @@ async function actorReferenceImage(actorId: string): Promise<{ ref: string; name
     return { ref: String(ref), name: a.name_en || a.name_zh };
   } catch { return null; }
 }
+// CSSOS_WAVE_113 — 3D 前先把封面裁成【人脸居中的正方近景】喂 TripoSR(全身亮面图会建成 blob;
+//   头肩近景才能建出像样的头)。按 face-focal 居中, side≈55% 短边, 上移给头顶。R2 缓存。
+async function cropActorFaceSquare(imageUrl: string, fx: number | null, fy: number | null): Promise<string> {
+  try {
+    const buf = Buffer.from(await (await fetch(imageUrl)).arrayBuffer());
+    const img = sharp(buf, { failOn: "none" });
+    const meta = await img.metadata();
+    const W = meta.width || 512, H = meta.height || 512;
+    const side = Math.round(Math.min(W, H) * 0.6);
+    const cx = ((fx != null && fx >= 0) ? fx : 0.5) * W;
+    const cy = ((fy != null && fy >= 0) ? fy : 0.32) * H;
+    let left = Math.round(cx - side / 2), top = Math.round(cy - side / 2);
+    left = Math.max(0, Math.min(W - side, left)); top = Math.max(0, Math.min(H - side, top));
+    const out = await img.extract({ left, top, width: side, height: side }).resize(768, 768).png().toBuffer();
+    const key = `artifacts/actor-3d/facecrop-${crypto.createHash("sha1").update(imageUrl + "|" + fx + "|" + fy).digest("hex").slice(0, 16)}.png`;
+    await uploadBufferToR2(out, key, "image/png");
+    return `https://cdn.cssstudio.app/${key}`;
+  } catch { return imageUrl; }
+}
 async function generateReferenceLockedCover(refUrl: string, scenePrompt: string): Promise<string | null> {
   try {
     const r = await callKieJob("google/nano-banana", {
@@ -42884,8 +42903,8 @@ app.post("/api/actors/:id/generate-3d", async (req, res) => {
     const internalOk = !!CSSOS_INTERNAL_TOKEN && String(req.headers["x-cssos-internal-token"] || "") === CSSOS_INTERNAL_TOKEN;
     const id = String(req.params.id || "").trim();
     await seedDigitalActorsOnce();
-    const ar = await withClient((c) => c.query<{ cover_image: string | null; reference_images: string[]; owner_user_id: string | null; model_3d_url: string | null }>(
-      `SELECT cover_image, reference_images, owner_user_id::text AS owner_user_id, model_3d_url FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const ar = await withClient((c) => c.query<{ cover_image: string | null; reference_images: string[]; owner_user_id: string | null; model_3d_url: string | null; cover_focal_x: number | null; cover_focal_y: number | null }>(
+      `SELECT cover_image, reference_images, cover_focal_x, cover_focal_y, owner_user_id::text AS owner_user_id, model_3d_url FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
     const a = ar.rows[0];
     if (!a) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     // 权限: admin / 内部 token / 演员作者本人。
@@ -42895,14 +42914,16 @@ app.post("/api/actors/:id/generate-3d", async (req, res) => {
     if (a.model_3d_url && String(req.query.force || "") !== "1") return res.json({ ok: true, model_3d_url: a.model_3d_url, cached: true });
     const src = a.cover_image || (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "");
     if (!src) return res.status(400).json({ ok: false, code: "NO_SOURCE_IMAGE" });
+    // 先裁成人脸近景正方(全身亮面图→blob 的根治), 再喂 TripoSR。
+    const src3d = await cropActorFaceSquare(String(src), a.cover_focal_x, a.cover_focal_y);
     // GLB 主(网页 <model-viewer> 可旋转), 顺带出 USDZ(iOS AR Quick Look)。
-    const glb = await atelierTriposrGlb(String(src));
+    const glb = await atelierTriposrGlb(String(src3d));
     if (!glb) return res.status(502).json({ ok: false, code: "TSR_FAILED", hint: "atelier TripoSR :7897 不可达或失败" });
     const glbKey = `artifacts/actor-3d/${id}.glb`;
     await uploadBufferToR2(glb, glbKey, "model/gltf-binary");
     const url = `https://cdn.cssstudio.app/${glbKey}`;
     // USDZ(AR)尽力而为, 失败不阻断。
-    try { const usdz = await atelierTriposrUsdz(String(src)); if (usdz) await uploadBufferToR2(usdz, `artifacts/actor-3d/${id}.usdz`, "model/vnd.usdz+zip"); } catch {}
+    try { const usdz = await atelierTriposrUsdz(String(src3d)); if (usdz) await uploadBufferToR2(usdz, `artifacts/actor-3d/${id}.usdz`, "model/vnd.usdz+zip"); } catch {}
     await withClient((c) => c.query(`UPDATE digital_actors SET model_3d_url=$2, updated_at=now() WHERE actor_id=$1`, [id, url]));
     return res.json({ ok: true, model_3d_url: url, cached: false });
   } catch (err) {
@@ -42994,11 +43015,22 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
       "\"villain\":\"<3-4 sentences: name the SPECIFIC kinds of compelling villains/antagonists you were born to play (2-3 concrete archetypes), describe the menace you bring; then pitch the creator: 'cast me as your villain and here is how I make your story unforgettable'; close with the same reciprocal-fame swagger — you lift me up, I make your masterpiece legendary>\"," +
       "\"intro_en\":\"<faithful English translation of intro>\",\"hero_en\":\"<English translation of hero>\",\"villain_en\":\"<English translation of villain>\"}. " +
       "voice_gender: infer from identity (Confucius/Einstein → male; women → female). " +
-      "LANGUAGE RULE: a HISTORICAL/CIVILIZATION figure MUST speak their own heritage/native tongue (Confucius→Chinese, Einstein→German, a Greek→Greek, Rumi→Persian, an Egyptian→Arabic). " +
-      "An original synthetic actor uses the language of their world (default English). NEVER default to Chinese unless the actor is genuinely Chinese. " +
+      "LANGUAGE RULE (decide from the actor's IDENTITY — their name and world — NOT from the language this brief happens to be written in): " +
+      "a HISTORICAL/CIVILIZATION figure MUST speak their own heritage/native tongue (Confucius→Chinese, Einstein→German, a Greek→Greek, Rumi→Persian, an Egyptian→Arabic, a Japanese→Japanese). " +
+      "An ORIGINAL SYNTHETIC actor speaks the language of THEIR name/world: an English/Western name (e.g. 'Nova Sky', 'Kai Ember') → ENGLISH; a Spanish name → Spanish; a Japanese name → Japanese; only a genuinely Chinese-named/Chinese-world actor speaks Chinese. " +
+      "⚠️ NEVER default to Chinese just because this brief is in Chinese. If the actor's primary name is English/Western, they speak English. " +
       "Always fill the *_en fields with faithful English translations (repeat if already English). Keep each monologue roughly 40-65 words (3-4 sentences) — long enough to feel like a real, confident, intelligent actor selling themselves, but tight enough to perform as spoken audio. Make it feel ALIVE, charismatic, self-promoting and irresistibly castable — the creator should think 'casting this actor will make my work soar'. Never robotic, never a bare one-liner.";
+    // 语言由代码定死(别让 LLM 被中文描述带跑): 合成演员看主名——英文/拉丁名→英文, 中文名→中文;
+    //   文明演员由 LLM 按其母语(Einstein 德/屈原 中)推断, 不强制。
+    let langDirective = "";
+    if (actor.origin_type === "synthetic") {
+      const primaryName = String(actor.name_en || actor.name_zh || "");
+      const hasLatin = /[A-Za-z]/.test(primaryName);   // 含拉丁字母(如 Nova Sky)→ 英文
+      const forced = hasLatin ? "ENGLISH" : "the actor's native East-Asian language (their name is written in CJK)";
+      langDirective = ` HARD REQUIREMENT: write ALL three monologues in ${forced}, regardless of what language this brief is written in. The actor's name is "${primaryName}". Since it contains Latin letters, this is an international/Western actor → write in ENGLISH, NOT Chinese.`;
+    }
     const lr = await callLlm({
-      messages: [{ role: "system", content: sys }, { role: "user", content: persona }],
+      messages: [{ role: "system", content: sys + langDirective }, { role: "user", content: persona }],
       max_tokens: 1200, temperature: 0.92, response_format: { type: "json_object" },
     });
     if (!lr.ok) return res.status(502).json({ ok: false, code: "LLM_FAILED", detail: lr.error || "" });

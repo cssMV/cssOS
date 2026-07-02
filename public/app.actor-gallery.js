@@ -96,10 +96,10 @@
       "#" + ROOT_ID + " .ag-inline{animation:agfade .22s ease;}" +
       "@keyframes agfade{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}" +
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
-      /* 创建+搜索 = 一个胶囊(两头圆, 共用轮廓): Create 绿填充左段, 搜索透明右段 */
-      "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;height:46px;border:1px solid rgba(0,245,160,.4);border-radius:999px;overflow:hidden;background:rgba(0,245,160,.06);box-shadow:0 0 14px rgba(0,245,160,.18);}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-create{border:none;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 22px;white-space:nowrap;border-radius:999px 0 0 999px;cursor:pointer;}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-search{border:none;background:transparent;color:#e8fff5;min-width:150px;padding:0 18px;border-radius:0 999px 999px 0;outline:none;font-size:15px;}" +
+      /* 创建+搜索 = 凹凸镶嵌: Create 绿全圆胶囊(右端半圆【凸】)负边距【咬进】搜索框; 搜索框左侧【凹】容纳 */
+      "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;height:46px;position:relative;}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-create{position:relative;z-index:2;border:none;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;margin-right:-23px;box-shadow:0 0 14px rgba(0,245,160,.45);}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);background:rgba(0,245,160,.06);color:#e8fff5;min-width:160px;padding:0 20px 0 40px;border-radius:999px;outline:none;font-size:15px;height:100%;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22px,#000 23px);}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
@@ -519,7 +519,7 @@
         wrap.innerHTML = '<model-viewer src="' + esc(url) + '" ios-src="' + esc(usdz) + '" poster="' + esc(a.cover_image || "") + '" ' +
           'camera-controls touch-action="pan-y" auto-rotate auto-rotate-delay="0" rotation-per-second="24deg" ' +
           'camera-orbit="0deg 82deg 100%" min-camera-orbit="auto 55deg auto" max-camera-orbit="auto 105deg auto" field-of-view="30deg" ' +
-          'interaction-prompt="none" ar ar-modes="quick-look webxr" environment-image="neutral" exposure="1.15" shadow-intensity="0.35" ' +
+          'interaction-prompt="none" ar ar-modes="quick-look webxr" environment-image="neutral" exposure="1.45" tone-mapping="neutral" shadow-intensity="0" ' +
           'style="' + mvStyle + '"></model-viewer>';
       });
     } else if (url) {

@@ -81,7 +81,8 @@
       "#" + ROOT_ID + " .ag-sc-btn:hover{background:rgba(0,245,160,.2);}" +
       "#" + ROOT_ID + " .ag-sc-btn.playing{background:" + GREEN + ";color:" + INK + ";}" +
       "#" + ROOT_ID + " .ag-stage{min-height:44px;margin-top:14px;font-size:26px;font-weight:800;line-height:1.35;letter-spacing:.5px;}" +
-      "#" + ROOT_ID + " .ag-stage .tk{color:rgba(255,255,255,.28);transition:color .08s,text-shadow .08s;}" +
+      "#" + ROOT_ID + " .ag-native{white-space:pre-wrap;word-break:normal;overflow-wrap:break-word;}" +
+      "#" + ROOT_ID + " .ag-stage .tk{color:rgba(255,255,255,.28);transition:color .08s,text-shadow .08s;white-space:pre-wrap;}" +
       "#" + ROOT_ID + " .ag-stage .tk.on{color:" + GREEN + ";text-shadow:0 0 16px rgba(0,245,160,.7);}" +
       "#" + ROOT_ID + " .ag-trans{font-size:16px;font-weight:500;color:rgba(207,238,224,.72);margin-top:8px;font-style:italic;}" +
       "#" + ROOT_ID + " .ag-sec{margin-top:30px;}" +
@@ -409,9 +410,18 @@
     stopShowcase();
     if (!clip || !clip.voice_url) { stage.textContent = T("(missing)", "(此段暂缺)"); return; }
     var toks = (clip.subtitle && clip.subtitle.tokens) || [];
-    var karaoke = toks.length
-      ? toks.map(function (t, i) { return '<span class="tk" data-i="' + i + '">' + esc(t.char) + '</span>'; }).join("")
-      : esc(clip.text || "");
+    // 后端 token 跳过了空格 → 从【完整台词(含空格/断词)】逐字渲染, 非空格字符按序取 token 时间,
+    //   空格沿用上一个时间。这样英文单词之间有空格、不再连成一坨。
+    var fullText = clip.text || (toks.length ? toks.map(function (t) { return t.char; }).join("") : "");
+    var karaoke = "", ti = 0, lastTs = 0;
+    if (fullText) {
+      for (var ci = 0; ci < fullText.length; ci++) {
+        var ch = fullText[ci], ts;
+        if (/\S/.test(ch) && ti < toks.length) { ts = toks[ti].t_start; lastTs = ts; ti++; }
+        else { ts = lastTs; }
+        karaoke += '<span class="tk" data-ts="' + ts + '">' + esc(ch) + '</span>';
+      }
+    }
     // 字幕(母语+英文)固定在 stage; 会说话视频【就地替换主视觉区的旋转 3D】—— 演员在原位可动可说话。
     stage.innerHTML = '<div class="ag-native">' + karaoke + '</div>' +
       (clip.text_en ? '<div class="ag-trans">' + esc(clip.text_en) + '</div>' : "");
@@ -445,12 +455,13 @@
     function tick() {
       if (!scAudio) return;
       var ms = timeSrc() * 1000;
-      var speaking = false, intensity = 0;
       for (var i = 0; i < spans.length; i++) {
-        var t = toks[i]; if (!t) continue;
-        var on = ms >= t.t_start - 40; spans[i].classList.toggle("on", on);
-        if (ms >= t.t_start && ms < t.t_end) { speaking = true; intensity = Math.max(intensity, t.emotion_intensity || 0.5); }
+        var ts = +spans[i].getAttribute("data-ts") || 0;
+        spans[i].classList.toggle("on", ms >= ts - 40);
       }
+      // 律动: 当前是否正在发某个音节(用 token 区间判断)。
+      var speaking = false, intensity = 0;
+      for (var k = 0; k < toks.length; k++) { var t = toks[k]; if (ms >= t.t_start && ms < t.t_end) { speaking = true; intensity = Math.max(intensity, t.emotion_intensity || 0.5); } }
       if (mv) {
         // 说到音节时嘴部区域律动(点头 nod + 轻微竖向挤压=口型开合的错觉), 停顿时归位。
         var ph = ms / 90;   // 音节内快速开合
@@ -517,10 +528,12 @@
       ensureModelViewer(function () {
         var wrap = box.querySelector(".ag-mv-wrap"); if (!wrap) return;
         wrap.innerHTML = '<model-viewer src="' + esc(url) + '" ios-src="' + esc(usdz) + '" poster="' + esc(a.cover_image || "") + '" ' +
-          'camera-controls touch-action="pan-y" auto-rotate auto-rotate-delay="0" rotation-per-second="24deg" ' +
-          'camera-orbit="0deg 82deg 100%" min-camera-orbit="auto 55deg auto" max-camera-orbit="auto 105deg auto" field-of-view="30deg" ' +
-          'interaction-prompt="none" ar ar-modes="quick-look webxr" environment-image="neutral" exposure="1.45" tone-mapping="neutral" shadow-intensity="0" ' +
+          'camera-controls touch-action="pan-y" auto-rotate auto-rotate-delay="0" rotation-per-second="26deg" ' +
+          'camera-orbit="0deg 90deg 100%" min-camera-orbit="auto 70deg auto" max-camera-orbit="auto 110deg auto" field-of-view="28deg" ' +
+          'interaction-prompt="none" ar ar-modes="quick-look webxr" exposure="1.0" tone-mapping="neutral" shadow-intensity="0" ' +
           'style="' + mvStyle + '"></model-viewer>';
+        // TripoSR 网格朝向常有偏差 → 载入后自动把【人脸】转到正前(用包围盒朝向估算不可靠, 这里给默认无偏,
+        //   随 auto-rotate 会扫到正面; 如需锁定正面朝向, 见 model_3d 生成端的坐标归一)。
       });
     } else if (url) {
       // 旧 USDZ(无 GLB): AR Quick Look 兜底(仅 Apple)。

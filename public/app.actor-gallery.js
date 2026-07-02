@@ -296,6 +296,7 @@
                 '<button class="ag-sc-btn" data-seg="intro">▶ 自我介绍</button>' +
                 '<button class="ag-sc-btn" data-seg="hero">😇 正派</button>' +
                 '<button class="ag-sc-btn" data-seg="villain">😈 反派</button>' +
+                '<button class="ag-sc-btn ag-talk">🎬 让 TA 开口(视频)</button>' +
               '</div>' +
               '<div class="ag-stage" aria-live="polite"></div>' +
               '<div class="ag-3d"></div>' +
@@ -354,52 +355,74 @@
     stopShowcase();
     if (!clip || !clip.voice_url) { stage.textContent = "(此段暂缺)"; return; }
     var toks = (clip.subtitle && clip.subtitle.tokens) || [];
-    // 逐字 token span(t_start/t_end 毫秒), 播放时按音频时间点亮(卡拉OK)。
     var karaoke = toks.length
       ? toks.map(function (t, i) { return '<span class="tk" data-i="' + i + '">' + esc(t.char) + '</span>'; }).join("")
       : esc(clip.text || "");
-    // 非英文母语 → 母语原文下方显示英文翻译。
-    stage.innerHTML = '<div class="ag-native">' + karaoke + '</div>' +
+    // 有【会说话视频】→ 播对口型视频(自带声, 时间源=video); 否则照片 + 音轨。
+    var vid = clip.video_url
+      ? '<video class="ag-talkvid" src="' + esc(clip.video_url) + '" playsinline autoplay style="max-width:340px;width:100%;border-radius:14px;display:block;margin-bottom:10px;border:1px solid rgba(0,245,160,.4);"></video>' : "";
+    stage.innerHTML = vid + '<div class="ag-native">' + karaoke + '</div>' +
       (clip.text_en ? '<div class="ag-trans">' + esc(clip.text_en) + '</div>' : "");
     var spans = stage.querySelectorAll(".tk");
     btn.classList.add("playing");
-    scAudio = new Audio(clip.voice_url);
-    scAudio.play().catch(function () { stage.textContent = "▶ 点一下允许播放声音"; });
+    var timeSrc;
+    if (clip.video_url) {
+      var v = stage.querySelector(".ag-talkvid"); scAudio = v;   // 复用停止逻辑(pause)
+      v.play().catch(function () {});
+      timeSrc = function () { return v.currentTime; };
+      v.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
+    } else {
+      scAudio = new Audio(clip.voice_url);
+      scAudio.play().catch(function () { stage.insertAdjacentHTML("beforeend", '<div class="ag-empty">▶ 点一下允许播放声音</div>'); });
+      timeSrc = function () { return scAudio ? scAudio.currentTime : 0; };
+      scAudio.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
+    }
     function tick() {
       if (!scAudio) return;
-      var ms = scAudio.currentTime * 1000;
-      for (var i = 0; i < spans.length; i++) {
-        var t = toks[i]; if (!t) continue;
-        spans[i].classList.toggle("on", ms >= t.t_start - 40);
-      }
+      var ms = timeSrc() * 1000;
+      for (var i = 0; i < spans.length; i++) { var t = toks[i]; if (!t) continue; spans[i].classList.toggle("on", ms >= t.t_start - 40); }
       scRAF = requestAnimationFrame(tick);
     }
     scRAF = requestAnimationFrame(tick);
-    scAudio.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
   }
   function wireShowcase(scroll, actorId) {
     var stage = scroll.querySelector(".ag-stage");
-    var btns = scroll.querySelectorAll(".ag-sc-btn");
-    btns.forEach(function (btn) {
+    var segBtns = scroll.querySelectorAll(".ag-sc-btn[data-seg]");
+    segBtns.forEach(function (btn) {
       btn.onclick = function () {
         var seg = btn.getAttribute("data-seg");
-        function go(sc) {
-          var clips = (sc && sc.clips) || {};
-          playClip(clips[seg], btn, stage);
-        }
+        function go(sc) { playClip(((sc && sc.clips) || {})[seg], btn, stage); }
         if (scCache[actorId]) { go(scCache[actorId]); return; }
         stage.textContent = "⏳ 演员正在准备台词…(首次约 10-20 秒)";
-        btns.forEach(function (b) { b.disabled = true; });
+        segBtns.forEach(function (b) { b.disabled = true; });
         fetch("/api/actors/" + encodeURIComponent(actorId) + "/showcase", { credentials: "include" })
           .then(function (r) { return r.json(); })
           .then(function (j) {
-            btns.forEach(function (b) { b.disabled = false; });
+            segBtns.forEach(function (b) { b.disabled = false; });
             if (j && j.ok && j.data && j.data.showcase) { scCache[actorId] = j.data.showcase; go(j.data.showcase); }
             else { stage.textContent = (j && j.code === "TTS_UNAVAILABLE") ? "语音功能未配置。" : "台词生成失败,请重试。"; }
           })
-          .catch(function () { btns.forEach(function (b) { b.disabled = false; }); stage.textContent = "网络错误,请重试。"; });
+          .catch(function () { segBtns.forEach(function (b) { b.disabled = false; }); stage.textContent = "网络错误,请重试。"; });
       };
     });
+    // 🎬 生成会说话视频(对口型 talking-head, omnihuman)。花钱, 懒生成缓存; 完成后 seg 按钮改播视频。
+    var talk = scroll.querySelector(".ag-talk");
+    if (talk) talk.onclick = function () {
+      talk.disabled = true; stage.innerHTML = '<div class="ag-empty">🎬 正在让 TA 开口…(生成对口型视频约 1-2 分钟, 每段约 $0.2)</div>';
+      fetch("/api/actors/" + encodeURIComponent(actorId) + "/talking-video?seg=all", { method: "POST", credentials: "include" })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          talk.disabled = false;
+          if (j && j.ok) {
+            // 把 video_url 并回缓存, 提示点段落播放。
+            if (scCache[actorId] && scCache[actorId].clips) {
+              ["intro", "hero", "villain"].forEach(function (s) { if (j.videos && j.videos[s] && scCache[actorId].clips[s]) scCache[actorId].clips[s].video_url = j.videos[s]; });
+            }
+            stage.innerHTML = '<div class="ag-empty">✅ 会说话视频已就绪!点上面「自我介绍 / 正派 / 反派」即可看 TA 开口演。</div>';
+          } else { stage.innerHTML = '<div class="ag-empty">' + ((j && j.code === "FORBIDDEN") ? "仅演员作者/管理员可生成会说话视频。" : (j && j.code === "NO_SHOWCASE") ? "请先点一下台词按钮生成语音。" : "生成失败,请重试。") + '</div>'; }
+        })
+        .catch(function () { talk.disabled = false; stage.innerHTML = '<div class="ag-empty">网络错误,请重试。</div>'; });
+    };
   }
 
   /* 3D 头像: 有 model_3d_url → AR Quick Look「在 AR 中查看」(iPhone/iPad/Vision Pro);

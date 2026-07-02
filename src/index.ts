@@ -42880,6 +42880,51 @@ app.post("/api/actors/:id/generate-3d", async (req, res) => {
   }
 });
 
+// CSSOS_WAVE_113 Phase 4 — 演员【开口说话视频】(2D 照片 talking-head): omnihuman-1-5(kie, ~$0.135/s)
+//   演员照片 + showcase 某段真人声音轨 → 对口型说话视频 mp4 → R2 → 缓存 showcase.clips[seg].video_url。
+//   懒生成: 点了才生成(花钱), 生成后永久复用。权限: admin/内部token/作者; 三段可指定 seg=intro|hero|villain|all。
+app.post("/api/actors/:id/talking-video", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    const internalOk = !!CSSOS_INTERNAL_TOKEN && String(req.headers["x-cssos-internal-token"] || "") === CSSOS_INTERNAL_TOKEN;
+    const id = String(req.params.id || "").trim();
+    await seedDigitalActorsOnce();
+    const ar = await withClient((c) => c.query<any>(`SELECT actor_id, cover_image, reference_images, owner_user_id::text AS owner_user_id, showcase FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const a = ar.rows[0];
+    if (!a) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const isAdmin = !!user && roleForEmail(user.email) === "admin";
+    const isOwner = !!user && String(a.owner_user_id || "") === String(user.id);
+    if (!internalOk && !isAdmin && !isOwner) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    const showcase = a.showcase; const clips = showcase?.clips || {};
+    if (!Object.keys(clips).length) return res.status(400).json({ ok: false, code: "NO_SHOWCASE", hint: "先生成 showcase(台词+语音)" });
+    const face = a.cover_image || (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "");
+    if (!face) return res.status(400).json({ ok: false, code: "NO_FACE" });
+    const segReq = String(req.query.seg || "all").toLowerCase();
+    const segs = segReq === "all" ? ["intro", "hero", "villain"] : [segReq];
+    const force = String(req.query.force || "") === "1";
+    const out: Record<string, unknown> = {};
+    for (const seg of segs) {
+      const clip = clips[seg];
+      if (!clip || !clip.voice_url) continue;
+      if (clip.video_url && !force) { out[seg] = clip.video_url; continue; }
+      const r = await callKieJob("omnihuman-1-5", { image_url: String(face), audio_url: String(clip.voice_url) }, { timeoutMs: 290_000 });
+      if (!r.ok || !r.urls?.length) { out[seg] = null; continue; }
+      let vurl = r.urls[0]!;
+      try { const vb = Buffer.from(await (await fetch(vurl)).arrayBuffer()); if (vb.length > 1000) { const key = `artifacts/actor-talking/${id}-${seg}.mp4`; await uploadBufferToR2(vb, key, "video/mp4"); vurl = `https://cdn.cssstudio.app/${key}`; } } catch {}
+      clips[seg].video_url = vurl;
+      out[seg] = vurl;
+      // 计费: 触发用户付(admin/staff 豁免); 内部预热不扣。
+      if (user && !isAdmin) { try { await chargeMvStageActual(String(user.id), "video", 20, "omnihuman-1-5"); } catch {} }
+    }
+    await withClient((c) => c.query(`UPDATE digital_actors SET showcase=$2, updated_at=now() WHERE actor_id=$1`, [id, JSON.stringify(showcase)]));
+    return res.json({ ok: true, videos: out });
+  } catch (err) {
+    console.warn("[actors] talking-video failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "TALKING_FAILED" });
+  }
+});
+
 app.get("/api/actors/:id/showcase", async (req, res) => {
   noStore(res);
   try {

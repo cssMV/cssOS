@@ -1036,6 +1036,15 @@ struct WorkCard: View {
                     .padding(.horizontal, 6)
                     .cssBlackEdge()   // W1359
             }
+            // W1526 — next-up 多部卡: 底行点名【即将播的那一枝】(照 [[next_up_multipart_card_design]])。
+            if work.isMultiPart, let first = work.children?.first(where: { ($0.audioURL ?? $0.previewAudio) != nil }) ?? work.children?.first {
+                Text("▶ " + (first.title ?? "Pt 1"))
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(brandGreen.opacity(0.85))
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .cssBlackEdge()
+            }
         }
         .frame(width: cardWidth, alignment: .leading)
     }

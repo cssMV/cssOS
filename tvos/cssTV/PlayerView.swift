@@ -207,6 +207,38 @@ struct PlayerView: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(true)
             }
+
+            // W1526 — 多部作品【选枝胶囊】(胶囊宪法): ≥2 枝才显, 放在下方黑边【左侧】(与右侧多语言胶囊对称)。
+            //   每枝一颗小胶囊(类型徽章 + 序号), 当前枝=品牌绿凸; ↑↓ 遥控切枝时高亮跟随。纯展示不抢焦点。
+            if parts.count >= 2 {
+                GeometryReader { geo in
+                    let boxBottom = geo.size.height / 2 + (geo.size.width / 2.39) / 2
+                    let bandMid = boxBottom + (geo.size.height - boxBottom) / 2
+                    let y = max(boxBottom + 53, min(bandMid, geo.size.height - 85))
+                    HStack {
+                        HStack(spacing: 8) {
+                            Image(systemName: "square.stack.3d.up.fill").font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.6))
+                            ForEach(0..<parts.count, id: \.self) { j in
+                                let on = j == partIndex
+                                Text("\(j + 1)")
+                                    .font(.system(size: 20, weight: on ? .heavy : .semibold))
+                                    .foregroundStyle(on ? Color(red: 0.03, green: 0.09, blue: 0.06) : .white.opacity(0.7))
+                                    .frame(minWidth: 34, minHeight: 40)
+                                    .background(Capsule().fill(on ? Color(red: 0.0, green: 0.96, blue: 0.63) : Color.white.opacity(0.14)))
+                            }
+                        }
+                        .padding(.horizontal, 18).padding(.vertical, 8)
+                        .background(Capsule().fill(.black.opacity(0.42)))
+                        .padding(.leading, 56)
+                        Spacer()
+                    }
+                    .frame(width: geo.size.width)
+                    .position(x: geo.size.width / 2, y: y)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            }
         }
         .onAppear(perform: start)
         .onDisappear(perform: stop)

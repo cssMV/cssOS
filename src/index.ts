@@ -43970,6 +43970,17 @@ app.get("/api/works/market", async (req, res) => {
         return acc;
       }, new Map<string, any[]>());
     }
+    // CSSOS_WAVE_114 — 演员本人免费看参演作品: 我拥有的数字演员被选进的作品, 我默认免费观赏。
+    const viewerActorWorkIds = new Set<string>();
+    if (viewer?.id) {
+      try {
+        const acRes = await withClient((c) => c.query<{ work_id: string }>(
+          `SELECT DISTINCT ac.work_id::text AS work_id FROM actor_castings ac
+             JOIN digital_actors da ON da.actor_id = ac.actor_id
+            WHERE da.owner_user_id = $1::uuid`, [viewer.id]));
+        for (const r of acRes.rows) viewerActorWorkIds.add(String(r.work_id));
+      } catch { /* non-fatal */ }
+    }
     const transferRes = rootIds.length
       ? await withClient((client) =>
           client.query<{
@@ -44153,7 +44164,9 @@ app.get("/api/works/market", async (req, res) => {
           const isOwnerAdminMkt =
             ownerEmailMkt === "jingdudc@gmail.com" ||
             /@cssstudio\.app$/i.test(ownerEmailMkt);
-          const fullAccess = isOwner || isFree || purchased || isOwnerAdminMkt;
+          // 演员本人对参演作品免费观赏(我的数字演员被选进的作品)。
+          const isCastActorOwner = viewerActorWorkIds.has(String(row.id || ""));
+          const fullAccess = isOwner || isFree || purchased || isOwnerAdminMkt || isCastActorOwner;
           const signed = signMediaUrlsOnRow(row, fullAccess ? "full" : "preview");
           return {
             ...signed,

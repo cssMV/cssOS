@@ -452,9 +452,9 @@
           '</div>' +
           '<div class="ag-stage" aria-live="polite"></div>' +
           '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
-          (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + '</h3><div class="ag-grid ag-sub-grid">' +
-            mvs.map(function (m) { return '<div class="ag-card"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
-              '</div><div class="ag-meta"><div class="ag-name">' + esc(m.title || "Untitled") + '</div></div></div>'; }).join("") + '</div></div>' : "");
+          (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + (state.ownedSet[a.actor_id] ? ' · ' + esc(T("free to watch", "本人免费欣赏")) : "") + '</h3><div class="ag-grid ag-sub-grid">' +
+            mvs.map(function (m) { return '<div class="ag-card ag-appear" data-work="' + esc(m.work_id) + '" style="cursor:pointer"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
+              '</div><div class="ag-meta"><div class="ag-name">▶ ' + esc(m.title || "Untitled") + '</div></div></div>'; }).join("") + '</div></div>' : "");
         // 封面切成 3D(正面旋转), 点封面在 2D↔3D 间切换。
         cardEl.__actor = a;
         showCover3D(cardEl, a);
@@ -720,6 +720,13 @@
     el.querySelector(".ag-scroll").addEventListener("click", function (e) {
       var t = e.target;
       // 展开区内的交互元素(台词胶囊/选角/作者/出演子卡/model-viewer)不劫持。
+      // 出演作品卡 → 打开观看(演员本人对参演作品免费)。
+      var appear = t.closest && t.closest(".ag-appear[data-work]");
+      if (appear) {
+        var wid = appear.getAttribute("data-work");
+        if (wid && typeof window.cssosOpenWork === "function") { close(); window.cssosOpenWork(wid); }
+        return;
+      }
       if (t.closest && (t.closest(".ag-showcase") || t.closest(".ag-cast") || t.closest(".ag-owner") || t.closest(".ag-sub-grid") || t.closest("model-viewer") || t.closest(".ag-stage"))) return;
       var card = t.closest && t.closest(".ag-card[data-actor]");
       if (!card || !card.parentElement || !card.parentElement.classList.contains("ag-grid")) return;

@@ -42744,13 +42744,16 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
       `, ${actor.origin_type === "civilization" ? "historical figure of " + (actor.civilization || "") : "an original digital actor"}` +
       `. ${actor.persona || ""} ${actor.style_descriptor ? "Style: " + actor.style_descriptor + "." : ""}`;
     const sys = "You are a casting/voice director. Write THREE short spoken lines for a digital actor's audition reel. " +
-      "Reply STRICT JSON: {\"lang\":\"<BCP47 of the lines>\",\"voice_gender\":\"<male|female|neutral — the actor's voice gender>\"," +
+      "Reply STRICT JSON: {\"lang\":\"<BCP47 of the lines>\",\"voice_gender\":\"<male|female|neutral>\"," +
       "\"intro\":\"<≤30 words, first-person self-introduction, in character>\"," +
-      "\"hero\":\"<≤22 words, a noble/heroic line showing the actor as a righteous protagonist>\"," +
-      "\"villain\":\"<≤22 words, a menacing line showing the actor as a compelling antagonist>\"}. " +
-      "voice_gender: infer from the actor's identity — male historical men (Confucius, Einstein…) → male; women → female. " +
-      "Write the lines in the actor's most fitting native language (English for original synthetic actors unless their world implies otherwise; " +
-      "the heritage language for historical figures). NEVER default to Chinese unless the actor is genuinely Chinese. Make them vivid and performable.";
+      "\"hero\":\"<≤22 words, a noble/heroic line as a righteous protagonist>\"," +
+      "\"villain\":\"<≤22 words, a menacing line as a compelling antagonist>\"," +
+      "\"intro_en\":\"<natural English translation of intro>\",\"hero_en\":\"<English translation of hero>\",\"villain_en\":\"<English translation of villain>\"}. " +
+      "voice_gender: infer from identity — male historical men (Confucius, Einstein…) → male; women → female. " +
+      "LANGUAGE RULE (important): for a HISTORICAL/CIVILIZATION figure you MUST write the three lines in that figure's own heritage/native language " +
+      "(Confucius → Chinese, Einstein → German, a Greek philosopher → Greek, Rumi → Persian, an Egyptian → Arabic, etc.) — the actor speaks their MOTHER TONGUE. " +
+      "For an original synthetic actor, use the language implied by their world/style (default English). NEVER default to Chinese unless the actor is genuinely Chinese. " +
+      "Always fill intro_en/hero_en/villain_en with faithful English translations (if the lines are already English, repeat them). Make the lines vivid and performable.";
     const lr = await callLlm({
       messages: [{ role: "system", content: sys }, { role: "user", content: persona }],
       max_tokens: 300, temperature: 0.9, response_format: { type: "json_object" },
@@ -42763,12 +42766,16 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
     const voiceId = actorVoiceId({ gender: gEff, voice_model_ref: actor.voice_model_ref });
     const name = actor.name_zh || actor.name_en;
     // ② 每段合成真人声 + 逐字时间轴(tension: 介绍 0.3 / 正派 0.5 / 反派 0.78)。
+    const langCode = String(script.lang || "en").toLowerCase();
+    const isEnglish = langCode.startsWith("en");
     const clips: Record<string, unknown> = {};
     for (const seg of [["intro", 0.3], ["hero", 0.5], ["villain", 0.78]] as Array<[string, number]>) {
       const text = String(script[seg[0]] || "").trim();
       if (!text) continue;
+      // 非英文母语 → 带上英文翻译供字幕显示; 英文本身则不重复。
+      const textEn = isEnglish ? "" : String(script[seg[0] + "_en"] || "").trim();
       const spoken = await ifilmSpeakTimed(text, name, seg[1], voiceId).catch(() => null);
-      if (spoken) clips[seg[0]] = { text, voice_url: spoken.voice_url, subtitle: spoken.subtitle };
+      if (spoken) clips[seg[0]] = { text, text_en: textEn, voice_url: spoken.voice_url, subtitle: spoken.subtitle };
     }
     if (!Object.keys(clips).length) return res.status(502).json({ ok: false, code: "TTS_ALL_FAILED" });
     const showcase = { lang: script.lang || "en", voice_gender: gEff || null, clips, generated_at: new Date().toISOString() };

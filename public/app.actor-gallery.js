@@ -65,6 +65,7 @@
       "#" + ROOT_ID + " .ag-stage{min-height:44px;margin-top:14px;font-size:26px;font-weight:800;line-height:1.35;letter-spacing:.5px;}" +
       "#" + ROOT_ID + " .ag-stage .tk{color:rgba(255,255,255,.28);transition:color .08s,text-shadow .08s;}" +
       "#" + ROOT_ID + " .ag-stage .tk.on{color:" + GREEN + ";text-shadow:0 0 16px rgba(0,245,160,.7);}" +
+      "#" + ROOT_ID + " .ag-trans{font-size:16px;font-weight:500;color:rgba(207,238,224,.72);margin-top:8px;font-style:italic;}" +
       "#" + ROOT_ID + " .ag-sec{margin-top:30px;}" +
       "#" + ROOT_ID + " .ag-sec h3{font-size:16px;color:" + GREEN + ";margin:0 0 12px;}" +
       "#" + ROOT_ID + " .ag-empty{color:rgba(207,238,224,.55);font-size:14px;padding:8px 0;}";
@@ -275,9 +276,12 @@
     if (!clip || !clip.voice_url) { stage.textContent = "(此段暂缺)"; return; }
     var toks = (clip.subtitle && clip.subtitle.tokens) || [];
     // 逐字 token span(t_start/t_end 毫秒), 播放时按音频时间点亮(卡拉OK)。
-    if (toks.length) {
-      stage.innerHTML = toks.map(function (t, i) { return '<span class="tk" data-i="' + i + '">' + esc(t.char) + '</span>'; }).join("");
-    } else { stage.textContent = clip.text || ""; }
+    var karaoke = toks.length
+      ? toks.map(function (t, i) { return '<span class="tk" data-i="' + i + '">' + esc(t.char) + '</span>'; }).join("")
+      : esc(clip.text || "");
+    // 非英文母语 → 母语原文下方显示英文翻译。
+    stage.innerHTML = '<div class="ag-native">' + karaoke + '</div>' +
+      (clip.text_en ? '<div class="ag-trans">' + esc(clip.text_en) + '</div>' : "");
     var spans = stage.querySelectorAll(".tk");
     btn.classList.add("playing");
     scAudio = new Audio(clip.voice_url);

@@ -18,7 +18,7 @@
   function ensureModelViewer(cb) {
     if (mvLoaded || window.customElements && customElements.get("model-viewer")) { mvLoaded = true; return cb && cb(); }
     var s = document.createElement("script"); s.type = "module";
-    s.src = "https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js";
+    s.src = "/vendor/model-viewer.min.js";   // 自托管(同源, 避 CSP 拦外链)
     s.onload = function () { mvLoaded = true; cb && cb(); };
     s.onerror = function () { cb && cb(); };
     document.head.appendChild(s);
@@ -42,8 +42,10 @@
       "#" + ROOT_ID + " .ag-filters::-webkit-scrollbar{display:none;}" +
       "#" + ROOT_ID + " .ag-chip{flex:0 0 auto;white-space:nowrap;background:rgba(255,255,255,.08);border:1px solid rgba(0,245,160,.22);color:#cfeee0;border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-chip.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";box-shadow:0 0 14px rgba(0,245,160,.4);}" +
-      /* 平台胶囊接管时, 让其凹凸镶嵌样式生效(去掉本地 chip 背景/边框) */
-      "#" + ROOT_ID + " .ag-pillbar .ag-chip{background:transparent;border:none;box-shadow:none;}" +
+      /* 平台胶囊接管时: 去本地 chip 底色; 强制色调宪法(全绿 --ph:155, 激活深墨字, 未激活浅绿字可读) */
+      "#" + ROOT_ID + " .ag-pillbar .ag-chip,#" + ROOT_ID + " .ag-pillbar .ag-sc-btn{background:transparent;border:none;box-shadow:none;}" +
+      "#" + ROOT_ID + " .ag-pillbar [data-pill-key]{--ph:155 !important;--pill-hue:155 !important;color:#bff5e0 !important;font-weight:700;}" +
+      "#" + ROOT_ID + " .ag-pillbar [data-pill-key].active{color:" + INK + " !important;}" +
       "#" + ROOT_ID + " .ag-scroll{flex:1;overflow:auto;padding:16px 26px 40px;}" +
       "#" + ROOT_ID + " .ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px;}" +
       "#" + ROOT_ID + " .ag-card{background:rgba(255,255,255,.04);border:1px solid rgba(0,245,160,.14);border-radius:16px;overflow:hidden;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s;}" +
@@ -95,10 +97,10 @@
       "#" + ROOT_ID + " .ag-expand .ag-3d{margin:0;flex:0 0 auto;}" +
       "#" + ROOT_ID + " .ag-expand .ag-3d model-viewer{max-width:300px;height:300px;}" +
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
-      /* 创建+搜索 组成一个胶囊 */
-      "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.35);border-radius:999px;overflow:hidden;height:44px;}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-create{border:none;border-radius:0;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 18px;white-space:nowrap;}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-search{border:none;background:transparent;min-width:160px;border-radius:0;height:100%;}" +
+      /* 创建+搜索 = 凹凸镶嵌胶囊: Create 是绿实心凸胶囊, 右端圆并【咬进】搜索框(负边距重叠); 搜索框凹容纳 */
+      "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;height:46px;position:relative;}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-create{position:relative;z-index:2;border:none;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 22px;white-space:nowrap;border-radius:999px;margin-right:-23px;box-shadow:0 0 14px rgba(0,245,160,.45);}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#e8fff5;min-width:170px;border-radius:999px;height:100%;padding-left:36px;padding-right:18px;outline:none;}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
@@ -383,33 +385,47 @@
   }
 
   /* ── 开口说话 showcase 播放器 ─────────────────────────────────────── */
-  var scAudio = null, scRAF = 0, scCache = {};
+  var scAudio = null, scRAF = 0, scCache = {}, sc3dBox = null, sc3dSaved = null;
+  function restore3D() {
+    // 恢复被会说话视频替换掉的旋转 3D。
+    if (sc3dBox && sc3dSaved != null) { sc3dBox.innerHTML = sc3dSaved; }
+    sc3dBox = null; sc3dSaved = null;
+  }
   function stopShowcase() {
     if (scAudio) { try { scAudio.pause(); } catch (_e) {} scAudio = null; }
     if (scRAF) { cancelAnimationFrame(scRAF); scRAF = 0; }
+    restore3D();
     var root = document.getElementById(ROOT_ID);
     if (root) root.querySelectorAll(".ag-sc-btn.playing").forEach(function (b) { b.classList.remove("playing"); });
   }
   function playClip(clip, btn, stage) {
     stopShowcase();
-    if (!clip || !clip.voice_url) { stage.textContent = "(此段暂缺)"; return; }
+    if (!clip || !clip.voice_url) { stage.textContent = T("(missing)", "(此段暂缺)"); return; }
     var toks = (clip.subtitle && clip.subtitle.tokens) || [];
     var karaoke = toks.length
       ? toks.map(function (t, i) { return '<span class="tk" data-i="' + i + '">' + esc(t.char) + '</span>'; }).join("")
       : esc(clip.text || "");
-    // 有【会说话视频】→ 播对口型视频(自带声, 时间源=video); 否则照片 + 音轨。
-    var vid = clip.video_url
-      ? '<video class="ag-talkvid" src="' + esc(clip.video_url) + '" playsinline autoplay style="max-width:340px;width:100%;border-radius:14px;display:block;margin-bottom:10px;border:1px solid rgba(0,245,160,.4);"></video>' : "";
-    stage.innerHTML = vid + '<div class="ag-native">' + karaoke + '</div>' +
+    // 字幕(母语+英文)固定在 stage; 会说话视频【就地替换主视觉区的旋转 3D】—— 演员在原位可动可说话。
+    stage.innerHTML = '<div class="ag-native">' + karaoke + '</div>' +
       (clip.text_en ? '<div class="ag-trans">' + esc(clip.text_en) + '</div>' : "");
     var spans = stage.querySelectorAll(".tk");
     btn.classList.add("playing");
     var timeSrc;
-    if (clip.video_url) {
-      var v = stage.querySelector(".ag-talkvid"); scAudio = v;   // 复用停止逻辑(pause)
+    var hero = stage.closest && stage.closest(".ag-hero");
+    var box3d = clip.video_url && hero ? hero.querySelector(".ag-3d") : null;
+    if (clip.video_url && box3d) {
+      sc3dBox = box3d; sc3dSaved = box3d.innerHTML;   // 存旋转3D以便播完恢复
+      box3d.innerHTML = '<video class="ag-talkvid" playsinline autoplay src="' + esc(clip.video_url) + '" style="width:100%;max-width:340px;border-radius:16px;display:block;border:1px solid rgba(0,245,160,.4);"></video>';
+      var v = box3d.querySelector(".ag-talkvid"); scAudio = v;
       v.play().catch(function () {});
       timeSrc = function () { return v.currentTime; };
-      v.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
+      v.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); restore3D(); };
+    } else if (clip.video_url) {
+      // 无 3D 框(如子网格)→ 视频放 stage。
+      stage.insertAdjacentHTML("afterbegin", '<video class="ag-talkvid" playsinline autoplay src="' + esc(clip.video_url) + '" style="width:100%;max-width:340px;border-radius:14px;display:block;margin-bottom:10px;border:1px solid rgba(0,245,160,.4);"></video>');
+      var v2 = stage.querySelector(".ag-talkvid"); scAudio = v2; v2.play().catch(function () {});
+      timeSrc = function () { return v2.currentTime; };
+      v2.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
     } else {
       scAudio = new Audio(clip.voice_url);
       scAudio.play().catch(function () { stage.insertAdjacentHTML("beforeend", '<div class="ag-empty">▶ ' + esc(T("Tap to allow sound", "点一下允许播放声音")) + '</div>'); });
@@ -449,21 +465,27 @@
         })
         .catch(function () { busy(false); });
     }
-    segBtns.forEach(function (btn) {
-      btn.onclick = function () {
-        var seg = btn.getAttribute("data-seg");
-        if (scCache[actorId]) { playSeg(btn, seg); return; }
-        stage.textContent = "⏳ " + T("The actor is preparing…", "演员正在准备…");
-        busy(true);
-        fetch("/api/actors/" + encodeURIComponent(actorId) + "/showcase", { credentials: "include" })
-          .then(function (r) { return r.json(); }).then(function (j) {
-            busy(false);
-            if (j && j.ok && j.data && j.data.showcase) { scCache[actorId] = j.data.showcase; playSeg(btn, seg); }
-            else { stage.textContent = (j && j.code === "TTS_UNAVAILABLE") ? T("Voice feature not configured.", "语音功能未配置。") : T("Failed, retry.", "生成失败,请重试。"); }
-          })
-          .catch(function () { busy(false); stage.textContent = T("Network error, retry.", "网络错误,请重试。"); });
-      };
-    });
+    function trigger(btn, seg) {
+      if (scCache[actorId]) { playSeg(btn, seg); return; }
+      stage.textContent = "⏳ " + T("The actor is preparing…", "演员正在准备…");
+      busy(true);
+      fetch("/api/actors/" + encodeURIComponent(actorId) + "/showcase", { credentials: "include" })
+        .then(function (r) { return r.json(); }).then(function (j) {
+          busy(false);
+          if (j && j.ok && j.data && j.data.showcase) { scCache[actorId] = j.data.showcase; playSeg(btn, seg); }
+          else { stage.textContent = (j && j.code === "TTS_UNAVAILABLE") ? T("Voice feature not configured.", "语音功能未配置。") : T("Failed, retry.", "生成失败,请重试。"); }
+        })
+        .catch(function () { busy(false); stage.textContent = T("Network error, retry.", "网络错误,请重试。"); });
+    }
+    // Intro/Hero/Villain 也套胶囊(凹凸镶嵌绿); pill-bar 接管点击 → 触发对应段。
+    var showcaseBar = scroll.querySelector(".ag-showcase");
+    segBtns.forEach(function (b) { b.setAttribute("data-pill-key", b.getAttribute("data-seg")); });
+    if (showcaseBar && typeof window.cssosMakePillBar === "function") {
+      showcaseBar.classList.add("ag-pillbar");
+      window.cssosMakePillBar(showcaseBar, { mono: true, compact: true, textColor: "dark", onActivate: function (key, pill) { trigger(pill, key); } });
+    } else {
+      segBtns.forEach(function (btn) { btn.onclick = function () { trigger(btn, btn.getAttribute("data-seg")); }; });
+    }
   }
 
   /* 3D 头像: 有 model_3d_url → AR Quick Look「在 AR 中查看」(iPhone/iPad/Vision Pro);
@@ -479,8 +501,8 @@
       box.innerHTML = '<div class="ag-mv-wrap"></div>';
       ensureModelViewer(function () {
         var wrap = box.querySelector(".ag-mv-wrap"); if (!wrap) return;
-        wrap.innerHTML = '<model-viewer src="' + esc(url) + '" ios-src="' + esc(usdz) + '" ' +
-          'camera-controls touch-action="pan-y" auto-rotate auto-rotate-delay="600" rotation-per-second="22deg" ' +
+        wrap.innerHTML = '<model-viewer src="' + esc(url) + '" ios-src="' + esc(usdz) + '" poster="' + esc(a.cover_image || "") + '" ' +
+          'camera-controls touch-action="pan-y" auto-rotate auto-rotate-delay="0" rotation-per-second="24deg" ' +
           'camera-orbit="0deg 82deg 100%" min-camera-orbit="auto 55deg auto" max-camera-orbit="auto 105deg auto" field-of-view="30deg" ' +
           'interaction-prompt="none" ar ar-modes="quick-look webxr" environment-image="neutral" exposure="1.15" shadow-intensity="0.35" ' +
           'style="width:100%;max-width:340px;height:340px;background:radial-gradient(circle at 50% 42%,rgba(0,245,160,.12),transparent 68%);border:1px solid rgba(0,245,160,.35);border-radius:16px;"></model-viewer>';

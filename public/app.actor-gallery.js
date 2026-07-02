@@ -331,7 +331,10 @@
         // 详情【接着上一行】显示在同一框里, 不重复姓名/风格。
         inline.innerHTML =
           '<div class="ag-sub" style="margin-top:8px">' + (a.origin_type === "civilization" ? "🏛 " + esc(T("Legend", "文明演员")) : "✨ " + esc(T("Original", "原创合成"))) +
-            (a.is_premium ? ' · 💎 ' + cents(a.cast_price_cents) : " · " + esc(T("Free", "免费"))) + ' · ▶ ' + (a.cast_count || 0) + "</div>" +
+            (a.is_premium
+              ? ' · 😇 ' + cents(a.cast_price_cents) + ' · 😈 ' + cents(Math.round((a.cast_price_cents || 0) * 1.3))
+              : " · " + esc(T("Free", "免费"))) + ' · ▶ ' + (a.cast_count || 0) + "</div>" +
+            (a.is_premium ? '<div class="ag-sub" style="font-size:12px;opacity:.75">' + esc(T("Villain roles +30% (harder to play, scene-stealers)", "反派角色 +30%(更难演、更抢戏)")) + '</div>' : "") +
           (a.persona ? '<div class="ag-persona">' + esc(a.persona) + '</div>' : "") +
           (tags.length ? '<div class="ag-tags">' + tags.map(function (t) { return '<span class="ag-tag">' + esc(t) + '</span>'; }).join("") + '</div>' : "") +
           '<div class="ag-showcase">' +
@@ -398,6 +401,7 @@
     if (scAudio) { try { scAudio.pause(); } catch (_e) {} scAudio = null; }
     if (scRAF) { cancelAnimationFrame(scRAF); scRAF = 0; }
     restore3D();
+    if (typeof speakStop === "function") speakStop();
     var root = document.getElementById(ROOT_ID);
     if (root) root.querySelectorAll(".ag-sc-btn.playing").forEach(function (b) { b.classList.remove("playing"); });
   }
@@ -433,16 +437,32 @@
       scAudio = new Audio(clip.voice_url);
       scAudio.play().catch(function () { stage.insertAdjacentHTML("beforeend", '<div class="ag-empty">▶ ' + esc(T("Tap to allow sound", "点一下允许播放声音")) + '</div>'); });
       timeSrc = function () { return scAudio ? scAudio.currentTime : 0; };
-      scAudio.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
+      scAudio.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); speakStop(); };
     }
+    // 让 3D「开口说话」: 播音频时, 封面里的 3D 模型跟每个音节【点头+律动】(TripoSR 静态网格不能真动嘴唇,
+    //   用整体律动+旋转造出"在说话"的活感)。纯字幕 token 时间轴驱动, 不接 Web Audio(铁律)。
+    var mv = card ? card.querySelector("[data-cover] model-viewer") : null;
     function tick() {
       if (!scAudio) return;
       var ms = timeSrc() * 1000;
-      for (var i = 0; i < spans.length; i++) { var t = toks[i]; if (!t) continue; spans[i].classList.toggle("on", ms >= t.t_start - 40); }
+      var speaking = false, intensity = 0;
+      for (var i = 0; i < spans.length; i++) {
+        var t = toks[i]; if (!t) continue;
+        var on = ms >= t.t_start - 40; spans[i].classList.toggle("on", on);
+        if (ms >= t.t_start && ms < t.t_end) { speaking = true; intensity = Math.max(intensity, t.emotion_intensity || 0.5); }
+      }
+      if (mv) {
+        // 说到音节时嘴部区域律动(点头 nod + 轻微竖向挤压=口型开合的错觉), 停顿时归位。
+        var ph = ms / 90;   // 音节内快速开合
+        var open = speaking ? (0.5 + 0.5 * Math.abs(Math.sin(ph))) * (0.5 + intensity) : 0;
+        mv.style.transform = "translateY(" + (-open * 4).toFixed(2) + "px) scaleY(" + (1 + open * 0.03).toFixed(3) + ")";
+        mv.style.transformOrigin = "50% 62%";
+      }
       scRAF = requestAnimationFrame(tick);
     }
     scRAF = requestAnimationFrame(tick);
   }
+  function speakStop() { var root = document.getElementById(ROOT_ID); if (!root) return; root.querySelectorAll("[data-cover] model-viewer").forEach(function (m) { m.style.transform = ""; }); }
   // 点「自我介绍/正派/反派」= 数字演员【开口说话的视频】直接播放; 无视频则先生成(懒), 无语音则先生成语音。
   function wireShowcase(scroll, actorId) {
     var stage = scroll.querySelector(".ag-stage");

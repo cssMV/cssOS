@@ -44300,7 +44300,10 @@ app.post("/api/works", async (req, res) => {
           try {
             const ap = await client.query<{ cast_price_cents: number; is_premium: boolean; owner_user_id: string | null; creator_royalty: number }>(
               `SELECT cast_price_cents, is_premium, owner_user_id::text AS owner_user_id, creator_royalty FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [castActorId]);
-            const priceSnap = ap.rows[0]?.is_premium ? Number(ap.rows[0]?.cast_price_cents || 0) : 0;
+            let priceSnap = ap.rows[0]?.is_premium ? Number(ap.rows[0]?.cast_price_cents || 0) : 0;
+            // CSSOS_WAVE_113 — 反派角色 +30% 溢价(更难演、更抢戏)。角色由 __actorRole 传入。
+            const castRole = String(req.body?.__actorRole || "").toLowerCase();
+            if (priceSnap > 0 && castRole === "villain") priceSnap = Math.round(priceSnap * 1.3);
             // CSSOS_WAVE_113 变现真扣费: 溢价演员 → 真扣用户 credits(=cents; admin/staff 自动豁免)。
             //   余额不足 → 不扣、记 cast_price_cents=0(免费出演一次, 不阻断已建档作品), 打日志。
             let chargedCents = 0;

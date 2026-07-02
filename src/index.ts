@@ -42353,6 +42353,238 @@ app.patch("/api/landmark-mv/landmarks/:id", express.json({ limit: "8kb" }), asyn
   }
 });
 
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_113 20260702 — Jing「数字演员(Digital Actor)」Phase 1 API。
+ *   GET  /api/actors                     list (search/civ/origin/premium/tier)
+ *   GET  /api/actors/:id                 single actor profile
+ *   GET  /api/actors/:id/codex           actor + MVs cast + related
+ *   POST /api/actors/:id/cast            cast actor into a work (records casting)
+ * 身份来源铁律: 只 synthetic(AI 原创合成脸)+ civilization(历史文明人物)。
+ * 变现: 平台自营溢价演员(owner=NULL, is_premium/cast_price_cents)。
+ * ═══════════════════════════════════════════════════════════════════ */
+
+// 平台自营【原创合成脸】演员种子(无真人; face_prompt = 锁定身份描述, 生成时复述保持一致)。
+const SEED_DIGITAL_ACTORS: Array<Record<string, unknown>> = [
+  { actor_id: "act-aria-nova", name_zh: "艾莉亚·诺瓦", name_en: "Aria Nova", origin_type: "synthetic",
+    civilization: "Neo-Futurist", persona: "空灵电子歌姬, 银发星瞳", gender: "female", age_range: "young_adult",
+    appearance_tags: ["silver hair","violet eyes","luminous skin"], voice_style: "airy ethereal soprano",
+    face_prompt: "a striking original synthetic woman, long flowing silver hair, luminous violet eyes, porcelain skin, delicate features, subtle cyber-iridescent makeup, consistent identity across shots",
+    style_descriptor: "neo-futurist ethereal pop", tags: ["electronic","ethereal","female"], is_premium: true, cast_price_cents: 199, curation_tier: "S" },
+  { actor_id: "act-kai-ember", name_zh: "凯·煨烬", name_en: "Kai Ember", origin_type: "synthetic",
+    civilization: "Neo-Futurist", persona: "沉郁摇滚浪子, 焦褐乱发", gender: "male", age_range: "adult",
+    appearance_tags: ["tousled auburn hair","amber eyes","stubble"], voice_style: "gravelly warm baritone",
+    face_prompt: "a rugged original synthetic man, tousled dark auburn hair, warm amber eyes, light stubble, strong jaw, weathered handsome face, consistent identity across shots",
+    style_descriptor: "smoky alt-rock", tags: ["rock","male","moody"], is_premium: true, cast_price_cents: 199, curation_tier: "S" },
+  { actor_id: "act-lin-yue", name_zh: "林月", name_en: "Lin Yue", origin_type: "synthetic",
+    civilization: "East Asian", persona: "古典江南才女, 温婉如水", gender: "female", age_range: "young_adult",
+    appearance_tags: ["black hair","almond eyes","hanfu"], voice_style: "gentle guzheng-toned mezzo",
+    face_prompt: "an elegant original synthetic East Asian woman, long straight black hair, gentle almond eyes, soft refined features, classical grace, consistent identity across shots",
+    style_descriptor: "classical Chinese guofeng", tags: ["guofeng","female","classical"], is_premium: true, cast_price_cents: 149, curation_tier: "A" },
+  { actor_id: "act-tariq-sol", name_zh: "塔里克·索尔", name_en: "Tariq Sol", origin_type: "synthetic",
+    civilization: "Afro-Futurist", persona: "灵魂放克舞王, 阳光炽烈", gender: "male", age_range: "adult",
+    appearance_tags: ["dark skin","short curls","bright smile"], voice_style: "silky soulful tenor",
+    face_prompt: "a charismatic original synthetic man with rich dark skin, short curly hair, bright confident smile, warm expressive eyes, consistent identity across shots",
+    style_descriptor: "soul funk afrobeat", tags: ["soul","funk","male"], is_premium: true, cast_price_cents: 149, curation_tier: "A" },
+  { actor_id: "act-mira-frost", name_zh: "米拉·霜", name_en: "Mira Frost", origin_type: "synthetic",
+    civilization: "Nordic", persona: "冷冽北欧民谣吟游者", gender: "female", age_range: "adult",
+    appearance_tags: ["platinum braid","pale grey eyes","freckles"], voice_style: "haunting folk alto",
+    face_prompt: "a serene original synthetic Nordic woman, platinum blonde braided hair, pale grey eyes, light freckles, calm ethereal beauty, consistent identity across shots",
+    style_descriptor: "nordic folk noir", tags: ["folk","female","nordic"], is_premium: false, cast_price_cents: 0, curation_tier: "B" },
+  { actor_id: "act-rafa-luz", name_zh: "拉法·卢兹", name_en: "Rafa Luz", origin_type: "synthetic",
+    civilization: "Latin", persona: "热情拉丁流行王子", gender: "male", age_range: "young_adult",
+    appearance_tags: ["wavy brown hair","hazel eyes","olive skin"], voice_style: "bright passionate tenor",
+    face_prompt: "a handsome original synthetic Latin man, wavy dark brown hair, warm hazel eyes, olive skin, radiant smile, consistent identity across shots",
+    style_descriptor: "latin pop reggaeton", tags: ["latin","pop","male"], is_premium: false, cast_price_cents: 0, curation_tier: "B" },
+];
+
+let digitalActorsSeedLoaded = false;
+async function seedDigitalActorsOnce() {
+  if (digitalActorsSeedLoaded || !DATABASE_URL) return;
+  try {
+    // ① 原创合成脸演员。
+    for (const a of SEED_DIGITAL_ACTORS) {
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO digital_actors (
+              actor_id, name_zh, name_en, origin_type, civilization, persona,
+              gender, age_range, appearance_tags, voice_style, face_prompt,
+              style_descriptor, tags, is_premium, cast_price_cents, license_model,
+              source_status, curation_tier
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'curated',$17)
+           ON CONFLICT (actor_id) DO UPDATE SET
+              name_zh=EXCLUDED.name_zh, name_en=EXCLUDED.name_en, persona=EXCLUDED.persona,
+              gender=EXCLUDED.gender, age_range=EXCLUDED.age_range, appearance_tags=EXCLUDED.appearance_tags,
+              voice_style=EXCLUDED.voice_style, face_prompt=EXCLUDED.face_prompt,
+              style_descriptor=EXCLUDED.style_descriptor, tags=EXCLUDED.tags,
+              is_premium=EXCLUDED.is_premium, cast_price_cents=EXCLUDED.cast_price_cents,
+              license_model=EXCLUDED.license_model, curation_tier=EXCLUDED.curation_tier, updated_at=now()`,
+          [a.actor_id, a.name_zh, a.name_en, a.origin_type, a.civilization, a.persona,
+           a.gender, a.age_range, a.appearance_tags, a.voice_style, a.face_prompt,
+           a.style_descriptor, a.tags, a.is_premium, a.cast_price_cents,
+           (a.is_premium ? "per_cast" : "free"), a.curation_tier],
+        ),
+      );
+    }
+    // ② 文明名角: 从 person_profiles 顶级人物(S 级)映射成 civilization 演员(公共领域历史人物)。
+    //    face_prompt 从人物名+文明+视觉符号拼, 供锁脸; 溢价选角。ON CONFLICT 幂等。
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO digital_actors (
+            actor_id, name_zh, name_en, name_native, name_latin, origin_type,
+            civilization, person_id, persona, cover_image, face_prompt, voice_style,
+            style_descriptor, tags, is_premium, cast_price_cents, license_model,
+            source_status, curation_tier, popularity_score
+         )
+         SELECT 'act-civ-' || p.person_id, p.name_zh, p.name_en, p.name_native, p.name_latin,
+                'civilization', p.civilization, p.person_id,
+                COALESCE(p.core_theme, p.name_en), p.portrait_url,
+                'a dignified period-accurate portrayal of ' || p.name_en || ', ' || p.civilization ||
+                  ' civilization, historically-inspired attire and setting, consistent identity across shots',
+                COALESCE(p.music_style_hint, 'period-appropriate vocal'),
+                p.music_style_hint, ARRAY['civilization', lower(p.civilization)],
+                true, 199, 'per_cast', 'curated', 'S',
+                COALESCE(p.influence_score, 0)
+           FROM person_profiles p
+          WHERE p.curation_tier = 'S' AND COALESCE(p.content_rating,'PG') IN ('PG','PG-13')
+         ON CONFLICT (actor_id) DO UPDATE SET
+            cover_image = EXCLUDED.cover_image,
+            face_prompt = EXCLUDED.face_prompt,
+            popularity_score = EXCLUDED.popularity_score,
+            updated_at = now()`,
+      ),
+    );
+    digitalActorsSeedLoaded = true;
+  } catch (err) {
+    console.warn("[digital-actors] seed failed:", (err as Error)?.message || err);
+  }
+}
+
+app.get("/api/actors", async (req, res) => {
+  noStore(res);
+  try {
+    await seedDigitalActorsOnce();
+    const civ = String(req.query.civ || "").trim();
+    const origin = String(req.query.origin || "").trim().toLowerCase();     // synthetic | civilization
+    const premium = String(req.query.premium || "").trim();                 // "1" = only premium
+    const search = String(req.query.search || "").trim().toLowerCase();
+    const explicitTier = String(req.query.curation_tier ?? "").trim().toUpperCase();
+    const tier = ["S", "A", "B"].includes(explicitTier) ? explicitTier : null;
+    const limit = Math.max(10, Math.min(1000, Number(req.query.limit || 200) || 200));
+    const where: string[] = ["visibility = 'public'"];
+    const params: unknown[] = [];
+    if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
+    if (origin === "synthetic" || origin === "civilization") { params.push(origin); where.push(`origin_type = $${params.length}`); }
+    if (premium === "1") where.push(`is_premium = true`);
+    if (tier) { params.push(tier); where.push(`curation_tier = $${params.length}`); }
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(`(lower(name_zh) LIKE $${params.length} OR lower(name_en) LIKE $${params.length} ` +
+        `OR lower(coalesce(civilization,'')) LIKE $${params.length} OR lower(coalesce(persona,'')) LIKE $${params.length})`);
+    }
+    params.push(limit);
+    const sql = `
+      SELECT actor_id, name_zh, name_en, name_native, name_latin, origin_type,
+             civilization, person_id, persona, cover_image, cover_focal_x, cover_focal_y,
+             gender, age_range, appearance_tags, voice_style, style_descriptor, tags,
+             model_3d_url, is_premium, cast_price_cents, license_model, curation_tier,
+             popularity_score, cast_count
+        FROM digital_actors
+        WHERE ${where.join(" AND ")}
+        ORDER BY (curation_tier='S') DESC, popularity_score DESC, name_en ASC
+        LIMIT $${params.length}`;
+    const r = await withClient((c) => c.query(sql, params));
+    return res.json({ ok: true, data: { actors: r.rows } });
+  } catch (err) {
+    console.warn("[actors] list failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "LIST_FAILED" });
+  }
+});
+
+app.get("/api/actors/:id", async (req, res) => {
+  noStore(res);
+  try {
+    await seedDigitalActorsOnce();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) => c.query(`SELECT * FROM digital_actors WHERE actor_id = $1 LIMIT 1`, [id]));
+    if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, data: { actor: r.rows[0] } });
+  } catch (err) {
+    console.warn("[actors] get failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "GET_FAILED" });
+  }
+});
+
+app.get("/api/actors/:id/codex", async (req, res) => {
+  noStore(res);
+  try {
+    await seedDigitalActorsOnce();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const ar = await withClient((c) => c.query(`SELECT * FROM digital_actors WHERE actor_id = $1 LIMIT 1`, [id]));
+    const actor = ar.rows[0];
+    if (!actor) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    // 该演员出演过的作品(选角记录 JOIN 作品)。
+    const mvsR = await withClient((c) =>
+      c.query(
+        `SELECT ac.casting_id, ac.work_id, ac.role_name, ac.created_by_user_id, ac.created_at,
+                w.title, w.cover_image AS cover_url, w.cover_focal_x, w.cover_focal_y,
+                w.duration_secs, w.work_type
+           FROM actor_castings ac
+           JOIN user_works w ON w.id = ac.work_id
+          WHERE ac.actor_id = $1
+          ORDER BY ac.created_at DESC
+          LIMIT 60`, [id]),
+    );
+    // 同文明其他演员(推荐旁听)。
+    const relR = await withClient((c) =>
+      c.query(
+        `SELECT actor_id, name_zh, name_en, cover_image, origin_type, curation_tier
+           FROM digital_actors
+          WHERE civilization = $1 AND actor_id <> $2 AND visibility = 'public'
+          ORDER BY popularity_score DESC LIMIT 12`,
+        [actor.civilization, id]),
+    );
+    return res.json({ ok: true, data: { actor, mvs: mvsR.rows, related_actors: relR.rows } });
+  } catch (err) {
+    console.warn("[actors] codex failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "CODEX_FAILED" });
+  }
+});
+
+// 选角: 把演员记入某作品。Phase 1 = 记录 + 计费快照 + 人气自增(真扣费/门在选角注入管线接)。
+app.post("/api/actors/:id/cast", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    await seedDigitalActorsOnce();
+    const id = String(req.params.id || "").trim();
+    const body = (req.body || {}) as Record<string, unknown>;
+    const workId = String(body.work_id || "").trim();
+    const roleName = body.role_name ? String(body.role_name).slice(0, 120) : null;
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    if (!/^[0-9a-f-]{8,40}$/i.test(workId)) return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    const ar = await withClient((c) =>
+      c.query<{ cast_price_cents: number; is_premium: boolean; name_en: string }>(
+        `SELECT cast_price_cents, is_premium, name_en FROM digital_actors WHERE actor_id = $1 LIMIT 1`, [id]));
+    const actor = ar.rows[0];
+    if (!actor) return res.status(404).json({ ok: false, code: "ACTOR_NOT_FOUND" });
+    const priceSnapshot = actor.is_premium ? Number(actor.cast_price_cents || 0) : 0;
+    const ins = await withClient((c) =>
+      c.query<{ casting_id: string }>(
+        `INSERT INTO actor_castings (actor_id, work_id, created_by_user_id, role_name, cast_price_cents)
+         VALUES ($1, $2::uuid, $3::uuid, $4, $5) RETURNING casting_id`,
+        [id, workId, user.id, roleName, priceSnapshot]));
+    await withClient((c) =>
+      c.query(`UPDATE digital_actors SET cast_count = cast_count + 1, popularity_score = popularity_score + 1, updated_at = now() WHERE actor_id = $1`, [id]));
+    return res.json({ ok: true, casting_id: ins.rows[0]?.casting_id, actor_id: id, work_id: workId, cast_price_cents: priceSnapshot });
+  } catch (err) {
+    console.warn("[actors] cast failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "CAST_FAILED" });
+  }
+});
+
 /* CSSOS_PIPELINE_DRYRUN 20260507 — Jing
  * End-to-end demo without going through the full creation flow.
  * Hits each engine in sequence so we can verify the whole chain

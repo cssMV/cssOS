@@ -131,8 +131,8 @@
         '<div class="ag-badges"><span class="ag-badge">' + originBadge + '</span>' + priceBadge + '</div>' +
       '</div>' +
       '<div class="ag-meta">' +
-        '<div class="ag-name">' + esc(a.name_zh || a.name_en) + '</div>' +
-        '<div class="ag-sub">' + esc(a.name_en) + (a.civilization ? ' · ' + esc(a.civilization) : "") + '</div>' +
+        '<div class="ag-name">' + esc(a.name_en || a.name_zh) + '</div>' +
+        '<div class="ag-sub">' + (a.name_native && a.name_native !== a.name_en ? esc(a.name_native) + ' · ' : "") + (a.civilization ? esc(a.civilization) : esc(T("Original", "原创合成"))) + '</div>' +
         '<div class="ag-row"><span>' + esc(a.voice_style || a.style_descriptor || "") + '</span></div>' +
         '<div class="ag-inline"></div>' +   // 就地展开: 同一框内接着显示详情(不另开框)
       '</div></div>';

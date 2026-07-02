@@ -42769,7 +42769,27 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
     const cnt = await withClient((c) => c.query<{ n: string }>(`SELECT count(*) n FROM digital_actors WHERE owner_user_id=$1::uuid`, [user.id]));
     if (Number(cnt.rows[0]?.n || 0) >= 20) return res.status(429).json({ ok: false, code: "ACTOR_LIMIT", hint: "每人最多 20 个演员" });
     const actorId = "act-ugc-" + crypto.createHash("sha1").update(String(user.id)).digest("hex").slice(0, 6) + "-" + crypto.randomBytes(4).toString("hex");
-    const facePrompt = `${desc}, an original synthetic character (not a real person), consistent identity across shots`;
+    // CSSOS_WAVE_113 i18n: 输入非拉丁(如中文)→ LLM 生成【英文名 + 英文简介 + 英文风格】当平台默认显示,
+    //   原文留 name_native(母语版)。平台默认语言=英文, 图鉴默认显示英文。
+    let dispNameEn = nameEn, dispNative = "", dispPersona = desc, dispStyle = style;
+    const hasNonLatin = /[^ -ʯ -⁯\s]/.test(nameEn + " " + desc + " " + (style || ""));
+    if (hasNonLatin) {
+      try {
+        const tr = await callLlm({
+          messages: [
+            { role: "system", content: "The platform's default display language is English. A user created a digital actor using a non-English language. Adapt it into English for default display. Reply STRICT JSON: {\"name_en\":\"<English or romanized stage name>\",\"persona_en\":\"<faithful vivid English persona/appearance line, <=110 words>\",\"style_en\":\"<English music/art style, <=60 chars>\"}. Keep it faithful to the original meaning." },
+            { role: "user", content: `name: ${nameEn}\ndescription: ${desc}\nstyle: ${style || ""}` },
+          ], max_tokens: 400, temperature: 0.5, response_format: { type: "json_object" },
+        });
+        if (tr.ok) {
+          const t = JSON.parse(String(tr.content || "{}").trim());
+          if (t.name_en) { dispNative = nameEn; dispNameEn = String(t.name_en).trim().slice(0, 60); }
+          if (t.persona_en) dispPersona = String(t.persona_en).trim().slice(0, 600);
+          if (t.style_en) dispStyle = String(t.style_en).trim().slice(0, 120);
+        }
+      } catch (e) { console.warn("[ugc-actor] i18n translate failed (non-fatal):", (e as Error)?.message || e); }
+    }
+    const facePrompt = `${dispPersona}, an original synthetic character (not a real person), consistent identity across shots`;
     // 生成锁定 headshot(文字→原创合成脸)。
     let coverUrl = "", fx: number | null = null, fy: number | null = null;
     try {
@@ -42786,12 +42806,13 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
     } catch (e) { console.warn("[ugc-actor] face gen failed (non-fatal):", (e as Error)?.message || e); }
     await withClient((c) => c.query(
       `INSERT INTO digital_actors (
-          actor_id, name_zh, name_en, origin_type, civilization, persona, face_prompt,
+          actor_id, name_zh, name_en, name_native, origin_type, civilization, persona, face_prompt,
           gender, style_descriptor, cover_image, cover_focal_x, cover_focal_y, reference_images,
           is_premium, cast_price_cents, license_model, owner_user_id, creator_royalty,
           visibility, source_status, curation_tier
-       ) VALUES ($1,$2,$3,'synthetic',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::uuid,$17,'public','ad_hoc','B')`,
-      [actorId, nameZh, nameEn, world, desc, facePrompt, gender, style, coverUrl || null, fx, fy,
+       ) VALUES ($1,$2,$3,$4,'synthetic',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid,$18,'public','ad_hoc','B')`,
+      // name_en/persona/style = 英文默认显示; name_zh/name_native = 原文母语版
+      [actorId, dispNative || dispNameEn, dispNameEn, dispNative || null, world, dispPersona, facePrompt, gender, dispStyle, coverUrl || null, fx, fy,
        coverUrl ? [coverUrl] : [], priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free", user.id, UGC_CREATOR_ROYALTY]));
     return res.json({ ok: true, actor_id: actorId, cover_image: coverUrl || null, creator_royalty: UGC_CREATOR_ROYALTY });
   } catch (err) {

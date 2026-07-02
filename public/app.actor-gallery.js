@@ -836,9 +836,9 @@
     item.className = "dock-item"; item.type = "button";
     item.setAttribute("data-action", "actors");
     item.setAttribute("data-actions", "click");
-    item.setAttribute("data-tooltip", "Digital Actors");
-    item.setAttribute("aria-label", "Digital Actors");
-    item.innerHTML = '<span class="dock-ico" aria-hidden="true">🎭</span><span class="dock-label">Actors</span>';
+    item.setAttribute("data-tooltip", T("Digital Actors", "数字演员"));
+    item.setAttribute("aria-label", T("Digital Actors", "数字演员"));
+    item.innerHTML = '<span class="dock-ico" aria-hidden="true">🎭</span><span class="dock-label">' + esc(T("Actors", "演员")) + '</span>';
     // 挂在人物 MV(person-mv)之后, 与文明宇宙相邻。
     var ref = dock.querySelector('[data-action="person-mv"], [data-action="cssmv"], [data-action="watch"]');
     if (ref && ref.nextSibling) dock.insertBefore(item, ref.nextSibling); else dock.appendChild(item);

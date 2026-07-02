@@ -78,6 +78,9 @@ struct CSSWork: Codable, Identifiable {
     var audioURL: String?
     /// 封面图。
     var coverURL: String?
+    /// W1526 — Layer 2 封面人脸焦点(0~1 比例; <0 或缺失 = 无脸/未检测, 回落顶部裁剪)。
+    var coverFocalX: Double?
+    var coverFocalY: Double?
     /// 时长(秒)。
     var durationSecs: Double?
     /// 作品类型(single/opera/film/series/triptych…)。CSSOS_WAVE_1227 首页分轨用。
@@ -102,6 +105,8 @@ struct CSSWork: Codable, Identifiable {
         case videoURL = "final_mv_url"
         case audioURL = "audio_track_1_url"
         case coverURL = "cover_image"
+        case coverFocalX = "cover_focal_x"
+        case coverFocalY = "cover_focal_y"
         case durationSecs = "duration_secs"
         case workType = "work_type"
         case createdAt = "created_at"
@@ -111,6 +116,15 @@ struct CSSWork: Codable, Identifiable {
         case listenPriceCents = "current_listen_price_cents"
         case buyoutPriceCents = "current_buyout_price_cents"
         case viewerOrders = "viewer_orders"
+    }
+
+    /// W1526 — 封面裁剪锚点: 有人脸焦点则对准脸(scaledToFill 溢出朝反方向裁, 保住脸),
+    ///   无脸/未检测回落 .top(Layer 1: 人物头通常在上, 顶部对齐防削头)。
+    var coverAlignment: Alignment {
+        guard let fx = coverFocalX, let fy = coverFocalY, fx >= 0, fy >= 0 else { return .top }
+        let h: HorizontalAlignment = fx < 0.34 ? .leading : (fx > 0.66 ? .trailing : .center)
+        let v: VerticalAlignment = fy < 0.34 ? .top : (fy > 0.66 ? .bottom : .center)
+        return Alignment(horizontal: h, vertical: v)
     }
 
     /// 收费(聆听价 > 0)。

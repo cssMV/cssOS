@@ -82,7 +82,8 @@ struct PlayerView: View {
                         AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.black }
                     }
                 }
-                .frame(width: geo.size.width, height: boxH)
+                // W1526 — 封面裁剪锚人脸焦点(视频层无 focal, alignment 对视频无影响=居中铺满)。
+                .frame(width: geo.size.width, height: boxH, alignment: currentPart.coverAlignment)
                 .clipped()
                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
@@ -105,6 +106,26 @@ struct PlayerView: View {
                 }
             }
             .ignoresSafeArea()
+
+            // W1526 — 防盗用/品牌: 左上固定 ♪ + 标题淡角标(照搬 [[antitheft_branding_watermark]] 品牌曝光)。
+            //   常驻但极淡, 不抢戏; 播放中始终署名"这是 cssOS 作品"。
+            VStack {
+                HStack {
+                    HStack(spacing: 8) {
+                        Text("♪").font(.system(size: 26, weight: .heavy))
+                            .foregroundStyle(Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.7))
+                        Text(currentPart.title ?? "cssOS")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
+                    .shadow(color: .black.opacity(0.6), radius: 3)
+                    .padding(.horizontal, 40).padding(.top, 30)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .allowsHitTesting(false)
 
             // W1247 — 大屏逐字情绪字幕(招牌): 音频主时钟驱动, 底部卡拉OK + 中央逐字爆。
             if let sub = subtitle, let ap = audioPlayer {

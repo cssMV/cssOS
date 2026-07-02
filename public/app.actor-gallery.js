@@ -42,6 +42,8 @@
       "#" + ROOT_ID + " .ag-filters::-webkit-scrollbar{display:none;}" +
       "#" + ROOT_ID + " .ag-chip{flex:0 0 auto;white-space:nowrap;background:rgba(255,255,255,.08);border:1px solid rgba(0,245,160,.22);color:#cfeee0;border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-chip.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";box-shadow:0 0 14px rgba(0,245,160,.4);}" +
+      /* 平台胶囊接管时, 让其凹凸镶嵌样式生效(去掉本地 chip 背景/边框) */
+      "#" + ROOT_ID + " .ag-pillbar .ag-chip{background:transparent;border:none;box-shadow:none;}" +
       "#" + ROOT_ID + " .ag-scroll{flex:1;overflow:auto;padding:16px 26px 40px;}" +
       "#" + ROOT_ID + " .ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px;}" +
       "#" + ROOT_ID + " .ag-card{background:rgba(255,255,255,.04);border:1px solid rgba(0,245,160,.14);border-radius:16px;overflow:hidden;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s;}" +
@@ -85,6 +87,18 @@
       "#" + ROOT_ID + " .ag-form{max-width:560px;display:flex;flex-direction:column;gap:14px;}" +
       "#" + ROOT_ID + " .ag-form label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:rgba(207,238,224,.85);}" +
       "#" + ROOT_ID + " .ag-in{background:rgba(0,245,160,.07);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:12px;padding:10px 14px;font-size:15px;font-family:inherit;outline:none;}" +
+      /* 就地展开(不进新层): 全宽卡下方展开区 */
+      "#" + ROOT_ID + " .ag-expand{grid-column:1/-1;background:rgba(0,245,160,.05);border:1px solid rgba(0,245,160,.28);border-radius:18px;padding:20px;margin:4px 0 8px;animation:agfade .25s ease;}" +
+      "@keyframes agfade{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:none;}}" +
+      "#" + ROOT_ID + " .ag-card.expanded{outline:2px solid " + GREEN + ";outline-offset:2px;box-shadow:0 0 22px rgba(0,245,160,.35);}" +
+      "#" + ROOT_ID + " .ag-expand .ag-hero{align-items:flex-start;}" +
+      "#" + ROOT_ID + " .ag-expand .ag-3d{margin:0;flex:0 0 auto;}" +
+      "#" + ROOT_ID + " .ag-expand .ag-3d model-viewer{max-width:300px;height:300px;}" +
+      "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
+      /* 创建+搜索 组成一个胶囊 */
+      "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.35);border-radius:999px;overflow:hidden;height:44px;}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-create{border:none;border-radius:0;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 18px;white-space:nowrap;}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-search{border:none;background:transparent;min-width:160px;border-radius:0;height:100%;}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
@@ -280,23 +294,36 @@
     };
   })();
 
-  function renderDetail(id) {
-    var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
-    if (!scroll) return;
-    scroll.innerHTML = '<div class="ag-detail"><div class="ag-skel" style="height:260px;max-width:260px"></div></div>';
+  // 点封面 → 在本层【就地展开】(不进新层): 卡片下方插入全宽展开区, 显示 3D 正面旋转 + 详情。
+  function toggleExpand(cardEl) {
+    stopShowcase();
+    var id = cardEl.getAttribute("data-actor");
+    var grid = cardEl.parentElement;
+    var existing = grid.querySelector(".ag-expand");
+    var wasThis = existing && existing.getAttribute("data-for") === id;
+    if (existing) existing.remove();
+    grid.querySelectorAll(".ag-card.expanded").forEach(function (c) { c.classList.remove("expanded"); });
+    if (wasThis) return;   // 再点一次 = 收起
+    cardEl.classList.add("expanded");
+    var exp = document.createElement("div");
+    exp.className = "ag-expand"; exp.setAttribute("data-for", id);
+    exp.innerHTML = '<div class="ag-skel" style="height:300px;max-width:300px;margin:0 auto"></div>';
+    // 插到本卡片所在【视觉行末尾】: 放在下一个换行处最简单=直接插到 grid 里紧跟该卡后, grid-column:1/-1 占满整行。
+    if (cardEl.nextSibling) grid.insertBefore(exp, cardEl.nextSibling); else grid.appendChild(exp);
+    exp.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    fillExpand(exp, id);
+  }
+
+  function fillExpand(exp, id) {
     fetch("/api/actors/" + encodeURIComponent(id) + "/codex", { credentials: "include" })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         var d = (j && j.data) || {}, a = d.actor;
-        if (!a) { scroll.innerHTML = '<div class="ag-empty">未找到该演员。</div>'; return; }
-        var foc = (a.cover_focal_x != null && a.cover_focal_x >= 0)
-          ? (a.cover_focal_x * 100).toFixed(1) + "% " + (a.cover_focal_y * 100).toFixed(1) + "%" : "center 30%";
+        if (!a) { exp.innerHTML = '<div class="ag-empty">' + esc(T("Actor not found.", "未找到该演员。")) + '</div>'; return; }
         var tags = [].concat(a.appearance_tags || [], a.tags || []).filter(Boolean).slice(0, 10);
         var mvs = d.mvs || [], rel = d.related_actors || [];
-        var html = '<div class="ag-detail">' +
-          '<button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button>' +
-          '<div class="ag-hero">' +
-            '<div class="ag-hero-cover" style="--foc:' + foc + '">' + coverInner(a, true) + '</div>' +
+        exp.innerHTML = '<div class="ag-hero">' +
+            '<div class="ag-3d"></div>' +                       // 3D 正面旋转直接在此显示
             '<div class="ag-hero-body">' +
               '<div class="ag-hero-name">' + esc(a.name_zh || a.name_en) + '<small>' + esc(a.name_en) + '</small></div>' +
               '<div class="ag-sub" style="margin-top:6px">' + (a.origin_type === "civilization" ? "🏛 " + esc(T("Legend", "文明演员")) : "✨ " + esc(T("Original", "原创合成"))) +
@@ -310,51 +337,49 @@
                 '<button class="ag-sc-btn" data-seg="intro">▶ ' + esc(T("Intro", "自我介绍")) + '</button>' +
                 '<button class="ag-sc-btn" data-seg="hero">😇 ' + esc(T("Hero", "正派")) + '</button>' +
                 '<button class="ag-sc-btn" data-seg="villain">😈 ' + esc(T("Villain", "反派")) + '</button>' +
-                '<button class="ag-sc-btn ag-talk">🎬 ' + esc(T("Make them speak", "让 TA 开口")) + '</button>' +
               '</div>' +
               '<div class="ag-stage" aria-live="polite"></div>' +
-              '<div class="ag-3d"></div>' +
               '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
             '</div>' +
           '</div>' +
           '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + '</h3>' +
-            (mvs.length ? '<div class="ag-grid">' + mvs.map(function (m) {
+            (mvs.length ? '<div class="ag-grid ag-sub-grid">' + mvs.map(function (m) {
               return '<div class="ag-card"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
                 '</div><div class="ag-meta"><div class="ag-name">' + esc(m.title || "Untitled") + '</div>' +
                 (m.role_name ? '<div class="ag-sub">' + esc(m.role_name) + '</div>' : "") + '</div></div>';
             }).join("") + '</div>' : '<div class="ag-empty">' + esc(T("No appearances yet — cast them above for their debut.", "还没有出演作品 — 点上方选角让 TA 首次登场。")) + '</div>') +
-          '</div>' +
-          (rel.length ? '<div class="ag-sec"><h3>' + esc(T("More from this world", "同世界其他演员")) + '</h3><div class="ag-grid">' +
-            rel.map(function (r2) { return actorCard(r2); }).join("") + '</div></div>' : "") +
           '</div>';
-        scroll.innerHTML = html;
-        scroll.querySelector(".ag-back").onclick = function () { stopShowcase(); renderGrid(); };
-        var castBtn = scroll.querySelector(".ag-cast");
+        var castBtn = exp.querySelector(".ag-cast");
         if (castBtn) castBtn.onclick = function () { openCast(a); };
-        wireShowcase(scroll, a.actor_id);
-        render3D(scroll, a);
-        // 作者控件: 我创建的演员 → 版税提示 + 删除。
+        wireShowcase(exp, a.actor_id);
+        render3D(exp, a);
         if (state.ownedSet[a.actor_id]) {
-          var body = scroll.querySelector(".ag-hero-body");
+          var body = exp.querySelector(".ag-hero-body");
           if (body) {
-            var own = document.createElement("div");
-            own.className = "ag-owner";
+            var own = document.createElement("div"); own.className = "ag-owner";
             own.innerHTML = '<span class="ag-tag">🎬 ' + esc(T("Mine", "我的演员")) + ' · ' + esc(T("royalty", "版税")) + ' ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span>' +
               '<button class="ag-del">' + esc(T("Delete", "删除")) + '</button>';
             body.appendChild(own);
             own.querySelector(".ag-del").onclick = function () {
               if (!window.confirm(T("Delete this actor? This cannot be undone.", "删除此演员?此操作不可撤销。"))) return;
               fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "DELETE", credentials: "include" })
-                .then(function (r) { return r.json(); })
-                .then(function (j) {
-                  if (j && j.ok) { delete state.ownedSet[a.actor_id]; state.actors = state.actors.filter(function (x) { return x.actor_id !== a.actor_id; }); renderGrid(); }
-                  else window.alert("删除失败。");
-                }).catch(function () { window.alert("网络错误。"); });
+                .then(function (r) { return r.json(); }).then(function (jj) {
+                  if (jj && jj.ok) { delete state.ownedSet[a.actor_id]; state.actors = state.actors.filter(function (x) { return x.actor_id !== a.actor_id; }); renderGrid(); }
+                  else window.alert(T("Delete failed.", "删除失败。"));
+                }).catch(function () { window.alert(T("Network error.", "网络错误。")); });
             };
           }
         }
       })
-      .catch(function () { scroll.innerHTML = '<div class="ag-empty">加载失败。</div>'; });
+      .catch(function () { exp.innerHTML = '<div class="ag-empty">' + esc(T("Load failed.", "加载失败。")) + '</div>'; });
+  }
+  // 兼容: 创建演员成功后仍可"打开"该演员——重渲染网格并展开对应卡。
+  function renderDetail(id) {
+    renderGrid();
+    setTimeout(function () {
+      var card = document.querySelector("#" + ROOT_ID + ' .ag-card[data-actor="' + id + '"]');
+      if (card) toggleExpand(card);
+    }, 60);
   }
 
   /* ── 开口说话 showcase 播放器 ─────────────────────────────────────── */
@@ -399,44 +424,46 @@
     }
     scRAF = requestAnimationFrame(tick);
   }
+  // 点「自我介绍/正派/反派」= 数字演员【开口说话的视频】直接播放; 无视频则先生成(懒), 无语音则先生成语音。
   function wireShowcase(scroll, actorId) {
     var stage = scroll.querySelector(".ag-stage");
     var segBtns = scroll.querySelectorAll(".ag-sc-btn[data-seg]");
+    function busy(on) { segBtns.forEach(function (b) { b.disabled = on; }); }
+    function playSeg(btn, seg) {
+      var sc = scCache[actorId], clip = sc && sc.clips && sc.clips[seg];
+      if (clip && clip.video_url) { playClip(clip, btn, stage); return; }   // 已有视频 → 直接开口演
+      // 无视频 → 生成对口型视频(用其真人声音轨), 期间先播音频+照片过渡。
+      if (clip && clip.voice_url) playClip(clip, btn, stage);
+      stage.insertAdjacentHTML("afterbegin", '<div class="ag-empty ag-vhint">🎬 ' + esc(T("Bringing them to life…", "正在让 TA 开口…")) + '</div>');
+      busy(true);
+      fetch("/api/actors/" + encodeURIComponent(actorId) + "/talking-video?seg=" + seg, { method: "POST", credentials: "include" })
+        .then(function (r) { return r.json(); }).then(function (j) {
+          busy(false);
+          if (j && j.ok && j.videos && j.videos[seg]) {
+            if (sc && sc.clips && sc.clips[seg]) sc.clips[seg].video_url = j.videos[seg];
+            playClip(sc.clips[seg], btn, stage);   // 用会说话视频重播
+          } else {
+            var h = scroll.querySelector(".ag-vhint");
+            if (h) h.textContent = (j && j.code === "FORBIDDEN") ? T("Talking video not ready yet.", "会说话视频尚未就绪。") : T("Playing voice only for now.", "暂只播语音。");
+          }
+        })
+        .catch(function () { busy(false); });
+    }
     segBtns.forEach(function (btn) {
       btn.onclick = function () {
         var seg = btn.getAttribute("data-seg");
-        function go(sc) { playClip(((sc && sc.clips) || {})[seg], btn, stage); }
-        if (scCache[actorId]) { go(scCache[actorId]); return; }
-        stage.textContent = "⏳ " + T("The actor is preparing lines… (~10-20s first time)", "演员正在准备台词…(首次约 10-20 秒)");
-        segBtns.forEach(function (b) { b.disabled = true; });
+        if (scCache[actorId]) { playSeg(btn, seg); return; }
+        stage.textContent = "⏳ " + T("The actor is preparing…", "演员正在准备…");
+        busy(true);
         fetch("/api/actors/" + encodeURIComponent(actorId) + "/showcase", { credentials: "include" })
-          .then(function (r) { return r.json(); })
-          .then(function (j) {
-            segBtns.forEach(function (b) { b.disabled = false; });
-            if (j && j.ok && j.data && j.data.showcase) { scCache[actorId] = j.data.showcase; go(j.data.showcase); }
-            else { stage.textContent = (j && j.code === "TTS_UNAVAILABLE") ? T("Voice feature not configured.", "语音功能未配置。") : T("Line generation failed, retry.", "台词生成失败,请重试。"); }
+          .then(function (r) { return r.json(); }).then(function (j) {
+            busy(false);
+            if (j && j.ok && j.data && j.data.showcase) { scCache[actorId] = j.data.showcase; playSeg(btn, seg); }
+            else { stage.textContent = (j && j.code === "TTS_UNAVAILABLE") ? T("Voice feature not configured.", "语音功能未配置。") : T("Failed, retry.", "生成失败,请重试。"); }
           })
-          .catch(function () { segBtns.forEach(function (b) { b.disabled = false; }); stage.textContent = "网络错误,请重试。"; });
+          .catch(function () { busy(false); stage.textContent = T("Network error, retry.", "网络错误,请重试。"); });
       };
     });
-    // 🎬 生成会说话视频(对口型 talking-head, omnihuman)。花钱, 懒生成缓存; 完成后 seg 按钮改播视频。
-    var talk = scroll.querySelector(".ag-talk");
-    if (talk) talk.onclick = function () {
-      talk.disabled = true; stage.innerHTML = '<div class="ag-empty">🎬 ' + esc(T("Bringing them to life… (lip-sync video ~1-2 min per line)", "正在让 TA 开口…(对口型视频约 1-2 分钟/段)")) + '</div>';
-      fetch("/api/actors/" + encodeURIComponent(actorId) + "/talking-video?seg=all", { method: "POST", credentials: "include" })
-        .then(function (r) { return r.json(); })
-        .then(function (j) {
-          talk.disabled = false;
-          if (j && j.ok) {
-            // 把 video_url 并回缓存, 提示点段落播放。
-            if (scCache[actorId] && scCache[actorId].clips) {
-              ["intro", "hero", "villain"].forEach(function (s) { if (j.videos && j.videos[s] && scCache[actorId].clips[s]) scCache[actorId].clips[s].video_url = j.videos[s]; });
-            }
-            stage.innerHTML = '<div class="ag-empty">✅ ' + esc(T("Talking video ready! Tap Intro / Hero / Villain above.", "会说话视频已就绪!点上面 自我介绍 / 正派 / 反派。")) + '</div>';
-          } else { stage.innerHTML = '<div class="ag-empty">' + esc((j && j.code === "FORBIDDEN") ? T("Only the actor's creator/admin can generate talking video.", "仅演员作者/管理员可生成会说话视频。") : (j && j.code === "NO_SHOWCASE") ? T("Tap a line button first to generate the voice.", "请先点台词按钮生成语音。") : T("Failed, please retry.", "生成失败,请重试。")) + '</div>'; }
-        })
-        .catch(function () { talk.disabled = false; stage.innerHTML = '<div class="ag-empty">网络错误,请重试。</div>'; });
-    };
   }
 
   /* 3D 头像: 有 model_3d_url → AR Quick Look「在 AR 中查看」(iPhone/iPad/Vision Pro);
@@ -447,16 +474,16 @@
     var owned = state.ownedSet[a.actor_id];
     var url = a.model_3d_url || "";
     if (url && /\.glb($|\?)/i.test(url)) {
-      // GLB → 交互旋转 3D(全平台可拖拽旋转, 像预告页)。iOS AR 用同名 .usdz(若已生成)。
+      // GLB → 正面朝前、自动旋转、可拖拽的 3D(像《时间帝国》预告页)。iOS AR 用同名 .usdz。
       var usdz = url.replace(/\.glb($|\?)/i, ".usdz$1");
-      box.innerHTML = '<div class="ag-empty" style="font-size:12px;margin-bottom:6px">🧊 ' + esc(T("Drag to rotate the 3D head", "拖动旋转 3D 头像")) + '</div>' +
-        '<div class="ag-mv-wrap"></div>';
+      box.innerHTML = '<div class="ag-mv-wrap"></div>';
       ensureModelViewer(function () {
         var wrap = box.querySelector(".ag-mv-wrap"); if (!wrap) return;
         wrap.innerHTML = '<model-viewer src="' + esc(url) + '" ios-src="' + esc(usdz) + '" ' +
-          'camera-controls auto-rotate auto-rotate-delay="0" rotation-per-second="24deg" ' +
-          'interaction-prompt="none" ar ar-modes="quick-look" shadow-intensity="0.9" exposure="1.1" ' +
-          'style="width:100%;max-width:340px;height:340px;background:radial-gradient(circle at 50% 40%,rgba(0,245,160,.10),transparent 70%);border:1px solid rgba(0,245,160,.35);border-radius:16px;"></model-viewer>';
+          'camera-controls touch-action="pan-y" auto-rotate auto-rotate-delay="600" rotation-per-second="22deg" ' +
+          'camera-orbit="0deg 82deg 100%" min-camera-orbit="auto 55deg auto" max-camera-orbit="auto 105deg auto" field-of-view="30deg" ' +
+          'interaction-prompt="none" ar ar-modes="quick-look webxr" environment-image="neutral" exposure="1.15" shadow-intensity="0.35" ' +
+          'style="width:100%;max-width:340px;height:340px;background:radial-gradient(circle at 50% 42%,rgba(0,245,160,.12),transparent 68%);border:1px solid rgba(0,245,160,.35);border-radius:16px;"></model-viewer>';
       });
     } else if (url) {
       // 旧 USDZ(无 GLB): AR Quick Look 兜底(仅 Apple)。
@@ -494,8 +521,10 @@
       '<div class="ag-bar">' +
         '<div class="ag-title">🎭 <b>' + esc(T("Digital Actors", "数字演员")) + '</b></div>' +
         '<div class="ag-spacer"></div>' +
-        '<button class="ag-sc-btn ag-create">＋ ' + esc(T("Create actor", "创建演员")) + '</button>' +
-        '<input class="ag-search" type="search" placeholder="' + esc(T("Search actors / civilization / style…", "搜索演员 / 文明 / 风格…")) + '">' +
+        '<div class="ag-searchcap">' +
+          '<button class="ag-create">＋ ' + esc(T("Create", "创建演员")) + '</button>' +
+          '<input class="ag-search" type="search" placeholder="' + esc(T("Search actors…", "搜索演员 / 文明 / 风格…")) + '">' +
+        '</div>' +
         '<button class="ag-x" aria-label="close">×</button>' +
       '</div>' +
       '<div class="ag-filters" data-pill-bar>' +
@@ -510,18 +539,28 @@
     el.querySelector(".ag-x").onclick = close;
     var createBtn = el.querySelector(".ag-create");
     if (createBtn) createBtn.onclick = function () { renderCreateForm(); };
-    el.querySelectorAll(".ag-chip").forEach(function (c) {
-      c.onclick = function () {
-        state.filter = c.getAttribute("data-f");
-        el.querySelectorAll(".ag-chip").forEach(function (x) { x.classList.toggle("on", x === c); });
-        resetRows(); renderGrid();
-      };
-    });
+    // 5 个筛选 = 凹凸镶嵌胶囊轨道: 优先用平台 cssosMakePillBar(胶囊宪法), 否则退回普通 chip。
+    var filterBar = el.querySelector(".ag-filters");
+    el.querySelectorAll(".ag-chip").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-f")); });
+    function applyFilterKey(key) { state.filter = key; resetRows(); renderGrid(); }
+    if (typeof window.cssosMakePillBar === "function") {
+      filterBar.classList.add("ag-pillbar");
+      window.cssosMakePillBar(filterBar, { mono: true, compact: true, textColor: "dark", activeKey: "all", onActivate: applyFilterKey });
+    } else {
+      el.querySelectorAll(".ag-chip").forEach(function (c) {
+        c.onclick = function () {
+          el.querySelectorAll(".ag-chip").forEach(function (x) { x.classList.toggle("on", x === c); });
+          applyFilterKey(c.getAttribute("data-f"));
+        };
+      });
+    }
     var si = el.querySelector(".ag-search");
     si.oninput = function () { state.search = si.value.trim(); resetRows(); renderGrid(); };
     el.querySelector(".ag-scroll").addEventListener("click", function (e) {
+      // 不拦截展开区内部的交互(按钮/视频/model-viewer)。
+      if (e.target.closest && e.target.closest(".ag-expand")) return;
       var card = e.target.closest && e.target.closest(".ag-card[data-actor]");
-      if (card) renderDetail(card.getAttribute("data-actor"));
+      if (card && card.parentElement && card.parentElement.classList.contains("ag-grid")) toggleExpand(card);
     });
     document.addEventListener("keydown", function onKey(ev) {
       if (ev.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }

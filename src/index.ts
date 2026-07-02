@@ -3217,6 +3217,16 @@ async function atelierTriposrUsdz(imageUrl: string): Promise<Buffer | null> {
     return buf.length > 1000 ? buf : null;
   } catch (e) { console.warn("[ifilm-avatar] tsr err", e instanceof Error ? e.message : String(e)); return null; }
 }
+// GLB 版(网页 <model-viewer> 交互旋转用; USDZ 只能 iOS AR Quick Look 不能网页旋转)。
+async function atelierTriposrGlb(imageUrl: string): Promise<Buffer | null> {
+  const host = (process.env.IFILM_TSR_HOST || "http://10.128.0.5:7897").trim();
+  try {
+    const r = await fetch(`${host}/img2glb`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image_url: imageUrl }) });
+    if (!r.ok) { console.warn("[ifilm-avatar] tsr-glb", r.status); return null; }
+    const buf = Buffer.from(await r.arrayBuffer());
+    return buf.length > 1000 ? buf : null;
+  } catch (e) { console.warn("[ifilm-avatar] tsr-glb err", e instanceof Error ? e.message : String(e)); return null; }
+}
 // GLB → USDZ: 调专用机(cssos-atelier) Blender 无头转换服务(W1485, 不碰生产 api-vm)。
 async function atelierGlb2Usdz(glbUrl: string, keepTextures = false): Promise<Buffer | null> {
   // keepTextures=true → 保留原始带纹理材质(旗舰 Replicate/TRELLIS);false → 灵体白模材质(免费 TripoSR)。
@@ -42867,11 +42877,14 @@ app.post("/api/actors/:id/generate-3d", async (req, res) => {
     if (a.model_3d_url && String(req.query.force || "") !== "1") return res.json({ ok: true, model_3d_url: a.model_3d_url, cached: true });
     const src = a.cover_image || (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "");
     if (!src) return res.status(400).json({ ok: false, code: "NO_SOURCE_IMAGE" });
-    const usdz = await atelierTriposrUsdz(String(src));
-    if (!usdz) return res.status(502).json({ ok: false, code: "TSR_FAILED", hint: "atelier TripoSR :7897 不可达或失败" });
-    const key = `artifacts/actor-3d/${id}.usdz`;
-    await uploadBufferToR2(usdz, key, "model/vnd.usdz+zip");
-    const url = `https://cdn.cssstudio.app/${key}`;
+    // GLB 主(网页 <model-viewer> 可旋转), 顺带出 USDZ(iOS AR Quick Look)。
+    const glb = await atelierTriposrGlb(String(src));
+    if (!glb) return res.status(502).json({ ok: false, code: "TSR_FAILED", hint: "atelier TripoSR :7897 不可达或失败" });
+    const glbKey = `artifacts/actor-3d/${id}.glb`;
+    await uploadBufferToR2(glb, glbKey, "model/gltf-binary");
+    const url = `https://cdn.cssstudio.app/${glbKey}`;
+    // USDZ(AR)尽力而为, 失败不阻断。
+    try { const usdz = await atelierTriposrUsdz(String(src)); if (usdz) await uploadBufferToR2(usdz, `artifacts/actor-3d/${id}.usdz`, "model/vnd.usdz+zip"); } catch {}
     await withClient((c) => c.query(`UPDATE digital_actors SET model_3d_url=$2, updated_at=now() WHERE actor_id=$1`, [id, url]));
     return res.json({ ok: true, model_3d_url: url, cached: false });
   } catch (err) {

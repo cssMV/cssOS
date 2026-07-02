@@ -22,7 +22,8 @@
 
   // CSSOS_WAVE_1170 — Jing 指令: Dock 默认排序。
   //   话筒 / 为你创作 / 作品中心 / 人物MV / MV管线 / 高级设置 / 登录 / 语言 / 订阅 / MV面板, 其余跟在后面。
-  var PRIORITY = ["mic", "foryou", "works", "person-mv", "mv-pipeline", "settings", "login", "language", "subscription", "watch"];
+  // CSSOS_WAVE_113 — Jing: Actors(数字演员)排在 works 之前 = 第 3 位。
+  var PRIORITY = ["mic", "foryou", "actors", "works", "person-mv", "mv-pipeline", "settings", "login", "language", "subscription", "watch"];
   var dock = null;
   var settling = false;
 

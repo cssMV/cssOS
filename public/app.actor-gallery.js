@@ -11,6 +11,18 @@
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var cents = function (c) { return "¢" + Math.round(Number(c || 0)); };
   var hueOf = function (s) { var h = 0; s = String(s || ""); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; };
+  // i18n: 走平台 loginCopy(默认英文), 无则英文兜底(绝不硬编码中文, 见平台 i18n 铁律)。
+  var T = function (en, zh) { try { return (typeof window.loginCopy === "function") ? window.loginCopy(en, zh) : en; } catch (_e) { return en; } };
+  // 懒加载 <model-viewer>(Google 官方 web component, 交互旋转 GLB)。
+  var mvLoaded = false;
+  function ensureModelViewer(cb) {
+    if (mvLoaded || window.customElements && customElements.get("model-viewer")) { mvLoaded = true; return cb && cb(); }
+    var s = document.createElement("script"); s.type = "module";
+    s.src = "https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js";
+    s.onload = function () { mvLoaded = true; cb && cb(); };
+    s.onerror = function () { cb && cb(); };
+    document.head.appendChild(s);
+  }
 
   function ensureStyle() {
     if (document.getElementById(ROOT_ID + "-css")) return;
@@ -25,9 +37,11 @@
       "#" + ROOT_ID + " .ag-search{background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:999px;padding:8px 16px;font-size:14px;min-width:220px;outline:none;}" +
       "#" + ROOT_ID + " .ag-x{background:rgba(255,255,255,.08);border:none;color:#e8fff5;width:38px;height:38px;border-radius:50%;font-size:20px;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-x:hover{background:rgba(255,255,255,.16);}" +
-      "#" + ROOT_ID + " .ag-filters{display:flex;gap:8px;padding:14px 26px 4px;flex-wrap:wrap;}" +
-      "#" + ROOT_ID + " .ag-chip{background:rgba(255,255,255,.08);border:1px solid rgba(0,245,160,.22);color:#cfeee0;border-radius:999px;padding:6px 15px;font-size:13px;font-weight:600;cursor:pointer;}" +
-      "#" + ROOT_ID + " .ag-chip.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
+      /* 5 个筛选=一条胶囊轨道(不断行, 窄屏可横滑), 激活凸绿, 胶囊宪法 */
+      "#" + ROOT_ID + " .ag-filters{display:flex;gap:8px;padding:14px 26px 4px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}" +
+      "#" + ROOT_ID + " .ag-filters::-webkit-scrollbar{display:none;}" +
+      "#" + ROOT_ID + " .ag-chip{flex:0 0 auto;white-space:nowrap;background:rgba(255,255,255,.08);border:1px solid rgba(0,245,160,.22);color:#cfeee0;border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-chip.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";box-shadow:0 0 14px rgba(0,245,160,.4);}" +
       "#" + ROOT_ID + " .ag-scroll{flex:1;overflow:auto;padding:16px 26px 40px;}" +
       "#" + ROOT_ID + " .ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px;}" +
       "#" + ROOT_ID + " .ag-card{background:rgba(255,255,255,.04);border:1px solid rgba(0,245,160,.14);border-radius:16px;overflow:hidden;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s;}" +
@@ -131,14 +145,14 @@
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
     if (!scroll) return;
     var list = applyFilter(state.actors);
-    if (!list.length) { scroll.innerHTML = '<div class="ag-empty">' + (state.actors.length ? "没有匹配的演员。" : "暂无演员。") + '</div>'; return; }
+    if (!list.length) { scroll.innerHTML = '<div class="ag-empty">' + esc(state.actors.length ? T("No matching actors.", "没有匹配的演员。") : T("No actors yet.", "暂无演员。")) + '</div>'; return; }
     // 默认显示一行, 点「加载更多一行」逐行追加。
     var cols = colsFor(scroll);
     var show = Math.min(list.length, Math.max(cols, state.rows * cols));
     var more = list.length - show;
     scroll.innerHTML =
       '<div class="ag-grid">' + list.slice(0, show).map(actorCard).join("") + '</div>' +
-      (more > 0 ? '<div style="text-align:center;margin-top:20px;"><button class="ag-chip ag-more">加载更多一行 ▾（还有 ' + more + ' 位）</button></div>' : "");
+      (more > 0 ? '<div style="text-align:center;margin-top:20px;"><button class="ag-chip ag-more">' + esc(T("Load one more row", "加载更多一行")) + ' ▾ (' + more + ')</button></div>' : "");
     var mb = scroll.querySelector(".ag-more");
     if (mb) mb.onclick = function () { state.rows += 1; renderGrid(); };
   }
@@ -175,16 +189,16 @@
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
     if (!scroll) return;
     scroll.innerHTML = '<div class="ag-detail">' +
-      '<button class="ag-back">‹ 返回图鉴</button>' +
-      '<div class="ag-hero-name" style="margin-bottom:6px">创建你的数字演员</div>' +
-      '<div class="ag-sub" style="margin-bottom:16px">用文字描述外貌气质,我们生成一张【原创合成脸】(不上传真人照片)。你的演员可被他人付费选用,你拿 70% 版税。</div>' +
+      '<button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button>' +
+      '<div class="ag-hero-name" style="margin-bottom:6px">' + esc(T("Create your digital actor", "创建你的数字演员")) + '</div>' +
+      '<div class="ag-sub" style="margin-bottom:16px">' + esc(T("Describe the look in words — we generate an original synthetic face (no real-person photos). Others can cast your actor for a fee and you earn 70% royalty.", "用文字描述外貌气质,我们生成一张【原创合成脸】(不上传真人照片)。你的演员可被他人付费选用,你拿 70% 版税。")) + '</div>' +
       '<div class="ag-form">' +
-        '<label>艺名 *<input class="ag-in" data-k="name_en" maxlength="60" placeholder="如 Nova Sky / 星野" /></label>' +
-        '<label>外貌 / 气质描述 *<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="如: 银发碧眼的未来感歌姬,冷冽而神秘,穿镭射外套"></textarea></label>' +
-        '<label>声线性别<select class="ag-in" data-k="gender"><option value="female">女声</option><option value="male">男声</option><option value="neutral">中性</option></select></label>' +
-        '<label>风格<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="如 synthwave / 古典民谣" /></label>' +
-        '<label>选角价(¢, 0=免费; 他人用你的演员付这个价, 你得 70%)<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="500" value="0" /></label>' +
-        '<button class="ag-cast ag-submit">✨ 生成并发布演员</button>' +
+        '<label>' + esc(T("Stage name *", "艺名 *")) + '<input class="ag-in" data-k="name_en" maxlength="60" placeholder="Nova Sky" /></label>' +
+        '<label>' + esc(T("Appearance / vibe description *", "外貌 / 气质描述 *")) + '<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="' + esc(T("e.g. a silver-haired violet-eyed futuristic diva, cold and mysterious", "如: 银发碧眼的未来感歌姬,冷冽而神秘")) + '"></textarea></label>' +
+        '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
+        '<label>' + esc(T("Style", "风格")) + '<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="synthwave" /></label>' +
+        '<label>' + esc(T("Cast price (¢, 0=free; you earn 70%)", "选角价(¢, 0=免费; 你得 70%)")) + '<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="500" value="0" /></label>' +
+        '<button class="ag-cast ag-submit">✨ ' + esc(T("Generate & publish", "生成并发布演员")) + '</button>' +
         '<div class="ag-form-msg ag-empty"></div>' +
       '</div></div>';
     scroll.querySelector(".ag-back").onclick = function () { renderGrid(); };
@@ -193,9 +207,9 @@
     submit.onclick = function () {
       var payload = {};
       scroll.querySelectorAll(".ag-in").forEach(function (el) { payload[el.getAttribute("data-k")] = el.value; });
-      if (!payload.name_en || String(payload.name_en).trim().length < 2) { msg.textContent = "请填艺名。"; return; }
-      if (!payload.description || String(payload.description).trim().length < 10) { msg.textContent = "描述太短(≥10 字)。"; return; }
-      submit.disabled = true; msg.textContent = "⏳ 正在生成演员的脸…(约 10-20 秒)";
+      if (!payload.name_en || String(payload.name_en).trim().length < 2) { msg.textContent = T("Please enter a stage name.", "请填艺名。"); return; }
+      if (!payload.description || String(payload.description).trim().length < 10) { msg.textContent = T("Description too short (≥10 chars).", "描述太短(≥10 字)。"); return; }
+      submit.disabled = true; msg.textContent = "⏳ " + T("Generating the actor's face… (~10-20s)", "正在生成演员的脸…(约 10-20 秒)");
       fetch("/api/actors", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })
         .then(function (r) { return r.json(); })
         .then(function (j) {
@@ -280,37 +294,37 @@
         var tags = [].concat(a.appearance_tags || [], a.tags || []).filter(Boolean).slice(0, 10);
         var mvs = d.mvs || [], rel = d.related_actors || [];
         var html = '<div class="ag-detail">' +
-          '<button class="ag-back">‹ 返回图鉴</button>' +
+          '<button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button>' +
           '<div class="ag-hero">' +
             '<div class="ag-hero-cover" style="--foc:' + foc + '">' + coverInner(a, true) + '</div>' +
             '<div class="ag-hero-body">' +
               '<div class="ag-hero-name">' + esc(a.name_zh || a.name_en) + '<small>' + esc(a.name_en) + '</small></div>' +
-              '<div class="ag-sub" style="margin-top:6px">' + (a.origin_type === "civilization" ? "🏛 文明演员" : "✨ 原创合成") +
+              '<div class="ag-sub" style="margin-top:6px">' + (a.origin_type === "civilization" ? "🏛 " + esc(T("Legend", "文明演员")) : "✨ " + esc(T("Original", "原创合成"))) +
                 (a.civilization ? " · " + esc(a.civilization) : "") +
-                (a.is_premium ? ' · 💎 ' + cents(a.cast_price_cents) + "/选角" : " · Free") +
-                ' · ▶ ' + (a.cast_count || 0) + " 次出演</div>" +
+                (a.is_premium ? ' · 💎 ' + cents(a.cast_price_cents) : " · " + esc(T("Free", "免费"))) +
+                ' · ▶ ' + (a.cast_count || 0) + "</div>" +
               (a.persona ? '<div class="ag-persona">' + esc(a.persona) + '</div>' : "") +
               (a.voice_style ? '<div class="ag-sub">🎙 ' + esc(a.voice_style) + '</div>' : "") +
               (tags.length ? '<div class="ag-tags">' + tags.map(function (t) { return '<span class="ag-tag">' + esc(t) + '</span>'; }).join("") + '</div>' : "") +
               '<div class="ag-showcase">' +
-                '<button class="ag-sc-btn" data-seg="intro">▶ 自我介绍</button>' +
-                '<button class="ag-sc-btn" data-seg="hero">😇 正派</button>' +
-                '<button class="ag-sc-btn" data-seg="villain">😈 反派</button>' +
-                '<button class="ag-sc-btn ag-talk">🎬 让 TA 开口(视频)</button>' +
+                '<button class="ag-sc-btn" data-seg="intro">▶ ' + esc(T("Intro", "自我介绍")) + '</button>' +
+                '<button class="ag-sc-btn" data-seg="hero">😇 ' + esc(T("Hero", "正派")) + '</button>' +
+                '<button class="ag-sc-btn" data-seg="villain">😈 ' + esc(T("Villain", "反派")) + '</button>' +
+                '<button class="ag-sc-btn ag-talk">🎬 ' + esc(T("Make them speak", "让 TA 开口")) + '</button>' +
               '</div>' +
               '<div class="ag-stage" aria-live="polite"></div>' +
               '<div class="ag-3d"></div>' +
-              '<button class="ag-cast">🎬 选 ' + esc(a.name_zh || a.name_en) + ' 主演</button>' +
+              '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
             '</div>' +
           '</div>' +
-          '<div class="ag-sec"><h3>出演作品</h3>' +
+          '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + '</h3>' +
             (mvs.length ? '<div class="ag-grid">' + mvs.map(function (m) {
               return '<div class="ag-card"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
                 '</div><div class="ag-meta"><div class="ag-name">' + esc(m.title || "Untitled") + '</div>' +
-                (m.role_name ? '<div class="ag-sub">饰 ' + esc(m.role_name) + '</div>' : "") + '</div></div>';
-            }).join("") + '</div>' : '<div class="ag-empty">这位演员还没有出演作品 — 点上方按钮让 TA 首次登场。</div>') +
+                (m.role_name ? '<div class="ag-sub">' + esc(m.role_name) + '</div>' : "") + '</div></div>';
+            }).join("") + '</div>' : '<div class="ag-empty">' + esc(T("No appearances yet — cast them above for their debut.", "还没有出演作品 — 点上方选角让 TA 首次登场。")) + '</div>') +
           '</div>' +
-          (rel.length ? '<div class="ag-sec"><h3>同世界其他演员</h3><div class="ag-grid">' +
+          (rel.length ? '<div class="ag-sec"><h3>' + esc(T("More from this world", "同世界其他演员")) + '</h3><div class="ag-grid">' +
             rel.map(function (r2) { return actorCard(r2); }).join("") + '</div></div>' : "") +
           '</div>';
         scroll.innerHTML = html;
@@ -325,11 +339,11 @@
           if (body) {
             var own = document.createElement("div");
             own.className = "ag-owner";
-            own.innerHTML = '<span class="ag-tag">🎬 我的演员 · 版税 ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span>' +
-              '<button class="ag-del">删除</button>';
+            own.innerHTML = '<span class="ag-tag">🎬 ' + esc(T("Mine", "我的演员")) + ' · ' + esc(T("royalty", "版税")) + ' ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span>' +
+              '<button class="ag-del">' + esc(T("Delete", "删除")) + '</button>';
             body.appendChild(own);
             own.querySelector(".ag-del").onclick = function () {
-              if (!window.confirm("删除演员「" + (a.name_zh || a.name_en) + "」?此操作不可撤销。")) return;
+              if (!window.confirm(T("Delete this actor? This cannot be undone.", "删除此演员?此操作不可撤销。"))) return;
               fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "DELETE", credentials: "include" })
                 .then(function (r) { return r.json(); })
                 .then(function (j) {
@@ -373,7 +387,7 @@
       v.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
     } else {
       scAudio = new Audio(clip.voice_url);
-      scAudio.play().catch(function () { stage.insertAdjacentHTML("beforeend", '<div class="ag-empty">▶ 点一下允许播放声音</div>'); });
+      scAudio.play().catch(function () { stage.insertAdjacentHTML("beforeend", '<div class="ag-empty">▶ ' + esc(T("Tap to allow sound", "点一下允许播放声音")) + '</div>'); });
       timeSrc = function () { return scAudio ? scAudio.currentTime : 0; };
       scAudio.onended = function () { btn.classList.remove("playing"); if (scRAF) cancelAnimationFrame(scRAF); };
     }
@@ -393,14 +407,14 @@
         var seg = btn.getAttribute("data-seg");
         function go(sc) { playClip(((sc && sc.clips) || {})[seg], btn, stage); }
         if (scCache[actorId]) { go(scCache[actorId]); return; }
-        stage.textContent = "⏳ 演员正在准备台词…(首次约 10-20 秒)";
+        stage.textContent = "⏳ " + T("The actor is preparing lines… (~10-20s first time)", "演员正在准备台词…(首次约 10-20 秒)");
         segBtns.forEach(function (b) { b.disabled = true; });
         fetch("/api/actors/" + encodeURIComponent(actorId) + "/showcase", { credentials: "include" })
           .then(function (r) { return r.json(); })
           .then(function (j) {
             segBtns.forEach(function (b) { b.disabled = false; });
             if (j && j.ok && j.data && j.data.showcase) { scCache[actorId] = j.data.showcase; go(j.data.showcase); }
-            else { stage.textContent = (j && j.code === "TTS_UNAVAILABLE") ? "语音功能未配置。" : "台词生成失败,请重试。"; }
+            else { stage.textContent = (j && j.code === "TTS_UNAVAILABLE") ? T("Voice feature not configured.", "语音功能未配置。") : T("Line generation failed, retry.", "台词生成失败,请重试。"); }
           })
           .catch(function () { segBtns.forEach(function (b) { b.disabled = false; }); stage.textContent = "网络错误,请重试。"; });
       };
@@ -408,7 +422,7 @@
     // 🎬 生成会说话视频(对口型 talking-head, omnihuman)。花钱, 懒生成缓存; 完成后 seg 按钮改播视频。
     var talk = scroll.querySelector(".ag-talk");
     if (talk) talk.onclick = function () {
-      talk.disabled = true; stage.innerHTML = '<div class="ag-empty">🎬 正在让 TA 开口…(生成对口型视频约 1-2 分钟, 每段约 $0.2)</div>';
+      talk.disabled = true; stage.innerHTML = '<div class="ag-empty">🎬 ' + esc(T("Bringing them to life… (lip-sync video ~1-2 min per line)", "正在让 TA 开口…(对口型视频约 1-2 分钟/段)")) + '</div>';
       fetch("/api/actors/" + encodeURIComponent(actorId) + "/talking-video?seg=all", { method: "POST", credentials: "include" })
         .then(function (r) { return r.json(); })
         .then(function (j) {
@@ -418,8 +432,8 @@
             if (scCache[actorId] && scCache[actorId].clips) {
               ["intro", "hero", "villain"].forEach(function (s) { if (j.videos && j.videos[s] && scCache[actorId].clips[s]) scCache[actorId].clips[s].video_url = j.videos[s]; });
             }
-            stage.innerHTML = '<div class="ag-empty">✅ 会说话视频已就绪!点上面「自我介绍 / 正派 / 反派」即可看 TA 开口演。</div>';
-          } else { stage.innerHTML = '<div class="ag-empty">' + ((j && j.code === "FORBIDDEN") ? "仅演员作者/管理员可生成会说话视频。" : (j && j.code === "NO_SHOWCASE") ? "请先点一下台词按钮生成语音。" : "生成失败,请重试。") + '</div>'; }
+            stage.innerHTML = '<div class="ag-empty">✅ ' + esc(T("Talking video ready! Tap Intro / Hero / Villain above.", "会说话视频已就绪!点上面 自我介绍 / 正派 / 反派。")) + '</div>';
+          } else { stage.innerHTML = '<div class="ag-empty">' + esc((j && j.code === "FORBIDDEN") ? T("Only the actor's creator/admin can generate talking video.", "仅演员作者/管理员可生成会说话视频。") : (j && j.code === "NO_SHOWCASE") ? T("Tap a line button first to generate the voice.", "请先点台词按钮生成语音。") : T("Failed, please retry.", "生成失败,请重试。")) + '</div>'; }
         })
         .catch(function () { talk.disabled = false; stage.innerHTML = '<div class="ag-empty">网络错误,请重试。</div>'; });
     };
@@ -431,21 +445,34 @@
     var box = scroll.querySelector(".ag-3d");
     if (!box) return;
     var owned = state.ownedSet[a.actor_id];
-    if (a.model_3d_url) {
-      box.innerHTML = '<a class="ag-sc-btn ag-ar" rel="ar" href="' + esc(a.model_3d_url) + '">🧊 在 AR 中查看 3D 头像<img src="' + esc(a.cover_image || "") + '" style="display:none"></a>' +
-        '<div class="ag-empty" style="font-size:12px">在 iPhone / iPad / Vision Pro 上点开即以 AR 立体查看</div>';
+    var url = a.model_3d_url || "";
+    if (url && /\.glb($|\?)/i.test(url)) {
+      // GLB → 交互旋转 3D(全平台可拖拽旋转, 像预告页)。iOS AR 用同名 .usdz(若已生成)。
+      var usdz = url.replace(/\.glb($|\?)/i, ".usdz$1");
+      box.innerHTML = '<div class="ag-empty" style="font-size:12px;margin-bottom:6px">🧊 ' + esc(T("Drag to rotate the 3D head", "拖动旋转 3D 头像")) + '</div>' +
+        '<div class="ag-mv-wrap"></div>';
+      ensureModelViewer(function () {
+        var wrap = box.querySelector(".ag-mv-wrap"); if (!wrap) return;
+        wrap.innerHTML = '<model-viewer src="' + esc(url) + '" ios-src="' + esc(usdz) + '" ' +
+          'camera-controls auto-rotate auto-rotate-delay="0" rotation-per-second="24deg" ' +
+          'interaction-prompt="none" ar ar-modes="quick-look" shadow-intensity="0.9" exposure="1.1" ' +
+          'style="width:100%;max-width:340px;height:340px;background:radial-gradient(circle at 50% 40%,rgba(0,245,160,.10),transparent 70%);border:1px solid rgba(0,245,160,.35);border-radius:16px;"></model-viewer>';
+      });
+    } else if (url) {
+      // 旧 USDZ(无 GLB): AR Quick Look 兜底(仅 Apple)。
+      box.innerHTML = '<a class="ag-sc-btn ag-ar" rel="ar" href="' + esc(url) + '">🧊 ' + esc(T("View in AR", "在 AR 中查看")) + '<img src="' + esc(a.cover_image || "") + '" style="display:none"></a>';
     } else if (owned) {
-      box.innerHTML = '<button class="ag-sc-btn ag-gen3d">🧊 生成 3D 头像（免费）</button><div class="ag-empty ag-3d-msg" style="font-size:12px"></div>';
+      box.innerHTML = '<button class="ag-sc-btn ag-gen3d">🧊 ' + esc(T("Generate 3D head (free)", "生成 3D 头像（免费）")) + '</button><div class="ag-empty ag-3d-msg" style="font-size:12px"></div>';
       var btn = box.querySelector(".ag-gen3d"), msg = box.querySelector(".ag-3d-msg");
       btn.onclick = function () {
-        btn.disabled = true; msg.textContent = "⏳ 正在把 " + (a.name_zh || a.name_en) + " 立体化…(约 20 秒)";
+        btn.disabled = true; msg.textContent = "⏳ " + T("Turning into 3D… (~20s)", "正在立体化…(约 20 秒)");
         fetch("/api/actors/" + encodeURIComponent(a.actor_id) + "/generate-3d", { method: "POST", credentials: "include" })
           .then(function (r) { return r.json(); })
           .then(function (j) {
             if (j && j.ok && j.model_3d_url) { a.model_3d_url = j.model_3d_url; render3D(scroll, a); }
-            else { btn.disabled = false; msg.textContent = (j && j.hint) || "生成失败,请重试。"; }
+            else { btn.disabled = false; msg.textContent = (j && j.hint) || T("Failed, please retry.", "生成失败,请重试。"); }
           })
-          .catch(function () { btn.disabled = false; msg.textContent = "网络错误,请重试。"; });
+          .catch(function () { btn.disabled = false; msg.textContent = T("Network error, retry.", "网络错误,请重试。"); });
       };
     } else { box.innerHTML = ""; }
   }
@@ -465,18 +492,18 @@
     el.id = ROOT_ID;
     el.innerHTML =
       '<div class="ag-bar">' +
-        '<div class="ag-title">🎭 数字<b>演员</b> · Digital Actors</div>' +
+        '<div class="ag-title">🎭 <b>' + esc(T("Digital Actors", "数字演员")) + '</b></div>' +
         '<div class="ag-spacer"></div>' +
-        '<button class="ag-sc-btn ag-create">＋ 创建演员</button>' +
-        '<input class="ag-search" type="search" placeholder="搜索演员 / 文明 / 风格…">' +
+        '<button class="ag-sc-btn ag-create">＋ ' + esc(T("Create actor", "创建演员")) + '</button>' +
+        '<input class="ag-search" type="search" placeholder="' + esc(T("Search actors / civilization / style…", "搜索演员 / 文明 / 风格…")) + '">' +
         '<button class="ag-x" aria-label="close">×</button>' +
       '</div>' +
-      '<div class="ag-filters">' +
-        '<button class="ag-chip on" data-f="all">全部</button>' +
-        '<button class="ag-chip" data-f="synthetic">✨ 原创合成</button>' +
-        '<button class="ag-chip" data-f="civilization">🏛 文明名角</button>' +
-        '<button class="ag-chip" data-f="premium">💎 溢价</button>' +
-        '<button class="ag-chip" data-f="owned">🎬 我的演员</button>' +
+      '<div class="ag-filters" data-pill-bar>' +
+        '<button class="ag-chip on" data-f="all">' + esc(T("All", "全部")) + '</button>' +
+        '<button class="ag-chip" data-f="synthetic">✨ ' + esc(T("Original", "原创合成")) + '</button>' +
+        '<button class="ag-chip" data-f="civilization">🏛 ' + esc(T("Legends", "文明名角")) + '</button>' +
+        '<button class="ag-chip" data-f="premium">💎 ' + esc(T("Premium", "溢价")) + '</button>' +
+        '<button class="ag-chip" data-f="owned">🎬 ' + esc(T("Mine", "我的演员")) + '</button>' +
       '</div>' +
       '<div class="ag-scroll"></div>';
     document.body.appendChild(el);

@@ -42608,8 +42608,12 @@ app.get("/api/actors", async (req, res) => {
       if (viewer?.id) { params.push(viewer.id); where.push(`(visibility = 'public' OR owner_user_id = $${params.length}::uuid)`); }
       else where.push(`visibility = 'public'`);
     }
+    // CSSOS_WAVE_114 法律安全铁律: 真人演员只有【核验通过】才可被他人看见(防冒充/未授权肖像权)。
+    //   本人自己(owner)始终能看自己的(哪怕待核验)。
+    if (viewer?.id) { params.push(viewer.id); where.push(`(is_real_person = false OR verification_status = 'verified' OR owner_user_id = $${params.length}::uuid)`); }
+    else where.push(`(is_real_person = false OR verification_status = 'verified')`);
     if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
-    if (origin === "synthetic" || origin === "civilization") { params.push(origin); where.push(`origin_type = $${params.length}`); }
+    if (origin === "synthetic" || origin === "civilization" || origin === "real_person") { params.push(origin); where.push(`origin_type = $${params.length}`); }
     if (premium === "1") where.push(`is_premium = true`);
     if (tier) { params.push(tier); where.push(`curation_tier = $${params.length}`); }
     if (search) {
@@ -42818,6 +42822,107 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
   } catch (err) {
     console.warn("[actors] create failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "CREATE_FAILED" });
+  }
+});
+
+/* CSSOS_WAVE_114 — 真人数字演员签约(本人知情同意 + 授权 + 待核验)。
+ *   本人(或经纪公司)自助建档: 名字/戏路/定价 + 授权(肖像/声音/歌唱) + 采集引用(转圈视频/说唱样本)。
+ *   建成即 origin=real_person, verification_status=unverified, visibility=private(核验通过前绝不公开)。
+ *   POST /api/actors/real-person   建档 + 记同意
+ *   POST /api/actors/:id/submit-verification  提交核验(→ pending)
+ *   POST /api/admin/actors/:id/verify         admin 审核通过/驳回(→ verified/rejected + 通过则可公开) */
+const REAL_ACTOR_TERMS_VERSION = "1.0";
+app.post("/api/actors/real-person", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const b = (req.body || {}) as Record<string, any>;
+    const nameEn = String(b.name_en || b.name || "").trim().slice(0, 80);
+    if (nameEn.length < 2) return res.status(400).json({ ok: false, code: "NAME_REQUIRED" });
+    // 必须明确授权(至少肖像); 无授权不建档。
+    const rights = { likeness: !!b.grant_likeness, voice: !!b.grant_voice, singing: !!b.grant_singing };
+    if (!rights.likeness) return res.status(400).json({ ok: false, code: "CONSENT_REQUIRED", hint: "必须勾选授权本人肖像用于数字演员" });
+    const roleRange = String(b.role_range || "").trim().slice(0, 300) || null;
+    const priceCents = Math.max(0, Math.min(9999, Math.round(Number(b.cast_price_cents || 0)) || 0));
+    const isPublicFigure = !!b.is_public_figure;
+    const agency = String(b.agency_name || "").trim().slice(0, 120) || null;
+    const gender = ["female", "male", "androgynous", "neutral"].includes(String(b.gender || "").toLowerCase()) ? String(b.gender).toLowerCase() : "neutral";
+    const actorId = "act-real-" + crypto.createHash("sha1").update(String(user.id)).digest("hex").slice(0, 6) + "-" + crypto.randomBytes(4).toString("hex");
+    const likenessCapture = (b.likeness_capture && typeof b.likeness_capture === "object") ? b.likeness_capture : null;
+    const voiceCapture = (b.voice_capture && typeof b.voice_capture === "object") ? b.voice_capture : null;
+    await withClient(async (c) => {
+      await c.query(
+        `INSERT INTO digital_actors (
+            actor_id, name_zh, name_en, origin_type, is_real_person, is_public_figure, agency_name,
+            persona, role_range, gender, owner_user_id, creator_royalty, is_premium, cast_price_cents,
+            license_model, rights_granted, consent_signed_at, verification_status, likeness_capture, voice_capture,
+            visibility, source_status, curation_tier
+         ) VALUES ($1,$2,$3,'real_person',true,$4,$5,$6,$7,$8,$9::uuid,$10,$11,$12,$13,$14,now(),'unverified',$15,$16,'private','ad_hoc','B')`,
+        [actorId, nameEn, nameEn, isPublicFigure, agency, roleRange, roleRange, gender, user.id,
+         0.80, priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free",
+         JSON.stringify({ ...rights, terms_version: REAL_ACTOR_TERMS_VERSION }),
+         likenessCapture ? JSON.stringify(likenessCapture) : null, voiceCapture ? JSON.stringify(voiceCapture) : null]);
+      await c.query(
+        `INSERT INTO actor_consents (actor_id, user_id, action, rights, terms_version, ip_hash)
+         VALUES ($1,$2::uuid,'grant',$3,$4,$5)`,
+        [actorId, user.id, JSON.stringify(rights), REAL_ACTOR_TERMS_VERSION,
+         crypto.createHash("sha1").update(String(req.headers["x-forwarded-for"] || req.ip || "")).digest("hex").slice(0, 16)]);
+    });
+    return res.json({ ok: true, actor_id: actorId, verification_status: "unverified",
+      next: "上传采集资料(转圈视频/多角度照 + 说唱样本)后提交核验; 核验通过才会公开上架。真人演员创作者分成 80%。" });
+  } catch (err) {
+    console.warn("[actors] real-person signup failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "SIGNUP_FAILED" });
+  }
+});
+
+app.post("/api/actors/:id/submit-verification", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const b = (req.body || {}) as Record<string, any>;
+    const owns = await withClient((c) => c.query<{ owner_user_id: string | null; is_real_person: boolean }>(
+      `SELECT owner_user_id::text AS owner_user_id, is_real_person FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const row = owns.rows[0];
+    if (!row || !row.is_real_person) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (String(row.owner_user_id || "") !== String(user.id)) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    await withClient(async (c) => {
+      await c.query(
+        `INSERT INTO actor_verifications (actor_id, user_id, method, provider, provider_ref, liveness_ref, status)
+         VALUES ($1,$2::uuid,$3,$4,$5,$6,'pending')`,
+        [id, user.id, String(b.method || "self_liveness"), b.provider || null, b.provider_ref || null, b.liveness_ref || null]);
+      await c.query(`UPDATE digital_actors SET verification_status='pending', updated_at=now() WHERE actor_id=$1`, [id]);
+    });
+    return res.json({ ok: true, verification_status: "pending", hint: "已提交核验, 通过后自动可公开上架。" });
+  } catch (err) {
+    console.warn("[actors] submit-verification failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "SUBMIT_FAILED" });
+  }
+});
+
+app.post("/api/admin/actors/:id/verify", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    const internalOk = !!CSSOS_INTERNAL_TOKEN && String(req.headers["x-cssos-internal-token"] || "") === CSSOS_INTERNAL_TOKEN;
+    if (!internalOk && (!user || roleForEmail(user.email) !== "admin")) return res.status(403).json({ ok: false, code: "ADMIN_ONLY" });
+    const id = String(req.params.id || "").trim();
+    const approve = String((req.body || {}).decision || "approve") === "approve";
+    const note = String((req.body || {}).note || "").slice(0, 500) || null;
+    await withClient(async (c) => {
+      await c.query(`UPDATE actor_verifications SET status=$2, reviewer_note=$3, reviewed_by=$4, reviewed_at=now() WHERE actor_id=$1 AND status='pending'`,
+        [id, approve ? "approved" : "rejected", note, user?.email || "internal"]);
+      // 通过 → verified; 若作者原意公开则可公开(默认建档后本人再手动 publish)。驳回 → rejected + 保持 private。
+      await c.query(`UPDATE digital_actors SET verification_status=$2, updated_at=now() WHERE actor_id=$1 AND is_real_person=true`,
+        [id, approve ? "verified" : "rejected"]);
+    });
+    return res.json({ ok: true, actor_id: id, verification_status: approve ? "verified" : "rejected" });
+  } catch (err) {
+    console.warn("[actors] verify failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "VERIFY_FAILED" });
   }
 });
 

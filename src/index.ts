@@ -13426,8 +13426,18 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   // civilization 推导 → 雅典娜(古希腊)被写成英文。现在: 只要带了 civilization, 就用
   // civToLanguageServer 推导母语并【覆盖】传入的语言(古希腊→el, 古罗马→la, 古埃及→ar…),
   // 真正用强模型写出人物母语歌词。未带 civilization 时维持原 body.language 行为。
-  const _civForLang = String((body as any).civilization || (body as any).civ || "").trim();
+  let _civForLang = String((body as any).civilization || (body as any).civ || "").trim();
   let language = String((body as any).language || "").trim();
+  // CSSOS_WAVE_113 — 选了数字演员 → 作品用【演员母语】演出(配英文翻译, 与自荐一致): 文明演员给其
+  //   civilization(走 civ→母语), 合成演员给其语言。演员语言权威, 覆盖 UI 语言。
+  {
+    const _actorLangId = String((body as any).actor_id || "").trim();
+    if (_actorLangId) {
+      const al = await actorPerformanceLang(_actorLangId).catch(() => ({} as { language?: string; civilization?: string }));
+      if (al.civilization) _civForLang = al.civilization;
+      else if (al.language) language = al.language;
+    }
+  }
   if (_civForLang) {
     const _civLang = civToLanguageServer(_civForLang);
     if (_civLang) language = _civLang; // civilization is authoritative
@@ -42412,6 +42422,25 @@ async function buildActorPromptSuffix(actorId: string): Promise<string> {
     if (!look) return `, starring the digital actor ${name}`;
     return `, starring ${name} — the same consistent character throughout: ${look}`;
   } catch { return ""; }
+}
+
+// CSSOS_WAVE_113 — 演员【演出母语】: 选了演员, 作品也只用该演员母语演出(配英文翻译), 与自荐一致。
+//   文明演员 → 返其 civilization(交给 civ→母语 逻辑); 合成演员 → 按主名: 含拉丁字母→en, 纯CJK→zh。
+async function actorPerformanceLang(actorId: string): Promise<{ language?: string; civilization?: string }> {
+  const id = String(actorId || "").trim();
+  if (!id || !DATABASE_URL) return {};
+  try {
+    const r = await withClient((c) => c.query<{ origin_type: string; civilization: string | null; name_en: string; name_zh: string }>(
+      `SELECT origin_type, civilization, name_en, name_zh FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const a = r.rows[0]; if (!a) return {};
+    if (a.origin_type === "civilization" && a.civilization) return { civilization: a.civilization };
+    const primary = String(a.name_en || a.name_zh || "");
+    if (/[A-Za-z]/.test(primary)) return { language: "en" };          // 含拉丁字母 → 英文
+    if (/[가-힯]/.test(primary)) return { language: "ko" };
+    if (/[぀-ヿ]/.test(primary)) return { language: "ja" };
+    if (/[一-鿿]/.test(primary)) return { language: "zh" };
+    return { language: "en" };
+  } catch { return {}; }
 }
 
 // CSSOS_WAVE_113 Phase 2 — 参考图【锁脸】: 拿演员锁定参考图(reference_images[0])+ 场景 prompt,

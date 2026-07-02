@@ -42535,12 +42535,21 @@ app.get("/api/actors", async (req, res) => {
     const civ = String(req.query.civ || "").trim();
     const origin = String(req.query.origin || "").trim().toLowerCase();     // synthetic | civilization
     const premium = String(req.query.premium || "").trim();                 // "1" = only premium
+    const ownedOnly = String(req.query.owned || "").trim() === "1";         // "1" = 只看我创建的
+    const viewer = await getSessionUser(req).catch(() => null);
     const search = String(req.query.search || "").trim().toLowerCase();
     const explicitTier = String(req.query.curation_tier ?? "").trim().toUpperCase();
     const tier = ["S", "A", "B"].includes(explicitTier) ? explicitTier : null;
     const limit = Math.max(10, Math.min(1000, Number(req.query.limit || 200) || 200));
-    const where: string[] = ["visibility = 'public'"];
+    const where: string[] = [];
     const params: unknown[] = [];
+    if (ownedOnly && viewer?.id) {
+      params.push(viewer.id); where.push(`owner_user_id = $${params.length}::uuid`);   // 我的演员: 含 private
+    } else {
+      // 公开的 + 自己的(private 也让作者自己看见)。
+      if (viewer?.id) { params.push(viewer.id); where.push(`(visibility = 'public' OR owner_user_id = $${params.length}::uuid)`); }
+      else where.push(`visibility = 'public'`);
+    }
     if (civ) { params.push(civ); where.push(`civilization = $${params.length}`); }
     if (origin === "synthetic" || origin === "civilization") { params.push(origin); where.push(`origin_type = $${params.length}`); }
     if (premium === "1") where.push(`is_premium = true`);
@@ -42556,7 +42565,8 @@ app.get("/api/actors", async (req, res) => {
              civilization, person_id, persona, cover_image, cover_focal_x, cover_focal_y,
              gender, age_range, appearance_tags, voice_style, style_descriptor, tags,
              model_3d_url, is_premium, cast_price_cents, license_model, curation_tier,
-             popularity_score, cast_count
+             popularity_score, cast_count, owner_user_id::text AS owner_user_id, creator_royalty,
+             visibility
         FROM digital_actors
         WHERE ${where.join(" AND ")}
         ORDER BY (curation_tier='S') DESC, popularity_score DESC, name_en ASC
@@ -42651,6 +42661,116 @@ app.post("/api/actors/:id/cast", express.json({ limit: "4kb" }), async (req, res
   } catch (err) {
     console.warn("[actors] cast failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "CAST_FAILED" });
+  }
+});
+
+/* ═══ CSSOS_WAVE_113 Phase 3 — UGC 演员市场 ═══════════════════════════════
+ * 用户创建自己的【合成演员】(从文字描述生成 AI 原创脸, 绝不上传真人照片=堵肖像权源头),
+ * 发布 → 他人付费选用 → 原创者拿版税(creator_royalty, 默认 70%, 平台抽 30%)。
+ *   POST   /api/actors           创建(auth; 生成脸; owner=本人)
+ *   PATCH  /api/actors/:id        改自己的演员(定价/简介/可见性)
+ *   DELETE /api/actors/:id        删自己的演员
+ * 变现: 选角真扣 credits 时按版税分账给创作者(见 works-create 选角段)。 */
+const UGC_CREATOR_ROYALTY = 0.70;   // 创作者分成 70%, 平台 30%
+app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const body = (req.body || {}) as Record<string, unknown>;
+    const nameEn = String(body.name_en || body.name || "").trim().slice(0, 60);
+    const nameZh = String(body.name_zh || nameEn).trim().slice(0, 60);
+    // 描述 = 纯文字(生成 AI 原创合成脸); 铁律: 绝不接受上传真人照片。
+    const desc = String(body.description || body.persona || "").trim().slice(0, 600);
+    if (nameEn.length < 2) return res.status(400).json({ ok: false, code: "NAME_REQUIRED" });
+    if (desc.length < 10) return res.status(400).json({ ok: false, code: "DESCRIPTION_TOO_SHORT", hint: "描述演员的外貌/气质(≥10 字), 我们据此生成一张原创合成脸(不上传真人照片)" });
+    const gender = ["female", "male", "androgynous", "neutral"].includes(String(body.gender || "").toLowerCase())
+      ? String(body.gender).toLowerCase() : "neutral";
+    const style = String(body.style_descriptor || body.style || "").trim().slice(0, 120) || null;
+    const world = String(body.civilization || body.world || "").trim().slice(0, 60) || "Original";
+    const priceCents = Math.max(0, Math.min(500, Math.round(Number(body.cast_price_cents || 0)) || 0));
+    // 每人最多创建 20 个(防刷)。
+    const cnt = await withClient((c) => c.query<{ n: string }>(`SELECT count(*) n FROM digital_actors WHERE owner_user_id=$1::uuid`, [user.id]));
+    if (Number(cnt.rows[0]?.n || 0) >= 20) return res.status(429).json({ ok: false, code: "ACTOR_LIMIT", hint: "每人最多 20 个演员" });
+    const actorId = "act-ugc-" + crypto.createHash("sha1").update(String(user.id)).digest("hex").slice(0, 6) + "-" + crypto.randomBytes(4).toString("hex");
+    const facePrompt = `${desc}, an original synthetic character (not a real person), consistent identity across shots`;
+    // 生成锁定 headshot(文字→原创合成脸)。
+    let coverUrl = "", fx: number | null = null, fy: number | null = null;
+    try {
+      const img = await callImageGen({ prompt: `${facePrompt}, professional character headshot portrait, head and shoulders, front view, clean neutral studio background, cinematic soft lighting, photorealistic, highly detailed`, size: "1024x1024" });
+      if (img?.ok) {
+        coverUrl = img.image_url ? await persistRemoteImageToStable(img.image_url) : (img.image_b64 ? persistBase64Cover(img.image_b64, "ugc-actor") : "");
+        if (coverUrl) {
+          try {
+            const dr = await fetch(`${FACE_FOCAL_URL}/detect`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image_url: coverUrl }), signal: AbortSignal.timeout(30000) });
+            const dj: any = await dr.json(); if (dj?.found) { fx = dj.focal_x; fy = dj.focal_y; }
+          } catch {}
+        }
+      }
+    } catch (e) { console.warn("[ugc-actor] face gen failed (non-fatal):", (e as Error)?.message || e); }
+    await withClient((c) => c.query(
+      `INSERT INTO digital_actors (
+          actor_id, name_zh, name_en, origin_type, civilization, persona, face_prompt,
+          gender, style_descriptor, cover_image, cover_focal_x, cover_focal_y, reference_images,
+          is_premium, cast_price_cents, license_model, owner_user_id, creator_royalty,
+          visibility, source_status, curation_tier
+       ) VALUES ($1,$2,$3,'synthetic',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::uuid,$17,'public','ad_hoc','B')`,
+      [actorId, nameZh, nameEn, world, desc, facePrompt, gender, style, coverUrl || null, fx, fy,
+       coverUrl ? [coverUrl] : [], priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free", user.id, UGC_CREATOR_ROYALTY]));
+    return res.json({ ok: true, actor_id: actorId, cover_image: coverUrl || null, creator_royalty: UGC_CREATOR_ROYALTY });
+  } catch (err) {
+    console.warn("[actors] create failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "CREATE_FAILED" });
+  }
+});
+
+app.patch("/api/actors/:id", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const owns = await withClient((c) => c.query<{ owner_user_id: string | null; source_status: string }>(
+      `SELECT owner_user_id::text AS owner_user_id, source_status FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const row = owns.rows[0];
+    if (!row) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    if (String(row.owner_user_id || "") !== String(user.id)) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    const body = (req.body || {}) as Record<string, unknown>;
+    const sets: string[] = [], params: unknown[] = [];
+    if (body.persona !== undefined) { params.push(String(body.persona).slice(0, 600)); sets.push(`persona=$${params.length}`); }
+    if (body.style_descriptor !== undefined) { params.push(String(body.style_descriptor).slice(0, 120)); sets.push(`style_descriptor=$${params.length}`); }
+    if (body.name_en !== undefined) { params.push(String(body.name_en).slice(0, 60)); sets.push(`name_en=$${params.length}`); }
+    if (body.name_zh !== undefined) { params.push(String(body.name_zh).slice(0, 60)); sets.push(`name_zh=$${params.length}`); }
+    if (body.cast_price_cents !== undefined) {
+      const p = Math.max(0, Math.min(500, Math.round(Number(body.cast_price_cents)) || 0));
+      params.push(p); sets.push(`cast_price_cents=$${params.length}`);
+      params.push(p > 0); sets.push(`is_premium=$${params.length}`);
+      params.push(p > 0 ? "per_cast" : "free"); sets.push(`license_model=$${params.length}`);
+    }
+    if (body.visibility !== undefined && ["public", "private"].includes(String(body.visibility))) { params.push(String(body.visibility)); sets.push(`visibility=$${params.length}`); }
+    if (!sets.length) return res.status(400).json({ ok: false, code: "NO_FIELDS" });
+    params.push(id);
+    await withClient((c) => c.query(`UPDATE digital_actors SET ${sets.join(", ")}, updated_at=now() WHERE actor_id=$${params.length}`, params));
+    return res.json({ ok: true, actor_id: id });
+  } catch (err) {
+    console.warn("[actors] patch failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PATCH_FAILED" });
+  }
+});
+
+app.delete("/api/actors/:id", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const r = await withClient((c) => c.query(
+      `DELETE FROM digital_actors WHERE actor_id=$1 AND owner_user_id=$2::uuid AND source_status='ad_hoc'`, [id, user.id]));
+    if (!r.rowCount) return res.status(403).json({ ok: false, code: "NOT_OWNER_OR_PROTECTED" });
+    return res.json({ ok: true, actor_id: id });
+  } catch (err) {
+    console.warn("[actors] delete failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "DELETE_FAILED" });
   }
 });
 
@@ -44055,8 +44175,8 @@ app.post("/api/works", async (req, res) => {
         const castActorId = String(req.body?.actor_id || req.body?.__actorId || "").trim();
         if (castActorId) {
           try {
-            const ap = await client.query<{ cast_price_cents: number; is_premium: boolean }>(
-              `SELECT cast_price_cents, is_premium FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [castActorId]);
+            const ap = await client.query<{ cast_price_cents: number; is_premium: boolean; owner_user_id: string | null; creator_royalty: number }>(
+              `SELECT cast_price_cents, is_premium, owner_user_id::text AS owner_user_id, creator_royalty FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [castActorId]);
             const priceSnap = ap.rows[0]?.is_premium ? Number(ap.rows[0]?.cast_price_cents || 0) : 0;
             // CSSOS_WAVE_113 变现真扣费: 溢价演员 → 真扣用户 credits(=cents; admin/staff 自动豁免)。
             //   余额不足 → 不扣、记 cast_price_cents=0(免费出演一次, 不阻断已建档作品), 打日志。
@@ -44065,6 +44185,15 @@ app.post("/api/works", async (req, res) => {
               const d = await debitCredits(user.id, priceSnap, "actor_cast:" + castActorId, { work_id: workId, actor_id: castActorId });
               if (d.ok) chargedCents = priceSnap;
               else console.warn(`[works-create] actor cast unpaid (insufficient credits, recorded free): ${castActorId} need=${priceSnap} bal=${d.balance}`);
+            }
+            // Phase 3 UGC 版税分账: 演员属他人(非自己选自己)且真扣到钱 → 给原创者发版税(creator_royalty)。
+            const ownerId = String(ap.rows[0]?.owner_user_id || "");
+            if (chargedCents > 0 && ownerId && ownerId !== String(user.id)) {
+              const royalty = Math.floor(chargedCents * Math.max(0, Math.min(1, Number(ap.rows[0]?.creator_royalty || 0))));
+              if (royalty > 0) {
+                try { await creditUserBalance(ownerId, royalty, "actor_royalty:" + castActorId, { work_id: workId, actor_id: castActorId, from_user: user.id, gross_cents: chargedCents }); }
+                catch (rErr) { console.warn("[works-create] royalty payout failed (non-fatal):", (rErr as Error)?.message || rErr); }
+              }
             }
             await client.query(
               `INSERT INTO actor_castings (actor_id, work_id, created_by_user_id, role_name, cast_price_cents)

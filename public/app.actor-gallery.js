@@ -68,11 +68,16 @@
       "#" + ROOT_ID + " .ag-trans{font-size:16px;font-weight:500;color:rgba(207,238,224,.72);margin-top:8px;font-style:italic;}" +
       "#" + ROOT_ID + " .ag-sec{margin-top:30px;}" +
       "#" + ROOT_ID + " .ag-sec h3{font-size:16px;color:" + GREEN + ";margin:0 0 12px;}" +
+      "#" + ROOT_ID + " .ag-form{max-width:560px;display:flex;flex-direction:column;gap:14px;}" +
+      "#" + ROOT_ID + " .ag-form label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:rgba(207,238,224,.85);}" +
+      "#" + ROOT_ID + " .ag-in{background:rgba(0,245,160,.07);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:12px;padding:10px 14px;font-size:15px;font-family:inherit;outline:none;}" +
+      "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
+      "#" + ROOT_ID + " .ag-del{background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.5);color:#ffb3b3;border-radius:999px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-empty{color:rgba(207,238,224,.55);font-size:14px;padding:8px 0;}";
     document.head.appendChild(st);
   }
 
-  var state = { filter: "all", search: "", actors: [], rows: 1 };
+  var state = { filter: "all", search: "", actors: [], rows: 1, ownedSet: {} };
 
   function coverInner(a, big) {
     var foc = (a.cover_focal_x != null && a.cover_focal_x >= 0)
@@ -105,6 +110,7 @@
       if (state.filter === "synthetic" && a.origin_type !== "synthetic") return false;
       if (state.filter === "civilization" && a.origin_type !== "civilization") return false;
       if (state.filter === "premium" && !a.is_premium) return false;
+      if (state.filter === "owned" && !state.ownedSet[a.actor_id]) return false;
       if (state.search) {
         var q = state.search.toLowerCase();
         var hay = (a.name_zh + " " + a.name_en + " " + (a.civilization || "") + " " + (a.persona || "")).toLowerCase();
@@ -154,6 +160,55 @@
       .catch(function () {
         if (scroll) scroll.innerHTML = '<div class="ag-empty">加载失败。<button class="ag-chip" onclick="cssosOpenActorGallery(1)">重试</button></div>';
       });
+    // 我创建的演员 id 集合(供「我的演员」筛选 + 作者控件)。
+    fetch("/api/actors?owned=1&limit=100", { credentials: "include" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var set = {}; ((j && j.data && j.data.actors) || []).forEach(function (a) { set[a.actor_id] = true; });
+        state.ownedSet = set;
+      }).catch(function () {});
+  }
+
+  function renderCreateForm() {
+    var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
+    if (!scroll) return;
+    scroll.innerHTML = '<div class="ag-detail">' +
+      '<button class="ag-back">‹ 返回图鉴</button>' +
+      '<div class="ag-hero-name" style="margin-bottom:6px">创建你的数字演员</div>' +
+      '<div class="ag-sub" style="margin-bottom:16px">用文字描述外貌气质,我们生成一张【原创合成脸】(不上传真人照片)。你的演员可被他人付费选用,你拿 70% 版税。</div>' +
+      '<div class="ag-form">' +
+        '<label>艺名 *<input class="ag-in" data-k="name_en" maxlength="60" placeholder="如 Nova Sky / 星野" /></label>' +
+        '<label>外貌 / 气质描述 *<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="如: 银发碧眼的未来感歌姬,冷冽而神秘,穿镭射外套"></textarea></label>' +
+        '<label>声线性别<select class="ag-in" data-k="gender"><option value="female">女声</option><option value="male">男声</option><option value="neutral">中性</option></select></label>' +
+        '<label>风格<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="如 synthwave / 古典民谣" /></label>' +
+        '<label>选角价(¢, 0=免费; 他人用你的演员付这个价, 你得 70%)<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="500" value="0" /></label>' +
+        '<button class="ag-cast ag-submit">✨ 生成并发布演员</button>' +
+        '<div class="ag-form-msg ag-empty"></div>' +
+      '</div></div>';
+    scroll.querySelector(".ag-back").onclick = function () { renderGrid(); };
+    var submit = scroll.querySelector(".ag-submit");
+    var msg = scroll.querySelector(".ag-form-msg");
+    submit.onclick = function () {
+      var payload = {};
+      scroll.querySelectorAll(".ag-in").forEach(function (el) { payload[el.getAttribute("data-k")] = el.value; });
+      if (!payload.name_en || String(payload.name_en).trim().length < 2) { msg.textContent = "请填艺名。"; return; }
+      if (!payload.description || String(payload.description).trim().length < 10) { msg.textContent = "描述太短(≥10 字)。"; return; }
+      submit.disabled = true; msg.textContent = "⏳ 正在生成演员的脸…(约 10-20 秒)";
+      fetch("/api/actors", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          submit.disabled = false;
+          if (j && j.ok) {
+            state.ownedSet[j.actor_id] = true;
+            // 静默刷新演员列表(让新演员出现在图鉴), 不打断详情展示。
+            fetch("/api/actors?limit=500", { credentials: "include" }).then(function (r) { return r.json(); })
+              .then(function (jj) { state.actors = (jj && jj.data && jj.data.actors) || state.actors; }).catch(function () {});
+            renderDetail(j.actor_id);
+          }
+          else { msg.textContent = (j && j.hint) || "创建失败,请重试。"; }
+        })
+        .catch(function () { submit.disabled = false; msg.textContent = "网络错误,请重试。"; });
+    };
   }
 
   function openCast(actor) {
@@ -259,6 +314,26 @@
         var castBtn = scroll.querySelector(".ag-cast");
         if (castBtn) castBtn.onclick = function () { openCast(a); };
         wireShowcase(scroll, a.actor_id);
+        // 作者控件: 我创建的演员 → 版税提示 + 删除。
+        if (state.ownedSet[a.actor_id]) {
+          var body = scroll.querySelector(".ag-hero-body");
+          if (body) {
+            var own = document.createElement("div");
+            own.className = "ag-owner";
+            own.innerHTML = '<span class="ag-tag">🎬 我的演员 · 版税 ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span>' +
+              '<button class="ag-del">删除</button>';
+            body.appendChild(own);
+            own.querySelector(".ag-del").onclick = function () {
+              if (!window.confirm("删除演员「" + (a.name_zh || a.name_en) + "」?此操作不可撤销。")) return;
+              fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "DELETE", credentials: "include" })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                  if (j && j.ok) { delete state.ownedSet[a.actor_id]; state.actors = state.actors.filter(function (x) { return x.actor_id !== a.actor_id; }); renderGrid(); }
+                  else window.alert("删除失败。");
+                }).catch(function () { window.alert("网络错误。"); });
+            };
+          }
+        }
       })
       .catch(function () { scroll.innerHTML = '<div class="ag-empty">加载失败。</div>'; });
   }
@@ -340,6 +415,7 @@
       '<div class="ag-bar">' +
         '<div class="ag-title">🎭 数字<b>演员</b> · Digital Actors</div>' +
         '<div class="ag-spacer"></div>' +
+        '<button class="ag-sc-btn ag-create">＋ 创建演员</button>' +
         '<input class="ag-search" type="search" placeholder="搜索演员 / 文明 / 风格…">' +
         '<button class="ag-x" aria-label="close">×</button>' +
       '</div>' +
@@ -348,10 +424,13 @@
         '<button class="ag-chip" data-f="synthetic">✨ 原创合成</button>' +
         '<button class="ag-chip" data-f="civilization">🏛 文明名角</button>' +
         '<button class="ag-chip" data-f="premium">💎 溢价</button>' +
+        '<button class="ag-chip" data-f="owned">🎬 我的演员</button>' +
       '</div>' +
       '<div class="ag-scroll"></div>';
     document.body.appendChild(el);
     el.querySelector(".ag-x").onclick = close;
+    var createBtn = el.querySelector(".ag-create");
+    if (createBtn) createBtn.onclick = function () { renderCreateForm(); };
     el.querySelectorAll(".ag-chip").forEach(function (c) {
       c.onclick = function () {
         state.filter = c.getAttribute("data-f");

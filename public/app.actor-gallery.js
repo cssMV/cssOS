@@ -272,7 +272,7 @@
     scroll.innerHTML = '<div class="ag-detail">' +
       '<button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button>' +
       '<div class="ag-hero-name" style="margin-bottom:6px">🙋 ' + esc(T("Become a real digital actor", "签约成为真人数字演员")) + '</div>' +
-      '<div class="ag-sub" style="margin-bottom:14px;max-width:620px">' + esc(T("Sign yourself up with your own likeness & voice. Self-cast is free; when others cast you, you earn 80% (platform 20%). Nothing goes public until identity is verified.", "用你本人的肖像和声音签约。自选自演免费;别人选用你,你拿 80%(平台 20%)。身份核验通过前绝不公开。")) + '</div>' +
+      '<div class="ag-sub" style="margin-bottom:14px;max-width:640px">' + esc(T("Clone yourself into a digital actor — no scheduling limits, works 24/7. Use yourself free; when others cast you, you earn 80% (platform 20%). You watch every work you're in for free, and can report or revoke anytime. Verified before going public.", "把自己变成数字演员 —— 分身有术、不受档期阻拦、24/7 接戏。自选自演免费;别人选用你,你拿 80%(平台 20%)。你参演的每支作品都免费欣赏,随时可举报/撤权。核验通过才公开。")) + '</div>' +
       '<div class="ag-form">' +
         '<label>' + esc(T("Your name / stage name *", "你的名字 / 艺名 *")) + '<input class="ag-in" data-k="name_en" maxlength="80" /></label>' +
         '<label>' + esc(T("Your role range (what you like to play)", "你的戏路(擅长/想演的角色)")) + '<textarea class="ag-in" data-k="role_range" maxlength="300" rows="2"></textarea></label>' +

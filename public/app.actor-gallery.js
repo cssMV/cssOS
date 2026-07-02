@@ -89,18 +89,17 @@
       "#" + ROOT_ID + " .ag-form{max-width:560px;display:flex;flex-direction:column;gap:14px;}" +
       "#" + ROOT_ID + " .ag-form label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:rgba(207,238,224,.85);}" +
       "#" + ROOT_ID + " .ag-in{background:rgba(0,245,160,.07);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:12px;padding:10px 14px;font-size:15px;font-family:inherit;outline:none;}" +
-      /* 就地展开(不进新层): 全宽卡下方展开区 */
-      "#" + ROOT_ID + " .ag-expand{grid-column:1/-1;background:rgba(0,245,160,.05);border:1px solid rgba(0,245,160,.28);border-radius:18px;padding:20px;margin:4px 0 8px;animation:agfade .25s ease;}" +
-      "@keyframes agfade{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:none;}}" +
-      "#" + ROOT_ID + " .ag-card.expanded{outline:2px solid " + GREEN + ";outline-offset:2px;box-shadow:0 0 22px rgba(0,245,160,.35);}" +
-      "#" + ROOT_ID + " .ag-expand .ag-hero{align-items:flex-start;}" +
-      "#" + ROOT_ID + " .ag-expand .ag-3d{margin:0;flex:0 0 auto;}" +
-      "#" + ROOT_ID + " .ag-expand .ag-3d model-viewer{max-width:300px;height:300px;}" +
+      /* 就地展开 = 同一个框: 展开的卡横跨整行, 封面变大(显 3D/视频), 详情接着信息往下排 */
+      "#" + ROOT_ID + " .ag-card.expanded{grid-column:1/-1;border-color:" + GREEN + ";box-shadow:0 0 26px rgba(0,245,160,.4);}" +
+      "#" + ROOT_ID + " .ag-card.expanded .ag-cover{aspect-ratio:auto;height:min(58vh,420px);cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-card.expanded .ag-cover .ag-mv-wrap,#" + ROOT_ID + " .ag-card.expanded .ag-cover model-viewer{width:100%;height:100%;}" +
+      "#" + ROOT_ID + " .ag-inline{animation:agfade .22s ease;}" +
+      "@keyframes agfade{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}" +
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
-      /* 创建+搜索 = 凹凸镶嵌胶囊: Create 是绿实心凸胶囊, 右端圆并【咬进】搜索框(负边距重叠); 搜索框凹容纳 */
-      "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;height:46px;position:relative;}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-create{position:relative;z-index:2;border:none;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 22px;white-space:nowrap;border-radius:999px;margin-right:-23px;box-shadow:0 0 14px rgba(0,245,160,.45);}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#e8fff5;min-width:170px;border-radius:999px;height:100%;padding-left:36px;padding-right:18px;outline:none;}" +
+      /* 创建+搜索 = 一个胶囊(两头圆, 共用轮廓): Create 绿填充左段, 搜索透明右段 */
+      "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;height:46px;border:1px solid rgba(0,245,160,.4);border-radius:999px;overflow:hidden;background:rgba(0,245,160,.06);box-shadow:0 0 14px rgba(0,245,160,.18);}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-create{border:none;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 22px;white-space:nowrap;border-radius:999px 0 0 999px;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-search{border:none;background:transparent;color:#e8fff5;min-width:150px;padding:0 18px;border-radius:0 999px 999px 0;outline:none;font-size:15px;}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
@@ -127,13 +126,14 @@
     var originBadge = a.origin_type === "civilization" ? "🏛" : "✨";
     var priceBadge = a.is_premium ? '<span class="ag-badge prem">💎 ' + cents(a.cast_price_cents) + '</span>' : '<span class="ag-badge">Free</span>';
     return '<div class="ag-card" data-actor="' + esc(a.actor_id) + '">' +
-      '<div class="ag-cover">' + coverInner(a, false) +
+      '<div class="ag-cover" data-cover>' + coverInner(a, false) +
         '<div class="ag-badges"><span class="ag-badge">' + originBadge + '</span>' + priceBadge + '</div>' +
       '</div>' +
       '<div class="ag-meta">' +
         '<div class="ag-name">' + esc(a.name_zh || a.name_en) + '</div>' +
         '<div class="ag-sub">' + esc(a.name_en) + (a.civilization ? ' · ' + esc(a.civilization) : "") + '</div>' +
         '<div class="ag-row"><span>' + esc(a.voice_style || a.style_descriptor || "") + '</span></div>' +
+        '<div class="ag-inline"></div>' +   // 就地展开: 同一框内接着显示详情(不另开框)
       '</div></div>';
   }
 
@@ -296,85 +296,88 @@
     };
   })();
 
-  // 点封面 → 在本层【就地展开】(不进新层): 卡片下方插入全宽展开区, 显示 3D 正面旋转 + 详情。
+  // 点卡片 → 在【同一个框内】接着展开(不另开框, 不重复标题): 详情填进卡片的 .ag-inline。
   function toggleExpand(cardEl) {
     stopShowcase();
     var id = cardEl.getAttribute("data-actor");
     var grid = cardEl.parentElement;
-    var existing = grid.querySelector(".ag-expand");
-    var wasThis = existing && existing.getAttribute("data-for") === id;
-    if (existing) existing.remove();
-    grid.querySelectorAll(".ag-card.expanded").forEach(function (c) { c.classList.remove("expanded"); });
+    var wasThis = cardEl.classList.contains("expanded");
+    // 先收起所有(含把封面切回 2D)。
+    grid.querySelectorAll(".ag-card.expanded").forEach(function (c) {
+      c.classList.remove("expanded");
+      var inl = c.querySelector(".ag-inline"); if (inl) inl.innerHTML = "";
+      restoreCover2D(c);
+    });
     if (wasThis) return;   // 再点一次 = 收起
     cardEl.classList.add("expanded");
-    var exp = document.createElement("div");
-    exp.className = "ag-expand"; exp.setAttribute("data-for", id);
-    exp.innerHTML = '<div class="ag-skel" style="height:300px;max-width:300px;margin:0 auto"></div>';
-    // 插到本卡片所在【视觉行末尾】: 放在下一个换行处最简单=直接插到 grid 里紧跟该卡后, grid-column:1/-1 占满整行。
-    if (cardEl.nextSibling) grid.insertBefore(exp, cardEl.nextSibling); else grid.appendChild(exp);
-    exp.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    fillExpand(exp, id);
+    var inline = cardEl.querySelector(".ag-inline");
+    inline.innerHTML = '<div class="ag-skel" style="height:120px;margin-top:10px"></div>';
+    cardEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    fillExpand(cardEl, id);
   }
-
-  function fillExpand(exp, id) {
+  function restoreCover2D(cardEl) {
+    var cov = cardEl.querySelector("[data-cover]");
+    if (cov && cov.__cover2d != null) { cov.innerHTML = cov.__cover2d; cov.__cover2d = null; }
+  }
+  function fillExpand(cardEl, id) {
+    var inline = cardEl.querySelector(".ag-inline");
     fetch("/api/actors/" + encodeURIComponent(id) + "/codex", { credentials: "include" })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         var d = (j && j.data) || {}, a = d.actor;
-        if (!a) { exp.innerHTML = '<div class="ag-empty">' + esc(T("Actor not found.", "未找到该演员。")) + '</div>'; return; }
-        var tags = [].concat(a.appearance_tags || [], a.tags || []).filter(Boolean).slice(0, 10);
-        var mvs = d.mvs || [], rel = d.related_actors || [];
-        exp.innerHTML = '<div class="ag-hero">' +
-            '<div class="ag-3d"></div>' +                       // 3D 正面旋转直接在此显示
-            '<div class="ag-hero-body">' +
-              '<div class="ag-hero-name">' + esc(a.name_zh || a.name_en) + '<small>' + esc(a.name_en) + '</small></div>' +
-              '<div class="ag-sub" style="margin-top:6px">' + (a.origin_type === "civilization" ? "🏛 " + esc(T("Legend", "文明演员")) : "✨ " + esc(T("Original", "原创合成"))) +
-                (a.civilization ? " · " + esc(a.civilization) : "") +
-                (a.is_premium ? ' · 💎 ' + cents(a.cast_price_cents) : " · " + esc(T("Free", "免费"))) +
-                ' · ▶ ' + (a.cast_count || 0) + "</div>" +
-              (a.persona ? '<div class="ag-persona">' + esc(a.persona) + '</div>' : "") +
-              (a.voice_style ? '<div class="ag-sub">🎙 ' + esc(a.voice_style) + '</div>' : "") +
-              (tags.length ? '<div class="ag-tags">' + tags.map(function (t) { return '<span class="ag-tag">' + esc(t) + '</span>'; }).join("") + '</div>' : "") +
-              '<div class="ag-showcase">' +
-                '<button class="ag-sc-btn" data-seg="intro">▶ ' + esc(T("Intro", "自我介绍")) + '</button>' +
-                '<button class="ag-sc-btn" data-seg="hero">😇 ' + esc(T("Hero", "正派")) + '</button>' +
-                '<button class="ag-sc-btn" data-seg="villain">😈 ' + esc(T("Villain", "反派")) + '</button>' +
-              '</div>' +
-              '<div class="ag-stage" aria-live="polite"></div>' +
-              '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
-            '</div>' +
+        if (!a) { inline.innerHTML = '<div class="ag-empty">' + esc(T("Actor not found.", "未找到该演员。")) + '</div>'; return; }
+        var tags = [].concat(a.appearance_tags || [], a.tags || []).filter(Boolean).slice(0, 8);
+        var mvs = d.mvs || [];
+        // 详情【接着上一行】显示在同一框里, 不重复姓名/风格。
+        inline.innerHTML =
+          '<div class="ag-sub" style="margin-top:8px">' + (a.origin_type === "civilization" ? "🏛 " + esc(T("Legend", "文明演员")) : "✨ " + esc(T("Original", "原创合成"))) +
+            (a.is_premium ? ' · 💎 ' + cents(a.cast_price_cents) : " · " + esc(T("Free", "免费"))) + ' · ▶ ' + (a.cast_count || 0) + "</div>" +
+          (a.persona ? '<div class="ag-persona">' + esc(a.persona) + '</div>' : "") +
+          (tags.length ? '<div class="ag-tags">' + tags.map(function (t) { return '<span class="ag-tag">' + esc(t) + '</span>'; }).join("") + '</div>' : "") +
+          '<div class="ag-showcase">' +
+            '<button class="ag-sc-btn" data-seg="intro">▶ ' + esc(T("Intro", "自我介绍")) + '</button>' +
+            '<button class="ag-sc-btn" data-seg="hero">😇 ' + esc(T("Hero", "正派")) + '</button>' +
+            '<button class="ag-sc-btn" data-seg="villain">😈 ' + esc(T("Villain", "反派")) + '</button>' +
           '</div>' +
-          '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + '</h3>' +
-            (mvs.length ? '<div class="ag-grid ag-sub-grid">' + mvs.map(function (m) {
-              return '<div class="ag-card"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
-                '</div><div class="ag-meta"><div class="ag-name">' + esc(m.title || "Untitled") + '</div>' +
-                (m.role_name ? '<div class="ag-sub">' + esc(m.role_name) + '</div>' : "") + '</div></div>';
-            }).join("") + '</div>' : '<div class="ag-empty">' + esc(T("No appearances yet — cast them above for their debut.", "还没有出演作品 — 点上方选角让 TA 首次登场。")) + '</div>') +
-          '</div>';
-        var castBtn = exp.querySelector(".ag-cast");
+          '<div class="ag-stage" aria-live="polite"></div>' +
+          '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
+          (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + '</h3><div class="ag-grid ag-sub-grid">' +
+            mvs.map(function (m) { return '<div class="ag-card"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
+              '</div><div class="ag-meta"><div class="ag-name">' + esc(m.title || "Untitled") + '</div></div></div>'; }).join("") + '</div></div>' : "");
+        // 封面切成 3D(正面旋转), 点封面在 2D↔3D 间切换。
+        cardEl.__actor = a;
+        showCover3D(cardEl, a);
+        var castBtn = inline.querySelector(".ag-cast");
         if (castBtn) castBtn.onclick = function () { openCast(a); };
-        wireShowcase(exp, a.actor_id);
-        render3D(exp, a);
+        wireShowcase(inline, a.actor_id);
         if (state.ownedSet[a.actor_id]) {
-          var body = exp.querySelector(".ag-hero-body");
-          if (body) {
-            var own = document.createElement("div"); own.className = "ag-owner";
-            own.innerHTML = '<span class="ag-tag">🎬 ' + esc(T("Mine", "我的演员")) + ' · ' + esc(T("royalty", "版税")) + ' ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span>' +
-              '<button class="ag-del">' + esc(T("Delete", "删除")) + '</button>';
-            body.appendChild(own);
-            own.querySelector(".ag-del").onclick = function () {
-              if (!window.confirm(T("Delete this actor? This cannot be undone.", "删除此演员?此操作不可撤销。"))) return;
-              fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "DELETE", credentials: "include" })
-                .then(function (r) { return r.json(); }).then(function (jj) {
-                  if (jj && jj.ok) { delete state.ownedSet[a.actor_id]; state.actors = state.actors.filter(function (x) { return x.actor_id !== a.actor_id; }); renderGrid(); }
-                  else window.alert(T("Delete failed.", "删除失败。"));
-                }).catch(function () { window.alert(T("Network error.", "网络错误。")); });
-            };
-          }
+          var own = document.createElement("div"); own.className = "ag-owner";
+          own.innerHTML = '<span class="ag-tag">🎬 ' + esc(T("Mine", "我的演员")) + ' · ' + esc(T("royalty", "版税")) + ' ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span><button class="ag-del">' + esc(T("Delete", "删除")) + '</button>';
+          inline.appendChild(own);
+          own.querySelector(".ag-del").onclick = function () {
+            if (!window.confirm(T("Delete this actor? This cannot be undone.", "删除此演员?此操作不可撤销。"))) return;
+            fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "DELETE", credentials: "include" }).then(function (r) { return r.json(); }).then(function (jj) {
+              if (jj && jj.ok) { delete state.ownedSet[a.actor_id]; state.actors = state.actors.filter(function (x) { return x.actor_id !== a.actor_id; }); renderGrid(); }
+              else window.alert(T("Delete failed.", "删除失败。"));
+            }).catch(function () { window.alert(T("Network error.", "网络错误。")); });
+          };
         }
       })
-      .catch(function () { exp.innerHTML = '<div class="ag-empty">' + esc(T("Load failed.", "加载失败。")) + '</div>'; });
+      .catch(function () { inline.innerHTML = '<div class="ag-empty">' + esc(T("Load failed.", "加载失败。")) + '</div>'; });
   }
+  // 封面区显示 3D(可切回 2D)。存 2D 原始 HTML 以便切回。
+  function showCover3D(cardEl, a) {
+    var cov = cardEl.querySelector("[data-cover]");
+    if (!cov) return;
+    if (cov.__cover2d == null) cov.__cover2d = cov.innerHTML;
+    render3D(cov, a);   // render3D 会把 3D/model-viewer 填进这个容器
+  }
+  window.__agToggleCover = function (cardEl, a) {
+    var cov = cardEl.querySelector("[data-cover]");
+    if (!cov) return;
+    if (cov.querySelector("model-viewer") || cov.querySelector(".ag-mv-wrap")) { restoreCover2D(cardEl); }   // 3D→2D
+    else showCover3D(cardEl, a);                                                                              // 2D→3D
+  };
   // 兼容: 创建演员成功后仍可"打开"该演员——重渲染网格并展开对应卡。
   function renderDetail(id) {
     renderGrid();
@@ -411,11 +414,11 @@
     var spans = stage.querySelectorAll(".tk");
     btn.classList.add("playing");
     var timeSrc;
-    var hero = stage.closest && stage.closest(".ag-hero");
-    var box3d = clip.video_url && hero ? hero.querySelector(".ag-3d") : null;
+    var card = stage.closest && stage.closest(".ag-card");
+    var box3d = clip.video_url && card ? card.querySelector("[data-cover]") : null;
     if (clip.video_url && box3d) {
       sc3dBox = box3d; sc3dSaved = box3d.innerHTML;   // 存旋转3D以便播完恢复
-      box3d.innerHTML = '<video class="ag-talkvid" playsinline autoplay src="' + esc(clip.video_url) + '" style="width:100%;max-width:340px;border-radius:16px;display:block;border:1px solid rgba(0,245,160,.4);"></video>';
+      box3d.innerHTML = '<video class="ag-talkvid" playsinline autoplay src="' + esc(clip.video_url) + '" style="width:100%;height:100%;object-fit:cover;display:block;"></video>';
       var v = box3d.querySelector(".ag-talkvid"); scAudio = v;
       v.play().catch(function () {});
       timeSrc = function () { return v.currentTime; };
@@ -487,21 +490,26 @@
   /* 3D 头像: 有 model_3d_url → AR Quick Look「在 AR 中查看」(iPhone/iPad/Vision Pro);
    * 作者/无模型 → 「生成 3D 头像(免费)」按钮。 */
   function render3D(scroll, a) {
-    var box = scroll.querySelector(".ag-3d");
+    // box = 传入元素本身若是封面容器(data-cover), 否则找 .ag-3d 子。
+    var box = (scroll.hasAttribute && scroll.hasAttribute("data-cover")) ? scroll : (scroll.querySelector ? scroll.querySelector(".ag-3d") : null);
     if (!box) return;
+    var inCover = box.hasAttribute && box.hasAttribute("data-cover");
     var owned = state.ownedSet[a.actor_id];
     var url = a.model_3d_url || "";
     if (url && /\.glb($|\?)/i.test(url)) {
       // GLB → 正面朝前、自动旋转、可拖拽的 3D(像《时间帝国》预告页)。iOS AR 用同名 .usdz。
       var usdz = url.replace(/\.glb($|\?)/i, ".usdz$1");
       box.innerHTML = '<div class="ag-mv-wrap"></div>';
+      var mvStyle = inCover
+        ? "width:100%;height:100%;background:radial-gradient(circle at 50% 42%,rgba(0,245,160,.12),transparent 68%);"
+        : "width:100%;max-width:340px;height:340px;background:radial-gradient(circle at 50% 42%,rgba(0,245,160,.12),transparent 68%);border:1px solid rgba(0,245,160,.35);border-radius:16px;";
       ensureModelViewer(function () {
         var wrap = box.querySelector(".ag-mv-wrap"); if (!wrap) return;
         wrap.innerHTML = '<model-viewer src="' + esc(url) + '" ios-src="' + esc(usdz) + '" poster="' + esc(a.cover_image || "") + '" ' +
           'camera-controls touch-action="pan-y" auto-rotate auto-rotate-delay="0" rotation-per-second="24deg" ' +
           'camera-orbit="0deg 82deg 100%" min-camera-orbit="auto 55deg auto" max-camera-orbit="auto 105deg auto" field-of-view="30deg" ' +
           'interaction-prompt="none" ar ar-modes="quick-look webxr" environment-image="neutral" exposure="1.15" shadow-intensity="0.35" ' +
-          'style="width:100%;max-width:340px;height:340px;background:radial-gradient(circle at 50% 42%,rgba(0,245,160,.12),transparent 68%);border:1px solid rgba(0,245,160,.35);border-radius:16px;"></model-viewer>';
+          'style="' + mvStyle + '"></model-viewer>';
       });
     } else if (url) {
       // 旧 USDZ(无 GLB): AR Quick Look 兜底(仅 Apple)。
@@ -575,10 +583,18 @@
     var si = el.querySelector(".ag-search");
     si.oninput = function () { state.search = si.value.trim(); resetRows(); renderGrid(); };
     el.querySelector(".ag-scroll").addEventListener("click", function (e) {
-      // 不拦截展开区内部的交互(按钮/视频/model-viewer)。
-      if (e.target.closest && e.target.closest(".ag-expand")) return;
-      var card = e.target.closest && e.target.closest(".ag-card[data-actor]");
-      if (card && card.parentElement && card.parentElement.classList.contains("ag-grid")) toggleExpand(card);
+      var t = e.target;
+      // 展开区内的交互元素(台词胶囊/选角/作者/出演子卡/model-viewer)不劫持。
+      if (t.closest && (t.closest(".ag-showcase") || t.closest(".ag-cast") || t.closest(".ag-owner") || t.closest(".ag-sub-grid") || t.closest("model-viewer") || t.closest(".ag-stage"))) return;
+      var card = t.closest && t.closest(".ag-card[data-actor]");
+      if (!card || !card.parentElement || !card.parentElement.classList.contains("ag-grid")) return;
+      var onCover = !!(t.closest && t.closest("[data-cover]"));
+      if (card.classList.contains("expanded")) {
+        if (onCover && card.__actor) window.__agToggleCover(card, card.__actor);   // 封面 2D↔3D 切换
+        else toggleExpand(card);                                                   // 点信息区 = 收起
+      } else {
+        toggleExpand(card);                                                        // 展开(封面转 3D)
+      }
     });
     document.addEventListener("keydown", function onKey(ev) {
       if (ev.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }

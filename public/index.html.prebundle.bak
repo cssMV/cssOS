@@ -2438,6 +2438,7 @@
          其余 7 个模块懒加载均正常。person-mv 自建 HTML + 自注入 CSS(显示)+ JS(动作)= 完整自包含模块,
          eager 一次性加载即可靠工作。代价: 237KB 留在首屏, 换取 People MV 稳定可开。 -->
     <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
+    <script src="app.actor-gallery.js?v=20260702-w113-actors"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-today-shelf.js?v=20260603-w593-civmeta"></script>

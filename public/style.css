@@ -3394,6 +3394,9 @@ html[data-theme="light"] .works-fp-optin-desc {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* CSSOS_WAVE_1524 — Jing「封面削头/不要脸」Layer 1: 人物封面头在上方, 中心裁剪会切头。
+     裁剪焦点偏上(22%), 绝大多数肖像保住脸。Layer 2 真人脸检测出来后由 cover_focal 覆写。 */
+  object-position: var(--cssos-cover-focus, center 22%);
   display: block;
 }
 

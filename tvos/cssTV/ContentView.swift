@@ -968,7 +968,9 @@ struct WorkCard: View {
                     RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.20))
                         .frame(width: cardWidth, height: coverH).offset(x: 8, y: -8)
                 }
-            ZStack {
+            // W1524 — Jing「封面削头/不要脸」Layer 1: 人物头在上方, 中心裁剪切头。ZStack 顶部对齐 +
+            //   scaledToFill 溢出裁下方 → 保住脸。Layer 2 人脸检测出焦点后再精确对齐。
+            ZStack(alignment: .top) {
                 if work.isCreateCard {
                     // W1259 — 创作尾卡: 品牌渐变 + 招牌大爆 + ✨Create。
                     LinearGradient(colors: [Color(red: 0.03, green: 0.16, blue: 0.10),

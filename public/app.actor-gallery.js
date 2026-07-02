@@ -450,19 +450,10 @@
     function busy(on) { segBtns.forEach(function (b) { b.disabled = on; }); }
     function playSeg(btn, seg) {
       var sc = scCache[actorId], clip = sc && sc.clips && sc.clips[seg];
-      if (clip && clip.video_url) { playClip(clip, btn, stage); return; }   // 已有视频 → 直接开口演(对口型)
-      // 无视频 → 先即时播【音频 + 旋转 3D】(海选体验), 同时后台懒生成对口型视频(几分钟), 生成后缓存, 下次自动播。
-      if (clip && clip.voice_url) playClip(clip, btn, stage);
-      stage.insertAdjacentHTML("beforeend", '<div class="ag-empty ag-vhint" style="font-size:12px">🎬 ' + esc(T("Rendering a talking-video of this actor in the background — it'll auto-play next time you open this line.", "正在后台渲染这位演员的对口型视频,下次打开这一段会自动播放。")) + '</div>');
-      // 不阻塞 UI: 后台发起, 若本次会话内生成完就顺手切成视频(不成也无妨, 已缓存)。
-      fetch("/api/actors/" + encodeURIComponent(actorId) + "/talking-video?seg=" + seg, { method: "POST", credentials: "include" })
-        .then(function (r) { return r.json(); }).then(function (j) {
-          if (j && j.ok && j.videos && j.videos[seg] && sc && sc.clips && sc.clips[seg]) {
-            sc.clips[seg].video_url = j.videos[seg];
-            if (btn.classList.contains("playing")) playClip(sc.clips[seg], btn, stage);   // 仍在看这段 → 就地切成会说话视频
-          }
-        })
-        .catch(function () {});   // 504/超时无妨: 服务端仍会跑完并缓存
+      // 有会说话视频→就地开口演; 否则播【真人声 + 旋转 3D】(海选体验)。
+      // 不再每点必烧对口型视频(omnihuman 不稳/贵): 视频=已生成缓存才播, 生成由作者/管理员显式触发。
+      if (clip) playClip(clip, btn, stage);
+      else stage.textContent = T("(missing)", "(此段暂缺)");
     }
     function trigger(btn, seg) {
       if (scCache[actorId]) { playSeg(btn, seg); return; }

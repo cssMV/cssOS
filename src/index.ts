@@ -42846,6 +42846,40 @@ function actorVoiceId(actor: { gender?: string | null; voice_model_ref?: string 
   if (actor.voice_model_ref && /^[A-Za-z0-9]{16,}$/.test(actor.voice_model_ref)) return actor.voice_model_ref;
   return ACTOR_VOICE_POOL[String(actor.gender || "").toLowerCase()] || ACTOR_VOICE_POOL.female || "EXAVITQu4vr4xnSDxMaL";
 }
+
+// CSSOS_WAVE_113 Phase 4 — 演员 3D 头像(自家免费 TripoSR :7897 image→USDZ, ~17s, 零 API 成本)。
+//   演员 headshot → 3D USDZ → R2 → model_3d_url。前端 AR Quick Look「在 AR 中查看」。让演员活成 3D。
+app.post("/api/actors/:id/generate-3d", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    const internalOk = !!CSSOS_INTERNAL_TOKEN && String(req.headers["x-cssos-internal-token"] || "") === CSSOS_INTERNAL_TOKEN;
+    const id = String(req.params.id || "").trim();
+    await seedDigitalActorsOnce();
+    const ar = await withClient((c) => c.query<{ cover_image: string | null; reference_images: string[]; owner_user_id: string | null; model_3d_url: string | null }>(
+      `SELECT cover_image, reference_images, owner_user_id::text AS owner_user_id, model_3d_url FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const a = ar.rows[0];
+    if (!a) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    // 权限: admin / 内部 token / 演员作者本人。
+    const isAdmin = !!user && roleForEmail(user.email) === "admin";
+    const isOwner = !!user && String(a.owner_user_id || "") === String(user.id);
+    if (!internalOk && !isAdmin && !isOwner) return res.status(403).json({ ok: false, code: "FORBIDDEN" });
+    if (a.model_3d_url && String(req.query.force || "") !== "1") return res.json({ ok: true, model_3d_url: a.model_3d_url, cached: true });
+    const src = a.cover_image || (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "");
+    if (!src) return res.status(400).json({ ok: false, code: "NO_SOURCE_IMAGE" });
+    const usdz = await atelierTriposrUsdz(String(src));
+    if (!usdz) return res.status(502).json({ ok: false, code: "TSR_FAILED", hint: "atelier TripoSR :7897 不可达或失败" });
+    const key = `artifacts/actor-3d/${id}.usdz`;
+    await uploadBufferToR2(usdz, key, "model/vnd.usdz+zip");
+    const url = `https://cdn.cssstudio.app/${key}`;
+    await withClient((c) => c.query(`UPDATE digital_actors SET model_3d_url=$2, updated_at=now() WHERE actor_id=$1`, [id, url]));
+    return res.json({ ok: true, model_3d_url: url, cached: false });
+  } catch (err) {
+    console.warn("[actors] generate-3d failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "GEN3D_FAILED" });
+  }
+});
+
 app.get("/api/actors/:id/showcase", async (req, res) => {
   noStore(res);
   try {

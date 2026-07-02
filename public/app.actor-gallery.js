@@ -71,6 +71,8 @@
       "#" + ROOT_ID + " .ag-form{max-width:560px;display:flex;flex-direction:column;gap:14px;}" +
       "#" + ROOT_ID + " .ag-form label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:rgba(207,238,224,.85);}" +
       "#" + ROOT_ID + " .ag-in{background:rgba(0,245,160,.07);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:12px;padding:10px 14px;font-size:15px;font-family:inherit;outline:none;}" +
+      "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
+      "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-del{background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.5);color:#ffb3b3;border-radius:999px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-empty{color:rgba(207,238,224,.55);font-size:14px;padding:8px 0;}";
@@ -296,6 +298,7 @@
                 '<button class="ag-sc-btn" data-seg="villain">😈 反派</button>' +
               '</div>' +
               '<div class="ag-stage" aria-live="polite"></div>' +
+              '<div class="ag-3d"></div>' +
               '<button class="ag-cast">🎬 选 ' + esc(a.name_zh || a.name_en) + ' 主演</button>' +
             '</div>' +
           '</div>' +
@@ -314,6 +317,7 @@
         var castBtn = scroll.querySelector(".ag-cast");
         if (castBtn) castBtn.onclick = function () { openCast(a); };
         wireShowcase(scroll, a.actor_id);
+        render3D(scroll, a);
         // 作者控件: 我创建的演员 → 版税提示 + 删除。
         if (state.ownedSet[a.actor_id]) {
           var body = scroll.querySelector(".ag-hero-body");
@@ -396,6 +400,31 @@
           .catch(function () { btns.forEach(function (b) { b.disabled = false; }); stage.textContent = "网络错误,请重试。"; });
       };
     });
+  }
+
+  /* 3D 头像: 有 model_3d_url → AR Quick Look「在 AR 中查看」(iPhone/iPad/Vision Pro);
+   * 作者/无模型 → 「生成 3D 头像(免费)」按钮。 */
+  function render3D(scroll, a) {
+    var box = scroll.querySelector(".ag-3d");
+    if (!box) return;
+    var owned = state.ownedSet[a.actor_id];
+    if (a.model_3d_url) {
+      box.innerHTML = '<a class="ag-sc-btn ag-ar" rel="ar" href="' + esc(a.model_3d_url) + '">🧊 在 AR 中查看 3D 头像<img src="' + esc(a.cover_image || "") + '" style="display:none"></a>' +
+        '<div class="ag-empty" style="font-size:12px">在 iPhone / iPad / Vision Pro 上点开即以 AR 立体查看</div>';
+    } else if (owned) {
+      box.innerHTML = '<button class="ag-sc-btn ag-gen3d">🧊 生成 3D 头像（免费）</button><div class="ag-empty ag-3d-msg" style="font-size:12px"></div>';
+      var btn = box.querySelector(".ag-gen3d"), msg = box.querySelector(".ag-3d-msg");
+      btn.onclick = function () {
+        btn.disabled = true; msg.textContent = "⏳ 正在把 " + (a.name_zh || a.name_en) + " 立体化…(约 20 秒)";
+        fetch("/api/actors/" + encodeURIComponent(a.actor_id) + "/generate-3d", { method: "POST", credentials: "include" })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j && j.ok && j.model_3d_url) { a.model_3d_url = j.model_3d_url; render3D(scroll, a); }
+            else { btn.disabled = false; msg.textContent = (j && j.hint) || "生成失败,请重试。"; }
+          })
+          .catch(function () { btn.disabled = false; msg.textContent = "网络错误,请重试。"; });
+      };
+    } else { box.innerHTML = ""; }
   }
 
   function close() {

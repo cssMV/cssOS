@@ -76,10 +76,18 @@
       "#" + ROOT_ID + " .ag-persona{color:rgba(232,255,245,.88);margin:10px 0;}" +
       "#" + ROOT_ID + " .ag-cast{background:" + GREEN + ";color:" + INK + ";border:none;border-radius:999px;padding:12px 26px;font-size:16px;font-weight:800;cursor:pointer;margin-top:8px;box-shadow:0 0 20px rgba(0,245,160,.35);}" +
       "#" + ROOT_ID + " .ag-cast:hover{filter:brightness(1.08);}" +
-      "#" + ROOT_ID + " .ag-showcase{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}" +
-      "#" + ROOT_ID + " .ag-sc-btn{background:rgba(0,245,160,.1);border:1px solid rgba(0,245,160,.35);color:#d6ffee;border-radius:999px;padding:9px 18px;font-size:14px;font-weight:700;cursor:pointer;}" +
-      "#" + ROOT_ID + " .ag-sc-btn:hover{background:rgba(0,245,160,.2);}" +
-      "#" + ROOT_ID + " .ag-sc-btn.playing{background:" + GREEN + ";color:" + INK + ";}" +
+      /* 台词胶囊 = 胶囊宪法凹凸镶嵌(照 style.css ~2307-2343): 轨道共用边框零间隙, 激活凸全圆, 其余凹咬合 */
+      "#" + ROOT_ID + " .ag-showcase{display:flex;align-items:stretch;height:46px;margin-top:14px;border:1px solid rgba(0,245,160,.35);border-radius:999px;overflow:hidden;background:rgba(0,245,160,.05);}" +
+      "#" + ROOT_ID + " .ag-sc-btn{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;border:0;background:transparent;color:#d6ffee;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;position:relative;box-sizing:border-box;}" +
+      /* 激活(playing)= 凸: 两头圆全 pill 绿填充 */
+      "#" + ROOT_ID + " .ag-showcase .ag-sc-btn.playing{background:" + GREEN + ";color:" + INK + ";border-radius:999px;z-index:2;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
+      /* 激活【右侧】未激活: 凹在左, 咬合激活右圆头 */
+      "#" + ROOT_ID + " .ag-showcase .ag-sc-btn.playing ~ .ag-sc-btn{margin-left:-23px;border-radius:0 999px 999px 0;z-index:1;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
+      /* 激活【左侧】未激活: 凹在右 */
+      "#" + ROOT_ID + " .ag-showcase .ag-sc-btn:has(~ .ag-sc-btn.playing){margin-right:-23px;border-radius:999px 0 0 999px;z-index:1;-webkit-mask:radial-gradient(circle 23px at 100% 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 100% 50%,transparent 22.5px,#000 23px);}" +
+      /* 无激活(默认): 第一段(Intro)凸, 其后凹在左 —— 永远呈一条凹凸镶嵌轨道 */
+      "#" + ROOT_ID + " .ag-showcase:not(:has(.playing)) .ag-sc-btn:first-child{background:" + GREEN + ";color:" + INK + ";border-radius:999px;z-index:2;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
+      "#" + ROOT_ID + " .ag-showcase:not(:has(.playing)) .ag-sc-btn:first-child ~ .ag-sc-btn{margin-left:-23px;border-radius:0 999px 999px 0;z-index:1;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
       "#" + ROOT_ID + " .ag-stage{min-height:44px;margin-top:14px;font-size:26px;font-weight:800;line-height:1.35;letter-spacing:.5px;}" +
       "#" + ROOT_ID + " .ag-native{white-space:pre-wrap;word-break:normal;overflow-wrap:break-word;}" +
       "#" + ROOT_ID + " .ag-stage .tk{color:rgba(255,255,255,.28);transition:color .08s,text-shadow .08s;white-space:pre-wrap;}" +
@@ -98,9 +106,10 @@
       "@keyframes agfade{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}" +
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
       /* 创建+搜索 = 凹凸镶嵌: Create 绿全圆胶囊(右端半圆【凸】)负边距【咬进】搜索框; 搜索框左侧【凹】容纳 */
+      /* 创建+搜索 = 胶囊宪法凹凸镶嵌: Create 凸(两头圆绿), Search 凹在左(咬合 Create 右圆头) */
       "#" + ROOT_ID + " .ag-searchcap{display:flex;align-items:stretch;height:46px;position:relative;}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-create{position:relative;z-index:2;border:none;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;margin-right:-23px;box-shadow:0 0 14px rgba(0,245,160,.45);}" +
-      "#" + ROOT_ID + " .ag-searchcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);background:rgba(0,245,160,.06);color:#e8fff5;min-width:160px;padding:0 20px 0 40px;border-radius:999px;outline:none;font-size:15px;height:100%;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22px,#000 23px);}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-create{position:relative;z-index:2;border:0;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;margin-right:-23px;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
+      "#" + ROOT_ID + " .ag-searchcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;min-width:160px;padding:0 20px 0 40px;border-radius:0 999px 999px 0;outline:none;font-size:15px;height:100%;box-sizing:border-box;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +

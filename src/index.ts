@@ -11016,6 +11016,65 @@ app.get("/api/mv/stage-rates", (_req, res) => {
   });
 });
 
+// CSSOS_WAVE_115 — 开工前【整部总成本估算 + 建议售价 + 钱包够不够】。防大制作(电影/剧集)扣到一半没钱。
+//   per-part 基础(词+封面+曲)= 93¢ 最坏; 视频: none/slideshow=0; hybrid≈30s; full=时长秒×档位单价。
+//   档位单价(我方≈kie×1.3): 经济 seedance-1.5 ≈2.3¢/s; 旗舰 seedance-2 ≈13¢/s; 电影级 veo ≈按条。
+function estimateWorkCost(input: {
+  workType: string; parts: number; videoMode: string; durationSecPerPart: number; videoTier: string;
+}): { perPartCents: number; totalCents: number; recommendedPriceCents: number; parts: number } {
+  const parts = Math.max(1, Math.min(200, Math.round(input.parts || 1)));
+  const base = 93; // lyrics+cover+music 最坏
+  const perSec = input.videoTier === "premium" ? 13 : input.videoTier === "cinematic" ? 24 : 3; // economy default
+  let videoCents = 0;
+  const dur = Math.max(0, Math.min(180 * 60, Math.round(input.durationSecPerPart || 210)));
+  if (input.videoMode === "full") videoCents = Math.round(dur * perSec);
+  else if (input.videoMode === "hybrid") videoCents = Math.round(30 * perSec);
+  const perPartCents = base + videoCents;
+  const totalCents = perPartCents * parts;
+  // 建议售价梯度(买断, 覆盖成本+利润, 守 Apple 价格铁律梯度): 单曲$5.99 起, 大制作按类。
+  const priceLadder: Record<string, number> = { single: 599, triptych: 1499, opera: 2999, shortplay: 1999, series: 4999, film: 2999 };
+  let rec = priceLadder[input.workType] || 599;
+  if (input.workType === "film" && dur >= 150 * 60) rec = 4999;            // 长片(≥150min)更高
+  if (input.workType === "series" || input.workType === "shortplay") rec += Math.max(0, parts - 12) * 300; // 集数越多越贵
+  // 售价至少覆盖成本×1.5(否则亏)。
+  rec = Math.max(rec, Math.round(totalCents * 1.5));
+  return { perPartCents, totalCents, recommendedPriceCents: rec, parts };
+}
+app.post("/api/mv/estimate-total", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const b = (req.body || {}) as Record<string, any>;
+    const est = estimateWorkCost({
+      workType: String(b.work_type || "single").toLowerCase(),
+      parts: Number(b.parts || 1),
+      videoMode: String(b.video_mode || "none").toLowerCase(),
+      durationSecPerPart: Number(b.duration_sec || 210),
+      videoTier: String(b.video_tier || "economy").toLowerCase(),
+    });
+    const user = await getSessionUser(req).catch(() => null);
+    let balanceCents = 0, sufficient = true, needTopUpCents = 0;
+    if (user?.id) {
+      balanceCents = await getCreditBalance(String(user.id)).catch(() => 0);
+      const staffExempt = await isCreditExempt(String(user.id)).catch(() => false);
+      const required = Math.ceil(est.totalCents * 1.2); // 20% 缓冲(实际常低于最坏值, 但先保证够)
+      sufficient = staffExempt || balanceCents >= required;
+      needTopUpCents = sufficient ? 0 : (required - balanceCents);
+    }
+    return res.json({
+      ok: true,
+      per_part_cents: est.perPartCents, per_part_usd: fmtUsd(est.perPartCents),
+      total_cents: est.totalCents, total_usd: fmtUsd(est.totalCents), parts: est.parts,
+      recommended_price_cents: est.recommendedPriceCents, recommended_price_usd: fmtUsd(est.recommendedPriceCents),
+      balance_cents: balanceCents, balance_usd: fmtUsd(balanceCents),
+      sufficient, need_topup_cents: needTopUpCents, need_topup_usd: fmtUsd(needTopUpCents),
+      buffer_pct: 20,
+    });
+  } catch (err) {
+    console.warn("[mv] estimate-total failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "ESTIMATE_FAILED" });
+  }
+});
+
 /* CSSOS_WAVE_523 20260606 — Jing「对标 Kie 全目录」: 一把 callKieJob 覆盖所有模型, 接新模型
  * 零代码。本端点拉 Kie 公开目录(免鉴权), 缓存 6h, ×1.3 倍率, 按我们的段归类, 供前端引擎
  * 面板各标签渲染。Kie 升级 → 缓存过期后我们自动出现。字幕/合成本地无第三方, 不含。 */

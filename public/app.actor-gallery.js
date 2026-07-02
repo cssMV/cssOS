@@ -292,8 +292,9 @@
           '<div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">' +
             '<button class="ag-sc-btn ag-cam-start">🎥 ' + esc(T("Start camera", "开启摄像头")) + '</button>' +
             '<button class="ag-sc-btn ag-cam-rec" disabled>⏺ ' + esc(T("Record 5s turn-around", "录 5 秒转圈")) + '</button>' +
-            '<button class="ag-sc-btn ag-voice-rec" disabled>🎙 ' + esc(T("Record voice (say a line)", "录声音(说一句)")) + '</button>' +
+            '<button class="ag-sc-btn ag-voice-rec" disabled>🎙 ' + esc(T("Record spoken consent", "录口头授权")) + '</button>' +
           '</div>' +
+          '<div class="ag-consent-script" style="margin-top:10px;padding:10px 14px;background:rgba(0,245,160,.08);border:1px dashed rgba(0,245,160,.4);border-radius:10px;font-size:14px;color:#e8fff5;"></div>' +
           '<div class="ag-cap-status ag-empty" style="font-size:12px;margin-top:6px"></div>' +
         '</div>' +
         '<button class="ag-cast ag-rp-submit">🎬 ' + esc(T("Sign & submit for verification", "签约并提交核验")) + '</button>' +
@@ -302,6 +303,16 @@
     var back = scroll.querySelector(".ag-back"); back.onclick = function () { stopRpStream(); renderGrid(); };
     var vid = scroll.querySelector(".ag-cam"), capStatus = scroll.querySelector(".ag-cap-status");
     var startBtn = scroll.querySelector(".ag-cam-start"), recBtn = scroll.querySelector(".ag-cam-rec"), voiceBtn = scroll.querySelector(".ag-voice-rec");
+    // 口头授权脚本(照读)= 声音样本 + 口头同意记录 + 防冒充活体(念出"我是XX本人…"还要对得上脸)。
+    var nameInput = scroll.querySelector('[data-k="name_en"]'), scriptEl = scroll.querySelector(".ag-consent-script");
+    function consentScript() {
+      var nm = (nameInput && nameInput.value.trim()) || (state.lang === "zh" ? "本人" : "me");
+      return T('📢 Read aloud: “I am ' + nm + ', and I consent to CSS Studio using my likeness and voice as my digital actor.”',
+               '📢 请照读:「我是' + nm + '本人,我同意 CSS Studio 将我的肖像和声音用作我的数字演员。」');
+    }
+    function refreshScript() { if (scriptEl) scriptEl.textContent = consentScript(); }
+    refreshScript();
+    if (nameInput) nameInput.addEventListener("input", refreshScript);
     startBtn.onclick = function () {
       navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640 }, audio: true }).then(function (s) {
         rpStream = s; vid.srcObject = s; recBtn.disabled = false; voiceBtn.disabled = false; capStatus.textContent = T("Camera on. Record your face turn-around.", "摄像头已开,录一段转头。");
@@ -335,7 +346,7 @@
       if (!p.grant_likeness) { msg.textContent = T("You must grant likeness consent.", "必须勾选授权肖像。"); return; }
       if (!captured.face_video) { msg.textContent = T("Please capture your face first.", "请先采集你的脸。"); return; }
       p.likeness_capture = { face_video_url: captured.face_video };
-      if (captured.speech) p.voice_capture = { speech_url: captured.speech };
+      if (captured.speech) p.voice_capture = { speech_url: captured.speech, spoken_consent: consentScript(), consented_at: new Date().toISOString() };
       submit.disabled = true; msg.textContent = "⏳ " + T("Signing…", "签约中…");
       fetch("/api/actors/real-person", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(p) })
         .then(function (r) { return r.json(); }).then(function (j) {

@@ -42916,12 +42916,21 @@ app.post("/api/actors/:id/talking-video", async (req, res) => {
     const segReq = String(req.query.seg || "all").toLowerCase();
     const segs = segReq === "all" ? ["intro", "hero", "villain"] : [segReq];
     const force = String(req.query.force || "") === "1";
+    // 每段不同表情/情绪(omnihuman prompt 驱动): 介绍一本正经 / 正派英气凛然 / 反派阴狠够坏。
+    const SEG_EXPRESSION: Record<string, string> = {
+      intro: "composed, warm, confident and dignified; a poised professional introducing themselves, subtle assured smile, calm charisma",
+      hero: "noble, heroic and righteous; radiant valiant expression, determined uplifted gaze, inspiring and courageous, a born protagonist",
+      villain: "menacing, sinister and wicked; a cold cruel smirk, dangerous piercing eyes, delicious villainous malice, chilling and unforgettable",
+    };
     const out: Record<string, unknown> = {};
     for (const seg of segs) {
       const clip = clips[seg];
       if (!clip || !clip.voice_url) continue;
       if (clip.video_url && !force) { out[seg] = clip.video_url; continue; }
-      const r = await callKieJob("omnihuman-1-5", { image_url: String(face), audio_url: String(clip.voice_url) }, { timeoutMs: 290_000 });
+      const r = await callKieJob("omnihuman-1-5", {
+        image_url: String(face), audio_url: String(clip.voice_url),
+        prompt: SEG_EXPRESSION[seg] || "natural expressive delivery",
+      }, { timeoutMs: 290_000 });
       if (!r.ok || !r.urls?.length) { out[seg] = null; continue; }
       let vurl = r.urls[0]!;
       try { const vb = Buffer.from(await (await fetch(vurl)).arrayBuffer()); if (vb.length > 1000) { const key = `artifacts/actor-talking/${id}-${seg}.mp4`; await uploadBufferToR2(vb, key, "video/mp4"); vurl = `https://cdn.cssstudio.app/${key}`; } } catch {}
@@ -42955,8 +42964,9 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
     const persona = `${actor.name_en}${actor.name_zh && actor.name_zh !== actor.name_en ? " (" + actor.name_zh + ")" : ""}` +
       `, ${actor.origin_type === "civilization" ? "historical figure of " + (actor.civilization || "") : "an original digital actor"}` +
       `. ${actor.persona || ""} ${actor.style_descriptor ? "Style: " + actor.style_descriptor + "." : ""}`;
-    const sys = "You are the actor themself, recording a charismatic AUDITION PITCH REEL to win a role from a creator who is casting for their music-video / short-film. " +
-      "Write THREE first-person spoken monologues — vivid, self-promoting, magnetic, a little swagger — that make the creator feel: 'cast this actor and my work will soar.' " +
+    const sys = "You are the actor themself, recording a charismatic AUDITION PITCH REEL to win a role from a creator (a DIRECTOR holding an open casting call) for their music-video / short-film. " +
+      "Write THREE first-person spoken monologues — vivid, self-promoting, magnetic, a little swagger — that make the director feel: 'cast this actor and my work will soar.' " +
+      "CRITICAL — make this actor UNMISTAKABLY UNIQUE: draw hard on THIS actor's specific persona, civilization/world, style and voice. Give them a distinct personality (playful / brooding / regal / fierce / tender / mischievous / stoic — pick what fits) and 2-3 SIGNATURE skills or trademarks that no generic actor would claim. Two different actors must never sound alike. The director is torn between many actors — yours must stand out and be hard to pass up. " +
       "Each monologue MUST be 3 to 4 full sentences (long, rich, specific — NOT a single line). " +
       "Reply STRICT JSON: {\"lang\":\"<BCP47>\",\"voice_gender\":\"<male|female|neutral>\"," +
       "\"intro\":\"<3-4 sentences: introduce yourself in vivid detail — your name, your background/origin story, your artistic identity and signature, the one unmistakable quality only YOU bring, and why audiences never forget you>\"," +

@@ -1020,15 +1020,20 @@ struct WorkCard: View {
             )
             .shadow(color: focused ? brandGreen.opacity(0.75) : .clear, radius: focused ? 22 : 0)
 
+            // W1526 — Jing「标题/时长别那么靠边, 有些被截断」: 加左右内衬 + 尾部截断留 padding, 不贴边。
             Text(work.isCreateCard ? "Want an MV like this?" : (work.title ?? "Untitled"))
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(work.isCreateCard ? brandGreen : (focused ? brandGreen : .white))
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 6)
                 .cssBlackEdge()   // W1359
             if !work.isCreateCard && !work.durationLabel.isEmpty {
                 Text(work.durationLabel)
                     .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(.white.opacity(0.8))
+                    .padding(.horizontal, 6)
                     .cssBlackEdge()   // W1359
             }
         }

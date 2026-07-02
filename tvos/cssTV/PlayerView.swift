@@ -86,14 +86,13 @@ struct PlayerView: View {
                 .clipped()
                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
-                // CSSOS 20260701 — Jing「全平台统一: 播放器画框绿色光晕边框」(照搬 web MV 面板那圈亮绿光)。
-                //   常驻品牌绿描边 + 双层向外散的绿柔光, 框住 2.39 影院画框。cssTV 大屏尤其需要。
-                //   与下方彩虹【边框进度条】分层共存: 绿光=氛围恒亮, 进度条=走时长。
+                // CSSOS 20260701 — Jing「照搬桌面播放器绿光, 别乱猜」。桌面 .panel-active:
+                //   border rgba(0,245,160,0.55) + box-shadow 0 0 28px rgba(0,245,160,0.45)。
+                //   细边 + 单层 28px 柔光, 自然不刺眼。与彩虹边框进度条分层共存。
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color(red: 0.0, green: 0.96, blue: 0.63), lineWidth: 3)
+                    .stroke(Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.55), lineWidth: 1.5)
                     .frame(width: geo.size.width, height: boxH)
-                    .shadow(color: Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.9), radius: 16)
-                    .shadow(color: Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.5), radius: 34)
+                    .shadow(color: Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.45), radius: 28)
                     .position(x: geo.size.width / 2, y: geo.size.height / 2)
                     .allowsHitTesting(false)
 
@@ -190,7 +189,39 @@ struct PlayerView: View {
         }
         .onAppear(perform: start)
         .onDisappear(perform: stop)
-        // 遥控器菜单键退出(tvOS 自动把 dismiss 接到 Menu 键)。
+        // W1526 — Jing「播放时遥控器上下左右要有动作」: 让全屏播放器接管方向键。
+        //   ←/→ 快退/快进 10s; ↑ 上一枝丫/作品(播>3s 先回本枝开头); ↓ 下一枝丫/作品。Menu 键退出。
+        .focusable(true)
+        .onMoveCommand { dir in
+            switch dir {
+            case .left:  seekBy(-10)
+            case .right: seekBy(10)
+            case .up:    gotoPrev()
+            case .down:  gotoNext()
+            @unknown default: break
+            }
+        }
+    }
+
+    // W1526 — 遥控器快退/快进(音频=主时钟, 视频跟随一起 seek)。
+    private func seekBy(_ delta: Double) {
+        guard let ap = audioPlayer else { return }
+        let cur = ap.currentTime().seconds
+        let dur = ap.currentItem?.duration.seconds ?? 0
+        guard dur > 0, cur.isFinite else { return }
+        let t = max(0, min(dur - 0.5, cur + delta))
+        let ct = CMTime(seconds: t, preferredTimescale: 600)
+        ap.seek(to: ct, toleranceBefore: .zero, toleranceAfter: .zero)
+        videoPlayer?.seek(to: ct, toleranceBefore: .zero, toleranceAfter: .zero)
+        withAnimation { showTitle = true }   // 短暂亮出标题/进度反馈
+    }
+    private func gotoNext() {
+        if partIndex + 1 < parts.count { loadPart(partIndex + 1) } else { playQueueItem(queueIndex + 1) }
+    }
+    private func gotoPrev() {
+        let cur = audioPlayer?.currentTime().seconds ?? 0
+        if cur > 3 { audioPlayer?.seek(to: .zero); videoPlayer?.seek(to: .zero); return }
+        if partIndex > 0 { loadPart(partIndex - 1) } else { playQueueItem(queueIndex - 1) }
     }
 
     private func start() {

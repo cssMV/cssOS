@@ -4466,8 +4466,27 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   // 源头人脸感知构图: 把电影/竖屏 framing 附到 prompt, 引擎构图时就把人脸摆进合规画幅。
   const composedFraming = isPortraitCover ? PHONE_FULLSCREEN.framing : CINEMA_LANDSCAPE.framing;
   // CSSOS_WAVE_113 — 选角注入: 若指定数字演员, 把锁定 face_prompt 注入封面, 让封面主角=该演员。
-  const actorSuffix = await buildActorPromptSuffix(String((body as any).actor_id || "")).catch(() => "");
+  const castActorIdForCover = String((body as any).actor_id || "").trim();
+  const actorSuffix = await buildActorPromptSuffix(castActorIdForCover).catch(() => "");
   const composedPrompt = (prompt ? `${prompt}, ${composedFraming}` : composedFraming) + actorSuffix;
+
+  // Phase 2 参考图锁脸: 演员有锁定参考图 → 先走 nano-banana 条件生成(保住同一张脸), 成功即返回;
+  //   失败/无参考图 → 落到下方常规 tier 生成(文本锁脸)。不阻断非选角封面。
+  if (castActorIdForCover) {
+    const aref = await actorReferenceImage(castActorIdForCover).catch(() => null);
+    if (aref) {
+      const locked = await generateReferenceLockedCover(aref.ref,
+        `${prompt || "cinematic album cover"}, ${composedFraming}`).catch(() => null);
+      if (locked) {
+        try { await chargeMvStageActual(userId, "cover", 3, "nanobanana-ref"); } catch {}
+        return res.status(200).json({
+          ok: true, task_id: `actor-ref-${Date.now()}`, image_url: locked,
+          model: "google/nano-banana", engine: "nanobanana-ref", version: "ref-lock",
+          cost_cents: 3, use_user_key: false, actor_locked: true,
+        });
+      }
+    }
+  }
 
   // CSSOS_PHASE2_COVER_TIER_FIRST 20260507 — Jing
   // Routing principle: free → cheap → standard → premium, best-of-tier first.
@@ -42383,6 +42402,34 @@ async function buildActorPromptSuffix(actorId: string): Promise<string> {
     if (!look) return `, starring the digital actor ${name}`;
     return `, starring ${name} — the same consistent character throughout: ${look}`;
   } catch { return ""; }
+}
+
+// CSSOS_WAVE_113 Phase 2 — 参考图【锁脸】: 拿演员锁定参考图(reference_images[0])+ 场景 prompt,
+//   走 kie google/nano-banana(image_urls 条件生成, 实测 ~3¢)→ 输出保住【同一张脸】的新画面。
+//   返回稳定 URL; 无参考图/失败 → null(调用方回落文本锁脸)。
+async function actorReferenceImage(actorId: string): Promise<{ ref: string; name: string } | null> {
+  const id = String(actorId || "").trim();
+  if (!id || !DATABASE_URL) return null;
+  try {
+    const r = await withClient((c) =>
+      c.query<{ reference_images: string[]; name_en: string; name_zh: string }>(
+        `SELECT reference_images, name_en, name_zh FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const a = r.rows[0];
+    if (!a) return null;
+    const ref = Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "";
+    if (!ref) return null;
+    return { ref: String(ref), name: a.name_en || a.name_zh };
+  } catch { return null; }
+}
+async function generateReferenceLockedCover(refUrl: string, scenePrompt: string): Promise<string | null> {
+  try {
+    const r = await callKieJob("google/nano-banana", {
+      prompt: `${scenePrompt}. Keep the exact same face and identity as the reference person, consistent likeness.`,
+      image_urls: [refUrl],
+    }, { timeoutMs: 180_000 });
+    if (!r.ok || !r.urls || !r.urls.length) return null;
+    return await persistRemoteImageToStable(r.urls[0]!).catch(() => r.urls![0]!);
+  } catch { return null; }
 }
 
 // 平台自营【原创合成脸】演员种子(无真人; face_prompt = 锁定身份描述, 生成时复述保持一致)。

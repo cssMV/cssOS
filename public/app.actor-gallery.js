@@ -191,7 +191,7 @@
         renderGrid();
       })
       .catch(function () {
-        if (scroll) scroll.innerHTML = '<div class="ag-empty">加载失败。<button class="ag-chip" onclick="cssosOpenActorGallery(1)">重试</button></div>';
+        if (scroll) scroll.innerHTML = '<div class="ag-empty">' + esc(T("Load failed.", "加载失败。")) + ' <button class="ag-chip" onclick="cssosOpenActorGallery(1)">' + esc(T("Retry", "重试")) + '</button></div>';
       });
     // 我创建的演员 id 集合(供「我的演员」筛选 + 作者控件)。
     fetch("/api/actors?owned=1&limit=100", { credentials: "include" })
@@ -238,9 +238,9 @@
               .then(function (jj) { state.actors = (jj && jj.data && jj.data.actors) || state.actors; }).catch(function () {});
             renderDetail(j.actor_id);
           }
-          else { msg.textContent = (j && j.hint) || "创建失败,请重试。"; }
+          else { msg.textContent = (j && j.hint) || T("Creation failed, please retry.", "创建失败,请重试。"); }
         })
-        .catch(function () { submit.disabled = false; msg.textContent = "网络错误,请重试。"; });
+        .catch(function () { submit.disabled = false; msg.textContent = T("Network error, please retry.", "网络错误,请重试。"); });
     };
   }
 
@@ -249,17 +249,17 @@
     // C 选角注入: 记下待选角演员 → fetch 拦截器把 actor_id 注入生成/建档调用, 后端注入锁定形象+记选角。
     window.__cssosCastActorId = actor.actor_id;
     window.__cssosCastActorName = name;
-    var prompt = "用数字演员「" + name + "」主演,创作一支 MV。" +
-      (actor.face_prompt ? "该演员形象: " + actor.face_prompt + "。" : "") +
-      (actor.voice_style ? "声线: " + actor.voice_style + "。" : "") +
-      (actor.style_descriptor ? "风格: " + actor.style_descriptor + "。" : "");
+    var prompt = T("Create an MV starring the digital actor “" + name + "”.", "用数字演员「" + name + "」主演,创作一支 MV。") +
+      (actor.face_prompt ? T(" Actor look: ", " 该演员形象: ") + actor.face_prompt + "." : "") +
+      (actor.voice_style ? T(" Voice: ", " 声线: ") + actor.voice_style + "." : "") +
+      (actor.style_descriptor ? T(" Style: ", " 风格: ") + actor.style_descriptor + "." : "");
     if (typeof window.cssosOpenAssistantWithPrompt === "function") {
       close();
       window.cssosOpenAssistantWithPrompt(prompt, { actorId: actor.actor_id });
     } else if (typeof window.cssosGuidedToast === "function") {
-      window.cssosGuidedToast("已选定 " + name + " — 创作入口即将打开", {});
+      window.cssosGuidedToast(T("Cast " + name + " — opening the creation panel", "已选定 " + name + " — 创作入口即将打开"), {});
     } else {
-      alert("已选定演员: " + name);
+      alert(T("Cast actor: ", "已选定演员: ") + name);
     }
   }
 

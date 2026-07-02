@@ -43,7 +43,7 @@
       "#" + ROOT_ID + " .ag-chip{flex:0 0 auto;white-space:nowrap;background:rgba(255,255,255,.08);border:1px solid rgba(0,245,160,.22);color:#cfeee0;border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-chip.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";box-shadow:0 0 14px rgba(0,245,160,.4);}" +
       /* 平台胶囊接管时: 去本地 chip 底色; 强制色调宪法(全绿 --ph:155, 激活深墨字, 未激活浅绿字可读) */
-      "#" + ROOT_ID + " .ag-pillbar .ag-chip,#" + ROOT_ID + " .ag-pillbar .ag-sc-btn{background:transparent;border:none;box-shadow:none;}" +
+      "#" + ROOT_ID + " .ag-pillbar .ag-chip,#" + ROOT_ID + " .ag-pillbar .ag-sc-btn,#" + ROOT_ID + " .ag-pillbar .ag-capchip{background:transparent;border:none;box-shadow:none;}" +
       "#" + ROOT_ID + " .ag-pillbar [data-pill-key]{--ph:155 !important;--pill-hue:155 !important;color:#bff5e0 !important;font-weight:700;}" +
       "#" + ROOT_ID + " .ag-pillbar [data-pill-key].active{color:" + INK + " !important;}" +
       "#" + ROOT_ID + " .ag-scroll{flex:1;overflow:auto;padding:16px 26px 40px;}" +
@@ -101,6 +101,10 @@
       "#" + ROOT_ID + " .ag-check{display:flex;align-items:center;gap:8px;font-size:14px;color:rgba(207,238,224,.9);cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-consent{background:rgba(0,245,160,.05);border:1px solid rgba(0,245,160,.25);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px;}" +
       "#" + ROOT_ID + " .ag-capture{background:rgba(0,0,0,.25);border:1px solid rgba(0,245,160,.2);border-radius:14px;padding:14px;}" +
+      "#" + ROOT_ID + " .ag-recbtn{width:100%;max-width:520px;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border:0;border-radius:999px;background:" + GREEN + ";color:" + INK + ";font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.28);}" +
+      "#" + ROOT_ID + " .ag-recbtn:disabled{background:rgba(0,245,160,.18);color:rgba(207,238,224,.7);box-shadow:none;cursor:default;}" +
+      "#" + ROOT_ID + " .ag-recbtn.recording{background:#ff5a6a;color:#fff;}" +
+      "#" + ROOT_ID + " .ag-capchip{flex:1 1 0;border:1px solid rgba(0,245,160,.4);background:rgba(0,245,160,.06);color:#d6ffee;font-size:14px;font-weight:700;padding:9px 0;cursor:pointer;}" +
       /* 就地展开 = 同一个框: 展开的卡横跨整行, 封面变大(显 3D/视频), 详情接着信息往下排 */
       "#" + ROOT_ID + " .ag-card.expanded{grid-column:1/-1;border-color:" + GREEN + ";box-shadow:0 0 26px rgba(0,245,160,.4);}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover{aspect-ratio:auto;height:min(58vh,420px);cursor:pointer;}" +
@@ -289,25 +293,40 @@
           '<label class="ag-check"><input type="checkbox" data-k="grant_voice"> ' + esc(T("Use my speaking voice", "使用我的说话声音")) + '</label>' +
           '<label class="ag-check"><input type="checkbox" data-k="grant_singing"> ' + esc(T("Use my singing voice", "使用我的歌唱声音")) + '</label>' +
         '</div>' +
-        // 摄像头采集
+        // 采集: 两胶囊(🎥 面孔 | 🎙 声音), 各自一个舞台
         '<div class="ag-capture">' +
-          '<div style="font-weight:700;margin:6px 0">📸 ' + esc(T("Capture your face (turn slowly ~8s)", "采集你的脸(缓慢转头约 8 秒)")) + '</div>' +
-          '<div style="font-size:12.5px;color:#a9e9cf;margin:-2px 0 8px;line-height:1.5">💡 ' + esc(T("Record in good lighting, with no hat, and your full face visible. Thank you.", "请在光线充足、不戴帽子、脸部完整露出的环境中录制。谢谢。")) + '</div>' +
-          '<video class="ag-cam" autoplay muted playsinline style="width:100%;max-width:520px;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;"></video>' +
-          '<div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">' +
-            '<button class="ag-sc-btn ag-cam-start">🎥 ' + esc(T("Start camera", "开启摄像头")) + '</button>' +
-            '<button class="ag-sc-btn ag-cam-rec" disabled>⏺ ' + esc(T("Record 8s turn-around", "录 8 秒转圈")) + '</button>' +
-            '<button class="ag-sc-btn ag-voice-rec" disabled>🎙 ' + esc(T("Record spoken consent", "录口头授权")) + '</button>' +
+          '<div style="font-weight:700;margin:6px 0 10px">📸 ' + esc(T("Capture yourself", "采集你自己")) + '</div>' +
+          '<div class="ag-capmode" data-pill-bar style="display:flex;gap:8px;margin-bottom:14px;max-width:340px;">' +
+            '<button class="ag-capchip on" data-cap="video">🎥 ' + esc(T("Face", "面孔")) + '</button>' +
+            '<button class="ag-capchip" data-cap="audio">🎙 ' + esc(T("Voice", "声音")) + '</button>' +
           '</div>' +
-          '<div class="ag-consent-script" style="margin-top:10px;padding:10px 14px;background:rgba(0,245,160,.08);border:1px dashed rgba(0,245,160,.4);border-radius:10px;font-size:14px;color:#e8fff5;"></div>' +
-          '<div class="ag-cap-status ag-empty" style="font-size:12px;margin-top:6px"></div>' +
+          // 🎥 面孔舞台
+          '<div class="ag-stage-video">' +
+            '<div style="font-size:12.5px;color:#a9e9cf;margin:0 0 8px;line-height:1.5">💡 ' + esc(T("Record in good lighting, with no hat, and your full face visible. Thank you.", "请在光线充足、不戴帽子、脸部完整露出的环境中录制。谢谢。")) + '</div>' +
+            '<div style="position:relative;width:100%;max-width:520px;">' +
+              '<video class="ag-cam" autoplay muted playsinline style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;"></video>' +
+              '<button class="ag-cam-start" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:' + GREEN + ';color:' + INK + ';font-weight:800;border:0;border-radius:999px;padding:12px 22px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.4);white-space:nowrap;">🎥 ' + esc(T("Start camera", "开启摄像头")) + '</button>' +
+            '</div>' +
+            '<button class="ag-cam-rec ag-recbtn" disabled>⏺ ' + esc(T("Record 8s turn-around", "录 8 秒转头")) + '</button>' +
+          '</div>' +
+          // 🎙 声音舞台 (波形/音量条)
+          '<div class="ag-stage-audio" style="display:none">' +
+            '<div class="ag-consent-script" style="margin:2px 0 10px;padding:10px 14px;background:rgba(0,245,160,.08);border:1px dashed rgba(0,245,160,.4);border-radius:10px;font-size:14px;color:#e8fff5;"></div>' +
+            '<canvas class="ag-meter" width="1040" height="180" style="width:100%;max-width:520px;height:90px;border-radius:14px;background:#0a1512;border:1px solid rgba(0,245,160,.4);display:block;"></canvas>' +
+            '<button class="ag-voice-rec ag-recbtn" disabled>🎙 ' + esc(T("Record 8s speech / singing", "录 8 秒 说话/歌声")) + '</button>' +
+          '</div>' +
+          '<div class="ag-cap-status ag-empty" style="font-size:12px;margin-top:10px"></div>' +
         '</div>' +
         '<button class="ag-cast ag-rp-submit">🎬 ' + esc(T("Sign & submit for verification", "签约并提交核验")) + '</button>' +
         '<div class="ag-form-msg ag-empty"></div>' +
       '</div></div>';
-    var back = scroll.querySelector(".ag-back"); back.onclick = function () { stopRpStream(); renderGrid(); };
     var vid = scroll.querySelector(".ag-cam"), capStatus = scroll.querySelector(".ag-cap-status");
     var startBtn = scroll.querySelector(".ag-cam-start"), recBtn = scroll.querySelector(".ag-cam-rec"), voiceBtn = scroll.querySelector(".ag-voice-rec");
+    var videoStage = scroll.querySelector(".ag-stage-video"), audioStage = scroll.querySelector(".ag-stage-audio");
+    var meterCanvas = scroll.querySelector(".ag-meter");
+    var audioCtx = null, analyser = null, meterRAF = null;
+    function stopMeter() { if (meterRAF) { cancelAnimationFrame(meterRAF); meterRAF = null; } try { if (audioCtx) audioCtx.close(); } catch (_e) {} audioCtx = null; analyser = null; }
+    var back = scroll.querySelector(".ag-back"); back.onclick = function () { stopMeter(); stopRpStream(); renderGrid(); };
     // 口头授权脚本(照读)= 声音样本 + 口头同意记录 + 防冒充活体(念出"我是XX本人…"还要对得上脸)。
     var nameInput = scroll.querySelector('[data-k="name_en"]'), scriptEl = scroll.querySelector(".ag-consent-script");
     function consentScript() {
@@ -318,55 +337,102 @@
     function refreshScript() { if (scriptEl) scriptEl.textContent = consentScript(); }
     refreshScript();
     if (nameInput) nameInput.addEventListener("input", refreshScript);
-    startBtn.onclick = function () {
-      capStatus.textContent = T("Opening camera…", "正在开启摄像头…");
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true }).then(function (s) {
+    // 实时音量/波形条(麦克风电平)。喂 AnalyserNode 的是麦克风流, 不接 destination(非播放, 不违 W667)。
+    function drawMeter() {
+      if (!analyser || !meterCanvas) return;
+      meterRAF = requestAnimationFrame(drawMeter);
+      var ctx = meterCanvas.getContext("2d"); if (!ctx) return;
+      var n = analyser.frequencyBinCount, data = new Uint8Array(n); analyser.getByteFrequencyData(data);
+      var W = meterCanvas.width, H = meterCanvas.height; ctx.clearRect(0, 0, W, H);
+      var bars = 56, step = Math.max(1, Math.floor(n / bars)), bw = W / bars;
+      for (var i = 0; i < bars; i++) {
+        var v = (data[i * step] || 0) / 255, bh = Math.max(3, v * H * 0.92);
+        ctx.fillStyle = "rgba(0,245,160," + (0.3 + 0.65 * v) + ")";
+        ctx.fillRect(i * bw + 1.5, (H - bh) / 2, bw - 3, bh);
+      }
+    }
+    // 一次性拿流(视频+音频), 幂等; 面孔预览 + 声音波形都靠这一条流。
+    function ensureStream() {
+      if (rpStream && rpStream.active) return Promise.resolve(rpStream);
+      capStatus.textContent = T("Opening camera & mic…", "正在开启摄像头和麦克风…");
+      return navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true }).then(function (s) {
         rpStream = s; vid.srcObject = s; vid.muted = true;
-        vid.setAttribute("data-live-capture", "1");   // 标记: 全局媒体裁判应跳过
-        vid.onloadedmetadata = function () { try { vid.play(); } catch (_e) {} };   // 拿到首帧再 play, 防黑屏
-        // 根治「冻在第一帧」: 平台有多个全局裁判会 pause 所有 <video>(防重叠), 连摄像头预览也被摁停。
-        // 只要采集流还活着, 被谁暂停都立刻自恢复。
-        vid.onpause = function () { if (rpStream && rpStream.active) { try { vid.play(); } catch (_e) {} } };
+        vid.setAttribute("data-live-capture", "1");   // 全局媒体裁判跳过
+        vid.onloadedmetadata = function () { try { vid.play(); } catch (_e) {} };
+        vid.onpause = function () { if (rpStream && rpStream.active) { try { vid.play(); } catch (_e) {} } };  // 被裁判摁停自恢复
         vid.play().catch(function () {});
+        if (startBtn) startBtn.style.display = "none";
         recBtn.disabled = false; voiceBtn.disabled = false;
-        // 诊断: 黑屏是"没拿到画面"还是"拿到了没画上"? 800ms 后回报轨道状态 + 分辨率。
-        setTimeout(function () {
-          var vt = (s.getVideoTracks && s.getVideoTracks()[0]) || null;
-          var w = vid.videoWidth || 0, h = vid.videoHeight || 0;
-          if (vt && vt.readyState === "live" && w > 0) {
-            capStatus.textContent = "✅ " + T("Camera on", "摄像头已开") + " (" + w + "×" + h + "). " + T("Record your face turn-around.", "录一段转头。");
-          } else if (vt && vt.readyState === "live") {
-            // 轨道活着但没帧 = 另一 App 占用摄像头 / 隐私开关关闭。
-            capStatus.textContent = "⚠️ " + T("Camera track is live but no image — another app may be using the camera, or the lens is covered. Close Zoom/FaceTime/Photo Booth and retry.", "摄像头轨道正常但无画面——可能被别的 App(Zoom/FaceTime/Photo Booth)占用,或镜头被遮挡。关掉那些 App 再试。");
-          } else {
-            capStatus.textContent = "⚠️ " + T("Camera did not start (" + (vt ? vt.readyState : "no track") + "). Check System Settings › Privacy › Camera.", "摄像头未启动(" + (vt ? vt.readyState : "无轨道") + ")。检查 系统设置 › 隐私 › 摄像头。");
+        // 波形分析(麦克风电平)
+        try {
+          var AC = window.AudioContext || window.webkitAudioContext;
+          if (AC && s.getAudioTracks().length) {
+            audioCtx = new AC();
+            var src = audioCtx.createMediaStreamSource(new MediaStream(s.getAudioTracks()));
+            analyser = audioCtx.createAnalyser(); analyser.fftSize = 256; src.connect(analyser);
+            if (!meterRAF) drawMeter();
           }
+        } catch (_e) {}
+        setTimeout(function () {
+          var vt = (s.getVideoTracks && s.getVideoTracks()[0]) || null, w = vid.videoWidth || 0;
+          if (vt && vt.readyState === "live" && w > 0) capStatus.textContent = "✅ " + T("Ready", "已就绪") + " (" + w + "×" + (vid.videoHeight || 0) + ")";
+          else if (vt && vt.readyState === "live") capStatus.textContent = "⚠️ " + T("Camera live but no image — another app (Zoom/FaceTime/Photo Booth) may be using it, or the lens is covered.", "摄像头正常但无画面——可能被别的 App(Zoom/FaceTime/Photo Booth)占用,或镜头被遮挡。");
+          else capStatus.textContent = "⚠️ " + T("Camera did not start. Check System Settings › Privacy › Camera.", "摄像头未启动。检查 系统设置 › 隐私 › 摄像头。");
         }, 800);
+        return s;
       }).catch(function (err) {
         var nm = (err && err.name) || "";
         capStatus.textContent = (nm === "NotAllowedError")
-          ? T("Camera/mic permission denied — allow it in the browser and retry.", "摄像头/麦克风权限被拒——请在浏览器允许后重试。")
+          ? T("Camera/mic permission denied — allow it and retry.", "摄像头/麦克风权限被拒——请允许后重试。")
           : (nm === "NotReadableError")
             ? T("Camera is in use by another app. Close it and retry.", "摄像头正被别的 App 占用,关掉再试。")
             : T("Camera/mic permission denied.", "摄像头/麦克风权限被拒。") + (nm ? " (" + nm + ")" : "");
+        return null;
       });
-    };
+    }
+    if (startBtn) startBtn.onclick = function () { ensureStream(); };
+    // 两胶囊模式切换: 🎥 面孔 | 🎙 声音
+    function switchMode(key) {
+      var isAudio = key === "audio";
+      if (videoStage) videoStage.style.display = isAudio ? "none" : "";
+      if (audioStage) audioStage.style.display = isAudio ? "" : "none";
+      ensureStream();   // 点胶囊即用户手势, 顺势开流(波形/预览都靠它)
+    }
+    var capBar = scroll.querySelector(".ag-capmode");
+    if (capBar) {
+      capBar.querySelectorAll(".ag-capchip").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-cap")); });
+      if (typeof window.cssosMakePillBar === "function") {
+        capBar.classList.add("ag-pillbar");
+        window.cssosMakePillBar(capBar, { mono: true, compact: true, textColor: "dark", activeKey: "video", onActivate: switchMode });
+      } else {
+        capBar.querySelectorAll(".ag-capchip").forEach(function (c) {
+          c.onclick = function () { capBar.querySelectorAll(".ag-capchip").forEach(function (x) { x.classList.toggle("on", x === c); }); switchMode(c.getAttribute("data-cap")); };
+        });
+      }
+    }
     function pickMime(video) {
       var cands = video ? ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9", "video/webm", "video/mp4"]
                         : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
       for (var i = 0; i < cands.length; i++) { try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(cands[i])) return cands[i]; } catch (_e) {} }
       return "";
     }
-    function recordTrack(kindKey, uploadKind, opts, seconds) {
-      if (!rpStream) { capStatus.textContent = T("Start the camera first.", "请先开启摄像头。"); return; }
+    function recordTrack(kindKey, uploadKind, opts, seconds, btn) {
+      function ensureThen() {
+        if (!rpStream) { ensureStream().then(function (s) { if (s) recordTrack(kindKey, uploadKind, opts, seconds, btn); }); return false; }
+        return true;
+      }
+      if (!ensureThen()) return;
       var isVideo = !opts.audioOnly;
       var stream = opts.audioOnly ? new MediaStream(rpStream.getAudioTracks()) : rpStream;
       var mime = pickMime(isVideo);
       var mrOpts = isVideo ? { mimeType: mime || undefined, videoBitsPerSecond: 900000, audioBitsPerSecond: 64000 } : { mimeType: mime || undefined, audioBitsPerSecond: 64000 };
       var mr, chunks = [];
       try { mr = new MediaRecorder(stream, mrOpts); } catch (e) { try { mr = new MediaRecorder(stream); } catch (e2) { capStatus.textContent = T("Recording not supported on this browser.", "此浏览器不支持录制。"); return; } }
+      var label = btn ? btn.textContent : "";
+      function restore() { if (btn) { btn.classList.remove("recording"); btn.disabled = false; btn.textContent = label; } }
       mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
       mr.onstop = function () {
+        restore();
         if (!chunks.length) { capStatus.textContent = T("Nothing recorded, try again.", "没录到内容,请重试。"); return; }
         var blob = new Blob(chunks, { type: chunks[0].type || (isVideo ? "video/webm" : "audio/webm") });
         capStatus.textContent = "⏳ " + T("Uploading…", "上传中…") + " (" + Math.round(blob.size / 1024) + "KB)";
@@ -376,11 +442,16 @@
           else capStatus.textContent = T("Upload failed", "上传失败") + (j && j.code ? " · " + j.code : "") + ".";
         }).catch(function (e) { capStatus.textContent = T("Upload failed (network).", "上传失败(网络)。"); });
       };
-      mr.start(); capStatus.textContent = "⏺ " + T("Recording…", "录制中…") + " " + seconds + "s";
-      setTimeout(function () { try { if (mr.state !== "inactive") mr.stop(); } catch (_e) {} }, seconds * 1000);
+      if (btn) { btn.classList.add("recording"); btn.disabled = true; }
+      mr.start();
+      var left = seconds;
+      function tick() { if (btn) btn.textContent = "⏺ " + T("Recording", "录制中") + " " + left + "s"; capStatus.textContent = "⏺ " + T("Recording…", "录制中…") + " " + left + "s"; }
+      tick();
+      var iv = setInterval(function () { left--; if (left <= 0) { clearInterval(iv); } else tick(); }, 1000);
+      setTimeout(function () { clearInterval(iv); try { if (mr.state !== "inactive") mr.stop(); } catch (_e) {} }, seconds * 1000);
     }
-    recBtn.onclick = function () { recordTrack("face_video", "face_video", { videoOnly: false }, 8); };
-    voiceBtn.onclick = function () { recordTrack("speech", "speech", { audioOnly: true }, 4); };
+    recBtn.onclick = function () { recordTrack("face_video", "face_video", { videoOnly: false }, 8, recBtn); };
+    voiceBtn.onclick = function () { recordTrack("speech", "speech", { audioOnly: true }, 8, voiceBtn); };
     var submit = scroll.querySelector(".ag-rp-submit"), msg = scroll.querySelector(".ag-form-msg");
     submit.onclick = function () {
       var p = {};

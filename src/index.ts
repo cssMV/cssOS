@@ -42877,6 +42877,32 @@ app.post("/api/actors/real-person", express.json({ limit: "16kb" }), async (req,
   }
 });
 
+// CSSOS_WAVE_114 — 采集上传: 真人签约时的转圈脸视频/多角度照/说唱样本 → R2【私有】。base64 传(短采集~1-3MB)。
+//   隐私: 存 R2, 不公开索引; 仅本人 + 核验/生成用。kind=face_video|photo|speech|singing。
+app.post("/api/actors/capture-upload", express.json({ limit: "28mb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const b = (req.body || {}) as Record<string, any>;
+    const kind = String(b.kind || "").toLowerCase();
+    if (!["face_video", "photo", "speech", "singing"].includes(kind)) return res.status(400).json({ ok: false, code: "BAD_KIND" });
+    const dataB64 = String(b.data_b64 || "").replace(/^data:[^,]+,/, "");
+    if (!dataB64 || dataB64.length < 100) return res.status(400).json({ ok: false, code: "NO_DATA" });
+    const buf = Buffer.from(dataB64, "base64");
+    if (buf.length > 24 * 1024 * 1024) return res.status(413).json({ ok: false, code: "TOO_LARGE" });
+    const ext = kind === "face_video" ? "webm" : kind === "photo" ? "jpg" : "webm";
+    const ct = kind === "face_video" ? "video/webm" : kind === "photo" ? "image/jpeg" : "audio/webm";
+    const userHash = crypto.createHash("sha1").update(String(user.id)).digest("hex").slice(0, 8);
+    const key = `artifacts/actor-capture/${userHash}/${kind}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}.${ext}`;
+    await uploadBufferToR2(buf, key, ct);
+    return res.json({ ok: true, kind, url: `https://cdn.cssstudio.app/${key}`, bytes: buf.length });
+  } catch (err) {
+    console.warn("[actors] capture-upload failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "UPLOAD_FAILED" });
+  }
+});
+
 app.post("/api/actors/:id/submit-verification", express.json({ limit: "4kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -44487,7 +44513,9 @@ app.post("/api/works", async (req, res) => {
           try {
             const ap = await client.query<{ cast_price_cents: number; is_premium: boolean; owner_user_id: string | null; creator_royalty: number }>(
               `SELECT cast_price_cents, is_premium, owner_user_id::text AS owner_user_id, creator_royalty FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [castActorId]);
-            let priceSnap = ap.rows[0]?.is_premium ? Number(ap.rows[0]?.cast_price_cents || 0) : 0;
+            const ownerIdEarly = String(ap.rows[0]?.owner_user_id || "");
+            // CSSOS_WAVE_114 — 本人用自己的演员(自选自演)= 免费(不向自己收费)。
+            let priceSnap = (ap.rows[0]?.is_premium && ownerIdEarly !== String(user.id)) ? Number(ap.rows[0]?.cast_price_cents || 0) : 0;
             // CSSOS_WAVE_113 — 反派角色 +30% 溢价(更难演、更抢戏)。角色由 __actorRole 传入。
             const castRole = String(req.body?.__actorRole || "").toLowerCase();
             if (priceSnap > 0 && castRole === "villain") priceSnap = Math.round(priceSnap * 1.3);

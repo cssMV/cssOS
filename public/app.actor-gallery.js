@@ -98,6 +98,9 @@
       "#" + ROOT_ID + " .ag-form{max-width:560px;display:flex;flex-direction:column;gap:14px;}" +
       "#" + ROOT_ID + " .ag-form label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:rgba(207,238,224,.85);}" +
       "#" + ROOT_ID + " .ag-in{background:rgba(0,245,160,.07);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:12px;padding:10px 14px;font-size:15px;font-family:inherit;outline:none;}" +
+      "#" + ROOT_ID + " .ag-check{display:flex;align-items:center;gap:8px;font-size:14px;color:rgba(207,238,224,.9);cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-consent{background:rgba(0,245,160,.05);border:1px solid rgba(0,245,160,.25);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px;}" +
+      "#" + ROOT_ID + " .ag-capture{background:rgba(0,0,0,.25);border:1px solid rgba(0,245,160,.2);border-radius:14px;padding:14px;}" +
       /* 就地展开 = 同一个框: 展开的卡横跨整行, 封面变大(显 3D/视频), 详情接着信息往下排 */
       "#" + ROOT_ID + " .ag-card.expanded{grid-column:1/-1;border-color:" + GREEN + ";box-shadow:0 0 26px rgba(0,245,160,.4);}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover{aspect-ratio:auto;height:min(58vh,420px);cursor:pointer;}" +
@@ -250,6 +253,101 @@
           else { msg.textContent = (j && j.hint) || T("Creation failed, please retry.", "创建失败,请重试。"); }
         })
         .catch(function () { submit.disabled = false; msg.textContent = T("Network error, please retry.", "网络错误,请重试。"); });
+    };
+  }
+
+  /* 🙋 真人签约: 本人知情同意 + 授权 + 摄像头转圈采集脸 + 录说/唱 → 建档待核验。自选自演免费, 他用你拿 80%。 */
+  var rpStream = null;
+  function stopRpStream() { if (rpStream) { try { rpStream.getTracks().forEach(function (t) { t.stop(); }); } catch (_e) {} rpStream = null; } }
+  function b64(blob) { return new Promise(function (res) { var r = new FileReader(); r.onloadend = function () { res(String(r.result)); }; r.readAsDataURL(blob); }); }
+  function uploadCapture(kind, blob) {
+    return b64(blob).then(function (d) {
+      return fetch("/api/actors/capture-upload", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: kind, data_b64: d }) }).then(function (r) { return r.json(); });
+    });
+  }
+  function renderRealPersonSignup() {
+    var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
+    if (!scroll) return;
+    var captured = { face_video: null, speech: null };
+    scroll.innerHTML = '<div class="ag-detail">' +
+      '<button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button>' +
+      '<div class="ag-hero-name" style="margin-bottom:6px">🙋 ' + esc(T("Become a real digital actor", "签约成为真人数字演员")) + '</div>' +
+      '<div class="ag-sub" style="margin-bottom:14px;max-width:620px">' + esc(T("Sign yourself up with your own likeness & voice. Self-cast is free; when others cast you, you earn 80% (platform 20%). Nothing goes public until identity is verified.", "用你本人的肖像和声音签约。自选自演免费;别人选用你,你拿 80%(平台 20%)。身份核验通过前绝不公开。")) + '</div>' +
+      '<div class="ag-form">' +
+        '<label>' + esc(T("Your name / stage name *", "你的名字 / 艺名 *")) + '<input class="ag-in" data-k="name_en" maxlength="80" /></label>' +
+        '<label>' + esc(T("Your role range (what you like to play)", "你的戏路(擅长/想演的角色)")) + '<textarea class="ag-in" data-k="role_range" maxlength="300" rows="2"></textarea></label>' +
+        '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
+        '<label>' + esc(T("Cast price others pay (¢, 0=free; you keep 80%)", "他人选用你的价(¢, 0=免费; 你留 80%)")) + '<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="9999" value="0" /></label>' +
+        '<label class="ag-check"><input type="checkbox" data-k="is_public_figure"> ' + esc(T("I'm a public figure / celebrity (needs agency verification)", "我是公众人物/明星(需经纪公司核验)")) + '</label>' +
+        '<div class="ag-consent">' +
+          '<div style="font-weight:700;margin-bottom:6px">' + esc(T("Rights I grant (consent) *", "我授予的权利(同意)*")) + '</div>' +
+          '<label class="ag-check"><input type="checkbox" data-k="grant_likeness" checked> ' + esc(T("Use my likeness (face) as a digital actor", "将我的肖像(脸)用作数字演员")) + '</label>' +
+          '<label class="ag-check"><input type="checkbox" data-k="grant_voice"> ' + esc(T("Use my speaking voice", "使用我的说话声音")) + '</label>' +
+          '<label class="ag-check"><input type="checkbox" data-k="grant_singing"> ' + esc(T("Use my singing voice", "使用我的歌唱声音")) + '</label>' +
+        '</div>' +
+        // 摄像头采集
+        '<div class="ag-capture">' +
+          '<div style="font-weight:700;margin:6px 0">📸 ' + esc(T("Capture your face (turn slowly ~5s)", "采集你的脸(缓慢转头约 5 秒)")) + '</div>' +
+          '<video class="ag-cam" autoplay muted playsinline style="width:100%;max-width:320px;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;"></video>' +
+          '<div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">' +
+            '<button class="ag-sc-btn ag-cam-start">🎥 ' + esc(T("Start camera", "开启摄像头")) + '</button>' +
+            '<button class="ag-sc-btn ag-cam-rec" disabled>⏺ ' + esc(T("Record 5s turn-around", "录 5 秒转圈")) + '</button>' +
+            '<button class="ag-sc-btn ag-voice-rec" disabled>🎙 ' + esc(T("Record voice (say a line)", "录声音(说一句)")) + '</button>' +
+          '</div>' +
+          '<div class="ag-cap-status ag-empty" style="font-size:12px;margin-top:6px"></div>' +
+        '</div>' +
+        '<button class="ag-cast ag-rp-submit">🎬 ' + esc(T("Sign & submit for verification", "签约并提交核验")) + '</button>' +
+        '<div class="ag-form-msg ag-empty"></div>' +
+      '</div></div>';
+    var back = scroll.querySelector(".ag-back"); back.onclick = function () { stopRpStream(); renderGrid(); };
+    var vid = scroll.querySelector(".ag-cam"), capStatus = scroll.querySelector(".ag-cap-status");
+    var startBtn = scroll.querySelector(".ag-cam-start"), recBtn = scroll.querySelector(".ag-cam-rec"), voiceBtn = scroll.querySelector(".ag-voice-rec");
+    startBtn.onclick = function () {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640 }, audio: true }).then(function (s) {
+        rpStream = s; vid.srcObject = s; recBtn.disabled = false; voiceBtn.disabled = false; capStatus.textContent = T("Camera on. Record your face turn-around.", "摄像头已开,录一段转头。");
+      }).catch(function () { capStatus.textContent = T("Camera/mic permission denied.", "摄像头/麦克风权限被拒。"); });
+    };
+    function recordTrack(kindKey, uploadKind, opts, seconds) {
+      if (!rpStream) return;
+      var stream = opts.videoOnly ? rpStream : (opts.audioOnly ? new MediaStream(rpStream.getAudioTracks()) : rpStream);
+      var mr, chunks = [];
+      try { mr = new MediaRecorder(stream); } catch (e) { capStatus.textContent = T("Recording not supported on this browser.", "此浏览器不支持录制。"); return; }
+      mr.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+      mr.onstop = function () {
+        var blob = new Blob(chunks, { type: chunks[0] ? chunks[0].type : "video/webm" });
+        capStatus.textContent = "⏳ " + T("Uploading…", "上传中…");
+        uploadCapture(uploadKind, blob).then(function (j) {
+          if (j && j.ok) { captured[kindKey] = j.url; capStatus.textContent = "✅ " + T("Captured", "已采集") + " (" + kindKey + ")"; }
+          else capStatus.textContent = T("Upload failed.", "上传失败。");
+        }).catch(function () { capStatus.textContent = T("Upload failed.", "上传失败。"); });
+      };
+      mr.start(); capStatus.textContent = "⏺ " + T("Recording…", "录制中…") + " " + seconds + "s";
+      setTimeout(function () { try { mr.stop(); } catch (_e) {} }, seconds * 1000);
+    }
+    recBtn.onclick = function () { recordTrack("face_video", "face_video", { videoOnly: false }, 5); };
+    voiceBtn.onclick = function () { recordTrack("speech", "speech", { audioOnly: true }, 4); };
+    var submit = scroll.querySelector(".ag-rp-submit"), msg = scroll.querySelector(".ag-form-msg");
+    submit.onclick = function () {
+      var p = {};
+      scroll.querySelectorAll(".ag-in").forEach(function (el) { p[el.getAttribute("data-k")] = el.value; });
+      scroll.querySelectorAll("[data-k][type=checkbox]").forEach(function (el) { p[el.getAttribute("data-k")] = el.checked; });
+      if (!p.name_en || String(p.name_en).trim().length < 2) { msg.textContent = T("Please enter your name.", "请填名字。"); return; }
+      if (!p.grant_likeness) { msg.textContent = T("You must grant likeness consent.", "必须勾选授权肖像。"); return; }
+      if (!captured.face_video) { msg.textContent = T("Please capture your face first.", "请先采集你的脸。"); return; }
+      p.likeness_capture = { face_video_url: captured.face_video };
+      if (captured.speech) p.voice_capture = { speech_url: captured.speech };
+      submit.disabled = true; msg.textContent = "⏳ " + T("Signing…", "签约中…");
+      fetch("/api/actors/real-person", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(p) })
+        .then(function (r) { return r.json(); }).then(function (j) {
+          if (j && j.ok) {
+            // 自动提交核验
+            fetch("/api/actors/" + encodeURIComponent(j.actor_id) + "/submit-verification", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ method: "self_liveness", liveness_ref: captured.face_video }) })
+              .then(function () {}).catch(function () {});
+            stopRpStream();
+            scroll.innerHTML = '<div class="ag-detail"><button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button><div class="ag-empty" style="font-size:16px;margin-top:20px">✅ ' + esc(T("Signed! Your actor is submitted for identity verification. Once approved it goes public and you start earning. Self-cast is free.", "签约成功!已提交身份核验。通过后自动公开上架、开始赚钱。自选自演免费。")) + '</div></div>';
+            scroll.querySelector(".ag-back").onclick = function () { renderGrid(); };
+          } else { submit.disabled = false; msg.textContent = (j && j.hint) || T("Sign-up failed, please retry.", "签约失败,请重试。"); }
+        }).catch(function () { submit.disabled = false; msg.textContent = T("Network error, please retry.", "网络错误,请重试。"); });
     };
   }
 
@@ -565,6 +663,7 @@
 
   function close() {
     stopShowcase();
+    if (typeof stopRpStream === "function") stopRpStream();
     var el = document.getElementById(ROOT_ID);
     if (el) el.remove();
   }
@@ -580,6 +679,7 @@
       '<div class="ag-bar">' +
         '<div class="ag-title">🎭 <b>' + esc(T("Digital Actors", "数字演员")) + '</b></div>' +
         '<div class="ag-spacer"></div>' +
+        '<button class="ag-sc-btn ag-signup" style="border:1px solid rgba(0,245,160,.5);border-radius:999px;padding:0 18px;height:46px;">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
         '<div class="ag-searchcap">' +
           '<button class="ag-create">＋ ' + esc(T("Create", "创建演员")) + '</button>' +
           '<input class="ag-search" type="search" placeholder="' + esc(T("Search actors…", "搜索演员 / 文明 / 风格…")) + '">' +
@@ -598,6 +698,8 @@
     el.querySelector(".ag-x").onclick = close;
     var createBtn = el.querySelector(".ag-create");
     if (createBtn) createBtn.onclick = function () { renderCreateForm(); };
+    var signupBtn = el.querySelector(".ag-signup");
+    if (signupBtn) signupBtn.onclick = function () { renderRealPersonSignup(); };
     // 5 个筛选 = 凹凸镶嵌胶囊轨道: 优先用平台 cssosMakePillBar(胶囊宪法), 否则退回普通 chip。
     var filterBar = el.querySelector(".ag-filters");
     el.querySelectorAll(".ag-chip").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-f")); });

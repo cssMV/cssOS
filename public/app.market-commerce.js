@@ -2201,10 +2201,15 @@ function buildMarketCardsMarkup(works = []) {
       const _played = typeof globalThis.cssosWorkIsPlayedModule === "function"
         ? globalThis.cssosWorkIsPlayedModule(workId) : false;
       const _playedClass = _played ? "is-played" : "is-unplayed";
+      // CSSOS 20260701 — Layer 2 封面人脸焦点: 若后端检测出人脸焦点(0~1), 设 object-position
+      //   让裁剪对准脸(永不削头); <0 或缺失 = 无脸/未检测, 回落 CSS 默认(center 22%)。
+      const _fx = Number(work?.cover_focal_x), _fy = Number(work?.cover_focal_y);
+      const _focalStyle = (isFinite(_fx) && isFinite(_fy) && _fx >= 0 && _fy >= 0)
+        ? ` style="object-position:${(_fx * 100).toFixed(1)}% ${(_fy * 100).toFixed(1)}%"` : "";
       return `
         <article class="work-card market-card foryou-shelf-card ${_playedClass}${_isAdminOwned ? " is-admin-public" : ""}" data-market-work-id="${escapeHtml(workId)}" data-work-id="${escapeHtml(workId)}" data-work-expand data-lyrics-preview="${escapeHtml(_previewRaw.slice(0, 4000))}">
           <div class="work-cover" data-market-cover-key="${escapeHtml(workId)}" data-market-action="open-watch" role="button" tabindex="0" aria-label="${escapeHtml(loginCopy("Play MV"))}">
-            ${coverImage ? `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(coverImage, 400))}" alt="${title}" loading="lazy" decoding="async"${_slidesAttr} ${_stableCover ? `data-stable="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(_stableCover, 400))}" onerror="if(this.dataset.stable&&this.src!==this.dataset.stable){this.src=this.dataset.stable;}"` : ""} />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
+            ${coverImage ? `<img src="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(coverImage, 400))}" alt="${title}" loading="lazy" decoding="async"${_focalStyle}${_slidesAttr} ${_stableCover ? `data-stable="${escapeHtml((globalThis.cssosThumb || function (u) { return u; })(_stableCover, 400))}" onerror="if(this.dataset.stable&&this.src!==this.dataset.stable){this.src=this.dataset.stable;}"` : ""} />` : `<div class="work-cover-fallback">${rawTitle.slice(0, 2).toUpperCase()}</div>`}
             ${_fpBadge}
             ${_durOverlay}
             <span class="work-cover-played-dot" aria-hidden="true"></span>

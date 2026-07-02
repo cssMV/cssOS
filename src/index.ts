@@ -34427,6 +34427,9 @@ type WorkTreeRow = {
   rights_scope?: string | null;
   source_run_id?: string | null;
   cover_image?: string | null;
+  // CSSOS 20260701 — Layer 2 封面人脸焦点(0~1 比例; <0 = 已扫无脸, 回落默认偏上裁剪)。
+  cover_focal_x?: number | null;
+  cover_focal_y?: number | null;
   preview_image_url?: string | null;
   preview_video_url?: string | null;
   preview_video_asset_key?: string | null;
@@ -42907,6 +42910,8 @@ app.get("/api/works/market", async (req, res) => {
            w.suggested_listen_price_cents,
            w.suggested_buyout_price_cents,
            w.cover_image,
+           w.cover_focal_x,
+           w.cover_focal_y,
            w.preview_image_url,
            w.preview_video_url,
            u.display_name AS owner_name,

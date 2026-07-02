@@ -647,7 +647,12 @@ const CINEMA_LANDSCAPE = Object.freeze({
   ffmpeg:  "1920:804",        // used in scale/pad ffmpeg filters
   framing: "ultra-wide anamorphic 2.39:1 cinematic composition, subject framed for widescreen scope, " +
            "environment visible on both sides, horizontal letterbox bars absent, " +
-           "classic cinema aspect ratio",
+           "classic cinema aspect ratio, " +
+           // CSSOS 20260701 — Jing「堵源头」: 人脸感知构图在源头就做,而非事后裁切。
+           // 若主体是人物, 头脸必须完整入镜、头顶留空、绝不削去头顶或半张脸。
+           "if a person is the subject, keep the full head and face inside the frame with " +
+           "comfortable headroom above the head, never crop the top of the head or half the face, " +
+           "position the face along the upper-third of the frame",
   label:   "Anamorphic 2.39:1",
 });
 const PHONE_FULLSCREEN = Object.freeze({
@@ -3993,7 +3998,8 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
       // ③ 封面(并不阻塞音频成败)。
       let coverUrl = "";
       try {
-        const img = await callImageGen({ prompt: `album cover art, ${style || "cinematic"}, ${title}, emotive, highly detailed`, size: "1024x1024" });
+        // CSSOS 20260701 — 堵源头铁律: 封面一律 2.39 电影宽银幕 + 源头人脸感知构图, 绝不 1024 正方。
+        const img = await callImageGen({ prompt: `album cover art, ${style || "cinematic"}, ${title}, emotive, highly detailed, ${CINEMA_LANDSCAPE.framing}`, size: CINEMA_LANDSCAPE.size });
         if (img && (img as any).ok && (img as any).image_url) coverUrl = String((img as any).image_url);
         if (coverUrl && !isR2Url(coverUrl)) {
           const ib = await (await fetch(coverUrl)).arrayBuffer();
@@ -4439,15 +4445,27 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     return res.status(400).json({ ok: false, error: "empty_prompt", hint: "no prompt — nothing to render" });
   }
   const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
-  // Map Runway-style ratio (e.g. "1024:1024", "1920:1080") to a pixel size
-  // for our generic image router. Falls back to 1024x1024.
-  const ratioToSize = (r: string): string => {
-    if (!r) return "1024x1024";
-    const m = r.match(/^(\d+)\s*[:x]\s*(\d+)$/);
-    if (!m) return "1024x1024";
-    return `${m[1]}x${m[2]}`;
+  // CSSOS 20260701 — Jing「堵源头铁律」: 封面输出画幅在【源头】强制合规, 绝不透传 16:9/1:1。
+  // 之前 ratioToSize 直接把前端 ratio 透传, 空/不匹配默认 1024×1024 正方, 且绕过 ASPECT_SIZE_MAP
+  // 的铁律重映射 → 引擎"偷懒"出正方/16:9 的真凶。现在: 只判横/竖, 横→2.39 电影, 竖→设备贴合,
+  // 其余(正方/16:9/空/未知)一律回落 2.39 电影。人脸感知构图靠下方 framing 注入。
+  const coverSizeForRatio = (r: string): string => {
+    const s = r.trim().toLowerCase();
+    // 明确的竖屏/手机 → device-fit 竖构图
+    if (/(9:1[69]|9:19\.5|portrait|device-fit|1170)/.test(s)) return PHONE_FULLSCREEN.size;
+    const m = s.match(/^(\d+)\s*[:x]\s*(\d+)$/);
+    if (m) {
+      const w = Number(m[1]), h = Number(m[2]);
+      // 竖图(高>宽)→ 设备贴合; 其余一切(含正方/16:9/超宽)→ 2.39 电影
+      if (h > w * 1.05) return PHONE_FULLSCREEN.size;
+    }
+    return CINEMA_LANDSCAPE.size; // 铁律默认: 超宽 2.39 电影
   };
-  const fallbackSize = ratioToSize(ratio);
+  const fallbackSize = coverSizeForRatio(ratio);
+  const isPortraitCover = fallbackSize === PHONE_FULLSCREEN.size;
+  // 源头人脸感知构图: 把电影/竖屏 framing 附到 prompt, 引擎构图时就把人脸摆进合规画幅。
+  const composedFraming = isPortraitCover ? PHONE_FULLSCREEN.framing : CINEMA_LANDSCAPE.framing;
+  const composedPrompt = prompt ? `${prompt}, ${composedFraming}` : composedFraming;
 
   // CSSOS_PHASE2_COVER_TIER_FIRST 20260507 — Jing
   // Routing principle: free → cheap → standard → premium, best-of-tier first.
@@ -4467,7 +4485,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     const __coverT0 = Date.now();
     try {
       const img = await callImageGen({
-        prompt: prompt || "album cover, cinematic",
+        prompt: composedPrompt || "album cover, cinematic, ultra-wide anamorphic 2.39:1 cinematic composition",
         size: fallbackSize,
       });
       clearInterval(heartbeat);
@@ -4505,10 +4523,13 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     // through to the Runway upstream path (which opens a fresh response).
     let hue = 180;
     for (let i = 0; i < (prompt || "").length; i++) hue = (hue * 31 + prompt.charCodeAt(i)) % 360;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="hsl(${hue},70%,32%)"/><stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#g)"/></svg>`;
+    // CSSOS 20260701 — 占位封面也遵 2.39 铁律(横), 不再吐正方 1024。竖屏封面用 device-fit。
+    const phW = isPortraitCover ? PHONE_FULLSCREEN.w : CINEMA_LANDSCAPE.w;
+    const phH = isPortraitCover ? PHONE_FULLSCREEN.h : CINEMA_LANDSCAPE.h;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${phW} ${phH}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="hsl(${hue},70%,32%)"/><stop offset="100%" stop-color="hsl(${(hue + 60) % 360},75%,18%)"/></linearGradient></defs><rect width="${phW}" height="${phH}" fill="url(#g)"/></svg>`;
     // CSSOS_WAVE_111D_NO_SVG_DATA_URI 20260512 — emit a real .webp URL,
     // never a data:image/svg+xml URI (compose pipelines can't read it).
-    const placeholderUrl = await svgToWebpFallbackUrl(svg, 1024, 1024, "cover");
+    const placeholderUrl = await svgToWebpFallbackUrl(svg, phW, phH, "cover");
     res.write(JSON.stringify({
       ok: true,
       task_id: `placeholder-${Date.now()}`,
@@ -4568,7 +4589,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   let img: Awaited<ReturnType<typeof callImageGen>> | null = null;
   let imgErr = "";
   try {
-    img = await callImageGen({ prompt: prompt || "album cover, cinematic", size: fallbackSize });
+    img = await callImageGen({ prompt: composedPrompt || "album cover, cinematic, ultra-wide anamorphic 2.39:1 cinematic composition", size: fallbackSize });
   } catch (err) {
     imgErr = err instanceof Error ? err.message : String(err);
     console.warn("[mv-cover] callImageGen threw:", imgErr);

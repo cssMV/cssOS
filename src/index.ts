@@ -43010,9 +43010,9 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
     let nameZh = String(body.name_zh || nameEn).trim().slice(0, 60);
     // 描述 = 纯文字(生成 AI 原创合成脸); 铁律: 绝不接受上传真人照片。
     let desc = String(body.description || body.persona || "").trim().slice(0, 600);
+    // 合成演员性别可"自动"(空)→ 由文明智能联动/LLM 决定; 真人演员才在前端强制手选。
     const genderIn = String(body.gender || "").toLowerCase();
-    if (!["female", "male", "androgynous", "neutral"].includes(genderIn)) return res.status(400).json({ ok: false, code: "GENDER_REQUIRED", hint: "请选择声线性别" });
-    const gender = genderIn;
+    let gender = ["female", "male", "androgynous", "neutral"].includes(genderIn) ? genderIn : "";
     let style = String(body.style_descriptor || body.style || "").trim().slice(0, 120) || null;
     const world = String(body.civilization || body.world || "").trim().slice(0, 60) || "Original";
     // 合成演员可跨文明(多选/全文明=空数组)。
@@ -43028,13 +43028,13 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
       "Latin American": "Latino Hispanic features", "Southeast Asian": "Southeast Asian features", Western: "Western European features",
     };
     const civLookStr = civilizations.map((c) => CIV_LOOK[c]).filter(Boolean).join(" or ");
-    // ★ 一键 / 智能联动: 名字或描述不足 → LLM 按 文明/戏路/风格 智能生成 coherent 且文化&样貌地道的角色。
-    if (nameEn.length < 2 || desc.length < 10) {
+    // ★ 一键 / 智能联动: 名字/描述/性别不足 → LLM 按 文明/戏路/风格 智能生成 coherent 且文化&样貌地道的角色。
+    if (nameEn.length < 2 || desc.length < 10 || !gender) {
       try {
         const compose = await callLlm({
           messages: [
-            { role: "system", content: "You cast ORIGINAL synthetic digital music-video actors (never real people). Compose ONE coherent, culturally authentic character. The appearance MUST match the given civilization's ethnicity and aesthetic — a Chinese hero is East Asian; a Japanese villain has Japanese features and a Japanese aesthetic. If civilization is 'any', pick a fitting one. Reply STRICT JSON: {\"name_en\":\"<evocative romanized stage name>\",\"name_native\":\"<name in the civilization's own script, or empty>\",\"appearance\":\"<vivid 1-2 sentence appearance, ethnically & culturally authentic to the civilization>\",\"style\":\"<music/art style fitting the civilization>\"}." },
-            { role: "user", content: `civilizations: ${civilizations.length ? civilizations.join(", ") : "any / all"}\narchetypes: ${archetypes.length ? archetypes.join(", ") : "any"}\nstyle: ${style || "any"}\ngender: ${gender}\nuser hint: ${desc || nameEn || "(none — surprise me, be creative)"}` },
+            { role: "system", content: "You cast ORIGINAL synthetic digital music-video actors (never real people). Compose ONE coherent, culturally authentic character. The appearance MUST match the given civilization's ethnicity and aesthetic — a Chinese hero is East Asian; a Japanese villain has Japanese features and a Japanese aesthetic. If civilization is 'any', pick a fitting one. Reply STRICT JSON: {\"name_en\":\"<evocative romanized stage name>\",\"name_native\":\"<name in the civilization's own script, or empty>\",\"appearance\":\"<vivid 1-2 sentence appearance, ethnically & culturally authentic to the civilization>\",\"style\":\"<music/art style fitting the civilization>\",\"gender\":\"<female|male|neutral, fitting the character>\"}." },
+            { role: "user", content: `civilizations: ${civilizations.length ? civilizations.join(", ") : "any / all"}\narchetypes: ${archetypes.length ? archetypes.join(", ") : "any"}\nstyle: ${style || "any"}\ngender: ${gender || "auto — you decide"}\nuser hint: ${desc || nameEn || "(none — surprise me, be creative)"}` },
           ], max_tokens: 400, temperature: 0.9, response_format: { type: "json_object" },
         });
         if (compose.ok) {
@@ -43043,9 +43043,11 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
           if (desc.length < 10 && c.appearance) desc = String(c.appearance).trim().slice(0, 600);
           if (c.name_native) nameZh = String(c.name_native).trim().slice(0, 60) || nameZh;
           if (!style && c.style) style = String(c.style).trim().slice(0, 120);
+          if (!gender && ["female", "male", "neutral"].includes(String(c.gender || "").toLowerCase())) gender = String(c.gender).toLowerCase();
         }
       } catch (e) { console.warn("[ugc-actor] one-click compose failed:", (e as Error)?.message || e); }
     }
+    if (!gender) gender = "neutral";   // 智能联动没定出来时兜底
     if (nameEn.length < 2) return res.status(400).json({ ok: false, code: "NAME_REQUIRED", hint: "给个艺名, 或选文明/戏路让系统一键生成" });
     if (desc.length < 10) return res.status(400).json({ ok: false, code: "DESCRIPTION_TOO_SHORT", hint: "描述外貌, 或选文明/戏路让系统智能生成" });
     // CSSOS_WAVE_118 禁止裁判员当运动员: 官方账号(@cssstudio.app / jingdudc)的数字演员强制免费, 不与用户抢选角生意。

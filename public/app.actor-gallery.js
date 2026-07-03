@@ -200,7 +200,10 @@
       "#" + ROOT_ID + " .ag-topcap::-webkit-scrollbar{display:none;}" +
       "#" + ROOT_ID + " .ag-topcap>*{flex:0 0 auto;}" +   // 胶囊各自不收缩, 溢出靠横滑
       "@media(max-width:760px){#" + ROOT_ID + " .ag-bar{flex-wrap:wrap;}#" + ROOT_ID + " .ag-topcap{order:3;flex:1 1 100%;width:100%;margin-top:10px;}}" +
-      "#" + ROOT_ID + " .ag-topcap .ag-signup{position:relative;z-index:2;border:0;background:" + GREEN + ";color:" + INK + ";font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
+      "#" + ROOT_ID + " .ag-topcap .ag-signup{position:relative;z-index:1;border:0;background:rgba(0,245,160,.06);color:#e8fff5;font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;}" +
+      // 激活段(随视图切换: 成为演员/创建/搜索)= 凸绿在顶。
+      "#" + ROOT_ID + " .ag-topcap .tc-on{background:" + GREEN + " !important;color:" + INK + " !important;z-index:2 !important;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
+      "#" + ROOT_ID + " .ag-topcap .ag-search.tc-on::placeholder{color:rgba(4,18,12,.6);}" +
       "#" + ROOT_ID + " .ag-topcap .ag-create{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;font-weight:700;padding:0 22px 0 40px;white-space:nowrap;border-radius:0 999px 999px 0;cursor:pointer;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
       "#" + ROOT_ID + " .ag-topcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;min-width:150px;padding:0 20px 0 40px;border-radius:0 999px 999px 0;outline:none;font-size:15px;height:100%;box-sizing:border-box;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
@@ -429,9 +432,17 @@
     };
   }
 
+  // 顶部三胶囊激活态随视图切换(成为演员 / 创建 / 搜索)。
+  function setTopcapActive(key) {
+    var cap = document.querySelector("#" + ROOT_ID + " .ag-topcap"); if (!cap) return;
+    cap.querySelectorAll(".ag-signup,.ag-create,.ag-search").forEach(function (x) { x.classList.remove("tc-on"); });
+    var sel = key === "create" ? ".ag-create" : key === "search" ? ".ag-search" : ".ag-signup";
+    var t = cap.querySelector(sel); if (t) t.classList.add("tc-on");
+  }
   function renderCreateForm() {
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
     if (!scroll) return;
+    setTopcapActive("create");
     scroll.innerHTML = '<div class="ag-detail">' +
       '<button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button>' +
       '<div class="ag-hero-name" style="margin-bottom:6px">' + esc(T("Create your digital actor", "创建你的数字演员")) + '</div>' +
@@ -439,7 +450,7 @@
       '<div class="ag-form">' +
         '<label>' + esc(T("Stage name (blank = system names it)", "艺名(留空 = 系统起名)")) + '<input class="ag-in" data-k="name_en" maxlength="60" placeholder="' + esc(T("Nova Sky — or leave blank", "Nova Sky —— 或留空")) + '" /></label>' +
         '<label>' + esc(T("Appearance / vibe (blank = system composes from civilization + role)", "外貌 / 气质(留空 = 系统按文明+戏路智能生成)")) + '<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="' + esc(T("e.g. a silver-haired violet-eyed futuristic diva — or leave blank", "如: 银发碧眼的未来感歌姬 —— 或留空")) + '"></textarea></label>' +
-        '<label>' + esc(T("Voice gender *", "声线性别 *")) + '<select class="ag-in" data-k="gender"><option value="" selected disabled>' + esc(T("— choose —", "— 请选择 —")) + '</option><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
+        '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="" selected>' + esc(T("Auto — system decides by civilization", "自动 —— 按文明智能联动")) + '</option><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
         '<label>' + esc(T("Style (leave blank = all styles)", "风格(留空 = 全风格)")) + '<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="' + esc(T("synthwave — or leave blank for any", "synthwave —— 留空则任意风格")) + '" /></label>' +
         allMultiMarkup("civ", T("Civilization — all by default; or pick one/several (a face can span cultures)", "文明 —— 默认全文明;也可选一个/几个(一张脸可跨文化)"), CIVS) +
         roleTaxonomyMarkup() +
@@ -457,8 +468,7 @@
       scroll.querySelectorAll(".ag-in").forEach(function (el) { payload[el.getAttribute("data-k")] = el.value; });
       payload.archetypes = roleTax.archetypes(); payload.sub_roles = roleTax.subRoles();
       payload.civilizations = civGet();
-      // 名字/描述可留空 —— 后端按 文明+戏路+风格 智能联动补全(一键数字演员)。只强制声线性别。
-      if (!payload.gender) { msg.textContent = T("Please choose a voice gender.", "请选择声线性别。"); return; }
+      // 名字/描述/性别都可留空 —— 后端按 文明+戏路+风格 智能联动补全(一键合成数字演员)。
       submit.disabled = true; msg.textContent = "⏳ " + T("Composing & generating the actor… (~10-25s)", "正在智能联动生成演员…(约 10-25 秒)");
       fetch("/api/actors", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })
         .then(function (r) { return r.json(); })
@@ -489,6 +499,7 @@
   function renderRealPersonSignup() {
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
     if (!scroll) return;
+    setTopcapActive("signup");
     var captured = { face_video: null, speech: null };
     scroll.innerHTML = '<div class="ag-detail">' +
       '<button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button>' +
@@ -1484,7 +1495,7 @@
         '<div class="ag-title">🎭 <b>' + esc(T("Digital Actors", "数字演员")) + '</b></div>' +
         '<div class="ag-spacer"></div>' +
         '<div class="ag-topcap">' +   // 三胶囊: 🙋成为演员 | +创建(绿凸) | 搜索  凹凸镶嵌
-          '<button class="ag-signup">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
+          '<button class="ag-signup tc-on">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
           '<button class="ag-create">＋ ' + esc(T("Create", "创建演员")) + '</button>' +
           '<input class="ag-search" type="search" placeholder="' + esc(T("Search actors…", "搜索演员…")) + '">' +
         '</div>' +
@@ -1543,6 +1554,8 @@
     }
     var si = el.querySelector(".ag-search");
     si.oninput = function () { state.search = si.value.trim(); resetRows(); renderGrid(); };
+    si.onfocus = function () { setTopcapActive("search"); };
+    si.onblur = function () { if (!si.value.trim()) setTopcapActive("signup"); };
     el.querySelector(".ag-scroll").addEventListener("click", function (e) {
       var t = e.target;
       // 展开区内的交互元素(台词胶囊/选角/作者/出演子卡/model-viewer)不劫持。

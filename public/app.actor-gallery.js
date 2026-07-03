@@ -449,7 +449,17 @@
     var cap = document.querySelector("#" + ROOT_ID + " .ag-topcap"); if (!cap) return;
     cap.querySelectorAll(".ag-signup,.ag-create,.ag-search").forEach(function (x) { x.classList.remove("tc-on"); });
     var sel = key === "create" ? ".ag-create" : key === "search" ? ".ag-search" : ".ag-signup";
-    var t = cap.querySelector(sel); if (t) t.classList.add("tc-on");
+    var t = cap.querySelector(sel);
+    if (t) {
+      t.classList.add("tc-on");
+      // 胶囊宪法: 激活段必须【整颗可见·两头圆】。轨道在窄屏会溢出横滑, 激活时把它完整滚进视野
+      // (否则激活的绿胶囊被切在屏幕右缘、看不到右侧圆头 = 违宪)。
+      try {
+        var pad = 12, r = t.offsetLeft + t.offsetWidth;
+        if (r > cap.scrollLeft + cap.clientWidth) cap.scrollLeft = r - cap.clientWidth + pad;
+        else if (t.offsetLeft < cap.scrollLeft + pad) cap.scrollLeft = Math.max(0, t.offsetLeft - pad);
+      } catch (_e) {}
+    }
   }
   function renderCreateForm() {
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
@@ -1267,7 +1277,9 @@
           var nameEl = cardEl.querySelector(".ag-name");
           if (nameEl && !nameEl.__renamable) {
             nameEl.__renamable = true; nameEl.classList.add("ag-editable"); nameEl.title = T("Click to rename", "点击改名");
-            nameEl.innerHTML = '<span class="ag-nametext" style="cursor:text">' + esc(a.name_en || a.name_zh || "") + '</span> <span style="opacity:.55;font-size:12px;cursor:text">✎</span>';
+            // 整行都可点改名: .ag-name 撑满整行 + 手型光标(点空白处也触发)。
+            nameEl.style.display = "block"; nameEl.style.width = "100%"; nameEl.style.cursor = "pointer";
+            nameEl.innerHTML = '<span class="ag-nametext" style="cursor:text">' + esc(a.name_en || a.name_zh || "") + '</span> <span style="opacity:.55;font-size:12px;cursor:pointer">✎</span>';
             var textEl = nameEl.querySelector(".ag-nametext");
             function startRename() {
               if (textEl.getAttribute("contenteditable") === "true") return;

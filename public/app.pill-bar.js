@@ -365,8 +365,9 @@
       return found;
     }
 
-    /* Initial active */
+    /* Initial active — 胶囊宪法: 没指定默认激活就激活第一个(否则剥 :has 后无凹凸镶嵌, 整条散)。 */
     if (opts.activeKey != null) setActive(opts.activeKey);
+    else if (children.length) setActive(children[0].getAttribute("data-pill-key"));
 
     /* Delegated click — works on button / div / span / label / a / textarea */
     function handleClick(e) {
@@ -431,8 +432,9 @@
       }
     });
     assignHues(children, !!mono);
-    /* Sync track hue to whichever child already has .active */
+    /* Sync track hue to whichever child already has .active — 没有则默认激活第一个(胶囊宪法)。 */
     var activeIdx = children.findIndex(function (c) { return c.classList.contains("active"); });
+    if (activeIdx < 0 && children.length) { children[0].classList.add("active"); activeIdx = 0; }
     if (activeIdx >= 0) {
       containerEl.style.setProperty("--th", mono ? 155 : HUES[activeIdx % HUES.length]);
     }
@@ -454,6 +456,7 @@
     });
     assignHues(children, mono);
     var activeIdx = children.findIndex(function (c) { return c.classList.contains("active"); });
+    if (activeIdx < 0 && children.length) { children[0].classList.add("active"); activeIdx = 0; }
     if (activeIdx >= 0) {
       el.style.setProperty("--th", mono ? 155 : HUES[activeIdx % HUES.length]);
     }

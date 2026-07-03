@@ -257,6 +257,7 @@
     "日本古典": "Classical Japan", "欧洲文明": "European", "波斯文明": "Persian", "浪漫主义欧洲": "Romantic Europe",
     "现代北欧": "Modern Nordic", "现代印度": "Modern India", "现代非洲": "Modern Africa", "美索不达米亚文明": "Mesopotamia",
     "美索不达米亚神话": "Mesopotamian Myth", "莫卧儿印度": "Mughal India", "藏文明": "Tibetan", "西方文明": "Western", "近代欧洲": "Early Modern Europe",
+    "斯拉夫神话": "Slavic Myth",
   };
   // 平台默认英文时把中文文明名映射成英文; 中文环境或未知值原样返回。
   function civDisplay(civ) {

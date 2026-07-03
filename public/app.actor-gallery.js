@@ -1266,7 +1266,7 @@
           // 「在哪用在哪改」: 点名字即可改名(仅自己的演员)。
           var nameEl = cardEl.querySelector(".ag-name");
           if (nameEl && !nameEl.__renamable) {
-            nameEl.__renamable = true; nameEl.title = T("Click to rename", "点击改名");
+            nameEl.__renamable = true; nameEl.classList.add("ag-editable"); nameEl.title = T("Click to rename", "点击改名");
             nameEl.innerHTML = '<span class="ag-nametext" style="cursor:text">' + esc(a.name_en || a.name_zh || "") + '</span> <span style="opacity:.55;font-size:12px;cursor:text">✎</span>';
             var textEl = nameEl.querySelector(".ag-nametext");
             function startRename() {
@@ -1597,7 +1597,7 @@
         if (wid && typeof window.cssosOpenWork === "function") { close(); window.cssosOpenWork(wid); }
         return;
       }
-      if (t.closest && (t.closest(".ag-showcase") || t.closest(".ag-cta-cap") || t.closest(".ag-comments") || t.closest(".ag-tags") || t.closest(".ag-cast") || t.closest(".ag-owner") || t.closest(".ag-sub-grid") || t.closest("model-viewer") || t.closest(".ag-stage"))) return;
+      if (t.closest && (t.closest(".ag-editable") || t.closest(".ag-showcase") || t.closest(".ag-cta-cap") || t.closest(".ag-comments") || t.closest(".ag-tags") || t.closest(".ag-cast") || t.closest(".ag-owner") || t.closest(".ag-sub-grid") || t.closest("model-viewer") || t.closest(".ag-stage"))) return;
       var card = t.closest && t.closest(".ag-card[data-actor]");
       if (!card || !card.parentElement || !card.parentElement.classList.contains("ag-grid")) return;
       var onCover = !!(t.closest && t.closest("[data-cover]"));

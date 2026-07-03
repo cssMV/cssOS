@@ -172,11 +172,13 @@
       "#" + ROOT_ID + " .ag-capchip{flex:1 1 0;border:1px solid rgba(0,245,160,.4);background:rgba(0,245,160,.06);color:#d6ffee;font-size:14px;font-weight:700;padding:9px 0;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-archfilters{margin-top:0 !important;}" +   // 两行筛选间距 = 单个 14px(跟上一个间隔等高), 别叠成双倍
       "#" + ROOT_ID + " .ag-rt-label{font-size:13px;color:#a9e9cf;margin:8px 0;font-weight:600;}" +
-      "#" + ROOT_ID + " .ag-arch-row{display:flex;flex-wrap:wrap;gap:8px;}" +
+      // 胶囊轨道铁律: 永远单行可横滑(不 wrap), 不管数量多少 —— 宽/窄屏显示不同。共用边框圆角轨道。
+      "#" + ROOT_ID + " .ag-arch-row,#" + ROOT_ID + " .ag-multi-row{display:flex;flex-wrap:nowrap;gap:7px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:5px 7px;border:1px solid rgba(0,245,160,.22);border-radius:999px;background:rgba(0,245,160,.04);}" +
+      "#" + ROOT_ID + " .ag-arch-row::-webkit-scrollbar,#" + ROOT_ID + " .ag-multi-row::-webkit-scrollbar{display:none;}" +
+      "#" + ROOT_ID + " .ag-arch-row>*,#" + ROOT_ID + " .ag-multi-row>*{flex:0 0 auto;}" +
       "#" + ROOT_ID + " .ag-arch{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-arch.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
       "#" + ROOT_ID + " .ag-multi{margin:2px 0;}" +
-      "#" + ROOT_ID + " .ag-multi-row{display:flex;flex-wrap:wrap;gap:8px;}" +
       "#" + ROOT_ID + " .ag-mi{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-mi.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
       "#" + ROOT_ID + " .ag-subgroup{margin-top:12px;}" +
@@ -352,11 +354,14 @@
   function wireAllMulti(scope, cls) {
     var wrap = scope.querySelector('.ag-multi[data-multi="' + cls + '"]'); if (!wrap) return function () { return []; };
     var allBtn = wrap.querySelector('[data-v="__all__"]');
+    var specifics = wrap.querySelectorAll('.ag-mi:not([data-v="__all__"])');
     wrap.querySelectorAll(".ag-mi").forEach(function (b) {
       b.onclick = function () {
         if (b === allBtn) { wrap.querySelectorAll(".ag-mi").forEach(function (x) { x.classList.toggle("on", x === allBtn); }); return; }
         b.classList.toggle("on"); allBtn.classList.remove("on");
-        if (!wrap.querySelector('.ag-mi.on:not([data-v="__all__"])')) allBtn.classList.add("on");
+        var onCount = wrap.querySelectorAll('.ag-mi.on:not([data-v="__all__"])').length;
+        // 全不选 或 全选满 → 塌缩回 All 唯一激活(等价"全部", 界面更简洁)。
+        if (onCount === 0 || onCount === specifics.length) { specifics.forEach(function (x) { x.classList.remove("on"); }); allBtn.classList.add("on"); }
       };
     });
     return function () { if (allBtn.classList.contains("on")) return []; return [].slice.call(wrap.querySelectorAll('.ag-mi.on:not([data-v="__all__"])')).map(function (b) { return b.getAttribute("data-v"); }); };
@@ -413,11 +418,14 @@
       });
     }
     var allArch = scope.querySelector('.ag-arch[data-arch="__all__"]');
+    var archSpecifics = scope.querySelectorAll('.ag-arch:not([data-arch="__all__"])');
     scope.querySelectorAll(".ag-arch").forEach(function (b) {
       b.onclick = function () {
         if (allArch && b === allArch) { scope.querySelectorAll(".ag-arch").forEach(function (x) { x.classList.toggle("on", x === allArch); }); rebuildSubs(); return; }
         b.classList.toggle("on"); if (allArch) allArch.classList.remove("on");
-        if (allArch && !scope.querySelector('.ag-arch.on:not([data-arch="__all__"])')) allArch.classList.add("on");
+        var onCount = scope.querySelectorAll('.ag-arch.on:not([data-arch="__all__"])').length;
+        // 全不选 或 全选满 → 塌缩回 All 唯一激活(等价"全角色", 更简洁)。
+        if (allArch && (onCount === 0 || onCount === archSpecifics.length)) { archSpecifics.forEach(function (x) { x.classList.remove("on"); }); allArch.classList.add("on"); }
         rebuildSubs();
       };
     });

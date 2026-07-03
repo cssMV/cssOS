@@ -173,10 +173,12 @@
       "#" + ROOT_ID + " .ag-capchip{flex:1 1 0;border:1px solid rgba(0,245,160,.4);background:rgba(0,245,160,.06);color:#d6ffee;font-size:14px;font-weight:700;padding:9px 0;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-archfilters{margin-top:0 !important;}" +   // 两行筛选间距 = 单个 14px(跟上一个间隔等高), 别叠成双倍
       "#" + ROOT_ID + " .ag-rt-label{font-size:13px;color:#a9e9cf;margin:8px 0;font-weight:600;}" +
-      // 胶囊轨道铁律: 永远单行可横滑(不 wrap), 不管数量多少 —— 宽/窄屏显示不同。共用边框圆角轨道。
-      "#" + ROOT_ID + " .ag-arch-row,#" + ROOT_ID + " .ag-multi-row{display:flex;flex-wrap:nowrap;gap:7px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:5px 7px;border:1px solid rgba(0,245,160,.22);border-radius:999px;background:rgba(0,245,160,.04);}" +
+      // 胶囊轨道铁律: 永远单行可横滑(不 wrap), 不管数量多少 —— 宽/窄屏显示不同。共用边框零间隙轨道(贴紧)。
+      "#" + ROOT_ID + " .ag-arch-row,#" + ROOT_ID + " .ag-multi-row{display:flex;flex-wrap:nowrap;gap:0;align-items:stretch;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:0;border:1px solid rgba(0,245,160,.35);border-radius:999px;background:rgba(0,245,160,.05);height:42px;}" +
       "#" + ROOT_ID + " .ag-arch-row::-webkit-scrollbar,#" + ROOT_ID + " .ag-multi-row::-webkit-scrollbar{display:none;}" +
-      "#" + ROOT_ID + " .ag-arch-row>*,#" + ROOT_ID + " .ag-multi-row>*{flex:0 0 auto;}" +
+      "#" + ROOT_ID + " .ag-arch-row>*,#" + ROOT_ID + " .ag-multi-row>*{flex:0 0 auto;border:0;background:transparent;border-radius:999px;display:inline-flex;align-items:center;order:1;}" +
+      // 谁激活谁排到最前(active-first, 用 flex order 免重排 DOM); 激活凸绿贴满轨道高。
+      "#" + ROOT_ID + " .ag-arch-row .ag-arch.on,#" + ROOT_ID + " .ag-multi-row .ag-mi.on{order:0;background:" + GREEN + " !important;color:" + INK + " !important;box-shadow:0 2px 10px rgba(0,0,0,.25);}" +
       "#" + ROOT_ID + " .ag-arch{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-arch.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
       "#" + ROOT_ID + " .ag-multi{margin:2px 0;}" +

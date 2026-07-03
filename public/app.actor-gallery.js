@@ -943,7 +943,7 @@
     function applyFilterKey(key) { state.filter = key; resetRows(); renderGrid(); }
     if (typeof window.cssosMakePillBar === "function") {
       filterBar.classList.add("ag-pillbar");
-      window.cssosMakePillBar(filterBar, { mono: true, compact: true, textColor: "dark", activeKey: "all", onActivate: applyFilterKey });
+      window.cssosMakePillBar(filterBar, { mono: true, textColor: "dark", activeKey: "all", onActivate: applyFilterKey });
     } else {
       filterBar.querySelectorAll(".ag-chip").forEach(function (c) {
         c.onclick = function () {
@@ -959,7 +959,7 @@
       archBar.querySelectorAll(".ag-af").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-arch") || "all"); });
       if (typeof window.cssosMakePillBar === "function") {
         archBar.classList.add("ag-pillbar");
-        window.cssosMakePillBar(archBar, { mono: true, compact: true, textColor: "dark", activeKey: "all", onActivate: applyArch });
+        window.cssosMakePillBar(archBar, { mono: true, textColor: "dark", activeKey: "all", onActivate: applyArch });
       } else {
         archBar.querySelectorAll(".ag-af").forEach(function (c) {
           c.onclick = function () {

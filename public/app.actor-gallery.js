@@ -174,16 +174,14 @@
       "#" + ROOT_ID + " .ag-archfilters{margin-top:0 !important;}" +   // 两行筛选间距 = 单个 14px(跟上一个间隔等高), 别叠成双倍
       "#" + ROOT_ID + " .ag-rt-label{font-size:13px;color:#a9e9cf;margin:8px 0;font-weight:600;}" +
       // 胶囊轨道铁律: 永远单行可横滑(不 wrap), 不管数量多少 —— 宽/窄屏显示不同。共用边框零间隙轨道(贴紧)。
-      "#" + ROOT_ID + " .ag-arch-row,#" + ROOT_ID + " .ag-multi-row{display:flex;flex-wrap:nowrap;gap:0;align-items:stretch;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:0;border:1px solid rgba(0,245,160,.35);border-radius:999px;background:rgba(0,245,160,.05);height:42px;}" +
+      // 胶囊宪法 轨道4/5(文明·戏路, 多选): 外层一条 999px 边框轨道, 子胶囊贴满、零缝、激活在前。
+      // ★根治: 以前 .ag-arch/.ag-mi 各自带边框(见下方已删)特异性等同却在后 → 覆盖了贴合轨道样式 → 变成散颗带框胶囊。现在文字样式并进轨道子项, 独立带框规则删除。
+      "#" + ROOT_ID + " .ag-arch-row,#" + ROOT_ID + " .ag-multi-row{display:flex;flex-wrap:nowrap;gap:3px;align-items:stretch;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:3px;box-sizing:border-box;border:1px solid rgba(0,245,160,.35);border-radius:999px;background:rgba(0,245,160,.05);height:44px;}" +
       "#" + ROOT_ID + " .ag-arch-row::-webkit-scrollbar,#" + ROOT_ID + " .ag-multi-row::-webkit-scrollbar{display:none;}" +
-      "#" + ROOT_ID + " .ag-arch-row>*,#" + ROOT_ID + " .ag-multi-row>*{flex:0 0 auto;border:0;background:transparent;border-radius:999px;display:inline-flex;align-items:center;order:1;}" +
-      // 谁激活谁排到最前(active-first, 用 flex order 免重排 DOM); 激活凸绿贴满轨道高。
-      "#" + ROOT_ID + " .ag-arch-row .ag-arch.on,#" + ROOT_ID + " .ag-multi-row .ag-mi.on{order:0;background:" + GREEN + " !important;color:" + INK + " !important;box-shadow:0 2px 10px rgba(0,0,0,.25);}" +
-      "#" + ROOT_ID + " .ag-arch{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +
-      "#" + ROOT_ID + " .ag-arch.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
+      "#" + ROOT_ID + " .ag-arch-row>*,#" + ROOT_ID + " .ag-multi-row>*{flex:0 0 auto;border:0;background:transparent;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;padding:0 15px;font-size:13px;font-weight:700;color:#d6ffee;white-space:nowrap;cursor:pointer;order:1;}" +
+      // 谁激活谁排到最前(active-first, 用 flex order 免重排 DOM); 激活凸绿两头圆贴满轨道高。
+      "#" + ROOT_ID + " .ag-arch-row .ag-arch.on,#" + ROOT_ID + " .ag-multi-row .ag-mi.on{order:0;background:" + GREEN + " !important;color:" + INK + " !important;box-shadow:0 2px 10px rgba(0,0,0,.28);}" +
       "#" + ROOT_ID + " .ag-multi{margin:2px 0;}" +
-      "#" + ROOT_ID + " .ag-mi{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +
-      "#" + ROOT_ID + " .ag-mi.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
       "#" + ROOT_ID + " .ag-subgroup{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-subgroup-t{font-size:12px;color:#8fdcc0;margin:0 0 6px;}" +
       "#" + ROOT_ID + " .ag-subrow{display:flex;flex-wrap:wrap;gap:6px;}" +
@@ -201,17 +199,18 @@
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
       /* 创建+搜索 = 凹凸镶嵌: Create 绿全圆胶囊(右端半圆【凸】)负边距【咬进】搜索框; 搜索框左侧【凹】容纳 */
       /* 三胶囊 = 胶囊宪法凹凸镶嵌: 🙋成为演员(凹右)| ＋创建(绿凸中)| 搜索(凹左) */
-      "#" + ROOT_ID + " .ag-topcap{display:flex;align-items:stretch;height:46px;position:relative;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;}" +
+      // 胶囊宪法 轨道1(成为演员/创建/搜索, 三段单选): 一条 999px 边框轨道 + 贴合子段, 激活凸绿两头圆。
+      // ★根治: 弃用手写凹咬 mask + 负 margin(含 <input> 时最脆, 搜索态最先崩)→ 统一走"边框轨道+贴合段", 和轨道4/5 一致。
+      "#" + ROOT_ID + " .ag-topcap{display:flex;align-items:stretch;gap:3px;padding:3px;box-sizing:border-box;height:46px;position:relative;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;border:1px solid rgba(0,245,160,.35);border-radius:999px;background:rgba(0,245,160,.05);}" +
       "#" + ROOT_ID + " .ag-topcap::-webkit-scrollbar{display:none;}" +
-      "#" + ROOT_ID + " .ag-topcap>*{flex:0 0 auto;}" +   // 胶囊各自不收缩, 溢出靠横滑
+      "#" + ROOT_ID + " .ag-topcap>*{flex:0 0 auto;border:0;background:transparent;-webkit-mask:none;mask:none;margin:0;border-radius:999px;color:#e8fff5;font-weight:700;white-space:nowrap;cursor:pointer;display:inline-flex;align-items:center;}" +   // 子段贴合轨道, 不收缩, 溢出靠横滑
       "@media(max-width:760px){#" + ROOT_ID + " .ag-bar{flex-wrap:wrap;}#" + ROOT_ID + " .ag-topcap{order:3;flex:1 1 100%;width:100%;margin-top:10px;}}" +
-      "#" + ROOT_ID + " .ag-topcap .ag-signup{position:relative;z-index:1;border:0;background:rgba(0,245,160,.06);color:#e8fff5;font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;}" +
-      // 激活段(随视图切换: 成为演员/创建/搜索)= 凸绿在顶。
-      // 激活段永远两头圆(凸全 pill 浮在轨道上): 去掉凹咬 mask + 全圆角。
-      "#" + ROOT_ID + " .ag-topcap .tc-on{background:" + GREEN + " !important;color:" + INK + " !important;z-index:2 !important;border-radius:999px !important;-webkit-mask:none !important;mask:none !important;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
+      "#" + ROOT_ID + " .ag-topcap .ag-signup{padding:0 20px;font-weight:800;}" +
+      // 激活段(随视图切换: 成为演员/创建/搜索)= 凸绿两头圆填满段高。
+      "#" + ROOT_ID + " .ag-topcap .tc-on{background:" + GREEN + " !important;color:" + INK + " !important;border-radius:999px !important;box-shadow:0 3px 14px rgba(0,0,0,.28);}" +
       "#" + ROOT_ID + " .ag-topcap .ag-search.tc-on::placeholder{color:rgba(4,18,12,.6);}" +
-      "#" + ROOT_ID + " .ag-topcap .ag-create{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;font-weight:700;padding:0 22px 0 40px;white-space:nowrap;border-radius:0 999px 999px 0;cursor:pointer;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
-      "#" + ROOT_ID + " .ag-topcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;min-width:150px;padding:0 20px 0 40px;border-radius:0 999px 999px 0;outline:none;font-size:15px;height:100%;box-sizing:border-box;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
+      "#" + ROOT_ID + " .ag-topcap .ag-create{padding:0 20px;font-weight:700;}" +
+      "#" + ROOT_ID + " .ag-topcap .ag-search{min-width:130px;padding:0 18px;outline:none;font-size:15px;height:100%;box-sizing:border-box;}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
@@ -1535,7 +1534,7 @@
         '<button class="ag-x" aria-label="close">×</button>' +
       '</div>' +
       '<div class="ag-filters" data-pill-bar>' +
-        '<button class="ag-chip on" data-f="all">' + esc(T("All", "全部")) + '</button>' +
+        '<button class="ag-chip on" data-f="all">🎭 ' + esc(T("All", "全部")) + '</button>' +
         '<button class="ag-chip" data-f="synthetic">✨ ' + esc(T("Original", "原创合成")) + '</button>' +
         '<button class="ag-chip" data-f="civilization">🏛 ' + esc(T("Legends", "文明名角")) + '</button>' +
         '<button class="ag-chip" data-f="premium">💎 ' + esc(T("Premium", "溢价")) + '</button>' +
@@ -1543,7 +1542,7 @@
       '</div>' +
       // 戏路大类筛选(横滑)
       '<div class="ag-filters ag-archfilters">' +
-        '<button class="ag-chip ag-af on" data-arch="">' + esc(T("All roles", "全部戏路")) + '</button>' +
+        '<button class="ag-chip ag-af on" data-arch="">🎭 ' + esc(T("All roles", "全部戏路")) + '</button>' +
         ROLE_TAXONOMY.map(function (a) { return '<button class="ag-chip ag-af" data-arch="' + a.key + '">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</button>'; }).join("") +
       '</div>' +
       '<div class="ag-scroll"></div>';

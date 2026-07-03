@@ -43,16 +43,16 @@
   }
 
   function toast(msg) {
-    if (typeof globalThis.showToast === "function") {
-      try { globalThis.showToast(msg); return; } catch (_e) {}
-    }
-    // Fallback toast
+    // 分享面板在 max z-index, 平台 showToast 可能被它盖住 → 这里固定用顶部 max-z 的自带 toast, 保证可见。
+    // Always-visible toast
     var t = document.createElement("div");
     t.textContent = msg;
+    // 顶部显示 + 层级高于分享面板(2147483647), 否则被分享卡盖住 = 点了没反馈("无法点击")。
     t.style.cssText =
-      "position:fixed;bottom:80px;left:50%;transform:translateX(-50%);" +
-      "background:rgba(0,0,0,0.85);color:#fff;padding:10px 18px;" +
-      "border-radius:8px;font:600 13px/1 ui-monospace,monospace;z-index:2147483646;";
+      "position:fixed;top:24px;left:50%;transform:translateX(-50%);max-width:90vw;text-align:center;" +
+      "background:rgba(0,0,0,0.9);color:#fff;padding:11px 20px;" +
+      "border-radius:10px;font:600 13px/1.4 -apple-system,system-ui,sans-serif;z-index:2147483647;" +
+      "box-shadow:0 8px 30px rgba(0,0,0,.5);";
     document.body.appendChild(t);
     setTimeout(function () { t.remove(); }, 2200);
   }
@@ -168,9 +168,11 @@
     popup("https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(url));
   }
   function openInstagramShare(url, text) {
+    // Instagram 无网页分享接口 → 复制链接 + 打开 instagram.com(让点击有可见动作), 用户去 Story/DM 粘贴。
     copyAndNudge(url, text,
       "Copied. Open Instagram → DM or Story → paste.",
-      "已复制，打开 Instagram → DM/Story → 粘贴即可。");
+      "已复制，打开 Instagram → DM/Story → 粘贴即可。",
+      "https://www.instagram.com/");
   }
   function openWhatsAppShare(url, text) {
     popup("https://api.whatsapp.com/send?text=" + encodeURIComponent(text + " " + url));

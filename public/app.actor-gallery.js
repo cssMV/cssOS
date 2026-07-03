@@ -119,6 +119,9 @@
       "#" + ROOT_ID + " .ag-card.expanded{grid-column:1/-1;border-color:" + GREEN + ";box-shadow:0 0 26px rgba(0,245,160,.4);}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover{aspect-ratio:auto;height:min(58vh,420px);cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover .ag-mv-wrap,#" + ROOT_ID + " .ag-card.expanded .ag-cover model-viewer{width:100%;height:100%;}" +
+      "#" + ROOT_ID + " .ag-cover{position:relative;}" +
+      "#" + ROOT_ID + " .ag-3d-badge{position:absolute;right:12px;bottom:12px;z-index:3;background:rgba(4,18,12,.72);color:#bff5e0;border:1px solid rgba(0,245,160,.5);border-radius:999px;padding:6px 13px;font-size:13px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px);}" +
+      "#" + ROOT_ID + " .ag-3d-badge:hover{background:rgba(0,245,160,.9);color:#04120c;}" +
       "#" + ROOT_ID + " .ag-inline{animation:agfade .22s ease;}" +
       "@keyframes agfade{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}" +
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
@@ -645,9 +648,16 @@
     cardEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
     fillExpand(cardEl, id);
   }
+  // 释放 WebGL/GLB 资源(model-viewer 不主动释放 GL 上下文, 连着浏览会撞上下文上限/OOM → 强退)。
+  function disposeModelViewers(el) {
+    if (!el || !el.querySelectorAll) return;
+    el.querySelectorAll("model-viewer").forEach(function (m) {
+      try { m.removeAttribute("src"); m.removeAttribute("ios-src"); m.removeAttribute("poster"); if (m.parentNode) m.parentNode.removeChild(m); } catch (_e) {}
+    });
+  }
   function restoreCover2D(cardEl) {
     var cov = cardEl.querySelector("[data-cover]");
-    if (cov && cov.__cover2d != null) { cov.innerHTML = cov.__cover2d; cov.__cover2d = null; }
+    if (cov) { disposeModelViewers(cov); if (cov.__cover2d != null) { cov.innerHTML = cov.__cover2d; cov.__cover2d = null; } }
   }
   function fillExpand(cardEl, id) {
     var inline = cardEl.querySelector(".ag-inline");
@@ -679,9 +689,17 @@
               '</div><div class="ag-meta"><div class="ag-name">▶ ' + esc(m.title || "Untitled") + '</div>' +
               (state.ownedSet[a.actor_id] ? '<button class="ag-report" data-actor="' + esc(a.actor_id) + '" data-work="' + esc(m.work_id) + '" style="margin-top:4px;font-size:11px;background:rgba(255,120,120,.14);border:1px solid rgba(255,120,120,.4);color:#ffb3b3;border-radius:999px;padding:2px 9px;cursor:pointer">🚩 ' + esc(T("Report misuse", "举报滥用")) + '</button>' : "") +
               '</div></div>'; }).join("") + '</div></div>' : "");
-        // 封面切成 3D(正面旋转), 点封面在 2D↔3D 间切换。
+        // 展开【默认显示精致 2D 封面】(不再自动加载 3D)——3D 的 WebGL/9MB GLB 很吃内存, 连着浏览会 OOM 强退。
+        // 3D 改为【显式点击】按需加载(省内存 + 展示更精致的 2D 原色封面)。
         cardEl.__actor = a;
-        showCover3D(cardEl, a);
+        var cov0 = cardEl.querySelector("[data-cover]");
+        if (cov0 && a.model_3d_url) {
+          var b3d = document.createElement("button");
+          b3d.className = "ag-3d-badge"; b3d.type = "button";
+          b3d.textContent = "🧊 " + T("View in 3D", "看 3D");
+          b3d.onclick = function (ev) { ev.stopPropagation(); window.__agToggleCover(cardEl, a); };
+          cov0.appendChild(b3d);
+        }
         var castBtn = inline.querySelector(".ag-cast");
         if (castBtn) castBtn.onclick = function () { openCast(a); };
         wireShowcase(inline, a.actor_id);
@@ -898,7 +916,7 @@
     stopShowcase();
     if (typeof stopRpStream === "function") stopRpStream();
     var el = document.getElementById(ROOT_ID);
-    if (el) el.remove();
+    if (el) { disposeModelViewers(el); el.remove(); }
   }
 
   function open(force) {

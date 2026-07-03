@@ -105,6 +105,7 @@
       "#" + ROOT_ID + " .ag-recbtn:disabled{background:rgba(0,245,160,.18);color:rgba(207,238,224,.7);box-shadow:none;cursor:default;}" +
       "#" + ROOT_ID + " .ag-recbtn.recording{background:#ff5a6a;color:#fff;}" +
       "#" + ROOT_ID + " .ag-capchip{flex:1 1 0;border:1px solid rgba(0,245,160,.4);background:rgba(0,245,160,.06);color:#d6ffee;font-size:14px;font-weight:700;padding:9px 0;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-archfilters{margin-top:0 !important;}" +   // 两行筛选间距 = 单个 14px(跟上一个间隔等高), 别叠成双倍
       "#" + ROOT_ID + " .ag-rt-label{font-size:13px;color:#a9e9cf;margin:8px 0;font-weight:600;}" +
       "#" + ROOT_ID + " .ag-arch-row{display:flex;flex-wrap:wrap;gap:8px;}" +
       "#" + ROOT_ID + " .ag-arch{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +

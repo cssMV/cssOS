@@ -536,7 +536,7 @@
       capBar.querySelectorAll(".ag-capchip").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-cap")); });
       if (typeof window.cssosMakePillBar === "function") {
         capBar.classList.add("ag-pillbar");
-        window.cssosMakePillBar(capBar, { mono: true, compact: true, textColor: "dark", activeKey: "video", onActivate: switchMode });
+        window.cssosMakePillBar(capBar, { mono: true, compact: true, textColor: "light", activeKey: "video", onActivate: switchMode });
       } else {
         capBar.querySelectorAll(".ag-capchip").forEach(function (c) {
           c.onclick = function () { capBar.querySelectorAll(".ag-capchip").forEach(function (x) { x.classList.toggle("on", x === c); }); switchMode(c.getAttribute("data-cap")); };
@@ -897,13 +897,13 @@
           else if (key === "share") shareActor(a);
         }
         if (ctaBar && typeof window.cssosMakePillBar === "function") {
-          var ctaCtl = window.cssosMakePillBar(ctaBar, { mono: true, compact: true, textColor: "dark", activeKey: "cast", onActivate: function (key) { runCta(key); if (ctaCtl) ctaCtl.setActive("cast"); } });
+          var ctaCtl = window.cssosMakePillBar(ctaBar, { mono: true, compact: true, textColor: "light", activeKey: "cast", onActivate: function (key) { runCta(key); if (ctaCtl) ctaCtl.setActive("cast"); } });
         } else if (ctaBar) {
           ctaBar.querySelectorAll("button[data-pill-key]").forEach(function (b) { b.onclick = function () { runCta(b.getAttribute("data-pill-key")); }; });
         }
         // 戏路标签也套同一胶囊轨道(纯几何, 无激活/无点击) —— 与上方筛选条视觉一致。
         var tagsBar = inline.querySelector(".ag-tags");
-        if (tagsBar && tagsBar.children.length && typeof window.cssosPillBarStamp === "function") window.cssosPillBarStamp(tagsBar, "dark", true);
+        if (tagsBar && tagsBar.children.length && typeof window.cssosPillBarStamp === "function") window.cssosPillBarStamp(tagsBar, "light", true);
         wireShowcase(inline, a.actor_id);
         if (state.ownedSet[a.actor_id]) {
           var own = document.createElement("div"); own.className = "ag-owner";
@@ -1063,7 +1063,7 @@
     segBtns.forEach(function (b) { b.setAttribute("data-pill-key", b.getAttribute("data-seg")); });
     if (showcaseBar && typeof window.cssosMakePillBar === "function") {
       showcaseBar.classList.add("ag-pillbar");
-      window.cssosMakePillBar(showcaseBar, { mono: true, compact: true, textColor: "dark", activeKey: "intro", onActivate: function (key, pill) { trigger(pill, key); } });
+      window.cssosMakePillBar(showcaseBar, { mono: true, compact: true, textColor: "light", activeKey: "intro", onActivate: function (key, pill) { trigger(pill, key); } });
     } else {
       segBtns.forEach(function (btn) { btn.onclick = function () { trigger(btn, btn.getAttribute("data-seg")); }; });
     }
@@ -1164,7 +1164,7 @@
     function applyFilterKey(key) { state.filter = key; resetRows(); renderGrid(); }
     if (typeof window.cssosMakePillBar === "function") {
       filterBar.classList.add("ag-pillbar");
-      window.cssosMakePillBar(filterBar, { mono: true, textColor: "dark", activeKey: "all", onActivate: applyFilterKey });
+      window.cssosMakePillBar(filterBar, { mono: true, textColor: "light", activeKey: "all", onActivate: applyFilterKey });
     } else {
       filterBar.querySelectorAll(".ag-chip").forEach(function (c) {
         c.onclick = function () {
@@ -1180,7 +1180,7 @@
       archBar.querySelectorAll(".ag-af").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-arch") || "all"); });
       if (typeof window.cssosMakePillBar === "function") {
         archBar.classList.add("ag-pillbar");
-        window.cssosMakePillBar(archBar, { mono: true, textColor: "dark", activeKey: "all", onActivate: applyArch });
+        window.cssosMakePillBar(archBar, { mono: true, textColor: "light", activeKey: "all", onActivate: applyArch });
       } else {
         archBar.querySelectorAll(".ag-af").forEach(function (c) {
           c.onclick = function () {

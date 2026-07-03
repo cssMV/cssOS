@@ -42641,6 +42641,40 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
     style_descriptor: "slavic black choir / brooding dread", voice_style: "grim thunderous bass", tags: ["dark-god","myth","legend"], archetypes: ["villain","enigma"] },
 ];
 
+// CSSOS_WAVE_116 — 原创合成恶霸(全自家 IP, 零版权)。戏剧靠反派衬托; 造一批各路坏人平衡"好人多坏人少"。
+const SEED_VILLAIN_ACTORS: Array<Record<string, unknown>> = [
+  { actor_id: "act-villain-vorlok", name_zh: "沃洛克·吞噬者", name_en: "Vorlok the Devourer", civilization: "Cosmic",
+    persona: "宇宙泰坦暴君, 巨躯裹甲, 灭星之志, 冷酷至极", gender: "male", appearance_tags: ["towering armored titan","violet-grey skin","glowing amber eyes"],
+    voice_style: "cataclysmic booming bass", style_descriptor: "cosmic doom orchestral", tags: ["cosmic","tyrant","villain"], archetypes: ["villain","ruler"] },
+  { actor_id: "act-villain-voss", name_zh: "马拉凯·沃斯博士", name_en: "Dr. Malachai Voss", civilization: "Neo-Futurist",
+    persona: "疯狂天才科学家, 阴森睿智, 为实验不择手段", gender: "male", appearance_tags: ["gaunt face","wild silver hair","cold pale eyes"],
+    voice_style: "silken menacing baritone", style_descriptor: "dark electronic laboratory", tags: ["mad-scientist","villain"], archetypes: ["villain","sage"] },
+  { actor_id: "act-villain-morgath", name_zh: "灰烬女王摩加斯", name_en: "Morgath the Ashen Queen", civilization: "Dark Fantasy",
+    persona: "堕落女巫女王, 黑曜石王冠, 高傲而致命的暗黑统治者", gender: "female", appearance_tags: ["obsidian crown","ashen skin","smoldering red eyes"],
+    voice_style: "regal icy contralto", style_descriptor: "gothic dark-fantasy choir", tags: ["dark-queen","villain"], archetypes: ["villain","ruler","enigma"] },
+  { actor_id: "act-villain-null", name_zh: "至高领主 NULL", name_en: "Overlord NULL", civilization: "Cyberpunk",
+    persona: "赛博独裁者, 镜面机械面具, 冷酷统治数据帝国", gender: "androgynous", appearance_tags: ["chrome mirror mask","black synth-armor","neon circuit veins"],
+    voice_style: "distorted vocoded monotone", style_descriptor: "industrial cyber-tyranny", tags: ["cyber-tyrant","villain"], archetypes: ["villain","enigma"] },
+  { actor_id: "act-villain-kane", name_zh: "萨尔瓦多·凯恩", name_en: "Don Salvatore Kane", civilization: "Noir",
+    persona: "冷血黑帮教父, 西装革履, 笑里藏刀的犯罪帝王", gender: "male", appearance_tags: ["sharp pinstripe suit","scarred brow","dead calm eyes"],
+    voice_style: "gravelly commanding baritone", style_descriptor: "noir jazz menace", tags: ["crime-boss","villain"], archetypes: ["villain","ruler"] },
+  { actor_id: "act-villain-seraphine", name_zh: "瑟拉芬·毒吻", name_en: "Seraphine Venom", civilization: "Noir",
+    persona: "致命的美艳女刺客, 蛇蝎美人, 微笑背后暗藏杀机", gender: "female", appearance_tags: ["sleek black dress","emerald eyes","crimson lips"],
+    voice_style: "sultry dangerous alto", style_descriptor: "sultry noir electro", tags: ["femme-fatale","villain"], archetypes: ["villain","charmer","enigma"] },
+  { actor_id: "act-villain-grimjaw", name_zh: "碎颚·蹂躏者", name_en: "Grimjaw the Ravager", civilization: "Dark Fantasy",
+    persona: "嗜血蛮族战酋, 巨力凶残, 战场上的活体灾难", gender: "male", appearance_tags: ["hulking muscular brute","tusked jaw","battle scars"],
+    voice_style: "guttural roaring bass", style_descriptor: "brutal war metal", tags: ["warlord","villain"], archetypes: ["villain","action"] },
+  { actor_id: "act-villain-mordecai", name_zh: "教主莫迪凯", name_en: "Hierarch Mordecai", civilization: "Dark Fantasy",
+    persona: "狂热堕落的邪教高阶祭司, 蛊惑人心, 以信仰之名行恶", gender: "male", appearance_tags: ["dark ceremonial robes","hollow zealous eyes","bald tattooed head"],
+    voice_style: "hypnotic sermonizing tenor", style_descriptor: "ominous cult chant", tags: ["dark-priest","villain"], archetypes: ["villain","enigma"] },
+  { actor_id: "act-villain-frostbane", name_zh: "霜噬女王", name_en: "Queen Frostbane", civilization: "Dark Fantasy",
+    persona: "冷酷冰霜女王, 美貌如刃, 冻结一切反抗者的心", gender: "female", appearance_tags: ["ice crystal crown","frost-pale skin","piercing blue eyes"],
+    voice_style: "crystalline cold soprano", style_descriptor: "frozen dark-symphonic", tags: ["ice-tyrant","villain"], archetypes: ["villain","ruler","charmer"] },
+  { actor_id: "act-villain-malice", name_zh: "小丑·怨戏", name_en: "Jester Malice", civilization: "Dark Carnival",
+    persona: "疯癫的混沌小丑, 华彩戏服下是纯粹的恶意与破坏欲(原创角色)", gender: "androgynous", appearance_tags: ["harlequin motley","cracked porcelain grin","mismatched eyes"],
+    voice_style: "manic sing-song cackle", style_descriptor: "twisted carnival waltz", tags: ["mad-jester","villain"], archetypes: ["villain","comic","enigma"] },
+];
+
 let digitalActorsSeedLoaded = false;
 async function seedDigitalActorsOnce() {
   if (digitalActorsSeedLoaded || !DATABASE_URL) return;
@@ -42712,6 +42746,24 @@ async function seedDigitalActorsOnce() {
               archetypes=EXCLUDED.archetypes, updated_at=now()`,
           [a.actor_id, a.name_zh, a.name_en, a.name_native || null, a.name_latin || null, a.civilization, a.persona,
            a.gender, facePrompt, a.voice_style, a.style_descriptor, a.tags, a.archetypes],
+        ),
+      );
+    }
+    // ④ 原创合成恶霸(自家 IP, origin=synthetic, 带戏路)。cover 留空由 atelier 回填。
+    for (const a of SEED_VILLAIN_ACTORS) {
+      const facePrompt = `${a.persona}, a striking original synthetic villain character (not a real person), ${(a.appearance_tags as string[]).join(", ")}, menacing cinematic character portrait, consistent identity across shots`;
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO digital_actors (
+              actor_id, name_zh, name_en, origin_type, civilization, persona,
+              gender, appearance_tags, voice_style, face_prompt, style_descriptor, tags, archetypes,
+              is_premium, cast_price_cents, license_model, source_status, curation_tier, popularity_score
+           ) VALUES ($1,$2,$3,'synthetic',$4,$5,$6,$7,$8,$9,$10,$11,$12,true,199,'per_cast','curated','A',55)
+           ON CONFLICT (actor_id) DO UPDATE SET
+              persona=EXCLUDED.persona, appearance_tags=EXCLUDED.appearance_tags,
+              style_descriptor=EXCLUDED.style_descriptor, archetypes=EXCLUDED.archetypes, updated_at=now()`,
+          [a.actor_id, a.name_zh, a.name_en, a.civilization, a.persona, a.gender,
+           a.appearance_tags, a.voice_style, facePrompt, a.style_descriptor, a.tags, a.archetypes],
         ),
       );
     }

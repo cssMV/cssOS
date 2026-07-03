@@ -604,15 +604,15 @@
     var name = a.name_en || a.name_zh || "Digital Actor";
     var url = "https://cssstudio.app/a/" + encodeURIComponent(a.actor_id);
     var slg = sloganOf(a);
-    var text = T((slg ? slg + " — " : "") + "Meet " + name + " 🎭, a digital actor on CSS Studio. Cast them in your next music video.",
-                 (slg ? slg + " —— " : "") + "认识数字演员「" + name + "」🎭,在 CSS Studio 选 TA 主演你的下一支 MV。");
-    if (navigator.share) {
-      navigator.share({ title: name + " · CSS Studio", text: text, url: url }).catch(function () {});
+    var title = (slg ? name + " — " + slg : name + " · Digital Actor");
+    // 用平台自己的分享面板(X/微博/小红书/抖音… 一整排), 不用「太苹果」的原生分享。
+    if (typeof window.openCssosShareDialog === "function") {
+      window.openCssosShareDialog({ url: url, title: title, headerLabel: T("Share this actor", "分享这位演员") });
       return;
     }
-    try { window.open("https://twitter.com/intent/tweet?text=" + encodeURIComponent(text) + "&url=" + encodeURIComponent(url), "_blank", "noopener,noreferrer"); } catch (_e) {}
+    // 兜底: 复制链接。
     try { if (navigator.clipboard) navigator.clipboard.writeText(url); } catch (_e2) {}
-    if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast(T("Link copied · opening X to share", "链接已复制 · 正在打开 X 分享"), {});
+    if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast(T("Link copied", "链接已复制"), {});
   }
 
   // 作品类型: 音乐驱动(现可用) vs 叙事驱动(需自动编剧, 先锁, 以后开)。

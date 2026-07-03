@@ -259,12 +259,13 @@
   function openCssosShareDialog(opts) {
     opts = opts || {};
     var workId = opts.workId || opts.work_id || opts.id;
-    if (!workId) {
-      toast(tt("No work to share.", "无可分享的作品。"));
+    // CSSOS_WAVE_118 — 支持自定义链接(数字演员分享 /a/<id> 等非作品), 传 opts.url 即用它, 不要求 workId。
+    var url = opts.url ? String(opts.url) : (workId ? buildShareUrl(workId) : "");
+    if (!url) {
+      toast(tt("Nothing to share.", "无可分享的内容。"));
       return;
     }
     try { if (typeof globalThis.cssosCloseOtherPopups === "function") globalThis.cssosCloseOtherPopups("#cssos-share-dialog"); } catch (_e) {}   // W1158 单弹窗
-    var url = buildShareUrl(workId);
     var text = buildShareText(opts);
 
     // Backdrop
@@ -298,7 +299,7 @@
     var hdr = document.createElement("div");
     hdr.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;";
     var ttl = document.createElement("div");
-    ttl.textContent = tt("Share this MV", "分享这部 MV");
+    ttl.textContent = opts.headerLabel || tt("Share this MV", "分享这部 MV");
     ttl.style.cssText = "font-weight:600;font-size:15px;color:#daffee;";
     var close = document.createElement("button");
     close.type = "button";
@@ -450,6 +451,14 @@
     mount.appendChild(root);
     // CSSOS_WAVE_1193 — Jing: 统一定位到右轨(顶对齐、等高、不遮右轨)。
     try { if (typeof globalThis.cssosAnchorPopupToRail === "function") globalThis.cssosAnchorPopupToRail(card, { gap: 12 }); } catch (_e) {}
+    // CSSOS_WAVE_118 — Jing「分享面板和 Dock 打架, 留出话筒高度」: 分享卡底部绝不压到 Dock, 上方留一个 Dock 高度的间隙。
+    try {
+      var dock = document.querySelector(".dock") || document.querySelector("#dock");
+      var dockTop = dock ? dock.getBoundingClientRect().top : (window.innerHeight - 92);
+      var cardTop = card.getBoundingClientRect().top || 60;
+      var avail = Math.max(180, dockTop - cardTop - 14);
+      card.style.maxHeight = avail + "px";
+    } catch (_e2) {}
     requestAnimationFrame(function () { root.style.opacity = "1"; });
 
     // ESC closes

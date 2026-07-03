@@ -1264,19 +1264,33 @@
           // 「在哪用在哪改」: 点名字即可改名(仅自己的演员)。
           var nameEl = cardEl.querySelector(".ag-name");
           if (nameEl && !nameEl.__renamable) {
-            nameEl.__renamable = true; nameEl.style.cursor = "text"; nameEl.title = T("Click to rename", "点击改名");
-            nameEl.innerHTML = esc(a.name_en || a.name_zh || "") + ' <span style="opacity:.55;font-size:12px">✎</span>';
-            nameEl.onclick = function (ev) {
-              ev.stopPropagation();
-              var cur = a.name_en || a.name_zh || "";
-              var nv = window.prompt(T("New name / stage name", "新名字 / 艺名"), cur);
-              if (nv == null) return; nv = String(nv).trim(); if (nv.length < 2 || nv === cur) return;
-              fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "PATCH", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ name_en: nv }) })
-                .then(function (r) { return r.json(); }).then(function (jj) {
-                  if (jj && jj.ok) { a.name_en = nv; nameEl.innerHTML = esc(nv) + ' <span style="opacity:.55;font-size:12px">✎</span>'; for (var i = 0; i < state.actors.length; i++) if (state.actors[i].actor_id === a.actor_id) state.actors[i].name_en = nv; }
-                  else window.alert(T("Rename failed.", "改名失败。"));
-                }).catch(function () { window.alert(T("Network error.", "网络错误。")); });
-            };
+            nameEl.__renamable = true; nameEl.title = T("Click to rename", "点击改名");
+            nameEl.innerHTML = '<span class="ag-nametext" style="cursor:text">' + esc(a.name_en || a.name_zh || "") + '</span> <span style="opacity:.55;font-size:12px;cursor:text">✎</span>';
+            var textEl = nameEl.querySelector(".ag-nametext");
+            function startRename() {
+              if (textEl.getAttribute("contenteditable") === "true") return;
+              var orig = textEl.textContent;
+              textEl.setAttribute("contenteditable", "true");
+              textEl.style.cssText = "cursor:text;outline:1.5px solid rgba(0,245,160,.85);border-radius:4px;padding:1px 5px;background:rgba(0,245,160,.08)";
+              textEl.focus();
+              try { var rg = document.createRange(); rg.selectNodeContents(textEl); var sl = window.getSelection(); sl.removeAllRanges(); sl.addRange(rg); } catch (_e) {}
+              var done = false;
+              function finish(save) {
+                if (done) return; done = true;
+                textEl.setAttribute("contenteditable", "false"); textEl.style.cssText = "cursor:text";
+                var nv = String(textEl.textContent || "").trim();
+                if (!save || nv.length < 2 || nv === orig) { textEl.textContent = orig; return; }
+                textEl.textContent = nv;
+                fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "PATCH", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ name_en: nv }) })
+                  .then(function (r) { return r.json(); }).then(function (jj) {
+                    if (jj && jj.ok) { a.name_en = nv; for (var i = 0; i < state.actors.length; i++) if (state.actors[i].actor_id === a.actor_id) state.actors[i].name_en = nv; if (window.cssosGuidedToast) window.cssosGuidedToast("✓ " + nv, {}); }
+                    else { textEl.textContent = orig; window.alert(T("Rename failed.", "改名失败。")); }
+                  }).catch(function () { textEl.textContent = orig; window.alert(T("Network error.", "网络错误。")); });
+              }
+              textEl.addEventListener("keydown", function onk(e) { if (e.key === "Enter") { e.preventDefault(); textEl.removeEventListener("keydown", onk); textEl.blur(); finish(true); } else if (e.key === "Escape") { e.preventDefault(); textEl.removeEventListener("keydown", onk); finish(false); textEl.blur(); } });
+              textEl.addEventListener("blur", function onb() { textEl.removeEventListener("blur", onb); finish(true); });
+            }
+            nameEl.onclick = function (ev) { ev.stopPropagation(); startRename(); };
           }
           var revokeBtn = own.querySelector(".ag-revoke");
           if (revokeBtn) revokeBtn.onclick = function () {

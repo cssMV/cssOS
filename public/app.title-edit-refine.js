@@ -139,9 +139,14 @@
         }
         return true;
       }
-      if (typeof globalThis.showToast === "function") {
-        globalThis.showToast("Rename failed: " + ((j && j.error) || r.status));
-      }
+      // 把后端错误码翻成人话, 让用户知道"为什么存不了"(最常见: 不是你的作品)。
+      var code = (j && j.error) || String(r.status);
+      var msg = code === "not_found_or_not_owner"
+        ? (globalThis.loginCopy ? globalThis.loginCopy("You can only rename your own works.", "只能重命名你自己的作品。") : "You can only rename your own works.")
+        : code === "sign_in_required"
+          ? (globalThis.loginCopy ? globalThis.loginCopy("Sign in to rename.", "登录后才能改名。") : "Sign in to rename.")
+          : "Rename failed: " + code;
+      if (typeof globalThis.showToast === "function") globalThis.showToast(msg);
       return false;
     } catch (err) {
       if (typeof globalThis.showToast === "function") {

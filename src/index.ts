@@ -42599,9 +42599,6 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-dongzhuo", name_zh: "董卓", name_en: "Dong Zhuo", name_native: "董卓", civilization: "中华文明",
     persona: "东汉末年暴虐军阀, 挟天子以令诸侯", gender: "male",
     style_descriptor: "brutal war drums / heavy brass", voice_style: "booming brutal bass", tags: ["warlord","legend"], archetypes: ["villain","ruler"] },
-  { actor_id: "act-legend-nero", name_zh: "尼禄", name_en: "Nero", name_native: "Nero", name_latin: "Nero", civilization: "古罗马文明",
-    persona: "罗马暴君皇帝, 焚城传说, 自负而残忍", gender: "male",
-    style_descriptor: "decadent roman lyre / grand / cruel", voice_style: "haughty theatrical tenor", tags: ["tyrant","legend"], archetypes: ["villain","ruler"] },
   { actor_id: "act-legend-caligula", name_zh: "卡利古拉", name_en: "Caligula", name_native: "Caligula", name_latin: "Caligula", civilization: "古罗马文明",
     persona: "疯狂罗马皇帝, 暴虐无常, 荒诞恐怖", gender: "male",
     style_descriptor: "unhinged roman brass / dissonant", voice_style: "erratic menacing tenor", tags: ["mad-emperor","legend"], archetypes: ["villain","enigma"] },
@@ -42614,9 +42611,6 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-medea", name_zh: "美狄亚", name_en: "Medea", name_native: "Μήδεια", civilization: "古希腊神话",
     persona: "复仇的女巫公主, 爱极成恨, 悲烈决绝", gender: "female",
     style_descriptor: "greek tragic lyre / vengeful / mournful", voice_style: "fierce tragic soprano", tags: ["sorceress","myth","legend"], archetypes: ["villain","tragic"] },
-  { actor_id: "act-legend-loki", name_zh: "洛基", name_en: "Loki", name_native: "Loki", civilization: "北欧神话",
-    persona: "北欧诡计之神, 亦敌亦友, 变幻莫测的捣蛋者", gender: "androgynous",
-    style_descriptor: "mischievous nordic strings / shifting", voice_style: "sly playful tenor", tags: ["trickster","myth","legend"], archetypes: ["antihero","enigma","comic"] },
 ];
 
 let digitalActorsSeedLoaded = false;

@@ -456,15 +456,26 @@
     mount.appendChild(root);
     // CSSOS_WAVE_1193 — Jing: 统一定位到右轨(顶对齐、等高、不遮右轨)。
     try { if (typeof globalThis.cssosAnchorPopupToRail === "function") globalThis.cssosAnchorPopupToRail(card, { gap: 12 }); } catch (_e) {}
-    // CSSOS_WAVE_118 — Jing「分享面板和 Dock 打架, 留出话筒高度」: 分享卡底部绝不压到 Dock, 上方留一个 Dock 高度的间隙。
-    try {
-      var dock = document.querySelector(".dock") || document.querySelector("#dock");
-      var dockTop = dock ? dock.getBoundingClientRect().top : (window.innerHeight - 92);
-      var cardTop = card.getBoundingClientRect().top || 60;
-      var avail = Math.max(180, dockTop - cardTop - 14);
-      card.style.maxHeight = avail + "px";
-    } catch (_e2) {}
-    requestAnimationFrame(function () { root.style.opacity = "1"; });
+    // CSSOS_WAVE_118 — Jing「分享面板和 Dock 打架 / 只看到一半」: 分享卡整卡上移到 Dock 之上完整可见,
+    //   底部留一个 Dock(话筒)高度的间隙; 若过高则限高卡内滚动。rAF 后测量(等 rail 定位完成)。
+    function fitAboveDock() {
+      try {
+        var dock = document.querySelector(".dock") || document.querySelector("#dock");
+        var dockTop = dock ? dock.getBoundingClientRect().top : (window.innerHeight - 96);
+        var gap = 14;
+        var r = card.getBoundingClientRect();
+        var maxH = Math.max(200, dockTop - gap - 12);           // 顶部至少留 12px
+        var h = Math.min(r.height || maxH, maxH);
+        // 底部压到 Dock, 或没被 rail 正常定位(高度异常/顶部太低)→ 主动上移。
+        if (r.bottom > dockTop - gap || r.top < 0 || r.top > dockTop) {
+          card.style.top = Math.max(12, dockTop - gap - h) + "px";
+          card.style.bottom = "auto";
+        }
+        card.style.maxHeight = h + "px";
+      } catch (_e2) {}
+    }
+    requestAnimationFrame(function () { fitAboveDock(); root.style.opacity = "1"; });
+    window.addEventListener("resize", fitAboveDock, { passive: true });
 
     // ESC closes
     var onKey = function (e) {

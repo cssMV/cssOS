@@ -17,6 +17,13 @@ brew install node cocoapods
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 npm ci --ignore-scripts --no-audit --no-fund
 
+# @capgo/native-purchases@8.3.10 的 podspec 有 bug:第5行 def has_storekit_265_sdk? 定义在
+# podspec 顶层,第47行却在 Pod::Spec.new 块里调用它 → CocoaPods 作用域看不到 →
+# "undefined method 'has_storekit_265_sdk?' for module Pod",pod install 直接挂(build 12 死因)。
+# 我们不需要 STOREKIT_26_5 优化,把那行 xcconfig 改回纯 $(inherited) 即可(等同本地已验证的安全版)。
+POD="$CI_PRIMARY_REPOSITORY_PATH/node_modules/@capgo/native-purchases/CapgoNativePurchases.podspec"
+[ -f "$POD" ] && sed -i '' "s#.*OTHER_SWIFT_FLAGS.*#    'OTHER_SWIFT_FLAGS' => '\$(inherited)'#" "$POD" || true
+
 # 生成 Pods/ 与 xcconfig。webDir(public-ios-shell)已随仓库提交,无需 cap sync。
 cd "$CI_PRIMARY_REPOSITORY_PATH/ios/App"
 pod install --repo-update

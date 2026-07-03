@@ -341,7 +341,7 @@
   // 通用「全 + 多选」胶囊: 第一枚 All 默认激活; 选具体则 All 关; 全不选则 All 回到激活。
   function allMultiMarkup(cls, label, items, allIcon) {
     // 胶囊宪法: 走平台 cssosMakePillBar(multi 模式)。data-pill-key = 选择值; All = __all__。
-    var btns = '<button type="button" class="ag-mi on" data-v="__all__" data-pill-key="__all__">' + (allIcon ? allIcon + " " : "") + esc(T("All", "全部")) + '</button>' +
+    var btns = '<button type="button" class="ag-mi" data-v="__all__" data-pill-key="__all__">' + (allIcon ? allIcon + " " : "") + esc(T("All", "全部")) + '</button>' +
       items.map(function (it) { return '<button type="button" class="ag-mi" data-v="' + esc(it.k) + '" data-pill-key="' + esc(it.k) + '">' + (it.emoji ? it.emoji + " " : "") + esc(T(it.en, it.zh)) + '</button>'; }).join("");
     return '<div class="ag-multi" data-multi="' + cls + '"><div class="ag-rt-label">' + esc(label) + '</div><div class="ag-pbrow">' + btns + '</div></div>';
   }
@@ -352,7 +352,7 @@
     if (row && typeof window.cssosMakePillBar === "function") {
       window.cssosMakePillBar(row, { mono: true, textColor: "light", multi: true, allKey: "__all__" });
     }
-    return function () { return [].slice.call(wrap.querySelectorAll('.ag-mi.on:not([data-v="__all__"])')).map(function (b) { return b.getAttribute("data-v"); }); };
+    return function () { return [].slice.call(wrap.querySelectorAll('.ag-mi.active:not([data-v="__all__"])')).map(function (b) { return b.getAttribute("data-v"); }); };
   }
   // 文明名英文显示字典(平台默认英文; 不改库, 只影响展示; 歌词母语路由仍读原 civilization)。
   var CIV_EN = {
@@ -377,7 +377,7 @@
   function archShort(key) { var a = archLabel(key); return a ? (a.emoji + " " + T(a.en, a.zh)) : key; }
   // 戏路选择器 markup(大类多选 + 选中展开细分)。
   function roleTaxonomyMarkup() {
-    var allBtn = '<button type="button" class="ag-arch on" data-arch="__all__" data-pill-key="__all__">🎭 ' + esc(T("All roles", "全角色")) + '</button>';
+    var allBtn = '<button type="button" class="ag-arch" data-arch="__all__" data-pill-key="__all__">🎭 ' + esc(T("All roles", "全角色")) + '</button>';
     var row = ROLE_TAXONOMY.map(function (a) {
       return '<button type="button" class="ag-arch" data-arch="' + a.key + '" data-pill-key="' + esc(a.key) + '">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</button>';
     }).join("");
@@ -392,7 +392,7 @@
     var subWrap = scope.querySelector(".ag-subroles");
     var chosenSubs = {};   // key: en-label -> true
     function rebuildSubs() {
-      var selected = [].slice.call(scope.querySelectorAll(".ag-arch.on")).map(function (b) { return b.getAttribute("data-arch"); });
+      var selected = [].slice.call(scope.querySelectorAll(".ag-arch.active")).map(function (b) { return b.getAttribute("data-arch"); });
       subWrap.innerHTML = selected.map(function (k) {
         var a = archLabel(k); if (!a) return "";
         var chips = a.subs.map(function (s) {
@@ -412,9 +412,9 @@
       window.cssosMakePillBar(archRow, { mono: true, textColor: "light", multi: true, allKey: "__all__", onActivate: function () { rebuildSubs(); } });
     }
     return {
-      archetypes: function () { if (allArch && allArch.classList.contains("on")) return []; return [].slice.call(scope.querySelectorAll('.ag-arch.on:not([data-arch="__all__"])')).map(function (b) { return b.getAttribute("data-arch"); }); },
+      archetypes: function () { if (allArch && allArch.classList.contains("active")) return []; return [].slice.call(scope.querySelectorAll('.ag-arch.active:not([data-arch="__all__"])')).map(function (b) { return b.getAttribute("data-arch"); }); },
       subRoles: function () {
-        var sel = {}; scope.querySelectorAll(".ag-arch.on").forEach(function (b) { sel[b.getAttribute("data-arch")] = true; });
+        var sel = {}; scope.querySelectorAll(".ag-arch.active").forEach(function (b) { sel[b.getAttribute("data-arch")] = true; });
         // 只保留仍属于已选大类的细分。
         var valid = {}; ROLE_TAXONOMY.forEach(function (a) { if (sel[a.key]) a.subs.forEach(function (s) { valid[s[0]] = true; }); });
         return Object.keys(chosenSubs).filter(function (k) { return valid[k]; });

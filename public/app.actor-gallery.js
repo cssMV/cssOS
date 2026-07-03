@@ -1203,11 +1203,6 @@
             (a.is_premium ? '<div class="ag-sub" style="font-size:12px;opacity:.75">' + esc(T("Villain roles +30% (harder to play, scene-stealers)", "反派角色 +30%(更难演、更抢戏)")) + '</div>' : "") +
           (a.persona ? '<div class="ag-persona">' + esc(a.persona) + '</div>' : "") +
           (tags.length ? '<div class="ag-tags">' + tags.map(function (t) { return '<span class="ag-tag">' + esc(t) + '</span>'; }).join("") + '</div>' : "") +
-          '<div class="ag-stats">' +
-            '<span title="' + esc(T("Works performed in", "出演作品数")) + '">🎬 <b>' + (counts.appearances || 0) + '</b> ' + esc(T("works", "部")) + '</span>' +
-            '<span title="' + esc(T("Comments", "评论数")) + '">💬 <b>' + (counts.comments || 0) + '</b> ' + esc(T("comments", "评论")) + '</span>' +
-            '<span title="' + esc(T("Shares", "被分享数")) + '">↗ <b>' + (counts.shares || 0) + '</b> ' + esc(T("shares", "分享")) + '</span>' +
-          '</div>' +
           '<div class="ag-showcase">' +
             '<button class="ag-sc-btn" data-seg="intro">▶ ' + esc(T("Intro", "自我介绍")) + '</button>' +
             '<button class="ag-sc-btn" data-seg="hero">😇 ' + esc(T("Hero", "正派")) + '</button>' +
@@ -1218,6 +1213,11 @@
             '<button class="ag-cast" data-pill-key="cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
             '<button class="ag-comment" data-pill-key="comment">💬 ' + esc(T("Comment", "评论")) + '</button>' +
             '<button class="ag-share" data-pill-key="share" title="' + esc(T("Share this actor", "分享这位演员")) + '">↗ ' + esc(T("Share", "分享")) + '</button>' +
+          '</div>' +
+          '<div class="ag-stats">' +
+            '<span title="' + esc(T("Works performed in", "出演作品数")) + '">🎬 <b>' + (counts.appearances || 0) + '</b> ' + esc(T("works", "部")) + '</span>' +
+            '<span title="' + esc(T("Comments", "评论数")) + '">💬 <b>' + (counts.comments || 0) + '</b> ' + esc(T("comments", "评论")) + '</span>' +
+            '<span title="' + esc(T("Shares", "被分享数")) + '">↗ <b>' + (counts.shares || 0) + '</b> ' + esc(T("shares", "分享")) + '</span>' +
           '</div>' +
           '<div class="ag-comments" hidden><h3>💬 ' + esc(T("Comments", "评论")) + '</h3><div class="ag-cmt-input"><textarea class="ag-cmt-text" rows="1" placeholder="' + esc(T("Say something about this actor…", "聊聊这位演员…")) + '" maxlength="800"></textarea><button class="ag-cmt-send">' + esc(T("Post", "发布")) + '</button></div><div class="ag-cmt-list"></div></div>' +
           (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + (state.ownedSet[a.actor_id] ? ' · ' + esc(T("free to watch", "本人免费欣赏")) : "") + '</h3><div class="ag-grid ag-sub-grid">' +

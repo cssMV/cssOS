@@ -420,7 +420,8 @@
       '<div class="ag-hero-name" style="margin-bottom:6px">🙋 ' + esc(T("Become a real digital actor", "签约成为真人数字演员")) + '</div>' +
       '<div class="ag-sub" style="margin-bottom:14px;max-width:640px">' + esc(T("Clone yourself into a digital actor — no scheduling limits, works 24/7. Use yourself free; when others cast you, you earn 80% (platform 20%). You watch every work you're in for free, and can report or revoke anytime. Verified before going public.", "把自己变成数字演员 —— 分身有术、不受档期阻拦、24/7 接戏。自选自演免费;别人选用你,你拿 80%(平台 20%)。你参演的每支作品都免费欣赏,随时可举报/撤权。核验通过才公开。")) + '</div>' +
       '<div class="ag-form">' +
-        '<label>' + esc(T("Your name / stage name *", "你的名字 / 艺名 *")) + '<input class="ag-in" data-k="name_en" maxlength="80" /></label>' +
+        '<label>' + esc(T("Your name *", "你的名字 *")) + '<input class="ag-in" data-k="name_en" maxlength="80" /></label>' +
+        '<label>' + esc(T("Stage name (optional — shown publicly instead of your name)", "艺名(选填 —— 公开展示时用它代替你的名字)")) + '<input class="ag-in" data-k="stage_name" maxlength="80" placeholder="Nova Sky" /></label>' +
         roleTaxonomyMarkup() +
         '<label>' + esc(T("A one-line vibe (optional — e.g. “commanding presence, eyes that speak”)", "一句 vibe(选填 —— 如「气场强、眼神会说话」)")) + '<textarea class="ag-in" data-k="role_range" maxlength="300" rows="2"></textarea></label>' +
         '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +

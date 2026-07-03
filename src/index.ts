@@ -43068,6 +43068,9 @@ app.post("/api/actors/real-person", express.json({ limit: "16kb" }), async (req,
     const b = (req.body || {}) as Record<string, any>;
     const nameEn = String(b.name_en || b.name || "").trim().slice(0, 80);
     if (nameEn.length < 2) return res.status(400).json({ ok: false, code: "NAME_REQUIRED" });
+    // 艺名(可留空): 有艺名则公开展示用艺名, 本人姓名留档(name_zh + consent)。
+    const stageName = String(b.stage_name || "").trim().slice(0, 80) || null;
+    const displayName = stageName || nameEn;
     // 必须明确授权(至少肖像); 无授权不建档。
     const rights = { likeness: !!b.grant_likeness, voice: !!b.grant_voice, singing: !!b.grant_singing };
     if (!rights.likeness) return res.status(400).json({ ok: false, code: "CONSENT_REQUIRED", hint: "必须勾选授权本人肖像用于数字演员" });
@@ -43084,16 +43087,16 @@ app.post("/api/actors/real-person", express.json({ limit: "16kb" }), async (req,
     await withClient(async (c) => {
       await c.query(
         `INSERT INTO digital_actors (
-            actor_id, name_zh, name_en, origin_type, is_real_person, is_public_figure, agency_name,
+            actor_id, name_zh, name_en, stage_name, origin_type, is_real_person, is_public_figure, agency_name,
             persona, role_range, gender, owner_user_id, creator_royalty, is_premium, cast_price_cents,
             license_model, rights_granted, consent_signed_at, verification_status, likeness_capture, voice_capture,
             archetypes, sub_roles, visibility, source_status, curation_tier
-         ) VALUES ($1,$2,$3,'real_person',true,$4,$5,$6,$7,$8,$9::uuid,$10,$11,$12,$13,$14,now(),'unverified',$15,$16,$17,$18,'private','ad_hoc','B')`,
-        [actorId, nameEn, nameEn, isPublicFigure, agency, roleRange, roleRange, gender, user.id,
+         ) VALUES ($1,$2,$3,$19,'real_person',true,$4,$5,$6,$7,$8,$9::uuid,$10,$11,$12,$13,$14,now(),'unverified',$15,$16,$17,$18,'private','ad_hoc','B')`,
+        [actorId, nameEn, displayName, isPublicFigure, agency, roleRange, roleRange, gender, user.id,
          0.80, priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free",
          JSON.stringify({ ...rights, terms_version: REAL_ACTOR_TERMS_VERSION }),
          likenessCapture ? JSON.stringify(likenessCapture) : null, voiceCapture ? JSON.stringify(voiceCapture) : null,
-         archetypes, subRoles]);
+         archetypes, subRoles, stageName]);
       await c.query(
         `INSERT INTO actor_consents (actor_id, user_id, action, rights, terms_version, ip_hash)
          VALUES ($1,$2::uuid,'grant',$3,$4,$5)`,

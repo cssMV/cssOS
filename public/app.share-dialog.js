@@ -267,6 +267,11 @@
     }
     try { if (typeof globalThis.cssosCloseOtherPopups === "function") globalThis.cssosCloseOtherPopups("#cssos-share-dialog"); } catch (_e) {}   // W1158 单弹窗
     var text = buildShareText(opts);
+    // CSSOS_WAVE_118 — 分享文案带完整自荐/描述(opts.text), 各平台按字数上限截取(如 X 限 280, Facebook 不限)。
+    var fullText = (opts.text ? String(opts.text).trim() : "") || text;
+    function clip(n) { var s = fullText; if (s.length <= n) return s; return s.slice(0, n - 1).replace(/\s+\S*$/, "") + "…"; }
+    // 各平台文案上限(留出 URL 空间); 未列的走 long(clip 1200)。
+    var LIM = { x: 200, bluesky: 250, threads: 460, mastodon: 460, reddit: 280, pinterest: 480, qq: 380, email: 110, long: 1200, weibo: 1800 };
 
     // Backdrop
     var root = document.createElement("div");
@@ -389,30 +394,30 @@
      * (Apple, Google, GitHub, Facebook, Discord) appear here so the
      * share surface is at least as broad as the sign-in surface. */
     // Western — mainstream
-    platforms.appendChild(platformBtn("X", "𝕏", function () { openTwitterShare(url, text); }));
-    platforms.appendChild(platformBtn("Facebook", "f", function () { openFacebookShare(url); }));
-    platforms.appendChild(platformBtn("Instagram", "📷", function () { openInstagramShare(url, text); }));
-    platforms.appendChild(platformBtn("Threads", "@", function () { openThreadsShare(url, text); }));
-    platforms.appendChild(platformBtn("Bluesky", "🦋", function () { openBlueskyShare(url, text); }));
-    platforms.appendChild(platformBtn("TikTok", "🎵", function () { openTikTokShare(url, text); }));
-    platforms.appendChild(platformBtn("YouTube", "▶", function () { openYouTubeShare(url, text); }));
-    platforms.appendChild(platformBtn("Reddit", "🟠", function () { openRedditShare(url, text); }));
-    platforms.appendChild(platformBtn("Pinterest", "📌", function () { openPinterestShare(url, text); }));
-    platforms.appendChild(platformBtn("Tumblr", "T", function () { openTumblrShare(url, text); }));
+    platforms.appendChild(platformBtn("X", "𝕏", function () { openTwitterShare(url, clip(LIM.x)); }));
+    platforms.appendChild(platformBtn("Facebook", "f", function () { openFacebookShare(url); }));   // FB 靠 og, 不限文案
+    platforms.appendChild(platformBtn("Instagram", "📷", function () { openInstagramShare(url, clip(LIM.long)); }));
+    platforms.appendChild(platformBtn("Threads", "@", function () { openThreadsShare(url, clip(LIM.threads)); }));
+    platforms.appendChild(platformBtn("Bluesky", "🦋", function () { openBlueskyShare(url, clip(LIM.bluesky)); }));
+    platforms.appendChild(platformBtn("TikTok", "🎵", function () { openTikTokShare(url, clip(LIM.long)); }));
+    platforms.appendChild(platformBtn("YouTube", "▶", function () { openYouTubeShare(url, clip(LIM.long)); }));
+    platforms.appendChild(platformBtn("Reddit", "🟠", function () { openRedditShare(url, clip(LIM.reddit)); }));
+    platforms.appendChild(platformBtn("Pinterest", "📌", function () { openPinterestShare(url, clip(LIM.pinterest)); }));
+    platforms.appendChild(platformBtn("Tumblr", "T", function () { openTumblrShare(url, clip(LIM.long)); }));
     platforms.appendChild(platformBtn("LinkedIn", "in", function () { openLinkedInShare(url); }));
-    platforms.appendChild(platformBtn("Mastodon", "🐘", function () { openMastodonShare(url, text); }));
+    platforms.appendChild(platformBtn("Mastodon", "🐘", function () { openMastodonShare(url, clip(LIM.mastodon)); }));
     // Western — messaging
-    platforms.appendChild(platformBtn("WhatsApp", "🟢", function () { openWhatsAppShare(url, text); }));
-    platforms.appendChild(platformBtn("Telegram", "✈️", function () { openTelegramShare(url, text); }));
-    platforms.appendChild(platformBtn("Discord", "🎮", function () { openDiscordShare(url, text); }));
+    platforms.appendChild(platformBtn("WhatsApp", "🟢", function () { openWhatsAppShare(url, clip(LIM.long)); }));
+    platforms.appendChild(platformBtn("Telegram", "✈️", function () { openTelegramShare(url, clip(LIM.long)); }));
+    platforms.appendChild(platformBtn("Discord", "🎮", function () { openDiscordShare(url, clip(LIM.long)); }));
     // Western — political / niche
-    platforms.appendChild(platformBtn("Truth Social", "🇺🇸", function () { openTruthSocialShare(url, text); }));
-    platforms.appendChild(platformBtn(tt("Email", "邮件"), "✉️", function () { openEmailShare(url, text); }));
+    platforms.appendChild(platformBtn("Truth Social", "🇺🇸", function () { openTruthSocialShare(url, clip(LIM.mastodon)); }));
+    platforms.appendChild(platformBtn(tt("Email", "邮件"), "✉️", function () { openEmailShare(url, clip(LIM.email)); }));
     // Chinese — last per Jing 2026-05-06
-    platforms.appendChild(platformBtn(tt("Weibo", "微博"), "🅦", function () { openWeiboShare(url, text); }));
-    platforms.appendChild(platformBtn(tt("Xiaohongshu", "小红书"), "📕", function () { openXiaohongshuShare(url, text); }));
-    platforms.appendChild(platformBtn(tt("Douyin", "抖音"), "🎶", function () { openDouyinShare(url, text); }));
-    platforms.appendChild(platformBtn("QQ", "🐧", function () { openQQShare(url, text); }));
+    platforms.appendChild(platformBtn(tt("Weibo", "微博"), "🅦", function () { openWeiboShare(url, clip(LIM.weibo)); }));
+    platforms.appendChild(platformBtn(tt("Xiaohongshu", "小红书"), "📕", function () { openXiaohongshuShare(url, clip(LIM.long)); }));
+    platforms.appendChild(platformBtn(tt("Douyin", "抖音"), "🎶", function () { openDouyinShare(url, clip(LIM.long)); }));
+    platforms.appendChild(platformBtn("QQ", "🐧", function () { openQQShare(url, clip(LIM.qq)); }));
     platforms.appendChild(platformBtn(tt("WeChat", "微信"), "💬", function () { showWeChatQr(); }));
     scroller.appendChild(platforms);
     card.appendChild(scroller);

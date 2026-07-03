@@ -43343,7 +43343,7 @@ app.post("/api/admin/actors/generate-faces", async (req, res) => {
     const rows = (await withClient((c) =>
       c.query<{ actor_id: string; face_prompt: string | null; name_en: string }>(
         `SELECT actor_id, face_prompt, name_en FROM digital_actors
-          WHERE origin_type='synthetic' ${onlyId ? "AND actor_id=$1" : ""}
+          WHERE face_prompt IS NOT NULL AND face_prompt<>'' ${onlyId ? "AND actor_id=$1" : ""}
             ${force ? "" : "AND (cover_image IS NULL OR cover_image='')"}`,
         onlyId ? [onlyId] : []))).rows;
     const out: Array<Record<string, unknown>> = [];

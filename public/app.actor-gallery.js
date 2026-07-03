@@ -76,6 +76,7 @@
       "#" + ROOT_ID + " .ag-stats{display:flex;flex-wrap:wrap;gap:8px 18px;margin:10px 0 2px;font-size:13px;color:#9ec3b4;}" +
       "#" + ROOT_ID + " .ag-stats span{display:inline-flex;align-items:center;gap:5px;}" +
       "#" + ROOT_ID + " .ag-stats b{color:#eafff6;font-weight:800;font-variant-numeric:tabular-nums;}" +
+      "#" + ROOT_ID + " .ag-cta-cap .ag-cnt{font-weight:800;font-variant-numeric:tabular-nums;opacity:.85;margin-left:3px;}" +
       "#" + ROOT_ID + " .ag-tag{background:rgba(0,245,160,.12);border:1px solid rgba(0,245,160,.3);color:#bff5e0;border-radius:999px;padding:4px 12px;font-size:12px;}" +
       "#" + ROOT_ID + " .ag-persona{color:rgba(232,255,245,.88);margin:10px 0;}" +
       "#" + ROOT_ID + " .ag-cast{background:" + GREEN + ";color:" + INK + ";border:none;border-radius:999px;padding:12px 26px;font-size:16px;font-weight:800;cursor:pointer;margin-top:8px;box-shadow:0 0 20px rgba(0,245,160,.35);}" +
@@ -1008,7 +1009,7 @@
     fetch("/api/actors/" + encodeURIComponent(a.actor_id) + "/share", { method: "POST", credentials: "include" })
       .then(function (r) { return r.json(); }).then(function (j) {
         var root = document.getElementById(ROOT_ID);
-        if (j && j.ok && root) { var sb = root.querySelector('.ag-stats span[title*="hare"] b, .ag-stats span[title*="分享"] b'); if (sb) sb.textContent = j.share_count; }
+        if (j && j.ok && root) { var sb = root.querySelector('.ag-share .ag-cnt'); if (sb) sb.textContent = j.share_count; }
       }).catch(function () {});
     var slg = sloganOf(a);
     var title = (slg ? name + " — " + slg : name + " · Digital Actor");
@@ -1210,14 +1211,9 @@
           '</div>' +
           '<div class="ag-stage" aria-live="polite"></div>' +
           '<div class="ag-cta-cap">' +
-            '<button class="ag-cast" data-pill-key="cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
-            '<button class="ag-comment" data-pill-key="comment">💬 ' + esc(T("Comment", "评论")) + '</button>' +
-            '<button class="ag-share" data-pill-key="share" title="' + esc(T("Share this actor", "分享这位演员")) + '">↗ ' + esc(T("Share", "分享")) + '</button>' +
-          '</div>' +
-          '<div class="ag-stats">' +
-            '<span title="' + esc(T("Works performed in", "出演作品数")) + '">🎬 <b>' + (counts.appearances || 0) + '</b> ' + esc(T("works", "部")) + '</span>' +
-            '<span title="' + esc(T("Comments", "评论数")) + '">💬 <b>' + (counts.comments || 0) + '</b> ' + esc(T("comments", "评论")) + '</span>' +
-            '<span title="' + esc(T("Shares", "被分享数")) + '">↗ <b>' + (counts.shares || 0) + '</b> ' + esc(T("shares", "分享")) + '</span>' +
+            '<button class="ag-cast" data-pill-key="cast" title="' + esc(T("Works performed in", "出演作品数")) + '">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + ' <span class="ag-cnt">' + (counts.appearances || 0) + '</span></button>' +
+            '<button class="ag-comment" data-pill-key="comment">💬 ' + esc(T("Comment", "评论")) + ' <span class="ag-cnt">' + (counts.comments || 0) + '</span></button>' +
+            '<button class="ag-share" data-pill-key="share" title="' + esc(T("Share this actor", "分享这位演员")) + '">↗ ' + esc(T("Share", "分享")) + ' <span class="ag-cnt">' + (counts.shares || 0) + '</span></button>' +
           '</div>' +
           '<div class="ag-comments" hidden><h3>💬 ' + esc(T("Comments", "评论")) + '</h3><div class="ag-cmt-input"><textarea class="ag-cmt-text" rows="1" placeholder="' + esc(T("Say something about this actor…", "聊聊这位演员…")) + '" maxlength="800"></textarea><button class="ag-cmt-send">' + esc(T("Post", "发布")) + '</button></div><div class="ag-cmt-list"></div></div>' +
           (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + (state.ownedSet[a.actor_id] ? ' · ' + esc(T("free to watch", "本人免费欣赏")) : "") + '</h3><div class="ag-grid ag-sub-grid">' +

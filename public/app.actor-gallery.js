@@ -190,6 +190,9 @@
       /* 就地展开 = 同一个框: 展开的卡横跨整行, 封面变大(显 3D/视频), 详情接着信息往下排 */
       "#" + ROOT_ID + " .ag-card.expanded{grid-column:1/-1;border-color:" + GREEN + ";box-shadow:0 0 26px rgba(0,245,160,.4);}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover{aspect-ratio:auto;height:min(58vh,420px);cursor:pointer;}" +
+      // 「完整封面」态: 不裁切, 按原图比例整张显示(object-fit:contain + 高度自适应)。
+      "#" + ROOT_ID + " .ag-card.expanded .ag-cover.ag-cover-full{height:auto !important;max-height:min(88vh,760px);}" +
+      "#" + ROOT_ID + " .ag-cover.ag-cover-full img{height:auto !important;max-height:min(88vh,760px);object-fit:contain !important;}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover .ag-mv-wrap,#" + ROOT_ID + " .ag-card.expanded .ag-cover model-viewer{width:100%;height:100%;}" +
       "#" + ROOT_ID + " .ag-cover{position:relative;}" +
       "#" + ROOT_ID + " .ag-3d-badge{position:absolute;right:12px;bottom:12px;z-index:3;background:rgba(4,18,12,.72);color:#bff5e0;border:1px solid rgba(0,245,160,.5);border-radius:999px;padding:6px 13px;font-size:13px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px);}" +
@@ -277,11 +280,15 @@
     var cols = colsFor(scroll);
     var show = Math.min(list.length, Math.max(cols, state.rows * cols));
     var more = list.length - show;
-    scroll.innerHTML =
+    // 分享单人态: 顶部一条"浏览全部演员"出口(点了才全量加载)。
+    var soloBar = state.solo ? '<div style="margin:0 0 14px;"><button class="ag-chip ag-browse-all">🎭 ' + esc(T("Browse all actors", "浏览全部演员")) + ' →</button></div>' : "";
+    scroll.innerHTML = soloBar +
       '<div class="ag-grid">' + list.slice(0, show).map(actorCard).join("") + '</div>' +
       (more > 0 ? '<div style="text-align:center;margin-top:20px;"><button class="ag-chip ag-more">' + esc(T("Load one more row", "加载更多一行")) + ' ▾ (' + more + ')</button></div>' : "");
     var mb = scroll.querySelector(".ag-more");
     if (mb) mb.onclick = function () { state.rows += 1; renderGrid(); };
+    var ba = scroll.querySelector(".ag-browse-all");
+    if (ba) ba.onclick = function () { state.solo = null; state.filter = "all"; resetRows(); loadActors(); };
   }
   function resetRows() { state.rows = 1; }
 
@@ -310,6 +317,25 @@
         var set = {}; ((j && j.data && j.data.actors) || []).forEach(function (a) { set[a.actor_id] = true; });
         state.ownedSet = set;
       }).catch(function () {});
+  }
+  // 分享深链: 只拉这一位演员(不全量 500, 省内存/带宽), 展开显示; 顶部给"浏览全部"出口。
+  function loadSoloActor(id) {
+    var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
+    if (scroll) skeleton(scroll);
+    fetch("/api/actors/" + encodeURIComponent(id), { credentials: "include" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var a = j && j.data && j.data.actor;
+        if (!a || !a.actor_id) { state.solo = null; loadActors(); return; }  // 隐藏/不存在 → 退回全量
+        state.actors = [a]; renderGrid();
+        var root = document.getElementById(ROOT_ID);
+        var card = root && root.querySelector('.ag-card[data-actor="' + id + '"]');
+        if (card && !card.classList.contains("expanded")) toggleExpand(card);
+      })
+      .catch(function () { state.solo = null; loadActors(); });
+    fetch("/api/actors?owned=1&limit=100", { credentials: "include" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { var set = {}; ((j && j.data && j.data.actors) || []).forEach(function (a) { set[a.actor_id] = true; }); state.ownedSet = set; }).catch(function () {});
   }
 
   /* CSSOS_WAVE_116 戏路 taxonomy —— 单一数据源。增减戏路只改这张表(key 与后端一致)。
@@ -350,7 +376,7 @@
     var row = wrap.querySelector(".ag-pbrow");
     // 多选胶囊轨道 → 平台 helper(multi + allKey 塌缩回 All)。它切换 .on, 下面 getter 读 .on。
     if (row && typeof window.cssosMakePillBar === "function") {
-      window.cssosMakePillBar(row, { textColor: "light", multi: true, allKey: "__all__" });
+      window.cssosMakePillBar(row, { mono: true, textColor: "light", multi: true, allKey: "__all__" });
     }
     return function () { return [].slice.call(wrap.querySelectorAll('.ag-mi.active:not([data-v="__all__"])')).map(function (b) { return b.getAttribute("data-v"); }); };
   }
@@ -409,7 +435,7 @@
     // 戏路多选 → 平台 helper(multi + allKey)。它管 .on 与"全选塌缩回 All"; 每次变更回调重建细分。
     var archRow = scope.querySelector(".ag-pbrow.ag-archrow");
     if (archRow && typeof window.cssosMakePillBar === "function") {
-      window.cssosMakePillBar(archRow, { textColor: "light", multi: true, allKey: "__all__", onActivate: function () { rebuildSubs(); } });
+      window.cssosMakePillBar(archRow, { mono: true, textColor: "light", multi: true, allKey: "__all__", onActivate: function () { rebuildSubs(); } });
     }
     return {
       archetypes: function () { if (allArch && allArch.classList.contains("active")) return []; return [].slice.call(scope.querySelectorAll('.ag-arch.active:not([data-arch="__all__"])')).map(function (b) { return b.getAttribute("data-arch"); }); },
@@ -1208,17 +1234,17 @@
         // 3D 改为【显式点击】按需加载(省内存 + 展示更精致的 2D 原色封面)。
         cardEl.__actor = a;
         var cov0 = cardEl.querySelector("[data-cover]");
-        if (cov0 && a.model_3d_url) {
-          var b3d = document.createElement("button");
-          b3d.className = "ag-3d-badge"; b3d.type = "button";
-          b3d.textContent = "🧊 3D";   // 切换开关: 完整图片 ⇄ 3D(外层卡已有"看3D", 这里做成切换不重复)
-          b3d.onclick = function (ev) {
+        if (cov0) {
+          // 右下角切换: 完整封面图(不裁切, 显示整张)⇄ 收起。取代之前的 3D 徽标(3D=9MB GLB 太吃内存)。
+          var bCov = document.createElement("button");
+          bCov.className = "ag-3d-badge"; bCov.type = "button";
+          bCov.textContent = "🖼 " + T("Full cover", "完整封面");
+          bCov.onclick = function (ev) {
             ev.stopPropagation();
-            window.__agToggleCover(cardEl, a);
-            var is3d = !!(cov0.querySelector("model-viewer") || cov0.querySelector(".ag-mv-wrap"));
-            b3d.textContent = is3d ? ("🖼 " + T("Full image", "完整图片")) : "🧊 3D";
+            var full = cov0.classList.toggle("ag-cover-full");
+            bCov.textContent = full ? ("🔼 " + T("Collapse", "收起")) : ("🖼 " + T("Full cover", "完整封面"));
           };
-          cov0.appendChild(b3d);
+          cov0.appendChild(bCov);
         }
         // 选角/评论/分享 走平台胶囊(与顶部筛选条同一套凹凸镶嵌); Cast 恒为凸绿主段(动作条, 非筛选)。
         var ctaBar = inline.querySelector(".ag-cta-cap");
@@ -1487,7 +1513,7 @@
     if (el) { disposeModelViewers(el); el.remove(); }
   }
 
-  function open(force) {
+  function open(force, soloId) {
     ensureStyle();
     var existing = document.getElementById(ROOT_ID);
     if (existing && !force) return;
@@ -1524,7 +1550,7 @@
     var topcap = el.querySelector(".ag-topcap");
     if (topcap && typeof window.cssosMakePillBar === "function") {
       agTopcapCtl = window.cssosMakePillBar(topcap, {
-        textColor: "light", compact: true, activeKey: "signup",
+        mono: true, textColor: "light", compact: true, activeKey: "signup",
         onActivate: function (key) {
           // 搜索段是 <input>, 点击即原生聚焦, 无需在此 focus(否则与 change 事件成回环卡住焦点)。
           if (key === "create") renderCreateForm();
@@ -1540,10 +1566,10 @@
     // 5 个筛选 = 凹凸镶嵌胶囊轨道: 优先用平台 cssosMakePillBar(胶囊宪法), 否则退回普通 chip。
     var filterBar = el.querySelector(".ag-filters");
     filterBar.querySelectorAll(".ag-chip").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-f")); });
-    function applyFilterKey(key) { state.filter = key; resetRows(); renderGrid(); }
+    function applyFilterKey(key) { state.filter = key; resetRows(); if (state.solo) { state.solo = null; loadActors(); return; } renderGrid(); }
     if (typeof window.cssosMakePillBar === "function") {
       filterBar.classList.add("ag-pillbar");
-      window.cssosMakePillBar(filterBar, { textColor: "light", activeKey: "all", onActivate: applyFilterKey });
+      window.cssosMakePillBar(filterBar, { mono: true, textColor: "light", activeKey: "all", onActivate: applyFilterKey });
     } else {
       filterBar.querySelectorAll(".ag-chip").forEach(function (c) {
         c.onclick = function () {
@@ -1555,11 +1581,11 @@
     // 戏路大类筛选(独立行, 客户端过滤) = 凹凸镶嵌胶囊(胶囊宪法)。
     var archBar = el.querySelector(".ag-archfilters");
     if (archBar) {
-      function applyArch(key) { state.archetype = key === "all" ? "" : key; resetRows(); renderGrid(); }
+      function applyArch(key) { state.archetype = key === "all" ? "" : key; resetRows(); if (state.solo) { state.solo = null; loadActors(); return; } renderGrid(); }
       archBar.querySelectorAll(".ag-af").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-arch") || "all"); });
       if (typeof window.cssosMakePillBar === "function") {
         archBar.classList.add("ag-pillbar");
-        window.cssosMakePillBar(archBar, { textColor: "light", activeKey: "all", onActivate: applyArch });
+        window.cssosMakePillBar(archBar, { mono: true, textColor: "light", activeKey: "all", onActivate: applyArch });
       } else {
         archBar.querySelectorAll(".ag-af").forEach(function (c) {
           c.onclick = function () {
@@ -1570,7 +1596,7 @@
       }
     }
     var si = el.querySelector(".ag-search");
-    si.oninput = function () { state.search = si.value.trim(); resetRows(); renderGrid(); };
+    si.oninput = function () { state.search = si.value.trim(); resetRows(); if (state.solo) { state.solo = null; loadActors(); return; } renderGrid(); };
     si.onfocus = function () { setTopcapActive("search"); };
     si.onblur = function () { if (!si.value.trim()) setTopcapActive("signup"); };
     el.querySelector(".ag-scroll").addEventListener("click", function (e) {
@@ -1607,23 +1633,15 @@
     document.addEventListener("keydown", function onKey(ev) {
       if (ev.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
     });
-    loadActors();
+    if (soloId) { state.solo = soloId; loadSoloActor(soloId); }   // 分享深链: 只这一位
+    else { state.solo = null; loadActors(); }
   }
 
   window.cssosOpenActorGallery = open;
   // 分享深链 /?actor=<id>: 打开图鉴并展开该演员(网格异步加载, 轮询到卡片再展开; 不在已加载行内则扩行)。
   window.cssosOpenActor = function (id) {
     if (!id) { open(1); return; }
-    open(1);
-    var tries = 0;
-    (function tryExpand() {
-      var root = document.getElementById(ROOT_ID); if (!root) { if (tries++ < 40) setTimeout(tryExpand, 150); return; }
-      var card = root.querySelector('.ag-card[data-actor="' + id + '"]');
-      if (card) { if (!card.classList.contains("expanded")) toggleExpand(card); card.scrollIntoView({ block: "center" }); return; }
-      // 演员已在数据里但未渲染(超出已加载行)→ 扩行再找。
-      if (state.actors && state.actors.some(function (a) { return a.actor_id === id; })) { state.rows += 5; renderGrid(); }
-      if (tries++ < 40) setTimeout(tryExpand, 150);
-    })();
+    open(1, id);   // solo: 只拉这一位演员并展开, 不全量加载(分享进来不会顶不住)。
   };
   function readActorDeeplink() {
     try {

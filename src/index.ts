@@ -43281,6 +43281,66 @@ app.post("/api/actors/:id/revoke-consent", async (req, res) => {
   }
 });
 
+// 数字演员评论(选角/评论/分享 胶囊)。读取公开; 发布需登录。
+app.get("/api/actors/:id/comments", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    const me = await getSessionUser(req).catch(() => null);
+    const r = await withClient((c) => c.query<{ id: string; user_id: string; author_name: string | null; body: string; created_at: string }>(
+      `SELECT id::text AS id, user_id::text AS user_id, author_name, body, created_at
+         FROM actor_comments WHERE actor_id=$1 AND hidden=false ORDER BY created_at DESC LIMIT 100`, [id]));
+    const isAdmin = me && isCssosAdminEmail((me as any).email);
+    const comments = r.rows.map((c) => ({
+      id: c.id, author_name: c.author_name || "Guest", body: c.body, created_at: c.created_at,
+      mine: !!(me && String(c.user_id) === String(me.id)) || !!isAdmin,
+    }));
+    return res.json({ ok: true, comments });
+  } catch (err) {
+    console.warn("[actors] list comments failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "LIST_FAILED", comments: [] });
+  }
+});
+app.post("/api/actors/:id/comments", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const body = String(((req.body || {}) as any).body || "").trim().slice(0, 800);
+    if (!body) return res.status(400).json({ ok: false, code: "EMPTY" });
+    const exists = await withClient((c) => c.query(`SELECT 1 FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    if (!exists.rows.length) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const authorName = String(user.display_name || (user.email || "").split("@")[0] || "Guest").slice(0, 60);
+    const ins = await withClient((c) => c.query<{ id: string; created_at: string }>(
+      `INSERT INTO actor_comments (actor_id, user_id, author_name, body) VALUES ($1,$2,$3,$4) RETURNING id::text AS id, created_at`,
+      [id, user.id, authorName, body]));
+    const row = ins.rows[0]!;
+    return res.json({ ok: true, comment: { id: row.id, author_name: authorName, body, created_at: row.created_at, mine: true } });
+  } catch (err) {
+    console.warn("[actors] add comment failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "ADD_FAILED" });
+  }
+});
+app.delete("/api/actors/:id/comments/:cid", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const cid = String(req.params.cid || "").trim();
+    const isAdmin = isCssosAdminEmail((user as any).email);
+    const owned = await withClient((c) => c.query<{ user_id: string }>(`SELECT user_id::text AS user_id FROM actor_comments WHERE id=$1 LIMIT 1`, [cid]));
+    const row = owned.rows[0];
+    if (!row) return res.json({ ok: true }); // already gone
+    if (String(row.user_id) !== String(user.id) && !isAdmin) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    await withClient((c) => c.query(`UPDATE actor_comments SET hidden=true WHERE id=$1`, [cid]));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.warn("[actors] delete comment failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "DEL_FAILED" });
+  }
+});
+
 app.patch("/api/actors/:id", express.json({ limit: "4kb" }), async (req, res) => {
   noStore(res);
   try {

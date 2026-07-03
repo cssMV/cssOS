@@ -80,6 +80,25 @@
       "#" + ROOT_ID + " .ag-cta-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}" +
       "#" + ROOT_ID + " .ag-share{background:transparent;color:#bff5e0;border:1px solid rgba(0,245,160,.45);border-radius:999px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;}" +
       "#" + ROOT_ID + " .ag-share:hover{background:rgba(0,245,160,.12);}" +
+      // 选角/评论/分享 三段胶囊(胶囊宪法: 共用边框零间隙, 两头圆, 每段图标+标签, 主操作填充在前)。
+      "#" + ROOT_ID + " .ag-cta-cap{display:inline-flex;align-items:stretch;margin-top:8px;border:1px solid rgba(0,245,160,.45);border-radius:999px;overflow:hidden;background:rgba(4,20,14,.5);}" +
+      "#" + ROOT_ID + " .ag-cta-cap button{background:transparent;color:#bff5e0;border:0;border-left:1px solid rgba(0,245,160,.28);border-radius:0;margin:0;box-shadow:none;padding:11px 20px;font-size:15px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;line-height:1;}" +
+      "#" + ROOT_ID + " .ag-cta-cap button:first-child{border-left:0;}" +
+      "#" + ROOT_ID + " .ag-cta-cap button:hover{background:rgba(0,245,160,.12);}" +
+      "#" + ROOT_ID + " .ag-cta-cap .ag-cast{background:" + GREEN + ";color:" + INK + ";font-weight:800;}" +
+      "#" + ROOT_ID + " .ag-cta-cap .ag-cast:hover{filter:brightness(1.08);background:" + GREEN + ";}" +
+      "@media(max-width:520px){#" + ROOT_ID + " .ag-cta-cap button{padding:11px 14px;font-size:14px;}}" +
+      // 评论面板
+      "#" + ROOT_ID + " .ag-comments{margin-top:16px;border-top:1px solid rgba(0,245,160,.15);padding-top:14px;}" +
+      "#" + ROOT_ID + " .ag-comments h3{font-size:15px;font-weight:800;color:#e8fff5;margin:0 0 10px;}" +
+      "#" + ROOT_ID + " .ag-cmt-input{display:flex;gap:8px;align-items:flex-end;margin-bottom:14px;}" +
+      "#" + ROOT_ID + " .ag-cmt-input textarea{flex:1;background:rgba(4,20,14,.6);border:1px solid rgba(0,245,160,.3);border-radius:14px;color:#e8fff5;padding:10px 12px;font-size:14px;font-family:inherit;resize:vertical;min-height:42px;}" +
+      "#" + ROOT_ID + " .ag-cmt-send{background:" + GREEN + ";color:" + INK + ";border:0;border-radius:999px;padding:10px 18px;font-weight:800;font-size:14px;cursor:pointer;white-space:nowrap;}" +
+      "#" + ROOT_ID + " .ag-cmt{padding:10px 0;border-bottom:1px solid rgba(0,245,160,.1);}" +
+      "#" + ROOT_ID + " .ag-cmt .who{font-size:12.5px;color:#8fe9c8;font-weight:700;margin-bottom:3px;display:flex;justify-content:space-between;align-items:center;}" +
+      "#" + ROOT_ID + " .ag-cmt .body{font-size:14px;color:#dff7ec;line-height:1.45;white-space:pre-wrap;word-break:break-word;}" +
+      "#" + ROOT_ID + " .ag-cmt .del{background:none;border:0;color:#ff9a9a;font-size:11px;cursor:pointer;padding:2px 6px;}" +
+      "#" + ROOT_ID + " .ag-cmt-empty{font-size:13px;color:#7fb8a3;padding:8px 0;}" +
       "#" + ROOT_ID + " .ag-slogan{font-size:12.5px;color:#8fe9c8;font-style:italic;margin:3px 0;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}" +
       "#" + ROOT_ID + " .ag-castmodal{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(2,10,7,.72);backdrop-filter:blur(3px);}" +
       "#" + ROOT_ID + " .ag-castmodal .box{background:#0a1712;border:1px solid rgba(0,245,160,.35);border-radius:20px;padding:22px;max-width:440px;width:88%;box-shadow:0 20px 60px rgba(0,0,0,.5);}" +
@@ -600,6 +619,71 @@
   }
 
   // 分享数字演员: 落地页 /a/<id>(后端给 og:image=封面 + 自荐)。有原生分享用原生, 否则开 X 意图 + 复制链接。
+  function fmtWhen(ts) {
+    try { var d = new Date(ts); var s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+      if (s < 60) return T("just now", "刚刚");
+      if (s < 3600) return Math.floor(s / 60) + T("m ago", " 分钟前");
+      if (s < 86400) return Math.floor(s / 3600) + T("h ago", " 小时前");
+      if (s < 2592000) return Math.floor(s / 86400) + T("d ago", " 天前");
+      return d.toLocaleDateString();
+    } catch (e) { return ""; }
+  }
+  function renderComments(listEl, actorId, comments) {
+    if (!comments.length) { listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("No comments yet. Be the first!", "还没有评论,来抢沙发!")) + '</div>'; return; }
+    listEl.innerHTML = comments.map(function (c) {
+      return '<div class="ag-cmt" data-cid="' + esc(c.id) + '"><div class="who"><span>' + esc(c.author_name || "Guest") + ' · ' + esc(fmtWhen(c.created_at)) + '</span>' +
+        (c.mine ? '<button class="del" data-cid="' + esc(c.id) + '">' + esc(T("Delete", "删除")) + '</button>' : '') +
+        '</div><div class="body">' + esc(c.body) + '</div></div>';
+    }).join("");
+    listEl.querySelectorAll(".del").forEach(function (b) {
+      b.onclick = function () {
+        var cid = b.getAttribute("data-cid");
+        fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments/" + encodeURIComponent(cid), { method: "DELETE", credentials: "include" })
+          .then(function (r) { return r.json(); }).then(function (j) { if (j && j.ok) { var n = listEl.querySelector('.ag-cmt[data-cid="' + cid + '"]'); if (n) n.remove(); if (!listEl.querySelector(".ag-cmt")) renderComments(listEl, actorId, []); } });
+      };
+    });
+  }
+  function toggleComments(inline, actorId) {
+    var box = inline.querySelector(".ag-comments");
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false;
+    var listEl = box.querySelector(".ag-cmt-list");
+    var textEl = box.querySelector(".ag-cmt-text");
+    var sendEl = box.querySelector(".ag-cmt-send");
+    if (!box.__loaded) {
+      box.__loaded = true;
+      listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("Loading…", "加载中…")) + '</div>';
+      fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments", { credentials: "include" })
+        .then(function (r) { return r.json(); }).then(function (j) { renderComments(listEl, actorId, (j && j.comments) || []); })
+        .catch(function () { listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("Failed to load.", "加载失败。")) + '</div>'; });
+      sendEl.onclick = function () {
+        var body = String(textEl.value || "").trim();
+        if (!body) return;
+        sendEl.disabled = true;
+        fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ body: body }) })
+          .then(function (r) { return r.json(); }).then(function (j) {
+            sendEl.disabled = false;
+            if (j && j.ok && j.comment) {
+              textEl.value = "";
+              var empty = listEl.querySelector(".ag-cmt-empty"); if (empty) empty.remove();
+              var c = j.comment;
+              var node = document.createElement("div"); node.className = "ag-cmt"; node.setAttribute("data-cid", c.id);
+              node.innerHTML = '<div class="who"><span>' + esc(c.author_name || "Guest") + ' · ' + esc(fmtWhen(c.created_at)) + '</span><button class="del" data-cid="' + esc(c.id) + '">' + esc(T("Delete", "删除")) + '</button></div><div class="body">' + esc(c.body) + '</div>';
+              node.querySelector(".del").onclick = function () {
+                fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments/" + encodeURIComponent(c.id), { method: "DELETE", credentials: "include" })
+                  .then(function (r) { return r.json(); }).then(function (jj) { if (jj && jj.ok) { node.remove(); if (!listEl.querySelector(".ag-cmt")) renderComments(listEl, actorId, []); } });
+              };
+              listEl.insertBefore(node, listEl.firstChild);
+            } else if (j && j.code === "AUTH_REQUIRED") {
+              if (window.cssosGuidedToast) window.cssosGuidedToast(T("Sign in to comment.", "登录后即可评论。"), { actions: [{ label: T("Sign in", "登录"), onClick: function () { if (window.cssosOpenLogin) window.cssosOpenLogin(); } }] });
+              else window.alert(T("Sign in to comment.", "登录后即可评论。"));
+            } else window.alert(T("Failed to post.", "发布失败。"));
+          }).catch(function () { sendEl.disabled = false; window.alert(T("Failed to post.", "发布失败。")); });
+      };
+      textEl.addEventListener("keydown", function (e) { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") sendEl.click(); });
+    }
+  }
   function shareActor(a) {
     var name = a.name_en || a.name_zh || "Digital Actor";
     var url = "https://cssstudio.app/a/" + encodeURIComponent(a.actor_id);
@@ -789,8 +873,12 @@
             '<button class="ag-sc-btn" data-seg="villain">😈 ' + esc(T("Villain", "反派")) + '</button>' +
           '</div>' +
           '<div class="ag-stage" aria-live="polite"></div>' +
-          '<div class="ag-cta-row"><button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
-          '<button class="ag-share" title="' + esc(T("Share this actor", "分享这位演员")) + '">↗ ' + esc(T("Share", "分享")) + '</button></div>' +
+          '<div class="ag-cta-cap">' +
+            '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
+            '<button class="ag-comment">💬 ' + esc(T("Comment", "评论")) + '</button>' +
+            '<button class="ag-share" title="' + esc(T("Share this actor", "分享这位演员")) + '">↗ ' + esc(T("Share", "分享")) + '</button>' +
+          '</div>' +
+          '<div class="ag-comments" hidden><h3>💬 ' + esc(T("Comments", "评论")) + '</h3><div class="ag-cmt-input"><textarea class="ag-cmt-text" rows="1" placeholder="' + esc(T("Say something about this actor…", "聊聊这位演员…")) + '" maxlength="800"></textarea><button class="ag-cmt-send">' + esc(T("Post", "发布")) + '</button></div><div class="ag-cmt-list"></div></div>' +
           (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + (state.ownedSet[a.actor_id] ? ' · ' + esc(T("free to watch", "本人免费欣赏")) : "") + '</h3><div class="ag-grid ag-sub-grid">' +
             mvs.map(function (m) { return '<div class="ag-card ag-appear" data-work="' + esc(m.work_id) + '" style="cursor:pointer"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
               '</div><div class="ag-meta"><div class="ag-name">▶ ' + esc(m.title || "Untitled") + '</div>' +
@@ -811,6 +899,8 @@
         if (castBtn) castBtn.onclick = function () { openCast(a); };
         var shareBtn = inline.querySelector(".ag-share");
         if (shareBtn) shareBtn.onclick = function () { shareActor(a); };
+        var cmtBtn = inline.querySelector(".ag-comment");
+        if (cmtBtn) cmtBtn.onclick = function () { toggleComments(inline, a.actor_id); };
         wireShowcase(inline, a.actor_id);
         if (state.ownedSet[a.actor_id]) {
           var own = document.createElement("div"); own.className = "ag-owner";

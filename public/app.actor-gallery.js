@@ -80,14 +80,14 @@
       "#" + ROOT_ID + " .ag-cta-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}" +
       "#" + ROOT_ID + " .ag-share{background:transparent;color:#bff5e0;border:1px solid rgba(0,245,160,.45);border-radius:999px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;}" +
       "#" + ROOT_ID + " .ag-share:hover{background:rgba(0,245,160,.12);}" +
-      // 选角/评论/分享 三段胶囊(胶囊宪法: 共用边框零间隙, 两头圆, 每段图标+标签, 主操作填充在前)。
-      "#" + ROOT_ID + " .ag-cta-cap{display:inline-flex;align-items:stretch;margin-top:8px;border:1px solid rgba(0,245,160,.45);border-radius:999px;overflow:hidden;background:rgba(4,20,14,.5);}" +
-      "#" + ROOT_ID + " .ag-cta-cap button{background:transparent;color:#bff5e0;border:0;border-left:1px solid rgba(0,245,160,.28);border-radius:0;margin:0;box-shadow:none;padding:11px 20px;font-size:15px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;line-height:1;}" +
-      "#" + ROOT_ID + " .ag-cta-cap button:first-child{border-left:0;}" +
-      "#" + ROOT_ID + " .ag-cta-cap button:hover{background:rgba(0,245,160,.12);}" +
-      "#" + ROOT_ID + " .ag-cta-cap .ag-cast{background:" + GREEN + ";color:" + INK + ";font-weight:800;}" +
-      "#" + ROOT_ID + " .ag-cta-cap .ag-cast:hover{filter:brightness(1.08);background:" + GREEN + ";}" +
-      "@media(max-width:520px){#" + ROOT_ID + " .ag-cta-cap button{padding:11px 14px;font-size:14px;}}" +
+      // 选角/评论/分享 三段胶囊 = 胶囊宪法【凹凸镶嵌】(照台词胶囊: 轨道共用边框零间隙, 主操作凸全圆绿, 其余凹咬合)。
+      "#" + ROOT_ID + " .ag-cta-cap{display:flex;align-items:stretch;height:46px;margin-top:14px;border:1px solid rgba(0,245,160,.35);border-radius:999px;overflow:hidden;background:rgba(0,245,160,.05);}" +
+      "#" + ROOT_ID + " .ag-cta-cap button{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:6px;border:0;background:transparent;color:#d6ffee;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;position:relative;box-sizing:border-box;padding:0 22px;}" +
+      // 选角(Cast)= 凸: 两头圆全 pill 绿填充
+      "#" + ROOT_ID + " .ag-cta-cap .ag-cast{background:" + GREEN + ";color:" + INK + ";font-weight:800;border-radius:999px;z-index:2;box-shadow:0 4px 18px rgba(0,0,0,.28);padding:0 24px;}" +
+      // 评论/分享 = 凹在左, 依次咬合前一段的凸圆头
+      "#" + ROOT_ID + " .ag-cta-cap .ag-cast ~ button{margin-left:-23px;padding-left:40px;border-radius:0 999px 999px 0;z-index:1;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
+      "#" + ROOT_ID + " .ag-cta-cap .ag-cast ~ button:hover{background:rgba(0,245,160,.12);}" +
       // 评论面板
       "#" + ROOT_ID + " .ag-comments{margin-top:16px;border-top:1px solid rgba(0,245,160,.15);padding-top:14px;}" +
       "#" + ROOT_ID + " .ag-comments h3{font-size:15px;font-weight:800;color:#e8fff5;margin:0 0 10px;}" +

@@ -42991,7 +42991,9 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
     const style = String(body.style_descriptor || body.style || "").trim().slice(0, 120) || null;
     const world = String(body.civilization || body.world || "").trim().slice(0, 60) || "Original";
     const archetypes = parseArchetypes(body.archetypes), subRoles = parseSubRoles(body.sub_roles);
-    const priceCents = Math.max(0, Math.min(500, Math.round(Number(body.cast_price_cents || 0)) || 0));
+    // CSSOS_WAVE_118 禁止裁判员当运动员: 官方账号(@cssstudio.app / jingdudc)的数字演员强制免费, 不与用户抢选角生意。
+    //   可以贡献肖像/声音供平台免费用, 但不设选角价、不赚版税(与官方作品必免费同规)。工作人员私人账号不受此限。
+    const priceCents = isCssosAdminEmail(user.email) ? 0 : Math.max(0, Math.min(500, Math.round(Number(body.cast_price_cents || 0)) || 0));
     // 每人最多创建 20 个(防刷)。
     const cnt = await withClient((c) => c.query<{ n: string }>(`SELECT count(*) n FROM digital_actors WHERE owner_user_id=$1::uuid`, [user.id]));
     if (Number(cnt.rows[0]?.n || 0) >= 20) return res.status(429).json({ ok: false, code: "ACTOR_LIMIT", hint: "每人最多 20 个演员" });
@@ -43069,7 +43071,8 @@ app.post("/api/actors/real-person", express.json({ limit: "16kb" }), async (req,
     if (!rights.likeness) return res.status(400).json({ ok: false, code: "CONSENT_REQUIRED", hint: "必须勾选授权本人肖像用于数字演员" });
     const roleRange = String(b.role_range || "").trim().slice(0, 300) || null;
     const archetypes = parseArchetypes(b.archetypes), subRoles = parseSubRoles(b.sub_roles);
-    const priceCents = Math.max(0, Math.min(9999, Math.round(Number(b.cast_price_cents || 0)) || 0));
+    // 官方账号真人演员也强制免费(裁判员不当运动员); 工作人员私人账号不受此限。
+    const priceCents = isCssosAdminEmail(user.email) ? 0 : Math.max(0, Math.min(9999, Math.round(Number(b.cast_price_cents || 0)) || 0));
     const isPublicFigure = !!b.is_public_figure;
     const agency = String(b.agency_name || "").trim().slice(0, 120) || null;
     const gender = ["female", "male", "androgynous", "neutral"].includes(String(b.gender || "").toLowerCase()) ? String(b.gender).toLowerCase() : "neutral";
@@ -43294,7 +43297,8 @@ app.patch("/api/actors/:id", express.json({ limit: "4kb" }), async (req, res) =>
     if (body.name_en !== undefined) { params.push(String(body.name_en).slice(0, 60)); sets.push(`name_en=$${params.length}`); }
     if (body.name_zh !== undefined) { params.push(String(body.name_zh).slice(0, 60)); sets.push(`name_zh=$${params.length}`); }
     if (body.cast_price_cents !== undefined) {
-      const p = Math.max(0, Math.min(500, Math.round(Number(body.cast_price_cents)) || 0));
+      // 官方账号强制免费, 不得后设选角价(裁判员不当运动员)。
+      const p = isCssosAdminEmail(user.email) ? 0 : Math.max(0, Math.min(500, Math.round(Number(body.cast_price_cents)) || 0));
       params.push(p); sets.push(`cast_price_cents=$${params.length}`);
       params.push(p > 0); sets.push(`is_premium=$${params.length}`);
       params.push(p > 0 ? "per_cast" : "free"); sets.push(`license_model=$${params.length}`);

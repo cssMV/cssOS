@@ -53673,6 +53673,54 @@ app.get("/u/:handle", async (req, res) => {
   }
 });
 
+// CSSOS_WAVE_118 — 数字演员分享落地页 /a/:id。爬虫(X/Twitter/FB…)看到 og:image=演员封面 + 自荐;
+//   真人浏览器 302 到 SPA 深链 /?actor=<id>(前端打开图鉴并展开该演员)。分享即广告病毒回路。
+app.get("/a/:id", async (req, res) => {
+  noStore(res); res.type("html");
+  const id = String(req.params.id || "").trim();
+  const spaUrl = `/?actor=${encodeURIComponent(id)}`;
+  const acceptsHtml = (req.header("accept") || "").includes("text/html");
+  if (!isCrawler(req) && acceptsHtml && String(req.query.spa || "") !== "1") return res.redirect(302, spaUrl);
+  try {
+    await seedDigitalActorsOnce();
+    const r = await withClient((c) => c.query<any>(
+      `SELECT name_en, name_zh, persona, role_range, style_descriptor, cover_image, reference_images, is_real_person, verification_status, visibility
+         FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const a = r.rows[0];
+    // 未核验真人绝不公开(法律铁律); 私有/不存在 → 退到品牌页。
+    const hidden = !a || (a.is_real_person && a.verification_status !== "verified") || (a.visibility && a.visibility !== "public");
+    if (hidden) return res.redirect(302, "/?actors");
+    const name = String(a.name_en || a.name_zh || "Digital Actor").trim();
+    let img = _absShareImageUrl(a.cover_image) || _absShareImageUrl(Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || SHARE_OG_FALLBACK_IMAGE;
+    const pitch = cleanStyleForShare(String(a.persona || a.role_range || a.style_descriptor || "")).slice(0, 140);
+    const desc = (pitch ? `${pitch} · ` : "") + "A digital actor on CSS Studio — cast them in your next music video. 🎭";
+    const url = `${SHARE_BASE_URL}/a/${encodeURIComponent(id)}`;
+    const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<title>${escapeHtmlAttr(name)} · Digital Actor · CSS Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="${escapeHtmlAttr(desc)}" />
+<meta property="og:type" content="profile" />
+<meta property="og:title" content="${escapeHtmlAttr(name)} — Digital Actor" />
+<meta property="og:description" content="${escapeHtmlAttr(desc)}" />
+<meta property="og:image" content="${escapeHtmlAttr(img)}" />
+<meta property="og:url" content="${escapeHtmlAttr(url)}" />
+<meta property="og:site_name" content="CSS Studio" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="${escapeHtmlAttr(name)} — Digital Actor" />
+<meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
+<meta name="twitter:image" content="${escapeHtmlAttr(img)}" />
+<link rel="canonical" href="${escapeHtmlAttr(url)}" /></head>
+<body><script>location.replace(${JSON.stringify(spaUrl)});</script>
+<noscript><h1>${escapeHtmlAttr(name)}</h1><p>${escapeHtmlAttr(desc)}</p><p><a href="${escapeHtmlAttr(spaUrl)}">Meet this digital actor on CSS Studio →</a></p></noscript>
+</body></html>`;
+    return res.send(html);
+  } catch (err) {
+    console.warn("[wave118 /a] failed:", (err as Error)?.message || err);
+    return res.redirect(302, spaUrl);
+  }
+});
+
 let __cachedSitemap: { xml: string; at: number } | null = null;
 const SITEMAP_TTL_MS = 60 * 60 * 1000;
 app.get("/sitemap.xml", async (_req, res) => {

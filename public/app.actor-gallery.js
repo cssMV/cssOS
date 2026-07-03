@@ -77,6 +77,9 @@
       "#" + ROOT_ID + " .ag-persona{color:rgba(232,255,245,.88);margin:10px 0;}" +
       "#" + ROOT_ID + " .ag-cast{background:" + GREEN + ";color:" + INK + ";border:none;border-radius:999px;padding:12px 26px;font-size:16px;font-weight:800;cursor:pointer;margin-top:8px;box-shadow:0 0 20px rgba(0,245,160,.35);}" +
       "#" + ROOT_ID + " .ag-cast:hover{filter:brightness(1.08);}" +
+      "#" + ROOT_ID + " .ag-cta-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}" +
+      "#" + ROOT_ID + " .ag-share{background:transparent;color:#bff5e0;border:1px solid rgba(0,245,160,.45);border-radius:999px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;}" +
+      "#" + ROOT_ID + " .ag-share:hover{background:rgba(0,245,160,.12);}" +
       /* 台词胶囊 = 胶囊宪法凹凸镶嵌(照 style.css ~2307-2343): 轨道共用边框零间隙, 激活凸全圆, 其余凹咬合 */
       "#" + ROOT_ID + " .ag-showcase{display:flex;align-items:stretch;height:46px;margin-top:14px;border:1px solid rgba(0,245,160,.35);border-radius:999px;overflow:hidden;background:rgba(0,245,160,.05);}" +
       "#" + ROOT_ID + " .ag-sc-btn{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;border:0;background:transparent;color:#d6ffee;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;position:relative;box-sizing:border-box;}" +
@@ -577,6 +580,21 @@
     };
   }
 
+  // 分享数字演员: 落地页 /a/<id>(后端给 og:image=封面 + 自荐)。有原生分享用原生, 否则开 X 意图 + 复制链接。
+  function shareActor(a) {
+    var name = a.name_en || a.name_zh || "Digital Actor";
+    var url = "https://cssstudio.app/a/" + encodeURIComponent(a.actor_id);
+    var text = T("Meet " + name + " 🎭 — a digital actor on CSS Studio. Cast them in your next music video.",
+                 "认识一下数字演员「" + name + "」🎭 —— 在 CSS Studio 选 TA 主演你的下一支 MV。");
+    if (navigator.share) {
+      navigator.share({ title: name + " · CSS Studio", text: text, url: url }).catch(function () {});
+      return;
+    }
+    try { window.open("https://twitter.com/intent/tweet?text=" + encodeURIComponent(text) + "&url=" + encodeURIComponent(url), "_blank", "noopener,noreferrer"); } catch (_e) {}
+    try { if (navigator.clipboard) navigator.clipboard.writeText(url); } catch (_e2) {}
+    if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast(T("Link copied · opening X to share", "链接已复制 · 正在打开 X 分享"), {});
+  }
+
   function openCast(actor) {
     var name = actor.name_zh || actor.name_en;
     // C 选角注入: 记下待选角演员 → fetch 拦截器把 actor_id 注入生成/建档调用, 后端注入锁定形象+记选角。
@@ -684,7 +702,8 @@
             '<button class="ag-sc-btn" data-seg="villain">😈 ' + esc(T("Villain", "反派")) + '</button>' +
           '</div>' +
           '<div class="ag-stage" aria-live="polite"></div>' +
-          '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
+          '<div class="ag-cta-row"><button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
+          '<button class="ag-share" title="' + esc(T("Share this actor", "分享这位演员")) + '">↗ ' + esc(T("Share", "分享")) + '</button></div>' +
           (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + (state.ownedSet[a.actor_id] ? ' · ' + esc(T("free to watch", "本人免费欣赏")) : "") + '</h3><div class="ag-grid ag-sub-grid">' +
             mvs.map(function (m) { return '<div class="ag-card ag-appear" data-work="' + esc(m.work_id) + '" style="cursor:pointer"><div class="ag-cover">' + coverInner({ cover_image: m.cover_url, name_en: m.title, cover_focal_x: m.cover_focal_x, cover_focal_y: m.cover_focal_y }, false) +
               '</div><div class="ag-meta"><div class="ag-name">▶ ' + esc(m.title || "Untitled") + '</div>' +
@@ -703,6 +722,8 @@
         }
         var castBtn = inline.querySelector(".ag-cast");
         if (castBtn) castBtn.onclick = function () { openCast(a); };
+        var shareBtn = inline.querySelector(".ag-share");
+        if (shareBtn) shareBtn.onclick = function () { shareActor(a); };
         wireShowcase(inline, a.actor_id);
         if (state.ownedSet[a.actor_id]) {
           var own = document.createElement("div"); own.className = "ag-owner";
@@ -1029,6 +1050,28 @@
   }
 
   window.cssosOpenActorGallery = open;
+  // 分享深链 /?actor=<id>: 打开图鉴并展开该演员(网格异步加载, 轮询到卡片再展开; 不在已加载行内则扩行)。
+  window.cssosOpenActor = function (id) {
+    if (!id) { open(1); return; }
+    open(1);
+    var tries = 0;
+    (function tryExpand() {
+      var root = document.getElementById(ROOT_ID); if (!root) { if (tries++ < 40) setTimeout(tryExpand, 150); return; }
+      var card = root.querySelector('.ag-card[data-actor="' + id + '"]');
+      if (card) { if (!card.classList.contains("expanded")) toggleExpand(card); card.scrollIntoView({ block: "center" }); return; }
+      // 演员已在数据里但未渲染(超出已加载行)→ 扩行再找。
+      if (state.actors && state.actors.some(function (a) { return a.actor_id === id; })) { state.rows += 5; renderGrid(); }
+      if (tries++ < 40) setTimeout(tryExpand, 150);
+    })();
+  };
+  function readActorDeeplink() {
+    try {
+      var m = (location.search || "").match(/[?&]actor=([^&]+)/);
+      if (m) window.cssosOpenActor(decodeURIComponent(m[1]));
+    } catch (_e) {}
+  }
+  if (document.readyState !== "loading") readActorDeeplink();
+  else window.addEventListener("DOMContentLoaded", readActorDeeplink);
   // hash 触发(#actors)。
   function checkHash() { if ((location.hash || "").replace(/^#/, "") === "actors") open(); }
   window.addEventListener("hashchange", checkHash);

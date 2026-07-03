@@ -29,8 +29,9 @@
     var st = document.createElement("style");
     st.id = ROOT_ID + "-css";
     st.textContent =
-      "#" + ROOT_ID + "{position:fixed;inset:0;z-index:100000;display:flex;flex-direction:column;background:rgba(2,10,7,.94);backdrop-filter:blur(6px);color:#e8fff5;font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;}" +
-      "#" + ROOT_ID + " .ag-bar{display:flex;align-items:center;gap:14px;padding:18px 26px;border-bottom:1px solid rgba(0,245,160,.18);}" +
+      // 对称: 所有行(顶部胶囊/两条筛选/卡片区)统一左右内缩 12px; 行间统一 8px(ROOT gap)。
+      "#" + ROOT_ID + "{position:fixed;inset:0;z-index:100000;display:flex;flex-direction:column;gap:8px;background:rgba(2,10,7,.94);backdrop-filter:blur(6px);color:#e8fff5;font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;}" +
+      "#" + ROOT_ID + " .ag-bar{display:flex;align-items:center;gap:14px;padding:16px 12px 6px;border-bottom:1px solid rgba(0,245,160,.18);}" +
       "#" + ROOT_ID + " .ag-title{font-size:22px;font-weight:800;letter-spacing:.3px;}" +
       "#" + ROOT_ID + " .ag-title b{color:" + GREEN + ";}" +
       "#" + ROOT_ID + " .ag-spacer{flex:1;}" +
@@ -38,7 +39,7 @@
       "#" + ROOT_ID + " .ag-x{background:rgba(255,255,255,.08);border:none;color:#e8fff5;width:38px;height:38px;border-radius:50%;font-size:20px;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-x:hover{background:rgba(255,255,255,.16);}" +
       /* 5 个筛选=一条胶囊轨道(不断行, 窄屏可横滑), 激活凸绿, 胶囊宪法 */
-      "#" + ROOT_ID + " .ag-filters{display:flex;gap:8px;padding:14px 26px 4px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}" +
+      "#" + ROOT_ID + " .ag-filters{display:flex;gap:8px;padding:0;margin:0 12px !important;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}" +
       "#" + ROOT_ID + " .ag-filters::-webkit-scrollbar{display:none;}" +
       "#" + ROOT_ID + " .ag-chip{flex:0 0 auto;white-space:nowrap;background:rgba(255,255,255,.08);border:1px solid rgba(0,245,160,.22);color:#cfeee0;border-radius:999px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-chip.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";box-shadow:0 0 14px rgba(0,245,160,.4);}" +
@@ -46,7 +47,7 @@
       "#" + ROOT_ID + " .ag-pillbar .ag-chip,#" + ROOT_ID + " .ag-pillbar .ag-sc-btn,#" + ROOT_ID + " .ag-pillbar .ag-capchip{background:transparent;border:none;box-shadow:none;}" +
       "#" + ROOT_ID + " .ag-pillbar [data-pill-key]{--ph:155 !important;--pill-hue:155 !important;color:#bff5e0 !important;font-weight:700;}" +
       "#" + ROOT_ID + " .ag-pillbar [data-pill-key].active{color:" + INK + " !important;}" +
-      "#" + ROOT_ID + " .ag-scroll{flex:1;overflow:auto;padding:16px 26px 40px;}" +
+      "#" + ROOT_ID + " .ag-scroll{flex:1;overflow:auto;padding:2px 12px 40px;}" +
       "#" + ROOT_ID + " .ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px;}" +
       "#" + ROOT_ID + " .ag-card{background:rgba(255,255,255,.04);border:1px solid rgba(0,245,160,.14);border-radius:16px;overflow:hidden;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s;content-visibility:auto;contain-intrinsic-size:auto 300px;}" +
       "#" + ROOT_ID + " .ag-card.expanded{content-visibility:visible;}" +   // 展开卡强制渲染(别被离屏优化藏了)

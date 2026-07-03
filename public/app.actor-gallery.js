@@ -605,10 +605,16 @@
     var url = "https://cssstudio.app/a/" + encodeURIComponent(a.actor_id);
     var slg = sloganOf(a);
     var title = (slg ? name + " — " + slg : name + " · Digital Actor");
-    // 带上数字演员的自荐/自我介绍(persona), 分享面板按各平台字数上限自动截取。
+    // 带上数字演员的自荐/自我介绍(persona + 声线 + 风格 + CTA), 写长写足; 分享面板按各平台字数上限自动截取。
     var intro = String(a.persona || slg || "").trim();
-    var richText = T((intro ? "“" + intro + "” — " : "") + "Meet " + name + " 🎭, a digital actor on CSS Studio. Cast them to star in your next music video.",
-                     (intro ? "「" + intro + "」—— " : "") + "认识数字演员「" + name + "」🎭,选 TA 主演你的下一支 MV。");
+    var vc = String(a.voice_style || "").trim(), st = String(a.style_descriptor || "").trim();
+    var richText = T(
+      (intro ? "“" + intro + "” — " : "") + "Meet " + name + ", a digital actor on CSS Studio. " +
+        (vc ? "Voice: " + vc + ". " : "") + (st ? "Style: " + st + ". " : "") +
+        "Cast them to star in your next music video — as a hero, a villain, or a legend, the choice is yours. Say CSS, and witness the miracle. 🎭",
+      (intro ? "「" + intro + "」—— " : "") + "认识数字演员「" + name + "」。" +
+        (vc ? "声线:" + vc + "。" : "") + (st ? "风格:" + st + "。" : "") +
+        "选 TA 主演你的下一支 MV —— 正派、反派、还是名角,由你导演。一句 CSS,见证奇迹。🎭");
     // 用平台自己的分享面板(X/微博/小红书/抖音… 一整排), 不用「太苹果」的原生分享。
     if (typeof window.openCssosShareDialog === "function") {
       window.openCssosShareDialog({ url: url, title: title, text: richText, headerLabel: T("Share this actor", "分享这位演员") });

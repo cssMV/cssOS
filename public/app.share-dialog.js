@@ -271,7 +271,12 @@
     var text = buildShareText(opts);
     // CSSOS_WAVE_118 — 分享文案带完整自荐/描述(opts.text), 各平台按字数上限截取(如 X 限 280, Facebook 不限)。
     var fullText = (opts.text ? String(opts.text).trim() : "") || text;
-    function clip(n) { var s = fullText; if (s.length <= n) return s; return s.slice(0, n - 1).replace(/\s+\S*$/, "") + "…"; }
+    function clip(n) {
+      var s = fullText; if (s.length <= n) return s;
+      var cut = s.slice(0, n - 1);
+      if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);   // 别把 emoji(代理对)切成半个 → 防 �
+      return cut.replace(/\s+\S*$/, "") + "…";
+    }
     // 各平台文案上限(留出 URL 空间); 未列的走 long(clip 1200)。
     var LIM = { x: 200, bluesky: 250, threads: 460, mastodon: 460, reddit: 280, pinterest: 480, qq: 380, email: 110, long: 1200, weibo: 1800 };
 

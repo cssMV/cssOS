@@ -161,7 +161,7 @@
       '</div>' +
       '<div class="ag-meta">' +
         '<div class="ag-name">' + esc(a.name_en || a.name_zh) + '</div>' +
-        '<div class="ag-sub">' + (a.name_native && a.name_native !== a.name_en ? esc(a.name_native) + ' · ' : "") + (a.civilization ? esc(a.civilization) : esc(T("Original", "原创合成"))) + '</div>' +
+        '<div class="ag-sub">' + (a.name_native && a.name_native !== a.name_en ? esc(a.name_native) + ' · ' : "") + (a.civilization ? esc(civDisplay(a.civilization)) : esc(T("Original", "原创合成"))) + '</div>' +
         '<div class="ag-row"><span>' + esc(a.voice_style || a.style_descriptor || "") + '</span></div>' +
         '<div class="ag-inline"></div>' +   // 就地展开: 同一框内接着显示详情(不另开框)
       '</div></div>';
@@ -247,6 +247,23 @@
     { key: "enigma", emoji: "🧊", en: "Enigma", zh: "冷面/神秘", subs: [["Mystery figure", "神秘客"], ["Ice beauty", "冷美人"], ["Masked one", "面具人"], ["Mastermind", "幕后黑手"]] },
     { key: "youth", emoji: "🌱", en: "Youth", zh: "成长/少年", subs: [["Young hero", "少年英雄"], ["Underdog", "逆袭者"], ["Girl genius", "天才少女"], ["Beginner", "初心者"]] },
   ];
+  // 文明名英文显示字典(平台默认英文; 不改库, 只影响展示; 歌词母语路由仍读原 civilization)。
+  var CIV_EN = {
+    "中华文明": "Chinese", "中华神话": "Chinese Myth", "中华民间": "Chinese Folk", "中华佛教神话": "Chinese Buddhist Myth",
+    "佛教神话": "Buddhist Myth", "北欧神话": "Norse Myth", "印加文明": "Inca", "印度教神话": "Hindu Myth", "印度文明": "Indian",
+    "古典主义欧洲": "Classical Europe", "古印度文明": "Ancient India", "古埃及文明": "Ancient Egypt", "古埃及神话": "Egyptian Myth",
+    "古希腊文明": "Ancient Greece", "古希腊神话": "Greek Myth", "古罗马文明": "Ancient Rome", "启蒙欧洲": "Enlightenment Europe",
+    "巴洛克欧洲": "Baroque Europe", "当代": "Contemporary", "拜占庭文明": "Byzantine", "文艺复兴欧洲": "Renaissance Europe",
+    "日本古典": "Classical Japan", "欧洲文明": "European", "波斯文明": "Persian", "浪漫主义欧洲": "Romantic Europe",
+    "现代北欧": "Modern Nordic", "现代印度": "Modern India", "现代非洲": "Modern Africa", "美索不达米亚文明": "Mesopotamia",
+    "美索不达米亚神话": "Mesopotamian Myth", "莫卧儿印度": "Mughal India", "藏文明": "Tibetan", "西方文明": "Western", "近代欧洲": "Early Modern Europe",
+  };
+  // 平台默认英文时把中文文明名映射成英文; 中文环境或未知值原样返回。
+  function civDisplay(civ) {
+    var c = String(civ || "");
+    try { if (typeof window.loginCopy === "function" && window.loginCopy("en", "zh") === "zh") return c; } catch (_e) {}
+    return CIV_EN[c] || c;
+  }
   function archLabel(key) { for (var i = 0; i < ROLE_TAXONOMY.length; i++) if (ROLE_TAXONOMY[i].key === key) return ROLE_TAXONOMY[i]; return null; }
   // 图鉴筛选/卡片用的 en→本地化短标签。
   function archShort(key) { var a = archLabel(key); return a ? (a.emoji + " " + T(a.en, a.zh)) : key; }
@@ -934,15 +951,22 @@
         };
       });
     }
-    // 戏路大类筛选(独立行, 客户端过滤)。
+    // 戏路大类筛选(独立行, 客户端过滤) = 凹凸镶嵌胶囊(胶囊宪法)。
     var archBar = el.querySelector(".ag-archfilters");
     if (archBar) {
-      archBar.querySelectorAll(".ag-af").forEach(function (c) {
-        c.onclick = function () {
-          archBar.querySelectorAll(".ag-af").forEach(function (x) { x.classList.toggle("on", x === c); });
-          state.archetype = c.getAttribute("data-arch") || ""; resetRows(); renderGrid();
-        };
-      });
+      function applyArch(key) { state.archetype = key === "all" ? "" : key; resetRows(); renderGrid(); }
+      archBar.querySelectorAll(".ag-af").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-arch") || "all"); });
+      if (typeof window.cssosMakePillBar === "function") {
+        archBar.classList.add("ag-pillbar");
+        window.cssosMakePillBar(archBar, { mono: true, compact: true, textColor: "dark", activeKey: "all", onActivate: applyArch });
+      } else {
+        archBar.querySelectorAll(".ag-af").forEach(function (c) {
+          c.onclick = function () {
+            archBar.querySelectorAll(".ag-af").forEach(function (x) { x.classList.toggle("on", x === c); });
+            applyArch(c.getAttribute("data-arch") || "all");
+          };
+        });
+      }
     }
     var si = el.querySelector(".ag-search");
     si.oninput = function () { state.search = si.value.trim(); resetRows(); renderGrid(); };

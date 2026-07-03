@@ -174,6 +174,10 @@
       "#" + ROOT_ID + " .ag-arch-row{display:flex;flex-wrap:wrap;gap:8px;}" +
       "#" + ROOT_ID + " .ag-arch{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-arch.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
+      "#" + ROOT_ID + " .ag-multi{margin:2px 0;}" +
+      "#" + ROOT_ID + " .ag-multi-row{display:flex;flex-wrap:wrap;gap:8px;}" +
+      "#" + ROOT_ID + " .ag-mi{border:1px solid rgba(0,245,160,.35);background:rgba(0,245,160,.06);color:#d6ffee;font-size:13px;font-weight:700;padding:7px 13px;border-radius:999px;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-mi.on{background:" + GREEN + ";color:" + INK + ";border-color:" + GREEN + ";}" +
       "#" + ROOT_ID + " .ag-subgroup{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-subgroup-t{font-size:12px;color:#8fdcc0;margin:0 0 6px;}" +
       "#" + ROOT_ID + " .ag-subrow{display:flex;flex-wrap:wrap;gap:6px;}" +
@@ -324,6 +328,35 @@
     { key: "enigma", emoji: "🧊", en: "Enigma", zh: "冷面/神秘", subs: [["Mystery figure", "神秘客"], ["Ice beauty", "冷美人"], ["Masked one", "面具人"], ["Mastermind", "幕后黑手"]] },
     { key: "youth", emoji: "🌱", en: "Youth", zh: "成长/少年", subs: [["Young hero", "少年英雄"], ["Underdog", "逆袭者"], ["Girl genius", "天才少女"], ["Beginner", "初心者"]] },
   ];
+  // 合成演员可跨文明(全文明/某几个)。创建时的可选文明大类。
+  var CIVS = [
+    { k: "Chinese", en: "Chinese", zh: "中华" }, { k: "Japanese", en: "Japanese", zh: "日本" },
+    { k: "Korean", en: "Korean", zh: "韩国" }, { k: "Indian", en: "Indian", zh: "印度" },
+    { k: "Persian", en: "Persian", zh: "波斯" }, { k: "Arab", en: "Arab", zh: "阿拉伯" },
+    { k: "Greek", en: "Greek", zh: "希腊" }, { k: "Roman", en: "Roman", zh: "罗马" },
+    { k: "Egyptian", en: "Egyptian", zh: "埃及" }, { k: "Norse", en: "Norse", zh: "北欧" },
+    { k: "Slavic", en: "Slavic", zh: "斯拉夫" }, { k: "African", en: "African", zh: "非洲" },
+    { k: "Latin American", en: "Latin American", zh: "拉美" }, { k: "Southeast Asian", en: "SE Asian", zh: "东南亚" },
+    { k: "Western", en: "Western", zh: "西方" },
+  ];
+  // 通用「全 + 多选」胶囊: 第一枚 All 默认激活; 选具体则 All 关; 全不选则 All 回到激活。
+  function allMultiMarkup(cls, label, items) {
+    var btns = '<button type="button" class="ag-mi on" data-v="__all__">' + esc(T("All", "全部")) + '</button>' +
+      items.map(function (it) { return '<button type="button" class="ag-mi" data-v="' + esc(it.k) + '">' + (it.emoji ? it.emoji + " " : "") + esc(T(it.en, it.zh)) + '</button>'; }).join("");
+    return '<div class="ag-multi" data-multi="' + cls + '"><div class="ag-rt-label">' + esc(label) + '</div><div class="ag-multi-row">' + btns + '</div></div>';
+  }
+  function wireAllMulti(scope, cls) {
+    var wrap = scope.querySelector('.ag-multi[data-multi="' + cls + '"]'); if (!wrap) return function () { return []; };
+    var allBtn = wrap.querySelector('[data-v="__all__"]');
+    wrap.querySelectorAll(".ag-mi").forEach(function (b) {
+      b.onclick = function () {
+        if (b === allBtn) { wrap.querySelectorAll(".ag-mi").forEach(function (x) { x.classList.toggle("on", x === allBtn); }); return; }
+        b.classList.toggle("on"); allBtn.classList.remove("on");
+        if (!wrap.querySelector('.ag-mi.on:not([data-v="__all__"])')) allBtn.classList.add("on");
+      };
+    });
+    return function () { if (allBtn.classList.contains("on")) return []; return [].slice.call(wrap.querySelectorAll('.ag-mi.on:not([data-v="__all__"])')).map(function (b) { return b.getAttribute("data-v"); }); };
+  }
   // 文明名英文显示字典(平台默认英文; 不改库, 只影响展示; 歌词母语路由仍读原 civilization)。
   var CIV_EN = {
     "中华文明": "Chinese", "中华神话": "Chinese Myth", "中华民间": "Chinese Folk", "中华佛教神话": "Chinese Buddhist Myth",
@@ -347,12 +380,13 @@
   function archShort(key) { var a = archLabel(key); return a ? (a.emoji + " " + T(a.en, a.zh)) : key; }
   // 戏路选择器 markup(大类多选 + 选中展开细分)。
   function roleTaxonomyMarkup() {
+    var allBtn = '<button type="button" class="ag-arch on" data-arch="__all__">' + esc(T("All roles", "全角色")) + '</button>';
     var row = ROLE_TAXONOMY.map(function (a) {
       return '<button type="button" class="ag-arch" data-arch="' + a.key + '">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</button>';
     }).join("");
     return '<div class="ag-roletax">' +
-      '<div class="ag-rt-label">' + esc(T("Role range — pick your archetypes (multi-select)", "戏路 —— 选大类(可多选)")) + '</div>' +
-      '<div class="ag-arch-row">' + row + '</div>' +
+      '<div class="ag-rt-label">' + esc(T("Role range — plays any role by default; or pick specific archetypes", "戏路 —— 默认全角色;也可只选某几种大类")) + '</div>' +
+      '<div class="ag-arch-row">' + allBtn + row + '</div>' +
       '<div class="ag-subroles"></div>' +
     '</div>';
   }
@@ -374,11 +408,17 @@
         c.onclick = function () { var k = c.getAttribute("data-sub"); if (chosenSubs[k]) delete chosenSubs[k]; else chosenSubs[k] = true; c.classList.toggle("on"); };
       });
     }
+    var allArch = scope.querySelector('.ag-arch[data-arch="__all__"]');
     scope.querySelectorAll(".ag-arch").forEach(function (b) {
-      b.onclick = function () { b.classList.toggle("on"); rebuildSubs(); };
+      b.onclick = function () {
+        if (allArch && b === allArch) { scope.querySelectorAll(".ag-arch").forEach(function (x) { x.classList.toggle("on", x === allArch); }); rebuildSubs(); return; }
+        b.classList.toggle("on"); if (allArch) allArch.classList.remove("on");
+        if (allArch && !scope.querySelector('.ag-arch.on:not([data-arch="__all__"])')) allArch.classList.add("on");
+        rebuildSubs();
+      };
     });
     return {
-      archetypes: function () { return [].slice.call(scope.querySelectorAll(".ag-arch.on")).map(function (b) { return b.getAttribute("data-arch"); }); },
+      archetypes: function () { if (allArch && allArch.classList.contains("on")) return []; return [].slice.call(scope.querySelectorAll('.ag-arch.on:not([data-arch="__all__"])')).map(function (b) { return b.getAttribute("data-arch"); }); },
       subRoles: function () {
         var sel = {}; scope.querySelectorAll(".ag-arch.on").forEach(function (b) { sel[b.getAttribute("data-arch")] = true; });
         // 只保留仍属于已选大类的细分。
@@ -398,8 +438,9 @@
       '<div class="ag-form">' +
         '<label>' + esc(T("Stage name *", "艺名 *")) + '<input class="ag-in" data-k="name_en" maxlength="60" placeholder="Nova Sky" /></label>' +
         '<label>' + esc(T("Appearance / vibe description *", "外貌 / 气质描述 *")) + '<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="' + esc(T("e.g. a silver-haired violet-eyed futuristic diva, cold and mysterious", "如: 银发碧眼的未来感歌姬,冷冽而神秘")) + '"></textarea></label>' +
-        '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
-        '<label>' + esc(T("Style", "风格")) + '<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="synthwave" /></label>' +
+        '<label>' + esc(T("Voice gender *", "声线性别 *")) + '<select class="ag-in" data-k="gender"><option value="" selected disabled>' + esc(T("— choose —", "— 请选择 —")) + '</option><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
+        '<label>' + esc(T("Style (leave blank = all styles)", "风格(留空 = 全风格)")) + '<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="' + esc(T("synthwave — or leave blank for any", "synthwave —— 留空则任意风格")) + '" /></label>' +
+        allMultiMarkup("civ", T("Civilization — all by default; or pick one/several (a face can span cultures)", "文明 —— 默认全文明;也可选一个/几个(一张脸可跨文化)"), CIVS) +
         roleTaxonomyMarkup() +
         '<label>' + esc(T("Cast price (¢, 0=free; you earn 70%)", "选角价(¢, 0=免费; 你得 70%)")) + '<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="500" value="0" /></label>' +
         '<button class="ag-cast ag-submit">✨ ' + esc(T("Generate & publish", "生成并发布演员")) + '</button>' +
@@ -407,14 +448,17 @@
       '</div></div>';
     scroll.querySelector(".ag-back").onclick = function () { renderGrid(); };
     var roleTax = wireRoleTaxonomy(scroll);
+    var civGet = wireAllMulti(scroll, "civ");
     var submit = scroll.querySelector(".ag-submit");
     var msg = scroll.querySelector(".ag-form-msg");
     submit.onclick = function () {
       var payload = {};
       scroll.querySelectorAll(".ag-in").forEach(function (el) { payload[el.getAttribute("data-k")] = el.value; });
       payload.archetypes = roleTax.archetypes(); payload.sub_roles = roleTax.subRoles();
+      payload.civilizations = civGet();
       if (!payload.name_en || String(payload.name_en).trim().length < 2) { msg.textContent = T("Please enter a stage name.", "请填艺名。"); return; }
       if (!payload.description || String(payload.description).trim().length < 10) { msg.textContent = T("Description too short (≥10 chars).", "描述太短(≥10 字)。"); return; }
+      if (!payload.gender) { msg.textContent = T("Please choose a voice gender.", "请选择声线性别。"); return; }
       submit.disabled = true; msg.textContent = "⏳ " + T("Generating the actor's face… (~10-20s)", "正在生成演员的脸…(约 10-20 秒)");
       fetch("/api/actors", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })
         .then(function (r) { return r.json(); })
@@ -455,7 +499,7 @@
         '<label>' + esc(T("Stage name (optional — shown publicly instead of your name)", "艺名(选填 —— 公开展示时用它代替你的名字)")) + '<input class="ag-in" data-k="stage_name" maxlength="80" placeholder="Nova Sky" /></label>' +
         roleTaxonomyMarkup() +
         '<label>' + esc(T("A one-line vibe (optional — e.g. “commanding presence, eyes that speak”)", "一句 vibe(选填 —— 如「气场强、眼神会说话」)")) + '<textarea class="ag-in" data-k="role_range" maxlength="300" rows="2"></textarea></label>' +
-        '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
+        '<label>' + esc(T("Voice gender *", "声线性别 *")) + '<select class="ag-in" data-k="gender"><option value="" selected disabled>' + esc(T("— choose —", "— 请选择 —")) + '</option><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
         '<label>' + esc(T("Cast price others pay (¢, 0=free; you keep 80%)", "他人选用你的价(¢, 0=免费; 你留 80%)")) + '<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="9999" value="0" /></label>' +
         '<label class="ag-check"><input type="checkbox" data-k="is_public_figure"> ' + esc(T("I'm a public figure / celebrity (needs agency verification)", "我是公众人物/明星(需经纪公司核验)")) + '</label>' +
         '<div class="ag-consent">' +
@@ -476,7 +520,7 @@
           '<div class="ag-stage-video">' +
             '<div style="font-size:12.5px;color:#a9e9cf;margin:0 0 8px;line-height:1.5">💡 ' + esc(T("Record in good lighting, with no hat, and your full face visible. Thank you.", "请在光线充足、不戴帽子、脸部完整露出的环境中录制。谢谢。")) + '</div>' +
             '<div style="position:relative;width:100%;max-width:520px;">' +
-              '<video class="ag-cam" autoplay muted playsinline style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;"></video>' +
+              '<video class="ag-cam" autoplay muted playsinline style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;transform:scaleX(-1);"></video>' +
               '<button class="ag-cam-start" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:' + GREEN + ';color:' + INK + ';font-weight:800;border:0;border-radius:999px;padding:12px 22px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.4);white-space:nowrap;">🎥 ' + esc(T("Start camera", "开启摄像头")) + '</button>' +
               '<div class="ag-facering" style="display:none"><span>' + esc(T("Fit your face in the ring", "把脸对进圈里")) + '</span></div>' +
               '<div class="ag-countdown"></div>' +
@@ -797,6 +841,7 @@
       p.archetypes = roleTax.archetypes(); p.sub_roles = roleTax.subRoles();
       if (!p.name_en || String(p.name_en).trim().length < 2) { msg.textContent = T("Please enter your name.", "请填名字。"); return; }
       if (!p.grant_likeness) { msg.textContent = T("You must grant likeness consent.", "必须勾选授权肖像。"); return; }
+      if (!p.gender) { msg.textContent = T("Please choose a voice gender.", "请选择声线性别。"); return; }
       if (!captured.guided_done) { msg.textContent = T("Please finish the guided capture first (tap “Start guided capture”).", "请先完成引导采集(点「开始引导采集」)。"); return; }
       submit.disabled = true; msg.textContent = "⏳ " + T("Finishing capture…", "整理采集中…");
       // 等所有帧上传落地, 再签约(引导采集是异步上传的)。
@@ -1004,16 +1049,28 @@
     var root = document.getElementById(ROOT_ID); if (!root) { castRun(actor, "single"); return; }
     var name = esc(actor.name_en || actor.name_zh);
     var modal = document.createElement("div"); modal.className = "ag-castmodal";
+    // 真人演员才有"声线档": AI 声(即时) / 本人真嗓(需 RVC 声纹, v2 点亮)。合成演员声线本就是 AI, 不显此选择。
+    var voiceMarkup = actor.is_real_person
+      ? '<div class="ag-voicemode"><div class="ag-rt-label">' + esc(T("Voice", "声线")) + '</div><div class="ag-multi-row">' +
+          '<button class="ag-mi on" data-vm="ai">🔊 ' + esc(T("AI voice (instant)", "AI 声线(即时)")) + '</button>' +
+          '<button class="ag-mi" data-vm="own" disabled title="' + esc(T("Own-voice clone — coming soon (needs the actor's trained voice print)", "本人真嗓克隆 —— 敬请期待(需该演员已训练声纹)")) + '">🎤 ' + esc(T("Own voice", "本人真嗓")) + ' 🔒</button>' +
+        '</div><div style="font-size:11.5px;color:#7fb8a3;margin-top:6px">' + esc(T("Likeness is the actor · voice is AI-generated.", "形象为本人 · 声线为 AI 生成。")) + '</div></div>'
+      : "";
     modal.innerHTML = '<div class="box"><h3>🎬 ' + esc(T("Cast ", "选 ")) + name + esc(T(" — pick a format", " —— 选作品类型")) + '</h3>' +
       '<div class="sub">' + esc(T("Music-driven works are ready now. Scripted drama (short play / series / film) auto-writes a screenplay — coming soon.", "音乐类现在就能做。叙事类(短剧/剧集/电影)会自动编剧 —— 敬请期待。")) + '</div>' +
+      voiceMarkup +
       '<div class="ag-wt">' + CAST_WORK_TYPES.map(function (w) {
         return '<button data-wt="' + w.key + '"' + (w.ready ? "" : " disabled") + '>' + (w.ready ? "" : "🔒 ") + w.emoji + ' ' + esc(T(w.en, w.zh)) + '<small>' + esc(T(w.descEn, w.descZh)) + '</small></button>';
       }).join("") + '</div></div>';
     modal.addEventListener("click", function (e) {
       if (e.target === modal) { modal.remove(); return; }
+      var vm = e.target.closest && e.target.closest("button[data-vm]");
+      if (vm) { if (vm.disabled) return; modal.querySelectorAll("button[data-vm]").forEach(function (x) { x.classList.toggle("on", x === vm); }); return; }
       var btn = e.target.closest && e.target.closest("button[data-wt]");
       if (!btn || btn.disabled) return;
       var wt = btn.getAttribute("data-wt");
+      var vmSel = modal.querySelector("button[data-vm].on");
+      window.__cssosCastVoiceMode = vmSel ? vmSel.getAttribute("data-vm") : "ai";
       modal.remove();
       castRun(actor, wt);
     });
@@ -1155,8 +1212,13 @@
         if (cov0 && a.model_3d_url) {
           var b3d = document.createElement("button");
           b3d.className = "ag-3d-badge"; b3d.type = "button";
-          b3d.textContent = "🧊 " + T("View in 3D", "看 3D");
-          b3d.onclick = function (ev) { ev.stopPropagation(); window.__agToggleCover(cardEl, a); };
+          b3d.textContent = "🧊 3D";   // 切换开关: 完整图片 ⇄ 3D(外层卡已有"看3D", 这里做成切换不重复)
+          b3d.onclick = function (ev) {
+            ev.stopPropagation();
+            window.__agToggleCover(cardEl, a);
+            var is3d = !!(cov0.querySelector("model-viewer") || cov0.querySelector(".ag-mv-wrap"));
+            b3d.textContent = is3d ? ("🖼 " + T("Full image", "完整图片")) : "🧊 3D";
+          };
           cov0.appendChild(b3d);
         }
         // 选角/评论/分享 走平台胶囊(与顶部筛选条同一套凹凸镶嵌); Cast 恒为凸绿主段(动作条, 非筛选)。
@@ -1181,6 +1243,25 @@
             (a.is_real_person ? '<button class="ag-revoke ag-del">' + esc(T("Revoke consent", "撤回授权")) + '</button>' : '') +
             '<button class="ag-del ag-del-actor">' + esc(T("Delete", "删除")) + '</button>';
           inline.appendChild(own);
+          // 左下三件套套胶囊(纯几何, Mine 首枚激活凸绿; Revoke/Delete 保留各自 onclick)。
+          if (typeof window.cssosPillBarStamp === "function") window.cssosPillBarStamp(own, "light", true);
+          // 「在哪用在哪改」: 点名字即可改名(仅自己的演员)。
+          var nameEl = cardEl.querySelector(".ag-name");
+          if (nameEl && !nameEl.__renamable) {
+            nameEl.__renamable = true; nameEl.style.cursor = "text"; nameEl.title = T("Click to rename", "点击改名");
+            nameEl.innerHTML = esc(a.name_en || a.name_zh || "") + ' <span style="opacity:.55;font-size:12px">✎</span>';
+            nameEl.onclick = function (ev) {
+              ev.stopPropagation();
+              var cur = a.name_en || a.name_zh || "";
+              var nv = window.prompt(T("New name / stage name", "新名字 / 艺名"), cur);
+              if (nv == null) return; nv = String(nv).trim(); if (nv.length < 2 || nv === cur) return;
+              fetch("/api/actors/" + encodeURIComponent(a.actor_id), { method: "PATCH", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ name_en: nv }) })
+                .then(function (r) { return r.json(); }).then(function (jj) {
+                  if (jj && jj.ok) { a.name_en = nv; nameEl.innerHTML = esc(nv) + ' <span style="opacity:.55;font-size:12px">✎</span>'; for (var i = 0; i < state.actors.length; i++) if (state.actors[i].actor_id === a.actor_id) state.actors[i].name_en = nv; }
+                  else window.alert(T("Rename failed.", "改名失败。"));
+                }).catch(function () { window.alert(T("Network error.", "网络错误。")); });
+            };
+          }
           var revokeBtn = own.querySelector(".ag-revoke");
           if (revokeBtn) revokeBtn.onclick = function () {
             if (!window.confirm(T("Revoke consent? Your actor is taken down and can no longer be cast.", "撤回授权?演员将下架、不再可被选用。"))) return;

@@ -43012,10 +43012,13 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
     const desc = String(body.description || body.persona || "").trim().slice(0, 600);
     if (nameEn.length < 2) return res.status(400).json({ ok: false, code: "NAME_REQUIRED" });
     if (desc.length < 10) return res.status(400).json({ ok: false, code: "DESCRIPTION_TOO_SHORT", hint: "描述演员的外貌/气质(≥10 字), 我们据此生成一张原创合成脸(不上传真人照片)" });
-    const gender = ["female", "male", "androgynous", "neutral"].includes(String(body.gender || "").toLowerCase())
-      ? String(body.gender).toLowerCase() : "neutral";
+    const genderIn = String(body.gender || "").toLowerCase();
+    if (!["female", "male", "androgynous", "neutral"].includes(genderIn)) return res.status(400).json({ ok: false, code: "GENDER_REQUIRED", hint: "请选择声线性别" });
+    const gender = genderIn;
     const style = String(body.style_descriptor || body.style || "").trim().slice(0, 120) || null;
     const world = String(body.civilization || body.world || "").trim().slice(0, 60) || "Original";
+    // 合成演员可跨文明(多选/全文明=空数组)。
+    const civilizations = Array.isArray(body.civilizations) ? (body.civilizations as unknown[]).map((v) => String(v).trim().slice(0, 40)).filter(Boolean).slice(0, 15) : [];
     const archetypes = parseArchetypes(body.archetypes), subRoles = parseSubRoles(body.sub_roles);
     // CSSOS_WAVE_118 禁止裁判员当运动员: 官方账号(@cssstudio.app / jingdudc)的数字演员强制免费, 不与用户抢选角生意。
     //   可以贡献肖像/声音供平台免费用, 但不设选角价、不赚版税(与官方作品必免费同规)。工作人员私人账号不受此限。
@@ -43061,15 +43064,15 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
     } catch (e) { console.warn("[ugc-actor] face gen failed (non-fatal):", (e as Error)?.message || e); }
     await withClient((c) => c.query(
       `INSERT INTO digital_actors (
-          actor_id, name_zh, name_en, name_native, origin_type, civilization, persona, face_prompt,
+          actor_id, name_zh, name_en, name_native, origin_type, civilization, civilizations, persona, face_prompt,
           gender, style_descriptor, cover_image, cover_focal_x, cover_focal_y, reference_images,
           is_premium, cast_price_cents, license_model, owner_user_id, creator_royalty,
           archetypes, sub_roles, visibility, source_status, curation_tier
-       ) VALUES ($1,$2,$3,$4,'synthetic',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid,$18,$19,$20,'public','ad_hoc','B')`,
+       ) VALUES ($1,$2,$3,$4,'synthetic',$5,$21,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid,$18,$19,$20,'public','ad_hoc','B')`,
       // name_en/persona/style = 英文默认显示; name_zh/name_native = 原文母语版
       [actorId, dispNative || dispNameEn, dispNameEn, dispNative || null, world, dispPersona, facePrompt, gender, dispStyle, coverUrl || null, fx, fy,
        coverUrl ? [coverUrl] : [], priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free", user.id, UGC_CREATOR_ROYALTY,
-       archetypes, subRoles]));
+       archetypes, subRoles, civilizations.length ? civilizations : null]));
     return res.json({ ok: true, actor_id: actorId, cover_image: coverUrl || null, creator_royalty: UGC_CREATOR_ROYALTY });
   } catch (err) {
     console.warn("[actors] create failed:", (err as Error)?.message || err);

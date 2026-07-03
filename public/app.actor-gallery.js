@@ -149,6 +149,7 @@
       "#" + ROOT_ID + " .ag-guide-prompt{display:flex;align-items:center;gap:12px;min-height:44px;font-size:14px;color:#cfeee0;line-height:1.4;}" +
       "#" + ROOT_ID + " .ag-guide-prompt .gemoji{font-size:38px;line-height:1;flex:0 0 auto;}" +
       "#" + ROOT_ID + " .ag-guide-prompt .glabel b{display:block;font-size:18px;color:#eafff6;font-weight:800;}" +
+      "#" + ROOT_ID + " .ag-guide-prompt .glabel em{display:block;font-style:normal;font-size:12.5px;color:#8fe9c8;margin:2px 0 3px;line-height:1.35;}" +
       "#" + ROOT_ID + " .ag-guide-prompt .glabel small{color:#7fb8a3;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;letter-spacing:.06em;}" +
       "#" + ROOT_ID + " .ag-guide-thumbs{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-guide-thumbs .gthumb{position:relative;width:46px;height:46px;border-radius:9px;overflow:hidden;border:1px solid rgba(0,245,160,.4);}" +
@@ -480,8 +481,9 @@
           // 🎙 声音舞台 (波形/音量条)
           '<div class="ag-stage-audio" style="display:none">' +
             '<div class="ag-consent-script" style="margin:2px 0 10px;padding:10px 14px;background:rgba(0,245,160,.08);border:1px dashed rgba(0,245,160,.4);border-radius:10px;font-size:14px;color:#e8fff5;"></div>' +
+            '<div style="font-size:12.5px;color:#8fe9c8;margin:0 0 10px;line-height:1.5">🎵 ' + esc(T("Read the line aloud, then hum or sing any few notes. It does NOT need to sound good — we just need a sample of your singing voice so your actor can carry a tune. Anything counts.", "先照读这句话,再随便哼唱几句。不要求唱得好听 —— 我们只需要一段你的『歌声』样本,好让你的分身能开口唱。哼两声、跑调都行。")) + '</div>' +
             '<canvas class="ag-meter" width="1040" height="180" style="width:100%;max-width:520px;height:90px;border-radius:14px;background:#0a1512;border:1px solid rgba(0,245,160,.4);display:block;"></canvas>' +
-            '<button class="ag-voice-rec ag-recbtn" disabled>🎙 ' + esc(T("Record 8s speech / singing", "录 8 秒 说话/歌声")) + '</button>' +
+            '<button class="ag-voice-rec ag-recbtn" disabled>🎙 ' + esc(T("Record 8s — speak, then sing/hum", "录 8 秒 —— 先说话,再哼唱")) + '</button>' +
           '</div>' +
           '<div class="ag-cap-status ag-empty" style="font-size:12px;margin-top:10px"></div>' +
         '</div>' +
@@ -656,19 +658,20 @@
       setTimeout(function () { clearInterval(iv); try { if (mr.state !== "inactive") mr.stop(); } catch (_e) {} }, seconds * 1000);
     }
     // ── 引导式情绪采集(6 情绪通道 + 几何/活体 + 反派 + 自由鬼脸)──
+    // 每步都带一句「为什么」—— 让用户明白这是必须的采集,不是刁难/耍猴。
     var GUIDE_STEPS = [
-      { k: "front",    e: "🙂", en: "Face the camera · relaxed",   zh: "正对镜头 · 放松" },
-      { k: "left",     e: "⬅️", en: "Slowly turn head left",       zh: "慢慢向左转头" },
-      { k: "right",    e: "➡️", en: "Slowly turn head right",      zh: "慢慢向右转头" },
-      { k: "blink",    e: "😌", en: "Close your eyes",             zh: "闭上眼睛" },
-      { k: "calm",     e: "😐", en: "Neutral · calm",              zh: "中性 · 平静" },
-      { k: "joy",      e: "😄", en: "Laugh out loud",              zh: "哈哈大笑" },
-      { k: "grief",    e: "😢", en: "Grief · about to cry",        zh: "哭丧脸 · 快哭了" },
-      { k: "ignite",   e: "😠", en: "Anger · glare & roar",        zh: "怒目 · 怒吼" },
-      { k: "intimate", e: "🥰", en: "Tender, loving gaze",         zh: "深情凝视" },
-      { k: "resolve",  e: "😤", en: "Determined · defiant",        zh: "坚定 · 昂首挑衅" },
-      { k: "villain",  e: "😈", en: "Villain · cold sneer",        zh: "反派 · 冷笑 / 狞笑" },
-      { k: "grimace",  e: "🤪", en: "Freestyle · make a funny face", zh: "自由发挥 · 做个鬼脸" }
+      { k: "front",    e: "🙂", en: "Face the camera · relaxed",   zh: "正对镜头 · 放松",   wen: "So your digital actor has a clear front face.", wzh: "让你的分身有一张清晰的正脸。" },
+      { k: "left",     e: "⬅️", en: "Slowly turn head left",       zh: "慢慢向左转头",       wen: "So it can turn its head — not a flat cutout.", wzh: "让分身能自然转头,不是纸片人。" },
+      { k: "right",    e: "➡️", en: "Slowly turn head right",      zh: "慢慢向右转头",       wen: "The other side, for a full 3D-ready face.", wzh: "另一侧,凑齐可建脸的多角度。" },
+      { k: "blink",    e: "😌", en: "Close your eyes",             zh: "闭上眼睛",           wen: "Proves you're live — stops anyone faking you with a photo.", wzh: "证明是真人活体,防止别人拿一张照片冒充你。" },
+      { k: "calm",     e: "😐", en: "Neutral · calm",              zh: "中性 · 平静",       wen: "The baseline every other emotion is built from.", wzh: "所有其它表情都从这张基线出发。" },
+      { k: "joy",      e: "😄", en: "Laugh out loud",              zh: "哈哈大笑",           wen: "So your actor can truly smile and laugh on screen.", wzh: "让你的分身在镜头前真的会笑。" },
+      { k: "grief",    e: "😢", en: "Grief · about to cry",        zh: "哭丧脸 · 快哭了",    wen: "So it can carry sad, moving scenes.", wzh: "让分身能演悲伤、催泪的戏。" },
+      { k: "ignite",   e: "😠", en: "Anger · glare & roar",        zh: "怒目 · 怒吼",        wen: "For intense, powerful moments.", wzh: "撑得起激昂、爆发的段落。" },
+      { k: "intimate", e: "🥰", en: "Tender, loving gaze",         zh: "深情凝视",           wen: "For love songs and tender scenes.", wzh: "情歌、深情戏靠它。" },
+      { k: "resolve",  e: "😤", en: "Determined · defiant",        zh: "坚定 · 昂首挑衅",     wen: "For strong, triumphant beats.", wzh: "坚定、凯旋的高光时刻。" },
+      { k: "villain",  e: "😈", en: "Villain · cold sneer",        zh: "反派 · 冷笑 / 狞笑",  wen: "So you can also play the bad guy.", wzh: "让你也能演反派坏人。" },
+      { k: "grimace",  e: "🤪", en: "Freestyle · make a funny face", zh: "自由发挥 · 做个鬼脸", wen: "A spontaneous face is very hard for AI to fake — it protects the real you.", wzh: "即兴鬼脸 AI 极难伪造,保护真实的你。" }
     ];
     var guide = { i: 0, frames: {}, uploads: [], running: false };
     function grabFrame() {
@@ -689,7 +692,7 @@
       }).join("");
       var s = GUIDE_STEPS[guide.i];
       if (!s) { guidePrompt.innerHTML = "✅ " + esc(T("All captured — sign & submit below, or restart.", "采集完成 —— 到下方签约提交,或推倒重录。")); recBtn.style.display = "none"; return; }
-      guidePrompt.innerHTML = '<span class="gemoji">' + s.e + '</span><span class="glabel"><b>' + esc(T(s.en, s.zh)) + '</b><small>' + (guide.i + 1) + " / " + GUIDE_STEPS.length + '</small></span>';
+      guidePrompt.innerHTML = '<span class="gemoji">' + s.e + '</span><span class="glabel"><b>' + esc(T(s.en, s.zh)) + '</b><em>' + esc(T(s.wen, s.wzh)) + '</em><small>' + (guide.i + 1) + " / " + GUIDE_STEPS.length + '</small></span>';
       recBtn.style.display = ""; recBtn.disabled = false;
       recBtn.textContent = "📸 " + T("Capture this", "拍这张");
     }

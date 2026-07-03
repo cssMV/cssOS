@@ -43084,19 +43084,32 @@ app.post("/api/actors/real-person", express.json({ limit: "16kb" }), async (req,
     const actorId = "act-real-" + crypto.createHash("sha1").update(String(user.id)).digest("hex").slice(0, 6) + "-" + crypto.randomBytes(4).toString("hex");
     const likenessCapture = (b.likeness_capture && typeof b.likeness_capture === "object") ? b.likeness_capture : null;
     const voiceCapture = (b.voice_capture && typeof b.voice_capture === "object") ? b.voice_capture : null;
+    // 采集帧 → 参考图 + 封面(立即可选用, 不依赖 GPU)。face-focal 检测焦点(失败不阻断)。
+    const capFrames: Record<string, string> = (likenessCapture && (likenessCapture as any).frames && typeof (likenessCapture as any).frames === "object") ? (likenessCapture as any).frames : {};
+    const frameUrls = Object.keys(capFrames).map((k) => capFrames[k]).filter((u): u is string => typeof u === "string" && u.indexOf("http") === 0);
+    const coverFrame = (capFrames.front && capFrames.front.indexOf("http") === 0 ? capFrames.front : null) || (capFrames.calm && capFrames.calm.indexOf("http") === 0 ? capFrames.calm : null) || frameUrls[0] || null;
+    let cfx: number | null = null, cfy: number | null = null;
+    if (coverFrame) {
+      try {
+        const dr = await fetch(`${FACE_FOCAL_URL}/detect`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image_url: coverFrame }), signal: AbortSignal.timeout(20000) });
+        const dj: any = await dr.json();
+        if (dj && dj.found) { cfx = dj.focal_x; cfy = dj.focal_y; }
+      } catch {}
+    }
+    const refImgs = frameUrls.length ? frameUrls : (coverFrame ? [coverFrame] : []);
     await withClient(async (c) => {
       await c.query(
         `INSERT INTO digital_actors (
             actor_id, name_zh, name_en, stage_name, origin_type, is_real_person, is_public_figure, agency_name,
             persona, role_range, gender, owner_user_id, creator_royalty, is_premium, cast_price_cents,
             license_model, rights_granted, consent_signed_at, verification_status, likeness_capture, voice_capture,
-            archetypes, sub_roles, visibility, source_status, curation_tier
-         ) VALUES ($1,$2,$3,$19,'real_person',true,$4,$5,$6,$7,$8,$9::uuid,$10,$11,$12,$13,$14,now(),'unverified',$15,$16,$17,$18,'private','ad_hoc','B')`,
+            archetypes, sub_roles, cover_image, cover_focal_x, cover_focal_y, reference_images, visibility, source_status, curation_tier
+         ) VALUES ($1,$2,$3,$19,'real_person',true,$4,$5,$6,$7,$8,$9::uuid,$10,$11,$12,$13,$14,now(),'unverified',$15,$16,$17,$18,$20,$21,$22,$23,'private','ad_hoc','B')`,
         [actorId, nameEn, displayName, isPublicFigure, agency, roleRange, roleRange, gender, user.id,
          0.80, priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free",
          JSON.stringify({ ...rights, terms_version: REAL_ACTOR_TERMS_VERSION }),
          likenessCapture ? JSON.stringify(likenessCapture) : null, voiceCapture ? JSON.stringify(voiceCapture) : null,
-         archetypes, subRoles, stageName]);
+         archetypes, subRoles, stageName, coverFrame, cfx, cfy, refImgs]);
       await c.query(
         `INSERT INTO actor_consents (actor_id, user_id, action, rights, terms_version, ip_hash)
          VALUES ($1,$2::uuid,'grant',$3,$4,$5)`,

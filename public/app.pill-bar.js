@@ -280,6 +280,11 @@
       "[data-pill-bar]>input[data-pill-key],[data-pill-bar]>textarea[data-pill-key]{",
         "user-select:text !important;-webkit-user-select:text !important;",
         "text-align:left !important;cursor:text !important;",
+        /* an <input> can't be concave-masked reliably → never let it overlap a
+         * neighbor (would show as 头顶头). It sits flush with the hairline divider. */
+        "margin-left:0 !important;margin-right:0 !important;",
+        "-webkit-mask-image:none !important;mask-image:none !important;",
+        "width:100% !important;",
       "}",
       "[data-pill-bar]>input[data-pill-key].active,[data-pill-bar]>input[data-pill-key].on{cursor:text !important;}",
 

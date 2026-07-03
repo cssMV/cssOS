@@ -42585,10 +42585,8 @@ const SEED_DIGITAL_ACTORS: Array<Record<string, unknown>> = [
 
 // CSSOS_WAVE_116 — 经典历史/神话名角(带戏路)。马克思=思想家(sage); 反派全部取公认历史/神话人物,
 //   刻意避开 20 世纪种族灭绝独裁者与在世/宗教敏感人物(上架 + 品牌安全)。cover 留空, 由 atelier 事后回填。
+// 注: 马克思/洛基/尼禄 已存在于文明名角(person_profiles → act-civ-*), 不在此重复; 只补 codex 里没有的经典反派。
 const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
-  { actor_id: "act-legend-marx", name_zh: "卡尔·马克思", name_en: "Karl Marx", name_native: "Karl Marx", civilization: "近代欧洲",
-    persona: "革命哲学家与政治经济学家, 《资本论》作者, 犀利的辩证思想家, 标志性大胡子", gender: "male",
-    style_descriptor: "romantic-era orchestral gravitas", voice_style: "deep resonant orator", tags: ["thinker","philosophy","legend"], archetypes: ["sage"] },
   { actor_id: "act-legend-zhouwang", name_zh: "商纣王", name_en: "King Zhou of Shang", name_native: "帝辛", civilization: "中华文明",
     persona: "商朝末代暴君, 荒淫残暴, 亡国之主", gender: "male",
     style_descriptor: "ancient court style / bronze bells / ominous", voice_style: "imperious bass", tags: ["tyrant","legend"], archetypes: ["villain","ruler"] },

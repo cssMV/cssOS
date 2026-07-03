@@ -53705,6 +53705,9 @@ app.get("/a/:id", async (req, res) => {
     let img = _absShareImageUrl(a.cover_image) || _absShareImageUrl(Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || SHARE_OG_FALLBACK_IMAGE;
     const pitch = cleanStyleForShare(String(a.persona || a.role_range || a.style_descriptor || "")).slice(0, 140);
     const desc = (pitch ? `${pitch} · ` : "") + "A digital actor on CSS Studio — cast them in your next music video. 🎭";
+    // og:title 带上自荐钩子 — Facebook 大图卡只显示标题+域名(不显示 description), 把自荐塞进标题才带得过去。
+    const titleSlogan = (pitch.split(/[·—–,，。;；:：]/)[0] || "").trim().slice(0, 64);
+    const ogTitle = (titleSlogan ? `${name} — ${titleSlogan}` : `${name} — Digital Actor`) + " · CSS Studio";
     const url = `${SHARE_BASE_URL}/a/${encodeURIComponent(id)}`;
     const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
@@ -53712,13 +53715,13 @@ app.get("/a/:id", async (req, res) => {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="description" content="${escapeHtmlAttr(desc)}" />
 <meta property="og:type" content="profile" />
-<meta property="og:title" content="${escapeHtmlAttr(name)} — Digital Actor" />
+<meta property="og:title" content="${escapeHtmlAttr(ogTitle)}" />
 <meta property="og:description" content="${escapeHtmlAttr(desc)}" />
 <meta property="og:image" content="${escapeHtmlAttr(img)}" />
 <meta property="og:url" content="${escapeHtmlAttr(url)}" />
 <meta property="og:site_name" content="CSS Studio" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="${escapeHtmlAttr(name)} — Digital Actor" />
+<meta name="twitter:title" content="${escapeHtmlAttr(ogTitle)}" />
 <meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
 <meta name="twitter:image" content="${escapeHtmlAttr(img)}" />
 <link rel="canonical" href="${escapeHtmlAttr(url)}" /></head>

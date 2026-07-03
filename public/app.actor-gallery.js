@@ -93,6 +93,12 @@
       "#" + ROOT_ID + " .ag-cmt .body{font-size:14px;color:#dff7ec;line-height:1.45;white-space:pre-wrap;word-break:break-word;}" +
       "#" + ROOT_ID + " .ag-cmt .del{background:none;border:0;color:#ff9a9a;font-size:11px;cursor:pointer;padding:2px 6px;}" +
       "#" + ROOT_ID + " .ag-cmt-empty{font-size:13px;color:#7fb8a3;padding:8px 0;}" +
+      "#" + ROOT_ID + " .ag-cmt-actions{display:flex;gap:10px;align-items:center;}" +
+      "#" + ROOT_ID + " .ag-reply-btn{background:none;border:0;color:#8fe9c8;font-size:11px;cursor:pointer;padding:2px 6px;}" +
+      "#" + ROOT_ID + " .ag-cmt-kids{margin-left:16px;border-left:2px solid rgba(0,245,160,.16);padding-left:12px;margin-top:6px;}" +
+      "#" + ROOT_ID + " .ag-reply-box{display:flex;gap:8px;align-items:flex-end;margin:8px 0;}" +
+      "#" + ROOT_ID + " .ag-reply-box textarea{flex:1;background:rgba(4,20,14,.6);border:1px solid rgba(0,245,160,.3);border-radius:12px;color:#e8fff5;padding:8px 10px;font-size:13px;font-family:inherit;resize:vertical;min-height:36px;}" +
+      "#" + ROOT_ID + " .ag-reply-send{background:" + GREEN + ";color:" + INK + ";border:0;border-radius:999px;padding:8px 14px;font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap;}" +
       "#" + ROOT_ID + " .ag-slogan{font-size:12.5px;color:#8fe9c8;font-style:italic;margin:3px 0;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}" +
       "#" + ROOT_ID + " .ag-castmodal{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(2,10,7,.72);backdrop-filter:blur(3px);}" +
       "#" + ROOT_ID + " .ag-castmodal .box{background:#0a1712;border:1px solid rgba(0,245,160,.35);border-radius:20px;padding:22px;max-width:440px;width:88%;box-shadow:0 20px 60px rgba(0,0,0,.5);}" +
@@ -622,20 +628,74 @@
       return d.toLocaleDateString();
     } catch (e) { return ""; }
   }
-  function renderComments(listEl, actorId, comments) {
-    if (!comments.length) { listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("No comments yet. Be the first!", "还没有评论,来抢沙发!")) + '</div>'; return; }
-    listEl.innerHTML = comments.map(function (c) {
-      return '<div class="ag-cmt" data-cid="' + esc(c.id) + '"><div class="who"><span>' + esc(c.author_name || "Guest") + ' · ' + esc(fmtWhen(c.created_at)) + '</span>' +
+  function commentHtml(c, isReply) {
+    return '<div class="ag-cmt' + (isReply ? ' ag-cmt-reply' : '') + '" data-cid="' + esc(c.id) + '">' +
+      '<div class="who"><span>' + esc(c.author_name || "Guest") + ' · ' + esc(fmtWhen(c.created_at)) + '</span>' +
+      '<span class="ag-cmt-actions">' +
+        (c.can_reply && !isReply ? '<button class="ag-reply-btn" data-cid="' + esc(c.id) + '">' + esc(T("Reply", "回复")) + '</button>' : '') +
         (c.mine ? '<button class="del" data-cid="' + esc(c.id) + '">' + esc(T("Delete", "删除")) + '</button>' : '') +
-        '</div><div class="body">' + esc(c.body) + '</div></div>';
-    }).join("");
-    listEl.querySelectorAll(".del").forEach(function (b) {
-      b.onclick = function () {
-        var cid = b.getAttribute("data-cid");
+      '</span></div>' +
+      '<div class="body">' + esc(c.body) + '</div>' +
+      (isReply ? '' : '<div class="ag-cmt-kids"></div>') +
+      '</div>';
+  }
+  function postComment(actorId, body, parentId) {
+    return fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ body: body, parent_id: parentId || undefined }) }).then(function (r) { return r.json(); });
+  }
+  function needSignIn() {
+    if (window.cssosGuidedToast) window.cssosGuidedToast(T("Sign in to comment.", "登录后即可评论。"), { actions: [{ label: T("Sign in", "登录"), onClick: function () { if (window.cssosOpenLogin) window.cssosOpenLogin(); } }] });
+    else window.alert(T("Sign in to comment.", "登录后即可评论。"));
+  }
+  function wireCommentActions(listEl, actorId) {
+    if (listEl.__wired) return; listEl.__wired = true;
+    listEl.addEventListener("click", function (e) {
+      var t = e.target;
+      var del = t.closest && t.closest(".del");
+      if (del) {
+        var cid = del.getAttribute("data-cid");
         fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments/" + encodeURIComponent(cid), { method: "DELETE", credentials: "include" })
-          .then(function (r) { return r.json(); }).then(function (j) { if (j && j.ok) { var n = listEl.querySelector('.ag-cmt[data-cid="' + cid + '"]'); if (n) n.remove(); if (!listEl.querySelector(".ag-cmt")) renderComments(listEl, actorId, []); } });
-      };
+          .then(function (r) { return r.json(); }).then(function (j) { if (j && j.ok) { var n = listEl.querySelector('.ag-cmt[data-cid="' + cid + '"]'); if (n) n.remove(); if (!listEl.querySelector(".ag-cmt")) renderComments(listEl, actorId, [], listEl.__signedIn); } });
+        return;
+      }
+      var rb = t.closest && t.closest(".ag-reply-btn");
+      if (rb) {
+        if (!listEl.__signedIn) { needSignIn(); return; }
+        var host = rb.closest(".ag-cmt");
+        var open = host.querySelector(".ag-reply-box");
+        if (open) { open.remove(); return; }   // 再点 = 收起
+        var rbox = document.createElement("div"); rbox.className = "ag-reply-box";
+        rbox.innerHTML = '<textarea class="ag-reply-text" rows="1" placeholder="' + esc(T("Write a reply…", "写条回复…")) + '" maxlength="800"></textarea><button class="ag-reply-send">' + esc(T("Reply", "回复")) + '</button>';
+        host.insertBefore(rbox, host.querySelector(".ag-cmt-kids"));
+        rbox.querySelector(".ag-reply-text").focus();
+        return;
+      }
+      var rs = t.closest && t.closest(".ag-reply-send");
+      if (rs) {
+        var rbox2 = rs.closest(".ag-reply-box"), host2 = rs.closest(".ag-cmt");
+        var body = String(rbox2.querySelector(".ag-reply-text").value || "").trim();
+        if (!body) return;
+        rs.disabled = true;
+        postComment(actorId, body, host2.getAttribute("data-cid")).then(function (j) {
+          rs.disabled = false;
+          if (j && j.ok && j.comment) { host2.querySelector(".ag-cmt-kids").insertAdjacentHTML("beforeend", commentHtml(j.comment, true)); rbox2.remove(); }
+          else if (j && j.code === "AUTH_REQUIRED") needSignIn();
+          else window.alert(T("Failed to post.", "发布失败。"));
+        }).catch(function () { rs.disabled = false; window.alert(T("Failed to post.", "发布失败。")); });
+        return;
+      }
     });
+  }
+  function renderComments(listEl, actorId, comments, signedIn) {
+    listEl.__signedIn = signedIn;
+    if (!comments.length) { listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("No comments yet. Be the first!", "还没有评论,来抢沙发!")) + '</div>'; return; }
+    var tops = comments.filter(function (c) { return !c.parent_id; }).sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+    var kids = {}; comments.forEach(function (c) { if (c.parent_id) { (kids[c.parent_id] = kids[c.parent_id] || []).push(c); } });
+    listEl.innerHTML = tops.map(function (c) { return commentHtml(c, false); }).join("");
+    tops.forEach(function (c) {
+      var arr = (kids[c.id] || []).sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
+      if (arr.length) { var host = listEl.querySelector('.ag-cmt[data-cid="' + c.id + '"] .ag-cmt-kids'); if (host) host.innerHTML = arr.map(function (k) { return commentHtml(k, true); }).join(""); }
+    });
+    wireCommentActions(listEl, actorId);
   }
   function toggleComments(inline, actorId) {
     var box = inline.querySelector(".ag-comments");
@@ -645,38 +705,28 @@
     var listEl = box.querySelector(".ag-cmt-list");
     var textEl = box.querySelector(".ag-cmt-text");
     var sendEl = box.querySelector(".ag-cmt-send");
-    if (!box.__loaded) {
-      box.__loaded = true;
-      listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("Loading…", "加载中…")) + '</div>';
-      fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments", { credentials: "include" })
-        .then(function (r) { return r.json(); }).then(function (j) { renderComments(listEl, actorId, (j && j.comments) || []); })
-        .catch(function () { listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("Failed to load.", "加载失败。")) + '</div>'; });
-      sendEl.onclick = function () {
-        var body = String(textEl.value || "").trim();
-        if (!body) return;
-        sendEl.disabled = true;
-        fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ body: body }) })
-          .then(function (r) { return r.json(); }).then(function (j) {
-            sendEl.disabled = false;
-            if (j && j.ok && j.comment) {
-              textEl.value = "";
-              var empty = listEl.querySelector(".ag-cmt-empty"); if (empty) empty.remove();
-              var c = j.comment;
-              var node = document.createElement("div"); node.className = "ag-cmt"; node.setAttribute("data-cid", c.id);
-              node.innerHTML = '<div class="who"><span>' + esc(c.author_name || "Guest") + ' · ' + esc(fmtWhen(c.created_at)) + '</span><button class="del" data-cid="' + esc(c.id) + '">' + esc(T("Delete", "删除")) + '</button></div><div class="body">' + esc(c.body) + '</div>';
-              node.querySelector(".del").onclick = function () {
-                fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments/" + encodeURIComponent(c.id), { method: "DELETE", credentials: "include" })
-                  .then(function (r) { return r.json(); }).then(function (jj) { if (jj && jj.ok) { node.remove(); if (!listEl.querySelector(".ag-cmt")) renderComments(listEl, actorId, []); } });
-              };
-              listEl.insertBefore(node, listEl.firstChild);
-            } else if (j && j.code === "AUTH_REQUIRED") {
-              if (window.cssosGuidedToast) window.cssosGuidedToast(T("Sign in to comment.", "登录后即可评论。"), { actions: [{ label: T("Sign in", "登录"), onClick: function () { if (window.cssosOpenLogin) window.cssosOpenLogin(); } }] });
-              else window.alert(T("Sign in to comment.", "登录后即可评论。"));
-            } else window.alert(T("Failed to post.", "发布失败。"));
-          }).catch(function () { sendEl.disabled = false; window.alert(T("Failed to post.", "发布失败。")); });
-      };
-      textEl.addEventListener("keydown", function (e) { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") sendEl.click(); });
-    }
+    if (box.__loaded) return;
+    box.__loaded = true;
+    listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("Loading…", "加载中…")) + '</div>';
+    fetch("/api/actors/" + encodeURIComponent(actorId) + "/comments", { credentials: "include" })
+      .then(function (r) { return r.json(); }).then(function (j) { renderComments(listEl, actorId, (j && j.comments) || [], !!(j && j.signed_in)); })
+      .catch(function () { listEl.innerHTML = '<div class="ag-cmt-empty">' + esc(T("Failed to load.", "加载失败。")) + '</div>'; });
+    sendEl.onclick = function () {
+      var body = String(textEl.value || "").trim();
+      if (!body) return;
+      sendEl.disabled = true;
+      postComment(actorId, body, null).then(function (j) {
+        sendEl.disabled = false;
+        if (j && j.ok && j.comment) {
+          textEl.value = "";
+          var empty = listEl.querySelector(".ag-cmt-empty"); if (empty) empty.remove();
+          listEl.insertAdjacentHTML("afterbegin", commentHtml(j.comment, false));
+          listEl.__signedIn = true; wireCommentActions(listEl, actorId);
+        } else if (j && j.code === "AUTH_REQUIRED") needSignIn();
+        else window.alert(T("Failed to post.", "发布失败。"));
+      }).catch(function () { sendEl.disabled = false; window.alert(T("Failed to post.", "发布失败。")); });
+    };
+    textEl.addEventListener("keydown", function (e) { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") sendEl.click(); });
   }
   function shareActor(a) {
     var name = a.name_en || a.name_zh || "Digital Actor";

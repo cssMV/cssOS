@@ -43287,15 +43287,18 @@ app.get("/api/actors/:id/comments", async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
     const me = await getSessionUser(req).catch(() => null);
-    const r = await withClient((c) => c.query<{ id: string; user_id: string; author_name: string | null; body: string; created_at: string }>(
-      `SELECT id::text AS id, user_id::text AS user_id, author_name, body, created_at
-         FROM actor_comments WHERE actor_id=$1 AND hidden=false ORDER BY created_at DESC LIMIT 100`, [id]));
+    const ownerRow = await withClient((c) => c.query<{ owner_user_id: string | null }>(`SELECT owner_user_id::text AS owner_user_id FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const isOwner = !!(me && ownerRow.rows[0] && String(ownerRow.rows[0].owner_user_id || "") === String(me.id)); // 帖主(演员主人)可删任意评论
+    const r = await withClient((c) => c.query<{ id: string; user_id: string; author_name: string | null; body: string; created_at: string; parent_id: string | null }>(
+      `SELECT id::text AS id, user_id::text AS user_id, author_name, body, created_at, parent_id::text AS parent_id
+         FROM actor_comments WHERE actor_id=$1 AND hidden=false ORDER BY created_at ASC LIMIT 300`, [id]));
     const isAdmin = me && isCssosAdminEmail((me as any).email);
     const comments = r.rows.map((c) => ({
-      id: c.id, author_name: c.author_name || "Guest", body: c.body, created_at: c.created_at,
-      mine: !!(me && String(c.user_id) === String(me.id)) || !!isAdmin,
+      id: c.id, author_name: c.author_name || "Guest", body: c.body, created_at: c.created_at, parent_id: c.parent_id || null,
+      mine: !!(me && String(c.user_id) === String(me.id)) || !!isAdmin || isOwner,
+      can_reply: !!(me && me.id),
     }));
-    return res.json({ ok: true, comments });
+    return res.json({ ok: true, comments, signed_in: !!(me && me.id) });
   } catch (err) {
     console.warn("[actors] list comments failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "LIST_FAILED", comments: [] });
@@ -43311,12 +43314,19 @@ app.post("/api/actors/:id/comments", express.json({ limit: "4kb" }), async (req,
     if (!body) return res.status(400).json({ ok: false, code: "EMPTY" });
     const exists = await withClient((c) => c.query(`SELECT 1 FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
     if (!exists.rows.length) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    // 回复: parent_id 必须是本演员下的顶层评论(只做一级, 回复的回复仍挂到同一顶层)。
+    let parentId: string | null = null;
+    const rawParent = String(((req.body || {}) as any).parent_id || "").trim();
+    if (rawParent && /^\d+$/.test(rawParent)) {
+      const p = await withClient((c) => c.query<{ id: string; parent_id: string | null }>(`SELECT id::text AS id, parent_id::text AS parent_id FROM actor_comments WHERE id=$1 AND actor_id=$2 AND hidden=false LIMIT 1`, [rawParent, id]));
+      if (p.rows[0]) parentId = p.rows[0].parent_id || p.rows[0].id; // 扁平到顶层
+    }
     const authorName = String(user.display_name || (user.email || "").split("@")[0] || "Guest").slice(0, 60);
     const ins = await withClient((c) => c.query<{ id: string; created_at: string }>(
-      `INSERT INTO actor_comments (actor_id, user_id, author_name, body) VALUES ($1,$2,$3,$4) RETURNING id::text AS id, created_at`,
-      [id, user.id, authorName, body]));
+      `INSERT INTO actor_comments (actor_id, user_id, author_name, body, parent_id) VALUES ($1,$2,$3,$4,$5) RETURNING id::text AS id, created_at`,
+      [id, user.id, authorName, body, parentId]));
     const row = ins.rows[0]!;
-    return res.json({ ok: true, comment: { id: row.id, author_name: authorName, body, created_at: row.created_at, mine: true } });
+    return res.json({ ok: true, comment: { id: row.id, author_name: authorName, body, created_at: row.created_at, parent_id: parentId, mine: true, can_reply: true } });
   } catch (err) {
     console.warn("[actors] add comment failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "ADD_FAILED" });
@@ -43329,11 +43339,18 @@ app.delete("/api/actors/:id/comments/:cid", async (req, res) => {
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
     const cid = String(req.params.cid || "").trim();
     const isAdmin = isCssosAdminEmail((user as any).email);
-    const owned = await withClient((c) => c.query<{ user_id: string }>(`SELECT user_id::text AS user_id FROM actor_comments WHERE id=$1 LIMIT 1`, [cid]));
+    const owned = await withClient((c) => c.query<{ user_id: string; actor_id: string }>(`SELECT user_id::text AS user_id, actor_id FROM actor_comments WHERE id=$1 LIMIT 1`, [cid]));
     const row = owned.rows[0];
     if (!row) return res.json({ ok: true }); // already gone
-    if (String(row.user_id) !== String(user.id) && !isAdmin) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
-    await withClient((c) => c.query(`UPDATE actor_comments SET hidden=true WHERE id=$1`, [cid]));
+    // 可删: 评论作者本人 / admin / 该演员的主人(帖主)。
+    let isActorOwner = false;
+    if (String(row.user_id) !== String(user.id) && !isAdmin) {
+      const own = await withClient((c) => c.query<{ owner_user_id: string | null }>(`SELECT owner_user_id::text AS owner_user_id FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [row.actor_id]));
+      isActorOwner = !!(own.rows[0] && String(own.rows[0].owner_user_id || "") === String(user.id));
+      if (!isActorOwner) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    }
+    // 删顶层评论时连带隐藏其回复。
+    await withClient((c) => c.query(`UPDATE actor_comments SET hidden=true WHERE id=$1 OR parent_id=$1`, [cid]));
     return res.json({ ok: true });
   } catch (err) {
     console.warn("[actors] delete comment failed:", (err as Error)?.message || err);

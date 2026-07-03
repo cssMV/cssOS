@@ -80,14 +80,8 @@
       "#" + ROOT_ID + " .ag-cta-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}" +
       "#" + ROOT_ID + " .ag-share{background:transparent;color:#bff5e0;border:1px solid rgba(0,245,160,.45);border-radius:999px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;}" +
       "#" + ROOT_ID + " .ag-share:hover{background:rgba(0,245,160,.12);}" +
-      // 选角/评论/分享 三段胶囊 = 胶囊宪法【凹凸镶嵌】(照台词胶囊: 轨道共用边框零间隙, 主操作凸全圆绿, 其余凹咬合)。
-      "#" + ROOT_ID + " .ag-cta-cap{display:flex;align-items:stretch;height:46px;margin-top:14px;border:1px solid rgba(0,245,160,.35);border-radius:999px;overflow:hidden;background:rgba(0,245,160,.05);}" +
-      "#" + ROOT_ID + " .ag-cta-cap button{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:6px;border:0;background:transparent;color:#d6ffee;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;position:relative;box-sizing:border-box;padding:0 22px;}" +
-      // 选角(Cast)= 凸: 两头圆全 pill 绿填充
-      "#" + ROOT_ID + " .ag-cta-cap .ag-cast{background:" + GREEN + ";color:" + INK + ";font-weight:800;border-radius:999px;z-index:2;box-shadow:0 4px 18px rgba(0,0,0,.28);padding:0 24px;}" +
-      // 评论/分享 = 凹在左, 依次咬合前一段的凸圆头
-      "#" + ROOT_ID + " .ag-cta-cap .ag-cast ~ button{margin-left:-23px;padding-left:40px;border-radius:0 999px 999px 0;z-index:1;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
-      "#" + ROOT_ID + " .ag-cta-cap .ag-cast ~ button:hover{background:rgba(0,245,160,.12);}" +
+      // 选角/评论/分享 胶囊走平台 cssosMakePillBar(与顶部筛选条同源凹凸镶嵌), 无需本地几何; 仅留上边距。
+      "#" + ROOT_ID + " .ag-cta-cap{margin-top:6px;}" +
       // 评论面板
       "#" + ROOT_ID + " .ag-comments{margin-top:16px;border-top:1px solid rgba(0,245,160,.15);padding-top:14px;}" +
       "#" + ROOT_ID + " .ag-comments h3{font-size:15px;font-weight:800;color:#e8fff5;margin:0 0 10px;}" +
@@ -874,9 +868,9 @@
           '</div>' +
           '<div class="ag-stage" aria-live="polite"></div>' +
           '<div class="ag-cta-cap">' +
-            '<button class="ag-cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
-            '<button class="ag-comment">💬 ' + esc(T("Comment", "评论")) + '</button>' +
-            '<button class="ag-share" title="' + esc(T("Share this actor", "分享这位演员")) + '">↗ ' + esc(T("Share", "分享")) + '</button>' +
+            '<button class="ag-cast" data-pill-key="cast">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + '</button>' +
+            '<button class="ag-comment" data-pill-key="comment">💬 ' + esc(T("Comment", "评论")) + '</button>' +
+            '<button class="ag-share" data-pill-key="share" title="' + esc(T("Share this actor", "分享这位演员")) + '">↗ ' + esc(T("Share", "分享")) + '</button>' +
           '</div>' +
           '<div class="ag-comments" hidden><h3>💬 ' + esc(T("Comments", "评论")) + '</h3><div class="ag-cmt-input"><textarea class="ag-cmt-text" rows="1" placeholder="' + esc(T("Say something about this actor…", "聊聊这位演员…")) + '" maxlength="800"></textarea><button class="ag-cmt-send">' + esc(T("Post", "发布")) + '</button></div><div class="ag-cmt-list"></div></div>' +
           (mvs.length ? '<div class="ag-sec"><h3>' + esc(T("Appearances", "出演作品")) + (state.ownedSet[a.actor_id] ? ' · ' + esc(T("free to watch", "本人免费欣赏")) : "") + '</h3><div class="ag-grid ag-sub-grid">' +
@@ -895,12 +889,21 @@
           b3d.onclick = function (ev) { ev.stopPropagation(); window.__agToggleCover(cardEl, a); };
           cov0.appendChild(b3d);
         }
-        var castBtn = inline.querySelector(".ag-cast");
-        if (castBtn) castBtn.onclick = function () { openCast(a); };
-        var shareBtn = inline.querySelector(".ag-share");
-        if (shareBtn) shareBtn.onclick = function () { shareActor(a); };
-        var cmtBtn = inline.querySelector(".ag-comment");
-        if (cmtBtn) cmtBtn.onclick = function () { toggleComments(inline, a.actor_id); };
+        // 选角/评论/分享 走平台胶囊(与顶部筛选条同一套凹凸镶嵌); Cast 恒为凸绿主段(动作条, 非筛选)。
+        var ctaBar = inline.querySelector(".ag-cta-cap");
+        function runCta(key) {
+          if (key === "cast") openCast(a);
+          else if (key === "comment") toggleComments(inline, a.actor_id);
+          else if (key === "share") shareActor(a);
+        }
+        if (ctaBar && typeof window.cssosMakePillBar === "function") {
+          var ctaCtl = window.cssosMakePillBar(ctaBar, { mono: true, compact: true, textColor: "dark", activeKey: "cast", onActivate: function (key) { runCta(key); if (ctaCtl) ctaCtl.setActive("cast"); } });
+        } else if (ctaBar) {
+          ctaBar.querySelectorAll("button[data-pill-key]").forEach(function (b) { b.onclick = function () { runCta(b.getAttribute("data-pill-key")); }; });
+        }
+        // 戏路标签也套同一胶囊轨道(纯几何, 无激活/无点击) —— 与上方筛选条视觉一致。
+        var tagsBar = inline.querySelector(".ag-tags");
+        if (tagsBar && tagsBar.children.length && typeof window.cssosPillBarStamp === "function") window.cssosPillBarStamp(tagsBar, "dark", true);
         wireShowcase(inline, a.actor_id);
         if (state.ownedSet[a.actor_id]) {
           var own = document.createElement("div"); own.className = "ag-owner";
@@ -1060,7 +1063,7 @@
     segBtns.forEach(function (b) { b.setAttribute("data-pill-key", b.getAttribute("data-seg")); });
     if (showcaseBar && typeof window.cssosMakePillBar === "function") {
       showcaseBar.classList.add("ag-pillbar");
-      window.cssosMakePillBar(showcaseBar, { mono: true, compact: true, textColor: "dark", onActivate: function (key, pill) { trigger(pill, key); } });
+      window.cssosMakePillBar(showcaseBar, { mono: true, compact: true, textColor: "dark", activeKey: "intro", onActivate: function (key, pill) { trigger(pill, key); } });
     } else {
       segBtns.forEach(function (btn) { btn.onclick = function () { trigger(btn, btn.getAttribute("data-seg")); }; });
     }
@@ -1209,7 +1212,7 @@
         if (wid && typeof window.cssosOpenWork === "function") { close(); window.cssosOpenWork(wid); }
         return;
       }
-      if (t.closest && (t.closest(".ag-showcase") || t.closest(".ag-cast") || t.closest(".ag-owner") || t.closest(".ag-sub-grid") || t.closest("model-viewer") || t.closest(".ag-stage"))) return;
+      if (t.closest && (t.closest(".ag-showcase") || t.closest(".ag-cta-cap") || t.closest(".ag-comments") || t.closest(".ag-tags") || t.closest(".ag-cast") || t.closest(".ag-owner") || t.closest(".ag-sub-grid") || t.closest("model-viewer") || t.closest(".ag-stage"))) return;
       var card = t.closest && t.closest(".ag-card[data-actor]");
       if (!card || !card.parentElement || !card.parentElement.classList.contains("ag-grid")) return;
       var onCover = !!(t.closest && t.closest("[data-cover]"));

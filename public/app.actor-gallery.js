@@ -204,7 +204,8 @@
       "@media(max-width:760px){#" + ROOT_ID + " .ag-bar{flex-wrap:wrap;}#" + ROOT_ID + " .ag-topcap{order:3;flex:1 1 100%;width:100%;margin-top:10px;}}" +
       "#" + ROOT_ID + " .ag-topcap .ag-signup{position:relative;z-index:1;border:0;background:rgba(0,245,160,.06);color:#e8fff5;font-weight:800;padding:0 24px;white-space:nowrap;border-radius:999px;cursor:pointer;}" +
       // 激活段(随视图切换: 成为演员/创建/搜索)= 凸绿在顶。
-      "#" + ROOT_ID + " .ag-topcap .tc-on{background:" + GREEN + " !important;color:" + INK + " !important;z-index:2 !important;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
+      // 激活段永远两头圆(凸全 pill 浮在轨道上): 去掉凹咬 mask + 全圆角。
+      "#" + ROOT_ID + " .ag-topcap .tc-on{background:" + GREEN + " !important;color:" + INK + " !important;z-index:2 !important;border-radius:999px !important;-webkit-mask:none !important;mask:none !important;box-shadow:0 4px 18px rgba(0,0,0,.28);}" +
       "#" + ROOT_ID + " .ag-topcap .ag-search.tc-on::placeholder{color:rgba(4,18,12,.6);}" +
       "#" + ROOT_ID + " .ag-topcap .ag-create{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;font-weight:700;padding:0 22px 0 40px;white-space:nowrap;border-radius:0 999px 999px 0;cursor:pointer;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
       "#" + ROOT_ID + " .ag-topcap .ag-search{z-index:1;border:1px solid rgba(0,245,160,.4);border-left:0;background:rgba(0,245,160,.06);color:#e8fff5;min-width:150px;padding:0 20px 0 40px;border-radius:0 999px 999px 0;outline:none;font-size:15px;height:100%;box-sizing:border-box;margin-left:-23px;-webkit-mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);mask:radial-gradient(circle 23px at 0 50%,transparent 22.5px,#000 23px);}" +
@@ -346,8 +347,8 @@
     { k: "Western", en: "Western", zh: "西方" },
   ];
   // 通用「全 + 多选」胶囊: 第一枚 All 默认激活; 选具体则 All 关; 全不选则 All 回到激活。
-  function allMultiMarkup(cls, label, items) {
-    var btns = '<button type="button" class="ag-mi on" data-v="__all__">' + esc(T("All", "全部")) + '</button>' +
+  function allMultiMarkup(cls, label, items, allIcon) {
+    var btns = '<button type="button" class="ag-mi on" data-v="__all__">' + (allIcon ? allIcon + " " : "") + esc(T("All", "全部")) + '</button>' +
       items.map(function (it) { return '<button type="button" class="ag-mi" data-v="' + esc(it.k) + '">' + (it.emoji ? it.emoji + " " : "") + esc(T(it.en, it.zh)) + '</button>'; }).join("");
     return '<div class="ag-multi" data-multi="' + cls + '"><div class="ag-rt-label">' + esc(label) + '</div><div class="ag-multi-row">' + btns + '</div></div>';
   }
@@ -389,7 +390,7 @@
   function archShort(key) { var a = archLabel(key); return a ? (a.emoji + " " + T(a.en, a.zh)) : key; }
   // 戏路选择器 markup(大类多选 + 选中展开细分)。
   function roleTaxonomyMarkup() {
-    var allBtn = '<button type="button" class="ag-arch on" data-arch="__all__">' + esc(T("All roles", "全角色")) + '</button>';
+    var allBtn = '<button type="button" class="ag-arch on" data-arch="__all__">🎭 ' + esc(T("All roles", "全角色")) + '</button>';
     var row = ROLE_TAXONOMY.map(function (a) {
       return '<button type="button" class="ag-arch" data-arch="' + a.key + '">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</button>';
     }).join("");
@@ -460,7 +461,7 @@
         '<label>' + esc(T("Appearance / vibe (blank = system composes from civilization + role)", "外貌 / 气质(留空 = 系统按文明+戏路智能生成)")) + '<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="' + esc(T("e.g. a silver-haired violet-eyed futuristic diva — or leave blank", "如: 银发碧眼的未来感歌姬 —— 或留空")) + '"></textarea></label>' +
         '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="" selected>' + esc(T("Auto — system decides by civilization", "自动 —— 按文明智能联动")) + '</option><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
         '<label>' + esc(T("Style (leave blank = all styles)", "风格(留空 = 全风格)")) + '<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="' + esc(T("synthwave — or leave blank for any", "synthwave —— 留空则任意风格")) + '" /></label>' +
-        allMultiMarkup("civ", T("Civilization — all by default; or pick one/several (a face can span cultures)", "文明 —— 默认全文明;也可选一个/几个(一张脸可跨文化)"), CIVS) +
+        allMultiMarkup("civ", T("Civilization — all by default; or pick one/several (a face can span cultures)", "文明 —— 默认全文明;也可选一个/几个(一张脸可跨文化)"), CIVS, "🌍") +
         roleTaxonomyMarkup() +
         '<label>' + esc(T("Cast price (¢, 0=free; you earn 70%)", "选角价(¢, 0=免费; 你得 70%)")) + '<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="500" value="0" /></label>' +
         '<button class="ag-cast ag-submit">✨ ' + esc(T("One-tap generate & publish", "一键生成并发布")) + '</button>' +
@@ -1505,7 +1506,7 @@
         '<div class="ag-topcap">' +   // 三胶囊: 🙋成为演员 | +创建(绿凸) | 搜索  凹凸镶嵌
           '<button class="ag-signup tc-on">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
           '<button class="ag-create">＋ ' + esc(T("Create", "创建演员")) + '</button>' +
-          '<input class="ag-search" type="search" placeholder="' + esc(T("Search actors…", "搜索演员…")) + '">' +
+          '<input class="ag-search" type="search" placeholder="' + esc(T("🔍 Search actors…", "🔍 搜索演员…")) + '">' +
         '</div>' +
         '<button class="ag-x" aria-label="close">×</button>' +
       '</div>' +

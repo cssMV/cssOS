@@ -263,6 +263,17 @@
        * hairline border. So NO special visual here — only the JS selection logic
        * differs. Kept data-pill-multi purely so stampOne skips forcing .active.  */
 
+      /* ── DIVIDER between two adjacent INACTIVE pills ───────────────────────
+       * 胶囊宪法⑤: 未激活胶囊之间靠一根细边分隔。The concave interlock covers
+       * pills AFTER the active (.active~, mask survives), but the BEFORE-active
+       * side needs :has(~.active) which is stripped for WebKit crash-safety →
+       * left-of-active pills would show NO separator. This `+` rule (no :has,
+       * survives the strip) draws the hairline for any inactive-after-inactive
+       * pair, so the divider is present no matter which segment is active.      */
+      "[data-pill-bar]>[data-pill-key]+[data-pill-key]{",
+        "border-left:1px solid hsla(var(--th,155),100%,65%,0.30) !important;",
+      "}",
+
       /* ── INPUT / TEXTAREA pill segment — a search box living inside the track.
        * The child base sets user-select:none + text-align:center + not-text
        * cursor which break typing/editing; restore them for form fields.        */
@@ -348,6 +359,10 @@
     else                      containerEl.removeAttribute("data-pill-compact");
     if (multi)                containerEl.setAttribute("data-pill-multi", "");
     else                      containerEl.removeAttribute("data-pill-multi");
+    // ★ 必须落成属性: 否则 MutationObserver 的 stampOne(读 data-pill-mono 判定)会在本函数之后
+    //   用彩虹色重刷一遍 → mono 绿被覆盖(激活段非第0个时最明显, 如搜索段变蓝)。
+    if (mono)                 containerEl.setAttribute("data-pill-mono", "");
+    else                      containerEl.removeAttribute("data-pill-mono");
 
     /* Key + hue every direct child */
     var children = Array.from(containerEl.children);

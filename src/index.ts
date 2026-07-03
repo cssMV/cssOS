@@ -10335,10 +10335,12 @@ async function isCreditExempt(userId: string): Promise<boolean> {
   } catch (_) { return false; }
 }
 
-async function debitCredits(userId: string, amount: number, reason: string, payload: any = {}): Promise<{ ok: boolean; balance: number; error?: string }> {
+async function debitCredits(userId: string, amount: number, reason: string, payload: any = {}, opts: { forceCharge?: boolean } = {}): Promise<{ ok: boolean; balance: number; error?: string }> {
   if (amount <= 0) return { ok: true, balance: await getCreditBalance(userId) };
-  // Staff / admin / @cssstudio.app exemption.
-  if (await isCreditExempt(userId)) {
+  // Staff / admin / @cssstudio.app exemption. forceCharge=true bypasses the exemption
+  // (used when an official account uses another USER's paid digital actor — 裁判员不当运动员:
+  //  官方不得靠豁免白嫖用户的付费演员, 必须像普通用户一样从自己钱包真付, 版税归该用户)。
+  if (!opts.forceCharge && await isCreditExempt(userId)) {
     try {
       await withClient((c) =>
         c.query(
@@ -44870,12 +44872,17 @@ app.post("/api/works", async (req, res) => {
             // CSSOS_WAVE_113 — 反派角色 +30% 溢价(更难演、更抢戏)。角色由 __actorRole 传入。
             const castRole = String(req.body?.__actorRole || "").toLowerCase();
             if (priceSnap > 0 && castRole === "villain") priceSnap = Math.round(priceSnap * 1.3);
-            // CSSOS_WAVE_113 变现真扣费: 溢价演员 → 真扣用户 credits(=cents; admin/staff 自动豁免)。
-            //   余额不足 → 不扣、记 cast_price_cents=0(免费出演一次, 不阻断已建档作品), 打日志。
-            let chargedCents = 0;
+            // CSSOS_WAVE_113 变现真扣费: 溢价演员 → 真扣用户 credits(=cents)。
+            //   普通用户: admin/staff 自动豁免; 余额不足 → 记免费一次(不阻断已建档作品)。
+            //   CSSOS_WAVE_118「裁判员不当运动员」: 官方账号(@cssstudio.app/jingdudc)用【别人的付费演员】
+            //     不得靠豁免白嫖, 强制从官方自己钱包真付(forceCharge); 版税照发给该用户。官方余额不足 →
+            //     平台代付版税给用户(绝不让用户吃亏), 但记 admin_unpaid 标记。溢价演员必属普通用户(官方演员强制免费)。
+            const casterIsOfficial = isCssosAdminEmail(user.email);
+            let chargedCents = 0, adminUnpaid = false;
             if (priceSnap > 0) {
-              const d = await debitCredits(user.id, priceSnap, "actor_cast:" + castActorId, { work_id: workId, actor_id: castActorId });
+              const d = await debitCredits(user.id, priceSnap, "actor_cast:" + castActorId, { work_id: workId, actor_id: castActorId }, casterIsOfficial ? { forceCharge: true } : undefined);
               if (d.ok) chargedCents = priceSnap;
+              else if (casterIsOfficial) { chargedCents = priceSnap; adminUnpaid = true; console.warn(`[works-create] OFFICIAL cast: admin wallet insufficient (need=${priceSnap} bal=${d.balance}); platform covers user royalty for ${castActorId}`); }
               else console.warn(`[works-create] actor cast unpaid (insufficient credits, recorded free): ${castActorId} need=${priceSnap} bal=${d.balance}`);
             }
             // Phase 3 UGC 版税分账: 演员属他人(非自己选自己)且真扣到钱 → 给原创者发版税(creator_royalty)。
@@ -44883,7 +44890,7 @@ app.post("/api/works", async (req, res) => {
             if (chargedCents > 0 && ownerId && ownerId !== String(user.id)) {
               const royalty = Math.floor(chargedCents * Math.max(0, Math.min(1, Number(ap.rows[0]?.creator_royalty || 0))));
               if (royalty > 0) {
-                try { await creditUserBalance(ownerId, royalty, "actor_royalty:" + castActorId, { work_id: workId, actor_id: castActorId, from_user: user.id, gross_cents: chargedCents }); }
+                try { await creditUserBalance(ownerId, royalty, "actor_royalty:" + castActorId, { work_id: workId, actor_id: castActorId, from_user: user.id, gross_cents: chargedCents, platform_covered: adminUnpaid }); }
                 catch (rErr) { console.warn("[works-create] royalty payout failed (non-fatal):", (rErr as Error)?.message || rErr); }
               }
             }

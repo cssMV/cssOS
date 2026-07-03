@@ -2,8 +2,8 @@
 # 真人 → 可上架数字演员 · 管线技术方案
 
 > Capture · Face · Voice · Perform  ｜ 采集 · 造脸 · 克隆声 · 出演
-> Status: v0.1 draft. MVP can ship now at near-zero new cost; the only hard cost/blocker is singing-voice cloning (needs GPU) — deferred to v3, non-blocking.
-> 状态:v0.1 草案。MVP 现在即可上线、几乎零新成本;唯一真花钱/真门槛是"本人歌声克隆"(要 GPU),放到 v3、非阻塞。
+> Status: v0.2. **Decision (Jing 2026-07-03): the real-person actor launch WAITS for the person's own (cloned) singing voice — no "borrowed voice" launch.** So the public launch is GPU-gated. Build all non-GPU prep now (capture, frames→face, casting wiring, counts) so everything is ready and we simply wait for GPU. The "voice is AI-generated" label still applies because the own-voice is an AI clone trained from the user's sample.
+> 状态:v0.2。**决策(Jing 2026-07-03):真人演员上线要**等本人(克隆的)真嗓唱歌**,不上"借声"版。** 因此公开上线由 GPU 把关。先把所有不依赖 GPU 的前期做好(采集、帧→脸、选角接线、计数),万事俱备等 GPU。"声线为 AI 生成"的标注依然成立 —— 本人真嗓也是基于样本的 AI 克隆。
 
 Architecture constitution: **self-hosted engines + kie as the only third-party gateway; all outputs to R2; generation always paid by the user.**
 架构宪法:**自家引擎 + kie 唯一第三方网关;产出全落 R2;生成永远用户付。**

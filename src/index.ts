@@ -53527,6 +53527,14 @@ function _absShareImageUrl(u: string | null | undefined): string | null {
   if (s.startsWith("/")) return "https://cssstudio.app" + s;   // 相对路径补主机名
   return null;                                       // 其它怪格式不喂给爬虫
 }
+// Facebook/Threads(Meta 爬虫)不渲染 WebP 的 og:image(Bluesky/Twitter 可以)。
+// 把 .webp 封面包一层 /og.jpg 转码路由 → 喂给爬虫广泛兼容的 JPEG。非 webp 原样返回。
+function _ogSafeImageUrl(u: string | null | undefined): string | null {
+  const abs = _absShareImageUrl(u);
+  if (!abs) return null;
+  if (/\.webp(\?|$)/i.test(abs)) return "https://cssstudio.app/og.jpg?u=" + encodeURIComponent(abs);
+  return abs;
+}
 // 永不黑框的兜底品牌图(始终公网可访问)。
 const SHARE_OG_FALLBACK_IMAGE = "https://cssstudio.app/icons/icon-512.png";
 function pickRandomCover(work: ShareCoverWorkRow): string | null {
@@ -53686,6 +53694,22 @@ app.get("/u/:handle", async (req, res) => {
 
 // CSSOS_WAVE_118 — 数字演员分享落地页 /a/:id。爬虫(X/Twitter/FB…)看到 og:image=演员封面 + 自荐;
 //   真人浏览器 302 到 SPA 深链 /?actor=<id>(前端打开图鉴并展开该演员)。分享即广告病毒回路。
+// WebP→JPEG 转码,专供社交爬虫(Meta 不吃 webp)。只允许自家 cssstudio.app 图片,防 SSRF。
+app.get("/og.jpg", async (req, res) => {
+  try {
+    const src = String(req.query.u || "").trim();
+    if (!/^https:\/\/cssstudio\.app\//i.test(src)) return res.status(400).end("bad url");
+    const up = await fetch(src);
+    if (!up.ok) return res.redirect(302, SHARE_OG_FALLBACK_IMAGE);
+    const buf = Buffer.from(await up.arrayBuffer());
+    const jpg = await sharp(buf).flatten({ background: "#0b0b0b" }).jpeg({ quality: 86, mozjpeg: true }).toBuffer();
+    res.set("Content-Type", "image/jpeg");
+    res.set("Cache-Control", "public, max-age=604800, immutable"); // 7天; 封面按内容哈希命名,不会串
+    return res.end(jpg);
+  } catch {
+    return res.redirect(302, SHARE_OG_FALLBACK_IMAGE);
+  }
+});
 app.get("/a/:id", async (req, res) => {
   noStore(res); res.type("html");
   const id = String(req.params.id || "").trim();
@@ -53702,7 +53726,7 @@ app.get("/a/:id", async (req, res) => {
     const hidden = !a || (a.is_real_person && a.verification_status !== "verified") || (a.visibility && a.visibility !== "public");
     if (hidden) return res.redirect(302, "/?actors");
     const name = String(a.name_en || a.name_zh || "Digital Actor").trim();
-    let img = _absShareImageUrl(a.cover_image) || _absShareImageUrl(Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || SHARE_OG_FALLBACK_IMAGE;
+    let img = _ogSafeImageUrl(a.cover_image) || _ogSafeImageUrl(Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || SHARE_OG_FALLBACK_IMAGE;
     const pitch = cleanStyleForShare(String(a.persona || a.role_range || a.style_descriptor || "")).slice(0, 140);
     const desc = (pitch ? `${pitch} · ` : "") + "A digital actor on CSS Studio — cast them in your next music video. 🎭";
     // og:title 带上自荐钩子 — Facebook 大图卡只显示标题+域名(不显示 description), 把自荐塞进标题才带得过去。

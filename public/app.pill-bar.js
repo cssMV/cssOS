@@ -256,6 +256,28 @@
         "color:rgba(4,24,14,0.95) !important;",
       "}",
 
+      /* ── MULTI-SELECT mode (opts.multi) — several pills lit at once ─────────
+       * Used for filters where you can pick more than one (civilization, roles).
+       * Selected pills carry .on (NOT .active) → the single-active interlock CSS
+       * above (keyed on .active) never fires → clean rounded pills, any number
+       * can be lit. .on mirrors .active's saturated own-hue fill.               */
+      "[data-pill-bar][data-pill-multi]>[data-pill-key].on{",
+        "font-weight:700 !important;color:#fff !important;z-index:2 !important;",
+        "background:hsla(var(--ph,155),68%,34%,0.92) !important;",
+        "box-shadow:0 0 12px hsla(var(--ph,155),65%,48%,0.45),0 2px 8px rgba(0,0,0,0.22) !important;",
+        "border-radius:999px !important;",
+      "}",
+      "[data-pill-bar][data-pill-multi][data-pill-text=dark]>[data-pill-key].on{color:#04180e !important;}",
+
+      /* ── INPUT / TEXTAREA pill segment — a search box living inside the track.
+       * The child base sets user-select:none + text-align:center + not-text
+       * cursor which break typing/editing; restore them for form fields.        */
+      "[data-pill-bar]>input[data-pill-key],[data-pill-bar]>textarea[data-pill-key]{",
+        "user-select:text !important;-webkit-user-select:text !important;",
+        "text-align:left !important;cursor:text !important;",
+      "}",
+      "[data-pill-bar]>input[data-pill-key].active,[data-pill-bar]>input[data-pill-key].on{cursor:text !important;}",
+
       /* ── MONO MODE: pin everything to brand green (--ph forced to 155) ─ */
       /* Achieved by JS setting --ph:155 on every child when mono:true.      */
 
@@ -319,6 +341,8 @@
     var textColor  = opts.textColor || "light";  // 'light' | 'dark'
     var compact    = !!opts.compact;
     var mono       = !!opts.mono;               // true = single brand green
+    var multi      = !!opts.multi;              // true = several pills lit at once (.on)
+    var allKey     = opts.allKey != null ? String(opts.allKey) : null; // key that means "all" (collapses others)
 
     ensureStyle();
 
@@ -328,6 +352,8 @@
     else                      containerEl.removeAttribute("data-pill-text");
     if (compact)              containerEl.setAttribute("data-pill-compact", "");
     else                      containerEl.removeAttribute("data-pill-compact");
+    if (multi)                containerEl.setAttribute("data-pill-multi", "");
+    else                      containerEl.removeAttribute("data-pill-multi");
 
     /* Key + hue every direct child */
     var children = Array.from(containerEl.children);
@@ -337,6 +363,57 @@
       }
     });
     assignHues(children, mono);
+
+    function childByKey(k) {
+      for (var i = 0; i < children.length; i++) {
+        if (children[i].getAttribute("data-pill-key") === String(k)) return children[i];
+      }
+      return null;
+    }
+
+    /* ── MULTI-SELECT management (.on class; several lit; optional All-collapse) ── */
+    function multiSelected() {
+      return children.filter(function (c) {
+        return c.classList.contains("on") && !(allKey != null && c.getAttribute("data-pill-key") === allKey);
+      }).map(function (c) { return c.getAttribute("data-pill-key"); });
+    }
+    function multiTrackHue() {
+      var onEl = null, onIdx = 0;
+      children.forEach(function (c, i) { if (!onEl && c.classList.contains("on")) { onEl = c; onIdx = i; } });
+      containerEl.style.setProperty("--th", mono ? 155 : HUES[onIdx % HUES.length]);
+    }
+    function toggleMulti(pill) {
+      var key = pill.getAttribute("data-pill-key");
+      if (allKey != null && key === allKey) {
+        children.forEach(function (c) { c.classList.toggle("on", c === pill); });
+      } else {
+        pill.classList.toggle("on");
+        if (allKey != null) { var a = childByKey(allKey); if (a) a.classList.remove("on"); }
+        // 全不选 或 全选满 → 塌缩回 All 唯一激活(胶囊宪法: 等价"全部")。
+        if (allKey != null) {
+          var specifics = children.filter(function (c) { return c.getAttribute("data-pill-key") !== allKey; });
+          var onCount = specifics.filter(function (c) { return c.classList.contains("on"); }).length;
+          if (onCount === 0 || onCount === specifics.length) {
+            specifics.forEach(function (c) { c.classList.remove("on"); });
+            var a2 = childByKey(allKey); if (a2) a2.classList.add("on");
+          }
+        }
+      }
+      multiTrackHue();
+      if (onActivate) onActivate(key, pill, multiSelected());
+    }
+    /* Programmatic multi setter: array of keys (empty ⇒ All). */
+    function setSelected(keys) {
+      var set = {}; (keys || []).forEach(function (k) { set[String(k)] = true; });
+      var any = false;
+      children.forEach(function (c) {
+        var k = c.getAttribute("data-pill-key");
+        if (allKey != null && k === allKey) { c.classList.remove("on"); return; }
+        var on = !!set[k]; c.classList.toggle("on", on); if (on) any = true;
+      });
+      if (!any && allKey != null) { var a = childByKey(allKey); if (a) a.classList.add("on"); }
+      multiTrackHue();
+    }
 
     /* Active management */
     function setActive(key) {
@@ -365,9 +442,18 @@
       return found;
     }
 
-    /* Initial active — 胶囊宪法: 没指定默认激活就激活第一个(否则剥 :has 后无凹凸镶嵌, 整条散)。 */
-    if (opts.activeKey != null) setActive(opts.activeKey);
-    else if (children.length) setActive(children[0].getAttribute("data-pill-key"));
+    /* Initial state */
+    if (multi) {
+      // 多选: 初始点亮 activeKey(可为数组)或默认 All。
+      if (Array.isArray(opts.activeKey)) setSelected(opts.activeKey);
+      else if (opts.activeKey != null) setSelected([opts.activeKey]);
+      else if (allKey != null) { var a0 = childByKey(allKey); if (a0) a0.classList.add("on"); multiTrackHue(); }
+      else multiTrackHue();
+    } else {
+      /* 胶囊宪法: 没指定默认激活就激活第一个(否则剥 :has 后无凹凸镶嵌, 整条散)。 */
+      if (opts.activeKey != null) setActive(opts.activeKey);
+      else if (children.length) setActive(children[0].getAttribute("data-pill-key"));
+    }
 
     /* Delegated click — works on button / div / span / label / a / textarea */
     function handleClick(e) {
@@ -379,6 +465,7 @@
       var isNativeToggle = (tag === "input" &&
         (pill.type === "checkbox" || pill.type === "radio"));
       if (!isNativeToggle) {
+        if (multi) { toggleMulti(pill); return; }
         var key = pill.getAttribute("data-pill-key");
         setActive(key);
         if (onActivate) onActivate(key, pill);
@@ -409,14 +496,19 @@
       containerEl.removeAttribute("data-pill-bar");
       containerEl.removeAttribute("data-pill-text");
       containerEl.removeAttribute("data-pill-compact");
+      containerEl.removeAttribute("data-pill-multi");
       containerEl.style.removeProperty("--th");
       children.forEach(function (child) {
         child.classList.remove("active");
+        child.classList.remove("on");
         child.style.removeProperty("--ph");
       });
     }
 
-    return { setActive: setActive, show: show, hide: hide, destroy: destroy, container: containerEl };
+    return {
+      setActive: setActive, show: show, hide: hide, destroy: destroy, container: containerEl,
+      getSelected: multiSelected, setSelected: setSelected,
+    };
   }
 
   /* ── Pure-CSS stamp: geometry only, caller manages .active ─────────────── */
@@ -455,6 +547,13 @@
       }
     });
     assignHues(children, mono);
+    // 多选轨道(cssosMakePillBar multi)用 .on 而非 .active — 绝不给它强加 .active
+    // (否则会触发单选凹凸镶嵌 CSS, 把多选轨道搞乱)。仅同步轨道色到首个 .on。
+    if (el.hasAttribute("data-pill-multi")) {
+      var onIdx = children.findIndex(function (c) { return c.classList.contains("on"); });
+      el.style.setProperty("--th", mono ? 155 : HUES[(onIdx < 0 ? 0 : onIdx) % HUES.length]);
+      return;
+    }
     var activeIdx = children.findIndex(function (c) { return c.classList.contains("active"); });
     if (activeIdx < 0 && children.length) { children[0].classList.add("active"); activeIdx = 0; }
     if (activeIdx >= 0) {

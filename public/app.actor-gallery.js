@@ -198,19 +198,9 @@
       "@keyframes agfade{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}" +
       "#" + ROOT_ID + " .ag-sub-grid{margin-top:4px;}" +
       /* 创建+搜索 = 凹凸镶嵌: Create 绿全圆胶囊(右端半圆【凸】)负边距【咬进】搜索框; 搜索框左侧【凹】容纳 */
-      /* 三胶囊 = 胶囊宪法凹凸镶嵌: 🙋成为演员(凹右)| ＋创建(绿凸中)| 搜索(凹左) */
-      // 胶囊宪法 轨道1(成为演员/创建/搜索, 三段单选): 一条 999px 边框轨道 + 贴合子段, 激活凸绿两头圆。
-      // ★根治: 弃用手写凹咬 mask + 负 margin(含 <input> 时最脆, 搜索态最先崩)→ 统一走"边框轨道+贴合段", 和轨道4/5 一致。
-      "#" + ROOT_ID + " .ag-topcap{display:flex;align-items:stretch;gap:3px;padding:3px;box-sizing:border-box;height:46px;position:relative;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;border:1px solid rgba(0,245,160,.35);border-radius:999px;background:rgba(0,245,160,.05);}" +
-      "#" + ROOT_ID + " .ag-topcap::-webkit-scrollbar{display:none;}" +
-      "#" + ROOT_ID + " .ag-topcap>*{flex:0 0 auto;border:0;background:transparent;-webkit-mask:none;mask:none;margin:0;border-radius:999px;color:#e8fff5;font-weight:700;white-space:nowrap;cursor:pointer;display:inline-flex;align-items:center;}" +   // 子段贴合轨道, 不收缩, 溢出靠横滑
-      "@media(max-width:760px){#" + ROOT_ID + " .ag-bar{flex-wrap:wrap;}#" + ROOT_ID + " .ag-topcap{order:3;flex:1 1 100%;width:100%;margin-top:10px;}}" +
-      "#" + ROOT_ID + " .ag-topcap .ag-signup{padding:0 20px;font-weight:800;}" +
-      // 激活段(随视图切换: 成为演员/创建/搜索)= 凸绿两头圆填满段高。
-      "#" + ROOT_ID + " .ag-topcap .tc-on{background:" + GREEN + " !important;color:" + INK + " !important;border-radius:999px !important;box-shadow:0 3px 14px rgba(0,0,0,.28);}" +
-      "#" + ROOT_ID + " .ag-topcap .ag-search.tc-on::placeholder{color:rgba(4,18,12,.6);}" +
-      "#" + ROOT_ID + " .ag-topcap .ag-create{padding:0 20px;font-weight:700;}" +
-      "#" + ROOT_ID + " .ag-topcap .ag-search{min-width:130px;padding:0 18px;outline:none;font-size:15px;height:100%;box-sizing:border-box;}" +
+      // 轨道1(成为演员/创建/搜索, 三段单选)已改走平台 cssosMakePillBar(见 openActorGallery), 由 [data-pill-bar] 统一样式。
+      // 这里只留:窄屏时顶部胶囊换行独占一行。
+      "@media(max-width:760px){#" + ROOT_ID + " .ag-bar{flex-wrap:wrap;}#" + ROOT_ID + " .ag-topcap{order:3;flex:1 1 100% !important;width:100%;}}" +
       "#" + ROOT_ID + " .ag-3d{margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-ar{display:inline-block;text-decoration:none;}" +
       "#" + ROOT_ID + " .ag-owner{display:flex;gap:10px;margin-top:12px;}" +
@@ -350,24 +340,19 @@
   ];
   // 通用「全 + 多选」胶囊: 第一枚 All 默认激活; 选具体则 All 关; 全不选则 All 回到激活。
   function allMultiMarkup(cls, label, items, allIcon) {
-    var btns = '<button type="button" class="ag-mi on" data-v="__all__">' + (allIcon ? allIcon + " " : "") + esc(T("All", "全部")) + '</button>' +
-      items.map(function (it) { return '<button type="button" class="ag-mi" data-v="' + esc(it.k) + '">' + (it.emoji ? it.emoji + " " : "") + esc(T(it.en, it.zh)) + '</button>'; }).join("");
-    return '<div class="ag-multi" data-multi="' + cls + '"><div class="ag-rt-label">' + esc(label) + '</div><div class="ag-multi-row">' + btns + '</div></div>';
+    // 胶囊宪法: 走平台 cssosMakePillBar(multi 模式)。data-pill-key = 选择值; All = __all__。
+    var btns = '<button type="button" class="ag-mi on" data-v="__all__" data-pill-key="__all__">' + (allIcon ? allIcon + " " : "") + esc(T("All", "全部")) + '</button>' +
+      items.map(function (it) { return '<button type="button" class="ag-mi" data-v="' + esc(it.k) + '" data-pill-key="' + esc(it.k) + '">' + (it.emoji ? it.emoji + " " : "") + esc(T(it.en, it.zh)) + '</button>'; }).join("");
+    return '<div class="ag-multi" data-multi="' + cls + '"><div class="ag-rt-label">' + esc(label) + '</div><div class="ag-pbrow">' + btns + '</div></div>';
   }
   function wireAllMulti(scope, cls) {
     var wrap = scope.querySelector('.ag-multi[data-multi="' + cls + '"]'); if (!wrap) return function () { return []; };
-    var allBtn = wrap.querySelector('[data-v="__all__"]');
-    var specifics = wrap.querySelectorAll('.ag-mi:not([data-v="__all__"])');
-    wrap.querySelectorAll(".ag-mi").forEach(function (b) {
-      b.onclick = function () {
-        if (b === allBtn) { wrap.querySelectorAll(".ag-mi").forEach(function (x) { x.classList.toggle("on", x === allBtn); }); return; }
-        b.classList.toggle("on"); allBtn.classList.remove("on");
-        var onCount = wrap.querySelectorAll('.ag-mi.on:not([data-v="__all__"])').length;
-        // 全不选 或 全选满 → 塌缩回 All 唯一激活(等价"全部", 界面更简洁)。
-        if (onCount === 0 || onCount === specifics.length) { specifics.forEach(function (x) { x.classList.remove("on"); }); allBtn.classList.add("on"); }
-      };
-    });
-    return function () { if (allBtn.classList.contains("on")) return []; return [].slice.call(wrap.querySelectorAll('.ag-mi.on:not([data-v="__all__"])')).map(function (b) { return b.getAttribute("data-v"); }); };
+    var row = wrap.querySelector(".ag-pbrow");
+    // 多选胶囊轨道 → 平台 helper(multi + allKey 塌缩回 All)。它切换 .on, 下面 getter 读 .on。
+    if (row && typeof window.cssosMakePillBar === "function") {
+      window.cssosMakePillBar(row, { mono: true, textColor: "light", multi: true, allKey: "__all__" });
+    }
+    return function () { return [].slice.call(wrap.querySelectorAll('.ag-mi.on:not([data-v="__all__"])')).map(function (b) { return b.getAttribute("data-v"); }); };
   }
   // 文明名英文显示字典(平台默认英文; 不改库, 只影响展示; 歌词母语路由仍读原 civilization)。
   var CIV_EN = {
@@ -392,13 +377,13 @@
   function archShort(key) { var a = archLabel(key); return a ? (a.emoji + " " + T(a.en, a.zh)) : key; }
   // 戏路选择器 markup(大类多选 + 选中展开细分)。
   function roleTaxonomyMarkup() {
-    var allBtn = '<button type="button" class="ag-arch on" data-arch="__all__">🎭 ' + esc(T("All roles", "全角色")) + '</button>';
+    var allBtn = '<button type="button" class="ag-arch on" data-arch="__all__" data-pill-key="__all__">🎭 ' + esc(T("All roles", "全角色")) + '</button>';
     var row = ROLE_TAXONOMY.map(function (a) {
-      return '<button type="button" class="ag-arch" data-arch="' + a.key + '">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</button>';
+      return '<button type="button" class="ag-arch" data-arch="' + a.key + '" data-pill-key="' + esc(a.key) + '">' + a.emoji + ' ' + esc(T(a.en, a.zh)) + '</button>';
     }).join("");
     return '<div class="ag-roletax">' +
       '<div class="ag-rt-label">' + esc(T("Role range — plays any role by default; or pick specific archetypes", "戏路 —— 默认全角色;也可只选某几种大类")) + '</div>' +
-      '<div class="ag-arch-row">' + allBtn + row + '</div>' +
+      '<div class="ag-pbrow ag-archrow">' + allBtn + row + '</div>' +
       '<div class="ag-subroles"></div>' +
     '</div>';
   }
@@ -421,17 +406,11 @@
       });
     }
     var allArch = scope.querySelector('.ag-arch[data-arch="__all__"]');
-    var archSpecifics = scope.querySelectorAll('.ag-arch:not([data-arch="__all__"])');
-    scope.querySelectorAll(".ag-arch").forEach(function (b) {
-      b.onclick = function () {
-        if (allArch && b === allArch) { scope.querySelectorAll(".ag-arch").forEach(function (x) { x.classList.toggle("on", x === allArch); }); rebuildSubs(); return; }
-        b.classList.toggle("on"); if (allArch) allArch.classList.remove("on");
-        var onCount = scope.querySelectorAll('.ag-arch.on:not([data-arch="__all__"])').length;
-        // 全不选 或 全选满 → 塌缩回 All 唯一激活(等价"全角色", 更简洁)。
-        if (allArch && (onCount === 0 || onCount === archSpecifics.length)) { archSpecifics.forEach(function (x) { x.classList.remove("on"); }); allArch.classList.add("on"); }
-        rebuildSubs();
-      };
-    });
+    // 戏路多选 → 平台 helper(multi + allKey)。它管 .on 与"全选塌缩回 All"; 每次变更回调重建细分。
+    var archRow = scope.querySelector(".ag-pbrow.ag-archrow");
+    if (archRow && typeof window.cssosMakePillBar === "function") {
+      window.cssosMakePillBar(archRow, { mono: true, textColor: "light", multi: true, allKey: "__all__", onActivate: function () { rebuildSubs(); } });
+    }
     return {
       archetypes: function () { if (allArch && allArch.classList.contains("on")) return []; return [].slice.call(scope.querySelectorAll('.ag-arch.on:not([data-arch="__all__"])')).map(function (b) { return b.getAttribute("data-arch"); }); },
       subRoles: function () {
@@ -443,22 +422,15 @@
     };
   }
 
-  // 顶部三胶囊激活态随视图切换(成为演员 / 创建 / 搜索)。
+  // 顶部三胶囊激活态随视图切换(成为演员 / 创建 / 搜索)= 委托给平台 cssosMakePillBar 控制器。
+  var agTopcapCtl = null;
   function setTopcapActive(key) {
+    if (agTopcapCtl && typeof agTopcapCtl.setActive === "function") { agTopcapCtl.setActive(key); return; }
+    // 退回(helper 不可用): 纯视觉 class。
     var cap = document.querySelector("#" + ROOT_ID + " .ag-topcap"); if (!cap) return;
-    cap.querySelectorAll(".ag-signup,.ag-create,.ag-search").forEach(function (x) { x.classList.remove("tc-on"); });
+    cap.querySelectorAll(".ag-signup,.ag-create,.ag-search").forEach(function (x) { x.classList.remove("active"); });
     var sel = key === "create" ? ".ag-create" : key === "search" ? ".ag-search" : ".ag-signup";
-    var t = cap.querySelector(sel);
-    if (t) {
-      t.classList.add("tc-on");
-      // 胶囊宪法: 激活段必须【整颗可见·两头圆】。轨道在窄屏会溢出横滑, 激活时把它完整滚进视野
-      // (否则激活的绿胶囊被切在屏幕右缘、看不到右侧圆头 = 违宪)。
-      try {
-        var pad = 12, r = t.offsetLeft + t.offsetWidth;
-        if (r > cap.scrollLeft + cap.clientWidth) cap.scrollLeft = r - cap.clientWidth + pad;
-        else if (t.offsetLeft < cap.scrollLeft + pad) cap.scrollLeft = Math.max(0, t.offsetLeft - pad);
-      } catch (_e) {}
-    }
+    var t = cap.querySelector(sel); if (t) t.classList.add("active");
   }
   function renderCreateForm() {
     var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
@@ -1526,10 +1498,10 @@
       '<div class="ag-bar">' +
         '<div class="ag-title">🎭 <b>' + esc(T("Digital Actors", "数字演员")) + '</b></div>' +
         '<div class="ag-spacer"></div>' +
-        '<div class="ag-topcap">' +   // 三胶囊: 🙋成为演员 | +创建(绿凸) | 搜索  凹凸镶嵌
-          '<button class="ag-signup tc-on">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
-          '<button class="ag-create">＋ ' + esc(T("Create", "创建演员")) + '</button>' +
-          '<input class="ag-search" type="search" placeholder="' + esc(T("🔍 Search actors…", "🔍 搜索演员…")) + '">' +
+        '<div class="ag-topcap">' +   // 三段单选(成为演员/创建/搜索)走平台 cssosMakePillBar
+          '<button class="ag-signup" data-pill-key="signup">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
+          '<button class="ag-create" data-pill-key="create">＋ ' + esc(T("Create", "创建演员")) + '</button>' +
+          '<input class="ag-search" type="search" data-pill-key="search" placeholder="' + esc(T("🔍 Search actors…", "🔍 搜索演员…")) + '">' +
         '</div>' +
         '<button class="ag-x" aria-label="close">×</button>' +
       '</div>' +
@@ -1548,10 +1520,23 @@
       '<div class="ag-scroll"></div>';
     document.body.appendChild(el);
     el.querySelector(".ag-x").onclick = close;
-    var createBtn = el.querySelector(".ag-create");
-    if (createBtn) createBtn.onclick = function () { renderCreateForm(); };
-    var signupBtn = el.querySelector(".ag-signup");
-    if (signupBtn) signupBtn.onclick = function () { renderRealPersonSignup(); };
+    // 顶部三段(成为演员/创建/搜索)= 单选胶囊轨道, 走平台 cssosMakePillBar(含 <input> 段)。
+    var topcap = el.querySelector(".ag-topcap");
+    if (topcap && typeof window.cssosMakePillBar === "function") {
+      agTopcapCtl = window.cssosMakePillBar(topcap, {
+        mono: true, textColor: "light", compact: true, activeKey: "signup",
+        onActivate: function (key) {
+          // 搜索段是 <input>, 点击即原生聚焦, 无需在此 focus(否则与 change 事件成回环卡住焦点)。
+          if (key === "create") renderCreateForm();
+          else if (key === "signup") renderRealPersonSignup();
+        },
+      });
+    } else {
+      var createBtn = el.querySelector(".ag-create");
+      if (createBtn) createBtn.onclick = function () { renderCreateForm(); };
+      var signupBtn = el.querySelector(".ag-signup");
+      if (signupBtn) signupBtn.onclick = function () { renderRealPersonSignup(); };
+    }
     // 5 个筛选 = 凹凸镶嵌胶囊轨道: 优先用平台 cssosMakePillBar(胶囊宪法), 否则退回普通 chip。
     var filterBar = el.querySelector(".ag-filters");
     filterBar.querySelectorAll(".ag-chip").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-f")); });

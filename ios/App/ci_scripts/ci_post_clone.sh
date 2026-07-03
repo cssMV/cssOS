@@ -24,6 +24,12 @@ npm ci --ignore-scripts --no-audit --no-fund
 POD="$CI_PRIMARY_REPOSITORY_PATH/node_modules/@capgo/native-purchases/CapgoNativePurchases.podspec"
 [ -f "$POD" ] && sed -i '' "s#.*OTHER_SWIFT_FLAGS.*#    'OTHER_SWIFT_FLAGS' => '\$(inherited)'#" "$POD" || true
 
-# 生成 Pods/ 与 xcconfig。webDir(public-ios-shell)已随仓库提交,无需 cap sync。
+# Capacitor 把 webDir + 配置同步进原生工程的这三样是 gitignore 的(ios/.gitignore App/App/public,
+# capacitor.config.json, config.xml),CI clone 没有 → Xcode "Copy public/config.xml/capacitor.config.json"
+# 资源阶段报 "The file public couldn't be opened"(build 13 的 3 个错误)。用 cap copy 生成它们
+# (public-ios-shell 已提交作 webDir,cap copy 只搬运不动 pods,比 cap sync 轻)。
+npx --no-install cap copy ios
+
+# 生成 Pods/ 与 xcconfig。
 cd "$CI_PRIMARY_REPOSITORY_PATH/ios/App"
 pod install --repo-update

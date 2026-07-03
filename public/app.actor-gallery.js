@@ -80,6 +80,16 @@
       "#" + ROOT_ID + " .ag-cta-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}" +
       "#" + ROOT_ID + " .ag-share{background:transparent;color:#bff5e0;border:1px solid rgba(0,245,160,.45);border-radius:999px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;}" +
       "#" + ROOT_ID + " .ag-share:hover{background:rgba(0,245,160,.12);}" +
+      "#" + ROOT_ID + " .ag-slogan{font-size:12.5px;color:#8fe9c8;font-style:italic;margin:3px 0;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}" +
+      "#" + ROOT_ID + " .ag-castmodal{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(2,10,7,.72);backdrop-filter:blur(3px);}" +
+      "#" + ROOT_ID + " .ag-castmodal .box{background:#0a1712;border:1px solid rgba(0,245,160,.35);border-radius:20px;padding:22px;max-width:440px;width:88%;box-shadow:0 20px 60px rgba(0,0,0,.5);}" +
+      "#" + ROOT_ID + " .ag-castmodal h3{font-size:18px;font-weight:800;margin:0 0 4px;color:#e8fff5;}" +
+      "#" + ROOT_ID + " .ag-castmodal .sub{font-size:13px;color:#a9e9cf;margin:0 0 16px;}" +
+      "#" + ROOT_ID + " .ag-wt{display:grid;grid-template-columns:1fr 1fr;gap:10px;}" +
+      "#" + ROOT_ID + " .ag-wt button{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:14px;padding:12px 14px;cursor:pointer;font-size:14px;font-weight:700;}" +
+      "#" + ROOT_ID + " .ag-wt button:hover:not(:disabled){background:rgba(0,245,160,.16);}" +
+      "#" + ROOT_ID + " .ag-wt button small{font-size:11px;font-weight:500;color:#8fdcc0;}" +
+      "#" + ROOT_ID + " .ag-wt button:disabled{opacity:.5;cursor:default;}" +
       /* 台词胶囊 = 胶囊宪法凹凸镶嵌(照 style.css ~2307-2343): 轨道共用边框零间隙, 激活凸全圆, 其余凹咬合 */
       "#" + ROOT_ID + " .ag-showcase{display:flex;align-items:stretch;height:46px;margin-top:14px;border:1px solid rgba(0,245,160,.35);border-radius:999px;overflow:hidden;background:rgba(0,245,160,.05);}" +
       "#" + ROOT_ID + " .ag-sc-btn{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;border:0;background:transparent;color:#d6ffee;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;position:relative;box-sizing:border-box;}" +
@@ -160,6 +170,14 @@
            '<div class="ag-initial">' + (big ? '<span style="font-size:96px">' + initial + '</span>' : initial) + '</div>';
   }
 
+  // 一句话招牌 slogan(配脸最勾人): 取 persona 破折号/中点前的主句, 截断。
+  function sloganOf(a) {
+    var p = String(a.persona || "").trim();
+    if (!p) return "";
+    var m = (p.split(/\s*[—–·]\s*/)[0] || p).replace(/[。.．]$/, "").trim();
+    if (m.length > 46) m = m.slice(0, 44).replace(/\s+\S*$/, "") + "…";
+    return m;
+  }
   function actorCard(a) {
     var originBadge = a.origin_type === "civilization" ? "🏛" : "✨";
     var priceBadge = a.is_premium ? '<span class="ag-badge prem">💎 ' + cents(a.cast_price_cents) + '</span>' : '<span class="ag-badge">Free</span>';
@@ -170,6 +188,7 @@
       '<div class="ag-meta">' +
         '<div class="ag-name">' + esc(a.name_en || a.name_zh) + '</div>' +
         '<div class="ag-sub">' + (a.name_native && a.name_native !== a.name_en ? esc(a.name_native) + ' · ' : "") + (a.civilization ? esc(civDisplay(a.civilization)) : esc(T("Original", "原创合成"))) + '</div>' +
+        (sloganOf(a) ? '<div class="ag-slogan">' + esc(sloganOf(a)) + '</div>' : "") +
         '<div class="ag-row"><span>' + esc(a.voice_style || a.style_descriptor || "") + '</span></div>' +
         '<div class="ag-inline"></div>' +   // 就地展开: 同一框内接着显示详情(不另开框)
       '</div></div>';
@@ -584,8 +603,9 @@
   function shareActor(a) {
     var name = a.name_en || a.name_zh || "Digital Actor";
     var url = "https://cssstudio.app/a/" + encodeURIComponent(a.actor_id);
-    var text = T("Meet " + name + " 🎭 — a digital actor on CSS Studio. Cast them in your next music video.",
-                 "认识一下数字演员「" + name + "」🎭 —— 在 CSS Studio 选 TA 主演你的下一支 MV。");
+    var slg = sloganOf(a);
+    var text = T((slg ? slg + " — " : "") + "Meet " + name + " 🎭, a digital actor on CSS Studio. Cast them in your next music video.",
+                 (slg ? slg + " —— " : "") + "认识数字演员「" + name + "」🎭,在 CSS Studio 选 TA 主演你的下一支 MV。");
     if (navigator.share) {
       navigator.share({ title: name + " · CSS Studio", text: text, url: url }).catch(function () {});
       return;
@@ -595,23 +615,57 @@
     if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast(T("Link copied · opening X to share", "链接已复制 · 正在打开 X 分享"), {});
   }
 
-  function openCast(actor) {
+  // 作品类型: 音乐驱动(现可用) vs 叙事驱动(需自动编剧, 先锁, 以后开)。
+  var CAST_WORK_TYPES = [
+    { key: "single",   emoji: "🎬", en: "MV (single)",  zh: "单曲 MV",  descEn: "One song, one video", descZh: "一首歌 · 一支 MV", ready: true },
+    { key: "triptych", emoji: "🎼", en: "Triptych",     zh: "三部曲",   descEn: "3 connected chapters", descZh: "三段相连的乐章", ready: true },
+    { key: "opera",    emoji: "🎭", en: "Opera",        zh: "歌剧",     descEn: "Multi-act musical epic", descZh: "多幕音乐史诗", ready: true },
+    { key: "shortplay",emoji: "📺", en: "Short drama",  zh: "短剧",     descEn: "Auto-scripted · coming soon", descZh: "自动编剧 · 敬请期待", ready: false },
+    { key: "series",   emoji: "📽", en: "TV series",    zh: "电视连续剧", descEn: "Auto-scripted · coming soon", descZh: "自动编剧 · 敬请期待", ready: false },
+    { key: "film",     emoji: "🎦", en: "Film",         zh: "电影",     descEn: "Auto-scripted · coming soon", descZh: "自动编剧 · 敬请期待", ready: false },
+  ];
+  function castPromptFor(actor, name, workType) {
+    var base;
+    if (workType === "triptych") base = T("Create a 3-part triptych MV starring the digital actor “" + name + "” — three connected chapters/songs.", "用数字演员「" + name + "」主演,创作一部三部曲 MV(三段相连的乐章)。");
+    else if (workType === "opera") base = T("Create a multi-act opera (grand musical MV) starring the digital actor “" + name + "”.", "用数字演员「" + name + "」主演,创作一部多幕歌剧(宏大音乐 MV)。");
+    else base = T("Create an MV starring the digital actor “" + name + "”.", "用数字演员「" + name + "」主演,创作一支 MV。");
+    return base +
+      (actor.face_prompt ? T(" Actor look: ", " 该演员形象: ") + actor.face_prompt + "." : "") +
+      (actor.voice_style ? T(" Voice: ", " 声线: ") + actor.voice_style + "." : "") +
+      (actor.style_descriptor ? T(" Style: ", " 风格: ") + actor.style_descriptor + "." : "");
+  }
+  function castRun(actor, workType) {
     var name = actor.name_zh || actor.name_en;
     // C 选角注入: 记下待选角演员 → fetch 拦截器把 actor_id 注入生成/建档调用, 后端注入锁定形象+记选角。
     window.__cssosCastActorId = actor.actor_id;
     window.__cssosCastActorName = name;
-    var prompt = T("Create an MV starring the digital actor “" + name + "”.", "用数字演员「" + name + "」主演,创作一支 MV。") +
-      (actor.face_prompt ? T(" Actor look: ", " 该演员形象: ") + actor.face_prompt + "." : "") +
-      (actor.voice_style ? T(" Voice: ", " 声线: ") + actor.voice_style + "." : "") +
-      (actor.style_descriptor ? T(" Style: ", " 风格: ") + actor.style_descriptor + "." : "");
+    var prompt = castPromptFor(actor, name, workType);
     if (typeof window.cssosOpenAssistantWithPrompt === "function") {
       close();
       window.cssosOpenAssistantWithPrompt(prompt, { actorId: actor.actor_id });
     } else if (typeof window.cssosGuidedToast === "function") {
       window.cssosGuidedToast(T("Cast " + name + " — opening the creation panel", "已选定 " + name + " — 创作入口即将打开"), {});
-    } else {
-      alert(T("Cast actor: ", "已选定演员: ") + name);
-    }
+    } else { alert(T("Cast actor: ", "已选定演员: ") + name); }
+  }
+  // 选角时先选作品类型(叙事类先锁)。
+  function openCast(actor) {
+    var root = document.getElementById(ROOT_ID); if (!root) { castRun(actor, "single"); return; }
+    var name = esc(actor.name_en || actor.name_zh);
+    var modal = document.createElement("div"); modal.className = "ag-castmodal";
+    modal.innerHTML = '<div class="box"><h3>🎬 ' + esc(T("Cast ", "选 ")) + name + esc(T(" — pick a format", " —— 选作品类型")) + '</h3>' +
+      '<div class="sub">' + esc(T("Music-driven works are ready now. Scripted drama (short play / series / film) auto-writes a screenplay — coming soon.", "音乐类现在就能做。叙事类(短剧/剧集/电影)会自动编剧 —— 敬请期待。")) + '</div>' +
+      '<div class="ag-wt">' + CAST_WORK_TYPES.map(function (w) {
+        return '<button data-wt="' + w.key + '"' + (w.ready ? "" : " disabled") + '>' + (w.ready ? "" : "🔒 ") + w.emoji + ' ' + esc(T(w.en, w.zh)) + '<small>' + esc(T(w.descEn, w.descZh)) + '</small></button>';
+      }).join("") + '</div></div>';
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) { modal.remove(); return; }
+      var btn = e.target.closest && e.target.closest("button[data-wt]");
+      if (!btn || btn.disabled) return;
+      var wt = btn.getAttribute("data-wt");
+      modal.remove();
+      castRun(actor, wt);
+    });
+    root.appendChild(modal);
   }
 
   /* C 选角注入拦截器: 待选角期间, 给生成/建档调用体注入 actor_id → 后端把演员锁定形象
@@ -636,9 +690,19 @@
               if (isCreate) { b.__actorId = aid; }
               init = Object.assign({}, init, { body: JSON.stringify(b) });
               if (isCreate) {
-                // 建档完成即视为选角落定, 清待选角。
+                // 建档完成即视为选角落定, 清待选角; 同时记下 {workId, actorName} 供作品出炉后弹分享(第2落点)。
                 var p = orig.call(this, input, init);
-                return p.then(function (res) { try { window.__cssosCastActorId = null; } catch (_e) {} return res; });
+                var castName = window.__cssosCastActorName;
+                return p.then(function (res) {
+                  try { window.__cssosCastActorId = null; } catch (_e) {}
+                  try {
+                    res.clone().json().then(function (j) {
+                      var wid = j && (j.work_id || j.id || (j.work && j.work.id) || (j.data && j.data.work_id));
+                      if (wid && castName) window.__cssosCastShare = { workId: String(wid), actorName: castName };
+                    }).catch(function () {});
+                  } catch (_e2) {}
+                  return res;
+                });
               }
             }
           }
@@ -646,6 +710,19 @@
       } catch (_e) { /* 注入失败不影响原请求 */ }
       return orig.call(this, input, init);
     };
+    // 第2落点: 选角作品一旦成为当前作品(出炉/开播)→ 弹「XX 主演的 MV 出炉了, 分享?」一次性。
+    window.addEventListener("cssos:work-id-changed", function (ev) {
+      var cs = window.__cssosCastShare; if (!cs) return;
+      var d = (ev && ev.detail) || {};
+      var wid = String(d.work_id || d.workId || d.id || "");
+      if (!wid || wid !== cs.workId) return;
+      window.__cssosCastShare = null;   // 一次性
+      if (typeof window.cssosGuidedToast === "function") {
+        window.cssosGuidedToast(T("🎬 " + cs.actorName + " is now starring in your MV! Share it?", "🎬 " + cs.actorName + " 主演的 MV 出炉了!分享一下?"), {
+          actions: [{ label: T("Share", "分享"), onClick: function () { if (typeof window.openCssosShareDialog === "function") window.openCssosShareDialog({ workId: cs.workId }); } }],
+        });
+      }
+    }, { passive: true });
   })();
 
   // 点卡片 → 在【同一个框内】接着展开(不另开框, 不重复标题): 详情填进卡片的 .ag-inline。

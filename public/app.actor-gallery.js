@@ -135,6 +135,26 @@
       "#" + ROOT_ID + " .ag-consent{background:rgba(0,245,160,.05);border:1px solid rgba(0,245,160,.25);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px;}" +
       "#" + ROOT_ID + " .ag-capture{background:rgba(0,0,0,.25);border:1px solid rgba(0,245,160,.2);border-radius:14px;padding:14px;}" +
       "#" + ROOT_ID + " .ag-recbtn{width:100%;max-width:520px;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border:0;border-radius:999px;background:" + GREEN + ";color:" + INK + ";font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.28);}" +
+      "#" + ROOT_ID + " .ag-recbtn:disabled{opacity:.5;cursor:default;}" +
+      // 倒数/快门 overlay(压在摄像头预览上)
+      "#" + ROOT_ID + " .ag-countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:96px;font-weight:900;color:#fff;text-shadow:0 4px 30px rgba(0,0,0,.6);background:rgba(0,0,0,.18);border-radius:14px;pointer-events:none;}" +
+      "#" + ROOT_ID + " .ag-countdown.flash{background:#fff;color:#fff;}" +
+      // 引导采集
+      "#" + ROOT_ID + " .ag-guide{max-width:520px;margin-top:12px;}" +
+      "#" + ROOT_ID + " .ag-guide-dots{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px;}" +
+      "#" + ROOT_ID + " .ag-guide-dots .gd{width:100%;flex:1 1 0;min-width:8px;height:5px;border-radius:999px;background:rgba(0,245,160,.18);transition:background .2s;}" +
+      "#" + ROOT_ID + " .ag-guide-dots .gd.done{background:" + GREEN + ";}" +
+      "#" + ROOT_ID + " .ag-guide-dots .gd.cur{background:rgba(0,245,160,.55);animation:agPulse 1s ease-in-out infinite;}" +
+      "@keyframes agPulse{0%,100%{opacity:.55}50%{opacity:1}}" +
+      "#" + ROOT_ID + " .ag-guide-prompt{display:flex;align-items:center;gap:12px;min-height:44px;font-size:14px;color:#cfeee0;line-height:1.4;}" +
+      "#" + ROOT_ID + " .ag-guide-prompt .gemoji{font-size:38px;line-height:1;flex:0 0 auto;}" +
+      "#" + ROOT_ID + " .ag-guide-prompt .glabel b{display:block;font-size:18px;color:#eafff6;font-weight:800;}" +
+      "#" + ROOT_ID + " .ag-guide-prompt .glabel small{color:#7fb8a3;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;letter-spacing:.06em;}" +
+      "#" + ROOT_ID + " .ag-guide-thumbs{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}" +
+      "#" + ROOT_ID + " .ag-guide-thumbs .gthumb{position:relative;width:46px;height:46px;border-radius:9px;overflow:hidden;border:1px solid rgba(0,245,160,.4);}" +
+      "#" + ROOT_ID + " .ag-guide-thumbs .gthumb img{width:100%;height:100%;object-fit:cover;display:block;}" +
+      "#" + ROOT_ID + " .ag-guide-thumbs .gthumb span{position:absolute;right:1px;bottom:0;font-size:13px;text-shadow:0 1px 3px #000;}" +
+      "#" + ROOT_ID + " .ag-guide-thumbs .gthumb.pending{opacity:.5;}" +
       "#" + ROOT_ID + " .ag-recbtn:disabled{background:rgba(0,245,160,.18);color:rgba(207,238,224,.7);box-shadow:none;cursor:default;}" +
       "#" + ROOT_ID + " .ag-recbtn.recording{background:#ff5a6a;color:#fff;}" +
       "#" + ROOT_ID + " .ag-capchip{flex:1 1 0;border:1px solid rgba(0,245,160,.4);background:rgba(0,245,160,.06);color:#d6ffee;font-size:14px;font-weight:700;padding:9px 0;cursor:pointer;}" +
@@ -446,8 +466,16 @@
             '<div style="position:relative;width:100%;max-width:520px;">' +
               '<video class="ag-cam" autoplay muted playsinline style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;"></video>' +
               '<button class="ag-cam-start" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:' + GREEN + ';color:' + INK + ';font-weight:800;border:0;border-radius:999px;padding:12px 22px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.4);white-space:nowrap;">🎥 ' + esc(T("Start camera", "开启摄像头")) + '</button>' +
+              '<div class="ag-countdown"></div>' +
             '</div>' +
-            '<button class="ag-cam-rec ag-recbtn" disabled>⏺ ' + esc(T("Record 8s turn-around", "录 8 秒转头")) + '</button>' +
+            // 引导式情绪采集(Vision Pro 式逐步): 逐个提示 → 倒数 → 自动抓帧 → 下一步; 可推倒重录。
+            '<div class="ag-guide">' +
+              '<div class="ag-guide-dots"></div>' +
+              '<div class="ag-guide-prompt">' + esc(T("Guided capture — we prompt each expression one at a time (~1.5s each). Finish one to move on; restart anytime.", "引导采集 —— 逐个提示每个表情(每个约 1.5 秒),完成一个进入下一个,随时可推倒重录。")) + '</div>' +
+              '<button class="ag-guide-go ag-recbtn" disabled>▶ ' + esc(T("Start guided capture", "开始引导采集")) + '</button>' +
+              '<button class="ag-guide-restart ag-recbtn" hidden style="background:transparent;color:#bff5e0;border:1px solid rgba(0,245,160,.45);margin-top:8px">↻ ' + esc(T("Restart", "推倒重录")) + '</button>' +
+              '<div class="ag-guide-thumbs"></div>' +
+            '</div>' +
           '</div>' +
           // 🎙 声音舞台 (波形/音量条)
           '<div class="ag-stage-audio" style="display:none">' +
@@ -461,7 +489,11 @@
         '<div class="ag-form-msg ag-empty"></div>' +
       '</div></div>';
     var vid = scroll.querySelector(".ag-cam"), capStatus = scroll.querySelector(".ag-cap-status");
-    var startBtn = scroll.querySelector(".ag-cam-start"), recBtn = scroll.querySelector(".ag-cam-rec"), voiceBtn = scroll.querySelector(".ag-voice-rec");
+    var startBtn = scroll.querySelector(".ag-cam-start"), voiceBtn = scroll.querySelector(".ag-voice-rec");
+    var recBtn = scroll.querySelector(".ag-guide-go");   // 引导采集的启动按钮(占用原 recBtn 启用位)
+    var countdownEl = scroll.querySelector(".ag-countdown");
+    var guideDots = scroll.querySelector(".ag-guide-dots"), guidePrompt = scroll.querySelector(".ag-guide-prompt");
+    var guideRestart = scroll.querySelector(".ag-guide-restart"), guideThumbs = scroll.querySelector(".ag-guide-thumbs");
     var videoStage = scroll.querySelector(".ag-stage-video"), audioStage = scroll.querySelector(".ag-stage-audio");
     var meterCanvas = scroll.querySelector(".ag-meter");
     var audioCtx = null, analyser = null, meterRAF = null;
@@ -623,7 +655,79 @@
       var iv = setInterval(function () { left--; if (left <= 0) { clearInterval(iv); } else tick(); }, 1000);
       setTimeout(function () { clearInterval(iv); try { if (mr.state !== "inactive") mr.stop(); } catch (_e) {} }, seconds * 1000);
     }
-    recBtn.onclick = function () { recordTrack("face_video", "face_video", { videoOnly: false }, 8, recBtn); };
+    // ── 引导式情绪采集(6 情绪通道 + 几何/活体 + 反派 + 自由鬼脸)──
+    var GUIDE_STEPS = [
+      { k: "front",    e: "🙂", en: "Face the camera · relaxed",   zh: "正对镜头 · 放松" },
+      { k: "left",     e: "⬅️", en: "Slowly turn head left",       zh: "慢慢向左转头" },
+      { k: "right",    e: "➡️", en: "Slowly turn head right",      zh: "慢慢向右转头" },
+      { k: "blink",    e: "😌", en: "Close your eyes",             zh: "闭上眼睛" },
+      { k: "calm",     e: "😐", en: "Neutral · calm",              zh: "中性 · 平静" },
+      { k: "joy",      e: "😄", en: "Laugh out loud",              zh: "哈哈大笑" },
+      { k: "grief",    e: "😢", en: "Grief · about to cry",        zh: "哭丧脸 · 快哭了" },
+      { k: "ignite",   e: "😠", en: "Anger · glare & roar",        zh: "怒目 · 怒吼" },
+      { k: "intimate", e: "🥰", en: "Tender, loving gaze",         zh: "深情凝视" },
+      { k: "resolve",  e: "😤", en: "Determined · defiant",        zh: "坚定 · 昂首挑衅" },
+      { k: "villain",  e: "😈", en: "Villain · cold sneer",        zh: "反派 · 冷笑 / 狞笑" },
+      { k: "grimace",  e: "🤪", en: "Freestyle · make a funny face", zh: "自由发挥 · 做个鬼脸" }
+    ];
+    var guide = { i: 0, frames: {}, uploads: [], running: false };
+    function grabFrame() {
+      var w = vid.videoWidth || 640, h = vid.videoHeight || 480;
+      var cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+      var cx = cv.getContext("2d"); if (!cx) return null;
+      try { cx.drawImage(vid, 0, 0, w, h); } catch (_e) { return null; }
+      try { return cv.toDataURL("image/jpeg", 0.85); } catch (_e) { return null; }
+    }
+    function uploadFrame(dataUrl) {
+      return fetch("/api/actors/capture-upload", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "photo", data_b64: dataUrl }) })
+        .then(function (r) { return r.json(); });
+    }
+    function renderGuide() {
+      guideDots.innerHTML = GUIDE_STEPS.map(function (s, idx) {
+        var cls = guide.frames[s.k] ? "gd done" : (idx === guide.i ? "gd cur" : "gd");
+        return '<span class="' + cls + '"></span>';
+      }).join("");
+      var s = GUIDE_STEPS[guide.i];
+      if (!s) { guidePrompt.innerHTML = "✅ " + esc(T("All captured — sign & submit below, or restart.", "采集完成 —— 到下方签约提交,或推倒重录。")); recBtn.style.display = "none"; return; }
+      guidePrompt.innerHTML = '<span class="gemoji">' + s.e + '</span><span class="glabel"><b>' + esc(T(s.en, s.zh)) + '</b><small>' + (guide.i + 1) + " / " + GUIDE_STEPS.length + '</small></span>';
+      recBtn.style.display = ""; recBtn.disabled = false;
+      recBtn.textContent = "📸 " + T("Capture this", "拍这张");
+    }
+    function captureStep() {
+      var s = GUIDE_STEPS[guide.i]; if (!s || countdownEl.dataset.busy === "1") return;
+      countdownEl.dataset.busy = "1"; recBtn.disabled = true;
+      var n = 3; countdownEl.style.display = "flex"; countdownEl.textContent = n;
+      var iv = setInterval(function () {
+        n--;
+        if (n > 0) { countdownEl.textContent = n; return; }
+        clearInterval(iv);
+        var url0 = grabFrame();
+        countdownEl.textContent = "📸"; countdownEl.classList.add("flash");
+        setTimeout(function () { countdownEl.classList.remove("flash"); countdownEl.style.display = "none"; countdownEl.dataset.busy = ""; }, 200);
+        if (url0) {
+          var thumb = document.createElement("div"); thumb.className = "gthumb pending";
+          thumb.innerHTML = '<img src="' + url0 + '"><span>' + s.e + '</span>'; guideThumbs.appendChild(thumb);
+          guide.frames[s.k] = "__up__";
+          var up = uploadFrame(url0).then(function (j) { if (j && j.ok) { guide.frames[s.k] = j.url; thumb.classList.remove("pending"); } else { guide.frames[s.k] = null; thumb.style.borderColor = "rgba(255,120,120,.6)"; } })
+            .catch(function () { guide.frames[s.k] = null; });
+          guide.uploads.push(up);
+        } else { guide.frames[s.k] = null; }
+        setTimeout(function () { guide.i++; if (guide.i >= GUIDE_STEPS.length) onGuideDone(); else renderGuide(); }, 550);
+      }, 750);
+    }
+    function onGuideDone() {
+      captured.guided_done = true;
+      captured.frames = guide.frames;
+      capStatus.textContent = "✅ " + T("Guided capture complete", "引导采集完成");
+      renderGuide();
+    }
+    function startGuide() {
+      if (!rpStream || !rpStream.active) { ensureStream().then(function (s) { if (s) startGuide(); }); return; }
+      if (!guide.running) { guide = { i: 0, frames: {}, uploads: [], running: true }; guideThumbs.innerHTML = ""; guideRestart.hidden = false; renderGuide(); return; }
+      captureStep();
+    }
+    recBtn.onclick = startGuide;
+    guideRestart.onclick = function () { guide = { i: 0, frames: {}, uploads: [], running: true }; guideThumbs.innerHTML = ""; captured.guided_done = false; captured.frames = null; renderGuide(); };
     voiceBtn.onclick = function () { recordTrack("speech", "speech", { audioOnly: true }, 8, voiceBtn); };
     var roleTax = wireRoleTaxonomy(scroll);
     var submit = scroll.querySelector(".ag-rp-submit"), msg = scroll.querySelector(".ag-form-msg");
@@ -634,10 +738,21 @@
       p.archetypes = roleTax.archetypes(); p.sub_roles = roleTax.subRoles();
       if (!p.name_en || String(p.name_en).trim().length < 2) { msg.textContent = T("Please enter your name.", "请填名字。"); return; }
       if (!p.grant_likeness) { msg.textContent = T("You must grant likeness consent.", "必须勾选授权肖像。"); return; }
-      if (!captured.face_video) { msg.textContent = T("Please capture your face first.", "请先采集你的脸。"); return; }
-      p.likeness_capture = { face_video_url: captured.face_video };
-      if (captured.speech) p.voice_capture = { speech_url: captured.speech, spoken_consent: consentScript(), consented_at: new Date().toISOString() };
-      submit.disabled = true; msg.textContent = "⏳ " + T("Signing…", "签约中…");
+      if (!captured.guided_done) { msg.textContent = T("Please finish the guided capture first (tap “Start guided capture”).", "请先完成引导采集(点「开始引导采集」)。"); return; }
+      submit.disabled = true; msg.textContent = "⏳ " + T("Finishing capture…", "整理采集中…");
+      // 等所有帧上传落地, 再签约(引导采集是异步上传的)。
+      Promise.all((guide.uploads || []).map(function (pr) { return pr.catch(function () {}); })).then(function () {
+        var frames = {}; Object.keys(guide.frames || {}).forEach(function (k) { var v = guide.frames[k]; if (v && v.indexOf && v.indexOf("http") === 0) frames[k] = v; });
+        if (!Object.keys(frames).length) { submit.disabled = false; msg.textContent = T("Capture didn't upload — check connection and retry.", "采集未上传成功——检查网络后重试。"); return; }
+        var liveRef = frames.front || frames.calm || frames[Object.keys(frames)[0]];
+        captured.face_video = liveRef;   // 活体参考用正脸帧
+        p.likeness_capture = { mode: "guided_frames", frames: frames, liveness_ref: liveRef };
+        if (captured.speech) p.voice_capture = { speech_url: captured.speech, spoken_consent: consentScript(), consented_at: new Date().toISOString() };
+        msg.textContent = "⏳ " + T("Signing…", "签约中…");
+        doSignup(p);
+      });
+    };
+    function doSignup(p) {
       fetch("/api/actors/real-person", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(p) })
         .then(function (r) { return r.json(); }).then(function (j) {
           if (j && j.ok) {

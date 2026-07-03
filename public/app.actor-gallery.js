@@ -350,7 +350,7 @@
     var row = wrap.querySelector(".ag-pbrow");
     // 多选胶囊轨道 → 平台 helper(multi + allKey 塌缩回 All)。它切换 .on, 下面 getter 读 .on。
     if (row && typeof window.cssosMakePillBar === "function") {
-      window.cssosMakePillBar(row, { mono: true, textColor: "light", multi: true, allKey: "__all__" });
+      window.cssosMakePillBar(row, { textColor: "light", multi: true, allKey: "__all__" });
     }
     return function () { return [].slice.call(wrap.querySelectorAll('.ag-mi.active:not([data-v="__all__"])')).map(function (b) { return b.getAttribute("data-v"); }); };
   }
@@ -409,7 +409,7 @@
     // 戏路多选 → 平台 helper(multi + allKey)。它管 .on 与"全选塌缩回 All"; 每次变更回调重建细分。
     var archRow = scope.querySelector(".ag-pbrow.ag-archrow");
     if (archRow && typeof window.cssosMakePillBar === "function") {
-      window.cssosMakePillBar(archRow, { mono: true, textColor: "light", multi: true, allKey: "__all__", onActivate: function () { rebuildSubs(); } });
+      window.cssosMakePillBar(archRow, { textColor: "light", multi: true, allKey: "__all__", onActivate: function () { rebuildSubs(); } });
     }
     return {
       archetypes: function () { if (allArch && allArch.classList.contains("active")) return []; return [].slice.call(scope.querySelectorAll('.ag-arch.active:not([data-arch="__all__"])')).map(function (b) { return b.getAttribute("data-arch"); }); },
@@ -1524,7 +1524,7 @@
     var topcap = el.querySelector(".ag-topcap");
     if (topcap && typeof window.cssosMakePillBar === "function") {
       agTopcapCtl = window.cssosMakePillBar(topcap, {
-        mono: true, textColor: "light", compact: true, activeKey: "signup",
+        textColor: "light", compact: true, activeKey: "signup",
         onActivate: function (key) {
           // 搜索段是 <input>, 点击即原生聚焦, 无需在此 focus(否则与 change 事件成回环卡住焦点)。
           if (key === "create") renderCreateForm();
@@ -1543,7 +1543,7 @@
     function applyFilterKey(key) { state.filter = key; resetRows(); renderGrid(); }
     if (typeof window.cssosMakePillBar === "function") {
       filterBar.classList.add("ag-pillbar");
-      window.cssosMakePillBar(filterBar, { mono: true, textColor: "light", activeKey: "all", onActivate: applyFilterKey });
+      window.cssosMakePillBar(filterBar, { textColor: "light", activeKey: "all", onActivate: applyFilterKey });
     } else {
       filterBar.querySelectorAll(".ag-chip").forEach(function (c) {
         c.onclick = function () {
@@ -1559,7 +1559,7 @@
       archBar.querySelectorAll(".ag-af").forEach(function (c) { c.setAttribute("data-pill-key", c.getAttribute("data-arch") || "all"); });
       if (typeof window.cssosMakePillBar === "function") {
         archBar.classList.add("ag-pillbar");
-        window.cssosMakePillBar(archBar, { mono: true, textColor: "light", activeKey: "all", onActivate: applyArch });
+        window.cssosMakePillBar(archBar, { textColor: "light", activeKey: "all", onActivate: applyArch });
       } else {
         archBar.querySelectorAll(".ag-af").forEach(function (c) {
           c.onclick = function () {

@@ -73,6 +73,9 @@
       "#" + ROOT_ID + " .ag-hero-name{font-size:30px;font-weight:800;}" +
       "#" + ROOT_ID + " .ag-hero-name small{font-size:16px;color:rgba(207,238,224,.7);font-weight:500;margin-left:10px;}" +
       "#" + ROOT_ID + " .ag-tags{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0;}" +
+      "#" + ROOT_ID + " .ag-stats{display:flex;flex-wrap:wrap;gap:8px 18px;margin:10px 0 2px;font-size:13px;color:#9ec3b4;}" +
+      "#" + ROOT_ID + " .ag-stats span{display:inline-flex;align-items:center;gap:5px;}" +
+      "#" + ROOT_ID + " .ag-stats b{color:#eafff6;font-weight:800;font-variant-numeric:tabular-nums;}" +
       "#" + ROOT_ID + " .ag-tag{background:rgba(0,245,160,.12);border:1px solid rgba(0,245,160,.3);color:#bff5e0;border-radius:999px;padding:4px 12px;font-size:12px;}" +
       "#" + ROOT_ID + " .ag-persona{color:rgba(232,255,245,.88);margin:10px 0;}" +
       "#" + ROOT_ID + " .ag-cast{background:" + GREEN + ";color:" + INK + ";border:none;border-radius:999px;padding:12px 26px;font-size:16px;font-weight:800;cursor:pointer;margin-top:8px;box-shadow:0 0 20px rgba(0,245,160,.35);}" +
@@ -138,6 +141,13 @@
       "#" + ROOT_ID + " .ag-recbtn:disabled{opacity:.5;cursor:default;}" +
       // 倒数/快门 overlay(压在摄像头预览上)
       "#" + ROOT_ID + " .ag-countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:96px;font-weight:900;color:#fff;text-shadow:0 4px 30px rgba(0,0,0,.6);background:rgba(0,0,0,.18);border-radius:14px;pointer-events:none;}" +
+      // Vision Pro 式面部对齐圈
+      "#" + ROOT_ID + " .ag-facering{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);width:54%;aspect-ratio:3/4;border:2.5px dashed rgba(0,245,160,.55);border-radius:50%;pointer-events:none;display:flex;align-items:flex-end;justify-content:center;transition:border-color .2s,box-shadow .2s;}" +
+      "#" + ROOT_ID + " .ag-facering span{transform:translateY(150%);font-size:12px;color:#bff5e0;background:rgba(0,0,0,.45);padding:2px 10px;border-radius:999px;white-space:nowrap;}" +
+      "#" + ROOT_ID + " .ag-facering.aligned{border-style:solid;border-color:" + GREEN + ";box-shadow:0 0 26px rgba(0,245,160,.5);}" +
+      "#" + ROOT_ID + " .ag-guide-auto{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#9ec3b4;margin-bottom:10px;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-guide-auto input{width:16px;height:16px;accent-color:" + GREEN + ";}" +
+      "#" + ROOT_ID + " .ag-guide-thumbs .gthumb .gretake{position:absolute;left:1px;top:1px;background:rgba(0,0,0,.6);color:#bff5e0;border:0;border-radius:7px;font-size:12px;line-height:1;padding:2px 4px;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-countdown.flash{background:#fff;color:#fff;}" +
       // 引导采集
       "#" + ROOT_ID + " .ag-guide{max-width:520px;margin-top:12px;}" +
@@ -453,6 +463,7 @@
           '<label class="ag-check"><input type="checkbox" data-k="grant_likeness" checked> ' + esc(T("Use my likeness (face) as a digital actor", "将我的肖像(脸)用作数字演员")) + '</label>' +
           '<label class="ag-check"><input type="checkbox" data-k="grant_voice"> ' + esc(T("Use my speaking voice", "使用我的说话声音")) + '</label>' +
           '<label class="ag-check"><input type="checkbox" data-k="grant_singing"> ' + esc(T("Use my singing voice", "使用我的歌唱声音")) + '</label>' +
+          '<div style="margin-top:8px;font-size:12px;color:#8fe9c8;line-height:1.5">ℹ️ ' + esc(T("Likeness is you · voice is AI-generated (a clone trained from your sample). Your face and voice are never sold or reused for anyone else.", "形象为本人 · 声线为 AI 生成(基于你的样本克隆的声音)。你的脸和声音绝不会被出售或用于他人。")) + '</div>' +
         '</div>' +
         // 采集: 两胶囊(🎥 面孔 | 🎙 声音), 各自一个舞台
         '<div class="ag-capture">' +
@@ -467,12 +478,14 @@
             '<div style="position:relative;width:100%;max-width:520px;">' +
               '<video class="ag-cam" autoplay muted playsinline style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;background:#000;border:1px solid rgba(0,245,160,.4);display:block;"></video>' +
               '<button class="ag-cam-start" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:' + GREEN + ';color:' + INK + ';font-weight:800;border:0;border-radius:999px;padding:12px 22px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.4);white-space:nowrap;">🎥 ' + esc(T("Start camera", "开启摄像头")) + '</button>' +
+              '<div class="ag-facering" style="display:none"><span>' + esc(T("Fit your face in the ring", "把脸对进圈里")) + '</span></div>' +
               '<div class="ag-countdown"></div>' +
             '</div>' +
             // 引导式情绪采集(Vision Pro 式逐步): 逐个提示 → 倒数 → 自动抓帧 → 下一步; 可推倒重录。
             '<div class="ag-guide">' +
               '<div class="ag-guide-dots"></div>' +
-              '<div class="ag-guide-prompt">' + esc(T("Guided capture — we prompt each expression one at a time (~1.5s each). Finish one to move on; restart anytime.", "引导采集 —— 逐个提示每个表情(每个约 1.5 秒),完成一个进入下一个,随时可推倒重录。")) + '</div>' +
+              '<div class="ag-guide-prompt">' + esc(T("Guided capture — we prompt each expression one at a time (~1.5s each). Finish one to move on; retake any shot or restart.", "引导采集 —— 逐个提示每个表情(每个约 1.5 秒),完成一个进入下一个,可单张重拍或整体重录。")) + '</div>' +
+              '<label class="ag-guide-auto"><input type="checkbox" checked> ' + esc(T("Auto-capture when your face is in the ring", "脸对进圈里就自动拍")) + '</label>' +
               '<button class="ag-guide-go ag-recbtn" disabled>▶ ' + esc(T("Start guided capture", "开始引导采集")) + '</button>' +
               '<button class="ag-guide-restart ag-recbtn" hidden style="background:transparent;color:#bff5e0;border:1px solid rgba(0,245,160,.45);margin-top:8px">↻ ' + esc(T("Restart", "推倒重录")) + '</button>' +
               '<div class="ag-guide-thumbs"></div>' +
@@ -673,7 +686,9 @@
       { k: "villain",  e: "😈", en: "Villain · cold sneer",        zh: "反派 · 冷笑 / 狞笑",  wen: "So you can also play the bad guy.", wzh: "让你也能演反派坏人。" },
       { k: "grimace",  e: "🤪", en: "Freestyle · make a funny face", zh: "自由发挥 · 做个鬼脸", wen: "A spontaneous face is very hard for AI to fake — it protects the real you.", wzh: "即兴鬼脸 AI 极难伪造,保护真实的你。" }
     ];
-    var guide = { i: 0, frames: {}, uploads: [], running: false };
+    var guide = { i: 0, frames: {}, uploads: [], running: false, auto: true, autoTimer: null };
+    var faceRing = scroll.querySelector(".ag-facering"), autoToggle = scroll.querySelector(".ag-guide-auto input");
+    if (autoToggle) autoToggle.onchange = function () { guide.auto = autoToggle.checked; if (guide.running && guide.auto && GUIDE_STEPS[guide.i]) armStep(); else clearAuto(); };
     function grabFrame() {
       var w = vid.videoWidth || 640, h = vid.videoHeight || 480;
       var cv = document.createElement("canvas"); cv.width = w; cv.height = h;
@@ -685,52 +700,93 @@
       return fetch("/api/actors/capture-upload", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "photo", data_b64: dataUrl }) })
         .then(function (r) { return r.json(); });
     }
+    function clearAuto() { if (guide.autoTimer) { clearInterval(guide.autoTimer); clearTimeout(guide.autoTimer); guide.autoTimer = null; } }
+    function persistFrame(s, dataUrl, thumb) {
+      guide.frames[s.k] = "__up__";
+      var up = uploadFrame(dataUrl).then(function (j) { if (j && j.ok) { guide.frames[s.k] = j.url; thumb.classList.remove("pending"); } else { guide.frames[s.k] = null; thumb.style.borderColor = "rgba(255,120,120,.6)"; } })
+        .catch(function () { guide.frames[s.k] = null; });
+      guide.uploads.push(up);
+    }
+    function wireRetake(thumb, s) { var rb = thumb.querySelector(".gretake"); if (rb) rb.onclick = function (ev) { ev.stopPropagation(); recapture(s, thumb); }; }
+    // 单张重拍: 只重录这一步(不动其它已拍的), 覆盖同一缩略图与 frames[key]。
+    function recapture(s, thumb) {
+      clearAuto();
+      runCountdown(function (url0) { if (!url0) return; var im = thumb.querySelector("img"); if (im) im.src = url0; thumb.classList.add("pending"); persistFrame(s, url0, thumb); });
+    }
+    // 共用倒数+快门(3-2-1 → 抓帧), cb(dataUrl)。
+    function runCountdown(cb) {
+      if (countdownEl.dataset.busy === "1") return; countdownEl.dataset.busy = "1"; recBtn.disabled = true;
+      var n = 3; countdownEl.style.display = "flex"; countdownEl.textContent = n;
+      var iv = setInterval(function () {
+        n--; if (n > 0) { countdownEl.textContent = n; return; }
+        clearInterval(iv);
+        var url0 = grabFrame();
+        countdownEl.textContent = "📸"; countdownEl.classList.add("flash");
+        setTimeout(function () { countdownEl.classList.remove("flash"); countdownEl.style.display = "none"; countdownEl.dataset.busy = ""; recBtn.disabled = false; }, 200);
+        cb(url0);
+      }, 750);
+    }
     function renderGuide() {
       guideDots.innerHTML = GUIDE_STEPS.map(function (s, idx) {
         var cls = guide.frames[s.k] ? "gd done" : (idx === guide.i ? "gd cur" : "gd");
         return '<span class="' + cls + '"></span>';
       }).join("");
       var s = GUIDE_STEPS[guide.i];
-      if (!s) { guidePrompt.innerHTML = "✅ " + esc(T("All captured — sign & submit below, or restart.", "采集完成 —— 到下方签约提交,或推倒重录。")); recBtn.style.display = "none"; return; }
+      if (!s) { guidePrompt.innerHTML = "✅ " + esc(T("All captured — retake any shot above, or sign & submit below.", "采集完成 —— 可点上方任意缩略图重拍,或到下方签约提交。")); recBtn.style.display = "none"; if (faceRing) faceRing.style.display = "none"; clearAuto(); return; }
       guidePrompt.innerHTML = '<span class="gemoji">' + s.e + '</span><span class="glabel"><b>' + esc(T(s.en, s.zh)) + '</b><em>' + esc(T(s.wen, s.wzh)) + '</em><small>' + (guide.i + 1) + " / " + GUIDE_STEPS.length + '</small></span>';
-      recBtn.style.display = ""; recBtn.disabled = false;
-      recBtn.textContent = "📸 " + T("Capture this", "拍这张");
+      recBtn.style.display = ""; recBtn.disabled = false; recBtn.textContent = "📸 " + T("Capture this", "拍这张");
+      if (faceRing) faceRing.style.display = "";
+      armStep();
+    }
+    // 自动抓拍: 有 FaceDetector(Android/部分)时脸对齐即自动拍; 没有(iOS/webview)则 2.6s 后自动拍。手点「拍这张」随时可覆盖。
+    function armStep() {
+      clearAuto();
+      var s = GUIDE_STEPS[guide.i]; if (!s) return;
+      if (faceRing) faceRing.classList.remove("aligned");
+      if (!guide.auto) return;
+      if (window.FaceDetector) {
+        var det = null; try { det = new window.FaceDetector({ maxDetectedFaces: 1, fastMode: true }); } catch (_e) { det = null; }
+        if (det) {
+          var stable = 0;
+          guide.autoTimer = setInterval(function () {
+            det.detect(vid).then(function (faces) {
+              if (faces && faces.length) {
+                var bb = faces[0].boundingBox || {}, ok = (bb.width || 0) > (vid.videoWidth || 640) * 0.24;
+                if (faceRing) faceRing.classList.toggle("aligned", ok);
+                if (ok) { stable++; if (stable >= 3) { clearAuto(); captureStep(); } } else stable = 0;
+              } else { if (faceRing) faceRing.classList.remove("aligned"); stable = 0; }
+            }).catch(function () {});
+          }, 350);
+          return;
+        }
+      }
+      guide.autoTimer = setTimeout(function () { captureStep(); }, 2600);
     }
     function captureStep() {
-      var s = GUIDE_STEPS[guide.i]; if (!s || countdownEl.dataset.busy === "1") return;
-      countdownEl.dataset.busy = "1"; recBtn.disabled = true;
-      var n = 3; countdownEl.style.display = "flex"; countdownEl.textContent = n;
-      var iv = setInterval(function () {
-        n--;
-        if (n > 0) { countdownEl.textContent = n; return; }
-        clearInterval(iv);
-        var url0 = grabFrame();
-        countdownEl.textContent = "📸"; countdownEl.classList.add("flash");
-        setTimeout(function () { countdownEl.classList.remove("flash"); countdownEl.style.display = "none"; countdownEl.dataset.busy = ""; }, 200);
+      clearAuto();
+      var s = GUIDE_STEPS[guide.i]; if (!s) return;
+      runCountdown(function (url0) {
         if (url0) {
           var thumb = document.createElement("div"); thumb.className = "gthumb pending";
-          thumb.innerHTML = '<img src="' + url0 + '"><span>' + s.e + '</span>'; guideThumbs.appendChild(thumb);
-          guide.frames[s.k] = "__up__";
-          var up = uploadFrame(url0).then(function (j) { if (j && j.ok) { guide.frames[s.k] = j.url; thumb.classList.remove("pending"); } else { guide.frames[s.k] = null; thumb.style.borderColor = "rgba(255,120,120,.6)"; } })
-            .catch(function () { guide.frames[s.k] = null; });
-          guide.uploads.push(up);
-        } else { guide.frames[s.k] = null; }
+          thumb.innerHTML = '<img src="' + url0 + '"><span>' + s.e + '</span><button class="gretake" title="' + esc(T("Retake", "重拍")) + '">↻</button>';
+          guideThumbs.appendChild(thumb); wireRetake(thumb, s); persistFrame(s, url0, thumb);
+        } else guide.frames[s.k] = null;
         setTimeout(function () { guide.i++; if (guide.i >= GUIDE_STEPS.length) onGuideDone(); else renderGuide(); }, 550);
-      }, 750);
+      });
     }
     function onGuideDone() {
-      captured.guided_done = true;
-      captured.frames = guide.frames;
+      captured.guided_done = true; captured.frames = guide.frames;
       capStatus.textContent = "✅ " + T("Guided capture complete", "引导采集完成");
       renderGuide();
     }
+    function resetGuide() { clearAuto(); guide = { i: 0, frames: {}, uploads: [], running: true, auto: autoToggle ? autoToggle.checked : true, autoTimer: null }; guideThumbs.innerHTML = ""; captured.guided_done = false; captured.frames = null; }
     function startGuide() {
       if (!rpStream || !rpStream.active) { ensureStream().then(function (s) { if (s) startGuide(); }); return; }
-      if (!guide.running) { guide = { i: 0, frames: {}, uploads: [], running: true }; guideThumbs.innerHTML = ""; guideRestart.hidden = false; renderGuide(); return; }
+      if (!guide.running) { resetGuide(); guideRestart.hidden = false; renderGuide(); return; }
       captureStep();
     }
     recBtn.onclick = startGuide;
-    guideRestart.onclick = function () { guide = { i: 0, frames: {}, uploads: [], running: true }; guideThumbs.innerHTML = ""; captured.guided_done = false; captured.frames = null; renderGuide(); };
+    guideRestart.onclick = function () { resetGuide(); renderGuide(); };
     voiceBtn.onclick = function () { recordTrack("speech", "speech", { audioOnly: true }, 8, voiceBtn); };
     var roleTax = wireRoleTaxonomy(scroll);
     var submit = scroll.querySelector(".ag-rp-submit"), msg = scroll.querySelector(".ag-form-msg");
@@ -883,6 +939,12 @@
   function shareActor(a) {
     var name = a.name_en || a.name_zh || "Digital Actor";
     var url = "https://cssstudio.app/a/" + encodeURIComponent(a.actor_id);
+    // 分享计数 +1(点分享即算, 不阻断)。同步更新详情里的 ↗ 数字。
+    fetch("/api/actors/" + encodeURIComponent(a.actor_id) + "/share", { method: "POST", credentials: "include" })
+      .then(function (r) { return r.json(); }).then(function (j) {
+        var root = document.getElementById(ROOT_ID);
+        if (j && j.ok && root) { var sb = root.querySelector('.ag-stats span[title*="hare"] b, .ag-stats span[title*="分享"] b'); if (sb) sb.textContent = j.share_count; }
+      }).catch(function () {});
     var slg = sloganOf(a);
     var title = (slg ? name + " — " + slg : name + " · Digital Actor");
     // 带上数字演员的自荐/自我介绍(persona + 声线 + 风格 + CTA), 写长写足; 分享面板按各平台字数上限自动截取。
@@ -1054,6 +1116,7 @@
         if (!a) { inline.innerHTML = '<div class="ag-empty">' + esc(T("Actor not found.", "未找到该演员。")) + '</div>'; return; }
         var tags = [].concat(a.appearance_tags || [], a.tags || []).filter(Boolean).slice(0, 8);
         var mvs = d.mvs || [];
+        var counts = d.counts || {};
         // 详情【接着上一行】显示在同一框里, 不重复姓名/风格。
         inline.innerHTML =
           '<div class="ag-sub" style="margin-top:8px">' + (a.origin_type === "civilization" ? "🏛 " + esc(T("Legend", "文明演员")) : "✨ " + esc(T("Original", "原创合成"))) +
@@ -1063,6 +1126,11 @@
             (a.is_premium ? '<div class="ag-sub" style="font-size:12px;opacity:.75">' + esc(T("Villain roles +30% (harder to play, scene-stealers)", "反派角色 +30%(更难演、更抢戏)")) + '</div>' : "") +
           (a.persona ? '<div class="ag-persona">' + esc(a.persona) + '</div>' : "") +
           (tags.length ? '<div class="ag-tags">' + tags.map(function (t) { return '<span class="ag-tag">' + esc(t) + '</span>'; }).join("") + '</div>' : "") +
+          '<div class="ag-stats">' +
+            '<span title="' + esc(T("Works performed in", "出演作品数")) + '">🎬 <b>' + (counts.appearances || 0) + '</b> ' + esc(T("works", "部")) + '</span>' +
+            '<span title="' + esc(T("Comments", "评论数")) + '">💬 <b>' + (counts.comments || 0) + '</b> ' + esc(T("comments", "评论")) + '</span>' +
+            '<span title="' + esc(T("Shares", "被分享数")) + '">↗ <b>' + (counts.shares || 0) + '</b> ' + esc(T("shares", "分享")) + '</span>' +
+          '</div>' +
           '<div class="ag-showcase">' +
             '<button class="ag-sc-btn" data-seg="intro">▶ ' + esc(T("Intro", "自我介绍")) + '</button>' +
             '<button class="ag-sc-btn" data-seg="hero">😇 ' + esc(T("Hero", "正派")) + '</button>' +

@@ -42877,10 +42877,34 @@ app.get("/api/actors/:id/codex", async (req, res) => {
           ORDER BY popularity_score DESC LIMIT 12`,
         [actor.civilization, id]),
     );
-    return res.json({ ok: true, data: { actor, mvs: mvsR.rows, related_actors: relR.rows } });
+    // 计数: 出演作品数 / 评论数 / 分享数(分享数取列)。
+    const cnt = await withClient((c) => c.query<{ appearances: string; comments: string }>(
+      `SELECT
+         (SELECT COUNT(DISTINCT work_id) FROM actor_castings WHERE actor_id=$1) AS appearances,
+         (SELECT COUNT(*) FROM actor_comments WHERE actor_id=$1 AND hidden=false) AS comments`, [id]));
+    const counts = {
+      appearances: Number(cnt.rows[0]?.appearances || 0),
+      comments: Number(cnt.rows[0]?.comments || 0),
+      shares: Number((actor as any).share_count || 0),
+      casts: Number((actor as any).cast_count || 0),
+    };
+    return res.json({ ok: true, data: { actor, mvs: mvsR.rows, related_actors: relR.rows, counts } });
   } catch (err) {
     console.warn("[actors] codex failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "CODEX_FAILED" });
+  }
+});
+
+// 分享计数自增(用户点分享即 +1)。不需登录。
+app.post("/api/actors/:id/share", async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    const r = await withClient((c) => c.query<{ share_count: number }>(
+      `UPDATE digital_actors SET share_count=share_count+1 WHERE actor_id=$1 RETURNING share_count`, [id]));
+    return res.json({ ok: true, share_count: Number(r.rows[0]?.share_count || 0) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "SHARE_PING_FAILED" });
   }
 });
 

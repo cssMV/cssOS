@@ -2,8 +2,13 @@
 # 真人 → 可上架数字演员 · 管线技术方案
 
 > Capture · Face · Voice · Perform  ｜ 采集 · 造脸 · 克隆声 · 出演
-> Status: v0.2. **Decision (Jing 2026-07-03): the real-person actor launch WAITS for the person's own (cloned) singing voice — no "borrowed voice" launch.** So the public launch is GPU-gated. Build all non-GPU prep now (capture, frames→face, casting wiring, counts) so everything is ready and we simply wait for GPU. The "voice is AI-generated" label still applies because the own-voice is an AI clone trained from the user's sample.
-> 状态:v0.2。**决策(Jing 2026-07-03):真人演员上线要**等本人(克隆的)真嗓唱歌**,不上"借声"版。** 因此公开上线由 GPU 把关。先把所有不依赖 GPU 的前期做好(采集、帧→脸、选角接线、计数),万事俱备等 GPU。"声线为 AI 生成"的标注依然成立 —— 本人真嗓也是基于样本的 AI 克隆。
+> Status: v0.3. **Decision (Jing 2026-07-03): ship v1 now with borrowed-voice lip-sync (viewers see "the person singing"; the voice is a generic AI voice). When own-voice clone (GPU) is ready, ship it as a second mode — the two coexist, and the caster picks the voice mode per work (like a quality tier).** So launch is NOT GPU-gated; own-voice is an upgrade added later.
+> 状态:v0.3。**决策(Jing 2026-07-03):v1 现在就上"借声对口型"(观众看"本人在唱",声是通用 AI 声)。等本人真嗓克隆(GPU)就绪,作为第二档上线 —— 两版并存,选角时按作品选声线档(像清晰度档位)。** 因此上线不由 GPU 把关;本人真嗓是后续升级。
+
+## Voice modes (coexist) ｜ 声线双档(并存)
+- **AI voice ｜ AI 声线** — generic AI voice + lip-sync. Instant, no GPU. **v1 default, always available.** ｜ 通用 AI 声 + 对口型。即时、无 GPU。**v1 默认、始终可用。**
+- **Own voice ｜ 本人真嗓** — RVC clone of the actor's own singing voice. Requires that actor to have a trained voice print (GPU). **v2, opt-in per cast.** ｜ 该演员本人歌声的 RVC 克隆。需该演员已训练声纹(GPU)。**v2、选角时可选。**
+- Cast UI will offer a voice-mode picker; "Own voice" is greyed until the actor's voice print exists. Both modes keep the label *"Likeness is you · voice is AI-generated."* ｜ 选角界面给声线档选择器;"本人真嗓"在声纹就绪前置灰。两档都保留标注*"形象为本人 · 声线为 AI 生成"*。
 
 Architecture constitution: **self-hosted engines + kie as the only third-party gateway; all outputs to R2; generation always paid by the user.**
 架构宪法:**自家引擎 + kie 唯一第三方网关;产出全落 R2;生成永远用户付。**

@@ -492,10 +492,43 @@
       }
     }
     // 一次性拿流(视频+音频), 幂等; 面孔预览 + 声音波形都靠这一条流。
+    function showStartAgain(label) { if (startBtn) { startBtn.style.display = ""; startBtn.textContent = "🎥 " + (label || T("Start camera", "开启摄像头")); } }
     function ensureStream() {
       if (rpStream && rpStream.active) return Promise.resolve(rpStream);
+      // 某些内置浏览器(如 Facebook/微信 App 内)根本不给 getUserMedia → 别卡在"开启中"。
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        capStatus.textContent = "⚠️ " + T("This browser can't access the camera. Open cssstudio.app in Safari/Chrome or the CSS Studio app.", "此浏览器无法访问摄像头。请在 Safari/Chrome 或 CSS Studio App 里打开 cssstudio.app。");
+        showStartAgain(T("Not supported here", "此环境不支持"));
+        return Promise.resolve(null);
+      }
       capStatus.textContent = T("Opening camera & mic…", "正在开启摄像头和麦克风…");
-      return navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true }).then(function (s) {
+      if (startBtn) startBtn.style.display = "none";
+      // 超时兜底: getUserMedia 若 12s 不返回(权限对话框没弹/环境卡死)→ 不再永远"开启中"。
+      var timedOut = false;
+      var timeout = new Promise(function (resolve) { setTimeout(function () { timedOut = true; resolve("__timeout__"); }, 12000); });
+      var gum = navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true });
+      return Promise.race([gum, timeout]).then(function (s) {
+        if (s === "__timeout__") {
+          capStatus.textContent = "⚠️ " + T("Camera didn't respond. Allow camera/mic access, or open in Safari/the app, then tap to retry.", "摄像头无响应。请允许摄像头/麦克风权限,或在 Safari/App 里打开,然后点按重试。");
+          showStartAgain(T("Retry", "重试"));
+          gum.then(function (late) { try { late.getTracks().forEach(function (t) { t.stop(); }); } catch (_e) {} }).catch(function () {}); // 迟到的流别泄漏
+          return null;
+        }
+        return handleStream(s);
+      }).catch(function (err) {
+        if (timedOut) return null;
+        var nm = (err && err.name) || "";
+        capStatus.textContent = (nm === "NotAllowedError")
+          ? T("Camera/mic permission denied — allow it and tap to retry.", "摄像头/麦克风权限被拒——请允许后点按重试。")
+          : (nm === "NotReadableError")
+            ? T("Camera is in use by another app. Close it and retry.", "摄像头正被别的 App 占用,关掉再试。")
+            : T("Camera/mic permission denied.", "摄像头/麦克风权限被拒。") + (nm ? " (" + nm + ")" : "");
+        showStartAgain(T("Retry", "重试"));
+        return null;
+      });
+    }
+    function handleStream(s) {
+      return Promise.resolve(s).then(function (s) {
         rpStream = s; vid.srcObject = s; vid.muted = true;
         vid.setAttribute("data-live-capture", "1");   // 全局媒体裁判跳过
         vid.onloadedmetadata = function () { try { vid.play(); } catch (_e) {} };

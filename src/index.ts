@@ -42583,6 +42583,44 @@ const SEED_DIGITAL_ACTORS: Array<Record<string, unknown>> = [
     style_descriptor: "latin pop reggaeton", tags: ["latin","pop","male"], is_premium: false, cast_price_cents: 0, curation_tier: "B" },
 ];
 
+// CSSOS_WAVE_116 — 经典历史/神话名角(带戏路)。马克思=思想家(sage); 反派全部取公认历史/神话人物,
+//   刻意避开 20 世纪种族灭绝独裁者与在世/宗教敏感人物(上架 + 品牌安全)。cover 留空, 由 atelier 事后回填。
+const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
+  { actor_id: "act-legend-marx", name_zh: "卡尔·马克思", name_en: "Karl Marx", name_native: "Karl Marx", civilization: "近代欧洲",
+    persona: "革命哲学家与政治经济学家, 《资本论》作者, 犀利的辩证思想家, 标志性大胡子", gender: "male",
+    style_descriptor: "romantic-era orchestral gravitas", voice_style: "deep resonant orator", tags: ["thinker","philosophy","legend"], archetypes: ["sage"] },
+  { actor_id: "act-legend-zhouwang", name_zh: "商纣王", name_en: "King Zhou of Shang", name_native: "帝辛", civilization: "中华文明",
+    persona: "商朝末代暴君, 荒淫残暴, 亡国之主", gender: "male",
+    style_descriptor: "ancient court style / bronze bells / ominous", voice_style: "imperious bass", tags: ["tyrant","legend"], archetypes: ["villain","ruler"] },
+  { actor_id: "act-legend-daji", name_zh: "妲己", name_en: "Daji", name_native: "妲己", civilization: "中华神话",
+    persona: "祸国妖姬, 九尾狐化身, 妖冶惑主", gender: "female",
+    style_descriptor: "seductive guqin / eerie / bewitching", voice_style: "silken sinister alto", tags: ["femme-fatale","myth","legend"], archetypes: ["villain","charmer","enigma"] },
+  { actor_id: "act-legend-qinhui", name_zh: "秦桧", name_en: "Qin Hui", name_native: "秦檜", civilization: "中华文明",
+    persona: "南宋奸相, 陷害忠良, 城府深沉", gender: "male",
+    style_descriptor: "cold court intrigue / low strings", voice_style: "smooth calculating baritone", tags: ["schemer","legend"], archetypes: ["villain","enigma"] },
+  { actor_id: "act-legend-dongzhuo", name_zh: "董卓", name_en: "Dong Zhuo", name_native: "董卓", civilization: "中华文明",
+    persona: "东汉末年暴虐军阀, 挟天子以令诸侯", gender: "male",
+    style_descriptor: "brutal war drums / heavy brass", voice_style: "booming brutal bass", tags: ["warlord","legend"], archetypes: ["villain","ruler"] },
+  { actor_id: "act-legend-nero", name_zh: "尼禄", name_en: "Nero", name_native: "Nero", name_latin: "Nero", civilization: "古罗马文明",
+    persona: "罗马暴君皇帝, 焚城传说, 自负而残忍", gender: "male",
+    style_descriptor: "decadent roman lyre / grand / cruel", voice_style: "haughty theatrical tenor", tags: ["tyrant","legend"], archetypes: ["villain","ruler"] },
+  { actor_id: "act-legend-caligula", name_zh: "卡利古拉", name_en: "Caligula", name_native: "Caligula", name_latin: "Caligula", civilization: "古罗马文明",
+    persona: "疯狂罗马皇帝, 暴虐无常, 荒诞恐怖", gender: "male",
+    style_descriptor: "unhinged roman brass / dissonant", voice_style: "erratic menacing tenor", tags: ["mad-emperor","legend"], archetypes: ["villain","enigma"] },
+  { actor_id: "act-legend-rasputin", name_zh: "拉斯普京", name_en: "Rasputin", name_native: "Григорий Распутин", civilization: "近代欧洲",
+    persona: "帝俄神秘僧侣, 蛊惑宫廷, 目光摄人", gender: "male",
+    style_descriptor: "dark orthodox chant / hypnotic", voice_style: "hypnotic deep chant", tags: ["mystic","legend"], archetypes: ["enigma","villain"] },
+  { actor_id: "act-legend-vlad", name_zh: "弗拉德三世", name_en: "Vlad the Impaler", name_native: "Vlad Țepeș", civilization: "近代欧洲",
+    persona: "瓦拉几亚穿刺公, 冷酷嗜血的战争领主", gender: "male",
+    style_descriptor: "gothic dread strings / martial", voice_style: "cold merciless baritone", tags: ["dread-lord","legend"], archetypes: ["villain","action"] },
+  { actor_id: "act-legend-medea", name_zh: "美狄亚", name_en: "Medea", name_native: "Μήδεια", civilization: "古希腊神话",
+    persona: "复仇的女巫公主, 爱极成恨, 悲烈决绝", gender: "female",
+    style_descriptor: "greek tragic lyre / vengeful / mournful", voice_style: "fierce tragic soprano", tags: ["sorceress","myth","legend"], archetypes: ["villain","tragic"] },
+  { actor_id: "act-legend-loki", name_zh: "洛基", name_en: "Loki", name_native: "Loki", civilization: "北欧神话",
+    persona: "北欧诡计之神, 亦敌亦友, 变幻莫测的捣蛋者", gender: "androgynous",
+    style_descriptor: "mischievous nordic strings / shifting", voice_style: "sly playful tenor", tags: ["trickster","myth","legend"], archetypes: ["antihero","enigma","comic"] },
+];
+
 let digitalActorsSeedLoaded = false;
 async function seedDigitalActorsOnce() {
   if (digitalActorsSeedLoaded || !DATABASE_URL) return;
@@ -42639,6 +42677,24 @@ async function seedDigitalActorsOnce() {
             updated_at = now()`,
       ),
     );
+    // ③ 经典历史/神话名角(马克思=思想家 + 一批公认反派), 带戏路。cover 留空由 atelier 回填。
+    for (const a of SEED_LEGEND_ACTORS) {
+      const facePrompt = `a dignified, historically or mythologically-inspired original interpretation of ${a.name_en}, ${a.civilization} setting, period-accurate attire, cinematic portrait, consistent identity across shots (an artistic interpretation, not a real living person)`;
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO digital_actors (
+              actor_id, name_zh, name_en, name_native, name_latin, origin_type, civilization, persona,
+              gender, face_prompt, voice_style, style_descriptor, tags, archetypes,
+              is_premium, cast_price_cents, license_model, source_status, curation_tier, popularity_score
+           ) VALUES ($1,$2,$3,$4,$5,'civilization',$6,$7,$8,$9,$10,$11,$12,$13,true,199,'per_cast','curated','A',60)
+           ON CONFLICT (actor_id) DO UPDATE SET
+              persona=EXCLUDED.persona, style_descriptor=EXCLUDED.style_descriptor,
+              archetypes=EXCLUDED.archetypes, updated_at=now()`,
+          [a.actor_id, a.name_zh, a.name_en, a.name_native || null, a.name_latin || null, a.civilization, a.persona,
+           a.gender, facePrompt, a.voice_style, a.style_descriptor, a.tags, a.archetypes],
+        ),
+      );
+    }
     digitalActorsSeedLoaded = true;
   } catch (err) {
     console.warn("[digital-actors] seed failed:", (err as Error)?.message || err);

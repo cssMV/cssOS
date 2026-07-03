@@ -161,6 +161,7 @@
       "#" + ROOT_ID + " .ag-guide-prompt .glabel b{display:block;font-size:18px;color:#eafff6;font-weight:800;}" +
       "#" + ROOT_ID + " .ag-guide-prompt .glabel em{display:block;font-style:normal;font-size:12.5px;color:#8fe9c8;margin:2px 0 3px;line-height:1.35;}" +
       "#" + ROOT_ID + " .ag-guide-prompt .glabel small{color:#7fb8a3;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;letter-spacing:.06em;}" +
+      "#" + ROOT_ID + " .ag-guide-prompt .glabel .gstepc{display:inline-block;font-family:ui-monospace,Menlo,monospace;font-size:11px;font-weight:700;letter-spacing:.06em;color:" + INK + ";background:" + GREEN + ";border-radius:999px;padding:2px 9px;margin-bottom:4px;}" +
       "#" + ROOT_ID + " .ag-guide-thumbs{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}" +
       "#" + ROOT_ID + " .ag-guide-thumbs .gthumb{position:relative;width:46px;height:46px;border-radius:9px;overflow:hidden;border:1px solid rgba(0,245,160,.4);}" +
       "#" + ROOT_ID + " .ag-guide-thumbs .gthumb img{width:100%;height:100%;object-fit:cover;display:block;}" +
@@ -434,16 +435,16 @@
     scroll.innerHTML = '<div class="ag-detail">' +
       '<button class="ag-back">‹ ' + esc(T("Back", "返回")) + '</button>' +
       '<div class="ag-hero-name" style="margin-bottom:6px">' + esc(T("Create your digital actor", "创建你的数字演员")) + '</div>' +
-      '<div class="ag-sub" style="margin-bottom:16px">' + esc(T("Describe the look in words — we generate an original synthetic face (no real-person photos). Others can cast your actor for a fee and you earn 70% royalty.", "用文字描述外貌气质,我们生成一张【原创合成脸】(不上传真人照片)。你的演员可被他人付费选用,你拿 70% 版税。")) + '</div>' +
+      '<div class="ag-sub" style="margin-bottom:16px">' + esc(T("Pick a civilization + role and the system intelligently composes the rest — name, look and style, all authentic to that culture (a Chinese hero is East Asian; a Japanese villain looks & feels Japanese). Or fill in as much as you like. You earn 70% royalty.", "选好文明 + 戏路,系统就智能联动补全其余 —— 名字、样貌、风格,全都贴合该文化(中国英雄=东亚样貌,日本反派=日本气韵)。也可自己多填。你拿 70% 版税。")) + '</div>' +
       '<div class="ag-form">' +
-        '<label>' + esc(T("Stage name *", "艺名 *")) + '<input class="ag-in" data-k="name_en" maxlength="60" placeholder="Nova Sky" /></label>' +
-        '<label>' + esc(T("Appearance / vibe description *", "外貌 / 气质描述 *")) + '<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="' + esc(T("e.g. a silver-haired violet-eyed futuristic diva, cold and mysterious", "如: 银发碧眼的未来感歌姬,冷冽而神秘")) + '"></textarea></label>' +
+        '<label>' + esc(T("Stage name (blank = system names it)", "艺名(留空 = 系统起名)")) + '<input class="ag-in" data-k="name_en" maxlength="60" placeholder="' + esc(T("Nova Sky — or leave blank", "Nova Sky —— 或留空")) + '" /></label>' +
+        '<label>' + esc(T("Appearance / vibe (blank = system composes from civilization + role)", "外貌 / 气质(留空 = 系统按文明+戏路智能生成)")) + '<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="' + esc(T("e.g. a silver-haired violet-eyed futuristic diva — or leave blank", "如: 银发碧眼的未来感歌姬 —— 或留空")) + '"></textarea></label>' +
         '<label>' + esc(T("Voice gender *", "声线性别 *")) + '<select class="ag-in" data-k="gender"><option value="" selected disabled>' + esc(T("— choose —", "— 请选择 —")) + '</option><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
         '<label>' + esc(T("Style (leave blank = all styles)", "风格(留空 = 全风格)")) + '<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="' + esc(T("synthwave — or leave blank for any", "synthwave —— 留空则任意风格")) + '" /></label>' +
         allMultiMarkup("civ", T("Civilization — all by default; or pick one/several (a face can span cultures)", "文明 —— 默认全文明;也可选一个/几个(一张脸可跨文化)"), CIVS) +
         roleTaxonomyMarkup() +
         '<label>' + esc(T("Cast price (¢, 0=free; you earn 70%)", "选角价(¢, 0=免费; 你得 70%)")) + '<input class="ag-in" data-k="cast_price_cents" type="number" min="0" max="500" value="0" /></label>' +
-        '<button class="ag-cast ag-submit">✨ ' + esc(T("Generate & publish", "生成并发布演员")) + '</button>' +
+        '<button class="ag-cast ag-submit">✨ ' + esc(T("One-tap generate & publish", "一键生成并发布")) + '</button>' +
         '<div class="ag-form-msg ag-empty"></div>' +
       '</div></div>';
     scroll.querySelector(".ag-back").onclick = function () { renderGrid(); };
@@ -456,10 +457,9 @@
       scroll.querySelectorAll(".ag-in").forEach(function (el) { payload[el.getAttribute("data-k")] = el.value; });
       payload.archetypes = roleTax.archetypes(); payload.sub_roles = roleTax.subRoles();
       payload.civilizations = civGet();
-      if (!payload.name_en || String(payload.name_en).trim().length < 2) { msg.textContent = T("Please enter a stage name.", "请填艺名。"); return; }
-      if (!payload.description || String(payload.description).trim().length < 10) { msg.textContent = T("Description too short (≥10 chars).", "描述太短(≥10 字)。"); return; }
+      // 名字/描述可留空 —— 后端按 文明+戏路+风格 智能联动补全(一键数字演员)。只强制声线性别。
       if (!payload.gender) { msg.textContent = T("Please choose a voice gender.", "请选择声线性别。"); return; }
-      submit.disabled = true; msg.textContent = "⏳ " + T("Generating the actor's face… (~10-20s)", "正在生成演员的脸…(约 10-20 秒)");
+      submit.disabled = true; msg.textContent = "⏳ " + T("Composing & generating the actor… (~10-25s)", "正在智能联动生成演员…(约 10-25 秒)");
       fetch("/api/actors", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })
         .then(function (r) { return r.json(); })
         .then(function (j) {
@@ -528,7 +528,7 @@
             // 引导式情绪采集(Vision Pro 式逐步): 逐个提示 → 倒数 → 自动抓帧 → 下一步; 可推倒重录。
             '<div class="ag-guide">' +
               '<div class="ag-guide-dots"></div>' +
-              '<div class="ag-guide-prompt">' + esc(T("Guided capture — we prompt each expression one at a time (~1.5s each). Finish one to move on; retake any shot or restart.", "引导采集 —— 逐个提示每个表情(每个约 1.5 秒),完成一个进入下一个,可单张重拍或整体重录。")) + '</div>' +
+              '<div class="ag-guide-prompt">' + esc(T("Guided capture — 12 steps total, one expression at a time (~1.5s each). You always see which step you’re on; retake any single shot, or restart all.", "引导采集 —— 共 12 步,逐个表情来(每步约 1.5 秒)。全程都告诉你在第几步;可单张重拍,也可整体重录。")) + '</div>' +
               '<label class="ag-guide-auto"><input type="checkbox" checked> ' + esc(T("Auto-capture when your face is in the ring", "脸对进圈里就自动拍")) + '</label>' +
               '<button class="ag-guide-go ag-recbtn" disabled>▶ ' + esc(T("Start guided capture", "开始引导采集")) + '</button>' +
               '<button class="ag-guide-restart ag-recbtn" hidden style="background:transparent;color:#bff5e0;border:1px solid rgba(0,245,160,.45);margin-top:8px">↻ ' + esc(T("Restart", "推倒重录")) + '</button>' +
@@ -777,7 +777,7 @@
       }).join("");
       var s = GUIDE_STEPS[guide.i];
       if (!s) { guidePrompt.innerHTML = "✅ " + esc(T("All captured — retake any shot above, or sign & submit below.", "采集完成 —— 可点上方任意缩略图重拍,或到下方签约提交。")); recBtn.style.display = "none"; if (faceRing) faceRing.style.display = "none"; clearAuto(); return; }
-      guidePrompt.innerHTML = '<span class="gemoji">' + s.e + '</span><span class="glabel"><b>' + esc(T(s.en, s.zh)) + '</b><em>' + esc(T(s.wen, s.wzh)) + '</em><small>' + (guide.i + 1) + " / " + GUIDE_STEPS.length + '</small></span>';
+      guidePrompt.innerHTML = '<span class="gemoji">' + s.e + '</span><span class="glabel"><span class="gstepc">' + esc(T("Step " + (guide.i + 1) + " of " + GUIDE_STEPS.length, "第 " + (guide.i + 1) + " / " + GUIDE_STEPS.length + " 步")) + '</span><b>' + esc(T(s.en, s.zh)) + '</b><em>' + esc(T(s.wen, s.wzh)) + '</em></span>';
       recBtn.style.display = ""; recBtn.disabled = false; recBtn.textContent = "📸 " + T("Capture this", "拍这张");
       if (faceRing) faceRing.style.display = "";
       armStep();

@@ -230,7 +230,11 @@
     var foc = (a.cover_focal_x != null && a.cover_focal_x >= 0)
       ? (a.cover_focal_x * 100).toFixed(1) + "% " + (a.cover_focal_y * 100).toFixed(1) + "%" : "center 30%";
     if (a.cover_image) {
-      return '<img src="' + esc(imgProxy(a.cover_image, big ? 1080 : 440)) + '" alt="' + esc(a.name_en) + '" loading="lazy" decoding="async" style="--foc:' + foc + '">';
+      // onerror 兜底: 代理失败→回退原图, 再失败→透明占位(绝不露破图标)。
+      return '<img src="' + esc(imgProxy(a.cover_image, big ? 1080 : 440)) + '" alt="' + esc(a.name_en) + '" loading="lazy" decoding="async"'
+        + ' data-orig="' + esc(a.cover_image) + '"'
+        + ' onerror="var b=+this.dataset.fb||0;this.dataset.fb=b+1;this.src=b?&quot;' + AG_BLANK + '&quot;:this.getAttribute(&quot;data-orig&quot;)"'
+        + ' style="--foc:' + foc + '">';
     }
     var h = hueOf(a.name_en || a.actor_id);
     var initial = esc(String(a.name_en || a.name_zh || "?").trim().charAt(0).toUpperCase());
@@ -311,6 +315,8 @@
   // CSSOS_WAVE_1524 — 离屏图卸载: 滚出视口 (上下各 800px 缓冲) 的封面 <img> 清掉 src
   // 释放已解码位图内存, 滚回来再恢复。配合 content-visibility:auto + /img 缩略, 让
   // 无限翻页的搜索结果内存有界, 不再 OOM 崩溃。展开卡(.expanded)不卸载。
+  // 1x1 透明 GIF 占位: 卸载时换成它, 既释放大图解码内存, 又不像无 src 那样露出破图标(蓝?)。
+  var AG_BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
   var _agImgObs = null;
   function agSetupImgRecycle(scroll) {
     if (!("IntersectionObserver" in window) || !scroll) return;
@@ -319,11 +325,12 @@
       entries.forEach(function (en) {
         var img = en.target;
         if (img.closest && img.closest(".ag-card.expanded")) return; // 展开卡不动
+        var cur = img.getAttribute("src");
         if (en.isIntersecting) {
-          if (img.dataset.agSrc && !img.getAttribute("src")) { img.src = img.dataset.agSrc; }
-        } else if (img.getAttribute("src")) {
-          img.dataset.agSrc = img.getAttribute("src");
-          img.removeAttribute("src"); // 释放解码内存; .ag-cover 有 aspect-ratio 占位不塌
+          if (img.dataset.agSrc && cur === AG_BLANK) { img.src = img.dataset.agSrc; }
+        } else if (cur && cur !== AG_BLANK) {
+          img.dataset.agSrc = cur;
+          img.src = AG_BLANK; // 释放解码内存; .ag-cover 有 aspect-ratio 占位不塌
         }
       });
     }, { root: scroll, rootMargin: "800px 0px 800px 0px" });
@@ -1214,9 +1221,11 @@
       c.classList.remove("expanded");
       var inl = c.querySelector(".ag-inline"); if (inl) inl.innerHTML = "";
       restoreCover2D(c);
+      downgradeCoverThumb(c);   // 收起 = 封面换回 440 缩略, 释放 1080 高清解码内存
     });
     if (wasThis) return;   // 再点一次 = 收起
     cardEl.classList.add("expanded");
+    upgradeCoverHiRes(cardEl); // 展开 = 封面换 1080 高清(同一张图, 代理换宽度; 收起再释放)
     var inline = cardEl.querySelector(".ag-inline");
     inline.innerHTML = '<div class="ag-skel" style="height:120px;margin-top:10px"></div>';
     cardEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1232,6 +1241,21 @@
   function restoreCover2D(cardEl) {
     var cov = cardEl.querySelector("[data-cover]");
     if (cov) { disposeModelViewers(cov); if (cov.__cover2d != null) { cov.innerHTML = cov.__cover2d; cov.__cover2d = null; } }
+  }
+  // 展开: 封面缩略图(/img?w=440)升到高清(/img?w=1080)。只对经代理的图有效(外链原图/占位不动)。
+  // 收起时 downgradeCoverThumb 换回 440 → 浏览器丢弃 1080 解码位图, 内存回落。进出反复 = 换宽度参数,
+  // 高清版命中 30 天 HTTP 缓存, 无重复下载; 任一时刻只有【当前展开的那一张】高清活在内存里。
+  function upgradeCoverHiRes(cardEl) {
+    var img = cardEl.querySelector("[data-cover] img");
+    if (!img) return;
+    var cur = (img.getAttribute("src") === AG_BLANK ? img.dataset.agSrc : img.getAttribute("src")) || "";
+    if (cur.indexOf("/img?") < 0 || img.dataset.agThumb) return; // 非代理图 / 已升清
+    img.dataset.agThumb = cur;
+    img.src = cur.replace(/([?&])w=\d+/, "$1w=1080");
+  }
+  function downgradeCoverThumb(cardEl) {
+    var img = cardEl.querySelector("[data-cover] img");
+    if (img && img.dataset.agThumb) { img.src = img.dataset.agThumb; delete img.dataset.agThumb; }
   }
   function fillExpand(cardEl, id) {
     var inline = cardEl.querySelector(".ag-inline");

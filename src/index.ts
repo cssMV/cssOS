@@ -43038,6 +43038,41 @@ async function actorVideoAudio14s(voiceUrl: string): Promise<string> {
     return url;
   } catch { return voiceUrl; }
 }
+// CSSOS_WAVE_1525 — 修"多头像封面": 64 个自生成演员的 cover_image 当初直接用了锁脸
+// 参考图(reference_images), 其中一部分是多角度人脸【宫格图】→ 卡片显示多头像。这里按
+// 演员的 face_prompt 重新生成一张【单人正脸肖像】做封面, 转存 R2 并更新 cover_image。
+// x-admin-token 鉴权(无会话可调, 供一次性回填脚本)。body: { limit?, ids?[], dry? }。
+app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || "").trim();
+  if (!expected || provided !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  const limit = Math.min(Math.max(Number(req.body?.limit) || 1, 1), 20);
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : null;
+  const dry = !!req.body?.dry;
+  const sel = ids
+    ? await withClient((c) => c.query<{ actor_id: string; name_en: string; civilization: string | null; gender: string | null; face_prompt: string | null; persona: string | null; cover_image: string | null }>(
+        `SELECT actor_id,name_en,civilization,gender,face_prompt,persona,cover_image FROM digital_actors WHERE actor_id = ANY($1)`, [ids]))
+    : await withClient((c) => c.query<{ actor_id: string; name_en: string; civilization: string | null; gender: string | null; face_prompt: string | null; persona: string | null; cover_image: string | null }>(
+        `SELECT actor_id,name_en,civilization,gender,face_prompt,persona,cover_image FROM digital_actors WHERE cover_image = ANY(reference_images) ORDER BY name_en LIMIT $1`, [limit]));
+  const results: Array<Record<string, unknown>> = [];
+  for (const a of sel.rows) {
+    const look = String(a.face_prompt || a.persona || "").trim();
+    const g = a.gender === "male" ? "man" : a.gender === "female" ? "woman" : "person";
+    const prompt = `Studio portrait of ${a.name_en}${a.civilization ? `, ${a.civilization}` : ""} — a single ${g}. ${look}. One centered human face, head-and-shoulders, one person only, facing camera, photorealistic, soft cinematic key light, clean plain backdrop. STRICTLY one face — absolutely no grid, no collage, no contact sheet, no multiple faces, no split panels, no text, no watermark.`;
+    if (dry) { results.push({ actor_id: a.actor_id, name: a.name_en, prompt }); continue; }
+    try {
+      const img = await callImageGen({ prompt, size: "896x1152", output_format: "webp" });
+      const url = img?.ok
+        ? (img.image_url ? await persistRemoteImageToStable(img.image_url) : (img.image_b64 ? persistBase64Cover(img.image_b64, "actor-portrait") : ""))
+        : "";
+      if (!url) { results.push({ actor_id: a.actor_id, name: a.name_en, ok: false, error: img?.error || "gen_failed" }); continue; }
+      await withClient((c) => c.query(`UPDATE digital_actors SET cover_image=$2, cover_focal_x=NULL, cover_focal_y=NULL WHERE actor_id=$1`, [a.actor_id, url]));
+      results.push({ actor_id: a.actor_id, name: a.name_en, ok: true, old: a.cover_image, new: url });
+    } catch (e) { results.push({ actor_id: a.actor_id, name: a.name_en, ok: false, error: (e as Error)?.message || "err" }); }
+  }
+  res.json({ ok: true, processed: results.length, results });
+});
+
 app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   try {

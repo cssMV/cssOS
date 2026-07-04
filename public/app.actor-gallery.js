@@ -281,8 +281,10 @@
     var list = applyFilter(state.actors);
     if (!list.length) { scroll.innerHTML = '<div class="ag-empty">' + esc(state.actors.length ? T("No matching actors.", "没有匹配的演员。") : T("No actors yet.", "暂无演员。")) + '</div>'; return; }
     // 默认显示一行, 点「加载更多一行」逐行追加。
+    // App 端(单列)默认显示 3 张、每次也加载 3 张; 桌面端保持"一行(cols 张)"。
     var cols = colsFor(scroll);
-    var show = Math.min(list.length, Math.max(cols, state.rows * cols));
+    var batch = cols <= 1 ? 3 : cols;
+    var show = Math.min(list.length, Math.max(batch, state.rows * batch));
     var more = list.length - show;
     // 分享单人态: 顶部一条"浏览全部演员"出口(点了才全量加载)。
     var soloBar = state.solo ? '<div style="margin:0 0 14px;"><button class="ag-chip ag-browse-all">🎭 ' + esc(T("Browse all actors", "浏览全部演员")) + ' →</button></div>' : "";

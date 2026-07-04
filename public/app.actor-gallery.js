@@ -191,9 +191,9 @@
       /* 就地展开 = 同一个框: 展开的卡横跨整行, 封面变大(显 3D/视频), 详情接着信息往下排 */
       "#" + ROOT_ID + " .ag-card.expanded{grid-column:1/-1;border-color:" + GREEN + ";box-shadow:0 0 26px rgba(0,245,160,.4);}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover{aspect-ratio:auto;height:min(58vh,420px);cursor:pointer;}" +
-      // 「完整封面」态: 不裁切, 按原图比例整张显示(object-fit:contain + 高度自适应)。
-      "#" + ROOT_ID + " .ag-card.expanded .ag-cover.ag-cover-full{height:auto !important;max-height:min(88vh,760px);}" +
-      "#" + ROOT_ID + " .ag-cover.ag-cover-full img{height:auto !important;max-height:min(88vh,760px);object-fit:contain !important;}" +
+      // 「Full cover」态: 满框显整张 —— 宽度铺满不留黑边, 框高随原图比例往下自适应拉高, 完整不裁切(去掉 max-height 上限, 框继续往下长)。
+      "#" + ROOT_ID + " .ag-card.expanded .ag-cover.ag-cover-full{display:block !important;height:auto !important;max-height:none !important;overflow:visible !important;}" +
+      "#" + ROOT_ID + " .ag-cover.ag-cover-full img{width:100% !important;height:auto !important;max-height:none !important;object-fit:contain !important;display:block !important;}" +
       "#" + ROOT_ID + " .ag-card.expanded .ag-cover .ag-mv-wrap,#" + ROOT_ID + " .ag-card.expanded .ag-cover model-viewer{width:100%;height:100%;}" +
       "#" + ROOT_ID + " .ag-cover{position:relative;}" +
       "#" + ROOT_ID + " .ag-3d-badge{position:absolute;right:12px;bottom:12px;z-index:3;background:rgba(4,18,12,.72);color:#bff5e0;border:1px solid rgba(0,245,160,.5);border-radius:999px;padding:6px 13px;font-size:13px;font-weight:700;cursor:pointer;backdrop-filter:blur(4px);}" +

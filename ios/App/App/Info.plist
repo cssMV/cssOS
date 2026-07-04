@@ -35,14 +35,14 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
-	<!-- CSSOS_WAVE_1522 20260701 — iOS 27 崩溃根治: 未采用 UIScene 生命周期的老式 App 在
-	     iOS 27 被系统硬 trap (EXC_BREAKPOINT: ___UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption)
-	     → 启动即闪退。storyboard 驱动 App 的官方迁移法 = 加引用 Main storyboard 的 scene manifest,
-	     iOS 自动从 storyboard 建 UIWindowScene+window, 无需自写 SceneDelegate。 -->
+	<key>NSCameraUsageDescription</key>
+	<string>CSS Studio uses the camera so you can capture video and photos to include in your music videos.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>CSS Studio uses the microphone so you can record your own voice to sing and create music videos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>CSS Studio saves the music videos and images you create to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CSS Studio accesses your photo library so you can use your own photos and videos in your music videos.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -54,23 +54,26 @@
 				<dict>
 					<key>UISceneConfigurationName</key>
 					<string>Default Configuration</string>
-					<key>UISceneStoryboardFile</key>
-					<string>Main</string>
+					<key>UISceneDelegateClassName</key>
+					<string>App.SceneDelegate</string>
 				</dict>
 			</array>
 		</dict>
 	</dict>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>
 	</array>
-	<!-- WAVE_445e 20260526 — Jing: UIRequiresFullScreen 让 iPad 退出 Split View/Slide Over
-	     多任务模式，从而允许限定竖屏方向而不触发 Apple 的"必须支持全部4方向"校验。
-	     没有这个 key，Info.plist 里缺少 LandscapeLeft/Right 会导致上传报错 90474。 -->
 	<key>UIRequiresFullScreen</key>
 	<true/>
-	<!-- CSSOS_WAVE_984 20260618 — Jing: iPhone 禁横屏, 但支持上下翻转(竖排正立+倒置);
-	     iPad 全四向(竖正/竖倒/横左/横右)。系统级锁, App 启动即生效。 -->
+	<key>UIStatusBarHidden</key>
+	<true/>
+	<key>UIStatusBarHidden~ipad</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -85,24 +88,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-	<!-- CSSOS_WAVE_244 20260520 — Jing: 真全屏沉浸. 状态栏(时间/信号)从
-	     App 启动就永久隐藏; Home 指示条交给 ViewController 的
-	     prefersHomeIndicatorAutoHidden (iOS 无操作 ~2s 自动淡隐). -->
-	<key>UIStatusBarHidden</key>
-	<true/>
-	<key>UIStatusBarHidden~ipad</key>
-	<true/>
-	<!-- CSSOS_WAVE_1251 20260625 — Apple 拒因 2.1(a): 点 Record 报错 / 点 Take Video 崩溃。
-	     真凶 = 缺相机/麦克风/相册 Usage Description。iOS 访问相机无 NSCameraUsageDescription
-	     会【硬崩溃】, 访问麦克风无 NSMicrophoneUsageDescription 会报错。补齐 4 个 key,
-	     描述具体(苹果拒空泛文案)。WKWebView getUserMedia 有这些 key 才会弹系统授权而非崩溃。 -->
-	<key>NSMicrophoneUsageDescription</key>
-	<string>CSS Studio uses the microphone so you can record your own voice to sing and create music videos.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>CSS Studio uses the camera so you can capture video and photos to include in your music videos.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>CSS Studio accesses your photo library so you can use your own photos and videos in your music videos.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>CSS Studio saves the music videos and images you create to your photo library.</string>
 </dict>
 </plist>

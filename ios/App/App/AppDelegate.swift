@@ -257,3 +257,32 @@ class CssmemNavProxy: NSObject, WKNavigationDelegate {
         return nil
     }
 }
+
+// =====================================================================
+// CSSOS_WAVE_1523 20260704 — Jing: iOS 27 崩溃修复(W1522 采用 UIScene)
+// 引入了黑屏回归。W1522 只加了 UISceneManifest(UISceneStoryboardFile=Main)
+// 但【没有 SceneDelegate】: storyboard-only 的 scene 在无 delegate 时,
+// window 从未被 makeKeyAndVisible → 纯黑, 且 Main.storyboard 的
+// MainViewController 从不实例化(无 webview → server.url 从不加载)。
+// W1522 提交信息自述"验证了 process 不崩溃"——但没验证"能显示界面"。
+//
+// 修复: 显式 SceneDelegate, 从 Main.storyboard 实例化初始 VC
+// (= MainViewController = CAPBridgeViewController) 作为 rootViewController
+// 并 makeKeyAndVisible。Info.plist 里 UISceneStoryboardFile 换成
+// UISceneDelegateClassName = App.SceneDelegate(二者不可并存, 否则双 window)。
+// 类放在 AppDelegate.swift 内避免改 project.pbxproj。
+// =====================================================================
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene,
+               willConnectTo session: UISceneSession,
+               options connectionOptions: UIScene.ConnectionOptions) {
+        guard let windowScene = scene as? UIWindowScene else { return }
+        let win = UIWindow(windowScene: windowScene)
+        let storyboard = UIStoryboard(name: "Main", bundle: nil)
+        win.rootViewController = storyboard.instantiateInitialViewController()
+        self.window = win
+        win.makeKeyAndVisible()
+    }
+}

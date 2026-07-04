@@ -256,6 +256,9 @@
       if (state.filter === "synthetic" && a.origin_type !== "synthetic") return false;
       if (state.filter === "civilization" && a.origin_type !== "civilization") return false;
       if (state.filter === "premium" && !a.is_premium) return false;
+      if (state.filter === "female" && a.gender !== "female") return false;
+      if (state.filter === "male" && a.gender !== "male") return false;
+      if (state.filter === "neutral" && a.gender !== "neutral") return false;
       if (state.filter === "owned" && !state.ownedSet[a.actor_id]) return false;
       if (state.archetype && !(Array.isArray(a.archetypes) && a.archetypes.indexOf(state.archetype) >= 0)) return false;
       if (state.search) {
@@ -1537,6 +1540,9 @@
         '<button class="ag-chip" data-f="synthetic">✨ ' + esc(T("Original", "原创合成")) + '</button>' +
         '<button class="ag-chip" data-f="civilization">🏛 ' + esc(T("Legends", "文明名角")) + '</button>' +
         '<button class="ag-chip" data-f="premium">💎 ' + esc(T("Premium", "溢价")) + '</button>' +
+        '<button class="ag-chip" data-f="female">👩 ' + esc(T("Female", "女性")) + '</button>' +
+        '<button class="ag-chip" data-f="male">👨 ' + esc(T("Male", "男性")) + '</button>' +
+        '<button class="ag-chip" data-f="neutral">🧑 ' + esc(T("Neutral", "中性")) + '</button>' +
         '<button class="ag-chip" data-f="owned">🎬 ' + esc(T("Mine", "我的演员")) + '</button>' +
       '</div>' +
       // 戏路大类筛选(横滑)

@@ -969,6 +969,44 @@ app.get("/api/mv/languages", (_req, res) => {
   res.json({ ok: true, languages: mvSupportedLanguages() });
 });
 
+// CSSOS_WAVE_1524 — image resize proxy. Actor cover images are full-size
+// originals (e.g. 7 MB Wikimedia PNGs). Dozens in a grid decode to hundreds
+// of MB and SIGKILL the iOS WKWebView WebContent process (the "load a row,
+// load, load… crash" report). This shrinks any cover to a grid-sized webp
+// on the fly. Host-allowlisted to kill SSRF (only our CDN + Wikimedia).
+//   GET /img?url=<encoded>&w=440
+const IMG_PROXY_HOST_SUFFIXES = ["cssstudio.app", "wikimedia.org", "wikipedia.org"];
+app.get("/img", async (req, res) => {
+  try {
+    const url = String((req.query.url as string) || "");
+    let w = parseInt(String((req.query.w as string) || "440"), 10);
+    if (!Number.isFinite(w) || w < 16) w = 440;
+    w = Math.min(w, 1280);
+    let host = "";
+    try { host = new URL(url).hostname.toLowerCase(); } catch { return res.status(400).end("bad url"); }
+    if (!/^https?:$/i.test(new URL(url).protocol)) return res.status(400).end("bad scheme");
+    if (!IMG_PROXY_HOST_SUFFIXES.some((s) => host === s || host.endsWith("." + s))) {
+      return res.status(403).end("host not allowed");
+    }
+    const upstream = await fetch(url, { signal: AbortSignal.timeout(12000), redirect: "follow" });
+    if (!upstream.ok) return res.status(502).end("upstream " + upstream.status);
+    if (!/^image\//i.test(upstream.headers.get("content-type") || "")) return res.status(415).end("not image");
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    if (buf.length > 40 * 1024 * 1024) return res.status(413).end("too large");
+    const out = await sharp(buf, { failOn: "none" })
+      .rotate()
+      .resize({ width: w, withoutEnlargement: true })
+      .webp({ quality: 78 })
+      .toBuffer();
+    res.setHeader("Content-Type", "image/webp");
+    res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.end(out);
+  } catch {
+    return res.status(500).end("img proxy error");
+  }
+});
+
 // POST /api/mv/language-tracks/quote — price a multilingual selection +
 // enforce the tier gate. Free/guest are refused. Body:
 //   { languages: string[],       // codes, in user selection order

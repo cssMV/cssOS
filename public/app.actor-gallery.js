@@ -215,11 +215,22 @@
 
   var state = { filter: "all", search: "", actors: [], rows: 1, ownedSet: {}, archetype: "" };
 
+  // CSSOS_WAVE_1524 — 大封面(7MB wikimedia 原图)经 /img 缩放代理成网格尺寸 webp,
+  // 避免 iOS WKWebView 解码内存爆掉崩溃。只代理白名单 host(与后端一致), 其余原样。
+  function imgProxy(u, w) {
+    if (!u || /^(data:|blob:)/.test(u)) return u;
+    try {
+      var h = new URL(u, location.href).hostname.toLowerCase();
+      var ok = ["cssstudio.app", "wikimedia.org", "wikipedia.org"].some(function (s) { return h === s || h.endsWith("." + s); });
+      if (!ok) return u;
+    } catch (e) { return u; }
+    return "/img?w=" + w + "&url=" + encodeURIComponent(u);
+  }
   function coverInner(a, big) {
     var foc = (a.cover_focal_x != null && a.cover_focal_x >= 0)
       ? (a.cover_focal_x * 100).toFixed(1) + "% " + (a.cover_focal_y * 100).toFixed(1) + "%" : "center 30%";
     if (a.cover_image) {
-      return '<img src="' + esc(a.cover_image) + '" alt="' + esc(a.name_en) + '" loading="lazy" decoding="async" style="--foc:' + foc + '">';
+      return '<img src="' + esc(imgProxy(a.cover_image, big ? 1080 : 440)) + '" alt="' + esc(a.name_en) + '" loading="lazy" decoding="async" style="--foc:' + foc + '">';
     }
     var h = hueOf(a.name_en || a.actor_id);
     var initial = esc(String(a.name_en || a.name_zh || "?").trim().charAt(0).toUpperCase());
@@ -295,6 +306,28 @@
     if (mb) mb.onclick = function () { state.rows += 1; renderGrid(); };
     var ba = scroll.querySelector(".ag-browse-all");
     if (ba) ba.onclick = function () { state.solo = null; state.filter = "all"; resetRows(); loadActors(); };
+    agSetupImgRecycle(scroll);
+  }
+  // CSSOS_WAVE_1524 — 离屏图卸载: 滚出视口 (上下各 800px 缓冲) 的封面 <img> 清掉 src
+  // 释放已解码位图内存, 滚回来再恢复。配合 content-visibility:auto + /img 缩略, 让
+  // 无限翻页的搜索结果内存有界, 不再 OOM 崩溃。展开卡(.expanded)不卸载。
+  var _agImgObs = null;
+  function agSetupImgRecycle(scroll) {
+    if (!("IntersectionObserver" in window) || !scroll) return;
+    if (_agImgObs) _agImgObs.disconnect();
+    _agImgObs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        var img = en.target;
+        if (img.closest && img.closest(".ag-card.expanded")) return; // 展开卡不动
+        if (en.isIntersecting) {
+          if (img.dataset.agSrc && !img.getAttribute("src")) { img.src = img.dataset.agSrc; }
+        } else if (img.getAttribute("src")) {
+          img.dataset.agSrc = img.getAttribute("src");
+          img.removeAttribute("src"); // 释放解码内存; .ag-cover 有 aspect-ratio 占位不塌
+        }
+      });
+    }, { root: scroll, rootMargin: "800px 0px 800px 0px" });
+    scroll.querySelectorAll(".ag-cover img").forEach(function (img) { _agImgObs.observe(img); });
   }
   function resetRows() { state.rows = 1; }
 

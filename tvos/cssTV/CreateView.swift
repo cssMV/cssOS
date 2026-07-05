@@ -11,8 +11,16 @@ struct CreateView: View {
     @State private var prompt: String = ""
     @State private var status: String = ""
     @State private var casting = false
+    @State private var format = "single"                 // W1556 — 戏路: single/triptych/opera(可选) + shortplay/series/film(锁)
     @FocusState private var fieldFocused: Bool
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
+    // 可选戏路 + 敬请期待(锁)。
+    private let fmts: [(id: String, name: String, icon: String)] = [
+        ("single", "MV", "music.note"), ("triptych", "Triptych", "books.vertical.fill"), ("opera", "Opera", "theatermasks.fill")
+    ]
+    private let lockedFmts: [(id: String, name: String, icon: String)] = [
+        ("shortplay", "Short Drama", "film.fill"), ("series", "Series", "tv.fill"), ("film", "Film", "film.stack.fill")
+    ]
 
     var body: some View {
         ZStack {
@@ -24,12 +32,14 @@ struct CreateView: View {
                 .allowsHitTesting(false)
 
             VStack(spacing: 26) {
-                Text("✨ Cast an MV")
+                Text("🎬 Direct a work")
                     .font(.system(size: 60, weight: .heavy)).foregroundStyle(.white)
                 // W1369 — 语音优先 + 「CSS」咒语: 按住 Siri Remote 🎙 念 "CSS, …"。
-                Text("Hold the 🎙 mic on your Siri Remote and say the spell:  “CSS,”  then your idea — in any language.")
+                Text("Pick a format, then hold the 🎙 mic and say  “CSS,”  + your idea — in any language (or type it).")
                     .font(.system(size: 24)).foregroundStyle(.white.opacity(0.82))
-                    .multilineTextAlignment(.center).frame(maxWidth: 920)
+                    .multilineTextAlignment(.center).frame(maxWidth: 980)
+                // W1556 — 戏路选择(导演入口): 单曲/三部曲/歌剧可选; 短剧/剧集/电影敬请期待(锁)。
+                formatBar
 
                 TextField("e.g. “CSS, an epic anthem about the Yellow River”", text: $prompt)
                     .textFieldStyle(.plain)
@@ -41,7 +51,7 @@ struct CreateView: View {
                     .focused($fieldFocused)
 
                 Button { cast() } label: {
-                    Label(casting ? "Conjuring…" : "Cast ✨", systemImage: "wand.and.stars")
+                    Label(casting ? "Rolling…" : "Action  ▶", systemImage: "film.stack")
                         .font(.system(size: 28, weight: .bold))
                         .padding(.vertical, 16).padding(.horizontal, 44)
                 }
@@ -79,8 +89,11 @@ struct CreateView: View {
     }
 
     private func cast() {
-        let p = stripSpell(prompt)
-        guard !p.isEmpty else { return }
+        // W1556 — 把戏路拼进意念, agent 据此定 work_type(单曲默认不加词)。
+        let fmtPhrase = format == "triptych" ? " — make it a 3-part triptych"
+            : format == "opera" ? " — make it a multi-act opera" : ""
+        let p = stripSpell(prompt) + fmtPhrase
+        guard !stripSpell(prompt).isEmpty else { return }
         guard auth.isSignedIn else {
             status = "Please sign in first (the ✨ badge, top-left) to create."
             return
@@ -102,6 +115,30 @@ struct CreateView: View {
                 status = result.ok
                     ? "✨ Idea received! Your MV is generating — it'll appear here in For You when it's ready."
                     : "Couldn't start it just now. Please try again."
+            }
+        }
+    }
+
+    // W1556 — 戏路胶囊排: 可选 3 个(选中=绿边框); 敬请期待 3 个(锁, 灰、不可聚焦)。
+    private var formatBar: some View {
+        HStack(spacing: 14) {
+            ForEach(fmts, id: \.id) { f in
+                Button { format = f.id } label: {
+                    Label(f.name, systemImage: f.icon)
+                        .font(.system(size: 22, weight: .semibold))
+                        .padding(.vertical, 10).padding(.horizontal, 22)
+                }
+                .buttonStyle(.card)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(brandGreen, lineWidth: format == f.id ? 5 : 0)
+                )
+            }
+            ForEach(lockedFmts, id: \.id) { f in
+                Label(f.name, systemImage: "lock.fill")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.38))
+                    .padding(.vertical, 10).padding(.horizontal, 18)
             }
         }
     }

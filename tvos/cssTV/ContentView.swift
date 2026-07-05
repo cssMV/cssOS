@@ -94,6 +94,8 @@ struct ContentView: View {
     //   不再与侧栏 logo 抢焦(抢焦→闪回 logo→用户一按就退出)。0.6s 后再放开侧栏。
     @State private var sidebarArmed = false
     @State private var heroFocusTick = 0                // W1552 — bump → FeaturedHero 把焦点确定性按回 hero
+    // W1555 — 焦点驱动的侧栏显隐(确定性, 不靠滚动量): 焦点在下方栏目=藏; 在 hero/侧栏=显。
+    @State private var railFocused = false
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
@@ -147,12 +149,13 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, onSelect: { choose($0, in: featured) }, focusTick: heroFocusTick)
+                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, onSelect: { choose($0, in: featured) }, focusTick: heroFocusTick, onHeroFocused: { if railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = false } } })
                             // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
                             ForEach(rails) { rail in
-                                RailRow(rail: rail) { choose($0, in: rail.works) }
+                                RailRow(rail: rail, onSelect: { choose($0, in: rail.works) },
+                                        onFocused: { if !railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = true } } })
                             }
                         }
                         // W1342 — Jing: 真通栏。侧栏竖列只到 Today's Picks, 卡片在其下方不会被盖 → 内容贴到最左,
@@ -189,12 +192,12 @@ struct ContentView: View {
             //   此刻 hero 是屏上唯一可聚焦项 → 必然独占默认焦点(比 .disabled 硬得多; .disabled 在某些设备
             //   /时序下仍被焦点引擎纳入评估而抢走)。就绪后淡入, 挂载不会移动已在 hero 的焦点。
             if sidebarArmed {
-                CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, focusNS: focusNS, sidebarNS: sidebarNS)
+                CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, onFocused: { if railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = false } } }, focusNS: focusNS, sidebarNS: sidebarNS)
                     .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                     .focusSection()
-                    // W1523 — 滚过 hero 后隐藏(不挡下方栏目); 回滚再显。焦点此时在 rails, 藏侧栏不丢焦点。
-                    .opacity(sidebarVisible ? 1 : 0)
-                    .allowsHitTesting(sidebarVisible)
+                    // W1555 — 焦点在下方栏目 → 藏侧栏(不挡内容); 焦点在 hero/侧栏 → 显。确定性, 不靠滚动量。
+                    .opacity(railFocused ? 0 : 1)
+                    .allowsHitTesting(!railFocused)
                     .transition(.opacity)
             }
         }
@@ -363,6 +366,7 @@ struct CategorySidebar: View {
     var onLoginTap: () -> Void
     var onSearch: () -> Void                   // W1277 搜索入口
     var onCreate: () -> Void                   // W1547 — 创作入口(恢复)
+    var onFocused: () -> Void = {}             // W1555 — 侧栏获焦 → 通知宿主(保持侧栏显示)
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
     var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
     @Environment(\.resetFocus) private var resetFocus   // W1278 — 主动把焦点送到默认目标
@@ -400,8 +404,8 @@ struct CategorySidebar: View {
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
             Spacer().frame(height: 22)
             row(icon: "magnifyingglass", label: "Search", item: .search) { onSearch() }
-            // W1547 — 恢复「Create」创作入口(W1367 曾为纯欣赏移除)。按住 🎙 说「CSS, …」。
-            row(icon: "wand.and.stars", label: "Create", item: .create) { onCreate() }
+            // W1556 — 导演入口(原 Create 升级): 选戏路 + 开拍。按住 🎙 说「CSS, …」。
+            row(icon: "megaphone.fill", label: "Direct", item: .create) { onCreate() }
 
             ForEach(HomeCategory.allCases) { cat in
                 row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
@@ -420,6 +424,7 @@ struct CategorySidebar: View {
         .onChange(of: focus) { _, newValue in
             if newValue == .avatar { avatarTick += 1 }   // W1274 — 聚焦头像即重爆一次
             if newValue != nil {
+                onFocused()   // W1555 — 侧栏获焦 → 保持侧栏显示(反藏)
                 if !expanded { withAnimation(.easeInOut(duration: 0.22)) { expanded = true } }
             } else {
                 // 焦点离开: 延迟 0.2s 再收起; 期间焦点回到侧栏任一项就不收(消除项间跳动抖动)。
@@ -571,6 +576,7 @@ struct FeaturedHero: View {
     let onSelect: (CSSWork) -> Void
     var focusTick: Int = 0                            // W1552 — 宿主每 bump 一次 → 用【确定性 @FocusState 赋值】
                                                       //   把焦点强按回本 hero 第一个胶囊(挂载侧栏后调用, 硬过 resetFocus 启发式)
+    var onHeroFocused: () -> Void = {}                // W1555 — hero 获焦 → 通知宿主(显示侧栏)
 
     @Environment(\.resetFocus) private var resetFocus // W1283 — 往左把焦点送回侧栏
     @State private var index = 0
@@ -880,7 +886,7 @@ struct FeaturedHero: View {
         }
         // W1358 — 焦点静音预览生命周期: 聚焦 hero → 防抖启动; 失焦 → 立即销毁。
         .onChange(of: heroFocused) { _, f in
-            if f { scheduleHeroPreview() } else { cancelHeroPreview() }
+            if f { scheduleHeroPreview(); onHeroFocused() } else { cancelHeroPreview() }
         }
         // 换枝(聚焦切胶囊 / 自动轮播)→ 先销毁旧预览, 若仍聚焦再为新枝防抖启动。
         .onChange(of: index) { _, _ in
@@ -958,6 +964,7 @@ struct ConcavePill: Shape {
 struct RailRow: View {
     let rail: CSSRail
     let onSelect: (CSSWork) -> Void
+    var onFocused: () -> Void = {}   // W1555 — 本栏任一卡获焦 → 通知宿主"焦点在下方栏目"(藏侧栏)
     // CSSOS_WAVE_1523 — Jing「栏目激活跟随」: 本栏任一卡聚焦 → 栏目=激活态(标题变品牌绿加粗),
     //   焦点离开本栏即收回。与 hero/卡片同一套绿语言, 用户一眼看出"我在哪一栏、要放哪张"。
     @FocusState private var focusedWork: String?
@@ -987,6 +994,7 @@ struct RailRow: View {
             }
         }
         .padding(.bottom, 18)
+        .onChange(of: focusedWork) { _, v in if v != nil { onFocused() } }   // W1555 — 卡获焦 → 藏侧栏
     }
 }
 

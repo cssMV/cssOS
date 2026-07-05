@@ -39063,8 +39063,10 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
     // 古希腊 → 希腊语, 中华 → 中文… 小模型写不出来就 fallback 到强模型(OpenAI/Claude),
     // 实在不行才 fallback 英文 —— 永不 fallback 中文(除非本就是中华文明人物).
     //
-    // civToLanguageServer 只对中华文明返回 "zh"; 西方/未知一律返回 "" → 落到英文.
-    // 这天然满足"永不 fallback 中文"的铁律.
+    // CSSOS_WAVE_1528 — 废除旧的"只对中华返回 zh"行为: civToLanguageServer 现已【按文明返回
+    // 全套母语】(CIV_LANGUAGE_ENTRIES: 日本→ja / 韩→ko / 波斯→fa / 埃及→ar / 古希腊→el /
+    // 法国→fr …), 未映射的文明才返回 ""→英文. 铁律: 非英文母语档案【必须同时产出英文翻译版】
+    // (见下 lore.en), 供英文界面/非母语用户阅读.
     const _nativeLang = civToLanguageServer(String(person.civilization || ""));
     const _expectLoreLang = _nativeLang || "en";
     const _langName = languageNameFromCode(_expectLoreLang);
@@ -39072,7 +39074,9 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
       // CSSOS_WAVE_327 — 旧档案没有 allusions(典故) → 触发一次重生补上.
       !Array.isArray(lore.allusions) || lore.allusions.length === 0 ||
       // CSSOS_WAVE_348 — 已标 lang 但与母语不符, 或旧档案的 bio 实际语言不对 → 重生.
-      (lore && lore.lang ? lore.lang !== _expectLoreLang : (!!lore.bio && loreLangMismatch(String(lore.bio), _expectLoreLang)));
+      (lore && lore.lang ? lore.lang !== _expectLoreLang : (!!lore.bio && loreLangMismatch(String(lore.bio), _expectLoreLang))) ||
+      // CSSOS_WAVE_1528 — 非英文母语档案缺英文翻译版(lore.en)→ 重生补上.
+      (lore && lore.lang && lore.lang !== "en" && (!lore.en || !lore.en.bio));
     if (refresh || loreEmpty) {
       // CSSOS_WAVE_348 — 通用 prompt: 英文指令骨架, 但所有字符串值用母语 {_langName}
       // 输出. perspective 标签也用母语(前端只是原样显示, 不依赖具体值).
@@ -39143,6 +39147,11 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
             source: wiki.found ? "wiki+llm" : "llm-only",
             generated_at: new Date().toISOString(),
           };
+          // CSSOS_WAVE_1528 — 非英文母语档案必须【附带英文翻译版】(Jing 铁律). 复用 genLore
+          // 再出一版英文存 lore.en, 供英文界面/非母语用户阅读. 英文档案本身无需重复.
+          if (finalLang !== "en") {
+            try { const _en = await genLore("English"); if (_en && _en.bio) lore.en = { ..._en, lang: "en" }; } catch (_e) { /* 英文版尽力而为 */ }
+          }
           await withClient((c) =>
             c.query(`UPDATE person_profiles SET lore = $1::jsonb, updated_at = now() WHERE person_id = $2`,
               [JSON.stringify(lore), id]),

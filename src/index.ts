@@ -43115,6 +43115,56 @@ app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), as
   res.json({ ok: true, processed: results.length, results });
 });
 
+// CSSOS_WAVE_1542 — 外链封面【落地】到 /artifacts(不改画面, 只转存): 把 origin=civilization 里
+// 仍外链 Wikimedia 的封面【原图下载一次】→ 我们自己的 /artifacts(webp), repoint cover_image。
+// 目的: 保住真实肖像(爱因斯坦还是爱因斯坦), 又不再受 Wikimedia 429 限流。非 AI 重生成, 不烧图引擎。
+// Wikimedia 要求描述性 User-Agent, 否则 429/403; 429 时退避重试; 每张之间小憩, 对上游友好。
+// admin(x-admin-token)。body: { ids?, limit?, dry? }。旧链存入 reference_images 备查。
+app.post("/api/admin/actors/persist-covers", express.json({ limit: "8kb" }), async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!expected || String(req.headers["x-admin-token"] || "").trim() !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : null;
+  const limit = Math.min(Math.max(Number(req.body?.limit) || 10, 1), 40);
+  const dry = !!req.body?.dry;
+  const sel = ids
+    ? await withClient((c) => c.query<{ actor_id: string; name_en: string; cover_image: string | null; reference_images: string[] }>(
+        `SELECT actor_id,name_en,cover_image,reference_images FROM digital_actors WHERE actor_id = ANY($1) AND cover_image LIKE '%wikimedia.org%'`, [ids]))
+    : await withClient((c) => c.query<{ actor_id: string; name_en: string; cover_image: string | null; reference_images: string[] }>(
+        `SELECT actor_id,name_en,cover_image,reference_images FROM digital_actors WHERE origin_type='civilization' AND cover_image LIKE '%wikimedia.org%' ORDER BY name_en LIMIT $1`, [limit]));
+  const UA = "cssOS-CoverRehost/1.0 (https://cssstudio.app; admin@cssstudio.app) image-persist";
+  const results: Array<Record<string, unknown>> = [];
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (const a of sel.rows) {
+    const src = String(a.cover_image || "");
+    if (dry) { results.push({ actor_id: a.actor_id, name: a.name_en, src }); continue; }
+    let buf: Buffer | null = null, lastErr = "";
+    for (let attempt = 0; attempt < 3 && !buf; attempt++) {
+      if (attempt) await sleep(1000 * attempt * attempt);   // 退避 1s, 4s
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 20000);
+        try {
+          const r = await fetch(src, { signal: ctrl.signal, redirect: "follow", headers: { "User-Agent": UA, "Accept": "image/*" } });
+          if (r.ok) { const b = Buffer.from(await r.arrayBuffer()); if (b.byteLength > 512 && b.byteLength < 40 * 1024 * 1024) buf = b; else lastErr = `bad_size:${b.byteLength}`; }
+          else lastErr = `http_${r.status}`;
+        } finally { clearTimeout(to); }
+      } catch (e) { lastErr = (e as Error)?.message || "fetch_err"; }
+    }
+    if (!buf) { results.push({ actor_id: a.actor_id, name: a.name_en, ok: false, error: lastErr || "download_failed", src }); await sleep(400); continue; }
+    try {
+      const stable = persistBase64Cover(buf.toString("base64"), "civ-persist");
+      if (!stable || /^data:/.test(stable)) { results.push({ actor_id: a.actor_id, name: a.name_en, ok: false, error: "persist_failed" }); continue; }
+      // 旧外链留入 reference_images(去重), 新稳定图设为封面。
+      const refs = Array.isArray(a.reference_images) ? a.reference_images.filter(Boolean) : [];
+      if (src && refs.indexOf(src) < 0) refs.push(src);
+      await withClient((c) => c.query(`UPDATE digital_actors SET cover_image=$2, reference_images=$3, cover_focal_x=NULL, cover_focal_y=NULL WHERE actor_id=$1`, [a.actor_id, stable, refs]));
+      results.push({ actor_id: a.actor_id, name: a.name_en, ok: true, old: src, new: stable });
+    } catch (e) { results.push({ actor_id: a.actor_id, name: a.name_en, ok: false, error: (e as Error)?.message || "err" }); }
+    await sleep(500);   // 对 Wikimedia 友好
+  }
+  res.json({ ok: true, processed: results.length, ok_count: results.filter((r) => (r as any).ok).length, results });
+});
+
 // CSSOS_WAVE_1529 — Casting P1: 文明智能联动【选角推荐】. 给定格式(+可选 civ)与导演需要的
 // 角色槽, 每槽返回排序候选: 同文明优先 → archetype/正反匹配 → 人气 → 免费优先. 纯 SQL, 无模型调用.
 // 每候选附 mother_tongue(civToLanguageServer)供 UI 预览语言. 群演(extras)按数量系统随机, 不占具名槽.

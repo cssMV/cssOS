@@ -307,10 +307,31 @@
       '<div class="ag-grid">' + list.slice(0, show).map(actorCard).join("") + '</div>' +
       (more > 0 ? '<div style="text-align:center;margin-top:20px;"><button class="ag-chip ag-more">' + esc(T("Load one more row", "加载更多一行")) + ' ▾ (' + more + ')</button></div>' : "");
     var mb = scroll.querySelector(".ag-more");
-    if (mb) mb.onclick = function () { state.rows += 1; renderGrid(); };
+    if (mb) mb.onclick = function () { appendMoreRows(); };
     var ba = scroll.querySelector(".ag-browse-all");
     if (ba) ba.onclick = function () { state.solo = null; state.filter = "all"; resetRows(); loadActors(); };
     agSetupImgRecycle(scroll);
+  }
+  // 加载更多 = 只在末尾【追加】新一批卡, 不整刷、不跳回顶部(保留滚动位置)。
+  // renderGrid() 全量重建只留给 筛选/搜索/首次(那些本就该重排)。
+  function appendMoreRows() {
+    var scroll = document.querySelector("#" + ROOT_ID + " .ag-scroll");
+    var grid = scroll && scroll.querySelector(".ag-grid");
+    if (!grid) { state.rows += 1; renderGrid(); return; }  // 无网格 → 退回整渲
+    var list = applyFilter(state.actors);
+    var cols = colsFor(scroll);
+    var batch = cols <= 1 ? 3 : cols;
+    var prevShow = grid.children.length;
+    state.rows += 1;
+    var show = Math.min(list.length, Math.max(batch, state.rows * batch));
+    if (show > prevShow) grid.insertAdjacentHTML("beforeend", list.slice(prevShow, show).map(actorCard).join(""));
+    var more = list.length - show;
+    var mb = scroll.querySelector(".ag-more");
+    if (mb) {
+      if (more > 0) mb.innerHTML = esc(T("Load one more row", "加载更多一行")) + " ▾ (" + more + ")";
+      else if (mb.parentNode) mb.parentNode.remove();  // 到底 = 移除按钮
+    }
+    agSetupImgRecycle(scroll);  // 新追加的卡也纳入离屏回收
   }
   // CSSOS_WAVE_1524 — 离屏图卸载: 滚出视口 (上下各 800px 缓冲) 的封面 <img> 清掉 src
   // 释放已解码位图内存, 滚回来再恢复。配合 content-visibility:auto + /img 缩略, 让

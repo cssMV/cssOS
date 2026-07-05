@@ -144,40 +144,53 @@ struct PlayerView: View {
                     .allowsHitTesting(false)
             }
 
-            // 标题浮层(几秒后淡出)。
+            // 标题浮层(几秒后淡出)。W1554 — Jing: 抬进【视频框内】下缘之上, 绝不落下方黑边
+            //   (黑边留给传统字幕, 免打架)。渐变也只铺在框内下部, 不进黑边。
             if showTitle {
-                VStack {
-                    Spacer()
-                    HStack {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(currentPart.title ?? "Untitled")
-                                .font(.system(size: 44, weight: .bold))
-                                .foregroundStyle(.white)
-                            HStack(spacing: 12) {
-                                if !currentPart.durationLabel.isEmpty {
-                                    Text(currentPart.durationLabel)
-                                        .font(.system(size: 24, weight: .medium))
-                                        .foregroundStyle(.white.opacity(0.7))
-                                }
-                                // W1329 — 多部连播分部指示。
-                                if parts.count > 1 {
-                                    Text("\(partIndex + 1) / \(parts.count)")
-                                        .font(.system(size: 22, weight: .heavy))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 10).padding(.vertical, 3)
-                                        .background(Capsule().fill(Color.green.opacity(0.85)))
+                GeometryReader { geo in
+                    let boxH = geo.size.width / 2.39
+                    let blackBar = max(0, (geo.size.height - boxH) / 2)   // 下方黑边高度
+                    ZStack(alignment: .bottom) {
+                        // 可读性渐变: 只在视频框下半部, 不进黑边。
+                        VStack(spacing: 0) {
+                            Spacer()
+                            LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom)
+                                .frame(height: boxH * 0.5)
+                        }
+                        .padding(.bottom, blackBar)
+                        // 标题 + 时长 + 1/3, 贴视频框内下缘(离黑边 36)。
+                        HStack {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(currentPart.title ?? "Untitled")
+                                    .font(.system(size: 44, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .shadow(color: .black.opacity(0.7), radius: 4)
+                                HStack(spacing: 12) {
+                                    if !currentPart.durationLabel.isEmpty {
+                                        Text(currentPart.durationLabel)
+                                            .font(.system(size: 24, weight: .medium))
+                                            .foregroundStyle(.white.opacity(0.75))
+                                    }
+                                    // W1329 — 多部连播分部指示(唯一的一个: 左下角 square.stack 已删)。
+                                    if parts.count > 1 {
+                                        Text("\(partIndex + 1) / \(parts.count)")
+                                            .font(.system(size: 22, weight: .heavy))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 10).padding(.vertical, 3)
+                                            .background(Capsule().fill(Color.green.opacity(0.85)))
+                                    }
                                 }
                             }
+                            .shadow(color: .black.opacity(0.6), radius: 3)
+                            Spacer()
                         }
-                        Spacer()
+                        .padding(.horizontal, 64)
+                        .padding(.bottom, blackBar + 36)
                     }
-                    .padding(64)
                 }
-                .background(
-                    LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
-                        .ignoresSafeArea()
-                )
+                .ignoresSafeArea()
                 .transition(.opacity)
+                .allowsHitTesting(false)
             }
 
             // W1370 — 多语言/多声线: 胶囊宪法(像 hero 那样的两头圆胶囊), ≥2 条可播轨才显示。

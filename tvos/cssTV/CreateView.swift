@@ -6,6 +6,7 @@ import SwiftUI
 struct CreateView: View {
     var seedPrompt: String = ""
     @ObservedObject var auth: CSSAuth
+    var onIFilm: (String) -> Void = { _ in }   // W1549 — 命中互动多线程电影意图 → 交宿主打开播放屏
     @Environment(\.dismiss) private var dismiss
     @State private var prompt: String = ""
     @State private var status: String = ""
@@ -87,12 +88,18 @@ struct CreateView: View {
         casting = true
         status = "✨ Sending your idea to the magic mirror…"
         Task {
-            let ok = await CSSBackend.castMV(prompt: p)
+            let result = await CSSBackend.castMV(prompt: p)
             await MainActor.run {
                 casting = false
+                // W1549 — 互动多线程电影意图(如《时间帝国》)→ 关本页 + 打开 cssTV 互动电影播放屏。
+                if result.intent == "ifilm", let fid = result.ifilmId, !fid.isEmpty {
+                    dismiss()
+                    onIFilm(fid)
+                    return
+                }
                 // W1368 — App Store 3.1.1「对买闭嘴」: 文案绝不提外部站点/充值/购买。
                 //   成功=中性"生成中, 稍后进 For You"; 失败=中性"再试一次"。
-                status = ok
+                status = result.ok
                     ? "✨ Idea received! Your MV is generating — it'll appear here in For You when it's ready."
                     : "Couldn't start it just now. Please try again."
             }

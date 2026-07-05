@@ -94,6 +94,7 @@ struct ContentView: View {
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
     @State private var showCreate = false               // W1547 — cssTV 恢复创作入口(先 built 到真机 + 后台验证; 不实际开拍)
+    @State private var ifilmRef: IFilmRef? = nil        // W1549 — 互动多线程电影播放屏(Slice 3)
     @Namespace private var focusNS
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
 
@@ -202,7 +203,14 @@ struct ContentView: View {
         }
         // W1547 — 恢复创作: Siri Remote 🎙 说「CSS, …」→ CreateView → /api/agent/chat。
         .fullScreenCover(isPresented: $showCreate) {
-            CreateView(auth: auth)
+            CreateView(auth: auth, onIFilm: { fid in
+                // W1549 — 命中互动电影意图 → 关创作页, 稍后开播放屏(等 cover 收完再开, 免叠盖冲突)。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ifilmRef = IFilmRef(id: fid) }
+            })
+        }
+        // W1549 — 互动多线程电影播放屏《时间帝国》。
+        .fullScreenCover(item: $ifilmRef) { ref in
+            IFilmPlayerView(ifilmId: ref.id)
         }
         // W1365 — TV 全免费: 删去付费门 alert(原引导站外 cssstudio.app 购买 = App Store 3.1.1 雷)。
         .task {
@@ -321,6 +329,9 @@ struct EmojiBurstEffect: View {
 enum SidebarItem: Hashable {
     case avatar, favorites, search, create, category(HomeCategory)
 }
+
+/// W1549 — 互动电影 fullScreenCover(item:) 的 Identifiable 载体(id = ifilm 图谱 id)。
+struct IFilmRef: Identifiable { let id: String }
 
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
 ///   收起 = 只显图标(窄); 焦点进入侧栏任一项 = 展开显图标+标签(宽)。标签全英文(i18n)。

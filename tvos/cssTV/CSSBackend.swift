@@ -217,17 +217,84 @@ enum CSSBackend {
     }
 
     // W1259 — 创作台: 把提示词发给后端 AI 助理(开始创作)。返回是否成功送达。
-    static func castMV(prompt: String) async -> Bool {
-        guard let url = URL(string: "\(baseURL)/api/agent/chat") else { return false }
+    /// W1548 — 创作意念 → agent。返回 { ok, intent }。intent=="ifilm" → 打开互动电影播放屏(Slice 3)。
+    struct CastResult { let ok: Bool; let intent: String?; let ifilmId: String?; let reply: String? }
+    static func castMV(prompt: String) async -> CastResult {
+        guard let url = URL(string: "\(baseURL)/api/agent/chat") else { return CastResult(ok: false, intent: nil, ifilmId: nil, reply: nil) }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["message": prompt, "source": "csstv"])
         do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            if let http = resp as? HTTPURLResponse { return (200...299).contains(http.statusCode) }
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let ok = (resp as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false
+            let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            return CastResult(ok: ok,
+                              intent: j?["intent"] as? String,
+                              ifilmId: j?["ifilm_id"] as? String,
+                              reply: j?["reply"] as? String)
         } catch { print("[CSSBackend] castMV failed:", error) }
-        return false
+        return CastResult(ok: false, intent: nil, ifilmId: nil, reply: nil)
+    }
+
+    // MARK: - W1549 Slice 3 — 互动多线程电影(ifilm)客户端
+    // 只读/公开(ifilm 端点无鉴权); /next 会触发生成(LLM 写 beat + TTS 声音 + seedance 视频备料),
+    // 故播放屏用「▶ 开拍」显式起头, 用户按了才开始花钱(尊重「先不开拍」)。
+
+    struct IFilmSession: Codable {
+        var beats: [String]; var step: Int; var tension: Double; var seed: Int
+        static let start = IFilmSession(beats: [], step: 0, tension: 0, seed: 0)
+    }
+    struct IFilmBeatOut: Codable { let thread: String?; let speaker: String?; let line: String?; let synopsis: String?; let video_prompt: String? }
+    struct IFilmBeatVideo: Codable { let status: String?; let video_url: String? }
+    struct IFilmNext: Codable {
+        let ok: Bool?
+        let beat: IFilmBeatOut?
+        let reaction: String?
+        let tension: Double?
+        let converged: Bool?
+        let ending_id: String?
+        let ending_label: String?
+        let voice_url: String?
+        let beat_video: IFilmBeatVideo?
+        let session: IFilmSession?
+    }
+
+    /// 推进一拍。gaze/gesture/utterance = 用户此刻的【微影响】(遥控方向/语音)。分钟级 → 长超时。
+    static func ifilmNext(id: String, session: IFilmSession,
+                          gaze: String? = nil, gesture: String? = nil, utterance: String? = nil) async -> IFilmNext? {
+        guard let url = URL(string: "\(baseURL)/api/ifilm/\(id)/next") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 300
+        var payload: [String: Any] = ["beats": session.beats, "step": session.step, "tension": session.tension, "seed": session.seed]
+        if let g = gaze { payload["gaze"] = g }
+        if let ge = gesture { payload["gesture"] = ge }
+        if let u = utterance { payload["utterance"] = u }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            return try? JSONDecoder().decode(IFilmNext.self, from: data)
+        } catch { print("[CSSBackend] ifilmNext failed:", error); return nil }
+    }
+
+    /// 轮询 beat 视频到 ready(懒渲染, seedance 分钟级)。返回可播 video_url;超时返回 nil(用封面/台词兜底)。
+    static func ifilmBeatVideoReady(id: String, videoPrompt: String, tries: Int = 45) async -> String? {
+        guard !videoPrompt.isEmpty, let url = URL(string: "\(baseURL)/api/ifilm/\(id)/beat-video") else { return nil }
+        for _ in 0..<tries {
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["video_prompt": videoPrompt])
+            if let (data, _) = try? await URLSession.shared.data(for: req),
+               let v = try? JSONDecoder().decode(IFilmBeatVideo.self, from: data),
+               (v.status ?? "") == "ready", let u = v.video_url, !u.isEmpty {
+                return u
+            }
+            try? await Task.sleep(nanoseconds: 4_000_000_000)  // 4s
+        }
+        return nil
     }
 
     private struct FeedEnvelope: Codable {

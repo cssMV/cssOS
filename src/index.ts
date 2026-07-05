@@ -43154,7 +43154,9 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
     // 生成锁定 headshot(文字→原创合成脸)。
     let coverUrl = "", fx: number | null = null, fy: number | null = null;
     try {
-      const img = await callImageGen({ prompt: `${facePrompt}, professional character headshot portrait, head and shoulders, front view, clean neutral studio background, cinematic soft lighting, photorealistic, highly detailed`, size: "1024x1024" });
+      // CSSOS_WAVE_1525 — 根因修复: 方图 + 泛泛"headshot" 会让部分模型吐【多角度人脸宫格】→
+      // cover 变多头像。改竖图 + 明确"单人单脸、禁止宫格/拼贴/多脸"(与 regen-portraits 同prompt)。
+      const img = await callImageGen({ prompt: `${facePrompt}, professional character headshot portrait, head and shoulders, front view, one person only, a single centered human face, clean neutral studio background, cinematic soft lighting, photorealistic, highly detailed. STRICTLY one face — absolutely no grid, no collage, no contact sheet, no multiple faces, no split panels, no text, no watermark.`, size: "896x1152" });
       if (img?.ok) {
         coverUrl = img.image_url ? await persistRemoteImageToStable(img.image_url) : (img.image_b64 ? persistBase64Cover(img.image_b64, "ugc-actor") : "");
         if (coverUrl) {

@@ -144,6 +144,8 @@
       "#" + ROOT_ID + " .ag-dg-civ.on{background:rgba(0,245,160,.85);color:" + INK + ";border-color:transparent;}" +
       "#" + ROOT_ID + " .ag-dg-style{width:100%;box-sizing:border-box;margin:0 0 12px;}" +
       "#" + ROOT_ID + " .ag-dg-synopsis{width:100%;box-sizing:border-box;margin:0 0 12px;min-height:64px;resize:vertical;font-family:inherit;}" +
+      // D — App 端隐藏故事梗概输入(后台仍有: 留空则系统智能生成)。桌面/网页正常显示。
+      "html.cssos-app #" + ROOT_ID + " .ag-dg-synopsis{display:none !important;}" +
       "#" + ROOT_ID + " .ag-dg-title{width:100%;box-sizing:border-box;margin:0 0 12px;}" +
       "#" + ROOT_ID + " .ag-dg-label{font-size:12.5px;font-weight:700;color:#8fdcc0;margin:0 0 8px;}" +
       "#" + ROOT_ID + " .ag-dg-cast{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;}" +
@@ -1364,7 +1366,10 @@
     { en: "Roman", zh: "罗马", v: "古罗马文明" }, { en: "Mesopotamian", zh: "美索", v: "美索不达米亚神话" },
   ];
   function openDirectorGate() {
-    var root = document.getElementById(ROOT_ID) || document.body;
+    // 从闸/Dock 打开时图鉴可能没开 → 先开(否则 #ROOT_ID 作用域样式失效)。
+    var root = document.getElementById(ROOT_ID);
+    if (!root && typeof open === "function") { try { open(1); } catch (_o) {} }
+    root = document.getElementById(ROOT_ID) || document.body;
     var fmt = "mv", title = "", civ = "", style = "", synopsis = "";
     var slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv;
     var picked = {}, pools = {}, cdLeft = DG_CD_DEFAULT, cdTimer = null, started = false;
@@ -1884,9 +1889,9 @@
     el.innerHTML =
       '<div class="ag-bar">' +
         '<div class="ag-title">🎭 <b>' + esc(T("Digital Actors", "数字演员")) + '</b></div>' +
-        '<button class="ag-direct" onclick="cssosOpenDirectorGate()" title="' + esc(T("Pick a format — system casts & rolls", "选戏路 —— 系统选角自动开拍")) + '">🎬 ' + esc(T("Direct", "开拍")) + '</button>' +
         '<div class="ag-spacer"></div>' +
-        '<div class="ag-topcap">' +   // 三段单选(成为演员/创建/搜索)走平台 cssosMakePillBar
+        '<div class="ag-topcap">' +   // 导演入口 + 三段(成为演员/创建/搜索)同一胶囊轨道; 导演首位默认激活。
+          '<button class="ag-directcap" data-pill-key="direct">🎬 ' + esc(T("Direct", "开拍")) + '</button>' +
           '<button class="ag-signup" data-pill-key="signup">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +
           '<button class="ag-create" data-pill-key="create">＋ ' + esc(T("Create", "创建演员")) + '</button>' +
           '<input class="ag-search" type="search" data-pill-key="search" placeholder="' + esc(T("🔍 Search actors…", "🔍 搜索演员…")) + '">' +
@@ -1915,10 +1920,11 @@
     var topcap = el.querySelector(".ag-topcap");
     if (topcap && typeof window.cssosMakePillBar === "function") {
       agTopcapCtl = window.cssosMakePillBar(topcap, {
-        mono: true, textColor: "light", compact: true, activeKey: "signup",
+        mono: true, textColor: "light", compact: true, activeKey: "direct",
         onActivate: function (key) {
           // 搜索段是 <input>, 点击即原生聚焦, 无需在此 focus(否则与 change 事件成回环卡住焦点)。
-          if (key === "create") renderCreateForm();
+          if (key === "direct") openDirectorGate();
+          else if (key === "create") renderCreateForm();
           else if (key === "signup") renderRealPersonSignup();
         },
       });
@@ -2027,6 +2033,7 @@
     try {
       var map = window.__cssosDockActionMap = window.__cssosDockActionMap || {};
       map["actors"] = function () { open(); };
+      map["director"] = function () { openDirectorGate(); };   // 🎬 导演入口(数字演员之后)
       window.dockActionMap = window.__cssosDockActionMap;
     } catch (_e) {}
   }
@@ -2045,6 +2052,26 @@
     var ref = dock.querySelector('[data-action="person-mv"], [data-action="cssmv"], [data-action="watch"]');
     if (ref && ref.nextSibling) dock.insertBefore(item, ref.nextSibling); else dock.appendChild(item);
     item.addEventListener("click", function () { open(); });   // 直连兜底(dock 分发未接管时也能开)
+    mountDirectorDockItem(dock);   // 数字演员之后紧跟 🎬 导演入口
+    return true;
+  }
+  // 🎬 导演入口 dock 项 —— 紧挨在数字演员(actors)之后。
+  function mountDirectorDockItem(dock) {
+    if (!dock) dock = document.querySelector(".dock") || document.querySelector("#dock");
+    if (!dock) return false;
+    if (dock.querySelector('[data-action="director"]')) return true;
+    var d = document.createElement("button");
+    d.className = "dock-item"; d.type = "button";
+    d.setAttribute("data-action", "director");
+    d.setAttribute("data-actions", "click");
+    d.setAttribute("data-tooltip", T("Director", "导演开拍"));
+    d.setAttribute("aria-label", T("Director", "导演开拍"));
+    d.innerHTML = '<span class="dock-ico" aria-hidden="true">🎬</span><span class="dock-label">' + esc(T("Direct", "开拍")) + '</span>';
+    var ref = dock.querySelector('[data-action="actors"]');
+    if (ref && ref.nextSibling) dock.insertBefore(d, ref.nextSibling);
+    else if (ref) dock.appendChild(d);
+    else dock.appendChild(d);
+    d.addEventListener("click", function () { openDirectorGate(); });   // 直连兜底
     return true;
   }
   function ensureDockItem(retries) {

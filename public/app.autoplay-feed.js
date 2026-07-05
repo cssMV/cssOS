@@ -184,6 +184,8 @@
       '<button type="button" id="cssos-autoenter-watch" style="flex:1.4;appearance:none;border:none;border-radius:999px;background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;padding:11px 14px;font:700 14px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:15px;">▶</span>' + lc("Watch MV", "欣赏 MV") + '</button>' +
       // 中间: 数字演员出口(W1532)。
       '<button type="button" id="cssos-autoenter-actors" style="flex:1.2;appearance:none;border:none;border-radius:999px;background:rgba(0,245,160,0.12);color:#eafff6;padding:11px 10px;font:700 13px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:14px;">🎭</span>' + lc("Digital Actors", "数字演员") + '</button>' +
+      // 数字演员之后加「开拍」导演入口(W1533)。
+      '<button type="button" id="cssos-autoenter-direct" style="flex:1.2;appearance:none;border:none;border-radius:999px;background:rgba(0,245,160,0.12);color:#eafff6;padding:11px 10px;font:700 13px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:14px;">🎬</span>' + lc("Direct", "开拍") + '</button>' +
       '<button type="button" id="cssos-autoenter-later" style="flex:1;appearance:none;border:none;border-radius:999px;background:transparent;color:#eafff6;padding:11px 14px;font:600 14px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:14px;opacity:.85;">🕘</span>' + lc("Maybe later", "稍后再说") + '</button>' +
       '</div>' +
       // 底部: 记住复选框
@@ -209,10 +211,13 @@
     // 中间「数字演员」→ 关闸并打开数字演员图鉴。
     var actorsBtn = ov.querySelector("#cssos-autoenter-actors");
     if (actorsBtn) actorsBtn.addEventListener("click", function () { stopCd(); close(); try { globalThis.cssosOpenActorGallery && globalThis.cssosOpenActorGallery(1); } catch (_e) {} });
+    // 「数字演员」之后「开拍」→ 关闸并打开导演入口(自保证图鉴先开)。
+    var directBtn = ov.querySelector("#cssos-autoenter-direct");
+    if (directBtn) directBtn.addEventListener("click", function () { stopCd(); close(); try { globalThis.cssosOpenDirectorGate && globalThis.cssosOpenDirectorGate(); } catch (_e) {} });
     // W1532 — 10 秒默认进入「欣赏 MV」; 任意交互(点任一按钮 / 勾记住 / 点背景)即取消。
     var cd = 10, cdTimer = null;
     function stopCd() { if (cdTimer) { clearInterval(cdTimer); cdTimer = null; } }
-    [watchBtn, laterBtn, actorsBtn].forEach(function (b) { if (b) b.addEventListener("click", stopCd); });
+    [watchBtn, laterBtn, actorsBtn, directBtn].forEach(function (b) { if (b) b.addEventListener("click", stopCd); });
     var _rem = ov.querySelector("#cssos-autoenter-remember"); if (_rem) _rem.addEventListener("change", stopCd);
     ov.addEventListener("click", function (e) { if (e.target === ov) stopCd(); });
     var _cdl = document.createElement("span"); _cdl.style.cssText = "opacity:.75;font-weight:600;"; _cdl.textContent = " (" + cd + ")";

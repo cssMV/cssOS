@@ -93,11 +93,13 @@ struct ContentView: View {
     // W1550 — 彻底修复进场焦点闪烁: 冷启动头 0.6s 侧栏【不可聚焦】, 让 hero 首帧起就独占默认焦点,
     //   不再与侧栏 logo 抢焦(抢焦→闪回 logo→用户一按就退出)。0.6s 后再放开侧栏。
     @State private var sidebarArmed = false
+    @State private var heroFocusTick = 0                // W1552 — bump → FeaturedHero 把焦点确定性按回 hero
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
     @State private var showCreate = false               // W1547 — cssTV 恢复创作入口(先 built 到真机 + 后台验证; 不实际开拍)
     @State private var ifilmRef: IFilmRef? = nil        // W1549 — 互动多线程电影播放屏(Slice 3)
+    @Environment(\.resetFocus) private var resetFocus   // W1552 — 侧栏挂载后把焦点按回 hero
     @Namespace private var focusNS
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
 
@@ -145,7 +147,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS) { choose($0, in: featured) }
+                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, onSelect: { choose($0, in: featured) }, focusTick: heroFocusTick)
                             // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
@@ -183,22 +185,33 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, focusNS: focusNS, sidebarNS: sidebarNS)
-                .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
-                .focusSection()
-                // W1550 — 进场头 0.6s 侧栏不可聚焦(disabled=非焦点)→ hero 独占默认焦点, 消灭抢焦闪烁。
-                .disabled(!sidebarArmed)
-                // W1523 — 滚过 hero 后隐藏(不挡下方栏目); 回滚再显。焦点此时在 rails, 藏侧栏不丢焦点。
-                .opacity(sidebarVisible ? 1 : 0)
-                .allowsHitTesting(sidebarVisible)
+            // W1552 — 彻底修进场抢焦: 冷启动头 0.8s【根本不渲染侧栏】。不存在的视图绝无可能抢焦点 →
+            //   此刻 hero 是屏上唯一可聚焦项 → 必然独占默认焦点(比 .disabled 硬得多; .disabled 在某些设备
+            //   /时序下仍被焦点引擎纳入评估而抢走)。就绪后淡入, 挂载不会移动已在 hero 的焦点。
+            if sidebarArmed {
+                CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, focusNS: focusNS, sidebarNS: sidebarNS)
+                    .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
+                    .focusSection()
+                    // W1523 — 滚过 hero 后隐藏(不挡下方栏目); 回滚再显。焦点此时在 rails, 藏侧栏不丢焦点。
+                    .opacity(sidebarVisible ? 1 : 0)
+                    .allowsHitTesting(sidebarVisible)
+                    .transition(.opacity)
+            }
         }
         .focusScope(focusNS)
         .ignoresSafeArea(.container, edges: .top)   // W1309 — 第四次: 整个界面延到屏顶, 顶部零安全区(hero 真正顶到头)
         .background(Color.clear.ignoresSafeArea())   // W1307 — 透明=苹果系统窗口背景色
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true   // W1251 — cssTV 运行时禁屏保
-            // W1550 — hero 首帧独占焦点后再放开侧栏(0.6s 扛过冷启动焦点引擎就绪时序)。
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { sidebarArmed = true }
+            // W1552 — hero 独占焦点稳定后再挂载侧栏(0.8s 扛过慢设备如 Apple TV 4K 的焦点引擎就绪时序);
+            //   挂载后再延一拍把焦点【按回 hero】(防慢设备上挂载瞬间被侧栏抢焦, 双保险)。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                withAnimation(.easeIn(duration: 0.3)) { sidebarArmed = true }
+                // 挂载侧栏后连 bump 几拍 focusTick, 用确定性 @FocusState 把焦点强按回 hero(硬过慢设备上侧栏的抢焦)。
+                for d in [0.05, 0.25, 0.6] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + d) { heroFocusTick += 1 }
+                }
+            }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .fullScreenCover(isPresented: $showPlayer) {
@@ -394,8 +407,8 @@ struct CategorySidebar: View {
                 row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
                     selected = cat
                 }
-                .prefersDefaultFocus(cat == .all, in: sidebarNS)   // W1283 — Home = 侧栏默认目标(hero 往左跳回它)
-                // W1367 — tvOS 纯欣赏: 移除侧栏「Create」创作入口。
+                // W1552 — 删掉侧栏的 prefersDefaultFocus(Home): 它在挂载时与 hero 争默认焦点, 慢设备(4K)上
+                //   侧栏赢 → 焦点落 logo。删掉后侧栏不再声称默认目标, hero 的 prefersDefaultFocus 独赢。
             }
             Spacer()
         }
@@ -556,6 +569,8 @@ struct FeaturedHero: View {
     var focusNS: Namespace.ID                         // W1278 — 第一个胶囊 = 焦点域默认目标(侧栏右键跳来)
     var sidebarNS: Namespace.ID                       // W1283 — 往左跳回侧栏用
     let onSelect: (CSSWork) -> Void
+    var focusTick: Int = 0                            // W1552 — 宿主每 bump 一次 → 用【确定性 @FocusState 赋值】
+                                                      //   把焦点强按回本 hero 第一个胶囊(挂载侧栏后调用, 硬过 resetFocus 启发式)
 
     @Environment(\.resetFocus) private var resetFocus // W1283 — 往左把焦点送回侧栏
     @State private var index = 0
@@ -872,6 +887,8 @@ struct FeaturedHero: View {
             cancelHeroPreview()
             if heroFocused { scheduleHeroPreview() }
         }
+        // W1552 — 宿主挂载侧栏后 bump focusTick → 用确定性 @FocusState 赋值把焦点强按回第一个胶囊(慢设备 4K 也稳)。
+        .onChange(of: focusTick) { _, _ in focusedCap = 0 }
         .onDisappear { cancelHeroPreview() }
         .onReceive(timer) { _ in
             if focusedCap != nil { return }                           // 用户正在操作胶囊, 不自动切

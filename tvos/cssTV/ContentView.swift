@@ -467,8 +467,9 @@ struct CategorySidebar: View {
     // W1275 — Jing 铁律: 左侧菜单【无论往左还是往右, 文字标签都收起】; 往右还离开侧栏进内容。
     private func handleMove(_ dir: MoveCommandDirection) {
         switch dir {
-        case .up:    moveFocus(-1)
-        case .down:  moveFocus(1)
+        // W1551 — 上下【交给 tvOS 原生焦点引擎】。此前手动 moveFocus(±1) 会和原生同帧叠加 = 每按一次跳两格
+        //   → 相邻/隔一个的栏目永远选不中(收藏/新建/MV/三部曲/系列)。去掉手动上下移动即修。
+        case .up, .down: break
         case .left:  withAnimation(.easeInOut(duration: 0.22)) { expanded = false }
         case .right:
             withAnimation(.easeInOut(duration: 0.22)) { expanded = false }

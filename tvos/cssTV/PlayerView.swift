@@ -104,6 +104,16 @@ struct PlayerView: View {
                         .position(x: geo.size.width / 2, y: geo.size.height / 2)
                         .allowsHitTesting(false)
                 }
+
+                // W1551 — 首次点进 hydrate + 起播前会有一小段空窗: 之前只剩黑底 + "Untitled" 像坏掉。
+                //   这里补一个绿色加载圈, 明确是"加载中"; 视频一就绪(videoPlayer 有值)立即消失。
+                if videoPlayer == nil && !videoEnded {
+                    ProgressView()
+                        .scaleEffect(1.8)
+                        .tint(Color(red: 0.0, green: 0.96, blue: 0.63))
+                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                        .allowsHitTesting(false)
+                }
             }
             .ignoresSafeArea()
 

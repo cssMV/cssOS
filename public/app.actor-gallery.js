@@ -131,6 +131,14 @@
       "#" + ROOT_ID + " .ag-cs-cand span{font-size:10px;max-width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}" +
       "#" + ROOT_ID + " .ag-cs-extras{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0;font-size:13px;font-weight:700;color:#bff5e0;}" +
       "#" + ROOT_ID + " .ag-cs-extrabtns{display:flex;gap:0;}" +
+      "#" + ROOT_ID + " .ag-cs-extras small{font-weight:600;color:#7fb8a3;}" +
+      // 自愿群演池(手动模式): 多选切换, 复用候选卡样式。
+      "#" + ROOT_ID + " .ag-cs-expool{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;}" +
+      "#" + ROOT_ID + " .ag-cs-excand{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:3px;width:56px;background:transparent;border:1px solid rgba(0,245,160,.22);border-radius:10px;padding:4px;cursor:pointer;color:#cfeee0;}" +
+      "#" + ROOT_ID + " .ag-cs-excand>img,#" + ROOT_ID + " .ag-cs-excand .ag-cs-ini{width:44px;height:44px;border-radius:7px;object-fit:cover;}" +
+      "#" + ROOT_ID + " .ag-cs-excand.on{border-color:" + GREEN + ";background:rgba(0,245,160,.14);}" +
+      "#" + ROOT_ID + " .ag-cs-excand span{font-size:10px;max-width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}" +
+      "#" + ROOT_ID + " .ag-cs-exempty{font-size:12px;color:#7fb8a3;font-style:normal;}" +
       "#" + ROOT_ID + " .ag-cs-cost{text-align:center;font-size:13px;font-weight:700;color:#bff5e0;margin:10px 0 6px;}" +
       "#" + ROOT_ID + " .ag-cs-go{width:100%;margin-top:4px;}" +
       // ⑤ 导演入口
@@ -148,7 +156,13 @@
       "#" + ROOT_ID + " .ag-dg-synopsis{width:100%;box-sizing:border-box;margin:0 0 12px;min-height:64px;resize:vertical;font-family:inherit;}" +
       // D — App 端隐藏故事梗概输入(后台仍有: 留空则系统智能生成)。桌面/网页正常显示。
       "html.cssos-app #" + ROOT_ID + " .ag-dg-synopsis{display:none !important;}" +
+      "#" + ROOT_ID + " .ag-dg-titlerow{display:flex;gap:8px;align-items:stretch;margin:0 0 12px;}" +
+      "#" + ROOT_ID + " .ag-dg-titlerow .ag-dg-title{flex:1;margin:0;}" +
       "#" + ROOT_ID + " .ag-dg-title{width:100%;box-sizing:border-box;margin:0 0 12px;}" +
+      // ✨联动 起草故事梗概按钮(与标题同排)。App 端随梗概一起隐藏(其目标文本框在 App 隐藏)。
+      "#" + ROOT_ID + " .ag-dg-syndraft{flex:0 0 auto;white-space:nowrap;background:rgba(0,245,160,.14);border:1px solid rgba(0,245,160,.4);color:#d6ffee;border-radius:10px;padding:0 12px;font-size:12.5px;font-weight:700;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-dg-syndraft:disabled{opacity:.6;cursor:progress;}" +
+      "html.cssos-app #" + ROOT_ID + " .ag-dg-syndraft{display:none !important;}" +
       "#" + ROOT_ID + " .ag-dg-label{font-size:12.5px;font-weight:700;color:#8fdcc0;margin:0 0 8px;}" +
       "#" + ROOT_ID + " .ag-dg-cast{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;}" +
       "#" + ROOT_ID + " .ag-dg-role{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#e8fff5;}" +
@@ -1265,7 +1279,9 @@
     var CAST_ROLE_OPTS = [{ r: "protagonist", a: "good", en: "Lead", zh: "主角" }, { r: "antagonist", a: "evil", en: "Villain", zh: "反派" }, { r: "supporting", a: "neutral", en: "Support", zh: "配角" }];
     var seedRole = "protagonist", seedAlign = "good";
     var pools = {};             // slotIdx → 候选数组
-    var extrasMode = "auto";    // auto=系统随机群演 | manual
+    var extrasMode = "auto";    // auto=系统随机群演 | manual=从自愿群演池手选
+    var extrasPool = [];        // willing_extra=true 的演员(recommend 返回), 手动模式可挑
+    var pickedExtras = {};      // actor_id → true(已选群演; role=extra 免费)
     var civ = seedActor.civilization || "";
     // 跨槽去重: 同一演员不能占两个角色槽。
     function usedElsewhere(aid, slotI) { return Object.keys(picked).some(function (k) { return +k !== slotI && picked[k] && picked[k].actor_id === aid; }); }
@@ -1298,11 +1314,17 @@
       modal.innerHTML = '<div class="box ag-cs-box"><h3>🎬 ' + esc(T("Casting", "选角")) + ' · ' + esc(T(fmt === "mv" ? "Music video" : fmt, fmt)) + '</h3>' +
         '<div class="sub">' + esc(T("The system suggests a cast by civilization + role. Swap anyone; extras are auto-generated (or set manually).", "系统按文明+戏路联动荐角。任意可换;群演系统随机生成(也可手动)。")) + '</div>' +
         '<div class="ag-cs-slots">' + slots.map(slotCard).join("") + '</div>' +
-        '<div class="ag-cs-extras"><span>👥 ' + esc(T("Extras", "群演")) + '</span>' +
+        '<div class="ag-cs-extras"><span>👥 ' + esc(T("Extras", "群演")) + ' <small>' + esc(T("(free)", "(免费)")) + '</small></span>' +
           '<div class="ag-cs-extrabtns" data-pill-bar>' +
             '<button data-ex="auto" class="' + (extrasMode === "auto" ? "active" : "") + '" data-pill-key="auto">🎲 ' + esc(T("Auto", "系统随机")) + '</button>' +
             '<button data-ex="manual" class="' + (extrasMode === "manual" ? "active" : "") + '" data-pill-key="manual">✋ ' + esc(T("Manual", "手动")) + '</button>' +
           '</div></div>' +
+        // 手动模式: 从自愿群演(willing_extra)池挑; 群演免费(role=extra, ×0)。空池 → 系统自动生成兜底。
+        (extrasMode === "manual"
+          ? '<div class="ag-cs-expool">' + (extrasPool.length
+              ? extrasPool.map(function (a) { return '<button class="ag-cs-excand' + (pickedExtras[a.actor_id] ? ' on' : '') + '" data-exar="' + esc(a.actor_id) + '">' + slotThumb(a) + '<span>' + esc(a.name_en || a.name_zh) + '</span></button>'; }).join("")
+              : '<i class="ag-cs-exempty">' + esc(T("No willing extras yet — the system will auto-generate background actors.", "暂无自愿群演 —— 系统将自动生成背景演员。")) + '</i>') + '</div>'
+          : "") +
         '<div class="ag-cs-cost">' + (function () { var t = 0; slots.forEach(function (s, i) { var a = picked[i]; if (a && a.is_premium) { var role = i === 0 ? seedRole : s.role, al = i === 0 ? seedAlign : s.alignment; var m = (al === "evil" || role === "antagonist") ? 1.3 : (role === "supporting" ? 0.5 : 1); t += Math.round((a.cast_price_cents || 0) * m); } }); return t > 0 ? "💎 " + esc(T("Cast total", "选角合计")) + " " + cents(t) + " · " + esc(T("from your wallet", "从钱包扣")) : "✅ " + esc(T("Free cast", "免费阵容")); })() + '</div>' +
         '<button class="ag-cast ag-cs-go">🎬 ' + esc(T("Cast & generate", "定角并生成")) + '</button>' +
         '</div>';
@@ -1325,6 +1347,7 @@
         .then(function (j) {
           if (j && j.ok && Array.isArray(j.results)) {
             j.results.forEach(function (res, k) { pools[need[k].i] = res.candidates || []; });
+            if (Array.isArray(j.extras)) extrasPool = j.extras;   // 自愿群演池
             need.forEach(function (n) { autoFillSlot(n.i); });   // 顺序填, 去重
           } else { throw new Error("fallback"); }
           render();
@@ -1342,6 +1365,8 @@
       if (e.target === modal) { modal.remove(); return; }
       var ex = e.target.closest && e.target.closest("button[data-ex]");
       if (ex) { extrasMode = ex.getAttribute("data-ex"); render(); return; }
+      var exar = e.target.closest && e.target.closest("button[data-exar]");
+      if (exar) { var xid = exar.getAttribute("data-exar"); if (pickedExtras[xid]) delete pickedExtras[xid]; else pickedExtras[xid] = true; render(); return; }
       var cand = e.target.closest && e.target.closest("button[data-pick]");
       if (cand) { var pi = +cand.getAttribute("data-pick"), ci = +cand.getAttribute("data-ci"); if (pools[pi] && pools[pi][ci]) { picked[pi] = pools[pi][ci]; render(); } return; }
       var sw = e.target.closest && e.target.closest("button[data-swap]");
@@ -1350,6 +1375,11 @@
       if (go) {
         // 组装 cast → 记 window.__cssosCast(供 P2 后端整体接收)+ 主角走现有生成流。
         var cast = slots.map(function (s, i) { var a = picked[i]; if (!a) return null; return { actor_id: a.actor_id, role: i === 0 ? seedRole : s.role, alignment: i === 0 ? seedAlign : s.alignment, billing_order: i, name: (a.name_en || a.name_zh), role_label_en: s.en, role_label_zh: s.zh }; }).filter(Boolean);
+        // 手选群演(role=extra, 免费)接到 cast 末尾; 跨槽去重(已当主/配角者不重复计为群演)。
+        var takenIds = cast.map(function (m) { return m.actor_id; });
+        var extraCast = extrasPool.filter(function (a) { return pickedExtras[a.actor_id] && takenIds.indexOf(a.actor_id) < 0; })
+          .map(function (a, k) { return { actor_id: a.actor_id, role: "extra", alignment: "neutral", billing_order: cast.length + k, name: (a.name_en || a.name_zh), role_label_en: "Extra", role_label_zh: "群演" }; });
+        cast = cast.concat(extraCast);
         window.__cssosCast = { format: fmt, extras_mode: extrasMode, cast: cast };
         window.__cssosCastRole = seedRole; window.__cssosCastAlign = seedAlign;   // ③ seed 角色 → 后端分层计费
         modal.remove();
@@ -1423,7 +1453,8 @@
         '<div class="ag-dg-fmts" data-pill-bar>' + fmtPills() + '</div>' +
         '<div class="ag-dg-label">🌍 ' + esc(T("Civilization (blank = system)", "文明(默认系统联动)")) + '</div>' +
         '<div class="ag-dg-civs">' + DG_CIVS.map(function (c) { return '<button class="ag-dg-civ' + (c.v === civ ? " on" : "") + '" data-dgciv="' + esc(c.v) + '">' + esc(T(c.en, c.zh)) + '</button>'; }).join("") + '</div>' +
-        '<input class="ag-in ag-dg-title" placeholder="' + esc(T("Title — blank = system names it", "标题 —— 留空则系统智能命名")) + '" value="' + esc(title) + '">' +
+        '<div class="ag-dg-titlerow"><input class="ag-in ag-dg-title" placeholder="' + esc(T("Title — blank = system names it", "标题 —— 留空则系统智能命名")) + '" value="' + esc(title) + '">' +
+          '<button class="ag-dg-syndraft" type="button" title="' + esc(T("Draft a story synopsis from the title + civilization", "按标题+文明智能起草故事梗概")) + '">✨ ' + esc(T("Draft", "联动")) + '</button></div>' +
         '<textarea class="ag-in ag-dg-synopsis" maxlength="2000" rows="3" placeholder="' + esc(T("Story synopsis (≤2000 chars) — blank = system writes it", "故事梗概(≤2000 字)—— 留空则系统智能生成")) + '">' + esc(synopsis) + '</textarea>' +
         '<input class="ag-in ag-dg-style" placeholder="' + esc(T("Style / vibe — blank = auto", "风格 / 氛围 —— 留空自动")) + '" value="' + esc(style) + '">' +
         '<div class="ag-dg-label">🎭 ' + esc(T("Cast (system-recommended, swap freely)", "阵容(系统荐, 可换)")) + '</div>' +
@@ -1472,6 +1503,24 @@
       if (cv) { civ = cv.getAttribute("data-dgciv"); civManual = (civ !== ""); stopCd(); loadCast(); return; }   // 干预文明 → 停倒计时 + 按文明重荐角; 选「系统联动」= 交回系统(可由标题联动)
       if (e.target.closest && e.target.closest(".ag-dg-go")) { action(); return; }
       if (e.target.closest && e.target.closest(".ag-dg-pause")) { if (cdTimer) stopCd(); else startCd(); return; }
+      var draft = e.target.closest && e.target.closest(".ag-dg-syndraft");
+      if (draft) {   // ✨ 联动: 按标题+文明起草梗概填入(用户干预 → 停倒计时; 可改可清空)
+        stopCd();
+        if (draft.disabled) return;
+        var tEl = modal.querySelector(".ag-dg-title"); if (tEl) title = tEl.value;
+        var cEff = civ || (!civManual ? dgInferCiv(title) : "");
+        var _lbl = draft.innerHTML; draft.disabled = true; draft.innerHTML = "⏳ " + esc(T("Drafting…", "起草中…"));
+        var loc = (typeof window.cssosLocale === "string" && window.cssosLocale) || (document.documentElement.lang || "en");
+        fetch("/api/director/synopsis", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, civilization: cEff, format: fmt, locale: loc }) })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) {
+            draft.disabled = false; draft.innerHTML = _lbl;
+            if (j && j.ok && j.synopsis) { synopsis = j.synopsis; var sEl = modal.querySelector(".ag-dg-synopsis"); if (sEl) { sEl.value = synopsis; sEl.focus(); } }
+            else if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast(T("Couldn't draft a synopsis — try again or write your own.", "起草失败,请重试或自己写。"), {});
+          })
+          .catch(function () { draft.disabled = false; draft.innerHTML = _lbl; });
+        return;
+      }
       var sw = e.target.closest && e.target.closest("[data-dgswap]");
       if (sw) { stopCd(); var si = +sw.getAttribute("data-dgswap"); var p = pools[si] || []; if (p.length) { var cur = picked[si]; var idx = cur ? p.findIndex(function (c) { return c.actor_id === cur.actor_id; }) : -1; var used = Object.keys(picked).filter(function (k) { return +k !== si; }).map(function (k) { return picked[k] && picked[k].actor_id; }); for (var t = 1; t <= p.length; t++) { var nx = p[(idx + t) % p.length]; if (nx && used.indexOf(nx.actor_id) < 0) { picked[si] = nx; break; } } render(); } return; }
     });

@@ -43197,6 +43197,75 @@ app.post("/api/admin/cast/twoface-test", express.json({ limit: "4kb" }), async (
   return res.json({ ok: !!url, url, names, ref_count: refs.length });
 });
 
+// CSSOS_WAVE_1538 — 导演入口「✨联动」故事梗概起草: 按 标题 + 文明 智能起草一段 ≤2000 字的
+// 剧情梗概(剧情预览), 供导演一键填入、可改可清空。文明智能联动: 文明决定题材/年代/风格基调;
+// 梗概用【导演的界面语言】书写(便于阅读编辑), 而生成侧的歌词语言仍由 civToLanguageServer 决定。
+// 便宜档 LLM(groq→together, KIE 兜底), 单次 ~1 次调用, 成本极低。
+app.post("/api/director/synopsis", express.json({ limit: "8kb" }), async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const body = (req.body && typeof req.body === "object") ? req.body : {};
+  const title = String((body as any).title || "").trim().slice(0, 200);
+  const civ = String((body as any).civilization || (body as any).civ || "").trim().slice(0, 60);
+  const fmt = String((body as any).format || (body as any).work_type || "mv").trim().toLowerCase().slice(0, 20);
+  const localeCode = String((body as any).locale || (body as any).lang || "en").trim().slice(0, 12) || "en";
+  const localeName = languageNameFromCode(localeCode) || "English";
+  if (!title && !civ) return res.status(400).json({ ok: false, error: "need_title_or_civ", hint: "provide a title and/or civilization" });
+  const fmtLabel = fmt === "triptych" ? "a 3-part triptych music video" : fmt === "opera" ? "a multi-act music-video opera" : "a music video";
+  const sys = "You are a film/MV story doctor. You draft a tight, vivid, filmable story synopsis (the plot preview a director signs off on). Output ONLY the synopsis prose — no title line, no headings, no preamble, no quotes, no markdown.";
+  const usr = [
+    `Draft a compelling story synopsis for ${fmtLabel}.`,
+    title ? `Working title: “${title}”.` : "",
+    civ ? `Civilization / world: “${civ}”. The plot, era, setting, character archetypes, and tone MUST stay authentic to this civilization (文明智能联动) — do not drift into a foreign idiom.` : "",
+    `Length: 90–160 words, one or two short paragraphs. Give it a clear arc (setup → turn → stakes), name 1–2 protagonists by role, and keep it evocative and shootable.`,
+    `Write the synopsis in ${localeName} (language code "${localeCode}").`,
+  ].filter(Boolean).join("\n");
+  try {
+    const out = await callLlm({
+      messages: [{ role: "system", content: sys }, { role: "user", content: usr }],
+      max_tokens: 700, temperature: 0.85,
+      prefer: ["groq", "together"] as LlmProvider[],
+    });
+    const text = String(out?.content || "").trim().replace(/^["“]|["”]$/g, "").slice(0, 2000);
+    if (!out?.ok || !text) return res.status(502).json({ ok: false, error: "draft_failed" });
+    try {
+      const cents = estimateEngineCostCents("lyrics", out?.provider, text.length / 4);
+      await chargeMvStageActual(userId, "lyrics", cents, out?.provider, null).catch(() => {});
+    } catch {}
+    return res.json({ ok: true, synopsis: text, civilization: civ || null });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: (e as Error)?.message || "draft_failed" });
+  }
+});
+
+// CSSOS_WAVE_1539 P4a step1 — 分镜级多演员【视频】双人锁脸验证(先验证再接线, 沿用 P3 的做法)。
+// 复用两段已验证能力: (1) generateReferenceLockedCover(双脸参考) → 双脸【定帧】;
+// (2) 该定帧作 image-to-video 首帧 → 两张脸在首帧已锁定, 运动中自然保持 → 得到"分镜级双人视频"。
+// admin only(x-admin-token)。body: { ids:[a,b(,c)], prompt?, duration? }。不触碰产品生成流。
+app.post("/api/admin/cast/twoface-video-test", express.json({ limit: "4kb" }), async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!expected || String(req.headers["x-admin-token"] || "").trim() !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String).slice(0, 3) : [];
+  if (ids.length < 2) return res.status(400).json({ ok: false, error: "need at least 2 actor ids" });
+  const refs: string[] = []; const names: string[] = [];
+  for (const id of ids) {
+    const r = await withClient((c) => c.query<{ name_en: string; cover_image: string | null; reference_images: string[] }>(
+      `SELECT name_en, cover_image, reference_images FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const a = r.rows[0]; if (!a) continue;
+    const ref = (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || a.cover_image || "";
+    if (ref) { refs.push(ref); names.push(a.name_en); }
+  }
+  if (refs.length < 2) return res.status(400).json({ ok: false, error: "actors missing face reference", got: refs.length });
+  const scene = String(req.body?.prompt || `a cinematic dramatic two-shot film still of ${names.join(" and ")} together in the same frame, facing each other, expressive lighting, 2.39:1 anamorphic`);
+  const dur = Math.min(Math.max(Number(req.body?.duration) || 5, 3), 10);
+  // step1 — 双脸定帧(P3 已验证)
+  const still = await generateReferenceLockedCover(refs, scene).catch(() => null);
+  if (!still) return res.json({ ok: false, stage: "still", error: "twoface_still_failed", names });
+  // step2 — 定帧作首帧 → image-to-video(两脸已锁在首帧)
+  const vid = await callVideoGen({ prompt: scene, image_url: still, duration_secs: dur, aspect_ratio: "2.39:1" }).catch((e) => ({ ok: false, provider: "", error: (e as Error)?.message } as VideoGenResponse));
+  return res.json({ ok: !!vid?.ok, still, video_url: vid?.video_url || null, poll_url: vid?.poll_url || null, provider: vid?.provider, names, ref_count: refs.length });
+});
+
 app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   try {

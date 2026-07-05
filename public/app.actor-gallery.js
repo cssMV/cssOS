@@ -1405,13 +1405,16 @@
   function dgCdDefault() { var v = parseInt(localStorage.getItem("cssos.dg.countdown"), 10); return (v && v >= 5 && v <= 600) ? v : 60; }
   function dgCdSet(v) { v = Math.max(5, Math.min(600, parseInt(v, 10) || 60)); try { localStorage.setItem("cssos.dg.countdown", String(v)); } catch (_e) {} return v; }
   // 文明干预项(空=系统联动全自动; 值=库里原生 civilization 字符串, 供 recommend 精确匹配)。
+  // 每项带图标(胶囊宪法 W497: 每个胶囊必须有图标锚点)。v="" = 系统联动。
   var DG_CIVS = [
-    { en: "System", zh: "系统联动", v: "" }, { en: "Chinese", zh: "中华", v: "中华文明" },
-    { en: "Japanese", zh: "日本", v: "日本古典" }, { en: "Greek", zh: "希腊", v: "古希腊文明" },
-    { en: "Egyptian", zh: "埃及", v: "古埃及文明" }, { en: "Persian", zh: "波斯", v: "波斯文明" },
-    { en: "Norse", zh: "北欧", v: "北欧神话" }, { en: "Indian", zh: "印度", v: "印度教神话" },
-    { en: "Roman", zh: "罗马", v: "古罗马文明" }, { en: "Mesopotamian", zh: "美索", v: "美索不达米亚神话" },
+    { en: "System", zh: "系统联动", v: "", ic: "🌐" }, { en: "Chinese", zh: "中华", v: "中华文明", ic: "🐉" },
+    { en: "Japanese", zh: "日本", v: "日本古典", ic: "⛩️" }, { en: "Greek", zh: "希腊", v: "古希腊文明", ic: "🏛️" },
+    { en: "Egyptian", zh: "埃及", v: "古埃及文明", ic: "🔺" }, { en: "Persian", zh: "波斯", v: "波斯文明", ic: "🦁" },
+    { en: "Norse", zh: "北欧", v: "北欧神话", ic: "⚔️" }, { en: "Indian", zh: "印度", v: "印度教神话", ic: "🕉️" },
+    { en: "Roman", zh: "罗马", v: "古罗马文明", ic: "🦅" }, { en: "Mesopotamian", zh: "美索", v: "美索不达米亚神话", ic: "🏺" },
   ];
+  // 导演入口 seed 演员可出演的角色(影响 role/alignment/分层计费)。
+  var DG_ROLE_OPTS = [{ r: "protagonist", a: "good", en: "Lead", zh: "主角" }, { r: "antagonist", a: "evil", en: "Villain", zh: "反派" }, { r: "supporting", a: "neutral", en: "Support", zh: "配角" }];
   // 文明智能联动: 从标题(用户输入或系统推荐)推断文明 → 联动选角/风格/歌词语言。
   // 命中即回库里原生 civilization 字符串(供 recommend 精确匹配 + 后端 civToLanguageServer)。
   var DG_CIV_KEYWORDS = [
@@ -1466,14 +1469,16 @@
     });
   }
 
-  function openDirectorGate() {
+  function openDirectorGate(seedActor) {
     // 从闸/Dock 打开时图鉴可能没开 → 先开(否则 #ROOT_ID 作用域样式失效)。
     var root = document.getElementById(ROOT_ID);
     if (!root && typeof open === "function") { try { open(1); } catch (_o) {} }
     root = document.getElementById(ROOT_ID) || document.body;
     var fmt = "mv", title = "", civ = "", style = "", synopsis = "", civManual = false;
+    var seedRole = "protagonist", seedAlign = "good";           // seed 演员出演角色(可改, 影响分层计费)
+    var extrasMode = "auto", extrasPool = [], pickedExtras = {}; // 群演: 系统随机 / 手选自愿群演池
     var slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv;
-    var picked = {}, pools = {}, cdLeft = dgCdDefault(), cdTimer = null, started = false;
+    var picked = seedActor ? { 0: seedActor } : {}, pools = {}, cdLeft = dgCdDefault(), cdTimer = null, started = false;
     var modal = document.createElement("div"); modal.className = "ag-castmodal ag-director";
     function stopCd() { if (cdTimer) { clearInterval(cdTimer); cdTimer = null; var p = modal.querySelector(".ag-dg-pause"); if (p) p.textContent = "▶"; } }
     function startCd() { stopCd(); var p = modal.querySelector(".ag-dg-pause"); if (p) p.textContent = "⏸"; cdTimer = setInterval(function () { cdLeft -= 1; if (cdLeft <= 0) { action(); return; } var b = modal.querySelector(".ag-dg-cd b"); if (b) b.textContent = cdLeft + "s"; }, 1000); }
@@ -1485,51 +1490,99 @@
         return '<button class="ag-dg-fmt' + (on ? " on" : "") + lock + '" data-fmt="' + w.key + '"' + (w.ready ? "" : ' disabled title="' + esc(T("Auto-scripted · coming soon", "自动编剧 · 敬请期待")) + '"') + '>' + (w.ready ? "" : "🔒 ") + w.emoji + ' ' + esc(T(w.en, w.zh)) + '</button>';
       }).join("");
     }
-    function castPreview() {
-      return slots.map(function (s, i) {
-        var a = picked[i];
-        return '<div class="ag-dg-role">' + s.emoji + ' <b>' + esc(T(s.en, s.zh)) + '</b> ' +
-          (a ? '<span class="ag-dg-actor">' + (a.cover_image ? '<img src="' + esc(imgProxy(a.cover_image, 80)) + '" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'ag-dg-ini\',textContent:(this.alt||\'?\')}))" alt="' + esc(String(a.name_en || a.name_zh || "?").charAt(0)) + '">' : '<span class="ag-dg-ini">' + esc(String(a.name_en || a.name_zh || "?").charAt(0)) + '</span>') + esc(a.name_en || a.name_zh) + '</span>' : '<i>' + esc(T("casting…", "联动选角中…")) + '</i>') +
-          (a ? ' <button class="ag-dg-swap" data-dgswap="' + i + '">🔀 ' + esc(T("swap", "换")) + '</button>' : '') + '</div>';
-      }).join("");
+    // 导演入口 Lead 区 = 完整选角块(图6): 每角色槽 = 头像 + 名字/文明/母语 + 换(可搜索) + 候选行;
+    //   seed(从卡片点入)=主角槽带"出演角色"下拉; 末尾 = 群演 系统随机/手选(自愿群演池, 免费)。
+    function slotThumb(a) {
+      if (!a) return '<div class="ag-cs-empty">…</div>';
+      return a.cover_image
+        ? '<img src="' + esc(imgProxy(a.cover_image, 120)) + '" alt="' + esc(String(a.name_en || a.name_zh || "?").charAt(0)) + '" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'ag-cs-ini\',textContent:(this.alt||\'?\')}))">'
+        : '<span class="ag-cs-ini">' + esc(String(a.name_en || a.name_zh || "?").charAt(0)) + '</span>';
+    }
+    function dgSlotCard(slot, i) {
+      var a = picked[i];
+      var ml = a ? esc(a.mother_tongue || "") : "";
+      var isSeed = !!(seedActor && i === 0);
+      return '<div class="ag-cs-slot" data-slot="' + i + '">' +
+        '<div class="ag-cs-role">' + (isSeed
+          ? esc(T("Your pick plays", "你选的出演")) + ' <select class="ag-cs-roled" data-seedrole>' + DG_ROLE_OPTS.map(function (o) { return '<option value="' + o.r + '"' + (o.r === seedRole ? " selected" : "") + '>' + esc(T(o.en, o.zh)) + '</option>'; }).join("") + '</select>'
+          : slot.emoji + ' ' + esc(T(slot.en, slot.zh))) + '</div>' +
+        '<div class="ag-cs-pick">' + slotThumb(a) +
+          '<div class="ag-cs-info"><div class="ag-cs-name">' + (a ? esc(a.name_en || a.name_zh) : esc(T("Recommending…", "推荐中…"))) + '</div>' +
+            '<div class="ag-cs-sub">' + (a ? (esc(a.civilization || "") + (ml ? " · 🌐" + ml : "")) : "") + '</div></div>' +
+          '<button class="ag-cs-swap" data-dgswap="' + i + '">🔀 ' + esc(T("Swap", "换")) + '</button>' +
+        '</div>' +
+        (!isSeed && pools[i] && pools[i].length ? '<div class="ag-cs-pool" data-pool="' + i + '">' + pools[i].slice(0, 8).map(function (c, ci) {
+          var used = Object.keys(picked).some(function (k) { return +k !== i && picked[k] && picked[k].actor_id === c.actor_id; });
+          return '<button class="ag-cs-cand' + (a && c.actor_id === a.actor_id ? ' on' : '') + (used ? ' used' : '') + '"' + (used ? ' disabled title="' + esc(T("Already cast in another role", "已在别的角色里")) + '"' : '') + ' data-dgpick="' + i + '" data-ci="' + ci + '">' + slotThumb(c) + '<span>' + esc(c.name_en || c.name_zh) + '</span></button>';
+        }).join("") + '</div>' : "") +
+        '</div>';
+    }
+    function castBlock() {
+      return slots.map(dgSlotCard).join("") +
+        '<div class="ag-cs-extras"><span>👥 ' + esc(T("Extras", "群演")) + ' <small>' + esc(T("(free)", "(免费)")) + '</small></span>' +
+          '<div class="ag-cs-extrabtns" data-pill-bar>' +
+            '<button data-ex="auto" class="' + (extrasMode === "auto" ? "active" : "") + '" data-pill-key="auto">🎲 ' + esc(T("Auto", "系统随机")) + '</button>' +
+            '<button data-ex="manual" class="' + (extrasMode === "manual" ? "active" : "") + '" data-pill-key="manual">✋ ' + esc(T("Manual", "手动")) + '</button>' +
+          '</div></div>' +
+        (extrasMode === "manual"
+          ? '<div class="ag-cs-expool">' + (extrasPool.length
+              ? extrasPool.map(function (a) { return '<button class="ag-cs-excand' + (pickedExtras[a.actor_id] ? ' on' : '') + '" data-dgexar="' + esc(a.actor_id) + '">' + slotThumb(a) + '<span>' + esc(a.name_en || a.name_zh) + '</span></button>'; }).join("")
+              : '<i class="ag-cs-exempty">' + esc(T("No willing extras yet — the system will auto-generate background actors.", "暂无自愿群演 —— 系统将自动生成背景演员。")) + '</i>') + '</div>'
+          : "");
     }
     function render() {
       modal.innerHTML = '<div class="box ag-dg-box"><h3>🎬 ' + esc(T("Direct a work", "开拍")) + '</h3>' +
         '<div class="sub">' + esc(T("Pick a format — the system casts the actors and writes the rest. Change anything, or just let it roll.", "选个戏路 —— 系统自动选角、补齐其余(文明·风格·歌词)。可改任意项, 或直接让它开拍。")) + '</div>' +
         '<div class="ag-dg-fmts" data-pill-bar>' + fmtPills() + '</div>' +
         '<div class="ag-dg-label">🌍 ' + esc(T("Civilization (blank = system)", "文明(默认系统联动)")) + '</div>' +
-        '<div class="ag-dg-civs">' + DG_CIVS.map(function (c) { return '<button class="ag-dg-civ' + (c.v === civ ? " on" : "") + '" data-dgciv="' + esc(c.v) + '">' + esc(T(c.en, c.zh)) + '</button>'; }).join("") + '</div>' +
+        // 文明套上胶囊(v28 data-pill-bar): 选中=active(满凸), 其余凹向选中; 每胶囊带图标(W497)。
+        '<div class="ag-dg-civs" data-pill-bar>' + DG_CIVS.map(function (c) { return '<button class="ag-dg-civ' + (c.v === civ ? " active" : "") + '" data-pill-key="' + (c.v || "system") + '" data-dgciv="' + esc(c.v) + '"><span>' + c.ic + ' ' + esc(T(c.en, c.zh)) + '</span></button>'; }).join("") + '</div>' +
         '<div class="ag-dg-titlerow"><input class="ag-in ag-dg-title" placeholder="' + esc(T("Title — blank = system names it", "标题 —— 留空则系统智能命名")) + '" value="' + esc(title) + '">' +
           '<button class="ag-dg-syndraft" type="button" title="' + esc(T("Draft a story synopsis from the title + civilization", "按标题+文明智能起草故事梗概")) + '">✨ ' + esc(T("Draft", "联动")) + '</button></div>' +
         '<textarea class="ag-in ag-dg-synopsis" maxlength="2000" rows="3" placeholder="' + esc(T("Story synopsis (≤2000 chars) — blank = system writes it", "故事梗概(≤2000 字)—— 留空则系统智能生成")) + '">' + esc(synopsis) + '</textarea>' +
         '<input class="ag-in ag-dg-style" placeholder="' + esc(T("Style / vibe — blank = auto", "风格 / 氛围 —— 留空自动")) + '" value="' + esc(style) + '">' +
         '<div class="ag-dg-label">🎭 ' + esc(T("Cast (system-recommended, swap freely)", "阵容(系统荐, 可换)")) + '</div>' +
-        '<div class="ag-dg-cast">' + castPreview() + '</div>' +
+        '<div class="ag-dg-cast ag-cs-slots">' + castBlock() + '</div>' +
         '<div class="ag-dg-row"><button class="ag-cast ag-dg-go">🎬 ' + esc(T("Action!", "开拍!")) + '</button>' +
           '<span class="ag-dg-cd">' + (cdTimer ? esc(T("auto in", "自动开拍")) + ' <b>' + cdLeft + 's</b>' : esc(T("paused · your call", "已停 · 你定"))) + ' <button class="ag-dg-pause">' + (cdTimer ? "⏸" : "▶") + '</button>' +
             ' <label class="ag-dg-cdset-w" title="' + esc(T("Auto-Action countdown seconds", "开拍倒计时秒数")) + '">⏱<input class="ag-dg-cdset" type="number" min="5" max="600" step="5" value="' + dgCdDefault() + '">s</label></span></div></div>';
     }
     function autoPick() {
       slots.forEach(function (s, i) {
+        if (i === 0 && seedActor && picked[0]) return;   // seed 锁定主角槽, 不自动替换
         var used = Object.keys(picked).filter(function (k) { return +k !== i; }).map(function (k) { return picked[k] && picked[k].actor_id; });
         picked[i] = (pools[i] || []).find(function (c) { return used.indexOf(c.actor_id) < 0; }) || (pools[i] || [])[0] || null;
       });
       render();
     }
     function loadCast() {
-      picked = {}; pools = {}; render();
-      fetch("/api/cast/recommend", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ format: fmt, civilization: civ }) })
+      picked = seedActor ? { 0: seedActor } : {}; pools = {}; render();
+      // 显式 needed = 前端槽位(seed 占的主角槽不荐), 让后端每槽候选与前端槽一一对应(opera 3 槽等)。
+      var need = slots.map(function (s, i) { return { i: i, role: s.role, alignment: s.alignment }; })
+        .filter(function (x) { return !(seedActor && x.i === 0); });
+      fetch("/api/cast/recommend", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ format: fmt, civilization: civ, needed: need.map(function (n) { return { role: n.role, alignment: n.alignment }; }) }) })
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { if (j && j.ok && Array.isArray(j.results)) { j.results.forEach(function (res, i) { pools[i] = res.candidates || []; }); autoPick(); } else { throw new Error("fb"); } })
-        .catch(function () { var fb = (state.actors || []); slots.forEach(function (s, i) { pools[i] = fb.slice(i * 6, i * 6 + 6); }); autoPick(); });
+        .then(function (j) {
+          if (j && j.ok && Array.isArray(j.results)) {
+            j.results.forEach(function (res, k) { if (need[k]) pools[need[k].i] = res.candidates || []; });
+            if (Array.isArray(j.extras)) extrasPool = j.extras;
+            autoPick();
+          } else { throw new Error("fb"); }
+        })
+        .catch(function () { var fb = (state.actors || []).filter(function (a) { return !seedActor || a.actor_id !== seedActor.actor_id; }); need.forEach(function (n, k) { pools[n.i] = fb.slice(k * 8, k * 8 + 8); }); autoPick(); });
     }
     function action() {
       if (started) return; var proto = picked[0]; if (!proto) return; started = true; stopCd();
       if (!civManual && !civ) { var _g = dgInferCiv(title + " " + synopsis); if (_g) civ = _g; }   // 兜底: 开拍前按标题/梗概联动文明
-      var cast = slots.map(function (s, i) { var a = picked[i]; return a ? { actor_id: a.actor_id, role: s.role, alignment: s.alignment, billing_order: i, name: (a.name_en || a.name_zh), role_label_en: s.en, role_label_zh: s.zh } : null; }).filter(Boolean);
-      window.__cssosCast = { format: fmt, extras_mode: "auto", cast: cast };
+      var cast = slots.map(function (s, i) { var a = picked[i]; return a ? { actor_id: a.actor_id, role: i === 0 ? seedRole : s.role, alignment: i === 0 ? seedAlign : s.alignment, billing_order: i, name: (a.name_en || a.name_zh), role_label_en: s.en, role_label_zh: s.zh } : null; }).filter(Boolean);
+      // 手选群演(role=extra, 免费 ×0)接到 cast 末尾, 跨槽去重。
+      var takenIds = cast.map(function (m) { return m.actor_id; });
+      var extraCast = extrasPool.filter(function (a) { return pickedExtras[a.actor_id] && takenIds.indexOf(a.actor_id) < 0; })
+        .map(function (a, k) { return { actor_id: a.actor_id, role: "extra", alignment: "neutral", billing_order: cast.length + k, name: (a.name_en || a.name_zh), role_label_en: "Extra", role_label_zh: "群演" }; });
+      cast = cast.concat(extraCast);
+      window.__cssosCast = { format: fmt, extras_mode: extrasMode, cast: cast };
       window.__cssosCastActorId = proto.actor_id; window.__cssosCastActorName = proto.name_en || proto.name_zh;
-      window.__cssosCastRole = "protagonist"; window.__cssosCastAlign = "good";
+      window.__cssosCastRole = seedRole; window.__cssosCastAlign = seedAlign;
       // W1537 — 故事梗概驱动剧情 + 文明/风格联动: 存全局, 由选角拦截器注入 /api/mv/* + /api/works。
       window.__cssosDirectorSynopsis = synopsis.trim() || null;
       window.__cssosDirectorCiv = civ || null;
@@ -1555,16 +1608,24 @@
         if (draft.disabled) return;
         var tEl = modal.querySelector(".ag-dg-title"); if (tEl) title = tEl.value;
         var cEff = civ || (!civManual ? dgInferCiv(title) : "");
-        var _lbl = draft.innerHTML; draft.disabled = true; draft.innerHTML = "⏳ " + esc(T("Drafting…", "起草中…"));
+        draft.disabled = true; draft.innerHTML = "⏳ " + esc(T("Drafting…", "起草中…"));
         var loc = (typeof window.cssosLocale === "string" && window.cssosLocale) || (document.documentElement.lang || "en");
         fetch("/api/director/synopsis", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, civilization: cEff, format: fmt, locale: loc }) })
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (j) {
-            draft.disabled = false; draft.innerHTML = _lbl;
-            if (j && j.ok && j.synopsis) { synopsis = j.synopsis; var sEl = modal.querySelector(".ag-dg-synopsis"); if (sEl) { sEl.value = synopsis; sEl.focus(); } }
-            else if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast(T("Couldn't draft a synopsis — try again or write your own.", "起草失败,请重试或自己写。"), {});
+            if (j && j.ok && (j.title || j.synopsis)) {
+              // 系统算法推荐: 标题 + 梗概一起填入(标题原为空也能推荐)。可再改可清空。
+              if (j.title) title = j.title;
+              if (j.synopsis) synopsis = j.synopsis;
+              var civChanged = false;
+              if (!civManual && j.title) { var g = dgInferCiv((j.title || "") + " " + (j.synopsis || "")); if (g && g !== civ) { civ = g; civChanged = true; } }
+              if (civChanged) loadCast(); else render();   // 重渲反映新标题/梗概(+文明变了则重荐角)
+            } else {
+              draft.disabled = false; draft.innerHTML = "✨ " + esc(T("Draft", "联动"));
+              if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast(T("Couldn't draft — try again or write your own.", "起草失败,请重试或自己写。"), {});
+            }
           })
-          .catch(function () { draft.disabled = false; draft.innerHTML = _lbl; });
+          .catch(function () { draft.disabled = false; draft.innerHTML = "✨ " + esc(T("Draft", "联动")); });
         return;
       }
       var sw = e.target.closest && e.target.closest("[data-dgswap]");
@@ -1579,6 +1640,12 @@
         });
         return;
       }
+      var pk = e.target.closest && e.target.closest("[data-dgpick]");
+      if (pk) { stopCd(); var pi = +pk.getAttribute("data-dgpick"), ci = +pk.getAttribute("data-ci"); if (pools[pi] && pools[pi][ci]) { picked[pi] = pools[pi][ci]; render(); } return; }
+      var ex = e.target.closest && e.target.closest("button[data-ex]");
+      if (ex) { stopCd(); extrasMode = ex.getAttribute("data-ex"); render(); return; }
+      var exar = e.target.closest && e.target.closest("button[data-dgexar]");
+      if (exar) { stopCd(); var xid = exar.getAttribute("data-dgexar"); if (pickedExtras[xid]) delete pickedExtras[xid]; else pickedExtras[xid] = true; render(); return; }
     });
     // 改标题 = 导演在干预 → 暂停倒计时(不重渲, 免丢焦点)。
     // 任一干预(标题/风格)→ 立即停倒计时(用户干预最高优先, 系统停下)。
@@ -1590,6 +1657,9 @@
     // change(失焦/回车): 标题定稿 → 文明智能联动(未手选文明时按标题推断文明 → 重荐角);
     //   自定义倒计时秒数 → 持久化 + 刷新剩余秒。不在 input 每键触发, 免打字丢焦点。
     modal.addEventListener("change", function (e) {
+      if (e.target.closest && e.target.closest("[data-seedrole]")) {   // seed 出演角色 → 影响分层计费
+        stopCd(); seedRole = e.target.value; var o = DG_ROLE_OPTS.find(function (x) { return x.r === seedRole; }); seedAlign = o ? o.a : "neutral"; render(); return;
+      }
       if (e.target.closest && e.target.closest(".ag-dg-cdset")) {
         var nv = dgCdSet(e.target.value); cdLeft = nv; e.target.value = nv;
         var b = modal.querySelector(".ag-dg-cd b"); if (b) b.textContent = cdLeft + "s"; return;
@@ -1769,7 +1839,7 @@
         // 选角/评论/分享 走平台胶囊(与顶部筛选条同一套凹凸镶嵌); Cast 恒为凸绿主段(动作条, 非筛选)。
         var ctaBar = inline.querySelector(".ag-cta-cap");
         function runCta(key) {
-          if (key === "cast") openCast(a);
+          if (key === "cast") openDirectorGate(a);   // 点卡片选角 → 直接进导演入口(seed 为主角), 取代旧的格式弹窗
           else if (key === "comment") toggleComments(inline, a.actor_id);
           else if (key === "share") shareActor(a);
         }

@@ -43205,10 +43205,11 @@ app.post("/api/admin/cast/twoface-test", express.json({ limit: "4kb" }), async (
   return res.json({ ok: !!url, url, names, ref_count: refs.length });
 });
 
-// CSSOS_WAVE_1538 — 导演入口「✨联动」故事梗概起草: 按 标题 + 文明 智能起草一段 ≤2000 字的
-// 剧情梗概(剧情预览), 供导演一键填入、可改可清空。文明智能联动: 文明决定题材/年代/风格基调;
-// 梗概用【导演的界面语言】书写(便于阅读编辑), 而生成侧的歌词语言仍由 civToLanguageServer 决定。
-// 便宜档 LLM(groq→together, KIE 兜底), 单次 ~1 次调用, 成本极低。
+// CSSOS_WAVE_1538 / 1541 — 导演入口「✨联动」智能起草【标题 + 故事梗概】(剧情预览), 一键填入、可改可清空。
+// 宪法默认律: 不选不填 → 系统算法推荐。所以标题/文明【全空也能推荐】(系统从零构思一个可拍的故事 + 命名),
+// 不再要求先给标题或文明。文明智能联动: 给了文明就锚定题材/年代/基调; 没给则系统自拟一个世界。
+// 标题+梗概用【导演界面语言】书写便于阅读编辑; 生成侧歌词语言仍由 civToLanguageServer 决定。
+// 便宜档 LLM 起头, 失败自动沿全provider链兜底(prefer 只是排序, 不锁死)。JSON 输出便于稳定解析。
 app.post("/api/director/synopsis", express.json({ limit: "8kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
@@ -43218,29 +43219,35 @@ app.post("/api/director/synopsis", express.json({ limit: "8kb" }), async (req, r
   const fmt = String((body as any).format || (body as any).work_type || "mv").trim().toLowerCase().slice(0, 20);
   const localeCode = String((body as any).locale || (body as any).lang || "en").trim().slice(0, 12) || "en";
   const localeName = languageNameFromCode(localeCode) || "English";
-  if (!title && !civ) return res.status(400).json({ ok: false, error: "need_title_or_civ", hint: "provide a title and/or civilization" });
   const fmtLabel = fmt === "triptych" ? "a 3-part triptych music video" : fmt === "opera" ? "a multi-act music-video opera" : "a music video";
-  const sys = "You are a film/MV story doctor. You draft a tight, vivid, filmable story synopsis (the plot preview a director signs off on). Output ONLY the synopsis prose — no title line, no headings, no preamble, no quotes, no markdown.";
+  const sys = "You are a film/MV story doctor. You invent or refine a work's TITLE and a tight, vivid, filmable story synopsis (the plot preview a director signs off on). Reply ONLY with a JSON object, no markdown, no preamble.";
   const usr = [
-    `Draft a compelling story synopsis for ${fmtLabel}.`,
-    title ? `Working title: “${title}”.` : "",
-    civ ? `Civilization / world: “${civ}”. The plot, era, setting, character archetypes, and tone MUST stay authentic to this civilization (文明智能联动) — do not drift into a foreign idiom.` : "",
-    `Length: 90–160 words, one or two short paragraphs. Give it a clear arc (setup → turn → stakes), name 1–2 protagonists by role, and keep it evocative and shootable.`,
-    `Write the synopsis in ${localeName} (language code "${localeCode}").`,
+    `Propose a work for ${fmtLabel}.`,
+    title ? `Keep this working title (refine only if clearly broken): “${title}”.` : `No title was given — INVENT a striking, original title from scratch.`,
+    civ ? `Civilization / world: “${civ}”. Plot, era, setting, archetypes, and tone MUST stay authentic to this civilization (文明智能联动) — no foreign idiom.` : `No civilization was chosen — freely invent a fitting world/era for the story.`,
+    `The synopsis: 90–160 words, one or two short paragraphs, clear arc (setup → turn → stakes), name 1–2 protagonists by role, evocative and shootable.`,
+    `Write BOTH the title and the synopsis in ${localeName} (language code "${localeCode}").`,
+    `Output exactly: {"title":"<the title>","synopsis":"<the synopsis>"}`,
   ].filter(Boolean).join("\n");
   try {
     const out = await callLlm({
       messages: [{ role: "system", content: sys }, { role: "user", content: usr }],
-      max_tokens: 700, temperature: 0.85,
+      max_tokens: 800, temperature: 0.9,
       prefer: ["groq", "together"] as LlmProvider[],
     });
-    const text = String(out?.content || "").trim().replace(/^["“]|["”]$/g, "").slice(0, 2000);
-    if (!out?.ok || !text) return res.status(502).json({ ok: false, error: "draft_failed" });
+    if (!out?.ok || !out?.content) return res.status(502).json({ ok: false, error: "draft_failed" });
+    // 稳健解析: 优先 JSON; 失败则退化为"整段=梗概", 标题回退传入值。
+    let outTitle = title, outSyn = "";
+    const raw = String(out.content).trim();
+    const jm = raw.match(/\{[\s\S]*\}/);
+    if (jm) { try { const j = JSON.parse(jm[0]); outTitle = String(j.title || title || "").trim().slice(0, 200); outSyn = String(j.synopsis || "").trim().slice(0, 2000); } catch { /* fall through */ } }
+    if (!outSyn) outSyn = raw.replace(/^\{[\s\S]*"synopsis"\s*:\s*"/, "").replace(/"[\s\S]*$/, "").replace(/^["“]|["”]$/g, "").slice(0, 2000) || raw.slice(0, 2000);
+    if (!outSyn) return res.status(502).json({ ok: false, error: "draft_failed" });
     try {
-      const cents = estimateEngineCostCents("lyrics", out?.provider, text.length / 4);
+      const cents = estimateEngineCostCents("lyrics", out?.provider, outSyn.length / 4);
       await chargeMvStageActual(userId, "lyrics", cents, out?.provider, null).catch(() => {});
     } catch {}
-    return res.json({ ok: true, synopsis: text, civilization: civ || null });
+    return res.json({ ok: true, title: outTitle || null, synopsis: outSyn, civilization: civ || null });
   } catch (e) {
     return res.status(500).json({ ok: false, error: (e as Error)?.message || "draft_failed" });
   }

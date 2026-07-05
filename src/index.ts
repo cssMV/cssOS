@@ -9538,10 +9538,36 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
   if (!message) return res.status(400).json({ ok: false, error: "empty_message" });
   const sessionId = String((body as any).session_id || "default").slice(0, 64);
   const uiLocale = String((body as any).ui_locale || "en").slice(0, 12);
+  const source = String((body as any).source || "").toLowerCase().slice(0, 24);
 
   // Rate-limit (pulled up so the DM short-circuit can echo the counters
   // without referencing `used` before it's defined).
   const used = await getAgentTurnsLastHour(userId);
+
+  // CSSOS_WAVE_1548 Slice 2 — cssTV 互动多线程电影【意图短路】(先于 LLM, 仅 source=csstv):
+  //   语音「CSS, 开拍多线程3D电影《时间帝国》」命中【已知 ifilm】→ 直接回 ifilm 意图, 由 cssTV 互动
+  //   电影播放屏(Slice 3, IFilmPlayerView)据此打开、边渲边播。此处【只回意图, 零生成】(先不开拍),
+  //   且仅 cssTV 触发 —— web/app 助理完全不受影响。KNOWN_IFILMS 目前只有《时间帝国》(样例图谱)。
+  if (source === "csstv") {
+    const KNOWN_IFILMS: Array<{ id: string; title: string; re: RegExp }> = [
+      { id: "time-empire", title: "《时间帝国》 / Empire of Time", re: /时间帝国|时间的帝国|empire\s*of\s*time/i },
+    ];
+    const filmish = /多线程|互动电影|interactive\s*film|3\s*d\s*电影|电影|film|movie/i.test(message);
+    const hit = KNOWN_IFILMS.find((f) => f.re.test(message));
+    if (hit && filmish) {
+      const isZh = String(uiLocale || "").toLowerCase().startsWith("zh");
+      return res.json({
+        ok: true,
+        intent: "ifilm",
+        ifilm_id: hit.id,
+        ifilm_title: hit.title,
+        reply: isZh
+          ? `🎬 开拍多线程互动电影 ${hit.title} —— 在 cssTV 上用遥控当导演, 边渲边播。`
+          : `🎬 Rolling the multi-thread interactive film ${hit.title} — direct it with your remote on cssTV; it renders as it plays.`,
+        turns_used: used,
+      });
+    }
+  }
 
   // CSSOS_WAVE_138 Part A — @username DM short-circuit. If the message
   // starts with "@<name>" (allow optional space or "@<name>:" prefix),

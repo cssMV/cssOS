@@ -43082,6 +43082,57 @@ app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), as
   res.json({ ok: true, processed: results.length, results });
 });
 
+// CSSOS_WAVE_1529 — Casting P1: 文明智能联动【选角推荐】. 给定格式(+可选 civ)与导演需要的
+// 角色槽, 每槽返回排序候选: 同文明优先 → archetype/正反匹配 → 人气 → 免费优先. 纯 SQL, 无模型调用.
+// 每候选附 mother_tongue(civToLanguageServer)供 UI 预览语言. 群演(extras)按数量系统随机, 不占具名槽.
+const CAST_FORMAT_TEMPLATES: Record<string, Array<{ role: string; alignment: string; archetype?: string }>> = {
+  // MV 一两个够: 1 主角(前端可再加 1 反派)
+  mv:          [{ role: "protagonist", alignment: "good" }],
+  triptych:    [{ role: "protagonist", alignment: "good" }, { role: "antagonist", alignment: "evil" }],
+  opera:       [{ role: "protagonist", alignment: "good" }, { role: "antagonist", alignment: "evil" }],
+  // 短剧: 男/女主 + 配角(可选角); 群演系统随机(可手动)
+  short_drama: [{ role: "protagonist", alignment: "good" }, { role: "protagonist", alignment: "good" }, { role: "supporting", alignment: "neutral" }],
+  series:      [{ role: "protagonist", alignment: "good" }, { role: "protagonist", alignment: "good" }, { role: "antagonist", alignment: "evil" }, { role: "supporting", alignment: "neutral" }],
+  film:        [{ role: "protagonist", alignment: "good" }, { role: "antagonist", alignment: "evil" }, { role: "supporting", alignment: "neutral" }],
+};
+const CAST_EVIL_ARCHETYPES = ["villain", "antihero", "enigma"];
+const CAST_GOOD_ARCHETYPES = ["hero", "ruler", "sage", "charmer", "youth", "action"];
+app.post("/api/cast/recommend", express.json({ limit: "4kb" }), async (req, res) => {
+  try {
+    const civ = String(req.body?.civilization || "").trim();
+    const format = String(req.body?.format || "mv").trim().toLowerCase();
+    const needed: Array<{ role: string; alignment: string; archetype?: string }> =
+      Array.isArray(req.body?.needed) && req.body.needed.length
+        ? (req.body.needed as Array<{ role: string; alignment: string; archetype?: string }>)
+        : (CAST_FORMAT_TEMPLATES[format] || CAST_FORMAT_TEMPLATES.mv || [{ role: "protagonist", alignment: "good" }]);
+    const results: Array<Record<string, unknown>> = [];
+    for (const slot of needed) {
+      const arche = slot.archetype
+        ? [String(slot.archetype)]
+        : (slot.alignment === "evil" ? CAST_EVIL_ARCHETYPES : CAST_GOOD_ARCHETYPES);
+      const rows = await withClient((c) => c.query<{ actor_id: string; name_en: string; name_zh: string; civilization: string | null; cover_image: string | null; is_premium: boolean; cast_price_cents: number; gender: string | null; archetypes: string[] }>(
+        `SELECT actor_id, name_en, name_zh, civilization, cover_image, is_premium, cast_price_cents, gender, archetypes
+           FROM digital_actors
+          WHERE visibility = 'public'
+          ORDER BY
+            ($1 <> '' AND civilization = $1) DESC,   -- 同文明优先
+            (archetypes && $2::text[]) DESC,         -- 戏路/正反匹配
+            popularity_score DESC, cast_count DESC,
+            is_premium ASC                           -- 平手时免费优先
+          LIMIT 12`,
+        [civ, arche]));
+      results.push({
+        role: slot.role,
+        alignment: slot.alignment,
+        candidates: rows.rows.map((a) => ({ ...a, mother_tongue: civToLanguageServer(a.civilization || "") })),
+      });
+    }
+    return res.json({ ok: true, format, extras_mode: "auto", results });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: (e as Error)?.message || "recommend_failed" });
+  }
+});
+
 app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   try {

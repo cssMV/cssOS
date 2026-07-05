@@ -42587,11 +42587,17 @@ async function cropActorFaceSquare(imageUrl: string, fx: number | null, fy: numb
     return `https://cdn.cssstudio.app/${key}`;
   } catch { return imageUrl; }
 }
-async function generateReferenceLockedCover(refUrl: string, scenePrompt: string): Promise<string | null> {
+async function generateReferenceLockedCover(refUrl: string | string[], scenePrompt: string): Promise<string | null> {
   try {
+    // CSSOS_WAVE_1534 P3 — 支持【多张参考图】: 单张=单人锁脸(原状); 多张=同框多人各自锁脸(方案 B)。
+    const refs = (Array.isArray(refUrl) ? refUrl : [refUrl]).filter(Boolean);
+    if (!refs.length) return null;
+    const identityNote = refs.length > 1
+      ? `There are ${refs.length} reference people. Render every one of them together in the SAME frame, each keeping their OWN exact face and identity from their reference image — distinct people, do NOT blend, merge or swap their faces.`
+      : "Keep the exact same face and identity as the reference person, consistent likeness.";
     const r = await callKieJob("google/nano-banana", {
-      prompt: `${scenePrompt}. Keep the exact same face and identity as the reference person, consistent likeness.`,
-      image_urls: [refUrl],
+      prompt: `${scenePrompt}. ${identityNote}`,
+      image_urls: refs,
     }, { timeoutMs: 180_000 });
     if (!r.ok || !r.urls || !r.urls.length) return null;
     return await persistRemoteImageToStable(r.urls[0]!).catch(() => r.urls![0]!);
@@ -43149,6 +43155,27 @@ app.post("/api/cast/recommend", express.json({ limit: "4kb" }), async (req, res)
   } catch (e) {
     return res.status(500).json({ ok: false, error: (e as Error)?.message || "recommend_failed" });
   }
+});
+
+// CSSOS_WAVE_1534 P3 step2 — 双人锁脸测试(方案 B): 两个演员的脸参考(cover_image 或 reference_images[0])
+// 一次喂 nano-banana(image_urls 双图), 验证同框两张脸能否各自锁对。x-admin-token。body: { ids:[a,b], prompt? }。
+app.post("/api/admin/cast/twoface-test", express.json({ limit: "4kb" }), async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!expected || String(req.headers["x-admin-token"] || "").trim() !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String).slice(0, 3) : [];
+  if (ids.length < 2) return res.status(400).json({ ok: false, error: "need at least 2 actor ids" });
+  const refs: string[] = []; const names: string[] = [];
+  for (const id of ids) {
+    const r = await withClient((c) => c.query<{ name_en: string; cover_image: string | null; reference_images: string[] }>(
+      `SELECT name_en, cover_image, reference_images FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const a = r.rows[0]; if (!a) continue;
+    const ref = (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || a.cover_image || "";
+    if (ref) { refs.push(ref); names.push(a.name_en); }
+  }
+  if (refs.length < 2) return res.status(400).json({ ok: false, error: "actors missing face reference", got: refs.length });
+  const scene = String(req.body?.prompt || `a cinematic dramatic two-shot film still of ${names.join(" and ")} together in the same frame, facing each other, expressive lighting`);
+  const url = await generateReferenceLockedCover(refs, scene).catch(() => null);
+  return res.json({ ok: !!url, url, names, ref_count: refs.length });
 });
 
 app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {

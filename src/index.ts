@@ -4518,14 +4518,29 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   // 源头人脸感知构图: 把电影/竖屏 framing 附到 prompt, 引擎构图时就把人脸摆进合规画幅。
   const composedFraming = isPortraitCover ? PHONE_FULLSCREEN.framing : CINEMA_LANDSCAPE.framing;
   // CSSOS_WAVE_113 / WAVE_1536 P3 — 选角注入: 支持【多演员 cast】(body.cast) 同框锁脸, 兼容旧单演员(body.actor_id)。
-  const __castMembers: string[] = Array.isArray((body as any).cast)
-    ? ((body as any).cast as unknown[]).map((m) => String((m as any)?.actor_id || m || "").trim()).filter(Boolean)
+  // W1545 群演规则: 群演(role=extra)【不进前景锁脸】—— 只有具名角色(主角/反派/配角)锁脸; 群演走背景提示。
+  const __castRaw = Array.isArray((body as any).cast)
+    ? ((body as any).cast as unknown[]).map((m) => ({ actor_id: String((m as any)?.actor_id || m || "").trim(), role: String((m as any)?.role || "").toLowerCase() })).filter((m) => m.actor_id)
     : [];
-  const castActorIdForCover = String((body as any).actor_id || __castMembers[0] || "").trim();
-  const allCastIds = (__castMembers.length ? __castMembers : (castActorIdForCover ? [castActorIdForCover] : [])).slice(0, 3);
-  // 组合 face_prompt 后缀(所有成员, 让文本也点出每个人)。
+  const __namedCast = __castRaw.filter((m) => m.role !== "extra");
+  const __extraCast = __castRaw.filter((m) => m.role === "extra");
+  const castActorIdForCover = String((body as any).actor_id || (__namedCast[0] && __namedCast[0].actor_id) || "").trim();
+  const allCastIds = (__namedCast.length ? __namedCast.map((m) => m.actor_id) : (castActorIdForCover ? [castActorIdForCover] : [])).slice(0, 3);
+  // W1545 群演生成规则: 群演=路人甲(无台词/无特写); 大牌(is_premium)愿演群演者偶尔给一个背景特写。
+  let __extrasClause = "";
+  if (__extraCast.length) {
+    let bigNames: string[] = [];
+    try {
+      const er = await withClient((c) => c.query<{ name_en: string }>(
+        `SELECT name_en FROM digital_actors WHERE actor_id = ANY($1) AND is_premium = true`, [__extraCast.map((m) => m.actor_id)]));
+      bigNames = er.rows.map((r) => r.name_en).filter(Boolean).slice(0, 2);
+    } catch {}
+    __extrasClause = ` Background extras / passersby (路人甲) populate the scene naturally but WITHOUT close-ups or dialogue.` +
+      (bigNames.length ? ` Exception: ${bigNames.join(" and ")} — a notable figure doing a cameo — may get one fleeting background close-up.` : "");
+  }
+  // 组合 face_prompt 后缀(具名成员, 让文本也点出每个人)。
   const actorSuffix = (await Promise.all(allCastIds.map((id) => buildActorPromptSuffix(id).catch(() => "")))).filter(Boolean).join(" ");
-  const composedPrompt = (prompt ? `${prompt}, ${composedFraming}` : composedFraming) + actorSuffix + coverStoryClause;
+  const composedPrompt = (prompt ? `${prompt}, ${composedFraming}` : composedFraming) + actorSuffix + coverStoryClause + __extrasClause;
 
   // Phase 2/P3 参考图锁脸: 取所有成员参考图 → nano-banana 条件生成(1 张=单人, 多张=同框多人各自锁脸),
   //   成功即返回; 失败/无参考 → 落到下方常规 tier(文本锁脸)。不阻断非选角封面。
@@ -4537,7 +4552,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     }
     if (refs.length) {
       const locked = await generateReferenceLockedCover(refs,
-        `${prompt || "cinematic album cover"}, ${composedFraming}${coverStoryClause}`).catch(() => null);
+        `${prompt || "cinematic album cover"}, ${composedFraming}${coverStoryClause}${__extrasClause}`).catch(() => null);
       if (locked) {
         try { await chargeMvStageActual(userId, "cover", 3, "nanobanana-ref"); } catch {}
         return res.status(200).json({
@@ -14150,7 +14165,24 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
   // (系统按 prompt 自动)。宪法默认律: 不填=系统推荐, 填了=用户优先。
   const __vidStory = String((body as any).synopsis || (body as any).story || "").trim().slice(0, 300);
   const __vidStoryClause = __vidStory ? ` The shot should advance this story: ${__vidStory}.` : "";
-  const prompt = (String((body as any).prompt || "").trim() + __actorVidSuffix + __vidStoryClause).trim();
+  // W1545 群演规则: 群演(role=extra)=路人甲, 无台词/无特写; 大牌(is_premium)愿演群演者偶尔一个特写或一句台词。
+  let __vidExtras = "";
+  {
+    const vc = Array.isArray((body as any).cast)
+      ? ((body as any).cast as unknown[]).map((m) => ({ actor_id: String((m as any)?.actor_id || "").trim(), role: String((m as any)?.role || "").toLowerCase() })).filter((m) => m.actor_id && m.role === "extra")
+      : [];
+    if (vc.length) {
+      let bigNames: string[] = [];
+      try {
+        const er = await withClient((c) => c.query<{ name_en: string }>(
+          `SELECT name_en FROM digital_actors WHERE actor_id = ANY($1) AND is_premium = true`, [vc.map((m) => m.actor_id)]));
+        bigNames = er.rows.map((r) => r.name_en).filter(Boolean).slice(0, 2);
+      } catch {}
+      __vidExtras = ` Background extras / passersby (路人甲) fill the frame naturally but get no close-ups and no lines.` +
+        (bigNames.length ? ` Exception: ${bigNames.join(" and ")} — a notable figure — may get one brief cameo close-up or a single throwaway line.` : "");
+    }
+  }
+  const prompt = (String((body as any).prompt || "").trim() + __actorVidSuffix + __vidStoryClause + __vidExtras).trim();
   // WAVE_444: accept any valid ratio; default → cinema 2.39:1 (never 16:9)
   const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "2.39:1").trim();
   // Normalise to a canonical key; portrait variants → "9:16" for provider compat
@@ -43453,6 +43485,30 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
   } catch (err) {
     console.warn("[actors] create failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "CREATE_FAILED" });
+  }
+});
+
+// CSSOS_WAVE_1545 — 群演 opt-in 后置开关: 演员主人(或 admin)在专页勾选「是否愿意当群众演员」。
+// willing_extra=true 的演员进入 /api/cast/recommend 的自愿群演池; 生成侧对【大牌】愿演群演者偶尔给
+// 特写/一句台词(见 W1545 生成规则)。owner-only。
+app.post("/api/actors/:id/willing-extra", express.json({ limit: "1kb" }), async (req, res) => {
+  const uid = (req.session as any)?.user_id;
+  if (!uid) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const id = String(req.params.id || "").trim();
+  if (!id) return res.status(400).json({ ok: false, error: "invalid_id" });
+  const willing = (req.body?.willing === true || req.body?.willing === "true" || req.body?.willing === 1);
+  try {
+    const r = await withClient((c) => c.query<{ owner_user_id: string | null }>(
+      `SELECT owner_user_id::text AS owner_user_id FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: "not_found" });
+    const isOwner = String(row.owner_user_id || "") === String(uid);
+    const isAdmin = isCssosAdminEmail((req.session as any)?.email || "");
+    if (!isOwner && !isAdmin) return res.status(403).json({ ok: false, error: "forbidden", hint: "only the actor's owner can set this" });
+    await withClient((c) => c.query(`UPDATE digital_actors SET willing_extra=$2, updated_at=now() WHERE actor_id=$1`, [id, willing]));
+    return res.json({ ok: true, willing_extra: willing });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: (e as Error)?.message || "update_failed" });
   }
 });
 

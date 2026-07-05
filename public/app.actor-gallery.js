@@ -80,6 +80,8 @@
       "#" + ROOT_ID + " .ag-cta-cap .ag-cnt{font-weight:800;font-variant-numeric:tabular-nums;opacity:.85;margin-left:3px;}" +
       "#" + ROOT_ID + " .ag-tag{background:rgba(0,245,160,.12);border:1px solid rgba(0,245,160,.3);color:#bff5e0;border-radius:999px;padding:4px 12px;font-size:12px;}" +
       "#" + ROOT_ID + " .ag-persona{color:rgba(232,255,245,.88);margin:10px 0;}" +
+      "#" + ROOT_ID + " .ag-willing{display:flex;align-items:center;gap:8px;margin:10px 2px 2px;font-size:13px;color:#bff5e0;cursor:pointer;}" +
+      "#" + ROOT_ID + " .ag-willing input{width:16px;height:16px;accent-color:#00f5a0;cursor:pointer;}" +
       "#" + ROOT_ID + " .ag-cast{background:" + GREEN + ";color:" + INK + ";border:none;border-radius:999px;padding:12px 26px;font-size:16px;font-weight:800;cursor:pointer;margin-top:8px;box-shadow:0 0 20px rgba(0,245,160,.35);}" +
       "#" + ROOT_ID + " .ag-cast:hover{filter:brightness(1.08);}" +
       "#" + ROOT_ID + " .ag-cta-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}" +
@@ -1808,8 +1810,11 @@
             '<button class="ag-sc-btn" data-seg="intro">▶ ' + esc(T("Intro", "自我介绍")) + '</button>' +
             '<button class="ag-sc-btn" data-seg="hero">😇 ' + esc(T("Hero", "正派")) + '</button>' +
             '<button class="ag-sc-btn" data-seg="villain">😈 ' + esc(T("Villain", "反派")) + '</button>' +
+            '<button class="ag-sc-btn" data-seg="extra">👥 ' + esc(T("Extra", "群演")) + '</button>' +
           '</div>' +
           '<div class="ag-stage" aria-live="polite"></div>' +
+          // 群演 opt-in(仅演员主人可设): 愿意当群众演员 → 进自愿群演池。
+          (state.ownedSet[a.actor_id] ? '<label class="ag-willing"><input type="checkbox" class="ag-willing-cb"' + (a.willing_extra ? " checked" : "") + '> 👥 ' + esc(T("Willing to appear as an extra (background roles)", "是否愿意当群众演员(背景角色)")) + '</label>' : "") +
           '<div class="ag-cta-cap">' +
             '<button class="ag-cast" data-pill-key="cast" title="' + esc(T("Works performed in", "出演作品数")) + '">🎬 ' + esc(T("Cast in an MV", "选 TA 主演")) + ' <span class="ag-cnt">' + (counts.appearances || 0) + '</span></button>' +
             '<button class="ag-comment" data-pill-key="comment">💬 ' + esc(T("Comment", "评论")) + ' <span class="ag-cnt">' + (counts.comments || 0) + '</span></button>' +
@@ -1852,7 +1857,7 @@
         // 戏路标签也套同一胶囊轨道(纯几何, 无激活/无点击) —— 与上方筛选条视觉一致。
         var tagsBar = inline.querySelector(".ag-tags");
         if (tagsBar && tagsBar.children.length && typeof window.cssosPillBarStamp === "function") window.cssosPillBarStamp(tagsBar, "light", true);
-        wireShowcase(inline, a.actor_id);
+        wireShowcase(inline, a.actor_id, a);
         if (state.ownedSet[a.actor_id]) {
           var own = document.createElement("div"); own.className = "ag-owner";
           own.innerHTML = '<span class="ag-tag">🎬 ' + esc(T("Mine", "我的演员")) + ' · ' + esc(T("royalty", "版税")) + ' ' + Math.round((a.creator_royalty || 0.7) * 100) + '%</span>' +
@@ -2018,18 +2023,41 @@
   }
   function speakStop() { var root = document.getElementById(ROOT_ID); if (!root) return; root.querySelectorAll("[data-cover] model-viewer").forEach(function (m) { m.style.transform = ""; }); }
   // 点「自我介绍/正派/反派」= 数字演员【开口说话的视频】直接播放; 无视频则先生成(懒), 无语音则先生成语音。
-  function wireShowcase(scroll, actorId) {
+  function wireShowcase(scroll, actorId, a) {
     var stage = scroll.querySelector(".ag-stage");
     var segBtns = scroll.querySelectorAll(".ag-sc-btn[data-seg]");
     function busy(on) { segBtns.forEach(function (b) { b.disabled = on; }); }
+    // 群演段: 按规则说明该演员当群众演员时的表现(不占用会说话视频)。
+    //   系统随机群演=路人甲(无台词/无特写); 大牌(premium/高人气)愿演群演→偶尔特写或一句台词。
+    function extraText() {
+      var big = !!(a && (a.is_premium || (a.cast_count || 0) >= 5));
+      if (!a || !a.willing_extra) return "👥 " + T("Not in the extras pool yet.", "尚未加入群演池。") + (a && state.ownedSet[a.actor_id] ? " " + T("Tick the box below to appear as a background extra.", "勾选下方即可作为群众演员出镜。") : "");
+      if (big) return "🎬 " + T("A big name who’ll do extras — the system slips in an occasional cameo: a close-up or a throwaway line.", "大牌也愿当群演 —— 系统会偶尔给个特写、或一句台词(哪怕无关紧要)。");
+      return "👥 " + T("Background extra (a passerby) — no lines, no close-up.", "背景群演(路人甲)—— 无台词、无特写。");
+    }
     function playSeg(btn, seg) {
+      if (seg === "extra") { stage.textContent = extraText(); return; }   // 群演=说明, 非会说话视频
       var sc = scCache[actorId], clip = sc && sc.clips && sc.clips[seg];
       // 有会说话视频→就地开口演; 否则播【真人声 + 旋转 3D】(海选体验)。
       // 不再每点必烧对口型视频(omnihuman 不稳/贵): 视频=已生成缓存才播, 生成由作者/管理员显式触发。
       if (clip) playClip(clip, btn, stage);
       else stage.textContent = T("(missing)", "(此段暂缺)");
     }
+    // 群演 opt-in 复选框(演员主人): 勾选 → 进自愿群演池。
+    var wcb = scroll.querySelector(".ag-willing-cb");
+    if (wcb) wcb.addEventListener("change", function () {
+      var on = wcb.checked; wcb.disabled = true;
+      fetch("/api/actors/" + encodeURIComponent(actorId) + "/willing-extra", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ willing: on }) })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          wcb.disabled = false;
+          if (j && j.ok) { if (a) a.willing_extra = j.willing_extra; if (window.cssosGuidedToast) window.cssosGuidedToast(j.willing_extra ? T("You’re in the extras pool.", "已加入群演池。") : T("Removed from the extras pool.", "已退出群演池。"), {}); }
+          else { wcb.checked = !on; if (window.cssosGuidedToast) window.cssosGuidedToast(T("Couldn’t update — try again.", "设置失败,请重试。"), {}); }
+        })
+        .catch(function () { wcb.disabled = false; wcb.checked = !on; });
+    });
     function trigger(btn, seg) {
+      if (seg === "extra") { playSeg(btn, seg); return; }   // 群演不需要拉 showcase 台词
       if (scCache[actorId]) { playSeg(btn, seg); return; }
       stage.textContent = "⏳ " + T("The actor is preparing…", "演员正在准备…");
       busy(true);

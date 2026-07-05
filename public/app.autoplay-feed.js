@@ -178,12 +178,13 @@
       '<div style="font:700 18px/1.3 -apple-system,system-ui,sans-serif;margin-bottom:6px;display:flex;align-items:center;gap:8px;"><span>🎬</span>' + lc("Watch the latest MV?", "欣赏最新 MV?") + '</div>' +
       '<div style="color:rgba(200,255,232,0.7);font-size:13px;margin-bottom:18px;">' + lc("Auto-play the latest works in the cinema.", "在影院自动连播最新作品。") + '</div>' +
       // W1183 — 胶囊宪法: 轨道与胶囊共用边框(零间隙), 激活胶囊贴满轨道高度、两头圆, 只两段间留缝。
-      '<div style="display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(0,245,160,0.28);margin-bottom:16px;">' +
+      // W1533 胶囊宪法: 宽度不够横滑(不断行)。overflow-x:auto + 子按钮 white-space:nowrap。
+      '<div style="display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;border:1px solid rgba(0,245,160,0.28);margin-bottom:16px;">' +
       // 每段 = 小图标 + 标签(图标在前, 居中)。
-      '<button type="button" id="cssos-autoenter-watch" style="flex:1.4;appearance:none;border:none;border-radius:999px;background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;padding:11px 14px;font:700 14px/1 inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:15px;">▶</span>' + lc("Watch MV", "欣赏 MV") + '</button>' +
+      '<button type="button" id="cssos-autoenter-watch" style="flex:1.4;appearance:none;border:none;border-radius:999px;background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;padding:11px 14px;font:700 14px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:15px;">▶</span>' + lc("Watch MV", "欣赏 MV") + '</button>' +
       // 中间: 数字演员出口(W1532)。
-      '<button type="button" id="cssos-autoenter-actors" style="flex:1.2;appearance:none;border:none;border-radius:999px;background:rgba(0,245,160,0.12);color:#eafff6;padding:11px 10px;font:700 13px/1 inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:14px;">🎭</span>' + lc("Digital Actors", "数字演员") + '</button>' +
-      '<button type="button" id="cssos-autoenter-later" style="flex:1;appearance:none;border:none;border-radius:999px;background:transparent;color:#eafff6;padding:11px 14px;font:600 14px/1 inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:14px;opacity:.85;">🕘</span>' + lc("Maybe later", "稍后再说") + '</button>' +
+      '<button type="button" id="cssos-autoenter-actors" style="flex:1.2;appearance:none;border:none;border-radius:999px;background:rgba(0,245,160,0.12);color:#eafff6;padding:11px 10px;font:700 13px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:14px;">🎭</span>' + lc("Digital Actors", "数字演员") + '</button>' +
+      '<button type="button" id="cssos-autoenter-later" style="flex:1;appearance:none;border:none;border-radius:999px;background:transparent;color:#eafff6;padding:11px 14px;font:600 14px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:14px;opacity:.85;">🕘</span>' + lc("Maybe later", "稍后再说") + '</button>' +
       '</div>' +
       // 底部: 记住复选框
       '<label style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:rgba(200,255,232,0.65);cursor:pointer;">' +

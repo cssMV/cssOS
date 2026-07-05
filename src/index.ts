@@ -4493,6 +4493,10 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     return res.status(400).json({ ok: false, error: "empty_prompt", hint: "no prompt — nothing to render" });
   }
   const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
+  // CSSOS_WAVE_1540 — 导演梗概驱动【画面】: 有梗概 → 作为剧情语境影响这一关键帧构图; 无梗概 → 原样
+  // (系统按 prompt 自动)。宪法默认律: 不填=系统推荐, 填了=用户优先。限长以免压过画幅 framing。
+  const coverStory = String((body as any).synopsis || (body as any).story || "").trim().slice(0, 240);
+  const coverStoryClause = coverStory ? ` Story context (the frame should embody this narrative moment): ${coverStory}.` : "";
   // CSSOS 20260701 — Jing「堵源头铁律」: 封面输出画幅在【源头】强制合规, 绝不透传 16:9/1:1。
   // 之前 ratioToSize 直接把前端 ratio 透传, 空/不匹配默认 1024×1024 正方, 且绕过 ASPECT_SIZE_MAP
   // 的铁律重映射 → 引擎"偷懒"出正方/16:9 的真凶。现在: 只判横/竖, 横→2.39 电影, 竖→设备贴合,
@@ -4521,7 +4525,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   const allCastIds = (__castMembers.length ? __castMembers : (castActorIdForCover ? [castActorIdForCover] : [])).slice(0, 3);
   // 组合 face_prompt 后缀(所有成员, 让文本也点出每个人)。
   const actorSuffix = (await Promise.all(allCastIds.map((id) => buildActorPromptSuffix(id).catch(() => "")))).filter(Boolean).join(" ");
-  const composedPrompt = (prompt ? `${prompt}, ${composedFraming}` : composedFraming) + actorSuffix;
+  const composedPrompt = (prompt ? `${prompt}, ${composedFraming}` : composedFraming) + actorSuffix + coverStoryClause;
 
   // Phase 2/P3 参考图锁脸: 取所有成员参考图 → nano-banana 条件生成(1 张=单人, 多张=同框多人各自锁脸),
   //   成功即返回; 失败/无参考 → 落到下方常规 tier(文本锁脸)。不阻断非选角封面。
@@ -4533,7 +4537,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     }
     if (refs.length) {
       const locked = await generateReferenceLockedCover(refs,
-        `${prompt || "cinematic album cover"}, ${composedFraming}`).catch(() => null);
+        `${prompt || "cinematic album cover"}, ${composedFraming}${coverStoryClause}`).catch(() => null);
       if (locked) {
         try { await chargeMvStageActual(userId, "cover", 3, "nanobanana-ref"); } catch {}
         return res.status(200).json({
@@ -14142,7 +14146,11 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
   }
   // CSSOS_WAVE_113 — 选角注入: 视频画面也注入演员锁定 face_prompt, 主角=该演员且跨镜头一致。
   const __actorVidSuffix = await buildActorPromptSuffix(String((body as any).actor_id || "")).catch(() => "");
-  const prompt = (String((body as any).prompt || "").trim() + __actorVidSuffix).trim();
+  // CSSOS_WAVE_1540 — 导演梗概驱动【画面】: 有梗概 → 作为剧情语境引导这段镜头的动作/情绪; 无 → 原样
+  // (系统按 prompt 自动)。宪法默认律: 不填=系统推荐, 填了=用户优先。
+  const __vidStory = String((body as any).synopsis || (body as any).story || "").trim().slice(0, 300);
+  const __vidStoryClause = __vidStory ? ` The shot should advance this story: ${__vidStory}.` : "";
+  const prompt = (String((body as any).prompt || "").trim() + __actorVidSuffix + __vidStoryClause).trim();
   // WAVE_444: accept any valid ratio; default → cinema 2.39:1 (never 16:9)
   const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "2.39:1").trim();
   // Normalise to a canonical key; portrait variants → "9:16" for provider compat

@@ -181,6 +181,8 @@
       '<div style="display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow:hidden;border:1px solid rgba(0,245,160,0.28);margin-bottom:16px;">' +
       // 每段 = 小图标 + 标签(图标在前, 居中)。
       '<button type="button" id="cssos-autoenter-watch" style="flex:1.4;appearance:none;border:none;border-radius:999px;background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;padding:11px 14px;font:700 14px/1 inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:15px;">▶</span>' + lc("Watch MV", "欣赏 MV") + '</button>' +
+      // 中间: 数字演员出口(W1532)。
+      '<button type="button" id="cssos-autoenter-actors" style="flex:1.2;appearance:none;border:none;border-radius:999px;background:rgba(0,245,160,0.12);color:#eafff6;padding:11px 10px;font:700 13px/1 inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:14px;">🎭</span>' + lc("Digital Actors", "数字演员") + '</button>' +
       '<button type="button" id="cssos-autoenter-later" style="flex:1;appearance:none;border:none;border-radius:999px;background:transparent;color:#eafff6;padding:11px 14px;font:600 14px/1 inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:14px;opacity:.85;">🕘</span>' + lc("Maybe later", "稍后再说") + '</button>' +
       '</div>' +
       // 底部: 记住复选框
@@ -203,6 +205,18 @@
       if (remembered()) writeAutoEnterPref("never");
       close(); // stay on home
     });
+    // 中间「数字演员」→ 关闸并打开数字演员图鉴。
+    var actorsBtn = ov.querySelector("#cssos-autoenter-actors");
+    if (actorsBtn) actorsBtn.addEventListener("click", function () { stopCd(); close(); try { globalThis.cssosOpenActorGallery && globalThis.cssosOpenActorGallery(1); } catch (_e) {} });
+    // W1532 — 10 秒默认进入「欣赏 MV」; 任意交互(点任一按钮 / 勾记住 / 点背景)即取消。
+    var cd = 10, cdTimer = null;
+    function stopCd() { if (cdTimer) { clearInterval(cdTimer); cdTimer = null; } }
+    [watchBtn, laterBtn, actorsBtn].forEach(function (b) { if (b) b.addEventListener("click", stopCd); });
+    var _rem = ov.querySelector("#cssos-autoenter-remember"); if (_rem) _rem.addEventListener("change", stopCd);
+    ov.addEventListener("click", function (e) { if (e.target === ov) stopCd(); });
+    var _cdl = document.createElement("span"); _cdl.style.cssText = "opacity:.75;font-weight:600;"; _cdl.textContent = " (" + cd + ")";
+    if (watchBtn) watchBtn.appendChild(_cdl);
+    cdTimer = setInterval(function () { cd -= 1; if (cd <= 0) { stopCd(); if (watchBtn) watchBtn.click(); return; } _cdl.textContent = " (" + cd + ")"; }, 1000);
   }
   globalThis.cssosShowAutoEnterPrompt = showAutoEnterPromptOnce;
 

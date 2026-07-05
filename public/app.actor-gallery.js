@@ -131,6 +131,7 @@
       "#" + ROOT_ID + " .ag-cs-cand span{font-size:10px;max-width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}" +
       "#" + ROOT_ID + " .ag-cs-extras{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0;font-size:13px;font-weight:700;color:#bff5e0;}" +
       "#" + ROOT_ID + " .ag-cs-extrabtns{display:flex;gap:0;}" +
+      "#" + ROOT_ID + " .ag-cs-cost{text-align:center;font-size:13px;font-weight:700;color:#bff5e0;margin:10px 0 6px;}" +
       "#" + ROOT_ID + " .ag-cs-go{width:100%;margin-top:4px;}" +
       "#" + ROOT_ID + " .ag-wt{display:grid;grid-template-columns:1fr 1fr;gap:10px;}" +
       "#" + ROOT_ID + " .ag-wt button{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:14px;padding:12px 14px;cursor:pointer;font-size:14px;font-weight:700;}" +
@@ -1159,12 +1160,25 @@
     window.__cssosCastActorId = actor.actor_id;
     window.__cssosCastActorName = name;
     var prompt = castPromptFor(actor, name, workType);
+    // 缺口1(W1537) — 文案带上【全体 cast】(反派/配角也进故事+歌词, 不只画面)。
+    //   ⚠️ i18N: 这些是发给 LLM 的【生成指令】(英文骨架), 输出【歌词语言】仍由后端按主角文明智能联动
+    //   (civToLanguageServer)决定, 与此处 UI 语言无关。角色标签走 T() 显示层。
+    var castArr = (window.__cssosCast && Array.isArray(window.__cssosCast.cast)) ? window.__cssosCast.cast : [];
+    var others = castArr.filter(function (m) { return m.actor_id !== actor.actor_id && m.name; });
+    if (others.length) {
+      prompt += " " + T("Co-starring", "同台演员") + ": " +
+        others.map(function (m) { return m.name + " (" + T(m.role_label_en || m.role, m.role_label_zh || m.role) + ")"; }).join(", ") +
+        ". " + T("Weave every cast member into the story and lyrics, each true to their role.", "让每位演员都进入剧情与歌词, 各司其职。");
+    }
+    // 缺口5 — 出炉前一句确认(主演 + 反派/配角), 让导演确定 cast 生效。全 T()。
+    if (typeof window.cssosGuidedToast === "function") {
+      window.cssosGuidedToast("🎬 " + T("Starring", "主演") + " " + name +
+        (others.length ? " · " + others.map(function (m) { return T(m.role_label_en || m.role, m.role_label_zh || m.role) + " " + m.name; }).join(" · ") : ""), {});
+    }
     if (typeof window.cssosOpenAssistantWithPrompt === "function") {
       close();
       window.cssosOpenAssistantWithPrompt(prompt, { actorId: actor.actor_id });
-    } else if (typeof window.cssosGuidedToast === "function") {
-      window.cssosGuidedToast(T("Cast " + name + " — opening the creation panel", "已选定 " + name + " — 创作入口即将打开"), {});
-    } else { alert(T("Cast actor: ", "已选定演员: ") + name); }
+    } else if (typeof window.cssosGuidedToast !== "function") { alert(T("Cast actor: ", "已选定演员: ") + name); }
   }
   // 选角时先选作品类型(叙事类先锁)。
   function openCast(actor) {
@@ -1256,6 +1270,7 @@
             '<button data-ex="auto" class="' + (extrasMode === "auto" ? "active" : "") + '" data-pill-key="auto">🎲 ' + esc(T("Auto", "系统随机")) + '</button>' +
             '<button data-ex="manual" class="' + (extrasMode === "manual" ? "active" : "") + '" data-pill-key="manual">✋ ' + esc(T("Manual", "手动")) + '</button>' +
           '</div></div>' +
+        '<div class="ag-cs-cost">' + (function () { var t = 0; slots.forEach(function (s, i) { var a = picked[i]; if (a && a.is_premium) { var role = i === 0 ? seedRole : s.role, al = i === 0 ? seedAlign : s.alignment; var m = (al === "evil" || role === "antagonist") ? 1.3 : (role === "supporting" ? 0.5 : 1); t += Math.round((a.cast_price_cents || 0) * m); } }); return t > 0 ? "💎 " + esc(T("Cast total", "选角合计")) + " " + cents(t) + " · " + esc(T("from your wallet", "从钱包扣")) : "✅ " + esc(T("Free cast", "免费阵容")); })() + '</div>' +
         '<button class="ag-cast ag-cs-go">🎬 ' + esc(T("Cast & generate", "定角并生成")) + '</button>' +
         '</div>';
     }
@@ -1301,7 +1316,7 @@
       var go = e.target.closest && e.target.closest(".ag-cs-go");
       if (go) {
         // 组装 cast → 记 window.__cssosCast(供 P2 后端整体接收)+ 主角走现有生成流。
-        var cast = slots.map(function (s, i) { var a = picked[i]; if (!a) return null; return { actor_id: a.actor_id, role: i === 0 ? seedRole : s.role, alignment: i === 0 ? seedAlign : s.alignment, billing_order: i }; }).filter(Boolean);
+        var cast = slots.map(function (s, i) { var a = picked[i]; if (!a) return null; return { actor_id: a.actor_id, role: i === 0 ? seedRole : s.role, alignment: i === 0 ? seedAlign : s.alignment, billing_order: i, name: (a.name_en || a.name_zh), role_label_en: s.en, role_label_zh: s.zh }; }).filter(Boolean);
         window.__cssosCast = { format: fmt, extras_mode: extrasMode, cast: cast };
         window.__cssosCastRole = seedRole; window.__cssosCastAlign = seedAlign;   // ③ seed 角色 → 后端分层计费
         modal.remove();

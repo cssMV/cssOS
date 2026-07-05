@@ -43097,6 +43097,16 @@ const CAST_FORMAT_TEMPLATES: Record<string, Array<{ role: string; alignment: str
 };
 const CAST_EVIL_ARCHETYPES = ["villain", "antihero", "enigma"];
 const CAST_GOOD_ARCHETYPES = ["hero", "ruler", "sage", "charmer", "youth", "action"];
+// CSSOS_WAVE_1531 — 角色分层定价乘数(Jing 批准): 主角基准 · 反派 +30% · 配角 ×50% · 群演免费.
+// 兼容旧 "villain" 与新 "antagonist"/alignment=evil. 自选自演免费/官方强付/版税 由调用方处理, 此处只算倍率.
+function roleCastMultiplier(role: string, alignment: string): number {
+  const r = String(role || "").toLowerCase();
+  const al = String(alignment || "").toLowerCase();
+  if (r === "extra") return 0;
+  if (r === "supporting") return 0.5;
+  if (r === "antagonist" || r === "villain" || al === "evil") return 1.3;
+  return 1; // protagonist / lead / 默认
+}
 app.post("/api/cast/recommend", express.json({ limit: "4kb" }), async (req, res) => {
   try {
     const civ = String(req.body?.civilization || "").trim();
@@ -43127,7 +43137,15 @@ app.post("/api/cast/recommend", express.json({ limit: "4kb" }), async (req, res)
         candidates: rows.rows.map((a) => ({ ...a, mother_tongue: civToLanguageServer(a.civilization || "") })),
       });
     }
-    return res.json({ ok: true, format, extras_mode: "auto", results });
+    // 群演候选: 自愿出演群演(willing_extra)的数字演员, 同文明优先; 不够时由生成侧合成兜底。
+    const exRows = await withClient((c) => c.query<{ actor_id: string; name_en: string; name_zh: string; civilization: string | null; cover_image: string | null; is_premium: boolean; cast_price_cents: number }>(
+      `SELECT actor_id, name_en, name_zh, civilization, cover_image, is_premium, cast_price_cents
+         FROM digital_actors
+        WHERE visibility = 'public' AND willing_extra = true
+        ORDER BY ($1 <> '' AND civilization = $1) DESC, popularity_score DESC
+        LIMIT 16`, [civ]));
+    const extras = exRows.rows.map((a) => ({ ...a, mother_tongue: civToLanguageServer(a.civilization || "") }));
+    return res.json({ ok: true, format, extras_mode: "auto", results, extras });
   } catch (e) {
     return res.status(500).json({ ok: false, error: (e as Error)?.message || "recommend_failed" });
   }
@@ -43238,6 +43256,10 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
       [actorId, dispNative || dispNameEn, dispNameEn, dispNative || null, world, dispPersona, facePrompt, gender, dispStyle, coverUrl || null, fx, fy,
        coverUrl ? [coverUrl] : [], priceCents > 0, priceCents, priceCents > 0 ? "per_cast" : "free", user.id, UGC_CREATOR_ROYALTY,
        archetypes, subRoles, civilizations.length ? civilizations : null]));
+    // CSSOS_WAVE_1531 — 群演 opt-in: 演员自愿出演群演。
+    if (body.willing_extra === true || body.willing_extra === "true") {
+      await withClient((c) => c.query(`UPDATE digital_actors SET willing_extra = true WHERE actor_id = $1`, [actorId])).catch(() => {});
+    }
     return res.json({ ok: true, actor_id: actorId, cover_image: coverUrl || null, creator_royalty: UGC_CREATOR_ROYALTY });
   } catch (err) {
     console.warn("[actors] create failed:", (err as Error)?.message || err);
@@ -45162,9 +45184,10 @@ app.post("/api/works", async (req, res) => {
             const ownerIdEarly = String(ap.rows[0]?.owner_user_id || "");
             // CSSOS_WAVE_114 — 本人用自己的演员(自选自演)= 免费(不向自己收费)。
             let priceSnap = (ap.rows[0]?.is_premium && ownerIdEarly !== String(user.id)) ? Number(ap.rows[0]?.cast_price_cents || 0) : 0;
-            // CSSOS_WAVE_113 — 反派角色 +30% 溢价(更难演、更抢戏)。角色由 __actorRole 传入。
+            // CSSOS_WAVE_1531 — 分层定价(seed 演员按其角色): 主角×1 · 反派×1.3 · 配角×0.5 · 群演×0。
             const castRole = String(req.body?.__actorRole || "").toLowerCase();
-            if (priceSnap > 0 && castRole === "villain") priceSnap = Math.round(priceSnap * 1.3);
+            const castAlign = String(req.body?.__actorAlignment || "").toLowerCase();
+            if (priceSnap > 0) priceSnap = Math.round(priceSnap * roleCastMultiplier(castRole, castAlign));
             // CSSOS_WAVE_113 变现真扣费: 溢价演员 → 真扣用户 credits(=cents)。
             //   普通用户: admin/staff 自动豁免; 余额不足 → 记免费一次(不阻断已建档作品)。
             //   CSSOS_WAVE_118「裁判员不当运动员」: 官方账号(@cssstudio.app/jingdudc)用【别人的付费演员】
@@ -45218,7 +45241,7 @@ app.post("/api/works", async (req, res) => {
               const _alignN = _align === "evil" ? "evil" : (_align === "good" ? "good" : "neutral");
               const _role = _ROLES.indexOf(String(_m?.role || "")) >= 0 ? String(_m.role) : "supporting";
               let _price = (_row.is_premium && _ownerId !== String(user.id)) ? Number(_row.cast_price_cents || 0) : 0;
-              if (_price > 0 && _alignN === "evil") _price = Math.round(_price * 1.3);   // 反派 +30%
+              if (_price > 0) _price = Math.round(_price * roleCastMultiplier(_role, _alignN));   // 分层定价
               const _official = isCssosAdminEmail(user.email);
               let _charged = 0, _unpaid = false;
               if (_price > 0) {

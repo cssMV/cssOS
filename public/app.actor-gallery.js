@@ -114,6 +114,7 @@
       "#" + ROOT_ID + " .ag-cs-slots{display:flex;flex-direction:column;gap:12px;}" +
       "#" + ROOT_ID + " .ag-cs-slot{border:1px solid rgba(0,245,160,.22);border-radius:14px;padding:10px 12px;background:rgba(0,245,160,.04);}" +
       "#" + ROOT_ID + " .ag-cs-role{font-size:13px;font-weight:800;color:#bff5e0;margin-bottom:8px;}" +
+      "#" + ROOT_ID + " .ag-cs-roled{background:rgba(0,245,160,.12);border:1px solid rgba(0,245,160,.4);color:#e8fff5;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;cursor:pointer;outline:none;}" +
       "#" + ROOT_ID + " .ag-cs-lock{font-size:11px;font-weight:600;color:#7fb8a3;margin-left:6px;}" +
       "#" + ROOT_ID + " .ag-cs-pick{display:flex;align-items:center;gap:10px;}" +
       "#" + ROOT_ID + " .ag-cs-pick>img,#" + ROOT_ID + " .ag-cs-empty,#" + ROOT_ID + " .ag-cs-ini{width:46px;height:46px;border-radius:10px;object-fit:cover;flex:0 0 auto;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-weight:800;color:#bff5e0;}" +
@@ -559,6 +560,7 @@
         '<label>' + esc(T("Stage name (blank = system names it)", "艺名(留空 = 系统起名)")) + '<input class="ag-in" data-k="name_en" maxlength="60" placeholder="' + esc(T("Nova Sky — or leave blank", "Nova Sky —— 或留空")) + '" /></label>' +
         '<label>' + esc(T("Appearance / vibe (blank = system composes from civilization + role)", "外貌 / 气质(留空 = 系统按文明+戏路智能生成)")) + '<textarea class="ag-in" data-k="description" maxlength="600" rows="3" placeholder="' + esc(T("e.g. a silver-haired violet-eyed futuristic diva — or leave blank", "如: 银发碧眼的未来感歌姬 —— 或留空")) + '"></textarea></label>' +
         '<label>' + esc(T("Voice gender", "声线性别")) + '<select class="ag-in" data-k="gender"><option value="" selected>' + esc(T("Auto — system decides by civilization", "自动 —— 按文明智能联动")) + '</option><option value="female">' + esc(T("Female", "女声")) + '</option><option value="male">' + esc(T("Male", "男声")) + '</option><option value="neutral">' + esc(T("Neutral", "中性")) + '</option></select></label>' +
+        '<label class="ag-check"><input type="checkbox" data-k="willing_extra"> 👥 ' + esc(T("Willing to play extras (background roles) — more exposure", "愿意出演群演(背景角色)—— 更多曝光")) + '</label>' +
         '<label>' + esc(T("Style (leave blank = all styles)", "风格(留空 = 全风格)")) + '<input class="ag-in" data-k="style_descriptor" maxlength="120" placeholder="' + esc(T("synthwave — or leave blank for any", "synthwave —— 留空则任意风格")) + '" /></label>' +
         allMultiMarkup("civ", T("Civilization — all by default; or pick one/several (a face can span cultures)", "文明 —— 默认全文明;也可选一个/几个(一张脸可跨文化)"), CIVS, "🌍") +
         roleTaxonomyMarkup() +
@@ -574,6 +576,7 @@
     submit.onclick = function () {
       var payload = {};
       scroll.querySelectorAll(".ag-in").forEach(function (el) { payload[el.getAttribute("data-k")] = el.value; });
+      scroll.querySelectorAll("[data-k][type=checkbox]").forEach(function (el) { payload[el.getAttribute("data-k")] = el.checked; });
       payload.archetypes = roleTax.archetypes(); payload.sub_roles = roleTax.subRoles();
       payload.civilizations = civGet();
       // 名字/描述/性别都可留空 —— 后端按 文明+戏路+风格 智能联动补全(一键合成数字演员)。
@@ -1209,8 +1212,11 @@
     var root = document.getElementById(ROOT_ID); if (!root) { castRun(seedActor, workType); return; }
     var fmt = castFormatKey(workType);
     var slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv;
-    var picked = {};            // slotIdx → actor(主角预填)
+    var picked = {};            // slotIdx → actor(seed 预填)
     picked[0] = seedActor;
+    // ① 配角选择: 点进来的 seed 演员可选主角/反派/配角(影响 role/alignment/计费)。
+    var CAST_ROLE_OPTS = [{ r: "protagonist", a: "good", en: "Lead", zh: "主角" }, { r: "antagonist", a: "evil", en: "Villain", zh: "反派" }, { r: "supporting", a: "neutral", en: "Support", zh: "配角" }];
+    var seedRole = "protagonist", seedAlign = "good";
     var pools = {};             // slotIdx → 候选数组
     var extrasMode = "auto";    // auto=系统随机群演 | manual
     var civ = seedActor.civilization || "";
@@ -1227,7 +1233,9 @@
       var a = picked[i];
       var ml = a ? esc(a.mother_tongue || "") : "";
       return '<div class="ag-cs-slot" data-slot="' + i + '">' +
-        '<div class="ag-cs-role">' + slot.emoji + ' ' + esc(T(slot.en, slot.zh)) + (i === 0 ? ' <span class="ag-cs-lock">' + esc(T("you", "你选的")) + '</span>' : '') + '</div>' +
+        '<div class="ag-cs-role">' + (i === 0
+          ? esc(T("Your pick plays", "你选的出演")) + ' <select class="ag-cs-roled" data-seedrole>' + CAST_ROLE_OPTS.map(function (o) { return '<option value="' + o.r + '"' + (o.r === seedRole ? " selected" : "") + '>' + esc(T(o.en, o.zh)) + '</option>'; }).join("") + '</select>'
+          : slot.emoji + ' ' + esc(T(slot.en, slot.zh))) + '</div>' +
         '<div class="ag-cs-pick">' + slotThumb(a) +
           '<div class="ag-cs-info"><div class="ag-cs-name">' + (a ? esc(a.name_en || a.name_zh) : esc(T("Recommending…", "推荐中…"))) + '</div>' +
             '<div class="ag-cs-sub">' + (a ? (esc(a.civilization || "") + (ml ? " · 🌐" + ml : "")) : "") + '</div></div>' +
@@ -1253,6 +1261,12 @@
     }
     render();
     root.appendChild(modal);
+
+    // ① seed 角色下拉切换。
+    modal.addEventListener("change", function (e) {
+      var s = e.target.closest && e.target.closest("[data-seedrole]");
+      if (s) { seedRole = s.value; var o = CAST_ROLE_OPTS.find(function (x) { return x.r === seedRole; }); seedAlign = o ? o.a : "neutral"; }
+    });
 
     // 拉推荐补齐非主角槽(优雅回退)。
     (function loadRecs() {
@@ -1287,10 +1301,11 @@
       var go = e.target.closest && e.target.closest(".ag-cs-go");
       if (go) {
         // 组装 cast → 记 window.__cssosCast(供 P2 后端整体接收)+ 主角走现有生成流。
-        var cast = slots.map(function (s, i) { var a = picked[i]; return a ? { actor_id: a.actor_id, role: s.role, alignment: s.alignment, billing_order: i } : null; }).filter(Boolean);
+        var cast = slots.map(function (s, i) { var a = picked[i]; if (!a) return null; return { actor_id: a.actor_id, role: i === 0 ? seedRole : s.role, alignment: i === 0 ? seedAlign : s.alignment, billing_order: i }; }).filter(Boolean);
         window.__cssosCast = { format: fmt, extras_mode: extrasMode, cast: cast };
+        window.__cssosCastRole = seedRole; window.__cssosCastAlign = seedAlign;   // ③ seed 角色 → 后端分层计费
         modal.remove();
-        castRun(seedActor, workType);   // 主角领衔进现有 MV 管线; 完整 cast 已备好待 P2 接收
+        castRun(seedActor, workType);   // seed 领衔进现有 MV 管线; 完整 cast 已备好待 P2 接收
       }
     });
   }
@@ -1314,7 +1329,7 @@
             var b = JSON.parse(init.body);
             if (b && typeof b === "object" && !Array.isArray(b)) {
               if (!b.actor_id) b.actor_id = aid;
-              if (isCreate) { b.__actorId = aid; }
+              if (isCreate) { b.__actorId = aid; if (window.__cssosCastRole) b.__actorRole = window.__cssosCastRole; if (window.__cssosCastAlign) b.__actorAlignment = window.__cssosCastAlign; }
               // ④ P2 — 建档时把整份多角色 cast 一并注入, 后端按 role/alignment/billing 记录+计费。
               if (isCreate && window.__cssosCast && Array.isArray(window.__cssosCast.cast) && window.__cssosCast.cast.length) { b.cast = window.__cssosCast.cast; }
               init = Object.assign({}, init, { body: JSON.stringify(b) });

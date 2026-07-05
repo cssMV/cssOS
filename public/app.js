@@ -414,9 +414,13 @@ const DOCK_ORDER_KEY = "cssos.dockOrder";
 // CSSOS_WAVE_862 20260616 — Jing「请设置'为你创作'面板默认显示在第二个位置, 即: 话筒, 为你创作/人物MV」。
 // 新顺序前三 = 话筒 → 为你创作(foryou) → 人物MV(person-mv)。MV 管线后移(创作仍可一键进, 但 For You
 // 信息流是用户进来第一眼该看到的「欣赏」入口, 紧随话筒)。
-const DOCK_FRONT_PINNED = ["mic", "foryou", "person-mv", "mv-pipeline", "settings"];
+// Jing W1544 — 前排精确顺序: 话筒 → 导演入口 → 数字演员, 再到其余。director/actors 动态注入,
+// pinFront 只固定【已存在】的项(缺则跳过, 不报错), 故加入是安全的增量。
+const DOCK_FRONT_PINNED = ["mic", "director", "actors", "foryou", "person-mv", "mv-pipeline", "settings"];
 const DOCK_DEFAULT_ORDER = [
   "mic",
+  "director",    // 导演入口 — 话筒之后(Jing W1544)
+  "actors",      // 数字演员 — 导演入口之后(Jing W1544)
   "foryou",      // 为你创作 — 提到第二位(Jing W862)
   "person-mv",   // 人物MV — 动态注入，restoreDockOrder 会保留位置
   "mv-pipeline",

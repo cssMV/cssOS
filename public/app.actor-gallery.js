@@ -1274,7 +1274,7 @@
   // ④ P1 选角面板 —— 选完格式后: 主角预填 + 文明智能联动推荐补齐反派/配角 + 手选/换 + 群演开关 → 生成。
   // 群演系统随机(可改手动); 推荐端点未部署时优雅回退到 /api/actors。角色槽走随机色 data-pill-bar。
   var CAST_FORMAT_SLOTS = {
-    mv:       [{ role: "protagonist", alignment: "good",    en: "Lead",    zh: "主角",  emoji: "⭐" }],
+    mv:       [{ role: "protagonist", alignment: "good",    en: "Lead",    zh: "主角",  emoji: "⭐" }, { role: "antagonist", alignment: "evil", en: "Villain", zh: "反派", emoji: "😈" }],
     triptych: [{ role: "protagonist", alignment: "good",    en: "Lead",    zh: "主角",  emoji: "⭐" }, { role: "antagonist", alignment: "evil", en: "Villain", zh: "反派", emoji: "😈" }],
     opera:    [{ role: "protagonist", alignment: "good",    en: "Lead",    zh: "主角",  emoji: "⭐" }, { role: "antagonist", alignment: "evil", en: "Villain", zh: "反派", emoji: "😈" }, { role: "supporting", alignment: "neutral", en: "Support", zh: "配角", emoji: "🎭" }],
   };
@@ -2273,14 +2273,14 @@
     item.setAttribute("data-tooltip", T("Digital Actors", "数字演员"));
     item.setAttribute("aria-label", T("Digital Actors", "数字演员"));
     item.innerHTML = '<span class="dock-ico" aria-hidden="true">🎭</span><span class="dock-label">' + esc(T("Actors", "演员")) + '</span>';
-    // 挂在人物 MV(person-mv)之后, 与文明宇宙相邻。
-    var ref = dock.querySelector('[data-action="person-mv"], [data-action="cssmv"], [data-action="watch"]');
+    // W1544 排序 话筒→导演入口→数字演员: actors 挂在 mic 之后(director 随后插到 mic 与 actors 之间)。
+    var ref = dock.querySelector('[data-action="mic"]') || dock.querySelector('[data-action="person-mv"], [data-action="cssmv"], [data-action="watch"]');
     if (ref && ref.nextSibling) dock.insertBefore(item, ref.nextSibling); else dock.appendChild(item);
     item.addEventListener("click", function () { open(); });   // 直连兜底(dock 分发未接管时也能开)
-    mountDirectorDockItem(dock);   // 数字演员之后紧跟 🎬 导演入口
+    mountDirectorDockItem(dock);   // 话筒之后紧跟 🎬 导演入口(在 actors 之前)
     return true;
   }
-  // 🎬 导演入口 dock 项 —— 紧挨在数字演员(actors)之后。
+  // 🎬 导演入口 dock 项 —— W1544: 紧跟话筒(话筒 → 导演入口 → 数字演员)。
   function mountDirectorDockItem(dock) {
     if (!dock) dock = document.querySelector(".dock") || document.querySelector("#dock");
     if (!dock) return false;
@@ -2292,9 +2292,11 @@
     d.setAttribute("data-tooltip", T("Director", "导演开拍"));
     d.setAttribute("aria-label", T("Director", "导演开拍"));
     d.innerHTML = '<span class="dock-ico" aria-hidden="true">🎬</span><span class="dock-label">' + esc(T("Direct", "开拍")) + '</span>';
-    var ref = dock.querySelector('[data-action="actors"]');
-    if (ref && ref.nextSibling) dock.insertBefore(d, ref.nextSibling);
-    else if (ref) dock.appendChild(d);
+    // 插到话筒之后(→ 落在 mic 与 actors 之间); 无话筒则插到 actors 之前; 都无则追加。
+    var mic = dock.querySelector('[data-action="mic"]');
+    var actorsEl = dock.querySelector('[data-action="actors"]');
+    if (mic && mic.nextSibling) dock.insertBefore(d, mic.nextSibling);
+    else if (actorsEl) dock.insertBefore(d, actorsEl);
     else dock.appendChild(d);
     d.addEventListener("click", function () { openDirectorGate(); });   // 直连兜底
     return true;

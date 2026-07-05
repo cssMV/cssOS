@@ -42577,6 +42577,15 @@ async function actorPerformanceLang(actorId: string): Promise<{ language?: strin
 // CSSOS_WAVE_113 Phase 2 — 参考图【锁脸】: 拿演员锁定参考图(reference_images[0])+ 场景 prompt,
 //   走 kie google/nano-banana(image_urls 条件生成, 实测 ~3¢)→ 输出保住【同一张脸】的新画面。
 //   返回稳定 URL; 无参考图/失败 → null(调用方回落文本锁脸)。
+// CSSOS_WAVE_1543 — 选脸参考图时【优先本域稳定图】(/artifacts / cssstudio.app), 再退到任意参考/封面。
+// 因为 W1542 把外链 Wikimedia 旧图存进了 reference_images 备查; 若仍取 reference_images[0] 当主参考,
+// 锁脸/双人视频会去 fetch 那条 wikimedia → 429 失败。本域稳定图既可靠又是策展正脸, 应优先。
+function pickStableActorRef(reference_images: unknown, cover_image: unknown): string {
+  const refs = Array.isArray(reference_images) ? (reference_images as unknown[]).map(String).filter(Boolean) : [];
+  const cover = String(cover_image || "");
+  const isOurs = (u: string) => /cssstudio\.app|\/artifacts\//i.test(String(u || ""));
+  return refs.find(isOurs) || (isOurs(cover) ? cover : "") || refs[0] || cover || "";
+}
 async function actorReferenceImage(actorId: string): Promise<{ ref: string; name: string } | null> {
   const id = String(actorId || "").trim();
   if (!id || !DATABASE_URL) return null;
@@ -42586,8 +42595,8 @@ async function actorReferenceImage(actorId: string): Promise<{ ref: string; name
         `SELECT reference_images, cover_image, name_en, name_zh FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
     const a = r.rows[0];
     if (!a) return null;
-    // CSSOS_WAVE_1536 — 无锁脸参考图时回退到 cover_image(策展 Legend/美女/英雄有单张正脸封面, 正好当脸参考)。
-    const ref = (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || a.cover_image || "";
+    // CSSOS_WAVE_1536/1543 — 优先本域稳定封面(策展 Legend 单张正脸, 正好当脸参考); 避免外链当主参考。
+    const ref = pickStableActorRef(a.reference_images, a.cover_image);
     if (!ref) return null;
     return { ref: String(ref), name: a.name_en || a.name_zh };
   } catch { return null; }
@@ -43246,7 +43255,7 @@ app.post("/api/admin/cast/twoface-test", express.json({ limit: "4kb" }), async (
     const r = await withClient((c) => c.query<{ name_en: string; cover_image: string | null; reference_images: string[] }>(
       `SELECT name_en, cover_image, reference_images FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
     const a = r.rows[0]; if (!a) continue;
-    const ref = (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || a.cover_image || "";
+    const ref = pickStableActorRef(a.reference_images, a.cover_image);   // 优先本域稳定图, 避免外链 429
     if (ref) { refs.push(ref); names.push(a.name_en); }
   }
   if (refs.length < 2) return res.status(400).json({ ok: false, error: "actors missing face reference", got: refs.length });
@@ -43317,7 +43326,7 @@ app.post("/api/admin/cast/twoface-video-test", express.json({ limit: "4kb" }), a
     const r = await withClient((c) => c.query<{ name_en: string; cover_image: string | null; reference_images: string[] }>(
       `SELECT name_en, cover_image, reference_images FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
     const a = r.rows[0]; if (!a) continue;
-    const ref = (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || a.cover_image || "";
+    const ref = pickStableActorRef(a.reference_images, a.cover_image);   // 优先本域稳定图, 避免外链 429
     if (ref) { refs.push(ref); names.push(a.name_en); }
   }
   if (refs.length < 2) return res.status(400).json({ ok: false, error: "actors missing face reference", got: refs.length });

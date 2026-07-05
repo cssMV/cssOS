@@ -588,6 +588,8 @@ struct FeaturedHero: View {
     @Environment(\.resetFocus) private var resetFocus // W1283 — 往左把焦点送回侧栏
     @State private var index = 0
     @State private var pauseAutoUntil: Date? = nil   // W1241 — 用户干预后暂停自动轮播到此刻
+    @State private var progFocus = true              // W1558 — 本次 focusedCap 变化是【编程性】(进场/跨越/轮播跟随)
+                                                     //   → 不算用户干预, 不暂停轮播。用户真移胶囊时=false → 暂停 10s。
     @FocusState private var playFocused: Bool        // W1244 — Play(=hero)是否聚焦
     @FocusState private var focusedCap: Int?         // W1250 — 当前聚焦的胶囊(遥控器可操作)
     @State private var breathe = false               // W1284 — 下一个胶囊边框呼吸
@@ -886,10 +888,10 @@ struct FeaturedHero: View {
         .animation(.easeInOut(duration: 0.6), value: index)
         // W1250 — 遥控器聚焦胶囊 → index 跟随, 并暂停自动轮播 10s(用户干预最高优先级)。
         .onChange(of: focusedCap) { _, f in
-            if let f {
-                withAnimation(.easeInOut(duration: 0.4)) { index = f }
-                pauseAutoUntil = Date().addingTimeInterval(10)
-            }
+            if let f { withAnimation(.easeInOut(duration: 0.4)) { index = f } }
+            // W1558 — 编程性变化(进场/跨越/轮播跟随)不暂停; 用户真移胶囊才暂停 10s(干预最高优先)。
+            if progFocus { progFocus = false }
+            else if f != nil { pauseAutoUntil = Date().addingTimeInterval(10) }
         }
         // W1358 — 焦点静音预览生命周期: 聚焦 hero → 防抖启动; 失焦 → 立即销毁。
         .onChange(of: heroFocused) { _, f in
@@ -901,13 +903,24 @@ struct FeaturedHero: View {
             if heroFocused { scheduleHeroPreview() }
         }
         // W1552 — 宿主挂载侧栏后 bump focusTick → 用确定性 @FocusState 赋值把焦点强按回第一个胶囊(慢设备 4K 也稳)。
-        .onChange(of: focusTick) { _, _ in focusedCap = 0 }
+        .onChange(of: focusTick) { _, _ in progFocus = true; focusedCap = 0; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { progFocus = false } }
         .onDisappear { cancelHeroPreview() }
         .onReceive(timer) { _ in
-            if focusedCap != nil { return }                           // 用户正在操作胶囊, 不自动切
-            if let until = pauseAutoUntil, Date() < until { return }  // 干预后 10s 内不自动切
+            // W1558 — 进场默认聚焦 hero 后仍要自动轮播(之前 focusedCap!=nil 就 return → 永不轮播 = 割肉)。
+            //   现在只在【用户真干预后 10s 内】暂停; 否则照常切, 且【焦点跟随激活胶囊】(编程性, 不触发暂停)。
+            if let until = pauseAutoUntil, Date() < until { return }
             pauseAutoUntil = nil
-            go(1)
+            let wasHeroFocused = (focusedCap != nil)
+            let ni = (index + 1) % max(n, 1)
+            withAnimation(.easeInOut(duration: 0.5)) { index = ni }
+            // W1558 — 轮播会 reshuffle 胶囊、动画中途丢焦 → 焦点被引擎逃到侧栏。故在动画【结束后】(下一拍)
+            //   用确定性 @FocusState 把焦点重钉到新激活胶囊, 且标记 progFocus 不触发暂停。仅当轮播前焦点在 hero 时。
+            if wasHeroFocused {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                    progFocus = true; focusedCap = ni
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { progFocus = false }
+                }
+            }
         }
         // W1282 — Jing: 进入平台默认焦点 = 第一个胶囊(按确认即播放), 绝不落 logo(一按就退出/登录)。
         .defaultFocus($focusedCap, 0)

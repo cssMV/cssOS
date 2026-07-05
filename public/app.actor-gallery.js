@@ -169,6 +169,16 @@
       "#" + ROOT_ID + " .ag-dg-role b{color:#bff5e0;min-width:52px;}" +
       "#" + ROOT_ID + " .ag-dg-actor{display:inline-flex;align-items:center;gap:6px;font-weight:700;}" +
       "#" + ROOT_ID + " .ag-dg-actor img{width:30px;height:30px;border-radius:7px;object-fit:cover;}" +
+      // 封面加载失败(如 Wikimedia 429)时的首字母兜底, 不再露破图 ?。
+      "#" + ROOT_ID + " .ag-dg-ini{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:7px;background:rgba(0,245,160,.16);color:#bff5e0;font-weight:800;font-size:14px;}" +
+      // 可搜索选角器。
+      "#" + ROOT_ID + " .ag-ap-box{max-width:520px;}" +
+      "#" + ROOT_ID + " .ag-ap-search{width:100%;box-sizing:border-box;margin:4px 0 12px;}" +
+      "#" + ROOT_ID + " .ag-ap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px;max-height:48vh;overflow-y:auto;}" +
+      "#" + ROOT_ID + " .ag-ap-cand{display:flex;flex-direction:column;align-items:center;gap:4px;background:rgba(0,245,160,.05);border:1px solid rgba(0,245,160,.2);border-radius:12px;padding:8px 4px;cursor:pointer;color:#d6ffee;}" +
+      "#" + ROOT_ID + " .ag-ap-cand:hover{background:rgba(0,245,160,.14);border-color:" + GREEN + ";}" +
+      "#" + ROOT_ID + " .ag-ap-cand>img,#" + ROOT_ID + " .ag-ap-cand .ag-cs-ini{width:56px;height:56px;border-radius:9px;object-fit:cover;}" +
+      "#" + ROOT_ID + " .ag-ap-cand>span{font-size:11px;text-align:center;line-height:1.2;max-width:78px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}" +
       "#" + ROOT_ID + " .ag-dg-swap{background:rgba(0,245,160,.1);border:1px solid rgba(0,245,160,.3);border-radius:999px;padding:2px 8px;font-size:11px;cursor:pointer;color:#bff5e0;}" +
       "#" + ROOT_ID + " .ag-dg-row{display:flex;align-items:center;gap:12px;}" +
       "#" + ROOT_ID + " .ag-dg-go{flex:1;}" +
@@ -1420,6 +1430,42 @@
     for (var i = 0; i < DG_CIV_KEYWORDS.length; i++) { if (DG_CIV_KEYWORDS[i].re.test(s)) return DG_CIV_KEYWORDS[i].v; }
     return "";
   }
+  // 可搜索选角器: 从全量已加载演员(state.actors, /api/actors?limit=500)按 名字/文明 即时搜索,
+  //   点选即回调替换该角色(旧的取消)。替代"点一下随机换一个"的盲切。opts: {title, excludeIds, onPick}。
+  function openActorPicker(opts) {
+    opts = opts || {};
+    var root = document.getElementById(ROOT_ID) || document.body;
+    var q = "", exclude = opts.excludeIds || {};
+    var modal = document.createElement("div"); modal.className = "ag-castmodal ag-actorpicker";
+    function pickThumb(a) { return a.cover_image ? '<img src="' + esc(imgProxy(a.cover_image, 80)) + '" alt="' + esc(String(a.name_en || a.name_zh || "?").charAt(0)) + '" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'ag-cs-ini\',textContent:(this.alt||\'?\')}))">' : '<span class="ag-cs-ini">' + esc(String(a.name_en || a.name_zh || "?").charAt(0)) + '</span>'; }
+    function results() {
+      var all = (state.actors || []).filter(function (a) { return a && a.actor_id && !exclude[a.actor_id]; });
+      var ql = q.trim().toLowerCase();
+      if (ql) all = all.filter(function (a) { return ((a.name_en || "") + " " + (a.name_zh || "") + " " + (a.civilization || "")).toLowerCase().indexOf(ql) >= 0; });
+      return all.slice(0, 60);
+    }
+    function gridHtml() {
+      var list = results();
+      return list.length
+        ? list.map(function (a) { return '<button class="ag-ap-cand" data-pickid="' + esc(a.actor_id) + '">' + pickThumb(a) + '<span>' + esc(a.name_en || a.name_zh) + '</span></button>'; }).join("")
+        : '<div class="ag-empty">' + esc(T("No matching actors.", "没有匹配的演员。")) + '</div>';
+    }
+    modal.innerHTML = '<div class="box ag-ap-box"><h3>🔍 ' + esc(opts.title || T("Pick an actor", "选一位演员")) + '</h3>' +
+      '<input class="ag-in ag-ap-search" placeholder="' + esc(T("Search by name or civilization…", "按名字或文明搜索…")) + '">' +
+      '<div class="ag-ap-grid">' + gridHtml() + '</div></div>';
+    root.appendChild(modal);
+    var s = modal.querySelector(".ag-ap-search"); if (s) setTimeout(function () { try { s.focus(); } catch (_e) {} }, 30);
+    // 只刷新结果网格, 保住搜索框焦点。
+    modal.addEventListener("input", function (e) {
+      if (e.target.closest && e.target.closest(".ag-ap-search")) { q = e.target.value; var g = modal.querySelector(".ag-ap-grid"); if (g) g.innerHTML = gridHtml(); }
+    });
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) { modal.remove(); return; }
+      var c = e.target.closest && e.target.closest("[data-pickid]");
+      if (c) { var id = c.getAttribute("data-pickid"); var a = (state.actors || []).find(function (x) { return x.actor_id === id; }); modal.remove(); if (a && opts.onPick) opts.onPick(a); }
+    });
+  }
+
   function openDirectorGate() {
     // 从闸/Dock 打开时图鉴可能没开 → 先开(否则 #ROOT_ID 作用域样式失效)。
     var root = document.getElementById(ROOT_ID);
@@ -1443,7 +1489,7 @@
       return slots.map(function (s, i) {
         var a = picked[i];
         return '<div class="ag-dg-role">' + s.emoji + ' <b>' + esc(T(s.en, s.zh)) + '</b> ' +
-          (a ? '<span class="ag-dg-actor">' + (a.cover_image ? '<img src="' + esc(imgProxy(a.cover_image, 80)) + '">' : '') + esc(a.name_en || a.name_zh) + '</span>' : '<i>' + esc(T("casting…", "联动选角中…")) + '</i>') +
+          (a ? '<span class="ag-dg-actor">' + (a.cover_image ? '<img src="' + esc(imgProxy(a.cover_image, 80)) + '" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'ag-dg-ini\',textContent:(this.alt||\'?\')}))" alt="' + esc(String(a.name_en || a.name_zh || "?").charAt(0)) + '">' : '<span class="ag-dg-ini">' + esc(String(a.name_en || a.name_zh || "?").charAt(0)) + '</span>') + esc(a.name_en || a.name_zh) + '</span>' : '<i>' + esc(T("casting…", "联动选角中…")) + '</i>') +
           (a ? ' <button class="ag-dg-swap" data-dgswap="' + i + '">🔀 ' + esc(T("swap", "换")) + '</button>' : '') + '</div>';
       }).join("");
     }
@@ -1522,7 +1568,17 @@
         return;
       }
       var sw = e.target.closest && e.target.closest("[data-dgswap]");
-      if (sw) { stopCd(); var si = +sw.getAttribute("data-dgswap"); var p = pools[si] || []; if (p.length) { var cur = picked[si]; var idx = cur ? p.findIndex(function (c) { return c.actor_id === cur.actor_id; }) : -1; var used = Object.keys(picked).filter(function (k) { return +k !== si; }).map(function (k) { return picked[k] && picked[k].actor_id; }); for (var t = 1; t <= p.length; t++) { var nx = p[(idx + t) % p.length]; if (nx && used.indexOf(nx.actor_id) < 0) { picked[si] = nx; break; } } render(); } return; }
+      if (sw) {   // 换角 → 打开可搜索选角器, 精确挑到想要的演员(替换旧的), 而非盲目随机切换。
+        stopCd();
+        var si = +sw.getAttribute("data-dgswap");
+        var excl = {}; Object.keys(picked).forEach(function (k) { if (+k !== si && picked[k]) excl[picked[k].actor_id] = true; });
+        openActorPicker({
+          title: (slots[si] ? T(slots[si].en, slots[si].zh) + " · " : "") + T("pick an actor", "选演员"),
+          excludeIds: excl,
+          onPick: function (a) { picked[si] = a; render(); },
+        });
+        return;
+      }
     });
     // 改标题 = 导演在干预 → 暂停倒计时(不重渲, 免丢焦点)。
     // 任一干预(标题/风格)→ 立即停倒计时(用户干预最高优先, 系统停下)。

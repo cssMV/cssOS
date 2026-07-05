@@ -177,16 +177,13 @@
       // W1180 — 标题加图标 🎬。
       '<div style="font:700 18px/1.3 -apple-system,system-ui,sans-serif;margin-bottom:6px;display:flex;align-items:center;gap:8px;"><span>🎬</span>' + lc("Watch the latest MV?", "欣赏最新 MV?") + '</div>' +
       '<div style="color:rgba(200,255,232,0.7);font-size:13px;margin-bottom:18px;">' + lc("Auto-play the latest works in the cinema.", "在影院自动连播最新作品。") + '</div>' +
-      // W1183 — 胶囊宪法: 轨道与胶囊共用边框(零间隙), 激活胶囊贴满轨道高度、两头圆, 只两段间留缝。
-      // W1533 胶囊宪法: 宽度不够横滑(不断行)。overflow-x:auto + 子按钮 white-space:nowrap。
-      '<div style="display:flex;align-items:stretch;gap:6px;border-radius:999px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;border:1px solid rgba(0,245,160,0.28);margin-bottom:16px;">' +
-      // 每段 = 小图标 + 标签(图标在前, 居中)。
-      '<button type="button" id="cssos-autoenter-watch" style="flex:1.4;appearance:none;border:none;border-radius:999px;background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;padding:11px 14px;font:700 14px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:15px;">▶</span>' + lc("Watch MV", "欣赏 MV") + '</button>' +
-      // 中间: 数字演员出口(W1532)。
-      '<button type="button" id="cssos-autoenter-actors" style="flex:1.2;appearance:none;border:none;border-radius:999px;background:rgba(0,245,160,0.12);color:#eafff6;padding:11px 10px;font:700 13px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:14px;">🎭</span>' + lc("Digital Actors", "数字演员") + '</button>' +
-      // 数字演员之后加「开拍」导演入口(W1533)。
-      '<button type="button" id="cssos-autoenter-direct" style="flex:1.2;appearance:none;border:none;border-radius:999px;background:rgba(0,245,160,0.12);color:#eafff6;padding:11px 10px;font:700 13px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:14px;">🎬</span>' + lc("Direct", "开拍") + '</button>' +
-      '<button type="button" id="cssos-autoenter-later" style="flex:1;appearance:none;border:none;border-radius:999px;background:transparent;color:#eafff6;padding:11px 14px;font:600 14px/1 inherit;cursor:pointer;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="font-size:14px;opacity:.85;">🕘</span>' + lc("Maybe later", "稍后再说") + '</button>' +
+      // 胶囊宪法 v28: 用 data-pill-bar 让 cssosMakePillBar 自动盖章(凸嵌凹 + 随机色), 别再手写胶囊 CSS。
+      // watch=激活(满凸绿胶囊), 其余凹向激活。每胶囊带图标 + 120px 下限(W497), 宽度不够横滑。
+      '<div data-pill-bar style="grid-auto-columns:minmax(120px,1fr)!important;">' +
+      '<button type="button" id="cssos-autoenter-watch" data-pill-key="watch" class="active"><span style="margin-right:6px;">▶</span><span>' + lc("Watch MV", "欣赏 MV") + '</span></button>' +
+      '<button type="button" id="cssos-autoenter-actors" data-pill-key="actors"><span style="margin-right:5px;">🎭</span><span>' + lc("Digital Actors", "数字演员") + '</span></button>' +
+      '<button type="button" id="cssos-autoenter-direct" data-pill-key="direct"><span style="margin-right:5px;">🎬</span><span>' + lc("Direct", "开拍") + '</span></button>' +
+      '<button type="button" id="cssos-autoenter-later" data-pill-key="later"><span style="margin-right:5px;opacity:.85;">🕘</span><span>' + lc("Maybe later", "稍后再说") + '</span></button>' +
       '</div>' +
       // 底部: 记住复选框
       '<label style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:rgba(200,255,232,0.65);cursor:pointer;">' +

@@ -105,8 +105,9 @@
       "#" + ROOT_ID + " .ag-reply-box textarea{flex:1;background:rgba(4,20,14,.6);border:1px solid rgba(0,245,160,.3);border-radius:12px;color:#e8fff5;padding:8px 10px;font-size:13px;font-family:inherit;resize:vertical;min-height:36px;}" +
       "#" + ROOT_ID + " .ag-reply-send{background:" + GREEN + ";color:" + INK + ";border:0;border-radius:999px;padding:8px 14px;font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap;}" +
       "#" + ROOT_ID + " .ag-slogan{font-size:12.5px;color:#8fe9c8;font-style:italic;margin:3px 0;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}" +
-      "#" + ROOT_ID + " .ag-castmodal{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(2,10,7,.72);backdrop-filter:blur(3px);}" +
-      "#" + ROOT_ID + " .ag-castmodal .box{background:#0a1712;border:1px solid rgba(0,245,160,.35);border-radius:20px;padding:22px;max-width:440px;width:88%;box-shadow:0 20px 60px rgba(0,0,0,.5);}" +
+      // 弹窗太宽→内部胶囊左右滑动; 太高→窗体上下滑动(同一套逻辑)。容器也允许滚动兜底(极矮屏)。
+      "#" + ROOT_ID + " .ag-castmodal{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(2,10,7,.72);backdrop-filter:blur(3px);overflow-y:auto;padding:2vh 0;box-sizing:border-box;}" +
+      "#" + ROOT_ID + " .ag-castmodal .box{background:#0a1712;border:1px solid rgba(0,245,160,.35);border-radius:20px;padding:22px;max-width:440px;width:88%;box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:92vh;overflow-y:auto;overflow-x:hidden;}" +
       "#" + ROOT_ID + " .ag-castmodal h3{font-size:18px;font-weight:800;margin:0 0 4px;color:#e8fff5;}" +
       "#" + ROOT_ID + " .ag-castmodal .sub{font-size:13px;color:#a9e9cf;margin:0 0 16px;}" +
       // ④ P1 选角面板

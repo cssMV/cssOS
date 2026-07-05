@@ -93,6 +93,7 @@ struct ContentView: View {
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
+    @State private var showCreate = false               // W1547 — cssTV 恢复创作入口(先 built 到真机 + 后台验证; 不实际开拍)
     @Namespace private var focusNS
     @Namespace private var sidebarNS   // W1283 — 侧栏独立焦点域(hero 往左 resetFocus 跳回)
 
@@ -178,7 +179,7 @@ struct ContentView: View {
             //   hero 背景图在 .background{} 内单独 ignoresSafeArea 满铺通栏。
 
             // 侧栏浮层(压在 hero 之上)。
-            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, focusNS: focusNS, sidebarNS: sidebarNS)
+            CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, focusNS: focusNS, sidebarNS: sidebarNS)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                 .focusSection()
                 // W1523 — 滚过 hero 后隐藏(不挡下方栏目); 回滚再显。焦点此时在 rails, 藏侧栏不丢焦点。
@@ -198,6 +199,10 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $showSearch) {
             SearchView(allWorks: allWorks) { w in showSearch = false; choose(w, in: allWorks) }
+        }
+        // W1547 — 恢复创作: Siri Remote 🎙 说「CSS, …」→ CreateView → /api/agent/chat。
+        .fullScreenCover(isPresented: $showCreate) {
+            CreateView(auth: auth)
         }
         // W1365 — TV 全免费: 删去付费门 alert(原引导站外 cssstudio.app 购买 = App Store 3.1.1 雷)。
         .task {
@@ -324,6 +329,7 @@ struct CategorySidebar: View {
     @ObservedObject var auth: CSSAuth          // W1249 登录态
     var onLoginTap: () -> Void
     var onSearch: () -> Void                   // W1277 搜索入口
+    var onCreate: () -> Void                   // W1547 — 创作入口(恢复)
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
     var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
     @Environment(\.resetFocus) private var resetFocus   // W1278 — 主动把焦点送到默认目标
@@ -361,6 +367,8 @@ struct CategorySidebar: View {
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
             Spacer().frame(height: 22)
             row(icon: "magnifyingglass", label: "Search", item: .search) { onSearch() }
+            // W1547 — 恢复「Create」创作入口(W1367 曾为纯欣赏移除)。按住 🎙 说「CSS, …」。
+            row(icon: "wand.and.stars", label: "Create", item: .create) { onCreate() }
 
             ForEach(HomeCategory.allCases) { cat in
                 row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
@@ -425,7 +433,7 @@ struct CategorySidebar: View {
 
     // W1275 — 侧栏可聚焦项的视觉顺序(手动导航用)。
     private var orderedItems: [SidebarItem] {
-        var arr: [SidebarItem] = [.avatar, .favorites, .search]
+        var arr: [SidebarItem] = [.avatar, .favorites, .search, .create]
         for cat in HomeCategory.allCases {
             arr.append(.category(cat))
         }

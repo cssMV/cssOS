@@ -126,6 +126,7 @@
       "#" + ROOT_ID + " .ag-cs-cand{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:3px;width:56px;background:transparent;border:1px solid transparent;border-radius:10px;padding:4px;cursor:pointer;color:#cfeee0;}" +
       "#" + ROOT_ID + " .ag-cs-cand>img,#" + ROOT_ID + " .ag-cs-cand .ag-cs-ini{width:44px;height:44px;}" +
       "#" + ROOT_ID + " .ag-cs-cand.on{border-color:" + GREEN + ";background:rgba(0,245,160,.12);}" +
+      "#" + ROOT_ID + " .ag-cs-cand.used{opacity:.32;cursor:not-allowed;filter:grayscale(.6);}" +
       "#" + ROOT_ID + " .ag-cs-cand span{font-size:10px;max-width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}" +
       "#" + ROOT_ID + " .ag-cs-extras{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0;font-size:13px;font-weight:700;color:#bff5e0;}" +
       "#" + ROOT_ID + " .ag-cs-extrabtns{display:flex;gap:0;}" +
@@ -1213,6 +1214,9 @@
     var pools = {};             // slotIdx → 候选数组
     var extrasMode = "auto";    // auto=系统随机群演 | manual
     var civ = seedActor.civilization || "";
+    // 跨槽去重: 同一演员不能占两个角色槽。
+    function usedElsewhere(aid, slotI) { return Object.keys(picked).some(function (k) { return +k !== slotI && picked[k] && picked[k].actor_id === aid; }); }
+    function autoFillSlot(i) { if (picked[i]) return; var p = pools[i] || []; picked[i] = p.find(function (c) { return !usedElsewhere(c.actor_id, i); }) || p[0] || null; }
 
     var modal = document.createElement("div"); modal.className = "ag-castmodal ag-castpanel";
     function slotThumb(a) {
@@ -1230,7 +1234,8 @@
           (i > 0 ? '<button class="ag-cs-swap" data-swap="' + i + '">🔀 ' + esc(T("Swap", "换")) + '</button>' : '') +
         '</div>' +
         (pools[i] && pools[i].length ? '<div class="ag-cs-pool" data-pool="' + i + '">' + pools[i].slice(0, 8).map(function (c, ci) {
-          return '<button class="ag-cs-cand' + (a && c.actor_id === a.actor_id ? ' on' : '') + '" data-pick="' + i + '" data-ci="' + ci + '">' + slotThumb(c) + '<span>' + esc(c.name_en || c.name_zh) + '</span></button>';
+          var dis = usedElsewhere(c.actor_id, i);
+          return '<button class="ag-cs-cand' + (a && c.actor_id === a.actor_id ? ' on' : '') + (dis ? ' used' : '') + '"' + (dis ? ' disabled title="' + esc(T("Already cast in another role", "已在别的角色里")) + '"' : '') + ' data-pick="' + i + '" data-ci="' + ci + '">' + slotThumb(c) + '<span>' + esc(c.name_en || c.name_zh) + '</span></button>';
         }).join("") + '</div>' : "") +
         '</div>';
     }
@@ -1257,14 +1262,16 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           if (j && j.ok && Array.isArray(j.results)) {
-            j.results.forEach(function (res, k) { var i = need[k].i; pools[i] = res.candidates || []; if (!picked[i] && pools[i][0]) picked[i] = pools[i][0]; });
+            j.results.forEach(function (res, k) { pools[need[k].i] = res.candidates || []; });
+            need.forEach(function (n) { autoFillSlot(n.i); });   // 顺序填, 去重
           } else { throw new Error("fallback"); }
           render();
         })
         .catch(function () {
           // 回退: 用已加载演员池(排除主角)按顺序填。
           var fb = (state.actors || []).filter(function (a) { return a.actor_id !== seedActor.actor_id; });
-          need.forEach(function (n, k) { pools[n.i] = fb.slice(k * 8, k * 8 + 8); if (!picked[n.i] && pools[n.i][0]) picked[n.i] = pools[n.i][0]; });
+          need.forEach(function (n, k) { pools[n.i] = fb.slice(k * 8, k * 8 + 8); });
+          need.forEach(function (n) { autoFillSlot(n.i); });   // 顺序填, 去重
           render();
         });
     })();
@@ -1276,7 +1283,7 @@
       var cand = e.target.closest && e.target.closest("button[data-pick]");
       if (cand) { var pi = +cand.getAttribute("data-pick"), ci = +cand.getAttribute("data-ci"); if (pools[pi] && pools[pi][ci]) { picked[pi] = pools[pi][ci]; render(); } return; }
       var sw = e.target.closest && e.target.closest("button[data-swap]");
-      if (sw) { var si = +sw.getAttribute("data-swap"); var p = pools[si] || []; if (p.length) { var cur = picked[si]; var idx = cur ? p.findIndex(function (c) { return c.actor_id === cur.actor_id; }) : -1; picked[si] = p[(idx + 1) % p.length]; render(); } return; }
+      if (sw) { var si = +sw.getAttribute("data-swap"); var p = pools[si] || []; if (p.length) { var cur = picked[si]; var idx = cur ? p.findIndex(function (c) { return c.actor_id === cur.actor_id; }) : -1; for (var t = 1; t <= p.length; t++) { var nx = p[(idx + t) % p.length]; if (nx && !usedElsewhere(nx.actor_id, si)) { picked[si] = nx; break; } } render(); } return; }
       var go = e.target.closest && e.target.closest(".ag-cs-go");
       if (go) {
         // 组装 cast → 记 window.__cssosCast(供 P2 后端整体接收)+ 主角走现有生成流。

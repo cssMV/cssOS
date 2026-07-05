@@ -143,6 +143,7 @@
       "#" + ROOT_ID + " .ag-dg-civ{background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.22);color:#cfeee0;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}" +
       "#" + ROOT_ID + " .ag-dg-civ.on{background:rgba(0,245,160,.85);color:" + INK + ";border-color:transparent;}" +
       "#" + ROOT_ID + " .ag-dg-style{width:100%;box-sizing:border-box;margin:0 0 12px;}" +
+      "#" + ROOT_ID + " .ag-dg-synopsis{width:100%;box-sizing:border-box;margin:0 0 12px;min-height:64px;resize:vertical;font-family:inherit;}" +
       "#" + ROOT_ID + " .ag-dg-title{width:100%;box-sizing:border-box;margin:0 0 12px;}" +
       "#" + ROOT_ID + " .ag-dg-label{font-size:12.5px;font-weight:700;color:#8fdcc0;margin:0 0 8px;}" +
       "#" + ROOT_ID + " .ag-dg-cast{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;}" +
@@ -1364,7 +1365,7 @@
   ];
   function openDirectorGate() {
     var root = document.getElementById(ROOT_ID) || document.body;
-    var fmt = "mv", title = "", civ = "", style = "";
+    var fmt = "mv", title = "", civ = "", style = "", synopsis = "";
     var slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv;
     var picked = {}, pools = {}, cdLeft = DG_CD_DEFAULT, cdTimer = null, started = false;
     var modal = document.createElement("div"); modal.className = "ag-castmodal ag-director";
@@ -1381,7 +1382,7 @@
         var a = picked[i];
         return '<div class="ag-dg-role">' + s.emoji + ' <b>' + esc(T(s.en, s.zh)) + '</b> ' +
           (a ? '<span class="ag-dg-actor">' + (a.cover_image ? '<img src="' + esc(imgProxy(a.cover_image, 80)) + '">' : '') + esc(a.name_en || a.name_zh) + '</span>' : '<i>' + esc(T("casting…", "联动选角中…")) + '</i>') +
-          (a && i > 0 ? ' <button class="ag-dg-swap" data-dgswap="' + i + '">🔀</button>' : '') + '</div>';
+          (a ? ' <button class="ag-dg-swap" data-dgswap="' + i + '">🔀 ' + esc(T("swap", "换")) + '</button>' : '') + '</div>';
       }).join("");
     }
     function render() {
@@ -1391,6 +1392,7 @@
         '<div class="ag-dg-label">🌍 ' + esc(T("Civilization (blank = system)", "文明(默认系统联动)")) + '</div>' +
         '<div class="ag-dg-civs">' + DG_CIVS.map(function (c) { return '<button class="ag-dg-civ' + (c.v === civ ? " on" : "") + '" data-dgciv="' + esc(c.v) + '">' + esc(T(c.en, c.zh)) + '</button>'; }).join("") + '</div>' +
         '<input class="ag-in ag-dg-title" placeholder="' + esc(T("Title — blank = system names it", "标题 —— 留空则系统智能命名")) + '" value="' + esc(title) + '">' +
+        '<textarea class="ag-in ag-dg-synopsis" maxlength="2000" rows="3" placeholder="' + esc(T("Story synopsis (≤2000 chars) — blank = system writes it", "故事梗概(≤2000 字)—— 留空则系统智能生成")) + '">' + esc(synopsis) + '</textarea>' +
         '<input class="ag-in ag-dg-style" placeholder="' + esc(T("Style / vibe — blank = auto", "风格 / 氛围 —— 留空自动")) + '" value="' + esc(style) + '">' +
         '<div class="ag-dg-label">🎭 ' + esc(T("Cast (system-recommended, swap freely)", "阵容(系统荐, 可换)")) + '</div>' +
         '<div class="ag-dg-cast">' + castPreview() + '</div>' +
@@ -1421,7 +1423,7 @@
       var tv = title.trim();
       modal.remove(); try { close(); } catch (_e) {}
       if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast("🎬 " + T("Action!", "开拍!") + " " + T("Starring", "主演") + " " + (proto.name_en || proto.name_zh) + (others.length ? " · " + others.map(function (m) { return T(m.role_label_en || m.role, m.role_label_zh || m.role) + " " + m.name; }).join(" · ") : ""), {});
-      if (typeof startCreation === "function") startCreation(tv, "", { source: "director", workType: fmt, style: (style.trim() || undefined), civilization: (civ || undefined) });
+      if (typeof startCreation === "function") startCreation(tv, "", { source: "director", workType: fmt, style: (style.trim() || undefined), civilization: (civ || undefined), synopsis: (synopsis.trim() || undefined) });
       else castRun(proto, fmt === "mv" ? "single" : fmt);
     }
     modal.addEventListener("click", function (e) {
@@ -1439,6 +1441,7 @@
     // 任一干预(标题/风格)→ 立即停倒计时(用户干预最高优先, 系统停下)。
     modal.addEventListener("input", function (e) {
       if (e.target.closest && e.target.closest(".ag-dg-title")) { title = e.target.value; stopCd(); }
+      else if (e.target.closest && e.target.closest(".ag-dg-synopsis")) { synopsis = e.target.value; stopCd(); }
       else if (e.target.closest && e.target.closest(".ag-dg-style")) { style = e.target.value; stopCd(); }
     });
     render(); root.appendChild(modal);

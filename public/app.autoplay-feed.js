@@ -181,8 +181,9 @@
       // watch=激活(满凸绿胶囊), 其余凹向激活。每胶囊带图标 + 120px 下限(W497), 宽度不够横滑。
       '<div data-pill-bar style="grid-auto-columns:minmax(120px,1fr)!important;">' +
       '<button type="button" id="cssos-autoenter-watch" data-pill-key="watch" class="active"><span style="margin-right:6px;">▶</span><span>' + lc("Watch MV", "欣赏 MV") + '</span></button>' +
-      '<button type="button" id="cssos-autoenter-actors" data-pill-key="actors"><span style="margin-right:5px;">🎭</span><span>' + lc("Digital Actors", "数字演员") + '</span></button>' +
+      // W1546 排序: 欣赏 MV → 导演入口(第二位)→ 数字演员 → 稍后。
       '<button type="button" id="cssos-autoenter-direct" data-pill-key="direct"><span style="margin-right:5px;">🎬</span><span>' + lc("Direct", "开拍") + '</span></button>' +
+      '<button type="button" id="cssos-autoenter-actors" data-pill-key="actors"><span style="margin-right:5px;">🎭</span><span>' + lc("Digital Actors", "数字演员") + '</span></button>' +
       '<button type="button" id="cssos-autoenter-later" data-pill-key="later"><span style="margin-right:5px;opacity:.85;">🕘</span><span>' + lc("Maybe later", "稍后再说") + '</span></button>' +
       '</div>' +
       // 底部: 记住复选框

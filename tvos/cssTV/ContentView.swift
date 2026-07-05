@@ -96,6 +96,8 @@ struct ContentView: View {
     @State private var heroFocusTick = 0                // W1552 — bump → FeaturedHero 把焦点确定性按回 hero
     // W1555 — 焦点驱动的侧栏显隐(确定性, 不靠滚动量): 焦点在下方栏目=藏; 在 hero/侧栏=显。
     @State private var railFocused = false
+    // W1557 — hero↔侧栏【确定性跨越】: bump 即用 @FocusState 直接把焦点钉到对面(硬过 resetFocus 启发式)。
+    @State private var sidebarFocusTick = 0
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
@@ -149,7 +151,7 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, minHeight: 500)
                     } else {
                         if !featured.isEmpty {
-                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, onSelect: { choose($0, in: featured) }, focusTick: heroFocusTick, onHeroFocused: { if railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = false } } })
+                            FeaturedHero(works: featured, focusNS: focusNS, sidebarNS: sidebarNS, onSelect: { choose($0, in: featured) }, focusTick: heroFocusTick, onHeroFocused: { if railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = false } } }, onCrossToSidebar: { sidebarFocusTick += 1 })
                             // W1278 — 默认焦点改由 hero 内第一个胶囊承担(.prefersDefaultFocus 在 capsuleSegment i==0)
                         }
                         VStack(alignment: .leading, spacing: 24) {
@@ -192,7 +194,7 @@ struct ContentView: View {
             //   此刻 hero 是屏上唯一可聚焦项 → 必然独占默认焦点(比 .disabled 硬得多; .disabled 在某些设备
             //   /时序下仍被焦点引擎纳入评估而抢走)。就绪后淡入, 挂载不会移动已在 hero 的焦点。
             if sidebarArmed {
-                CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, onFocused: { if railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = false } } }, focusNS: focusNS, sidebarNS: sidebarNS)
+                CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, onFocused: { if railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = false } } }, focusTick: sidebarFocusTick, onCrossToHero: { heroFocusTick += 1 }, focusNS: focusNS, sidebarNS: sidebarNS)
                     .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                     .focusSection()
                     // W1555 — 焦点在下方栏目 → 藏侧栏(不挡内容); 焦点在 hero/侧栏 → 显。确定性, 不靠滚动量。
@@ -367,6 +369,8 @@ struct CategorySidebar: View {
     var onSearch: () -> Void                   // W1277 搜索入口
     var onCreate: () -> Void                   // W1547 — 创作入口(恢复)
     var onFocused: () -> Void = {}             // W1555 — 侧栏获焦 → 通知宿主(保持侧栏显示)
+    var focusTick: Int = 0                     // W1557 — 宿主 bump → 确定性把焦点钉到侧栏(落 Favorites, 绝不 logo)
+    var onCrossToHero: () -> Void = {}         // W1557 — 侧栏按右 → 请求宿主把焦点钉回 hero
     var focusNS: Namespace.ID                   // W1278 — 右键跳 hero 第一个胶囊用
     var sidebarNS: Namespace.ID                 // W1283 — 本侧栏焦点域(hero 往左跳回的默认目标在此)
     @Environment(\.resetFocus) private var resetFocus   // W1278 — 主动把焦点送到默认目标
@@ -421,6 +425,8 @@ struct CategorySidebar: View {
         .frame(width: expanded ? 360 : 130)   // W1277 — 加宽, 让 Short Drama 等长标签放得下(略压卡片可接受)
         .frame(maxHeight: .infinity)
         // W1245 — Jing: 内容右移对齐 For You 后不再和侧栏打架, 侧栏背景【直接透明】(无底)。
+        // W1557 — 宿主请求跨到侧栏: 确定性把焦点钉到【Favorites】(第一项, 绝不 logo → 不会一按就退)。
+        .onChange(of: focusTick) { _, _ in focus = .favorites }
         .onChange(of: focus) { _, newValue in
             if newValue == .avatar { avatarTick += 1 }   // W1274 — 聚焦头像即重爆一次
             if newValue != nil {
@@ -492,9 +498,9 @@ struct CategorySidebar: View {
         case .right:
             withAnimation(.easeInOut(duration: 0.22)) { expanded = false }
             focus = nil
-            // W1550 — 延一个 runloop 再 resetFocus: 抢在 tvOS 原生焦点引擎【之后】落定, 否则原生同帧的
-            //   右移会把焦点顶回侧栏 → 永远过不到 hero(这正是"点点过不去"的根因)。
-            DispatchQueue.main.async { resetFocus(in: focusNS) }
+            // W1557 — 确定性跨到 hero: 请宿主 bump heroFocusTick → FeaturedHero 用 @FocusState 直接钉 focusedCap=0。
+            //   不再用 resetFocus(启发式, 慢设备被原生顶回来 = "过不去"根因)。
+            onCrossToHero()
         @unknown default: break
         }
     }
@@ -577,6 +583,7 @@ struct FeaturedHero: View {
     var focusTick: Int = 0                            // W1552 — 宿主每 bump 一次 → 用【确定性 @FocusState 赋值】
                                                       //   把焦点强按回本 hero 第一个胶囊(挂载侧栏后调用, 硬过 resetFocus 启发式)
     var onHeroFocused: () -> Void = {}                // W1555 — hero 获焦 → 通知宿主(显示侧栏)
+    var onCrossToSidebar: () -> Void = {}             // W1557 — hero 最左胶囊按左 → 请求宿主把焦点钉到侧栏
 
     @Environment(\.resetFocus) private var resetFocus // W1283 — 往左把焦点送回侧栏
     @State private var index = 0
@@ -672,8 +679,8 @@ struct FeaturedHero: View {
         .fixedSize(horizontal: true, vertical: false)
         // W1527 — hero 最左胶囊(=激活, positionInOrder 0)按左 → 送回侧栏; 其余左/右=胶囊间导航照旧。
         .onMoveCommand { dir in
-            // W1550 — 同理延一个 runloop, 送焦回侧栏稳定落定(与 sidebar→hero 对称)。
-            if dir == .left, focusedCap == index { DispatchQueue.main.async { resetFocus(in: sidebarNS) } }
+            // W1557 — 确定性跨回侧栏: 最左(=激活)胶囊按左 → 请宿主把焦点钉到侧栏 Favorites(与 sidebar→hero 对称)。
+            if dir == .left, focusedCap == index { onCrossToSidebar() }
         }
         // W1523 — 默认焦点落 hero 激活胶囊(非 logo): 深嵌 prefersDefaultFocus 失效 → 用 defaultFocus 钉死。
         .defaultFocus($focusedCap, 0)

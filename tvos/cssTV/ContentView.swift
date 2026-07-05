@@ -90,6 +90,9 @@ struct ContentView: View {
     @State private var showPlayer = false
     // CSSOS_WAVE_1523 — Jing「侧栏滚过 hero 后隐藏」: 追踪滚动偏移, 滚过 hero 就藏侧栏(不挡下方栏目), 回滚再显。
     @State private var sidebarVisible = true
+    // W1550 — 彻底修复进场焦点闪烁: 冷启动头 0.6s 侧栏【不可聚焦】, 让 hero 首帧起就独占默认焦点,
+    //   不再与侧栏 logo 抢焦(抢焦→闪回 logo→用户一按就退出)。0.6s 后再放开侧栏。
+    @State private var sidebarArmed = false
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
@@ -183,6 +186,8 @@ struct ContentView: View {
             CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, focusNS: focusNS, sidebarNS: sidebarNS)
                 .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                 .focusSection()
+                // W1550 — 进场头 0.6s 侧栏不可聚焦(disabled=非焦点)→ hero 独占默认焦点, 消灭抢焦闪烁。
+                .disabled(!sidebarArmed)
                 // W1523 — 滚过 hero 后隐藏(不挡下方栏目); 回滚再显。焦点此时在 rails, 藏侧栏不丢焦点。
                 .opacity(sidebarVisible ? 1 : 0)
                 .allowsHitTesting(sidebarVisible)
@@ -190,7 +195,11 @@ struct ContentView: View {
         .focusScope(focusNS)
         .ignoresSafeArea(.container, edges: .top)   // W1309 — 第四次: 整个界面延到屏顶, 顶部零安全区(hero 真正顶到头)
         .background(Color.clear.ignoresSafeArea())   // W1307 — 透明=苹果系统窗口背景色
-        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }   // W1251 — cssTV 运行时禁屏保
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true   // W1251 — cssTV 运行时禁屏保
+            // W1550 — hero 首帧独占焦点后再放开侧栏(0.6s 扛过冷启动焦点引擎就绪时序)。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { sidebarArmed = true }
+        }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .fullScreenCover(isPresented: $showPlayer) {
             PlayerView(queue: playQueue, startIndex: playStart)
@@ -464,7 +473,9 @@ struct CategorySidebar: View {
         case .right:
             withAnimation(.easeInOut(duration: 0.22)) { expanded = false }
             focus = nil
-            resetFocus(in: focusNS)   // W1278 — 主动把焦点送到 hero 第一个胶囊(光 focus=nil 跳不过去)
+            // W1550 — 延一个 runloop 再 resetFocus: 抢在 tvOS 原生焦点引擎【之后】落定, 否则原生同帧的
+            //   右移会把焦点顶回侧栏 → 永远过不到 hero(这正是"点点过不去"的根因)。
+            DispatchQueue.main.async { resetFocus(in: focusNS) }
         @unknown default: break
         }
     }
@@ -639,7 +650,8 @@ struct FeaturedHero: View {
         .fixedSize(horizontal: true, vertical: false)
         // W1527 — hero 最左胶囊(=激活, positionInOrder 0)按左 → 送回侧栏; 其余左/右=胶囊间导航照旧。
         .onMoveCommand { dir in
-            if dir == .left, focusedCap == index { resetFocus(in: sidebarNS) }
+            // W1550 — 同理延一个 runloop, 送焦回侧栏稳定落定(与 sidebar→hero 对称)。
+            if dir == .left, focusedCap == index { DispatchQueue.main.async { resetFocus(in: sidebarNS) } }
         }
         // W1523 — 默认焦点落 hero 激活胶囊(非 logo): 深嵌 prefersDefaultFocus 失效 → 用 defaultFocus 钉死。
         .defaultFocus($focusedCap, 0)
@@ -876,14 +888,11 @@ struct FeaturedHero: View {
             //   .defaultFocus 在多焦点域(侧栏 + hero)下被 logo 抢; 这里启动一次性强制矫正, didInitFocus 守护只跑一次, 不反复踢。
             if !didInitFocus {
                 didInitFocus = true
-                // W1349 — 真机开机焦点引擎就绪有时序: 单次 async 常被侧栏(leftmost)抢先 → 焦点落侧栏 →
-                //   侧栏一被聚焦就展开标签。多档重试(0/0.25/0.5/0.8s)扛过时序, 把焦点稳稳钉到 hero 第一个胶囊,
-                //   侧栏从而保持收起=只图标。didInitFocus 守护整体只跑一次。
-                for delay in [0.0, 0.25, 0.5, 0.8] {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        focusedCap = 0
-                        resetFocus(in: focusNS)
-                    }
+                // W1550 — 侧栏冷启动头 0.6s 已【不可聚焦】(见 ContentView sidebarArmed), hero 独占默认焦点 →
+                //   不再需要多档重试硬抢(那正是闪烁根源)。单次 async 钉一下 hero 第一个胶囊即可。
+                DispatchQueue.main.async {
+                    focusedCap = 0
+                    resetFocus(in: focusNS)
                 }
             }
         }

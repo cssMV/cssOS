@@ -109,6 +109,27 @@
       "#" + ROOT_ID + " .ag-castmodal .box{background:#0a1712;border:1px solid rgba(0,245,160,.35);border-radius:20px;padding:22px;max-width:440px;width:88%;box-shadow:0 20px 60px rgba(0,0,0,.5);}" +
       "#" + ROOT_ID + " .ag-castmodal h3{font-size:18px;font-weight:800;margin:0 0 4px;color:#e8fff5;}" +
       "#" + ROOT_ID + " .ag-castmodal .sub{font-size:13px;color:#a9e9cf;margin:0 0 16px;}" +
+      // ④ P1 选角面板
+      "#" + ROOT_ID + " .ag-cs-box{max-width:520px;max-height:86vh;overflow:auto;}" +
+      "#" + ROOT_ID + " .ag-cs-slots{display:flex;flex-direction:column;gap:12px;}" +
+      "#" + ROOT_ID + " .ag-cs-slot{border:1px solid rgba(0,245,160,.22);border-radius:14px;padding:10px 12px;background:rgba(0,245,160,.04);}" +
+      "#" + ROOT_ID + " .ag-cs-role{font-size:13px;font-weight:800;color:#bff5e0;margin-bottom:8px;}" +
+      "#" + ROOT_ID + " .ag-cs-lock{font-size:11px;font-weight:600;color:#7fb8a3;margin-left:6px;}" +
+      "#" + ROOT_ID + " .ag-cs-pick{display:flex;align-items:center;gap:10px;}" +
+      "#" + ROOT_ID + " .ag-cs-pick>img,#" + ROOT_ID + " .ag-cs-empty,#" + ROOT_ID + " .ag-cs-ini{width:46px;height:46px;border-radius:10px;object-fit:cover;flex:0 0 auto;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-weight:800;color:#bff5e0;}" +
+      "#" + ROOT_ID + " .ag-cs-info{flex:1 1 auto;min-width:0;}" +
+      "#" + ROOT_ID + " .ag-cs-name{font-size:14px;font-weight:700;color:#e8fff5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}" +
+      "#" + ROOT_ID + " .ag-cs-sub{font-size:11.5px;color:#8fdcc0;}" +
+      "#" + ROOT_ID + " .ag-cs-swap{background:rgba(0,245,160,.1);border:1px solid rgba(0,245,160,.35);color:#bff5e0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;flex:0 0 auto;}" +
+      "#" + ROOT_ID + " .ag-cs-pool{display:flex;gap:6px;overflow-x:auto;margin-top:8px;scrollbar-width:none;}" +
+      "#" + ROOT_ID + " .ag-cs-pool::-webkit-scrollbar{display:none;}" +
+      "#" + ROOT_ID + " .ag-cs-cand{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:3px;width:56px;background:transparent;border:1px solid transparent;border-radius:10px;padding:4px;cursor:pointer;color:#cfeee0;}" +
+      "#" + ROOT_ID + " .ag-cs-cand>img,#" + ROOT_ID + " .ag-cs-cand .ag-cs-ini{width:44px;height:44px;}" +
+      "#" + ROOT_ID + " .ag-cs-cand.on{border-color:" + GREEN + ";background:rgba(0,245,160,.12);}" +
+      "#" + ROOT_ID + " .ag-cs-cand span{font-size:10px;max-width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}" +
+      "#" + ROOT_ID + " .ag-cs-extras{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0;font-size:13px;font-weight:700;color:#bff5e0;}" +
+      "#" + ROOT_ID + " .ag-cs-extrabtns{display:flex;gap:0;}" +
+      "#" + ROOT_ID + " .ag-cs-go{width:100%;margin-top:4px;}" +
       "#" + ROOT_ID + " .ag-wt{display:grid;grid-template-columns:1fr 1fr;gap:10px;}" +
       "#" + ROOT_ID + " .ag-wt button{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:14px;padding:12px 14px;cursor:pointer;font-size:14px;font-weight:700;}" +
       "#" + ROOT_ID + " .ag-wt button:hover:not(:disabled){background:rgba(0,245,160,.16);}" +
@@ -1169,9 +1190,102 @@
       var vmSel = modal.querySelector("button[data-vm].on");
       window.__cssosCastVoiceMode = vmSel ? vmSel.getAttribute("data-vm") : "ai";
       modal.remove();
-      castRun(actor, wt);
+      openCastPanel(actor, wt);
     });
     root.appendChild(modal);
+  }
+
+  // ④ P1 选角面板 —— 选完格式后: 主角预填 + 文明智能联动推荐补齐反派/配角 + 手选/换 + 群演开关 → 生成。
+  // 群演系统随机(可改手动); 推荐端点未部署时优雅回退到 /api/actors。角色槽走随机色 data-pill-bar。
+  var CAST_FORMAT_SLOTS = {
+    mv:       [{ role: "protagonist", alignment: "good",    en: "Lead",    zh: "主角",  emoji: "⭐" }],
+    triptych: [{ role: "protagonist", alignment: "good",    en: "Lead",    zh: "主角",  emoji: "⭐" }, { role: "antagonist", alignment: "evil", en: "Villain", zh: "反派", emoji: "😈" }],
+    opera:    [{ role: "protagonist", alignment: "good",    en: "Lead",    zh: "主角",  emoji: "⭐" }, { role: "antagonist", alignment: "evil", en: "Villain", zh: "反派", emoji: "😈" }, { role: "supporting", alignment: "neutral", en: "Support", zh: "配角", emoji: "🎭" }],
+  };
+  function castFormatKey(wt) { return (wt === "triptych" || wt === "opera") ? wt : "mv"; }
+
+  function openCastPanel(seedActor, workType) {
+    var root = document.getElementById(ROOT_ID); if (!root) { castRun(seedActor, workType); return; }
+    var fmt = castFormatKey(workType);
+    var slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv;
+    var picked = {};            // slotIdx → actor(主角预填)
+    picked[0] = seedActor;
+    var pools = {};             // slotIdx → 候选数组
+    var extrasMode = "auto";    // auto=系统随机群演 | manual
+    var civ = seedActor.civilization || "";
+
+    var modal = document.createElement("div"); modal.className = "ag-castmodal ag-castpanel";
+    function slotThumb(a) {
+      if (!a) return '<div class="ag-cs-empty">…</div>';
+      return (a.cover_image ? '<img src="' + esc(imgProxy(a.cover_image, 120)) + '" alt="">' : '<span class="ag-cs-ini">' + esc(String(a.name_en || "?").charAt(0)) + '</span>');
+    }
+    function slotCard(slot, i) {
+      var a = picked[i];
+      var ml = a ? esc(a.mother_tongue || "") : "";
+      return '<div class="ag-cs-slot" data-slot="' + i + '">' +
+        '<div class="ag-cs-role">' + slot.emoji + ' ' + esc(T(slot.en, slot.zh)) + (i === 0 ? ' <span class="ag-cs-lock">' + esc(T("you", "你选的")) + '</span>' : '') + '</div>' +
+        '<div class="ag-cs-pick">' + slotThumb(a) +
+          '<div class="ag-cs-info"><div class="ag-cs-name">' + (a ? esc(a.name_en || a.name_zh) : esc(T("Recommending…", "推荐中…"))) + '</div>' +
+            '<div class="ag-cs-sub">' + (a ? (esc(a.civilization || "") + (ml ? " · 🌐" + ml : "")) : "") + '</div></div>' +
+          (i > 0 ? '<button class="ag-cs-swap" data-swap="' + i + '">🔀 ' + esc(T("Swap", "换")) + '</button>' : '') +
+        '</div>' +
+        (pools[i] && pools[i].length ? '<div class="ag-cs-pool" data-pool="' + i + '">' + pools[i].slice(0, 8).map(function (c, ci) {
+          return '<button class="ag-cs-cand' + (a && c.actor_id === a.actor_id ? ' on' : '') + '" data-pick="' + i + '" data-ci="' + ci + '">' + slotThumb(c) + '<span>' + esc(c.name_en || c.name_zh) + '</span></button>';
+        }).join("") + '</div>' : "") +
+        '</div>';
+    }
+    function render() {
+      modal.innerHTML = '<div class="box ag-cs-box"><h3>🎬 ' + esc(T("Casting", "选角")) + ' · ' + esc(T(fmt === "mv" ? "Music video" : fmt, fmt)) + '</h3>' +
+        '<div class="sub">' + esc(T("The system suggests a cast by civilization + role. Swap anyone; extras are auto-generated (or set manually).", "系统按文明+戏路联动荐角。任意可换;群演系统随机生成(也可手动)。")) + '</div>' +
+        '<div class="ag-cs-slots">' + slots.map(slotCard).join("") + '</div>' +
+        '<div class="ag-cs-extras"><span>👥 ' + esc(T("Extras", "群演")) + '</span>' +
+          '<div class="ag-cs-extrabtns" data-pill-bar>' +
+            '<button data-ex="auto" class="' + (extrasMode === "auto" ? "active" : "") + '" data-pill-key="auto">🎲 ' + esc(T("Auto", "系统随机")) + '</button>' +
+            '<button data-ex="manual" class="' + (extrasMode === "manual" ? "active" : "") + '" data-pill-key="manual">✋ ' + esc(T("Manual", "手动")) + '</button>' +
+          '</div></div>' +
+        '<button class="ag-cast ag-cs-go">🎬 ' + esc(T("Cast & generate", "定角并生成")) + '</button>' +
+        '</div>';
+    }
+    render();
+    root.appendChild(modal);
+
+    // 拉推荐补齐非主角槽(优雅回退)。
+    (function loadRecs() {
+      var need = slots.map(function (s, i) { return { i: i, role: s.role, alignment: s.alignment }; }).filter(function (x) { return x.i > 0; });
+      if (!need.length) return;
+      fetch("/api/cast/recommend", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ format: fmt, civilization: civ, needed: need.map(function (n) { return { role: n.role, alignment: n.alignment }; }) }) })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (j && j.ok && Array.isArray(j.results)) {
+            j.results.forEach(function (res, k) { var i = need[k].i; pools[i] = res.candidates || []; if (!picked[i] && pools[i][0]) picked[i] = pools[i][0]; });
+          } else { throw new Error("fallback"); }
+          render();
+        })
+        .catch(function () {
+          // 回退: 用已加载演员池(排除主角)按顺序填。
+          var fb = (state.actors || []).filter(function (a) { return a.actor_id !== seedActor.actor_id; });
+          need.forEach(function (n, k) { pools[n.i] = fb.slice(k * 8, k * 8 + 8); if (!picked[n.i] && pools[n.i][0]) picked[n.i] = pools[n.i][0]; });
+          render();
+        });
+    })();
+
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) { modal.remove(); return; }
+      var ex = e.target.closest && e.target.closest("button[data-ex]");
+      if (ex) { extrasMode = ex.getAttribute("data-ex"); render(); return; }
+      var cand = e.target.closest && e.target.closest("button[data-pick]");
+      if (cand) { var pi = +cand.getAttribute("data-pick"), ci = +cand.getAttribute("data-ci"); if (pools[pi] && pools[pi][ci]) { picked[pi] = pools[pi][ci]; render(); } return; }
+      var sw = e.target.closest && e.target.closest("button[data-swap]");
+      if (sw) { var si = +sw.getAttribute("data-swap"); var p = pools[si] || []; if (p.length) { var cur = picked[si]; var idx = cur ? p.findIndex(function (c) { return c.actor_id === cur.actor_id; }) : -1; picked[si] = p[(idx + 1) % p.length]; render(); } return; }
+      var go = e.target.closest && e.target.closest(".ag-cs-go");
+      if (go) {
+        // 组装 cast → 记 window.__cssosCast(供 P2 后端整体接收)+ 主角走现有生成流。
+        var cast = slots.map(function (s, i) { var a = picked[i]; return a ? { actor_id: a.actor_id, role: s.role, alignment: s.alignment, billing_order: i } : null; }).filter(Boolean);
+        window.__cssosCast = { format: fmt, extras_mode: extrasMode, cast: cast };
+        modal.remove();
+        castRun(seedActor, workType);   // 主角领衔进现有 MV 管线; 完整 cast 已备好待 P2 接收
+      }
+    });
   }
 
   /* C 选角注入拦截器: 待选角期间, 给生成/建档调用体注入 actor_id → 后端把演员锁定形象

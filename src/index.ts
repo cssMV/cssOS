@@ -43774,6 +43774,14 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
       const hasLatin = /[A-Za-z]/.test(primaryName);   // 含拉丁字母(如 Nova Sky)→ 英文
       const forced = hasLatin ? "ENGLISH" : "the actor's native East-Asian language (their name is written in CJK)";
       langDirective = ` HARD REQUIREMENT: write ALL three monologues in ${forced}, regardless of what language this brief is written in. The actor's name is "${primaryName}". Since it contains Latin letters, this is an international/Western actor → write in ENGLISH, NOT Chinese.`;
+    } else if (actor.origin_type === "civilization" && actor.civilization) {
+      // CSSOS_WAVE_1527 ② 文明演员母语【确定性】: 直接用 civToLanguageServer(civilization) 定死
+      // BCP47(日本→ja / 波斯→fa / 埃及→ar / 古希腊→el …), 不再只靠 LLM 从身份猜。
+      // 与 MV 歌词母语同源(civToLanguageServer), 文明智能联动全程一致。未命中则回退 LLM 推断。
+      const civLang = civToLanguageServer(actor.civilization);
+      if (civLang) {
+        langDirective = ` HARD REQUIREMENT: this actor is a figure of ${actor.civilization}. Write ALL three monologues in their native heritage tongue — BCP47 "${civLang}" — regardless of what language this brief is written in, and set "lang":"${civLang}".`;
+      }
     }
     const lr = await callLlm({
       messages: [{ role: "system", content: sys + langDirective }, { role: "user", content: persona }],

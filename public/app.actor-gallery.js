@@ -139,6 +139,8 @@
       "#" + ROOT_ID + " .ag-dg-fmts::-webkit-scrollbar{display:none;}" +
       "#" + ROOT_ID + " .ag-dg-fmt{flex:0 0 auto;white-space:nowrap;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.25);color:#d6ffee;border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;margin-right:6px;}" +
       "#" + ROOT_ID + " .ag-dg-fmt.on{background:" + GREEN + ";color:" + INK + ";}" +
+      // 短剧/系列/电影 = 不可用锁态占位(敬请期待)。
+      "#" + ROOT_ID + " .ag-dg-fmt.locked{opacity:.45;cursor:not-allowed;background:rgba(255,255,255,.04);border-style:dashed;border-color:rgba(0,245,160,.2);color:#9fc6b8;}" +
       "#" + ROOT_ID + " .ag-dg-civs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}" +
       "#" + ROOT_ID + " .ag-dg-civ{background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.22);color:#cfeee0;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}" +
       "#" + ROOT_ID + " .ag-dg-civ.on{background:rgba(0,245,160,.85);color:" + INK + ";border-color:transparent;}" +
@@ -158,6 +160,9 @@
       "#" + ROOT_ID + " .ag-dg-go{flex:1;}" +
       "#" + ROOT_ID + " .ag-dg-cd{font-size:12.5px;color:#8fdcc0;white-space:nowrap;}" +
       "#" + ROOT_ID + " .ag-dg-cd b{color:#00f5a0;}" +
+      // 自定义开拍倒计时秒数(可调)。
+      "#" + ROOT_ID + " .ag-dg-cdset-w{display:inline-flex;align-items:center;gap:2px;margin-left:6px;font-size:12px;color:#8fdcc0;}" +
+      "#" + ROOT_ID + " .ag-dg-cdset{width:44px;box-sizing:border-box;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.3);border-radius:7px;color:#d6ffee;padding:2px 4px;font-size:12px;text-align:center;}" +
       "#" + ROOT_ID + " .ag-dg-pause{background:transparent;border:1px solid rgba(0,245,160,.35);border-radius:999px;padding:2px 8px;cursor:pointer;color:#bff5e0;}" +
       "#" + ROOT_ID + " .ag-direct{background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;border:none;border-radius:999px;padding:8px 18px;font-size:14px;font-weight:800;cursor:pointer;margin-left:12px;box-shadow:0 0 18px rgba(0,245,160,.4);white-space:nowrap;}" +
       "#" + ROOT_ID + " .ag-direct:hover{filter:brightness(1.08);}" +
@@ -1356,7 +1361,9 @@
   // ⑤ 傻瓜式【导演入口】(数字演员初心): 选戏路 → 系统文明智能联动自动组好全阵容(+标题留空自动) →
   //   30s 倒计时不干预即自动【开拍】(可暂停/改任意项/立即开拍)→ 直接 startCreation 进 MV 面板边出边播。
   //   导演最少只需两步(选戏路 + 开拍), 或倒计时内零干预 ≈ 一键。全字符串走 T() i18N。
-  var DG_CD_DEFAULT = 30;
+  // 开拍倒计时: 默认 60s, 可自定义(存 localStorage, 5–600s)。零干预到点自动开拍。
+  function dgCdDefault() { var v = parseInt(localStorage.getItem("cssos.dg.countdown"), 10); return (v && v >= 5 && v <= 600) ? v : 60; }
+  function dgCdSet(v) { v = Math.max(5, Math.min(600, parseInt(v, 10) || 60)); try { localStorage.setItem("cssos.dg.countdown", String(v)); } catch (_e) {} return v; }
   // 文明干预项(空=系统联动全自动; 值=库里原生 civilization 字符串, 供 recommend 精确匹配)。
   var DG_CIVS = [
     { en: "System", zh: "系统联动", v: "" }, { en: "Chinese", zh: "中华", v: "中华文明" },
@@ -1365,21 +1372,41 @@
     { en: "Norse", zh: "北欧", v: "北欧神话" }, { en: "Indian", zh: "印度", v: "印度教神话" },
     { en: "Roman", zh: "罗马", v: "古罗马文明" }, { en: "Mesopotamian", zh: "美索", v: "美索不达米亚神话" },
   ];
+  // 文明智能联动: 从标题(用户输入或系统推荐)推断文明 → 联动选角/风格/歌词语言。
+  // 命中即回库里原生 civilization 字符串(供 recommend 精确匹配 + 后端 civToLanguageServer)。
+  var DG_CIV_KEYWORDS = [
+    { v: "日本古典", re: /japan|japanese|samurai|nippon|tokyo|kyoto|shogun|geisha|ninja|日本|武士|忍者|和风|浮世|樱花|京都|江户/i },
+    { v: "中华文明", re: /china|chinese|tang|song dynasty|confucius|beijing|中华|中国|大唐|盛唐|汉|宋|孔子|长安|江湖|武侠|仙侠|古风/i },
+    { v: "古希腊文明", re: /greek|greece|athena|zeus|olymp|sparta|troy|hellen|希腊|雅典|斯巴达|奥林匹斯|特洛伊/i },
+    { v: "古埃及文明", re: /egypt|egyptian|pharaoh|nile|pyramid|cleopatra|埃及|法老|尼罗|金字塔|艳后/i },
+    { v: "波斯文明", re: /persia|persian|iran|zoroaster|shahnameh|波斯|伊朗|萨珊/i },
+    { v: "北欧神话", re: /norse|viking|odin|thor|valhalla|nordic|北欧|维京|奥丁|诸神黄昏/i },
+    { v: "印度教神话", re: /india|indian|hindu|vedic|krishna|mahabharata|印度|吠陀|梵/i },
+    { v: "古罗马文明", re: /roman|rome|caesar|gladiator|latin|colosseum|罗马|凯撒|角斗|拉丁/i },
+    { v: "美索不达米亚神话", re: /mesopotam|babylon|sumer|assyria|gilgamesh|ishtar|美索|巴比伦|苏美尔|亚述/i },
+  ];
+  function dgInferCiv(text) {
+    var s = String(text || ""); if (!s.trim()) return "";
+    for (var i = 0; i < DG_CIV_KEYWORDS.length; i++) { if (DG_CIV_KEYWORDS[i].re.test(s)) return DG_CIV_KEYWORDS[i].v; }
+    return "";
+  }
   function openDirectorGate() {
     // 从闸/Dock 打开时图鉴可能没开 → 先开(否则 #ROOT_ID 作用域样式失效)。
     var root = document.getElementById(ROOT_ID);
     if (!root && typeof open === "function") { try { open(1); } catch (_o) {} }
     root = document.getElementById(ROOT_ID) || document.body;
-    var fmt = "mv", title = "", civ = "", style = "", synopsis = "";
+    var fmt = "mv", title = "", civ = "", style = "", synopsis = "", civManual = false;
     var slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv;
-    var picked = {}, pools = {}, cdLeft = DG_CD_DEFAULT, cdTimer = null, started = false;
+    var picked = {}, pools = {}, cdLeft = dgCdDefault(), cdTimer = null, started = false;
     var modal = document.createElement("div"); modal.className = "ag-castmodal ag-director";
     function stopCd() { if (cdTimer) { clearInterval(cdTimer); cdTimer = null; var p = modal.querySelector(".ag-dg-pause"); if (p) p.textContent = "▶"; } }
     function startCd() { stopCd(); var p = modal.querySelector(".ag-dg-pause"); if (p) p.textContent = "⏸"; cdTimer = setInterval(function () { cdLeft -= 1; if (cdLeft <= 0) { action(); return; } var b = modal.querySelector(".ag-dg-cd b"); if (b) b.textContent = cdLeft + "s"; }, 1000); }
     function fmtPills() {
-      return CAST_WORK_TYPES.filter(function (w) { return w.ready; }).map(function (w) {
-        var on = (w.key === fmt || (fmt === "mv" && w.key === "single"));
-        return '<button class="ag-dg-fmt' + (on ? " on" : "") + '" data-fmt="' + w.key + '">' + w.emoji + ' ' + esc(T(w.en, w.zh)) + '</button>';
+      // 全部戏路都显示: 可用(单曲/三部曲/歌剧)可选; 短剧/系列/电影为【不可用】锁态占位(敬请期待)。
+      return CAST_WORK_TYPES.map(function (w) {
+        var on = w.ready && (w.key === fmt || (fmt === "mv" && w.key === "single"));
+        var lock = w.ready ? "" : " locked";
+        return '<button class="ag-dg-fmt' + (on ? " on" : "") + lock + '" data-fmt="' + w.key + '"' + (w.ready ? "" : ' disabled title="' + esc(T("Auto-scripted · coming soon", "自动编剧 · 敬请期待")) + '"') + '>' + (w.ready ? "" : "🔒 ") + w.emoji + ' ' + esc(T(w.en, w.zh)) + '</button>';
       }).join("");
     }
     function castPreview() {
@@ -1402,7 +1429,8 @@
         '<div class="ag-dg-label">🎭 ' + esc(T("Cast (system-recommended, swap freely)", "阵容(系统荐, 可换)")) + '</div>' +
         '<div class="ag-dg-cast">' + castPreview() + '</div>' +
         '<div class="ag-dg-row"><button class="ag-cast ag-dg-go">🎬 ' + esc(T("Action!", "开拍!")) + '</button>' +
-          '<span class="ag-dg-cd">' + (cdTimer ? esc(T("auto in", "自动开拍")) + ' <b>' + cdLeft + 's</b>' : esc(T("paused · your call", "已停 · 你定"))) + ' <button class="ag-dg-pause">' + (cdTimer ? "⏸" : "▶") + '</button></span></div></div>';
+          '<span class="ag-dg-cd">' + (cdTimer ? esc(T("auto in", "自动开拍")) + ' <b>' + cdLeft + 's</b>' : esc(T("paused · your call", "已停 · 你定"))) + ' <button class="ag-dg-pause">' + (cdTimer ? "⏸" : "▶") + '</button>' +
+            ' <label class="ag-dg-cdset-w" title="' + esc(T("Auto-Action countdown seconds", "开拍倒计时秒数")) + '">⏱<input class="ag-dg-cdset" type="number" min="5" max="600" step="5" value="' + dgCdDefault() + '">s</label></span></div></div>';
     }
     function autoPick() {
       slots.forEach(function (s, i) {
@@ -1420,10 +1448,15 @@
     }
     function action() {
       if (started) return; var proto = picked[0]; if (!proto) return; started = true; stopCd();
+      if (!civManual && !civ) { var _g = dgInferCiv(title + " " + synopsis); if (_g) civ = _g; }   // 兜底: 开拍前按标题/梗概联动文明
       var cast = slots.map(function (s, i) { var a = picked[i]; return a ? { actor_id: a.actor_id, role: s.role, alignment: s.alignment, billing_order: i, name: (a.name_en || a.name_zh), role_label_en: s.en, role_label_zh: s.zh } : null; }).filter(Boolean);
       window.__cssosCast = { format: fmt, extras_mode: "auto", cast: cast };
       window.__cssosCastActorId = proto.actor_id; window.__cssosCastActorName = proto.name_en || proto.name_zh;
       window.__cssosCastRole = "protagonist"; window.__cssosCastAlign = "good";
+      // W1537 — 故事梗概驱动剧情 + 文明/风格联动: 存全局, 由选角拦截器注入 /api/mv/* + /api/works。
+      window.__cssosDirectorSynopsis = synopsis.trim() || null;
+      window.__cssosDirectorCiv = civ || null;
+      window.__cssosDirectorStyle = style.trim() || null;
       var others = cast.filter(function (m) { return m.actor_id !== proto.actor_id; });
       var tv = title.trim();
       modal.remove(); try { close(); } catch (_e) {}
@@ -1434,9 +1467,9 @@
     modal.addEventListener("click", function (e) {
       if (e.target === modal) { stopCd(); modal.remove(); return; }
       var f = e.target.closest && e.target.closest("[data-fmt]");
-      if (f) { var k = f.getAttribute("data-fmt"); fmt = (k === "single") ? "mv" : k; slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv; cdLeft = DG_CD_DEFAULT; loadCast(); startCd(); return; }
+      if (f) { if (f.disabled || f.classList.contains("locked")) return; var k = f.getAttribute("data-fmt"); fmt = (k === "single") ? "mv" : k; slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv; cdLeft = dgCdDefault(); loadCast(); startCd(); return; }
       var cv = e.target.closest && e.target.closest("[data-dgciv]");
-      if (cv) { civ = cv.getAttribute("data-dgciv"); stopCd(); loadCast(); return; }   // 干预文明 → 停倒计时 + 按文明重荐角
+      if (cv) { civ = cv.getAttribute("data-dgciv"); civManual = (civ !== ""); stopCd(); loadCast(); return; }   // 干预文明 → 停倒计时 + 按文明重荐角; 选「系统联动」= 交回系统(可由标题联动)
       if (e.target.closest && e.target.closest(".ag-dg-go")) { action(); return; }
       if (e.target.closest && e.target.closest(".ag-dg-pause")) { if (cdTimer) stopCd(); else startCd(); return; }
       var sw = e.target.closest && e.target.closest("[data-dgswap]");
@@ -1448,6 +1481,18 @@
       if (e.target.closest && e.target.closest(".ag-dg-title")) { title = e.target.value; stopCd(); }
       else if (e.target.closest && e.target.closest(".ag-dg-synopsis")) { synopsis = e.target.value; stopCd(); }
       else if (e.target.closest && e.target.closest(".ag-dg-style")) { style = e.target.value; stopCd(); }
+    });
+    // change(失焦/回车): 标题定稿 → 文明智能联动(未手选文明时按标题推断文明 → 重荐角);
+    //   自定义倒计时秒数 → 持久化 + 刷新剩余秒。不在 input 每键触发, 免打字丢焦点。
+    modal.addEventListener("change", function (e) {
+      if (e.target.closest && e.target.closest(".ag-dg-cdset")) {
+        var nv = dgCdSet(e.target.value); cdLeft = nv; e.target.value = nv;
+        var b = modal.querySelector(".ag-dg-cd b"); if (b) b.textContent = cdLeft + "s"; return;
+      }
+      if (e.target.closest && e.target.closest(".ag-dg-title")) {
+        title = e.target.value;
+        if (!civManual) { var g = dgInferCiv(title); if (g && g !== civ) { civ = g; loadCast(); } }   // 标题联动文明(仅未手选时)
+      }
     });
     render(); root.appendChild(modal);
     loadCast(); startCd();
@@ -1474,6 +1519,10 @@
             if (b && typeof b === "object" && !Array.isArray(b)) {
               if (!b.actor_id) b.actor_id = aid;
               if (isCreate) { b.__actorId = aid; if (window.__cssosCastRole) b.__actorRole = window.__cssosCastRole; if (window.__cssosCastAlign) b.__actorAlignment = window.__cssosCastAlign; }
+              // W1537 导演入口: 故事梗概【决定剧情】+ 文明/风格智能联动 → 注入生成体(不覆盖已有值)。
+              if (window.__cssosDirectorSynopsis && !b.synopsis) b.synopsis = window.__cssosDirectorSynopsis;
+              if (window.__cssosDirectorCiv && !b.civilization && !b.civ) b.civilization = window.__cssosDirectorCiv;
+              if (window.__cssosDirectorStyle && !b.style) b.style = window.__cssosDirectorStyle;
               // ④ P2/P3(W1536) — 把整份多角色 cast 一并注入: 建档→记录+计费; cover/video→同框多人锁脸。
               if (window.__cssosCast && Array.isArray(window.__cssosCast.cast) && window.__cssosCast.cast.length && !b.cast) { b.cast = window.__cssosCast.cast; }
               init = Object.assign({}, init, { body: JSON.stringify(b) });
@@ -1482,7 +1531,7 @@
                 var p = orig.call(this, input, init);
                 var castName = window.__cssosCastActorName;
                 return p.then(function (res) {
-                  try { window.__cssosCastActorId = null; } catch (_e) {}
+                  try { window.__cssosCastActorId = null; window.__cssosDirectorSynopsis = null; window.__cssosDirectorCiv = null; window.__cssosDirectorStyle = null; } catch (_e) {}
                   try {
                     res.clone().json().then(function (j) {
                       var wid = j && (j.work_id || j.id || (j.work && j.work.id) || (j.data && j.data.work_id));

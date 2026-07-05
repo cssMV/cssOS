@@ -5213,7 +5213,7 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
   ].filter(s => s !== null && s !== undefined).join("\n");
 }
 
-function buildJingdianUserPrompt(language: string, style: string, prompt: string, workType: string = "single", sectionForm: string = "", civilization: string = ""): string {
+function buildJingdianUserPrompt(language: string, style: string, prompt: string, workType: string = "single", sectionForm: string = "", civilization: string = "", synopsis: string = ""): string {
   const langName = languageNameFromCode(language);
   const dialectNote = civToLangDialectNote(civilization);
   const effectiveLangName = dialectNote ? dialectNote.langDisplay : langName;
@@ -5235,6 +5235,10 @@ function buildJingdianUserPrompt(language: string, style: string, prompt: string
     `Body language: ${effectiveLangName} (language code "${language}"). Add 1 ancestral/ritual line per section where applicable.`,
     style ? `Musical style: ${style}.` : "",
     civStyleHint,
+    // CSSOS_WAVE_1537 — 导演入口「故事梗概」是剧情预览: 有梗概时它【决定剧情】,
+    // 歌词必须严格沿着这条故事线展开(而非只从标题/风格泛泛发挥)。留空时不注入 → 由模型
+    // 依标题+文明自主编剧(即"系统算法推荐剧情"), 与旧行为一致。
+    synopsis ? `STORY SYNOPSIS (this DRIVES the plot — the lyrics MUST follow this storyline beat by beat, not drift from it): ${synopsis}` : "",
     `Subject / scene: ${prompt || "an evocative scene"}.`,
     sectionForm ? `User-specified section form (override default): ${sectionForm}` : "",
     ``,
@@ -13561,6 +13565,8 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   // template.
   const workType = String((body as any).work_type || (body as any).workType || "single").trim().toLowerCase();
   const sectionForm = String((body as any).section_form || (body as any).sectionForm || "").trim();
+  // CSSOS_WAVE_1537 — 导演入口「故事梗概」→ 驱动剧情(≤2000 字)。留空 = 模型自主编剧(系统算法推荐)。
+  const synopsis = String((body as any).synopsis || (body as any).story || "").trim().slice(0, 2000);
 
   // CSSOS_PHASE2_LYRICS_TIER_FIRST 20260507 — Jing
   // Mirror /api/mv/cover: free → cheap → standard first via callLlm
@@ -13603,7 +13609,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
       const tier = await callLlm({
         messages: [
           { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang) },
-          { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang) },
+          { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang, synopsis) },
         ],
         // W360b — raised from 2600 → 3600: a full 10-section 京典 lyric in
         // Japanese / Korean / Arabic can use more tokens than English.
@@ -13689,7 +13695,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
     llm = await callLlm({
       messages: [
         { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang) },
-        { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang) },
+        { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang, synopsis) },
       ],
       max_tokens: 2600,
       temperature: 0.7,

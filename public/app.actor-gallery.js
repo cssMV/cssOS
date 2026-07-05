@@ -133,6 +133,27 @@
       "#" + ROOT_ID + " .ag-cs-extrabtns{display:flex;gap:0;}" +
       "#" + ROOT_ID + " .ag-cs-cost{text-align:center;font-size:13px;font-weight:700;color:#bff5e0;margin:10px 0 6px;}" +
       "#" + ROOT_ID + " .ag-cs-go{width:100%;margin-top:4px;}" +
+      // ⑤ 导演入口
+      "#" + ROOT_ID + " .ag-director .ag-dg-box{max-width:540px;max-height:88vh;overflow:auto;}" +
+      "#" + ROOT_ID + " .ag-dg-fmts{display:flex;gap:0;overflow-x:auto;scrollbar-width:none;margin:4px 0 14px;}" +
+      "#" + ROOT_ID + " .ag-dg-fmts::-webkit-scrollbar{display:none;}" +
+      "#" + ROOT_ID + " .ag-dg-fmt{flex:0 0 auto;white-space:nowrap;background:rgba(0,245,160,.08);border:1px solid rgba(0,245,160,.25);color:#d6ffee;border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;margin-right:6px;}" +
+      "#" + ROOT_ID + " .ag-dg-fmt.on{background:" + GREEN + ";color:" + INK + ";}" +
+      "#" + ROOT_ID + " .ag-dg-title{width:100%;box-sizing:border-box;margin:0 0 12px;}" +
+      "#" + ROOT_ID + " .ag-dg-label{font-size:12.5px;font-weight:700;color:#8fdcc0;margin:0 0 8px;}" +
+      "#" + ROOT_ID + " .ag-dg-cast{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;}" +
+      "#" + ROOT_ID + " .ag-dg-role{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#e8fff5;}" +
+      "#" + ROOT_ID + " .ag-dg-role b{color:#bff5e0;min-width:52px;}" +
+      "#" + ROOT_ID + " .ag-dg-actor{display:inline-flex;align-items:center;gap:6px;font-weight:700;}" +
+      "#" + ROOT_ID + " .ag-dg-actor img{width:30px;height:30px;border-radius:7px;object-fit:cover;}" +
+      "#" + ROOT_ID + " .ag-dg-swap{background:rgba(0,245,160,.1);border:1px solid rgba(0,245,160,.3);border-radius:999px;padding:2px 8px;font-size:11px;cursor:pointer;color:#bff5e0;}" +
+      "#" + ROOT_ID + " .ag-dg-row{display:flex;align-items:center;gap:12px;}" +
+      "#" + ROOT_ID + " .ag-dg-go{flex:1;}" +
+      "#" + ROOT_ID + " .ag-dg-cd{font-size:12.5px;color:#8fdcc0;white-space:nowrap;}" +
+      "#" + ROOT_ID + " .ag-dg-cd b{color:#00f5a0;}" +
+      "#" + ROOT_ID + " .ag-dg-pause{background:transparent;border:1px solid rgba(0,245,160,.35);border-radius:999px;padding:2px 8px;cursor:pointer;color:#bff5e0;}" +
+      "#" + ROOT_ID + " .ag-direct{background:linear-gradient(120deg,#00f5a0,#0bf7ff);color:#012;border:none;border-radius:999px;padding:8px 18px;font-size:14px;font-weight:800;cursor:pointer;margin-left:12px;box-shadow:0 0 18px rgba(0,245,160,.4);white-space:nowrap;}" +
+      "#" + ROOT_ID + " .ag-direct:hover{filter:brightness(1.08);}" +
       "#" + ROOT_ID + " .ag-wt{display:grid;grid-template-columns:1fr 1fr;gap:10px;}" +
       "#" + ROOT_ID + " .ag-wt button{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.3);color:#e8fff5;border-radius:14px;padding:12px 14px;cursor:pointer;font-size:14px;font-weight:700;}" +
       "#" + ROOT_ID + " .ag-wt button:hover:not(:disabled){background:rgba(0,245,160,.16);}" +
@@ -1325,6 +1346,85 @@
     });
   }
 
+  // ⑤ 傻瓜式【导演入口】(数字演员初心): 选戏路 → 系统文明智能联动自动组好全阵容(+标题留空自动) →
+  //   30s 倒计时不干预即自动【开拍】(可暂停/改任意项/立即开拍)→ 直接 startCreation 进 MV 面板边出边播。
+  //   导演最少只需两步(选戏路 + 开拍), 或倒计时内零干预 ≈ 一键。全字符串走 T() i18N。
+  var DG_CD_DEFAULT = 30;
+  function openDirectorGate() {
+    var root = document.getElementById(ROOT_ID) || document.body;
+    var fmt = "mv", title = "", civ = "";
+    var slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv;
+    var picked = {}, pools = {}, cdLeft = DG_CD_DEFAULT, cdTimer = null, started = false;
+    var modal = document.createElement("div"); modal.className = "ag-castmodal ag-director";
+    function stopCd() { if (cdTimer) { clearInterval(cdTimer); cdTimer = null; var p = modal.querySelector(".ag-dg-pause"); if (p) p.textContent = "▶"; } }
+    function startCd() { stopCd(); var p = modal.querySelector(".ag-dg-pause"); if (p) p.textContent = "⏸"; cdTimer = setInterval(function () { cdLeft -= 1; if (cdLeft <= 0) { action(); return; } var b = modal.querySelector(".ag-dg-cd b"); if (b) b.textContent = cdLeft + "s"; }, 1000); }
+    function fmtPills() {
+      return CAST_WORK_TYPES.filter(function (w) { return w.ready; }).map(function (w) {
+        var on = (w.key === fmt || (fmt === "mv" && w.key === "single"));
+        return '<button class="ag-dg-fmt' + (on ? " on" : "") + '" data-fmt="' + w.key + '">' + w.emoji + ' ' + esc(T(w.en, w.zh)) + '</button>';
+      }).join("");
+    }
+    function castPreview() {
+      return slots.map(function (s, i) {
+        var a = picked[i];
+        return '<div class="ag-dg-role">' + s.emoji + ' <b>' + esc(T(s.en, s.zh)) + '</b> ' +
+          (a ? '<span class="ag-dg-actor">' + (a.cover_image ? '<img src="' + esc(imgProxy(a.cover_image, 80)) + '">' : '') + esc(a.name_en || a.name_zh) + '</span>' : '<i>' + esc(T("casting…", "联动选角中…")) + '</i>') +
+          (a && i > 0 ? ' <button class="ag-dg-swap" data-dgswap="' + i + '">🔀</button>' : '') + '</div>';
+      }).join("");
+    }
+    function render() {
+      modal.innerHTML = '<div class="box ag-dg-box"><h3>🎬 ' + esc(T("Direct a work", "开拍")) + '</h3>' +
+        '<div class="sub">' + esc(T("Pick a format — the system casts the actors and writes the rest. Change anything, or just let it roll.", "选个戏路 —— 系统自动选角、补齐其余(文明·风格·歌词)。可改任意项, 或直接让它开拍。")) + '</div>' +
+        '<div class="ag-dg-fmts" data-pill-bar>' + fmtPills() + '</div>' +
+        '<input class="ag-in ag-dg-title" placeholder="' + esc(T("Title — blank = system names it", "标题 —— 留空则系统智能命名")) + '" value="' + esc(title) + '">' +
+        '<div class="ag-dg-label">🎭 ' + esc(T("Cast (system-recommended, swap freely)", "阵容(系统荐, 可换)")) + '</div>' +
+        '<div class="ag-dg-cast">' + castPreview() + '</div>' +
+        '<div class="ag-dg-row"><button class="ag-cast ag-dg-go">🎬 ' + esc(T("Action!", "开拍!")) + '</button>' +
+          '<span class="ag-dg-cd">' + esc(T("auto in", "自动开拍")) + ' <b>' + cdLeft + 's</b> <button class="ag-dg-pause">⏸</button></span></div></div>';
+    }
+    function autoPick() {
+      slots.forEach(function (s, i) {
+        var used = Object.keys(picked).filter(function (k) { return +k !== i; }).map(function (k) { return picked[k] && picked[k].actor_id; });
+        picked[i] = (pools[i] || []).find(function (c) { return used.indexOf(c.actor_id) < 0; }) || (pools[i] || [])[0] || null;
+      });
+      render();
+    }
+    function loadCast() {
+      picked = {}; pools = {}; render();
+      fetch("/api/cast/recommend", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ format: fmt, civilization: civ }) })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { if (j && j.ok && Array.isArray(j.results)) { j.results.forEach(function (res, i) { pools[i] = res.candidates || []; }); autoPick(); } else { throw new Error("fb"); } })
+        .catch(function () { var fb = (state.actors || []); slots.forEach(function (s, i) { pools[i] = fb.slice(i * 6, i * 6 + 6); }); autoPick(); });
+    }
+    function action() {
+      if (started) return; var proto = picked[0]; if (!proto) return; started = true; stopCd();
+      var cast = slots.map(function (s, i) { var a = picked[i]; return a ? { actor_id: a.actor_id, role: s.role, alignment: s.alignment, billing_order: i, name: (a.name_en || a.name_zh), role_label_en: s.en, role_label_zh: s.zh } : null; }).filter(Boolean);
+      window.__cssosCast = { format: fmt, extras_mode: "auto", cast: cast };
+      window.__cssosCastActorId = proto.actor_id; window.__cssosCastActorName = proto.name_en || proto.name_zh;
+      window.__cssosCastRole = "protagonist"; window.__cssosCastAlign = "good";
+      var others = cast.filter(function (m) { return m.actor_id !== proto.actor_id; });
+      var tv = title.trim();
+      modal.remove(); try { close(); } catch (_e) {}
+      if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast("🎬 " + T("Action!", "开拍!") + " " + T("Starring", "主演") + " " + (proto.name_en || proto.name_zh) + (others.length ? " · " + others.map(function (m) { return T(m.role_label_en || m.role, m.role_label_zh || m.role) + " " + m.name; }).join(" · ") : ""), {});
+      if (typeof startCreation === "function") startCreation(tv, "", { source: "director" });
+      else castRun(proto, fmt === "mv" ? "single" : fmt);
+    }
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) { stopCd(); modal.remove(); return; }
+      var f = e.target.closest && e.target.closest("[data-fmt]");
+      if (f) { var k = f.getAttribute("data-fmt"); fmt = (k === "single") ? "mv" : k; slots = CAST_FORMAT_SLOTS[fmt] || CAST_FORMAT_SLOTS.mv; cdLeft = DG_CD_DEFAULT; loadCast(); startCd(); return; }
+      if (e.target.closest && e.target.closest(".ag-dg-go")) { action(); return; }
+      if (e.target.closest && e.target.closest(".ag-dg-pause")) { if (cdTimer) stopCd(); else startCd(); return; }
+      var sw = e.target.closest && e.target.closest("[data-dgswap]");
+      if (sw) { stopCd(); var si = +sw.getAttribute("data-dgswap"); var p = pools[si] || []; if (p.length) { var cur = picked[si]; var idx = cur ? p.findIndex(function (c) { return c.actor_id === cur.actor_id; }) : -1; var used = Object.keys(picked).filter(function (k) { return +k !== si; }).map(function (k) { return picked[k] && picked[k].actor_id; }); for (var t = 1; t <= p.length; t++) { var nx = p[(idx + t) % p.length]; if (nx && used.indexOf(nx.actor_id) < 0) { picked[si] = nx; break; } } render(); } return; }
+    });
+    // 改标题 = 导演在干预 → 暂停倒计时(不重渲, 免丢焦点)。
+    modal.addEventListener("input", function (e) { if (e.target.closest && e.target.closest(".ag-dg-title")) { title = e.target.value; stopCd(); } });
+    render(); root.appendChild(modal);
+    loadCast(); startCd();
+  }
+  window.cssosOpenDirectorGate = openDirectorGate;
+
   /* C 选角注入拦截器: 待选角期间, 给生成/建档调用体注入 actor_id → 后端把演员锁定形象
    * 注入封面/视频 + 记 actor_castings。work 建档成功后清掉待选角(避免泄漏到无关创作)。 */
   (function installCastInterceptor() {
@@ -1760,6 +1860,7 @@
     el.innerHTML =
       '<div class="ag-bar">' +
         '<div class="ag-title">🎭 <b>' + esc(T("Digital Actors", "数字演员")) + '</b></div>' +
+        '<button class="ag-direct" onclick="cssosOpenDirectorGate()" title="' + esc(T("Pick a format — system casts & rolls", "选戏路 —— 系统选角自动开拍")) + '">🎬 ' + esc(T("Direct", "开拍")) + '</button>' +
         '<div class="ag-spacer"></div>' +
         '<div class="ag-topcap">' +   // 三段单选(成为演员/创建/搜索)走平台 cssosMakePillBar
           '<button class="ag-signup" data-pill-key="signup">🙋 ' + esc(T("Become an actor", "成为真人演员")) + '</button>' +

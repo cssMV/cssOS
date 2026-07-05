@@ -1315,6 +1315,8 @@
             if (b && typeof b === "object" && !Array.isArray(b)) {
               if (!b.actor_id) b.actor_id = aid;
               if (isCreate) { b.__actorId = aid; }
+              // ④ P2 — 建档时把整份多角色 cast 一并注入, 后端按 role/alignment/billing 记录+计费。
+              if (isCreate && window.__cssosCast && Array.isArray(window.__cssosCast.cast) && window.__cssosCast.cast.length) { b.cast = window.__cssosCast.cast; }
               init = Object.assign({}, init, { body: JSON.stringify(b) });
               if (isCreate) {
                 // 建档完成即视为选角落定, 清待选角; 同时记下 {workId, actorName} 供作品出炉后弹分享(第2落点)。

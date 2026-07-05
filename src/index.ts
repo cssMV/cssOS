@@ -45198,6 +45198,46 @@ app.post("/api/works", async (req, res) => {
             console.warn("[works-create] actor casting link failed (non-fatal):", (castErr as Error)?.message || castErr);
           }
         }
+        // CSSOS_WAVE_1530 P2 — 多角色 cast: 主角已由上面 castActorId 块记录(role 默认 protagonist);
+        // 这里处理其余成员(反派/配角), 各自 role/alignment/billing + 计费/版税(镜像主角逻辑), 去重。
+        // 主角块 100% 不动 → 现有单演员计费零回归风险。
+        const _extraCast = Array.isArray((req.body as any)?.cast) ? (req.body as any).cast : [];
+        if (_extraCast.length) {
+          const _seen = new Set([castActorId].filter(Boolean));
+          const _ROLES = ["protagonist", "antagonist", "supporting", "extra"];
+          for (const _m of _extraCast) {
+            const _aid = String(_m?.actor_id || "").trim();
+            if (!_aid || _seen.has(_aid)) continue;
+            _seen.add(_aid);
+            try {
+              const _ap = await client.query<{ cast_price_cents: number; is_premium: boolean; owner_user_id: string | null; creator_royalty: number }>(
+                `SELECT cast_price_cents, is_premium, owner_user_id::text AS owner_user_id, creator_royalty FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [_aid]);
+              const _row = _ap.rows[0]; if (!_row) continue;
+              const _ownerId = String(_row.owner_user_id || "");
+              const _align = String(_m?.alignment || "neutral").toLowerCase();
+              const _alignN = _align === "evil" ? "evil" : (_align === "good" ? "good" : "neutral");
+              const _role = _ROLES.indexOf(String(_m?.role || "")) >= 0 ? String(_m.role) : "supporting";
+              let _price = (_row.is_premium && _ownerId !== String(user.id)) ? Number(_row.cast_price_cents || 0) : 0;
+              if (_price > 0 && _alignN === "evil") _price = Math.round(_price * 1.3);   // 反派 +30%
+              const _official = isCssosAdminEmail(user.email);
+              let _charged = 0, _unpaid = false;
+              if (_price > 0) {
+                const _d = await debitCredits(user.id, _price, "actor_cast:" + _aid, { work_id: workId, actor_id: _aid }, _official ? { forceCharge: true } : undefined);
+                if (_d.ok) _charged = _price;
+                else if (_official) { _charged = _price; _unpaid = true; }
+              }
+              if (_charged > 0 && _ownerId && _ownerId !== String(user.id)) {
+                const _roy = Math.floor(_charged * Math.max(0, Math.min(1, Number(_row.creator_royalty || 0))));
+                if (_roy > 0) { try { await creditUserBalance(_ownerId, _roy, "actor_royalty:" + _aid, { work_id: workId, actor_id: _aid, from_user: user.id, gross_cents: _charged, platform_covered: _unpaid }); } catch (_re) { /* 版税尽力 */ } }
+              }
+              await client.query(
+                `INSERT INTO actor_castings (actor_id, work_id, created_by_user_id, role, alignment, billing_order, cast_price_cents)
+                 VALUES ($1,$2::uuid,$3::uuid,$4,$5,$6,$7)`,
+                [_aid, workId, user.id, _role, _alignN, Number(_m?.billing_order || 0) || 0, _charged]);
+              await client.query(`UPDATE digital_actors SET cast_count=cast_count+1, popularity_score=popularity_score+1, updated_at=now() WHERE actor_id=$1`, [_aid]);
+            } catch (_castErr) { console.warn("[works-create] extra cast member failed (non-fatal):", (_castErr as Error)?.message || _castErr); }
+          }
+        }
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK");

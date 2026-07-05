@@ -4513,24 +4513,33 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   const isPortraitCover = fallbackSize === PHONE_FULLSCREEN.size;
   // 源头人脸感知构图: 把电影/竖屏 framing 附到 prompt, 引擎构图时就把人脸摆进合规画幅。
   const composedFraming = isPortraitCover ? PHONE_FULLSCREEN.framing : CINEMA_LANDSCAPE.framing;
-  // CSSOS_WAVE_113 — 选角注入: 若指定数字演员, 把锁定 face_prompt 注入封面, 让封面主角=该演员。
-  const castActorIdForCover = String((body as any).actor_id || "").trim();
-  const actorSuffix = await buildActorPromptSuffix(castActorIdForCover).catch(() => "");
+  // CSSOS_WAVE_113 / WAVE_1536 P3 — 选角注入: 支持【多演员 cast】(body.cast) 同框锁脸, 兼容旧单演员(body.actor_id)。
+  const __castMembers: string[] = Array.isArray((body as any).cast)
+    ? ((body as any).cast as unknown[]).map((m) => String((m as any)?.actor_id || m || "").trim()).filter(Boolean)
+    : [];
+  const castActorIdForCover = String((body as any).actor_id || __castMembers[0] || "").trim();
+  const allCastIds = (__castMembers.length ? __castMembers : (castActorIdForCover ? [castActorIdForCover] : [])).slice(0, 3);
+  // 组合 face_prompt 后缀(所有成员, 让文本也点出每个人)。
+  const actorSuffix = (await Promise.all(allCastIds.map((id) => buildActorPromptSuffix(id).catch(() => "")))).filter(Boolean).join(" ");
   const composedPrompt = (prompt ? `${prompt}, ${composedFraming}` : composedFraming) + actorSuffix;
 
-  // Phase 2 参考图锁脸: 演员有锁定参考图 → 先走 nano-banana 条件生成(保住同一张脸), 成功即返回;
-  //   失败/无参考图 → 落到下方常规 tier 生成(文本锁脸)。不阻断非选角封面。
-  if (castActorIdForCover) {
-    const aref = await actorReferenceImage(castActorIdForCover).catch(() => null);
-    if (aref) {
-      const locked = await generateReferenceLockedCover(aref.ref,
+  // Phase 2/P3 参考图锁脸: 取所有成员参考图 → nano-banana 条件生成(1 张=单人, 多张=同框多人各自锁脸),
+  //   成功即返回; 失败/无参考 → 落到下方常规 tier(文本锁脸)。不阻断非选角封面。
+  if (allCastIds.length) {
+    const refs: string[] = [];
+    for (const id of allCastIds) {
+      const aref = await actorReferenceImage(id).catch(() => null);
+      if (aref?.ref) refs.push(aref.ref);
+    }
+    if (refs.length) {
+      const locked = await generateReferenceLockedCover(refs,
         `${prompt || "cinematic album cover"}, ${composedFraming}`).catch(() => null);
       if (locked) {
         try { await chargeMvStageActual(userId, "cover", 3, "nanobanana-ref"); } catch {}
         return res.status(200).json({
           ok: true, task_id: `actor-ref-${Date.now()}`, image_url: locked,
-          model: "google/nano-banana", engine: "nanobanana-ref", version: "ref-lock",
-          cost_cents: 3, use_user_key: false, actor_locked: true,
+          model: "google/nano-banana", engine: "nanobanana-ref", version: refs.length > 1 ? "ref-lock-multi" : "ref-lock",
+          cost_cents: 3, use_user_key: false, actor_locked: true, cast_count: refs.length,
         });
       }
     }
@@ -42559,11 +42568,12 @@ async function actorReferenceImage(actorId: string): Promise<{ ref: string; name
   if (!id || !DATABASE_URL) return null;
   try {
     const r = await withClient((c) =>
-      c.query<{ reference_images: string[]; name_en: string; name_zh: string }>(
-        `SELECT reference_images, name_en, name_zh FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+      c.query<{ reference_images: string[]; cover_image: string | null; name_en: string; name_zh: string }>(
+        `SELECT reference_images, cover_image, name_en, name_zh FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
     const a = r.rows[0];
     if (!a) return null;
-    const ref = Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "";
+    // CSSOS_WAVE_1536 — 无锁脸参考图时回退到 cover_image(策展 Legend/美女/英雄有单张正脸封面, 正好当脸参考)。
+    const ref = (Array.isArray(a.reference_images) ? a.reference_images.find(Boolean) : "") || a.cover_image || "";
     if (!ref) return null;
     return { ref: String(ref), name: a.name_en || a.name_zh };
   } catch { return null; }
@@ -42780,7 +42790,10 @@ async function seedDigitalActorsOnce() {
            FROM person_profiles p
           WHERE p.curation_tier = 'S' AND COALESCE(p.content_rating,'PG') IN ('PG','PG-13')
          ON CONFLICT (actor_id) DO UPDATE SET
-            cover_image = EXCLUDED.cover_image,
+            -- CSSOS_WAVE_1535 源头修复(Jing 必修源头): 旧写法 cover_image=EXCLUDED.cover_image
+            -- (=person.portrait_url, 无肖像的历史人物为空)→ 每次重启把已生成的封面(如 Einstein)
+            -- 覆盖成 NULL。改 COALESCE: 已有封面绝不动, 只在【当前为空】时才从 portrait_url 补。永不清空。
+            cover_image = COALESCE(NULLIF(digital_actors.cover_image, ''), EXCLUDED.cover_image),
             face_prompt = EXCLUDED.face_prompt,
             popularity_score = EXCLUDED.popularity_score,
             updated_at = now()`,

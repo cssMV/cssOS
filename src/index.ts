@@ -14190,10 +14190,32 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
     : aspectRaw === "1:1" ? "1:1"
     : "2.39:1";
   const duration = Number((body as any).duration_secs || (body as any).duration || 5) || 5;
-  const imageUrl = String((body as any).image_url || (body as any).cover_url || "").trim();
+  let imageUrl = String((body as any).image_url || (body as any).cover_url || "").trim();
   // CSSOS_WAVE_861 — 空 prompt + 无封面图 绝不调付费视频引擎(同 W856)。
   if (!prompt && !imageUrl) {
     return res.status(400).json({ ok: false, error: "empty_prompt", hint: "no prompt/image — nothing to render" });
+  }
+  // CSSOS_WAVE_1539 P4a step2 — 【分镜级多演员锁脸】接入产品: 该镜头有 ≥2 具名演员(主角/反派/配角)
+  // 且各有脸参考、且无既有首帧 → 先用 generateReferenceLockedCover 出【多脸定帧】(同框各自锁脸),
+  // 作 image-to-video 的首帧 → 不同时代人物跨时空同台、逐镜一致。群演不参与(role=extra 走背景)。
+  // 只在多演员场景触发, 单演员/无选角 MV 完全不变。
+  if (!imageUrl) {
+    const namedIds = Array.isArray((body as any).cast)
+      ? ((body as any).cast as unknown[])
+          .map((m) => ({ actor_id: String((m as any)?.actor_id || "").trim(), role: String((m as any)?.role || "").toLowerCase() }))
+          .filter((m) => m.actor_id && m.role !== "extra").map((m) => m.actor_id).slice(0, 3)
+      : [];
+    if (namedIds.length >= 2) {
+      const refs: string[] = [];
+      for (const nid of namedIds) { const ar = await actorReferenceImage(nid).catch(() => null); if (ar?.ref) refs.push(ar.ref); }
+      if (refs.length >= 2) {
+        const still = await generateReferenceLockedCover(
+          refs,
+          `${prompt || "cinematic film still"}, ${aspect === "9:16" ? "vertical portrait" : "2.39:1 anamorphic"} multi-character shot, every face clearly locked and recognizable in the same frame`
+        ).catch(() => null);
+        if (still) { imageUrl = still; console.log(`[mv-video] P4a two-face still → i2v first frame (${refs.length} faces)`); }
+      }
+    }
   }
   const explicitEngine = String((body as any).engine || "").trim().toLowerCase();
   const tier = String((body as any).tier || "lite").trim().toLowerCase();

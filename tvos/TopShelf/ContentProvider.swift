@@ -1,5 +1,7 @@
-// W1361 — cssTV Top Shelf 内容扩展(HBO/Apple 式): Apple TV 主屏焦点划到 cssTV 图标时,
-//   顶部展示我们的作品轮播。独立扩展进程, 自带拉市场 API, 不依赖主 app 文件。
+// W1361/W1566 — cssTV Top Shelf 内容扩展(HBO/Apple 式): Apple TV 主屏焦点划到 cssTV 图标(顶行)时,
+//   顶部展示【与 App 内 hero 同源】的精选大幅轮播。独立扩展进程, 自带拉市场 API, 不依赖主 app 文件。
+// W1566 — Jing「用 hero 做 Top Shelf」: 取市场首屏精选(= hero 的 featured 同一份数据、同一顺序),
+//   只保留【有封面】的作品(无图的 carousel item 会让整条 shelf 不渲染), 加拉取超时(Top Shelf 有时限预算)。
 import TVServices
 import Foundation
 
@@ -7,18 +9,16 @@ final class ContentProvider: TVTopShelfContentProvider {
 
     override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
         Task {
-            // W1362 — 搬 App 内 hero: 改 carousel 大幅轮播(一张大图 + 标题/风格, 自动切换),
-            //   而非一排小封面。top shelf 版式由系统画, 胶囊无法搬入(系统决定 chrome)。
-            let works = Array((await fetchWorks()).prefix(10))   // 一次性快照 10 首精选(top shelf 无滑动懒加载接口)
-            guard !works.isEmpty else { completionHandler(nil); return }
+            // hero 同源: 市场首屏精选(后端原生序=置顶/活媒体在前), 只取【有封面】的前 8 首做大幅轮播。
+            let works = (await fetchWorks()).filter { ($0.cover ?? "").isEmpty == false }.prefix(8)
+            guard !works.isEmpty else { completionHandler(nil); return }   // 无内容→不渲染(系统回退静态 Top Shelf 图)
 
             let items: [TVTopShelfCarouselItem] = works.map { w in
                 let item = TVTopShelfCarouselItem(identifier: w.id)
                 item.title = w.title
-                if let s = w.style, !s.isEmpty { item.summary = s }   // 风格当简介
-                // carousel item 大图为系统固定宽幅(无 imageShape, 自动 16:9 大幅)。
+                if let s = w.style, !s.isEmpty { item.summary = s }        // 风格当简介
                 if let c = w.cover, let url = URL(string: c) {
-                    item.setImageURL(url, for: [.screenScale1x, .screenScale2x])
+                    item.setImageURL(url, for: [.screenScale1x, .screenScale2x])   // 大幅宽银幕封面(与 hero 同图)
                 }
                 if let deep = URL(string: "csstv://play/\(w.id)") {
                     item.displayAction = TVTopShelfAction(url: deep)
@@ -27,8 +27,8 @@ final class ContentProvider: TVTopShelfContentProvider {
                 return item
             }
 
-            let content = TVTopShelfCarouselContent(style: .details, items: items)
-            completionHandler(content)
+            // .details = 大图 + 标题/简介的英雄式轮播(与 App 内 hero 观感一致)。
+            completionHandler(TVTopShelfCarouselContent(style: .details, items: items))
         }
     }
 
@@ -37,7 +37,11 @@ final class ContentProvider: TVTopShelfContentProvider {
 
     private func fetchWorks() async -> [W] {
         guard let url = URL(string: "https://cssstudio.app/api/works/market?limit=12") else { return [] }
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return [] }
+        // W1566 — Top Shelf 加载有时限预算: 6s 超时, 免慢网把整条 shelf 拖到不显示。
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 6
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return [] }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
         let works = ((root["data"] as? [String: Any])?["works"] as? [[String: Any]])
             ?? (root["works"] as? [[String: Any]]) ?? []

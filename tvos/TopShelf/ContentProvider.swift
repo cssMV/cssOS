@@ -4,14 +4,25 @@
 //   只保留【有封面】的作品(无图的 carousel item 会让整条 shelf 不渲染), 加拉取超时(Top Shelf 有时限预算)。
 import TVServices
 import Foundation
+import os
+
+// W1567 — 诊断: 真机上无法本地调试 → 打 os_log, 用 Mac 的 Console.app 选中 Apple TV、
+//   过滤 subsystem "CSSStudio.cssTV.TopShelf" 即可看到 tvOS 是否调用了本扩展、拉到几条、返回什么。
+private let tslog = Logger(subsystem: "CSSStudio.cssTV.TopShelf", category: "topshelf")
 
 final class ContentProvider: TVTopShelfContentProvider {
 
     override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
+        tslog.info("loadTopShelfContent CALLED")   // 若 Console 里从不出现这行 = tvOS 根本没调用扩展(非代码问题: 置顶行/关联/缓存)
         Task {
             // hero 同源: 市场首屏精选(后端原生序=置顶/活媒体在前), 只取【有封面】的前 8 首做大幅轮播。
-            let works = (await fetchWorks()).filter { ($0.cover ?? "").isEmpty == false }.prefix(8)
-            guard !works.isEmpty else { completionHandler(nil); return }   // 无内容→不渲染(系统回退静态 Top Shelf 图)
+            let all = await fetchWorks()
+            let works = all.filter { ($0.cover ?? "").isEmpty == false }.prefix(8)
+            tslog.info("fetched \(all.count) works, \(works.count) with covers")
+            guard !works.isEmpty else {
+                tslog.error("no works with covers → returning nil (系统回退静态 Top Shelf 图)")
+                completionHandler(nil); return
+            }
 
             let items: [TVTopShelfCarouselItem] = works.map { w in
                 let item = TVTopShelfCarouselItem(identifier: w.id)
@@ -28,6 +39,7 @@ final class ContentProvider: TVTopShelfContentProvider {
             }
 
             // .details = 大图 + 标题/简介的英雄式轮播(与 App 内 hero 观感一致)。
+            tslog.info("returning carousel with \(items.count) items")
             completionHandler(TVTopShelfCarouselContent(style: .details, items: items))
         }
     }
@@ -41,7 +53,9 @@ final class ContentProvider: TVTopShelfContentProvider {
         var req = URLRequest(url: url)
         req.timeoutInterval = 6
         req.cachePolicy = .reloadIgnoringLocalCacheData
-        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return [] }
+        guard let (data, _) = try? await URLSession.shared.data(for: req) else {
+            tslog.error("market fetch FAILED (network/timeout)"); return []
+        }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
         let works = ((root["data"] as? [String: Any])?["works"] as? [[String: Any]])
             ?? (root["works"] as? [[String: Any]]) ?? []

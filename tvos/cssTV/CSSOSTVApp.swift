@@ -5,7 +5,10 @@ import SwiftUI
 
 @main
 struct CSSOSTVApp: App {
-    init() { CSSFonts.registerBundled() }   // W1323 — 启动注册打包花体
+    init() {
+        CSSFonts.registerBundled()          // W1323 — 启动注册打包花体
+        CSSImageCache.startMemoryWatch()    // W1562 — 内存警告 → 清空封面解码缓存
+    }
     var body: some Scene {
         WindowGroup {
             ContentView()

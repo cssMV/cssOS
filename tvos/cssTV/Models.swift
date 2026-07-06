@@ -147,9 +147,32 @@ struct CSSWork: Codable, Identifiable {
     }
 
     // W1259 — 「Want an MV like this?」创作尾卡哨兵(每条 rail / hero 末尾各放一张, 点它进创作台)。
+    // W1259 / W1561 — 创作尾卡。id = 前缀 + 目标戏路(format) → 点它进导演台并【锁定该栏目类型】:
+    //   三部曲栏尾卡 = 创作三部曲, 电影栏 = 创作电影…(文明智能联动: 在哪栏创作, 成品即该类型, 自动归入该栏)。
     static let createCardId = "__cssos_create__"
-    static var createCard: CSSWork { CSSWork(id: createCardId) }
-    var isCreateCard: Bool { id == Self.createCardId }
+    static func createCard(_ format: String = "") -> CSSWork { CSSWork(id: createCardId + format) }
+    var isCreateCard: Bool { id.hasPrefix(Self.createCardId) }
+    /// 尾卡目标戏路(""=通用, 让导演台自由选)。
+    var createFormat: String? { isCreateCard ? String(id.dropFirst(Self.createCardId.count)) : nil }
+    /// 尾卡标题(按目标戏路)。
+    var createTitle: String {
+        switch createFormat ?? "" {
+        case "triptych": return "Direct a Trilogy"
+        case "opera":     return "Direct an Opera"
+        case "shortplay": return "Direct a Short Drama"
+        case "series":    return "Direct a Series"
+        case "film":      return "Direct a Movie"
+        case "single", "mv": return "Direct an MV"
+        default:          return "Direct a work"
+        }
+    }
+
+    // CSSOS_WAVE_1560 — Jing「右栏必须 1:1 映射侧栏所有分类, 哪怕只有一个预告片」: 空分类
+    //   (平台暂无作品, 如 Opera)也显示一张"敬请期待"占位卡 → 该栏目始终可见, 苹果审核不会
+    //   判"栏目未完善"。占位卡不可播放(choose 里拦截)。
+    static let comingSoonId = "__cssos_coming_soon__"
+    static func comingSoon(_ label: String) -> CSSWork { CSSWork(id: comingSoonId, title: label) }
+    var isComingSoon: Bool { id == Self.comingSoonId }
 
     // W1329 — 可播媒体(work_assets 优先, 兜底 preview 列)。
     var bestAudio: String? { audioURL ?? previewAudio }
@@ -173,9 +196,44 @@ struct CSSWork: Codable, Identifiable {
         case "triptych", "trilogy": return "Trilogy"
         case "opera": return "Opera"
         case "series": return "Series"
-        case "film", "movie": return "Film"
+        case "film", "movie": return "Movie"   // W1561 — Films→Movies
         default: return ""
         }
+    }
+}
+
+/// CSSOS_WAVE_1560 — 数字演员(Digital Actors)。套用桌面端 /api/actors 的数据模型, tvOS 原生渲染。
+///   字段名对齐后端 JSON(snake_case), 直接解码, 免 CodingKeys 样板。
+struct CSSActor: Codable, Identifiable {
+    let actor_id: String
+    var id: String { actor_id }
+    var name_en: String?
+    var name_zh: String?
+    var civilization: String?
+    var persona: String?
+    var cover_image: String?
+    var cover_focal_x: Double?
+    var cover_focal_y: Double?
+    var gender: String?
+    var voice_style: String?
+    var style_descriptor: String?
+    var is_premium: Bool?
+    var cast_price_cents: Int?
+    var curation_tier: String?      // S/A/B
+    var origin_type: String?        // synthetic | civilization | real_person
+    var archetypes: [String]?
+
+    var displayName: String { (name_en?.isEmpty == false ? name_en : nil) ?? name_zh ?? "Actor" }
+    var isLegend: Bool { (origin_type ?? "") == "civilization" }
+    var priceLabel: String {
+        guard let c = cast_price_cents, c > 0 else { return "Free" }
+        return "💎 ¢" + String(c)
+    }
+    var coverAlignment: Alignment {
+        guard let fx = cover_focal_x, let fy = cover_focal_y, fx >= 0, fy >= 0 else { return .top }
+        let h: HorizontalAlignment = fx < 0.34 ? .leading : (fx > 0.66 ? .trailing : .center)
+        let v: VerticalAlignment = fy < 0.34 ? .top : (fy > 0.66 ? .bottom : .center)
+        return Alignment(horizontal: h, vertical: v)
     }
 }
 

@@ -36,6 +36,66 @@ enum CSSBackend {
         return [flagship]
     }
 
+    // CSSOS_WAVE_1560 — 数字演员目录(套用桌面 /api/actors)。origin: synthetic(Original)/civilization(Legends)/real_person;
+    //   premium=只看付费; owned=只看我建; archetype=戏路大类; search=名字/文明/人设。gender 在客户端过滤(后端无此参)。
+    private struct ActorsEnvelope: Decodable {
+        let data: Payload?
+        struct Payload: Decodable { let actors: [CSSActor]? }
+    }
+    static func fetchActors(origin: String = "", premium: Bool = false, owned: Bool = false,
+                            archetype: String = "", search: String = "", limit: Int = 200) async -> [CSSActor] {
+        var comps = URLComponents(string: "\(baseURL)/api/actors")
+        var items: [URLQueryItem] = [URLQueryItem(name: "limit", value: String(limit))]
+        if !origin.isEmpty { items.append(URLQueryItem(name: "origin", value: origin)) }
+        if premium { items.append(URLQueryItem(name: "premium", value: "1")) }
+        if owned { items.append(URLQueryItem(name: "owned", value: "1")) }
+        if !archetype.isEmpty { items.append(URLQueryItem(name: "archetype", value: archetype)) }
+        if !search.isEmpty { items.append(URLQueryItem(name: "search", value: search)) }
+        comps?.queryItems = items
+        guard let url = comps?.url else { return [] }
+        do {
+            // URLSession.shared 的 HTTPCookieStorage 自动带上 cssos_session cookie(owned=1 才需登录; 公开浏览无需)。
+            let (data, _) = try await URLSession.shared.data(from: url)
+            if let env = try? JSONDecoder().decode(ActorsEnvelope.self, from: data), let list = env.data?.actors {
+                return list
+            }
+        } catch { print("[CSSBackend] fetchActors failed:", error) }
+        return []
+    }
+
+    // CSSOS_WAVE_1560 — 导演入口(套用桌面端): ✨起草标题+梗概 / 系统荐角。
+    struct DirectorDraft: Decodable { let title: String?; let synopsis: String? }
+    /// POST /api/director/synopsis {title,civilization} → {title,synopsis}(需登录)。
+    static func directorDraft(title: String, civ: String) async -> DirectorDraft? {
+        guard let url = URL(string: "\(baseURL)/api/director/synopsis") else { return nil }
+        var req = URLRequest(url: url); req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["title": title, "civilization": civ])
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            return try? JSONDecoder().decode(DirectorDraft.self, from: data)
+        } catch { print("[CSSBackend] directorDraft failed:", error); return nil }
+    }
+
+    struct CastSlot: Decodable, Identifiable {
+        let role: String
+        let alignment: String?
+        let candidates: [CSSActor]
+        var id: String { role }
+    }
+    private struct RecommendEnvelope: Decodable { let results: [CastSlot]? }
+    /// POST /api/cast/recommend {format,civilization} → 每个角色槽的候选(同文明/戏路优先)。
+    static func castRecommend(format: String, civ: String) async -> [CastSlot] {
+        guard let url = URL(string: "\(baseURL)/api/cast/recommend") else { return [] }
+        var req = URLRequest(url: url); req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["format": format, "civilization": civ])
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            return (try? JSONDecoder().decode(RecommendEnvelope.self, from: data))?.results ?? []
+        } catch { print("[CSSBackend] castRecommend failed:", error); return [] }
+    }
+
     /// W1279 — 全库搜索(后端 /api/works/market?q= 已支持: 标题/作者/风格/歌词 ILIKE)。
     static func searchWorks(_ q: String, limit: Int = 40) async -> [CSSWork] {
         let trimmed = q.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -57,29 +117,42 @@ enum CSSBackend {
         guard !works.isEmpty else { return [] }
         var rails: [CSSRail] = []
         // W1274 — Jing: Today's Picks 第一、For You 第二; 每栏标题带 SF Symbol 图标; 末尾追加创作尾卡。
-        func rail(_ id: String, _ title: String, _ icon: String, _ items: [CSSWork], min: Int = 1) {
+        // W1561 — Jing「找回栏尾创作卡 + 联动」: 每栏末尾追加一张创作尾卡; 通用栏=自由选戏路,
+        //   类型栏=锁定该栏戏路(在哪栏创作即该类型, 成品自动归入该栏)。
+        func rail(_ id: String, _ title: String, _ icon: String, _ items: [CSSWork], min: Int = 1, create: String = "") {
             guard items.count >= min else { return }
-            rails.append(CSSRail(id: id, title: title, works: items, icon: icon))   // W1367 — tvOS 纯欣赏: 行尾不再加创作卡
+            rails.append(CSSRail(id: id, title: title, works: items + [CSSWork.createCard(create)], icon: icon))
         }
         // ① Today's Picks = 系统推荐: 用后端原生序(置顶/活媒体/curation 在前), 这才是"算法推荐"。
         rail("today", "Today's Picks", "sparkles", works)
         // ② For You — 严格从新到旧(W1281: 后端"媒体优先"档会把老成品顶到真正最新前面 → 客户端按 created_at 重排)。
         rail("foryou", "For You", "flame.fill", works.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") })
-        // ③ My Favorites — 本人有订单(收藏/已购); 空则不显。
-        rail("favorites", "My Favorites", "heart.fill", works.filter { $0.isOwned })
-        // ④ Most Played — 占位排序(后端暂无播放数; TODO 接 play_count)。
+        // ③ Most Played — 占位排序(后端暂无播放数; TODO 接 play_count)。
         rail("most-played", "Most Played", "chart.bar.fill", works.sorted { $0.id.hashValue > $1.id.hashValue })
-        // ⑤~⑨ 按类型(图标对齐侧栏)。
-        let typeDefs: [(key: String, title: String, icon: String, match: [String])] = [
-            ("triptych", "Trilogies",    "books.vertical.fill", ["triptych", "trilogy"]),
-            ("opera",    "Operas",        "theatermasks.fill",   ["opera"]),
-            ("shortplay","Short Dramas",  "film.fill",           ["shortplay", "short-play", "drama"]),
-            ("series",   "TV Series",     "tv.fill",             ["series"]),
-            ("film",     "Films",         "film.stack.fill",     ["film", "movie"]),
-        ]
-        for def in typeDefs {
-            rail(def.key, def.title, def.icon, works.filter { def.match.contains(($0.workType ?? "").lowercased()) })
+        // CSSOS_WAVE_1560 — Jing「右栏 1:1 映射侧栏所有分类(除 Home), 哪怕只有一个预告片; 空分类
+        //   也显示占位卡, 绝不隐藏」。侧栏顺序: 收藏 / MV / Opera / Trilogy / Short Drama / Series / Film。
+        //   type-栏尾卡锁定该栏戏路(format); 空栏也带尾卡 → 可创作出该栏第一个作品。
+        func categoryRail(_ key: String, _ title: String, _ icon: String, _ items: [CSSWork], format: String, empty: String) {
+            let base = items.isEmpty ? [CSSWork.comingSoon(empty)] : items
+            rails.append(CSSRail(id: "cat-\(key)", title: title, works: base + [CSSWork.createCard(format)], icon: icon))
         }
+        func ofType(_ types: [String]) -> [CSSWork] {
+            works.filter { types.contains(($0.workType ?? "").lowercased()) }
+        }
+        categoryRail("favorites", "My Favorites", "heart.fill",
+                     works.filter { $0.isOwned }, format: "", empty: "Tap ♥ on any work to save it here")
+        categoryRail("mv",        "MV",           "music.note",
+                     ofType(["single", "song", "mv"]), format: "single", empty: "More coming soon")
+        categoryRail("trilogy",   "Trilogies",    "books.vertical.fill",
+                     ofType(["triptych", "trilogy"]), format: "triptych", empty: "More coming soon")
+        categoryRail("opera",     "Operas",       "theatermasks.fill",
+                     ofType(["opera"]), format: "opera", empty: "More coming soon")
+        categoryRail("shortplay", "Short Dramas", "film.fill",
+                     ofType(["shortplay", "short-play", "drama"]), format: "shortplay", empty: "More coming soon")
+        categoryRail("series",    "Series",       "tv.fill",
+                     ofType(["series"]), format: "series", empty: "More coming soon")
+        categoryRail("film",      "Movies",       "film.stack.fill",
+                     ofType(["film", "movie"]), format: "film", empty: "More coming soon")
         return rails
     }
 

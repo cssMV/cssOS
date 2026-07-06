@@ -21,7 +21,8 @@ extension View {
 
 /// W1232 — 左侧分类(映射 work_type)。
 enum HomeCategory: String, CaseIterable, Identifiable {
-    case all, mv, opera, trilogy, shortplay, series, film
+    // W1562 — Jing 序: MV / 三部曲 / 歌剧 / 短剧 / 剧集 / 电影。
+    case all, mv, trilogy, opera, shortplay, series, film
     var id: String { rawValue }
     /// LocalizedStringKey: SwiftUI Text 自动按 .strings 本地化, 英文默认, 绝不中文硬编码。
     var title: LocalizedStringKey {
@@ -32,7 +33,7 @@ enum HomeCategory: String, CaseIterable, Identifiable {
         case .trilogy: return "Trilogy"
         case .shortplay: return "Short Drama"
         case .series: return "Series"
-        case .film: return "Film"
+        case .film: return "Movies"   // W1561 — Jing: 对齐业界习惯(Movies 而非 Films)
         }
     }
     /// rail 标题用(纯英文 String, 供 CSSRail.title)。
@@ -44,7 +45,7 @@ enum HomeCategory: String, CaseIterable, Identifiable {
         case .trilogy: return "Trilogies"
         case .shortplay: return "Short Dramas"
         case .series: return "Series"
-        case .film: return "Films"
+        case .film: return "Movies"   // W1561
         }
     }
     var icon: String {
@@ -68,6 +69,18 @@ enum HomeCategory: String, CaseIterable, Identifiable {
         case .shortplay: return ["shortplay", "short-play", "drama"]
         case .series: return ["series"]
         case .film: return ["film", "movie"]
+        }
+    }
+    /// W1561 — 该分类对应的创作戏路(尾卡/导演台锁定用)。
+    var createFormat: String {
+        switch self {
+        case .all: return ""
+        case .mv: return "single"
+        case .opera: return "opera"
+        case .trilogy: return "triptych"
+        case .shortplay: return "shortplay"
+        case .series: return "series"
+        case .film: return "film"
         }
     }
 }
@@ -101,7 +114,8 @@ struct ContentView: View {
     @StateObject private var auth = CSSAuth()           // W1249 登录
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
-    @State private var showCreate = false               // W1547 — cssTV 恢复创作入口(先 built 到真机 + 后台验证; 不实际开拍)
+    @State private var createRef: CreateRef? = nil       // W1564 — 导演台(item 携带锁定戏路, 原子呈现, 避免 isPresented 读到过期 seed)
+    @State private var showActors = false               // W1560 — 数字演员目录(套用桌面端)
     @State private var ifilmRef: IFilmRef? = nil        // W1549 — 互动多线程电影播放屏(Slice 3)
     @Environment(\.resetFocus) private var resetFocus   // W1552 — 侧栏挂载后把焦点按回 hero
     @Namespace private var focusNS
@@ -111,7 +125,12 @@ struct ContentView: View {
     // W1523 — Jing「循环列表」: 不再只传单个作品, 而是把【该作品所在的整栏列表】+ 起始下标交给播放器,
     //   播放器循环整栏(hydrate 逐个在播放器内做)。无论从哪个作品进, 都循环那一整栏。
     private func choose(_ w: CSSWork, in list: [CSSWork]) {
-        let lst = list.filter { !$0.isCreateCard }         // 滤掉创作尾卡(纯欣赏)
+        guard !w.isComingSoon else { return }              // W1560 — 占位卡不可播放
+        if w.isCreateCard {                                // W1561 — 尾卡 → 进导演台, 锁定该栏戏路(format 随 item 原子带入)
+            createRef = CreateRef(format: w.createFormat ?? "")
+            return
+        }
+        let lst = list.filter { !$0.isCreateCard && !$0.isComingSoon }   // 滤掉创作尾卡 + 占位卡(纯欣赏)
         let q = lst.isEmpty ? [w] : lst
         playQueue = q
         playStart = q.firstIndex(where: { $0.id == w.id }) ?? 0
@@ -130,7 +149,10 @@ struct ContentView: View {
     private var rails: [CSSRail] {
         if category == .all { return CSSBackend.buildRails(allWorks) }
         let f = works(for: category)
-        return f.isEmpty ? [] : [CSSRail(id: category.rawValue, title: category.railTitle, works: f)]
+        // W1560/W1561 — 选中的空分类显示占位卡; 每栏末尾追加锁定该栏戏路的创作尾卡。
+        let base = f.isEmpty ? [CSSWork.comingSoon("More coming soon")] : f
+        return [CSSRail(id: category.rawValue, title: category.railTitle,
+                        works: base + [CSSWork.createCard(category.createFormat)], icon: category.icon)]
     }
 
     // W1240 — 通栏: 内容(hero+rails)铺满整屏, 侧栏浮在其上。收起态侧栏宽度, 给 rails 让位。
@@ -194,7 +216,7 @@ struct ContentView: View {
             //   此刻 hero 是屏上唯一可聚焦项 → 必然独占默认焦点(比 .disabled 硬得多; .disabled 在某些设备
             //   /时序下仍被焦点引擎纳入评估而抢走)。就绪后淡入, 挂载不会移动已在 hero 的焦点。
             if sidebarArmed {
-                CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { showCreate = true }, onFocused: { if railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = false } } }, focusTick: sidebarFocusTick, onCrossToHero: { heroFocusTick += 1 }, focusNS: focusNS, sidebarNS: sidebarNS)
+                CategorySidebar(selected: $pickedCategory, auth: auth, onLoginTap: { showLogin = true }, onSearch: { showSearch = true }, onCreate: { createRef = CreateRef(format: "") }, onActors: { showActors = true }, onFocused: { if railFocused { withAnimation(.easeInOut(duration: 0.25)) { railFocused = false } } }, focusTick: sidebarFocusTick, onCrossToHero: { heroFocusTick += 1 }, focusNS: focusNS, sidebarNS: sidebarNS)
                     .focusScope(sidebarNS)   // W1283 — 侧栏自成焦点域, 供 hero 往左 resetFocus 跳回
                     .focusSection()
                     // W1555 — 焦点在下方栏目 → 藏侧栏(不挡内容); 焦点在 hero/侧栏 → 显。确定性, 不靠滚动量。
@@ -229,11 +251,15 @@ struct ContentView: View {
             SearchView(allWorks: allWorks) { w in showSearch = false; choose(w, in: allWorks) }
         }
         // W1547 — 恢复创作: Siri Remote 🎙 说「CSS, …」→ CreateView → /api/agent/chat。
-        .fullScreenCover(isPresented: $showCreate) {
-            CreateView(auth: auth, onIFilm: { fid in
+        .fullScreenCover(item: $createRef) { ref in
+            CreateView(auth: auth, defaultFormat: ref.format, onIFilm: { fid in
                 // W1549 — 命中互动电影意图 → 关创作页, 稍后开播放屏(等 cover 收完再开, 免叠盖冲突)。
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ifilmRef = IFilmRef(id: fid) }
             })
+        }
+        // W1560 — 数字演员目录(套用桌面端 /api/actors)。
+        .fullScreenCover(isPresented: $showActors) {
+            DigitalActorsView()
         }
         // W1549 — 互动多线程电影播放屏《时间帝国》。
         .fullScreenCover(item: $ifilmRef) { ref in
@@ -248,6 +274,11 @@ struct ContentView: View {
         .onChange(of: auth.isSignedIn) { _, signed in
             if signed { Task { allWorks = await CSSBackend.fetchFeed() } }  // 登录后重拉 → 带 viewer_orders 解锁已购
         }
+        // W1564 — Jing「Menu 键应退回上一级, 而非退出平台」: 选中某分类时 Menu → 回 Home(清 pickedCategory);
+        //   已在 Home(category==.all)则不接管 → 交系统默认(退出/回 tvOS 主屏)。
+        .onExitCommand(perform: category == .all ? nil : {
+            withAnimation(.easeInOut(duration: 0.25)) { pickedCategory = nil }
+        })
     }
 }
 
@@ -354,11 +385,13 @@ struct EmojiBurstEffect: View {
 
 /// W1235 — 侧栏焦点项(用于折叠/展开判定)。
 enum SidebarItem: Hashable {
-    case avatar, favorites, search, create, category(HomeCategory)
+    case avatar, favorites, search, create, actors, category(HomeCategory)
 }
 
 /// W1549 — 互动电影 fullScreenCover(item:) 的 Identifiable 载体(id = ifilm 图谱 id)。
 struct IFilmRef: Identifiable { let id: String }
+/// W1564 — 导演台呈现载体: 锁定戏路随 item 原子带入(""=自由选)。
+struct CreateRef: Identifiable { let id = UUID(); let format: String }
 
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
 ///   收起 = 只显图标(窄); 焦点进入侧栏任一项 = 展开显图标+标签(宽)。标签全英文(i18n)。
@@ -368,6 +401,7 @@ struct CategorySidebar: View {
     var onLoginTap: () -> Void
     var onSearch: () -> Void                   // W1277 搜索入口
     var onCreate: () -> Void                   // W1547 — 创作入口(恢复)
+    var onActors: () -> Void = {}              // W1560 — 数字演员入口(套用桌面端)
     var onFocused: () -> Void = {}             // W1555 — 侧栏获焦 → 通知宿主(保持侧栏显示)
     var focusTick: Int = 0                     // W1557 — 宿主 bump → 确定性把焦点钉到侧栏(落 Favorites, 绝不 logo)
     var onCrossToHero: () -> Void = {}         // W1557 — 侧栏按右 → 请求宿主把焦点钉回 hero
@@ -405,13 +439,19 @@ struct CategorySidebar: View {
             .onMoveCommand { handleMove($0) }   // W1275 — 头像也接管方向键(左/右收标签, 上下导航)
             .padding(.bottom, 10)
 
+            // W1561 — Jing 侧栏新序: logo / Home / 收藏 / 导演入口 / 数字演员 / 搜索 / (其余分类)。
+            //   Home 与 收藏 之间不再留 HBO 空行。
+            row(icon: HomeCategory.all.icon, label: HomeCategory.all.title, item: .category(.all), active: selected == .all) {
+                selected = .all
+            }
             row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
-            Spacer().frame(height: 22)
-            row(icon: "magnifyingglass", label: "Search", item: .search) { onSearch() }
             // W1556 — 导演入口(原 Create 升级): 选戏路 + 开拍。按住 🎙 说「CSS, …」。
             row(icon: "megaphone.fill", label: "Direct", item: .create) { onCreate() }
+            // W1560 — 数字演员入口(套用桌面端目录)。图标用双人像, 与 Opera 的戏剧面具区分。
+            row(icon: "person.2.fill", label: "Actors", item: .actors) { onActors() }
+            row(icon: "magnifyingglass", label: "Search", item: .search) { onSearch() }
 
-            ForEach(HomeCategory.allCases) { cat in
+            ForEach(HomeCategory.allCases.filter { $0 != .all }) { cat in
                 row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
                     selected = cat
                 }
@@ -477,8 +517,9 @@ struct CategorySidebar: View {
 
     // W1275 — 侧栏可聚焦项的视觉顺序(手动导航用)。
     private var orderedItems: [SidebarItem] {
-        var arr: [SidebarItem] = [.avatar, .favorites, .search, .create]
-        for cat in HomeCategory.allCases {
+        // W1561 — 与新视觉序一致: logo / Home / 收藏 / 导演 / 演员 / 搜索 / (其余分类)。
+        var arr: [SidebarItem] = [.avatar, .category(.all), .favorites, .create, .actors, .search]
+        for cat in HomeCategory.allCases where cat != .all {
             arr.append(.category(cat))
         }
         return arr
@@ -755,12 +796,8 @@ struct FeaturedHero: View {
 
     @ViewBuilder
     private func thumb(_ cover: String?) -> some View {
-        if let c = cover, let url = URL(string: c) {
-            AsyncImage(url: url) { img in img.resizable().scaledToFill() }
-                placeholder: { Color.white.opacity(0.12) }
-        } else {
-            Color.white.opacity(0.12)
-        }
+        // W1562 — 胶囊缩略图按缩略尺寸降采样(原来每枚都解全尺寸位图 → 5 枚全尺寸=大内存浪费)。
+        CSSPosterImage(urlString: cover, targetSize: CGSize(width: 56, height: 56 / 2.39))
     }
 
     // W1245 — For You 用 contentLeading(safe 基准); hero 满铺基准多补偿一个安全区(~92pt)落同一左缘。
@@ -827,9 +864,9 @@ struct FeaturedHero: View {
                                 EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 12,
                                                  smallSize: 28, smallSpread: 470, smallN: 20).allowsHitTesting(false)   // W1276 周期 12s
                             }
-                        } else if let c = current.coverURL, let url = URL(string: c) {
-                            AsyncImage(url: url) { img in img.resizable().scaledToFill() }
-                                placeholder: { Color.white.opacity(0.06) }
+                        } else if let c = current.coverURL {
+                            // W1562 — 只加载当前轮播枝的大图, 按屏幕尺寸降采样; 换枝(.id(current.id))即释放旧图。
+                            CSSPosterImage(urlString: c, targetSize: geo.size)
                         } else {
                             Color.white.opacity(0.06)
                         }
@@ -1059,6 +1096,12 @@ struct WorkCard: View {
                         .font(.system(size: 22, weight: .heavy)).foregroundStyle(brandGreen)
                         .shadow(color: .black.opacity(0.6), radius: 4)
                         .offset(y: 54)
+                } else if work.isComingSoon {
+                    // W1560 — 空分类占位卡: 素净渐变 + 沙漏, 暗示"敬请期待"(不喧宾夺主)。
+                    LinearGradient(colors: [Color.white.opacity(0.07), Color.white.opacity(0.02)],
+                                   startPoint: .top, endPoint: .bottom)
+                    Image(systemName: "hourglass").font(.system(size: 54, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.42))
                 } else if let c = work.coverURL, let url = URL(string: c) {
                     AsyncImage(url: url) { img in
                         img.resizable().scaledToFill()
@@ -1094,9 +1137,13 @@ struct WorkCard: View {
             .shadow(color: focused ? brandGreen.opacity(0.75) : .clear, radius: focused ? 22 : 0)
 
             // W1526 — Jing「标题/时长别那么靠边, 有些被截断」: 加左右内衬 + 尾部截断留 padding, 不贴边。
-            Text(work.isCreateCard ? "Want an MV like this?" : (work.title ?? "Untitled"))
+            Text(work.isCreateCard ? work.createTitle
+                 : work.isComingSoon ? (work.title ?? "Coming soon")
+                 : (work.title ?? "Untitled"))
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(work.isCreateCard ? brandGreen : (focused ? brandGreen : .white))
+                .foregroundStyle(work.isCreateCard ? brandGreen
+                                 : work.isComingSoon ? .white.opacity(0.5)
+                                 : (focused ? brandGreen : .white))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)

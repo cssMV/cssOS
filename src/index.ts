@@ -16081,6 +16081,21 @@ function workTypeDisplayLabel(workType: CssmvWorkType) {
   return "single";
 }
 
+// CSSOS_WAVE_1559 — 分类展示用 work_type 保留完整 DB 词表(film/shortplay/series/…),
+// 供市场/为你创作/cssTV 的"栏目"归类使用。定价用的 normalizeWorkType() 仍窄
+// (single/triptych/opera = 三种可售格式), 不受影响。根因: 旧 normalizeWorkTreeRow 把
+// film/shortplay/series 一律压成 single → 侧栏"短剧/系列/电影"栏目永远空。
+const DISPLAY_WORK_TYPES = new Set([
+  "single", "triptych", "opera",
+  "shortplay", "short-play", "drama",
+  "series",
+  "film", "movie",
+]);
+function normalizeDisplayWorkType(value: unknown): string {
+  const raw = String(value || "").trim().toLowerCase();
+  return DISPLAY_WORK_TYPES.has(raw) ? raw : "single";
+}
+
 // CSSOS_WAVE_1108 — 聆听价 $0.99 → $0.69(当前幻灯格式); 买断价系统建议分类价(单曲 $5.99 / 三部曲 $9.99 / 歌剧 $19.99)。用户可改。
 function pricingPresetForWorkType(workType: CssmvWorkType) {
   if (workType === "opera") {
@@ -34720,7 +34735,8 @@ function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
   };
   return {
     ...rest,
-    work_type: normalizeWorkType(row.work_type),
+    // CSSOS_WAVE_1559 — 保留 film/shortplay/series 供栏目归类(旧代码压成 single)。
+    work_type: normalizeDisplayWorkType(row.work_type),
     visibility: row.visibility || "public",
     rights_scope: ownerIsAdmin ? "system_priceless" : row.rights_scope || "personal_use",
     current_listen_price_cents: listenCents,

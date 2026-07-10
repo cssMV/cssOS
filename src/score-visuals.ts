@@ -354,32 +354,33 @@ function coverHueFor(tradition: string | undefined, seed: string): number {
   return COVER_CHRISTIAN_HUES[h % COVER_CHRISTIAN_HUES.length]!;
 }
 
-export function buildCoverSvg(title: string, tradition: string | undefined, seed = ""): string {
-  const t = String(tradition || "secular").toLowerCase();
-  const meta = COVER_TRAD[t] || COVER_TRAD.secular!;
-  const hue = coverHueFor(tradition, seed || title);
-  const W = 1280, H = 536, bx = 150, by = 66, bw = 300, bh = 404, cx = bx + bw / 2;
-  const winPath = coverMapPath(COVER_WIN[meta.shape] || COVER_WIN.round!, bx, by, bw, bh);
-  const lines = coverWrap(title || "Sacred Score", 18);
-  const tSize = lines.length >= 3 ? 44 : 52, tx = 560;
-  const startY = H / 2 - ((lines.length - 1) * (tSize + 8)) / 2 - 14;
-  const titleEls = lines.map((ln, i) => `<text x="${tx}" y="${(startY + i * (tSize + 8)).toFixed(0)}" font-family="DejaVu Serif, 'Noto Serif CJK SC', serif" font-size="${tSize}" font-weight="700" fill="#f4ecd6">${coverEsc(ln)}</text>`).join("");
+/* W1725b — 封面改【纯光感底】(Jing): 去掉小拱窗剪影 + 标题文字, 只留色相光感 ——
+ * 竖向光帘(彩窗透光感) + 双光晕 + 底暗角。卡顶大拱 + 正文标题各司其职, 封面条只当氛围底。
+ * 作 og:image 时分享卡的文字走 /h/ 页的 og:title/description, 不靠图里的字。
+ * 仍按 tradition/id 变色(christian 哈希取宝石色), 保留辨识度。物理上无人物、无文字。 */
+export function buildCoverSvg(_title: string, tradition: string | undefined, seed = ""): string {
+  const hue = coverHueFor(tradition, seed || _title);
+  const W = 1280, H = 536;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <defs>
-<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${hue},42%,19%)"/><stop offset="1" stop-color="hsl(${hue},48%,8%)"/></linearGradient>
-<radialGradient id="glow" cx="${(cx / W).toFixed(3)}" cy="0.46" r="0.42"><stop offset="0" stop-color="hsl(${hue},70%,78%)" stop-opacity="0.85"/><stop offset="0.55" stop-color="hsl(${hue},60%,50%)" stop-opacity="0.28"/><stop offset="1" stop-color="hsl(${hue},60%,50%)" stop-opacity="0"/></radialGradient>
-<linearGradient id="win" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="hsl(${hue},75%,72%)"/><stop offset="0.6" stop-color="hsl(${hue},66%,50%)"/><stop offset="1" stop-color="hsl(${hue},60%,32%)"/></linearGradient>
-<filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="26"/></filter>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${hue},46%,17%)"/><stop offset="1" stop-color="hsl(${hue},52%,7%)"/></linearGradient>
+<radialGradient id="g1" cx="0.4" cy="0.36" r="0.62"><stop offset="0" stop-color="hsl(${hue},74%,74%)" stop-opacity="0.9"/><stop offset="0.55" stop-color="hsl(${hue},64%,52%)" stop-opacity="0.25"/><stop offset="1" stop-color="hsl(${hue},64%,52%)" stop-opacity="0"/></radialGradient>
+<radialGradient id="g2" cx="0.74" cy="0.72" r="0.5"><stop offset="0" stop-color="hsl(${hue},62%,50%)" stop-opacity="0.45"/><stop offset="1" stop-color="hsl(${hue},62%,50%)" stop-opacity="0"/></radialGradient>
+<linearGradient id="vig" x1="0" y1="0" x2="0" y2="1"><stop offset="0.55" stop-color="hsl(${hue},52%,6%)" stop-opacity="0"/><stop offset="1" stop-color="hsl(${hue},52%,5%)" stop-opacity="0.65"/></linearGradient>
+<filter id="b44" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="44"/></filter>
+<filter id="b22" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="22"/></filter>
 </defs>
 <rect width="${W}" height="${H}" fill="url(#sky)"/>
-<ellipse cx="${cx}" cy="250" rx="360" ry="300" fill="url(#glow)"/>
-<path d="${winPath}" fill="hsl(${hue},70%,60%)" opacity="0.55" filter="url(#soft)"/>
-<path d="${winPath}" fill="url(#win)" stroke="hsl(${hue},80%,80%)" stroke-width="2" stroke-opacity="0.5"/>
-<line x1="${cx}" y1="${by + 30}" x2="${cx}" y2="${by + bh}" stroke="rgba(20,14,4,0.28)" stroke-width="2"/>
-<line x1="${cx - 60}" y1="${by + 120}" x2="${cx - 60}" y2="${by + bh}" stroke="rgba(20,14,4,0.18)" stroke-width="2"/>
-<line x1="${cx + 60}" y1="${by + 120}" x2="${cx + 60}" y2="${by + bh}" stroke="rgba(20,14,4,0.18)" stroke-width="2"/>
-${titleEls}
-<text x="${tx}" y="${(startY + lines.length * (tSize + 8) + 16).toFixed(0)}" font-family="DejaVu Serif, serif" font-size="20" letter-spacing="3" fill="hsl(${hue},45%,74%)">${coverEsc(meta.name)} · SACRED SCORE</text>
+<g filter="url(#b44)">
+<rect x="150" y="0" width="80"  height="${H}" fill="hsl(${hue},76%,62%)" opacity="0.10"/>
+<rect x="330" y="0" width="120" height="${H}" fill="hsl(${hue},78%,66%)" opacity="0.14"/>
+<rect x="520" y="0" width="60"  height="${H}" fill="hsl(${hue},76%,60%)" opacity="0.08"/>
+<rect x="720" y="0" width="100" height="${H}" fill="hsl(${hue},76%,64%)" opacity="0.10"/>
+<rect x="960" y="0" width="80"  height="${H}" fill="hsl(${hue},76%,62%)" opacity="0.07"/>
+</g>
+<ellipse cx="500" cy="200" rx="540" ry="360" fill="url(#g1)" filter="url(#b22)"/>
+<ellipse cx="930" cy="380" rx="400" ry="300" fill="url(#g2)"/>
+<rect width="${W}" height="${H}" fill="url(#vig)"/>
 </svg>`;
 }
 

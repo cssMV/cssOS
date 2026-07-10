@@ -49,15 +49,19 @@
     <meta name="author" content="CSS Studio" />
     <link rel="canonical" href="https://cssstudio.app/" />
     <meta property="og:site_name" content="CSS Studio" />
-    <meta property="og:title" content="CSS Studio — Watch + create AI music videos, instantly" />
-    <meta property="og:description" content="Open the app and a fully-produced AI music video plays with sound, the moment it loads. Then create your own — any language, any voice — without leaving the cinema. The world's first emotion subtitles." />
+    <meta property="og:title" content="CSS Studio — open it, a music video is already playing. Make yours in a sentence." />
+    <meta property="og:description" content="Open the app and a fully-produced music video plays — with sound — the moment it loads. Then make your own in one sentence: any language, any voice, the world's first emotion subtitles. (Under the hood, it's all AI.)" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://cssstudio.app/" />
-    <meta property="og:image" content="https://cssstudio.app/icons/icon-512.png" />
+    <meta property="og:image" content="https://cssstudio.app/og/share.png?v=708" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:alt" content="cssOS — watch and create AI music videos, with sound" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="CSS Studio — Watch + create AI music videos" />
-    <meta name="twitter:description" content="A fully-produced AI music video plays the moment you open the app, with sound. Then create your own in any language and voice." />
-    <meta name="twitter:image" content="https://cssstudio.app/icons/icon-512.png" />
+    <meta name="twitter:title" content="CSS Studio — a music video is already playing. Make yours in a sentence." />
+    <meta name="twitter:description" content="Open it and a full music video plays with sound, instantly. Then make your own in one sentence — any language, any voice, emotion subtitles." />
+    <meta name="twitter:image" content="https://cssstudio.app/og/share.png?v=708" />
     <script>
       // Pre-paint theme resolver — applies user's saved theme BEFORE any CSS loads
       // to prevent flash-of-unstyled-theme (FOUT). Must stay in sync with
@@ -225,7 +229,7 @@
                 </svg>
               </div>
             </div>
-            <div class="mirror-slogan" id="mirror-slogan" data-i18n-html="logo.slogan">Just say <span class="spell">CSS</span>, witness the miracle!</div>
+            <div class="mirror-slogan" id="mirror-slogan" data-i18n-html="logo.slogan">Just say <span class="spell">CSS</span> — and a music video appears.</div>
             <div class="mic-capture-status" id="mic-capture-status" aria-live="polite" hidden>
               <div class="mic-capture-kicker" id="mic-capture-kicker">Mic status</div>
               <div class="mic-capture-title" id="mic-capture-title">Ready</div>
@@ -2266,7 +2270,7 @@
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.emotion-subtitle-engine.js?v=20260525-w442-emo-sub"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
-    <script src="app.js?v=20260603-w589-bgvideo"></script>
+    <script src="app.js?v=20260708-w1602-dockfront"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
@@ -2324,6 +2328,10 @@
     <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
     <script src="app.autoplay-feed.js?v=20260529-w490g-nobackdrop"></script>
+    <script src="app.appstore-ribbon.js?v=20260708-w1603-ribbon-plain"></script>
+    <script src="app.mobile-app-cta.js?v=20260708-w1603-cta-abovedock"></script>
+    <script src="app.appstore-panel.js?v=20260708-w1633-apps"></script>
+    <script src="app.coupon-redeem.js?v=20260709-w1660-coupon"></script>
     <script src="app.watch-price-strip.js?v=20260602-w588f-icons"></script>
     <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
          只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
@@ -2351,7 +2359,7 @@
          the market panel loaded (crash-guard logged 35 hits/session).
          market-commerce is NOT an island; it must load eagerly. The
          mv-pipeline-panel lazy-load (a true island) stays. -->
-    <script src="app.pill-bar.js?v=20260528-w466-all"></script>
+    <script src="app.pill-bar.js?v=20260708-w1605-pill-interlock"></script>
     <!-- CSSOS_WAVE_576 20260531 — Jing — 通用【左凹向激活】兜底(宪法 :has 在 iOS 被剥, 左凹失效). -->
     <script src="app.pill-left-concave.js?v=20260602-w588h-rightmost"></script>
     <script src="app.market-commerce.js?v=20260603-w590-coveronce"></script>
@@ -2437,6 +2445,9 @@
     <!-- CSSOS_WAVE_533 — person-mv 还原为普通 eager 模块(Jing 决定): 懒加载方式反复打不开(W511/W532),
          其余 7 个模块懒加载均正常。person-mv 自建 HTML + 自注入 CSS(显示)+ JS(动作)= 完整自包含模块,
          eager 一次性加载即可靠工作。代价: 237KB 留在首屏, 换取 People MV 稳定可开。 -->
+    <script src="app.civ-meta-i18n.js?v=20260710-w1674-civmeta"></script>
+    <script src="app.hymn-player.js?v=20260710-w1707-hymn"></script>
+    <script src="app.hymn-gallery.js?v=20260710-w1710-hymngal"></script>
     <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
     <script src="app.actor-gallery.js?v=20260702-w113-actors"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>

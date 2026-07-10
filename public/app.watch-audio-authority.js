@@ -72,14 +72,20 @@
     } catch (e) {}
   }
 
+  // CSSOS_WAVE_1676 — 让位契约: 当某个 UI(波形逐字精修等)明确表达「用户要停」时置
+  //   globalThis.cssosAudioIntentPaused=true, 本模块的救活逻辑必须闭嘴。否则 1.5s 安全 tick
+  //   + 这里的 320ms 重试会把用户的暂停一次次 play() 回来 —— 正是 Jing「现在无法暂停」。
+  function intentPaused() { try { return !!globalThis.cssosAudioIntentPaused; } catch (e) { return false; } }
+
   function tryPlay(a, mySeq) {
     if (!a || mySeq !== _seq) return;
+    if (intentPaused()) return;
     try {
       var p = a.play();
       if (p && p.catch) {
         p.catch(function () {
-          if (soundAllowed() && mySeq === _seq) {
-            setTimeout(function () { try { if (mySeq === _seq && a.paused) a.play().catch(function () {}); } catch (e) {} }, 320);
+          if (soundAllowed() && mySeq === _seq && !intentPaused()) {
+            setTimeout(function () { try { if (mySeq === _seq && a.paused && !intentPaused()) a.play().catch(function () {}); } catch (e) {} }, 320);
           }
         });
       }
@@ -166,7 +172,8 @@
       var cur = String(a.currentSrc || a.src || "").trim();
       if (cur && onTrack(cur)) {   // 本作品原唱或伴奏都算"正确源"(卡拉 OK 不被救活逻辑打断)
         if (soundAllowed() && a.muted) { try { a.muted = false; } catch (e) {} }
-        if (soundAllowed() && (a.readyState === 0 || a.paused)) {
+        // W1676 — 用户明确要停时, 整个"救活"分支跳过(连 load() 也别做, 免得又抖一下)。
+        if (!intentPaused() && soundAllowed() && (a.readyState === 0 || a.paused)) {
           if (a.readyState === 0) { try { a.load(); } catch (e) {} }
           tryPlay(a, _seq);
         }

@@ -2192,7 +2192,7 @@ function buildMarketCardsMarkup(works = []) {
       const _isAdminOwned = typeof globalThis.isAdminWorkModule === "function"
         ? globalThis.isAdminWorkModule(work) : false;
       const cardListenChip = _isAdminOwned ? loginCopy("Free") : escapeHtml(listenPrice);
-      const cardBuyoutChip = _isAdminOwned ? loginCopy("Priceless · 无价之宝") : escapeHtml(buyoutPrice);
+      const cardBuyoutChip = _isAdminOwned ? loginCopy("Priceless") : escapeHtml(buyoutPrice);
       // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — Jing
       // "已经欣赏过/播放过的作品和还没有欣赏过/播放过的作品，是否
       //  用点什么比如颜色之类的区分一下". Played-state class so CSS
@@ -2231,7 +2231,7 @@ function buildMarketCardsMarkup(works = []) {
             ${(!_isAdminOwned && canTransact) ? `<button class="mini-btn ghost" type="button" data-market-action="listen" ${listenDisabled ? "disabled" : ""}>${marketActionCopy("listen", orderState)}</button>` : ""}
             ${(!_isAdminOwned && canTransact && !workIsWholeBuyoutChildModule(work)) ? `<button class="mini-btn ghost" type="button" data-market-action="buyout" ${buyoutDisabled || !buyoutEnabled ? "disabled" : ""}>${wholeBuyoutOnly ? escapeHtml(loginCopy("Whole buyout")) : marketActionCopy("buyout", orderState)}</button>` : ""}
             ${canTransact ? `<span class="market-inline-action"><button class="mini-btn ghost" type="button" data-market-action="tip" ${tipDisabled ? "disabled" : ""}>${marketActionCopy("tip", orderState)}</button><input class="inline-chip-input market-tip-input" type="number" min="1" step="1" inputmode="decimal" placeholder="${escapeHtml(loginCopy("Tip $"))}" data-market-tip-input="${escapeHtml(workId)}" hidden /></span>` : ""}
-            ${(canTransact && tipsEnabled) ? `<button class="mini-btn ghost" type="button" data-market-action="tip-nihaopay" data-market-nihaopay-creator="${escapeHtml(String(work?.owner_user_id || ""))}" data-market-nihaopay-work="${escapeHtml(workId)}" title="${escapeHtml(loginCopy("Tip via Alipay / UnionPay"))}">${escapeHtml(loginCopy("Tip · 支付宝/银联"))}</button>` : ""}
+            ${(canTransact && tipsEnabled) ? `<button class="mini-btn ghost" type="button" data-market-action="tip-nihaopay" data-market-nihaopay-creator="${escapeHtml(String(work?.owner_user_id || ""))}" data-market-nihaopay-work="${escapeHtml(workId)}" title="${escapeHtml(loginCopy("Tip via Alipay / UnionPay"))}">${escapeHtml(loginCopy("Tip · Alipay / UnionPay"))}</button>` : ""}
             <button class="mini-btn ghost" type="button" data-market-action="share" title="${escapeHtml(loginCopy("Share this MV"))}">${loginCopy("Share")}</button>
             <button class="mini-btn ghost" type="button" data-market-action="download" title="${escapeHtml(loginCopy("Download · MP3 free, WAV/MP4 Pro+"))}">${loginCopy("Download")}</button>
           </div>
@@ -3014,7 +3014,7 @@ function buildWorksCardsMarkup(works = [], options = {}) {
       const isReceivedGift = work?.is_received_gift === true
         || String(work?.structure_role || "") === "gift";
       const cardListenPrice = isAdminOwned ? loginCopy("Free") : listenPrice;
-      const cardBuyoutPrice = isAdminOwned ? loginCopy("Priceless · 无价之宝") : buyoutPrice;
+      const cardBuyoutPrice = isAdminOwned ? loginCopy("Priceless") : buyoutPrice;
       const cardCanEditWorkPrices = canEditWorkPrices && !isAdminOwned;
       const cardCanEditWorkVisibility = canEditWorkVisibility && !isAdminOwned;
       return buildWorksCardMarkup({
@@ -3337,7 +3337,7 @@ function buildFallbackHierarchyChildren(work = {}) {
       }
       acts.push({
         id: `${String(work?.work_id || work?.id || work?.local_id || rootTitle)}__act_${actIndex}`,
-        title: `${rootTitle} · ${typeof globalThis.formatActLabelModuleBridge === "function" ? globalThis.formatActLabelModuleBridge(actIndex) : `第${actIndex}幕`}`,
+        title: `${rootTitle} · ${typeof globalThis.formatActLabelModuleBridge === "function" ? globalThis.formatActLabelModuleBridge(actIndex) : `Act ${actIndex}`}`,
         work_type: "opera",
         structure_role: "act",
         sequence_index: actIndex,

@@ -416,11 +416,12 @@ const DOCK_ORDER_KEY = "cssos.dockOrder";
 // 信息流是用户进来第一眼该看到的「欣赏」入口, 紧随话筒)。
 // Jing W1544 — 前排精确顺序: 话筒 → 导演入口 → 数字演员, 再到其余。director/actors 动态注入,
 // pinFront 只固定【已存在】的项(缺则跳过, 不报错), 故加入是安全的增量。
-const DOCK_FRONT_PINNED = ["mic", "director", "actors", "foryou", "person-mv", "mv-pipeline", "settings"];
+const DOCK_FRONT_PINNED = ["mic", "director", "actors", "appstore", "foryou", "person-mv", "mv-pipeline", "settings"];
 const DOCK_DEFAULT_ORDER = [
   "mic",
   "director",    // 导演入口 — 话筒之后(Jing W1544)
   "actors",      // 数字演员 — 导演入口之后(Jing W1544)
+  "appstore",    // 📱 App 下载中心 — 靠前, 别放末尾(Jing W1602)
   "foryou",      // 为你创作 — 提到第二位(Jing W862)
   "person-mv",   // 人物MV — 动态注入，restoreDockOrder 会保留位置
   "mv-pipeline",
@@ -6622,7 +6623,9 @@ const GUEST_VISIBLE_DOCK_ACTIONS = new Set([
   "language",
   "subscription",
   "profile",
-  "works"
+  "works",
+  "actors",    // W1640 — 游客可进数字演员市场(逛演员 + 免费自我介绍 → 转化钩子; 发问/语音才需登录)
+  "appstore"   // W1640 — 游客可开 App 面板(六平台下载 + 分享)
 ]);
 
 const getUserRole = () =>
@@ -31927,7 +31930,15 @@ function handleGlobalAction(action) {
   }
   if (action === "mic") {
     invokeMicClickAction("logo");
+    return;
   }
+  // CSSOS_WAVE_1718 — 兜底到【注入型 dock 动作表】: handleGlobalAction 原是一串写死的 known
+  //   action, 不认动态注入的项(如圣诗 hymns)。胶囊 onActivate 走的就是这里 → 点了没反应。
+  //   末尾统一查 __cssosDockActionMap, 让所有自注册 dock 项(hymns / 未来其它)都能被胶囊点开。
+  try {
+    var _custom = (globalThis.__cssosDockActionMap || {})[action];
+    if (typeof _custom === "function") { _custom(); return; }
+  } catch (_e) {}
 }
 
 function getDockItems() {

@@ -181,7 +181,57 @@
         }
       } catch (_e) {}
     }
-    // 2. Luma-blob fallback on the same downsample
+    /* 2. CSSOS_WAVE_1681 — 肤色质心(判据与 f2f 的 frameFaceF2F 完全一致, 全浏览器可用)。
+     *   必须排在亮度兜底【之前】: Safari 没有 FaceDetector, 于是永远走亮度启发式, 而"最亮的
+     *   一格 = 脸"在水墨/浅底画上必然指向米黄宣纸 —— 唐伯虎的头就是这么被裁掉的(Jing「不要脸」)。
+     *   越靠上权重越大 → 命中脸而不是手/脖。肤色像素太少才退回亮度。 */
+    var sw = Math.min(120, w), sh = Math.max(1, Math.round(sw * h / w));
+    var sc = getCanvas(sw, sh);
+    var sctx = sc.getContext("2d", { willReadFrequently: true });
+    if (sctx) {
+      try {
+        sctx.drawImage(img, 0, 0, sw, sh);
+        var sd = sctx.getImageData(0, 0, sw, sh).data;
+        var npx = sw * sh;
+
+        /* 背景压制(关键): 米黄宣纸/浅色纯底 RGB≈(235,225,190) 本身就满足下面的肤色判据
+         * (r>g, g≥b, r−b=45, r−g=10) → 不压制就会把整张纸当成脸, 换判据也白搭。
+         * 做法: 4bit/通道量化直方图找众数色; 占比 >18% 即认定为背景, 排除后再找肤色。 */
+        var hist = new Uint32Array(4096);
+        for (var p = 0; p < npx; p++) {
+          hist[((sd[p * 4] >> 4) << 8) | ((sd[p * 4 + 1] >> 4) << 4) | (sd[p * 4 + 2] >> 4)]++;
+        }
+        var modalBin = -1, modalN = 0;
+        for (var q = 0; q < 4096; q++) if (hist[q] > modalN) { modalN = hist[q]; modalBin = q; }
+        var suppress = (modalN / npx) > 0.18 ? modalBin : -1;
+
+        // 肤色质心; 越靠上权重越大 → 命中脸而非手/脖。suppressBin<0 表示不压制。
+        function skinCentroid(suppressBin) {
+          var ax = 0, ay = 0, an = 0;
+          for (var yy = 0; yy < sh; yy++) {
+            for (var xx = 0; xx < sw; xx++) {
+              var si = (yy * sw + xx) * 4, sr = sd[si], sg = sd[si + 1], sb = sd[si + 2];
+              if (suppressBin >= 0 && (((sr >> 4) << 8) | ((sg >> 4) << 4) | (sb >> 4)) === suppressBin) continue;
+              if (sr > 60 && sg > 40 && sb > 20 && sr > sg && sg >= sb &&
+                  (sr - sb) > 14 && (sr - sg) > 3 && (sr - sg) < 130) {
+                var wgt = 1 + (1 - yy / sh);
+                ax += xx * wgt; ay += yy * wgt; an += wgt;
+              }
+            }
+          }
+          return { x: ax, y: ay, n: an };
+        }
+        var MIN_N = Math.max(8, npx * 0.004);
+        var hit = skinCentroid(suppress);
+        // 压制过头(把脸本身当背景删了)→ 退回不压制再试一次。
+        if (hit.n < MIN_N && suppress >= 0) hit = skinCentroid(-1);
+        if (hit.n >= MIN_N) {
+          var fcx = (hit.x / hit.n) / sw, fcy = (hit.y / hit.n) / sh;
+          return { cx: fcx, cy: fcy, zone: zoneFromBox(fcx * GRID_W, fcy * GRID_H, GRID_W, GRID_H) };
+        }
+      } catch (_e) {}
+    }
+    // 3. Luma-blob fallback on the same downsample
     var gx = GRID_W, gy = GRID_H;
     var gc = getCanvas(gx, gy);
     var gctx = gc.getContext("2d", { willReadFrequently: true });
@@ -213,14 +263,39 @@
     // so a face dead in a corner still leaves headroom and we don't pin
     // the image to a hard edge (which looks worse than a slight offset).
     var px = Math.max(15, Math.min(85, Math.round(cx * 100)));
-    var py = Math.max(15, Math.min(85, Math.round(cy * 100)));
+    /* W1681 — 纵向留【发顶余量】: 质心是"脸心", 原样套用会把额头/发顶顶出画框。上移 6%,
+     * 并把下限由 15% 放宽到 8% —— 人物贴近画面顶部时(唐伯虎), 整颗头才进得来。 */
+    var py = Math.max(8, Math.min(85, Math.round(cy * 100) - 6));
     return px + "% " + py + "%";
+  }
+
+  /* CSSOS_WAVE_1668 20260709 — Jing「媒体框也用上面部识别, 让人脸完整显示」。
+   * detectFaceOnImage 对跨域封面(cdn.cssstudio.app)/Safari 会因无法读像素而放弃。
+   * 兜底: 把封面 src 走【同源】/api/img-thumb 代理成一张可读副本, 在副本上检测,
+   * 结果(cx,cy,zone)套回真正显示的 <img> 的 object-position。全浏览器可用。 */
+  async function detectFaceOnProxiedSrc(src) {
+    try {
+      if (!src || src.startsWith("data:") || src.startsWith("blob:")) return null;
+      var u = new URL(src, window.location.href);
+      var prox = (u.origin === window.location.origin)
+        ? src
+        : "/api/img-thumb?fmt=jpg&w=320&u=" + encodeURIComponent(src);
+      var pimg = await new Promise(function (res, rej) {
+        var im = new Image();
+        im.onload = function () { res(im); };
+        im.onerror = rej;
+        im.src = prox;
+      });
+      return await detectFaceOnImage(pimg);
+    } catch (_e) { return null; }
   }
 
   var __imgFaceBound = new WeakSet();
   async function analyzeCoverImage(img) {
     if (!img) return;
     var res = await detectFaceOnImage(img);
+    // 跨域/Safari 读不了像素 → 走同源代理副本再试(W1668)。
+    if (!res) res = await detectFaceOnProxiedSrc(img.currentSrc || img.src);
     if (!res) return;
     try {
       img.style.objectPosition = objectPositionForFace(res.cx, res.cy);

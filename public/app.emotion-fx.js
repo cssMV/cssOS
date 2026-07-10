@@ -107,6 +107,7 @@
   }
   globalThis.cssosEmotionFlash = function (emotion, intensity) {
     if (globalThis.cssosEmotionSubtitlesOff === true) return;   // W725 — 情绪字幕主开关(关 = 只留普通字幕)
+    if (globalThis.cssosReverentMode === true) return;   // W1705 — 庄严档(圣诗): 无全屏闪
     if (!FX.fullscreen || !FX.flash) return;
     try {
       var el = ensureFlash();
@@ -150,6 +151,7 @@
   var _lastConfetti = 0;
   function spawnConfetti(emotion, peak) {
     if (globalThis.cssosEmotionSubtitlesOff === true) return;
+    if (globalThis.cssosReverentMode === true) return;   // W1705 — 庄严档: 无彩纸/花瓣
     if (globalThis.cssosConfettiTopDown !== true) return;   // W726 — 天女散花(从天而降)默认关, 用户可开
     var now = (globalThis.performance && performance.now) ? performance.now() : 0;
     if (now && now - _lastConfetti < 420) return; // 节流: 别每字都撒, 保持"庆祝"的稀有感
@@ -181,7 +183,7 @@
     layer.appendChild(frag);
     // 清理: 最长 ~3.4s 后移除本批
     setTimeout(function () {
-      try { while (layer.firstChild && layer.childNodes.length > 240) layer.removeChild(layer.firstChild); } catch (_e) {}
+      try { while (layer.firstChild && layer.childNodes.length > 140) layer.removeChild(layer.firstChild); } catch (_e) {}
     }, 60);
     setTimeout(function () {
       try {
@@ -248,6 +250,8 @@
         "font-size:" + sz + "rem;" +
         "--cb-glow:" + (0.4 + inten * 0.6).toFixed(2) + ";";
       grp.appendChild(el);
+      // W1612 — center 组并发硬顶: 双方逐字快爆时同时驻留的组也钉死(超 20 个删最旧), 防瞬时尖峰。
+      try { while (layer.childElementCount > 20 && layer.firstChild) layer.removeChild(layer.firstChild); } catch (_e) {}
       layer.appendChild(grp);
       setTimeout(function () { try { if (grp && grp.parentNode) grp.parentNode.removeChild(grp); } catch (_e) {} }, Math.round(dwell * 1000) + 280);
     } catch (e) {}
@@ -263,6 +267,17 @@
   // CSSOS_WAVE_721 — 竖排(vertical): 拉丁语/移动端用竖排(横排会挤爆窄屏); CJK 桌面横排网格。
   function _stagePos(i, n, vertical, side, band, oneCol) {
     if (vertical) {
+      // W1591 — 同框(cssosBurstBothSides=true)时: 字沿【四边环绕】爆(左列/右列/上排/下排轮流),
+      //   中心留给演员的脸, 周边满屏更接近图2。默认关 → MV 情绪字幕不受影响(仍随机单侧)。
+      if (globalThis.cssosBurstBothSides === true) {
+        var _edge = i % 4, _wi = Math.floor(i / 4), _per = Math.max(1, Math.ceil(n / 4));
+        var _step = _per > 1 ? Math.min(11, 74 / (_per - 1)) : 0, _px, _py;
+        if (_edge === 0) { _px = 8 + (Math.random() * 6 - 3); _py = 16 + _wi * _step + (Math.random() * 4 - 2); }         // 左列
+        else if (_edge === 1) { _px = 92 + (Math.random() * 6 - 3); _py = 16 + _wi * _step + (Math.random() * 4 - 2); }   // 右列
+        else if (_edge === 2) { _py = 12 + (Math.random() * 5 - 2.5); _px = 14 + _wi * _step + (Math.random() * 5 - 2.5); } // 上排
+        else { _py = 88 + (Math.random() * 5 - 2.5); _px = 14 + _wi * _step + (Math.random() * 5 - 2.5); }                 // 下排
+        return { x: Math.max(3, Math.min(97, _px)), y: Math.max(6, Math.min(94, _py)) };
+      }
       // CSSOS_WAVE_731v 20260613 — Jing: 英文(非CJK)无论横竖屏, 中央爆的词【一律单列竖排、
       // 一个单词一行】, 随机靠左/右。oneCol=true 时强制单列(不再长句分两列)。
       var cols = oneCol ? 1 : Math.max(1, Math.min(2, Math.round(n / 9)));
@@ -362,6 +377,10 @@
   function _fireworkAt(xPct, yPct, emotion, count) {
     try {
       if (globalThis.cssosEmotionSubtitlesOff === true) return;   // W726 — 字心烟花只受主开关管(不再被"天女散花"开关误关)
+      if (globalThis.cssosReverentMode === true) return;   // W1705 — 庄严档(圣诗): 无字心烟花
+      /* CSSOS_WAVE_1705 — Jing「圣诗要情绪字幕, 但庄严」: 庄严档【只砍嘉年华】(全屏闪/彩纸/花瓣/
+       * 字心烟花), 逐字流入与逐字点亮【全部保留】。逐字点亮更像会众捧着圣诗本跟唱, 是庄严不是花哨;
+       * 火花彩纸才是不端庄。开关: globalThis.cssosReverentMode = true。 */
       var layer = ensureSparkLayer();
       var pool = _themePool(EMO_PETALS[String(emotion || "").toLowerCase()] || PETALS);
       var nn = Math.max(3, Math.min(30, count || 6));   // W1118b — Jing 指令: 上限 16→30, 字心爆更多
@@ -384,7 +403,9 @@
       // setTimeout(3400ms) 删, 无硬上限 → 高潮段逐字爆得快(每秒数字×30 dot)时创建盖过删除
       // → span 在 cssfx-spark 层无限累积 → DOM 破 OOM 阈值强退。加【硬顶】: 追加前若层内
       // 已超上限, 立即删最旧的, 把同时驻留的 spark 钉死在可控范围(视觉无差, 你也看不清 >180 个)。
-      var SPARK_CAP = 600;
+      // W1612 — 峰值减负 600→300(>180 肉眼已难辨)。W1649 — 可被 cssosSparkCapOverride 压更低
+      //   (同框在 Safari GPU 合成吃紧 → 设 ~90, 探针看不见 GPU 内存但会硬崩, 故主动砍粒子)。
+      var SPARK_CAP = (typeof globalThis.cssosSparkCapOverride === "number" && globalThis.cssosSparkCapOverride > 0) ? globalThis.cssosSparkCapOverride : 300;
       try {
         var _over = (layer.childElementCount || 0) + nn - SPARK_CAP;
         for (var _q = 0; _q < _over && layer.firstChild; _q++) layer.removeChild(layer.firstChild);
@@ -485,10 +506,17 @@
         for (var _g = 0; _g < _go && layer.firstChild; _g++) layer.removeChild(layer.firstChild);
       } catch (_eGc) {}
       layer.appendChild(grp);
-      _lineStage.els.push(grp);
-      // CSSOS_WAVE_721 #3 — 以【该字为中心】炸开小烟花(小 emoji 向四周扩散, 不透明→透明),
-      // 取代"从天而降"。数量 ∝ 情绪强度。
-      _fireworkAt(pos.x, pos.y, emotion, 10 + Math.round(inten * 14));   // W1118b — Jing 指令: 字心小 emoji 爆多一点(原 5–12 → 10–24)
+      // W1591 — 不累积模式(同框 cssosBurstNoAccumulate=true): 每字爆完 ~900ms 就【自移除】(不进整句
+      //   淡出队列)+ 少喷烟花 → "爆完马上释放内存"。默认关 → MV 仍整句累积淡出(招牌不动)。
+      if (globalThis.cssosBurstNoAccumulate === true) {
+        setTimeout(function () { try { if (grp && grp.parentNode) grp.parentNode.removeChild(grp); } catch (_e) {} }, 900);
+        _fireworkAt(pos.x, pos.y, emotion, 4 + Math.round(inten * 4));   // 少喷(4–8), 快清
+      } else {
+        _lineStage.els.push(grp);
+        // CSSOS_WAVE_721 #3 — 以【该字为中心】炸开小烟花(小 emoji 向四周扩散, 不透明→透明),
+        // 取代"从天而降"。数量 ∝ 情绪强度。
+        _fireworkAt(pos.x, pos.y, emotion, 10 + Math.round(inten * 14));   // W1118b — Jing 指令: 字心小 emoji 爆多一点(原 5–12 → 10–24)
+      }
     } catch (e) {}
   };
 

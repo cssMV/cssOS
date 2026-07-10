@@ -45,7 +45,7 @@
     "creation-timeline":  "app.creation-timeline-panel.js?v=20260526-w462-skeleton-universal",
     "add-language":       "app.add-language-modal.js?v=20260602-w588t-tokens",
     "work-edit":          "app.work-edit-panel.js?v=20260531-w544-work-edit",
-    "share-dialog":       "app.share-dialog.js?v=20260506-share-link",
+    "share-dialog":       "app.share-dialog.js?v=20260707-w1591-shareto",
     // CSSOS_WAVE_661 第二小批: voice-clone(定义 cssosOpenVoiceCloneModal+cssosOpenMyVoicesModal)
     //   + add-voice(仅 cssosOpenAddVoiceModal) 两个独立岛, 所有跨文件调用均 typeof 守卫。
     "voice-clone":        "app.voice-clone-modal.js?v=20260602-w588t-tokens",

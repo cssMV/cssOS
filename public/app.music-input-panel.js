@@ -17,13 +17,20 @@
  *   mountMusicSourceUploadTabInSettings(root)
  */
 
-/* CSSOS_WAVE_247 20260520 — Jing: App Store 过审前临时屏蔽「音乐源上传」整卡片.
+/* CSSOS_WAVE_1694 20260710 — Jing「上架了, 按折中方案放开」。整卡片恢复, 但【只放出
+ * 低风险的 4 个 tab】: 🎼MIDI · 📝MusicXML · 📜Sheet · 🖼️Image。
+ * 继续藏住 🎵audio / 🎬video —— 那两个才是"上传任意 mp3/mp4 → 抽词复用"的苹果 5.2(IP)
+ * + 1.2(UGC) 雷点。歌谱→MV 只需要 midi/musicxml/sheet, 一个都不缺。
+ * 注意: `active` 字段以前是装饰性的(没人过滤), 现在由 musicSourceTabsEnabled() 真正生效。
+ *
+ * ↓ 原 W247 记录(保留):
+ * CSSOS_WAVE_247 20260520 — Jing: App Store 过审前临时屏蔽「音乐源上传」整卡片.
  * 原因: 任意 mp3/mp4 上传 → 抽词/复用音视频, 在苹果眼里像"扒任意歌曲"工具,
  *   踩 5.2(IP) + 1.2(UGC 审核) 雷点. App 是远程加载 cssstudio.app, 所以这是
  *   纯前端开关 —— 翻 true 重新部署即放出, 无需重新发版/重审.
  * 过审后改回 true 即恢复 (整卡片 + 全部 5 个 tab).
  * 折中方案(只藏 audio/video 两个高危 tab)见 musicSourceTabs() 注释. */
-const MUSIC_SOURCE_UPLOAD_ENABLED = false;
+const MUSIC_SOURCE_UPLOAD_ENABLED = true;   // W1694 — 上架后恢复(见上方折中方案)
 globalThis.MUSIC_SOURCE_UPLOAD_ENABLED = MUSIC_SOURCE_UPLOAD_ENABLED;
 
 const musicSourceUploadState = {
@@ -284,6 +291,12 @@ function _miFmtSecs(n) {
   return `${m}:${r < 10 ? "0" : ""}${r}`;
 }
 
+/* W1694 — 渲染用: 只返回 active !== false 的 tab。`musicSourceTabs()` 仍返回全量,
+ * 因为 tabByKey() / 历史状态可能引用被隐藏的 key(隐藏≠删除, 老草稿不炸)。 */
+function musicSourceTabsEnabled() {
+  return musicSourceTabs().filter((t) => t.active !== false);
+}
+
 function musicSourceTabs() {
   return [
     {
@@ -291,7 +304,7 @@ function musicSourceTabs() {
       icon: "🎵",
       label: _miTr("Audio", "音频"),
       accept: "audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac",
-      active: true,  // Wave 111A
+      active: false,  // W1694 — 苹果 5.2 高危: 上传任意歌曲抽词。继续隐藏。
       hint: _miTr(
         "Upload mp3/wav/m4a etc. We extract time-coded lyrics (Whisper) and skip the music stage. Pipeline still generates cover + video + subtitles.",
         "上传 mp3 / wav 等成熟音频。系统用 Whisper 抽取时间戳化的歌词，跳过音乐生成阶段。封面 + 视频 + 字幕仍由 cssMV 渲染。"
@@ -304,7 +317,7 @@ function musicSourceTabs() {
       icon: "🎬",
       label: _miTr("Video", "视频"),
       accept: "video/*,.mp4,.mov,.webm,.mkv",
-      active: true,  // Wave 111A
+      active: false,  // W1694 — 苹果 5.2 高危: 上传任意视频复用。继续隐藏。
       hint: _miTr(
         "Upload mp4/mov etc. We extract the audio track, transcribe with Whisper, and reuse your video as-is. Only subtitles + compose run.",
         "上传 mp4 / mov 等。系统抽取音轨，用 Whisper 转录为字幕，直接复用你的视频画面。只跑字幕 + 合成阶段。"
@@ -332,8 +345,8 @@ function musicSourceTabs() {
       accept: ".musicxml,.xml,.mxl,application/vnd.recordare.musicxml+xml,application/xml,text/xml",
       active: true,  // Wave 111B
       hint: _miTr(
-        "Upload .musicxml/.xml/.mxl. We extract lyrics and approximate timing. Music engine still renders fresh audio from the extracted lyrics (no direct synthesis).",
-        "上传 .musicxml / .xml / .mxl。系统抽取歌词并估算时间戳。音乐引擎会基于抽取的歌词重新生成音频（不直接合成 MusicXML）。"
+        "Upload .musicxml/.xml/.mxl. Lyrics and the exact per-word timeline are read straight from the score (from note durations — nothing is estimated). Faithful transcription: the score is converted, never re-composed.",
+        "上传 .musicxml / .xml / .mxl。歌词与逐字时间轴【直接从乐谱解出】(按音符时值精确计算,不做任何估算)。忠实转换:原样还原乐谱,绝不重新作曲。"
       ),
       endpoint: "/api/mv/musicxml/upload",
       field: "musicxml",
@@ -445,7 +458,7 @@ function _miInjectStyle() {
 
 function buildMusicSourceUploadCardMarkup() {
   _miInjectStyle();
-  const tabs = musicSourceTabs();
+  const tabs = musicSourceTabsEnabled();   // W1694
   const activeKey = musicSourceUploadState.activeTab || "audio";
   const activeTab = _miFindTab(activeKey) || tabs[0];
 

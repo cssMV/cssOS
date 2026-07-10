@@ -262,7 +262,10 @@
     opts = opts || {};
     var workId = opts.workId || opts.work_id || opts.id;
     // CSSOS_WAVE_118 — 支持自定义链接(数字演员分享 /a/<id> 等非作品), 传 opts.url 即用它, 不要求 workId。
-    var url = opts.url ? String(opts.url) : (workId ? buildShareUrl(workId) : "");
+    // W1724 — 相对链接(如 /h/<id>、/?hymns=<trad>)必须补全域名, 否则分享到 X/微信等是断链。
+    var url = opts.url
+      ? (function (u) { u = String(u); return /^https?:\/\//i.test(u) ? u : (window.location.origin + (u.charAt(0) === "/" ? u : "/" + u)); })(opts.url)
+      : (workId ? buildShareUrl(workId) : "");
     if (!url) {
       toast(tt("Nothing to share.", "无可分享的内容。"));
       return;

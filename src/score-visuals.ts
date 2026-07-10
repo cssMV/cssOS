@@ -22,6 +22,7 @@
 import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
+import sharp from "sharp";
 
 export type ScoreLine = { ts_ms: number | null; text: string };
 export type Frame = {
@@ -91,6 +92,34 @@ export function traditionFrameRules(tradition?: string): string[] {
   const t = String(tradition || "").trim().toLowerCase();
   // 全局红线【永远】排在每传统条款之前, 保证"绝不画核心圣像"对所有传统一体适用。
   return [UNIVERSAL_NO_HOLY_FIGURE, ...(TRADITION_FRAME_RULES[t] || TRADITION_FRAME_RULES_DEFAULT)];
+}
+
+/* W1724 — 教训: 纯负向约束("do NOT depict Jesus")对图像模型不可靠 —— 歌词里带
+ * Christ/Herr/Gott/Vater 等词, 模型反而照着画(线上真出了耶稣具象封面, 违反红线)。
+ * 对策(双保险): ① 把会诱发具象圣像的圣名/神名从文本里【剥掉】(没有引子); ② 提示词以
+ * "只画风光/建筑/光, 无任何人物"【正面】开场, 而不只是末尾说"别画"。 */
+const FIGURE_TRIGGER_RE =
+  /\b(jesus|christ(us|i|e|us)?|messiah|messias|heiland|erl(ö|oe)ser|savio(u)?rs?|lord|herr|herrn|gott(es)?|god|dieu|vater|father|holy\s+ghost|heiliger\s+geist|buddha|bodhisattva|krishna|vishnu|shiva|rama|ganesh(a)?|allah|muhammad|mohammed|prophet|guru|nanak|saint|virgin|madonna|maria|mary)\b/gi;
+
+export function sanitizeLyricForImage(s: string): string {
+  return String(s || "").replace(FIGURE_TRIGGER_RE, " ").replace(/\s{2,}/g, " ").trim();
+}
+
+/** 封面提示词: 无人物、只借歌词【非人物】意象烘托 + 本传统红线。aniconic-by-construction。 */
+export function coverScenePrompt(
+  lineText: string, tradition?: string, styleAnchor: string = DEFAULT_STYLE_ANCHOR,
+): string {
+  const safe = sanitizeLyricForImage(lineText).replace(/\s+/g, " ").trim();
+  return [
+    `A reverent, FIGURE-FREE sacred cover image for devotional music — wide cinematic 2.39:1.`,
+    `Depict ONLY landscape, sky, light, clouds, water, mountains, nature, or the architecture of a place of worship (interior or exterior).`,
+    `There must be NO people and NO figures of ANY kind — no face, body, silhouette, back view, statue, or icon, whether human or divine.`,
+    safe ? `Let the mood and setting be evoked only by these non-figurative words (never add a figure): "${safe}".` : ``,
+    `Style: ${styleAnchor}.`,
+    `No text, lettering, captions, watermark, or signature anywhere.`,
+    ...traditionFrameRules(tradition),
+    `FINAL HARD RULE: if any part of the composition is about to become a person or a holy figure, replace it with light, sky, water, or architecture instead. Absolutely no figures.`,
+  ].filter(Boolean).join(" ");
 }
 
 /**
@@ -249,8 +278,8 @@ export async function renderCoverStill(
   styleAnchor: string = DEFAULT_STYLE_ANCHOR,
 ): Promise<string | null> {
   try {
-    const prompt = faithfulFramePrompt(lineText, styleAnchor, tradition) +
-      " Wide cinematic 2.39:1 composition.";
+    // W1724 — 封面走【无人物场景】提示词(剥圣名 + 正面 aniconic), 不再用逐行忠实提示(会诱发圣像具象)。
+    const prompt = coverScenePrompt(lineText, tradition, styleAnchor);
     const r = await gen(prompt, "1280x536");
     if (!r) return null;
     const raw = outJpg.replace(/\.jpg$/i, ".raw.jpg");
@@ -264,6 +293,105 @@ export async function renderCoverStill(
     try { fs.unlinkSync(raw); } catch { /* 中间产物 */ }
     if (fs.existsSync(outJpg) && fs.statSync(outJpg).size > 512) return outJpg;
   } catch { /* 封面失败不影响音频/字幕交付 */ }
+  return null;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * W1725 — 确定性封面(零 AI, 保证无人物)。教训见下: AI 出图对"绝不画核心圣人"红线
+ * 不可控(负向+正向 aniconic 提示都压不住模型画耶稣的先验, 线上真出过, 已撤)。
+ * 改成纯 SVG 合成 → sharp 栅格化: 传统【拱窗剪影 + 色相 + 标题】, 物理上不可能出现人物。
+ * 2.39:1(1280×536), 与 MV 统一。
+ * ══════════════════════════════════════════════════════════════════════════ */
+const COVER_WIN: Record<string, string> = {
+  round:    "M0,1 L0,0.15 C0,0.04 0.12,0 0.5,0 C0.88,0 1,0.04 1,0.15 L1,1 Z",
+  onion:    "M0,1 L0,0.30 C0,0.16 0.30,0.22 0.32,0.12 C0.34,0.05 0.44,0.02 0.5,0 C0.56,0.02 0.66,0.05 0.68,0.12 C0.70,0.22 1,0.16 1,0.30 L1,1 Z",
+  ogee:     "M0,1 L0,0.30 C0.12,0.30 0.30,0.24 0.42,0.07 C0.46,0.02 0.48,0 0.5,0 C0.52,0 0.54,0.02 0.58,0.07 C0.70,0.24 0.88,0.30 1,0.30 L1,1 Z",
+  shikhara: "M0,1 L0,0.30 Q0.30,0.24 0.5,0 Q0.70,0.24 1,0.30 L1,1 Z",
+  stupa:    "M0,1 L0,0.30 C0,0.15 0.22,0.08 0.44,0.075 L0.47,0.075 L0.5,0 L0.53,0.075 L0.56,0.075 C0.78,0.08 1,0.15 1,0.30 L1,1 Z",
+  eaves:    "M0,1 L0,0.30 L0.05,0.19 C0.11,0.25 0.17,0.23 0.23,0.21 L0.5,0.05 L0.77,0.21 C0.83,0.23 0.89,0.25 0.95,0.19 L1,0.30 L1,1 Z",
+  tablet:   "M0,1 L0,0.16 C0,0.05 0.10,0.03 0.24,0.03 C0.38,0.03 0.47,0.05 0.47,0.16 L0.47,0.19 L0.53,0.19 L0.53,0.16 C0.53,0.05 0.62,0.03 0.76,0.03 C0.90,0.03 1,0.05 1,0.16 L1,1 Z",
+  lotus:    "M0,1 L0,0.30 C0,0.20 0.06,0.17 0.14,0.21 C0.13,0.11 0.23,0.07 0.30,0.15 C0.34,0.05 0.44,0.02 0.5,0 C0.56,0.02 0.66,0.05 0.70,0.15 C0.77,0.07 0.87,0.11 0.86,0.21 C0.94,0.17 1,0.20 1,0.30 L1,1 Z",
+};
+// tradition → { hue, shape, name }。christian 的 hue 由 id/title 哈希在宝石色里取(和卡片彩窗呼应)。
+const COVER_TRAD: Record<string, { hue: number | null; shape: string; name: string }> = {
+  christian: { hue: null, shape: "round", name: "CHRISTIAN" },
+  catholic:  { hue: 42,   shape: "round", name: "CATHOLIC" },
+  orthodox:  { hue: 45,   shape: "onion", name: "ORTHODOX" },
+  buddhist:  { hue: 38,   shape: "stupa", name: "BUDDHIST" },
+  taoist:    { hue: 0,    shape: "eaves", name: "TAOIST" },
+  islamic:   { hue: 158,  shape: "ogee",  name: "ISLAMIC" },
+  hindu:     { hue: 26,   shape: "shikhara", name: "HINDU" },
+  jewish:    { hue: 220,  shape: "tablet", name: "JEWISH" },
+  sikh:      { hue: 30,   shape: "onion", name: "SIKH" },
+  bahai:     { hue: 275,  shape: "lotus", name: "BAHÁ'Í" },
+  secular:   { hue: 250,  shape: "round", name: "SACRED" },
+  other:     { hue: 200,  shape: "round", name: "SACRED" },
+};
+const COVER_CHRISTIAN_HUES = [4, 214, 145, 42, 275, 190, 32, 100];
+
+function coverMapPath(d: string, x0: number, y0: number, w: number, h: number): string {
+  return d.replace(/([MLCQZ])([^MLCQZ]*)/g, (_m, cmd, nums) => {
+    if (cmd === "Z") return "Z";
+    const a = String(nums).trim().split(/[ ,]+/).filter((s: string) => s !== "").map(Number);
+    let out = cmd;
+    for (let i = 0; i < a.length; i += 2) out += (i ? " " : "") + (x0 + a[i]! * w).toFixed(2) + "," + (y0 + a[i + 1]! * h).toFixed(2);
+    return out;
+  });
+}
+function coverEsc(s: string): string { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function coverWrap(title: string, per: number): string[] {
+  const words = String(title).trim().split(/\s+/); const lines: string[] = []; let cur = "";
+  for (const w of words) { if ((cur + " " + w).trim().length > per && cur) { lines.push(cur); cur = w; } else cur = (cur + " " + w).trim(); }
+  if (cur) lines.push(cur);
+  if (lines.length > 3) { lines.length = 3; lines[2] = lines[2]!.replace(/.{1,2}$/, "…"); }
+  return lines;
+}
+function coverHueFor(tradition: string | undefined, seed: string): number {
+  const t = String(tradition || "secular").toLowerCase();
+  const meta = COVER_TRAD[t] || COVER_TRAD.secular!;
+  if (meta.hue != null) return meta.hue;
+  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return COVER_CHRISTIAN_HUES[h % COVER_CHRISTIAN_HUES.length]!;
+}
+
+export function buildCoverSvg(title: string, tradition: string | undefined, seed = ""): string {
+  const t = String(tradition || "secular").toLowerCase();
+  const meta = COVER_TRAD[t] || COVER_TRAD.secular!;
+  const hue = coverHueFor(tradition, seed || title);
+  const W = 1280, H = 536, bx = 150, by = 66, bw = 300, bh = 404, cx = bx + bw / 2;
+  const winPath = coverMapPath(COVER_WIN[meta.shape] || COVER_WIN.round!, bx, by, bw, bh);
+  const lines = coverWrap(title || "Sacred Score", 18);
+  const tSize = lines.length >= 3 ? 44 : 52, tx = 560;
+  const startY = H / 2 - ((lines.length - 1) * (tSize + 8)) / 2 - 14;
+  const titleEls = lines.map((ln, i) => `<text x="${tx}" y="${(startY + i * (tSize + 8)).toFixed(0)}" font-family="DejaVu Serif, 'Noto Serif CJK SC', serif" font-size="${tSize}" font-weight="700" fill="#f4ecd6">${coverEsc(ln)}</text>`).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${hue},42%,19%)"/><stop offset="1" stop-color="hsl(${hue},48%,8%)"/></linearGradient>
+<radialGradient id="glow" cx="${(cx / W).toFixed(3)}" cy="0.46" r="0.42"><stop offset="0" stop-color="hsl(${hue},70%,78%)" stop-opacity="0.85"/><stop offset="0.55" stop-color="hsl(${hue},60%,50%)" stop-opacity="0.28"/><stop offset="1" stop-color="hsl(${hue},60%,50%)" stop-opacity="0"/></radialGradient>
+<linearGradient id="win" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="hsl(${hue},75%,72%)"/><stop offset="0.6" stop-color="hsl(${hue},66%,50%)"/><stop offset="1" stop-color="hsl(${hue},60%,32%)"/></linearGradient>
+<filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="26"/></filter>
+</defs>
+<rect width="${W}" height="${H}" fill="url(#sky)"/>
+<ellipse cx="${cx}" cy="250" rx="360" ry="300" fill="url(#glow)"/>
+<path d="${winPath}" fill="hsl(${hue},70%,60%)" opacity="0.55" filter="url(#soft)"/>
+<path d="${winPath}" fill="url(#win)" stroke="hsl(${hue},80%,80%)" stroke-width="2" stroke-opacity="0.5"/>
+<line x1="${cx}" y1="${by + 30}" x2="${cx}" y2="${by + bh}" stroke="rgba(20,14,4,0.28)" stroke-width="2"/>
+<line x1="${cx - 60}" y1="${by + 120}" x2="${cx - 60}" y2="${by + bh}" stroke="rgba(20,14,4,0.18)" stroke-width="2"/>
+<line x1="${cx + 60}" y1="${by + 120}" x2="${cx + 60}" y2="${by + bh}" stroke="rgba(20,14,4,0.18)" stroke-width="2"/>
+${titleEls}
+<text x="${tx}" y="${(startY + lines.length * (tSize + 8) + 16).toFixed(0)}" font-family="DejaVu Serif, serif" font-size="20" letter-spacing="3" fill="hsl(${hue},45%,74%)">${coverEsc(meta.name)} · SACRED SCORE</text>
+</svg>`;
+}
+
+/** 确定性封面 → jpg。零 AI, 不需要 _imageGen, 也不吃 KIE。失败返回 null(不阻断交付)。 */
+export async function renderDeterministicCover(
+  title: string, tradition: string | undefined, outJpg: string, seed = "",
+): Promise<string | null> {
+  try {
+    const svg = buildCoverSvg(title || "Sacred Score", tradition, seed);
+    await sharp(Buffer.from(svg)).jpeg({ quality: 88 }).toFile(outJpg);
+    if (fs.existsSync(outJpg) && fs.statSync(outJpg).size > 512) return outJpg;
+  } catch (e) { console.warn("[score-render] deterministic cover failed:", (e as Error)?.message || e); }
   return null;
 }
 

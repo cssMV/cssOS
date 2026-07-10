@@ -13478,8 +13478,8 @@ app.get("/h/:id", async (req, res) => {
 <meta property="og:title" content="${H(title)} · Sacred Score"/>
 <meta property="og:description" content="${H(desc)}"/>
 <meta property="og:url" content="${H(play)}"/>
-${poster ? `<meta property="og:image" content="${H(poster)}"/><meta property="og:image:width" content="1280"/><meta property="og:image:height" content="720"/>` : ""}
-${video ? `<meta property="og:video" content="${H(video)}"/><meta property="og:video:secure_url" content="${H(video)}"/><meta property="og:video:type" content="video/mp4"/><meta property="og:video:width" content="1280"/><meta property="og:video:height" content="720"/>` : ""}
+${poster ? `<meta property="og:image" content="${H(poster)}"/><meta property="og:image:width" content="1280"/><meta property="og:image:height" content="536"/>` : ""}
+${video ? `<meta property="og:video" content="${H(video)}"/><meta property="og:video:secure_url" content="${H(video)}"/><meta property="og:video:type" content="video/mp4"/><meta property="og:video:width" content="1280"/><meta property="og:video:height" content="536"/>` : ""}
 <meta name="twitter:card" content="${card}"/>
 <meta name="twitter:title" content="${H(title)} · Sacred Score"/>
 <meta name="twitter:description" content="${H(desc)}"/>

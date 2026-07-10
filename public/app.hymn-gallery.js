@@ -74,7 +74,8 @@
        *   有封面 → 铺满卡身(object-fit:cover), 播放钮浮其上; 无封面 → 退回谱线占位。
        *   拱顶彩窗仍是本传统识别色带, 不动。 */
       // W1724 — 封面保持真【2.39:1】(整帧不裁), 紧贴拱窗下方; 标题等信息再放封面【下方】。
-      "#cssos-hymngal .hg-cover{position:absolute;left:0;right:0;top:34%;aspect-ratio:2.39/1;height:auto;object-fit:cover;z-index:1;",
+      //   注意: 绝对定位的 <img> 必须显式 width:100%, 否则被当替换元素"缩到本征宽"而非铺满卡宽。
+      "#cssos-hymngal .hg-cover{position:absolute;left:0;top:34%;width:100%;height:auto;aspect-ratio:2.39/1;object-fit:cover;z-index:1;",
       "  background:#0c0a06;box-shadow:inset 0 1px 6px rgba(0,0,0,0.4);}",
       "#cssos-hymngal .hg-card[data-cover] .hg-staff{display:none;}",
       "#cssos-hymngal .hg-card[data-cover] .hg-clef{display:none;}",
@@ -220,9 +221,27 @@
   function tradName(t) { return (TRADITION_META[t] && TRADITION_META[t].name) || t; }
   function tradSym(t) { return (TRADITIONS[t] && TRADITIONS[t].sym) || "◈"; }
 
+  /* W1724 — 进圣殿即停下方"传统 MV"播放(和进圣诗播放器一致)。只暂停(不彻底断源, 关闭后可续),
+   *   并置 cssosAudioIntentPaused 让音频权威让位; 700ms 再压一次(挡自动续播/延迟挂载)。 */
+  function hgStopBg() {
+    try { globalThis.cssosAudioIntentPaused = true; } catch (_e) {}
+    function k() {
+      try {
+        document.querySelectorAll("video,audio").forEach(function (m) {
+          if (m.closest && m.closest("#cssos-hymngal")) return;   // 圣殿自身媒体不动
+          try { if (!m.paused) m.pause(); } catch (e) {}
+          try { if (!m.muted) m.muted = true; } catch (e) {}
+        });
+      } catch (e) {}
+    }
+    k(); setTimeout(k, 700);
+  }
+  function hgResumeBgAuthority() { try { globalThis.cssosAudioIntentPaused = false; } catch (_e) {} }
+
   globalThis.cssosOpenHymnGallery = function (filterTradition) {
     injectStyle();
     injectClipDefs();   // W1724 — 曲线拱形剪影 SVG clipPath
+    hgStopBg();         // W1724 — 静下方传统 MV
     var ov = document.getElementById("cssos-hymngal");
     if (ov) { try { ov.remove(); } catch (_e) {} }
     ov = document.createElement("div"); ov.id = "cssos-hymngal";
@@ -237,9 +256,9 @@
       '<div class="hg-body"><div class="hg-empty">Loading…</div></div>';
     document.body.appendChild(ov);
 
-    ov.querySelector(".hg-x").onclick = function () { try { ov.remove(); } catch (_e) {} };
+    ov.querySelector(".hg-x").onclick = function () { try { ov.remove(); } catch (_e) {} hgResumeBgAuthority(); };
     document.addEventListener("keydown", function esc2(e) {
-      if (e.key === "Escape" && document.getElementById("cssos-hymngal")) { try { ov.remove(); } catch (_e) {} document.removeEventListener("keydown", esc2); }
+      if (e.key === "Escape" && document.getElementById("cssos-hymngal")) { try { ov.remove(); } catch (_e) {} hgResumeBgAuthority(); document.removeEventListener("keydown", esc2); }
     });
 
     var body = ov.querySelector(".hg-body");

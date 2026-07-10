@@ -23,7 +23,7 @@ import path from "path";
 import { withClient } from "./db";
 import { parseMusicXml } from "./musicxml";
 import { renderScoreToAudio } from "./musicxml-audio";
-import { buildFramePlanVerses, renderFramesToImages, assembleMv, extractPoster, renderCoverStill, scoreToSubtitleJson, type ImageGen } from "./score-visuals";
+import { buildFramePlanVerses, renderFramesToImages, assembleMv, extractPoster, renderDeterministicCover, scoreToSubtitleJson, type ImageGen } from "./score-visuals";
 
 /** 任何时刻最多几个渲染在跑。默认 1 —— 宁可慢, 不可卡影院。 */
 const CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.SCORE_RENDER_CONCURRENCY || 1)));
@@ -76,14 +76,14 @@ let _imageGen: ImageGen | null = null;
 export function setScoreImageGen(gen: ImageGen) { _imageGen = gen; }
 
 /** 原子取活: SKIP LOCKED 保证多进程/多实例下同一个 job 只被一个 worker 拿走。 */
-async function claimNextJob(): Promise<{ job_id: string; xml_path: string; out_dir: string; url_prefix: string; attempts: number; render_mv: boolean; render_cover: boolean; tradition: string } | null> {
+async function claimNextJob(): Promise<{ job_id: string; xml_path: string; out_dir: string; url_prefix: string; attempts: number; render_mv: boolean; render_cover: boolean; tradition: string; title: string | null } | null> {
   const r = await withClient((c) => c.query(
     `UPDATE score_render_jobs SET status='running', started_at=now(), attempts=attempts+1
       WHERE job_id = (
         SELECT job_id FROM score_render_jobs
          WHERE status='queued' ORDER BY created_at
          FOR UPDATE SKIP LOCKED LIMIT 1)
-      RETURNING job_id, xml_path, out_dir, url_prefix, attempts, render_mv, render_cover, tradition`,
+      RETURNING job_id, xml_path, out_dir, url_prefix, attempts, render_mv, render_cover, tradition, title`,
   ));
   return (r.rows[0] as any) || null;
 }
@@ -97,7 +97,7 @@ async function finishJob(jobId: string, patch: Record<string, unknown>) {
   ));
 }
 
-async function runOne(job: { job_id: string; xml_path: string; out_dir: string; url_prefix: string; attempts: number; render_mv: boolean; render_cover?: boolean; tradition?: string }) {
+async function runOne(job: { job_id: string; xml_path: string; out_dir: string; url_prefix: string; attempts: number; render_mv: boolean; render_cover?: boolean; tradition?: string; title?: string | null }) {
   try {
     if (!fs.existsSync(job.xml_path)) throw new Error("xml_missing");
     const mx = parseMusicXml(fs.readFileSync(job.xml_path, "utf8"));
@@ -148,16 +148,15 @@ async function runOne(job: { job_id: string; xml_path: string; out_dir: string; 
       }
     }
 
-    /* W1721 — 音频-only 也要有【封面图】: 没跑 MV 但 render_cover=true 时, 出一张 2.39:1 影院封面
-     * (第一句歌词, 忠实转换, 附本传统画面红线)。只一张图, 成本极低; 失败仍照常交付音频。 */
-    if (!posterUrl && _imageGen && job.render_cover && mx.verses[0]?.lines.length) {
+    /* W1725 — 音频-only 的【封面图】改成【确定性 SVG 合成】(零 AI, 保证无人物 —— AI 出图压不住
+     * "绝不画核心圣人"红线, 见 score-visuals renderDeterministicCover 注释)。传统拱窗 + 色相 + 标题。
+     * 不需要 _imageGen, 也不吃 KIE; 纯 sharp, 秒出、免费、必然合规。失败仍照常交付音频。 */
+    if (!posterUrl && job.render_cover) {
       try {
-        const firstLine = mx.verses[0].lines.find((l) => String(l.text || "").trim())?.text || "";
-        if (firstLine) {
-          const coverJpg = path.join(job.out_dir, `${path.basename(r.mp3Path, ".mp3")}.cover.jpg`);
-          if (await renderCoverStill(firstLine, tradition, _imageGen, coverJpg)) {
-            posterUrl = `${job.url_prefix}/${path.basename(coverJpg)}`;
-          }
+        const coverTitle = job.title || mx.title || mx.verses[0]?.lines.find((l) => String(l.text || "").trim())?.text || "Sacred Score";
+        const coverJpg = path.join(job.out_dir, `${path.basename(r.mp3Path, ".mp3")}.cover.jpg`);
+        if (await renderDeterministicCover(coverTitle, tradition, coverJpg, job.job_id)) {
+          posterUrl = `${job.url_prefix}/${path.basename(coverJpg)}`;
         }
       } catch (e) {
         console.warn(`[score-render] cover failed (audio still delivered) job=${job.job_id}:`, (e as Error)?.message || e);

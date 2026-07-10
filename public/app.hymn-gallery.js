@@ -73,23 +73,45 @@
       /* W1721 — 2.39:1 影院封面放在【卡身这一块】(拱窗下, 标题上), 统一 MV 那套风格。
        *   有封面 → 铺满卡身(object-fit:cover), 播放钮浮其上; 无封面 → 退回谱线占位。
        *   拱顶彩窗仍是本传统识别色带, 不动。 */
-      "#cssos-hymngal .hg-cover{position:absolute;left:0;right:0;top:34%;bottom:56px;object-fit:cover;z-index:1;",
-      "  background:#0c0a06;box-shadow:inset 0 2px 8px rgba(0,0,0,0.4);}",
+      // W1724 — 封面保持真【2.39:1】(整帧不裁), 紧贴拱窗下方; 标题等信息再放封面【下方】。
+      "#cssos-hymngal .hg-cover{position:absolute;left:0;right:0;top:34%;aspect-ratio:2.39/1;height:auto;object-fit:cover;z-index:1;",
+      "  background:#0c0a06;box-shadow:inset 0 1px 6px rgba(0,0,0,0.4);}",
       "#cssos-hymngal .hg-card[data-cover] .hg-staff{display:none;}",
       "#cssos-hymngal .hg-card[data-cover] .hg-clef{display:none;}",
+      // 有封面: 播放钮居于 2.39 封面中央; 标题块落在封面下方的奶白区并纵向居中。
+      "#cssos-hymngal .hg-card[data-cover] .hg-play{top:47%;}",
+      "#cssos-hymngal .hg-card[data-cover] .hg-ct{top:62%;bottom:10px;display:flex;flex-direction:column;justify-content:center;}",
       // W1720 — 拱心传统符号(✝/☸/۞/🕉/✡/☬/♪), 取代之前的 🏛。
       "#cssos-hymngal .hg-sym{position:absolute;top:9%;left:50%;transform:translateX(-50%);font-size:26px;z-index:2;",
       "  color:rgba(20,14,4,0.72);filter:drop-shadow(0 1px 3px rgba(255,255,255,0.3));}",
-      /* 每传统各自主题:
-       *  · 尖拱(islamic/hindu/sikh): 拱顶收成尖顶, 更像清真寺/庙宇拱。
-       *  · islamic 无具象: 玻璃纹样改成【几何星格】(arabesque), 而非铅条竖纹。
-       * W1723 — 尖顶【和圆顶一样铺满宽度, 去掉两边留白】(Jing): 把尖顶裁在【整张卡】上,
-       *   而不是只裁彩窗。这样尖角两侧露出的是深色背景(和圆顶露背景同理), 不再露米色卡底空白;
-       *   彩窗则铺满卡顶全宽, 由卡片外形收成尖角。 */
-      "#cssos-hymngal .hg-card[data-arch='point']{border-radius:0;",
-      "  clip-path:polygon(50% 0,100% 15%,100% 100%,0 100%,0 15%);}",
-      "#cssos-hymngal .hg-card[data-arch='point'] .hg-glass{clip-path:none;border-radius:0;}",
-      "#cssos-hymngal .hg-card[data-arch='point'] .hg-glass::after{clip-path:none;border-radius:0;}",
+      /* W1724 — 每教派各自【拱形轮廓】(Jing 选 B「强身份」): 8 种一眼可辨的剪影。
+       *   做法(承 W1723): 把轮廓裁在【整张卡】上(clip-path), 而非只裁彩窗 —— 尖/穹两侧露出的是
+       *   深色背景, 不露米色卡底留白; 彩窗铺满卡顶全宽, 由卡片外形收边。
+       *   曲线轮廓(洋葱/窣堵坡/莲花/约版/飞檐)用 SVG clipPath(objectBoundingBox, 随卡缩放, 见 injectClipDefs);
+       *   round 保留 border-radius 圆顶(填满到角, 本就无留白)。 */
+      "#cssos-hymngal .hg-card[data-arch='ogee'],#cssos-hymngal .hg-card[data-arch='shikhara'],",
+      "#cssos-hymngal .hg-card[data-arch='onion'],#cssos-hymngal .hg-card[data-arch='stupa'],",
+      "#cssos-hymngal .hg-card[data-arch='eaves'],#cssos-hymngal .hg-card[data-arch='tablet'],",
+      "#cssos-hymngal .hg-card[data-arch='lotus'],#cssos-hymngal .hg-card[data-arch='point']{border-radius:0;}",
+      "#cssos-hymngal .hg-card[data-arch='ogee'] .hg-glass,#cssos-hymngal .hg-card[data-arch='shikhara'] .hg-glass,",
+      "#cssos-hymngal .hg-card[data-arch='onion'] .hg-glass,#cssos-hymngal .hg-card[data-arch='stupa'] .hg-glass,",
+      "#cssos-hymngal .hg-card[data-arch='eaves'] .hg-glass,#cssos-hymngal .hg-card[data-arch='tablet'] .hg-glass,",
+      "#cssos-hymngal .hg-card[data-arch='lotus'] .hg-glass,#cssos-hymngal .hg-card[data-arch='point'] .hg-glass,",
+      "#cssos-hymngal .hg-card[data-arch='ogee'] .hg-glass::after,#cssos-hymngal .hg-card[data-arch='shikhara'] .hg-glass::after,",
+      "#cssos-hymngal .hg-card[data-arch='onion'] .hg-glass::after,#cssos-hymngal .hg-card[data-arch='stupa'] .hg-glass::after,",
+      "#cssos-hymngal .hg-card[data-arch='eaves'] .hg-glass::after,#cssos-hymngal .hg-card[data-arch='tablet'] .hg-glass::after,",
+      "#cssos-hymngal .hg-card[data-arch='lotus'] .hg-glass::after,#cssos-hymngal .hg-card[data-arch='point'] .hg-glass::after{clip-path:none;border-radius:0;}",
+      "#cssos-hymngal .hg-card[data-arch='ogee']{clip-path:url(#hg-arch-ogee);}",
+      "#cssos-hymngal .hg-card[data-arch='shikhara']{clip-path:url(#hg-arch-shikhara);}",
+      "#cssos-hymngal .hg-card[data-arch='onion']{clip-path:url(#hg-arch-onion);}",
+      "#cssos-hymngal .hg-card[data-arch='stupa']{clip-path:url(#hg-arch-stupa);}",
+      "#cssos-hymngal .hg-card[data-arch='eaves']{clip-path:url(#hg-arch-eaves);}",
+      "#cssos-hymngal .hg-card[data-arch='tablet']{clip-path:url(#hg-arch-tablet);}",
+      "#cssos-hymngal .hg-card[data-arch='lotus']{clip-path:url(#hg-arch-lotus);}",
+      // 旧 'point' 兼容(万一残留数据): 退回 ogee 尖拱。
+      "#cssos-hymngal .hg-card[data-arch='point']{clip-path:url(#hg-arch-ogee);}",
+      // W1724 — 约版(tablet)双圆矮, 标志下移一点, 落在双圆下方的色带里(不夹在两圆之间)。
+      "#cssos-hymngal .hg-card[data-arch='tablet'] .hg-sym{top:18%;}",
       "#cssos-hymngal .hg-card[data-trad='islamic'] .hg-glass::after{",
       "  background:repeating-conic-gradient(from 0deg at 50% 40%,rgba(20,30,20,0.22) 0deg 15deg,transparent 15deg 30deg);opacity:0.6;}",
       // 谱面(拱窗下半)
@@ -116,16 +138,53 @@
    *   彩窗色相 + 符号 + 纹样。christian 保留大教堂彩窗(一排排宝石色, 最正宗); 其余各按自身传统。
    *   ⚠️ 内容红线在 MV 生成侧(score-visuals)守: 伊斯兰只做 nasheed、绝不碰古兰经诵读、绝不描绘先知。 */
   var CHRISTIAN_HUES = [4, 214, 145, 42, 275, 190, 32, 100];   // 彩窗一排排宝石色
+  /* W1724 — 每教派各自拱形轮廓(见 injectClipDefs 的 SVG 剪影):
+   *   round 半圆顶 · onion 洋葱顶 · ogee 葱形尖拱 · shikhara 塔尖 · stupa 窣堵坡刹 ·
+   *   eaves 飞檐 · tablet 约版双圆 · lotus 莲花。 */
   var TRADITIONS = {
-    christian: { sym: "✝", hue: null, arch: "round" },       // ✝ · 彩窗轮换
-    buddhist:  { sym: "☸", hue: 42,  arch: "round" },        // ☸ 法轮 · 金/藏红
-    islamic:   { sym: "۞", hue: 158, arch: "point" },        // ۞ 几何星 · 翠绿/金(无具象)
-    hindu:     { sym: "🕉", hue: 26, arch: "point" },   // 🕉 · 藏红/朱
-    jewish:    { sym: "✡", hue: 220, arch: "round" },        // ✡ · 蓝/金
-    sikh:      { sym: "☬", hue: 30,  arch: "point" },        // ☬ · 蓝/橙
-    secular:   { sym: "♪", hue: 265, arch: "round" },        // ♪ · 中性
-    other:     { sym: "◈", hue: 200, arch: "round" },
+    christian: { sym: "✝", hue: null, arch: "round" },       // 罗曼式圆顶 · 彩窗轮换
+    catholic:  { sym: "✝", hue: 42,   arch: "round" },       // 天主教 · 圆顶
+    orthodox:  { sym: "☦", hue: 45,   arch: "onion" },       // 东正教 · 洋葱穹顶
+    buddhist:  { sym: "☸", hue: 38,   arch: "stupa" },       // 佛教 · 窣堵坡穹顶+刹
+    taoist:    { sym: "☯", hue: 0,    arch: "eaves" },       // 道教/儒家 · 飞檐
+    islamic:   { sym: "۞", hue: 158,  arch: "ogee" },        // 伊斯兰 · 清真寺尖拱(无具象)
+    hindu:     { sym: "🕉", hue: 26,   arch: "shikhara" },    // 印度教 · 庙塔尖
+    jewish:    { sym: "✡", hue: 220,  arch: "tablet" },      // 犹太教 · 十诫约版双圆
+    sikh:      { sym: "☬", hue: 30,   arch: "onion" },       // 锡克 · 金庙洋葱穹顶
+    bahai:     { sym: "✵", hue: 275,  arch: "lotus" },       // 巴哈伊 · 莲花寺
+    secular:   { sym: "♪", hue: 250,  arch: "round" },       // 世俗 · 中性圆顶
+    other:     { sym: "◈", hue: 200,  arch: "round" },
   };
+
+  /* W1724 — 曲线拱形剪影(SVG clipPath, objectBoundingBox → 随卡自适应缩放)。
+   *   坐标 0..1 = 卡片自身比例; 造型集中在顶部 y 0..0.30, 其下两侧竖直到底(卡身为矩形)。
+   *   一次性注入隐藏 <svg>; clip-path:url(#hg-arch-X) 引用之。 */
+  var HG_ARCH_PATHS = {
+    "hg-arch-ogee":     "M0,1 L0,0.30 C0.12,0.30 0.30,0.24 0.42,0.07 C0.46,0.02 0.48,0 0.5,0 C0.52,0 0.54,0.02 0.58,0.07 C0.70,0.24 0.88,0.30 1,0.30 L1,1 Z",
+    "hg-arch-shikhara": "M0,1 L0,0.30 Q0.30,0.24 0.5,0 Q0.70,0.24 1,0.30 L1,1 Z",
+    "hg-arch-onion":    "M0,1 L0,0.30 C0,0.16 0.30,0.22 0.32,0.12 C0.34,0.05 0.44,0.02 0.5,0 C0.56,0.02 0.66,0.05 0.68,0.12 C0.70,0.22 1,0.16 1,0.30 L1,1 Z",
+    "hg-arch-stupa":    "M0,1 L0,0.30 C0,0.15 0.22,0.08 0.44,0.075 L0.47,0.075 L0.5,0 L0.53,0.075 L0.56,0.075 C0.78,0.08 1,0.15 1,0.30 L1,1 Z",
+    "hg-arch-eaves":    "M0,1 L0,0.30 L0.05,0.19 C0.11,0.25 0.17,0.23 0.23,0.21 L0.5,0.05 L0.77,0.21 C0.83,0.23 0.89,0.25 0.95,0.19 L1,0.30 L1,1 Z",
+    "hg-arch-tablet":   "M0,1 L0,0.16 C0,0.05 0.10,0.03 0.24,0.03 C0.38,0.03 0.47,0.05 0.47,0.16 L0.47,0.19 L0.53,0.19 L0.53,0.16 C0.53,0.05 0.62,0.03 0.76,0.03 C0.90,0.03 1,0.05 1,0.16 L1,1 Z",
+    "hg-arch-lotus":    "M0,1 L0,0.30 C0,0.20 0.06,0.17 0.14,0.21 C0.13,0.11 0.23,0.07 0.30,0.15 C0.34,0.05 0.44,0.02 0.5,0 C0.56,0.02 0.66,0.05 0.70,0.15 C0.77,0.07 0.87,0.11 0.86,0.21 C0.94,0.17 1,0.20 1,0.30 L1,1 Z",
+  };
+  function injectClipDefs() {
+    if (document.getElementById("hg-arch-defs")) return;
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("id", "hg-arch-defs"); svg.setAttribute("width", "0"); svg.setAttribute("height", "0");
+    svg.setAttribute("aria-hidden", "true");
+    svg.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;";
+    var defs = document.createElementNS(ns, "defs");
+    Object.keys(HG_ARCH_PATHS).forEach(function (id) {
+      var cp = document.createElementNS(ns, "clipPath");
+      cp.setAttribute("id", id); cp.setAttribute("clipPathUnits", "objectBoundingBox");
+      var p = document.createElementNS(ns, "path"); p.setAttribute("d", HG_ARCH_PATHS[id]);
+      cp.appendChild(p); defs.appendChild(cp);
+    });
+    svg.appendChild(defs);
+    document.body.appendChild(svg);
+  }
   function cardHtml(h, i) {
     var trad = String(h.tradition || "secular").toLowerCase();
     var th = TRADITIONS[trad] || TRADITIONS.secular;
@@ -163,6 +222,7 @@
 
   globalThis.cssosOpenHymnGallery = function (filterTradition) {
     injectStyle();
+    injectClipDefs();   // W1724 — 曲线拱形剪影 SVG clipPath
     var ov = document.getElementById("cssos-hymngal");
     if (ov) { try { ov.remove(); } catch (_e) {} }
     ov = document.createElement("div"); ov.id = "cssos-hymngal";

@@ -13,8 +13,7 @@
   if (window.__cssosPremiumMounted) return;
   window.__cssosPremiumMounted = true;
 
-  const ZH = /^zh/i.test(String(globalThis.currentLocale || navigator.language || "en"));
-  const T = (en, zh) => (ZH ? zh : en);
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
 
   // ── Capture ?ref= and persist to server cookie ───────────────────
   try {
@@ -155,27 +154,27 @@
     ov.innerHTML = `
       <div class="cssos-premium-card" role="dialog" aria-modal="true">
         <div class="cssos-premium-row">
-          <h2 class="cssos-premium-h">${T("Premium", "高级会员")} <span class="cssos-premium-badge" title="${T("Premium","高级会员")}">★</span></h2>
+          <h2 class="cssos-premium-h">${T("Premium")} <span class="cssos-premium-badge" title="${T("Premium")}">★</span></h2>
           <button class="cssos-premium-close" aria-label="close">×</button>
         </div>
-        <div class="cssos-premium-price">$9.99<span style="font-size:14px;opacity:0.7;font-weight:500">/${T("mo","月")}</span></div>
-        <div class="cssos-premium-sub">${T("Cancel anytime. Auto-renews monthly.", "随时可取消，按月自动续订。")}</div>
+        <div class="cssos-premium-price">$9.99<span style="font-size:14px;opacity:0.7;font-weight:500">/${T("mo")}</span></div>
+        <div class="cssos-premium-sub">${T("Cancel anytime. Auto-renews monthly.")}</div>
         <ul class="cssos-premium-features">
-          <li>${T("4K rendering — free upscale", "4K 渲染 — 免费升级画质")}</li>
-          <li>${T("No watermark on embeds", "嵌入分享无水印")}</li>
-          <li>${T("Premium style packs", "高级风格包")}</li>
-          <li>${T("Unlimited DMs (no daily cap)", "无限私信（无每日上限）")}</li>
-          <li>${T("Priority engine queue", "引擎队列优先")}</li>
+          <li>${T("4K rendering — free upscale")}</li>
+          <li>${T("No watermark on embeds")}</li>
+          <li>${T("Premium style packs")}</li>
+          <li>${T("Unlimited DMs (no daily cap)")}</li>
+          <li>${T("Priority engine queue")}</li>
         </ul>
         ${isPremium
-          ? `<div style="margin:8px 0 12px;font-size:13px;opacity:0.85">${T("You are premium until","您的高级会员有效期至")}: <b>${until ? new Date(until).toLocaleDateString() : "—"}</b></div>
-             <button class="cssos-premium-secondary" id="cssos-premium-cancel">${T("Cancel subscription", "取消订阅")}</button>`
-          : `<button class="cssos-premium-cta" id="cssos-premium-subscribe">${T("Subscribe — $9.99/mo", "订阅 — $9.99/月")}</button>
+          ? `<div style="margin:8px 0 12px;font-size:13px;opacity:0.85">${T("You are premium until")}: <b>${until ? new Date(until).toLocaleDateString() : "—"}</b></div>
+             <button class="cssos-premium-secondary" id="cssos-premium-cancel">${T("Cancel subscription")}</button>`
+          : `<button class="cssos-premium-cta" id="cssos-premium-subscribe">${T("Subscribe — $9.99/mo")}</button>
              <!-- CSSOS_PERSON_MV_WAVE104B — NihaoPay aggregator (Alipay+WeChat via single MID). -->
-             <button class="cssos-premium-secondary" id="cssos-premium-alipay" style="margin-top:8px">${T("支付宝 / Alipay (¥69/mo via NihaoPay)", "支付宝（¥69/月 · 通过 NihaoPay）")}</button>
-             <button class="cssos-premium-secondary" id="cssos-premium-wechat" style="margin-top:8px">${T("微信支付 / WeChat (¥69/mo via NihaoPay)", "微信支付（¥69/月 · 通过 NihaoPay）")}</button>
+             <button class="cssos-premium-secondary" id="cssos-premium-alipay" style="margin-top:8px">支付宝 / ${T("Alipay (¥69/mo via NihaoPay)")}</button>
+             <button class="cssos-premium-secondary" id="cssos-premium-wechat" style="margin-top:8px">微信支付 / ${T("WeChat Pay (¥69/mo via NihaoPay)")}</button>
              <div id="cssos-premium-wechat-qr" style="margin-top:10px;display:none;text-align:center;font-size:12px;opacity:0.85"></div>`}
-        <button class="cssos-premium-secondary" id="cssos-premium-dismiss">${T("Close", "关闭")}</button>
+        <button class="cssos-premium-secondary" id="cssos-premium-dismiss">${T("Close")}</button>
       </div>
     `;
     document.body.appendChild(ov);
@@ -186,7 +185,7 @@
     if (subBtn) {
       subBtn.addEventListener("click", async () => {
         subBtn.disabled = true;
-        subBtn.textContent = T("Redirecting…", "跳转中…");
+        subBtn.textContent = T("Redirecting…");
         const r = await api("/api/premium/subscribe", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -194,7 +193,7 @@
         });
         const url = r?.data?.checkout_url;
         if (url) window.location.href = url;
-        else { subBtn.disabled = false; subBtn.textContent = T("Subscribe — $9.99/mo", "订阅 — $9.99/月"); alert(T("Subscribe failed.", "订阅失败。")); }
+        else { subBtn.disabled = false; subBtn.textContent = T("Subscribe — $9.99/mo"); alert(T("Subscribe failed.")); }
       });
     }
     // CSSOS_PERSON_MV_WAVE104B — NihaoPay aggregator. One merchant
@@ -210,22 +209,22 @@
       const nihao = findP("nihaopay");
       if (aBtn && nihao && !nihao.enabled) {
         aBtn.disabled = true;
-        aBtn.textContent = T("支付宝 / Alipay — Coming soon", "支付宝 — 即将上线");
+        aBtn.textContent = "支付宝 / " + T("Alipay — Coming soon");
       }
       if (wBtn && nihao && !nihao.enabled) {
         wBtn.disabled = true;
-        wBtn.textContent = T("微信支付 / WeChat — Coming soon", "微信支付 — 即将上线");
+        wBtn.textContent = "微信支付 / " + T("WeChat Pay — Coming soon");
       }
     }
     refreshCnButtons().catch(() => {});
-    function wireNihaoBtn(btnId, vendor, openingLabelEn, openingLabelZh, failEn, failZh) {
+    function wireNihaoBtn(btnId, vendor, openingLabel, failLabel) {
       const btn = ov.querySelector(btnId);
       if (!btn) return;
       btn.addEventListener("click", async () => {
         if (btn.disabled) return;
         btn.disabled = true;
         const original = btn.textContent;
-        btn.textContent = T(openingLabelEn, openingLabelZh);
+        btn.textContent = T(openingLabel);
         const r = await api("/api/premium/subscribe?provider=nihaopay&vendor=" + encodeURIComponent(vendor), {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -243,28 +242,28 @@
         } else {
           btn.disabled = false;
           btn.textContent = original;
-          alert(T(failEn, failZh));
+          alert(T(failLabel));
         }
       });
     }
     wireNihaoBtn("#cssos-premium-alipay", "alipay",
-      "Opening Alipay via NihaoPay…", "通过 NihaoPay 打开支付宝中…",
-      "Alipay subscribe failed.", "支付宝订阅失败。");
+      "Opening Alipay via NihaoPay…",
+      "Alipay subscribe failed.");
     wireNihaoBtn("#cssos-premium-wechat", "wechatpay",
-      "Opening WeChat Pay via NihaoPay…", "通过 NihaoPay 打开微信支付中…",
-      "WeChat Pay subscribe failed.", "微信支付订阅失败。");
+      "Opening WeChat Pay via NihaoPay…",
+      "WeChat Pay subscribe failed.");
     const cancelBtn = ov.querySelector("#cssos-premium-cancel");
     if (cancelBtn) {
       cancelBtn.addEventListener("click", async () => {
-        if (!confirm(T("Cancel premium at the end of the current period?", "在当前周期结束时取消高级会员？"))) return;
+        if (!confirm(T("Cancel premium at the end of the current period?"))) return;
         cancelBtn.disabled = true;
         const r = await api("/api/premium/cancel", { method: "POST" });
         if (r && r.ok !== false && (r.ok || r.data)) {
-          alert(T("Cancellation scheduled.", "已安排取消。"));
+          alert(T("Cancellation scheduled."));
           closeModal();
         } else {
           cancelBtn.disabled = false;
-          alert(T("Cancel failed.", "取消失败。"));
+          alert(T("Cancel failed."));
         }
       });
     }
@@ -292,19 +291,18 @@
     wrap.className = "cssos-affiliate-section";
     wrap.innerHTML = `
       <button class="cssos-affiliate-toggle" type="button" aria-expanded="false">
-        💌 ${T("Refer & earn", "邀请赚积分")} <span style="opacity:0.6">▾</span>
+        💌 ${T("Refer & earn")} <span style="opacity:0.6">▾</span>
       </button>
       <div class="cssos-affiliate-body" style="display:none;margin-top:10px">
         <div style="font-size:13px;opacity:0.85;line-height:1.6">
-          ${T("Share your invite link. When a friend signs up you earn 50 credits, plus 10% of their spend for 30 days (max 100 referrals).",
-              "分享邀请链接。好友注册后，你获得 50 积分，并在 30 天内获得他们消费的 10% 佣金（最多 100 位推荐）。")}
+          ${T("Share your invite link. When a friend signs up you earn 50 credits, plus 10% of their spend for 30 days (max 100 referrals).")}
         </div>
         <div class="cssos-affiliate-link" id="cssos-aff-link">${link || "—"}</div>
-        <button class="cssos-premium-secondary" id="cssos-aff-copy" style="width:auto;margin-top:0">${T("Copy link", "复制链接")}</button>
+        <button class="cssos-premium-secondary" id="cssos-aff-copy" style="width:auto;margin-top:0">${T("Copy link")}</button>
         <div class="cssos-affiliate-stats" style="margin-top:10px">
-          <span><b>${d.total_referrals || 0}</b> ${T("referrals", "推荐人数")}</span>
-          <span><b>${d.total_earned_credits || 0}</b> ${T("credits earned", "已赚积分")}</span>
-          <span style="opacity:0.7">${T("Cap","上限")}: ${d.cap || 100}</span>
+          <span><b>${d.total_referrals || 0}</b> ${T("referrals")}</span>
+          <span><b>${d.total_earned_credits || 0}</b> ${T("credits earned")}</span>
+          <span style="opacity:0.7">${T("Cap")}: ${d.cap || 100}</span>
         </div>
       </div>
     `;
@@ -321,7 +319,7 @@
       try { navigator.clipboard?.writeText(link); } catch { /* ignore */ }
       const btn = wrap.querySelector("#cssos-aff-copy");
       const old = btn.textContent;
-      btn.textContent = T("Copied!", "已复制！");
+      btn.textContent = T("Copied!");
       setTimeout(() => { btn.textContent = old; }, 1400);
     });
   }

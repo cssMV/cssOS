@@ -2228,11 +2228,11 @@
     <script src="app.input-guardrails.js?v=20260420-p2-84-input-guardrails-1"></script>
     <script src="app.runtime-shell-bridges.js?v=20260417-ui-recovery-1"></script>
     <script src="app.panel-settings-actions.js?v=20260416-ui-recovery-2"></script>
-    <script src="app.aspect-ratio.js?v=20260516-wave189-live-orientation"></script>
+    <script src="app.aspect-ratio.js?v=20260712-i18n"></script>
     <script src="app.creation-duration.js?v=20260426-membership-preset-guard-136"></script>
     <script src="app.creation-accessors.js?v=20260423-p2-86-lang-auto-empty-1"></script>
     <script src="app.watch-audio-polling.js?v=20260504-stop-404-poll"></script>
-    <script src="app.panel-command-settings.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.panel-command-settings.js?v=20260712-i18n"></script>
     <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
     <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
     <script src="app.context-menu.js?v=20260602-w587p-myvoice"></script>
@@ -2350,7 +2350,7 @@
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
     <script src="app.crash-log-dashboard.js?v=20260526-w463-skeleton-admin"></script>
     <!-- CSSOS_WAVE_120C — Admin-only "see-a-bug → tell-me" inbox FAB. -->
-    <script src="app.bug-capture.js?v=20260515-wave163-alias"></script>
+    <script src="app.bug-capture.js?v=20260712-i18n"></script>
     <script src="app.client-transcode.js?v=20260511-wave111b-b2"></script>
     <script src="app.cost-breakdown-accum.js?v=20260511-wave113k-accum"></script>
     <!-- CSSOS_WAVE_527 — app.mv-import.js 已移除: mv-pipeline 的"导入"子功能, 随 mv-pipeline 按需加载(见 app.panel-manifest.js CSSOS_PANEL_DEPS). 回退: 改回普通 src. -->
@@ -2411,7 +2411,7 @@
     <script src="app.payments-checkout.js?v=20260526-w465-nowechat"></script>
     <script src="app.music-input-panel.js?v=20260603-w592-civi18n"></script>
     <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.delivery-dashboard-bindings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-dashboard-bindings.js?v=20260712-i18n"></script>
     <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-layout.js?v=20260528-w464f-restore-clamp"></script>
@@ -2467,7 +2467,7 @@
     <script src="app.person-mv-recommendations-shelf.js?v=20260529-w490f-litehome"></script>
     <script src="app.person-mv-leaderboard.js?v=20260603-w593-civmeta"></script>
     <script src="app.home-shelves-position.js?v=20260508-dock-aware"></script>
-    <script src="app.global-search.js?v=20260527-w482-personpin"></script>
+    <script src="app.global-search.js?v=20260712-i18n"></script>
     <!-- CSSOS_PERSON_MV_WAVE69 20260508 — Jing — TikTok-style content plaza. -->
     <script src="app.person-mv-plaza.js?v=20260602-w588v-empty"></script>
     <!-- CSSOS_PERSON_MV_WAVE71 20260508 — Jing — personal stats deep page. -->
@@ -2506,7 +2506,7 @@
     <script src="app.console-noise-cleanup.js?v=20260425-p2-118-noise-1"></script>
     <!-- CSSMV_CONTEXT_MENU_FALLBACKS 20260425 #111 — Jing: dead-link
          recovery for right-click menu entries. -->
-    <script src="app.context-menu-fallbacks.js?v=20260425-p2-111-ctx-menu-1"></script>
+    <script src="app.context-menu-fallbacks.js?v=20260712-i18n"></script>
     <!-- CSSMV_SUBTITLE_CLEANER 20260425 #113 — Jing: strip section
          markers (**Verse 1**, [Chorus], …) and "/" separators from
          rendered subtitles + titles. Lyrics editor stays raw. -->
@@ -2528,7 +2528,7 @@
     <script src="app.final-audio-artifacts.js?v=20260505c-end"></script>
     <script src="app.watch-audio-authority.js?v=20260606-w653"></script>
     <script src="app.song-creation-payload.js?v=20260505c-end"></script>
-    <script src="app.structure-planning.js?v=20260505c-end"></script>
+    <script src="app.structure-planning.js?v=20260712-i18n"></script>
     <script src="app.run-auth.js?v=20260525-w360b-civ-payload"></script>
     <script src="app.logo-panel-actions.js?v=20260505c-end"></script>
     <script src="app.panel-stack.js?v=20260505c-end"></script>
@@ -2541,10 +2541,10 @@
          to renderDeliveryDigestSummaryModule() must run after that fn is
          defined (delivery-digest-ui.js loads earlier in the file). -->
     <script src="app.cssmv-governance.js?v=20260505c-end"></script>
-    <script src="app.notifications-bell.js?v=20260602-w588v-empty"></script>
+    <script src="app.notifications-bell.js?v=20260712-i18n"></script>
     <!-- CSSOS_WAVE_530 — app.dm-panel.js 已移除: 完整三件套自包含模块, #dm hash + cssosOpenDmWith 按需加载. eager 仅留 💌 stub. 回退: 改回普通 src. -->
     <script src="app.dm-open-shim.js?v=20260530-w530-shim"></script>
-    <script src="app.contest-llm.js?v=20260526-w462-skeleton-universal"></script>
+    <script src="app.contest-llm.js?v=20260712-i18n"></script>
     <!-- CSSOS_WAVE_529 — app.premium-modal.js 已移除: 完整三件套自包含模块, 仅 #premium hash 触发, 由通用 router(hash 能力)按需注入. 回退: 改回普通 src. -->
 
     <script src="app.ab.js?v=20260508-wave27-ab"></script>

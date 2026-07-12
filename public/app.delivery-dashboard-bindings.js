@@ -63,7 +63,7 @@ function bindMusicDeliveryPreviewButtonsModule() {
           : []),
         { at }
       ];
-      showToast(dashboardCopy("Dispatch marked done", "已标记发出完成"));
+      showToast(dashboardCopy("Dispatch marked done"));
       renderMusicDeliveryDashboard();
     });
   });
@@ -79,7 +79,7 @@ function bindMusicDeliveryPreviewButtonsModule() {
       const fileName = `zh_probe_dispatch_history_${stamp}.json`;
       downloadJsonArtifact(payload, fileName);
       deliveryDashboardState.probeDispatchHistoryExportAt = payload.exported_at;
-      showToast(dashboardCopy("Dispatch history exported", "发出历史已导出"));
+      showToast(dashboardCopy("Dispatch history exported"));
       renderMusicDeliveryDashboard();
     });
   });
@@ -90,7 +90,7 @@ function bindMusicDeliveryPreviewButtonsModule() {
         : null;
       const body = latestReceipt
         ? `${latestReceipt.at} · ${latestReceipt.fileName}`
-        : dashboardCopy("No export receipt is available yet.", "当前还没有导出回执。");
+        : dashboardCopy("No export receipt is available yet.");
       try {
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(body);
@@ -113,10 +113,10 @@ function bindMusicDeliveryPreviewButtonsModule() {
             fileName: String(latestReceipt?.fileName || "")
           }
         ];
-        showToast(dashboardCopy("Receipt copied", "回执已复制"));
+        showToast(dashboardCopy("Receipt copied"));
         renderMusicDeliveryDashboard();
       } catch {
-        showToast(dashboardCopy("Receipt copy failed", "回执复制失败"));
+        showToast(dashboardCopy("Receipt copy failed"));
       }
     });
   });
@@ -146,10 +146,10 @@ function bindMusicDeliveryPreviewButtonsModule() {
             note: body
           }
         ];
-        showToast(dashboardCopy("Follow-up copied", "跟进备注已复制"));
+        showToast(dashboardCopy("Follow-up copied"));
         renderMusicDeliveryDashboard();
       } catch {
-        showToast(dashboardCopy("Follow-up copy failed", "跟进备注复制失败"));
+        showToast(dashboardCopy("Follow-up copy failed"));
       }
     });
   });

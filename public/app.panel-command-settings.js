@@ -1,109 +1,111 @@
 (() => {
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
+
   const PANEL_COMMAND_CATALOG = {
     "logo-panel": {
       behaviorKey: "logo",
       fallbackShortcut: "h",
-      fallbackVoice: { en: "open logo panel", zh: "打开logo面板" }
+      fallbackVoice: "open logo panel"
     },
     "foryou-panel": {
       behaviorKey: "foryou",
       fallbackShortcut: "f",
-      fallbackVoice: { en: "open for you panel", zh: "打开为你创作面板" }
+      fallbackVoice: "open for you panel"
     },
     "lyrics-panel": {
       behaviorKey: "lyrics",
       fallbackShortcut: "l",
-      fallbackVoice: { en: "open lyrics panel", zh: "打开歌词面板" }
+      fallbackVoice: "open lyrics panel"
     },
     "music-panel": {
       behaviorKey: "music",
       fallbackShortcut: "m",
-      fallbackVoice: { en: "open music panel", zh: "打开音乐面板" }
+      fallbackVoice: "open music panel"
     },
     "video-panel": {
       behaviorKey: "video",
       fallbackShortcut: "v",
-      fallbackVoice: { en: "open video panel", zh: "打开视频面板" }
+      fallbackVoice: "open video panel"
     },
     "watch-panel": {
       behaviorKey: "watch",
       fallbackShortcut: "w",
-      fallbackVoice: { en: "open watch panel", zh: "打开观看面板" }
+      fallbackVoice: "open watch panel"
     },
     "cssmv-panel": {
       behaviorKey: "cssmv",
       fallbackShortcut: "c",
-      fallbackVoice: { en: "open css mv panel", zh: "打开CSSMV面板" }
+      fallbackVoice: "open css mv panel"
     },
     "delivery-reports-panel": {
       behaviorKey: "delivery_reports",
       fallbackShortcut: "r",
-      fallbackVoice: { en: "open delivery reports panel", zh: "打开交付报表面板" }
+      fallbackVoice: "open delivery reports panel"
     },
     "delivery-ops-panel": {
       behaviorKey: "delivery_ops",
       fallbackShortcut: "o",
-      fallbackVoice: { en: "open delivery ops panel", zh: "打开交付运维面板" }
+      fallbackVoice: "open delivery ops panel"
     },
     "api-panel": {
       behaviorKey: "api",
       fallbackShortcut: "a",
-      fallbackVoice: { en: "open api panel", zh: "打开API面板" }
+      fallbackVoice: "open api panel"
     },
     "about-panel": {
       behaviorKey: "about",
       fallbackShortcut: "b",
-      fallbackVoice: { en: "open about panel", zh: "打开关于面板" }
+      fallbackVoice: "open about panel"
     },
     "profile-panel": {
       behaviorKey: "profile",
       fallbackShortcut: "p",
-      fallbackVoice: { en: "open profile panel", zh: "打开个人资料面板" }
+      fallbackVoice: "open profile panel"
     },
     "settings-panel": {
       behaviorKey: "settings",
       fallbackShortcut: "g",
-      fallbackVoice: { en: "open settings panel", zh: "打开设置面板" }
+      fallbackVoice: "open settings panel"
     },
     "language-panel": {
       behaviorKey: "language",
       fallbackShortcut: "n",
-      fallbackVoice: { en: "open language panel", zh: "打开语言面板" }
+      fallbackVoice: "open language panel"
     },
     "login-panel": {
       behaviorKey: "login",
       fallbackShortcut: "i",
-      fallbackVoice: { en: "open login panel", zh: "打开登录面板" }
+      fallbackVoice: "open login panel"
     },
     "subscription-panel": {
       behaviorKey: "subscription",
       fallbackShortcut: "u",
-      fallbackVoice: { en: "open subscription panel", zh: "打开订阅面板" }
+      fallbackVoice: "open subscription panel"
     },
     "credit-panel": {
       behaviorKey: "credit",
       fallbackShortcut: "y",
-      fallbackVoice: { en: "open credit panel", zh: "打开信用面板" }
+      fallbackVoice: "open credit panel"
     },
     "workspaces-panel": {
       behaviorKey: "workspaces",
       fallbackShortcut: "x",
-      fallbackVoice: { en: "open workspaces panel", zh: "打开工作区面板" }
+      fallbackVoice: "open workspaces panel"
     },
     "works-panel": {
       behaviorKey: "works",
       fallbackShortcut: "k",
-      fallbackVoice: { en: "open works panel", zh: "打开作品面板" }
+      fallbackVoice: "open works panel"
     },
     "seller-panel": {
       behaviorKey: "seller",
       fallbackShortcut: "e",
-      fallbackVoice: { en: "open seller panel", zh: "打开商家面板" }
+      fallbackVoice: "open seller panel"
     },
     "user-admin-panel": {
       behaviorKey: "user_admin",
       fallbackShortcut: "j",
-      fallbackVoice: { en: "open user panel", zh: "打开用户面板" }
+      fallbackVoice: "open user panel"
     }
   };
 
@@ -119,10 +121,8 @@
 
   function fallbackVoiceCommandForPanel(panelOrId, locale = "en") {
     const entry = resolvePanelCommandEntry(panelOrId);
-    const normalizedLocale = String(locale || "en").trim().toLowerCase();
     if (!entry) return "";
-    if (normalizedLocale.startsWith("zh")) return entry.fallbackVoice.zh || entry.fallbackVoice.en || "";
-    return entry.fallbackVoice.en || "";
+    return T(entry.fallbackVoice || "");
   }
 
   function fallbackShortcutChordForPanel(panelOrId) {

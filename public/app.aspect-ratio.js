@@ -21,19 +21,23 @@
 //   ASPECT_PRESETS                            // map of preset metadata
 //   ASPECT_PRESET_ORDER                       // display order for the selector
 
+// English is the single source of truth; T() routes UI strings through the
+// W210 lazy-translation pipeline (loginCopy → tr) at render time.
+const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
+
 const ASPECT_PRESETS = Object.freeze({
   "16:9": {
     key: "16:9",
-    label: { en: "Landscape 16:9", zh: "横屏 16:9" },
-    tagline: { en: "Standard widescreen", zh: "标准宽屏" },
+    label: "Landscape 16:9",
+    tagline: "Standard widescreen",
     w: 1920, h: 1080,
     runwayImageRatio: "1920:1080",
     runwayVideoRatio: "1280:720"
   },
   "9:16": {
     key: "9:16",
-    label: { en: "Portrait 9:16", zh: "竖屏 9:16" },
-    tagline: { en: "Mobile / shorts", zh: "手机 / 短视频" },
+    label: "Portrait 9:16",
+    tagline: "Mobile / shorts",
     w: 1080, h: 1920,
     runwayImageRatio: "1080:1920",
     runwayVideoRatio: "720:1280"
@@ -47,8 +51,8 @@ const ASPECT_PRESETS = Object.freeze({
   // iPhone 14 Pro gets 1179×2556, Pixel 7 gets 1080×2400, etc.
   "9:19.5": {
     key: "9:19.5",
-    label: { en: "Phone Fullscreen (device-fit)", zh: "手机真全屏（按本机）" },
-    tagline: { en: "Auto-detects device + current orientation at render time", zh: "实时检测本机规格和手持横竖屏状态" },
+    label: "Phone Fullscreen (device-fit)",
+    tagline: "Auto-detects device + current orientation at render time",
     w: 1170, h: 2532,
     runwayImageRatio: null, // resolved at render-time from live orientation
     runwayVideoRatio: null,
@@ -56,52 +60,49 @@ const ASPECT_PRESETS = Object.freeze({
   },
   "1:1": {
     key: "1:1",
-    label: { en: "Square 1:1", zh: "方形 1:1" },
-    tagline: { en: "Feed / album art", zh: "社媒 / 专辑封面" },
+    label: "Square 1:1",
+    tagline: "Feed / album art",
     w: 1080, h: 1080,
     runwayImageRatio: "1080:1080",
     runwayVideoRatio: "960:960"
   },
   "4:5": {
     key: "4:5",
-    label: { en: "Social Portrait 4:5", zh: "社媒竖屏 4:5" },
-    tagline: { en: "Instagram portrait", zh: "Instagram 竖图" },
+    label: "Social Portrait 4:5",
+    tagline: "Instagram portrait",
     w: 1080, h: 1350,
     runwayImageRatio: "1080:1440",
     runwayVideoRatio: "832:1104"
   },
   "21:9": {
     key: "21:9",
-    label: { en: "Widescreen Cinema 21:9", zh: "宽屏电影 21:9" },
-    tagline: { en: "Modern cinematic", zh: "现代电影感" },
+    label: "Widescreen Cinema 21:9",
+    tagline: "Modern cinematic",
     w: 2520, h: 1080,
     runwayImageRatio: "2112:912",
     runwayVideoRatio: "1584:672"
   },
   "2.39:1": {
     key: "2.39:1",
-    label: { en: "Anamorphic 2.39:1", zh: "变形宽银幕 2.39:1" },
-    tagline: { en: "Classic cinema scope", zh: "经典宽银幕" },
+    label: "Anamorphic 2.39:1",
+    tagline: "Classic cinema scope",
     w: 2560, h: 1072,
     runwayImageRatio: "1808:768",
     runwayVideoRatio: "1584:672"
   },
   "32:9": {
     key: "32:9",
-    label: { en: "Super-wide 32:9", zh: "超宽屏 32:9" },
-    tagline: { en: "Dual-monitor / UHD banner", zh: "双屏 / 超宽横幅" },
+    label: "Super-wide 32:9",
+    tagline: "Dual-monitor / UHD banner",
     w: 3840, h: 1080,
     runwayImageRatio: "1808:768",
     runwayVideoRatio: "1584:672",
-    warning: {
-      en: "Beyond Runway's native range — cover will generate at ~2.39:1 and be letterboxed to 32:9 by ffmpeg.",
-      zh: "超出 Runway 原生范围——封面将按约 2.39:1 生成，由 ffmpeg 补边至 32:9。"
-    }
+    warning: "Beyond Runway's native range — cover will generate at ~2.39:1 and be letterboxed to 32:9 by ffmpeg."
   },
   "custom": {
     key: "custom",
-    label: { en: "Custom W×H", zh: "自定义 宽×高" },
-    tagline: { en: "Pick any pixel dimensions", zh: "输入任意像素宽高" },
+    label: "Custom W×H",
+    tagline: "Pick any pixel dimensions",
     w: null, h: null,
     runwayImageRatio: null,
     runwayVideoRatio: null
@@ -292,14 +293,10 @@ function resolveCreationAspectRatioModule(options) {
   const runwayVideoRatio = preset.runwayVideoRatio
     || pickClosestRunwayRatioModule(ratioFloat, RUNWAY_VIDEO_RATIOS);
 
-  // Language-aware labels. Default to English when the runtime doesn't expose
-  // an `html[lang]` — avoids leaking Chinese strings into an English UI.
-  const lang = (typeof document !== "undefined" && document.documentElement
-    && String(document.documentElement.lang || "").toLowerCase().startsWith("zh"))
-    ? "zh" : "en";
-  const label   = (preset.label   && preset.label[lang])   || (preset.label   && preset.label.en)   || presetKey;
-  const tagline = (preset.tagline && preset.tagline[lang]) || (preset.tagline && preset.tagline.en) || "";
-  const warning = preset.warning ? (preset.warning[lang] || preset.warning.en || "") : "";
+  // English is authored here; T() lazily localizes via the W210 pipeline.
+  const label   = preset.label   ? T(preset.label)   : presetKey;
+  const tagline = preset.tagline ? T(preset.tagline) : "";
+  const warning = preset.warning ? T(preset.warning) : "";
 
   return {
     presetKey,

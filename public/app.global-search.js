@@ -8,6 +8,8 @@
   var STYLE_ID = "cssos-global-search-style";
   var ROOT_ID = "cssos-global-search-root";
 
+  var T = function (en) { return (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en); };
+
   function injectStyle() {
     if (document.getElementById(STYLE_ID)) return;
     var s = document.createElement("style");
@@ -43,10 +45,10 @@
     root = document.createElement("div");
     root.id = ROOT_ID;
     root.innerHTML = [
-      '<div class="gs-shell" role="dialog" aria-label="Search">',
-      '  <input class="gs-input" type="search" placeholder="Search persons, MVs, comments…" autocomplete="off" />',
+      '<div class="gs-shell" role="dialog" aria-label="' + escHtml(T("Search")) + '">',
+      '  <input class="gs-input" type="search" placeholder="' + escHtml(T("Search persons, MVs, comments…")) + '" autocomplete="off" />',
       '  <div class="gs-results" id="cssos-global-search-results"></div>',
-      '  <div class="gs-hint">↵ open · esc close · /  toggle</div>',
+      '  <div class="gs-hint">' + escHtml(T("↵ open · esc close · /  toggle")) + "</div>",
       "</div>",
     ].join("");
     document.body.appendChild(root);
@@ -64,7 +66,7 @@
     var input = root.querySelector(".gs-input");
     if (input) { input.value = ""; setTimeout(function () { input.focus(); }, 30); }
     var res = root.querySelector("#cssos-global-search-results");
-    if (res) res.innerHTML = '<div class="gs-empty">Start typing to search…</div>';
+    if (res) res.innerHTML = '<div class="gs-empty">' + escHtml(T("Start typing to search…")) + "</div>";
   }
   function close() {
     var root = document.getElementById(ROOT_ID);
@@ -75,7 +77,7 @@
     var res = document.getElementById("cssos-global-search-results");
     if (!res) return;
     if (!results || !results.length) {
-      res.innerHTML = '<div class="gs-empty">No matches.</div>';
+      res.innerHTML = '<div class="gs-empty">' + escHtml(T("No matches.")) + "</div>";
       return;
     }
     var groups = { person: [], mv: [], comment: [] };
@@ -89,7 +91,7 @@
       var _isAdmin = String((globalThis.authState && globalThis.authState.role) || "").toLowerCase() === "admin";
       rows.forEach(function (r) {
         var pinBtn = (_isAdmin && r.type === "person" && (r.person_id || r.id))
-          ? '<button type="button" class="gs-pin" data-pin-person="' + escHtml(r.person_id || r.id) + '" title="全平台置顶此人物(管理员)" aria-label="Pin person platform-wide" style="margin-left:auto;flex:none;width:30px;height:30px;border-radius:999px;border:1px solid rgba(0,245,160,0.5);background:rgba(0,0,0,0.4);color:#9fffdf;cursor:pointer;font-size:14px;">📌</button>'
+          ? '<button type="button" class="gs-pin" data-pin-person="' + escHtml(r.person_id || r.id) + '" title="' + escHtml(T("Pin this person platform-wide (admin)")) + '" aria-label="' + escHtml(T("Pin person platform-wide")) + '" style="margin-left:auto;flex:none;width:30px;height:30px;border-radius:999px;border:1px solid rgba(0,245,160,0.5);background:rgba(0,0,0,0.4);color:#9fffdf;cursor:pointer;font-size:14px;">📌</button>'
           : "";
         html += [
           '<div class="gs-row" data-type="' + escHtml(r.type) + '" data-id="' + escHtml(r.id) + '" data-person="' + escHtml(r.person_id || "") + '" data-mv-url="' + escHtml(r.mv_url || "") + '" style="display:flex;align-items:center;gap:10px;">',
@@ -103,9 +105,9 @@
         ].join("");
       });
     }
-    section("Persons",  "👤", groups.person);
-    section("MVs",      "🎬", groups.mv);
-    section("Comments", "💬", groups.comment);
+    section(T("Persons"),  "👤", groups.person);
+    section(T("MVs"),      "🎬", groups.mv);
+    section(T("Comments"), "💬", groups.comment);
     res.innerHTML = html;
     // CSSOS_WAVE_482 — 人物置顶按钮(管理员): 点击调 /api/person-mv/:id/pin, 不触发打开 codex。
     Array.prototype.forEach.call(res.querySelectorAll("[data-pin-person]"), function (btn) {
@@ -121,10 +123,10 @@
         }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; }); })
           .then(function (o) {
             if (o.r.status === 409) {
-              if (typeof globalThis.showToast === "function") globalThis.showToast("最多全平台置顶 " + (o.j.limit || 12) + " 个人物。");
+              if (typeof globalThis.showToast === "function") globalThis.showToast(T("You can pin at most " + (o.j.limit || 12) + " persons platform-wide."));
               btn.disabled = false; return;
             }
-            if (o.r.ok) { btn.style.background = "rgba(0,245,160,0.28)"; btn.textContent = "✅"; btn.title = "已全平台置顶"; }
+            if (o.r.ok) { btn.style.background = "rgba(0,245,160,0.28)"; btn.textContent = "✅"; btn.title = T("Pinned platform-wide"); }
             else btn.disabled = false;
           }).catch(function () { btn.disabled = false; });
       });
@@ -149,9 +151,9 @@
     // 让用户知道正在搜索; 失败则显示可读提示, 不再静默空白。
     var res = document.getElementById("cssos-global-search-results");
     if (res && typeof globalThis.cssosSkeletonListMarkup === "function") {
-      res.innerHTML = globalThis.cssosSkeletonListMarkup(4, "Searching…");
+      res.innerHTML = globalThis.cssosSkeletonListMarkup(4, T("Searching…"));
     } else if (res) {
-      res.innerHTML = '<div class="gs-empty">Searching…</div>';
+      res.innerHTML = '<div class="gs-empty">' + escHtml(T("Searching…")) + "</div>";
     }
     var reqQ = q.trim();
     fetch("/api/person-mv/search?q=" + encodeURIComponent(reqQ) + "&limit=20", {
@@ -161,10 +163,10 @@
       var cur = document.querySelector("#" + ROOT_ID + " .gs-input");
       if (cur && cur.value && cur.value.trim() !== reqQ) return;
       if (j && j.ok) render(j.results || []);
-      else { var e = document.getElementById("cssos-global-search-results"); if (e) e.innerHTML = '<div class="gs-empty">No matches.</div>'; }
+      else { var e = document.getElementById("cssos-global-search-results"); if (e) e.innerHTML = '<div class="gs-empty">' + escHtml(T("No matches.")) + "</div>"; }
     }).catch(function () {
       var e = document.getElementById("cssos-global-search-results");
-      if (e) e.innerHTML = '<div class="gs-empty">Search failed. Try again.</div>';
+      if (e) e.innerHTML = '<div class="gs-empty">' + escHtml(T("Search failed. Try again.")) + "</div>";
     });
   }
 

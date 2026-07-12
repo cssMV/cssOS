@@ -1530,6 +1530,28 @@
     if (!fancy.length) fancy = wantCjk ? pools.latinFancy : pools.cjkFancy;
     let plain = wantCjk ? pools.cjkPlain : pools.latinPlain;
     if (!plain.length) plain = wantCjk ? pools.latinPlain : pools.cjkPlain;
+    // CSSOS_WAVE_1763 — 文明智能联动(civ→字体): 当前作品有 civilization/语言时,
+    //   ~55% 几率给这段文本套【该文明的特色字体】(中国毛笔 / 日本 Yuji / 韩文 Nanum /
+    //   阿拉伯 Aref Ruqaa / 天城 Rozha One …),让 MV 字幕带上文化性格;其余 45% 保留随机
+    //   变化。仅当特色字体的文字系统与本段一致(CJK↔CJK)才套用,否则字形缺失会难看。
+    try {
+      if (typeof globalThis.cssosFontForCivOrLang === "function") {
+        const _w = globalThis.currentWatchPreviewWork || null;
+        const _civ = _w && (_w.civilization || _w.civ || "");
+        const _lang = _w && (_w.language || _w.lang || "");
+        if (_civ || _lang) {
+          const _civFam = globalThis.cssosFontForCivOrLang(_civ, _lang);
+          if (_civFam) {
+            const _CJK_FANCY_RE = /(Ma Shan|Zhi Mang|Liu Jian|Long Cang|ZCOOL|Noto (?:Serif|Sans) (?:SC|TC)|Yuji|Reggae One|Hachi Maru|Nanum|Gugi|Black Han|Jua)/i;
+            const _civIsCjk = _CJK_FANCY_RE.test(_civFam);
+            if (_civIsCjk === wantCjk && Math.random() < 0.55) {
+              __cssmvPieceFontMap.set(t, _civFam);
+              return _civFam;
+            }
+          }
+        }
+      }
+    } catch (_civErr) { /* fall through to the weighted picker */ }
     const fam = pickWeightedFromBuckets(fancy, plain, 0.9);
     // CSSOS_PHASE2_BOUNDED_CACHE 20260505 — Jing
     // Cap the per-piece font map at 4000 entries so a long-lived

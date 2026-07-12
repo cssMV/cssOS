@@ -9,6 +9,8 @@ struct CreateView: View {
     var seedPrompt: String = ""
     @ObservedObject var auth: CSSAuth
     var defaultFormat: String = ""            // W1565 — 从某栏尾卡进入时【默认预选】的戏路(""=不预选); 仍可自由改
+    var starringActorName: String = ""        // W1578 — 从数字演员进入: 该演员主演(照搬桌面端)
+    var starringActorId: String = ""          // W1578 — 主角槽锁定该演员 id(修"不管点谁都是爱因斯坦")
     var onIFilm: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
 
@@ -44,7 +46,7 @@ struct CreateView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            EmojiBurstEffect(active: true, seed: 7, bigEmojiSize: 240, bigPeriod: 12, smallSize: 30,
+            EmojiBurstEffect(active: true, seed: 7, bigEmojiSize: 240, bigPeriod: 0, smallSize: 30,
                              smallSpread: 500, smallN: 22).opacity(0.5).allowsHitTesting(false)
 
             ScrollView {
@@ -98,6 +100,10 @@ struct CreateView: View {
         .onAppear {
             if title.isEmpty { title = seedPrompt }
             if !defaultFormat.isEmpty { format = defaultFormat }   // W1565 — 默认预选该栏戏路(可改)
+            // W1578 — 从数字演员进入: 种下"该演员主演"梗概(照搬桌面端 prompt)。
+            if !starringActorName.isEmpty && synopsis.isEmpty {
+                synopsis = "Create an MV starring the digital actor \"\(starringActorName)\"."
+            }
             Task { await refreshCast() }
         }
         .onChange(of: format) { _, _ in Task { await refreshCast() } }
@@ -190,7 +196,9 @@ struct CreateView: View {
         let slots = await CSSBackend.castRecommend(format: format, civ: civ)
         await MainActor.run {
             castSlots = slots
-            // 默认每槽选首个候选(系统荐角); 保留用户已换的。
+            // W1578 — 从数字演员进入: 主角槽【锁定】该演员, 不被系统荐角(首个候选=爱因斯坦)覆盖。
+            if !starringActorId.isEmpty, let lead = slots.first { chosen[lead.role] = starringActorId }
+            // 其余槽默认选首个候选(系统荐角); 保留用户已换的 + 已锁的主角。
             for s in slots where chosen[s.role] == nil { chosen[s.role] = s.candidates.first?.actor_id }
         }
     }
@@ -234,9 +242,14 @@ struct CreateView: View {
         let civPhrase = civ.isEmpty ? "" : " Civilization: \(civ)."
         let full = idea + fmtPhrase + civPhrase
 
+        // W1578 — 把选定 cast(role→actor_id) 发给后端 → create_work 封面锁脸(演员本人形象)。
+        let castPayload: [[String: String]] = castSlots.compactMap { slot in
+            guard let aid = chosen[slot.role], !aid.isEmpty else { return nil }
+            return ["actor_id": aid, "role": slot.role]
+        }
         casting = true; status = "✨ Sending your direction to the magic mirror…"
         Task {
-            let result = await CSSBackend.castMV(prompt: full)
+            let result = await CSSBackend.castMV(prompt: full, cast: castPayload)
             await MainActor.run {
                 casting = false
                 if result.intent == "ifilm", let fid = result.ifilmId, !fid.isEmpty { dismiss(); onIFilm(fid); return }

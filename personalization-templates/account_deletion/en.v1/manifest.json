@@ -1,0 +1,24 @@
+{
+  "id": "account_deletion.en.v1",
+  "trigger_key": "account_deletion",
+  "language": "en",
+  "version": 1,
+  "label": "Farewell MV — English (placeholder v1)",
+
+  "base_video": "base.mp4",
+  "base_audio": "base.mp3",
+  "base_cover": "cover.png",
+  "duration_secs": 30,
+  "aspect_ratio": "16:9",
+
+  "title_template": "Until we meet again, {name}",
+  "subtitle_template": "From cssOS · Curator",
+
+  "plain_lyrics_file": "lyrics.txt.tpl",
+
+  "emotional_tone": "tender",
+  "max_name_chars": 24,
+  "active": false,
+
+  "notes": "Placeholder v1 (farewell / account close). regenerate.sh synthesises a gentle A-minor sine-wave pad (tender, not mournful — soft fade-in/out) + a dusk amber->indigo gradient still + first-frame cover. No melody, no copyright, zero AI cost. Replace base.mp3 / base.mp4 / cover.png with real composition when the creative team is ready, then bump to account_deletion.en.v2."
+}

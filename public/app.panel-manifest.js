@@ -65,7 +65,7 @@
     "face-safe":          "app.face-safe-overlay.js?v=20260524-w355-no-cors-taint",
     "gift-inbox":         "app.gift-inbox-panel.js?v=20260515-wave164-fresh-palette",
     // CSSOS_WAVE_662 线B第1步: mv-language-picker(同步返回 handle 的 mount, 经 eager shim 懒加载)。
-    "mv-language-picker": "app.mv-language-picker.js?v=20260531-w587b-cap",
+    "mv-language-picker": "app.mv-language-picker.js?v=20260712-w1734d-default-active",
   });
 
   // CSSOS_WAVE_527 — 面板依赖: 加载某面板后, 内核自动按需加载其卫星模块(也从首屏移除)。

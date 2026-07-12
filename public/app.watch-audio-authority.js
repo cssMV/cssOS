@@ -197,6 +197,32 @@
     try { window.addEventListener(evt, markEngaged, { capture: true, passive: true }); } catch (e) {}
   });
 
+  // W1740 — Jing「加空格键: 暂停/续播, 方便微调字幕」。全局 Space = 切当前作品音频播放/暂停。
+  //   尊重让位契约: 用户停 → cssosAudioIntentPaused=true(权威不再救活), 续 → false。
+  //   让行: 输入框/可编辑元素(别吞打字)、按钮/链接(让它们自己响应 Space)、波形编辑器(它自管 Space)。
+  //   只在确有作品音频(有源)时接管, 免得在纯落地页吞掉空格。冒泡阶段, 不与聚焦控件抢。
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== " " && e.key !== "Spacebar") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable ||
+              t.tagName === "BUTTON" || t.tagName === "A" ||
+              (t.getAttribute && t.getAttribute("role") === "button"))) return;
+    if (document.getElementById("cssos-wave-editor")) return;   // 波形编辑器自管 Space
+    var a = aEl();
+    if (!a || !(a.currentSrc || a.getAttribute("src"))) return;
+    e.preventDefault();
+    try {
+      if (a.paused) {
+        try { globalThis.cssosAudioIntentPaused = false; } catch (_e1) {}
+        var p = a.play(); if (p && p.catch) p.catch(function () {});
+      } else {
+        try { globalThis.cssosAudioIntentPaused = true; } catch (_e2) {}
+        a.pause();
+      }
+    } catch (_e) {}
+  }, false);
+
   // 暴露给外部/诊断。
   globalThis.cssosWatchAudioAuthority = enforce;
   globalThis.cssosAudioAuthorityState = function () {

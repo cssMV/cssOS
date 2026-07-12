@@ -2284,8 +2284,11 @@ body.longpress-guard * {
   min-height: 40px !important;
   max-height: 40px !important;
   padding: 0 20px !important;
-  flex: 0 0 auto !important;
-  min-width: max-content !important;
+  /* CSSOS_WAVE_1734d — Jing「社交登录网关等宽」: 宪法 data-pill-equal 语义(flex:1 1 0)。
+     #login-list 是 W459 bespoke .login-grid.cssmv-pill-bar(非 data-pill-bar), 故不新增规则,
+     只把这颗现成的宽度声明从 content-width 调成等权均分 → 5 颗 Google/Apple/Facebook/X/GitHub 等宽。 */
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
   width: auto !important;
   margin: 0 !important;
   border: 0 !important;
@@ -4017,26 +4020,14 @@ html[data-theme="light"] .works-fp-optin-desc {
 }
 
 .mirror-core {
-  position: absolute;
-  inset: 20%;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.08) 40%, rgba(0, 0, 0, 0) 62%),
-    radial-gradient(circle at 62% 40%, rgba(0, 255, 224, 0.55), rgba(0, 0, 0, 0) 55%),
-    radial-gradient(circle at 45% 65%, rgba(255, 74, 158, 0.42), rgba(0, 0, 0, 0) 58%),
-    radial-gradient(circle at 68% 68%, rgba(255, 214, 74, 0.38), rgba(0, 0, 0, 0) 60%);
-  filter: saturate(1.5) brightness(1.16);
-  mix-blend-mode: screen;
-  pointer-events: none;
-  /* CSSOS_WAVE_485f 20260528 — Jing「彻底捉闪烁鬼」: 真凶 = 这里曾叠加的 mirrorCoreHue
-   * 无限动画(filter: saturate/brightness/hue-rotate)。它强制 iOS WKWebView 每帧重新
-   * 栅格化整个 logo 核 → GPU 内容进程崩溃 → 黑屏 → 原生重载 → 又崩 = 主界面"一直闪"
-   * (全新安装也闪, 因为是 CSS 与缓存无关)。W436 当年修了 mirrorBreath 的 filter 却漏掉
-   * 本条 —— 直接违反 compositor 安全铁律(永不无限动画 filter/box-shadow/backdrop-filter)。
-   * 修复: 删 mirrorCoreHue, 仅留 mirrorCorePulse(opacity+transform, GPU 合成安全);
-   * 静态 filter 保留鲜艳质感。 */
-  animation: mirrorCorePulse 7s ease-in-out infinite;
-  contain: paint;
+  /* W1736 — Jing「彻底清掉佛光残余」: 这颗彩色魔法球是已下线特效的残留 —— 原本是"用户生成作品时
+     logo 魔镜急促呼吸、这颗球跟着一闪一闪"的效果, 后因烧内存+挡画面把动作取消了, 却留下这颗静态
+     发光球没清。它是【正圆 inset】叠在魔镜盒上, 而窄屏 logo 落地页的魔镜盒被拉成宽矩形(≈516×198),
+     inset:37% → 变成 134×52 的横向椭圆, 从金属罗盘左右两侧探出 = 那条粉绿"佛光"(仅窄屏可见, 宽屏
+     home 是影院 MV 没有 logo)。W1734 靠缩小 inset 治标未治本(盒子非正方形)。按 Jing 意直接移除整颗
+     残余: emblem 的金芯光来自 webp 本身, 去掉这层叠加后大厅魔镜依旧有质感, 且再不凭空造圈
+     (与 W1223 删 mirror-img 绿光晕同脉络)。 */
+  display: none;
 }
 
 /* CSSOS_WAVE_436 20260526 — Jing「深挖到根因」: the home-logo mirror's infinite
@@ -8173,6 +8164,19 @@ body.cssos-agent-open .dock {
   transform: translateX(-50%) scale(var(--dock-scale)) !important;
 }
 
+/* W1733 首屏防抖 — dock 排序未定前先隐藏(actors/director/App 是动态注入 + dock-priority 重排,
+   否则用户会看到"闪一下错序再跳对")。排定后 dock-priority.js 去掉 data-presort → 一次性淡入终态。
+   纯 CSS 兜底: 即使排序 JS 完全没加载, animation 也在 .9s 上限强制显示, dock 绝不会永久隐藏。
+   用 :not(.hidden) 避开用户主动隐藏 dock 的场景, 不与 .dock.hidden 抢 opacity。 */
+.dock[data-presort]:not(.hidden) {
+  opacity: 0;
+  animation: dockPresortReveal 0s linear 0.9s forwards;
+}
+@keyframes dockPresortReveal { to { opacity: 1 !important; } }
+.dock:not([data-presort]):not(.hidden) {
+  transition: opacity 0.14s ease;
+}
+
 .dock[data-dock-position="left"] {
   left: 24px;
   right: auto;
@@ -11668,7 +11672,11 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 #cssos-agent-fab {
   /* CSSOS_WAVE_823c 20260616 — Jing「AI 助理与价格条同一行右下角」: 旧 +110px !important
    * 把 FAB 钉在中右(压过 agent-chat.js 的对齐)。改成价格条同一 bottom 基准(dock-clear+safe+5)。 */
-  bottom: calc(var(--cssos-dock-clear, 0px) + env(safe-area-inset-bottom, 0px) + 12px) !important; /* W857 — Safari 边距≥5 */
+  /* W1737 — Jing「AI 助理再靠近 Dock 一点, 不打架就行」: dock-clear(104px)比 Dock 实际占位(视觉顶
+   * 在底边 ~67px)虚高 ~37px, 原 +12 让 FAB 落在 116px, 与 Dock 顶空了 ~49px。收紧到 Dock 顶上方
+   * ~8px(dock-clear - 29)。max() 兜底: Dock 隐藏(dock-clear=0, 如全屏 watch)时不塌成负值, 保底
+   * safe+12px 贴屏底。(仅影响 Dock 可见的 web 落地态; cssos-app/watch 的价格条对齐规则在下, 不受影响。) */
+  bottom: max(calc(env(safe-area-inset-bottom, 0px) + 12px), calc(var(--cssos-dock-clear, 0px) + env(safe-area-inset-bottom, 0px) - 29px)) !important;
 }
 /* CSSOS_WAVE_855 — App/窄屏: 价格条独占下行, AI 助理抬高一行(到传统字幕那行的右侧), 不盖住价格条
  * 最后的胶囊(Buyout)。桌面端屏宽, AI 在价格条右侧不会盖, 保持上面的 +5px。 */
@@ -12953,68 +12961,45 @@ html.cssos-pill-cascade .palette-color-tabs:not(:has(.active)) > .palette-color-
   font-size: 11px; line-height: 1.4; color: rgba(218, 255, 238, 0.65);
   margin-bottom: 10px;
 }
-/* CSSOS_WAVE_418 20260524 — Jing「胶囊宪法」: the multilingual picker is a MULTI-select
- * (checkbox per language), so it must NOT borrow the single-select tab-pill interlock
- * (negative-margin overlap + radial-gradient 凹咬 masks) — those masks carved the cell
- * TEXT away and the overlap detached the checkbox (blank capsules bug). Instead: a clean
- * ONE-TRACK horizontal-scroll row of self-contained capsules. Each capsule = full 999px
- * pill holding [checkbox · name · badge] inline on ONE line; the row scrolls left↔right
- * when languages don't fit. 永远一行, 永远一条轨道, 不换行. */
-.cssos-lang-picker-grid {
-  display: flex; flex-wrap: nowrap; gap: 8px;
-  overflow-x: auto; overflow-y: hidden;
-  -webkit-overflow-scrolling: touch; scrollbar-width: none;
-  padding-bottom: 2px;
+/* CSSOS_WAVE_1734 20260711 — Jing「语言胶囊没套对, 翻宪法」: 改用平台签名【随机色凸嵌凹胶囊】。
+ * 上一版(W418/W1734a)手搓了 .cssos-lang-cell 的圆角/底色/边框/间距 → 渲染成一颗颗【飘着、有缝的
+ * 独立椭圆】, 违了胶囊宪法第 1 条(parallel-button group MUST use data-pill-bar)与第 6 条(不许写
+ * bespoke pill CSS)。现在: 容器由 app.mv-language-picker.js 加 data-pill-bar / data-pill-compact,
+ * 每 cell 加 data-pill-key + 选中态加 .active → app.pill-bar.js 注入的宪法样式表(在所有 <link> 之后)
+ * 【全权接管】几何/色相/凹凸镶嵌/凸岛。多选 = 多个 .active(多个凸岛), 未选中 = 凹谷。
+ * 这里【只】保留 cell 内部 flex 排版(旗+名+徽章+checkbox)与 min-width 地板 —— 绝不再写任何胶囊
+ * 底色/边框/圆角/负边距/mask(那些全归工具, 且工具用 !important, 手搓的只会冲突)。 */
+
+/* 胶囊宪法 min-width 地板: 每列 ≥120px(=胶囊高 40×3), 短标签不缩成误触细条。挂在【列定义】上——
+ * child min-width 在 minmax(max-content,1fr) 网格里不折进 max-content, 不可靠(见宪法说明)。
+ * 用 minmax(120px,max-content): 短标签撑到 120 地板, 长标签(如 DEFAULT·FREE 徽章)自适应不被裁。 */
+.cssos-lang-picker-grid[data-pill-bar] {
+  grid-auto-columns: minmax(120px, max-content) !important;
 }
-.cssos-lang-picker-grid::-webkit-scrollbar { display: none; }
-.cssos-lang-cell {
-  display: inline-flex; align-items: center; gap: 8px;
-  flex: 0 0 auto; min-width: max-content; white-space: nowrap;
-  padding: 8px 14px; border-radius: 999px;   /* full capsule */
-  border: 1px solid rgba(0, 245, 160, 0.22);
-  background: rgba(0, 245, 160, 0.05);
-  cursor: pointer; transition: background 160ms ease, border-color 160ms ease;
-  font-size: 13px; user-select: none;
-  /* W461b — explicit light text; lang pickers live in dark panels (pipeline,
-   * person-MV codex).  The advanced-settings light-mode override below
-   * reverts to dark text for the one context that has a light bg.
-   * W810 — 改 var(--text) 源头自适应: 深色=浅薄荷, 白天=深色, 一劳永逸。 */
-  color: var(--text);
-}
-.cssos-lang-cell:hover { background: rgba(0, 245, 160, 0.10); }
-.cssos-lang-cell.is-selected {
-  background: rgba(0, 245, 160, 0.16);
-  border-color: rgba(0, 245, 160, 0.55);
-}
-.cssos-lang-cell.is-default {
-  background: rgba(0, 245, 160, 0.24);
-  border-color: rgba(0, 245, 160, 0.8);
-}
+/* cell 内部排版(旗·名·徽章·checkbox 一行, 靠间距分开); 胶囊外观全由 [data-pill-bar]>[data-pill-key] 接管。 */
+.cssos-lang-cell { gap: 8px; }
 .cssos-lang-cell.is-locked { cursor: default; }
-/* CSSOS_WAVE_587 — 算力闸: 选满 5 个后未选中行置灰禁选(土豪要全部, 分批来)。 */
+/* CSSOS_WAVE_587 — 算力闸: 选满后未选中行置灰禁选(土豪要全部, 分批来)。 */
 .cssos-lang-cell.is-capped { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
 .cssos-lang-cell input[type="checkbox"] { accent-color: #00f5a0; width: 15px; height: 15px; flex: 0 0 auto; margin: 0; }
+.cssos-lang-flag { flex: 0 0 auto; font-size: 15px; line-height: 1; }
 .cssos-lang-name { flex: 0 0 auto; font-weight: 500; white-space: nowrap; }
+/* 徽章 = 只读 DISPLAY chip(胶囊看, 不参与凸嵌凹)。中性底 + 白字, 在任意色相凸岛上都可读。 */
 .cssos-lang-badge {
   font: 600 11px/1 ui-monospace, monospace; letter-spacing: 0.04em;
   text-transform: uppercase; padding: 3px 6px; border-radius: 999px;
-  background: rgba(0, 245, 160, 0.28); color: #003b29; white-space: nowrap;
+  background: rgba(0, 0, 0, 0.30); color: #fff; white-space: nowrap;
 }
-.cssos-lang-badge-paid { background: rgba(255, 196, 0, 0.28); color: #5a4200; }
+.cssos-lang-badge-paid { background: rgba(255, 196, 0, 0.32); color: #3a2a00; }
 .cssos-lang-picker-price {
   margin-top: 10px; font: 600 12px/1.4 ui-monospace, monospace;
   color: rgba(218, 255, 238, 0.80);
 }
 .cssos-lang-picker-price.is-insufficient { color: #d9534f; }
-/* CSSOS_WAVE_806 20260615 — Jing「同理 · 还有文本颜色」: 白天主题下面板背景是米色, 但上面这些标签/胶囊
- * 文字用的是【深色主题的淡薄荷色 rgba(218,255,238,…)】→ 米色上几乎看不清。之前只给"高级设置"做了反色,
- * 但白天主题【所有面板都是浅底】(MV 管线等同样浅底)→ 全局按 data-theme=light 反成深色文字(var(--text))。 */
+/* CSSOS_WAVE_806 20260615 — 白天主题(浅底)head/sub/price 反深色文字(米色上可读)。 */
 html[data-theme="light"] .cssos-lang-picker-head { color: var(--text); }
 html[data-theme="light"] .cssos-lang-picker-sub { color: rgba(28, 25, 20, 0.72); }
 html[data-theme="light"] .cssos-lang-picker-price { color: rgba(28, 25, 20, 0.82); }
-html[data-theme="light"] .cssos-lang-cell { color: var(--text); border-color: rgba(40, 90, 66, 0.35); }
-html[data-theme="light"] .cssos-lang-cell.is-selected { border-color: rgba(0, 160, 96, 0.7); }
-html[data-theme="light"] .cssos-lang-cell.is-default { border-color: rgba(0, 160, 96, 0.95); }
 
 /* CSSOS_WAVE_888 — Jing「白天主题文字看不清」逐面板反色(Apple Guideline 4 真凶=难读)。
  * 组件各自注入 <style> 把字写死成深色主题的浅薄荷/浅蓝白(#cfd8f5 等)→ 白天奶油底上隐形。
@@ -13035,40 +13020,16 @@ html[data-theme="light"] .shelf-sub { color: #14241c !important; }
  * context needs dark text.
  */
 
-/* Advanced Settings panel: dark text in light mode */
-html[data-theme="light"] #creation-language-picker .cssos-lang-cell,
-html[data-theme="light"] #creation-language-picker .cssos-lang-cell {
-  color: rgba(14, 40, 28, 0.88);
-  border-color: rgba(0, 140, 90, 0.28);
-  background: rgba(0, 180, 110, 0.07);
-}
-html[data-theme="light"] #creation-language-picker .cssos-lang-cell:hover,
-html[data-theme="light"] #creation-language-picker .cssos-lang-cell:hover {
-  background: rgba(0, 180, 110, 0.14);
-}
-html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-selected,
-html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-selected {
-  background: rgba(0, 160, 100, 0.18);
-  border-color: rgba(0, 140, 90, 0.60);
-}
-html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-default,
-html[data-theme="light"] #creation-language-picker .cssos-lang-cell.is-default {
-  background: rgba(0, 150, 95, 0.26);
-  border-color: rgba(0, 130, 85, 0.85);
-  color: #002a1a;
-}
-html[data-theme="light"] #creation-language-picker .cssos-lang-picker-head,
+/* Advanced Settings panel: dark head/sub text in light mode.
+ * CSSOS_WAVE_1734 — 胶囊本身的底色/边框/文字全归 app.pill-bar.js 宪法样式表(容器带
+ * data-pill-text=dark 时自动切深色文字), 故此处【不再】覆盖 .cssos-lang-cell 的颜色——
+ * 那会以 #id .class 的高特指度盖过工具、把每颗谱色打回单绿, 正是上一版散成椭圆的根源之一。
+ * 只保留与胶囊无关的标题/说明文字反色。 */
 html[data-theme="light"] #creation-language-picker .cssos-lang-picker-head {
   color: rgba(14, 40, 28, 0.90);
 }
-html[data-theme="light"] #creation-language-picker .cssos-lang-picker-sub,
 html[data-theme="light"] #creation-language-picker .cssos-lang-picker-sub {
   color: rgba(14, 40, 28, 0.60);
-}
-html[data-theme="light"] .cssos-lang-badge,
-html[data-theme="light"] .cssos-lang-badge {
-  background: rgba(0, 180, 110, 0.22);
-  color: #00361f;
 }
 
 /* CSSOS_TIER_C_MULTILINGUAL C5 — 🌐 language pill bar on the watch

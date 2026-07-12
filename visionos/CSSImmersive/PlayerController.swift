@@ -19,6 +19,9 @@ final class PlayerController: ObservableObject {
     @Published var variants: [CSSVariant] = []
     /// 当前激活(出声 + 字幕)的银幕索引。
     @Published var activeIndex: Int = 0
+    /// W1580 — 视频真实宽高比(width/height): 曲面银幕按它算高度 → 任何比例(2.39:1 宽银幕 / 16:9 / 竖屏)都不变形。
+    ///   异步从 AVAsset 读, 默认 16:9; 读到后发布 → ImmersiveView 观察到即重建银幕网格。
+    @Published var videoAspect: Float = 16.0 / 9.0
     /// 激活屏当前字幕行(-1 无)。
     @Published var currentLineIndex: Int = -1
 
@@ -73,6 +76,22 @@ final class PlayerController: ObservableObject {
         attachAudioTap()   // W1404 — 挂音量表到激活有声那路
         installTimeObserver()
         startHeadTracking()
+        detectAspect()     // W1580 — 异步读真实宽高比 → 银幕按真比例, 不再假设 16:9
+    }
+
+    /// W1580 — 异步读激活视频的真实宽高比(含 preferredTransform 旋转校正), 发布给银幕用。默认保持 16:9。
+    private func detectAspect() {
+        guard let item = videoPlayers.first(where: { $0.currentItem != nil })?.currentItem else { return }
+        Task { @MainActor in
+            guard let track = try? await item.asset.loadTracks(withMediaType: .video).first,
+                  let size = try? await track.load(.naturalSize),
+                  let tf = try? await track.load(.preferredTransform) else { return }
+            let r = size.applying(tf)
+            let w = abs(r.width), h = abs(r.height)
+            guard w > 1, h > 1 else { return }
+            let ratio = Float(w / h)
+            if ratio > 0.2, ratio < 6, abs(ratio - videoAspect) > 0.01 { videoAspect = ratio }
+        }
     }
 
     /// W1405 — 情绪字幕能显示的关键: 大厅/市场作品不带 aligned_lyrics(toWork 为 nil), 进影院后异步拉

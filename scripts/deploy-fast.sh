@@ -30,6 +30,13 @@ deploy_api_vm() {
   ssh api-vm '
     set -euo pipefail
     export PATH=/home/jing/.cargo/bin:$PATH
+    # W1749 — torch-sys needs libtorch at build time. The 4-month-old cache was
+    # invalidated by the toolchain bump, so cold builds must locate libtorch.
+    # Use the installed PyTorch. Keeping this here makes the env deterministic
+    # (torch-sys tracks LIBTORCH_USE_PYTORCH via rerun-if-env-changed, so it must
+    # be identical across builds or the cache thrashes).
+    export LIBTORCH_USE_PYTORCH=1
+    export LD_LIBRARY_PATH=/home/jing/.local/lib/python3.10/site-packages/torch/lib:${LD_LIBRARY_PATH:-}
     cd /srv/cssos/repo/rust-api
     cargo build --release
     sudo install -m 755 target/release/cssos-rust-api /usr/local/bin/cssos-rust-api

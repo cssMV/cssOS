@@ -13,13 +13,16 @@
 set -euo pipefail
 
 IN_DIR="${1:-}"
-RENDER_MV="true"
-RENDER_COVER="false"
+# W1725c — 默认【不跑 AI MV】: 宗教内容 AI 出图必画核心圣人(耶稣/佛陀…)=违红线。
+# 只出 音频 + 逐字字幕 + 确定性光感封面。要 AI MV 须显式 --mv(仅非宗教/已确认合规时)。
+RENDER_MV="false"
+RENDER_COVER="true"
 TRADITION="secular"
 for arg in "${@:2}"; do
   case "$arg" in
-    --no-mv) RENDER_MV="false" ;;
-    --cover) RENDER_COVER="true" ;;   # 纯音频也出一张 2.39:1 影院封面(上卡 + og:image)
+    --mv) RENDER_MV="true" ;;          # 显式要 AI MV(慎用: 宗教内容会画圣人)
+    --no-mv) RENDER_MV="false" ;;      # 兼容保留(已是默认)
+    --cover) RENDER_COVER="true" ;;    # 已是默认; 保留兼容
     --tradition=*) TRADITION="${arg#--tradition=}" ;;
   esac
 done

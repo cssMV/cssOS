@@ -304,7 +304,7 @@ function musicSourceTabs() {
       icon: "🎵",
       label: _miTr("Audio", "音频"),
       accept: "audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac",
-      active: false,  // W1694 — 苹果 5.2 高危: 上传任意歌曲抽词。继续隐藏。
+      active: true,  // W1753 — 上架后解禁。合规三闸: 所有权声明(attestation)+ DRM 拒加密 + ACRCloud 指纹→requires_clearance(命中版权仅私播、禁 marketplace)。
       hint: _miTr(
         "Upload mp3/wav/m4a etc. We extract time-coded lyrics (Whisper) and skip the music stage. Pipeline still generates cover + video + subtitles.",
         "上传 mp3 / wav 等成熟音频。系统用 Whisper 抽取时间戳化的歌词，跳过音乐生成阶段。封面 + 视频 + 字幕仍由 cssMV 渲染。"
@@ -317,7 +317,7 @@ function musicSourceTabs() {
       icon: "🎬",
       label: _miTr("Video", "视频"),
       accept: "video/*,.mp4,.mov,.webm,.mkv",
-      active: false,  // W1694 — 苹果 5.2 高危: 上传任意视频复用。继续隐藏。
+      active: true,  // W1753 — 上架后解禁。合规三闸: 所有权声明(attestation)+ DRM 拒加密 + ACRCloud 指纹→requires_clearance。
       hint: _miTr(
         "Upload mp4/mov etc. We extract the audio track, transcribe with Whisper, and reuse your video as-is. Only subtitles + compose run.",
         "上传 mp4 / mov 等。系统抽取音轨，用 Whisper 转录为字幕，直接复用你的视频画面。只跑字幕 + 合成阶段。"
@@ -484,11 +484,20 @@ function buildMusicSourceUploadCardMarkup() {
     const fileSlot = musicSourceUploadState[activeKey];
     const result = musicSourceUploadState.result;
     const resultMatchesActive = result && result._tab === activeKey;
+    const needsAttest = (activeKey === "audio" || activeKey === "video");
+    const attested = !!musicSourceUploadState.attested;
     pane = `<div class="msrc-pane" data-msrc-pane="${_miEsc(activeKey)}">
       <p class="msrc-pane-hint">${_miEsc(activeTab.hint)}</p>
+      ${needsAttest ? `
+      <label class="msrc-attest-row" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 10px;padding:9px 11px;border-radius:8px;background:rgba(0,245,160,0.06);border:1px solid rgba(0,245,160,0.24);font-size:11.5px;line-height:1.5;cursor:pointer;">
+        <input type="checkbox" data-msrc-attest ${attested ? "checked" : ""} style="margin-top:2px;flex:0 0 auto;width:16px;height:16px;cursor:pointer;" />
+        <span>${_miEsc(activeKey === "audio"
+          ? _miTr("I own or have the rights to use this audio. Uploading material you don't hold the rights to is not permitted.", "我拥有或已获授权使用这段音频。不得上传你不持有版权的内容。")
+          : _miTr("I own or have the rights to use this video. Uploading material you don't hold the rights to is not permitted.", "我拥有或已获授权使用这段视频。不得上传你不持有版权的内容。"))}</span>
+      </label>` : ""}
       <div class="msrc-file-row">
         <input class="msrc-file-input" type="file" accept="${_miEsc(activeTab.accept)}"
-               data-msrc-upload="${_miEsc(activeKey)}" />
+               data-msrc-upload="${_miEsc(activeKey)}"${(needsAttest && !attested) ? " disabled title=\"" + _miEsc(_miTr("Confirm ownership above first", "请先勾选上方所有权声明")) + "\" style=\"opacity:0.45;cursor:not-allowed;\"" : ""} />
       </div>
       ${activeKey === "sheet" ? `
       <div class="msrc-url-row" style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;">
@@ -567,6 +576,24 @@ function _miRenderResultBlock(result) {
   }
 
   let extra = "";
+  // W1750 (111E ②) — audio version chooser. When the backend rendered a
+  // melody-muted 伴奏, let the user pick which mix feeds the MV. Fixed 2-way
+  // switch → tab-pill constitution Mode 1 (data-segmented="2"). Default = full.
+  if (result.backing_asset_url) {
+    const isFull = result._chosenVersion !== "backing";
+    const activeSrc = isFull ? result.asset_url : result.backing_asset_url;
+    extra += `<div style="margin-top:10px;">
+      <div style="font:600 11.5px/1.4 ui-monospace,monospace;color:var(--muted);margin-bottom:6px;">${_miEsc(_miTr("🎚 Audio version — pick what the MV uses", "🎚 音频版本 — 选择进入 MV 的版本"))}</div>
+      <div data-segmented="2" style="max-width:380px;">
+        <button type="button" class="${isFull ? "active" : ""}" data-msrc-audio-version="full">🎵 ${_miEsc(_miTr("Full music", "纯音乐"))}</button>
+        <button type="button" class="${!isFull ? "active" : ""}" data-msrc-audio-version="backing">🎤 ${_miEsc(_miTr("Backing (for vocals)", "伴奏（留人声）"))}</button>
+      </div>
+      <div style="font:500 10.5px/1.4 ui-monospace,monospace;color:var(--muted);margin:5px 0 4px;">${_miEsc(isFull
+        ? _miTr("Complete instrumental — melody included.", "完整器乐 — 含旋律主线。")
+        : _miTr("Melody muted — room to add vocals later.", "已静音旋律 — 之后可叠加人声。"))}</div>
+      ${activeSrc ? `<audio controls preload="none" src="${_miEsc(activeSrc)}" style="width:100%;height:34px;"></audio>` : ""}
+    </div>`;
+  }
   const _miTitle = _miInferTitle(result);
   const _miStructuredRaw =
     (result.whisper && result.whisper.text && _miStructureLyrics(result.whisper.text)) ||
@@ -717,6 +744,10 @@ function _miUploadFile(tab, file, statusEl) {
       const creationState = globalThis.creationState || {};
       if (creationState.workType) form.append("work_type", creationState.workType);
       if (creationState.language) form.append("language", creationState.language);
+      // W1753 — carry the ownership attestation for audio/video (backend requires it).
+      if ((tab.key === "audio" || tab.key === "video") && musicSourceUploadState.attested) {
+        form.append("attested", "true");
+      }
       const xhr = new XMLHttpRequest();
       xhr.open("POST", tab.endpoint, true);
       xhr.withCredentials = true;
@@ -840,12 +871,14 @@ function _miApplyResultToPipeline(result) {
       if (cs) cs.musicStyle = cs.musicStyle || styleHint;
     }
     // 4. Mirror upload asset + skip_stages onto creationState for the
-    //    pipeline runner. The runner doesn't yet consume these (Wave
-    //    111E will wire skip-music-stage into /api/runs/create) but
-    //    storing them now means as soon as that lands, all existing
-    //    uploads start honoring skip_stages without UI changes.
+    //    pipeline runner. Wave 111E ① (W1749) now consumes these: the Rust
+    //    music stage short-circuits to this faithful audio and skips Suno.
+    //    W1750 ② — if the user picked the melody-muted 伴奏 version, feed
+    //    that URL instead of the full 纯音乐 mix.
     if (cs) {
-      cs.userUploadAsset = result.asset_url || null;
+      cs.userUploadAsset = (result._chosenVersion === "backing" && result.backing_asset_url)
+        ? result.backing_asset_url
+        : (result.asset_url || null);
       cs.userUploadKind = result._tab || null;
       cs.userUploadSkipStages = Array.isArray(result.skip_stages) ? result.skip_stages.slice() : [];
       cs.userUploadRequiresClearance = !!result.requires_clearance;
@@ -964,6 +997,17 @@ function bindMusicSourceUploadControls(root) {
     }
 
     // Apply to pipeline
+    // W1750 ② — audio version switch (纯音乐 full mix ⇄ 伴奏 melody-muted).
+    const verBtn = target.closest("[data-msrc-audio-version]");
+    if (verBtn instanceof HTMLElement) {
+      const ver = verBtn.getAttribute("data-msrc-audio-version") === "backing" ? "backing" : "full";
+      if (musicSourceUploadState.result) {
+        musicSourceUploadState.result._chosenVersion = ver;
+        _miRerender(root);
+      }
+      return;
+    }
+
     const applyBtn = target.closest("[data-msrc-apply]");
     if (applyBtn instanceof HTMLElement && !applyBtn.hasAttribute("disabled")) {
       _miApplyResultToPipeline(musicSourceUploadState.result);
@@ -999,10 +1043,21 @@ function bindMusicSourceUploadControls(root) {
   root.addEventListener("change", async (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement)) return;
+    // W1753 — ownership attestation toggle (audio/video). Store + re-render so
+    // the file input enables. No new pill CSS; plain checkbox gate.
+    if (target.hasAttribute("data-msrc-attest")) {
+      musicSourceUploadState.attested = target.checked;
+      _miRerender(root);
+      return;
+    }
     const key = target.getAttribute("data-msrc-upload");
     if (!key) return;
     const tab = _miFindTab(key);
     if (!tab || !tab.active) return;
+    // W1753 — hard guard: audio/video require the ownership attestation.
+    if ((key === "audio" || key === "video") && !musicSourceUploadState.attested) {
+      return;
+    }
     const file = target.files && target.files[0];
     if (!file) return;
 
@@ -1087,6 +1142,9 @@ function _miShapeResult(key, j) {
   return {
       _tab: key,
       asset_url: j.asset_url || null,
+      backing_asset_url: j.backing_asset_url || null,                                   // W1750 ② 伴奏版
+      melody_track_index: (typeof j.melody_track_index === "number") ? j.melody_track_index : -1,
+      _chosenVersion: "full",                                                           // "full" 纯音乐 | "backing" 伴奏
       midi_asset_url: j.midi_asset_url || null,
       musicxml_asset_url: j.musicxml_asset_url || null,
       duration_secs: j.meta?.duration_secs || j.meta?.estimated_duration_secs || 0,
@@ -1114,6 +1172,7 @@ function _miShapeResult(key, j) {
       whisper: j.whisper || null,
       vision: j.analysis || null,
       midi_lyrics: j.lyrics || null,
+      syllables: j.syllables || null,                                                 // W1751 (111E ③) per-token timeline (MIDI/MusicXML) — passthrough for subtitle engine
       has_lyrics: j.lyrics ? j.lyrics.has_lyrics : null,
       skip_stages: j.skip_stages || [],
       import_source: j.import_source || null,

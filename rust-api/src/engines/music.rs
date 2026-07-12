@@ -284,6 +284,103 @@ impl StemRenderBundle {
 }
 
 pub async fn run(ctx: &EngineCtx, commands: &serde_json::Value, ui_lang: &str) -> Result<()> {
+    // W1749 (111E ①) — faithful imported audio short-circuit.
+    // When the run carries `import_audio` (a user-uploaded MIDI/MusicXML/audio
+    // source, already rendered to an asset URL) we honor it verbatim instead of
+    // re-composing via the provider: download the asset and transcode it into
+    // ./build/music.wav (this stage's expected artifact). Downstream stages
+    // (mix / subtitles / video) consume music.wav unchanged. Absent import →
+    // fall through to the normal generation path below, byte-for-byte as before.
+    if let Some(imp) = commands.get("import_audio") {
+        let url = imp
+            .get("url")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        // Skip the provider whenever an import URL is present. `skip_stages` is
+        // advisory: honor an explicit list if given, else default to skipping.
+        let skip_music = imp
+            .get("skip_stages")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().any(|s| s.as_str() == Some("music")))
+            .unwrap_or(true);
+        if let (Some(url), true) = (url, skip_music) {
+            let out = music_wav_path(&ctx.run_dir);
+            if let Some(parent) = out.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            let src = ctx.run_dir.join("./build/import_audio.src");
+            // Resolve the asset to local bytes. Uploaded sources are relative
+            // paths (e.g. /uploads/midi/<user>/<file>.mp3) that live on THIS
+            // machine's public dir — read them straight from disk (no HTTP, no
+            // auth round-trip). Only genuinely remote http(s) URLs are fetched.
+            let mut resolved_from_disk = false;
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                let public_dir = std::env::var("CSSOS_PUBLIC_DIR")
+                    .unwrap_or_else(|_| "/srv/cssos/repo/public".into());
+                let rel = url.trim_start_matches('/').split('?').next().unwrap_or("");
+                let disk = std::path::Path::new(&public_dir).join(rel);
+                if tokio::fs::metadata(&disk).await.is_ok() {
+                    tokio::fs::copy(&disk, &src).await.map_err(|e| {
+                        anyhow::anyhow!("import_audio disk copy {disk:?} failed: {e}")
+                    })?;
+                    resolved_from_disk = true;
+                }
+            }
+            if !resolved_from_disk {
+                // Absolute URL, or a relative asset not found on disk → HTTP.
+                let full = if url.starts_with("http://") || url.starts_with("https://") {
+                    url.to_string()
+                } else {
+                    let base = std::env::var("APP_BASE_URL").unwrap_or_default();
+                    format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+                };
+                let bytes = reqwest::Client::new()
+                    .get(&full)
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("import_audio download {full} failed: {e}"))?
+                    .error_for_status()
+                    .map_err(|e| anyhow::anyhow!("import_audio http status {full}: {e}"))?
+                    .bytes()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("import_audio read body failed: {e}"))?;
+                tokio::fs::write(&src, &bytes).await?;
+            }
+            // Normalize to 48k stereo pcm_s16le WAV — identical container to the
+            // provider/default output, so nothing downstream needs to change.
+            let status = tokio::process::Command::new(&ctx.ffmpeg)
+                .arg("-y")
+                .arg("-hide_banner")
+                .arg("-loglevel")
+                .arg("error")
+                .arg("-i")
+                .arg(&src)
+                .arg("-ac")
+                .arg("2")
+                .arg("-ar")
+                .arg("48000")
+                .arg("-c:a")
+                .arg("pcm_s16le")
+                .arg(&out)
+                .status()
+                .await
+                .map_err(|e| anyhow::anyhow!("spawn ffmpeg for import_audio: {e}"))?;
+            if !status.success() {
+                return Err(anyhow::anyhow!(
+                    "import_audio transcode failed: exit={:?}",
+                    status.code()
+                ));
+            }
+            let _ = tokio::fs::remove_file(&src).await;
+            eprintln!(
+                "[music] 111E ① import_audio short-circuit: {} -> {}",
+                url,
+                out.display()
+            );
+            return Ok(());
+        }
+    }
     let lang = primary_lang(commands, ui_lang);
     let lyrics = lyrics_json_path(&ctx.run_dir);
     let out = music_wav_path(&ctx.run_dir);

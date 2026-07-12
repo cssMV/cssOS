@@ -414,14 +414,14 @@ const DOCK_ORDER_KEY = "cssos.dockOrder";
 // CSSOS_WAVE_862 20260616 — Jing「请设置'为你创作'面板默认显示在第二个位置, 即: 话筒, 为你创作/人物MV」。
 // 新顺序前三 = 话筒 → 为你创作(foryou) → 人物MV(person-mv)。MV 管线后移(创作仍可一键进, 但 For You
 // 信息流是用户进来第一眼该看到的「欣赏」入口, 紧随话筒)。
-// Jing W1544 — 前排精确顺序: 话筒 → 导演入口 → 数字演员, 再到其余。director/actors 动态注入,
+// Jing W1728 — 前排精确顺序: 话筒 → 数字演员 → 导演入口 → App, 再到其余。director/actors 动态注入,
 // pinFront 只固定【已存在】的项(缺则跳过, 不报错), 故加入是安全的增量。
-const DOCK_FRONT_PINNED = ["mic", "director", "actors", "appstore", "foryou", "person-mv", "mv-pipeline", "settings"];
+const DOCK_FRONT_PINNED = ["mic", "actors", "director", "appstore", "foryou", "person-mv", "mv-pipeline", "settings"];
 const DOCK_DEFAULT_ORDER = [
   "mic",
-  "director",    // 导演入口 — 话筒之后(Jing W1544)
-  "actors",      // 数字演员 — 导演入口之后(Jing W1544)
-  "appstore",    // 📱 App 下载中心 — 靠前, 别放末尾(Jing W1602)
+  "actors",      // 数字演员市场 — 话筒之后(Jing W1728)
+  "director",    // 导演入口 — 数字演员之后(Jing W1728)
+  "appstore",    // 📱 App — 导演之后(Jing W1728)
   "foryou",      // 为你创作 — 提到第二位(Jing W862)
   "person-mv",   // 人物MV — 动态注入，restoreDockOrder 会保留位置
   "mv-pipeline",
@@ -32028,7 +32028,9 @@ function restoreDockOrder() {
 const DOCK_KEEP_FOR_NONADMIN = new Set([
   // CSSOS_WAVE_983 — Jing/Apple 5.1.1(v): "profile"(账户面板)必须对普通用户可见, 否则审核员
   //   找不到【删除账户】= 直接拒。上次 W903 收太紧把它也藏了 → build 26 被拒。加回。
-  "mic", "mv-pipeline", "watch", "person-mv", "foryou", "works", "settings", "language", "login", "subscription", "about", "profile"
+  "mic", "mv-pipeline", "watch", "person-mv", "foryou", "works", "settings", "language", "login", "subscription", "about", "profile",
+  // W1727 — Jing: 数字演员市场 / 导演入口 / App / 圣诗 这四个面板对【所有人】开放(不再仅 admin)。
+  "actors", "director", "appstore", "hymns"
 ]);
 function applyAdminDockGateModule() {
   try {

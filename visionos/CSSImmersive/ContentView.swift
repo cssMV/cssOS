@@ -66,7 +66,7 @@ struct ContentView: View {
                         onEnter: { router.enter($0) },
                         onCreate: { router.doCreate = true },
                         onSpell: { router.spell = $0 },
-                        signedIn: auth.isSignedIn,
+                        signedIn: true,   // W1581 — 免费纯欣赏版: 恒 browse, 隐藏"Sign in with Apple"入口(与沉浸 GateView 一致, 修 2.1a; 截图干净)
                         onSignIn: { router.fireBeams = true }
                     )
                     .frame(maxWidth: 880)
@@ -81,11 +81,21 @@ struct ContentView: View {
                     .buttonStyle(.plain).padding(20).help(L("Collapse to mirror", "折叠为魔镜"))
                 }
             } else {
-                // W1374 — Jing「一启动就进沉浸, 魔镜在星空里转, 不要 2D 窗」:
-                //   入口魔镜已搬进沉浸 GateView(3D 实体在星空里自转 + 可凝视捏)。这个 2D 窗折叠态
-                //   【不再显示任何东西】, 仅作宿主驱动 openGate/进影院逻辑。捏沉浸魔镜→光束→登录后
-                //   onChange(isSignedIn) 自动 menuExpanded=true 显大厅。
-                Color.clear.frame(width: 1, height: 1)
+                // W1608 — Apple 2.1a「Unable to access menu」根治: 若沉浸空间未开成(gateOpened=false:
+                //   如 App Review 环境 / iPad / 任何不支持沉浸的场景), 本窗【不再空白】。给一个【普通可点
+                //   (flat tap, 无需凝视+捏合)】的魔镜球后备入口 → 点它展开 2D 大厅菜单(LobbyView, 全是
+                //   普通可点按钮)。这样"菜单永远点得到", 直接消除拒绝原因。
+                //   真机 Vision Pro 上 gate 正常开 → 宿主窗随即 dismiss(见 .task), 用户仍是纯沉浸,
+                //   此 2D 后备不出现(Jing「零 2D」在正常路径上不受影响)。
+                VStack(spacing: 16) {
+                    MagicMirrorOrbView(size: 0.2, sphere: orbSphere)
+                        .frame(width: 220, height: 220)
+                        .contentShape(Circle())
+                        .onTapGesture { withAnimation(.easeInOut(duration: 0.28)) { menuExpanded = true } }
+                    Text(L("Tap the orb to enter", "点击魔镜进入"))
+                        .font(.headline).opacity(0.85)
+                }
+                .frame(minWidth: 320, idealWidth: 380, minHeight: 340, idealHeight: 420)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: inImmersive)

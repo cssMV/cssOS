@@ -953,6 +953,10 @@
     "斯拉夫神话": "Slavic Myth",
     // W1674 — 补齐缺失 4 种(Einstein/Lincoln/Bartholdi 的 civ 就在其中, 之前露中文)。
     "朝鲜古典": "Classical Korea", "近现代北美": "Modern North America", "近现代欧洲": "Modern Europe", "近现代科学": "Modern Science",
+    // W1730 — 一千零一夜 + 北欧/玛雅/凯尔特新阵容的文明(之前 CIV_EN 没有 → 英文用户露中文)。
+    "阿拉伯文明": "Arabian", "北欧文明": "Norse", "玛雅文明": "Maya", "凯尔特文明": "Celtic",
+    // W1732 — 斯拉夫/约鲁巴/波利尼西亚/日本神话新阵容(斯拉夫神话 CIV_EN 已有 → Slavic Myth)。
+    "约鲁巴文明": "Yoruba", "波利尼西亚文明": "Polynesian", "日本神话": "Japanese Myth",
   };
   // 平台默认英文时把中文文明名映射成英文; 中文环境或未知值原样返回。
   function civDisplay(civ) {
@@ -2580,7 +2584,7 @@
     var _fyUp = Math.min(0.94, _fy + 0.08);   // W1652 — 脸略上移(露更多下巴/嘴, 少额头)
     var f2fFacePos = (_fx * 100).toFixed(1) + "% " + (_fyUp * 100).toFixed(1) + "%";
     var f2fMouthY = Math.min(86, _fy * 100 + 4).toFixed(0) + "%";
-    var name = (a && (a.name_zh || a.name_en)) || "";
+    var name = (a && T(a.name_en || a.name_zh || "", a.name_zh || a.name_en || "")) || "";   // W1730 — locale-aware(英文 UI 不再露中文名)
     var uiLoc = (typeof window.cssosLocale === "string" && window.cssosLocale) || (document.documentElement.lang || "en");
     var ov = document.createElement("div"); ov.className = "ag-f2f-ov";
     ov.innerHTML =
@@ -3838,11 +3842,12 @@
     item.setAttribute("data-tooltip", T("Digital Actors", "数字演员"));
     item.setAttribute("aria-label", T("Digital Actors", "数字演员"));
     item.innerHTML = '<span class="dock-ico" aria-hidden="true">🎭</span><span class="dock-label">' + esc(T("Actors", "演员")) + '</span>';
-    // W1544 排序 话筒→导演入口→数字演员: actors 挂在 mic 之后(director 随后插到 mic 与 actors 之间)。
-    var ref = dock.querySelector('[data-action="mic"]') || dock.querySelector('[data-action="person-mv"], [data-action="cssmv"], [data-action="watch"]');
+    // W1733 排序 数字演员→导演入口→App, 且与 dock-priority 的 PRIORITY 完全一致(mic,foryou,actors,…)
+    //   → 注入即终态、无需重排, 减少首屏抖动。actors 插在 foryou 之后; 无 foryou 再退回 mic 之后。
+    var ref = dock.querySelector('[data-action="foryou"]') || dock.querySelector('[data-action="mic"]') || dock.querySelector('[data-action="person-mv"], [data-action="cssmv"], [data-action="watch"]');
     if (ref && ref.nextSibling) dock.insertBefore(item, ref.nextSibling); else dock.appendChild(item);
     item.addEventListener("click", function () { open(); });   // 直连兜底(dock 分发未接管时也能开)
-    mountDirectorDockItem(dock);   // 话筒之后紧跟 🎬 导演入口(在 actors 之前)
+    mountDirectorDockItem(dock);   // actors 之后紧跟 🎬 导演入口(App 再跟其后)
     return true;
   }
   // 🎬 导演入口 dock 项 —— W1544: 紧跟话筒(话筒 → 导演入口 → 数字演员)。
@@ -3857,11 +3862,13 @@
     d.setAttribute("data-tooltip", T("Director", "导演开拍"));
     d.setAttribute("aria-label", T("Director", "导演开拍"));
     d.innerHTML = '<span class="dock-ico" aria-hidden="true">🎬</span><span class="dock-label">' + esc(T("Direct", "开拍")) + '</span>';
-    // 插到话筒之后(→ 落在 mic 与 actors 之间); 无话筒则插到 actors 之前; 都无则追加。
-    var mic = dock.querySelector('[data-action="mic"]');
+    // W1733 — Jing: 数字演员 → 导演入口 → App 相邻同序。director 插在 actors 【之后】。
+    //   (旧 W1544 把 director 插在 actors 之前, 与新顺序相反 → 和 dock-priority 排序互相打架,
+    //    表现为"刷新时闪一下对了又弹回"。源头理顺成 actors→director 一条链, 不再有竞态。)
     var actorsEl = dock.querySelector('[data-action="actors"]');
-    if (mic && mic.nextSibling) dock.insertBefore(d, mic.nextSibling);
-    else if (actorsEl) dock.insertBefore(d, actorsEl);
+    var mic = dock.querySelector('[data-action="mic"]');
+    if (actorsEl) dock.insertBefore(d, actorsEl.nextSibling);        // actors → director(nextSibling 为 null 时等于追加)
+    else if (mic && mic.nextSibling) dock.insertBefore(d, mic.nextSibling);
     else dock.appendChild(d);
     d.addEventListener("click", function () { openDirectorGate(); });   // 直连兜底
     return true;

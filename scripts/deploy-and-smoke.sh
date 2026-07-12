@@ -30,6 +30,9 @@ deploy_api_vm() {
   ssh api-vm '
     set -euo pipefail
     export PATH=/home/jing/.cargo/bin:$PATH
+    # W1749 — torch-sys needs libtorch at build time (see deploy-fast.sh note).
+    export LIBTORCH_USE_PYTORCH=1
+    export LD_LIBRARY_PATH=/home/jing/.local/lib/python3.10/site-packages/torch/lib:${LD_LIBRARY_PATH:-}
     cd /srv/cssos/repo/rust-api
     cargo build --release
     sudo install -m 755 target/release/cssos-rust-api /usr/local/bin/cssos-rust-api

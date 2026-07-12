@@ -103,15 +103,28 @@
 
   /* 客户端真波形: fetch 音频 → 8kHz 单声道解码 → 每 10ms 取峰值。解完即释放 AudioBuffer。 */
   var _peaks = null, _peaksFor = "";
+  // W1743 — Jing「波形图不显示」根因: cdn.cssstudio.app 的 CORS 响应头【间歇性】缺失(常见 CDN 坑:
+  //   cache MISS 不带 Access-Control-Allow-Origin, HIT 才带)→ 首次 fetch 常 "Failed to fetch", 波形空白。
+  //   音频【播放】走 media 元素不需 CORS 故声音一直正常, 只有【解码取 PCM】的 fetch 中招。前端兜底:
+  //   失败重试几次(退避), 大概率命中带 CORS 头的那次。根治仍需 CDN 侧【所有响应】恒带 CORS 头。
+  // W1680 — 绝不带 credentials: CDN 回具名 Allow-Origin 且无 Allow-Credentials, 带凭证会被判死。音频不需 cookie。
+  function _fetchAudioArrayBuffer(url, tries) {
+    return fetch(url, { credentials: "omit", mode: "cors" })
+      .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.arrayBuffer(); })
+      .catch(function () {
+        if (tries > 1) {
+          var wait = (4 - tries) * 350 + 250;   // 250 → 600 → 950ms 退避
+          return new Promise(function (res) { setTimeout(res, wait); }).then(function () { return _fetchAudioArrayBuffer(url, tries - 1); });
+        }
+        return null;
+      });
+  }
   function loadPeaks(url, durSec) {
     if (!url || !(durSec > 0)) return Promise.resolve(null);
     if (_peaksFor === url && _peaks) return Promise.resolve(_peaks);
     var AC = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
     if (!AC || typeof fetch !== "function") return Promise.resolve(null);
-    // W1680 — 绝不能带 credentials: cdn.cssstudio.app 回的是具名 Allow-Origin 且【没有】
-    //   Allow-Credentials → 带凭证的跨域请求会被浏览器判死, 波形永远退回基线。音频不需要 cookie。
-    return fetch(url, { credentials: "omit", mode: "cors" })
-      .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
+    return _fetchAudioArrayBuffer(url, 4)
       .then(function (buf) {
         if (!buf) return null;
         var ctx = new AC(1, Math.max(1, Math.ceil(durSec * 8000)), 8000);
@@ -145,6 +158,42 @@
   }
   // 真波形优先; 没解码好就用后端粗包络; 都没有 → paintWave 画基线。
   function curCurve() { return _peaks || (model && model.volCurve) || null; }
+
+  /* W1744 — 起音检测: 在 [winStart,winEnd] 时间窗内, 用振幅包络的【正向能量突增(flux)】找音节/字起点。
+   * 取局部极大 + 阈值(峰值 flux 的比例)+ 最小间距去抖, 按 flux 强弱贪心挑最多 count 个, 再按时间排序。
+   * 返回起音时间(秒)数组(≤count)。多数作品逐字时间是假的(整句平均分布), 但【整句边界】大体对,
+   * 故以每句 token 的当前显示区间为窗, 在窗内找真实人声起音, 再把逐字吸附上去。 */
+  function detectOnsets(curve, winStart, winEnd, count) {
+    if (!curve || !curve.values || !curve.values.length || !(curve.step_ms > 0) || count < 1) return [];
+    var step = curve.step_ms / 1000;
+    var vals = curve.values;
+    var iA = Math.max(1, Math.floor(winStart / step));
+    var iB = Math.min(vals.length, Math.ceil(winEnd / step));
+    if (iB - iA < 3) return [];
+    var flux = [], maxFlux = 0;
+    for (var i = iA; i < iB; i++) {
+      var f = vals[i] - vals[i - 1]; if (f < 0) f = 0;
+      flux.push({ t: i * step, f: f });
+      if (f > maxFlux) maxFlux = f;
+    }
+    if (!(maxFlux > 0)) return [];
+    var thr = maxFlux * 0.12;      // 阈值 = 窗内峰值 flux 的 12%
+    var minGap = 0.09;             // 起音最小间距 ~90ms(去重同一音节的多帧上升)
+    var cands = [];
+    for (var k = 1; k < flux.length - 1; k++) {
+      var fk = flux[k].f;
+      if (fk >= thr && fk >= flux[k - 1].f && fk >= flux[k + 1].f) cands.push(flux[k]);
+    }
+    cands.sort(function (a, b) { return b.f - a.f; });   // 强→弱
+    var picked = [];
+    for (var c = 0; c < cands.length && picked.length < count; c++) {
+      var t = cands[c].t, ok = true;
+      for (var p = 0; p < picked.length; p++) { if (Math.abs(picked[p] - t) < minGap) { ok = false; break; } }
+      if (ok) picked.push(t);
+    }
+    picked.sort(function (a, b) { return a - b; });      // 按时间排序
+    return picked;
+  }
 
   /* W1680 — Jing「到波形那根线就刚好在黑边区」: 量出【视口顶 → 画面上沿】的真实黑边高度。
    *   视频元素盒 vs 视频内容盒(object-fit:contain 的信箱)之差 ÷2 = 上黑边。拿不到元数据 → 0(回退固定高)。*/
@@ -251,12 +300,20 @@
         '<button data-pill-key="0.75" class="cssfx-btn cssfx-spd">🚶 0.75×</button>' +
         '<button data-pill-key="1" class="cssfx-btn cssfx-spd active">🏃 1×</button>' +
       '</span>' +
+      // W1738 — 「联动后续」开关【独立于胶囊组】: data-pill-bar 有自己的 active 状态系统(W1686 警告过
+      //   两套状态并存必回归), 放进去会与我的高亮互抢。故做成裸按钮, 状态由本文件 rippleMode 独占。
+      '<button data-act="ripple" class="cssfx-btn" style="margin:0 4px;flex:0 0 auto" title="' + lc("Ripple: drag a line to shift it AND every line after it by the same amount", "联动后续: 开着时拖某句 = 该句及其后所有句一起平移(治后半段整体漂移)") + '">⇥ ' + lc("Ripple", "联动后续") + '</button>' +
       '<span id="wv-acts" data-pill-bar data-pill-compact>' +
         '<button data-act="loop" class="cssfx-btn" title="' + lc("Loop just this phrase", "只循环这一句") + '">🔁 ' + lc("Loop", "段循环") + '</button>' +
         '<button data-act="zoomout" class="cssfx-btn" title="' + lc("Shrink waveform", "缩短波形") + '">➖</button>' +
         '<button data-act="zoomin" class="cssfx-btn" title="' + lc("Stretch waveform", "拉长波形") + '">➕</button>' +
         '<button data-act="addtok" class="cssfx-btn" title="' + lc("Add a word at playhead", "在播放头处加字") + '">＋ ' + lc("Word", "字") + '</button>' +
+        // W1744 — 🎯 一键自动对齐: 按每句字数在波形里找起音, 把逐字吸附到真实人声起点(80%→一键)。
+        '<button data-act="align" class="cssfx-btn" title="' + lc("Auto-align each word to the vocal onset in the waveform", "自动把逐字吸附到波形里的人声起音(多数作品逐字时间是假的, 这一下省去手动逐字拖)") + '">🎯 ' + lc("Align", "对齐") + '</button>' +
         '<button data-act="play" class="cssfx-btn">▶</button>' +
+        // W1739 — 撤销/重做(拖错能撤)。⌘Z / ⌘⇧Z 亦可; 触屏无键盘故必须有可见按钮。
+        '<button data-act="undo" class="cssfx-btn" title="' + lc("Undo (⌘Z)", "撤销 (⌘Z)") + '">↶</button>' +
+        '<button data-act="redo" class="cssfx-btn" title="' + lc("Redo (⌘⇧Z)", "重做 (⌘⇧Z)") + '">↷</button>' +
         '<button data-act="save" class="cssfx-btn primary">💾 ' + lc("Save", "保存") + '</button>' +
         // W1679 — 说明文字不再独占一行; 收进这个 ? 里, 按需弹出(快捷键也在里面)。
         '<button data-act="help" class="cssfx-btn" title="' + lc("How to use", "怎么用") + '">❓</button>' +
@@ -327,6 +384,7 @@
     var seeking = false;
     var wantPlaying = false;        // 用户的播放意图(true=要播, false=要停)
     var editingChip = null;         // W1049 — 当前进入编辑模式的字 chip(点字进入, 才可拖)
+    var _pendingEditAddInfo = null; // W1741b — 刚加的占位字待行内编辑: { id }; buildChip 命中即自动开编辑
     function seekToClientX(cx) {
       var rect = strip.getBoundingClientRect();
       var x = cx - rect.left + scroller.scrollLeft;
@@ -373,7 +431,7 @@
       chip.className = "cssos-wave-chip" + (added ? " is-added" : "");
       chip.style.cssText = "position:absolute;top:18px;transform:translateX(-50%);pointer-events:auto;" +
         "background:" + (added ? "linear-gradient(135deg,#fcd34d,#fb923c)" : "linear-gradient(135deg,#5eead4,#38bdf8)") + ";" +
-        "color:#042f2e;font-weight:700;padding:5px 22px 5px 9px;border-radius:8px;white-space:nowrap;" +
+        "color:#042f2e;font-weight:700;padding:5px 40px 5px 9px;border-radius:8px;white-space:nowrap;" +
         "cursor:ew-resize;touch-action:none;box-shadow:0 2px 8px rgba(0,0,0,0.4);font-size:14px;user-select:none";
       var label = document.createElement("span"); label.textContent = tok.text; chip.appendChild(label);
       // ✕ 删除按钮
@@ -384,14 +442,71 @@
       del.addEventListener("pointerdown", function (e2) { e2.stopPropagation(); }, false);
       del.addEventListener("click", function (e2) {
         e2.stopPropagation(); e2.preventDefault();
+        try { if (eng().undoBegin) eng().undoBegin(); } catch (_e) {}   // W1739
         try {
           if (added && eng().removeAddedToken) eng().removeAddedToken(tok.addId);
           else if (eng().deleteToken) eng().deleteToken(tok.rawStartMs);
         } catch (_e) {}
+        try { if (eng().undoCommit) eng().undoCommit(); } catch (_e) {}   // W1739
         renderChips();
         toast(lc("Word removed (Save to keep)", "已删字（保存后生效）"));
       }, false);
       chip.appendChild(del);
+      // W1741 — ✎ 直接改这个字的文字(行内编辑, 取代删→加→再调的绕圈)。原始字→renamed 覆写; 加的字→改记录。
+      var edit = document.createElement("button");
+      edit.textContent = "✎"; edit.title = lc("Edit this word's text", "改这个字的文字");
+      edit.style.cssText = "position:absolute;top:1px;right:19px;border:0;background:transparent;color:rgba(4,47,46,0.72);" +
+        "font-size:11px;line-height:1;cursor:pointer;padding:2px 3px";
+      edit.addEventListener("pointerdown", function (e2) { e2.stopPropagation(); }, false);
+      var textEditing = false, isFreshAdd = false, origText = tok.text;   // W1741b — isFreshAdd: 刚加的占位字
+      function startTextEdit() {
+        if (textEditing) return;
+        textEditing = true; origText = label.textContent;
+        label.setAttribute("contenteditable", "true");
+        label.style.outline = "2px solid #f59e0b"; label.style.cursor = "text"; label.style.userSelect = "text";
+        chip.style.cursor = "text";
+        label.focus();
+        try { var r = document.createRange(); r.selectNodeContents(label); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch (_e) {}
+      }
+      function endTextEdit(commit) {
+        if (!textEditing) return;
+        textEditing = false;
+        label.removeAttribute("contenteditable");
+        label.style.outline = ""; label.style.cursor = ""; label.style.userSelect = ""; chip.style.cursor = "pointer";
+        var nt = String(label.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40);
+        if (isFreshAdd) {
+          // W1741b — 加字行内: 有文字→落定该 token; 空/取消(Esc)→撤掉刚加的占位字。
+          //   undoBegin 已在 addWordInline 里做过, 这里只 undoCommit(配对成"加字"一个撤销条目)。
+          isFreshAdd = false;
+          if (commit && nt) {
+            try { if (eng().setTokenText) eng().setTokenText(tok.rawStartMs, nt, tok.addId); } catch (_e) {}
+            toast(lc("Word added (Save to keep)", "已加字（保存后生效）"));
+          } else {
+            try { if (eng().removeAddedToken) eng().removeAddedToken(tok.addId); } catch (_e) {}
+          }
+          try { if (eng().undoCommit) eng().undoCommit(); } catch (_e) {}
+          renderChips();
+          return;
+        }
+        if (commit && nt && nt !== origText) {
+          try { if (eng().undoBegin) eng().undoBegin(); } catch (_e) {}
+          try { if (eng().setTokenText) eng().setTokenText(tok.rawStartMs, nt, added ? tok.addId : ""); } catch (_e) {}
+          try { if (eng().undoCommit) eng().undoCommit(); } catch (_e) {}
+          toast(lc("Text updated (Save to keep)", "已改字（保存后生效）"));
+          renderChips();   // 用新文字重建字块 + 刷新 model
+        } else {
+          label.textContent = origText;   // 取消/空 → 还原
+        }
+      }
+      edit.addEventListener("click", function (e2) { e2.stopPropagation(); e2.preventDefault(); startTextEdit(); }, false);
+      label.addEventListener("keydown", function (e3) {
+        if (!textEditing) return;
+        if (e3.key === "Enter") { e3.preventDefault(); e3.stopPropagation(); endTextEdit(true); }
+        else if (e3.key === "Escape") { e3.preventDefault(); e3.stopPropagation(); endTextEdit(false); }
+        else { e3.stopPropagation(); }   // 打字时别触发编辑器快捷键(空格=播放等)
+      }, false);
+      label.addEventListener("blur", function () { if (textEditing) endTextEdit(true); }, false);
+      chip.appendChild(edit);
       chip.style.left = chipBaseLeft(tok) + "px";
       /* W1683 — Jing「删掉细线」: 字下那根竖线(stem)不再入 DOM。它本就是冗余的 ——
        * chip 是 translateX(-50%) 居中的, 它的【中心】就是该字的时间点, 竖线只是重复标注。
@@ -417,8 +532,10 @@
       }
       function exitEdit() { chip.style.outline = ""; chip.style.cursor = "pointer"; if (editingChip === chip) editingChip = null; }
       chip.addEventListener("pointerdown", function (ev) {
+        if (textEditing) return;   // W1741 — 正在改字, 让 contentEditable 处理点击(定位光标), 不进拖动
         startX = ev.clientX; moved = false; baseOff = tok.tokenOffsetMs; startLeft = parseFloat(chip.style.left) || 0;
         dragging = (editingChip === chip); // 仅编辑模式下本次按下才进入拖动
+        if (dragging) { try { if (eng().undoBegin) eng().undoBegin(); } catch (_e) {} }   // W1739 — 拖前记状态
         try { chip.setPointerCapture(ev.pointerId); } catch (_e) {}
         chip.style.zIndex = "5";
         ev.preventDefault(); ev.stopPropagation();
@@ -442,6 +559,7 @@
         } else if (dragging) {
           // 拖动结束 → 落盘逐字偏移
           try { if (eng().setTokenOffset) eng().setTokenOffset(tok.rawStartMs, tok.tokenOffsetMs, { persist: true }); } catch (_e) {}
+          try { if (eng().undoCommit) eng().undoCommit(); } catch (_e) {}   // W1739 — 拖后入撤销栈
         }
         dragging = false;
         if (ev) { ev.stopPropagation(); }
@@ -449,7 +567,15 @@
       chip.addEventListener("pointerup", end, false);
       chip.addEventListener("pointercancel", end, false);
       chipLayer.appendChild(chip);
+      // W1741b — 加字行内化: 若本字块正是刚加的占位字 → 自动进入行内编辑(取代 window.prompt)。
+      if (added && tok.addId && _pendingEditAddInfo && _pendingEditAddInfo.id === tok.addId) {
+        _pendingEditAddInfo = null;
+        isFreshAdd = true;
+        setTimeout(function () { try { startTextEdit(); } catch (_e) {} }, 0);
+      }
     }
+    // W1738 — 「联动后续」模式(工具栏 ⇥ 开关翻转): 开着时拖某句手柄 = 该句及其后所有句一起平移。
+    var rippleMode = false;
     // CSSOS_WAVE_1049 — 每句一个可见「移动手柄」(⠿): 拖它 = 整句一起前后移(setLineOffset)。
     //   放在该句最左字上方, 不需 Shift, 触屏/Vision Pro 都好用。
     function buildLineHandles() {
@@ -464,12 +590,25 @@
           "font-size:13px;user-select:none;touch-action:none;box-shadow:0 1px 5px rgba(0,0,0,0.4)";
         h.style.left = minLeft + "px";
         var dragging = false, startX = 0, baseLefts = null, baseLineOffMs = 0, lastDelta = 0, handleBaseLeft = 0;
+        var rip = false, tailRecs = null, tailBaseLefts = null;   // W1738 — 联动后续: 其后各句的 chip
         h.addEventListener("pointerdown", function (ev) {
           dragging = true; startX = ev.clientX; lastDelta = 0;
+          try { if (eng().undoBegin) eng().undoBegin(); } catch (_e) {}   // W1739 — 拖前记状态
           baseLefts = members.map(function (m) { return parseFloat(m.chip.style.left) || 0; });
           handleBaseLeft = parseFloat(h.style.left) || 0;
           baseLineOffMs = (eng().getLineOffset ? (eng().getLineOffset(li) || 0) : 0);
           members.forEach(function (m) { m.chip.style.outline = "2px solid #38bdf8"; });
+          // W1738 — 联动后续开着 → 收集其后所有句的 chip, 拖动时一起可视位移(虚线框标注受影响)。
+          rip = !!rippleMode;
+          if (rip) {
+            tailRecs = [];
+            Object.keys(linesMap).forEach(function (ljStr) {
+              var lj = parseInt(ljStr, 10);
+              if (lj > li) (linesMap[lj] || []).forEach(function (m) { tailRecs.push(m); });
+            });
+            tailBaseLefts = tailRecs.map(function (m) { return parseFloat(m.chip.style.left) || 0; });
+            tailRecs.forEach(function (m) { m.chip.style.outline = "2px dashed rgba(56,189,248,0.65)"; });
+          } else { tailRecs = null; }
           h.style.cursor = "grabbing";
           try { h.setPointerCapture(ev.pointerId); } catch (_e) {}
           ev.preventDefault(); ev.stopPropagation();
@@ -478,6 +617,7 @@
           if (!dragging) return;
           var dx = ev.clientX - startX; lastDelta = Math.round((dx / pps) * 1000);
           members.forEach(function (m, k) { var nl = baseLefts[k] + dx; m.chip.style.left = nl + "px"; m.stem.style.left = nl + "px"; });
+          if (rip && tailRecs) tailRecs.forEach(function (m, k) { var nl = tailBaseLefts[k] + dx; m.chip.style.left = nl + "px"; if (m.stem) m.stem.style.left = nl + "px"; });
           h.style.left = (handleBaseLeft + dx) + "px";
           var labs = Math.max(-30000, Math.min(30000, baseLineOffMs + lastDelta));
           try { if (eng().setLineOffset) eng().setLineOffset(li, labs, { persist: false }); } catch (_e) {}
@@ -486,8 +626,20 @@
         var endH = function (ev) {
           if (!dragging) return; dragging = false; h.style.cursor = "grab";
           members.forEach(function (m) { m.chip.style.outline = ""; });
+          if (rip && tailRecs) tailRecs.forEach(function (m) { m.chip.style.outline = ""; });
           var labs = Math.max(-30000, Math.min(30000, baseLineOffMs + lastDelta));
-          try { if (eng().setLineOffset) eng().setLineOffset(li, labs, { persist: true }); } catch (_e) {}
+          try {
+            if (rip && lastDelta && eng().rippleLineOffset) {
+              // W1738 — 该句设为最终绝对值(不单独存), 再把同一 delta 加到其后所有句、整表保存一次。
+              if (eng().setLineOffset) eng().setLineOffset(li, labs, { persist: false });
+              var n = eng().rippleLineOffset(li + 1, lastDelta, { persist: true });
+              try { toast(lc("Shifted this line + " + n + " after", "已平移本句 + 其后 " + n + " 句")); } catch (_e) {}
+            } else if (eng().setLineOffset) {
+              eng().setLineOffset(li, labs, { persist: true });
+            }
+          } catch (_e) {}
+          try { if (eng().undoCommit) eng().undoCommit(); } catch (_e) {}   // W1739 — 拖后入撤销栈
+          rip = false; tailRecs = null;
           if (ev) { ev.stopPropagation(); }
         };
         h.addEventListener("pointerup", endH, false);
@@ -504,15 +656,69 @@
     }
     renderChips();
     // ＋加字: 在当前播放头位置加一个 token(用于《Jerusalem》间奏拟声词"咿呀")。
+    // W1741b — 加字行内化(取代 window.prompt): 在 t 处加一个占位字块并【立即行内编辑】。
+    //   空/取消(Esc) → 撤掉刚加的占位字; 有文字 + Enter/失焦 → 落定。整个"加字"= 一个撤销条目。
+    function addWordInline(t) {
+      t = Math.max(0, Number(t) || 0);
+      try { if (eng().undoBegin) eng().undoBegin(); } catch (_e) {}   // 配 endTextEdit(isFreshAdd) 的 undoCommit
+      var rec = null;
+      try { rec = eng().addToken && eng().addToken({ text: lc("word", "字"), t: t, line: null }); } catch (_e) {}
+      if (rec && rec.id) { _pendingEditAddInfo = { id: rec.id }; }
+      else { try { if (eng().undoCommit) eng().undoCommit(); } catch (_e) {} }   // 加失败 → 收尾
+      renderChips();                 // buildChip 命中 _pendingEditAddInfo → 自动开行内编辑
+      _pendingEditAddInfo = null;    // 若未被消费(字块未建/被过滤)→ 清掉避免残留
+    }
     function addTokenAtPlayhead() {
-      var au = audioEl(); var t = au ? (au.currentTime || 0) : 0;
-      var txt = "";
-      try { txt = window.prompt(lc("New word/onomatopoeia at " + t.toFixed(1) + "s (e.g. 咿呀)", "在 " + t.toFixed(1) + "s 处加字/拟声词(如 咿呀)"), ""); } catch (_e) {}
-      txt = String(txt == null ? "" : txt).trim();
-      if (!txt) return;
-      try { if (eng().addToken) eng().addToken({ text: txt, t: t, line: null }); } catch (_e) {}
+      var au = audioEl(); addWordInline(au ? (au.currentTime || 0) : 0);
+    }
+    // W1744 — 🎯 一键自动对齐: 逐句在波形里找起音, 把每句第 i 个字吸附到第 i 个起音(设 per-token 偏移使
+    //   显示起点=起音)。整曲循环、undoBegin/commit 包一次、saveTokenOffsets 一次落库。起音不足则窗内均分补齐。
+    function autoAlignAllLines() {
+      var curve = curCurve();
+      if (!curve || !curve.values || !curve.values.length) { toast(lc("Waveform not ready — try again in a moment", "波形未就绪, 稍等再试")); return; }
+      var m = null; try { m = eng().getEditorModel(); } catch (_e) {}
+      if (!m || !m.tokens || !m.tokens.length) { toast(lc("No subtitle to align", "无字幕可对齐")); return; }
+      // W1744 — 只对齐【真歌词字】(含中日韩/假名/谚文/字母数字); 跳过间奏音乐符号(♫♬🎵…)、emoji 等
+      //   非唱词 token —— 它们没有对应人声起音, 跨度还大, 硬吸附会被甩到远处强起音上(实测教训)。
+      var _alignable = function (txt) { return /[一-鿿぀-ヿ가-힣a-zA-Z0-9]/.test(String(txt || "")); };
+      var byLine = {};
+      m.tokens.forEach(function (t) { if (_alignable(t.text)) (byLine[t.lineIndex] = byLine[t.lineIndex] || []).push(t); });
+      try { if (eng().undoBegin) eng().undoBegin(); } catch (_e) {}
+      var totalAligned = 0, linesDone = 0;
+      Object.keys(byLine).forEach(function (liStr) {
+        var toks = byLine[liStr].slice().sort(function (a, b) { return a.rawStart - b.rawStart; });
+        if (!toks.length) return;
+        var winStart = Math.max(0, toks[0].curStart - 0.25);
+        // W1745 — 窗口末端【不】用最后字的 end(拖腔会把它延到下一句)→ 改按字距推一个词长,
+        //   免得最后字被吸到间奏/下一句的起音上。
+        var lastTok = toks[toks.length - 1];
+        var avgDur = toks.length > 1 ? (lastTok.curStart - toks[0].curStart) / (toks.length - 1) : 0.5;
+        var winEnd = lastTok.curStart + Math.max(0.6, avgDur) + 0.25;
+        var onsets = detectOnsets(curve, winStart, winEnd, toks.length);
+        var need = toks.length;
+        if (onsets.length < need) {   // 起音不足 → 窗内均分补齐(空则整窗均分)
+          if (!onsets.length) {
+            onsets = [];
+            for (var q = 0; q < need; q++) onsets.push(winStart + (winEnd - winStart) * (q + 0.5) / need);
+          } else {
+            var lastO = onsets[onsets.length - 1];
+            var gap = Math.max(0.08, (winEnd - lastO) / (need - onsets.length + 1));
+            while (onsets.length < need) onsets.push(onsets[onsets.length - 1] + gap);
+          }
+        }
+        for (var i = 0; i < toks.length; i++) {
+          var tk = toks[i], target = onsets[i];
+          var newTokMs = Math.round(tk.tokenOffsetMs + (target - tk.curStart) * 1000);
+          newTokMs = Math.max(-30000, Math.min(30000, newTokMs));
+          try { if (eng().setTokenOffset) eng().setTokenOffset(tk.rawStartMs, newTokMs, { persist: false }); } catch (_e) {}
+          totalAligned++;
+        }
+        linesDone++;
+      });
+      try { if (eng().saveTokenOffsets) eng().saveTokenOffsets(); } catch (_e) {}   // 一次批量落库
+      try { if (eng().undoCommit) eng().undoCommit(); } catch (_e) {}
       renderChips();
-      toast(lc("Word added at " + t.toFixed(1) + "s — drag to align, Save to keep", "已在 " + t.toFixed(1) + "s 加字——拖动对齐,保存后生效"));
+      toast(lc("Auto-aligned " + totalAligned + " words / " + linesDone + " lines (Save to keep, undoable)", "已自动对齐 " + linesDone + " 句 " + totalAligned + " 字（保存后生效, 可撤销）"));
     }
 
     // playhead (red bar) — W1049 可拖: hover 显示旋钮+ew-resize, 拖动=暂停并移到该处。
@@ -554,18 +760,38 @@
       try { if (eng().saveTokenEdits) eng().saveTokenEdits(); } catch (_e) {} // W1048 — 同存加/删
       toast(lc("Alignment + edits saved", "对齐与增删已保存"));
     });
+    // W1738 — 「联动后续」开关: 翻转 rippleMode, 高亮反馈; 开着时逐句拖动会带动其后所有句一起平移。
+    var rippleBtn = head.querySelector('[data-act="ripple"]');
+    if (rippleBtn) rippleBtn.addEventListener("click", function () {
+      rippleMode = !rippleMode;
+      rippleBtn.style.background = rippleMode ? "rgba(56,189,248,0.95)" : "";
+      rippleBtn.style.color = rippleMode ? "#042f2e" : "";
+      rippleBtn.style.fontWeight = rippleMode ? "800" : "";
+      toast(rippleMode
+        ? lc("Ripple ON — drag a line to shift it + every line after it", "联动后续 已开 — 拖某句 = 该句及其后所有句一起平移")
+        : lc("Ripple off — drag moves one line", "联动后续 已关 — 拖动只移单句"));
+    });
+    // W1739 — 撤销/重做。恢复后必须 renderChips() 让字块反映恢复后的加删字/位移。函数声明(hoisted)供
+    //   按钮与键盘(⌘Z/⌘⇧Z, 见 onKey)复用。
+    function doUndo() {
+      var ok = false; try { ok = !!(eng().undo && eng().undo()); } catch (_e) {}
+      if (ok) { renderChips(); toast(lc("Undone", "已撤销")); } else { toast(lc("Nothing to undo", "没有可撤销的")); }
+    }
+    function doRedo() {
+      var ok = false; try { ok = !!(eng().redo && eng().redo()); } catch (_e) {}
+      if (ok) { renderChips(); toast(lc("Redone", "已重做")); } else { toast(lc("Nothing to redo", "没有可重做的")); }
+    }
+    var undoBtn = head.querySelector('[data-act="undo"]'); if (undoBtn) undoBtn.addEventListener("click", doUndo);
+    var redoBtn = head.querySelector('[data-act="redo"]'); if (redoBtn) redoBtn.addEventListener("click", doRedo);
     // W1048 — ＋加字(播放头) + 双击波形某处加字。
     var addBtn = head.querySelector('[data-act="addtok"]');
     if (addBtn) addBtn.addEventListener("click", function () { addTokenAtPlayhead(); });
+    var alignBtn = head.querySelector('[data-act="align"]');   // W1744 — 🎯 一键自动对齐人声
+    if (alignBtn) alignBtn.addEventListener("click", function () { autoAlignAllLines(); });
     waveWrap.addEventListener("dblclick", function (ev) {
       var rect = strip.getBoundingClientRect();
       var t = Math.max(0, Math.min(dur, (ev.clientX - rect.left + scroller.scrollLeft) / pps));
-      var txt = "";
-      try { txt = window.prompt(lc("New word at " + t.toFixed(1) + "s (e.g. 咿呀)", "在 " + t.toFixed(1) + "s 处加字(如 咿呀)"), ""); } catch (_e) {}
-      txt = String(txt == null ? "" : txt).trim();
-      if (!txt) return;
-      try { if (eng().addToken) eng().addToken({ text: txt, t: t, line: null }); } catch (_e) {}
-      renderChips();
+      addWordInline(t);   // W1741b — 行内加字(取代 window.prompt)
       ev.preventDefault(); ev.stopPropagation();
     }, false);
     playBtn.addEventListener("click", function () {
@@ -617,6 +843,11 @@
       } else if ((ev.metaKey || ev.ctrlKey) && (k === "s" || k === "S")) {
         ev.preventDefault();
         var sb = head.querySelector('[data-act="save"]'); if (sb) sb.click();
+      } else if ((ev.metaKey || ev.ctrlKey) && (k === "z" || k === "Z")) {
+        ev.preventDefault();                       // W1739 — ⌘Z 撤销 / ⌘⇧Z 重做
+        if (ev.shiftKey) doRedo(); else doUndo();
+      } else if ((ev.metaKey || ev.ctrlKey) && (k === "y" || k === "Y")) {
+        ev.preventDefault(); doRedo();             // W1739 — Windows 风格重做
       } else if (k === "ArrowLeft" || k === "ArrowRight") {
         ev.preventDefault();
         var d = (ev.shiftKey ? 0.02 : 0.1) * (k === "ArrowRight" ? 1 : -1);
@@ -739,4 +970,30 @@
   }
 
   globalThis.cssosOpenWaveEditor = open;
+
+  // W1742 — Jing「加个快捷键呼出微调字幕小面板」: 按 S 开/关波形逐字精修面板(切换)。
+  //   让行: 输入框/可编辑元素/按钮(别吞打字或抢控件)、⌘/Ctrl/Alt 组合(留给 ⌘S 等)。开着 → 关;
+  //   关着 → 仅当当前作品有字幕时开(currentLineIndex≥0), 免得在无字幕页面误触弹提示。
+  (function registerOpenHotkey() {
+    try {
+      document.addEventListener("keydown", function (e) {
+        if (e.key !== "s" && e.key !== "S") return;
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        var t = e.target;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable ||
+                  t.tagName === "BUTTON" || t.tagName === "A" ||
+                  (t.getAttribute && t.getAttribute("role") === "button"))) return;
+        var ed = document.getElementById("cssos-wave-editor");
+        if (ed) {   // 开着 → 关(点自带的 ✕, 正常走 close() 摘监听器)
+          e.preventDefault();
+          var cb = ed.querySelector('[data-act="close"]'); if (cb) cb.click();
+          return;
+        }
+        var E = globalThis.cssosEmotionSubtitle;   // 关着 → 有字幕才开
+        if (!E || !E.currentLineIndex || E.currentLineIndex() < 0) return;
+        e.preventDefault();
+        try { open(); } catch (_e) {}
+      }, false);
+    } catch (_e) {}
+  })();
 })();

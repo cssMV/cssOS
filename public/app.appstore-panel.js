@@ -214,6 +214,9 @@
     //   false 让 ensureDockItem 重试等它; 仅所有重试耗尽(force)才追加兜底。
     var actors = dock.querySelector('[data-action="actors"]');
     if (!actors && !force) return false;
+    // W1733 — 顺序 数字演员 → 导演入口 → App: 优先锚定在 director 之后, 无 director 再退回 actors 之后。
+    var director = dock.querySelector('[data-action="director"]');
+    var anchor = director || actors;
     var item = document.createElement("button");
     item.className = "dock-item"; item.type = "button";
     item.setAttribute("data-action", "appstore");
@@ -222,10 +225,10 @@
     item.setAttribute("aria-label", lc("Get the App", "获取 App"));
     item.innerHTML = '<span class="dock-ico" aria-hidden="true">📱</span><span class="dock-label">' +
       esc(lc("App", "App")) + '</span>';
-    if (actors) {
-      dock.insertBefore(item, actors.nextSibling);   // 紧跟 数字演员市场 之后
+    if (anchor) {
+      dock.insertBefore(item, anchor.nextSibling);   // 紧跟 导演入口(无则数字演员)之后
     } else {
-      dock.appendChild(item);                          // force 兜底: actors 始终未出现
+      dock.appendChild(item);                          // force 兜底: 锚点始终未出现
     }
     item.addEventListener("click", function () { open(); });
     return true;

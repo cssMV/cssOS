@@ -1,18 +1,7 @@
 {
-  "images": [
-    {
-      "idiom": "tv",
-      "filename": "top_shelf_image_wide_2320x720.png",
-      "scale": "1x"
-    },
-    {
-      "idiom": "tv",
-      "filename": "top_shelf_image_wide_4640x1440.png",
-      "scale": "2x"
-    }
+  "images" : [
+    { "idiom" : "tv", "filename" : "tsw_1x.png", "scale" : "1x" },
+    { "idiom" : "tv", "filename" : "tsw_2x.png", "scale" : "2x" }
   ],
-  "info": {
-    "author": "xcode",
-    "version": 1
-  }
+  "info" : { "author" : "xcode", "version" : 1 }
 }

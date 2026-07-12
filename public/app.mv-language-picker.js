@@ -62,6 +62,18 @@
     return "$" + (Math.max(0, cents | 0) / 100).toFixed(2);
   }
 
+  // CSSOS_WAVE_1734 20260711 — Jing「语言胶囊套平台胶囊皮 · 翻宪法」: 平台视觉签名 · 随机色凸嵌凹胶囊。
+  // 本行是【多选】(checkbox), 故不套单选 tab 的"唯一 .active" 语义, 但【必须】走 data-pill-bar 工具:
+  //   · grid 容器加 data-pill-bar / data-pill-compact → app.pill-bar.js 宪法样式接管几何+色相+凹凸镶嵌。
+  //   · 每 cell 加 data-pill-key(语言码); 选中(is-selected/is-default)= 加 .active(多个凸岛), 取消= 去 .active。
+  //   · 每颗一枚国旗图标(胶囊宪法 W497 视觉锚点)。语言名仍是文字 i18n(不硬编码任何非英文字面量)。
+  var FLAGS = {
+    en: "🇬🇧", zh: "🇨🇳", ja: "🇯🇵", ko: "🇰🇷", fr: "🇫🇷", de: "🇩🇪", es: "🇪🇸", pt: "🇵🇹",
+    it: "🇮🇹", ru: "🇷🇺", ar: "🇸🇦", hi: "🇮🇳", el: "🇬🇷", la: "🏛", ur: "🇵🇰", fa: "🇮🇷",
+    he: "🇮🇱", is: "🇮🇸", sv: "🇸🇪", sw: "🇰🇪", tr: "🇹🇷", vi: "🇻🇳", sa: "🕉", bo: "☸",
+  };
+  function flagFor(code) { return FLAGS[String(code || "").toLowerCase()] || "🌐"; }
+
   // CSSOS_WAVE_404 20260524 — native names for mother-tongue codes that may not
   // be in the 8-language catalog (e.g. Greek el for Athena → catalog becomes 9).
   function motherTongueName(code) {
@@ -123,15 +135,65 @@
     container.appendChild(sub);
 
     var grid = document.createElement("div");
-    // CSSOS_WAVE_418 20260524 — Jing「胶囊宪法」: ONE horizontal-scroll row of
-    // self-contained capsules (multi-select → no tab-pill 凹咬 interlock, which
-    // blanked the labels). Styling lives in .cssos-lang-picker-grid / .cssos-lang-cell.
+    // CSSOS_WAVE_1734 20260711 — Jing「翻宪法」: 走平台 data-pill-bar 工具(app.pill-bar.js)。
+    //   data-pill-bar    → 宪法样式接管几何/色相/凹凸镶嵌(连成一条无缝轨, 不是飘着的椭圆)。
+    //   data-pill-compact→ 去掉工具默认外边距(picker 自带间距)。
+    //   data-pill-multi  → 多选轨道(多个 .active 凸岛并存); 供工具 stampOne 跳过"强制激活第一个"。
+    // 色相/凹咬/主题文字由 paintPillBar() 在每次 render 末尾复刻工具逻辑打上(见上方说明)。
     grid.className = "cssos-lang-picker-grid";
+    grid.setAttribute("data-pill-bar", "");
+    grid.setAttribute("data-pill-compact", "");
+    grid.setAttribute("data-pill-multi", "");
     container.appendChild(grid);
 
     var priceLine = document.createElement("div");
     priceLine.className = "cssos-lang-picker-price";
     container.appendChild(priceLine);
+
+    // CSSOS_WAVE_1734 — 驱动 app.pill-bar.js 宪法轨道的视觉。为什么要自己复刻工具的 stamp:
+    //   本 picker 每次 render 都【原地重建 cell】(grid.innerHTML=""), 而 app.pill-bar.js 的全局
+    //   MutationObserver 只在【新出现一条 data-pill-bar 容器】时 stamp, 看不到"既有轨道内的子节点替换"
+    //   → 重建后的 cell 会丢 --ph/凹咬。故这里在每次 render 末尾调 paintPillBar(), 复刻工具的
+    //   stampOne + markPre(全部用工具导出的 CSSOS_PILL_HUES 与工具的 .active/.cssos-pill-pre/--ph/--th,
+    //   不写任何 bespoke 像素): 逐 cell 按位置挂谱色 --ph; 首个 .active 左侧全打 .cssos-pill-pre(左凹咬);
+    //   轨道 --th = 首个 .active 的谱色。深色主题走工具默认浅字, 白天(浅底)加 data-pill-text=dark。
+    var PAL = (globalThis.CSSOS_PILL_HUES && globalThis.CSSOS_PILL_HUES.length)
+      ? globalThis.CSSOS_PILL_HUES
+      : [155, 192, 235, 268, 310, 342, 22, 48, 82, 118, 168, 210];
+    function paintPillBar(g) {
+      if (!g) return;
+      var kids = Array.prototype.slice.call(g.children);
+      // 先清掉上一次留下的【合成默认激活】, 避免重排/补插 My Voice 后旧的合成 active 残留。
+      kids.forEach(function (c) {
+        if (c.dataset && c.dataset.pillDefaultActive === "1") {
+          c.classList.remove("active");
+          delete c.dataset.pillDefaultActive;
+        }
+      });
+      var firstOn = -1;
+      kids.forEach(function (c, i) {
+        if (!c.getAttribute("data-pill-key")) c.setAttribute("data-pill-key", "k" + i);
+        c.style.setProperty("--ph", PAL[i % PAL.length]);
+        if (firstOn < 0 && c.classList.contains("active")) firstOn = i;
+      });
+      // CSSOS_WAVE_1734d — 胶囊宪法「第一个胶囊默认激活」: 若无任何真实选中(无 active 岛),
+      //   首颗(My Voice)默认激活当锚点岛 → 现成凸嵌凹自动成立(其余凹向它), 无缝、零新 CSS。
+      //   仅是视觉默认岛(标 data-pill-default-active 以便下次重绘清除), 不改 My Voice 的点击语义,
+      //   也不勾选任何语言 checkbox。用户真正选中某语言后, firstOn>=0, 合成岛让位给真实岛。
+      if (firstOn < 0 && kids.length) {
+        kids[0].classList.add("active");
+        kids[0].dataset.pillDefaultActive = "1";
+        firstOn = 0;
+      }
+      kids.forEach(function (c, i) { c.classList.toggle("cssos-pill-pre", firstOn >= 0 && i < firstOn); });
+      g.style.setProperty("--th", PAL[(firstOn < 0 ? 0 : firstOn) % PAL.length]);
+      var lightTheme = false;
+      try { lightTheme = document.documentElement.getAttribute("data-theme") === "light"; } catch (_e) {}
+      if (lightTheme) g.setAttribute("data-pill-text", "dark");
+      else g.removeAttribute("data-pill-text");
+    }
+    // 让 app.my-voice-entry.js 注入「🎙️ My Voice」首颗后, 能立刻让它也吃到胶囊皮(补 data-pill-key + 重绘)。
+    grid.__cssosPillPaint = function () { paintPillBar(grid); };
 
     function orderedCodes() {
       // selected (in order) first, then the rest in catalog order.
@@ -190,8 +252,11 @@
         var isSel = idx >= 0;
         var isDefault = isSel && idx === 0;
         var cell = document.createElement("label");
-        cell.className = "cssos-lang-cell" + (isSel ? " is-selected" : "")
+        // CSSOS_WAVE_1734 — 多选凸嵌凹: 选中(is-selected/is-default)= 加 .active(凸岛), 未选=凹谷。
+        //   .active 是 app.pill-bar.js 宪法的凸岛类; is-selected/is-default 仅供本模块/测试语义, 不再上色。
+        cell.className = "cssos-lang-cell" + (isSel ? " is-selected active" : "")
           + (isDefault ? " is-default" : "");
+        cell.setAttribute("data-pill-key", code); // 胶囊宪法: 每颗一枚唯一 key
         var box = document.createElement("input");
         box.type = "checkbox";
         box.checked = isSel;
@@ -209,10 +274,14 @@
           render();
           refreshQuote();
         });
+        var fl = document.createElement("span");
+        fl.className = "cssos-lang-flag";
+        fl.textContent = flagFor(code);
         var nm = document.createElement("span");
         nm.className = "cssos-lang-name";
         nm.textContent = l.native;
         cell.appendChild(box);
+        cell.appendChild(fl);
         cell.appendChild(nm);
         if (isDefault) {
           var badge = document.createElement("span");
@@ -227,6 +296,8 @@
         }
         grid.appendChild(cell);
       });
+      // CSSOS_WAVE_1734 — 重建 cell 后, 复刻工具 stamp: 打 --ph/凹咬/主题文字, 让整条连成无缝凸嵌凹轨。
+      paintPillBar(grid);
     }
 
     render();

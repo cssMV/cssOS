@@ -197,6 +197,32 @@ globalThis.cssosRunDeleteAccountFlow = async function cssosRunDeleteAccountFlow(
   const btn = (triggerBtn instanceof Element) ? triggerBtn : null;
   let origText = "";
   if (btn) { btn.disabled = true; origText = btn.textContent; btn.textContent = _copy("Deleting…", "删除中…"); }
+  // Capture the display name while the user is still signed in, so the
+  // farewell moment-music can personalize its send-off.
+  let _farewellName = "";
+  try {
+    const _a = (typeof globalThis.cssosAuthState === "function")
+      ? globalThis.cssosAuthState() : globalThis.authState;
+    const _u = (_a && _a.user) || {};
+    _farewellName = String(_u.name || _u.display_name || "").trim()
+      || String(_u.email || "").trim().split("@")[0] || "";
+  } catch (_) {}
+
+  // CSSOS_FAREWELL_MOMENT 20260711 — Jing / Apple-compliance:
+  // "删号必播离别 MV". FORCE the farewell MV to play FULLY and FIRST —
+  // BEFORE the account is actually committed for deletion. This is a
+  // client-side takeover (zero engine cost, deterministic). The deletion
+  // POST fires only AFTER the farewell finishes, so the send-off is
+  // guaranteed to be seen: if the user closes the tab mid-MV, the account
+  // was never actually submitted for deletion (safe). If the module is
+  // unavailable for any reason, we fall through to delete immediately so
+  // account deletion is never blocked.
+  try {
+    if (globalThis.cssosFarewellMoment && typeof globalThis.cssosFarewellMoment.present === "function") {
+      await Promise.resolve(globalThis.cssosFarewellMoment.present({ name: _farewellName }));
+    }
+  } catch (_) { /* never block deletion on the farewell */ }
+
   try {
     const res = await fetch("/api/account/delete", {
       method: "POST",

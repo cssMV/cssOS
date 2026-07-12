@@ -663,6 +663,21 @@ async function createRunBridge({ title, uiLang, tier, voice, lyricsText = "", jo
     ui_lang: generationLang,
     tier: tier || "dev",
     commands: {
+      // W1749 (111E ①) — faithful imported audio. When the user uploaded a
+      // MIDI / MusicXML / audio source, carry its rendered asset URL + the
+      // stages it lets us skip. The Rust music engine short-circuits: it
+      // downloads this asset to ./build/music.wav instead of re-composing
+      // via the provider (Suno). No import → key absent → unchanged path.
+      ...(creationState.userUploadAsset
+        ? {
+            import_audio: {
+              url: String(creationState.userUploadAsset),
+              skip_stages: Array.isArray(creationState.userUploadSkipStages)
+                ? creationState.userUploadSkipStages.slice()
+                : []
+            }
+          }
+        : {}),
       voice: {
         ...(voice || { bytes: 0, mime: "audio/webm", mode: "single" }),
         job_id: String(jobId || voice?.job_id || "").trim()

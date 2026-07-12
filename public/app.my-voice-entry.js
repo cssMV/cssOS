@@ -60,9 +60,15 @@
         var cell = document.createElement("button");
         cell.type = "button";
         cell.className = "cssos-lang-cell cssos-myvoice-cell";
+        // CSSOS_WAVE_1734 — 语言胶囊排改走平台 data-pill-bar 工具 → 首颗「My Voice」也得带 data-pill-key
+        // 才吃得到宪法胶囊皮(否则 [data-pill-bar]>[data-pill-key] 选择器命不中它, 变成裸按钮)。
+        // 它排在第 0 位 → paintPillBar 给它谱色 index 0 = 155 = 品牌绿, 正合「My Voice 保持品牌绿」。
+        cell.setAttribute("data-pill-key", "myvoice");
         cell.innerHTML = '<span class="cssos-myvoice-ico">🎙️</span><span class="cssos-lang-name" style="opacity:1;transform:none;">' + lc("My Voice", "我的声线") + "</span>";
         cell.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); openMgr(); }, false);
         grid.insertBefore(cell, grid.firstChild);
+        // 插入首颗后, 若 picker 暴露了重绘钩子, 立刻让整条轨道重算谱色/凹咬(把 My Voice 纳入镶嵌)。
+        try { if (typeof grid.__cssosPillPaint === "function") grid.__cssosPillPaint(); } catch (_e) {}
       } catch (_e) {}
     });
   }

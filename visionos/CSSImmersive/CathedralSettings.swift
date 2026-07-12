@@ -5,9 +5,15 @@ import SwiftUI
 
 final class CathedralSettings: ObservableObject {
     /// 环绕弧度(度): 60=微弯 … 120=带鱼屏 … 180=半圆 … 360=整圆(全包围, 用户在圆心)。
-    @Published var arcDegrees: Double = 120
-    /// 银幕半径(米): 用户到银幕的距离 = 曲率半径(用户在圆心)。
-    @Published var radius: Double = 3.2
+    /// W1580 — Jing「选了某弧度, 下次进来还是那个」: 持久化到 UserDefaults(初值读存档, 默认 120; 改即存)。
+    @Published var arcDegrees: Double = (UserDefaults.standard.object(forKey: "cssArcDegrees") as? Double) ?? 120 {
+        didSet { UserDefaults.standard.set(arcDegrees, forKey: "cssArcDegrees") }
+    }
+    /// 银幕半径(米): 用户到银幕的距离 = 曲率半径(用户在圆心)。360° 时=圈圈大小(近=小圈, 远=大圈)。
+    /// W1580 — Jing「远近参数找回来 + 记住」: 持久化到 UserDefaults(初值读存档, 默认 3.2; 改即存)。
+    @Published var radius: Double = (UserDefaults.standard.object(forKey: "cssRadius") as? Double) ?? 3.2 {
+        didSet { UserDefaults.standard.set(radius, forKey: "cssRadius") }
+    }
     /// 银幕高度(米)。
     @Published var screenHeight: Double = 2.0
     /// W953 — 当前场景/环境(天空盒)。值对应 Assets 里的 env_<name> 360 图。
@@ -17,12 +23,10 @@ final class CathedralSettings: ObservableObject {
     @Published var customEnvURL: String = ""
     /// 可选场景(label 给菜单, key 给资源)。真·哈利波特/权游大厅那种要专门 360 美术,
     /// 这里先备好我们自己的几个氛围场景(虚空/星空/深海/雪峰/圣殿), 之后换高清 360 即生效。
+    // W1580 — Jing: 只保留星空(其他不真实); 但「混沌深海」按 Jing 要求加回(截图/可选)。虚空/雪峰/金殿仍撤出。
     static let environments: [(key: String, en: String, zh: String)] = [
-        ("void", "Mirror Void", "魔镜虚空"),
         ("cosmos", "Cosmos", "星空"),
         ("deepsea", "Sea of Chaos", "混沌深海"),
-        ("snow", "Snow Peak", "雪峰"),
-        ("temple", "Golden Hall", "圣殿金殿"),
     ]
 
     /// W961 — 菜单开关。空间里的 3D 魔镜 logo 点一下 → 切换它 → 空间菜单浮层显隐。

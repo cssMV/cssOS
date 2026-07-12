@@ -100,7 +100,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260531-w587b-cap" />
+    <link rel="stylesheet" href="style.css?v=20260711-w1733" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
     <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
@@ -239,10 +239,11 @@
               <audio id="mic-capture-audio" class="mic-capture-audio" controls preload="metadata" hidden></audio>
             </div>
           </div>
-          <!-- CSSOS_WAVE_912 — Jing: 导航放在 mirror-stage【外面】(logo 不变形), 用 logo-body flex-wrap 换行落到口号下方。仅 web。 -->
-          <nav class="site-intro" id="site-intro" aria-label="Site navigation">
-            <a href="/about.html">About</a><span class="sep">|</span><a href="/business.html">Business</a><span class="sep">|</span><a href="/privacy.html">Privacy</a><span class="sep">|</span><a href="/terms.html">Terms</a><span class="sep">|</span><a href="mailto:admin@cssstudio.app">Contact</a>
-          </nav>
+          <!-- CSSOS_WAVE_1752 — Jing「上架后把 logo 口号下的链接搬进 About 面板」。
+               About/Business/Privacy/Terms/Contact 已全在 About 面板(Dock ℹ About:
+               About tab=Who/What/Mission, Contact tab=email/website/social,
+               Legal=Business Model/Privacy/Terms/Data Flow), 故此处冗余的落地导航移除。
+               原 W912 的 <nav class="site-intro"> 已并入 About 面板。 -->
         </div>
       </section>
 
@@ -583,6 +584,12 @@
               </div>
             </section>
           </div>
+          <!-- CSSOS_WAVE_1752 — Jing「上架后把 logo 口号下的链接搬进 About 面板」。
+               原落地页 <nav class="site-intro"> 链接行移到此处(用 about-quicklinks 类,
+               不套 .site-intro 的 html.cssos-app 隐藏规则,故在 App 内的 About 面板可见)。 -->
+          <nav class="about-quicklinks" aria-label="About quick links" style="display:flex;flex-wrap:wrap;gap:4px 10px;justify-content:center;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid rgba(0,245,160,0.14);font-size:13px;font-weight:600;">
+            <a href="/about.html" target="_blank" rel="noopener">About</a><span style="opacity:0.4;">|</span><a href="/business.html" target="_blank" rel="noopener">Business</a><span style="opacity:0.4;">|</span><a href="/privacy.html" target="_blank" rel="noopener">Privacy</a><span style="opacity:0.4;">|</span><a href="/terms.html" target="_blank" rel="noopener">Terms</a><span style="opacity:0.4;">|</span><a href="mailto:admin@cssstudio.app">Contact</a>
+          </nav>
         </div>
         <div class="resize-handle"></div>
       </section>
@@ -1744,7 +1751,7 @@
           </div>
           <div class="login-user" id="login-user"></div>
           <div id="login-summary-host"></div>
-          <div class="login-grid cssmv-pill-bar" id="login-list"></div>
+          <div class="login-grid cssmv-pill-bar" id="login-list" data-pill-equal></div>
           <!-- CSSOS_WAVE_878 — Jing「回滚到干净的全宽 Apple, 撤掉 W875 那段说明文字」。全宽机制(solo 类 + 内联钉死)保留。 -->
           <button class="cta ghost tiny" id="login-logout" type="button" data-i18n="login.logout">
             Log out
@@ -2069,7 +2076,7 @@
       </section>
     </main>
 
-    <footer class="dock" id="dock" data-pill-bar data-pill-compact>
+    <footer class="dock" id="dock" data-pill-bar data-pill-compact data-presort="1">
       <!-- CSSOS_WAVE_163 20260515 — Jing: "自从加入了 🌌 System MVs，
            MV PIPELINE 面板就丢失了，请找回来". The MV Pipeline dock item
            had gone missing from index.html — DOCK_DEFAULT_ORDER lists
@@ -2419,6 +2426,9 @@
 
     <script src="app.subscription-celebration.js?v=20260501-celebrate-265"></script>
     <script src="app.subscription-watcher.js?v=20260501-celebrate-265"></script>
+    <!-- CSSOS_FAREWELL_MOMENT 20260711 — client-side farewell "离别音乐" MV
+         played in-moment on account deletion (zero engine cost). -->
+    <script src="app.farewell-moment.js?v=20260711-farewell-1"></script>
     <!-- CSSOS_WAVE_117_LAZY 20260513 — notifications-panel is the first
          panel migrated to true on-demand loading. Inert <script type=...>
          tag (browser ignores it). Real script injected by cssosLoadPanel()
@@ -2557,7 +2567,7 @@
          to dock positions 1 and 2 (per Jing — they were getting
          clipped at the back). Loaded after app.boot.js below so
          the dynamic Person-MV injector has a chance to run first. -->
-    <script src="app.dock-priority-order.js?v=20260624-w1171c" defer></script>
+    <script src="app.dock-priority-order.js?v=20260711-w1733b" defer></script>
     <!-- CSSOS_WAVE_445 20260526 — horizontal swipe cycles main panels -->
     <script src="app.panel-swipe-nav.js?v=20260529-w496-swipe" defer></script>
     <!-- CSSOS_WAVE_463 20260528 — Panel Constitution execution layer

@@ -152,8 +152,18 @@ enum SpatialSubtitleSystem {
         word.components.set(OpacityComponent(opacity: 1))
         group.addChild(word)
 
-        // ③ 字心小烟花: W1070 — 与桌面 cssosFireworkAt 对齐, 从【字正中心】向四周炸开更多小 emoji。
-        let sparkN = 6 + Int(intensity * 10)
+        // W1580 — 关键修复(visionOS 26.5 回归): 【先把 group 挂进场景, 再发小烟花的 move 动画】。
+        //   旧序是 group 还没进场景就对子 emoji 调 move → 新版 RealityKit 不再补跑"入场景前发起的动画"
+        //   → 小 emoji 全堆在字心不扩散 = 看起来"只有一颗"。挂进场景后再 move, 才会真的从字心炸开。
+        group.components.set(OpacityComponent(opacity: 0))
+        group.scale = SIMD3<Float>(repeating: 0.3)
+        // W1399 — Gap2: 字归入【本行容器】(不再各自定时淡出); 整行到行尾由 fadeLine 一起淡出。
+        let container = lineContainer(event.lineIndex, in: root)
+        container.addChild(group)
+
+        // ③ 字心小烟花: W1070 — 从【字正中心】向四周炸开一群小 emoji(group 已在场景, move 才会真扩散)。
+        // W1580 — 照搬桌面 _fireworkAt 调用: count = 10 + inten*14 (每字 10~24 颗), 不自造 6+10。
+        let sparkN = 10 + Int(intensity * 14)
         for _ in 0..<sparkN {
             guard let g = pool.randomElement() else { continue }
             let s = emojiEntity(g, size: CGFloat.random(in: 0.045...0.075), opacity: 0.95)
@@ -179,12 +189,6 @@ enum SpatialSubtitleSystem {
             }
         }
 
-        group.components.set(OpacityComponent(opacity: 0))
-        group.scale = SIMD3<Float>(repeating: 0.3)
-        // W1399 — Gap2: 字归入【本行容器】(不再各自定时淡出); 整行到行尾由 fadeLine 一起淡出。
-        let container = lineContainer(event.lineIndex, in: root)
-        container.addChild(group)
-
         // W1434 — Jing「全平台统一手表那个【撞边框弹一下】手感」: 爆出时【过冲再回弹】(spring 感),
         //   而非一冲到位。① 0.16s 弹到过冲尺寸 → ② 0.13s 回弹到稳定尺寸 = 弹一下。emoji 烟花(③)同时已爆。
         group.components.set(OpacityComponent(opacity: 1))
@@ -206,7 +210,7 @@ enum SpatialSubtitleSystem {
     ///   金球喷射直接复用这套, 不再各写各的(参数一字不差)。
     static func fireworkBurst(at center: SIMD3<Float>, into root: Entity, emotion: String = "joy", intensity: Float = 0.8) {
         let pool = emojiPool(for: emotion)
-        let sparkN = 6 + Int(intensity * 10)
+        let sparkN = 10 + Int(intensity * 14)   // W1580 — 与桌面 _fireworkAt 一字不差(10~24)
         for _ in 0..<sparkN {
             guard let g = pool.randomElement() else { continue }
             let s = emojiEntity(g, size: CGFloat.random(in: 0.045...0.075), opacity: 0.95)   // 小!
@@ -228,6 +232,23 @@ enum SpatialSubtitleSystem {
                 }
                 s.removeFromParent()
             }
+        }
+    }
+
+    /// W1580 — 截图专用【冻结烟花】: 在 center 爆一大团 emoji 且【全部到位、满不淡出、不移除】→ 画面定住,
+    ///   供从容截图(不用抢那一瞬)。大 emoji 居中 + 一圈小 emoji 已扩散到位。
+    @MainActor
+    static func frozenFirework(at center: SIMD3<Float>, into root: Entity, emotion: String = "joy", count: Int = 28) {
+        let pool = emojiPool(for: emotion)
+        let big = emojiEntity(pool.randomElement() ?? "🎉", size: 0.18, opacity: 1.0)
+        big.position = center; root.addChild(big)
+        for i in 0..<count {
+            guard let g = pool.randomElement() else { continue }
+            let s = emojiEntity(g, size: CGFloat.random(in: 0.05...0.10), opacity: 1.0)
+            let ang = Float(i) / Float(count) * 2 * .pi + Float.random(in: -0.28...0.28)
+            let r = Float.random(in: 0.16...0.58)
+            s.position = center + SIMD3<Float>(cos(ang) * r, sin(ang) * r, Float.random(in: -0.06...0.16))
+            root.addChild(s)
         }
     }
 

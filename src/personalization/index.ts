@@ -29,6 +29,7 @@ export { registerGiftTrigger, listRegisteredTriggers } from "./triggers.js";
 export {
   registerAllPersonalizationTriggers,
   runDailyBirthdayFlush,
+  runDailyAnniversaryFlush,
 } from "./handlers/index.js";
 export { getSystemUser, getSystemUserIdSync } from "./system-user.js";
 export { listUserGifts, markViewed } from "./audit.js";

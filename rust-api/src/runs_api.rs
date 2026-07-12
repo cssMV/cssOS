@@ -4703,6 +4703,12 @@ pub async fn runs_create(
         if let Some(film_runtime) = cmd.get("film_runtime") {
             commands["film_runtime"] = film_runtime.clone();
         }
+        // W1749 (111E ①) — faithful imported audio (uploaded MIDI/MusicXML/audio).
+        // Pass it straight through to the music engine, which short-circuits the
+        // provider re-compose and uses this asset as ./build/music.wav.
+        if let Some(import_audio) = cmd.get("import_audio") {
+            commands["import_audio"] = import_audio.clone();
+        }
     }
 
     commands["title_hint"] = serde_json::json!(cssl.clone());

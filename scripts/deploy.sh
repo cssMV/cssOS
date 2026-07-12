@@ -79,6 +79,9 @@ sync_public() {
     --exclude 'artifacts/' \
     --exclude 'uploads/' \
     --exclude 'works/' \
+    --exclude 'fonts/' \
+    --exclude 'fonts_cn2/' \
+    --exclude 'fonts_en/' \
     "${REPO_ROOT}/public/" \
     "${TARGET}:${REMOTE_STATIC}/"
 

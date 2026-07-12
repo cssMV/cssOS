@@ -95,22 +95,35 @@
   var _danmuTimer = null, _danmuIdx = 0, _danmuWorkId = "";
   // CSSOS_WAVE_1124 — 弹幕 emoji 背景默认池(无 theme_emoji 时用)。
   var DANMU_EMOJI = ["💬", "✨", "🌟", "💖", "🔥", "🎵", "🌸", "💫", "👏", "🎉", "😍", "🥹"];
+  // CSSOS_WAVE_1761 — 评论存两张表: 用户作品→/api/works/:id/comments, 人物MV→
+  //   /api/person-mv/mvs/:id/comments。以前对【所有】作品都打 person-mv 端点 → 普通用户作品
+  //   (占 feed 多数, 如唐伯虎三部曲)一律 404 刷控制台。改为先试 works(多数命中、不 404),
+  //   空/失败再回退 person-mv,弹幕两种作品都能出、且消除 404 噪音。
   function fetchDanmu(id) {
     if (!id || _danmuCache[id]) return;
     _danmuCache[id] = [];
-    try {
-      fetch("/api/person-mv/mvs/" + encodeURIComponent(id) + "/comments?limit=40", { credentials: "include" })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (d) {
-          var arr = Array.isArray(d) ? d : (d && (d.data || d.comments)) || [];
-          _danmuCache[id] = arr.filter(function (c) { return c && !c.deleted && !c.deleted_at; })
-            .map(function (c) {
-              var body = String(c.body || c.body_text || "").trim();
-              if (!body) { try { body = String(c.body_html || "").replace(/<[^>]*>/g, "").trim(); } catch (_e) {} }
-              return { name: String(c.display_name || c.username || "").trim(), body: body };
-            }).filter(function (c) { return c.body; });
-        }).catch(function () {});
-    } catch (_e) {}
+    var apply = function (arr) {
+      return arr.filter(function (c) { return c && !c.deleted && !c.deleted_at; })
+        .map(function (c) {
+          var body = String(c.body || c.body_text || "").trim();
+          if (!body) { try { body = String(c.body_html || "").replace(/<[^>]*>/g, "").trim(); } catch (_e) {} }
+          return { name: String(c.display_name || c.username || "").trim(), body: body };
+        }).filter(function (c) { return c.body; });
+    };
+    var tryUrl = function (url, next) {
+      try {
+        fetch(url, { credentials: "include" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            var arr = Array.isArray(d) ? d : (d && (d.data || d.comments)) || [];
+            if (arr.length) { _danmuCache[id] = apply(arr); }
+            else if (next) next();
+          }).catch(function () { if (next) next(); });
+      } catch (_e) { if (next) next(); }
+    };
+    tryUrl("/api/works/" + encodeURIComponent(id) + "/comments?limit=40", function () {
+      tryUrl("/api/person-mv/mvs/" + encodeURIComponent(id) + "/comments?limit=40", null);
+    });
   }
   function spawnDanmu() {
     if (!watchOpen()) return;

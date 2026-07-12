@@ -23,7 +23,7 @@
 
 // English is the single source of truth; T() routes UI strings through the
 // W210 lazy-translation pipeline (loginCopy → tr) at render time.
-const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
+const _arT = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
 
 const ASPECT_PRESETS = Object.freeze({
   "16:9": {
@@ -294,9 +294,9 @@ function resolveCreationAspectRatioModule(options) {
     || pickClosestRunwayRatioModule(ratioFloat, RUNWAY_VIDEO_RATIOS);
 
   // English is authored here; T() lazily localizes via the W210 pipeline.
-  const label   = preset.label   ? T(preset.label)   : presetKey;
-  const tagline = preset.tagline ? T(preset.tagline) : "";
-  const warning = preset.warning ? T(preset.warning) : "";
+  const label   = preset.label   ? _arT(preset.label)   : presetKey;
+  const tagline = preset.tagline ? _arT(preset.tagline) : "";
+  const warning = preset.warning ? _arT(preset.warning) : "";
 
   return {
     presetKey,

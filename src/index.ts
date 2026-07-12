@@ -62574,7 +62574,8 @@ app.get("/api/v1/mvs/:id", apiV1Read, async (req, res) => {
 app.get("/api/v1/works/:id", apiV1Read, async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
-    const r = await withClient((c) => c.query<any>(`SELECT * FROM works WHERE id = $1`, [id]));
+    // W1759 — `works` 是空遗留表(0 行, 误查陷阱); 真作品表是 user_works。
+    const r = await withClient((c) => c.query<any>(`SELECT * FROM user_works WHERE id = $1::uuid`, [id]));
     if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     return res.json({ ok: true, work: r.rows[0] });
   } catch (err) {

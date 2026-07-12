@@ -1,4 +1,4 @@
-const T = (en) =>
+const _spT = (en) =>
   typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en;
 
 function countOperaLyricBlocksModule(text = "") {
@@ -438,10 +438,10 @@ function stripOperaActSuffixModule(title) {
 function formatActLabelModuleBridge(actNumber) {
   const bridge = globalThis.readSongSeedUiModule?.(
     "formatActLabelModule",
-    `${T("Act")} ${actNumber}`,
+    `${_spT("Act")} ${actNumber}`,
     actNumber,
   );
-  return bridge || `${T("Act")} ${actNumber}`;
+  return bridge || `${_spT("Act")} ${actNumber}`;
 }
 
 function buildStructuredSegmentsModuleBridge(lines, count, baseTitle) {

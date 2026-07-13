@@ -35977,6 +35977,46 @@ function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
   };
 }
 
+// CSSOS_WAVE_1759 — Jing「李白 · 饮者三部曲 在 Apple TV 没画面」根因 + 治本:
+//   三部曲子部(part 2「醉里狂歌」/ part 3「天地留名」)的 preview_video_url 落库为【根相对】
+//   路径(/artifacts/mv/mv_*.mp4), 而 root 与 part 1 是绝对 cdn URL。market 序列化里
+//   signMediaUrlsOnRow 只对【顶层 root】签名/处理, 从不递归 children → 子部 URL 原样【根相对】。
+//   同源 web(<video src="/artifacts/...">)照播; 但原生 cssTV / cssVision 用 URL(string:) 得到
+//   一个【无 scheme / 无 host】的相对 URL, AVPlayer 无法加载 → 黑屏(没画面), 音轨或仍出声。
+//   修: market 输出前把整棵树(root + 所有子部)里【根相对】的媒体 URL 补成绝对(app 源 =
+//   publicArtifactsBase(), 非 cdn —— 这些子部文件在 cdn.cssstudio.app 404、在 cssstudio.app 200)。
+//   只补主机名、不改路由 → 同源 web 行为完全不变; 顶层已签名的 /secure/... 也一并补成绝对,
+//   不绕过任何 preview-gating(签名先跑, 这里只 qualify host)。
+const MARKET_MEDIA_URL_KEYS = [
+  "preview_video_url",
+  "final_mv_url",
+  "preview_audio_url",
+  "audio_track_1_url",
+  "audio_track_2_url",
+  "subtitle_srt_url",
+  "cover_image",
+  "preview_image_url",
+] as const;
+function absolutizePublicMediaRef(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const s = value.trim();
+  // 只补【根相对】(单斜杠开头, 排除协议相对 // 与 data:)。绝对(http/https)、空串、非串一律原样。
+  if (!s.startsWith("/") || s.startsWith("//")) return value;
+  return publicArtifactsBase() + s;
+}
+function absolutizeMarketNodeMediaDeep(node: any): void {
+  if (!node || typeof node !== "object") return;
+  for (const key of MARKET_MEDIA_URL_KEYS) {
+    if (node[key] != null) node[key] = absolutizePublicMediaRef(node[key]);
+  }
+  if (Array.isArray(node.cover_slides)) {
+    node.cover_slides = node.cover_slides.map((u: unknown) => absolutizePublicMediaRef(u));
+  }
+  if (Array.isArray(node.children)) {
+    node.children.forEach((child: any) => absolutizeMarketNodeMediaDeep(child));
+  }
+}
+
 function parseStructuredWorkTitle(title: string) {
   const raw = String(title || "").trim();
   const parts = raw
@@ -46859,7 +46899,32 @@ app.get("/api/works/market", async (req, res) => {
            w.fingerprint_hash,
            w.suggested_listen_price_cents,
            w.suggested_buyout_price_cents,
-           w.cover_image,
+           -- CSSOS_WAVE_1760 — Jing「李清照·声声慢三部曲(等)在 TV/Vision 上没画面 = 像被隐藏」根因:
+           --   结构化 root(triptych/opera)自身常无 cover_image / preview_video / slideshow_frame
+           --   资产(画面素材落在各【子部】上), 而 TV/Vision 卡片【只读 cover_image】→ root 卡全黑
+           --   → 用户以为作品被隐藏。治本(纯 API 兜底, 不生成、不改库): root 无封面时, 借用其
+           --   子部已有的 slideshow_frame(本域 cssstudio.app 图) 或子部 cover_image 当封面画面。
+           --   COALESCE 短路: 已有封面的 root 完全不触发子查询, 无性能回归。子部也无图 → 保持 null。
+           COALESCE(
+             w.cover_image,
+             w.preview_image_url,
+             (SELECT sf.url
+                FROM work_assets sf
+                JOIN user_works cw ON cw.id = sf.work_id
+               WHERE cw.root_work_id = w.id
+                 AND cw.parent_work_id IS NOT NULL
+                 AND cw.status <> 'deleted'
+                 AND sf.asset_type = 'slideshow_frame'
+               ORDER BY cw.sequence_index ASC
+               LIMIT 1),
+             (SELECT cw.cover_image
+                FROM user_works cw
+               WHERE cw.root_work_id = w.id
+                 AND cw.parent_work_id IS NOT NULL
+                 AND cw.cover_image IS NOT NULL
+               ORDER BY cw.sequence_index ASC
+               LIMIT 1)
+           ) AS cover_image,
            w.cover_focal_x,
            w.cover_focal_y,
            w.preview_image_url,
@@ -47224,6 +47289,9 @@ app.get("/api/works/market", async (req, res) => {
           const isCastActorOwner = viewerActorWorkIds.has(String(row.id || ""));
           const fullAccess = isOwner || isFree || purchased || isOwnerAdminMkt || isCastActorOwner;
           const signed = signMediaUrlsOnRow(row, fullAccess ? "full" : "preview");
+          // CSSOS_WAVE_1759 — 补全整棵树(root + 子部)里根相对的媒体 URL 为绝对 app 源, 让原生
+          //   cssTV / cssVision 能加载子部视频(修「李白三部曲 TV 没画面」)。同源 web 不受影响。
+          absolutizeMarketNodeMediaDeep(signed);
           return {
             ...signed,
             viewer_orders: orders,

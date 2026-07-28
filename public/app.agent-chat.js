@@ -210,10 +210,16 @@
             f.style.width = d + "px"; f.style.height = d + "px"; f.style.minWidth = d + "px";
             f.style.bottom = Math.max(0, Math.round(sr.bottom - r.bottom)) + "px"; // 同下(同 .watch-screen 基准)
             f.style.right = "14px"; f.style.top = "auto"; f.style.left = "auto";
-          } else if (f.dataset.inWatchScreen) {
-            // 还原全局固定入口。
-            if (f.parentNode !== document.body) document.body.appendChild(f);
-            delete f.dataset.inWatchScreen;
+          } else {
+            // 还原全局固定入口。W1735 根因修复 — 不能只在 inWatchScreen 时还原: FAB 可能被
+            // 全屏重定位器或"播完预告→暂停→价格条隐藏"的竞态残留在 .watch-screen 子树里, 而该子树的
+            // 某个祖先带 transform/filter/containment, 会让 position:fixed 相对那个祖先(而非视口)
+            // 定位 → FAB 直接飘到屏幕中间(Jing「AI 助理跑到上面去了」)。只要不是价格条对齐态, 就把它
+            // 强制挂回 body(原生全屏时挂回全屏元素, 免得被整个剔除), 并清掉内联样式回到 CSS 的 fixed。
+            var fe = document.fullscreenElement || document.webkitFullscreenElement || null;
+            var home = fe || document.body;
+            if (f.parentNode !== home) home.appendChild(f);
+            if (f.dataset.inWatchScreen) delete f.dataset.inWatchScreen;
             f.style.position = ""; f.style.width = ""; f.style.height = ""; f.style.minWidth = "";
             f.style.bottom = ""; f.style.right = ""; f.style.top = ""; f.style.left = "";
           }

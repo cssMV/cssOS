@@ -41,8 +41,11 @@
   var TARGETS = [
     // 主创建台: 紧挨「声线/Vocal Style」输入(最贴切——你在这里描述声线)。
     { key: "creation", find: function () { var el = document.getElementById("creation-vocal-style"); return el ? (el.closest("label") || el.parentElement) : null; }, place: "after" },
-    // 高级设置(Jing 明确要求)。
-    { key: "settings", find: function () { return document.getElementById("settings-panel"); }, place: "prepend-body" },
+    /* CSSOS_WAVE_1693 — Jing「撤掉标题上的声线胶囊, 下面已经有一个, 重复」。
+     * 高级设置里「多语言声轨」那排的第一颗本来就是 🎙️ My Voice(W587 的 injectLangRow 插的),
+     * 面板顶部再飘一颗纯属重复。这跟 W587 自己那句注释("别让它孤单飘在上面, 跟语言胶囊在一起")
+     * 是同一条道理 —— 当时只是漏删了这个入口。
+     *   移除: { key: "settings", find: () => #settings-panel, place: "prepend-body" } */
     // 人物 MV: 第一块 shelf 之前。
     { key: "personmv", find: function () { return document.querySelector('[data-shelf^="person-mv"], [id^="person-mv-"]'); }, place: "before" },
     // (MV Pipeline 的「我的声线」改为插进语言胶囊排做第 1 颗 —— 见 injectLangRow, 不再单独飘在面板顶部。)
@@ -57,9 +60,15 @@
         var cell = document.createElement("button");
         cell.type = "button";
         cell.className = "cssos-lang-cell cssos-myvoice-cell";
+        // CSSOS_WAVE_1734 — 语言胶囊排改走平台 data-pill-bar 工具 → 首颗「My Voice」也得带 data-pill-key
+        // 才吃得到宪法胶囊皮(否则 [data-pill-bar]>[data-pill-key] 选择器命不中它, 变成裸按钮)。
+        // 它排在第 0 位 → paintPillBar 给它谱色 index 0 = 155 = 品牌绿, 正合「My Voice 保持品牌绿」。
+        cell.setAttribute("data-pill-key", "myvoice");
         cell.innerHTML = '<span class="cssos-myvoice-ico">🎙️</span><span class="cssos-lang-name" style="opacity:1;transform:none;">' + lc("My Voice", "我的声线") + "</span>";
         cell.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); openMgr(); }, false);
         grid.insertBefore(cell, grid.firstChild);
+        // 插入首颗后, 若 picker 暴露了重绘钩子, 立刻让整条轨道重算谱色/凹咬(把 My Voice 纳入镶嵌)。
+        try { if (typeof grid.__cssosPillPaint === "function") grid.__cssosPillPaint(); } catch (_e) {}
       } catch (_e) {}
     });
   }

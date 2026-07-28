@@ -330,6 +330,13 @@
   function alignAgentFab() {
     var fab = document.getElementById("cssos-agent-fab");
     if (!fab) return;
+    // W1735 — Jing「AI 助理跑到上面去了, 放回右下角高于 Dock」根因: 下面按 #watch-subtitle 底边对齐,
+    //   只有 watch/影院真正打开时字幕才在底部那一行; 着陆页/大厅字幕元素飘在屏幕中部, 对齐它会把 FAB
+    //   顶到中间。改: 仅 cssos-watch-open 时才对齐字幕; 否则清掉内联 bottom → 回落 CSS 默认(Dock 上方)。
+    if (!document.documentElement.classList.contains("cssos-watch-open")) {
+      fab.style.removeProperty("bottom");
+      return;
+    }
     // CSSOS_WAVE_1263 — Jing: AI 助理要和字幕/多语言【同一行】(左中右)。原来只 App 实测对齐, 桌面用 CSS
     //   默认 bottom → 飘在别处不贴那一行。改: App+桌面【都】实测字幕行竖直中心, 把 FAB 中心对齐过去 = 同一行。
     var sub = document.getElementById("watch-subtitle");

@@ -52,7 +52,14 @@
     // 用语言中立的音符, 不硬编码任何语言文字(守 i18n 铁律); 显示=「这是作品原声」。
     orig: "♪",
   };
-  function face(code) { return LANG_FACE[code] || String(code || "").toUpperCase().slice(0, 2); }
+  // CSSOS_WAVE_1675 — 哨兵轨的 lang 实际是 "orig-pre-epic"(不止 W625 映射的 "orig"),
+  //   没命中 LANG_FACE 就退回 slice(0,2) → 画出 "OR"(被误读成 Odia 语)。任何 orig* 一律
+  //   语言中立音符, 守住 W625「不硬编码任何语言文字」的原意。
+  function isOrigSentinel(code) { return /^orig/i.test(String(code || "")); }
+  function face(code) {
+    if (isOrigSentinel(code)) return "♪";
+    return LANG_FACE[code] || String(code || "").toUpperCase().slice(0, 2);
+  }
 
   function watchScreen() {
     return document.querySelector("#watch-panel .watch-screen") ||
@@ -673,6 +680,9 @@
       // CSSOS_WAVE_1085 — Jing「左下角永驻 queued 0% 角标」: 已有音频的轨= 实际可播,
       //   绝不当作待渲染(回填灌了音频却没把 status 翻成 ready → 进度条永显假 queued)。
       if (t.audio_url || t.url || t.audioUrl || t.preview_audio_url || t.alt_audio_url) return false;
+      // CSSOS_WAVE_1675 — 原声哨兵不是用户可选语言, 也没有真实渲染任务(老作品的占位轨)。
+      //   它若卡在 pending 就会永驻「♪ · queued 0%」—— 绝不让它驱动进度角标。
+      if (isOrigSentinel(t.lang)) return false;
       return true;
     }).sort(function (a, b) { return (a.track_order | 0) - (b.track_order | 0); })[0];
     var el = document.getElementById("cssos-mv-progress");

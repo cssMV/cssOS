@@ -29,17 +29,40 @@ struct CSSPillBar: View {
     private var activeIndex: Int { items.firstIndex { $0.id == selected } ?? 0 }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: -r) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
-                    pill(idx, item)
-                        // 激活最上; 越靠近激活越上 → 凸头压在邻居凹口上(咬合)。
-                        .zIndex(item.id == selected ? 1000 : Double(500 - abs(idx - activeIndex)))
+        // W1578(修正) — 撤掉底轨(它把第一条踩烂了)。只留: 装得下→均宽; 太多→横滑。干净、无外框。
+        GeometryReader { geo in
+            let fits = estimatedWidth() <= geo.size.width
+            Group {
+                if fits {
+                    row(equalWidth: true)          // 胶囊装得下 → 全部均宽填满
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) { row(equalWidth: false) }
                 }
             }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 6)
+            .frame(width: geo.size.width, height: h + 14, alignment: .leading)
         }
+        .frame(height: h + 14)
+    }
+
+    // 一行胶囊。equalWidth: 每枚 maxWidth:.infinity 均分; 否则各自内容宽(横滑用)。
+    @ViewBuilder private func row(equalWidth: Bool) -> some View {
+        HStack(spacing: -r) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                pill(idx, item)
+                    .frame(maxWidth: equalWidth ? .infinity : nil)
+                    // 激活最上; 越靠近激活越上 → 凸头压在邻居凹口上(咬合)。
+                    .zIndex(item.id == selected ? 1000 : Double(500 - abs(idx - activeIndex)))
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+    }
+
+    // 粗估内容总宽(判断是否需要横滑): 每字≈13pt + 图标30 + 左右内衬≈48, 负间距 -r 抵扣重叠。
+    private func estimatedWidth() -> CGFloat {
+        var w: CGFloat = 2 * r
+        for it in items { w += CGFloat(it.label.count) * 13 + (it.icon != nil ? 30 : 0) + 48 - r }
+        return w
     }
 
     @ViewBuilder

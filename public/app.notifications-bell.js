@@ -8,8 +8,7 @@
   if (window.__cssosNotifBellMounted) return;
   window.__cssosNotifBellMounted = true;
 
-  const ZH = /^zh/i.test(String(globalThis.currentLocale || navigator.language || "en"));
-  const T = (en, zh) => (ZH ? zh : en);
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
 
   function fmtRel(iso) {
     try {
@@ -17,13 +16,13 @@
       if (!t) return "";
       const dt = Math.max(0, Date.now() - t);
       const s = Math.floor(dt / 1000);
-      if (s < 60) return T("just now", "刚刚");
+      if (s < 60) return T("just now");
       const m = Math.floor(s / 60);
-      if (m < 60) return T(`${m}m`, `${m}分钟前`);
+      if (m < 60) return `${m}m`;
       const h = Math.floor(m / 60);
-      if (h < 24) return T(`${h}h`, `${h}小时前`);
+      if (h < 24) return `${h}h`;
       const d = Math.floor(h / 24);
-      if (d < 7) return T(`${d}d`, `${d}天前`);
+      if (d < 7) return `${d}d`;
       return new Date(iso).toLocaleDateString();
     } catch (_e) { return ""; }
   }
@@ -73,10 +72,10 @@
     const host = document.createElement("div");
     host.className = "cssos-notif-bell-host";
     host.innerHTML = `
-      <button class="cssos-notif-bell-btn" type="button" title="${T("Notifications", "通知")}" aria-label="${T("Notifications", "通知")}">
+      <button class="cssos-notif-bell-btn" type="button" title="${T("Notifications")}" aria-label="${T("Notifications")}">
         🔔<span class="cssos-notif-bell-badge" hidden>0</span>
       </button>
-      <div class="cssos-notif-bell-panel" hidden role="dialog" aria-label="${T("Notifications", "通知")}"></div>
+      <div class="cssos-notif-bell-panel" hidden role="dialog" aria-label="${T("Notifications")}"></div>
     `;
     return host;
   }
@@ -113,21 +112,21 @@
 
   function payloadLine(n) {
     const p = (n && n.payload) || {};
-    const actor = p.actor_name || p.actor_username || T("Someone", "有人");
+    const actor = p.actor_name || p.actor_username || T("Someone");
     const handle = p.actor_username ? `@${p.actor_username}` : actor;
     if (n.kind === "mv_like") {
-      return T(`🤍 ${handle} liked your MV`, `🤍 ${handle} 赞了你的 MV`);
+      return `🤍 ${handle} ${T("liked your MV")}`;
     }
     if (n.kind === "mv_comment") {
       const body = String(p.comment_body || "").slice(0, 50);
-      return T(`💬 ${handle}: ${body}`, `💬 ${handle}: ${body}`);
+      return `💬 ${handle}: ${body}`;
     }
     if (n.kind === "comment_mention") {
       const snip = String(p.snippet || "").slice(0, 60);
-      return T(`💬 ${handle} mentioned you: ${snip}`, `💬 ${handle} 提到你：${snip}`);
+      return `💬 ${handle} ${T("mentioned you")}: ${snip}`;
     }
     if (n.kind === "follow") {
-      return T(`👋 ${handle} followed you`, `👋 ${handle} 关注了你`);
+      return `👋 ${handle} ${T("followed you")}`;
     }
     return n.kind;
   }
@@ -183,7 +182,7 @@
   async function enablePushFlow() {
     try {
       if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-        alert(T("Push not supported in this browser.", "此浏览器不支持推送。"));
+        alert(T("Push not supported in this browser."));
         return false;
       }
       const perm = await Notification.requestPermission();
@@ -192,7 +191,7 @@
       const keyResp = await api("/api/push/vapid-public-key");
       const vapid = keyResp && keyResp.key;
       if (!vapid) {
-        alert(T("Push not configured on server (VAPID key missing).", "服务器未配置 VAPID 公钥。"));
+        alert(T("Push not configured on server (VAPID key missing)."));
         return false;
       }
       const sub = await reg.pushManager.subscribe({
@@ -218,11 +217,11 @@
       padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.08);
       display:flex;align-items:center;justify-content:space-between;gap:8px;
       font-size:12px;background:rgba(120,160,255,0.06);">
-      <span>${T("Get notified even when CSS Studio is closed", "关闭页面也能收到推送通知")}</span>
+      <span>${T("Get notified even when CSS Studio is closed")}</span>
       <button class="cssos-notif-push-enable" type="button" style="
         background:rgba(120,160,255,0.18);border:1px solid rgba(120,160,255,0.35);
         color:inherit;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;">
-        ${T("🔔 Enable", "🔔 开启")}
+        ${T("🔔 Enable")}
       </button>
     </div>`;
   }
@@ -231,11 +230,11 @@
     const panel = host.querySelector(".cssos-notif-bell-panel");
     panel.hidden = false;
     panel.innerHTML = (globalThis.cssosSkeletonRowsMarkup
-      ? globalThis.cssosSkeletonRowsMarkup(5, T("Loading…", "加载中…"))
-      : `<div class="cssos-notif-empty">${T("Loading…", "加载中…")}</div>`);
+      ? globalThis.cssosSkeletonRowsMarkup(5, T("Loading…"))
+      : `<div class="cssos-notif-empty">${T("Loading…")}</div>`);
     const j = await api("/api/notifications?limit=20");
     if (!j || !j.ok) {
-      panel.innerHTML = `<div class="cssos-notif-empty">${T("Sign in to see notifications.", "登录后查看通知。")}</div>`;
+      panel.innerHTML = `<div class="cssos-notif-empty">${T("Sign in to see notifications.")}</div>`;
       return;
     }
     const items = j.notifications || [];
@@ -243,8 +242,8 @@
     if (!items.length) {
       const _ems = globalThis.cssosEmptyStateMarkup;
       panel.innerHTML = banner + (_ems
-        ? _ems({ icon: "🔔", title: T("No notifications yet.", "暂无通知。"), sub: T("Tips, gifts and replies will show up here.", "提示、礼物和回复都会出现在这里。") })
-        : `<div class="cssos-notif-empty">${T("No notifications yet.", "暂无通知。")}</div>`);
+        ? _ems({ icon: "🔔", title: T("No notifications yet."), sub: T("Tips, gifts and replies will show up here.") })
+        : `<div class="cssos-notif-empty">${T("No notifications yet.")}</div>`);
     } else {
       panel.innerHTML = banner + items.map((n) => {
         const line = payloadLine(n);

@@ -33,12 +33,19 @@ struct GateView: View {
     @State private var creatingStage = ""
     @State private var creatingProgress = 0.0
     @State private var pendingSpell = ""
+    @State private var lobbyDragBase: SIMD3<Float>? = nil   // W1580 — 大厅面板拖拽基准
 
     var body: some View {
         // W1389 — 卡片进不去真凶根治: 不再切到独立 ImmersiveCinema 空间(GateSpace 还开着时 open 另一个会静默 .error,
         //   且宿主窗已关 → dismiss 后零场景无法续开)。改成【同一个 GateSpace 内】切 gate↔cinema → 零空间切换, 稳。
         if showCinema {
-            ImmersiveView()
+            // W1580 — 影院里「⬅️ 大厅」→ 退回一步; 「上/下一首」→ enterCinema 换播另一个作品。
+            //   .id(作品) → 换作品时重挂影院 → make 重跑, 按新作品变体重建环绕银幕。
+            ImmersiveView(
+                onBack: { withAnimation(.easeInOut(duration: 0.35)) { showCinema = false } },
+                onPlayWork: { w in Task { await enterCinema(work: w) } }
+            )
+            .id(player.work?.id)
         } else {
             gateBody
         }
@@ -67,7 +74,9 @@ struct GateView: View {
             refs.orb = orb   // W1381 — 进大厅后隐藏这枚 gate 金球(大厅自带 logo 金球, 避免两个)
             // W1423 — 启动金球【循环巡游·三处停稳爆】, 直到用户捏打断。句柄存 refs.journey 供捏时 cancel。
             let _orb = orb, _anchor = anchor
-            refs.journey = Task { @MainActor in await runOrbIntro(_orb, in: _anchor) }
+            // W1580 — 从影院退回大厅时 gateBody 会重建; 若已在大厅(showLobby=true)就【不重放】金球入场之旅,
+            //   否则金球虽隐藏、烟花仍会空放在大厅里。仅冷启动(未进大厅)才跑入场。
+            if !showLobby { refs.journey = Task { @MainActor in await runOrbIntro(_orb, in: _anchor) } }
             // 大厅沉浸面板(初始隐藏, 与魔镜同锚, 悬在其下方)。
             if let lobby = attachments.entity(for: "lobby") {
                 lobby.position = [0, -0.32, -1.45]
@@ -101,11 +110,12 @@ struct GateView: View {
                     onEnter: { router.enter($0) },
                     onCreate: { router.doCreate = true },
                     onSpell: { router.spell = $0 },
-                    signedIn: auth.isSignedIn,
-                    onSignIn: { router.fireBeams = true }
+                    signedIn: true,   // W1581 — 免费纯欣赏版: 恒 browse 模式, 隐藏所有登录 UI(修 2.1a)
+                    onSignIn: { router.fireBeams = true },
+                    onHandleDrag: { dx, dy, dz, ended in moveLobby(dx, dy, dz, ended) }   // W1580 — 拖标题栏移动大厅面板
                 )
-                .frame(width: 980, height: 720)
-                .glassBackgroundEffect(in: RoundedRectangle(cornerRadius: 44))
+                // W1580 — Jing「两个圆角面板叠一起」根因: 这里外层玻璃(980) + LobbyView 自己的玻璃(860)= 两层。
+                //   去掉外层, 只留 LobbyView 自己那层 → 单一圆角面板, 不再露出背后一圈。
             }
             // W1382 — 创作进度球(原 ContentView 2D overlay, 现沉浸 attachment)。
             Attachment(id: "creation") {
@@ -173,6 +183,52 @@ struct GateView: View {
         .onChange(of: router.spell) { _, s in
             if let s { router.spell = nil; startSpell(s) }
         }
+        .task { await showcaseNavIfNeeded() }   // W1580 — 截图模式(仅 env 触发): 自动进大厅/影院
+    }
+
+    // W1580 — 截图专用: 设 CSS_SHOWCASE_NAV=lobby → 直接显大厅封面墙; =cinema → 自动进一部作品影院。
+    //   仅在环境变量设置时生效, 对正式版零影响(用户永远走金球仪式)。
+    private func showcaseNavIfNeeded() async {
+        let env = ProcessInfo.processInfo.environment
+        let args = CommandLine.arguments
+        func hasArg(_ k: String) -> Bool { args.contains(k) || args.contains("--" + k) }
+        // 支持【环境变量】(模拟器) 或【启动参数】(真机 devicectl 传): orb/lobby/cinema。
+        let nav = env["CSS_SHOWCASE_NAV"]
+            ?? (hasArg("showcase-orb") ? "orb" : hasArg("showcase-lobby") ? "lobby" : hasArg("showcase-cinema") ? "cinema" : "")
+        guard !nav.isEmpty else { return }
+        refs.journey?.cancel(); refs.journey = nil
+        if nav == "orb" {
+            // #1 冻结烟花: 金球移到欢迎词位置 + 在此爆一大团静止 emoji(不淡出), 定住供截图。
+            if let anchor = refs.orbAnchor, let orb = refs.orb {
+                var t = orb.transform; t.translation = GateView.introP2Welcome; orb.transform = t
+                SpatialSubtitleSystem.frozenFirework(at: GateView.introP2Welcome, into: anchor, emotion: "joy")
+            }
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.4)) { showLobby = true }
+        if nav == "cinema" {
+            // CSS_SHOWCASE_ENV=deepsea → 影院背景设成混沌深海(截图用)。
+            if let e = env["CSS_SHOWCASE_ENV"], !e.isEmpty { settings.customEnvURL = ""; settings.environment = e }
+            let want = env["CSS_SHOWCASE_WORK"]
+                ?? (args.first(where: { $0.hasPrefix("work=") }).map { String($0.dropFirst(5)) } ?? "")
+            // 「混沌/flagship/chaos」→ 直接进旗舰《混沌の海》(defaultWork, 真实日语 MV+字幕), 不取货架第一首。
+            if want.localizedCaseInsensitiveContains("混沌") || want.localizedCaseInsensitiveContains("flagship") || want.localizedCaseInsensitiveContains("chaos") {
+                await enterCinema(work: await CSSBackend.defaultWork())
+                return
+            }
+            let items = await CSSBackend.fetchShelf("for-you", limit: 60)
+            let picked = want.isEmpty ? items.first
+                : (items.first(where: { $0.title.localizedCaseInsensitiveContains(want) }) ?? items.first)
+            if let w = picked?.toWork() { await enterCinema(work: w) }
+        }
+    }
+
+    // W1580 — 拖大厅标题栏 → 移动大厅面板实体(refs.lobby, identity 朝向 → 直接本地位移; x/y 2D + z 深度)。
+    private func moveLobby(_ dx: Double, _ dy: Double, _ dz: Double, _ ended: Bool) {
+        guard let e = refs.lobby else { return }
+        if ended { lobbyDragBase = nil; return }
+        if lobbyDragBase == nil { lobbyDragBase = e.position }
+        e.position = lobbyDragBase! + SIMD3<Float>(Float(dx) / 1360, Float(-dy) / 1360, Float(dz) / 1360)
     }
 
     // W1383 — 捏瞬间转速猛增 → ~0.9s 衰减回常速(发力感; 替代凝视加速——苹果隐私不给读注视点)。
@@ -214,6 +270,9 @@ struct GateView: View {
         player.load(w)                         // 装载(ImmersiveView 读同一 PlayerController, 此时已带多变体+歌词)
         settings.hasEnteredOnce = true
         withAnimation(.easeInOut(duration: 0.35)) { showCinema = true }   // 同空间内切到影院(零空间切换)
+        // W1580 — 切上/下一首会重挂影院(.id 变), 旧视图 onDisappear 的 pauseAll 可能晚于新 make 的 playAll
+        //   → 切歌后不自动播。补一发延迟 playAll, 确保切到即播(首次进入也无害, play 幂等)。
+        Task { @MainActor in try? await Task.sleep(nanoseconds: 450_000_000); player.playAll() }
     }
 
     // W1382 — 咒语创作(原 ContentView.startSpell 搬来): 进度走 CreationOrbView attachment。
@@ -256,8 +315,7 @@ struct GateView: View {
             let origin = refs.orb?.position ?? GateView.orbCenter
             await SpatialSubtitleSystem.fireworkShell(at: origin, into: anchor, emotion: "joy")
             withAnimation(.easeInOut(duration: 0.45)) { showLobby = true }   // 烟花散 → 圣殿大门浮现
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            await auth.signInViaOrb()
+            // W1581 — 免费纯欣赏版: 摘掉登录(苹果 2.1a 拒审:Sign in with Apple 无响应)。捏金球=进大厅浏览, 全程无登录。
         }
     }
 

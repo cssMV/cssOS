@@ -93,7 +93,7 @@ export async function runDailyBirthdayFlush(
           SELECT 1
             FROM system_gift_audit sga
            WHERE sga.target_user_id = u.id
-             AND sga.trigger_key   = 'birthday'
+             AND sga.trigger_event = 'birthday'
              AND EXTRACT(YEAR FROM sga.dispatched_at) =
                  EXTRACT(YEAR FROM now())
              AND sga.status IN ('pending','generating','delivered','viewed')

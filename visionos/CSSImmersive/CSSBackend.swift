@@ -227,6 +227,9 @@ enum CSSBackend {
     /// 兼容旧调用名(同步, 返回离线占位; 优先用 defaultWork() 拿真作品)。
     static func sampleWork() -> CSSWork { offlineFallback() }
 
+    // W1580 — 影院「上一首/下一首」用的画廊: 大厅每次加载作品即刷新这里, 影院据当前作品 id 找上/下一个。
+    static var lastGallery: [CSSWork] = []
+
     // ── CSSOS_WAVE_1059 — Cover Arc 大厅: 拉作品列表填货架 ──────────────────────
     struct LobbyItem: Identifiable {
         let id: String

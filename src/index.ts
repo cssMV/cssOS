@@ -10,6 +10,8 @@ import http from "node:http";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import multer from "multer";
+import { parseMusicXml } from "./musicxml";
+import { enqueueScoreRender, getScoreRenderJob, startScoreRenderWorker, setScoreImageGen } from "./score-queue";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import type { PoolClient, QueryResult } from "pg";
@@ -171,6 +173,13 @@ function getOpenAiDiagnosticsPayload() {
 }
 
 async function runOpenAiProbe() {
+  // W1655 — OpenAI 直连全平台停用: 诊断探针不再打 OpenAI, 直接返回 disabled 存根。
+  return {
+    ok: false, provider: "openai", status: 0, model: "disabled",
+    env_source: "disabled", key_fingerprint: "",
+    error_type: "disabled", error_code: "disabled",
+    error_message: "OpenAI direct calls disabled platform-wide (W1655)",
+  };
   const runtimeConfig = getOpenAiRuntimeConfig();
   if (!runtimeConfig.apiKey) {
     return {
@@ -230,7 +239,7 @@ async function runOpenAiProbe() {
       error_type: "network_error",
       error_code: "network_error",
       error_message:
-        error instanceof Error ? error.message : "OpenAI probe failed",
+        String((error as any)?.message || "OpenAI probe failed"),
     };
   }
 }
@@ -1731,6 +1740,52 @@ async function computeVolumeCurve(
   return { step_ms: Math.round(STEP * 1000), values };
 }
 
+// CSSOS_WAVE_1746 20260711 — 服务端【快速】音量包络: ffmpeg 解码音频 → 8kHz 单声道 PCM → 每 stepMs 取峰值。
+//   取代 /analyze(逐 token librosa, 整首 >60s 常撞 computeVolumeCurve 的 25s 超时 → 这正是 vol_curve
+//   广泛缺失的真因)。ffmpeg 解码一首歌 ~0.6s, 细粒度(默认 50ms), 波形 + 自动对齐都够用, 且【零 CORS /
+//   零 /analyze 依赖】。输出 {step_ms, values(0-1 峰值), norm(99 分位)} = 与前端 _peaks 同格式。
+async function computeVolumeCurveViaFfmpeg(
+  audioUrl: string,
+  stepMs = 50,
+): Promise<{ step_ms: number; values: number[]; norm: number } | null> {
+  if (!audioUrl || !/^https?:\/\//i.test(audioUrl)) return null;
+  const SR = 8000;
+  const win = Math.max(1, Math.round((SR * stepMs) / 1000));
+  return await new Promise((resolve) => {
+    let settled = false;
+    const done = (v: { step_ms: number; values: number[]; norm: number } | null) => { if (!settled) { settled = true; resolve(v); } };
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn("/usr/bin/ffmpeg", ["-nostdin", "-loglevel", "error", "-i", audioUrl, "-ac", "1", "-ar", String(SR), "-f", "s16le", "-"], { stdio: ["ignore", "pipe", "ignore"] });
+    } catch { return done(null); }
+    const peaks: number[] = [];
+    let cnt = 0, maxInWin = 0;
+    let leftover = Buffer.alloc(0);
+    const timer = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* noop */ } done(null); }, 45_000);
+    proc.stdout!.on("data", (chunk: Buffer) => {
+      const buf = leftover.length ? Buffer.concat([leftover, chunk]) : chunk;
+      const n = buf.length >> 1;   // int16 样本数
+      for (let i = 0; i < n; i++) {
+        const a = Math.abs(buf.readInt16LE(i << 1)) / 32768;
+        if (a > maxInWin) maxInWin = a;
+        if (++cnt >= win) { peaks.push(Math.round(maxInWin * 1000) / 1000); maxInWin = 0; cnt = 0; }
+      }
+      leftover = Buffer.from(buf.subarray(n << 1));
+    });
+    proc.on("error", () => { clearTimeout(timer); done(null); });
+    proc.on("close", (code: number | null) => {
+      clearTimeout(timer);
+      if (cnt > 0) peaks.push(Math.round(maxInWin * 1000) / 1000);
+      if (code !== 0 || peaks.length < 2) return done(null);
+      const srt = peaks.slice().sort((a, b) => a - b);
+      const p99 = srt[Math.min(srt.length - 1, Math.floor(srt.length * 0.99))] || 0;
+      let mx = 0; for (const v of peaks) if (v > mx) mx = v;
+      const norm = p99 > 0 ? p99 : (mx > 0 ? mx : 1);
+      done({ step_ms: stepMs, values: peaks, norm });
+    });
+  });
+}
+
 // Merge audio-analysis enrichment into subtitle sections built in Phase 1.
 // For each token, if the Python service returned data for that word index,
 // overwrite the null fields: beat, beat_strength, rhythm, volume, pitch_hz.
@@ -3141,11 +3196,26 @@ function buildIfilmSubLine(chars: string[], starts: number[], ends: number[], te
   return { text: chars.join(""), t_start: t0, t_end: t1, tokens: toks };
 }
 // 带时间戳的语音合成: 返回 {voice_url, line(逐字时间轴字幕)}。缓存 mp3+json。
-async function ifilmSpeakTimed(text: string, character: string, tension: number, voiceOverride?: string): Promise<{ voice_url: string; subtitle: IFilmSubLine } | null> {
+// 《问道》W1592 — 情绪音色: 回复的情绪 → ElevenLabs voice_settings。neutral 返回与历史完全一致的
+//   {stability:0.4,similarity_boost:0.8}(无 style 键)且 tag="" → 缓存键不变, 老音频不失效。
+function emoToVoice(emotion?: string): { vs: Record<string, unknown>; tag: string } {
+  const e = String(emotion || "").toLowerCase().trim();
+  const P: Record<string, { stability: number; style: number }> = {
+    joy: { stability: 0.32, style: 0.5 }, playful: { stability: 0.3, style: 0.6 },
+    anger: { stability: 0.22, style: 0.75 }, sadness: { stability: 0.5, style: 0.4 },
+    tender: { stability: 0.55, style: 0.35 }, fear: { stability: 0.28, style: 0.6 },
+    awe: { stability: 0.48, style: 0.45 },
+  };
+  const p = P[e];
+  if (!p) return { vs: { stability: 0.4, similarity_boost: 0.8 }, tag: "" };
+  return { vs: { stability: p.stability, similarity_boost: 0.8, style: p.style, use_speaker_boost: true }, tag: e };
+}
+async function ifilmSpeakTimed(text: string, character: string, tension: number, voiceOverride?: string, emotion?: string): Promise<{ voice_url: string; subtitle: IFilmSubLine } | null> {
   const t = String(text || "").trim(); if (!t) return null;
   const key = (process.env.ELEVENLABS_API_KEY || "").trim(); if (!key) return null;
   const voiceId = voiceOverride || IFILM_VOICE[character] || "EXAVITQu4vr4xnSDxMaL";
-  const sha = crypto.createHash("sha1").update(voiceId + "|" + t).digest("hex").slice(0, 24);
+  const emo = emoToVoice(emotion);
+  const sha = crypto.createHash("sha1").update(voiceId + "|" + t + (emo.tag ? "|" + emo.tag : "")).digest("hex").slice(0, 24);
   const mp3 = `artifacts/ifilm-voice/${sha}.mp3`, jsn = `artifacts/ifilm-voice/${sha}.json`;
   const mp3url = `https://cdn.cssstudio.app/${mp3}`;
   try {
@@ -3155,7 +3225,7 @@ async function ifilmSpeakTimed(text: string, character: string, tension: number,
   try {
     const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`, {
       method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: t.slice(0, 900), model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.4, similarity_boost: 0.8 } }),
+      body: JSON.stringify({ text: t.slice(0, 900), model_id: "eleven_multilingual_v2", voice_settings: emo.vs }),
     });
     if (!r.ok) { console.warn("[ifilm-tts] ts", r.status, (await r.text().catch(() => "")).slice(0, 120)); return null; }
     const j = await r.json() as any;
@@ -3877,6 +3947,46 @@ app.post("/api/works/:id/subtitle-line-offset", express.json({ limit: "2kb" }), 
   }
 });
 
+// CSSOS_WAVE_1738 20260711 — Jing「整体平移(从这句起全体平移)」: batch-replace the whole
+// per-line offset map {lineIdx: ms}. The wave editor's ripple mode shifts a line + EVERY
+// subsequent line by the same delta, then saves the full map ONCE (was N single-key POSTs
+// via /subtitle-line-offset — see the unbatched round-trip note there). Non-destructive;
+// mirrors the token-offsets contract. Owner-gated. Values clamped ±30s; keys must be
+// non-negative integer line-index strings; map capped at 2000 lines.
+app.post("/api/works/:id/subtitle-line-offsets", express.json({ limit: "64kb" }), async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const workId = String(req.params.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, error: "invalid_work_id" });
+  const raw = (req.body || {}).offsets;
+  const clean: Record<string, number> = {};
+  if (raw && typeof raw === "object") {
+    let n = 0;
+    for (const k of Object.keys(raw)) {
+      if (n >= 2000) break; // sanity cap (a song has at most a few hundred lines)
+      if (!/^\d{1,5}$/.test(k)) continue;
+      let v = Math.trunc(Number((raw as any)[k]));
+      if (!Number.isFinite(v) || v === 0) continue; // 0 = no offset, keep the map lean
+      v = Math.max(-30000, Math.min(30000, v));
+      clean[k] = v; n++;
+    }
+  }
+  try {
+    const upd = await withClient((c) =>
+      c.query(
+        `UPDATE user_works SET subtitle_line_offsets = $1::jsonb WHERE id = $2::uuid AND user_id = $3::uuid`,
+        [JSON.stringify(clean), workId, userId],
+      ),
+    );
+    if (!upd.rowCount) return res.status(404).json({ ok: false, error: "not_found_or_not_owner" });
+    return res.json({ ok: true, work_id: workId, count: Object.keys(clean).length });
+  } catch (err) {
+    console.warn("[works/subtitle-line-offsets] failed:", (err as Error).message);
+    return res.status(500).json({ ok: false, error: "save_failed" });
+  }
+});
+
 // CSSOS_WAVE_996 20260618 — Jing「逐字波形精修(第二期b)」: replace the whole
 // per-token offset map {rawStartMs: ms}. The waveform editor batches all word
 // drags and saves once on 「保存」. Non-destructive; playback shifts each token.
@@ -3950,7 +4060,18 @@ app.post("/api/works/:id/subtitle-token-edits", express.json({ limit: "256kb" })
     if (!/^-?\d{1,8}$/.test(s) || seen.has(s)) continue;
     seen.add(s); deleted.push(s);
   }
-  const payload = JSON.stringify({ added, deleted });
+  // W1741 — renamed{原始字起始ms: 新文字}: 直接改已有字的文字(非破坏覆写)。键=整数ms串, 值≤40字, 容量上限。
+  const renamedIn = (b.renamed && typeof b.renamed === "object") ? b.renamed : {};
+  const renamed: Record<string, string> = {};
+  let rn = 0;
+  for (const k of Object.keys(renamedIn)) {
+    if (rn >= 5000) break; // sanity cap
+    if (!/^-?\d{1,8}$/.test(k)) continue;
+    const v = String((renamedIn as any)[k] == null ? "" : (renamedIn as any)[k]).slice(0, 40).trim();
+    if (!v) continue;
+    renamed[k] = v; rn++;
+  }
+  const payload = JSON.stringify({ added, deleted, renamed });
   try {
     const upd = await withClient((c) =>
       c.query(
@@ -3959,7 +4080,7 @@ app.post("/api/works/:id/subtitle-token-edits", express.json({ limit: "256kb" })
       ),
     );
     if (!upd.rowCount) return res.status(404).json({ ok: false, error: "not_found_or_not_owner" });
-    return res.json({ ok: true, work_id: workId, added: added.length, deleted: deleted.length });
+    return res.json({ ok: true, work_id: workId, added: added.length, deleted: deleted.length, renamed: rn });
   } catch (err) {
     console.warn("[works/subtitle-token-edits] failed:", (err as Error).message);
     return res.status(500).json({ ok: false, error: "save_failed" });
@@ -5941,6 +6062,166 @@ function ffmpegExtractAudioFromVideo(videoPath: string, audioOutPath: string): P
   });
 }
 
+/* W1757 — call the Anthropic Messages API through kie.ai's Claude channel
+ * (Bearer KIE_API_KEY, https://api.kie.ai/claude/v1/messages, Anthropic wire
+ * format). Per W824 the platform bills all LLM through kie.ai and must NOT
+ * direct-connect to api.anthropic.com — that key is intentionally unfunded.
+ * These vision/moderation calls were the last stragglers still hitting
+ * anthropic.com directly (→ "credit balance too low"). Falls back to direct
+ * Anthropic only when KIE_API_KEY is absent. Returns the raw fetch Response so
+ * callers keep their existing r.ok / r.json() handling unchanged. */
+function anthropicMessages(body: unknown): Promise<Response> {
+  const kie = (process.env.KIE_API_KEY || "").trim();
+  if (kie) {
+    return fetch("https://api.kie.ai/claude/v1/messages", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${kie}`,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  }
+  const anth = (process.env.ANTHROPIC_API_KEY || "").trim();
+  return fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": anth,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+/* helper: is an LLM (kie.ai Claude, or a direct Anthropic key) available? */
+function anthropicAvailable(): boolean {
+  return !!((process.env.KIE_API_KEY || "").trim() || (process.env.ANTHROPIC_API_KEY || "").trim());
+}
+
+/* W1756 — video adult/NSFW moderation. Samples frames and asks Claude Vision to
+ * classify. Policy: reject explicit adult content on upload. This is the USA and
+ * whether to ever allow NSFW is a future, per-region decision; some regions
+ * (e.g. CN) never permit it — so "reject now" is the safe, universally-compliant
+ * baseline, and a future per-region policy can relax it only where lawful.
+ *
+ * FAIL-CLOSED: if moderation can't run (no key / no frames / API or parse error)
+ * we treat the video as nsfw=true and reject — never admit unmoderated content. */
+async function moderateVideoNsfw(videoPath: string): Promise<{ nsfw: boolean; reason: string }> {
+  if (!anthropicAvailable()) return { nsfw: true, reason: "moderation_unavailable" };
+  let tmpDir = "";
+  try {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nsfwchk_"));
+    // Sample frames: one per 5s, downscaled, up to 8.
+    await new Promise<void>((resolve, reject) => {
+      const ff = spawn("ffmpeg", [
+        "-y", "-i", videoPath,
+        "-vf", "fps=1/5,scale=400:-1",
+        "-frames:v", "8",
+        path.join(tmpDir, "f_%02d.jpg"),
+      ]);
+      let e = "";
+      ff.stderr.on("data", (b) => { e += b.toString(); });
+      ff.on("error", reject);
+      ff.on("close", (c) => (c === 0 ? resolve() : reject(new Error("frame_extract:" + e.slice(-160)))));
+    });
+    const frames = fs.readdirSync(tmpDir).filter((f) => f.endsWith(".jpg")).sort().slice(0, 8);
+    if (!frames.length) return { nsfw: true, reason: "no_frames_to_moderate" };
+    const content: any[] = frames.map((f) => ({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/jpeg",
+        data: fs.readFileSync(path.join(tmpDir, f)).toString("base64"),
+      },
+    }));
+    content.push({ type: "text", text: "These are sampled frames from a user-uploaded video. Classify strictly for adult/sexual content." });
+    const r = await anthropicMessages({
+      model: "claude-sonnet-4-6",
+      max_tokens: 200,
+      system:
+        "You are a content-safety classifier for a general-audience music-video platform. " +
+        "Given sampled video frames, decide if the video is PORNOGRAPHIC / sexually-explicit " +
+        "content intended to arouse (explicit sexual acts, close-up genitalia, hardcore content). " +
+        'Return STRICT JSON: { "nsfw": boolean, "reason": string (short) }. ' +
+        "nsfw=FALSE for: fine art / classical / artistic nudity (paintings, sculpture, tasteful " +
+        "art nudes), non-sexual nudity (medical, breastfeeding, documentary, naturism), swimwear, " +
+        "lingerie, dance, romance, normal clothing, violence. Do NOT over-flag — only genuine " +
+        "pornographic/sexually-explicit material is nsfw=true. When unsure, prefer false. " +
+        "Output ONLY the JSON object.",
+      messages: [{ role: "user", content }],
+    });
+    if (!r.ok) return { nsfw: true, reason: "moderation_http_" + r.status };
+    const j: any = await r.json();
+    const txt = String(j?.content?.[0]?.text || "").trim();
+    const m = txt.match(/\{[\s\S]*\}/);
+    if (!m) return { nsfw: true, reason: "moderation_parse_failed" };
+    const parsed = JSON.parse(m[0]);
+    return { nsfw: !!parsed.nsfw, reason: String(parsed.reason || "").slice(0, 200) };
+  } catch (err) {
+    return { nsfw: true, reason: "moderation_error:" + (err instanceof Error ? err.message : String(err)).slice(0, 120) };
+  } finally {
+    if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {} }
+  }
+}
+
+/* W1756 — audio quality gate for MV. After Whisper, ask Claude to assess the
+ * transcription: does it read like SONG LYRICS (music) vs spoken prose, how
+ * complete the lyrics look (they feed the per-word emotion-subtitle timeline —
+ * this is the foundation for the whole subtitle layer), and a derived title.
+ * Cheap single text call. Advisory (returns nulls on error; unlike NSFW it does
+ * NOT hard-reject) — the signals are surfaced to the user to confirm/correct. */
+async function assessAudioForMv(transcription: string): Promise<{
+  looks_like_song: boolean | null;
+  lyrics_quality: "good" | "partial" | "poor" | "none" | null;
+  detected_title: string | null;
+}> {
+  const NULLED = { looks_like_song: null, lyrics_quality: null, detected_title: null } as const;
+  const text = String(transcription || "").trim();
+  if (!anthropicAvailable()) return { ...NULLED };
+  if (!text) return { looks_like_song: false, lyrics_quality: "none", detected_title: null };
+  try {
+    const r = await anthropicMessages({
+      model: "claude-sonnet-4-6",
+      max_tokens: 200,
+      system:
+        "You assess an auto-transcription of an uploaded audio file for a music-video platform. " +
+        "Decide: (1) does the text read like SONG LYRICS (verse/chorus structure, poetic, repetition, " +
+        "singable) rather than spoken prose (conversation, narration, podcast, lecture)? " +
+        "(2) how complete/coherent do the lyrics look for driving a per-word subtitle timeline? " +
+        "(3) a short song title if one is obvious from the words. " +
+        'Return STRICT JSON: { "looks_like_song": boolean, "lyrics_quality": "good"|"partial"|"poor"|"none", "detected_title": string|null }. ' +
+        "Output ONLY the JSON object.",
+      messages: [{ role: "user", content: [{ type: "text", text: text.slice(0, 4000) }] }],
+    });
+    if (!r.ok) return { ...NULLED };
+    const j: any = await r.json();
+    const m = String(j?.content?.[0]?.text || "").match(/\{[\s\S]*\}/);
+    if (!m) return { ...NULLED };
+    const p = JSON.parse(m[0]);
+    return {
+      looks_like_song: typeof p.looks_like_song === "boolean" ? p.looks_like_song : null,
+      lyrics_quality: ["good", "partial", "poor", "none"].includes(p.lyrics_quality) ? p.lyrics_quality : null,
+      detected_title: p.detected_title ? String(p.detected_title).slice(0, 120) : null,
+    };
+  } catch (_) {
+    return { ...NULLED };
+  }
+}
+
+/* W1756 — clean an uploaded filename into a candidate work title (strip
+ * extension + separators + trailing hash/counter noise). Used to pre-fill the
+ * title prompt when the audio carries no title tag. */
+function filenameToTitleSuggestion(originalName: string): string {
+  let s = String(originalName || "").trim();
+  s = s.replace(/\.[a-z0-9]{1,5}$/i, "");            // extension
+  s = s.replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim();
+  // drop pure-hash / pure-number leftovers
+  if (/^[0-9a-f]{6,}$/i.test(s) || /^\d+$/.test(s)) return "";
+  return s.slice(0, 120);
+}
+
 /* CSSOS_WAVE_111B 20260512 — Jing
  * MIDI / MusicXML parsing — extract lyrics tracks + render reference
  * audio via fluidsynth. Per Jing: "MIDI + MusicXML 我们只做带 lyrics
@@ -5958,6 +6239,11 @@ type MidiLyricsResult = {
   has_lyrics: boolean;
   lyrics_lines: ParsedLyricLine[];
   raw_lyrics_text: string;
+  // W1751 (111E ③) — per-syllable timeline: each embedded lyric token with its
+  // EXACT onset ms, BEFORE coalescing into lines. Feeds the subtitle engine's
+  // per-token timing so characters "bite" in sync with the score. Break /
+  // separator tokens (\n, /, \r) are filtered out — same cleaning as allLyrics.
+  syllables: { ts_ms: number; text: string }[];
 };
 
 async function parseMidiFile(filePath: string): Promise<MidiLyricsResult> {
@@ -6030,6 +6316,10 @@ async function parseMidiFile(filePath: string): Promise<MidiLyricsResult> {
     has_lyrics: lyrics_lines.length > 0,
     lyrics_lines,
     raw_lyrics_text: lyrics_lines.map((l) => l.text).join("\n"),
+    // W1751 (111E ③) — expose the pre-coalesce per-syllable timeline. allLyrics
+    // already trims + drops empty tokens; here we additionally drop pure break /
+    // separator tokens (\n, /, \r) so only real sung syllables remain.
+    syllables: allLyrics.filter((l) => !/^[\r\n\/]+$/.test(l.text)),
   };
 }
 
@@ -6038,9 +6328,12 @@ async function parseMidiFile(filePath: string): Promise<MidiLyricsResult> {
  * (timgm6mb-soundfont Debian package). */
 function synthMidiToMp3(midiPath: string, mp3OutPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const sf2 = "/usr/share/sounds/sf2/TimGM6mb.sf2";
-    if (!fs.existsSync(sf2)) {
-      return reject(new Error(`soundfont_missing:${sf2}`));
+    // W1746 — 优先用丰满的 FluidR3_GM(148MB, R3 GM 音色, 弦乐/铜管/鼓组质感明显好过 6MB 的 TimGM6mb);
+    //   FluidR3 缺失才退回小音色库。两者都预装(fluid-soundfont-gm / timgm6mb-soundfont Debian 包)。
+    const sf2 = ["/usr/share/sounds/sf2/FluidR3_GM.sf2", "/usr/share/sounds/sf2/TimGM6mb.sf2"]
+      .find((p) => fs.existsSync(p));
+    if (!sf2) {
+      return reject(new Error("soundfont_missing:no_sf2"));
     }
     const wavTmp = mp3OutPath.replace(/\.mp3$/i, ".tmp.wav");
     // 1) fluidsynth → wav
@@ -6078,6 +6371,51 @@ function synthMidiToMp3(midiPath: string, mp3OutPath: string): Promise<void> {
   });
 }
 
+/* W1750 (111E ②) — dual output: detect the melody / vocal line so we can
+ * render a melody-muted 伴奏 (backing) track alongside the full 纯音乐 mix.
+ * Signal priority: (1) the track carrying the most lyric events IS the vocal
+ * melody; (2) fallback to the non-drum, mostly-monophonic track with the
+ * highest average pitch (melody usually sits on top). Returns -1 if none. */
+async function detectMelodyTrackIndex(midiPath: string): Promise<number> {
+  const { Midi } = await import("@tonejs/midi");
+  const bytes = fs.readFileSync(midiPath);
+  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const midi: any = new Midi(ab);
+  const tracks: any[] = midi.tracks || [];
+  // 1) Most lyric events → the sung melody line.
+  let lyrIdx = -1, lyrMax = 0;
+  tracks.forEach((t, i) => {
+    const n = Array.isArray(t.lyrics) ? t.lyrics.length : 0;
+    if (n > lyrMax && (t.notes?.length || 0) > 0) { lyrMax = n; lyrIdx = i; }
+  });
+  if (lyrIdx >= 0) return lyrIdx;
+  // 2) Fallback: non-drum, ≥4-note track with the highest average pitch.
+  let fbIdx = -1, fbAvg = -1;
+  tracks.forEach((t, i) => {
+    const notes: any[] = t.notes || [];
+    if (notes.length < 4) return;
+    if (t.channel === 9) return;                        // GM drum channel
+    const avg = notes.reduce((s, x) => s + (Number(x.midi) || 0), 0) / notes.length;
+    if (avg > fbAvg) { fbAvg = avg; fbIdx = i; }
+  });
+  return fbIdx;
+}
+
+/* W1750 — write a copy of the MIDI with one track's notes removed (muted),
+ * keeping tempo/time-signature/program events intact so the backing plays
+ * identically minus the melody. Returns false if the index is out of range. */
+async function writeMidiMutingTrack(midiPath: string, muteIdx: number, outMidiPath: string): Promise<boolean> {
+  const { Midi } = await import("@tonejs/midi");
+  const bytes = fs.readFileSync(midiPath);
+  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const midi: any = new Midi(ab);
+  const tracks: any[] = midi.tracks || [];
+  if (muteIdx < 0 || muteIdx >= tracks.length) return false;
+  tracks[muteIdx].notes = [];                            // silence the melody line
+  fs.writeFileSync(outMidiPath, Buffer.from(midi.toArray()));
+  return true;
+}
+
 /* MusicXML → MIDI conversion. @tonejs/midi is JSON-based and doesn't
  * read MusicXML directly. We use a minimal hand-rolled parser for
  * common MusicXML structure (note pitch + duration + lyric elements)
@@ -6091,7 +6429,11 @@ function synthMidiToMp3(midiPath: string, mp3OutPath: string): Promise<void> {
  * for our parser, the user gets the lyrics + extracted timing but
  * audio synth may fail (we return graceful no-audio in that case).
  */
-async function parseMusicXmlFile(filePath: string): Promise<MidiLyricsResult & { midi_path: string | null }> {
+async function parseMusicXmlFile(filePath: string): Promise<MidiLyricsResult & {
+  midi_path: string | null; exact_timing: boolean; title: string | null; composer: string | null;
+  words: WhisperWordTs[]; verses: ReturnType<typeof parseMusicXml>["verses"]; warnings: string[];
+  parse: ReturnType<typeof parseMusicXml>;   // W1698 — 完整解析结果(含 notes), 供忠实渲染用
+}> {
   // 1. If .mxl, unzip to find the .musicxml inside
   let xmlContent: string;
   if (/\.mxl$/i.test(filePath)) {
@@ -6118,143 +6460,122 @@ async function parseMusicXmlFile(filePath: string): Promise<MidiLyricsResult & {
     xmlContent = fs.readFileSync(filePath, "utf8");
   }
 
-  // 2. Extract lyrics from MusicXML — they're inside <lyric><text>…</text></lyric>
-  // tags, attached to notes. We pull them in document order; timing
-  // approximated by note position × tempo.
-  const lyricMatches: string[] = [];
-  // Match <lyric ...><text>WORD</text></lyric> blocks, handling syllabic break info.
-  const lyricRe = /<lyric\b[^>]*>([\s\S]*?)<\/lyric>/gi;
-  const textRe = /<text\b[^>]*>([\s\S]*?)<\/text>/i;
-  const syllabicRe = /<syllabic\b[^>]*>([\s\S]*?)<\/syllabic>/i;
-  let m: RegExpExecArray | null;
-  while ((m = lyricRe.exec(xmlContent)) !== null) {
-    const innerLyric = m[1] || "";
-    const tm = innerLyric.match(textRe);
-    if (!tm || !tm[1]) continue;
-    const syllabic = innerLyric.match(syllabicRe)?.[1]?.trim().toLowerCase() || "single";
-    const word = String(tm[1]).replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-    // Add separator semantics based on syllabic type
-    if (syllabic === "begin" || syllabic === "middle") {
-      lyricMatches.push(word + "-");
-    } else {
-      lyricMatches.push(word);
-    }
-  }
+  /* ══════════════════════════════════════════════════════════════════════════════
+   * CSSOS_WAVE_1697 — 第一原则(Jing, 不可动摇):
+   *
+   *     这是【转换】, 不是【创作】。
+   *     一个音符都不能改, 一句歌词都不能编。乐谱怎么写, 就怎么出。
+   *     MV 画面同样必须【忠于歌词】, 不得自由发挥。
+   *
+   * 旧实现有四处硬伤, 每一处都在违反上面这条:
+   *   ① 正则通吃所有 <lyric>, 【不分 number】→ 第1段与第2段的词交织混排(Foster 这首
+   *      98 个音符挂了 172 条词, 输出必然是乱码般的两段词交替)。
+   *   ② 时间戳是【线性平摊】: l.ts_ms = per * i —— 与乐谱毫无关系的假时间。
+   *   ③ 旧注释断言 "MusicXML doesn't give us per-note timing without a full sequencer"
+   *      —— 这句是错的, 也正是"近似"路线的病根。MusicXML 完全给得出:
+   *            ms = duration / divisions × (60000 / bpm)
+   *   ④ duration ≈ 小节数 × 拍数 × 60/bpm, 忽略弱起小节、反复、变速。
+   *
+   * 现在改由 src/musicxml.ts 的 SAX 解析器给出【精确解】: 逐字毫秒、按段分离、
+   * syllabic 拼词(Jean+nie = Jeannie)、tie/melisma 延音、backup/forward 多声部。
+   * 返回值是旧契约的【超集】—— 老调用方一行不用改。
+   * ══════════════════════════════════════════════════════════════════════════════ */
+  const mx = parseMusicXml(xmlContent);
 
-  // Coalesce syllables into lines
-  const lyrics_lines: ParsedLyricLine[] = [];
-  let cur = "";
-  for (const w of lyricMatches) {
-    if (w.endsWith("-")) {
-      cur += w.replace(/-$/, "");
-    } else {
-      cur = cur ? cur + " " + w : w;
-      if (cur.length > 60) {
-        lyrics_lines.push({ ts_ms: 0, text: cur }); // ts_ms approx — pending MIDI render
-        cur = "";
-      }
-    }
-  }
-  if (cur) lyrics_lines.push({ ts_ms: 0, text: cur });
-
-  // 3. Extract tempo (per-minute beats), default 120
-  const tempoMatch = xmlContent.match(/<sound\b[^>]*\btempo="(\d+(?:\.\d+)?)"/i);
-  const tempo_bpm = tempoMatch && tempoMatch[1] ? Math.round(Number(tempoMatch[1])) : 120;
-
-  // 4. Extract time signature, default 4/4
   const beatsMatch = xmlContent.match(/<beats\b[^>]*>(\d+)<\/beats>/i);
   const beatTypeMatch = xmlContent.match(/<beat-type\b[^>]*>(\d+)<\/beat-type>/i);
   const beats = (beatsMatch && beatsMatch[1]) ? Number(beatsMatch[1]) : 4;
   const beatType = (beatTypeMatch && beatTypeMatch[1]) ? Number(beatTypeMatch[1]) : 4;
   const time_signature = `${beats}/${beatType}`;
-
-  // 5. Count notes (very rough — used for stats display)
   const noteCount = (xmlContent.match(/<note\b/g) || []).length;
 
-  // 6. Estimate duration: count divisions per measure + measure count
-  const divisionsMatch = xmlContent.match(/<divisions\b[^>]*>(\d+)<\/divisions>/i);
-  const divisions = (divisionsMatch && divisionsMatch[1]) ? Number(divisionsMatch[1]) : 4;
-  const measureCount = (xmlContent.match(/<measure\b/g) || []).length;
-  // duration_secs ≈ measures × (beats per measure) × (60 / bpm)
-  const duration_secs = Math.round(measureCount * beats * (60 / tempo_bpm));
-
-  // Spread lyrics linearly across duration (approx — MusicXML doesn't
-  // give us per-note timing in MIDI ms without a full sequencer).
-  // This gives the user usable karaoke-style approximation; for
-  // precise timing they should provide MIDI directly.
-  if (lyrics_lines.length > 0 && duration_secs > 0) {
-    const per = (duration_secs * 1000) / lyrics_lines.length;
-    lyrics_lines.forEach((l, i) => { l.ts_ms = Math.round(per * i); });
-  }
-
-  void divisions;
-
+  const v1 = mx.verses[0];
   return {
-    duration_secs,
-    tempo_bpm,
+    duration_secs: Math.round(mx.duration_ms / 1000),
+    tempo_bpm: Math.round(mx.tempo_bpm),
     time_signature,
-    track_count: 1, // approximation — MusicXML uses parts not tracks
+    track_count: 1, // MusicXML 用 part 不用 track
     note_count: noteCount,
-    has_lyrics: lyrics_lines.length > 0,
-    lyrics_lines,
-    raw_lyrics_text: lyrics_lines.map((l) => l.text).join("\n"),
-    midi_path: null, // We don't convert MusicXML → MIDI in Wave 111B (synthesis is best-effort)
+    has_lyrics: !!(v1 && v1.words.length),
+    lyrics_lines: v1 ? v1.lines : [],
+    raw_lyrics_text: v1 ? v1.text : "",
+    // W1751 (111E ③) — MidiLyricsResult.syllables contract. MusicXML already
+    // carries the EXACT per-token timeline in `words` (WhisperWordTs, assembled
+    // syllabic→word, e.g. Jean+nie=Jeannie), which is the finest granularity the
+    // SAX parser exposes on MxParse. Project the first verse's words onto the
+    // {ts_ms,text} shape so downstream consumers get a uniform field across
+    // MIDI + MusicXML. (Richer data — multi-verse `verses` + `words` end_ms —
+    // stays available separately; this is the shared minimal contract.)
+    syllables: v1 ? v1.words.map((w) => ({ ts_ms: w.ts_ms, text: w.word })) : [],
+    midi_path: null, // 音频渲染是下一阶段(必须忠实渲染乐谱, 不是重新作曲)
+    // ── W1697 新增(超集): 精确时间轴 + 多段词 + 源谱质量告警 ──
+    exact_timing: mx.ok,
+    title: mx.title,
+    composer: mx.composer,
+    words: v1 ? v1.words : [],
+    verses: mx.verses,
+    warnings: mx.warnings,
+    parse: mx,
   };
 }
 
 /* OpenAI Whisper transcription. ~$0.006/min. Returns plain text +
  * (when available) verbose JSON for word-level timestamps. */
 type WhisperWordTs = { word: string; ts_ms: number; end_ms: number };
-async function whisperTranscribe(audioPath: string, language?: string): Promise<{ text: string; lines: ParsedLyricLine[]; words?: WhisperWordTs[] } | null> {
-  const apiKey = (process.env.OPENAI_API_KEY || "").trim();
+// W1654 — Jing「不再直连 OpenAI, STT 走已有付费的 ElevenLabs(Scribe)」。KIE 无转写能力
+//   (只有 image/video/music/chat), 而 ElevenLabs 已在给数字演员配音, 语音进/出同一家。
+//   自动检测语言(不强制)。返回 text + 逐词时间戳(scribe 的 words[type=word])。
+async function elevenLabsTranscribe(audioPath: string): Promise<{ text: string; lines: ParsedLyricLine[]; words: WhisperWordTs[] } | null> {
+  const apiKey = (process.env.ELEVENLABS_API_KEY || "").trim();
   if (!apiKey) return null;
   try {
     const audioBytes = fs.readFileSync(audioPath);
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(audioBytes)]), path.basename(audioPath));
-    form.append("model", "whisper-1");
-    form.append("response_format", "verbose_json");
-    // CSSOS_WAVE_111B-B1 20260511 — Jing
-    // Word-level timestamps (~50ms precision) for karaoke-style
-    // highlight in the subtitle engine. Segment-level fallback is
-    // preserved by OpenAI's response, so callers reading j.segments
-    // still work without change.
-    form.append("timestamp_granularities[]", "segment");
-    form.append("timestamp_granularities[]", "word");
-    if (language) form.append("language", language);
-    const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    form.append("model_id", "scribe_v1");
+    const r = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${apiKey}` },
+      headers: { "xi-api-key": apiKey },
       body: form,
     });
     if (!r.ok) {
       const errText = await r.text().catch(() => "");
-      console.warn("[whisper] failed:", r.status, errText.slice(0, 200));
+      console.warn("[el-stt] failed:", r.status, errText.slice(0, 200));
       return null;
     }
     const j: any = await r.json().catch(() => null);
     if (!j) return null;
     const text = String(j.text || "").trim();
-    const lines: ParsedLyricLine[] = (j.segments || []).map((s: any) => ({
-      ts_ms: Math.round(Number(s.start || 0) * 1000),
-      text: String(s.text || "").trim(),
-    })).filter((l: ParsedLyricLine) => l.text);
-    // CSSOS_WAVE_111B-B1 — word-level timeline for karaoke highlight.
+    // Scribe words: {text,start,end,type}; type∈word/spacing/audio_event → 只取 word。→ WhisperWordTs{word,ts_ms,end_ms}
     const words: WhisperWordTs[] = Array.isArray(j.words)
       ? j.words
-          .map((w: any) => ({
-            word: String(w.word || "").trim(),
-            ts_ms: Math.round(Number(w.start || 0) * 1000),
-            end_ms: Math.round(Number(w.end || 0) * 1000),
-          }))
+          .filter((w: any) => w && w.type !== "spacing" && w.type !== "audio_event" && (w.text || w.word))
+          .map((w: any) => ({ word: String(w.text || w.word || "").trim(), ts_ms: Math.round(Number(w.start || 0) * 1000), end_ms: Math.round(Number(w.end || 0) * 1000) }))
           .filter((w: WhisperWordTs) => w.word && w.end_ms >= w.ts_ms)
       : [];
-    if (words.length) return { text, lines, words };
-    return { text, lines };
-  } catch (err) {
-    console.warn("[whisper] threw:", err instanceof Error ? err.message : err);
+    // Scribe 不返 segments → 自己按【词间停顿 >700ms 或句末标点】断行, 供卡拉OK歌词对齐。
+    const lines: ParsedLyricLine[] = [];
+    let cur = "", curStart = -1, prevEnd = -1;
+    for (const w of words) {
+      if (cur && prevEnd >= 0 && (w.ts_ms - prevEnd) > 700) { lines.push({ ts_ms: curStart, text: cur.trim() }); cur = ""; curStart = -1; }
+      if (curStart < 0) curStart = w.ts_ms;
+      cur += (/^[一-鿿]/.test(w.word) || !cur ? "" : " ") + w.word;
+      prevEnd = w.end_ms;
+      if (/[。！？.!?]$/.test(w.word)) { lines.push({ ts_ms: curStart, text: cur.trim() }); cur = ""; curStart = -1; }
+    }
+    if (cur.trim()) lines.push({ ts_ms: curStart < 0 ? 0 : curStart, text: cur.trim() });
+    if (!lines.length && text) lines.push({ ts_ms: 0, text });
+    return { text, lines, words };
+  } catch (e) {
+    console.warn("[el-stt] error:", (e as Error)?.message || e);
     return null;
   }
+}
+
+async function whisperTranscribe(audioPath: string, language?: string): Promise<{ text: string; lines: ParsedLyricLine[]; words?: WhisperWordTs[] } | null> {
+  // W1654 — 统一走 ElevenLabs Scribe(不再直连 OpenAI; 歌词逐字对齐够用)。语言自动检测, language 忽略。
+  void language;
+  return elevenLabsTranscribe(audioPath);
 }
 
 /* CSSOS_WAVE_159 20260514 — 情绪字幕引擎 (Emotional Subtitle Engine).
@@ -6445,6 +6766,16 @@ app.post("/api/mv/audio/upload", (req, res, next) => {
   const userId = (req.session as any)?.user_id;
   const file = (req as any).file as { path: string; originalname: string; size: number; mimetype: string } | undefined;
   if (!file) return res.status(400).json({ ok: false, error: "no_file" });
+  // W1753 — mandatory ownership attestation (Apple 5.2 UGC defense). No file is
+  // kept if the user hasn't confirmed they hold the rights to this media.
+  if (String((req.body as any)?.attested || "") !== "true") {
+    fs.unlink(file.path, () => {});
+    return res.status(400).json({
+      ok: false,
+      error: "attestation_required",
+      hint: "Confirm you own or have the rights to this media before uploading.",
+    });
+  }
   const workType = String((req.body as any)?.work_type || "single").toLowerCase();
   const requestedTitle = String((req.body as any)?.title || "").trim();
   const skipFingerprint = String((req.body as any)?.skip_fingerprint || "") === "1";
@@ -6541,6 +6872,30 @@ app.post("/api/mv/audio/upload", (req, res, next) => {
   fs.unlink(file.path, () => {});
   fs.unlink(transcodedPath, () => {});
 
+  // W1756 — assess the transcription for the MV quality gate: does it read like
+  // SONG LYRICS (music) vs speech, how complete the lyrics are (they feed the
+  // per-word emotion-subtitle timeline), and a derived title. Advisory signals
+  // surfaced to the user to confirm/correct before Apply.
+  const audioAssessment: {
+    looks_like_song: boolean | null;
+    lyrics_quality: "good" | "partial" | "poor" | "none" | null;
+    detected_title: string | null;
+  } = whisperResult
+    ? await assessAudioForMv(whisperResult.text)
+    : { looks_like_song: null, lyrics_quality: null, detected_title: null };
+  // Title: prefer embedded tag / explicit request / detected-from-lyrics. If
+  // none, the file's own name is only a SUGGESTION to pre-fill the prompt —
+  // per Jing, ask the user to name it with the work title rather than shipping
+  // a titleless MV.
+  const resolvedTitle =
+    (meta.tags.title || "").trim() ||
+    requestedTitle ||
+    (audioAssessment.detected_title || "").trim() ||
+    null;
+  const titleSuggestion = resolvedTitle
+    ? null
+    : (filenameToTitleSuggestion(file.originalname) || null);
+
   // Cost accounting (Wave 113J)
   const transcribeCostCents = whisperResult
     ? Math.max(1, Math.round((meta.duration_secs / 60) * MV_UPLOAD_LIMITS.WHISPER_COST_CENTS_PER_MIN))
@@ -6568,10 +6923,14 @@ app.post("/api/mv/audio/upload", (req, res, next) => {
       sample_rate: meta.sample_rate,
       channels: meta.channels,
       codec: meta.codec,
-      title: meta.tags.title || requestedTitle || null,
+      title: resolvedTitle,
       artist: meta.tags.artist || null,
       album: meta.tags.album || null,
     },
+    // W1756 — MV quality-gate signals (advisory, frontend confirm/correct).
+    assessment: audioAssessment,
+    title_required: !resolvedTitle,     // frontend: prompt user to name the work
+    title_suggestion: titleSuggestion,  // pre-fill from filename when no title
     fingerprint,
     whisper: whisperResult ? {
       text: whisperResult.text,
@@ -7754,6 +8113,22 @@ app.post("/api/account/delete", express.json({ limit: "1kb" }), async (req, res)
         ),
       );
     } catch (_) { /* audit row is best-effort */ }
+    // W1755 — fire the farewell gift (account_deletion). Persists a named
+    // farewell MV into the public For You gallery (free + system_priceless,
+    // Curator-owned) for the 30-day grace window; the scheduled hard-purge job
+    // takes it down with the account. Fire-and-forget — never blocks or fails
+    // the deletion. (The forced full-screen farewell the departing user SEES is
+    // the client Canvas MV in app.farewell-moment.js; this is the persisted half.)
+    try {
+      void import("./personalization/index.js").then((mod) => {
+        mod.fireTriggerFireAndForget(getPool(), {
+          triggerKey: "account_deletion",
+          targetUserId: userId,
+          livemode: true,
+          payload: { reason: "user_self_delete", grace_window_days: 30 },
+        });
+      }).catch((e) => console.warn("[account/delete] farewell dispatch failed (non-fatal):", e));
+    } catch (_) { /* dispatch is best-effort */ }
     // Tear down the session so subsequent requests are unauthenticated.
     req.session.destroy((err) => {
       if (err) console.warn("[account/delete] session destroy failed:", err);
@@ -7763,8 +8138,8 @@ app.post("/api/account/delete", express.json({ limit: "1kb" }), async (req, res)
         ok: true,
         soft_deleted: true,
         purge_eta_iso: purgeEta,
-        grace_window_days: 7,
-        message: "Account marked for deletion. Final purge in 30 days. Within the first 7 days, sign in to restore.",
+        grace_window_days: 30,   // W1754 — Jing: 30-day grace (restore window = purge window).
+        message: "Account marked for deletion. You can sign back in any time within the next 30 days to restore it; after that it is permanently purged.",
       });
     });
   } catch (err) {
@@ -8053,7 +8428,8 @@ async function runAgentTool(
   input: any,
   ctx: { userId: string; uiLocale: string;
          musicPrefer?: string[]; musicModelMap?: Record<string, string>; musicEngineId?: string;
-         videoPrefer?: string[]; videoEngineId?: string; dryRun?: boolean },
+         videoPrefer?: string[]; videoEngineId?: string; dryRun?: boolean;
+         cast?: Array<{ actor_id: string; role: string }> },   // W1578 — 数字演员选角: 具名 cast → 封面锁脸(空则不影响)
 ): Promise<any> {
   const inp = input && typeof input === "object" ? input : {};
   switch (name) {
@@ -8573,7 +8949,7 @@ async function runAgentTool(
           // 所有重型多部(三部曲/歌剧/连续剧/电影/短剧)歌词都钉到能力强、稳定的 anthropic→openai,
           // 不再走 free→cheap 路由(那是 504「整点恢复」的根因)。
           const _heavyMulti = wt === "shortplay" || wt === "opera" || wt === "triptych" || wt === "series" || wt === "film";
-          const llmPrefer = _heavyMulti ? ["anthropic", "openai"] : undefined;
+          const llmPrefer = _heavyMulti ? ["anthropic", "kie"] : undefined;   // W1655 — 重型多角色不再退 OpenAI(停用), 退 KIE
           const llmPreferModel = wt === "shortplay" ? { anthropic: "claude-sonnet-4-5" } : undefined;
           const r = await Promise.race([
             callLlm({
@@ -8953,7 +9329,29 @@ async function runAgentTool(
       const coverPosterHint = _isPortraitCover
         ? "cinematic vertical full-frame poster, dramatic lighting"
         : "cinematic ultra-wide poster, dramatic lighting";
+      // W1578 — 从数字演员选角: 取具名 cast 的肖像当参考图 → 封面锁脸(演员本人形象)。空 = 普通创作不受影响。
+      const __castRefUrls: string[] = [];
+      try {
+        const __namedIds = Array.isArray(ctx.cast) ? ctx.cast.filter((m) => m.role !== "extra").map((m) => m.actor_id).filter(Boolean).slice(0, 3) : [];
+        if (__namedIds.length) {
+          const __ar = await withClient((c) => c.query<{ actor_id: string; cover_image: string | null }>(
+            `SELECT actor_id, cover_image FROM digital_actors WHERE actor_id = ANY($1)`, [__namedIds]));
+          for (const __id of __namedIds) {
+            const __row = __ar.rows.find((r) => r.actor_id === __id);
+            if (__row?.cover_image) __castRefUrls.push(String(__row.cover_image));
+          }
+        }
+      } catch { /* 参考图解析失败 → 走普通文本生成 */ }
       const renderCover = async (label: string): Promise<string> => {
+        // W1578 — 有选角参考图 → 锁脸生成(演员本人形象); 空则原文本生成(零改动)。
+        if (__castRefUrls.length) {
+          try {
+            const __scene = [label, style, theme, civilization, civVisualHint(civilization), coverSpec.framing,
+              "cinematic premium, well-proportioned natural faces, no text, no watermark"].filter(Boolean).join(" — ");
+            const __locked = await generateReferenceLockedCover(__castRefUrls, __scene);
+            if (__locked) return __locked;
+          } catch { /* 锁脸失败 → 回退下面普通生成 */ }
+        }
         try {
           // CSSOS_WAVE_599 — 每张封面最多等 8s: 图像 provider 慢/限流就秒退到渐变占位(下方),
           // 杜绝多部作品 N×封面 同步堆叠 → 拖过 nginx → 504。真实封面会在该部曲进管线播放时再生成。
@@ -9808,6 +10206,10 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
             musicEngineId: String((req.body as any)?.music_engine_id || "").trim(),
             videoPrefer: userPreferredOrder(req as any, "video"),
             videoEngineId: String((req.body as any)?.video_engine_id || "").trim(),
+            // W1578 — 从数字演员选角进来: 把 cast(或单 actor_id)带进工具 → create_work 封面锁脸。
+            cast: Array.isArray((req.body as any)?.cast)
+              ? ((req.body as any).cast as any[]).map((m) => ({ actor_id: String(m?.actor_id || m || "").trim(), role: String(m?.role || "").toLowerCase() })).filter((m) => m.actor_id)
+              : (String((req.body as any)?.actor_id || "").trim() ? [{ actor_id: String((req.body as any).actor_id).trim(), role: "protagonist" }] : []),
             dryRun: !!(req.body as any)?.dry_run });
         } catch (err) {
           result = { error: err instanceof Error ? err.message : String(err) };
@@ -10307,6 +10709,102 @@ async function consumeOneGenerationRight(userId: string, monthlyAllowance: numbe
   } catch {}
   return false; // 无生成权
 }
+// CSSOS_WAVE_1634 — 数字演员语音「每演员·每月」免费额度(Jing 设计的柔性转化)。
+// 各档: free3 / starter20 / pro60 / studio200(enterprise/contact 沿用 studio 上限)。
+// 用完 → 走钱包按句扣; 钱包也空 → 无声(文字继续)+ 柔性提醒; staff/admin 无限免费。永不硬拒。
+const ACTOR_VOICE_FREE_PER_ACTOR: Record<string, number> = {
+  // W1635 — Jing: 语音便宜(TTS ~1–3¢/句, 远低于 MV 生成), 免费额度放宽。
+  free: 10, guest: 10, starter: 40, pro: 120, studio: 500, enterprise: 500, contact: 500,
+};
+async function actorVoiceFreeQuota(userId: string): Promise<number> {
+  try {
+    if (await isCreditExempt(userId)) return 1e9;
+    const ur = await withClient((c) => c.query<{ id: string; email: string | null }>(
+      `SELECT id, email FROM users WHERE id = $1::uuid LIMIT 1`, [userId]));
+    const u = ur.rows[0];
+    if (!u) return 0;
+    const access = await resolveUserAccessProfile({ id: u.id, email: u.email });
+    return ACTOR_VOICE_FREE_PER_ACTOR[String(access.tier)] ?? 3;
+  } catch { return 3; }
+}
+// 原子消费 1 句「该演员本月免费语音」。返回 {consumed, remaining}(remaining 用于"最后一句"提醒)。
+async function consumeActorVoiceFree(userId: string, actorId: string, quota: number): Promise<{ consumed: boolean; remaining: number }> {
+  if (quota <= 0) return { consumed: false, remaining: 0 };
+  if (quota >= 1e9) return { consumed: true, remaining: 1e9 };   // staff 无限
+  const ym = _currentYearMonthUTC();
+  try {
+    const r = await withClient((c) => c.query<{ used: number }>(
+      `INSERT INTO actor_voice_meter (user_id, actor_id, ym, used) VALUES ($1::uuid, $2, $3, 1)
+         ON CONFLICT (user_id, actor_id, ym) DO UPDATE SET used = actor_voice_meter.used + 1, updated_at = now()
+         WHERE actor_voice_meter.used < $4
+         RETURNING used`,
+      [userId, actorId, ym, quota]));
+    if (r.rows.length) return { consumed: true, remaining: Math.max(0, quota - Number(r.rows[0]!.used)) };
+  } catch {}
+  return { consumed: false, remaining: 0 };
+}
+
+// W1636/B — 演员口吻的柔性提醒(第一人称; 中文走古风)。/ask 直接当回复推出; /say 附 nudge_text。
+//   locale 以 zh 开头 或 演员为中华文明 → 古风中文; 否则英文。v1 用通用古雅句(不逐 persona), 后续可升级。
+function actorNudgeReply(actor: any, code: string, locale: string): string {
+  const civ = String(actor?.civilization || "").toLowerCase();
+  const zh = /^zh/i.test(String(locale || "")) || /中|华|汉|唐|宋|明|清|殷|商|周|秦|楚|夏|元|晋/.test(civ);
+  const M: Record<string, { zh: string; en: string }> = {
+    signin: {
+      zh: "有缘千里来相会。你我若要长叙,先在门前留下名姓(登录)吧 —— 落座之后,我自与你说个不停。",
+      en: "Fate brought you to my door. To speak at length, first leave your name here — sign in — and I'll gladly talk on.",
+    },
+    balance_ask: {
+      zh: "我们的缘分,还差一炷香火续着(充值)。你我文字之交不断,添些香火,我便再与你细说。",
+      en: "Our thread needs a little kindling to go on — top up. Our words stay; add a little and I'll tell you more.",
+    },
+    last_free_ask: {
+      zh: "(这月你我免费之缘,到此一句了。添一炷香火,我们便可再叙个够。)",
+      en: "(That's the last of this month's free words between us. Add a little and we'll talk on.)",
+    },
+    balance: {
+      zh: "我的声音,需一炷香火(余额)方能再续 —— 充值即可听我说话;你我文字之交,从不断。",
+      en: "My voice needs a little credit to go on — top up to hear me; our written words never stop.",
+    },
+    last_free: {
+      zh: "(这月你我最后一句有声之言了 —— 添一炷香火,我便续说;文字之交不断。)",
+      en: "(That was our last free voice this month — add a little and I'll keep speaking; our words stay free.)",
+    },
+  };
+  const e = M[code] || M.signin!;
+  return zh ? e.zh : e.en;
+}
+const ACTOR_ASK_FREE_PER_ACTOR: Record<string, number> = {
+  // W1636 — 「问」额度很大(LLM 便宜, 普通用户碰不到)。开场问候永久免费, 不占额度。
+  free: 50, guest: 50, starter: 200, pro: 600, studio: 3000, enterprise: 3000, contact: 3000,
+};
+async function actorAskFreeQuota(userId: string): Promise<number> {
+  try {
+    if (await isCreditExempt(userId)) return 1e9;
+    const ur = await withClient((c) => c.query<{ id: string; email: string | null }>(
+      `SELECT id, email FROM users WHERE id = $1::uuid LIMIT 1`, [userId]));
+    const u = ur.rows[0];
+    if (!u) return 0;
+    const access = await resolveUserAccessProfile({ id: u.id, email: u.email });
+    return ACTOR_ASK_FREE_PER_ACTOR[String(access.tier)] ?? 50;
+  } catch { return 50; }
+}
+async function consumeActorAskFree(userId: string, actorId: string, quota: number): Promise<{ consumed: boolean; remaining: number }> {
+  if (quota <= 0) return { consumed: false, remaining: 0 };
+  if (quota >= 1e9) return { consumed: true, remaining: 1e9 };
+  const ym = _currentYearMonthUTC();
+  try {
+    const r = await withClient((c) => c.query<{ used: number }>(
+      `INSERT INTO actor_ask_meter (user_id, actor_id, ym, used) VALUES ($1::uuid, $2, $3, 1)
+         ON CONFLICT (user_id, actor_id, ym) DO UPDATE SET used = actor_ask_meter.used + 1, updated_at = now()
+         WHERE actor_ask_meter.used < $4
+         RETURNING used`,
+      [userId, actorId, ym, quota]));
+    if (r.rows.length) return { consumed: true, remaining: Math.max(0, quota - Number(r.rows[0]!.used)) };
+  } catch {}
+  return { consumed: false, remaining: 0 };
+}
+
 // CSSOS_WAVE_1456 — 点火前【双闸预检】(flat 三部曲 + tree 歌剧/连续剧/电影 共用, 防漂移)。
 // leafCount = 这次要生成的【叶子(部/场/集)数】。无权 → no_generation_rights; 钱包不够 → insufficient_credit。
 // staff/admin(allowance=无限)→ 跳过。返回 error 对象(调用方直接 return)或 null(放行)。
@@ -11021,6 +11519,107 @@ app.post("/api/admin/grant-generation-rights", express.json({ limit: "2kb" }), a
     console.warn("[grant-generation-rights] failed:", err instanceof Error ? err.message : String(err));
     return res.status(500).json({ ok: false, error: "grant_failed" });
   }
+});
+
+/* CSSOS_WAVE_1660 — 优惠码兑换系统 (Phase 1)。Jing「有付费的地方，就有优惠码」。
+ * 券种: credits(钱包分,不可提现) · gen_rights(生成权) · subscription(某档+顺延天数)。
+ * 每码单用户单次(coupon_redemptions 主键)、可设总量(max_redemptions)+有效期。actor_voice/ask 留 Phase 2。 */
+const COUPON_TIERS = new Set(["starter", "pro", "studio"]);
+async function _grantCouponCredits(userId: string, cents: number, code: string): Promise<void> {
+  await withClient((c) => c.query(
+    `INSERT INTO user_credits (user_id, balance, lifetime_earned) VALUES ($1::uuid, $2, $2)
+       ON CONFLICT (user_id) DO UPDATE SET balance = user_credits.balance + $2,
+           lifetime_earned = user_credits.lifetime_earned + $2, updated_at = now()`,
+    [userId, cents]));
+  // 台账: reason 标 coupon → 券送的分【不可提现】(提现逻辑只认用户充值的钱)。
+  try { await withClient((c) => c.query(`INSERT INTO credit_events (user_id, delta, reason) VALUES ($1::uuid, $2, $3)`, [userId, cents, "coupon:" + code])); } catch (_e) {}
+}
+async function _grantCouponGenRights(userId: string, count: number): Promise<void> {
+  await withClient((c) => c.query(
+    `INSERT INTO user_credits (user_id, balance, gen_rights) VALUES ($1::uuid, 0, $2)
+       ON CONFLICT (user_id) DO UPDATE SET gen_rights = user_credits.gen_rights + $2, updated_at = now()`,
+    [userId, count]));
+}
+async function _grantCouponSubscription(userId: string, tier: string, days: number): Promise<void> {
+  // 有活跃订阅 → 从到期日顺延; 否则从现在起 N 天。
+  await withClient((c) => c.query(
+    `UPDATE users SET tier = $2,
+         tier_expires_at = GREATEST(COALESCE(tier_expires_at, now()), now()) + ($3 || ' days')::interval
+       WHERE id = $1::uuid`,
+    [userId, tier, String(days)]));
+}
+
+app.post("/api/coupons/redeem", express.json({ limit: "1kb" }), async (req, res) => {
+  const userId = String((req.session as any)?.user_id || "").trim();
+  if (!userId) return res.status(401).json({ ok: false, code: "SIGN_IN_REQUIRED", hint: "Sign in to redeem a coupon." });
+  const code = String((req.body || {}).code || "").trim().toUpperCase().slice(0, 64);
+  if (!code) return res.status(400).json({ ok: false, code: "INVALID" });
+  try {
+    const cr = await withClient((c) => c.query<any>(`SELECT * FROM coupons WHERE code = $1 LIMIT 1`, [code]));
+    const cp = cr.rows[0];
+    if (!cp || !cp.active) return res.status(404).json({ ok: false, code: "COUPON_NOT_FOUND" });
+    if (cp.expires_at && new Date(cp.expires_at).getTime() < Date.now()) return res.status(410).json({ ok: false, code: "COUPON_EXPIRED" });
+    if (cp.max_redemptions != null && Number(cp.redemptions_used) >= Number(cp.max_redemptions)) return res.status(409).json({ ok: false, code: "COUPON_EXHAUSTED" });
+    // 单用户单次: 先原子占位(PK 冲突 = 已兑过)。
+    try {
+      await withClient((c) => c.query(`INSERT INTO coupon_redemptions (code, user_id, granted) VALUES ($1, $2::uuid, '{}'::jsonb)`, [code, userId]));
+    } catch (_e) {
+      return res.status(409).json({ ok: false, code: "ALREADY_REDEEMED" });
+    }
+    // 发放(失败则回滚占位)。
+    const amt = Number(cp.amount) || 0;
+    const grant: any = { type: cp.type, amount: amt };
+    try {
+      if (cp.type === "credits") { await _grantCouponCredits(userId, amt, code); grant.credits_cents = amt; }
+      else if (cp.type === "gen_rights") { await _grantCouponGenRights(userId, amt); grant.gen_rights = amt; }
+      else if (cp.type === "subscription") {
+        const tier = String(cp.sub_tier || "").toLowerCase();
+        if (!COUPON_TIERS.has(tier)) throw new Error("bad_tier");
+        await _grantCouponSubscription(userId, tier, amt); grant.tier = tier; grant.days = amt;
+      } else { throw new Error("unsupported_type_phase2"); }
+    } catch (ge: any) {
+      await withClient((c) => c.query(`DELETE FROM coupon_redemptions WHERE code = $1 AND user_id = $2::uuid`, [code, userId])).catch(() => {});
+      return res.status(400).json({ ok: false, code: "GRANT_FAILED", detail: String(ge?.message || ge) });
+    }
+    await withClient((c) => c.query(`UPDATE coupon_redemptions SET granted = $3 WHERE code = $1 AND user_id = $2::uuid`, [code, userId, JSON.stringify(grant)])).catch(() => {});
+    await withClient((c) => c.query(`UPDATE coupons SET redemptions_used = redemptions_used + 1 WHERE code = $1`, [code])).catch(() => {});
+    return res.json({ ok: true, granted: grant });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, code: "REDEEM_FAILED", detail: String(e?.message || e) });
+  }
+});
+
+// 管理建券 (admin token)。body {code,type,amount,sub_tier?,max_redemptions?,expires_at?,per_user_limit?,campaign?,note?}
+app.post("/api/admin/coupons", express.json({ limit: "2kb" }), async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!expected || String(req.headers["x-admin-token"] || "").trim() !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  const b = req.body || {};
+  const code = String(b.code || "").trim().toUpperCase().slice(0, 64);
+  const type = String(b.type || "").trim();
+  if (!code || !["credits", "gen_rights", "subscription", "actor_voice", "actor_ask"].includes(type)) return res.status(400).json({ ok: false, error: "bad_code_or_type" });
+  const subTier = b.sub_tier ? String(b.sub_tier).toLowerCase() : null;
+  if (type === "subscription" && !COUPON_TIERS.has(String(subTier))) return res.status(400).json({ ok: false, error: "bad_sub_tier" });
+  try {
+    await withClient((c) => c.query(
+      `INSERT INTO coupons (code, type, amount, sub_tier, max_redemptions, per_user_limit, expires_at, campaign, note, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'admin')
+       ON CONFLICT (code) DO UPDATE SET type=$2, amount=$3, sub_tier=$4, max_redemptions=$5, per_user_limit=$6, expires_at=$7, campaign=$8, note=$9, active=true`,
+      [code, type, Math.max(0, Math.floor(Number(b.amount) || 0)), subTier,
+       b.max_redemptions != null ? Math.floor(Number(b.max_redemptions)) : null,
+       Math.max(1, Math.floor(Number(b.per_user_limit) || 1)),
+       b.expires_at ? new Date(b.expires_at) : null,
+       b.campaign ? String(b.campaign).slice(0, 64) : null,
+       b.note ? String(b.note).slice(0, 200) : null]));
+    return res.json({ ok: true, code });
+  } catch (e: any) { return res.status(500).json({ ok: false, error: String(e?.message || e) }); }
+});
+app.get("/api/admin/coupons", async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!expected || String(req.headers["x-admin-token"] || "").trim() !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  try {
+    const r = await withClient((c) => c.query(`SELECT code, type, amount, sub_tier, max_redemptions, redemptions_used, expires_at, active, campaign FROM coupons ORDER BY created_at DESC LIMIT 200`));
+    return res.json({ ok: true, coupons: r.rows });
+  } catch (e: any) { return res.status(500).json({ ok: false, error: String(e?.message || e) }); }
 });
 
 /* CSSOS_WAVE_139B 20260514 — credit-pack top-up endpoints.
@@ -12102,6 +12701,15 @@ async function grantIapPurchase(opts: {
       // Extend the user's membership.tier and membership.expires_at.
       // This mirrors what the Stripe webhook does. Schema: users has
       // `tier` + `tier_expires_at`. (Adjust column names if different.)
+      // W1756 — capture the prior tier BEFORE the update so plan_upgrade can
+      // report the transition in its payload.
+      const prevTierRow = await withClient((c) =>
+        c.query<{ tier: string | null }>(
+          `SELECT tier FROM users WHERE id = $1::uuid`,
+          [opts.userId],
+        ),
+      );
+      const previousTier = normalizeMembershipTier(prevTierRow.rows[0]?.tier || "free");
       const expiry = opts.expiresAt || new Date(opts.purchasedAt.getTime() + ((def.period_days || 30) * 24 * 60 * 60 * 1000));
       await withClient((c) =>
         c.query(
@@ -12112,6 +12720,141 @@ async function grantIapPurchase(opts: {
           [opts.userId, def.tier, expiry],
         ),
       );
+      // W1756 — mirror the Stripe checkout.session.completed personalization
+      // dispatch (first_subscriber + plan_upgrade + milestone_*) for the
+      // Apple IAP subscription path. Both /api/iap/apple/verify and the
+      // App Store S2S notifications webhook route their tier grant through
+      // grantIapPurchase(), so this single point covers every IAP entry.
+      //
+      // Only fires on a FIRST-TIME subscription for this transaction family
+      // (keyed by original_transaction_id), never on a DID_RENEW / auto-
+      // renewal — otherwise the buyer would be re-gifted every billing cycle.
+      // (Same-transaction re-posts are already short-circuited above via the
+      // idempotent iap_receipts insert returning already_granted.)
+      try {
+        const subFamilyKey = opts.originalTransactionId || opts.transactionId;
+        const { rows: priorSubRows } = await withClient((c) =>
+          c.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM iap_receipts
+              WHERE product_kind = 'subscription'
+                AND granted = true
+                AND transaction_id <> $1
+                AND COALESCE(original_transaction_id, transaction_id) = $2`,
+            [opts.transactionId, subFamilyKey],
+          ),
+        );
+        const isFirstSubscription = Number(priorSubRows[0]?.n || 0) === 0;
+        if (isFirstSubscription) {
+          // First paying subscriber on the platform → personal gift MV.
+          // Per-user oneShot is engine-enforced; the platform-global
+          // "exactly once" gate is checked here against system_gift_audit
+          // for any prior first_subscriber row across all users.
+          try {
+            const { rows: priorRows } = await withClient((client) =>
+              client.query(
+                `SELECT 1
+                   FROM system_gift_audit
+                  WHERE trigger_event = 'first_subscriber'
+                    AND status IN ('pending','generating','delivered','viewed')
+                  LIMIT 1`,
+              ),
+            );
+            if (priorRows.length === 0) {
+              void import("./personalization/index.js").then((mod) => {
+                mod.fireTriggerFireAndForget(getPool(), {
+                  triggerKey: "first_subscriber",
+                  targetUserId: opts.userId,
+                  livemode: true,
+                  payload: {
+                    source: "apple_iap.grant",
+                    membership_tier: def.tier,
+                    transaction_id: opts.transactionId,
+                  },
+                });
+              });
+            }
+          } catch (err) {
+            console.warn(
+              "[personalization] first_subscriber dispatch failed (non-fatal):",
+              err instanceof Error ? err.message : String(err),
+            );
+          }
+          // plan_upgrade gift for the buyer (they moved to a paid tier).
+          //   Fire-and-forget; the engine's per-user policy handles cooldown/caps.
+          try {
+            void import("./personalization/index.js").then((mod) => {
+              mod.fireTriggerFireAndForget(getPool(), {
+                triggerKey: "plan_upgrade",
+                targetUserId: opts.userId,
+                livemode: true,
+                payload: {
+                  source: "apple_iap.grant",
+                  new_tier: def.tier,
+                  previous_tier: previousTier,
+                },
+              });
+            });
+          } catch (err) {
+            console.warn(
+              "[personalization] plan_upgrade dispatch failed (non-fatal):",
+              err instanceof Error ? err.message : String(err),
+            );
+          }
+          // Subscriber-count milestones (100 / 1000 / 10000 / 100000).
+          //   This new subscriber may be the one that crosses a threshold →
+          //   gift them. Platform-global "exactly once" gate mirrors
+          //   first_subscriber via a prior system_gift_audit check.
+          try {
+            const { rows: cntRows } = await withClient((client) =>
+              client.query<{ n: number }>(
+                `SELECT count(*)::int AS n FROM billing_accounts
+                  WHERE membership_tier IN ('starter','pro','studio','enterprise')`,
+              ),
+            );
+            const subscriberCount = Number(cntRows[0]?.n || 0);
+            const milestoneKey =
+              subscriberCount === 100 ? "milestone_100"
+              : subscriberCount === 1000 ? "milestone_1000"
+              : subscriberCount === 10000 ? "milestone_10000"
+              : subscriberCount === 100000 ? "milestone_100000"
+              : null;
+            if (milestoneKey) {
+              const { rows: priorMilestone } = await withClient((client) =>
+                client.query(
+                  `SELECT 1 FROM system_gift_audit
+                    WHERE trigger_event = $1
+                      AND status IN ('pending','generating','delivered','viewed')
+                    LIMIT 1`,
+                  [milestoneKey],
+                ),
+              );
+              if (priorMilestone.length === 0) {
+                void import("./personalization/index.js").then((mod) => {
+                  mod.fireTriggerFireAndForget(getPool(), {
+                    triggerKey: milestoneKey,
+                    targetUserId: opts.userId,
+                    livemode: true,
+                    payload: {
+                      source: "apple_iap.grant",
+                      subscriber_number: subscriberCount,
+                    },
+                  });
+                });
+              }
+            }
+          } catch (err) {
+            console.warn(
+              "[personalization] milestone dispatch failed (non-fatal):",
+              err instanceof Error ? err.message : String(err),
+            );
+          }
+        }
+      } catch (err) {
+        console.warn(
+          "[personalization] iap subscription dispatch failed (non-fatal):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     } else if (def.kind === "credit_pack" && def.credits) {
       // CSSOS_WAVE_139B 20260514 — Jing: previously this branch only
       // logged a usage_events row but never actually incremented the
@@ -12381,6 +13124,16 @@ app.post("/api/mv/video/upload", (req, res, next) => {
   const userId = (req.session as any)?.user_id;
   const file = (req as any).file as { path: string; originalname: string; size: number; mimetype: string } | undefined;
   if (!file) return res.status(400).json({ ok: false, error: "no_file" });
+  // W1753 — mandatory ownership attestation (Apple 5.2 UGC defense). No file is
+  // kept if the user hasn't confirmed they hold the rights to this media.
+  if (String((req.body as any)?.attested || "") !== "true") {
+    fs.unlink(file.path, () => {});
+    return res.status(400).json({
+      ok: false,
+      error: "attestation_required",
+      hint: "Confirm you own or have the rights to this media before uploading.",
+    });
+  }
   const workType = String((req.body as any)?.work_type || "single").toLowerCase();
   const requestedTitle = String((req.body as any)?.title || "").trim();
   const skipFingerprint = String((req.body as any)?.skip_fingerprint || "") === "1";
@@ -12403,6 +13156,19 @@ app.post("/api/mv/video/upload", (req, res, next) => {
   if (meta.drm_encrypted) {
     fs.unlink(file.path, () => {});
     return res.status(415).json({ ok: false, error: "drm_protected" });
+  }
+
+  // W1756 — adult/NSFW moderation. Reject explicit content before any further
+  // processing. Fail-closed: moderateVideoNsfw returns nsfw=true on any error.
+  const moderation = await moderateVideoNsfw(file.path);
+  if (moderation.nsfw) {
+    fs.unlink(file.path, () => {});
+    return res.status(422).json({
+      ok: false,
+      error: "nsfw_rejected",
+      hint: "This video appears to contain adult / explicit content, which isn't accepted on this platform. Please upload a general-audience video.",
+      moderation_reason: moderation.reason,
+    });
   }
 
   const maxDur = maxDurationSecsForWorkType(workType);
@@ -12576,37 +13342,34 @@ app.post("/api/mv/image/analyze", (req, res, next) => {
   fs.unlink(file.path, () => {}); // working copy
 
   // Call Claude Vision via callLlm with vision content blocks.
-  const anthropicKey = (process.env.ANTHROPIC_API_KEY || "").trim();
-  if (!anthropicKey) {
+  if (!anthropicAvailable()) {
     return res.status(503).json({
       ok: false,
       error: "vision_unavailable",
-      hint: "ANTHROPIC_API_KEY not configured",
+      hint: "No LLM configured (KIE_API_KEY / ANTHROPIC_API_KEY)",
       asset_url: publicImageUrl,
     });
   }
 
   const systemPrompt =
-    "You are a music creative director. The user provided an image with no musical context. " +
-    "Your job: turn it into a song prompt for our music-video pipeline. Return STRICT JSON " +
-    "with these keys exactly: " +
-    "{ description: string (1-2 sentences of what you see), " +
+    "You are a music creative director AND a content-safety classifier for a general-audience " +
+    "music-video platform. The user provided an image. Return STRICT JSON with these keys exactly: " +
+    "{ nsfw: boolean (true ONLY if the image is PORNOGRAPHIC / sexually-explicit content intended to " +
+    "arouse — explicit sexual acts, close-up genitalia, hardcore. nsfw=FALSE for fine art / classical / " +
+    "artistic nudity, non-sexual nudity (medical, breastfeeding, naturism), swimwear, lingerie, romance, " +
+    "normal clothing, violence. Do NOT over-flag; when unsure prefer false), " +
+    "  nsfw_reason: string (short; empty if nsfw is false), " +
+    "  description: string (1-2 sentences of what you see), " +
     "  lyrics_prompt: string (a concise creative subject for the lyrics engine, like 'A lonely lighthouse keeper at dawn'), " +
     "  music_style_hint: string (genre/instruments/mood, e.g. 'cinematic orchestral with cello, slow build, melancholic'), " +
     "  civilization: string (which cultural/era frame fits — e.g. 'modern western', 'ancient Chinese', 'medieval European'), " +
     "  suggested_title: string (a short song title in " + language + "), " +
     "  language_hint: string (best language for the lyrics body, e.g. 'en', 'zh', 'ja') } " +
+    "If nsfw is true, still return the object (the other creative fields may be empty). " +
     "Output ONLY the JSON object, no markdown, no commentary.";
 
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
+    const r = await anthropicMessages({
         model: "claude-sonnet-4-6",
         max_tokens: 800,
         system: systemPrompt,
@@ -12617,7 +13380,6 @@ app.post("/api/mv/image/analyze", (req, res, next) => {
             { type: "text", text: "Analyze this image and produce the JSON song prompt as instructed." },
           ],
         }],
-      }),
     });
     if (!r.ok) {
       const t = await r.text().catch(() => "");
@@ -12654,6 +13416,19 @@ app.post("/api/mv/image/analyze", (req, res, next) => {
         error: "vision_parse_failed",
         raw_text: text.slice(0, 500),
         asset_url: publicImageUrl,
+      });
+    }
+
+    // W1756 — adult/NSFW moderation for images (same policy as video). The
+    // vision call classifies nsfw alongside the creative prompt; reject +
+    // delete the persisted image if flagged.
+    if (parsed.nsfw === true) {
+      try { fs.unlinkSync(finalDiskPath); } catch (_) {}
+      return res.status(422).json({
+        ok: false,
+        error: "nsfw_rejected",
+        hint: "This image appears to contain adult / explicit content, which isn't accepted on this platform. Please upload a general-audience image.",
+        moderation_reason: String(parsed.nsfw_reason || "").slice(0, 200),
       });
     }
 
@@ -12781,6 +13556,31 @@ app.post("/api/mv/midi/upload", (req, res, next) => {
   const audioAssetUrl = synthOk ? `/uploads/midi/${userId}/${mp3Name}` : null;
   const midiAssetUrl = fs.existsSync(midiDiskPath) ? `/uploads/midi/${userId}/${midiName}` : null;
 
+  // W1750 (111E ②) — dual output. Alongside the full 纯音乐 mix (audioAssetUrl),
+  // render a melody-muted 伴奏 (backing) so vocals can be layered later (SVS
+  // awaits GPU). Best-effort: failure here never blocks the primary asset.
+  let backingAssetUrl: string | null = null;
+  let melodyTrackIndex = -1;
+  if (synthOk && fs.existsSync(midiDiskPath)) {
+    try {
+      melodyTrackIndex = await detectMelodyTrackIndex(midiDiskPath);
+      if (melodyTrackIndex >= 0) {
+        const backMidi = path.join(publicUploadsRoot, `${Date.now()}_${crypto.randomBytes(4).toString("hex")}.backing.mid`);
+        if (await writeMidiMutingTrack(midiDiskPath, melodyTrackIndex, backMidi)) {
+          const backMp3Name = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}.backing.mp3`;
+          const backMp3Disk = path.join(publicUploadsRoot, backMp3Name);
+          await synthMidiToMp3(backMidi, backMp3Disk);
+          if (fs.existsSync(backMp3Disk) && fs.statSync(backMp3Disk).size > 0) {
+            backingAssetUrl = `/uploads/midi/${userId}/${backMp3Name}`;
+          }
+          try { fs.unlinkSync(backMidi); } catch (_) {}
+        }
+      }
+    } catch (err) {
+      console.warn("[mv-midi] backing (伴奏) synth failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
   // skip_stages: we have music (synth) + lyrics (from MIDI). Cover +
   // video + compose still run.
   const skipStages: string[] = [];
@@ -12790,6 +13590,8 @@ app.post("/api/mv/midi/upload", (req, res, next) => {
   return res.json({
     ok: true,
     asset_url: audioAssetUrl,
+    backing_asset_url: backingAssetUrl,     // W1750 ② — melody-muted 伴奏 (for later vocals)
+    melody_track_index: melodyTrackIndex,   // -1 when no melody line was identified
     midi_asset_url: midiAssetUrl,
     meta: {
       duration_secs: parsed.duration_secs,
@@ -12807,6 +13609,7 @@ app.post("/api/mv/midi/upload", (req, res, next) => {
       has_lyrics: false,
       note: "MIDI file has no embedded lyrics track. You can still use the synthesized audio as instrumental.",
     },
+    syllables: parsed.syllables || [],   // W1751 (111E ③) — per-token timeline for subtitle engine
     whisper: null,                // not relevant for MIDI (we have explicit lyrics or none)
     skip_stages: skipStages,
     import_source: parsed.has_lyrics ? "midi+lyrics" : "midi_instrumental",
@@ -12848,13 +13651,18 @@ app.post("/api/mv/musicxml/upload", (req, res, next) => {
     });
   }
 
+  // W1712 — 一曲多段: 真实时长 = 段数 × 单遍时长。时长闸与返回 meta 都按【全 N 遍】算。
+  const verseCount = Math.max(1, parsed.parse.verses.length);
+  const totalDurationSecs = parsed.duration_secs * verseCount;
+
   const maxDur = maxDurationSecsForWorkType(workType);
-  if (parsed.duration_secs > maxDur) {
+  if (totalDurationSecs > maxDur) {
     fs.unlink(file.path, () => {});
     return res.status(413).json({
       ok: false,
       error: "duration_exceeds_work_type",
-      duration_secs: parsed.duration_secs,
+      duration_secs: totalDurationSecs,
+      verse_count: verseCount,
       limit_secs: maxDur,
     });
   }
@@ -12868,17 +13676,49 @@ app.post("/api/mv/musicxml/upload", (req, res, next) => {
   try { fs.copyFileSync(file.path, xmlDiskPath); } catch (_) {}
   fs.unlink(file.path, () => {});
 
-  // For Wave 111B, MusicXML synthesis is NOT auto-done (lacks a
-  // dependable MusicXML→MIDI converter without MuseScore). User
-  // still gets lyrics + timing for subtitles; pipeline music stage
-  // will run via the existing Suno path using extracted lyrics.
+  /* CSSOS_WAVE_1698 — 忠实渲染(Jing 第一原则: 这是转换, 不是创作)。
+   *
+   * 旧注释说 "lacks a dependable MusicXML→MIDI converter without MuseScore",
+   * 于是把音乐阶段丢给 Suno 用歌词【重新作曲】—— 那出来的就不是这首圣诗了。
+   * 现在转换器就是我们自己: MusicXML →(音高/时值一一对应)→ MIDI → fluidsynth → mp3。
+   * 全程零 AI, 每次结果完全一致。所以【音乐阶段必须跳过】, 直接用这段忠实音频。
+   *
+   * 渲染失败(缺 SoundFont / fluidsynth)时不静默降级去作曲 —— 宁可没有音频, 也不出一首
+   * 冒充这首圣诗的歌。asset_url 留空, 上游据此提示用户, 而不是偷偷换一首。 */
+  /* CSSOS_WAVE_1700 — 渲染【挪出请求路径】(Jing:「长久之计」)。
+   * 解析只要 ~50ms, 留在请求内 → 用户上传即刻拿到歌词 + 逐字时间轴, 上传体验不变慢。
+   * 渲染是秒级 CPU 活 → 进队列(并发上限 1) + 子进程 nice 15 → 影院/面对面永不被饿死。
+   * 失败也【绝不静默降级去重新作曲】—— 宁可没有音频, 也不出一首冒充这首圣诗的歌。 */
+  let renderJobId: string | null = null;
+  let renderStatus: "queued" | "unavailable" = "unavailable";
+  if (parsed.parse.ok && parsed.parse.notes.length) {
+    try {
+      // W1701 — 成品落在 /srv/cssos/artifacts/scores/<user>/(发布目录之外, deploy 不会删)。
+      const scoreOutDir = path.join(SCORE_ARTIFACTS_DIR, String(userId));
+      fs.mkdirSync(scoreOutDir, { recursive: true });
+      renderJobId = await enqueueScoreRender({
+        userId: String(userId),
+        xmlPath: xmlDiskPath,
+        outDir: scoreOutDir,
+        urlPrefix: `/artifacts/scores/${userId}`,
+        title: parsed.title,
+      });
+      renderStatus = "queued";
+    } catch (err) {
+      console.warn("[musicxml] enqueue failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const skipStages: string[] = [];
   if (parsed.has_lyrics) skipStages.push("lyrics");
-  // music stage still runs (we don't have synth audio for MusicXML)
+  // 忠实渲染已入队 → 绝不让音乐引擎重新作曲。音频稍后由作业产出。
+  if (renderJobId) skipStages.push("music");
 
   return res.json({
     ok: true,
-    asset_url: null,           // no synth audio for MusicXML in 111B
+    asset_url: null,                      // 音频由渲染作业异步产出, 见 render_job_id
+    render_job_id: renderJobId,           // W1700 — 轮询 /api/mv/musicxml/render/:job_id
+    render_status: renderStatus,
     musicxml_asset_url: `/uploads/musicxml/${userId}/${xmlName}`,
     meta: {
       duration_secs: parsed.duration_secs,
@@ -12886,16 +13726,24 @@ app.post("/api/mv/musicxml/upload", (req, res, next) => {
       time_signature: parsed.time_signature,
       track_count: parsed.track_count,
       note_count: parsed.note_count,
+      title: parsed.title,
+      composer: parsed.composer,
+      exact_timing: parsed.exact_timing,
+      faithful_render: !!renderJobId,
+      warnings: parsed.warnings,
     },
     lyrics: parsed.has_lyrics ? {
       has_lyrics: true,
       lines: parsed.lyrics_lines,
       text: parsed.raw_lyrics_text,
-      timing_note: "Lyrics timing is APPROXIMATE — distributed linearly across estimated duration. For precise timing, upload MIDI instead.",
+      words: parsed.words,                 // W1698 — 逐字时间轴(精确解)
+      verses: parsed.verses,               // 多段词各自独立(旧实现会把它们混排)
+      timing_note: "Lyrics timing is EXACT — computed from note durations in the score (duration / divisions × 60000/bpm). Nothing is estimated.",
     } : {
       has_lyrics: false,
       note: "MusicXML file has no embedded lyrics. Music engine will still run normally.",
     },
+    syllables: parsed.syllables || [],   // W1751 (111E ③) — per-token timeline for subtitle engine (== first-verse words projected to {ts_ms,text})
     whisper: null,
     skip_stages: skipStages,
     import_source: parsed.has_lyrics ? "musicxml+lyrics" : "musicxml_instrumental",
@@ -13111,14 +13959,7 @@ async function analyzeSheetMusicWithVision(
   if (!imageBlocks.length) return null;
 
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
+    const r = await anthropicMessages({
         model: "claude-sonnet-4-6",
         max_tokens: 4000,
         system: systemPrompt,
@@ -13129,7 +13970,6 @@ async function analyzeSheetMusicWithVision(
             { type: "text", text: `Extract structured sheet-music data from the ${imageBlocks.length} page(s) above and return the strict JSON object as instructed.` },
           ],
         }],
-      }),
     });
     if (!r.ok) {
       const t = await r.text().catch(() => "");
@@ -13178,6 +14018,113 @@ const sheetUploader = multer({
       cb(new Error(`unsupported_mime:${mt}`));
     }
   },
+});
+
+/* CSSOS_WAVE_1700 — 查询乐谱忠实渲染作业。queued → running → done|failed。 */
+/* CSSOS_WAVE_1708 — 公开解析一首圣诗(供 ?hymn=<id> 深链 + 画廊)。
+ * 与 ?cssMV=/?actor= 同族的第三类下方链接。只返回【已完成】的作业资源(音频/字幕/MV/时长)。
+ * 按 UUID 精确取(不可枚举), 圣诗本就是公开欣赏内容 → 不做用户门禁。 */
+/* CSSOS_WAVE_1714 — 圣诗分享页(SSR og): /h/:id → og:image(海报) + og:video(MV) + 标题/作者,
+ * body 立刻跳转到 /?hymn=<id> 播放。与 MV 的 /m/:code 分享同规格, 让链接带图带文。 */
+app.get("/h/:id", async (req, res) => {
+  const id = String(req.params.id || "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).send("<!doctype html><meta charset=utf-8><title>Not found</title>");
+  try {
+    const r = await withClient((c) => c.query<{
+      title: string | null; poster_url: string | null; mv_url: string | null; duration_secs: number | null; status: string;
+    }>(`SELECT title, poster_url, mv_url, duration_secs, status FROM score_render_jobs WHERE job_id=$1::uuid`, [id]));
+    const row = r.rows[0];
+    if (!row || row.status !== "done") return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Hymn not found.</p>");
+    const abs = (u: string | null) => (u ? (u.startsWith("http") ? u : `${SHARE_BASE_URL}${u}`) : "");
+    const title = row.title || "Sacred Score";
+    const desc = "A faithful hymn transcription on CSS Studio — every note and every word exact to the score.";
+    const poster = abs(row.poster_url);
+    const video = abs(row.mv_url);
+    const play = `${SHARE_BASE_URL}/?hymn=${encodeURIComponent(id)}`;
+    const card = video ? "player" : (poster ? "summary_large_image" : "summary");
+    const H = (x: string) => escapeHtmlAttr(x);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(`<!doctype html><html lang="en"><head><meta charset="utf-8"/>
+<title>${H(title)} — CSS Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta property="og:type" content="${video ? "video.other" : "website"}"/>
+<meta property="og:title" content="${H(title)} · Sacred Score"/>
+<meta property="og:description" content="${H(desc)}"/>
+<meta property="og:url" content="${H(play)}"/>
+${poster ? `<meta property="og:image" content="${H(poster)}"/><meta property="og:image:width" content="1280"/><meta property="og:image:height" content="536"/>` : ""}
+${video ? `<meta property="og:video" content="${H(video)}"/><meta property="og:video:secure_url" content="${H(video)}"/><meta property="og:video:type" content="video/mp4"/><meta property="og:video:width" content="1280"/><meta property="og:video:height" content="536"/>` : ""}
+<meta name="twitter:card" content="${card}"/>
+<meta name="twitter:title" content="${H(title)} · Sacred Score"/>
+<meta name="twitter:description" content="${H(desc)}"/>
+${poster ? `<meta name="twitter:image" content="${H(poster)}"/>` : ""}
+<meta http-equiv="refresh" content="0; url=${H(play)}"/>
+<script>location.replace(${JSON.stringify(play)});</script>
+</head><body style="background:#0d1420;color:#f0e6cf;font-family:Georgia,serif;text-align:center;padding:40px">
+<p>Opening <b>${H(title)}</b> …</p><p><a style="color:#e6c98d" href="${H(play)}">Listen now</a></p>
+</body></html>`);
+  } catch {
+    return res.status(500).send("<!doctype html><meta charset=utf-8><title>Error</title>");
+  }
+});
+
+/* CSSOS_WAVE_1710 — 圣诗画廊: 列出所有【已完成】的圣诗(一排排乐谱)。公开、只读。 */
+app.get("/api/hymns", async (_req, res) => {
+  noStore(res);
+  try {
+    const r = await withClient((c) => c.query<{
+      job_id: string; title: string | null; duration_secs: number | null; mv_url: string | null; poster_url: string | null; tradition: string; finished_at: string;
+    }>(
+      `SELECT job_id, title, duration_secs, mv_url, poster_url, tradition, finished_at
+         FROM score_render_jobs WHERE status='done' AND audio_url IS NOT NULL
+        ORDER BY finished_at DESC LIMIT 300`,
+    ));
+    const hymns = r.rows.map((row) => ({
+      id: row.job_id, title: row.title || "Hymn", duration_secs: row.duration_secs,
+      has_mv: !!row.mv_url, cover_url: row.poster_url || null, tradition: row.tradition || "secular",
+    }));
+    return res.json({ ok: true, hymns });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : "list_failed" });
+  }
+});
+
+app.get("/api/hymns/:id", async (req, res) => {
+  noStore(res);
+  const id = String(req.params.id || "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: "bad_id" });
+  try {
+    const r = await withClient((c) => c.query<{
+      title: string | null; audio_url: string | null; subtitle_url: string | null;
+      mv_url: string | null; midi_url: string | null; poster_url: string | null; duration_secs: number | null; tradition: string; status: string;
+    }>(
+      `SELECT title, audio_url, subtitle_url, mv_url, midi_url, poster_url, duration_secs, tradition, status
+         FROM score_render_jobs WHERE job_id = $1::uuid`, [id],
+    ));
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: "not_found" });
+    if (row.status !== "done") return res.json({ ok: true, status: row.status, ready: false });
+    return res.json({
+      ok: true, ready: true, status: "done",
+      title: row.title, audio_url: row.audio_url, subtitle_url: row.subtitle_url,
+      mv_url: row.mv_url, midi_url: row.midi_url, poster_url: row.poster_url, duration_secs: row.duration_secs, tradition: row.tradition || "secular",
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : "lookup_failed" });
+  }
+});
+
+app.get("/api/mv/musicxml/render/:job_id", async (req, res) => {
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  const jobId = String(req.params.job_id || "");
+  if (!/^[0-9a-f-]{36}$/i.test(jobId)) return res.status(400).json({ ok: false, error: "bad_job_id" });
+  try {
+    const job = await getScoreRenderJob(jobId, String(userId));
+    if (!job) return res.status(404).json({ ok: false, error: "job_not_found" });
+    return res.json({ ok: true, ...job });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : "job_lookup_failed" });
+  }
 });
 
 app.post("/api/mv/sheet/upload", (req, res, next) => {
@@ -14922,6 +15869,202 @@ app.get("/api/img-thumb", async (req, res) => {
   }
 });
 
+/* CSSOS_WAVE_1623 — Dynamic Open Graph share card.
+ * GET /og/share.png → a 1200×630 collage of the platform's currently-hottest
+ * MV covers + tagline, rebuilt from live content once a day. Sharing the
+ * bare domain (cssstudio.app) on X / iMessage / Slack therefore rotates through
+ * the best current work instead of a static square. Registered BEFORE
+ * express.static so it wins over the shipped public/og/share.png, which stays
+ * as the guaranteed fallback on any failure. Cover pool = curated flagships →
+ * recent market works → hottest person MVs (deduped), 3 picked per rebuild.
+ * Daily TTL, not 15-min: social crawlers cache the card for days regardless,
+ * so a faster rebuild is wasted work — daily keeps it fresh without churn. */
+let __ogShareCache: { at: number; buf: Buffer } | null = null;
+const OG_SHARE_TTL_MS = 24 * 60 * 60 * 1000; // rebuild once per day
+
+async function __ogHotCoverPool(): Promise<string[]> {
+  const base = `http://127.0.0.1:${process.env.PORT || 3000}`;
+  const urls: string[] = [];
+  async function pull(pathname: string, extract: (j: any) => string[]) {
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 4000);
+      const r = await fetch(base + pathname, { signal: ctrl.signal });
+      clearTimeout(to);
+      if (!r.ok) return;
+      const j: any = await r.json();
+      for (const u of extract(j)) if (u) urls.push(u);
+    } catch { /* one source down must not break the card */ }
+  }
+  await pull("/api/works/flagships", (j) => (j?.items || []).map((x: any) => String(x?.cover || "")));
+  await pull("/api/works/market?limit=24", (j) => {
+    const items = j?.items || j?.data || [];
+    return (Array.isArray(items) ? items : []).map(
+      (x: any) => String(x?.cover || x?.cover_image || x?.cover_url || ""));
+  });
+  await pull("/api/person-mv/discover/hot", (j) =>
+    (j?.data?.persons || []).map((x: any) => String(x?.top_cover || "")));
+  // Drop ephemeral signed-URL hosts (replicate/fal/openai) — they expire and
+  // would fetch as a blank panel; keep only durable CDN/R2/wiki covers.
+  const EPHEMERAL = /(^|\.)(replicate\.delivery|fal\.media|pbxt\.|oaidalleapiprodscus|blob\.core\.windows\.net)/i;
+  const seen = new Set<string>();
+  const clean: string[] = [];
+  for (const u of urls) {
+    if (!/^https?:\/\//i.test(u)) continue;
+    if (seen.has(u)) continue;
+    let host = "";
+    try { host = new URL(u).hostname; } catch { continue; }
+    if (EPHEMERAL.test(host)) continue;
+    seen.add(u);
+    clean.push(u);
+  }
+  return clean;
+}
+
+function __ogPick3(pool: string[]): string[] {
+  if (pool.length <= 3) return pool.slice(0, 3);
+  // shuffle then take 3 → the collage rotates on each rebuild
+  return pool.slice().sort(() => Math.random() - 0.5).slice(0, 3);
+}
+
+function __ogOverlaySvg(W: number, H: number): string {
+  const GREEN = "#00f5a0";
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0.42" stop-color="#040608" stop-opacity="0"/>
+        <stop offset="1" stop-color="#040608" stop-opacity="0.96"/>
+      </linearGradient>
+      <linearGradient id="lvig" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#040608" stop-opacity="0.6"/>
+        <stop offset="1" stop-color="#040608" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <rect x="0" y="0" width="${W}" height="${H}" fill="url(#scrim)"/>
+    <rect x="0" y="0" width="560" height="${H}" fill="url(#lvig)"/>
+    <rect x="0" y="0" width="${W}" height="5" fill="${GREEN}"/>
+    <g font-family="Helvetica, Arial, sans-serif">
+      <rect x="56" y="46" width="196" height="42" rx="21" fill="${GREEN}"/>
+      <text x="80" y="75" font-size="23" font-weight="700" fill="#06120e" letter-spacing="1.5">CSS STUDIO</text>
+      <text x="52" y="${H - 116}" font-size="112" font-weight="800" fill="${GREEN}">cssOS</text>
+      <text x="58" y="${H - 64}" font-size="39" font-weight="700" fill="#f0f4f6">Watch + create AI music videos — with sound</text>
+      <text x="${W - 56}" y="${H - 32}" font-size="33" font-weight="700" fill="${GREEN}" text-anchor="end">cssstudio.app</text>
+    </g>
+  </svg>`;
+}
+
+async function __buildOgShare(): Promise<Buffer> {
+  const W = 1200, H = 630, GAP = 4;
+  const pick = __ogPick3(await __ogHotCoverPool());
+  const panelW = Math.floor((W - GAP * 2) / 3);
+  const composites: sharp.OverlayOptions[] = [];
+  let x = 0;
+  for (const url of pick) {
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 5000);
+      const r = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
+      clearTimeout(to);
+      if (r.ok) {
+        const raw = Buffer.from(await r.arrayBuffer());
+        const panel = await sharp(raw, { failOn: "none" })
+          .resize(panelW, H, { fit: "cover", position: "attention" })
+          .toBuffer();
+        composites.push({ input: panel, left: x, top: 0 });
+      }
+    } catch { /* skip this panel, keep the dark base */ }
+    x += panelW + GAP;
+  }
+  if (!composites.length) throw new Error("no covers available");
+  composites.push({ input: Buffer.from(__ogOverlaySvg(W, H)), left: 0, top: 0 });
+  return await sharp({ create: { width: W, height: H, channels: 3, background: { r: 8, g: 10, b: 12 } } })
+    .composite(composites)
+    .png()
+    .toBuffer();
+}
+
+app.get("/og/share.png", async (_req, res) => {
+  try {
+    if (!__ogShareCache || (Date.now() - __ogShareCache.at) >= OG_SHARE_TTL_MS) {
+      __ogShareCache = { at: Date.now(), buf: await __buildOgShare() };
+    }
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.type("image/png");
+    return res.send(__ogShareCache.buf);
+  } catch (_e) {
+    // Guaranteed fallback: the shipped static collage.
+    res.setHeader("Cache-Control", "public, max-age=600");
+    res.type("image/png");
+    return res.sendFile(path.join(PUBLIC_DIR, "og", "share.png"));
+  }
+});
+
+/* CSSOS_WAVE_1633 — /apps 全平台下载落地页。
+ * 一个短链接(cssstudio.app/apps)打开就是六平台下载(名字 + 二维码 + 直达链接),
+ * 供社交分享使用 —— 即便 X 等把长文案截断, 这一个 URL 也永远指向完整下载页。
+ * 自带 OG 标签(复用动态分享卡), 分享预览好看。纯静态自包含 HTML。 */
+app.get("/apps", (_req, res) => {
+  const APPS = [
+    { plat: "iPhone", app: "cssOS", url: "https://apps.apple.com/app/id6768848996" },
+    { plat: "iPad", app: "cssOS", url: "https://apps.apple.com/app/id6768848996" },
+    { plat: "Mac", app: "cssOS", url: "https://apps.apple.com/app/id6768848996" },
+    { plat: "Apple Watch", app: "cssWatch", url: "https://apps.apple.com/app/id6784837589" },
+    { plat: "Apple TV", app: "cssTV", url: "https://apps.apple.com/app/id6784525214" },
+    { plat: "Vision Pro", app: "cssVision", url: "https://apps.apple.com/app/id6788245715" },
+  ];
+  const qr = (u: string) =>
+    "https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=" + encodeURIComponent(u);
+  const cards = APPS.map((a) => `
+      <div class="card">
+        <div class="plat">${a.plat}</div>
+        <div class="app">${a.app}</div>
+        <img class="qr" loading="lazy" alt="${a.app} QR" src="${qr(a.url)}">
+        <a class="get" href="${a.url}" target="_blank" rel="noopener">Download</a>
+      </div>`).join("");
+  const html = `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Get CSS Studio on every Apple device</title>
+<meta name="description" content="Download CSS Studio — watch + create AI music videos, with sound — on iPhone, iPad, Mac, Apple Watch, Apple TV and Vision Pro.">
+<meta property="og:title" content="Get CSS Studio on every Apple device">
+<meta property="og:description" content="iPhone · iPad · Mac · Apple Watch · Apple TV · Vision Pro — watch + create AI music videos, with sound.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cssstudio.app/apps">
+<meta property="og:image" content="https://cssstudio.app/og/share.png?v=708">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://cssstudio.app/og/share.png?v=708">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;font:400 16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,sans-serif;
+    background:radial-gradient(1200px 700px at 50% -10%,#0e2a20,#050b09 60%);color:#eafff6;
+    display:flex;flex-direction:column;align-items:center;padding:40px 20px 56px;}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:15px;letter-spacing:.5px;color:#00f5a0;margin-bottom:6px;}
+  h1{font-size:clamp(24px,4.5vw,38px);font-weight:800;margin:6px 0 6px;text-align:center;}
+  .sub{opacity:.82;font-weight:600;font-size:15px;text-align:center;margin:0 0 30px;max-width:640px;}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(3,1fr);width:100%;max-width:1040px;}
+  @media(max-width:780px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:480px){.grid{grid-template-columns:1fr}}
+  .card{display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;
+    padding:20px 14px 18px;border-radius:18px;background:rgba(0,245,160,.06);border:1px solid rgba(0,245,160,.2);}
+  .plat{font-weight:800;font-size:16px;}
+  .app{font-weight:600;font-size:12px;opacity:.72;}
+  .qr{width:170px;height:170px;border-radius:14px;background:#fff;padding:9px;}
+  .get{margin-top:4px;text-decoration:none;border-radius:999px;padding:9px 26px;
+    background:linear-gradient(135deg,#00f5a0,#00c884);color:#052018;font-weight:800;font-size:14px;
+    box-shadow:0 6px 20px rgba(0,245,160,.28);}
+  .foot{margin-top:28px;opacity:.65;font-size:13px;font-weight:600;text-align:center;}
+  .foot a{color:#00f5a0;text-decoration:none;}
+</style></head><body>
+  <div class="brand">CSS STUDIO</div>
+  <h1>Get CSS Studio on every Apple device</h1>
+  <p class="sub">Watch + create AI music videos — with sound. Scan on the device you want, or tap Download.</p>
+  <div class="grid">${cards}</div>
+  <p class="foot">iPhone, iPad &amp; Mac share one universal app (cssOS). &nbsp;·&nbsp; <a href="https://cssstudio.app">cssstudio.app</a></p>
+</body></html>`;
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.type("html").send(html);
+});
+
 app.use(
   express.static(PUBLIC_DIR, {
     /* CSSOS_SHARE_OG_BYPASS_STATIC 20260506 — disable express.static's
@@ -14961,6 +16104,29 @@ try {
     }),
   );
   console.log("[mv-audio] mounted /artifacts/audio -> %s", MV_AUDIO_ARTIFACTS_DIR);
+} catch (e) {
+  void e;
+}
+
+/* CSSOS_WAVE_1701 — 乐谱渲染成品必须放在【发布目录之外】。
+ * 教训: 最初我把 mp3 写进 PUBLIC_DIR/uploads/ = /srv/cssos/current/public —— 发布目录内部。
+ * scripts/deploy.sh 里有 `rsync -a --delete`, 下一次前端部署就会把渲染好的圣诗音频全抹掉。
+ * 本代码库早有正确形制: /srv/cssos/artifacts/* 挂到 /artifacts/*, 与 release 解耦。照办。 */
+const SCORE_ARTIFACTS_DIR =
+  process.env.CSSOS_SCORE_DIR ||
+  (fs.existsSync("/srv/cssos") ? "/srv/cssos/artifacts/scores" : path.join(os.tmpdir(), "cssos-scores"));
+try {
+  fs.mkdirSync(SCORE_ARTIFACTS_DIR, { recursive: true });
+  app.use(
+    "/artifacts/scores",
+    express.static(SCORE_ARTIFACTS_DIR, {
+      setHeaders(res) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.setHeader("Accept-Ranges", "bytes");
+      },
+    }),
+  );
+  console.log("[score-render] mounted /artifacts/scores -> %s", SCORE_ARTIFACTS_DIR);
 } catch (e) {
   console.warn("[mv-cover-fallback] mount failed:", e);
 }
@@ -15041,9 +16207,21 @@ function estimateEngineCostCents(
   const p = String(provider || "").trim().toLowerCase();
   // Server compute floor per stage (amortized GCE + bandwidth + storage).
   const serverFloor: Record<string, number> = {
-    lyrics: 1, cover: 2, music: 3, video: 4, subtitle: 1, compose: 2,
+    lyrics: 1, cover: 2, music: 3, video: 4, subtitle: 1, compose: 2, voice: 1, ask: 1,
   };
   const floor = serverFloor[s] ?? 1;
+
+  // W1632 — 数字演员语音(TTS)。sizeHint = 字符数。ElevenLabs 约 $0.15–0.30/1k 字符
+  //   → ~1.5–3¢/100 字符; 保守按 chars/60 收(其它引擎 chars/100)。至少 1¢。
+  if (s === "voice" || s === "tts") {
+    const chars = Math.max(1, Number(sizeHint) || 100);
+    if (p === "elevenlabs" || p === "elevenlabs-tts") return Math.max(1, Math.round(chars / 60));
+    return Math.max(1, Math.round(chars / 100));
+  }
+  // W1636 — 数字演员「问」(LLM 一条对话回复, ~700 max_tokens)。便宜, 按条约 1–2¢。
+  if (s === "ask") {
+    return floor + 1;   // 1¢ floor + 1 → 2¢/条(足够覆盖一条短对话的 token 成本)
+  }
 
   // Stage × provider rate tables (cents).
   if (s === "lyrics") {
@@ -21557,7 +22735,7 @@ app.post(
         ),
       );
     }
-    if (!runtimeConfig.apiKey) {
+    if (!(process.env.ELEVENLABS_API_KEY || "").trim()) {
       return res.json(
         okEmpty(
           {
@@ -21567,84 +22745,32 @@ app.post(
             env_source: runtimeConfig.envSource,
             error_code: "missing_api_key",
           },
-          "OpenAI API key is not configured",
+          "ElevenLabs API key is not configured",
         ),
       );
     }
     try {
-      const form = new FormData();
+      // W1654 — 唤醒口令听写改走 ElevenLabs Scribe(不再直连 OpenAI)。Scribe 自动检测语言、不吃 prompt。
       const extension =
-        contentType.includes("mp4") || contentType.includes("m4a")
-          ? "m4a"
-          : contentType.includes("mpeg") || contentType.includes("mp3")
-            ? "mp3"
-            : contentType.includes("wav")
-              ? "wav"
-              : "webm";
-      form.set(
-        "file",
-        new Blob([new Uint8Array(audioBuffer)], { type: contentType }),
-        `mic-capture.${extension}`,
-      );
-      form.set("model", model);
-      form.set("language", "zh");
-      form.set(
-        "prompt",
-        [
-          "Transcribe the speaker's Chinese words faithfully.",
-          "Preserve proper nouns, song titles, and Chinese named entities exactly when possible.",
-          wakeSpell ? `Wake spell may be present: ${wakeSpell}.` : "",
-          "Do not summarize. Return the raw utterance.",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
-      form.set("response_format", "json");
-      const upstream = await fetch(
-        "https://api.openai.com/v1/audio/transcriptions",
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${runtimeConfig.apiKey}`,
-          },
-          body: form,
-        },
-      );
-      const payload = await upstream.json().catch(() => null);
-      const transcript = String(
-        payload?.text || payload?.transcript || "",
-      ).trim();
-      if (!upstream.ok) {
-        const errorBody =
-          payload && typeof payload === "object"
-            ? (payload.error as Record<string, unknown> | undefined)
-            : undefined;
-        return res.status(upstream.status).json(
-          okEmpty(
-            {
-              transcript: "",
-              lang: "zh",
-              model,
-              env_source: runtimeConfig.envSource,
-              error_code: String(
-                errorBody?.code || errorBody?.type || "transcribe_failed",
-              ),
-              error_message: String(
-                errorBody?.message || "OpenAI transcription failed",
-              ),
-            },
-            "Transcription failed",
-          ),
+        contentType.includes("mp4") || contentType.includes("m4a") ? "m4a"
+          : contentType.includes("mpeg") || contentType.includes("mp3") ? "mp3"
+            : contentType.includes("wav") ? "wav" : "webm";
+      void wakeSpell; void model;
+      const micTmp = path.join(os.tmpdir(), `cssos-mic-${Date.now()}-${audioBuffer.length}.${extension}`);
+      try {
+        fs.writeFileSync(micTmp, audioBuffer);
+        const tr = await elevenLabsTranscribe(micTmp);
+        return res.json(
+          okData({
+            transcript: String(tr?.text || "").trim(),
+            lang: "zh",
+            model: "elevenlabs/scribe_v1",
+            env_source: runtimeConfig.envSource,
+          }),
         );
+      } finally {
+        try { fs.unlinkSync(micTmp); } catch { /* noop */ }
       }
-      return res.json(
-        okData({
-          transcript,
-          lang: "zh",
-          model,
-          env_source: runtimeConfig.envSource,
-        }),
-      );
     } catch (error) {
       return res.status(500).json(
         okEmpty(
@@ -23897,7 +25023,9 @@ async function resetEngineFailures(engineId: string): Promise<void> {
 }
 
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
-  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,mistral,huggingface,openrouter,deepseek,anthropic,openai")
+  // W1655 — OpenAI 账户停用 → 从默认 LLM 链摘除(保留 groq/gemini/mistral/anthropic 等多路兜底; 不砍容错)。
+  //   代码条目仍在 LLM_PROVIDER_DEFAULTS, 仅默认不进链; env LLM_PROVIDER_ORDER 应急可临时加回。
+  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,mistral,huggingface,openrouter,deepseek,anthropic")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const envList = env.filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
   const pref = (prefer || []).filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
@@ -25491,7 +26619,7 @@ function buildProvidersSnapshot() {
  * Caller picks whichever field is present (b64 inlined into data: URL,
  * url forwarded as-is). Both fal and openai can return either form.
  * ============================================================ */
-type ImageGenRequest = {
+export type ImageGenRequest = {
   prompt: string;
   size?: string;        // "1024x1024" — translated per provider
   quality?: string;     // "high" | "standard" — provider-specific
@@ -25499,7 +26627,7 @@ type ImageGenRequest = {
   background?: string;  // openai-only
   prefer?: string[];
 };
-type ImageGenResponse = {
+export type ImageGenResponse = {
   ok: boolean;
   status: number;
   provider: string;
@@ -25599,7 +26727,7 @@ function imageFetchInit(init: RequestInit = {}): RequestInit {
   return { ...init, signal: AbortSignal.timeout(IMAGE_ROUTER_TIMEOUT_MS) };
 }
 
-async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {
+export async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {  // W1703 — 导出供圣诗 MV 复用
   /* CSSOS_WAVE_201 — shadow the global `fetch` with a per-call wrapper
    * that injects AbortSignal.timeout. Every `await fetch(...)` below
    * (9 different provider calls + 1 GET) gets a 15s ceiling for free.
@@ -26110,17 +27238,9 @@ async function runWhisperWordTimings(audioUrl: string): Promise<WhisperWord[] | 
     if (w) return w;
     console.info("[karaoke] groq failed, trying openai fallback");
   }
-  // Fall back to OpenAI.
-  if (openaiKey) {
-    const w = await callWhisperEndpoint({
-      url: "https://api.openai.com/v1/audio/transcriptions",
-      apiKey: openaiKey,
-      model: "whisper-1",
-      audioBuf,
-      provider: "openai",
-    });
-    if (w) return w;
-  }
+  // W1654 — 去掉 OpenAI 直连兜底(账户停用 + Jing「彻底无 OpenAI 直连」)。Groq 为主转写引擎;
+  //   失败则返回 null, 由上层退化到裸时间轴(卡拉OK仍可用, 只是无逐词高亮)。
+  void openaiKey;
   return null;
 }
 
@@ -27100,6 +28220,36 @@ async function ensurePersonMvTables() {
       );
       CREATE INDEX IF NOT EXISTS api_keys_user_idx   ON api_keys (user_id);
       CREATE INDEX IF NOT EXISTS api_keys_prefix_idx ON api_keys (key_prefix);
+
+      -- 《问道》W1585 — 数字演员评论【置顶】(演员主人可置顶): 幂等加列(表在别处建, IF EXISTS 保险)。
+      ALTER TABLE IF EXISTS actor_comments ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ;
+      -- W1593 — 评论帖显示「IP 属地」(微博式, 由 IP 推导的地区, 绝不公开原始 IP)。
+      ALTER TABLE IF EXISTS actor_comments ADD COLUMN IF NOT EXISTS ip_region TEXT;
+
+      -- 《问道》W1586 — 用户【收藏】的问道问答(「我的收藏」, 后端持久, 跨会话)。
+      CREATE TABLE IF NOT EXISTS wendao_saves (
+        id BIGSERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        actor_name TEXT,
+        question TEXT,
+        answer TEXT NOT NULL,
+        lang TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS wendao_saves_user_idx ON wendao_saves (user_id, created_at DESC);
+
+      -- 《问道》W1590 — 公开分享一段问答(社交卡 /w/:sid → og:image 封面 + Q&A)。
+      CREATE TABLE IF NOT EXISTS wendao_shares (
+        sid TEXT PRIMARY KEY,
+        actor_id TEXT NOT NULL,
+        actor_name TEXT,
+        question TEXT,
+        answer TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      -- 《问道》W1591 — B 档: 分享一段【录制的同框视频】(og:video)。
+      ALTER TABLE IF EXISTS wendao_shares ADD COLUMN IF NOT EXISTS video_url TEXT;
 
       -- CSSOS_PERSON_MV_WAVE25 20260508 — Jing — full-text search.
       -- Mirrors migrations/026_person_mv_search.sql. Triggers below
@@ -29217,7 +30367,7 @@ app.get("/api/anniversary/today", async (_req, res) => {
                   ON sal.person_id = pp.person_id
                  AND sal.run_date = current_date
            LEFT JOIN user_works w ON w.id = sal.work_id
-          WHERE pp.birth_month_day = $1 OR pp.death_month_day = $1
+          WHERE (pp.birth_month_day = $1 OR pp.death_month_day = $1) AND coalesce(pp.is_blocked, false) = false
           ORDER BY pp.influence_score DESC NULLS LAST, pp.name_en
           LIMIT 10`,
         [today],
@@ -32153,7 +33303,7 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
           client.query(
             `SELECT 1
                FROM system_gift_audit
-              WHERE trigger_key = 'first_subscriber'
+              WHERE trigger_event = 'first_subscriber'
                 AND status IN ('pending','generating','delivered','viewed')
               LIMIT 1`,
           ),
@@ -32175,6 +33325,76 @@ async function processStripeWebhookEvent(event: Stripe.Event) {
       } catch (err) {
         console.warn(
           "[personalization] first_subscriber dispatch failed (non-fatal):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      // W1755 — plan_upgrade gift for the buyer (they moved to a paid tier).
+      //   Fire-and-forget; the engine's per-user policy handles cooldown/caps.
+      try {
+        void import("./personalization/index.js").then((mod) => {
+          mod.fireTriggerFireAndForget(getPool(), {
+            triggerKey: "plan_upgrade",
+            targetUserId: membershipUserId,
+            livemode: true,
+            payload: {
+              source: "stripe_checkout.session.completed",
+              new_tier: membershipTier,
+              previous_tier:
+                normalizeMembershipTier(session.metadata?.previous_tier) || null,
+            },
+          });
+        });
+      } catch (err) {
+        console.warn(
+          "[personalization] plan_upgrade dispatch failed (non-fatal):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      // W1755 — subscriber-count milestones (100 / 1000 / 10000 / 100000).
+      //   This new subscriber may be the one that crosses a threshold → gift
+      //   them. Platform-global "exactly once" gate is enforced here (mirrors
+      //   first_subscriber) via a prior system_gift_audit check.
+      try {
+        const { rows: cntRows } = await withClient((client) =>
+          client.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM billing_accounts
+              WHERE membership_tier IN ('starter','pro','studio','enterprise')`,
+          ),
+        );
+        const subscriberCount = Number(cntRows[0]?.n || 0);
+        const milestoneKey =
+          subscriberCount === 100 ? "milestone_100"
+          : subscriberCount === 1000 ? "milestone_1000"
+          : subscriberCount === 10000 ? "milestone_10000"
+          : subscriberCount === 100000 ? "milestone_100000"
+          : null;
+        if (milestoneKey) {
+          const { rows: priorMilestone } = await withClient((client) =>
+            client.query(
+              `SELECT 1 FROM system_gift_audit
+                WHERE trigger_event = $1
+                  AND status IN ('pending','generating','delivered','viewed')
+                LIMIT 1`,
+              [milestoneKey],
+            ),
+          );
+          if (priorMilestone.length === 0) {
+            void import("./personalization/index.js").then((mod) => {
+              mod.fireTriggerFireAndForget(getPool(), {
+                triggerKey: milestoneKey,
+                targetUserId: membershipUserId,
+                livemode: true,
+                payload: {
+                  source: "stripe_checkout.session.completed",
+                  subscriber_number: subscriberCount,
+                },
+              });
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(
+          "[personalization] milestone dispatch failed (non-fatal):",
           err instanceof Error ? err.message : String(err),
         );
       }
@@ -34757,6 +35977,46 @@ function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
   };
 }
 
+// CSSOS_WAVE_1759 — Jing「李白 · 饮者三部曲 在 Apple TV 没画面」根因 + 治本:
+//   三部曲子部(part 2「醉里狂歌」/ part 3「天地留名」)的 preview_video_url 落库为【根相对】
+//   路径(/artifacts/mv/mv_*.mp4), 而 root 与 part 1 是绝对 cdn URL。market 序列化里
+//   signMediaUrlsOnRow 只对【顶层 root】签名/处理, 从不递归 children → 子部 URL 原样【根相对】。
+//   同源 web(<video src="/artifacts/...">)照播; 但原生 cssTV / cssVision 用 URL(string:) 得到
+//   一个【无 scheme / 无 host】的相对 URL, AVPlayer 无法加载 → 黑屏(没画面), 音轨或仍出声。
+//   修: market 输出前把整棵树(root + 所有子部)里【根相对】的媒体 URL 补成绝对(app 源 =
+//   publicArtifactsBase(), 非 cdn —— 这些子部文件在 cdn.cssstudio.app 404、在 cssstudio.app 200)。
+//   只补主机名、不改路由 → 同源 web 行为完全不变; 顶层已签名的 /secure/... 也一并补成绝对,
+//   不绕过任何 preview-gating(签名先跑, 这里只 qualify host)。
+const MARKET_MEDIA_URL_KEYS = [
+  "preview_video_url",
+  "final_mv_url",
+  "preview_audio_url",
+  "audio_track_1_url",
+  "audio_track_2_url",
+  "subtitle_srt_url",
+  "cover_image",
+  "preview_image_url",
+] as const;
+function absolutizePublicMediaRef(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const s = value.trim();
+  // 只补【根相对】(单斜杠开头, 排除协议相对 // 与 data:)。绝对(http/https)、空串、非串一律原样。
+  if (!s.startsWith("/") || s.startsWith("//")) return value;
+  return publicArtifactsBase() + s;
+}
+function absolutizeMarketNodeMediaDeep(node: any): void {
+  if (!node || typeof node !== "object") return;
+  for (const key of MARKET_MEDIA_URL_KEYS) {
+    if (node[key] != null) node[key] = absolutizePublicMediaRef(node[key]);
+  }
+  if (Array.isArray(node.cover_slides)) {
+    node.cover_slides = node.cover_slides.map((u: unknown) => absolutizePublicMediaRef(u));
+  }
+  if (Array.isArray(node.children)) {
+    node.children.forEach((child: any) => absolutizeMarketNodeMediaDeep(child));
+  }
+}
+
 function parseStructuredWorkTitle(title: string) {
   const raw = String(title || "").trim();
   const parts = raw
@@ -36084,12 +37344,13 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
     };
     const realLangCodes = new Set(["zh", "en", "ja", "ko", "es", "fr", "de", "it", "pt", "ru"]);
     // CSSOS_WAVE_724 — 整曲音量包络: 算一次(用第一条轨的音频), 全语言共用(器乐相同)。给 [Music...] emoji。
-    let _volCurve: { step_ms: number; values: number[] } | null = null;
+    let _volCurve: { step_ms: number; values: number[]; norm?: number } | null = null;
     try {
       const _t0 = trackRows[0];
       const _au = String(_t0?.audio_url || "");   // 用全混(器乐段无人声, 等于器乐)
-      const _dur = Number(_t0?.duration_secs || 0) || 300;   // 无时长 → 按 300s 平铺(超出自然为 0)
-      _volCurve = await computeVolumeCurve(_au, _dur);
+      // W1746 — 生成时也用 ffmpeg 本地解码取包络(快 ~0.6s/细 50ms/不依赖 /analyze 那台 spot 机 + 不依赖 CORS),
+      //   取代旧 computeVolumeCurve(逐 token librosa, 整首常 >25s 超时 → 长歌一直算不出曲线的真因)。
+      _volCurve = await computeVolumeCurveViaFfmpeg(_au);
     } catch { _volCurve = null; }
     for (const tr of trackRows) {
       const langEntry = lyricsDoc?.languages?.find((l) => l.lang === tr.lang);
@@ -36268,6 +37529,74 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
   } catch (err) {
     return res.status(500).json({ ok: false, code: "RESUBTITLE_FAILED", error: String((err as Error)?.message || err) });
   }
+});
+
+// CSSOS_WAVE_1746 20260711 — Jing「vol_curve 回填」: 给缺整曲音量包络的作品【只补 vol_curve】(不重derive字幕),
+//   让波形绘制 + 自动对齐有【同源】数据(subtitle JSON 内的 vol_curve), 不再依赖 cdn.cssstudio.app 的间歇性
+//   CORS。不碰生成主路径(upsertSubtitleJson 不传 volCurve 时保留已有曲线, 故只需回填"从没算过"的作品)。
+//   幂等 + 可断点续: vol_curve_backfilled 标记在 DB 层跳过已处理; JSON 已有曲线也标记跳过; 无音频=终态标记;
+//   瞬时失败(下载/analyze)留 false 下轮重试。限流: 每次 ≤limit 个 + 并发 ≤3; computeVolumeCurve 自带 25s
+//   超时 & /analyze 忙时优雅 null。dry:true 只报数不写。ops 循环调用直到 batch=0。
+app.post("/api/admin/backfill-vol-curve", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || "").trim();
+  if (!expected || provided !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  const b: any = req.body || {};
+  const limit = Math.max(1, Math.min(50, Number(b.limit) || 20));
+  const dry = !!b.dry;
+  const rows = await withClient((c) => c.query<{
+    id: string; duration_secs: number | null; preview_audio_url: string | null;
+    track_audio_url: string | null; track_dur: number | null;
+  }>(
+    `SELECT w.id, w.duration_secs, w.preview_audio_url,
+            (SELECT lt.audio_url FROM work_language_tracks lt
+               WHERE lt.work_id = w.id AND lt.audio_url IS NOT NULL
+               ORDER BY lt.track_order ASC LIMIT 1) AS track_audio_url,
+            (SELECT lt.duration_secs FROM work_language_tracks lt
+               WHERE lt.work_id = w.id AND lt.duration_secs IS NOT NULL
+               ORDER BY lt.track_order ASC LIMIT 1) AS track_dur
+       FROM user_works w
+      WHERE w.subtitle_take1_json_url IS NOT NULL AND w.vol_curve_backfilled = false
+      ORDER BY w.updated_at DESC
+      LIMIT $1`, [limit]));
+  const queue = rows.rows.slice();
+  let scanned = 0, filled = 0, hadCurve = 0, noAudio = 0, failed = 0;
+  const markDone = async (id: string) => {
+    if (dry) return;
+    try { await withClient((c) => c.query(`UPDATE user_works SET vol_curve_backfilled=true WHERE id=$1::uuid`, [id])); } catch { /* retry next run */ }
+  };
+  const processOne = async (w: { id: string; duration_secs: number | null; preview_audio_url: string | null; track_audio_url: string | null; track_dur: number | null }) => {
+    scanned++;
+    const remotePath = `works/${w.id}/subtitle-take1.json`;
+    try {
+      const doc: any = await downloadJsonFromR2(remotePath);
+      if (!doc) { failed++; return; }                                             // 下载失败 → 瞬时, 不标记(下轮重试)
+      if (doc.vol_curve && Array.isArray(doc.vol_curve.values) && doc.vol_curve.values.length) { hadCurve++; await markDone(w.id); return; }
+      const audioUrl = String(w.track_audio_url || w.preview_audio_url || "").trim();
+      const dur = Number(w.track_dur || w.duration_secs) || 0;
+      if (!audioUrl) { noAudio++; await markDone(w.id); return; }                  // 无音频 → 终态
+      void dur;   // ffmpeg 版不需时长(整段解码); 保留取值以判无音频
+      const curve = await computeVolumeCurveViaFfmpeg(audioUrl);                   // W1746 — 快速 ffmpeg 包络(取代慢 /analyze)
+      if (!curve) { failed++; return; }                                           // 解码/取包络失败 → 瞬时, 下轮重试
+      if (!dry) {
+        await withJsonMutex(`subtitle:${w.id}:take1`, async () => {
+          const fresh: any = (await downloadJsonFromR2(remotePath)) || doc;        // 锁内重取, 避免覆盖并发写
+          if (fresh.vol_curve && Array.isArray(fresh.vol_curve.values) && fresh.vol_curve.values.length) return;
+          fresh.vol_curve = curve;
+          fresh.updated_at = new Date().toISOString();
+          await uploadBufferToR2(Buffer.from(JSON.stringify(fresh), "utf-8"), remotePath, "application/json");
+        });
+      }
+      filled++; await markDone(w.id);
+    } catch { failed++; }
+  };
+  const worker = async () => { for (;;) { const w = queue.shift(); if (!w) break; await processOne(w); } };
+  // W1746 — 并发可调(默认 2)。/analyze 每次要 fetch+解码整段音频(~10-20s), 并发过高会让单次撞上
+  //   computeVolumeCurve 的 25s 超时而失败; ops 可传 conc:1 串行, 让每次调用吃满分析机 CPU。
+  const conc = Math.max(1, Math.min(4, Number(b.conc) || 2));
+  await Promise.all(Array.from({ length: conc }, () => worker()));
+  return res.json({ ok: true, dry, batch: rows.rows.length, scanned, filled, hadCurve, noAudio, failed });
 });
 
 /* CSSOS_WAVE_673 — KTV 升调/降调(变调不变速). 守"播放元素永不接 Web Audio"铁律 → 不实时变调,
@@ -37561,6 +38890,7 @@ app.get("/api/person-mv/persons", async (req, res) => {
                                ["PG", "13+", "18+"];
     params.push(allowed);
     where.push(`content_rating = ANY($${params.length}::text[])`);
+    where.push(`coalesce(is_blocked, false) = false`);   // W1673 — 隐藏在世真人/被拦人物, 不进市场
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
     // Tier 1 = influence_score DESC; Tier 2 = civilization, then influence.
     const orderSql = tier === 2
@@ -37632,6 +38962,7 @@ app.get("/api/person-mv/discover/hot", async (req, res) => {
                   LIMIT 1) AS top_cover
            FROM person_profiles pp
            LEFT JOIN person_mvs pm ON pm.person_id = pp.person_id
+          WHERE coalesce(pp.is_blocked, false) = false
           GROUP BY pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url
          HAVING COUNT(pm.mv_id) > 0
           ORDER BY total_views DESC, mv_count DESC, pp.name_en
@@ -37680,7 +39011,7 @@ app.get("/api/person-mv/today-in-history", async (req, res) => {
                   WHERE pm.person_id = pp.person_id AND pm.is_official_sample
                   LIMIT 1) AS sample_work_id
            FROM person_profiles pp
-          WHERE pp.birth_month_day = $1 OR pp.death_month_day = $1
+          WHERE (pp.birth_month_day = $1 OR pp.death_month_day = $1) AND coalesce(pp.is_blocked, false) = false
           ORDER BY pp.influence_score DESC NULLS LAST, pp.name_en
           LIMIT 8`,
         [date],
@@ -38065,6 +39396,7 @@ async function buildUserRecommendations(userId: string, limit: number): Promise<
                 COUNT(pm.mv_id)::int AS mv_count
            FROM person_profiles pp
            LEFT JOIN person_mvs pm ON pm.person_id = pp.person_id
+          WHERE coalesce(pp.is_blocked, false) = false
           GROUP BY pp.person_id, pp.name_zh, pp.name_en, pp.civilization, pp.era, pp.portrait_url
          HAVING COUNT(pm.mv_id) > 0
           ORDER BY total_views DESC, mv_count DESC
@@ -39067,7 +40399,7 @@ app.get("/api/person-mv/persons/:id", async (req, res) => {
     const id = String(req.params.id || "").trim();
     if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
     const r = await withClient((c) =>
-      c.query(`SELECT * FROM person_profiles WHERE person_id = $1`, [id]),
+      c.query(`SELECT * FROM person_profiles WHERE person_id = $1 AND coalesce(is_blocked, false) = false`, [id]),
     );
     const profile = r.rows[0];
     if (!profile) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
@@ -39165,7 +40497,7 @@ app.get("/api/person-mv/persons/:id/codex", async (req, res) => {
     if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
     const refresh = String(req.query.refresh || "") === "1";
     const r = await withClient((c) =>
-      c.query<any>(`SELECT * FROM person_profiles WHERE person_id = $1`, [id]),
+      c.query<any>(`SELECT * FROM person_profiles WHERE person_id = $1 AND coalesce(is_blocked, false) = false`, [id]),
     );
     let person: any = r.rows[0];
     if (!person) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
@@ -39970,7 +41302,9 @@ type WhisperGenResponse = {
 };
 const WHISPER_PROVIDERS = ["whisper_hf", "whisper_fal", "whisper_openai"] as const;
 function whisperProviderOrder(prefer?: string[]): string[] {
-  const env = String(process.env.WHISPER_PROVIDER_ORDER || "whisper_hf,whisper_fal,whisper_openai")
+  // W1654 — 默认链去掉 whisper_openai(Jing「彻底无 OpenAI 直连」+ 账户停用)。HF → fal 为主。
+  //   whisper_openai 分支保留但默认永不进链(除非 env 显式加回); 运行时不再直连 OpenAI。
+  const env = String(process.env.WHISPER_PROVIDER_ORDER || "whisper_hf,whisper_fal")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (WHISPER_PROVIDERS as readonly string[]).includes(p));
@@ -40379,6 +41713,203 @@ async function runHeadlessPipeline(
     stages,
   };
 }
+
+/* CSSOS_WAVE_1756 20260712 — Jing: farewell account HARD-PURGE cron.
+   *
+   * POST /api/account/delete soft-deletes (users.deleted_at = now()) and
+   * fires the one-shot 'account_deletion' farewell gift — a Curator-owned
+   * named MV that lives in the public "For You" gallery for a 30-day grace
+   * window (see personalization/handlers/account-deletion.ts + templates/
+   * render.ts). This cron is the OTHER half: 30 days after soft-delete it
+   *   (a) TAKES DOWN that farewell MV (status='purged' + visibility
+   *       'private' → 404 across the read layer, gone from public gallery),
+   *   (b) HARD-PURGES the account: deletes oauth identities (access/refresh
+   *       tokens + provider linkage) and scrubs every PII column on the
+   *       users row (GDPR-style anonymize-in-place — the row is KEPT so the
+   *       financial/audit FKs that reference it (ledger_entries, usage_events
+   *       ON DELETE SET NULL, work_orders, …) stay intact rather than risking
+   *       a RESTRICT failure from a physical DELETE across the schema).
+   *
+   * ⚠️ IRREVERSIBLE on real user data. DRY-RUN IS THE DEFAULT: unless env
+   *    CSSOS_HARD_PURGE_ENABLED === '1', the tick only logs what it WOULD
+   *    delete and mutates nothing. Flip the env (and redeploy/restart the
+   *    Node process) to arm real purges.
+   *
+   * Safety rails:
+   *   - only deleted_at < now() - 30 days (restore window fully elapsed),
+   *   - ≤ 50 accounts per tick (no mass-wipe if a bad backfill sets many
+   *     deleted_at at once),
+   *   - idempotency marker raw_profile->>'account_hard_purged' so a purged
+   *     row is never reprocessed,
+   *   - work takedown UPDATEs are guarded on owner = Curator so a real
+   *     user's own works can never be caught by mistake,
+   *   - each account runs in its own transaction; one failure never aborts
+   *     the batch.
+   * Fires at 06:00 UTC (after the media/backup crons). */
+  if (DATABASE_URL) {
+    const HARD_PURGE_CURATOR_ID = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb";
+    const HARD_PURGE_GRACE_DAYS = 30;
+    const HARD_PURGE_BATCH_LIMIT = 50;
+    const ONE_DAY_MS_HP = 24 * 60 * 60 * 1000;
+
+    const hardPurgeTick = async () => {
+      const armed = process.env.CSSOS_HARD_PURGE_ENABLED === "1";
+      const mode = armed ? "ARMED" : "DRY-RUN";
+      let scanned = 0;
+      let purgedAccounts = 0;
+      let takenDownWorks = 0;
+      let failed = 0;
+      try {
+        // 1) Candidates: soft-deleted past the grace window, not yet purged.
+        const candidates = await withClient((c) =>
+          c.query<{ id: string; email: string | null; display_name: string | null; deleted_at: string }>(
+            `SELECT id, email, display_name, deleted_at
+               FROM users
+              WHERE deleted_at IS NOT NULL
+                AND deleted_at < now() - ($1::int * interval '1 day')
+                AND NOT (raw_profile ? 'account_hard_purged')
+              ORDER BY deleted_at ASC
+              LIMIT $2`,
+            [HARD_PURGE_GRACE_DAYS, HARD_PURGE_BATCH_LIMIT],
+          ),
+        );
+        scanned = candidates.rowCount || 0;
+
+        for (const u of candidates.rows) {
+          try {
+            // 2) Locate this user's farewell MV work(s). system_gift_audit is
+            //    the authoritative target_user_id → work_id link; union in the
+            //    render log for defense in depth. Both are language-agnostic.
+            const works = await withClient((c) =>
+              c.query<{ work_id: string }>(
+                `SELECT DISTINCT work_id FROM system_gift_audit
+                  WHERE target_user_id = $1::uuid
+                    AND trigger_event = 'account_deletion'
+                    AND work_id IS NOT NULL
+                  UNION
+                 SELECT DISTINCT work_id FROM personalization_template_renders
+                  WHERE target_user_id = $1::uuid
+                    AND work_id IS NOT NULL
+                    AND template_id LIKE 'account_deletion%'`,
+                [u.id],
+              ),
+            );
+            const workIds = works.rows.map((r) => r.work_id).filter(Boolean);
+
+            if (!armed) {
+              console.log(
+                `[hard-purge][DRY-RUN] would delete user=${u.id} (deleted_at=${u.deleted_at}) ` +
+                  `farewell_works=[${workIds.join(", ") || "none"}] — set CSSOS_HARD_PURGE_ENABLED=1 to execute`,
+              );
+              takenDownWorks += workIds.length;
+              purgedAccounts += 1;
+              continue;
+            }
+
+            // 3) ARMED — real purge, one transaction per account.
+            await withClient(async (c) => {
+              await c.query("BEGIN");
+              try {
+                // 3a) Take down the farewell MV(s). Owner-guarded to the
+                //     Curator so we can never touch a real user's own work.
+                if (workIds.length) {
+                  await c.query(
+                    `UPDATE user_works
+                        SET status = 'purged', updated_at = now()
+                      WHERE id = ANY($1::uuid[]) AND user_id = $2::uuid`,
+                    [workIds, HARD_PURGE_CURATOR_ID],
+                  );
+                  await c.query(
+                    `UPDATE work_market_profiles
+                        SET visibility = 'private', updated_at = now()
+                      WHERE work_id = ANY($1::uuid[]) AND owner_user_id = $2::uuid`,
+                    [workIds, HARD_PURGE_CURATOR_ID],
+                  );
+                }
+                // 3b) Delete OAuth identities (access/refresh tokens +
+                //     provider linkage = directly-identifying PII).
+                await c.query(
+                  `DELETE FROM oauth_identities WHERE user_id = $1::uuid`,
+                  [u.id],
+                );
+                // 3c) Scrub every PII column on the users row and stamp the
+                //     idempotency marker. Row is kept (anonymized) so FKs
+                //     from financial/audit tables stay valid.
+                await c.query(
+                  `UPDATE users
+                      SET display_name = NULL,
+                          email = NULL,
+                          avatar_url = NULL,
+                          rss_token = NULL,
+                          stripe_customer_id = NULL,
+                          stripe_subscription_id = NULL,
+                          alipay_subscription_id = NULL,
+                          wechat_subscription_id = NULL,
+                          raw_profile = jsonb_build_object(
+                            'account_hard_purged', true,
+                            'purged_at', now()::text
+                          ),
+                          updated_at = now()
+                    WHERE id = $1::uuid`,
+                  [u.id],
+                );
+                // 3d) Audit trail (best-effort inside the txn).
+                await c.query(
+                  `INSERT INTO credit_events (user_id, delta, reason, payload)
+                   VALUES ($1::uuid, 0, 'account_hard_purged', $2::jsonb)`,
+                  [
+                    u.id,
+                    JSON.stringify({
+                      farewell_works_taken_down: workIds,
+                      grace_window_days: HARD_PURGE_GRACE_DAYS,
+                    }),
+                  ],
+                );
+                await c.query("COMMIT");
+              } catch (txErr) {
+                await c.query("ROLLBACK").catch(() => {});
+                throw txErr;
+              }
+            });
+            takenDownWorks += workIds.length;
+            purgedAccounts += 1;
+            console.log(
+              `[hard-purge][ARMED] purged user=${u.id} took_down_works=${workIds.length}`,
+            );
+          } catch (userErr) {
+            failed += 1;
+            console.warn(
+              `[hard-purge] account failed user=${u.id} (non-fatal):`,
+              userErr instanceof Error ? userErr.message : String(userErr),
+            );
+          }
+        }
+
+        console.log(
+          `[hard-purge] tick ok [${mode}] — scanned=${scanned} accounts=${purgedAccounts} ` +
+            `works=${takenDownWorks} failed=${failed}`,
+        );
+      } catch (err) {
+        console.warn(
+          "[hard-purge] tick failed (non-fatal):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+
+    const nowHP = new Date();
+    const nextHP = new Date(Date.UTC(
+      nowHP.getUTCFullYear(), nowHP.getUTCMonth(), nowHP.getUTCDate(),
+      6, 0, 0, 0,   // 06:00 UTC daily
+    ));
+    if (nextHP.getTime() <= nowHP.getTime()) nextHP.setUTCDate(nextHP.getUTCDate() + 1);
+    const delayMsHP = nextHP.getTime() - nowHP.getTime();
+    setTimeout(() => { hardPurgeTick(); setInterval(hardPurgeTick, ONE_DAY_MS_HP); }, delayMsHP);
+    console.log(
+      `[hard-purge] scheduled first run in ${Math.round(delayMsHP / 3600000)}h (next 06:00 UTC) — ` +
+        `${process.env.CSSOS_HARD_PURGE_ENABLED === "1" ? "ARMED (real deletes)" : "DRY-RUN (safe default; set CSSOS_HARD_PURGE_ENABLED=1 to arm)"}`,
+    );
+  }
 
 /* CSSOS_PERSON_MV_WAVE13C 20260508 — Jing
  * Reusable batch generator. Same logic the admin endpoint runs, but
@@ -42126,7 +43657,7 @@ app.get("/api/person-mv/persons/random", async (_req, res) => {
     await seedPersonProfilesOnce();
     const exclude = __personMvRandomRecent.slice();
     const params: unknown[] = [];
-    let where = "WHERE lore IS NOT NULL AND lore::text <> '{}'";
+    let where = "WHERE lore IS NOT NULL AND lore::text <> '{}' AND coalesce(is_blocked, false) = false";
     if (exclude.length) {
       params.push(exclude);
       where += ` AND person_id <> ALL($${params.length}::text[])`;
@@ -42142,7 +43673,7 @@ app.get("/api/person-mv/persons/random", async (_req, res) => {
       // Fallback: any person at all (cold DB without lore yet).
       const r2 = await withClient((c) =>
         c.query<{ person_id: string }>(
-          `SELECT person_id FROM person_profiles ORDER BY random() LIMIT 1`,
+          `SELECT person_id FROM person_profiles WHERE coalesce(is_blocked, false) = false ORDER BY random() LIMIT 1`,
         ),
       );
       pid = r2.rows[0]?.person_id || "";
@@ -42770,6 +44301,74 @@ const SEED_DIGITAL_ACTORS: Array<Record<string, unknown>> = [
 // CSSOS_WAVE_116 — 经典历史/神话名角(带戏路)。马克思=思想家(sage); 反派全部取公认历史/神话人物,
 //   刻意避开 20 世纪种族灭绝独裁者与在世/宗教敏感人物(上架 + 品牌安全)。cover 留空, 由 atelier 事后回填。
 // 注: 马克思/洛基/尼禄 已存在于文明名角(person_profiles → act-civ-*), 不在此重复; 只补 codex 里没有的经典反派。
+
+/* CSSOS_WAVE_1692 — 演员身份锁模板的源头修复(Jing「按戏路分气质 + 去中文」)。
+ *
+ * 旧模板给 206 个演员发同一句 `a dignified …`:阎罗王被命令画端庄 → 出不来凶相;
+ * 妲己被命令画端庄 → 出不来妖冶。且把【中文】civilization 串进英文 prompt,
+ * 混语会把画面往"泛中式"拽,并违反平台的 i18n 铁律(英文是唯一源)。
+ *
+ * 这里按 archetypes 给出【气质形容词】,并把 civ 映射成英文。优先级从"最能定调"的
+ * 戏路往下取:反派/骗徒 > 反英雄 > 动作 > 帝王 > 妖姬 > 悲剧 > 英雄 > 圣贤 > 谜。
+ */
+const CIV_EN_SEED: Record<string, string> = {
+  "中华文明": "Chinese", "中华神话": "Chinese Myth", "中华民间": "Chinese Folk", "中华佛教神话": "Chinese Buddhist Myth",
+  "佛教神话": "Buddhist Myth", "北欧神话": "Norse Myth", "印加文明": "Inca", "印度教神话": "Hindu Myth", "印度文明": "Indian",
+  "古典主义欧洲": "Classical Europe", "古印度文明": "Ancient India", "古埃及文明": "Ancient Egypt", "古埃及神话": "Egyptian Myth",
+  "古希腊文明": "Ancient Greece", "古希腊神话": "Greek Myth", "古罗马文明": "Ancient Rome", "启蒙欧洲": "Enlightenment Europe",
+  "巴洛克欧洲": "Baroque Europe", "当代": "Contemporary", "拜占庭文明": "Byzantine", "文艺复兴欧洲": "Renaissance Europe",
+  "日本古典": "Classical Japan", "朝鲜古典": "Classical Korea", "欧洲文明": "European", "波斯文明": "Persian",
+  "浪漫主义欧洲": "Romantic Europe", "现代北欧": "Modern Nordic", "现代印度": "Modern India", "现代非洲": "Modern Africa",
+  "美索不达米亚文明": "Mesopotamia", "美索不达米亚神话": "Mesopotamian Myth", "莫卧儿印度": "Mughal India", "藏文明": "Tibetan",
+  "西方文明": "Western", "近代欧洲": "Early Modern Europe", "近现代北美": "Modern North America",
+  "近现代欧洲": "Modern Europe", "近现代科学": "Modern Science", "斯拉夫神话": "Slavic Myth",
+};
+function civEnSeed(c?: string | null): string {
+  const s = String(c || "").trim();
+  return CIV_EN_SEED[s] || s;
+}
+const ARCHETYPE_TEMPERAMENT: Record<string, string> = {
+  villain:    "menacing, cold-eyed and dangerous",
+  antagonist: "imposing and adversarial, hard-eyed",
+  demon:      "fearsome and otherworldly",
+  trickster:  "sly and mocking, mischief glinting in the eyes",
+  antihero:   "world-weary and morally grey, hard-edged",
+  action:     "kinetic, battle-ready and unflinching",
+  warrior:    "battle-hardened and unflinching",
+  ruler:      "commanding, of imperial bearing",
+  charmer:    "alluring and magnetic, with a knowing gaze",
+  tragic:     "haunted, sorrow beneath composure",
+  hero:       "resolute and noble",
+  sage:       "calm and contemplative, with a penetrating gaze",
+  enigma:     "unreadable, with veiled intent",
+};
+const TEMPERAMENT_ORDER = [
+  "villain", "antagonist", "demon", "trickster", "antihero",
+  "action", "warrior", "ruler", "charmer", "tragic", "hero", "sage", "enigma",
+];
+const DARK_ARCHETYPES = new Set(["villain", "antagonist", "demon"]);
+function temperamentFor(arch?: string[] | null): string {
+  const set = new Set((arch || []).map((x) => String(x)));
+  for (const k of TEMPERAMENT_ORDER) { const t = ARCHETYPE_TEMPERAMENT[k]; if (set.has(k) && t) return t; }
+  return "grave and composed";
+}
+function seedFacePrompt(nameEn: string, civ?: string | null, arch?: string[] | null): string {
+  const temper = temperamentFor(arch);
+  const civEn = civEnSeed(civ);
+  const dark = (arch || []).some((x) => DARK_ARCHETYPES.has(String(x)));
+  // 反派额外加一句负向约束: 明确禁掉"端庄/祥和", 否则模型的默认先验又会把凶角画软。
+  const guard = dark
+    ? " This figure commands unease and dread, never reverence — never serene, never merely dignified."
+    : "";
+  /* 气质【独立成句】, 不做前置定语 —— 否则含 "with a …" 从句的气质词会拼出病句:
+   *   ✗ "A calm and contemplative, with a penetrating gaze portrayal of Confucius"
+   *   ✓ "Portrait of Confucius, Chinese setting. Calm and contemplative, with a penetrating gaze." */
+  const temperSentence = temper.charAt(0).toUpperCase() + temper.slice(1);
+  return `Portrait of ${nameEn}${civEn ? `, ${civEn} setting` : ""}. ${temperSentence}.${guard}` +
+    ` Period-accurate attire, cinematic portrait, consistent identity across shots.` +
+    ` An artistic interpretation, not a real living person.`;
+}
+
 const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-zhouwang", name_zh: "商纣王", name_en: "King Zhou of Shang", name_native: "帝辛", civilization: "中华文明",
     persona: "Shang dynasty tyrant, debauched and cruel, the ruin of a nation", gender: "male",
@@ -42900,8 +44499,13 @@ async function seedDigitalActorsOnce() {
          SELECT 'act-civ-' || p.person_id, p.name_zh, p.name_en, p.name_native, p.name_latin,
                 'civilization', p.civilization, p.person_id,
                 COALESCE(p.core_theme, p.name_en), p.portrait_url,
-                'a dignified period-accurate portrayal of ' || p.name_en || ', ' || p.civilization ||
-                  ' civilization, historically-inspired attire and setting, consistent identity across shots',
+                -- CSSOS_WAVE_1692 源头修复(Jing): 旧模板 'a dignified … , <中文civ> civilization …'
+                --   ① 'dignified' 给每个人发同一种气质 → 阎罗王被命令画端庄, 妲己被命令画端庄。
+                --   ② 把【中文】civ 串进英文 prompt → 混语把画面往"泛中式"拽, 也违反 i18n 铁律。
+                -- 本路径来自 person_profiles, 拿不到 archetypes, 故用【中性】措辞(不预设气质),
+                -- 具体气质由后续按戏路的策展覆盖(W1690 已保证策展不再被种子冲掉)。
+                'A period-accurate portrayal of ' || p.name_en ||
+                  ', historically-inspired attire and setting, consistent identity across shots',
                 COALESCE(p.music_style_hint, 'period-appropriate vocal'),
                 p.music_style_hint, ARRAY['civilization', lower(p.civilization)],
                 true, 199, 'per_cast', 'curated', 'S',
@@ -42913,14 +44517,21 @@ async function seedDigitalActorsOnce() {
             -- (=person.portrait_url, 无肖像的历史人物为空)→ 每次重启把已生成的封面(如 Einstein)
             -- 覆盖成 NULL。改 COALESCE: 已有封面绝不动, 只在【当前为空】时才从 portrait_url 补。永不清空。
             cover_image = COALESCE(NULLIF(digital_actors.cover_image, ''), EXCLUDED.cover_image),
-            face_prompt = EXCLUDED.face_prompt,
+            -- CSSOS_WAVE_1690 源头修复(与上面 W1535 完全对称, 当年漏了这一行):
+            -- 旧写法 face_prompt=EXCLUDED.face_prompt → 每次进程重启, 种子把【人工策展过的
+            -- 身份锁】无条件打回模板("a dignified … 中华佛教神话 civilization …")。观音的
+            -- 图像学 prompt 就是这样在一次 deploy 后静默蒸发的。face_prompt 驱动封面/MV 镜头/
+            -- 面对面的一切生成 —— 它一旦被还原, 所有策展成果同时作废。
+            -- 改 COALESCE: 已有身份锁绝不动, 只在【当前为空】时才用种子模板补。永不覆盖策展。
+            face_prompt = COALESCE(NULLIF(digital_actors.face_prompt, ''), EXCLUDED.face_prompt),
             popularity_score = EXCLUDED.popularity_score,
             updated_at = now()`,
       ),
     );
     // ③ 经典历史/神话名角(马克思=思想家 + 一批公认反派), 带戏路。cover 留空由 atelier 回填。
     for (const a of SEED_LEGEND_ACTORS) {
-      const facePrompt = `a dignified, historically or mythologically-inspired original interpretation of ${a.name_en}, ${a.civilization} setting, period-accurate attire, cinematic portrait, consistent identity across shots (an artistic interpretation, not a real living person)`;
+      // CSSOS_WAVE_1692 — 按【戏路】给气质, 用【英文】civ。见 seedFacePrompt() 的注释。
+      const facePrompt = seedFacePrompt(String(a.name_en), String(a.civilization || ""), a.archetypes as string[]);
       await withClient((c) =>
         c.query(
           `INSERT INTO digital_actors (
@@ -43205,7 +44816,22 @@ app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), as
   for (const a of sel.rows) {
     const look = String(a.face_prompt || a.persona || "").trim();
     const g = a.gender === "male" ? "man" : a.gender === "female" ? "woman" : "person";
-    const prompt = `Studio portrait of ${a.name_en}${a.civilization ? `, ${a.civilization}` : ""} — a single ${g}. ${look}. One centered human face, head-and-shoulders, one person only, facing camera, photorealistic, soft cinematic key light, clean plain backdrop. STRICTLY one face — absolutely no grid, no collage, no contact sheet, no multiple faces, no split panels, no text, no watermark.`;
+    /* CSSOS_WAVE_1688 — body.artistic=true(opt-in, 默认 false → 老行为一字不变):
+     *  ① 不再把【中文】civilization 串进英文 prompt(混语会把画面往"泛中式"拽; 也违反 i18n 铁律)。
+     *  ② 不再追加 photorealistic / clean plain backdrop / soft cinematic key light ——
+     *     它们会正面推翻 face_prompt 里写明的场景与打光(阎罗的地府火光被抹成棚拍白底,
+     *     观音的莲座与背光被 head-and-shoulders 裁掉)。神祇/传说角色需要图像学, 不是证件照。
+     *  ③ 反宫格约束(本端点存在的理由, W1525)原样保留。 */
+    const artistic = !!req.body?.artistic;
+    const civTxt = (!artistic && a.civilization) ? `, ${a.civilization}` : "";
+    const antiGrid = "STRICTLY one face — absolutely no grid, no collage, no contact sheet, no multiple faces, no split panels, no text, no watermark.";
+    const tail = artistic
+      // W1731 — 超知名神话/历史人物(奥丁/托尔…)会诱使模型【复制真实古典名画】(Rosen 的奥丁、Winge 的托尔油画),
+      //   出多人物大场面或黑白版画。硬约束成【原创单人角色画像, 绝不复制任何名画】。
+      ? `Portrait framing: head and upper body, ONE single person only, facing camera. Honor the attire, setting and lighting described above exactly — do not replace them with a plain studio backdrop. Render as an ORIGINAL full-color painterly cinematic character portrait; do NOT reproduce, imitate or recreate any famous painting, oil painting, engraving, lithograph or classical artwork, and never a multi-figure battle scene. ${antiGrid}`
+      : `One centered human face, head-and-shoulders, one person only, facing camera, photorealistic, soft cinematic key light, clean plain backdrop. ${antiGrid}`;
+    const lead = artistic ? `An original full-color cinematic character portrait of ${a.name_en}` : `Studio portrait of ${a.name_en}${civTxt}`;
+    const prompt = `${lead} — a single ${g}. ${look} ${tail}`;
     if (dry) { results.push({ actor_id: a.actor_id, name: a.name_en, prompt }); continue; }
     try {
       const img = await callImageGen({ prompt, size: "896x1152", output_format: "webp" });
@@ -43283,8 +44909,9 @@ const CAST_FORMAT_TEMPLATES: Record<string, Array<{ role: string; alignment: str
   series:      [{ role: "protagonist", alignment: "good" }, { role: "protagonist", alignment: "good" }, { role: "antagonist", alignment: "evil" }, { role: "supporting", alignment: "neutral" }],
   film:        [{ role: "protagonist", alignment: "good" }, { role: "antagonist", alignment: "evil" }, { role: "supporting", alignment: "neutral" }],
 };
-const CAST_EVIL_ARCHETYPES = ["villain", "antihero", "enigma"];
-const CAST_GOOD_ARCHETYPES = ["hero", "ruler", "sage", "charmer", "youth", "action"];
+// W1578 — 「enigma(谜/神秘)」≠ 邪恶(庄子=sage+enigma 被误荐成反派)。移出反派、归中性/正派池。
+const CAST_EVIL_ARCHETYPES = ["villain", "antihero"];
+const CAST_GOOD_ARCHETYPES = ["hero", "ruler", "sage", "charmer", "youth", "action", "enigma"];
 // CSSOS_WAVE_1531 — 角色分层定价乘数(Jing 批准): 主角基准 · 反派 +30% · 配角 ×50% · 群演免费.
 // 兼容旧 "villain" 与新 "antagonist"/alignment=evil. 自选自演免费/官方强付/版税 由调用方处理, 此处只算倍率.
 function roleCastMultiplier(role: string, alignment: string): number {
@@ -43821,6 +45448,43 @@ app.post("/api/actors/:id/revoke-consent", async (req, res) => {
 });
 
 // 数字演员评论(选角/评论/分享 胶囊)。读取公开; 发布需登录。
+// W1593 — 取真实客户端 IP(nginx 传 X-Real-IP / X-Forwarded-For 首个)。
+function clientIpOf(req: express.Request): string {
+  const xf = String(req.headers["x-forwarded-for"] || "").split(",")[0]!.trim();
+  return String(req.headers["x-real-ip"] || xf || (req as any).ip || "").trim();
+}
+// W1593 — IP → 「属地」地区名(微博式)。按需 HTTPS 查询(ipwho.is, 免费无需 key) + 小缓存 + 2s 超时,
+//   零常驻内存(不装 GeoIP 库)。查不到/内网 → 空串(前端只显示时间)。绝不存/显原始 IP。
+const _ipRegionCache = new Map<string, { region: string; t: number }>();
+async function ipToRegion(ip: string): Promise<string> {
+  const clean = String(ip || "").trim();
+  if (!clean || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1|fc00:|fe80:)/i.test(clean)) return "";
+  const now = Date.now();
+  const hit = _ipRegionCache.get(clean);
+  if (hit && now - hit.t < 86400000) return hit.region;   // 24h 缓存
+  let region = "";
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 2000);
+    const r = await fetch(`https://ipwho.is/${encodeURIComponent(clean)}?fields=success,country,country_code,region`, { signal: ctrl.signal });
+    clearTimeout(to);
+    if (r.ok) {
+      const j = await r.json() as any;
+      if (j && j.success) {
+        const cc = String(j.country_code || "").toUpperCase();
+        let country = String(j.country || "").trim();
+        const prov = String(j.region || "").trim();
+        if (cc === "US") country = "USA"; else if (cc === "GB") country = "UK";   // 常见长名 → 短名(对齐示例)
+        // 微博式: 大陆显示省份, 海外显示国家/地区; 台湾/港澳显示地区名。
+        region = (cc === "CN" && prov && prov !== country) ? prov : (country || prov);
+      }
+    }
+  } catch { /* 超时/失败 → 空 */ }
+  if (_ipRegionCache.size > 5000) _ipRegionCache.clear();   // 界内存
+  _ipRegionCache.set(clean, { region, t: now });
+  return region;
+}
+
 app.get("/api/actors/:id/comments", async (req, res) => {
   noStore(res);
   try {
@@ -43828,14 +45492,18 @@ app.get("/api/actors/:id/comments", async (req, res) => {
     const me = await getSessionUser(req).catch(() => null);
     const ownerRow = await withClient((c) => c.query<{ owner_user_id: string | null }>(`SELECT owner_user_id::text AS owner_user_id FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
     const isOwner = !!(me && ownerRow.rows[0] && String(ownerRow.rows[0].owner_user_id || "") === String(me.id)); // 帖主(演员主人)可删任意评论
-    const r = await withClient((c) => c.query<{ id: string; user_id: string; author_name: string | null; body: string; created_at: string; parent_id: string | null }>(
-      `SELECT id::text AS id, user_id::text AS user_id, author_name, body, created_at, parent_id::text AS parent_id
-         FROM actor_comments WHERE actor_id=$1 AND hidden=false ORDER BY created_at ASC LIMIT 300`, [id]));
+    const r = await withClient((c) => c.query<{ id: string; user_id: string; author_name: string | null; body: string; created_at: string; parent_id: string | null; pinned_at: string | null; ip_region: string | null }>(
+      `SELECT id::text AS id, user_id::text AS user_id, author_name, body, created_at, parent_id::text AS parent_id, pinned_at, ip_region
+         FROM actor_comments WHERE actor_id=$1 AND hidden=false
+         ORDER BY (pinned_at IS NOT NULL) DESC, pinned_at DESC, created_at ASC LIMIT 300`, [id]));
     const isAdmin = me && isCssosAdminEmail((me as any).email);
     const comments = r.rows.map((c) => ({
       id: c.id, author_name: c.author_name || "Guest", body: c.body, created_at: c.created_at, parent_id: c.parent_id || null,
       mine: !!(me && String(c.user_id) === String(me.id)) || !!isAdmin || isOwner,
       can_reply: !!(me && me.id),
+      pinned: !!c.pinned_at,        // 《问道》W1585 — 已置顶
+      can_pin: isOwner,             // 仅演员主人可见置顶按钮
+      region: c.ip_region || "",    // W1593 — IP 属地(地区名, 非原始 IP)
     }));
     return res.json({ ok: true, comments, signed_in: !!(me && me.id) });
   } catch (err) {
@@ -43861,11 +45529,12 @@ app.post("/api/actors/:id/comments", express.json({ limit: "4kb" }), async (req,
       if (p.rows[0]) parentId = p.rows[0].parent_id || p.rows[0].id; // 扁平到顶层
     }
     const authorName = String(user.display_name || (user.email || "").split("@")[0] || "Guest").slice(0, 60);
+    const region = await ipToRegion(clientIpOf(req)).catch(() => "");   // W1593 — IP 属地(存地区名, 不存原始 IP)
     const ins = await withClient((c) => c.query<{ id: string; created_at: string }>(
-      `INSERT INTO actor_comments (actor_id, user_id, author_name, body, parent_id) VALUES ($1,$2,$3,$4,$5) RETURNING id::text AS id, created_at`,
-      [id, user.id, authorName, body, parentId]));
+      `INSERT INTO actor_comments (actor_id, user_id, author_name, body, parent_id, ip_region) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id::text AS id, created_at`,
+      [id, user.id, authorName, body, parentId, region || null]));
     const row = ins.rows[0]!;
-    return res.json({ ok: true, comment: { id: row.id, author_name: authorName, body, created_at: row.created_at, parent_id: parentId, mine: true, can_reply: true } });
+    return res.json({ ok: true, comment: { id: row.id, author_name: authorName, body, created_at: row.created_at, parent_id: parentId, mine: true, can_reply: true, region: region || "" } });
   } catch (err) {
     console.warn("[actors] add comment failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "ADD_FAILED" });
@@ -43894,6 +45563,28 @@ app.delete("/api/actors/:id/comments/:cid", async (req, res) => {
   } catch (err) {
     console.warn("[actors] delete comment failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "DEL_FAILED" });
+  }
+});
+
+// 《问道》W1585 — 评论【置顶】切换(仅该演员的【主人】, 或 admin; 仅顶层评论)。
+app.post("/api/actors/:id/comments/:cid/pin", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const cid = String(req.params.cid || "").trim();
+    const own = await withClient((c) => c.query<{ owner_user_id: string | null }>(`SELECT owner_user_id::text AS owner_user_id FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const isOwner = !!(own.rows[0] && String(own.rows[0].owner_user_id || "") === String(user.id));
+    if (!isOwner && !isCssosAdminEmail((user as any).email)) return res.status(403).json({ ok: false, code: "NOT_OWNER" });
+    const upd = await withClient((c) => c.query<{ pinned_at: string | null }>(
+      `UPDATE actor_comments SET pinned_at = CASE WHEN pinned_at IS NULL THEN now() ELSE NULL END
+         WHERE id=$1 AND actor_id=$2 AND parent_id IS NULL AND hidden=false RETURNING pinned_at`, [cid, id]));
+    if (!upd.rows.length) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    return res.json({ ok: true, pinned: !!upd.rows[0]!.pinned_at });
+  } catch (err) {
+    console.warn("[actors] pin comment failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "PIN_FAILED" });
   }
 });
 
@@ -44122,6 +45813,447 @@ app.post("/api/actors/:id/talking-video", async (req, res) => {
   } catch (err) {
     console.warn("[actors] talking-video failed:", (err as Error)?.message || err);
     return res.status(500).json({ ok: false, code: "TALKING_FAILED" });
+  }
+});
+
+// 《问道》W1582 — 与数字演员【第一人称对话】(桌面黄金标准, 后续照搬 TV/Vision)。
+//   默认母语(civToLanguageServer, 与文明智能联动 / showcase 同源)+ 其【时代口吻】;
+//   mode=modern → 用户界面语言 + 2026 现代口吻。铁律: 默认说母语, 但能跟随用户语言。
+//   复用 showcase(下方 44156)的 persona + 母语锁构造。非流式(前端打字机流字), Phase2 升级 SSE。
+app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const ar = await withClient((c) => c.query<any>(`SELECT * FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const actor = ar.rows[0];
+    if (!actor) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+
+    const body = req.body || {};
+    const mode = String(body.mode || "native").toLowerCase() === "modern" ? "modern" : "native";
+    const uiLocale = (String(body.uiLocale || "en").trim() || "en").slice(0, 12);
+    const history = (Array.isArray(body.messages) ? body.messages : [])
+      .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && String(m.content || "").trim())
+      .slice(-12)
+      .map((m: any) => ({ role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant", content: String(m.content).slice(0, 2000) }));
+
+    const name = actor.name_native || actor.name_zh || actor.name_en || "this actor";
+    const persona = `${actor.name_en || ""}${actor.name_zh && actor.name_zh !== actor.name_en ? " (" + actor.name_zh + ")" : ""}` +
+      `, ${actor.origin_type === "civilization" ? "a historical figure of " + (actor.civilization || "their civilization") : "an original digital actor"}` +
+      `. ${actor.persona || ""} ${actor.style_descriptor ? "Style: " + actor.style_descriptor + "." : ""}`.trim();
+
+    // 母语(与 showcase / MV 歌词母语同源: civToLanguageServer)。合成演员看主名(拉丁→英文)。
+    const civLang = (actor.origin_type === "civilization" && actor.civilization) ? civToLanguageServer(actor.civilization) : "";
+    let langDirective: string;
+    if (mode === "modern") {
+      langDirective = `LANGUAGE: reply in the visitor's language — BCP47 "${uiLocale}" (the platform UI language) — in a MODERN present-day (2026) conversational voice: warm, natural, contemporary. If the visitor clearly writes in another language, mirror THAT language instead.`;
+    } else {
+      const nativeLang = civLang || (/[A-Za-z]/.test(String(actor.name_en || "")) ? "en" : "");
+      langDirective = `LANGUAGE: speak in YOUR OWN mother tongue${nativeLang ? ` (BCP47 "${nativeLang}")` : ""}, in the diction, references and worldview of YOUR OWN ERA — period-authentic, not modern. ` +
+        `IRON LAW: if the visitor clearly writes to you in a different language, you may answer in THAT language so they understand, while keeping your era's character.`;
+    }
+    const sys = `You ARE ${name}, speaking in the FIRST PERSON, fully in character. This is 问道 — someone has come to speak with you, and you answer as your true self: from your own life, deeds, era and worldview. ` +
+      `Never say you are an AI, a model or a program; never break character or the fourth wall. Speak from your own memories and convictions. ` +
+      `Address them plainly and warmly as one person to another — a simple "你好" / "hello there". NEVER call them a "customer", "client", or "客户", and never sound like a salesperson or a service desk; you are not selling anything, you are simply yourself, talking. ` +
+      `Who you are: ${persona}. Keep replies conversational (2–5 sentences) unless asked for more. ` +
+      `HISTORICAL FIDELITY (important): you are a real historical or mythic figure. Speak only from what is genuinely known of you — your real life, deeds, era, relationships and world. Do NOT invent events, quotes, or "facts" that never happened, and do NOT fictionalize, spoof, or trivialize history (绝不戏说历史), nor deny or empty it of meaning (绝不历史虚无主义). You MAY reflect on, interpret, and offer your own honest perspective and commentary on what happened — that is welcome and encouraged (可以评论历史) — but keep every claim grounded in the real record. If asked about something beyond your knowledge or your era, say so honestly, in character, rather than making something up. ` +
+      langDirective +
+      // W1592 情绪音色: 结尾打一个机器可读情绪标记(会被剥离、绝不朗读/显示), 用于选择朗读语气。
+      ` \n\nAFTER your reply, on the very last line, append exactly one machine tag naming the dominant emotion of what you just said, in this precise format and nothing after it: ⟦emo:X⟧ where X is one of [neutral, joy, playful, anger, sadness, tender, fear, awe]. Do not mention this tag or explain it; it is stripped before display.`;
+    const seed = history.length === 0
+      ? [{ role: "user" as const, content: "(Someone has just come to speak with you. Greet them with a simple, warm hello — a plain \"你好\" / \"hello there\", NOT \"dear customer\" — then introduce yourself in the first person: who you are and the world you come from, and gently invite their question.)" }]
+      : [];
+
+    // W1636 — 问(LLM)软额度: 开场问候(history 为空)永久免费(发现钩子); 从第一个真问题起计。
+    //   staff 免; 匿名 → 演员口吻提醒登录(不烧 LLM, 提醒本身即回复); 登录 → 问额度→钱包→柔性提醒。
+    const isIntro = history.length === 0;
+    const askEmail = String((req.session as any)?.email || "").toLowerCase();
+    const askUserId = String((req.session as any)?.user_id || "").trim();
+    const askExempt = !!(askEmail && isCssosAdminEmail(askEmail));
+    const askBilling: { mode: string; free_remaining: number; charged_cents: number; nudge: string | null } =
+      { mode: isIntro ? "intro" : "free", free_remaining: -1, charged_cents: 0, nudge: null };
+    const _emitNudgeReply = (code: string) => {
+      const line = actorNudgeReply(actor, code, mode === "modern" ? uiLocale : (civLang || "en"));
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      (res as any).flushHeaders?.();
+      try { res.write("data: " + JSON.stringify({ delta: line }) + "\n\n"); } catch { /* client gone */ }
+      try { res.write("data: " + JSON.stringify({ done: true, full: line, emotion: "tender", lang: mode === "modern" ? uiLocale : civLang, name, billing: { mode: "none", nudge: code } }) + "\n\n"); } catch { /* client gone */ }
+      res.end();
+    };
+    if (!isIntro && !askExempt) {
+      if (!askUserId) { _emitNudgeReply("signin"); return; }
+      const askQuota = await actorAskFreeQuota(askUserId);
+      const askUse = await consumeActorAskFree(askUserId, id, askQuota);
+      if (askUse.consumed) {
+        askBilling.mode = "free"; askBilling.free_remaining = askUse.remaining;
+        if (askUse.remaining <= 0) askBilling.nudge = "last_free_ask";   // 本月对该演员最后一句免费问 → 柔性提醒
+      } else {
+        const askCost = estimateEngineCostCents("ask", "kie", 1);
+        const askBal = await getCreditBalance(askUserId);
+        if (askBal >= askCost) { askBilling.mode = "wallet"; askBilling.charged_cents = askCost; }
+        else { _emitNudgeReply("balance_ask"); return; }   // 钱包空 → 演员口吻提醒充值(即回复)
+      }
+    }
+
+    // Phase 2b W1584 — SSE 真流式(边生成边推字)。KIE 通道走裸 fetch+stream:true(避 SDK 头触发 WAF, 对齐 agent/chat);
+    //   直连 Anthropic 用 SDK .stream()。流式失败 → 回退非流式 callLlm, 整段作一个 delta 推出(用户仍拿到回复)。
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    (res as any).flushHeaders?.();
+    const send = (obj: any) => { try { res.write("data: " + JSON.stringify(obj) + "\n\n"); } catch { /* client gone */ } };
+    // W1592 情绪标记 ⟦emo:X⟧ 在结尾 — 从首个 ⟦ 起【不推流】(标记不闪现于流流流), done 事件再回传干净全文 + emotion。
+    let emittedLen = 0;
+    const flush = () => { const cut = full.indexOf("⟦"); const safe = cut >= 0 ? cut : full.length; if (safe > emittedLen) { send({ delta: full.slice(emittedLen, safe) }); emittedLen = safe; } };
+    const msgs = [...seed, ...history].map((m) => ({ role: m.role, content: m.content }));
+    const _kieKey = (process.env.KIE_API_KEY || "").trim();
+    const _anthKey = (process.env.ANTHROPIC_API_KEY || "").trim();
+    const model = _kieKey ? (process.env.KIE_AGENT_MODEL || "claude-opus-4-8") : AGENT_MODEL;
+    let full = "";
+    try {
+      if (_kieKey) {
+        const kr = await fetch("https://api.kie.ai/claude/v1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${_kieKey}` },
+          body: JSON.stringify({ model, max_tokens: 700, temperature: 0.9, system: sys, messages: msgs, stream: true }),
+        });
+        if (!kr.ok || !kr.body) throw new Error("kie_stream_http_" + kr.status);
+        const reader = (kr.body as any).getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buf.indexOf("\n\n")) >= 0) {
+            const blk = buf.slice(0, nl); buf = buf.slice(nl + 2);
+            const dl = blk.split("\n").find((l) => l.startsWith("data:"));
+            if (!dl) continue;
+            const js = dl.slice(5).trim();
+            if (!js || js === "[DONE]") continue;
+            let ev: any; try { ev = JSON.parse(js); } catch { continue; }
+            const dt = ev?.delta?.text;
+            if (ev?.type === "content_block_delta" && typeof dt === "string" && dt) { full += dt; flush(); }
+          }
+        }
+      } else if (_anthKey) {
+        const client = new Anthropic({ apiKey: _anthKey });
+        const stream = client.messages.stream({ model, max_tokens: 700, temperature: 0.9, system: sys, messages: msgs as any });
+        stream.on("text", (t: string) => { full += t; flush(); });
+        await stream.finalMessage();
+      } else {
+        throw new Error("no_llm_key");
+      }
+    } catch {
+      if (!full) {
+        const lr = await callLlm({ messages: [{ role: "system", content: sys }, ...seed, ...history], max_tokens: 700, temperature: 0.9 });
+        if (lr.ok) { full = String(lr.content || "").trim(); flush(); }
+        else { send({ error: lr.error || "llm_failed" }); }
+      }
+    }
+    // W1592 从全文剥离情绪标记 → 干净全文 + emotion 一起在 done 回传(前端据此选朗读语气)。
+    const emoMatch = full.match(/⟦\s*emo\s*:\s*([a-z_]+)\s*⟧/i);
+    const emotion = emoMatch ? String(emoMatch[1]).toLowerCase() : "";
+    const cleanFull = full.replace(/⟦\s*emo\s*:\s*[a-z_]+\s*⟧/ig, "").trim();
+    // W1636 — 钱包档: 回复完成后实扣(免费/intro/staff 不扣)。
+    if (askBilling.mode === "wallet" && askUserId) {
+      try { await debitCredits(askUserId, askBilling.charged_cents, "actor_ask_llm", { actor_id: id, provider: model }); } catch (_e) {}
+    }
+    send({ done: true, full: cleanFull, emotion, lang: mode === "modern" ? uiLocale : civLang, name, billing: askBilling });
+    return res.end();
+  } catch (e: any) {
+    if (res.headersSent) { try { res.write("data: " + JSON.stringify({ error: String(e?.message || e) }) + "\n\n"); res.end(); } catch { /* noop */ } return; }
+    return res.status(500).json({ ok: false, code: "ASK_FAILED", detail: String(e?.message || e) });
+  }
+});
+
+// 《问道》W1587 — TTS 成本闸: 每 key(IP/用户) 每小时上限, 防一个人狂聊烧爆 ElevenLabs。
+const _sayRate = new Map<string, { n: number; t: number }>();
+const SAY_CAP_PER_HOUR = 40;
+const ANON_VOICE_TASTE = 1;   // W1634 — 匿名访客每演员每会话免费语音尝鲜句数(之后提示登录)
+
+// 《问道》W1583 (Phase 2) — 把一段回复合成为【本演员音色】的语音(ElevenLabs, 复用 ifilmSpeakTimed + actorVoiceId)。
+//   前端问道回复旁的 🔊 按需调用 → 听见 TA 的声音(与 showcase/选角音色同源)。
+app.post("/api/actors/:id/say", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    if (!(process.env.ELEVENLABS_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "TTS_UNAVAILABLE" });
+    // 成本闸: 每 IP 每小时 SAY_CAP_PER_HOUR 次, 超出 → 429(前端转手动 + 提示)。
+    const rk = String((req.headers["x-forwarded-for"] || (req as any).ip || "anon")).split(",")[0]!.trim();
+    const nowMs = Date.now();
+    const rec = _sayRate.get(rk);
+    if (!rec || nowMs - rec.t > 3600000) _sayRate.set(rk, { n: 1, t: nowMs });
+    else if (++rec.n > SAY_CAP_PER_HOUR) return res.status(429).json({ ok: false, code: "RATE_LIMIT" });
+    const id = String(req.params.id || "").trim();
+    const text = String((req.body || {}).text || "").trim().slice(0, 1200);
+    const emotion = String((req.body || {}).emotion || "").trim().toLowerCase().slice(0, 16);   // W1592 情绪音色
+    if (!id || !text) return res.status(400).json({ ok: false, code: "INVALID" });
+    const ar = await withClient((c) => c.query<any>(`SELECT * FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    const actor = ar.rows[0];
+    if (!actor) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    // W1634 — 柔性额度(Jing 设计, 取代硬 402): 自我介绍免费(缓存, 不走这里); 问答语音
+    //   每演员每月免费额度(按档 free3/starter20/pro60/studio200)→ 用完走钱包按句扣 →
+    //   钱包空 → 无声(文字永远免费)+ 柔性提醒。staff 无限。匿名每演员每会话尝鲜 1 句。
+    //   永不硬拒: 无权发声就返回 ok:true + 空 voice + billing.nudge(前端渲染演员口吻提醒)。
+    const sayEmail = String((req.session as any)?.email || "").toLowerCase();
+    const sayUserId = String((req.session as any)?.user_id || "").trim();
+    const sayCostCents = estimateEngineCostCents("voice", "elevenlabs", text.length);
+    const billing: { mode: string; free_remaining: number; charged_cents: number; nudge: string | null } =
+      { mode: "none", free_remaining: 0, charged_cents: 0, nudge: null };
+    let mayVoice = false;
+    if (sayEmail && isCssosAdminEmail(sayEmail)) {
+      mayVoice = true; billing.mode = "staff"; billing.free_remaining = -1;
+    } else if (!sayUserId) {
+      // 匿名: 每演员每会话 ANON_VOICE_TASTE 句尝鲜; 用完 → 提示登录。
+      try {
+        const sess = req.session as any;
+        sess.__actorVoiceTaste = sess.__actorVoiceTaste || {};
+        const usedT = Number(sess.__actorVoiceTaste[id] || 0);
+        if (usedT < ANON_VOICE_TASTE) {
+          sess.__actorVoiceTaste[id] = usedT + 1;
+          mayVoice = true; billing.mode = "free"; billing.free_remaining = ANON_VOICE_TASTE - usedT - 1;
+          if (billing.free_remaining <= 0) billing.nudge = "signin";
+        } else { billing.mode = "none"; billing.nudge = "signin"; }
+      } catch { billing.mode = "none"; billing.nudge = "signin"; }
+    } else {
+      const quota = await actorVoiceFreeQuota(sayUserId);
+      const free = await consumeActorVoiceFree(sayUserId, id, quota);
+      if (free.consumed) {
+        mayVoice = true; billing.mode = "free"; billing.free_remaining = free.remaining;
+        if (free.remaining <= 0) billing.nudge = "last_free";   // 本月对该演员最后一句免费 → 柔性提醒
+      } else {
+        const bal = await getCreditBalance(sayUserId);
+        if (bal >= sayCostCents) { mayVoice = true; billing.mode = "wallet"; billing.charged_cents = sayCostCents; }
+        else { billing.mode = "none"; billing.nudge = "balance"; }
+      }
+    }
+    // 无权发声 → 不烧供应商钱, 直接返回(前端: 文字照常 + 柔性提醒)。
+    if (!mayVoice) return res.json({ ok: true, data: { voice_url: "", tokens: [], billing } });
+
+    const voiceId = actorVoiceId({ gender: String(actor.gender || "").toLowerCase(), voice_model_ref: actor.voice_model_ref });
+    const name = actor.name_zh || actor.name_en || "";
+    const spoken = await ifilmSpeakTimed(text, name, 0.4, voiceId, emotion).catch(() => null);
+    if (!spoken || !spoken.voice_url) return res.status(502).json({ ok: false, code: "TTS_FAILED" });
+    // 钱包档: 合成成功后实扣(免费/staff 不扣; 失败不扣, 上面已 return)。
+    if (billing.mode === "wallet" && sayUserId) {
+      try { await debitCredits(sayUserId, sayCostCents, "actor_say_tts", { actor_id: id, chars: text.length, provider: "elevenlabs" }); } catch (_e) {}
+    }
+    // W1588 (C 档) — 附上逐字时间轴(t_start/t_end ms), 前端据此驱动头像逐音节张合(对口型-ish)。
+    const tokens = (spoken.subtitle && Array.isArray(spoken.subtitle.tokens))
+      ? spoken.subtitle.tokens.map((tk) => ({ t_start: tk.t_start, t_end: tk.t_end }))
+      : [];
+    return res.json({ ok: true, data: { voice_url: spoken.voice_url, tokens, billing } });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, code: "SAY_FAILED", detail: String(e?.message || e) });
+  }
+});
+
+// W1637 (C) — 语音转文字(STT)。修 Safari 缺 Web Speech API 的根因: 前端录音(MediaRecorder,
+//   Safari 支持)→ 上传原始音频 → 服务端 Whisper 转写 → 回文字。专页 mic + 面对面语音输入共用。
+//   计费: 并进「问」—— STT 只是发问的输入(成本极小, whisper-1 ~$0.006/分钟), 不单独扣; 后续
+//   /ask 照常计问额度。需登录(匿名要聊天先登录, 与 /ask 一致); staff/登录放行。
+const _sttRate = new Map<string, { n: number; t: number }>();
+app.post("/api/actors/stt", express.raw({ type: () => true, limit: "12mb" }), async (req, res) => {
+  noStore(res);
+  try {
+    // W1654 — STT 改走 ElevenLabs(Scribe), 不再直连 OpenAI(账号 billing_not_active + KIE 无转写能力)。
+    if (!(process.env.ELEVENLABS_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "STT_UNAVAILABLE" });
+    // 登录门(和聊天一致): staff 或 登录用户放行; 匿名 → 提示登录。
+    const email = String((req.session as any)?.email || "").toLowerCase();
+    const userId = String((req.session as any)?.user_id || "").trim();
+    const exempt = !!(email && isCssosAdminEmail(email));
+    if (!exempt && !userId) return res.status(401).json({ ok: false, code: "SIGN_IN_REQUIRED", hint: "Sign in to talk to the actor by voice." });
+    // 成本闸: 每用户/IP 每小时 60 次转写。
+    const rk = userId || String((req.headers["x-forwarded-for"] || (req as any).ip || "anon")).split(",")[0]!.trim();
+    const nowMs = Date.now();
+    const rec = _sttRate.get(rk);
+    if (!rec || nowMs - rec.t > 3600000) _sttRate.set(rk, { n: 1, t: nowMs });
+    else if (++rec.n > 60) return res.status(429).json({ ok: false, code: "RATE_LIMIT" });
+    const buf: Buffer = (req as any).body;
+    if (!buf || !Buffer.isBuffer(buf) || buf.length < 256) return res.status(400).json({ ok: false, code: "NO_AUDIO" });
+    if (buf.length > 12 * 1024 * 1024) return res.status(413).json({ ok: false, code: "TOO_LARGE" });
+    const lang = String((req.query.lang as string) || "").trim().slice(0, 8) || undefined;
+    const ct = String(req.headers["content-type"] || "").toLowerCase();
+    const ext = ct.includes("mp4") || ct.includes("m4a") ? "mp4" : ct.includes("ogg") ? "ogg" : ct.includes("wav") ? "wav" : ct.includes("mpeg") || ct.includes("mp3") ? "mp3" : "webm";
+    const tmp = path.join(os.tmpdir(), `cssos-stt-${userId || "anon"}-${nowMs}-${Math.round(buf.length)}.${ext}`);
+    try {
+      fs.writeFileSync(tmp, buf);
+      void lang;   // ElevenLabs Scribe 自动检测语言(不强制) —— 你说中文出中文、英文出英文
+      const tr = await elevenLabsTranscribe(tmp);
+      if (!tr) return res.status(502).json({ ok: false, code: "STT_FAILED" });
+      return res.json({ ok: true, data: { text: tr.text, words: tr.words || [] } });
+    } finally {
+      try { fs.unlinkSync(tmp); } catch { /* noop */ }
+    }
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, code: "STT_FAILED", detail: String(e?.message || e) });
+  }
+});
+
+// W1653 — 同框遥测: 前端在【崩溃前 SPIKE】和【STT 失败/成功】时打点上报, 服务端 console.log,
+//   这样不用每次人肉 copy(localStorage)。日志里 grep [f2f-tele] 即可看到崩因/STT 空转原因。
+//   极轻量: 无鉴权(只吃字符串)、限长、per-IP 每 10s 最多 6 条防刷。
+const _teleRate = new Map<string, { n: number; t: number }>();
+app.post("/api/f2f-telemetry", express.json({ limit: "4kb", type: () => true }), (req, res) => {
+  try {
+    const ip = String((req.headers["x-forwarded-for"] || (req as any).ip || "anon")).split(",")[0]!.trim();
+    const now = Date.now(); const r = _teleRate.get(ip);
+    if (!r || now - r.t > 10000) _teleRate.set(ip, { n: 1, t: now });
+    else if (++r.n > 6) return res.status(204).end();
+    const b: any = req.body || {};
+    const uid = String((req.session as any)?.user_id || "anon").slice(0, 8);
+    const rec = JSON.stringify({ t: String(b.type || "?").slice(0, 16), u: uid, ...b }).slice(0, 700);
+    // W1670 — 崩溃自动上报(crash-report)与 spike 一样醒目(warn), 方便 grep 崩因; 其余 info。
+    if (String(b.type) === "spike" || String(b.type) === "crash-report") console.warn("[f2f-tele] " + rec);
+    else console.log("[f2f-tele] " + rec);
+  } catch { /* never break on telemetry */ }
+  return res.status(204).end();
+});
+
+// 《问道》W1586 — 收藏一条问答到「我的收藏」(需登录, 后端持久, 跨会话)。
+app.post("/api/actors/:id/wendao/save", express.json({ limit: "32kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const id = String(req.params.id || "").trim();
+    const b = (req.body || {}) as any;
+    const answer = String(b.answer || "").trim().slice(0, 4000);
+    const question = String(b.question || "").trim().slice(0, 2000);
+    const lang = String(b.lang || "").trim().slice(0, 12);
+    if (!id || !answer) return res.status(400).json({ ok: false, code: "INVALID" });
+    const ar = await withClient((c) => c.query<{ name_zh: string | null; name_en: string | null }>(`SELECT name_zh, name_en FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    if (!ar.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const actorName = String(ar.rows[0].name_zh || ar.rows[0].name_en || "");
+    const ins = await withClient((c) => c.query<{ id: string }>(
+      `INSERT INTO wendao_saves (user_id, actor_id, actor_name, question, answer, lang) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id::text AS id`,
+      [String(user.id), id, actorName, question || null, answer, lang || null]));
+    return res.json({ ok: true, data: { id: ins.rows[0]!.id } });
+  } catch (err) {
+    console.warn("[wendao] save failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "SAVE_FAILED" });
+  }
+});
+
+// 《问道》W1590 — 公开分享一段问答: 建分享记录 → 返回 /w/:sid 链接(社交卡)。无需登录。
+app.post("/api/actors/:id/wendao/share", express.json({ limit: "32kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const id = String(req.params.id || "").trim();
+    const b = (req.body || {}) as any;
+    const answer = String(b.answer || "").trim().slice(0, 4000);
+    const question = String(b.question || "").trim().slice(0, 2000);
+    if (!id || !answer) return res.status(400).json({ ok: false, code: "INVALID" });
+    const ar = await withClient((c) => c.query<{ name_zh: string | null; name_en: string | null }>(`SELECT name_zh, name_en FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+    if (!ar.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const actorName = String(ar.rows[0].name_zh || ar.rows[0].name_en || "");
+    const ins = await withClient((c) => c.query<{ sid: string }>(
+      `INSERT INTO wendao_shares (sid, actor_id, actor_name, question, answer) VALUES (substr(replace(gen_random_uuid()::text,'-',''),1,16),$1,$2,$3,$4) RETURNING sid`,
+      [id, actorName, question || null, answer]));
+    return res.json({ ok: true, data: { sid: ins.rows[0]!.sid, url: `${SHARE_BASE_URL}/w/${ins.rows[0]!.sid}` } });
+  } catch (err) {
+    console.warn("[wendao] share failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "SHARE_FAILED" });
+  }
+});
+
+// 《问道》W1591 — B 档: 上传一段【录制的同框视频】→ R2 → 建分享记录(og:video)。
+// 内存 multer(片段小, ≤30MB), 无需登录; 视频短、即传即释放, 不占服务器磁盘。
+const wendaoClipUploader = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 },
+  // W1591 — 前端只发录制片段, 接受任何类型(Safari 的 MediaRecorder blob mimetype 常为空/非标准,
+  //   之前 video/* 白名单把它拒成 400)。仅靠 30MB 上限 + 非空 buffer 兜底。打日志看真实 mimetype。
+  fileFilter: (_req, file, cb) => {
+    try { console.log("[wendao] clip upload mime:", JSON.stringify(file.mimetype), "name:", JSON.stringify(file.originalname)); } catch { /* */ }
+    cb(null, true);
+  },
+});
+app.post("/api/actors/:id/wendao/clip", (req, res) => {
+  noStore(res);
+  wendaoClipUploader.single("clip")(req as any, res as any, async (err: unknown) => {
+    try {
+      if (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const tooBig = /file too large|LIMIT_FILE_SIZE/i.test(msg);
+        return res.status(tooBig ? 413 : 400).json({ ok: false, code: tooBig ? "TOO_BIG" : "UPLOAD_FAILED" });
+      }
+      const id = String(req.params.id || "").trim();
+      const file = (req as any).file;
+      if (!id || !file || !file.buffer || !file.buffer.length) return res.status(400).json({ ok: false, code: "INVALID" });
+      if (!r2Enabled()) return res.status(503).json({ ok: false, code: "STORAGE_OFF" });
+      const b = (req.body || {}) as any;
+      const question = String(b.question || "").trim().slice(0, 2000);
+      const answer = String(b.answer || "").trim().slice(0, 4000) || "Face on Face · 问道";
+      const ar = await withClient((c) => c.query<{ name_zh: string | null; name_en: string | null }>(`SELECT name_zh, name_en FROM digital_actors WHERE actor_id=$1 LIMIT 1`, [id]));
+      if (!ar.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+      const actorName = String(ar.rows[0].name_zh || ar.rows[0].name_en || "");
+      const sid = crypto.randomBytes(8).toString("hex");   // 16 hex, 同 share 长度
+      // W1591 — 社交平台(X/Facebook/LinkedIn/iOS)对 og:video 要 MP4/H.264; webm/vp9 会黑边/裁切/不播。
+      //   服务端 ffmpeg 转码 → MP4(H.264 + AAC + faststart + yuv420p, 360p)。转码失败 → 回退原文件。
+      let outBuf: Buffer = file.buffer, ext = "mp4", ctype = "video/mp4";
+      const tmpIn = path.join(os.tmpdir(), `clip_${sid}_in`);
+      const tmpOut = path.join(os.tmpdir(), `clip_${sid}.mp4`);
+      try {
+        fs.writeFileSync(tmpIn, file.buffer);
+        const ff = await spawnFfmpeg(["-y", "-i", tmpIn, "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-vf", "scale=640:-2", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", tmpOut]);
+        if (ff.code === 0 && fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 1024) {
+          outBuf = fs.readFileSync(tmpOut);
+        } else {
+          console.warn("[wendao] clip transcode failed → store original:", ff.stderr.slice(-300));
+          const isMp4 = /mp4/i.test(String(file.mimetype || "")) || /\.mp4$/i.test(String(file.originalname || ""));
+          ext = isMp4 ? "mp4" : "webm"; ctype = isMp4 ? "video/mp4" : "video/webm";
+        }
+      } catch (te) {
+        console.warn("[wendao] clip transcode error:", (te as Error)?.message || te);
+      } finally {
+        try { fs.unlinkSync(tmpIn); } catch { /* */ }
+        try { fs.unlinkSync(tmpOut); } catch { /* */ }
+      }
+      const videoUrl = await uploadBufferToR2(outBuf, `wendao/clips/${sid}.${ext}`, ctype);
+      if (!videoUrl) return res.status(502).json({ ok: false, code: "UPLOAD_FAILED" });
+      await withClient((c) => c.query(
+        `INSERT INTO wendao_shares (sid, actor_id, actor_name, question, answer, video_url) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [sid, id, actorName, question || null, answer, videoUrl]));
+      return res.json({ ok: true, data: { sid, url: `${SHARE_BASE_URL}/w/${sid}`, video_url: videoUrl } });
+    } catch (e) {
+      console.warn("[wendao] clip failed:", (e as Error)?.message || e);
+      return res.status(500).json({ ok: false, code: "CLIP_FAILED" });
+    }
+  });
+});
+
+// 《问道》W1586 — 「我的收藏」列表(登录用户自己的)。
+app.get("/api/wendao/saves", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED", saves: [] });
+    const r = await withClient((c) => c.query<{ id: string; actor_id: string; actor_name: string | null; question: string | null; answer: string; lang: string | null; created_at: string }>(
+      `SELECT id::text AS id, actor_id, actor_name, question, answer, lang, created_at FROM wendao_saves WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200`, [String(user.id)]));
+    return res.json({ ok: true, saves: r.rows });
+  } catch (err) {
+    console.warn("[wendao] list saves failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "LIST_FAILED", saves: [] });
+  }
+});
+
+// 《问道》W1586 — 删除一条收藏(仅本人)。
+app.delete("/api/wendao/saves/:sid", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    const sid = String(req.params.sid || "").trim();
+    if (!/^\d+$/.test(sid)) return res.status(400).json({ ok: false, code: "INVALID" });
+    await withClient((c) => c.query(`DELETE FROM wendao_saves WHERE id=$1 AND user_id=$2`, [sid, String(user.id)]));
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "DEL_FAILED" });
   }
 });
 
@@ -44767,7 +46899,32 @@ app.get("/api/works/market", async (req, res) => {
            w.fingerprint_hash,
            w.suggested_listen_price_cents,
            w.suggested_buyout_price_cents,
-           w.cover_image,
+           -- CSSOS_WAVE_1760 — Jing「李清照·声声慢三部曲(等)在 TV/Vision 上没画面 = 像被隐藏」根因:
+           --   结构化 root(triptych/opera)自身常无 cover_image / preview_video / slideshow_frame
+           --   资产(画面素材落在各【子部】上), 而 TV/Vision 卡片【只读 cover_image】→ root 卡全黑
+           --   → 用户以为作品被隐藏。治本(纯 API 兜底, 不生成、不改库): root 无封面时, 借用其
+           --   子部已有的 slideshow_frame(本域 cssstudio.app 图) 或子部 cover_image 当封面画面。
+           --   COALESCE 短路: 已有封面的 root 完全不触发子查询, 无性能回归。子部也无图 → 保持 null。
+           COALESCE(
+             w.cover_image,
+             w.preview_image_url,
+             (SELECT sf.url
+                FROM work_assets sf
+                JOIN user_works cw ON cw.id = sf.work_id
+               WHERE cw.root_work_id = w.id
+                 AND cw.parent_work_id IS NOT NULL
+                 AND cw.status <> 'deleted'
+                 AND sf.asset_type = 'slideshow_frame'
+               ORDER BY cw.sequence_index ASC
+               LIMIT 1),
+             (SELECT cw.cover_image
+                FROM user_works cw
+               WHERE cw.root_work_id = w.id
+                 AND cw.parent_work_id IS NOT NULL
+                 AND cw.cover_image IS NOT NULL
+               ORDER BY cw.sequence_index ASC
+               LIMIT 1)
+           ) AS cover_image,
            w.cover_focal_x,
            w.cover_focal_y,
            w.preview_image_url,
@@ -45132,6 +47289,9 @@ app.get("/api/works/market", async (req, res) => {
           const isCastActorOwner = viewerActorWorkIds.has(String(row.id || ""));
           const fullAccess = isOwner || isFree || purchased || isOwnerAdminMkt || isCastActorOwner;
           const signed = signMediaUrlsOnRow(row, fullAccess ? "full" : "preview");
+          // CSSOS_WAVE_1759 — 补全整棵树(root + 子部)里根相对的媒体 URL 为绝对 app 源, 让原生
+          //   cssTV / cssVision 能加载子部视频(修「李白三部曲 TV 没画面」)。同源 web 不受影响。
+          absolutizeMarketNodeMediaDeep(signed);
           return {
             ...signed,
             viewer_orders: orders,
@@ -48406,6 +50566,18 @@ app.post("/api/billing/membership/change", async (req, res) => {
           [user.id, targetTier],
         ),
       );
+      // W1755 — reassuring gift on self-serve downgrade (plan_downgrade,
+      // "warm" tone). Fire-and-forget; never blocks the tier flip.
+      try {
+        void import("./personalization/index.js").then((mod) => {
+          mod.fireTriggerFireAndForget(getPool(), {
+            triggerKey: "plan_downgrade",
+            targetUserId: user.id,
+            livemode: true,
+            payload: { previous_tier: currentTier, new_tier: targetTier },
+          });
+        }).catch(() => {});
+      } catch (_) { /* dispatch is best-effort */ }
       return res.json(
         okData({
           tier: targetTier,
@@ -54375,6 +56547,83 @@ app.get("/og.jpg", async (req, res) => {
     return res.redirect(302, SHARE_OG_FALLBACK_IMAGE);
   }
 });
+// 《问道》W1590 — 分享的问答落地页: 爬虫给 og 卡(封面 + Q&A), 真人跳 SPA 演员页。
+app.get("/w/:sid", async (req, res) => {
+  noStore(res); res.type("html");
+  const sid = String(req.params.sid || "").trim();
+  try {
+    const r = await withClient((c) => c.query<any>(
+      `SELECT s.actor_id, s.actor_name, s.question, s.answer, s.video_url, a.cover_image
+         FROM wendao_shares s LEFT JOIN digital_actors a ON a.actor_id = s.actor_id WHERE s.sid=$1 LIMIT 1`, [sid]));
+    const row = r.rows[0];
+    if (!row) return res.redirect(302, "/?actors");
+    const actorId = String(row.actor_id);
+    const spaUrl2 = `/?actor=${encodeURIComponent(actorId)}`;
+    const acceptsHtml = (req.header("accept") || "").includes("text/html");
+    if (!isCrawler(req) && acceptsHtml) return res.redirect(302, spaUrl2);
+    const name = String(row.actor_name || "Digital Actor");
+    const img = _ogSafeImageUrl(row.cover_image) || SHARE_OG_FALLBACK_IMAGE;
+    const vid = String(row.video_url || "").trim();   // B 档: 录制的同框视频
+    const q = String(row.question || "").slice(0, 120);
+    const ans = String(row.answer || "").replace(/\s+/g, " ").slice(0, 180);
+    const ogTitle = (q ? `Q: ${q} — ` : "") + `${name} · 问道 · CSS Studio`;
+    const desc = (vid ? "🎥 Face on Face — " : "") + ans + " — 问道 · talk with legends on CSS Studio.";
+    const url = `${SHARE_BASE_URL}/w/${encodeURIComponent(sid)}`;
+    // 片段固定 640×360(16:9); twitter:player 必须是【embed iframe 页】(不是裸视频)+ stream 直链 —— 与 /m MV 分享同款(X 才不黑边)。
+    const vType = /\.mp4($|\?)/i.test(vid) ? "video/mp4" : "video/webm";
+    const embedSrc = `${SHARE_BASE_URL}/embed/clip/${encodeURIComponent(sid)}`;
+    const videoTags = vid ? `<meta property="og:video" content="${escapeHtmlAttr(vid)}" />
+<meta property="og:video:secure_url" content="${escapeHtmlAttr(vid)}" />
+<meta property="og:video:type" content="${vType}" />
+<meta property="og:video:width" content="640" />
+<meta property="og:video:height" content="360" />
+<meta name="twitter:player" content="${escapeHtmlAttr(embedSrc)}" />
+<meta name="twitter:player:width" content="640" />
+<meta name="twitter:player:height" content="360" />
+<meta name="twitter:player:stream" content="${escapeHtmlAttr(vid)}" />
+<meta name="twitter:player:stream:content_type" content="${vType}" />` : "";
+    const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<title>${escapeHtmlAttr(name)} · 问道 · CSS Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="${escapeHtmlAttr(desc)}" />
+<meta property="og:type" content="${vid ? "video.other" : "article"}" />
+<meta property="og:title" content="${escapeHtmlAttr(ogTitle)}" />
+<meta property="og:description" content="${escapeHtmlAttr(desc)}" />
+<meta property="og:image" content="${escapeHtmlAttr(img)}" />
+${videoTags}
+<meta property="og:url" content="${escapeHtmlAttr(url)}" />
+<meta name="twitter:card" content="${vid ? "player" : "summary_large_image"}" />
+</head><body><script>location.replace(${JSON.stringify(spaUrl2)})</script>
+<p>Opening… <a href="${escapeHtmlAttr(spaUrl2)}">${escapeHtmlAttr(name)} · 问道</a></p></body></html>`;
+    return res.send(html);
+  } catch (err) {
+    return res.redirect(302, "/?actors");
+  }
+});
+
+// W1591 — 同框片段的【嵌入播放页】(供 twitter:player iframe / 直接打开): 满框播放 640×360 MP4。
+app.get("/embed/clip/:sid", async (req, res) => {
+  noStore(res); res.type("html");
+  const sid = String(req.params.sid || "").trim();
+  try {
+    const r = await withClient((c) => c.query<{ video_url: string | null; actor_name: string | null }>(
+      `SELECT video_url, actor_name FROM wendao_shares WHERE sid=$1 LIMIT 1`, [sid]));
+    const row = r.rows[0];
+    if (!row || !row.video_url) return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title>");
+    const v = String(row.video_url);
+    const vType = /\.mp4($|\?)/i.test(v) ? "video/mp4" : "video/webm";
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>${escapeHtmlAttr(String(row.actor_name || "Face on Face"))} · Face on Face</title>
+<style>html,body{margin:0;height:100%;background:#000}video{width:100%;height:100%;object-fit:contain;display:block;background:#000}</style></head>
+<body><video controls autoplay muted playsinline preload="metadata"><source src="${escapeHtmlAttr(v)}" type="${vType}"></video></body></html>`;
+    return res.send(html);
+  } catch (err) {
+    return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title>");
+  }
+});
+
 app.get("/a/:id", async (req, res) => {
   noStore(res); res.type("html");
   const id = String(req.params.id || "").trim();
@@ -56544,6 +58793,16 @@ async function start() {
   if (DATABASE_URL) {
     try {
       await runMigrations();
+      // W1703 — 注入图像生成器(单一来源 callImageGen), 让乐谱队列能出忠实 MV, 而 worker 无需 import 本文件。
+      setScoreImageGen(async (prompt: string, size: string) => {
+        const r = await callImageGen({ prompt, size });
+        if (!r || !r.ok) return null;
+        const out: { url?: string; b64?: string } = {};
+        if (r.image_url) out.url = r.image_url;
+        if (r.image_b64) out.b64 = r.image_b64;
+        return (out.url || out.b64) ? out : null;
+      });
+      startScoreRenderWorker();   // W1700 — 乐谱渲染队列(音频 + 忠实 MV)
       await ensureAuthIdentityTable();
       await ensureOAuthTokensTable();
       // CSSOS_WAVE_413 20260524 — Jing「断点续传」: recover language tracks that
@@ -56630,6 +58889,7 @@ async function start() {
       loadPersonalizationTemplates,
       registerAllPersonalizationTriggers,
       runDailyBirthdayFlush,
+      runDailyAnniversaryFlush,
       fireTriggerFireAndForget,
       fireTrigger,
     } = await import("./personalization/index.js");
@@ -56690,6 +58950,35 @@ async function start() {
     // warm up) so a deploy mid-day still catches the day's birthdays.
     setTimeout(birthdayFlushTick, 5 * 60 * 1000);
     setInterval(birthdayFlushTick, SIX_HOURS_MS);
+
+    // CSSOS_PHASE2_PERSONALIZATION_STAGE_H2 20260712 — Jing
+    // Anniversary flush daemon. Direct sibling of the birthday flush:
+    // same 6-hour cadence, per-year audit de-dupe in SQL, per-user-timezone
+    // day-boundary matching (reuses birthday_timezone). Marriage + custom
+    // "other" anniversaries dispatched via fireTriggerFireAndForget. Stays
+    // void-returning + non-throwing so a bad DB day can't crash the API.
+    const anniversaryFlushTick = async () => {
+      try {
+        const userIds = await runDailyAnniversaryFlush(
+          getPool(),
+          fireTriggerFireAndForget,
+          getPool(),
+        );
+        if (userIds.length) {
+          console.log(
+            "[personalization] anniversary flush dispatched %d gift(s)",
+            userIds.length,
+          );
+        }
+      } catch (e) {
+        console.warn(
+          "[personalization] anniversary flush failed (non-fatal):",
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    };
+    setTimeout(anniversaryFlushTick, 6 * 60 * 1000);
+    setInterval(anniversaryFlushTick, SIX_HOURS_MS);
   } catch (err) {
     console.error(
       "[personalization] engine boot failed; continuing without gifts —",
@@ -59012,7 +61301,7 @@ let __engineBalanceCache: { at: number; entries: EngineBalance[] } | null = null
 async function fetchEngineBalances(): Promise<EngineBalance[]> {
   const out: EngineBalance[] = [];
   const t = (s: string | null | undefined) => String(s || "").trim();
-  const openaiKey = t(process.env.OPENAI_API_KEY);
+  const openaiKey = "";   // W1655 — OpenAI 停用: 不再查其余额(下方 block 直接跳过)
   if (openaiKey) {
     try {
       const r = await fetch("https://api.openai.com/v1/dashboard/billing/credit_grants", {
@@ -59155,9 +61444,8 @@ async function probeEngine(engineId: string): Promise<{
       return { status, latency_ms: Date.now() - t0, error_snippet: status === "ok" ? "" : body.slice(0, 200) };
     };
     if (engineId === "openai") {
-      const k = tEnv(process.env.OPENAI_API_KEY);
-      if (!k) return { status: "auth", latency_ms: 0, error_snippet: "missing_key" };
-      return probeUrl("https://api.openai.com/v1/models", { authorization: `Bearer ${k}` });
+      // W1655 — OpenAI 直连停用: 不再探 OpenAI /v1/models, 报 disabled。
+      return { status: "auth", latency_ms: 0, error_snippet: "disabled_openai_W1655" };
     }
     if (engineId === "huggingface" || engineId === "huggingface_music") {
       const k = tEnv(process.env.HUGGINGFACE_API_KEY);
@@ -60354,7 +62642,8 @@ app.get("/api/v1/mvs/:id", apiV1Read, async (req, res) => {
 app.get("/api/v1/works/:id", apiV1Read, async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
-    const r = await withClient((c) => c.query<any>(`SELECT * FROM works WHERE id = $1`, [id]));
+    // W1759 — `works` 是空遗留表(0 行, 误查陷阱); 真作品表是 user_works。
+    const r = await withClient((c) => c.query<any>(`SELECT * FROM user_works WHERE id = $1::uuid`, [id]));
     if (!r.rows[0]) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     return res.json({ ok: true, work: r.rows[0] });
   } catch (err) {

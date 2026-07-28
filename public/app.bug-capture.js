@@ -17,6 +17,8 @@
   if (globalThis.__cssosBugCaptureWired) return;
   globalThis.__cssosBugCaptureWired = true;
 
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
+
   const ADMIN_EMAILS = new Set([
     "admin@cssstudio.app",
     "jingdudc@gmail.com",
@@ -39,7 +41,7 @@
     b = document.createElement("button");
     b.id = "cssos-bug-fab";
     b.type = "button";
-    b.title = "Report what you see (admin)";
+    b.title = T("Report what you see (admin)");
     b.textContent = "🐛";
     b.style.cssText = [
       "position:fixed",
@@ -100,7 +102,7 @@
                   box-shadow:0 16px 48px rgba(0,0,0,0.6);font:14px/1.5 -apple-system,system-ui,sans-serif;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
           <span style="font-size:24px;">🐛</span>
-          <strong style="flex:1;letter-spacing:.04em;">REPORT WHAT YOU SEE</strong>
+          <strong style="flex:1;letter-spacing:.04em;">${T("REPORT WHAT YOU SEE")}</strong>
           <button type="button" data-bug-close style="background:transparent;border:none;color:var(--text);font-size:24px;cursor:pointer;line-height:1;padding:0 4px;">×</button>
         </div>
         <div style="font:500 11px/1.4 ui-monospace,monospace;color:rgba(218,255,238,0.55);margin-bottom:10px;
@@ -109,15 +111,15 @@
           🔗 ${snap.url.replace(/^https?:\/\/[^/]+/, "")}<br/>
           ${snap.lastClick ? `👆 ${(snap.lastClick.text || snap.lastClick.id || snap.lastClick.tag).slice(0,60)}` : ""}
         </div>
-        <textarea data-bug-text rows="6" placeholder="什么不对？哪里看不顺眼？看到什么 bug？随便写、随便骂、随便吐槽。"
+        <textarea data-bug-text rows="6" placeholder="${T("What's wrong? What looks off? See a bug? Write, vent, or rant freely.")}"
           style="width:100%;background:rgba(0,0,0,0.32);color:#daffee;border:1px solid rgba(255,200,0,0.3);
                  border-radius:8px;padding:10px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
                  resize:vertical;min-height:120px;outline:none;box-sizing:border-box;"></textarea>
         <div style="display:flex;gap:8px;margin-top:12px;">
           <button type="button" data-bug-cancel style="flex:1;background:transparent;color:var(--text);
-                  border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer;font-weight:600;">取消</button>
+                  border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer;font-weight:600;">${T("Cancel")}</button>
           <button type="button" data-bug-send style="flex:2;background:rgba(255,200,0,0.18);color:#fff;
-                  border:1px solid rgba(255,200,0,0.55);border-radius:8px;padding:10px;cursor:pointer;font-weight:700;">提交 →</button>
+                  border:1px solid rgba(255,200,0,0.55);border-radius:8px;padding:10px;cursor:pointer;font-weight:700;">${T("Submit")} →</button>
         </div>
         <div data-bug-status style="margin-top:8px;font:500 11px/1.4 ui-monospace,monospace;text-align:center;min-height:14px;"></div>
       </div>
@@ -131,8 +133,8 @@
     root.querySelector("[data-bug-send]").onclick = async () => {
       const status = root.querySelector("[data-bug-status]");
       const body = String(text.value || "").trim();
-      if (!body) { status.textContent = "请先写点什么 🙂"; status.style.color = "#ffd56b"; return; }
-      status.textContent = "发送中…"; status.style.color = "var(--text)";
+      if (!body) { status.textContent = `${T("Write something first")} 🙂`; status.style.color = "#ffd56b"; return; }
+      status.textContent = T("Sending…"); status.style.color = "var(--text)";
       try {
         const r = await fetch("/api/admin/bug-report", {
           method: "POST",
@@ -141,15 +143,15 @@
           body: JSON.stringify({ ...snap, message: body, email: globalThis.authState?.user?.email || "" }),
         });
         if (r.ok) {
-          status.textContent = "已提交 ✓";
+          status.textContent = `${T("Submitted")} ✓`;
           status.style.color = "#00f5a0";
           setTimeout(closeModal, 700);
         } else {
-          status.textContent = `失败: HTTP ${r.status}`;
+          status.textContent = `${T("Failed")}: HTTP ${r.status}`;
           status.style.color = "#ff8c8c";
         }
       } catch (err) {
-        status.textContent = "网络错误";
+        status.textContent = T("Network error");
         status.style.color = "#ff8c8c";
       }
     };

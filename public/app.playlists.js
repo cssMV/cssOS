@@ -273,7 +273,11 @@
     if (list.loading || list.exhausted) return;
     list.loading = true;
     try {
-      const res = await fetch("/api/works/mine", { credentials: "include" });
+      // CSSOS_WAVE_1760 — Jing「登录后 loop list 十几首就到头」根因: 不带 limit →
+      //   服务端默认只返 20 条(src/index.ts /api/works/mine: `Number(req.query.limit||20)`)
+      //   → mine 列表被截成 ~十几首 → loop_all 末尾早早绕回。拉满(服务端上限 1000),与
+      //   fetchForYou 的 ?limit=1000 一致(WAVE 253 当年只补了 for-you, 漏了 mine)。
+      const res = await fetch("/api/works/mine?limit=1000", { credentials: "include" });
       const payload = await res.json().catch(() => null);
       const works = payload?.data?.works || payload?.works || [];
       const flat = [];

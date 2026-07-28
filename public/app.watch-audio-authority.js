@@ -72,14 +72,20 @@
     } catch (e) {}
   }
 
+  // CSSOS_WAVE_1676 — 让位契约: 当某个 UI(波形逐字精修等)明确表达「用户要停」时置
+  //   globalThis.cssosAudioIntentPaused=true, 本模块的救活逻辑必须闭嘴。否则 1.5s 安全 tick
+  //   + 这里的 320ms 重试会把用户的暂停一次次 play() 回来 —— 正是 Jing「现在无法暂停」。
+  function intentPaused() { try { return !!globalThis.cssosAudioIntentPaused; } catch (e) { return false; } }
+
   function tryPlay(a, mySeq) {
     if (!a || mySeq !== _seq) return;
+    if (intentPaused()) return;
     try {
       var p = a.play();
       if (p && p.catch) {
         p.catch(function () {
-          if (soundAllowed() && mySeq === _seq) {
-            setTimeout(function () { try { if (mySeq === _seq && a.paused) a.play().catch(function () {}); } catch (e) {} }, 320);
+          if (soundAllowed() && mySeq === _seq && !intentPaused()) {
+            setTimeout(function () { try { if (mySeq === _seq && a.paused && !intentPaused()) a.play().catch(function () {}); } catch (e) {} }, 320);
           }
         });
       }
@@ -166,7 +172,8 @@
       var cur = String(a.currentSrc || a.src || "").trim();
       if (cur && onTrack(cur)) {   // 本作品原唱或伴奏都算"正确源"(卡拉 OK 不被救活逻辑打断)
         if (soundAllowed() && a.muted) { try { a.muted = false; } catch (e) {} }
-        if (soundAllowed() && (a.readyState === 0 || a.paused)) {
+        // W1676 — 用户明确要停时, 整个"救活"分支跳过(连 load() 也别做, 免得又抖一下)。
+        if (!intentPaused() && soundAllowed() && (a.readyState === 0 || a.paused)) {
           if (a.readyState === 0) { try { a.load(); } catch (e) {} }
           tryPlay(a, _seq);
         }
@@ -189,6 +196,32 @@
   ["pointerdown", "touchstart", "keydown"].forEach(function (evt) {
     try { window.addEventListener(evt, markEngaged, { capture: true, passive: true }); } catch (e) {}
   });
+
+  // W1740 — Jing「加空格键: 暂停/续播, 方便微调字幕」。全局 Space = 切当前作品音频播放/暂停。
+  //   尊重让位契约: 用户停 → cssosAudioIntentPaused=true(权威不再救活), 续 → false。
+  //   让行: 输入框/可编辑元素(别吞打字)、按钮/链接(让它们自己响应 Space)、波形编辑器(它自管 Space)。
+  //   只在确有作品音频(有源)时接管, 免得在纯落地页吞掉空格。冒泡阶段, 不与聚焦控件抢。
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== " " && e.key !== "Spacebar") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable ||
+              t.tagName === "BUTTON" || t.tagName === "A" ||
+              (t.getAttribute && t.getAttribute("role") === "button"))) return;
+    if (document.getElementById("cssos-wave-editor")) return;   // 波形编辑器自管 Space
+    var a = aEl();
+    if (!a || !(a.currentSrc || a.getAttribute("src"))) return;
+    e.preventDefault();
+    try {
+      if (a.paused) {
+        try { globalThis.cssosAudioIntentPaused = false; } catch (_e1) {}
+        var p = a.play(); if (p && p.catch) p.catch(function () {});
+      } else {
+        try { globalThis.cssosAudioIntentPaused = true; } catch (_e2) {}
+        a.pause();
+      }
+    } catch (_e) {}
+  }, false);
 
   // 暴露给外部/诊断。
   globalThis.cssosWatchAudioAuthority = enforce;

@@ -262,7 +262,10 @@
     opts = opts || {};
     var workId = opts.workId || opts.work_id || opts.id;
     // CSSOS_WAVE_118 — 支持自定义链接(数字演员分享 /a/<id> 等非作品), 传 opts.url 即用它, 不要求 workId。
-    var url = opts.url ? String(opts.url) : (workId ? buildShareUrl(workId) : "");
+    // W1724 — 相对链接(如 /h/<id>、/?hymns=<trad>)必须补全域名, 否则分享到 X/微信等是断链。
+    var url = opts.url
+      ? (function (u) { u = String(u); return /^https?:\/\//i.test(u) ? u : (window.location.origin + (u.charAt(0) === "/" ? u : "/" + u)); })(opts.url)
+      : (workId ? buildShareUrl(workId) : "");
     if (!url) {
       toast(tt("Nothing to share.", "无可分享的内容。"));
       return;
@@ -492,4 +495,23 @@
   }
 
   globalThis.openCssosShareDialog = openCssosShareDialog;
+  // W1591 — 单平台派发器: 供别处(如同框分享小卡的 8 个快捷平台)复用同一套 opener/URL 逻辑, 不重写。
+  globalThis.cssosShareTo = function (platform, url, text) {
+    url = String(url || ""); text = String(text || "");
+    switch (String(platform || "").toLowerCase()) {
+      case "x": case "twitter": return openTwitterShare(url, text);
+      case "facebook": return openFacebookShare(url);
+      case "bluesky": return openBlueskyShare(url, text);
+      case "threads": return openThreadsShare(url, text);
+      case "linkedin": return openLinkedInShare(url);
+      case "pinterest": return openPinterestShare(url, text);
+      case "tumblr": return openTumblrShare(url, text);
+      case "discord": return openDiscordShare(url, text);
+      case "reddit": return openRedditShare(url, text);
+      case "whatsapp": return openWhatsAppShare(url, text);
+      case "telegram": return openTelegramShare(url, text);
+      case "email": return openEmailShare(url, text);
+      default: return openTwitterShare(url, text);
+    }
+  };
 })();

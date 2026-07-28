@@ -203,11 +203,15 @@
    * $14.99 不一致). Pulls live from StoreKit → always correct currency &
    * amount, no hardcode drift. Web is untouched (its $15 display == its
    * Stripe charge, internally consistent). */
+  /* CSSOS_WAVE_1448 / 20260727 — Enterprise RETIRED as a purchasable SKU.
+   * Its product id used to live here and was passed to getStoreKitPrices(),
+   * which is one of the surfaces that kept the retired SKU alive on Apple's
+   * product page. Capability gates for grandfathered "enterprise" members
+   * live elsewhere and are intentionally untouched. */
   var TIER_PRODUCT = {
     starter: "app.cssstudio.studio.starter.monthly",
     pro: "app.cssstudio.studio.pro.monthly",
-    studio: "app.cssstudio.studio.studio.monthly",
-    enterprise: "app.cssstudio.studio.enterprise.monthly"
+    studio: "app.cssstudio.studio.studio.monthly"
   };
   var _skPrices = null, _skFetching = false;
   async function ensurePrices() {

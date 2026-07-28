@@ -217,8 +217,10 @@
         "mask-image:radial-gradient(circle 20px at 0px 50%,transparent 19.5px,#000 20px) !important;",
       "}",
 
-      /* ── 活跃左侧所有 (~ 通用兄弟) — 左圆右平，凹向右，每对相邻咬合 ── */
-      "[data-pill-bar]>[data-pill-key]:has(~[data-pill-key].active){",
+      /* ── 活跃左侧所有 — 左圆右平，凹向右，每对相邻咬合 ──
+       * 用 .cssos-pill-pre(JS 打, 见 markPre)替代 :has(~.active): 后者被 ensureStyle
+       * 防崩策略整条剥掉 → 左侧不咬合。类选择器不含 :has, 存活且不崩。 */
+      "[data-pill-bar]>[data-pill-key].cssos-pill-pre{",
         "border-radius:999px 0 0 999px !important;",
         "margin-right:-20px !important;",
         "width:calc(100% + 20px) !important;",
@@ -378,6 +380,32 @@
     });
     assignHues(children, mono);
 
+    /* W1591 — 含输入框(input/textarea/select)的胶囊轨道: 【按钮按内容自适应宽, 剩余长度全给输入框】(不是等宽)。
+     * 宪法默认 grid + grid-auto-columns:minmax(max-content,1fr) 会把所有段等分, 且 pill 的 width:calc(100%+20px)+
+     * 负边距(凸嵌凹几何)让 grid 的 max-content 算不准 → 一直等宽。这里对【含输入框的条】改走 flex + 关掉 pill
+     * 的 mask/负边距/calc宽度(inline !important 压过宪法 !important): 输入框 flex:1 吃满, 按钮 flex:0 0 auto 按内容。
+     * 纯按钮条(无 input)不进这里 → 凸嵌凹等分照旧不受影响。 */
+    (function () {
+      var isField = function (c) { return /^(INPUT|TEXTAREA|SELECT)$/.test(c.tagName); };
+      var hasField = children.some(isField);
+      containerEl.setAttribute("data-pill-hasfield", hasField ? "1" : "");
+      // 先清掉早前 stamp 可能留下的 per-child inline 覆盖(旧 flex/mask:none 残留)。
+      children.forEach(function (c) {
+        ["flex", "width", "min-width", "margin", "border-radius", "-webkit-mask", "mask", "padding-left", "padding-right"].forEach(function (p) { c.style.removeProperty(p); });
+      });
+      if (hasField) {
+        // 【凹凸镶嵌 + 输入框吃满】—— 保留 grid + 凸嵌凹几何(不再剥 mask/负边距/圆角);
+        //   只改列宽: 按钮列 max-content(按内容自适应), 输入框列 minmax(90px,1fr)(吃满剩余)。
+        //   容器基座本是 grid-auto-columns:minmax(max-content,1fr)(全部可等分); 用
+        //   grid-template-columns 精确指定后, 只有输入框 1fr 吃满, 按钮各按内容, 且
+        //   calc(100%+20px) 仍对齐各自列宽 → 咬合成立(见宪法 grid 注释)。
+        var cols = children.map(function (c) { return isField(c) ? "minmax(90px,1fr)" : "max-content"; }).join(" ");
+        containerEl.style.setProperty("grid-template-columns", cols, "important");
+      } else {
+        containerEl.style.removeProperty("grid-template-columns");
+      }
+    })();
+
     function childByKey(k) {
       for (var i = 0; i < children.length; i++) {
         if (children[i].getAttribute("data-pill-key") === String(k)) return children[i];
@@ -397,6 +425,7 @@
       var onIdx = -1;
       children.forEach(function (c, i) { if (onIdx < 0 && c.classList.contains("active")) onIdx = i; });
       containerEl.style.setProperty("--th", mono ? 155 : HUES[(onIdx < 0 ? 0 : onIdx) % HUES.length]);
+      markPre();
     }
     function toggleMulti(pill) {
       var key = pill.getAttribute("data-pill-key");
@@ -431,6 +460,16 @@
       multiTrackHue();
     }
 
+    /* 左侧咬合修复(全站): 宪法里"active 左侧胶囊凹向右"用 :has(~.active) 写, 但 ensureStyle
+     * 为防 iOS/macOS WebKit 崩溃把所有含 :has( 的规则整条剥掉 → 左侧永远头顶头(这就是反复出现的
+     * "开头的两个不咬合")。改用 JS: 给 active 左侧每个胶囊打 .cssos-pill-pre, CSS 用该类画咬合
+     * (不含 :has, 不崩)。single + multi 都调 markPre()。 */
+    function markPre() {
+      var ai = -1;
+      for (var i = 0; i < children.length; i++) { if (children[i].classList.contains("active")) { ai = i; break; } }
+      for (var j = 0; j < children.length; j++) { children[j].classList.toggle("cssos-pill-pre", ai >= 0 && j < ai); }
+    }
+
     /* Active management */
     function setActive(key) {
       var found = false;
@@ -443,6 +482,7 @@
         }
         child.classList.toggle("active", isActive);
       });
+      markPre();
       /* Update track hue to match active pill */
       if (found) {
         containerEl.style.setProperty("--th", activeHue);

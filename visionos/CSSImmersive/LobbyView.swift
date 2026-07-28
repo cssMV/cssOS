@@ -13,6 +13,8 @@ struct LobbyView: View {
     var onSpell: (String) -> Void          // 语音咒语未命中作品 → 创作
     var signedIn: Bool = true              // W1062 — 未登录显示 Sign in 入口
     var onSignIn: () -> Void = {}
+    // W1580 — 拖标题栏「CSS Vision」→ 回传位移给 GateView 移动大厅面板实体(x/y 2D + z 深度; ended 收尾)。
+    var onHandleDrag: (Double, Double, Double, Bool) -> Void = { _, _, _, _ in }
 
     @State private var shelf = "for-you"
     @State private var items: [CSSBackend.LobbyItem] = []
@@ -55,6 +57,8 @@ struct LobbyView: View {
             // 不自动触发 —— 用户凝视大厅这枚魔镜 + 捏合 才发光束登录(只此一枚, 无浮空重复球)。
         }
         .onChange(of: voice.transcript) { _, t in if voice.isListening { query = t } }
+        // W1580 — 作品列表变化 → 刷新影院「上一首/下一首」的画廊(浏览顺序)。
+        .onChange(of: items.count) { _, _ in CSSBackend.lastGallery = items.map { $0.toWork() } }
         .sheet(isPresented: $searching) { searchSheet }
     }
 
@@ -108,23 +112,46 @@ struct LobbyView: View {
                 withAnimation(.linear(duration: 7).repeatForever(autoreverses: false)) { orbHue = 1.0 }
                 withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) { beamPhase = 1.0 }
             }
-            Text("CSS Vision").font(.system(size: 30, weight: .black, design: .rounded))
-            Text(signedIn ? L("Gaze a cover · pinch to enter", "凝视封面 · 捏合进入影院")
-                          : L("Gaze the orb · pinch to sign in with Optic ID", "凝视魔镜球 · 捏合用 Optic ID 登录"))
+            // W1580 — Jing「所有面板都要凝视手柄」: 标题栏 = 拖拽握把(凝视高亮=可移动信号, 拖它移动整个大厅面板)。
+            HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal").font(.system(size: 15, weight: .bold)).opacity(0.4)
+                Text("CSS Vision").font(.system(size: 30, weight: .black, design: .rounded))
+            }
+            .padding(.horizontal, 16).padding(.vertical, 4)
+            .contentShape(.hoverEffect, Capsule())
+            .hoverEffect()
+            .simultaneousGesture(
+                DragGesture()
+                    .onChanged { v in onHandleDrag(v.translation.width, v.translation.height, v.translation3D.z, false) }
+                    .onEnded { _ in onHandleDrag(0, 0, 0, true) }
+            )
+            // W1609 — 免费纯欣赏版: 大厅恒显"看封面进入", 不再出现登录字样/按钮(图3→图4; 同利 2.1a/3.1.1 复审)。
+            //   字号/frame 不变, 仅改文案 + 去掉登录按钮。
+            Text(L("Gaze a cover · pinch to enter", "凝视封面 · 捏合进入影院"))
                 .font(.footnote).foregroundStyle(.secondary)
 
-            if !signedIn {
-                Button { onSignIn() } label: {   // 备用入口(也可直接捏合上面的金球)
-                    Label(L("Sign in with Apple to create", "用 Apple 登录以创作"), systemImage: "applelogo")
-                }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
-            }
-
-            HStack(spacing: 8) {
-                ForEach(shelves, id: \.0) { key, en, zh in
-                    Button(L(en, zh)) { shelf = key; Task { await load() } }
-                        .tint(shelf == key ? .green : nil)
+            // W1580 — Jing「参照桌面端套胶囊」: 平台 12 色谱 chromatic 胶囊(每 tab 一个色相, 与桌面 CSSOS_PILL_HUES 同源)。
+            //   激活=该色饱和实心+黑字; 其余=该色淡填充+描边+彩字。自绘 Capsule, 确保 visionOS 也是真胶囊形。
+            HStack(spacing: 6) {
+                ForEach(Array(shelves.enumerated()), id: \.element.0) { idx, s in
+                    let active = shelf == s.0
+                    let hue = Double([155, 192, 235][idx % 3]) / 360.0
+                    Button { shelf = s.0; Task { await load() } } label: {
+                        Text(L(s.1, s.2))
+                            .font(.system(size: 17, weight: active ? .bold : .semibold, design: .rounded))
+                            .foregroundStyle(active ? .black : Color(hue: hue, saturation: 0.55, brightness: 1.0))
+                            .padding(.horizontal, 22).padding(.vertical, 10)
+                            .frame(minWidth: 96)
+                            .background(Capsule().fill(active
+                                ? Color(hue: hue, saturation: 0.85, brightness: 0.95)
+                                : Color(hue: hue, saturation: 0.45, brightness: 1.0).opacity(0.15)))
+                            .overlay(Capsule().strokeBorder(Color(hue: hue, saturation: 0.75, brightness: 1.0).opacity(active ? 0 : 0.55), lineWidth: 1.5))
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(.hoverEffect, Capsule())
+                    .hoverEffect()
                 }
-            }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large)
+            }
 
             if loading {
                 ProgressView().frame(height: 260)
@@ -144,28 +171,7 @@ struct LobbyView: View {
                 }.frame(height: 270)
             }
 
-            if voice.isListening {
-                Text(voice.transcript.isEmpty ? L("Listening…", "聆听中…") : "“\(voice.transcript)”")
-                    .font(.headline).foregroundStyle(.yellow).lineLimit(1).frame(maxWidth: 600)
-            }
-            HStack(spacing: 12) {
-                Button { voice.toggle() } label: {
-                    Label(voice.isListening ? L("Tap to stop", "点这停") : L("Say what to play or create", "说出想听/想创作的"),
-                          systemImage: voice.isListening ? "waveform" : "mic.fill").foregroundStyle(.black)
-                }.buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large).tint(.yellow)
-                Button { searching = true } label: {
-                    Image(systemName: "keyboard")
-                }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large)
-                    .help(L("Type instead", "改用打字"))
-                Button {
-                    if let r = (filtered.randomElement() ?? items.randomElement()) { onEnter(r.toWork()) }
-                } label: {
-                    Label(L("Surprise me", "随便来一首"), systemImage: "dice.5")
-                }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large)
-                Button { onCreate() } label: {
-                    Label(L("Create", "创作"), systemImage: "sparkles").foregroundStyle(.white)
-                }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large).tint(.purple)
-            }
+            // W1580 — Jing: 去掉圣殿大门底部四个按钮(语音/键盘/随便来一首/创作)+ 聆听提示。
         }
         .padding(34)
         .frame(width: 860)
@@ -307,5 +313,9 @@ private struct CoverCardView: View {
         .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 18))
         }
         .buttonStyle(.plain)
+        // W1580 — Jing「凝视卡片是圆形/椭圆, 应是整块卡片」: 双管齐下把按钮 hover 形状钉成圆角矩形 —
+        //   ① buttonBorderShape(圆角矩形) 改按钮系统高亮形状; ② contentShape(.hoverEffect) 定命中/高亮区域。
+        .buttonBorderShape(.roundedRectangle(radius: 18))
+        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 18))
     }
 }

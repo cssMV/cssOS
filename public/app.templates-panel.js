@@ -19,7 +19,7 @@
   window.__cssosTemplatesMounted = true;
 
   const ZH = /^zh/i.test(String(globalThis.currentLocale || navigator.language || "en"));
-  const T = (en, zh) => (ZH ? zh : en);
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
 
   // ─── styles ──────────────────────────────────────────────────────────
   const css = `
@@ -97,7 +97,7 @@
     const owned = !!(opts && opts.owned);
     const creator = tpl.username
       ? `<a href="/u/${encodeURIComponent(tpl.username)}" style="color:#7ab">@${escapeHtml(tpl.username)}</a>`
-      : escapeHtml(tpl.display_name || T("anonymous", "匿名"));
+      : escapeHtml(tpl.display_name || T("anonymous"));
     // CSSOS_PERSON_MV_WAVE73 — green chip = parameter slot, yellow = default.
     const params = Array.isArray(tpl.parameters) ? tpl.parameters : [];
     const chips = params.length
@@ -120,25 +120,25 @@
           <span>🔁 ${tpl.fork_count || 0} · 📈 ${tpl.use_count || 0}</span>
         </div>
         <div class="actions">
-          <button class="primary" data-act="use">${T("✨ Use this template", "✨ 用此模板")}</button>
-          <button data-act="fork">${T("🔱 Fork", "🔱 分叉")}</button>
-          ${owned ? `<button class="danger" data-act="delete">${T("🗑 Delete", "🗑 删除")}</button>` : ""}
+          <button class="primary" data-act="use">${T("✨ Use this template")}</button>
+          <button data-act="fork">${T("🔱 Fork")}</button>
+          ${owned ? `<button class="danger" data-act="delete">${T("🗑 Delete")}</button>` : ""}
         </div>
       </div>`;
   }
 
   async function loadList(sort, container) {
     container.innerHTML = (globalThis.cssosSkeletonListMarkup
-      ? globalThis.cssosSkeletonListMarkup(6, T("Loading…", "加载中…"), "card")
-      : `<div class="cssos-tpl-empty">${T("Loading…", "加载中…")}</div>`);
+      ? globalThis.cssosSkeletonListMarkup(6, T("Loading…"), "card")
+      : `<div class="cssos-tpl-empty">${T("Loading…")}</div>`);
     const j = await api(`/api/person-mv/templates?sort=${encodeURIComponent(sort)}&limit=40`);
     if (!j || !j.ok) {
-      container.innerHTML = `<div class="cssos-tpl-empty">${T("Could not load templates.", "模板加载失败。")}</div>`;
+      container.innerHTML = `<div class="cssos-tpl-empty">${T("Could not load templates.")}</div>`;
       return;
     }
     const list = j.templates || [];
     if (!list.length) {
-      container.innerHTML = `<div class="cssos-tpl-empty">${T("No templates yet — be the first to publish one.", "暂无模板 — 第一个发布吧。")}</div>`;
+      container.innerHTML = `<div class="cssos-tpl-empty">${T("No templates yet — be the first to publish one.")}</div>`;
       return;
     }
     container.innerHTML = list.map((t) => renderCard(t, { owned: sort === "my" })).join("");
@@ -150,7 +150,7 @@
         const act = btn.getAttribute("data-act");
         if (act === "use") {
           const detail = await api(`/api/person-mv/templates/${encodeURIComponent(id)}`);
-          if (!detail || !detail.ok) { alert(T("Template not available.", "模板不可用。")); return; }
+          if (!detail || !detail.ok) { alert(T("Template not available.")); return; }
           // CSSOS_PERSON_MV_WAVE73 — parameterized templates: prompt the
           // user, then call /instantiate to substitute {{key}} into the seed.
           const paramDefs = Array.isArray(detail.template.parameters) ? detail.template.parameters : [];
@@ -163,24 +163,24 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ values }),
             });
-            if (!inst || !inst.ok) { alert(T("Could not resolve template.", "模板解析失败。")); return; }
+            if (!inst || !inst.ok) { alert(T("Could not resolve template.")); return; }
             seedToLoad = inst.seed;
           }
           if (applySeedToPipeline(seedToLoad)) {
             await api(`/api/person-mv/templates/${encodeURIComponent(id)}/use`, { method: "POST" });
-            alert(T("Loaded into MV PIPELINE.", "已载入 MV 创作流。"));
+            alert(T("Loaded into MV PIPELINE."));
           }
         } else if (act === "fork") {
           const r = await api(`/api/person-mv/templates/${encodeURIComponent(id)}/fork`, { method: "POST" });
           if (r && r.ok) {
-            alert(T("Forked into your private templates.", "已分叉到你的私有模板。"));
+            alert(T("Forked into your private templates."));
           } else if (r && r.code === "AUTH_REQUIRED") {
-            alert(T("Sign in to fork.", "请登录以分叉。"));
+            alert(T("Sign in to fork."));
           } else {
-            alert(T("Fork failed.", "分叉失败。"));
+            alert(T("Fork failed."));
           }
         } else if (act === "delete") {
-          if (!confirm(T("Delete this template?", "删除该模板?"))) return;
+          if (!confirm(T("Delete this template?"))) return;
           const r = await api(`/api/person-mv/templates/${encodeURIComponent(id)}`, { method: "DELETE" });
           if (r && r.ok) card.remove();
         }
@@ -202,11 +202,11 @@
     panel.__cssosBuilt = true;
     let sort = "hot";
     panel.innerHTML = `
-      <h2 style="margin:0 0 12px;">${T("Creation Template Market", "创作模板市场")}</h2>
+      <h2 style="margin:0 0 12px;">${T("Creation Template Market")}</h2>
       <div class="cssos-tpl-toolbar">
-        <button data-sort="hot" class="active">${T("🔥 Hot", "🔥 热门")}</button>
-        <button data-sort="new">${T("🆕 New", "🆕 最新")}</button>
-        <button data-sort="my">${T("📁 My templates", "📁 我的模板")}</button>
+        <button data-sort="hot" class="active">${T("🔥 Hot")}</button>
+        <button data-sort="new">${T("🆕 New")}</button>
+        <button data-sort="my">${T("📁 My templates")}</button>
       </div>
       <div class="cssos-tpl-grid"></div>`;
     const grid = panel.querySelector(".cssos-tpl-grid");
@@ -240,11 +240,11 @@
       }).join("");
       overlay.innerHTML = `
         <div class="box">
-          <h3 style="margin:0;">${T("Fill template parameters", "填写模板参数")}</h3>
+          <h3 style="margin:0;">${T("Fill template parameters")}</h3>
           ${rows}
           <div class="row">
-            <button data-act="cancel">${T("Cancel", "取消")}</button>
-            <button class="primary" data-act="ok">${T("Continue", "继续")}</button>
+            <button data-act="cancel">${T("Cancel")}</button>
+            <button class="primary" data-act="ok">${T("Continue")}</button>
           </div>
         </div>`;
       document.body.appendChild(overlay);
@@ -275,31 +275,31 @@
     function paramRowHtml(p, idx) {
       return `<div data-pidx="${idx}" style="display:grid;grid-template-columns:1fr 1fr 80px 80px auto;gap:4px;align-items:center;font-size:12px;">
         <input data-pf="key" placeholder="key" value="${escapeHtml(p.key || "")}" />
-        <input data-pf="label_en" placeholder="${T("Label (EN)", "英文标签")}" value="${escapeHtml(p.label_en || "")}" />
+        <input data-pf="label_en" placeholder="${T("Label (EN)")}" value="${escapeHtml(p.label_en || "")}" />
         <select data-pf="type">
           <option value="text" ${p.type === "text" ? "selected" : ""}>text</option>
           <option value="number" ${p.type === "number" ? "selected" : ""}>number</option>
           <option value="select" ${p.type === "select" ? "selected" : ""}>select</option>
         </select>
-        <input data-pf="default" placeholder="${T("default", "默认")}" value="${escapeHtml(p.default || "")}" />
+        <input data-pf="default" placeholder="${T("default")}" value="${escapeHtml(p.default || "")}" />
         <button data-pf="remove" type="button">✕</button>
       </div>`;
     }
     overlay.innerHTML = `
       <div class="box" style="width:min(640px,92vw);">
-        <h3 style="margin:0;">${T("💾 Save as template", "💾 存为模板")}</h3>
-        <input id="tpl-name" placeholder="${T("Template name", "模板名称")}" maxlength="120" />
-        <textarea id="tpl-desc" placeholder="${T("Optional description", "描述(可选)")}" maxlength="1000"></textarea>
-        <textarea id="tpl-seed" placeholder='${T("Seed JSON — use {{key}} placeholders", "种子 JSON — 用 {{key}} 占位")}'>${seed ? escapeHtml(JSON.stringify(seed, null, 2)) : ""}</textarea>
-        <div style="font-size:12px;color:#bbb;">${T("Parameters (others fill {{key}} placeholders)", "参数(他人将填入 {{key}})")}</div>
+        <h3 style="margin:0;">${T("💾 Save as template")}</h3>
+        <input id="tpl-name" placeholder="${T("Template name")}" maxlength="120" />
+        <textarea id="tpl-desc" placeholder="${T("Optional description")}" maxlength="1000"></textarea>
+        <textarea id="tpl-seed" placeholder='${T("Seed JSON — use {{key}} placeholders")}'>${seed ? escapeHtml(JSON.stringify(seed, null, 2)) : ""}</textarea>
+        <div style="font-size:12px;color:#bbb;">${T("Parameters (others fill {{key}} placeholders)")}</div>
         <div id="tpl-params-rows" style="display:flex;flex-direction:column;gap:4px;"></div>
-        <button type="button" id="tpl-params-add" style="align-self:flex-start;font-size:12px;padding:4px 10px;">${T("+ Add parameter", "+ 新增参数")}</button>
+        <button type="button" id="tpl-params-add" style="align-self:flex-start;font-size:12px;padding:4px 10px;">${T("+ Add parameter")}</button>
         <label style="font-size:12px; color:#aaa;">
-          <input type="checkbox" id="tpl-public" checked /> ${T("Publish publicly", "公开发布")}
+          <input type="checkbox" id="tpl-public" checked /> ${T("Publish publicly")}
         </label>
         <div class="row">
-          <button data-act="cancel">${T("Cancel", "取消")}</button>
-          <button class="primary" data-act="save">${T("Save", "保存")}</button>
+          <button data-act="cancel">${T("Cancel")}</button>
+          <button class="primary" data-act="save">${T("Save")}</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -331,10 +331,10 @@
         const desc = overlay.querySelector("#tpl-desc").value.trim();
         const seedText = overlay.querySelector("#tpl-seed").value.trim();
         const isPublic = overlay.querySelector("#tpl-public").checked;
-        if (!name) { alert(T("Name is required.", "请填写名称。")); return; }
+        if (!name) { alert(T("Name is required.")); return; }
         let parsed = null;
         try { parsed = JSON.parse(seedText); } catch {
-          alert(T("Seed JSON is invalid.", "种子 JSON 无效。")); return;
+          alert(T("Seed JSON is invalid.")); return;
         }
         // Collect parameter rows from DOM.
         const collected = [];
@@ -361,9 +361,9 @@
             parameters: collected,
           }),
         });
-        if (r && r.ok) { overlay.remove(); alert(T("Saved.", "已保存。")); }
-        else if (r && r.code === "AUTH_REQUIRED") alert(T("Sign in to save templates.", "请登录以保存模板。"));
-        else alert(T("Save failed.", "保存失败。"));
+        if (r && r.ok) { overlay.remove(); alert(T("Saved.")); }
+        else if (r && r.code === "AUTH_REQUIRED") alert(T("Sign in to save templates."));
+        else alert(T("Save failed."));
       }
     });
   }
@@ -374,7 +374,7 @@
     const btn = document.createElement("button");
     btn.id = "cssos-tpl-save-btn";
     btn.type = "button";
-    btn.textContent = T("💾 Save as template", "💾 存为模板");
+    btn.textContent = T("💾 Save as template");
     btn.style.cssText = "position:fixed; right:18px; bottom:18px; z-index:1000; padding:10px 14px; background:#2a6a3a; color:#fff; border:1px solid #4a8a5a; border-radius:8px; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.4); display:none;";
     btn.addEventListener("click", openSaveDialog);
     document.body.appendChild(btn);
@@ -398,7 +398,7 @@
     const rail = document.createElement("div");
     rail.id = "cssos-tpl-creator-rail";
     rail.className = "cssos-tpl-creator-rail";
-    rail.innerHTML = `<h4>${T("📁 Templates by this creator", "📁 该创作者的模板")}</h4>
+    rail.innerHTML = `<h4>${T("📁 Templates by this creator")}</h4>
       <div class="cssos-tpl-grid">${j.templates.map((t) => renderCard(t, {})).join("")}</div>`;
     const host = document.querySelector("main") || document.body;
     host.appendChild(rail);

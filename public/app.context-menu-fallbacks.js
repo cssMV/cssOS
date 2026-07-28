@@ -25,6 +25,8 @@
 (function attachContextMenuFallbacks(global) {
   "use strict";
 
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
+
   // Panel id by canonical action keyword. Keys are matched against
   // the lowercased English part of the menu label.
   const PANEL_BY_ACTION = Object.freeze({
@@ -110,24 +112,25 @@
         return PANEL_BY_ACTION[key];
       }
     }
-    // Chinese label fallbacks — match common substrings.
-    const zhMap = [
-      ["语言", "language-panel"],
-      ["订阅", "subscription-panel"],
-      ["为你", "foryou-panel"],
-      ["作品", "works-panel"],
-      ["信用", "credit-panel"],
-      ["工作区", "workspaces-panel"],
-      ["设置", "settings-panel"],
-      ["登录", "login-panel"],
-      ["欣赏", "watch-panel"],
-      ["通知", "notifications-panel"],
-      ["用户", "user-admin-panel"],
-      ["交付", "delivery-ops-panel"],
-      ["报表", "delivery-reports-panel"]
+    // Localized label fallbacks — match the active-locale term for
+    // each panel (the i18n pipeline renders these labels per locale).
+    const localizedMap = [
+      [T("Language"), "language-panel"],
+      [T("Subscription"), "subscription-panel"],
+      [T("For You"), "foryou-panel"],
+      [T("Works"), "works-panel"],
+      [T("Credit"), "credit-panel"],
+      [T("Workspaces"), "workspaces-panel"],
+      [T("Settings"), "settings-panel"],
+      [T("Login"), "login-panel"],
+      [T("Watch"), "watch-panel"],
+      [T("Notifications"), "notifications-panel"],
+      [T("Users"), "user-admin-panel"],
+      [T("Delivery"), "delivery-ops-panel"],
+      [T("Reports"), "delivery-reports-panel"]
     ];
-    for (const [zh, panelId] of zhMap) {
-      if (norm.includes(zh)) return panelId;
+    for (const [term, panelId] of localizedMap) {
+      if (term && norm.includes(String(term).toLowerCase())) return panelId;
     }
     return null;
   }

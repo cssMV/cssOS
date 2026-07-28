@@ -413,53 +413,91 @@
 
   function _focalClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+  // CSSOS_WAVE_1668 — 肤色质心(全浏览器人脸启发式, 优于亮度显著性)。返回 {x,y}(0–100) 或 null。
+  //   与 app.actor-gallery f2f 同判据; 上半权重更高(脸通常在上方)。canvas 被污染时 getImageData 抛错 → 调用方兜底。
+  function _skinCentroid(img, W, H) {
+    const sw = Math.min(120, W), sh = Math.max(1, Math.round(sw * H / W));
+    const cv = document.createElement("canvas"); cv.width = sw; cv.height = sh;
+    const g = cv.getContext("2d", { willReadFrequently: true }); if (!g) return null;
+    g.drawImage(img, 0, 0, sw, sh);
+    const d = g.getImageData(0, 0, sw, sh).data;
+    let sx = 0, sy = 0, n = 0;
+    for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+      const i = (y * sw + x) * 4, r = d[i], gg = d[i + 1], bb = d[i + 2];
+      if (r > 60 && gg > 40 && bb > 20 && r > gg && gg >= bb && (r - bb) > 14 && (r - gg) > 3 && (r - gg) < 130) {
+        const w = 1 + (1 - y / sh);
+        sx += x * w; sy += y * w; n += w;
+      }
+    }
+    if (n < 8) return null;
+    return {
+      x: _focalClamp(Math.round((sx / n) / sw * 100), 10, 90),
+      y: _focalClamp(Math.round((sy / n) / sh * 100), 10, 85),
+    };
+  }
+
+  // CSSOS_WAVE_1668 — 焦点迟到时(异步检测在 injectSlide 之后才 resolve), 回填到当前活动帧,
+  //   让人脸即刻拉进裁切框(background-position) + 缩放原点(transform-origin)对齐脸部。
+  function _applyFocalToLiveSlides(url, focal) {
+    try {
+      if (!focal) return;
+      document.querySelectorAll(".cssmv-cover-slide").forEach((el) => {
+        if ((el.style.backgroundImage || "").indexOf(url) !== -1) {
+          el.style.backgroundPosition = focal.x + "% " + focal.y + "%";
+          el.style.transformOrigin = focal.x + "% " + focal.y + "%";
+        }
+      });
+    } catch (_e) {}
+  }
+
   async function _detectFocalPoint(url) {
     if (focalCache.has(url)) return focalCache.get(url);
 
-    // CSSOS_WAVE_440 20260526 — Jing「DevTools: CORS 报错 + net::ERR_FAILED」: covers now
-    // live on cdn.cssstudio.app (R2), whose custom-domain serving does NOT send
-    // Access-Control-Allow-Origin. A crossOrigin Image of a cross-origin cover is
-    // CORS-blocked (the catch already falls back, but it spams the console + wastes a
-    // fetch). Cross-origin images can't be read into a canvas anyway, so skip focal
-    // detection for them entirely → center default, no error, no extra request.
+    // CSSOS_WAVE_1668 20260709 — Jing「媒体框也用上面部识别, 让人脸完整显示」。
+    //   旧版(W440)遇到 cdn.cssstudio.app 跨域封面直接放弃(留 center)→ 脸常被 cover 裁掉,
+    //   且 Safari 读不了跨域像素。现在跨域封面改走【同源】/api/img-thumb 代理读像素
+    //   (canvas 不被污染, 全浏览器可用), 再跑 FaceDetector → 肤色质心 → 亮度显著性。
+    let detectSrc = url;
     try {
       if (new URL(url, location.href).origin !== location.origin) {
-        focalCache.set(url, FOCAL_DEFAULT);
-        return FOCAL_DEFAULT;
+        detectSrc = "/api/img-thumb?fmt=jpg&w=256&u=" + encodeURIComponent(url);
       }
     } catch (_e) {}
 
-    // Load image ONCE for both strategies.
-    // crossOrigin="anonymous" is required for canvas getImageData().
-    // If the URL is already cached by the browser without CORS headers (because
-    // CSS backgroundImage loaded it first), the browser re-fetches it — acceptable
-    // one-time cost.  If the server refuses CORS entirely, img.onerror fires and
-    // we go straight to FOCAL_DEFAULT.
+    // Load image ONCE for all strategies (同源直连或同源代理 → canvas 可读)。
     let img;
     try {
       img = new Image();
       img.crossOrigin = "anonymous";
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = detectSrc; });
     } catch (_) {
       focalCache.set(url, FOCAL_DEFAULT);
       return FOCAL_DEFAULT;
     }
+    const IW = img.naturalWidth || 1, IH = img.naturalHeight || 1;
 
-    // --- Strategy 1: FaceDetector (reuses already-loaded img, no extra fetch) ---
+    // --- Strategy 1: FaceDetector (Chromium) ---
     if (typeof FaceDetector !== "undefined") {
       try {
         const det = new FaceDetector({ maxDetectedFaces: 1, fastMode: true });
         const faces = await det.detect(img);
         if (faces.length > 0) {
           const b = faces[0].boundingBox;
-          const x = _focalClamp(Math.round(((b.x + b.width  * 0.5) / img.naturalWidth)  * 100), 10, 90);
-          const y = _focalClamp(Math.round(((b.y + b.height * 0.4) / img.naturalHeight) * 100), 10, 85);
+          const x = _focalClamp(Math.round(((b.x + b.width  * 0.5) / IW) * 100), 10, 90);
+          const y = _focalClamp(Math.round(((b.y + b.height * 0.4) / IH) * 100), 10, 85);
           const result = { x, y };
           focalCache.set(url, result);
+          _applyFocalToLiveSlides(url, result);
           return result;
         }
       } catch (_) { /* API unsupported or blocked — fall through */ }
     }
+
+    // --- Strategy 2: 肤色质心(全浏览器, 真·人脸信号) ---
+    try {
+      const skin = _skinCentroid(img, IW, IH);
+      if (skin) { focalCache.set(url, skin); _applyFocalToLiveSlides(url, skin); return skin; }
+    } catch (_) { /* tainted canvas / unsupported — fall through */ }
 
     // --- Strategy 2: Canvas local-contrast saliency ---
     // Bug-fix vs first draft: instead of "find brightest+most-saturated cell"
@@ -514,6 +552,7 @@
       const y = _focalClamp(Math.round(((by + 0.5) / GRID) * 100), 5, 95);
       const result = { x, y };
       focalCache.set(url, result);
+      _applyFocalToLiveSlides(url, result);
       return result;
     } catch (_) { /* CORS-tainted canvas or unsupported */ }
 
@@ -560,6 +599,8 @@
       // Odd counter  → zoom-in  (wide→特写)
       kbClass = (__kbCounter % 2 === 0) ? "cssmv-kb-focal-out" : "cssmv-kb-focal-in";
       next.style.transformOrigin = `${focal.x}% ${focal.y}%`;
+      // CSSOS_WAVE_1668 — 把人脸拉进 cover 裁切框(不再固定 center), 让脸完整显示。
+      next.style.backgroundPosition = `${focal.x}% ${focal.y}%`;
     } else {
       kbClass = "cssmv-kb-" + (__kbCounter % 12);
     }

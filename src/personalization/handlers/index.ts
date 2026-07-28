@@ -31,6 +31,7 @@ import {
   anniversaryMarriageTrigger,
   anniversaryOtherTrigger,
 } from "./anniversaries.js";
+import { accountDeletionTrigger } from "./account-deletion.js";
 
 let REGISTERED = false;
 
@@ -59,13 +60,17 @@ export function registerAllPersonalizationTriggers(): void {
   // Stage H — anniversaries
   registerGiftTrigger(anniversaryMarriageTrigger);
   registerGiftTrigger(anniversaryOtherTrigger);
+  // Stage I — farewell on account close (W1755)
+  registerGiftTrigger(accountDeletionTrigger);
   console.log(
     "[personalization] registered triggers: welcome, first_subscriber, " +
       "milestone_100, milestone_1000, milestone_10000, milestone_100000, " +
       "plan_upgrade, plan_downgrade, birthday, feedback_adopted, " +
-      "anniversary_marriage, anniversary_other",
+      "anniversary_marriage, anniversary_other, account_deletion",
   );
 }
 
 // Re-export the birthday cron so the boot scheduler can call it.
 export { runDailyBirthdayFlush } from "./birthday.js";
+// Re-export the anniversary cron (Stage H2) alongside it.
+export { runDailyAnniversaryFlush } from "./anniversaries.js";

@@ -6,6 +6,21 @@ import Foundation
 enum CSSBackend {
     /// 线上后端。
     static let baseURL = "https://cssstudio.app"
+    // W1575 — App Group 共享容器: app 主体(网络正常)把 Top Shelf 精选写进来, 扩展【直接读、零网络】。
+    static let appGroupID = "group.CSSStudio.cssTV"
+    /// 把前 10 个精选(id/title/cover/video)写进共享容器, 供 Top Shelf 扩展读取(绕开扩展进程网络限制)。
+    static func writeTopShelfCache(_ works: [CSSWork]) {
+        guard let ud = UserDefaults(suiteName: appGroupID) else { return }
+        let items: [[String: String]] = works.prefix(10).compactMap { w in
+            guard let cover = w.coverURL, !cover.isEmpty else { return nil }
+            var d: [String: String] = ["id": w.id, "title": w.title ?? "cssTV", "cover": cover]
+            if let v = w.bestVideo, !v.isEmpty { d["video"] = v }
+            return d
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: items) {
+            ud.set(data, forKey: "topshelf_items")
+        }
+    }
 
     // MARK: - 开箱即播的旗舰样本(与 visionOS 骨架同一首《混沌の海》, 真实可播放地址)。
     static let flagship = CSSWork(
@@ -85,11 +100,14 @@ enum CSSBackend {
     }
     private struct RecommendEnvelope: Decodable { let results: [CastSlot]? }
     /// POST /api/cast/recommend {format,civilization} → 每个角色槽的候选(同文明/戏路优先)。
-    static func castRecommend(format: String, civ: String) async -> [CastSlot] {
+    static func castRecommend(format: String, civ: String, needed: [[String: String]] = []) async -> [CastSlot] {
         guard let url = URL(string: "\(baseURL)/api/cast/recommend") else { return [] }
         var req = URLRequest(url: url); req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["format": format, "civilization": civ])
+        // W1578 — 照搬桌面端: 明确告知每个待荐槽的 role+alignment(反派=evil, 配角=neutral), 否则后端返回通用池、反派荐成庄子。
+        var body: [String: Any] = ["format": format, "civilization": civ]
+        if !needed.isEmpty { body["needed"] = needed }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         do {
             let (data, _) = try await URLSession.shared.data(for: req)
             return (try? JSONDecoder().decode(RecommendEnvelope.self, from: data))?.results ?? []
@@ -292,12 +310,15 @@ enum CSSBackend {
     // W1259 — 创作台: 把提示词发给后端 AI 助理(开始创作)。返回是否成功送达。
     /// W1548 — 创作意念 → agent。返回 { ok, intent }。intent=="ifilm" → 打开互动电影播放屏(Slice 3)。
     struct CastResult { let ok: Bool; let intent: String?; let ifilmId: String?; let reply: String? }
-    static func castMV(prompt: String) async -> CastResult {
+    static func castMV(prompt: String, cast: [[String: String]] = []) async -> CastResult {
         guard let url = URL(string: "\(baseURL)/api/agent/chat") else { return CastResult(ok: false, intent: nil, ifilmId: nil, reply: nil) }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["message": prompt, "source": "csstv"])
+        // W1578 — 从数字演员选角进来时带上 cast → 后端 create_work 封面锁脸(演员本人形象)。空则不影响。
+        var payload: [String: Any] = ["message": prompt, "source": "csstv"]
+        if !cast.isEmpty { payload["cast"] = cast }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             let ok = (resp as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false

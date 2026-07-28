@@ -6,6 +6,8 @@
   "use strict";
   if (window.cssosCostGateCheck) return;
 
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
+
   function fmt(usd) { return usd || "$0.00"; }
 
   // 估算 + 提示(不拦截), 返回估算数据供 UI 展示"预计成本 $X · 建议售价 $Y"。
@@ -23,13 +25,10 @@
       // 小制作(总价低)直接放行, 不打扰。
       if (e.sufficient) return { ok: true, estimate: e };
       // 余额不足 → 弹引导。
-      var msg = (typeof T === "function")
-        ? T('This production is estimated at ' + fmt(e.total_usd) + '. Your balance is ' + fmt(e.balance_usd) + '. Please top up ' + fmt(e.need_topup_usd) + ' (incl. 20% buffer) so it doesn\'t stop halfway.',
-            '本片预计需 ' + fmt(e.total_usd) + '。你的余额 ' + fmt(e.balance_usd) + '。请先充值 ' + fmt(e.need_topup_usd) + '(含 20% 缓冲),以免生成到一半没钱。')
-        : ('Estimated ' + fmt(e.total_usd) + ', balance ' + fmt(e.balance_usd) + '. Top up ' + fmt(e.need_topup_usd) + '.');
+      var msg = T(`This production is estimated at ${fmt(e.total_usd)}. Your balance is ${fmt(e.balance_usd)}. Please top up ${fmt(e.need_topup_usd)} (incl. 20% buffer) so it doesn't stop halfway.`);
       try {
         if (typeof window.cssosGuidedToast === "function") {
-          window.cssosGuidedToast(msg, { actions: [{ label: (typeof T === "function" ? T("Top up", "去充值") : "Top up"), onClick: function () { try { location.hash = "#subscription"; } catch (_e) {} } }] });
+          window.cssosGuidedToast(msg, { actions: [{ label: T("Top up"), onClick: function () { try { location.hash = "#subscription"; } catch (_e) {} } }] });
         } else { window.alert(msg); }
       } catch (_e) { try { window.alert(msg); } catch (_e2) {} }
       return { ok: false, blocked: true, estimate: e };

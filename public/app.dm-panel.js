@@ -9,8 +9,7 @@
   if (window.__cssosDmMounted) return;
   window.__cssosDmMounted = true;
 
-  const ZH = /^zh/i.test(String(globalThis.currentLocale || navigator.language || "en"));
-  const T = (en, zh) => (ZH ? zh : en);
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
   const safe = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (m) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[m]));
@@ -20,13 +19,13 @@
       if (!t) return "";
       const dt = Math.max(0, Date.now() - t);
       const s = Math.floor(dt / 1000);
-      if (s < 60) return T("now", "刚刚");
+      if (s < 60) return T("now");
       const m = Math.floor(s / 60);
-      if (m < 60) return T(`${m}m`, `${m}分钟前`);
+      if (m < 60) return `${m}${T("m")}`;
       const h = Math.floor(m / 60);
-      if (h < 24) return T(`${h}h`, `${h}小时前`);
+      if (h < 24) return `${h}${T("h")}`;
       const d = Math.floor(h / 24);
-      return T(`${d}d`, `${d}天前`);
+      return `${d}${T("d")}`;
     } catch (_e) { return ""; }
   }
 
@@ -211,7 +210,7 @@
     const host = document.createElement("div");
     host.className = "cssos-dm-host";
     host.innerHTML = `
-      <button class="cssos-dm-btn" type="button" title="${T("Messages", "私信")}" aria-label="${T("Messages", "私信")}">
+      <button class="cssos-dm-btn" type="button" title="${T("Messages")}" aria-label="${T("Messages")}">
         💌<span class="cssos-dm-badge" hidden>0</span>
       </button>
     `;
@@ -293,20 +292,20 @@
       <div class="cssos-dm-shell">
         <aside class="cssos-dm-rail">
           <div class="cssos-dm-rail-head">
-            <span>${T("Messages", "私信")}</span>
+            <span>${T("Messages")}</span>
             <span style="display:flex;gap:6px;align-items:center;">
-              <button class="cssos-dm-newgroup-btn" type="button" title="${T("New group", "新建群组")}">+ ${T("New group", "新建群组")}</button>
+              <button class="cssos-dm-newgroup-btn" type="button" title="${T("New group")}">+ ${T("New group")}</button>
               <button class="cssos-dm-close" type="button" aria-label="Close">✕</button>
             </span>
           </div>
           <div class="cssos-dm-threads"></div>
         </aside>
         <section class="cssos-dm-pane">
-          <div class="cssos-dm-pane-head"><span>${T("Select a conversation", "选择一段对话")}</span></div>
-          <div class="cssos-dm-msgs"><div class="cssos-dm-empty">${T("No conversation selected.", "尚未选择对话。")}</div></div>
+          <div class="cssos-dm-pane-head"><span>${T("Select a conversation")}</span></div>
+          <div class="cssos-dm-msgs"><div class="cssos-dm-empty">${T("No conversation selected.")}</div></div>
           <div class="cssos-dm-input-row">
-            <textarea class="cssos-dm-input" rows="1" placeholder="${T("Type a message…", "输入消息…")}" disabled></textarea>
-            <button class="cssos-dm-send" type="button" disabled>${T("Send", "发送")}</button>
+            <textarea class="cssos-dm-input" rows="1" placeholder="${T("Type a message…")}" disabled></textarea>
+            <button class="cssos-dm-send" type="button" disabled>${T("Send")}</button>
           </div>
         </section>
       </div>
@@ -329,24 +328,24 @@
     const list = ov.querySelector(".cssos-dm-threads");
     const j = await api("/api/dm/threads?limit=30");
     if (!j || !j.ok) {
-      list.innerHTML = `<div class="cssos-dm-empty" style="padding:20px">${T("Sign in to message.", "登录后使用私信。")}</div>`;
+      list.innerHTML = `<div class="cssos-dm-empty" style="padding:20px">${T("Sign in to message.")}</div>`;
       return;
     }
     if (!j.threads || !j.threads.length) {
       const _ems = globalThis.cssosEmptyStateMarkup;
       list.innerHTML = _ems
-        ? _ems({ icon: "💬", title: T("No conversations yet.", "还没有对话。"), sub: T("Message a creator from their profile to start one.", "在创作者主页上私信 TA,即可开始对话。") })
-        : `<div class="cssos-dm-empty" style="padding:20px">${T("No conversations yet.", "还没有对话。")}</div>`;
+        ? _ems({ icon: "💬", title: T("No conversations yet."), sub: T("Message a creator from their profile to start one.") })
+        : `<div class="cssos-dm-empty" style="padding:20px">${T("No conversations yet.")}</div>`;
       return;
     }
     list.innerHTML = j.threads.map((t) => {
       const isGroup = t.kind === "group";
       const name = isGroup
-        ? (t.title || T("Group", "群组"))
+        ? (t.title || T("Group"))
         : ((t.other && (t.other.display_name || t.other.username)) || "user");
       const unread = Number(t.unread_count || 0);
       const cls = "cssos-dm-thread" + (t.thread_id === activeThreadId ? " active" : "");
-      const preview = t.last_body ? String(t.last_body).slice(0, 80) : T("No messages yet.", "暂无消息");
+      const preview = t.last_body ? String(t.last_body).slice(0, 80) : T("No messages yet.");
       const icon = isGroup
         ? `<div class="cssos-dm-thread-icon">👥</div>`
         : avatarHtml(t.other || {});
@@ -437,7 +436,7 @@
     const ov = getOverlay();
     const list = ov.querySelector(".cssos-dm-msgs");
     if (!messages.length) {
-      list.innerHTML = `<div class="cssos-dm-empty">${T("Say hi 👋", "打个招呼 👋")}</div>`;
+      list.innerHTML = `<div class="cssos-dm-empty">${T("Say hi 👋")}</div>`;
       lastSeenMessageId = "0";
       return;
     }
@@ -475,24 +474,24 @@
     ov.querySelector(".cssos-dm-shell").classList.add("has-active");
     const head = ov.querySelector(".cssos-dm-pane-head");
     if (activeThreadKind === "group") {
-      const title = activeThreadTitle || T("Group", "群组");
+      const title = activeThreadTitle || T("Group");
       head.innerHTML = `<div class="cssos-dm-thread-icon">👥</div><span>${safe(title)}</span>
         <span class="cssos-dm-pane-actions">
-          <button class="cssos-dm-manage" type="button">${T("Manage", "管理")}</button>
-          <button class="cssos-dm-leave" type="button">${T("Leave", "离开")}</button>
+          <button class="cssos-dm-manage" type="button">${T("Manage")}</button>
+          <button class="cssos-dm-leave" type="button">${T("Leave")}</button>
         </span>`;
       const mg = head.querySelector(".cssos-dm-manage");
       if (mg) mg.addEventListener("click", () => manageGroup(tid));
       const lv = head.querySelector(".cssos-dm-leave");
       if (lv) lv.addEventListener("click", () => leaveGroup(tid));
     } else {
-      const otherName = (other && (other.display_name || other.username)) || T("Conversation", "对话");
+      const otherName = (other && (other.display_name || other.username)) || T("Conversation");
       head.innerHTML = `${avatarHtml(other || {})}<span>${safe(otherName)}</span>`;
     }
     const list = ov.querySelector(".cssos-dm-msgs");
     list.innerHTML = (globalThis.cssosSkeletonRowsMarkup
-      ? globalThis.cssosSkeletonRowsMarkup(5, T("Loading…", "加载中…"))
-      : `<div class="cssos-dm-empty">${T("Loading…", "加载中…")}</div>`);
+      ? globalThis.cssosSkeletonRowsMarkup(5, T("Loading…"))
+      : `<div class="cssos-dm-empty">${T("Loading…")}</div>`);
     const input = ov.querySelector(".cssos-dm-input");
     const sendBtn = ov.querySelector(".cssos-dm-send");
     input.disabled = false; sendBtn.disabled = false; input.value = "";
@@ -503,7 +502,7 @@
     });
     const j = await api(`/api/dm/threads/${encodeURIComponent(tid)}/messages?limit=50`);
     if (!j || !j.ok) {
-      list.innerHTML = `<div class="cssos-dm-empty">${T("Failed to load.", "加载失败。")}</div>`;
+      list.innerHTML = `<div class="cssos-dm-empty">${T("Failed to load.")}</div>`;
       return;
     }
     renderMessages(j.messages || []);
@@ -522,7 +521,7 @@
     const body = String(input.value || "").trim();
     if (!body) return;
     if (body.length > 4000) {
-      alert(T("Message too long (max 4000).", "消息过长（最多 4000 字符）。"));
+      alert(T("Message too long (max 4000)."));
       return;
     }
     sendBtn.disabled = true; input.disabled = true;
@@ -535,11 +534,11 @@
     if (!j || !j.ok) {
       if (j && j.code === "BLOCKED") {
         input.disabled = true; sendBtn.disabled = true;
-        input.placeholder = T("You blocked this user — unblock to message", "你已屏蔽该用户 — 解除屏蔽以发消息");
+        input.placeholder = T("You blocked this user — unblock to message");
       } else if (j && j.code === "RATE_LIMITED") {
-        alert(T("Too many messages — slow down.", "发送过快 — 请稍后再试。"));
+        alert(T("Too many messages — slow down."));
       } else {
-        alert(T("Send failed.", "发送失败。"));
+        alert(T("Send failed."));
       }
       return;
     }
@@ -563,7 +562,7 @@
   async function openPanel() {
     const ov = getOverlay();
     if (!await ensureMe()) {
-      alert(T("Sign in to use messages.", "请登录以使用私信。"));
+      alert(T("Sign in to use messages."));
       window.location.hash = "";
       return;
     }
@@ -602,14 +601,14 @@
     m.className = "cssos-dm-modal";
     m.innerHTML = `
       <div class="cssos-dm-modal-card">
-        <h3>${T("New group", "新建群组")}</h3>
-        <label>${T("Group title", "群组名称")}</label>
-        <input class="ng-title" type="text" maxlength="120" placeholder="${T("Team chat", "群聊")}" />
-        <label>${T("Members (comma-separated handles)", "成员（用逗号分隔的用户名）")}</label>
+        <h3>${T("New group")}</h3>
+        <label>${T("Group title")}</label>
+        <input class="ng-title" type="text" maxlength="120" placeholder="${T("Team chat")}" />
+        <label>${T("Members (comma-separated handles)")}</label>
         <input class="ng-members" type="text" placeholder="alice, bob" />
         <div class="cssos-dm-modal-actions" data-segmented="2" data-pill-bar>
-          <button class="ghost" type="button">${T("Cancel", "取消")}</button>
-          <button class="primary" type="button">${T("Create", "创建")}</button>
+          <button class="ghost" type="button">${T("Cancel")}</button>
+          <button class="primary" type="button">${T("Create")}</button>
         </div>
       </div>
     `;
@@ -620,14 +619,14 @@
     m.querySelector(".primary").addEventListener("click", async () => {
       const title = m.querySelector(".ng-title").value.trim();
       const members = m.querySelector(".ng-members").value.split(",").map((x) => x.trim()).filter(Boolean);
-      if (!title) { alert(T("Title required.", "请填写群名。")); return; }
-      if (members.length < 1) { alert(T("Add at least one member.", "至少添加一位成员。")); return; }
+      if (!title) { alert(T("Title required.")); return; }
+      if (members.length < 1) { alert(T("Add at least one member.")); return; }
       const j = await api("/api/dm/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, member_handles: members }),
       });
-      if (!j || !j.ok) { alert(T("Could not create group.", "无法创建群组。")); return; }
+      if (!j || !j.ok) { alert(T("Could not create group.")); return; }
       close();
       await loadThreads();
       openThread(j.thread_id, null, { kind: "group", title: j.title });
@@ -635,28 +634,28 @@
   }
   async function manageGroup(tid) {
     const j = await api(`/api/dm/groups/${encodeURIComponent(tid)}/members`);
-    if (!j || !j.ok) { alert(T("Failed to load members.", "加载成员失败。")); return; }
+    if (!j || !j.ok) { alert(T("Failed to load members.")); return; }
     const canInvite = j.my_role === "owner" || j.my_role === "admin";
     const handle = canInvite
-      ? prompt(T("Invite a user (handle):", "邀请用户（用户名）："), "")
+      ? prompt(T("Invite a user (handle):"), "")
       : null;
     if (handle && handle.trim()) {
       const r = await api(`/api/dm/groups/${encodeURIComponent(tid)}/invite`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ handle: handle.trim() }),
       });
-      if (!r || !r.ok) alert(T("Invite failed.", "邀请失败。"));
+      if (!r || !r.ok) alert(T("Invite failed."));
       else loadThreads();
     }
   }
   async function leaveGroup(tid) {
-    if (!confirm(T("Leave this group?", "确定要离开此群组？"))) return;
+    if (!confirm(T("Leave this group?"))) return;
     const r = await api(`/api/dm/groups/${encodeURIComponent(tid)}/leave`, { method: "POST" });
     if (!r || !r.ok) {
       if (r && r.code === "OWNER_MUST_TRANSFER") {
-        alert(T("Transfer ownership before leaving.", "请先转让群主再离开。"));
+        alert(T("Transfer ownership before leaving."));
       } else {
-        alert(T("Leave failed.", "退出失败。"));
+        alert(T("Leave failed."));
       }
       return;
     }
@@ -688,7 +687,7 @@
   window.cssosOpenDmWith = async function (handle) {
     if (!handle) return;
     if (!await ensureMe()) {
-      alert(T("Sign in to send a message.", "请登录后发送消息。"));
+      alert(T("Sign in to send a message."));
       return;
     }
     const j = await api("/api/dm/start", {
@@ -698,9 +697,9 @@
     });
     if (!j || !j.ok) {
       if (j && j.code === "BLOCKED") {
-        alert(T("Cannot message — blocked.", "无法发送 — 已屏蔽。"));
+        alert(T("Cannot message — blocked."));
       } else {
-        alert(T("Could not open conversation.", "无法打开对话。"));
+        alert(T("Could not open conversation."));
       }
       return;
     }

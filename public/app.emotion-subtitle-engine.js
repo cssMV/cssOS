@@ -247,6 +247,28 @@
       });
     });
 
+    // W1745 — Jing「每句最后一个拖腔字显示长一些, 直到下一句」: 把每句最后一个字(及句尾)的 end
+    //   延到下一句开始(留 80ms 缝), 让持续尾音的字幕不早退。跨长间奏封顶 MAX_HOLD 秒(免得一个字亮穿
+    //   整段间奏); 只延长不缩短; 下一句已重叠则不动; 末句延一个上限。逐字 onset(start)不变, 只动 end。
+    (function extendHeldTails() {
+      var GAP = 0.08, MAX_HOLD = 6;
+      for (var ci = 0; ci < cues.length; ci++) {
+        var cu = cues[ci];
+        if (!cu) continue;
+        var lw = (cu.words && cu.words.length) ? cu.words[cu.words.length - 1] : null;
+        var naturalEnd = lw ? Number(lw.end_s) : Number(cu.end_s);
+        if (!(naturalEnd >= 0)) continue;
+        var nextStart = (ci + 1 < cues.length) ? Number(cues[ci + 1].start_s) : null;
+        var target = naturalEnd;
+        if (nextStart != null && nextStart > naturalEnd) target = Math.min(nextStart - GAP, naturalEnd + MAX_HOLD);
+        else if (nextStart == null) target = naturalEnd + MAX_HOLD;   // 末句: 延一个上限
+        if (target > naturalEnd) {
+          if (lw) lw.end_s = Number(target.toFixed(3));
+          if (Number(cu.end_s) < target) cu.end_s = Number(target.toFixed(3));
+        }
+      }
+    })();
+
     return cues.length ? cues : null;
   }
 
@@ -415,6 +437,7 @@
       // stored nudge is applied on load, and the slider edits the right work.
       _offsetWorkId = workId;
       _rawCues = null; _rawWords = null;
+      try { clearUndoHistory(); } catch (_e) {}   // W1739 — 换作品 → 撤销历史归零
       _offsetSec = (Number(j && j.subtitle_offset_ms) || 0) / 1000;
       // W995 — adopt saved per-line offsets (keys are line indices, values ms).
       _lineOffsets = {};
@@ -429,7 +452,8 @@
         for (var tk in to) { if (Object.prototype.hasOwnProperty.call(to, tk)) _tokenOffsets[tk] = Number(to[tk]) || 0; }
       } catch (_e) { _tokenOffsets = {}; }
       // W1048 — adopt saved token add/delete edits (non-destructive overlay).
-      _tokenEdits = { added: [], deleted: {} };
+      // W1741 — + renamed{原始字起始ms: 新文字}: 直接改已有字的文字(非破坏, 原字幕 JSON 永不改)。
+      _tokenEdits = { added: [], deleted: {}, renamed: {} };
       _pristineCues = null; _pristineWords = null;
       try {
         var te = (j && j.subtitle_token_edits) || {};
@@ -444,7 +468,15 @@
           });
         }
         if (Array.isArray(te.deleted)) { te.deleted.forEach(function (k) { var s = String(k == null ? "" : k).trim(); if (s) _tokenEdits.deleted[s] = true; }); }
-      } catch (_e) { _tokenEdits = { added: [], deleted: {} }; }
+        if (te.renamed && typeof te.renamed === "object") {
+          for (var _rk in te.renamed) {
+            if (!Object.prototype.hasOwnProperty.call(te.renamed, _rk)) continue;
+            if (!/^\d{1,8}$/.test(_rk)) continue;
+            var _rv = String(te.renamed[_rk] == null ? "" : te.renamed[_rk]).trim();
+            if (_rv) _tokenEdits.renamed[_rk] = _rv.slice(0, 40);
+          }
+        }
+      } catch (_e) { _tokenEdits = { added: [], deleted: {}, renamed: {} }; }
       var tracks = (j && j.tracks) || [];
       var def = tracks.find(function (t) { return t.is_default; })
         || tracks.find(function (t) { return t.status === "ready" && t.subtitle_take1_json_url; })
@@ -472,7 +504,8 @@
   //   渲染/编辑器行为与旧版【逐字节完全一致】。
   var _pristineCues = null;
   var _pristineWords = null;
-  var _tokenEdits = { added: [], deleted: {} };
+  // W1741 — + renamed{原始字起始ms: 新文字}: 直接改已有字的文字(非破坏覆写)。
+  var _tokenEdits = { added: [], deleted: {}, renamed: {} };
   // CSSOS_WAVE_995 — per-line offsets {lineIndex: ms}. Applied on top of the
   // global offset so the user can fine-tune one line that leads/lags the vocal.
   var _lineOffsets = {};
@@ -613,6 +646,38 @@
     setLineOffset(i, (_lineOffsets[i] || 0) + (Number(deltaMs) || 0), opts);
     return i;
   }
+  // CSSOS_WAVE_1738 — Jing「整体平移(从这句起全体平移)」: add the SAME deltaMs to line
+  // `fromIdx` AND every subsequent line (additive on each line's existing offset, clamp
+  // ±30s). Fixes the most common drift — "from here on, everything is late" — in one
+  // gesture instead of dragging each line. Saves the WHOLE map once via the batched
+  // /subtitle-line-offsets endpoint (opts.persist:false to defer). Returns lines touched.
+  function rippleLineOffset(fromIdx, deltaMs, opts) {
+    if (!_rawCues) return 0;
+    fromIdx = Math.max(0, Math.trunc(Number(fromIdx) || 0));
+    var delta = Math.trunc(Number(deltaMs) || 0);
+    if (!delta) return 0;
+    var o = opts || {};
+    var n = 0;
+    for (var i = fromIdx; i < _rawCues.length; i++) {
+      var v = Math.max(-30000, Math.min(30000, (_lineOffsets[i] || 0) + delta));
+      if (v === 0) delete _lineOffsets[i]; else _lineOffsets[i] = v;
+      n++;
+    }
+    applyWithOffset();
+    if (o.persist !== false) _persistAllLines();
+    return n;
+  }
+  // Batch-save the entire per-line offset map in one POST (used by ripple).
+  function _persistAllLines() {
+    if (!_offsetWorkId) return;
+    try {
+      fetch("/api/works/" + encodeURIComponent(_offsetWorkId) + "/subtitle-line-offsets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offsets: _lineOffsets }),
+      }).catch(function () {});
+    } catch (_e) {}
+  }
 
   // ── CSSOS_WAVE_996 — per-token API for the waveform editor ──────────────────
   // Set a token's absolute offset (ms) keyed by its RAW start ms. Live; the
@@ -639,6 +704,7 @@
   function _editsActive() {
     if (_tokenEdits && _tokenEdits.added && _tokenEdits.added.length) return true;
     if (_tokenEdits && _tokenEdits.deleted) { for (var k in _tokenEdits.deleted) { if (_tokenEdits.deleted[k]) return true; } }
+    if (_tokenEdits && _tokenEdits.renamed) { for (var rk in _tokenEdits.renamed) { if (_tokenEdits.renamed[rk] != null) return true; } }  // W1741
     return false;
   }
   // 给定时间 t(秒)定位最合适的 cue 索引: 命中区间优先, 否则 t 之前最近的一行, 否则第 0 行。
@@ -656,16 +722,37 @@
   function _applyTokenEdits(cues, words) {
     if (!cues || !_editsActive()) return { cues: cues, words: words };
     var del = (_tokenEdits && _tokenEdits.deleted) || {};
-    // 1) 删除: 按【原始字起始 ms】key 过滤每个 cue 的 words + 扁平 wordArray。
+    var ren = (_tokenEdits && _tokenEdits.renamed) || {};
+    var _hasRen = false; for (var _rrk in ren) { if (ren[_rrk] != null) { _hasRen = true; break; } }
+    // W1741 — 改字: 克隆该 word, 覆写 text/char(原字幕永不改)。key 与删除同用【原始字起始 ms】。
+    function _renWord(w, key) {
+      if (!_hasRen || ren[key] == null) return w;
+      var w2 = {}; for (var wk in w) { if (Object.prototype.hasOwnProperty.call(w, wk)) w2[wk] = w[wk]; }
+      var nt = String(ren[key]);
+      if ("text" in w2) w2.text = nt;
+      if ("char" in w2) w2.char = nt;
+      if (!("text" in w) && !("char" in w)) w2.text = nt;   // 原字段都没有 → 兜底 text
+      return w2;
+    }
+    // 1) 删除 + 改字: 按【原始字起始 ms】key 处理每个 cue 的 words + 扁平 wordArray。
     var outCues = cues.map(function (c) {
       if (!Array.isArray(c.words)) return c;
-      var nw = c.words.filter(function (w) { return !del[String(Math.round(_wordTime(w) * 1000))]; });
-      if (nw.length === c.words.length) return c; // 本行无删除 → 复用原对象
+      var changed = false;
+      var nw = [];
+      c.words.forEach(function (w) {
+        var key = String(Math.round(_wordTime(w) * 1000));
+        if (del[key]) { changed = true; return; }        // 删
+        var rw = _renWord(w, key);
+        if (rw !== w) changed = true;                    // 改字
+        nw.push(rw);
+      });
+      if (!changed) return c; // 本行无删除/改字 → 复用原对象
       var nc = {}; for (var k in c) { if (Object.prototype.hasOwnProperty.call(c, k)) nc[k] = c[k]; }
       nc.words = nw; return nc;
     });
     var outWords = Array.isArray(words)
-      ? words.filter(function (w) { return !del[String(Math.round((Number(w.t_start) || 0) * 1000))]; })
+      ? words.filter(function (w) { return !del[String(Math.round(_wordTime(w) * 1000))]; })
+             .map(function (w) { return _renWord(w, String(Math.round(_wordTime(w) * 1000))); })
       : words;
     // 2) 新增: 每个 added token 插入目标 cue(按 line 或时间)+ 扁平数组, 各自重排。
     var added = (_tokenEdits && _tokenEdits.added) || [];
@@ -725,6 +812,21 @@
     _tokenEdits.added = _tokenEdits.added.filter(function (a) { return a.id !== id; });
     _remergeEdits();
   }
+  // W1741 — 直接改一个字的文字(非破坏)。原始字 → renamed[rawStartMs] 覆写; 用户加的字 → 改 added 记录。
+  //   空文字: 原始字 = 撤销覆写(还原原文); 加的字 = 忽略(要删请走 removeAddedToken)。
+  function setTokenText(rawStartMs, text, addId) {
+    var txt = String(text == null ? "" : text).trim().slice(0, 40);
+    if (addId) {
+      for (var i = 0; i < _tokenEdits.added.length; i++) {
+        if (_tokenEdits.added[i].id === addId) { if (txt) _tokenEdits.added[i].text = txt; break; }
+      }
+    } else {
+      if (!_tokenEdits.renamed) _tokenEdits.renamed = {};
+      var key = String(Math.round(Number(rawStartMs) || 0));
+      if (txt) _tokenEdits.renamed[key] = txt; else delete _tokenEdits.renamed[key];
+    }
+    _remergeEdits();
+  }
   function saveTokenEdits() {
     if (!_offsetWorkId) return Promise.resolve();
     var deletedArr = []; for (var k in _tokenEdits.deleted) { if (_tokenEdits.deleted[k]) deletedArr.push(k); }
@@ -732,7 +834,7 @@
       return fetch("/api/works/" + encodeURIComponent(_offsetWorkId) + "/subtitle-token-edits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ added: _tokenEdits.added, deleted: deletedArr }),
+        body: JSON.stringify({ added: _tokenEdits.added, deleted: deletedArr, renamed: _tokenEdits.renamed || {} }),
       }).catch(function () {});
     } catch (_e) { return Promise.resolve(); }
   }
@@ -792,6 +894,73 @@
   }
   function getOffsetMs() { return Math.round(_offsetSec * 1000); }
 
+  // ── W1739 — Undo/redo for ALL fine-tune edits (Jing「安全底座, 拖错能撤」) ───────────────
+  // Snapshots the 4 non-destructive overlays (全局对齐 _offsetSec / 单句+整体平移 _lineOffsets /
+  // 逐字 _tokenOffsets / 加删字 _tokenEdits). UI wraps each discrete action in undoBegin()…
+  // undoCommit() (a no-op entry is skipped by the equality check). undo()/redo() restore a
+  // snapshot then re-persist all overlays. In-memory model is the single source of truth.
+  var _undoStack = [], _redoStack = [], _undoBegin = null, _UNDO_MAX = 80;
+  function _cloneJSON(x) { try { return JSON.parse(JSON.stringify(x == null ? null : x)); } catch (_e) { return null; } }
+  function _snapshot() {
+    return {
+      o: _offsetSec,
+      l: _cloneJSON(_lineOffsets) || {},
+      t: _cloneJSON(_tokenOffsets) || {},
+      e: { added: _cloneJSON(_tokenEdits && _tokenEdits.added) || [], deleted: _cloneJSON(_tokenEdits && _tokenEdits.deleted) || {}, renamed: _cloneJSON(_tokenEdits && _tokenEdits.renamed) || {} },
+    };
+  }
+  function _restore(s) {
+    if (!s) return;
+    _offsetSec = Number(s.o) || 0;
+    _lineOffsets = _cloneJSON(s.l) || {};
+    _tokenOffsets = _cloneJSON(s.t) || {};
+    _tokenEdits = { added: _cloneJSON(s.e && s.e.added) || [], deleted: _cloneJSON(s.e && s.e.deleted) || {}, renamed: _cloneJSON(s.e && s.e.renamed) || {} };
+    if (_pristineCues) _remergeEdits(); else applyWithOffset();   // 全量重应用(加删字 + 各级偏移)
+  }
+  function _persistOffset() {
+    if (!_offsetWorkId) return;
+    try {
+      fetch("/api/works/" + encodeURIComponent(_offsetWorkId) + "/subtitle-offset", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offset_ms: Math.round(_offsetSec * 1000) }),
+      }).catch(function () {});
+    } catch (_e) {}
+  }
+  function _persistAllOverlays() {
+    try { _persistOffset(); } catch (_e) {}
+    try { _persistAllLines(); } catch (_e) {}
+    try { saveTokenOffsets(); } catch (_e) {}
+    try { saveTokenEdits(); } catch (_e) {}
+  }
+  // 动作开始: 记下当前状态。动作结束: 若确有改动就压入撤销栈(跳过空操作), 并清空重做栈。
+  function undoBegin() { _undoBegin = _snapshot(); }
+  function undoCommit() {
+    if (!_undoBegin) return;
+    if (JSON.stringify(_undoBegin) !== JSON.stringify(_snapshot())) {
+      _undoStack.push(_undoBegin);
+      if (_undoStack.length > _UNDO_MAX) _undoStack.shift();
+      _redoStack.length = 0;
+    }
+    _undoBegin = null;
+  }
+  function undo() {
+    if (!_undoStack.length) return false;
+    _redoStack.push(_snapshot());
+    _restore(_undoStack.pop());
+    _persistAllOverlays();
+    return true;
+  }
+  function redo() {
+    if (!_redoStack.length) return false;
+    _undoStack.push(_snapshot());
+    _restore(_redoStack.pop());
+    _persistAllOverlays();
+    return true;
+  }
+  function canUndo() { return _undoStack.length > 0; }
+  function canRedo() { return _redoStack.length > 0; }
+  function clearUndoHistory() { _undoStack.length = 0; _redoStack.length = 0; _undoBegin = null; }
+
   globalThis.cssosEmotionSubtitle = {
     load: load, reset: reset, loadForWork: loadForWork,
     setOffset: setOffset, getOffsetMs: getOffsetMs,
@@ -799,6 +968,11 @@
     currentLineIndex: currentLineIndex,
     setLineOffset: setLineOffset, getLineOffset: getLineOffset,
     nudgeCurrentLine: nudgeCurrentLine,
+    rippleLineOffset: rippleLineOffset,   // W1738 — 从这句起全体平移
+    // W1739 — 撤销/防误(安全底座)
+    undoBegin: undoBegin, undoCommit: undoCommit, undo: undo, redo: redo,
+    canUndo: canUndo, canRedo: canRedo, clearUndoHistory: clearUndoHistory,
+
     getWorkId: function () { return _offsetWorkId; },
     // W996 — waveform per-token editor.
     setTokenOffset: setTokenOffset, saveTokenOffsets: saveTokenOffsets,
@@ -806,6 +980,7 @@
     // W1048 — non-destructive token add/delete.
     addToken: addToken, deleteToken: deleteToken,
     undeleteToken: undeleteToken, removeAddedToken: removeAddedToken,
+    setTokenText: setTokenText,   // W1741 — 直接改字(行内)
     saveTokenEdits: saveTokenEdits,
   };
 

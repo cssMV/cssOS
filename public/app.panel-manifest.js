@@ -26,10 +26,10 @@
     //   主触发 = agent-chat 在积分耗尽时 cssosOpenCreditsTopup(), 经通用 router 桩按需加载。
     "credits-topup": "app.credits-topup-modal.js?v=20260530-w528-lazy",
     // CSSOS_WAVE_529 — premium-modal (16KB): 完整三件套自包含模块, 仅 #premium hash 触发(router hash 能力)。
-    "premium":       "app.premium-modal.js?v=20260530-w529-lazy",
+    "premium":       "app.premium-modal.js?v=20260712-i18n2",
     // CSSOS_WAVE_530 — dm-panel (31KB): 完整三件套自包含模块, #dm hash 触发 + cssosOpenDmWith 入口。
     //   eager 仅留 app.dm-open-shim.js 的 💌 stub 按钮。
-    "dm":            "app.dm-panel.js?v=20260530-w530-lazy",
+    "dm":            "app.dm-panel.js?v=20260712-i18n2",
     // CSSOS_WAVE_531 — engine-accounts (27KB): 自建HTML, CSS在共享表。market 渲染计费面板时调
     //   renderEngineAccountsCard(桩)→ 按需加载并渲染 BYOK 卡片; 卡内"管理"按钮再开 openEngineAccountsModal。
     "engine-accounts": "app.engine-accounts.js?v=20260530-w531-lazy",
@@ -40,12 +40,12 @@
     "credit":        "app.credit-panel.js?v=20260526-w462-skeleton-universal",
     "workspaces":    "app.workspaces-panel.js?v=20260526-w462-skeleton-universal",
     // CSSOS_WAVE_661 第一批纯岛迁移(代理审计: 单一全局入口、无渲染期裸调、自建 DOM、零定时器)。
-    "templates":          "app.templates-panel.js?v=20260526-w462-skeleton-universal",
+    "templates":          "app.templates-panel.js?v=20260712-i18n2",
     "user-stats":         "app.user-stats-page.js?v=20260508-wave71",
     "creation-timeline":  "app.creation-timeline-panel.js?v=20260526-w462-skeleton-universal",
     "add-language":       "app.add-language-modal.js?v=20260602-w588t-tokens",
     "work-edit":          "app.work-edit-panel.js?v=20260531-w544-work-edit",
-    "share-dialog":       "app.share-dialog.js?v=20260506-share-link",
+    "share-dialog":       "app.share-dialog.js?v=20260707-w1591-shareto",
     // CSSOS_WAVE_661 第二小批: voice-clone(定义 cssosOpenVoiceCloneModal+cssosOpenMyVoicesModal)
     //   + add-voice(仅 cssosOpenAddVoiceModal) 两个独立岛, 所有跨文件调用均 typeof 守卫。
     "voice-clone":        "app.voice-clone-modal.js?v=20260602-w588t-tokens",
@@ -56,7 +56,7 @@
     // CSSOS_WAVE_661 第三批: hash 触发型(干净 IIFE)。feed/webhooks 精确匹配(router hashExact),
     //   user-homepage 用 #u/<handle> 前缀。
     "feed":               "app.feed-panel.js?v=20260508-wave26",
-    "webhooks":           "app.webhooks-panel.js?v=20260508-wave57",
+    "webhooks":           "app.webhooks-panel.js?v=20260712-i18n2",
     "user-homepage":      "app.user-homepage.js?v=20260603-w593-civmeta",
     // CSSOS_WAVE_662 第2阶段·线A: mv-tier-picker(事件触发, router events 能力)。
     "mv-tier-picker":     "app.mv-tier-picker-modal.js?v=20260528-w465-tier-pill",
@@ -65,7 +65,7 @@
     "face-safe":          "app.face-safe-overlay.js?v=20260524-w355-no-cors-taint",
     "gift-inbox":         "app.gift-inbox-panel.js?v=20260515-wave164-fresh-palette",
     // CSSOS_WAVE_662 线B第1步: mv-language-picker(同步返回 handle 的 mount, 经 eager shim 懒加载)。
-    "mv-language-picker": "app.mv-language-picker.js?v=20260531-w587b-cap",
+    "mv-language-picker": "app.mv-language-picker.js?v=20260712-w1734d-default-active",
   });
 
   // CSSOS_WAVE_527 — 面板依赖: 加载某面板后, 内核自动按需加载其卫星模块(也从首屏移除)。

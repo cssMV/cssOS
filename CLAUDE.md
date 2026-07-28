@@ -578,6 +578,20 @@ EVOLUTION OF MISTAKES (kept for context):
   always "click-boundary previewable" whether or not anything is
   selected yet.
 
+  **第一个胶囊默认激活 (First pill default active):** any pill track that
+  has no preset `.active` gets its **first pill** activated by default —
+  this provides the convex 凸 anchor island so the existing 凸嵌凹 interlock
+  (`.active~` / `.cssos-pill-pre`) forms automatically and the whole strip
+  reads as one seamless carved bar. Without an anchor, a zero-selected bar
+  degrades into free-floating full-oval pills with gaps between them (the
+  "飘椭圆" regression). Never fix that by adding new pill CSS — just default
+  the first pill active. Works together with "选中谁→谁到第一个位置" (the
+  selected pill becomes the island / moves to first, per the Dock rule).
+  For a multi-select track, the default-active first pill is a **visual
+  anchor only** — it must not toggle any underlying selection/checkbox, and
+  the synthetic active must be cleared before every re-paint so it can yield
+  to a real selection once the user picks one.
+
   **"No default ≠ disabled" rule:** when a bar opens with no pre-selected
   pill, all pills MUST remain clickable from a cold state. In particular,
   if the JS state holds an `activeTab` value for chip-catalog lookup

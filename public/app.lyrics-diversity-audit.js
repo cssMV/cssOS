@@ -1,5 +1,5 @@
 (function attachLyricsDiversityAudit(global) {
-  const dashboardCopy = (...args) => global.dashboardCopy(...args);
+  const T = (en) => (typeof globalThis.loginCopy === "function" ? globalThis.loginCopy(en) : en);
 
   function buildLyricsFallbackDiversityAuditBridge(history = []) {
     const rows = Array.isArray(history) ? history : [];
@@ -20,32 +20,26 @@
     );
     const level =
       score >= 72
-        ? dashboardCopy("healthy spread", "多样性健康")
+        ? T("healthy spread")
         : score >= 44
-          ? dashboardCopy("mixed spread", "多样性一般")
-          : dashboardCopy("collapsed spread", "多样性塌缩");
+          ? T("mixed spread")
+          : T("collapsed spread");
     return {
       level,
       score,
-      note: dashboardCopy(
-        `Families ${families.size} · titles ${titles.size} · first lines ${firstLines.size} across ${rows.length} recent seed(s).`,
-        `最近 ${rows.length} 次 seed 里，家族 ${families.size} 个 · 标题 ${titles.size} 个 · 首句 ${firstLines.size} 个。`
-      )
+      note: `${T("Families")} ${families.size} · ${T("titles")} ${titles.size} · ${T("first lines")} ${firstLines.size} ${T("across")} ${rows.length} ${T("recent seed(s).")}`
     };
   }
 
   function buildLyricsSeedSpreadCardBridge(history = []) {
     const rows = (Array.isArray(history) ? history : []).slice(-6).reverse();
     return {
-      headline: dashboardCopy("Recent seed spread", "最近 seed 扩散"),
+      headline: T("Recent seed spread"),
       rows: rows.length
         ? rows.map((item) =>
-            dashboardCopy(
-              `${item.at} · ${item.seedTag || "no-tag"} · ${item.family || "unknown family"} · ${item.title || "untitled"}`,
-              `${item.at} · ${item.seedTag || "无标记"} · ${item.family || "未知家族"} · ${item.title || "未命名"}`
-            )
+            `${item.at} · ${item.seedTag || T("no-tag")} · ${item.family || T("unknown family")} · ${item.title || T("untitled")}`
           )
-        : [dashboardCopy("No recent seed spread yet.", "当前还没有最近 seed 扩散记录。")]
+        : [T("No recent seed spread yet.")]
     };
   }
 
@@ -68,22 +62,13 @@
     );
     const alert =
       suspiciousHit || repeated
-        ? dashboardCopy("repeat risk detected", "检测到重复风险")
-        : dashboardCopy("no repeat alarm", "未发现重复报警");
+        ? T("repeat risk detected")
+        : T("no repeat alarm");
     const note = suspiciousHit
-      ? dashboardCopy(
-          `Suspicious fixed phrase surfaced again near "${suspiciousHit.firstLine || suspiciousHit.title || "unknown"}".`,
-          `可疑固定短语再次出现，位置接近“${suspiciousHit.firstLine || suspiciousHit.title || "未知"}”。`
-        )
+      ? `${T("Suspicious fixed phrase surfaced again near")} "${suspiciousHit.firstLine || suspiciousHit.title || T("unknown")}".`
       : repeated
-        ? dashboardCopy(
-            `Repeated first line "${repeated[0]}" appeared ${repeated[1]} times in recent seeds.`,
-            `重复首句“${repeated[0]}”在最近 seed 中出现了 ${repeated[1]} 次。`
-          )
-        : dashboardCopy(
-            "Recent seeds do not show an obvious repeated-phrase collapse.",
-            "最近几次 seed 暂时没有出现明显的重复句塌缩。"
-          );
+        ? `${T("Repeated first line")} "${repeated[0]}" ${T("appeared")} ${repeated[1]} ${T("times in recent seeds.")}`
+        : T("Recent seeds do not show an obvious repeated-phrase collapse.");
     return { alert, note };
   }
 
@@ -94,19 +79,13 @@
       .filter(Boolean);
     const unique = new Set(civilizations);
     return {
-      headline: dashboardCopy("Universe rotation lane", "宇宙轮换轨道"),
-      note: dashboardCopy(
-        `Recent rotations ${unique.size}/${Math.max(civilizations.length, 1)} unique worlds.`,
-        `最近轮换 ${unique.size}/${Math.max(civilizations.length, 1)} 个独特宇宙。`
-      ),
+      headline: T("Universe rotation lane"),
+      note: `${T("Recent rotations")} ${unique.size}/${Math.max(civilizations.length, 1)} ${T("unique worlds.")}`,
       rows: rows.length
         ? rows.map((item) =>
-            dashboardCopy(
-              `${item.at} · ${item.civilization || item.family || "unknown world"}`,
-              `${item.at} · ${item.civilization || item.family || "未知宇宙"}`
-            )
+            `${item.at} · ${item.civilization || item.family || T("unknown world")}`
           )
-        : [dashboardCopy("No universe rotation history yet.", "当前还没有宇宙轮换历史。")]
+        : [T("No universe rotation history yet.")]
     };
   }
 
@@ -122,17 +101,11 @@
     const worst = repeated.sort((a, b) => b[1] - a[1])[0];
     return {
       meter: repeated.length
-        ? dashboardCopy("title repetition detected", "检测到标题撞车")
-        : dashboardCopy("title spread looks healthy", "标题分布看起来健康"),
+        ? T("title repetition detected")
+        : T("title spread looks healthy"),
       note: worst
-        ? dashboardCopy(
-            `"${worst[0]}" appeared ${worst[1]} times in recent seeds.`,
-            `“${worst[0]}”在最近 seed 中出现了 ${worst[1]} 次。`
-          )
-        : dashboardCopy(
-            "Recent seed titles do not show obvious collisions.",
-            "最近几次 seed 标题暂时没有明显撞车。"
-          )
+        ? `"${worst[0]}" ${T("appeared")} ${worst[1]} ${T("times in recent seeds.")}`
+        : T("Recent seed titles do not show obvious collisions.")
     };
   }
 
@@ -147,16 +120,10 @@
       )
     );
     return {
-      headline: dashboardCopy("Fallback phrase blacklist", "fallback 短语黑名单"),
+      headline: T("Fallback phrase blacklist"),
       note: hits.length
-        ? dashboardCopy(
-            `Flagged phrases seen recently: ${hits.join(" · ")}`,
-            `最近命中的黑名单短语：${hits.join(" · ")}`
-          )
-        : dashboardCopy(
-            "No blacklisted fallback phrases were seen in recent seeds.",
-            "最近几次 seed 没有命中黑名单短语。"
-          )
+        ? `${T("Flagged phrases seen recently:")} ${hits.join(" · ")}`
+        : T("No blacklisted fallback phrases were seen in recent seeds.")
     };
   }
 
@@ -164,20 +131,17 @@
     const rows = (Array.isArray(history) ? history : []).slice(-8);
     if (!rows.length) {
       return {
-        headline: dashboardCopy("No diversity timeline yet", "当前还没有随机性时间线"),
-        chips: [dashboardCopy("Waiting for more lyric generations.", "等待更多歌词生成样本。")]
+        headline: T("No diversity timeline yet"),
+        chips: [T("Waiting for more lyric generations.")]
       };
     }
     const chips = rows.map((item, index) => {
-      const family = String(item.family || item.civilization || "unknown").trim();
+      const family = String(item.family || item.civilization || T("unknown")).trim();
       const shortFamily = family.length > 18 ? `${family.slice(0, 18)}…` : family;
-      return dashboardCopy(
-        `${index + 1}. ${item.title || "untitled"} · ${shortFamily}`,
-        `${index + 1}. ${item.title || "未命名"} · ${shortFamily || "未知"}`
-      );
+      return `${index + 1}. ${item.title || T("untitled")} · ${shortFamily}`;
     });
     return {
-      headline: dashboardCopy("Diversity timeline strip", "随机性时间线条"),
+      headline: T("Diversity timeline strip"),
       chips
     };
   }
@@ -194,12 +158,12 @@
       .filter(([, count]) => count >= 2)
       .sort((a, b) => b[1] - a[1]);
     return {
-      headline: dashboardCopy("Title collision watchlist", "标题撞车观察名单"),
+      headline: T("Title collision watchlist"),
       rows: collisions.length
         ? collisions.map(([title, count]) =>
-            dashboardCopy(`"${title}" repeated ${count} times`, `“${title}”重复了 ${count} 次`)
+            `"${title}" ${T("repeated")} ${count} ${T("times")}`
           )
-        : [dashboardCopy("No repeated titles in recent history.", "最近历史里没有重复标题。")]
+        : [T("No repeated titles in recent history.")]
     };
   }
 
@@ -214,17 +178,14 @@
           )
         );
         if (!matched.length) return null;
-        return dashboardCopy(
-          `${item.at} · ${item.title || "untitled"} · ${matched.join(" / ")}`,
-          `${item.at} · ${item.title || "未命名"} · ${matched.join(" / ")}`
-        );
+        return `${item.at} · ${item.title || T("untitled")} · ${matched.join(" / ")}`;
       })
       .filter(Boolean);
     return {
-      headline: dashboardCopy("Blacklist hit history", "黑名单命中历史"),
+      headline: T("Blacklist hit history"),
       rows: hits.length
         ? hits
-        : [dashboardCopy("No blacklist hits in recent lyric history.", "最近歌词历史里没有黑名单命中。")]
+        : [T("No blacklist hits in recent lyric history.")]
     };
   }
 

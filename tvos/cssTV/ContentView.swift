@@ -142,9 +142,10 @@ struct ContentView: View {
         if cat == .all { return allWorks }
         return allWorks.filter { cat.matches.contains(($0.workType ?? "").lowercased()) }
     }
-    // W1367 — Jing/App Store 3.1.1: tvOS 纯欣赏, 移除创作。hero 不再追加创作卡。
+    // W1576 — Jing: hero 尾部加回创作入口卡(与栏目尾卡一致, format 随分类锁定, 选中进导演台)。
+    //   (W1367 曾为 App Store 3.1.1「对买闭嘴」移除; Jing 决定加回, 3.1.1「碰了再说」。)
     private var featured: [CSSWork] {
-        Array(works(for: category).prefix(5))
+        Array(works(for: category).prefix(5)) + [CSSWork.createCard(category.createFormat)]
     }
     private var rails: [CSSRail] {
         if category == .all { return CSSBackend.buildRails(allWorks) }
@@ -259,7 +260,7 @@ struct ContentView: View {
         }
         // W1560 — 数字演员目录(套用桌面端 /api/actors)。
         .fullScreenCover(isPresented: $showActors) {
-            DigitalActorsView()
+            DigitalActorsView(auth: auth)
         }
         // W1549 — 互动多线程电影播放屏《时间帝国》。
         .fullScreenCover(item: $ifilmRef) { ref in
@@ -269,6 +270,7 @@ struct ContentView: View {
         .task {
             await auth.restore()
             allWorks = await CSSBackend.fetchFeed()
+            CSSBackend.writeTopShelfCache(allWorks)   // W1575 — 写共享容器, 供 Top Shelf 扩展直接读(零网络)
             loading = false
         }
         .onChange(of: auth.isSignedIn) { _, signed in
@@ -303,7 +305,7 @@ struct EmojiBurstEffect: View {
     var leftBias: Bool = false   // W1314 — 向左半边爆(最后一位胶囊用, 与激活的右甩对冲)
     private let pool = CSSFx.petals
     private let bigLife: Double = 1.8
-    private let window: Double = 3.6   // 一次爆总时长; 之后【停 TimelineView】→ 空闲零开销(不再每次内存爆)
+    private let window: Double = 3.0   // W1576 — 缩到粒子实际寿命(3.0s), 少重绘空帧更省 CPU (越短越省)
     @State private var playing = false
     @State private var startT: Double = 0
     @State private var fireSeed: Int = 0
@@ -315,7 +317,7 @@ struct EmojiBurstEffect: View {
         ZStack {
             if active && playing {
                 // 只在一次爆的 3.6s 窗口内跑(7fps); 爆完即停, 空闲不再重绘。
-                TimelineView(.periodic(from: .now, by: 0.14)) { ctx in
+                TimelineView(.periodic(from: .now, by: 0.18)) { ctx in   // W1576 — 7fps→~5.5fps, 几乎看不出, 全局省 CPU
                     let t = max(0, ctx.date.timeIntervalSinceReferenceDate - startT)
                     ZStack {
                         bigPop(t)
@@ -561,54 +563,100 @@ struct LogoAvatarBadge: View {
     private let flip = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        // W1250 — 魔镜【永远转】: 用 TimelineView 按绝对时间算角度驱动旋转, 不会被登录后 flip 的
-        //   withAnimation 取消(旧 ringAngle repeatForever 动画就是被它掐断 → 登录后停转的真凶)。
-        //   金球/环转, 头像保持正立(在旋转层之外)。
-        TimelineView(.animation) { ctx in
-            let secs = ctx.date.timeIntervalSinceReferenceDate
-            let angle = secs.truncatingRemainder(dividingBy: 14.0) / 14.0 * 360.0   // 14s/圈
-            ZStack {
-                Group {
-                    if !loggedIn || showOrb {
-                        Image("MirrorFull").resizable().scaledToFit().transition(.opacity)
-                    } else {
-                        Image("MirrorRing").resizable().scaledToFit().transition(.opacity)
-                    }
-                }
-                .rotationEffect(.degrees(angle))
+        // W1576 — 魔镜改【图层级无限旋转】: CABasicAnimation 跑在渲染合成器 → 主线程 ~0 CPU, 满 60fps 丝滑;
+        //   免疫 SwiftUI withAnimation 掐断 + 前台恢复自动重挂 → 彻底躲开 W1250「登录后停转」。头像正立(不转)。
+        ZStack {
+            SpinningImage(imageName: (!loggedIn || showOrb) ? "MirrorFull" : "MirrorRing", period: 30.0)   // W1576 — 30s/圈
+                .frame(width: 112, height: 112)
 
-                // 登录头像态: 环孔放用户头像(正立不转)。
-                if loggedIn && !showOrb {
-                    Group {
-                        if let a = avatarURL, let url = URL(string: a) {
-                            AsyncImage(url: url) { img in
-                                img.resizable().scaledToFill()
-                            } placeholder: {
-                                Image(systemName: "person.crop.circle.fill").resizable().scaledToFit()
-                                    .foregroundStyle(.white)
-                            }
-                        } else {
+            // 登录头像态: 环孔放用户头像(正立不转)。
+            if loggedIn && !showOrb {
+                Group {
+                    if let a = avatarURL, let url = URL(string: a) {
+                        AsyncImage(url: url) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: {
                             Image(systemName: "person.crop.circle.fill").resizable().scaledToFit()
                                 .foregroundStyle(.white)
                         }
+                    } else {
+                        Image(systemName: "person.crop.circle.fill").resizable().scaledToFit()
+                            .foregroundStyle(.white)
                     }
-                    .frame(width: 58, height: 58)
-                    .clipShape(Circle())
-                    .transition(.opacity)
                 }
+                .frame(width: 58, height: 58)
+                .clipShape(Circle())
+                .transition(.opacity)
             }
-            .frame(width: 112, height: 112)
-            // W1260 — logo/头像中心定期(~10s)来一次「情绪字幕」: 大 emoji 弹一次 + 小 emoji 烟花一阵, 然后安静。
-            .background(
-                EmojiBurstEffect(active: true, seed: 42, bigEmojiSize: 92, bigPeriod: 12,
-                                 smallSize: 22, smallSpread: 240, smallN: 18, rightBias: true)   // W1276 周期 12s
-                    .frame(width: 200, height: 200).allowsHitTesting(false)
-                    .id(burstTick)   // W1274 — 聚焦头像 tick 变 → 重建 → 立即爆一次
-            )
         }
+        .frame(width: 112, height: 112)
+        // logo/头像中心: 进场 + 聚焦(burstTick 变)时爆一次; bigPeriod 0 = 无常驻自动重爆。
+        .background(
+            EmojiBurstEffect(active: true, seed: 42, bigEmojiSize: 92, bigPeriod: 0,
+                             smallSize: 22, smallSpread: 240, smallN: 18, rightBias: true)
+                .frame(width: 200, height: 200).allowsHitTesting(false)
+                .id(burstTick)
+        )
         .onReceive(flip) { _ in
             guard loggedIn else { return }            // 未登录: 永远完整 logo, 不切头像
             withAnimation(.easeInOut(duration: 0.6)) { showOrb.toggle() }
+        }
+    }
+}
+
+/// W1576 — 图层级无限旋转: CABasicAnimation 跑在渲染服务(合成器), 主线程 ~0 CPU, 满 60fps。
+///   免疫 SwiftUI withAnimation(不碰 UIKit 层动画); 前台恢复时自动重挂(CA 在后台会移除动画) → 躲开 W1250。
+struct SpinningImage: UIViewRepresentable {
+    var imageName: String
+    var period: Double   // 一圈秒数
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIImageView {
+        let iv = UIImageView(image: UIImage(named: imageName))
+        iv.contentMode = .scaleAspectFit
+        context.coordinator.imageView = iv
+        context.coordinator.period = period
+        context.coordinator.startObserving()
+        context.coordinator.applySpin()
+        return iv
+    }
+
+    func updateUIView(_ iv: UIImageView, context: Context) {
+        if let img = UIImage(named: imageName), iv.image !== img { iv.image = img }
+        context.coordinator.period = period
+        context.coordinator.applySpin()   // 动画若被移除则重挂
+    }
+
+    // W1576 — 关键: 勒住尺寸(否则 UIImageView 按图片原始大小几百 px 撑开 → 巨型 logo)。
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIImageView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 112, height: proposal.height ?? 112)
+    }
+
+    static func dismantleUIView(_ iv: UIImageView, coordinator: Coordinator) {
+        coordinator.stopObserving()
+    }
+
+    final class Coordinator {
+        weak var imageView: UIImageView?
+        var period: Double = 14
+
+        func startObserving() {
+            NotificationCenter.default.addObserver(self, selector: #selector(reapply),
+                                                   name: UIApplication.didBecomeActiveNotification, object: nil)
+        }
+        func stopObserving() { NotificationCenter.default.removeObserver(self) }
+        @objc private func reapply() { applySpin() }
+
+        func applySpin() {
+            guard let layer = imageView?.layer, layer.animation(forKey: "spin") == nil else { return }
+            let a = CABasicAnimation(keyPath: "transform.rotation.z")
+            a.fromValue = 0.0
+            a.toValue = 2.0 * Double.pi
+            a.duration = period
+            a.repeatCount = .infinity
+            a.isRemovedOnCompletion = false
+            layer.add(a, forKey: "spin")
         }
     }
 }
@@ -684,7 +732,7 @@ struct FeaturedHero: View {
         dwellWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
     }
-    private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()   // W1269 — 对齐 HBO ~8s + 招牌爆 8s 节拍
+    private let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()   // W1576 — hero 自动轮播 8s→30s(切换太频繁; 每次切换才爆一次)
 
     // W1244 — 聚焦 hero 时往里散发品牌绿描边辉光(参照桌面 MV 视频框绿边, 向内发光)。
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)   // #00f5a0
@@ -765,7 +813,7 @@ struct FeaturedHero: View {
                 .background(
                     // W1310(重加 W1289): 激活(第一位)的小 emoji 特别向右、铺满整条轨道(像甩向最后一位的余晖); 其余常规。
                     EmojiBurstEffect(active: active, seed: i, bigEmojiSize: 60,
-                                     bigPeriod: works[i].isCreateCard ? 12 : 0,
+                                     bigPeriod: 0,   // W1576 — 取消常驻自动重爆; 聚焦/选中时爆一次即停
                                      smallSize: 16,
                                      smallSpread: active ? 560 : 185,
                                      smallN: active ? 30 : 18,
@@ -861,7 +909,7 @@ struct FeaturedHero: View {
                                 Text("✨").font(.system(size: 260)).opacity(0.9)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 // W1272 — Jing「Create hero 卡为何要等」: 改 immediate, 轮到它当 hero 时立即爆(和它的胶囊同时), 不再按 seed 延后。
-                                EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 12,
+                                EmojiBurstEffect(active: true, seed: 99, bigEmojiSize: 220, bigPeriod: 0,
                                                  smallSize: 28, smallSpread: 470, smallN: 20).allowsHitTesting(false)   // W1276 周期 12s
                             }
                         } else if let c = current.coverURL {
@@ -1088,9 +1136,9 @@ struct WorkCard: View {
                                    startPoint: .top, endPoint: .bottom)
                     // W1269 — 大 emoji 当封面图(常驻)。
                     Text("✨").font(.system(size: 110)).opacity(0.9)
-                    EmojiBurstEffect(active: true, seed: abs(work.id.hashValue) % 97,
-                                     bigEmojiSize: 88, bigPeriod: 12, smallSize: 18, smallSpread: 135,
-                                     smallN: 16)   // W1276 周期 12s
+                    EmojiBurstEffect(active: focused, seed: abs(work.id.hashValue) % 97,
+                                     bigEmojiSize: 88, bigPeriod: 0, smallSize: 18, smallSpread: 135,
+                                     smallN: 16)   // W1576 — 聚焦(滑到)才爆一次; 失焦即停+释放
                         .allowsHitTesting(false)
                     Label("Create", systemImage: "wand.and.stars")
                         .font(.system(size: 22, weight: .heavy)).foregroundStyle(brandGreen)

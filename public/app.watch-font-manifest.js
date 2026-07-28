@@ -167,6 +167,117 @@
     "Zhi Mang Xing", "Noto Serif SC", "Noto Sans SC"
   ];
 
+  // CSSOS_WAVE_1763 — 每语言特色字体 + 文明智能联动(civ→字体). Jing:
+  //   「每种语言都有他们的特色字体就完美了 …… 接上文明智能联动」。按当前 locale /
+  //   人物 civilization 载入【该文字系统的特色展示字体】,让 MV 字幕的字符本身带上
+  //   那门语言的文化性格(中文毛笔 / 日文 Yuji / 韩文 Nanum Brush / 阿拉伯 Aref Ruqaa
+  //   / 天城 Rozha One …)。全部 Google Fonts,零托管。移动端只拉【当前 locale 那一款】
+  //   (见 injectGoogleFancyFonts)避免 iPhone 内存爆。
+  const LANG_SCRIPT_FONTS = {
+    "zh":      ["Ma Shan Zheng", "Zhi Mang Xing"],
+    "zh-hant": ["Noto Serif TC", "Ma Shan Zheng"],
+    "ja":      ["Yuji Mai", "Reggae One"],
+    "ko":      ["Nanum Brush Script", "Gugi"],
+    "th":      ["Charmonman", "Chonburi"],
+    "km":      ["Moul", "Koulen"],
+    "lo":      ["Noto Serif Lao"],
+    "my":      ["Padauk"],
+    "hi":      ["Rozha One", "Yatra One"],
+    "ne":      ["Rozha One"],
+    "bn":      ["Galada", "Atma"],
+    "ta":      ["Arima Madurai"],
+    "te":      ["Ramabhadra", "Dhurjati"],
+    "kn":      ["Baloo Tamma 2"],
+    "ml":      ["Manjari", "Chilanka"],
+    "gu":      ["Kumar One", "Farsan"],
+    "pa":      ["Baloo Paaji 2"],
+    "si":      ["Abhaya Libre"],
+    "ar":      ["Aref Ruqaa", "Reem Kufi"],
+    "fa":      ["Gulzar"],
+    "ur":      ["Noto Nastaliq Urdu"],
+    "he":      ["Suez One", "Frank Ruhl Libre"],
+    "ru":      ["Ruslan Display", "Russo One"],
+    "uk":      ["Ruslan Display"],
+    "el":      ["GFS Didot"],
+    "ka":      ["Noto Serif Georgian"],
+    "hy":      ["Noto Serif Armenian"],
+    "am":      ["Noto Serif Ethiopic"]
+  };
+  // 文明→语言兜底(同时优先用 W196 civToLanguageModule)。
+  const CIV_LANG_FALLBACK = {
+    chinese: "zh", han: "zh", tang: "zh", song: "zh", taoist: "zh", confucian: "zh",
+    japanese: "ja", nippon: "ja", korean: "ko", joseon: "ko",
+    arab: "ar", arabic: "ar", islamic: "ar", ottoman: "ar",
+    persian: "fa", iranian: "fa", mughal: "ur",
+    indian: "hi", vedic: "hi", hindu: "hi", maurya: "hi", gupta: "hi",
+    thai: "th", siam: "th", khmer: "km", angkor: "km", burmese: "my", lao: "lo",
+    russian: "ru", slavic: "ru", soviet: "ru", ukrainian: "uk",
+    greek: "el", hellenic: "el", byzantine: "el",
+    georgian: "ka", armenian: "hy", ethiopian: "am", aksum: "am",
+    hebrew: "he", jewish: "he", israelite: "he"
+  };
+  function fmNormLang(code) {
+    var c = String(code || "").trim().toLowerCase().replace(/_/g, "-");
+    if (!c) return "";
+    if (c.indexOf("zh-hant") === 0 || c === "zh-tw" || c === "zh-hk" || c === "zh-mo") return "zh-hant";
+    return c.split("-")[0];
+  }
+  function fontsForLang(code) {
+    var c = fmNormLang(code);
+    return LANG_SCRIPT_FONTS[c] || (c === "zh-hant" ? LANG_SCRIPT_FONTS.zh : null) || [];
+  }
+  function fmCurrentLocale() {
+    try {
+      return String(global.currentLocale || global.CSSOS_LOCALE ||
+        (document.documentElement && document.documentElement.lang) ||
+        (navigator && navigator.language) || "en");
+    } catch (_e) { return "en"; }
+  }
+  function langForCiv(civ) {
+    var c = String(civ || "").trim().toLowerCase();
+    if (!c) return "";
+    try {
+      if (typeof global.civToLanguageModule === "function") {
+        var m = global.civToLanguageModule(civ);
+        var code = typeof m === "string" ? m : (m && (m.lang || m.code || m.locale));
+        if (code) return fmNormLang(code);
+      }
+    } catch (_e) {}
+    for (var key in CIV_LANG_FALLBACK) {
+      if (c.indexOf(key) >= 0) return CIV_LANG_FALLBACK[key];
+    }
+    return "";
+  }
+  // 按需懒加载单个 Google Fonts 字体族。移动端只预载当前 locale 那一款;切到别的
+  // 文明作品(如英文用户看中国人物 MV)时用这个补载其特色字体。每族只注一次。
+  var __fmLoadedFamilies = Object.create(null);
+  function ensureFamilyLoaded(fam) {
+    if (!fam || __fmLoadedFamilies[fam]) return;
+    __fmLoadedFamilies[fam] = true;
+    try {
+      var l = document.createElement("link");
+      l.rel = "stylesheet";
+      l.href = "https://fonts.googleapis.com/css2?family=" + String(fam).replace(/ /g, "+") + "&display=swap";
+      l.crossOrigin = "anonymous";
+      document.head.appendChild(l);
+    } catch (_e) {}
+  }
+  global.cssosEnsureFontLoaded = ensureFamilyLoaded;
+  // 文明智能联动接口 — 给 civilization / lang 返回该文字系统的特色字体族名(首选),
+  // 并确保它已加载。MV 字幕 / 人物 MV 渲染据此选字体;回退 "" = 用通用花体池。
+  global.cssosFontForCivOrLang = function (civ, lang) {
+    var fams = civ ? fontsForLang(langForCiv(civ)) : [];
+    if (!fams.length && lang) fams = fontsForLang(lang);
+    if (!fams.length) return "";
+    ensureFamilyLoaded(fams[0]);
+    return fams[0];
+  };
+  // 当前 UI locale 的特色字体(整组)。
+  global.cssosCharacteristicFontsForLocale = function () {
+    return fontsForLang(fmCurrentLocale());
+  };
+  global.CSSOS_LANG_SCRIPT_FONTS = LANG_SCRIPT_FONTS;
+
   // CSSOS_PHASE2_MOBILE_PAIN_RELIEF 20260505 — Jing
   // "手机端痛点，可以解决吗". Mobile Safari kills the page with
   // "A problem repeatedly occurred" when the boot sequence pulls
@@ -191,7 +302,21 @@
   ];
   function injectGoogleFancyFonts() {
     if (document.getElementById("cssos-google-fancy-fonts")) return;
-    const fonts = isMobileViewport() ? MOBILE_FANCY_FONTS : GOOGLE_FANCY_FONTS;
+    // CSSOS_WAVE_1763 — 当前 locale 的特色字体一律载入(每语言都有自己的字符性格)。
+    //   移动端: 只拉 locale 特色字体(1-2 款) + 一小撮 Latin 兜底 → 避免内存爆。
+    //   桌面: 全量花体池 + 全部语言特色字体(供随机 picker 与 civ 联动取用)。
+    const localeFonts = fontsForLang(fmCurrentLocale());
+    let fonts;
+    if (isMobileViewport()) {
+      fonts = localeFonts.concat(MOBILE_FANCY_FONTS);
+    } else {
+      const allLangFonts = [];
+      for (const k in LANG_SCRIPT_FONTS) {
+        for (const f of LANG_SCRIPT_FONTS[k]) allLangFonts.push(f);
+      }
+      fonts = GOOGLE_FANCY_FONTS.concat(allLangFonts);
+    }
+    fonts = Array.from(new Set(fonts)); // dedup
     // Build the families= URL fragment. Google's css2 endpoint takes
     // semicolon-separated entries with + for spaces.
     const families = fonts

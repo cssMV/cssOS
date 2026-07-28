@@ -166,18 +166,26 @@ enum ImmersiveScene {
     // UV 用【已验证正确的内置平面约定】: u=t(左→右=纹理左→右), 顶 v=0/底 v=1, winding 与
     // generatePlane 同(CCW from +Z)→ 画面正立不镜像。弧朝 +Z(用户)凹进 = 环抱。
     static func makeCurvedScreen(player: AVPlayer, arcDegrees: Float = 120,
-                                 radius: Float = screenRadius, height: Float = 2.0) -> ModelEntity {
+                                 radius: Float = screenRadius, aspect: Float = 16.0/9.0, height: Float = 2.0) -> ModelEntity {
         let mat = VideoMaterial(avPlayer: player)
-        return ModelEntity(mesh: curvedMesh(arcDegrees: arcDegrees, radius: radius, height: height),
+        return ModelEntity(mesh: curvedMesh(arcDegrees: arcDegrees, radius: radius, aspect: aspect, height: height),
                            materials: [mat])
     }
 
     /// W949 — 按参数(弧度/半径/高)生成环绕网格。整圆(360°)= 全包围, 用户在圆心。
-    static func curvedMesh(arcDegrees: Float, radius: Float, height: Float) -> MeshResource {
+    /// W1580 — Jing 选「保持比例·自动升高」+「按视频真实比例(非假设16:9)」: 弧宽 = radius×arcRad,
+    ///   高 = 弧宽 / aspect(aspect=视频 width/height, 如 2.39 宽银幕 / 1.78 十六九 / 0.56 竖屏) → 银幕永远等于
+    ///   视频真比例, 不随弧度横向拉伸。传入 minH 作【下限】(窄弧别太矮; 宽弧则真比例主导, 银幕自动长高)。
+    static func aspectHeight(arcDegrees: Float, radius: Float, aspect: Float = 16.0/9.0, minH: Float = 2.0) -> Float {
+        let a = (aspect > 0.1 && aspect < 10) ? aspect : (16.0/9.0)
+        return max(minH, radius * (arcDegrees * .pi / 180) / a)
+    }
+    static func curvedMesh(arcDegrees: Float, radius: Float, aspect: Float = 16.0/9.0, height: Float = 2.0) -> MeshResource {
         let segs = max(24, Int(arcDegrees / 3))   // 弧越大段越多, 保持平滑
+        let h = aspectHeight(arcDegrees: arcDegrees, radius: radius, aspect: aspect, minH: height)   // 高随弧宽/真比例 → 不变形
         return (try? generateCylinderArc(radius: radius, arcRad: arcDegrees * .pi / 180,
-                                         height: height, segments: segs))
-            ?? MeshResource.generatePlane(width: 7.0, height: height, cornerRadius: 0.04)
+                                         height: h, segments: segs))
+            ?? MeshResource.generatePlane(width: 7.0, height: h, cornerRadius: 0.04)
     }
 
     /// 把银幕摆到环绕用户的弧线上: 角度(度, 0=前/负=左/正=右), 半径, 视线高度。并转向用户。

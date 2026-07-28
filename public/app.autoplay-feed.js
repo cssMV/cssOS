@@ -61,7 +61,7 @@
         // 其余 (#home / #main / #person-mv / 不完整 / 未知) → 不算阻塞深链。
       }
       var s = String(location.search || "");
-      if (/[?&](cssMV|work|work_id|w|share|mv)=/i.test(s)) return true;
+      if (/[?&](cssMV|work|work_id|w|share|mv|actor)=/i.test(s)) return true;   // W1647 — ?actor= 分享链接也算深链 → 不弹自动进 MV 倒计时
     } catch (_e) {}
     return false;
   }
@@ -159,6 +159,10 @@
     ov.innerHTML =
       '<div style="max-width:360px;width:100%;background:rgba(8,16,13,0.96);border:1px solid rgba(0,245,160,0.28);' +
       'border-radius:20px;padding:18px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,0.5);font:500 14px/1.5 -apple-system,system-ui,sans-serif;color:#eafff6;">' +
+      // W1594 — App Store 全平台上架祝贺语(默认英文, 走 i18n)。进平台第一眼 + 配四周烟花。
+      '<div style="background:linear-gradient(135deg,rgba(0,245,160,0.18),rgba(0,245,160,0.06));border:1px solid rgba(0,245,160,0.3);border-radius:12px;padding:9px 12px;margin-bottom:14px;font:700 12.5px/1.4 -apple-system,system-ui,sans-serif;color:#eafff6;">' +
+        '🎉 ' + lc("CSS Studio is now on the App Store — across all of Apple: iPhone, iPad, Apple Watch, Apple TV & Vision Pro.", "CSS Studio 已登陆苹果商店 —— 覆盖苹果全生态:iPhone、iPad、Apple Watch、Apple TV 与 Vision Pro。") +
+      '</div>' +
       // CSSOS_WAVE_1503 — Jing「进平台提示窗加预告卡条」: 顶部一条左右滑动预告卡条(Next-up 风), 下方才是原内容。
       '<div style="font:700 12px/1 -apple-system,system-ui,sans-serif;letter-spacing:1px;color:rgba(0,245,160,0.85);margin-bottom:10px;">' + lc("TRAILERS", "预告片") + '</div>' +
       '<div id="cssos-ae-trailers" style="display:flex;gap:8px;overflow-x:auto;padding:2px 2px 12px;margin:0 -2px 16px;scrollbar-width:none;-webkit-overflow-scrolling:touch;">' +
@@ -192,6 +196,49 @@
       lc("Remember — don’t ask again", "记住,下次不再问") + '</label>' +
       '</div>';
     document.body.appendChild(ov);
+
+    // W1594 — 进平台仪式感: 弹窗四周喷一圈烟花小 emoji。会话级只喷一次(sessionStorage:
+    //   浏览器关闭前不再第二次; 关掉浏览器→新会话→再喷)。用 WAAPI, ~1.9s 后【一次性移除整层】→
+    //   立即释放内存, 绝不累积(内存红线)。
+    function aeFireworks(cardEl) {
+      if (!cardEl || typeof cardEl.getBoundingClientRect !== "function") return;
+      var host = document.createElement("div");
+      host.style.cssText = "position:fixed;inset:0;z-index:10091;pointer-events:none;overflow:hidden;";
+      document.body.appendChild(host);
+      var r = cardEl.getBoundingClientRect();
+      var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      var EMO = ["🎉", "✨", "🎊", "🌟", "💥", "🎆", "🥳", "💫", "⭐️", "🎇", "🩷", "💚"];
+      var N = 30;
+      for (var i = 0; i < N; i++) {
+        var e = document.createElement("span");
+        e.textContent = EMO[(Math.random() * EMO.length) | 0];
+        var side = i % 4, x, y;
+        if (side === 0) { x = r.left + Math.random() * r.width; y = r.top; }            // 上
+        else if (side === 1) { x = r.right; y = r.top + Math.random() * r.height; }     // 右
+        else if (side === 2) { x = r.left + Math.random() * r.width; y = r.bottom; }    // 下
+        else { x = r.left; y = r.top + Math.random() * r.height; }                      // 左
+        var ang = Math.atan2(y - cy, x - cx) + (Math.random() * 0.8 - 0.4);             // 向外飞(远离卡片中心)
+        var dist = 60 + Math.random() * 130;
+        var dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist;
+        e.style.cssText = "position:absolute;left:" + x + "px;top:" + y + "px;font-size:" + (14 + Math.random() * 16).toFixed(0) + "px;will-change:transform,opacity;";
+        try {
+          e.animate([
+            { transform: "translate(-50%,-50%) scale(.4)", opacity: 0 },
+            { transform: "translate(-50%,-50%) scale(1.15)", opacity: 1, offset: .18 },
+            { transform: "translate(calc(-50% + " + dx.toFixed(0) + "px), calc(-50% + " + dy.toFixed(0) + "px)) scale(1) rotate(" + (Math.random() * 140 - 70).toFixed(0) + "deg)", opacity: 0 }
+          ], { duration: 1100 + Math.random() * 550, easing: "cubic-bezier(.2,.8,.3,1)" });
+        } catch (_a) {}
+        host.appendChild(e);
+      }
+      setTimeout(function () { try { host.remove(); } catch (_e) {} }, 1900);   // 一次性移除整层 → 立即释放, 不累积
+    }
+    try {
+      if (!sessionStorage.getItem("cssos_ae_fx")) {
+        sessionStorage.setItem("cssos_ae_fx", "1");
+        requestAnimationFrame(function () { aeFireworks(ov.firstElementChild); });
+      }
+    } catch (_fx) {}
+
     function close() { try { ov.remove(); } catch (_e) {} }
     function remembered() { var c = document.getElementById("cssos-autoenter-remember"); return !!(c && c.checked); }
     ov.addEventListener("click", function (e) { if (e.target === ov) { /* backdrop tap = later, no remember */ close(); } });

@@ -42,9 +42,9 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <base href="/" />
-    <title>CSS Studio — Watch + create AI music videos, instantly</title>
+    <title>CSS Studio — a music video's already playing. Make yours in a sentence.</title>
     <!-- CSSOS_WAVE_721 — 产品/公司描述(供搜索引擎、社交分享、以及审核员识别"这家公司做什么产品")。 -->
-    <meta name="description" content="CSS Studio is the first zero-friction watch + create platform for AI music videos. Open the app and a fully-produced music video plays, with sound, instantly — then create your own, in any language and any voice, without ever leaving the cinema. Featuring the world's first emotion subtitles." />
+    <meta name="description" content="Open CSS Studio and a fully-produced music video is already playing, with sound, the moment it loads. Then make your own in one sentence — any language, any voice, the world's first emotion subtitles, without ever leaving the cinema. (Under the hood, it's all AI.)" />
     <meta name="keywords" content="AI music video, AI MV, music video generator, watch and create, AI music, emotion subtitles, multilingual music video, CSS Studio" />
     <meta name="author" content="CSS Studio" />
     <link rel="canonical" href="https://cssstudio.app/" />
@@ -57,7 +57,7 @@
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="cssOS — watch and create AI music videos, with sound" />
+    <meta property="og:image:alt" content="cssOS — a music video already playing, with sound" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CSS Studio — a music video is already playing. Make yours in a sentence." />
     <meta name="twitter:description" content="Open it and a full music video plays with sound, instantly. Then make your own in one sentence — any language, any voice, emotion subtitles." />
@@ -100,7 +100,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260711-w1733" />
+    <link rel="stylesheet" href="style.css?v=20260713-orb-fill" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
     <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
@@ -1236,6 +1236,22 @@
                with freeFirst=true; its selection persists as the canonical
                language preference read by every entry (incl. zero-input 一键MV). -->
           <div id="creation-language-picker"></div>
+          <!-- W1766 — Jing「创作入口加圣诗音乐复选框; 选中→显示各教派子项; 开放给用户来创作」。
+               放在【非冻结】的 .settings-body 流内(语言选择器之后、音乐风格红线块 #creation-console 之外),
+               不触碰 .creation-tabs/.creation-chips/#creation-style-input/#creation-style-count 等冻结选择器。
+               教派子项胶囊走胶囊宪法(data-pill-bar, 无 data-pill-equal = 自适应宽); 由 app.hymn-create-toggle.js
+               填充(教派清单复用 app.hymn-gallery.js 导出的 CSSOS_HYMN_TRADITIONS)。 -->
+          <div class="hymn-create-row" id="hymn-create-row">
+            <label class="hymn-create-toggle">
+              <input type="checkbox" id="hymn-create-check" />
+              <span class="hymn-create-ico" aria-hidden="true">⛪</span>
+              <span data-i18n="creation.hymn.toggle">Hymn Music</span>
+            </label>
+            <div class="hymn-denom-wrap" id="hymn-denom-wrap" hidden>
+              <div class="hymn-denom-hint" data-i18n="creation.hymn.pickTradition">Pick a tradition — open to all creators</div>
+              <div class="hymn-denom-bar" id="hymn-denom-bar" data-pill-bar data-pill-text="dark"></div>
+            </div>
+          </div>
           <label class="field-shell field-shell-rich">
             <span class="field-label-row">
               <span data-i18n="settings.customLyrics">Custom Lyrics</span>
@@ -1250,13 +1266,16 @@
                        The wand image stays the same; the handler now
                        routes based on whether lyrics are present.
                    -->
+              <!-- W1768 — Jing「这是高级设置面板的【总魔法棒】, 给她另类特别一点」: 加 .total-wand →
+                   12 色文明光谱的旋转 conic 描边 + 呼吸光晕, 与普通 field-action-btn 区隔; 一眼是"总闸"。
+                   功能不变: 点击 = 生成标题 → 由标题文明智能联动推导下面所有选项(CSSOS_forceLyricsRegenerate)。 -->
               <button
                 id="lyrics-regenerate"
-                class="field-action-btn"
+                class="field-action-btn total-wand"
                 type="button"
                 data-i18n-aria="action.regenerateLyrics"
                 aria-label="Regenerate title + lyrics + all params (civilization-linked)"
-                title="新随机一首：标题+歌词+所有参数"
+                title="New random song: title + lyrics + all params (master wand · civilization-linked, all options)"
                 onpointerdown="return window.CSSOS_forceLyricsRegenerate ? window.CSSOS_forceLyricsRegenerate(event) : true;"
               >
                 🪄
@@ -1566,6 +1585,9 @@
             <div class="row">
               <label>
                 <span data-i18n="creation.sectionForm">Section Form</span>
+                <!-- W1770 — Jing「section_form 也留空(全空)+ 用户干预优先」。留空 → 总魔法棒按文明智能联动
+                     随机选一种结构(不一定京典)。京典模版降级成末尾一个可发现的复选框 opt-in。
+                     结构值是喂进引擎的英文规范形式, 非 UI 文案; 标签/提示走 i18n。 -->
                 <input
                   id="creation-section-form"
                   type="text"
@@ -1573,6 +1595,11 @@
                   placeholder="e.g. intro, verse, pre-chorus, chorus, bridge, chorus, outro"
                   data-i18n-placeholder="creation.sectionFormPlaceholder"
                 />
+                <span class="section-form-classic-row" id="section-form-classic-row">
+                  <input type="checkbox" id="creation-section-form-classic" />
+                  <label for="creation-section-form-classic" data-i18n="creation.sectionForm.classic">Classic 10-section template</label>
+                </span>
+                <span class="section-form-hint" data-i18n="creation.sectionForm.hint">Leave blank — the system picks a structure via civilization linkage. Check for the classic template, or type your own.</span>
               </label>
               <label>
                 <span data-i18n="creation.articulationBias">Articulation Bias</span>
@@ -1637,6 +1664,18 @@
                 rows="3"
                 maxlength="1000"
                 placeholder="Use high-level references, eras, regions, instrumentation, emotional pacing, and legally licensed packs. Avoid requesting a direct clone of a specific artist or recording."
+              ></textarea>
+            </label>
+            <!-- W1770 (B) — Jing「歌词自定义指令」: 用户在此自由覆盖京典的任意一点(除音乐风格英文这条 Suno 铁律外)。
+                 值透传给后端作为【最高优先 USER DIRECTIVES】注入歌词 prompt。非冻结区, 标签/占位走 i18n。 -->
+            <label class="field-shell">
+              <span data-i18n="creation.lyricDirectives">Lyric Directives (custom overrides)</span>
+              <textarea
+                id="creation-lyric-directives"
+                rows="3"
+                maxlength="1200"
+                placeholder="Override any part of the template (except the English music-style, a Suno requirement). e.g. 'Each section: first 2 lines in English, last 2 in Japanese; incantation in Latin; source: from the Book of Songs.' Or give your own section titles / storyline."
+                data-i18n-placeholder="creation.lyricDirectivesPlaceholder"
               ></textarea>
             </label>
             <div class="creation-reference-library">
@@ -1751,7 +1790,9 @@
           </div>
           <div class="login-user" id="login-user"></div>
           <div id="login-summary-host"></div>
-          <div class="login-grid cssmv-pill-bar" id="login-list" data-pill-equal></div>
+          <!-- W1765 — 胶囊宪法 v28: 登录列 = data-pill-bar 等宽胶囊(每卡 = 一粒 provider 胶囊, 图标+名内联)。
+               子节点由 app.login-panel.js 动态渲染, 渲染尾部调 cssosPillBarStamp 重盖(观察器不覆盖就地换子)。 -->
+          <div class="login-grid" id="login-list" data-pill-bar data-pill-equal></div>
           <!-- CSSOS_WAVE_878 — Jing「回滚到干净的全宽 Apple, 撤掉 W875 那段说明文字」。全宽机制(solo 类 + 内联钉死)保留。 -->
           <button class="cta ghost tiny" id="login-logout" type="button" data-i18n="login.logout">
             Log out
@@ -2398,7 +2439,8 @@
     <script src="app.chat-rooms.js?v=20260602-w588v-empty"></script>
     <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
 
-    <script src="app.media-buffering-mirror.js?v=20260522-w355-mutedskip"></script>
+    <script src="app.media-buffering-mirror.js?v=20260713-unified-a"></script>
+    <script src="app.busy-indicator.js?v=20260713-bootgate"></script>
     <script src="app.vtt-immersive-captions.js?v=20260617-w933"></script>
     <script src="app.provider-health-dashboard.js?v=20260514-wave139c"></script>
     <script src="app.today-in-history-shelf.js?v=20260603-w593-civmeta"></script>
@@ -2458,6 +2500,8 @@
     <script src="app.civ-meta-i18n.js?v=20260710-w1674-civmeta"></script>
     <script src="app.hymn-player.js?v=20260710-w1707-hymn"></script>
     <script src="app.hymn-gallery.js?v=20260710-w1710-hymngal"></script>
+    <script src="app.hymn-create-toggle.js?v=20260713-w1766-hymn-create"></script>
+    <script src="app.section-form-classic.js?v=20260713-w1770-section-form"></script>
     <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
     <script src="app.actor-gallery.js?v=20260702-w113-actors"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>

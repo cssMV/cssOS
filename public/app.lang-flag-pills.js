@@ -81,6 +81,10 @@
     return "🌐";
   }
 
+  // W1768 — 导出给市场语言筛选条(app.market-commerce.js)复用同一份 code/name→国旗映射,
+  //   避免各处重造 FLAG 表; 未命中回退 🌐(正好用作「全部」的全球图标)。
+  try { globalThis.cssosLangFlag = flagFor; } catch (_eFlagExport) {}
+
   function foldedLabel() {
     try {
       if (typeof globalThis.loginCopy === "function") return globalThis.loginCopy("Languages", "多语言");

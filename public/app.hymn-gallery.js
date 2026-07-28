@@ -221,6 +221,14 @@
   function tradName(t) { return (TRADITION_META[t] && TRADITION_META[t].name) || t; }
   function tradSym(t) { return (TRADITIONS[t] && TRADITIONS[t].sym) || "◈"; }
 
+  /* W1766 — 导出教派清单, 供【创作入口·圣诗音乐复选框】的子项胶囊(app.hymn-create-toggle.js)复用,
+     避免同一份教派列表两处维护。key + 英文名(取 "English · 中文" 的英文段) + 传统符号。 */
+  try {
+    globalThis.CSSOS_HYMN_TRADITIONS = TRADITION_ORDER.map(function (t) {
+      return { key: t, name: tradName(t).split(" · ")[0], sym: tradSym(t) };
+    });
+  } catch (_eHymnExport) {}
+
   /* W1724 — 进圣殿即停下方"传统 MV"播放(和进圣诗播放器一致)。只暂停(不彻底断源, 关闭后可续),
    *   并置 cssosAudioIntentPaused 让音频权威让位; 700ms 再压一次(挡自动续播/延迟挂载)。 */
   function hgStopBg() {
@@ -346,10 +354,15 @@
     /* 教派筛选胶囊条 —— 走平台【胶囊宪法】(cssosMakePillBar / data-pill-bar), 绝不另造一套。
      * 每个胶囊: 传统符号(=图标) + <span>名称</span>。"全部" 置首。只列【有内容】的教派 + 全部。 */
     function presentTraditions() {
-      var set = {};
-      allHymns.forEach(function (h) { set[String(h.tradition || "secular").toLowerCase()] = true; });
-      return TRADITION_ORDER.filter(function (t) { return set[t]; })
-        .concat(Object.keys(set).filter(function (t) { return TRADITION_ORDER.indexOf(t) < 0; }));
+      // W1766 — Jing「把之前的各个教派栏目都放出来, 哪怕是空的也行 → 开放给用户来创作」:
+      //   不再按内容过滤, 列出【全部】已定义教派(TRADITION_ORDER), 再追加数据里出现但未登记的传统。
+      //   空教派也作为占位入口显示(点进去空网格是预期的, 邀请用户成为第一个创作者)。
+      var extra = {};
+      allHymns.forEach(function (h) {
+        var t = String(h.tradition || "secular").toLowerCase();
+        if (TRADITION_ORDER.indexOf(t) < 0) extra[t] = true;
+      });
+      return TRADITION_ORDER.concat(Object.keys(extra));
     }
     var _bar = null;
     function buildTabs() {

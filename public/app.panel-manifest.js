@@ -17,7 +17,7 @@
     "system-mvs":    "app.system-mvs-panel.js?v=20260513-wave125",
     "notifications": "app.notifications-panel.js?v=20260429-no-runall-184",
     "user-admin":    "app.user-admin-panel.js?v=20260526-w463-skeleton-admin",
-    "mv-pipeline":   "app.mv-pipeline-panel.js?v=20260527-w461-pipeline-6chips",
+    "mv-pipeline":   "app.mv-pipeline-panel.js?v=20260726-w1783-tier-pills",
     // CSSOS_WAVE_533 — person-mv 已还原为 eager(见 index.html), 从懒加载清单移除。
     // CSSOS_WAVE_527 — mv-import (21KB): mv-pipeline 面板的"导入"子功能。它把触发按钮注入
     //   #mv-pipeline-panel 头部, 故随 mv-pipeline 一同按需加载(见下方 CSSOS_PANEL_DEPS)。
@@ -78,6 +78,6 @@
   // 这样 index.html 不再 eager 引入面板样式表 —— 真正"请求谁、谁的 CSS 才加载"。只登记
   // 【面板作用域、移走不影响常驻元素】的样式表。
   globalThis.CSSOS_PANEL_CSS = Object.assign(globalThis.CSSOS_PANEL_CSS || {}, {
-    "mv-pipeline":   "style.mv-pipeline.css?v=20260528-w465-tier-pill",
+    "mv-pipeline":   "style.mv-pipeline.css?v=20260726-w1784-contrast",
   });
 })();

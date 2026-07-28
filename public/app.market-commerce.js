@@ -497,6 +497,12 @@ function buildMarketSearchShellMarkup() {
           <option value="single">${loginCopy("Single")}</option>
           <option value="triptych">${loginCopy("Triptych")}</option>
           <option value="opera">${loginCopy("Opera")}</option>
+          <!-- W1768 — Jing「歌剧之下加 短剧/电视连续剧/电影/游戏」。走 i18N(loginCopy→tr)。
+               这些 work_type 目前多为空(游戏尚未开放), 空结果可接受(开放品类占位, 同圣诗各教派)。 -->
+          <option value="short_drama">${loginCopy("Short Drama")}</option>
+          <option value="series">${loginCopy("TV Series")}</option>
+          <option value="film">${loginCopy("Film")}</option>
+          <option value="game">${loginCopy("Game")}</option>
           <option value="owned">${loginCopy("Mine")}</option>
           <option value="public">${loginCopy("Others")}</option>
         </select>
@@ -629,7 +635,11 @@ function ensureMarketSection(body) {
   section.className = "works-section";
   section.innerHTML = `
     <div class="section-title">${loginCopy("Marketplace")}</div>
-    <div class="cssmv-pill-bar foryou-market-lang-chips" id="foryou-market-lang-chips"></div>
+    <!-- W1767 — Jing「多语言栏目改自适应宽度」: 从遗留 .cssmv-pill-bar(flex) 迁到胶囊宪法 v28 data-pill-bar(grid)。
+         遗留 flex 版的凹凸镶嵌用 width:calc(100%+20px), flex 里 100%=容器宽 → 每颗语言胶囊被撑成通栏(见图1);
+         v28 grid 版 100%=本列宽, 通栏根治。配 #foryou-market-lang-chips[data-pill-bar]{grid-auto-columns:max-content}
+         得自适应宽。子项由 populateMarketLangChips() 就地重建, 故其尾部调 cssosPillBarStamp 重盖。 -->
+    <div class="foryou-market-lang-chips" id="foryou-market-lang-chips" data-pill-bar data-pill-text="dark"></div>
     ${buildMarketSearchShellMarkup()}
     <div class="works-list" id="foryou-market-list">
       ${buildMarketLoadingNoteMarkup()}
@@ -659,7 +669,11 @@ async function populateMarketLangChips() {
   const mk = (code, label) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = label;
+    // W1768 — Jing「国旗小图标; All 的图标是全球小图标」: 每颗语言胶囊前置国旗 emoji, "All"(空 code)
+    //   经 cssosLangFlag("") 回退为 🌐 全球图标。标签包 <span>(胶囊宪法: 便于统一控字号)。
+    const _flag = (typeof globalThis.cssosLangFlag === "function") ? globalThis.cssosLangFlag(code) : (code ? "🌐" : "🌐");
+    b.innerHTML = '<span class="market-lang-flag" style="margin-right:5px;">' + _flag +
+      '</span><span>' + escapeHtml(label) + "</span>";
     // CSSOS_WAVE_414 — mark the active capsule both ways so the tab-pill
     // constitution paints it 两头凸 and bites its neighbors 凹 (the interlock
     // selectors key off .active / [aria-selected="true"]).
@@ -674,6 +688,9 @@ async function populateMarketLangChips() {
   bar.innerHTML = "";
   bar.appendChild(mk("", loginCopy("All", "全部")));
   _marketLangCatalog.forEach((l) => bar.appendChild(mk(l.code, l.native)));
+  // W1767 — 就地重建了子节点, 观察器不覆盖"容器仍在、子节点被换" → 手动重盖 v28 胶囊(纯 CSS 版:
+  //   只赋 key/hue/轨道色, 不绑点击, 不夺各 chip 自身的筛选点击/.active; 首个 All 默认激活即锚岛)。
+  try { if (window.cssosPillBarStamp) window.cssosPillBarStamp(bar); } catch (_ePill) {}
 }
 
 function ensureMarketSearchReveal(body, behavior) {
@@ -1862,6 +1879,10 @@ function syncMarketFilterPills(options = {}) {
       single: loginCopy("Single"),
       triptych: loginCopy("Triptych"),
       opera: loginCopy("Opera"),
+      short_drama: loginCopy("Short Drama"),
+      series: loginCopy("TV Series"),
+      film: loginCopy("Film"),
+      game: loginCopy("Game"),
       owned: loginCopy("Mine"),
       public: loginCopy("Others"),
     }[filterMode],

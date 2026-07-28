@@ -37,14 +37,19 @@
     <!-- CSSOS_WAVE_437 — standard meta (Chrome deprecated the apple- prefix). -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- CSSOS_WAVE_1773 20260726 (Jing) — Smart App Banner: iPhone/iPad 的 Safari 打开本页时,
+         苹果【原生】在顶部弹一条安装条(未装显示"获取", 已装显示"打开")。广告流量以手机为主,
+         此前完全没有这一层, 等于白扔转化。app-id = cssOS(iPhone/iPad) 6768848996;
+         Watch/TV/Vision 各自的 App 不适用网页横幅(无 Safari), 仍走 Dock 的 App 面板。 -->
+    <meta name="apple-itunes-app" content="app-id=6768848996" />
     <meta name="theme-color" content="#000000" />
     <!-- CSSOS_PERSON_MV_WAVE32 20260508 — Jing: PWA manifest, maskable icons, SW registration. -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <base href="/" />
-    <title>CSS Studio — Watch + create AI music videos, instantly</title>
+    <title>CSS Studio — a music video's already playing. Make yours in a sentence.</title>
     <!-- CSSOS_WAVE_721 — 产品/公司描述(供搜索引擎、社交分享、以及审核员识别"这家公司做什么产品")。 -->
-    <meta name="description" content="CSS Studio is the first zero-friction watch + create platform for AI music videos. Open the app and a fully-produced music video plays, with sound, instantly — then create your own, in any language and any voice, without ever leaving the cinema. Featuring the world's first emotion subtitles." />
+    <meta name="description" content="Open CSS Studio and a fully-produced music video is already playing, with sound, the moment it loads. Then make your own in one sentence — any language, any voice, the world's first emotion subtitles, without ever leaving the cinema. (Under the hood, it's all AI.)" />
     <meta name="keywords" content="AI music video, AI MV, music video generator, watch and create, AI music, emotion subtitles, multilingual music video, CSS Studio" />
     <meta name="author" content="CSS Studio" />
     <link rel="canonical" href="https://cssstudio.app/" />
@@ -57,7 +62,7 @@
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="cssOS — watch and create AI music videos, with sound" />
+    <meta property="og:image:alt" content="cssOS — a music video already playing, with sound" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CSS Studio — a music video is already playing. Make yours in a sentence." />
     <meta name="twitter:description" content="Open it and a full music video plays with sound, instantly. Then make your own in one sentence — any language, any voice, emotion subtitles." />
@@ -100,13 +105,13 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=w713-mrigf69h" />
+    <link rel="stylesheet" href="style.css?v=20260713-orb-fill" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
-    <link rel="stylesheet" href="app.core-ui.css?v=w713-mrigf69h" />
+    <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
          规则)此前【从未被任何页面加载】→ 字幕词无颜色规则、继承父淡绿白 = Jing 的"还绿"; 随机色/稳定/
          中央爆/[Music...] 一整轮 CSS 全部失效。在 style.css 之后加载它, 让 watch 面板按设计生效。 -->
-    <link rel="stylesheet" href="style.watch.css?v=w713-mrigf69h" />
+    <link rel="stylesheet" href="style.watch.css?v=20260621-w1094-scroll" />
     <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
 
   </head>
@@ -1236,6 +1241,22 @@
                with freeFirst=true; its selection persists as the canonical
                language preference read by every entry (incl. zero-input 一键MV). -->
           <div id="creation-language-picker"></div>
+          <!-- W1766 — Jing「创作入口加圣诗音乐复选框; 选中→显示各教派子项; 开放给用户来创作」。
+               放在【非冻结】的 .settings-body 流内(语言选择器之后、音乐风格红线块 #creation-console 之外),
+               不触碰 .creation-tabs/.creation-chips/#creation-style-input/#creation-style-count 等冻结选择器。
+               教派子项胶囊走胶囊宪法(data-pill-bar, 无 data-pill-equal = 自适应宽); 由 app.hymn-create-toggle.js
+               填充(教派清单复用 app.hymn-gallery.js 导出的 CSSOS_HYMN_TRADITIONS)。 -->
+          <div class="hymn-create-row" id="hymn-create-row">
+            <label class="hymn-create-toggle">
+              <input type="checkbox" id="hymn-create-check" />
+              <span class="hymn-create-ico" aria-hidden="true">⛪</span>
+              <span data-i18n="creation.hymn.toggle">Hymn Music</span>
+            </label>
+            <div class="hymn-denom-wrap" id="hymn-denom-wrap" hidden>
+              <div class="hymn-denom-hint" data-i18n="creation.hymn.pickTradition">Pick a tradition — open to all creators</div>
+              <div class="hymn-denom-bar" id="hymn-denom-bar" data-pill-bar data-pill-text="dark"></div>
+            </div>
+          </div>
           <label class="field-shell field-shell-rich">
             <span class="field-label-row">
               <span data-i18n="settings.customLyrics">Custom Lyrics</span>
@@ -1250,13 +1271,16 @@
                        The wand image stays the same; the handler now
                        routes based on whether lyrics are present.
                    -->
+              <!-- W1768 — Jing「这是高级设置面板的【总魔法棒】, 给她另类特别一点」: 加 .total-wand →
+                   12 色文明光谱的旋转 conic 描边 + 呼吸光晕, 与普通 field-action-btn 区隔; 一眼是"总闸"。
+                   功能不变: 点击 = 生成标题 → 由标题文明智能联动推导下面所有选项(CSSOS_forceLyricsRegenerate)。 -->
               <button
                 id="lyrics-regenerate"
-                class="field-action-btn"
+                class="field-action-btn total-wand"
                 type="button"
                 data-i18n-aria="action.regenerateLyrics"
                 aria-label="Regenerate title + lyrics + all params (civilization-linked)"
-                title="新随机一首：标题+歌词+所有参数"
+                title="New random song: title + lyrics + all params (master wand · civilization-linked, all options)"
                 onpointerdown="return window.CSSOS_forceLyricsRegenerate ? window.CSSOS_forceLyricsRegenerate(event) : true;"
               >
                 🪄
@@ -1566,6 +1590,9 @@
             <div class="row">
               <label>
                 <span data-i18n="creation.sectionForm">Section Form</span>
+                <!-- W1770 — Jing「section_form 也留空(全空)+ 用户干预优先」。留空 → 总魔法棒按文明智能联动
+                     随机选一种结构(不一定京典)。京典模版降级成末尾一个可发现的复选框 opt-in。
+                     结构值是喂进引擎的英文规范形式, 非 UI 文案; 标签/提示走 i18n。 -->
                 <input
                   id="creation-section-form"
                   type="text"
@@ -1573,6 +1600,11 @@
                   placeholder="e.g. intro, verse, pre-chorus, chorus, bridge, chorus, outro"
                   data-i18n-placeholder="creation.sectionFormPlaceholder"
                 />
+                <span class="section-form-classic-row" id="section-form-classic-row">
+                  <input type="checkbox" id="creation-section-form-classic" />
+                  <label for="creation-section-form-classic" data-i18n="creation.sectionForm.classic">Classic 10-section template</label>
+                </span>
+                <span class="section-form-hint" data-i18n="creation.sectionForm.hint">Leave blank — the system picks a structure via civilization linkage. Check for the classic template, or type your own.</span>
               </label>
               <label>
                 <span data-i18n="creation.articulationBias">Articulation Bias</span>
@@ -1637,6 +1669,18 @@
                 rows="3"
                 maxlength="1000"
                 placeholder="Use high-level references, eras, regions, instrumentation, emotional pacing, and legally licensed packs. Avoid requesting a direct clone of a specific artist or recording."
+              ></textarea>
+            </label>
+            <!-- W1770 (B) — Jing「歌词自定义指令」: 用户在此自由覆盖京典的任意一点(除音乐风格英文这条 Suno 铁律外)。
+                 值透传给后端作为【最高优先 USER DIRECTIVES】注入歌词 prompt。非冻结区, 标签/占位走 i18n。 -->
+            <label class="field-shell">
+              <span data-i18n="creation.lyricDirectives">Lyric Directives (custom overrides)</span>
+              <textarea
+                id="creation-lyric-directives"
+                rows="3"
+                maxlength="1200"
+                placeholder="Override any part of the template (except the English music-style, a Suno requirement). e.g. 'Each section: first 2 lines in English, last 2 in Japanese; incantation in Latin; source: from the Book of Songs.' Or give your own section titles / storyline."
+                data-i18n-placeholder="creation.lyricDirectivesPlaceholder"
               ></textarea>
             </label>
             <div class="creation-reference-library">
@@ -1751,7 +1795,9 @@
           </div>
           <div class="login-user" id="login-user"></div>
           <div id="login-summary-host"></div>
-          <div class="login-grid cssmv-pill-bar" id="login-list" data-pill-equal></div>
+          <!-- W1765 — 胶囊宪法 v28: 登录列 = data-pill-bar 等宽胶囊(每卡 = 一粒 provider 胶囊, 图标+名内联)。
+               子节点由 app.login-panel.js 动态渲染, 渲染尾部调 cssosPillBarStamp 重盖(观察器不覆盖就地换子)。 -->
+          <div class="login-grid" id="login-list" data-pill-bar data-pill-equal></div>
           <!-- CSSOS_WAVE_878 — Jing「回滚到干净的全宽 Apple, 撤掉 W875 那段说明文字」。全宽机制(solo 类 + 内联钉死)保留。 -->
           <button class="cta ghost tiny" id="login-logout" type="button" data-i18n="login.logout">
             Log out
@@ -2143,68 +2189,82 @@
          on every deploy so a stale device auto-reloads to the latest build. -->
     <script>window.__CSSOS_BUILD = "20260604-w622";</script>
     <!-- CSSOS_WAVE_513 — neutralize JS-injected :has() (iOS/macOS WebKit crash). MUST be first. -->
-    <script src="bundle.app1.w713-mrigf69h.js"></script>
+    <script src="app.cinema-teardown-debug.js?v=20260606-w655"></script>
+    <script src="app.has-neutralizer.js?v=20260530-w515-backdrop"></script>
     <!-- CSSOS_WAVE_518 — diag probe removed (crash investigation done). -->
 
     <!-- CSSOS_WAVE_490k — :has() storm fix: maintain document-level state classes in JS. -->
-    <script src="bundle.app2.w713-mrigf69h.js"></script>
+    <script src="app.has-class-bridge.js?v=20260529-w490k-hasbridge"></script>
+    <script src="app.build-guard.js?v=20260530-w516b-clean"></script>
+    <script src="app.crash-guard.js?v=20260530-w536-quiet"></script>
     <!-- CSSOS_WAVE_365 20260523 — Jing: 重新挂回内存遥测探针(此前未在 index.html
          引用 → 5/18 起没有任何样本, OOM 排查完全失明, 尤其 iOS 一条样本都没有).
          每 30s + pagehide/visibility sendBeacon 到 /api/telemetry/memory, 极轻量.
          恢复后才能"边改边看遥测的 dom_nodes/images", 据此决定 OOM 第二刀砍哪里. -->
-    <script src="bundle.app3.w713-mrigf69h.js"></script>
+    <script src="app.memory-probe.js?v=20260530-w536-quiet"></script>
+    <script src="app.panel-memory-monitor.js?v=20260604-w636-basebreakdown"></script>
     <!-- CSSOS_WAVE_249 20260520 — Jing: 极早定义 compactLyricLines 全局,
          根治播放时每帧轮询抛 ReferenceError 压垮 webview 看门狗 →
          强刷返回主界面的崩溃. 必须早于所有调用方(watch-audio-polling 等). -->
-    <script src="bundle.app4.w713-mrigf69h.js"></script>
+    <script src="app.lyric-utils.js?v=20260521-w272-cachebust"></script>
     <!-- CSSOS_WAVE_255 — 相同输入重生成: 覆盖旧作品 vs 输出新作品 的选择+记忆.
          独立模块, 高级设置面板回滚动荡时也能用; 暴露 cssosResolveRegenOutputMode(). -->
-    <script src="bundle.app5.w713-mrigf69h.js"></script>
+    <script src="app.regen-output-mode.js?v=20260522-w351-zindex"></script>
     <!-- CSSOS_WAVE_259 — 钱漏#3 接线: 给 mv 生成注入 reuse_ok(重试/续跑复用),
          用户主动重生成时开"求新窗口"强制出新. 必须早加载以包好 fetch. -->
-    <script src="bundle.app6.w713-mrigf69h.js"></script>
+    <script src="app.mv-reuse-flag.js?v=20260521-w272-cachebust"></script>
+    <script src="app.ios-app-store-hardening.js?v=20260519-wave233-ios-harden"></script>
     <!-- CSSOS_WAVE_117_TOUCH_HARDENING — block pull-to-refresh, edge-swipe
          nav, dead-anchor reloads, double-tap fires. Must load early so
          CSS rules apply before any panel renders. -->
-    <script src="bundle.app7.w713-mrigf69h.js"></script>
+    <script src="app.touch-hardening.js?v=20260530-w536-quiet"></script>
     <!-- CSSOS_WAVE_192 — on first user gesture, request true fullscreen
          on the document so iOS hides the top time bar + auto-hides the
          home indicator after a few seconds of no touch. Touch devices
          only; PWA / standalone skipped (already chrome-less). -->
-    <script src="bundle.app8.w713-mrigf69h.js"></script>
+    <script src="app.app-fullscreen-immersive.js?v=20260526-w438-fsguard"></script>
     <!-- CSSOS_WAVE_194 — lock the app to portrait. Three layers:
          manifest "orientation":"portrait" handles PWA, screen.orientation
          .lock("portrait") covers Chrome Android, and an iOS Safari
          rotate-back overlay covers what Apple won't let us lock. -->
-    <script src="bundle.app9.w713-mrigf69h.js"></script>
+    <script src="app.orientation-lock.js?v=20260522-w351-zindex"></script>
     <!-- CSSOS_WAVE_195 — Screen Wake Lock: keep display awake while
          any media element is playing OR the MV pipeline is running.
          Auto-releases when everything goes idle so battery survives. -->
-    <script src="bundle.app10.w713-mrigf69h.js"></script>
+    <script src="app.wake-lock.js?v=20260516-wave195-wake-lock"></script>
     <!-- CSSOS_WAVE_196 — civilization → lyric-language map. Loads
          BEFORE person-mv-panel.js so seed-builders can call into it. -->
-    <script src="bundle.app11.w713-mrigf69h.js"></script>
+    <script src="app.civ-language-map.js?v=20260603-w593-civmeta"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
-    <script src="bundle.app12.w713-mrigf69h.js"></script>
+    <script src="app.work-id-binding.js?v=20260726-w1785b-assets"></script>
+    <!-- CSSOS_WAVE_1785 — 串台探测器: 只观测不修改, 每秒比对四条道的 owner。
+         必须排在 work-id-binding 之后(它依赖 cssosCurrentWorkId / cssosCurrentGen)。 -->
+    <script src="app.crosstalk-probe.js?v=20260726-w1785b"></script>
+    <script src="app.echo-probe.js?v=20260727-w1787"></script>
     <!-- CSSOS_WAVE_123 — injects civilization/era/gender into /api/mv/music
          POSTs so Suno differentiates per culture instead of defaulting
          every figure to a soft female ballad. -->
-    <script src="bundle.app13.w713-mrigf69h.js"></script>
+    <script src="app.music-civ-inject.js?v=20260603-w593-civmeta"></script>
     <!-- CSSOS_WAVE_117_STEP_2 — lazy panel loader API (small, sync) -->
     <!-- CSSOS_WAVE_524 — 面板源清单(name→src): 内核动态注入的唯一真相源. 必须在 panel-loader 之前. -->
-    <script src="bundle.app14.w713-mrigf69h.js"></script>
+    <script src="app.panel-manifest.js?v=20260726-w1784"></script>
+    <script src="app.panel-loader.js?v=20260530-w527-deps"></script>
     <!-- CSSOS_WAVE_499 — 通用面板路由(内核动态注入按需加载的地基). -->
-    <script src="bundle.app15.w713-mrigf69h.js"></script>
+    <script src="app.panel-router.js?v=20260530-w535-cw"></script>
     <!-- CSSOS_WAVE_520 — 内核「关谁销毁谁」: 面板关闭即回收 video/audio 解码缓冲 + blob + 停常驻循环. -->
-    <script src="bundle.app16.w713-mrigf69h.js"></script>
+    <script src="app.panel-reclaim.js?v=20260530-w520-reclaim"></script>
     <!-- CSSOS_WAVE_526 — 内核 LRU: 同时最多 5 面板, 开第6个淘汰最久未用者并回收内存; 播放中的MV面板豁免. -->
-    <script src="bundle.app17.w713-mrigf69h.js"></script>
+    <script src="app.panel-lru.js?v=20260530-w526-lru"></script>
     <!-- CSSOS_WAVE_117_IOS_STATUSBAR — hide iOS status bar in cinema mode -->
     <script defer src="app.ios-statusbar-cinema.js?v=20260513-wave117-always"></script>
     <!-- CSSOS_WAVE_115 — iOS native payment gate. MUST load FIRST so it
          sets html[data-ios-native] before any payment surface renders. -->
-    <script src="bundle.app18.w713-mrigf69h.js"></script>
+    <script src="app.ios-native-gate.js?v=20260513-wave123-hide-stripe-paths"></script>
+    <script src="app.iap-native.js?v=20260513-wave118-native"></script>
+    <script src="app.ios-deeplink-handler.js?v=20260527-wave446-handoff-guard"></script>
+    <script src="app.ios-subscription-iap-button.js?v=20260727-w1448-enterprise-retired"></script>
+    <script src="app.ios-manage-subscription.js?v=20260513-wave127"></script>
     <script src="/i18n/constants.js"></script>
     <script src="/i18n/catalog.js"></script>
     <!-- CSSOS_WAVE_1107b 20260622 — i18n 字典曾因服务器权限掉到 600 → nginx 500 → I18N 不载入 →
@@ -2214,45 +2274,93 @@
     <script src="/i18n/platforms.js?v=20260622-w1107b"></script>
     <script src="/i18n/index.js?v=20260622-w1107b"></script>
     <script src="/i18n/runtime.js?v=20260622-w1107b"></script>
-    <script src="bundle.app19.w713-mrigf69h.js"></script>
+    <script src="app.dom-globals.js?v=20260527-w449-skip-expired-cdn"></script>
+    <script src="app.input-guardrails.js?v=20260420-p2-84-input-guardrails-1"></script>
+    <script src="app.runtime-shell-bridges.js?v=20260417-ui-recovery-1"></script>
+    <script src="app.panel-settings-actions.js?v=20260416-ui-recovery-2"></script>
+    <script src="app.aspect-ratio.js?v=20260712-i18n"></script>
+    <script src="app.creation-duration.js?v=20260426-membership-preset-guard-136"></script>
+    <script src="app.creation-accessors.js?v=20260423-p2-86-lang-auto-empty-1"></script>
+    <script src="app.watch-audio-polling.js?v=20260504-stop-404-poll"></script>
+    <script src="app.panel-command-settings.js?v=20260712-i18n"></script>
+    <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
+    <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
+    <script src="app.context-menu.js?v=20260602-w587p-myvoice"></script>
+    <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
+    <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
     <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
          Share-link router parses ?cssMV=<id> on boot and opens the MV
          panel via openMarketWorkPreview. Loaded BEFORE app.js so the
          fetch is in flight before the rest of boot. The router waits
          for openMarketWorkPreview to be defined before invoking, so
          load-order timing isn't critical — this is just the head start. -->
-    <script src="bundle.app20.w713-mrigf69h.js"></script>
+    <script src="app.share-link-router.js?v=20260525-w424-tieredcta"></script>
+    <script src="app.download-menu.js?v=20260506-phase-b"></script>
+    <script src="app.mv-language-picker-shim.js?v=20260606-w666"></script>
+    <script src="app.mv-language-pill.js?v=20260726-w1785-register"></script>
+    <script src="app.up-next-strip.js?v=20260523-w377-exclusive"></script>
     <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
-    <script src="bundle.app21.w713-mrigf69h.js"></script>
+    <script src="app.watch-search.js?v=20260526-w462-skeleton-universal"></script>
     <!-- CSSOS_WAVE_294 — 可复用苹果风浮层搜索: 自动接管 [data-search-float="swipe"]
          的搜索壳(Works Center 等), 下滑显示/上滑隐藏. -->
-    <script src="bundle.app22.w713-mrigf69h.js"></script>
+    <script src="app.floating-search.js?v=20260521-w294-floatsearch"></script>
+    <script src="app.create-cta.js?v=20260521-w283-inplace"></script>
+    <script src="app.preview-cap.js?v=20260506-a11y"></script>
+    <script src="app.tab-title-sync.js?v=20260506-tab-sync"></script>
+    <!-- W1766 — unified keyboard-shortcut hub. MUST load before any feature file
+         that registers a shortcut (mv-keys, boot, watch-ui, panel-shortcuts, …). -->
+    <script src="app.shortcuts-registry.js?v=20260720-w1766-shortcut-hub"></script>
+    <script src="app.shortcuts-shim.js?v=20260606-w661"></script>
+    <script src="app.dock-now-playing.js?v=20260506-dock-pulse"></script>
+    <script src="app.resume-progress.js?v=20260506-resume"></script>
+    <script src="app.pip-button.js?v=20260506-pip-diag"></script>
+    <script src="app.volume-memory.js?v=20260506-vol-mem"></script>
+    <script src="app.mv-keys.js?v=20260720-w1766-hub"></script>
+    <script src="app.playback-speed.js?v=20260506-speed-noclash"></script>
+    <script src="app.loop-toggle.js?v=20260521-w295-onerow"></script>
+    <script src="app.media-session.js?v=20260506-mediasession"></script>
+    <script src="app.double-tap-seek.js?v=20260506-dts"></script>
+    <script src="app.title-copy-share.js?v=20260506-titlecopy"></script>
+    <script src="app.media-error-toast.js?v=20260506-errtoast"></script>
+    <script src="app.popup-deeplink.js?v=20260506-deeplink-auth"></script>
+    <script src="app.engine-picker.js?v=20260507-real-models"></script>
     <script defer src="app.engine-picker-tabs.js?v=20260614-w773-kie320"></script>
     <script defer src="app.flagship-badges.js?v=20260614-w788"></script>
     <script defer src="app.video-slideshow-fallback.js?v=20260615-w789"></script>
-    <script src="bundle.app23.w713-mrigf69h.js"></script>
+    <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
+    <script src="app.emotion-subtitle-engine.js?v=20260525-w442-emo-sub"></script>
+    <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
+    <script src="app.js?v=20260708-w1602-dockfront"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
          by app.delivery-digest-ui.js, which loads further along. -->
-    <script src="bundle.app24.w713-mrigf69h.js"></script>
+    <script src="app.creation-language.js?v=20260603-w588w-selfheal"></script>
     <!-- CSSMV_CREATION_LANG_OPTIONS 20260425 #100 — Jing: full 10-lang
          dropdown + setLocale event dispatch + auto-mirror locale into
          the dropdown so language-panel picks show up here. -->
-    <script src="bundle.app25.w713-mrigf69h.js"></script>
+    <script src="app.creation-language-options.js?v=20260425-p2-100-lang-options-1"></script>
     <!-- CSSMV_CIV_UI_HINTS 20260424 #94 — Jing: dynamic title placeholder
          + clear hardcoded Chinese GuFeng / Feminine pre-roll labels. -->
-    <script src="bundle.app26.w713-mrigf69h.js"></script>
+    <script src="app.civilization-ui-hints.js?v=20260424-p2-94-civ-ui-hints-1"></script>
     <!-- CSSMV_CREATION_CIV_DEFAULTS 20260425 #101 — Jing: civ-derived
          random fills for BPM/key/workType/vocalStyle/instrumentation/
          ensembleStyle in Advanced Settings. Re-rolls on locale flip. -->
-    <script src="bundle.app27.w713-mrigf69h.js"></script>
+    <script src="app.creation-civ-defaults.js?v=20260429-empty-defaults-181"></script>
+    <script src="app.advanced-panel-settings-render.js?v=20260603-w588w-selfheal"></script>
+    <script src="app.watch-audio.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.voice-seed.js?v=20260504-longpress-to-mv"></script>
     <!-- CSSOS_PHASE2_UNIVERSAL_ENTRY_VOICE 20260427 #161 — Jing
          app.voice-submit.js was previously untracked / never loaded; the
          browser silently fell back to the legacy createRun path because
          submitVoiceOrFallbackTitleModule was undefined. Wiring it now so
          voice-entry routes through MV Pipeline runAll. -->
-    <script src="bundle.app28.w713-mrigf69h.js"></script>
+    <script src="app.voice-submit.js?v=20260430-universal-entries-230"></script>
+    <script src="app.creation-flow.js?v=20260524-w417-pickermount"></script>
+    <script src="app.color-name-labels.js?v=20260518-w220a-v28-step31"></script>
+    <script src="app.creation-bridges.js?v=20260327-creation-bridges-split-1"></script>
+    <script src="app.song-seed-ui.js?v=20260525-w360b-lang-passthru"></script>
+    <script src="app.work-sync.js?v=20260524-w417-alivecover"></script>
     <!-- CSSOS_PHASE2_WATCH_FONT_MANIFEST_WIRED 20260420 — Jing (#80):
          "随机中文字体好像没有明显变化 ... 我点击星星按钮，也闪了一下，但是好像字体都一样"
          Root cause: this script was missing from index.html, so
@@ -2262,29 +2370,47 @@
          to system-ui for every token — so every font looked the same.
          Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
          see the manifest on first call. -->
-    <script src="bundle.app29.w713-mrigf69h.js"></script>
+    <script src="app.watch-font-manifest.js?v=20260506-quiet"></script>
+    <script src="app.playlists.js?v=20260524-w390-foryou-retry"></script>
+    <script src="app.emotion-fx.js?v=20260607-w668b"></script>
+    <script src="app.emotion-fx-panel.js?v=20260720-w1765-tune-tooltip-t"></script>
+    <script src="app.subtitle-tune.js?v=20260618-w995"></script>
+    <script src="app.subtitle-wave-editor.js?v=20260720-w1766-tune-hub"></script>
+    <script src="app.watch-ui.js?v=20260720-w1766-hub"></script>
+    <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
+    <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
     <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
-    <script src="bundle.app30.w713-mrigf69h.js"></script>
+    <script src="app.watch-bottom-stack.js?v=20260726-w1776-respect-userpos"></script>
+    <script src="app.lang-flag-pills.js?v=20260602-w588h-laftunify"></script>
     <!-- CSSOS_WAVE_581 20260531 — Jing — 给现有作品加语言的弹窗(选语言→报价→提交). -->
     <!-- CSSOS_WAVE_584 20260531 — Jing — 多声线: 给现有作品加声线(同语言换音色重唱). -->
-    <script src="bundle.app31.w713-mrigf69h.js"></script>
+    <script src="app.my-voice-entry.js?v=20260602-w587y-langrow"></script>
     <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
-    <script src="bundle.app32.w713-mrigf69h.js"></script>
+    <script src="app.autoplay-feed.js?v=20260726-w1772b-referrer"></script>
+    <script src="app.appstore-ribbon.js?v=20260720-w1765-ribbon-fullscreen"></script>
+    <script src="app.mobile-app-cta.js?v=20260708-w1603-cta-abovedock"></script>
+    <script src="app.appstore-panel.js?v=20260708-w1633-apps"></script>
+    <script src="app.coupon-redeem.js?v=20260709-w1660-coupon"></script>
+    <script src="app.watch-price-strip.js?v=20260602-w588f-icons"></script>
     <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
          只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
-    <script src="bundle.app33.w713-mrigf69h.js"></script>
+    <script src="app.watch-social-rail.js?v=20260726-w1781-rail-snap"></script>
     <!-- CSSOS_WAVE_1119 — 右轨配套: 左下标题摘要(标题·进度·@作者·时长·摘要)+ 弹幕(评论左下窄道弹入上飘)。
          纯叠加层, 不碰 emotion-fx/字幕/bottom-stack。 -->
-    <script src="bundle.app34.w713-mrigf69h.js"></script>
+    <script src="app.watch-cinema-caption.js?v=20260623-w1119-caption"></script>
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
-    <script src="bundle.app35.w713-mrigf69h.js"></script>
+    <script src="app.crash-log-dashboard.js?v=20260526-w463-skeleton-admin"></script>
     <!-- CSSOS_WAVE_120C — Admin-only "see-a-bug → tell-me" inbox FAB. -->
-    <script src="bundle.app36.w713-mrigf69h.js"></script>
+    <script src="app.bug-capture.js?v=20260712-i18n"></script>
+    <script src="app.client-transcode.js?v=20260511-wave111b-b2"></script>
+    <script src="app.cost-breakdown-accum.js?v=20260511-wave113k-accum"></script>
     <!-- CSSOS_WAVE_527 — app.mv-import.js 已移除: mv-pipeline 的"导入"子功能, 随 mv-pipeline 按需加载(见 app.panel-manifest.js CSSOS_PANEL_DEPS). 回退: 改回普通 src. -->
 
-    <script src="bundle.app37.w713-mrigf69h.js"></script>
+    <script src="app.watch-lyrics-bridges.js?v=20260327-watch-lyrics-bridges-split-1"></script>
+    <script src="app.watch-surface-bridges.js?v=20260327-watch-surface-bridges-split-1"></script>
+    <script src="app.about-panel.js?v=20260325-live-unfreeze-2"></script>
     <!-- CSSOS_WAVE_129 20260514 — REVERTED to eager load. The Wave 117
          lazy-load experiment caused a crash storm: 33+ functions in this
          module are bare-called from 14+ other files (loadWatchCommerce,
@@ -2293,36 +2419,70 @@
          the market panel loaded (crash-guard logged 35 hits/session).
          market-commerce is NOT an island; it must load eagerly. The
          mv-pipeline-panel lazy-load (a true island) stays. -->
-    <script src="bundle.app38.w713-mrigf69h.js"></script>
+    <script src="app.pill-bar.js?v=20260708-w1605-pill-interlock"></script>
     <!-- CSSOS_WAVE_576 20260531 — Jing — 通用【左凹向激活】兜底(宪法 :has 在 iOS 被剥, 左凹失效). -->
-    <script src="bundle.app39.w713-mrigf69h.js"></script>
+    <script src="app.pill-left-concave.js?v=20260602-w588h-rightmost"></script>
+    <script src="app.market-commerce.js?v=20260603-w590-coveronce"></script>
     <!-- CSSOS_WAVE_220A 20260519 — Jing: title edit/refine button was
          implemented but never loaded. Wiring it in now. -->
-    <script src="bundle.app40.w713-mrigf69h.js"></script>
+    <script src="app.title-edit-refine.js?v=20260603-w588w-selfheal"></script>
     <!-- CSSOS_WAVE_544 20260531 — Jing — 作品中心编辑基础+展示信息(标题/风格/歌词/封面/画幅/定价). -->
     <!-- CSSOS_PERSON_MV_WAVE45_48 20260508 — Jing — upscale + product attachments. -->
-    <script src="bundle.app41.w713-mrigf69h.js"></script>
+    <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
-    <script src="bundle.app42.w713-mrigf69h.js"></script>
+    <script src="app.cinema-translate.js?v=20260508-wave53"></script>
+    <script src="app.profile-panel.js?v=20260603-w588w-selfheal"></script>
     <!-- CSSOS_WAVE_1107 20260622 — Jing/App Store 2.1 拒因: 订阅/会员面板是苹果审核头号关卡,
          懒加载首点失败 → "Panel failed to load" → 拒。改回 eager 常驻, 付费墙永不加载失败。
          (W534 曾改懒加载瘦身; 付费墙不参与瘦身。) 同步: manifest 删 subscription / router 删 stub. -->
-    <script src="bundle.app43.w713-mrigf69h.js"></script>
+    <script src="app.subscription-panel.js?v=20260622-w1107-paywall-eager"></script>
+    <script src="app.i18n-boot-apply.js?v=20260606-w667"></script>
+    <script src="app.language-catalog.js?v=20260606-w665"></script>
+    <script src="app.language-panel.js?v=20260606-w665"></script>
+    <script src="app.login-panel.js?v=20260531-w541-platforms-fallback"></script>
+    <script src="app.works-center.js?v=20260603-w597-tree"></script>
     <!-- CSSOS_WAVE_546 20260531 — Jing — 作品中心: 标注未完成草稿 + 继续合成/编辑补救. -->
-    <script src="bundle.app44.w713-mrigf69h.js"></script>
+    <script src="app.draft-rescue-badge.js?v=20260531-w551-resume-api"></script>
+    <script src="app.api-billing.js?v=20260602-w588o-authupsell"></script>
+    <script src="app.agent-chat.js?v=20260727-w1786e-fabmenu-2step"></script>
+    <script src="app.generation-progress-badge.js?v=20260604-w614"></script>
+    <script src="app.agent-overflow-menu.js?v=20260603-w595b-restore"></script>
+    <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>
+    <script src="app.chat-rooms.js?v=20260602-w588v-empty"></script>
     <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
 
-    <script src="bundle.app45.w713-mrigf69h.js"></script>
+    <script src="app.media-buffering-mirror.js?v=20260713-unified-a"></script>
+    <script src="app.busy-indicator.js?v=20260713-bootgate"></script>
+    <script src="app.vtt-immersive-captions.js?v=20260617-w933"></script>
+    <script src="app.provider-health-dashboard.js?v=20260514-wave139c"></script>
+    <script src="app.today-in-history-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.today-festival-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.upcoming-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.system-mv-archive.js?v=20260603-w593-civmeta"></script>
     <!-- CSSOS_WAVE_523 — system-mvs-panel (15KB) 按需加载: 通用 panel-router, dock 按钮 data-action="system-mvs" 触发. 回退: 改回普通 src. -->
     <!-- CSSOS_WAVE_531 — app.engine-accounts.js 已移除: 自建HTML+CSS共享。market 渲染计费面板调 renderEngineAccountsCard(桩)→ 按需加载渲染卡片. 回退: 改回普通 src. -->
 
-    <script src="bundle.app46.w713-mrigf69h.js"></script>
+    <script src="app.payments-checkout.js?v=20260526-w465-nowechat"></script>
+    <script src="app.music-input-panel.js?v=20260727-w1786c-fit-width"></script>
+    <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-dashboard-bindings.js?v=20260712-i18n"></script>
+    <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.panel-layout.js?v=20260720-panel-fullscreen-all"></script>
+    <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
+    <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-reports-panel.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-export-helpers.js?v=20260325-live-unfreeze-2"></script>
+    <script src="app.delivery-report-ui.js?v=20260526-w462-skeleton-universal"></script>
+    <script src="app.delivery-digest-ui.js?v=20260325-live-unfreeze-2"></script>
     <!-- CSSOS_WAVE_534 — app.subscription-panel.js 已移除: user-admin 同款安全图案(handleGlobalAction 有 subscription case + 静态HTML壳 + ?.()守卫). 由通用 router 桩 openSubscriptionPanelModule 按需加载. HTML 壳暂留(dom-globals 抓引用). 回退: 改回普通 src. -->
 
-    <script src="bundle.app47.w713-mrigf69h.js"></script>
+    <script src="app.subscription-celebration.js?v=20260501-celebrate-265"></script>
+    <script src="app.subscription-watcher.js?v=20260501-celebrate-265"></script>
     <!-- CSSOS_FAREWELL_MOMENT 20260711 — client-side farewell "离别音乐" MV
          played in-moment on account deletion (zero engine cost). -->
-    <script src="bundle.app48.w713-mrigf69h.js"></script>
+    <script src="app.farewell-moment.js?v=20260711-farewell-1"></script>
     <!-- CSSOS_WAVE_117_LAZY 20260513 — notifications-panel is the first
          panel migrated to true on-demand loading. Inert <script type=...>
          tag (browser ignores it). Real script injected by cssosLoadPanel()
@@ -2331,7 +2491,13 @@
     <!-- CSSOS_WAVE_535 — credit-panel + workspaces-panel 已移除: user-admin 同款安全图案(handleGlobalAction 有 credit/workspaces case + 静态壳 + ?.()守卫). 通用 router 桩 openX 按需加载. 回退: 改回普通 src. -->
     <!-- CSSOS_WAVE_522 — user-admin-panel (49KB) 按需加载: 通用 panel-router 桩入口+dock动作, 点击才载.
          孤岛已实测(全 ?.() 调用/无渲染期裸调); 管理员专属, 对用户/审核零影响. 回退: 改回普通 src. -->
-    <script src="bundle.app49.w713-mrigf69h.js"></script>
+    <script src="app.admin-errors-panel.js?v=20260508-wave82"></script>
+    <script src="app.admin-ops-panel.js?v=20260526-w463-skeleton-admin"></script>
+    <script src="app.foryou-seed-preview.js?v=20260523-w348-imgthumb-proxy"></script>
+    <script src="app.mv-engines-catalog.js?v=20260419-p2-57d-anon-silent-1"></script>
+    <script src="app.mv-tiers-catalog.js?v=20260419-p2-mv-naming-1"></script>
+    <script src="app.cssmv-seed-bank.js?v=20260521-w272-cachebust"></script>
+    <script src="app.mv-dag-executor.js?v=20260507-dag-1"></script>
     <!-- CSSOS_WAVE_120B 20260513 — mv-pipeline-panel.js (444 KB) is pure
          UI for the MV Pipeline panel: cinema/storm mode, stage badges,
          tier label. It does NOT call any /api/mv/* endpoint — the real
@@ -2339,68 +2505,120 @@
          So we can safely lazy-load it on first interaction with the
          MV Pipeline dock icon ([data-action="mv-pipeline"]) instead of
          on every page load. Saves ~444 KB from first-paint on mobile. -->
-    <script src="bundle.app50.w713-mrigf69h.js"></script>
+    <script src="app.mv-pipeline-open-shim.js?v=20260521-w272-cachebust"></script>
     <!-- CSSOS_WAVE_533 — person-mv 还原为普通 eager 模块(Jing 决定): 懒加载方式反复打不开(W511/W532),
          其余 7 个模块懒加载均正常。person-mv 自建 HTML + 自注入 CSS(显示)+ JS(动作)= 完整自包含模块,
          eager 一次性加载即可靠工作。代价: 237KB 留在首屏, 换取 People MV 稳定可开。 -->
-    <script src="bundle.app51.w713-mrigf69h.js"></script>
+    <script src="app.civ-meta-i18n.js?v=20260710-w1674-civmeta"></script>
+    <script src="app.hymn-player.js?v=20260710-w1707-hymn"></script>
+    <script src="app.hymn-gallery.js?v=20260710-w1710-hymngal"></script>
+    <script src="app.hymn-create-toggle.js?v=20260713-w1766-hymn-create"></script>
+    <script src="app.section-form-classic.js?v=20260713-w1770-section-form"></script>
+    <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
+    <script src="app.actor-gallery.js?v=20260702-w113-actors"></script>
+    <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-groups-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-today-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-style-shelf.js?v=20260529-w490f-litehome"></script>
+    <script src="app.person-mv-recommendations-shelf.js?v=20260529-w490f-litehome"></script>
+    <script src="app.person-mv-leaderboard.js?v=20260603-w593-civmeta"></script>
+    <script src="app.home-shelves-position.js?v=20260508-dock-aware"></script>
+    <script src="app.global-search.js?v=20260712-i18n"></script>
     <!-- CSSOS_PERSON_MV_WAVE69 20260508 — Jing — TikTok-style content plaza. -->
-    <script src="bundle.app52.w713-mrigf69h.js"></script>
+    <script src="app.person-mv-plaza.js?v=20260602-w588v-empty"></script>
     <!-- CSSOS_PERSON_MV_WAVE71 20260508 — Jing — personal stats deep page. -->
     <!-- CSSOS_PERSON_MV_WAVE64+65 20260508 — Jing — UI surface for waves 51/54/55 + shortcuts cheatsheet. -->
-    <script src="bundle.app53.w713-mrigf69h.js"></script>
+    <script src="app.rating-badges.js?v=20260508-wave64"></script>
+    <script src="app.person-mv-comments-share.js?v=20260508-wave12"></script>
+    <script src="app.cinema-mount.js?v=20260623-w1147"></script>
+    <script src="app.resizable.js?v=20260623-w1164"></script>
+    <script src="app.work-comments.js?v=20260623-w1164"></script>
+    <script src="app.card-context-menu.js?v=20260623-w1147"></script>
+    <script src="app.person-mv-festival-shelf.js?v=20260603-w593-civmeta"></script>
+    <script src="app.person-mv-ai-chat.js?v=20260508-wave24"></script>
+    <script src="app.person-mv-civ-era-pages.js?v=20260602-w588v-empty"></script>
+    <script src="app.tutorials.js?v=20260508-wave74"></script>
+    <script src="app.cover-slideshow.js?v=20260604-w617-poolclear"></script>
+    <script src="app.watch-stage-bars.js?v=20260525-w358-fs-btn-offset"></script>
+    <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
+    <script src="app.watch-media-chrome.js?v=20260506-pip-allow"></script>
+    <script src="app.watch-media-overlays.js?v=20260526-w447-reflow"></script>
+    <script src="app.watch-deadmedia-fallback.js?v=20260525-w421-deadmedia"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260601-w587k-sepaudio"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
          for popups + clear lingering toast/info popover on watch close. -->
-    <script src="bundle.app54.w713-mrigf69h.js"></script>
+    <script src="app.popups-theme-fix.js?v=20260425-p2-108-popups-theme-1"></script>
     <!-- CSSMV_NO_FALLBACK_TITLE 20260425 #109 — Jing: no "Untitled" /
          "CSS MV" / "未标题" placeholder; kick lyrics engine when title
          is missing. -->
-    <script src="bundle.app55.w713-mrigf69h.js"></script>
+    <script src="app.no-fallback-title.js?v=20260425-p2-109-no-fallback-title-1"></script>
     <!-- CSSMV_PANEL_DOCK_ORDER 20260425 #116 — Jing: light-theme paint
          for .panel-settings + per-panel dock-order option (admin sets
          default, regular users override their own). -->
-    <script src="bundle.app56.w713-mrigf69h.js"></script>
+    <script src="app.panel-dock-order.js?v=20260425-p2-116-dock-order-1"></script>
     <!-- CSSMV_CONSOLE_NOISE 20260425 #118 — Jing: silence cover-webp
          404 noise + transient endpoint NetworkError rejections; load
          early so it catches everything from boot. -->
-    <script src="bundle.app57.w713-mrigf69h.js"></script>
+    <script src="app.console-noise-cleanup.js?v=20260425-p2-118-noise-1"></script>
     <!-- CSSMV_CONTEXT_MENU_FALLBACKS 20260425 #111 — Jing: dead-link
          recovery for right-click menu entries. -->
-    <script src="bundle.app58.w713-mrigf69h.js"></script>
+    <script src="app.context-menu-fallbacks.js?v=20260712-i18n"></script>
     <!-- CSSMV_SUBTITLE_CLEANER 20260425 #113 — Jing: strip section
          markers (**Verse 1**, [Chorus], …) and "/" separators from
          rendered subtitles + titles. Lyrics editor stays raw. -->
-    <script src="bundle.app59.w713-mrigf69h.js"></script>
+    <script src="app.subtitle-cleaner.js?v=20260525-w419-dualclean"></script>
+    <script src="app.mv-title-sync.js?v=20260503-mv-title-sync-1"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505c — Jing
          These 19 helpers must load AFTER all the file-level helpers above
          (especially app.delivery-digest-ui.js which defines
          renderDeliveryDigestSummaryModule that app.cssmv-governance.js
          calls at top-level), but BEFORE app.boot.js so the bridges are
          present when boot wires up event handlers. -->
-    <script src="bundle.app60.w713-mrigf69h.js"></script>
+    <script src="app.panel-shell-actions.js?v=20260529-w486-clamp-observer"></script>
+    <script src="app.panel-drag.js?v=20260505c-end"></script>
+    <script src="app.panel-focus.js?v=20260530-w506-revert"></script>
+    <script src="app.i18n-hierarchy-defaults.js?v=20260505c-end"></script>
+    <script src="app.theme-quick-toggle.js?v=20260527-w461-pill-bar"></script>
+    <script src="app.delivery-copy.js?v=20260505c-end"></script>
+    <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
+    <script src="app.final-audio-artifacts.js?v=20260505c-end"></script>
+    <script src="app.watch-audio-authority.js?v=20260606-w653"></script>
+    <script src="app.song-creation-payload.js?v=20260505c-end"></script>
+    <script src="app.structure-planning.js?v=20260712-i18n"></script>
+    <script src="app.run-auth.js?v=20260525-w360b-civ-payload"></script>
+    <script src="app.logo-panel-actions.js?v=20260505c-end"></script>
+    <script src="app.panel-stack.js?v=20260505c-end"></script>
+    <script src="app.panel-shortcuts.js?v=20260720-w1766-hub"></script>
+    <script src="app.panel-settings-markup.js?v=20260527-w479-autoentersetting"></script>
+    <script src="app.panel-settings-runtime.js?v=20260527-w479-autoentersetting"></script>
+    <script src="app.panel-settings-behavior-bindings.js?v=20260525-w431-settingsfix"></script>
+    <script src="app.panel-settings-tail.js?v=20260505c-end"></script>
     <!-- cssmv-governance MUST load LAST in this group: its top-level call
          to renderDeliveryDigestSummaryModule() must run after that fn is
          defined (delivery-digest-ui.js loads earlier in the file). -->
-    <script src="bundle.app61.w713-mrigf69h.js"></script>
+    <script src="app.cssmv-governance.js?v=20260505c-end"></script>
+    <script src="app.notifications-bell.js?v=20260712-i18n"></script>
     <!-- CSSOS_WAVE_530 — app.dm-panel.js 已移除: 完整三件套自包含模块, #dm hash + cssosOpenDmWith 按需加载. eager 仅留 💌 stub. 回退: 改回普通 src. -->
-    <script src="bundle.app62.w713-mrigf69h.js"></script>
+    <script src="app.dm-open-shim.js?v=20260530-w530-shim"></script>
+    <script src="app.contest-llm.js?v=20260712-i18n"></script>
     <!-- CSSOS_WAVE_529 — app.premium-modal.js 已移除: 完整三件套自包含模块, 仅 #premium hash 触发, 由通用 router(hash 能力)按需注入. 回退: 改回普通 src. -->
 
-    <script src="bundle.app63.w713-mrigf69h.js"></script>
+    <script src="app.ab.js?v=20260508-wave27-ab"></script>
     <!-- CSSOS_WAVE_107 20260509 — iOS native OAuth handoff listener.
          Must load before app.boot.js so the appUrlOpen listener is
          armed before any first-frame work begins. -->
-    <script src="bundle.app64.w713-mrigf69h.js"></script>
+    <script src="app.ios-handoff.js?v=20260509-wave107"></script>
     <!-- CSSOS_WAVE_108 20260509 — global tap-vs-swipe guard.
          Must load BEFORE app.home-activity-bar.js so the bar can
          delegate via cssosTapGuard.bindDelegated. Other panels can
          opt-in to the same swipe immunity at any time. -->
-    <script src="bundle.app65.w713-mrigf69h.js"></script>
+    <script src="app.tap-guard.js?v=20260509-wave108"></script>
     <!-- CSSOS_WAVE_108B 20260509 — playback staging.
          "Don't yank the user out of what they're watching" — taps
          during playback are queued and fired on `ended`. Must load
          BEFORE the activity bar so the bar can route through it. -->
-    <script src="bundle.app66.w713-mrigf69h.js"></script>
+    <script src="app.playback-stage.js?v=20260509-wave108b"></script>
+    <script src="app.home-activity-bar.js?v=20260603-w593-civmeta"></script>
     <!-- CSSOS_WAVE_108B 20260509 — pin MV Pipeline + Person MV
          to dock positions 1 and 2 (per Jing — they were getting
          clipped at the back). Loaded after app.boot.js below so
@@ -2418,11 +2636,15 @@
          Default: "pill"; fallback: "icon" (Advanced Settings → Dock). -->
     <script src="app.dock-pill.js?v=20260529-w487-activefirst" defer></script>
     <!-- CSSOS_WAVE_588 — 轻量崩溃探针: 打点 DOM/图/幻灯/堆 + 最后动作, 崩溃重载后回显趋势(用数据定位)。 -->
-    <script src="bundle.app67.w713-mrigf69h.js"></script>
+    <script src="app.crash-probe.js?v=20260603-w594-diag"></script>
+    <script src="app.i18n-leak-probe.js?v=20260603-w594"></script>
+    <script src="app.subtitle-probe.js?v=20260621-w1091"></script>
     <!-- CSSOS_WAVE_588 — 引导式 toast: 失败提示带 CTA(去充值/登录/重试), 不让用户卡死。 -->
-    <script src="bundle.app68.w713-mrigf69h.js"></script>
+    <script src="app.guided-toast.js?v=20260602-w588n-report"></script>
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 统一空态助手 cssosEmptyState。 -->
-    <script src="bundle.app69.w713-mrigf69h.js"></script>
+    <script src="app.core-ui.js?v=20260602-w588s-empty2"></script>
+    <script src="app.boot.js?v=20260720-w1766-hub"></script>
+    <script src="app.lazy-panels.js?v=20260604-w635-kernel"></script>
     <!-- CSSOS_PHASE2_PANEL_3BTN_BULLETPROOF 20260505b — Jing
          Self-diagnosing version. Stamps the document so you can verify
          from console that this script actually ran. On every click on a

@@ -239,7 +239,11 @@ async function runLyricsGenerateBridge(mode, options = {}) {
     mode,
     transcript: micState.transcript || "",
     title,
-    style: styleInput?.value?.trim() || state.style || "",
+    // W1770 — 总魔法棒无标题发明: 全新面板 styleInput(音乐风格框)是空的, 但 randomize 已把曲风写进
+    //   constraints(genre/style_text)。style 兜底取 constraints, 让后端拿到【曲风上下文】去发明标题+歌词
+    //   (否则空 style+空 title → 后端 empty_prompt 400 = "did not return usable data")。不改冻结的风格框本体。
+    style: styleInput?.value?.trim() || state.style
+      || String(constraints?.style_text || constraints?.genre || "").trim() || "",
     voice: voiceInput?.value?.trim() || state.voice || "",
     language: preferredLanguage,
     // W360b — carry civilization from the person-MV seed so the backend can
@@ -289,7 +293,11 @@ async function runLyricsGenerateBridge(mode, options = {}) {
         // 据此【权威路由】到人物母语(古希腊→el…), 真正交付母语歌词。
         civilization: payload.civilization || payload.civ || payload.personCiv || null,
         cultural_frame: payload.cultural_frame || null,
-        voice: payload.voice || ""
+        voice: payload.voice || "",
+        // W1770 — 京典 master switch: 勾了「京典模版」→ 后端走精确十节京典默认 + 完整 8 条。
+        jingdian: !!globalThis.cssosJingdianTemplate,
+        // W1770 (B) — 用户「歌词说明 / 自定义指令」自由文本 → 后端作为最高优先 USER DIRECTIVES 注入。
+        lyric_directives: String(document.getElementById("creation-lyric-directives")?.value || "").trim()
       };
       res = await fetch("/api/mv/lyrics", {
         method: "POST",

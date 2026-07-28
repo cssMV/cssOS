@@ -1,0 +1,904 @@
+{
+  "spacing_seconds": 7200,
+  "last_posted": "2026-07-27T23:12:52-04:00",
+  "platforms": [
+    "X",
+    "LinkedIn",
+    "Facebook",
+    "Threads",
+    "BlueSky",
+    "TruthSocial"
+  ],
+  "phase": "multilingual",
+  "rounds": [
+    {
+      "n": 1,
+      "name": "anylang-zh",
+      "lang": "Chinese",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "你的歌不该只有英文版。在 CSS Studio,用任何语言、任何嗓音生成——界面和音乐都跟着你的母语走。\n\n任何语言,任何嗓音。\ncssstudio.app",
+      "long": "你的歌不该只有英文版。在 CSS Studio,用任何语言、任何嗓音生成——界面和音乐都跟着你的母语走。\n\n任何语言,任何嗓音。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 2,
+      "name": "anylang-ja",
+      "lang": "Japanese",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "あなたの歌は英語だけのものじゃない。CSS Studio ならどんな言語でも、どんな声でも。UIも音楽もあなたの母語で。\n\nどんな言語も、どんな声も。\ncssstudio.app",
+      "long": "あなたの歌は英語だけのものじゃない。CSS Studio ならどんな言語でも、どんな声でも。UIも音楽もあなたの母語で。\n\nどんな言語も、どんな声も。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 3,
+      "name": "anylang-ko",
+      "lang": "Korean",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "당신의 노래가 영어로만 존재할 필요는 없어요. CSS Studio에선 어떤 언어로든, 어떤 목소리로든. 화면도 음악도 당신의 모국어로.\n\n모든 언어, 모든 목소리.\ncssstudio.app",
+      "long": "당신의 노래가 영어로만 존재할 필요는 없어요. CSS Studio에선 어떤 언어로든, 어떤 목소리로든. 화면도 음악도 당신의 모국어로.\n\n모든 언어, 모든 목소리.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 4,
+      "name": "anylang-fr",
+      "lang": "French",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "Votre chanson ne devrait pas exister qu'en anglais. Sur CSS Studio : n'importe quelle langue, n'importe quelle voix. L'interface suit votre langue, la musique aussi.\n\nToutes les langues. Toutes les voix.\ncssstudio.app",
+      "long": "Votre chanson ne devrait pas exister qu'en anglais. Sur CSS Studio : n'importe quelle langue, n'importe quelle voix. L'interface suit votre langue, la musique aussi.\n\nToutes les langues. Toutes les voix.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 5,
+      "name": "anylang-es",
+      "lang": "Spanish",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "Tu canción no debería existir solo en inglés. En CSS Studio: cualquier idioma, cualquier voz. La interfaz sigue tu lengua, y la música también.\n\nCualquier idioma. Cualquier voz.\ncssstudio.app",
+      "long": "Tu canción no debería existir solo en inglés. En CSS Studio: cualquier idioma, cualquier voz. La interfaz sigue tu lengua, y la música también.\n\nCualquier idioma. Cualquier voz.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 6,
+      "name": "anylang-ru",
+      "lang": "Russian",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "Твоя песня не должна быть только на английском. В CSS Studio — любой язык, любой голос. Интерфейс и музыка звучат на твоём родном.\n\nЛюбой язык. Любой голос.\ncssstudio.app",
+      "long": "Твоя песня не должна быть только на английском. В CSS Studio — любой язык, любой голос. Интерфейс и музыка звучат на твоём родном.\n\nЛюбой язык. Любой голос.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 7,
+      "name": "anylang-pt",
+      "lang": "Portuguese",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "Sua música não precisa existir só em inglês. No CSS Studio você gera em qualquer idioma, com qualquer voz — a interface e a música seguem a sua língua materna.\n\nQualquer idioma, qualquer voz.\ncssstudio.app",
+      "long": "Sua música não precisa existir só em inglês. No CSS Studio você gera em qualquer idioma, com qualquer voz — a interface e a música seguem a sua língua materna.\n\nQualquer idioma, qualquer voz.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 8,
+      "name": "anylang-hi",
+      "lang": "Hindi",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "आपका गाना सिर्फ़ अंग्रेज़ी में क्यों? CSS Studio पर किसी भी भाषा में, किसी भी आवाज़ में बनाइए — इंटरफ़ेस और संगीत, दोनों आपकी मातृभाषा के साथ चलते हैं।\n\nकोई भी भाषा, कोई भी आवाज़।\ncssstudio.app",
+      "long": "आपका गाना सिर्फ़ अंग्रेज़ी में क्यों? CSS Studio पर किसी भी भाषा में, किसी भी आवाज़ में बनाइए — इंटरफ़ेस और संगीत, दोनों आपकी मातृभाषा के साथ चलते हैं।\n\nकोई भी भाषा, कोई भी आवाज़।\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 9,
+      "name": "anylang-ar",
+      "lang": "Arabic",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "x": "أغنيتك لا يجب أن تكون بالإنجليزية فقط. في CSS Studio أنشئها بأي لغة وبأي صوت — الواجهة والموسيقى تتبعان لغتك الأم.\n\nأي لغة، أي صوت.\ncssstudio.app",
+      "long": "أغنيتك لا يجب أن تكون بالإنجليزية فقط. في CSS Studio أنشئها بأي لغة وبأي صوت — الواجهة والموسيقى تتبعان لغتك الأم.\n\nأي لغة، أي صوت.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 10,
+      "name": "anylang-it",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "lang": "Italian",
+      "x": "La tua canzone non deve esistere solo in inglese. Su CSS Studio: qualsiasi lingua, qualsiasi voce. L'interfaccia segue la tua lingua, e anche la musica.\n\nQualsiasi lingua. Qualsiasi voce.\ncssstudio.app",
+      "long": "La tua canzone non deve esistere solo in inglese. Su CSS Studio: qualsiasi lingua, qualsiasi voce. L'interfaccia segue la tua lingua, e anche la musica.\n\nQualsiasi lingua. Qualsiasi voce.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 11,
+      "name": "anylang-de",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "lang": "German",
+      "x": "Dein Song muss nicht nur auf Englisch existieren. Auf CSS Studio: jede Sprache, jede Stimme. Die Oberfläche folgt deiner Sprache, die Musik auch.\n\nJede Sprache. Jede Stimme.\ncssstudio.app",
+      "long": "Dein Song muss nicht nur auf Englisch existieren. Auf CSS Studio: jede Sprache, jede Stimme. Die Oberfläche folgt deiner Sprache, die Musik auch.\n\nJede Sprache. Jede Stimme.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 12,
+      "name": "anylang-id",
+      "card": "/Users/cssos/cssOS/campaign/card-anylang.png",
+      "lang": "Indonesian",
+      "x": "Lagumu tak harus hanya dalam bahasa Inggris. Di CSS Studio: bahasa apa pun, suara apa pun. Antarmuka mengikuti bahasamu, musiknya juga.\n\nBahasa apa pun. Suara apa pun.\ncssstudio.app",
+      "long": "Lagumu tak harus hanya dalam bahasa Inggris. Di CSS Studio: bahasa apa pun, suara apa pun. Antarmuka mengikuti bahasamu, musiknya juga.\n\nBahasa apa pun. Suara apa pun.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 13,
+      "name": "playing-zh",
+      "lang": "Chinese",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "别的 app 让你等加载圈。打开 CSS Studio,一支完整音乐视频已经在播——有声。然后一句话生成你自己的。\n\n打开即播。\ncssstudio.app",
+      "long": "别的 app 让你等加载圈。打开 CSS Studio,一支完整音乐视频已经在播——有声。然后一句话生成你自己的。\n\n打开即播。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 14,
+      "name": "playing-ja",
+      "lang": "Japanese",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "他のアプリは読み込み中の丸を見せる。CSS Studio は開いた瞬間、もう音楽ビデオが流れている——音付きで。あとは一言。\n\n開くだけ。もう再生中。\ncssstudio.app",
+      "long": "他のアプリは読み込み中の丸を見せる。CSS Studio は開いた瞬間、もう音楽ビデオが流れている——音付きで。あとは一言。\n\n開くだけ。もう再生中。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 15,
+      "name": "playing-ko",
+      "lang": "Korean",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "다른 앱은 로딩 원을 보여주죠. CSS Studio는 열면 이미 뮤직비디오가 재생 중입니다 — 소리까지. 그리고 한 문장이면 끝.\n\n열면 이미 재생 중.\ncssstudio.app",
+      "long": "다른 앱은 로딩 원을 보여주죠. CSS Studio는 열면 이미 뮤직비디오가 재생 중입니다 — 소리까지. 그리고 한 문장이면 끝.\n\n열면 이미 재생 중.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 16,
+      "name": "playing-fr",
+      "lang": "French",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "Les autres apps vous font attendre. Ouvrez CSS Studio : un clip musical joue déjà — avec le son. Puis une phrase suffit pour créer le vôtre.\n\nOuvrez. Ça joue déjà.\ncssstudio.app",
+      "long": "Les autres apps vous font attendre. Ouvrez CSS Studio : un clip musical joue déjà — avec le son. Puis une phrase suffit pour créer le vôtre.\n\nOuvrez. Ça joue déjà.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 17,
+      "name": "playing-es",
+      "lang": "Spanish",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "Otras apps te hacen esperar. Abre CSS Studio: ya suena un videoclip completo — con sonido. Luego una frase y creas el tuyo.\n\nÁbrela. Ya está sonando.\ncssstudio.app",
+      "long": "Otras apps te hacen esperar. Abre CSS Studio: ya suena un videoclip completo — con sonido. Luego una frase y creas el tuyo.\n\nÁbrela. Ya está sonando.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 18,
+      "name": "playing-ru",
+      "lang": "Russian",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "Другие приложения показывают крутящийся кружок. Открой CSS Studio — клип уже играет, со звуком. Дальше одна фраза, и он твой.\n\nОткрой. Уже играет.\ncssstudio.app",
+      "long": "Другие приложения показывают крутящийся кружок. Открой CSS Studio — клип уже играет, со звуком. Дальше одна фраза, и он твой.\n\nОткрой. Уже играет.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 19,
+      "name": "playing-pt",
+      "lang": "Portuguese",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "Outros apps te deixam olhando o círculo de carregamento. Abra o CSS Studio e um videoclipe completo já está tocando — com som. Depois crie o seu com uma frase.\n\nAbriu, já está tocando.\ncssstudio.app",
+      "long": "Outros apps te deixam olhando o círculo de carregamento. Abra o CSS Studio e um videoclipe completo já está tocando — com som. Depois crie o seu com uma frase.\n\nAbriu, já está tocando.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 20,
+      "name": "playing-hi",
+      "lang": "Hindi",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "बाकी ऐप्स आपको लोडिंग सर्कल दिखाते हैं। CSS Studio खोलिए और एक पूरा म्यूज़िक वीडियो पहले से चल रहा है — आवाज़ के साथ। फिर एक लाइन में अपना बनाइए।\n\nखोलते ही चालू।\ncssstudio.app",
+      "long": "बाकी ऐप्स आपको लोडिंग सर्कल दिखाते हैं। CSS Studio खोलिए और एक पूरा म्यूज़िक वीडियो पहले से चल रहा है — आवाज़ के साथ। फिर एक लाइन में अपना बनाइए।\n\nखोलते ही चालू।\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 21,
+      "name": "playing-ar",
+      "lang": "Arabic",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "x": "تطبيقات أخرى تجعلك تنتظر دائرة التحميل. افتح CSS Studio وستجد مقطعاً موسيقياً كاملاً يعمل بالفعل — بالصوت. ثم أنشئ مقطعك بجملة واحدة.\n\nافتحه، إنه يعمل بالفعل.\ncssstudio.app",
+      "long": "تطبيقات أخرى تجعلك تنتظر دائرة التحميل. افتح CSS Studio وستجد مقطعاً موسيقياً كاملاً يعمل بالفعل — بالصوت. ثم أنشئ مقطعك بجملة واحدة.\n\nافتحه، إنه يعمل بالفعل.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 22,
+      "name": "playing-it",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "lang": "Italian",
+      "x": "Le altre app ti fanno aspettare. Apri CSS Studio: sta già suonando un videoclip completo — con l'audio. Poi una frase e crei il tuo.\n\nAprila. Sta già suonando.\ncssstudio.app",
+      "long": "Le altre app ti fanno aspettare. Apri CSS Studio: sta già suonando un videoclip completo — con l'audio. Poi una frase e crei il tuo.\n\nAprila. Sta già suonando.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 23,
+      "name": "playing-de",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "lang": "German",
+      "x": "Andere Apps lassen dich warten. Öffne CSS Studio: Ein komplettes Musikvideo läuft schon — mit Ton. Dann ein Satz, und du machst dein eigenes.\n\nÖffne es. Es läuft schon.\ncssstudio.app",
+      "long": "Andere Apps lassen dich warten. Öffne CSS Studio: Ein komplettes Musikvideo läuft schon — mit Ton. Dann ein Satz, und du machst dein eigenes.\n\nÖffne es. Es läuft schon.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 24,
+      "name": "playing-id",
+      "card": "/Users/cssos/cssOS/campaign/card-playing.png",
+      "lang": "Indonesian",
+      "x": "Aplikasi lain membuatmu menunggu. Buka CSS Studio: satu video musik utuh sudah diputar — lengkap dengan suara. Lalu satu kalimat, dan kamu bikin milikmu sendiri.\n\nBuka saja. Sudah diputar.\ncssstudio.app",
+      "long": "Aplikasi lain membuatmu menunggu. Buka CSS Studio: satu video musik utuh sudah diputar — lengkap dengan suara. Lalu satu kalimat, dan kamu bikin milikmu sendiri.\n\nBuka saja. Sudah diputar.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 25,
+      "name": "manifesto-zh",
+      "lang": "Chinese",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio 四个动词:用它——打开就有 MV 在播。演它——你的脸当主角。造它——创建你的数字演员。赚它——卖作品、接单、提现真金。\ncssstudio.app",
+      "long": "CSS Studio 四个动词:用它——打开就有 MV 在播。演它——你的脸当主角。造它——创建你的数字演员。赚它——卖作品、接单、提现真金。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 26,
+      "name": "manifesto-ja",
+      "lang": "Japanese",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio を4つの動詞で:遊ぶ——開けばMVが流れてる。演じる——あなたが主役。創る——自分のデジタル俳優。稼ぐ——売って、受注して、現金化。\ncssstudio.app",
+      "long": "CSS Studio を4つの動詞で:遊ぶ——開けばMVが流れてる。演じる——あなたが主役。創る——自分のデジタル俳優。稼ぐ——売って、受注して、現金化。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 27,
+      "name": "manifesto-ko",
+      "lang": "Korean",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio를 네 단어로: 즐긴다—열면 MV 재생 중. 주연한다—당신 얼굴이 주인공. 만든다—나만의 디지털 배우. 번다—팔고, 의뢰받고, 현금 인출.\ncssstudio.app",
+      "long": "CSS Studio를 네 단어로: 즐긴다—열면 MV 재생 중. 주연한다—당신 얼굴이 주인공. 만든다—나만의 디지털 배우. 번다—팔고, 의뢰받고, 현금 인출.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 28,
+      "name": "manifesto-fr",
+      "lang": "French",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio en quatre verbes : Joue — un clip passe déjà. Deviens la star — ton visage à l'affiche. Crée — tes acteurs numériques. Gagne — vends, prends des commandes, retire de l'argent.\ncssstudio.app",
+      "long": "CSS Studio en quatre verbes : Joue — un clip passe déjà. Deviens la star — ton visage à l'affiche. Crée — tes acteurs numériques. Gagne — vends, prends des commandes, retire de l'argent.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 29,
+      "name": "manifesto-es",
+      "lang": "Spanish",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio en cuatro verbos: Juega — ya suena un videoclip. Protagoniza — tu cara es la estrella. Crea — tus actores digitales. Gana — vende, acepta encargos, retira dinero.\ncssstudio.app",
+      "long": "CSS Studio en cuatro verbos: Juega — ya suena un videoclip. Protagoniza — tu cara es la estrella. Crea — tus actores digitales. Gana — vende, acepta encargos, retira dinero.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 30,
+      "name": "manifesto-ru",
+      "lang": "Russian",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio в четырёх глаголах: Играй — клип уже идёт. Стань звездой — твоё лицо в главной роли. Создавай — цифровых актёров. Зарабатывай — продавай и выводи деньги.\ncssstudio.app",
+      "long": "CSS Studio в четырёх глаголах: Играй — клип уже идёт. Стань звездой — твоё лицо в главной роли. Создавай — цифровых актёров. Зарабатывай — продавай и выводи деньги.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 31,
+      "name": "manifesto-pt",
+      "lang": "Portuguese",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio em quatro verbos: Curtir — abriu, já tem clipe tocando. Atuar — seu rosto é o protagonista. Criar — construa seu ator digital. Ganhar — venda obras, aceite encomendas, saque de verdade.\ncssstudio.app",
+      "long": "CSS Studio em quatro verbos: Curtir — abriu, já tem clipe tocando. Atuar — seu rosto é o protagonista. Criar — construa seu ator digital. Ganhar — venda obras, aceite encomendas, saque de verdade.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 32,
+      "name": "manifesto-hi",
+      "lang": "Hindi",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio, चार क्रियाएँ: खेलिए — खोलते ही MV चल रहा है। निभाइए — मुख्य भूमिका में आपका चेहरा। रचिए — अपना डिजिटल कलाकार बनाइए। कमाइए — काम बेचिए, ऑर्डर लीजिए, असली पैसे निकालिए।\ncssstudio.app",
+      "long": "CSS Studio, चार क्रियाएँ: खेलिए — खोलते ही MV चल रहा है। निभाइए — मुख्य भूमिका में आपका चेहरा। रचिए — अपना डिजिटल कलाकार बनाइए। कमाइए — काम बेचिए, ऑर्डर लीजिए, असली पैसे निकालिए।\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 33,
+      "name": "manifesto-ar",
+      "lang": "Arabic",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "x": "CSS Studio في أربعة أفعال: العب — افتحه وستجد فيديو يعمل. مثّل — وجهك هو البطل. ابتكر — اصنع ممثلك الرقمي. اربح — بِع أعمالك، تلقَّ الطلبات، اسحب أموالاً حقيقية.\ncssstudio.app",
+      "long": "CSS Studio في أربعة أفعال: العب — افتحه وستجد فيديو يعمل. مثّل — وجهك هو البطل. ابتكر — اصنع ممثلك الرقمي. اربح — بِع أعمالك، تلقَّ الطلبات، اسحب أموالاً حقيقية.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 34,
+      "name": "manifesto-it",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "lang": "Italian",
+      "x": "CSS Studio in quattro verbi: Gioca — un videoclip sta già suonando. Interpreta — il tuo volto è la star. Crea — i tuoi attori digitali. Guadagna — vendi, accetti incarichi, ritiri denaro.\ncssstudio.app",
+      "long": "CSS Studio in quattro verbi: Gioca — un videoclip sta già suonando. Interpreta — il tuo volto è la star. Crea — i tuoi attori digitali. Guadagna — vendi, accetti incarichi, ritiri denaro.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 35,
+      "name": "manifesto-de",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "lang": "German",
+      "x": "CSS Studio in vier Verben: Spielen — ein Musikvideo läuft schon. Auftreten — dein Gesicht ist der Star. Erschaffen — deine digitalen Schauspieler. Verdienen — verkaufen, Aufträge annehmen, Geld auszahlen.\ncssstudio.app",
+      "long": "CSS Studio in vier Verben: Spielen — ein Musikvideo läuft schon. Auftreten — dein Gesicht ist der Star. Erschaffen — deine digitalen Schauspieler. Verdienen — verkaufen, Aufträge annehmen, Geld auszahlen.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 36,
+      "name": "manifesto-id",
+      "card": "/Users/cssos/cssOS/campaign/card-manifesto.png",
+      "lang": "Indonesian",
+      "x": "CSS Studio dalam empat kata: Main — video musik langsung diputar. Berperan — wajahmu jadi bintangnya. Cipta — aktor digitalmu sendiri. Hasilkan — jual, terima pesanan, tarik uang.\ncssstudio.app",
+      "long": "CSS Studio dalam empat kata: Main — video musik langsung diputar. Berperan — wajahmu jadi bintangnya. Cipta — aktor digitalmu sendiri. Hasilkan — jual, terima pesanan, tarik uang.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 37,
+      "name": "paid-zh",
+      "lang": "Chinese",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "大多数 app 娱乐你,顺便把你变成商品。CSS Studio 反过来:你不只是看和创作——你能赚钱。卖作品、接单、收打赏、提现真金。\n\n不止娱乐,还让你赚钱。\ncssstudio.app",
+      "long": "大多数 app 娱乐你,顺便把你变成商品。CSS Studio 反过来:你不只是看和创作——你能赚钱。卖作品、接单、收打赏、提现真金。\n\n不止娱乐,还让你赚钱。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 38,
+      "name": "paid-ja",
+      "lang": "Japanese",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "多くのアプリはあなたを楽しませ、こっそり商品にする。CSS Studio は逆。観て作るだけじゃない——稼げる。売る、受注、投げ銭、現金化。\n\n娯楽だけじゃない。稼げる。\ncssstudio.app",
+      "long": "多くのアプリはあなたを楽しませ、こっそり商品にする。CSS Studio は逆。観て作るだけじゃない——稼げる。売る、受注、投げ銭、現金化。\n\n娯楽だけじゃない。稼げる。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 39,
+      "name": "paid-ko",
+      "lang": "Korean",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "대부분의 앱은 당신을 즐겁게 하며 조용히 당신을 상품으로 만듭니다. CSS Studio는 반대예요. 보고 만들 뿐 아니라 돈을 법니다.\n\n오락만이 아니라, 돈을 법니다.\ncssstudio.app",
+      "long": "대부분의 앱은 당신을 즐겁게 하며 조용히 당신을 상품으로 만듭니다. CSS Studio는 반대예요. 보고 만들 뿐 아니라 돈을 법니다.\n\n오락만이 아니라, 돈을 법니다.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 40,
+      "name": "paid-fr",
+      "lang": "French",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "La plupart des apps font de vous le produit. CSS Studio fait l'inverse : vous n'êtes pas que spectateur — vous êtes payé. Vendez, prenez des commandes, retirez de l'argent.\n\nPas que du divertissement.\ncssstudio.app",
+      "long": "La plupart des apps font de vous le produit. CSS Studio fait l'inverse : vous n'êtes pas que spectateur — vous êtes payé. Vendez, prenez des commandes, retirez de l'argent.\n\nPas que du divertissement.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 41,
+      "name": "paid-es",
+      "lang": "Spanish",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "La mayoría de apps te convierten en el producto. CSS Studio hace lo contrario: no solo miras y creas — cobras. Vende, acepta encargos, recibe propinas, retira dinero.\n\nNo solo entretenimiento.\ncssstudio.app",
+      "long": "La mayoría de apps te convierten en el producto. CSS Studio hace lo contrario: no solo miras y creas — cobras. Vende, acepta encargos, recibe propinas, retira dinero.\n\nNo solo entretenimiento.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 42,
+      "name": "paid-ru",
+      "lang": "Russian",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "Большинство приложений незаметно делают продуктом тебя. CSS Studio — наоборот: ты не только смотришь и создаёшь, ты зарабатываешь. Продавай, бери заказы, выводи деньги.\n\nНе просто развлечение.\ncssstudio.app",
+      "long": "Большинство приложений незаметно делают продуктом тебя. CSS Studio — наоборот: ты не только смотришь и создаёшь, ты зарабатываешь. Продавай, бери заказы, выводи деньги.\n\nНе просто развлечение.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 43,
+      "name": "paid-pt",
+      "lang": "Portuguese",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "A maioria dos apps te entretém e, de quebra, te transforma em produto. O CSS Studio faz o contrário: você não só assiste e cria — você ganha. Venda obras, aceite encomendas, receba gorjetas, saque de verdade.\n\nNão é só entretenimento. Você é pago.\ncssstudio.app",
+      "long": "A maioria dos apps te entretém e, de quebra, te transforma em produto. O CSS Studio faz o contrário: você não só assiste e cria — você ganha. Venda obras, aceite encomendas, receba gorjetas, saque de verdade.\n\nNão é só entretenimento. Você é pago.\ncssstudio.app",
+      "status": "done",
+      "posted": [
+        "x",
+        "linkedin",
+        "facebook",
+        "threads",
+        "bluesky",
+        "truthsocial"
+      ],
+      "note": "truthsocial was already live (identical post, ~37m before completion) - not re-posted to avoid duplicate"
+    },
+    {
+      "n": 44,
+      "name": "paid-hi",
+      "lang": "Hindi",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "ज़्यादातर ऐप्स आपका मनोरंजन करते हैं और चुपके से आपको ही प्रोडक्ट बना देते हैं। CSS Studio उल्टा करता है: आप सिर्फ़ देखते-बनाते नहीं — आप कमाते हैं। काम बेचिए, ऑर्डर लीजिए, टिप पाइए, असली पैसे निकालिए।\n\nसिर्फ़ मनोरंजन नहीं, कमाई भी।\ncssstudio.app",
+      "long": "ज़्यादातर ऐप्स आपका मनोरंजन करते हैं और चुपके से आपको ही प्रोडक्ट बना देते हैं। CSS Studio उल्टा करता है: आप सिर्फ़ देखते-बनाते नहीं — आप कमाते हैं। काम बेचिए, ऑर्डर लीजिए, टिप पाइए, असली पैसे निकालिए।\n\nसिर्फ़ मनोरंजन नहीं, कमाई भी।\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 45,
+      "name": "paid-ar",
+      "lang": "Arabic",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "x": "معظم التطبيقات تسلّيك ثم تحوّلك إلى سلعة. CSS Studio يفعل العكس: أنت لا تشاهد وتبتكر فحسب — بل تربح. بِع أعمالك، تلقَّ الطلبات والإكراميات، اسحب أموالاً حقيقية.\n\nليس ترفيهاً فقط، بل ربح أيضاً.\ncssstudio.app",
+      "long": "معظم التطبيقات تسلّيك ثم تحوّلك إلى سلعة. CSS Studio يفعل العكس: أنت لا تشاهد وتبتكر فحسب — بل تربح. بِع أعمالك، تلقَّ الطلبات والإكراميات، اسحب أموالاً حقيقية.\n\nليس ترفيهاً فقط، بل ربح أيضاً.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 46,
+      "name": "paid-it",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "lang": "Italian",
+      "x": "Molte app trasformano te nel prodotto. CSS Studio fa il contrario: non solo guardi e crei — vieni pagato. Vendi, accetti incarichi, ricevi mance, ritiri denaro.\n\nNon solo intrattenimento.\ncssstudio.app",
+      "long": "Molte app trasformano te nel prodotto. CSS Studio fa il contrario: non solo guardi e crei — vieni pagato. Vendi, accetti incarichi, ricevi mance, ritiri denaro.\n\nNon solo intrattenimento.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 47,
+      "name": "paid-de",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "lang": "German",
+      "x": "Die meisten Apps machen dich zum Produkt. CSS Studio macht das Gegenteil: Du schaust und erschaffst nicht nur — du wirst bezahlt. Verkaufe, nimm Aufträge an, erhalte Trinkgeld, zahl dir Geld aus.\n\nNicht nur Unterhaltung.\ncssstudio.app",
+      "long": "Die meisten Apps machen dich zum Produkt. CSS Studio macht das Gegenteil: Du schaust und erschaffst nicht nur — du wirst bezahlt. Verkaufe, nimm Aufträge an, erhalte Trinkgeld, zahl dir Geld aus.\n\nNicht nur Unterhaltung.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 48,
+      "name": "paid-id",
+      "card": "/Users/cssos/cssOS/campaign/card-paid.png",
+      "lang": "Indonesian",
+      "x": "Kebanyakan aplikasi menjadikanmu produk. CSS Studio kebalikannya: kamu bukan cuma menonton dan mencipta — kamu dibayar. Jual karya, terima pesanan, terima tip, tarik uang sungguhan.\n\nBukan sekadar hiburan.\ncssstudio.app",
+      "long": "Kebanyakan aplikasi menjadikanmu produk. CSS Studio kebalikannya: kamu bukan cuma menonton dan mencipta — kamu dibayar. Jual karya, terima pesanan, terima tip, tarik uang sungguhan.\n\nBukan sekadar hiburan.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 49,
+      "name": "wendao-zh",
+      "lang": "Chinese",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "你不是读历史,你和历史对话。问李白关于月亮,问妲己任何事——他们用自己的声音、母语,面对面回答你。\n\n和历史对话。\ncssstudio.app",
+      "long": "你不是读历史,你和历史对话。问李白关于月亮,问妲己任何事——他们用自己的声音、母语,面对面回答你。\n\n和历史对话。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 50,
+      "name": "wendao-ja",
+      "lang": "Japanese",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "歴史を読むのではなく、歴史と話す。李白に月を、妲己に何でも訊ける——本人の声と母語で、顔を合わせて答えてくれる。\n\n歴史と話そう。\ncssstudio.app",
+      "long": "歴史を読むのではなく、歴史と話す。李白に月を、妲己に何でも訊ける——本人の声と母語で、顔を合わせて答えてくれる。\n\n歴史と話そう。\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 51,
+      "name": "wendao-ko",
+      "lang": "Korean",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "역사를 읽는 게 아니라, 역사와 대화합니다. 이백에게 달을, 달기에게 무엇이든 물어보세요 — 본인의 목소리와 모국어로 마주 보며 답합니다.\n\n역사와 대화하세요.\ncssstudio.app",
+      "long": "역사를 읽는 게 아니라, 역사와 대화합니다. 이백에게 달을, 달기에게 무엇이든 물어보세요 — 본인의 목소리와 모국어로 마주 보며 답합니다.\n\n역사와 대화하세요.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 52,
+      "name": "wendao-fr",
+      "lang": "French",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "Vous ne lisez pas l'histoire, vous lui parlez. Interrogez Li Bai sur la lune, Daji sur tout — ils répondent en face, de leur propre voix et langue.\n\nParlez à l'histoire.\ncssstudio.app",
+      "long": "Vous ne lisez pas l'histoire, vous lui parlez. Interrogez Li Bai sur la lune, Daji sur tout — ils répondent en face, de leur propre voix et langue.\n\nParlez à l'histoire.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 53,
+      "name": "wendao-es",
+      "lang": "Spanish",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "No lees la historia, hablas con ella. Pregúntale a Li Bai por la luna, a Daji lo que sea — responden cara a cara, con su propia voz e idioma.\n\nHabla con la historia.\ncssstudio.app",
+      "long": "No lees la historia, hablas con ella. Pregúntale a Li Bai por la luna, a Daji lo que sea — responden cara a cara, con su propia voz e idioma.\n\nHabla con la historia.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 54,
+      "name": "wendao-ru",
+      "lang": "Russian",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "Ты не читаешь историю — ты говоришь с ней. Спроси Ли Бо о луне, Дацзи о чём угодно — они ответят лицом к лицу, своим голосом и на своём языке.\n\nГовори с историей.\ncssstudio.app",
+      "long": "Ты не читаешь историю — ты говоришь с ней. Спроси Ли Бо о луне, Дацзи о чём угодно — они ответят лицом к лицу, своим голосом и на своём языке.\n\nГовори с историей.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 55,
+      "name": "wendao-pt",
+      "lang": "Portuguese",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "Você não lê a história, você conversa com ela. Pergunte a Camões sobre o mar, pergunte o que quiser — e ele responde na própria voz e no próprio idioma, cara a cara.\n\nConverse com a história.\ncssstudio.app",
+      "long": "Você não lê a história, você conversa com ela. Pergunte a Camões sobre o mar, pergunte o que quiser — e ele responde na própria voz e no próprio idioma, cara a cara.\n\nConverse com a história.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 56,
+      "name": "wendao-hi",
+      "lang": "Hindi",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "आप इतिहास पढ़ते नहीं, उससे बात करते हैं। मीराबाई से कृष्ण के बारे में पूछिए, कुछ भी पूछिए — वे अपनी आवाज़ में, अपनी भाषा में, आमने-सामने जवाब देती हैं।\n\nइतिहास से बात कीजिए।\ncssstudio.app",
+      "long": "आप इतिहास पढ़ते नहीं, उससे बात करते हैं। मीराबाई से कृष्ण के बारे में पूछिए, कुछ भी पूछिए — वे अपनी आवाज़ में, अपनी भाषा में, आमने-सामने जवाब देती हैं।\n\nइतिहास से बात कीजिए।\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 57,
+      "name": "wendao-ar",
+      "lang": "Arabic",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "x": "أنت لا تقرأ التاريخ، بل تحادثه. اسأل المتنبّي عن الشِّعر، اسأل ما شئت — فيجيبك بصوته ولغته، وجهاً لوجه.\n\nحادِث التاريخ.\ncssstudio.app/?cssADS=wendao-ar",
+      "long": "أنت لا تقرأ التاريخ، بل تحادثه. اسأل المتنبّي عن الشِّعر، اسأل ما شئت — فيجيبك بصوته ولغته، وجهاً لوجه.\n\nحادِث التاريخ.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 58,
+      "name": "wendao-it",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "lang": "Italian",
+      "x": "Non leggi la storia, ci parli. Chiedi a Li Bai della luna, a Dante ciò che vuoi — ti rispondono faccia a faccia, con la loro voce e la loro lingua.\n\nParla con la storia.\ncssstudio.app/?cssADS=wendao-it",
+      "long": "Non leggi la storia, ci parli. Chiedi a Li Bai della luna, a Dante ciò che vuoi — ti rispondono faccia a faccia, con la loro voce e la loro lingua.\n\nParla con la storia.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 59,
+      "name": "wendao-de",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "lang": "German",
+      "x": "Du liest Geschichte nicht — du sprichst mit ihr. Frag Li Bai nach dem Mond, frag Beethoven, was du willst — sie antworten dir von Angesicht zu Angesicht, in ihrer eigenen Stimme und Sprache.\n\nSprich mit der Geschichte.\ncssstudio.app/?cssADS=wendao-de",
+      "long": "Du liest Geschichte nicht — du sprichst mit ihr. Frag Li Bai nach dem Mond, frag Beethoven, was du willst — sie antworten dir von Angesicht zu Angesicht, in ihrer eigenen Stimme und Sprache.\n\nSprich mit der Geschichte.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 60,
+      "name": "wendao-id",
+      "card": "/Users/cssos/cssOS/campaign/card-wendao.png",
+      "lang": "Indonesian",
+      "x": "Kamu tak membaca sejarah, kamu berbicara dengannya. Tanya Li Bai soal bulan, tanya apa saja — mereka menjawab langsung, dengan suara dan bahasa mereka sendiri.\n\nBicara dengan sejarah.\ncssstudio.app/?cssADS=wendao-id",
+      "long": "Kamu tak membaca sejarah, kamu berbicara dengannya. Tanya Li Bai soal bulan, tanya apa saja — mereka menjawab langsung, dengan suara dan bahasa mereka sendiri.\n\nBicara dengan sejarah.\ncssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 61,
+      "name": "opera-zh",
+      "lang": "Chinese",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "有些故事被讲述。这一个,被唱出来。我们把几乎每个文明的创世神话与史诗,做成了完整歌剧——大模型不敢碰的形式。\n\ncssstudio.app/?cssADS=opera-zh",
+      "long": "有些故事被讲述。这一个,被唱出来。我们把几乎每个文明的创世神话与史诗,做成了完整歌剧——大模型不敢碰的形式。\n\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T00:41:26-04:00"
+    },
+    {
+      "n": 62,
+      "name": "opera-ja",
+      "lang": "Japanese",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "語られる物語もあれば、歌われる物語もある。ほぼあらゆる文明の創世神話と叙事詩を、完全なオペラに——大手モデルが触れない形式。\n\ncssstudio.app/?cssADS=opera-ja",
+      "long": "語られる物語もあれば、歌われる物語もある。ほぼあらゆる文明の創世神話と叙事詩を、完全なオペラに——大手モデルが触れない形式。\n\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T01:48:38-04:00"
+    },
+    {
+      "n": 63,
+      "name": "opera-ko",
+      "lang": "Korean",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "어떤 이야기는 말해지고, 이 이야기는 노래됩니다. 거의 모든 문명의 창세 신화와 서사시를 완전한 오페라로 — 대형 모델이 못 건드리는 형식.\n\ncssstudio.app/?cssADS=opera-ko",
+      "long": "어떤 이야기는 말해지고, 이 이야기는 노래됩니다. 거의 모든 문명의 창세 신화와 서사시를 완전한 오페라로 — 대형 모델이 못 건드리는 형식.\n\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T02:05:58-04:00"
+    },
+    {
+      "n": 64,
+      "name": "opera-fr",
+      "lang": "French",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "Certaines histoires se racontent. Celle-ci se chante. Nous avons transformé les mythes fondateurs de presque toutes les civilisations en opéra complet — le format que les grands modèles n'osent pas.\n\ncssstudio.app/?cssADS=opera-fr",
+      "long": "Certaines histoires se racontent. Celle-ci se chante. Nous avons transformé les mythes fondateurs de presque toutes les civilisations en opéra complet — le format que les grands modèles n'osent pas.\n\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T02:23:50-04:00"
+    },
+    {
+      "n": 65,
+      "name": "opera-es",
+      "lang": "Spanish",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "Algunas historias se cuentan. Esta se canta. Hemos convertido los mitos de casi todas las civilizaciones en ópera completa — el formato que los grandes modelos no tocan.\n\ncssstudio.app/?cssADS=opera-es",
+      "long": "Algunas historias se cuentan. Esta se canta. Hemos convertido los mitos de casi todas las civilizaciones en ópera completa — el formato que los grandes modelos no tocan.\n\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T10:59:04-04:00"
+    },
+    {
+      "n": 66,
+      "name": "opera-ru",
+      "lang": "Russian",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "Одни истории рассказывают. Эту — поют. Мы превратили мифы творения почти каждой цивилизации в полноценную оперу — формат, который не берут большие модели.\n\ncssstudio.app/?cssADS=opera-ru",
+      "long": "Одни истории рассказывают. Эту — поют. Мы превратили мифы творения почти каждой цивилизации в полноценную оперу — формат, который не берут большие модели.\n\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T11:37:52-04:00"
+    },
+    {
+      "n": 67,
+      "name": "opera-pt",
+      "lang": "Portuguese",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "Algumas histórias são contadas. Esta é cantada. Transformamos os mitos de criação e as epopeias de quase toda civilização em óperas completas — a forma que os grandes modelos não ousam tocar.\ncssstudio.app/?cssADS=opera-pt",
+      "long": "Algumas histórias são contadas. Esta é cantada. Transformamos os mitos de criação e as epopeias de quase toda civilização em óperas completas — a forma que os grandes modelos não ousam tocar.\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T12:59:20-04:00"
+    },
+    {
+      "n": 68,
+      "name": "opera-hi",
+      "lang": "Hindi",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "कुछ कहानियाँ सुनाई जाती हैं। यह गाई जाती है। हमने लगभग हर सभ्यता की सृष्टि-गाथाएँ और महाकाव्य पूरे ओपेरा में ढाल दिए — वह रूप जिसे बड़े मॉडल छूने से डरते हैं।\ncssstudio.app/?cssADS=opera-hi",
+      "long": "कुछ कहानियाँ सुनाई जाती हैं। यह गाई जाती है। हमने लगभग हर सभ्यता की सृष्टि-गाथाएँ और महाकाव्य पूरे ओपेरा में ढाल दिए — वह रूप जिसे बड़े मॉडल छूने से डरते हैं।\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T14:01:33-04:00"
+    },
+    {
+      "n": 69,
+      "name": "opera-ar",
+      "lang": "Arabic",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "بعض القصص تُروى. وهذه تُغنّى. حوّلنا أساطير الخلق والملاحم من كل حضارة تقريباً إلى أوبرا كاملة — الشكل الذي لا تجرؤ النماذج الكبرى على لمسه.\ncssstudio.app/?cssADS=opera-ar",
+      "long": "بعض القصص تُروى. وهذه تُغنّى. حوّلنا أساطير الخلق والملاحم من كل حضارة تقريباً إلى أوبرا كاملة — الشكل الذي لا تجرؤ النماذج الكبرى على لمسه.\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T14:55:36-04:00"
+    },
+    {
+      "n": 70,
+      "name": "opera-it",
+      "lang": "Italian",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "x": "Alcune storie si raccontano. Questa si canta. Abbiamo trasformato i miti della creazione e le epopee di quasi ogni civiltà in opere complete — la forma che i grandi modelli non osano toccare.\n\nQuesta, la senti cantare.\ncssstudio.app/?cssADS=opera-it",
+      "long": "Alcune storie si raccontano. Questa si canta. Abbiamo trasformato i miti della creazione e le epopee di quasi ogni civiltà in opere complete — la forma che i grandi modelli non osano toccare.\n\nQuesta, la senti cantare.\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T16:10:03-04:00"
+    },
+    {
+      "n": 71,
+      "name": "opera-de",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "lang": "German",
+      "x": "Manche Geschichten werden erzählt. Diese wird gesungen. Wir haben die Mythen fast aller Zivilisationen in vollständige Opern verwandelt — das Format, das die großen Modelle nicht anfassen.\n\ncssstudio.app/?cssADS=opera-de",
+      "long": "Manche Geschichten werden erzählt. Diese wird gesungen. Wir haben die Mythen fast aller Zivilisationen in vollständige Opern verwandelt — das Format, das die großen Modelle nicht anfassen.\n\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T16:42:08-04:00"
+    },
+    {
+      "n": 72,
+      "name": "opera-id",
+      "card": "/Users/cssos/cssOS/campaign/card-opera.png",
+      "lang": "Indonesian",
+      "x": "Sebagian kisah diceritakan. Yang ini dinyanyikan. Kami mengubah mitos dari hampir semua peradaban menjadi opera utuh — format yang tak disentuh model-model raksasa.\n\ncssstudio.app/?cssADS=opera-id",
+      "long": "Sebagian kisah diceritakan. Yang ini dinyanyikan. Kami mengubah mitos dari hampir semua peradaban menjadi opera utuh — format yang tak disentuh model-model raksasa.\n\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T17:02:12-04:00"
+    },
+    {
+      "n": 73,
+      "name": "blockbuster-zh",
+      "lang": "Chinese",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "在 CSS Studio,你的脸不只是看电影——你主演它。把自己放进一部大片,你就是主角、英雄、传奇。\n\n主演你自己的大片。\ncssstudio.app/?cssADS=blockbuster-zh",
+      "long": "在 CSS Studio,你的脸不只是看电影——你主演它。把自己放进一部大片,你就是主角、英雄、传奇。\n\n主演你自己的大片。\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T19:13:20-04:00"
+    },
+    {
+      "n": 74,
+      "name": "blockbuster-ja",
+      "lang": "Japanese",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "CSS Studio では、あなたの顔は映画を観るだけじゃない——主演する。自分を大作に入れれば、あなたが主役でヒーローで伝説。\n\n自分の大作で主演を。\ncssstudio.app/?cssADS=blockbuster-ja",
+      "long": "CSS Studio では、あなたの顔は映画を観るだけじゃない——主演する。自分を大作に入れれば、あなたが主役でヒーローで伝説。\n\n自分の大作で主演を。\ncssstudio.app",
+      "status": "done",
+      "last_posted": "2026-07-27T23:12:52-04:00"
+    },
+    {
+      "n": 75,
+      "name": "blockbuster-ko",
+      "lang": "Korean",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "CSS Studio에서 당신의 얼굴은 영화를 보는 게 아니라 — 주연합니다. 대작에 자신을 넣으면 당신이 주인공이자 영웅이자 전설.\n\n당신만의 대작에서 주연을.\ncssstudio.app/?cssADS=blockbuster-ko",
+      "long": "CSS Studio에서 당신의 얼굴은 영화를 보는 게 아니라 — 주연합니다. 대작에 자신을 넣으면 당신이 주인공이자 영웅이자 전설.\n\n당신만의 대작에서 주연을.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 76,
+      "name": "blockbuster-fr",
+      "lang": "French",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "Sur CSS Studio, votre visage ne regarde pas le film — il le mène. Mettez-vous dans une superproduction : vous êtes le héros, la légende, la tête d'affiche.\n\nSoyez la star de votre blockbuster.\ncssstudio.app/?cssADS=blockbuster-fr",
+      "long": "Sur CSS Studio, votre visage ne regarde pas le film — il le mène. Mettez-vous dans une superproduction : vous êtes le héros, la légende, la tête d'affiche.\n\nSoyez la star de votre blockbuster.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 77,
+      "name": "blockbuster-es",
+      "lang": "Spanish",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "En CSS Studio tu cara no mira la película — la protagoniza. Métete en un peliculón: eres el héroe, la leyenda, la estrella.\n\nProtagoniza tu propio blockbuster.\ncssstudio.app/?cssADS=blockbuster-es",
+      "long": "En CSS Studio tu cara no mira la película — la protagoniza. Métete en un peliculón: eres el héroe, la leyenda, la estrella.\n\nProtagoniza tu propio blockbuster.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 78,
+      "name": "blockbuster-ru",
+      "lang": "Russian",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "В CSS Studio твоё лицо не просто смотрит фильм — оно его ведёт. Помести себя в блокбастер: ты герой, легенда, главная звезда.\n\nСтань звездой своего блокбастера.\ncssstudio.app/?cssADS=blockbuster-ru",
+      "long": "В CSS Studio твоё лицо не просто смотрит фильм — оно его ведёт. Помести себя в блокбастер: ты герой, легенда, главная звезда.\n\nСтань звездой своего блокбастера.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 79,
+      "name": "blockbuster-pt",
+      "lang": "Portuguese",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "No CSS Studio, seu rosto não só assiste ao filme — ele estrela. Coloque-se dentro de uma superprodução: você é o protagonista, o herói, a lenda.\n\nEstrele o seu próprio blockbuster.\ncssstudio.app/?cssADS=blockbuster-pt",
+      "long": "No CSS Studio, seu rosto não só assiste ao filme — ele estrela. Coloque-se dentro de uma superprodução: você é o protagonista, o herói, a lenda.\n\nEstrele o seu próprio blockbuster.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 80,
+      "name": "blockbuster-hi",
+      "lang": "Hindi",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "CSS Studio पर आपका चेहरा सिर्फ़ फ़िल्म देखता नहीं — उसमें हीरो बनता है। खुद को एक ब्लॉकबस्टर में रखिए: आप ही नायक हैं, आप ही किंवदंती।\n\nअपनी ब्लॉकबस्टर के हीरो बनिए।\ncssstudio.app/?cssADS=blockbuster-hi",
+      "long": "CSS Studio पर आपका चेहरा सिर्फ़ फ़िल्म देखता नहीं — उसमें हीरो बनता है। खुद को एक ब्लॉकबस्टर में रखिए: आप ही नायक हैं, आप ही किंवदंती।\n\nअपनी ब्लॉकबस्टर के हीरो बनिए।\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 81,
+      "name": "blockbuster-ar",
+      "lang": "Arabic",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "x": "في CSS Studio وجهك لا يشاهد الفيلم فقط — بل يتصدّره. ضع نفسك في فيلم ضخم: أنت البطل، أنت الأسطورة.\n\nكن بطل فيلمك الخاص.\ncssstudio.app/?cssADS=blockbuster-ar",
+      "long": "في CSS Studio وجهك لا يشاهد الفيلم فقط — بل يتصدّره. ضع نفسك في فيلم ضخم: أنت البطل، أنت الأسطورة.\n\nكن بطل فيلمك الخاص.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 82,
+      "name": "blockbuster-it",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "lang": "Italian",
+      "x": "Su CSS Studio il tuo volto non guarda il film — lo interpreta da protagonista. Entra in un kolossal: sei l'eroe, la leggenda, la star.\n\nSii il protagonista del tuo blockbuster.\ncssstudio.app/?cssADS=blockbuster-it",
+      "long": "Su CSS Studio il tuo volto non guarda il film — lo interpreta da protagonista. Entra in un kolossal: sei l'eroe, la leggenda, la star.\n\nSii il protagonista del tuo blockbuster.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 83,
+      "name": "blockbuster-de",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "lang": "German",
+      "x": "Auf CSS Studio schaut dein Gesicht den Film nicht — es spielt die Hauptrolle. Steig ein in einen Blockbuster: Du bist der Held, die Legende, der Star.\n\nSpiel die Hauptrolle in deinem eigenen Blockbuster.\ncssstudio.app/?cssADS=blockbuster-de",
+      "long": "Auf CSS Studio schaut dein Gesicht den Film nicht — es spielt die Hauptrolle. Steig ein in einen Blockbuster: Du bist der Held, die Legende, der Star.\n\nSpiel die Hauptrolle in deinem eigenen Blockbuster.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 84,
+      "name": "blockbuster-id",
+      "card": "/Users/cssos/cssOS/campaign/card-blockbuster.png",
+      "lang": "Indonesian",
+      "x": "Di CSS Studio wajahmu bukan menonton film — tapi jadi pemeran utamanya. Masuk ke film besar: kamu sang pahlawan, sang legenda, sang bintang.\n\nJadi bintang utama film buatanmu sendiri.\ncssstudio.app/?cssADS=blockbuster-id",
+      "long": "Di CSS Studio wajahmu bukan menonton film — tapi jadi pemeran utamanya. Masuk ke film besar: kamu sang pahlawan, sang legenda, sang bintang.\n\nJadi bintang utama film buatanmu sendiri.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 85,
+      "name": "emotion-zh",
+      "lang": "Chinese",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "普通字幕只告诉你词。CSS Studio 有世界首创的情感字幕——每一句都带着它的情绪,文字和声音一起动情。\n\n会动情的字幕。\ncssstudio.app/?cssADS=emotion-zh",
+      "long": "普通字幕只告诉你词。CSS Studio 有世界首创的情感字幕——每一句都带着它的情绪,文字和声音一起动情。\n\n会动情的字幕。\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 86,
+      "name": "emotion-ja",
+      "lang": "Japanese",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "普通の字幕は言葉を伝えるだけ。CSS Studio には世界初の感情字幕——一行ごとに感情が宿り、文字が声とともに震える。\n\n感情のある字幕。\ncssstudio.app/?cssADS=emotion-ja",
+      "long": "普通の字幕は言葉を伝えるだけ。CSS Studio には世界初の感情字幕——一行ごとに感情が宿り、文字が声とともに震える。\n\n感情のある字幕。\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 87,
+      "name": "emotion-ko",
+      "lang": "Korean",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "보통 자막은 단어만 전합니다. CSS Studio엔 세계 최초의 감정 자막 — 모든 줄이 감정을 담아, 글자가 목소리와 함께 떨립니다.\n\n감정을 느끼는 자막.\ncssstudio.app/?cssADS=emotion-ko",
+      "long": "보통 자막은 단어만 전합니다. CSS Studio엔 세계 최초의 감정 자막 — 모든 줄이 감정을 담아, 글자가 목소리와 함께 떨립니다.\n\n감정을 느끼는 자막.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 88,
+      "name": "emotion-fr",
+      "lang": "French",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "Les sous-titres ordinaires disent les mots. CSS Studio a les premiers sous-titres émotionnels au monde — chaque ligne porte son émotion, le texte ressent ce que ressent la voix.\n\nDes sous-titres qui ressentent.\ncssstudio.app/?cssADS=emotion-fr",
+      "long": "Les sous-titres ordinaires disent les mots. CSS Studio a les premiers sous-titres émotionnels au monde — chaque ligne porte son émotion, le texte ressent ce que ressent la voix.\n\nDes sous-titres qui ressentent.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 89,
+      "name": "emotion-es",
+      "lang": "Spanish",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "Los subtítulos normales solo dicen las palabras. CSS Studio tiene los primeros subtítulos con emoción del mundo — cada línea lleva su estado de ánimo.\n\nSubtítulos que sienten.\ncssstudio.app/?cssADS=emotion-es",
+      "long": "Los subtítulos normales solo dicen las palabras. CSS Studio tiene los primeros subtítulos con emoción del mundo — cada línea lleva su estado de ánimo.\n\nSubtítulos que sienten.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 90,
+      "name": "emotion-ru",
+      "lang": "Russian",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "Обычные субтитры передают слова. В CSS Studio — первые в мире эмоциональные субтитры: каждая строка несёт своё настроение, текст чувствует то же, что и голос.\n\nСубтитры, которые чувствуют.\ncssstudio.app/?cssADS=emotion-ru",
+      "long": "Обычные субтитры передают слова. В CSS Studio — первые в мире эмоциональные субтитры: каждая строка несёт своё настроение, текст чувствует то же, что и голос.\n\nСубтитры, которые чувствуют.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 91,
+      "name": "emotion-pt",
+      "lang": "Portuguese",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "Legendas comuns te mostram as palavras. O CSS Studio tem legendas emocionais, uma novidade mundial — cada frase carrega o próprio sentimento, texto e voz se emocionam juntos.\n\nLegendas que sentem.\ncssstudio.app/?cssADS=emotion-pt",
+      "long": "Legendas comuns te mostram as palavras. O CSS Studio tem legendas emocionais, uma novidade mundial — cada frase carrega o próprio sentimento, texto e voz se emocionam juntos.\n\nLegendas que sentem.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 92,
+      "name": "emotion-hi",
+      "lang": "Hindi",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "आम सबटाइटल सिर्फ़ शब्द दिखाते हैं। CSS Studio में दुनिया के पहले भावनात्मक सबटाइटल हैं — हर पंक्ति अपने जज़्बे के साथ, शब्द और आवाज़ साथ में महसूस करते हैं।\n\nसबटाइटल जो महसूस करें।\ncssstudio.app/?cssADS=emotion-hi",
+      "long": "आम सबटाइटल सिर्फ़ शब्द दिखाते हैं। CSS Studio में दुनिया के पहले भावनात्मक सबटाइटल हैं — हर पंक्ति अपने जज़्बे के साथ, शब्द और आवाज़ साथ में महसूस करते हैं।\n\nसबटाइटल जो महसूस करें।\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 93,
+      "name": "emotion-ar",
+      "lang": "Arabic",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "x": "الترجمة العادية تعرض الكلمات فقط. في CSS Studio ترجمة عاطفية هي الأولى عالمياً — كل جملة تحمل مشاعرها، النص والصوت ينفعلان معاً.\n\nترجمة تشعر.\ncssstudio.app/?cssADS=emotion-ar",
+      "long": "الترجمة العادية تعرض الكلمات فقط. في CSS Studio ترجمة عاطفية هي الأولى عالمياً — كل جملة تحمل مشاعرها، النص والصوت ينفعلان معاً.\n\nترجمة تشعر.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 94,
+      "name": "emotion-it",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "lang": "Italian",
+      "x": "I sottotitoli normali dicono solo le parole. CSS Studio ha i primi sottotitoli con emozione al mondo — ogni riga porta il suo stato d'animo.\n\nSottotitoli che sentono.\ncssstudio.app/?cssADS=emotion-it",
+      "long": "I sottotitoli normali dicono solo le parole. CSS Studio ha i primi sottotitoli con emozione al mondo — ogni riga porta il suo stato d'animo.\n\nSottotitoli che sentono.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 95,
+      "name": "emotion-de",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "lang": "German",
+      "x": "Normale Untertitel sagen nur die Worte. CSS Studio hat die weltweit ersten Untertitel mit Emotion — jede Zeile trägt ihre Stimmung.\n\nUntertitel, die fühlen.\ncssstudio.app/?cssADS=emotion-de",
+      "long": "Normale Untertitel sagen nur die Worte. CSS Studio hat die weltweit ersten Untertitel mit Emotion — jede Zeile trägt ihre Stimmung.\n\nUntertitel, die fühlen.\ncssstudio.app",
+      "status": "pending"
+    },
+    {
+      "n": 96,
+      "name": "emotion-id",
+      "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
+      "lang": "Indonesian",
+      "x": "Subtitle biasa cuma menuliskan kata. CSS Studio punya subtitle beremosi pertama di dunia — tiap baris membawa suasananya.\n\nSubtitle yang punya rasa.\ncssstudio.app/?cssADS=emotion-id",
+      "long": "Subtitle biasa cuma menuliskan kata. CSS Studio punya subtitle beremosi pertama di dunia — tiap baris membawa suasananya.\n\nSubtitle yang punya rasa.\ncssstudio.app",
+      "status": "pending"
+    }
+  ],
+  "in_flight": null,
+  "lock_stale_seconds": 2700
+}

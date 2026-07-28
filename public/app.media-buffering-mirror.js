@@ -12,6 +12,10 @@
   if (globalThis.__cssosBufferingMirrorWired) return;
   globalThis.__cssosBufferingMirrorWired = true;
 
+  // CSSOS 方案 A — 统一指示灯大脑: 本文件只当【媒体手】(渲染 overlay), 生命周期/销毁
+  // 交给 app.busy-indicator.js 的 cssosBusyBeginMedia/EndMedia(大脑没加载时本地兜底)。
+  var __bufSeq = 0;
+
   function injectStyles() {
     if (document.getElementById("cssos-buffering-mirror-style")) return;
     var st = document.createElement("style");
@@ -88,6 +92,9 @@
       } catch (_e) {}
       return false;
     };
+    var mediaKey = media.__cssosBufKey || (media.__cssosBufKey = "buf" + (++__bufSeq));
+    var addActive = function () { overlay.classList.add("is-active"); };
+    var removeActive = function () { overlay.classList.remove("is-active"); };
     var show = function () {
       // CSSOS_WAVE_276 20260521 — Jing: 预加载魔镜只在【真正缓冲/卡顿】时显示,
       // 不能常亮挡住正在欣赏的 MV. 而且只在该 media 确实"正在播放但卡住"时才显,
@@ -98,14 +105,20 @@
         if (media.paused || media.ended) return;
         if (!String(media.currentSrc || media.src || "").trim()) return;
       } catch (_e) {}
-      overlay.classList.add("is-active");
+      // 走统一大脑(logo/媒体同一生命周期 + 三重销毁保险); 大脑未加载则本地兜底。
+      if (typeof globalThis.cssosBusyBeginMedia === "function") globalThis.cssosBusyBeginMedia(mediaKey, addActive, removeActive);
+      else addActive();
     };
-    var hide = function () { overlay.classList.remove("is-active"); };
+    var hide = function () {
+      if (typeof globalThis.cssosBusyEndMedia === "function") globalThis.cssosBusyEndMedia(mediaKey);
+      else removeActive();
+    };
     // CSSOS_WAVE_355 — Jing: 全局兜底. 任何【有声】media 真在播放/前进时, 清掉
     // 页面上所有残留魔镜 —— 杜绝某个元素的 spinner 卡死后赖着不走.
     var hideAll = function () {
       try {
         if (media.muted) { hide(); return; }
+        if (typeof globalThis.cssosBusyEndAllMedia === "function") { globalThis.cssosBusyEndAllMedia(); return; }
         document.querySelectorAll(".cssos-buffering-mirror.is-active")
           .forEach(function (o) { o.classList.remove("is-active"); });
       } catch (_e) { hide(); }

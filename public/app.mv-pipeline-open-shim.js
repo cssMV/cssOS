@@ -16,7 +16,12 @@
  *      just need it to be visible.
  *   2. Opens the existing #cssmv-panel via the global openPanel(el)
  *      (existing function in app.js).
- *   3. Routes guests to login first via openPanel(loginPanel).
+ *   3. (Superseded by W145 below.) NOTE: this shim does NOT gate guests —
+ *      it only lazy-loads + opens the heavy panel. Guest gating happens
+ *      downstream at the generate/run step (wallet + login), not here.
+ *      Entrances wanting an upfront "sign in to create" prompt should route
+ *      through invokeUniversalCreationEntry (app.watch-ui.js) instead of
+ *      calling openMvPipelinePanel directly.
  */
 /* CSSOS_WAVE_145 20260514 — Jing: the REAL fix.
  *

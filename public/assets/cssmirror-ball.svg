@@ -1,0 +1,30 @@
+<svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- CSSOS 矢量魔镜 · 金球层 (真·魔镜, 独立可换): 玛瑙金球 + 放射光芒 + 金边。
+       与 cssmirror-tray.svg 同 300x300 viewBox, 直接叠在托盘中心。
+       这一层【只有球】, 未来可整层替换成 three.js 真3D玛瑙球(万向自转) —— 托盘不动。 -->
+  <defs>
+    <radialGradient id="bBall" cx="50%" cy="44%" r="60%">
+      <stop offset="0%" stop-color="#fffdf2"/>
+      <stop offset="26%" stop-color="#f3e7ab"/>
+      <stop offset="68%" stop-color="#c9a13b"/>
+      <stop offset="100%" stop-color="#5e4a15"/>
+    </radialGradient>
+    <filter id="bSoft"><feGaussianBlur stdDeviation="1.4"/></filter>
+  </defs>
+  <g opacity="0.45" filter="url(#bSoft)" stroke="#fff7d8" stroke-width="1">
+    <line x1="150" y1="150" x2="150"    y2="98"/>
+    <line x1="150" y1="150" x2="176"    y2="104.97"/>
+    <line x1="150" y1="150" x2="195.03" y2="124"/>
+    <line x1="150" y1="150" x2="202"    y2="150"/>
+    <line x1="150" y1="150" x2="195.03" y2="176"/>
+    <line x1="150" y1="150" x2="176"    y2="195.03"/>
+    <line x1="150" y1="150" x2="150"    y2="202"/>
+    <line x1="150" y1="150" x2="124"    y2="195.03"/>
+    <line x1="150" y1="150" x2="104.97" y2="176"/>
+    <line x1="150" y1="150" x2="98"     y2="150"/>
+    <line x1="150" y1="150" x2="104.97" y2="124"/>
+    <line x1="150" y1="150" x2="124"    y2="104.97"/>
+  </g>
+  <circle cx="150" cy="150" r="56" fill="url(#bBall)"/>
+  <circle cx="150" cy="150" r="56" fill="none" stroke="#e9c96a" stroke-width="1.5"/>
+</svg>

@@ -1,0 +1,42 @@
+<svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- CSSOS 矢量魔镜 · 托盘层 (holder): 外圈金属框 + 四角绿宝石 + 黑宝石环带。
+       中心是暗环, 金球层(cssmirror-ball.svg)叠在其上; 300x300 同 viewBox 直接对齐叠放。
+       文字 CSS/STUDIO 由 DOM(.mirror-title/.mirror-subtitle)另行覆盖, 不烤进图。 -->
+  <defs>
+    <radialGradient id="tMetal" cx="50%" cy="40%" r="66%">
+      <stop offset="0%" stop-color="#ccd4d0"/>
+      <stop offset="42%" stop-color="#717c77"/>
+      <stop offset="70%" stop-color="#2b322e"/>
+      <stop offset="100%" stop-color="#141814"/>
+    </radialGradient>
+    <radialGradient id="tGem" cx="50%" cy="34%" r="70%">
+      <stop offset="0%" stop-color="#e6ffee"/>
+      <stop offset="42%" stop-color="#38c46f"/>
+      <stop offset="100%" stop-color="#0a4523"/>
+    </radialGradient>
+    <radialGradient id="tOrb" cx="38%" cy="32%" r="72%">
+      <stop offset="0%" stop-color="#727a74"/>
+      <stop offset="52%" stop-color="#20251f"/>
+      <stop offset="100%" stop-color="#05060a"/>
+    </radialGradient>
+  </defs>
+  <circle cx="150" cy="150" r="122" fill="url(#tMetal)"/>
+  <g fill="url(#tGem)" stroke="#0a4523" stroke-width="1">
+    <path d="M150 18 L173 92 L150 112 L127 92 Z"/>
+    <path d="M150 18 L173 92 L150 112 L127 92 Z" transform="rotate(90 150 150)"/>
+    <path d="M150 18 L173 92 L150 112 L127 92 Z" transform="rotate(180 150 150)"/>
+    <path d="M150 18 L173 92 L150 112 L127 92 Z" transform="rotate(270 150 150)"/>
+  </g>
+  <circle cx="150" cy="150" r="94" fill="#0f120d"/>
+  <circle cx="150" cy="150" r="94" fill="none" stroke="#3a423c" stroke-width="2"/>
+  <g>
+    <circle cx="179.1" cy="79.8"  r="7.5" fill="url(#tOrb)"/>
+    <circle cx="220.2" cy="120.9" r="7.5" fill="url(#tOrb)"/>
+    <circle cx="220.2" cy="179.1" r="7.5" fill="url(#tOrb)"/>
+    <circle cx="179.1" cy="220.2" r="7.5" fill="url(#tOrb)"/>
+    <circle cx="120.9" cy="220.2" r="7.5" fill="url(#tOrb)"/>
+    <circle cx="79.8"  cy="179.1" r="7.5" fill="url(#tOrb)"/>
+    <circle cx="79.8"  cy="120.9" r="7.5" fill="url(#tOrb)"/>
+    <circle cx="120.9" cy="79.8"  r="7.5" fill="url(#tOrb)"/>
+  </g>
+</svg>

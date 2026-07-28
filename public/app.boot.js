@@ -314,6 +314,36 @@ window.addEventListener("keydown", (event) => {
   emergencyUnfreezeUi({ preserveHoldState: !!currentBootRecState()?.started });
 });
 
+// CSSOS — Jing: keyboard create shortcut (CLAUDE.md lists "keyboard shortcut" as a
+// normal MV entry path). Plain "n" (New), when NOT typing in a field and with NO
+// modifier key, opens the one-tap MV creation flow — same as logo/mic. Guards:
+//   • any modifier (meta/ctrl/alt/shift) bails → never hijacks Cmd/Ctrl+N new-window;
+//   • never fires while focus is in an editable element (input/textarea/select/
+//     contenteditable), so typing an "n" anywhere never triggers creation.
+// W1766 — dispatched through the unified hub (app.shortcuts-registry.js) at the
+// SAME window/bubble phase as before; fallback keeps the raw listener if the hub
+// failed to load, so behavior is byte-for-byte preserved either way.
+const __cssosCreateHotkey = (event) => {
+  if (event.key !== "n" && event.key !== "N") return;
+  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+  const t = event.target;
+  const tag = (t && t.tagName) || "";
+  if ((t && t.isContentEditable) || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  event.preventDefault();
+  try {
+    globalThis.invokeUniversalCreationEntry?.({ origin: "keyboard", preferredTab: "mv" });
+  } catch (_e) {}
+};
+if (globalThis.cssosShortcuts && globalThis.cssosShortcuts.register) {
+  globalThis.cssosShortcuts.register({
+    id: "create-mv", owned: true, target: "window", phase: "bubble",
+    handler: __cssosCreateHotkey, keys: "N", source: "app.boot.js",
+    desc: () => globalThis.cssosShortcuts.lc("Open create / MV panel", "打开创作 / MV 面板")
+  });
+} else {
+  window.addEventListener("keydown", __cssosCreateHotkey);
+}
+
 window.addEventListener("blur", () => {
   if (!currentBootRecState()?.started) {
     document.body.classList.remove("longpress-guard");

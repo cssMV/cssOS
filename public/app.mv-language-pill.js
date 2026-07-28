@@ -303,6 +303,19 @@
     _activeLang = track.lang;
     _activeVoice = String(track.voice || "auto");
     _activeTake = take;
+    /* CSSOS_WAVE_1785 20260726 — 资源登记(串台根治第二层)。
+     * 这里是【切语言】的唯一入口, 也是历次串台补丁全都漏掉的那道缝:
+     * 换语言时 workId 不变 → 所有"只比 workId"的守卫统统放行 →
+     * 于是"字幕已经换成英文, 歌声还是中文"。
+     * 音频 URL 自己不带身份(artifacts/audio/aud-<hash>.mp3, 视频却带 canon-<workId前缀>),
+     * 所以必须在挂上去的这一刻把【完整坐标】记下来, 探测器才查得出它属于谁。 */
+    try {
+      if (typeof globalThis.cssosRegisterAsset === "function") {
+        globalThis.cssosRegisterAsset("audio", url, {
+          lang: _activeLang, voice: _activeVoice, take: _activeTake,
+        });
+      }
+    } catch (_e) {}
     // CSSOS_WAVE_587 — 记住选择(本作品 + 全局上次), 下次播放自动恢复。
     try {
       var _p = JSON.stringify({ lang: _activeLang, voice: _activeVoice });

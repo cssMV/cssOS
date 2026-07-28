@@ -125,6 +125,31 @@
   globalThis.cssosReadAutoEnterMvPref = readAutoEnterPref;
   globalThis.cssosSetAutoEnterMvPref = writeAutoEnterPref;
 
+  /* CSSOS_WAVE_1772 20260726 — Jing「凡是广告链接进来的, 直接跳过『要不要看 MV』问询门」。
+   * 理由: 广告文案承诺的就是「打开即播 / a music video is already playing」。让点了广告的人
+   * 再被问一句"你要不要看", 等于自己毁掉承诺, 还多一次流失机会。
+   * 落地参数(Jing 定): ?cssADS=x | meta | x.com | facebook.com …… 任意非空值均视为广告来源。
+   * 同时兜住平台【自动附加】的点击 ID(fbclid=Meta / twclid=X / gclid=Google) —— 即使
+   * 落地 URL 忘了带 cssADS, 只要是从这些平台点进来的也照样直接进。
+   * 注意: 只影响【要不要弹问询框】, 不写入 cssos.autoEnterMv 偏好 —— 广告的一次性行为
+   * 不该永久改掉用户的选择。 */
+  function isAdReferral() {
+    try {
+      var s = String(location.search || "");
+      if (/[?&]cssADS=[^&]+/i.test(s)) return true;            // Jing 指定的显式广告参数
+      if (/[?&](fbclid|twclid|gclid)=[^&]+/i.test(s)) return true; // 平台自动附加的点击 ID
+      // W1772b — 兜底: 旧广告(以及任何忘了带参数的外链)的落地址是【裸 URL】, 上面两条都
+      // 抓不到, 用户照样被 10 秒倒计时挡住(Jing 实测撞到)。改看 referrer: 从 X/Meta 的域
+      // 点进来的一律视同广告来源。referrer 在跨站跳转时可能被隐私策略截断成源(origin),
+      // 所以只匹配域名不匹配路径。t.co 是 X 的短链域, l.facebook.com / lm.facebook.com 是
+      // Meta 的跳转域。
+      var r = String(document.referrer || "");
+      if (/^https?:\/\/([^/]*\.)?(t\.co|x\.com|twitter\.com|facebook\.com|instagram\.com|threads\.(net|com))(\/|$)/i.test(r)) return true;
+    } catch (_e) {}
+    return false;
+  }
+  globalThis.cssosIsAdReferral = isAdReferral;
+
   var _autoEnterPromptShown = false;
   // CSSOS_WAVE_1018 20260619 — Jing「进平台弹一次, 选了欣赏进去又弹回来=共 2 次」根治:
   //   内存变量 _autoEnterPromptShown 在【页面重载/影院打开瞬间弹回主界面】后清零 → 又弹。
@@ -172,7 +197,9 @@
           { h: "/?cssMV=e208554a-427a-4273-ae07-8c5d7d042ab6", t: "The Gambit", c: "https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/poster.jpg" },
           { h: "/?cssMV=59578f73-7298-4aa7-b92c-38d5a649f2b8", t: "时间的帝国", c: "https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
           { h: "/?cssMV=13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", t: "群星", c: "https://cdn.cssstudio.app/covers/trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036.jpg" },
-          { h: "/?cssMV=7dc49021-e47e-4f58-8881-faa7ec9abb02", t: "对弈", c: "https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" }
+          { h: "/?cssMV=7dc49021-e47e-4f58-8881-faa7ec9abb02", t: "对弈", c: "https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" },
+          // W1764 — 《时间帝国·双星战争》游戏预告版, 排在电影版之后 (Jing)。海报+史诗配乐已持久到 R2。
+          { h: "/?cssMV=7804635b-0e82-4984-abd1-ae979f0e523a", t: "双星战争", c: "https://cdn.cssstudio.app/artifacts/te-trailer/twinwar-poster.png" }
         ]).map(function (w) {
           return '<a href="' + w.h + '" style="flex:0 0 132px;height:98px;border-radius:12px;overflow:hidden;position:relative;text-decoration:none;border:1px solid rgba(0,245,160,0.18);background:#081012 url(' + w.c + ') center/cover;">' +
             '<div style="position:absolute;left:0;right:0;bottom:0;padding:20px 8px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.88));color:#fff;font:600 11px/1.25 inherit;">▶ ' + w.t + '</div></a>';
@@ -303,8 +330,10 @@
       // 桌面 web: 尊重 never + 保留"本会话已退出影院就不再自动打扰"语义。
       if (_pref === "never") return;              // 用户明确选择不自动进
       if (userClosedThisSession()) return;
-      if (_pref !== "always") { showAutoEnterPromptOnce(); return; } // ask → 先问
-      // 桌面 web + always → 继续往下走, 直接进。
+      // W1772 — 广告来源: 视同 always, 不问直接进(广告承诺"打开即播")。放在 pref 判断之后,
+      // 所以【用户明确选过 never】仍然优先 —— 广告不该覆盖用户的明确拒绝。
+      if (_pref !== "always" && !isAdReferral()) { showAutoEnterPromptOnce(); return; } // ask → 先问
+      // 桌面 web + (always | 广告来源) → 继续往下走, 直接进。
     }
 
     // CSSOS_WAVE_468 20260527 — Jing「App 进入 MV 面板时闪退」根因(强韧化收口): 上一版

@@ -39,8 +39,11 @@
 
   // 各入口: find=找锚点; place=插法。已插标记在锚点最近容器上。
   var TARGETS = [
-    // 主创建台: 紧挨「声线/Vocal Style」输入(最贴切——你在这里描述声线)。
-    { key: "creation", find: function () { var el = document.getElementById("creation-vocal-style"); return el ? (el.closest("label") || el.parentElement) : null; }, place: "after" },
+    /* CSSOS_WAVE_1768 — Jing「图4: 声线输入旁乱入一个 Sing in my voice, 删除掉」。
+     * 移除 creation 入口(原插在 #creation-vocal-style 之后): 高级设置的「多语言声轨」排里
+     * 第一颗本就是 🎙️ My Voice(injectLangRow 插的), 声线输入旁再来一颗纯属重复 —— 与下方
+     * W1693 撤掉标题上那颗声线胶囊同理。
+     *   移除: { key:"creation", find:()=>#creation-vocal-style 的 label, place:"after" } */
     /* CSSOS_WAVE_1693 — Jing「撤掉标题上的声线胶囊, 下面已经有一个, 重复」。
      * 高级设置里「多语言声轨」那排的第一颗本来就是 🎙️ My Voice(W587 的 injectLangRow 插的),
      * 面板顶部再飘一颗纯属重复。这跟 W587 自己那句注释("别让它孤单飘在上面, 跟语言胶囊在一起")

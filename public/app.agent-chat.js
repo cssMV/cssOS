@@ -64,17 +64,45 @@
       /* CSSOS_WAVE_737 20260613 — Jing「AI助理移到右上角(关闭✕左侧), 真全屏也常驻=最强创作入口」:
          原 z=9800 低于影院层(10052-10080)→ 真全屏被盖住。提到 z=10090(高于影院, 低于 tap-veil),
          位置改右上角 right:64px(让开 ✕)top:12px → 用户在全屏看片时随手就能创作。 */
-      "#cssos-agent-fab{position:fixed;right:14px;bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px) + 5px);top:auto;width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font-size:18px;cursor:pointer;z-index:10090;box-shadow:0 5px 18px rgba(0,245,160,0.42);transition:transform 160ms ease;}" /* WAVE_822e — Jing「AI 助理与价格条同一行」: 锚到价格条同一 bottom 基准(dock-clear+safe), 去掉旧 +14 偏移; 圆形+非 pill-key → 不参与胶囊凹凸 */,
+      /* CSSOS_WAVE_1776 20260726 — Jing「其他地方的 AI 助理别绝对定位, 改可拖拽并记住位置;
+         图标改 ➕, 背景改【黑绿】不规则渐变」。
+         - 默认位置仍是右下(与价格条同一 bottom 基准), 但一旦用户拖过, JS 就写 left/top 内联样式,
+           并存 localStorage, 下次进来还在原处(见 makeFabDraggable)。
+         - 不规则渐变 = 两层 radial-gradient 叠在 linear 上, 亮点偏左上 → 有"液态玻璃"的不规则感,
+           不是死板的对角线。绿用品牌 #00f5a0 系, 底用近黑 → 黑绿。
+         - transition 只留 transform, 不能给 left/top 加过渡 —— 否则拖拽会"追不上手指"。 */
+      "#cssos-agent-fab{position:fixed;right:14px;bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px) + 5px);top:auto;width:46px;height:46px;border-radius:50%;" +
+        "background:radial-gradient(circle at 30% 26%,rgba(0,245,160,0.92) 0%,rgba(0,184,122,0.62) 34%,rgba(6,20,15,0) 62%)," +
+        "radial-gradient(circle at 74% 80%,rgba(0,140,95,0.5) 0%,rgba(2,10,7,0) 58%)," +
+        "linear-gradient(148deg,#07130e 0%,#0d1a14 46%,#020806 100%);" +
+        "color:#eafff6;border:1px solid rgba(0,245,160,0.36);font-size:26px;font-weight:700;line-height:1;cursor:grab;z-index:10090;" +
+        "box-shadow:0 6px 22px rgba(2,10,7,0.62),0 0 0 1px rgba(255,255,255,0.05) inset;transition:transform 160ms ease;touch-action:none;user-select:none;-webkit-user-select:none;}",
       "#cssos-agent-fab:hover{transform:scale(1.06);}",
-      "#cssos-agent-fab[data-active='1']{background:linear-gradient(135deg,#ff9a3c,#ff6b6b);}",
+      "#cssos-agent-fab[data-dragging='1']{cursor:grabbing;transform:scale(1.1);transition:none;}",
+      /* 活动态(有未读/正在跑)换成琥珀亮点, 但底色仍是同一套近黑不规则渐变 → 视觉语言统一。 */
+      "#cssos-agent-fab[data-active='1']{" +
+        "background:radial-gradient(circle at 30% 26%,rgba(251,191,36,0.95) 0%,rgba(217,119,6,0.7) 34%,rgba(6,20,15,0) 62%)," +
+        "radial-gradient(circle at 74% 80%,rgba(180,83,9,0.5) 0%,rgba(2,10,7,0) 58%)," +
+        "linear-gradient(148deg,#07130e 0%,#0d1a14 46%,#020806 100%);" +
+        "border-color:rgba(251,191,36,0.42);}",
       /* CSSOS_WAVE_737 — 面板 z 提到 10091(原 9801 被影院层 10052-10080 盖住, 全屏打不开)。
          位置改右上角(贴 FAB), top 起算, 让全屏看片时从右上角 FAB 顺势展开创作。 */
-      "#cssos-agent-panel{position:fixed;right:76px;top:72px;bottom:auto;width:min(420px,calc(100vw - 36px));height:min(620px,calc(100vh - 120px));background:#0d1117;color:#e6e8ee;border:1px solid rgba(255,255,255,0.12);border-radius:16px;display:none;flex-direction:column;z-index:10091;box-shadow:0 12px 40px rgba(0,0,0,0.55);overflow:hidden;}",
+      "#cssos-agent-panel{position:fixed;right:76px;top:72px;bottom:auto;width:min(420px,calc(100vw - 36px));height:min(620px,calc(100vh - 120px));background:rgba(13,17,23,0.62);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);color:#e6e8ee;border:1px solid rgba(255,255,255,0.12);border-radius:16px;display:none;flex-direction:column;z-index:10091;box-shadow:0 12px 40px rgba(0,0,0,0.55);overflow:hidden;}",
       "#cssos-agent-panel[data-open='1']{display:flex;}",
-      "#cssos-agent-panel header{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;font:600 14px/1 -apple-system,system-ui,sans-serif;}",
+      /* CSSOS_WAVE_1786 20260727 — 标题栏必须永远排第一。compose 拿了 order:-1 提到顶部,
+       * header 若留在默认 order:0 会被挤到输入框下面 → 显式 order:-2 钉死在最上。 */
+      "#cssos-agent-panel header{order:-2;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;font:600 14px/1 -apple-system,system-ui,sans-serif;}",
       "#cssos-agent-panel header .title{display:flex;gap:8px;align-items:center;}",
-      "#cssos-agent-panel header .meta{font:500 11px/1 ui-monospace,monospace;color:#8a8f99;}",
-      "#cssos-agent-panel header button{background:transparent;border:0;color:#9aa;cursor:pointer;font-size:18px;padding:4px 8px;border-radius:6px;}",
+      /* CSSOS_WAVE_1780 20260726 — Jing「右上角的文字太浅, 看不清」。
+       * 原 #8a8f99 / #9aa 在近黑底上对比度约 3:1, 低于 WCAG AA 的 4.5:1, 半透明面板叠在亮色
+       * MV 上更糊。提到品牌绿系的浅色(#bfe9d8 ≈ 8:1), 并给按钮加 hover 底色 → 可见且可点得准。 */
+      "#cssos-agent-panel header .meta{font:600 11.5px/1 ui-monospace,monospace;color:#bfe9d8;letter-spacing:.02em;}",
+      "#cssos-agent-panel header button{background:transparent;border:0;color:#cfeee0;cursor:pointer;font-size:17px;padding:5px 8px;border-radius:8px;transition:background 140ms ease,color 140ms ease;}",
+      "#cssos-agent-panel header button:hover{background:rgba(0,245,160,0.16);color:#eafff6;}",
+      // 草稿箱: 和社媒一样放在标题栏, 有草稿时显示计数徽标。
+      "#cssos-agent-drafts{position:relative;}",
+      "#cssos-agent-drafts .n{position:absolute;top:0;right:2px;min-width:15px;height:15px;padding:0 3px;" +
+        "border-radius:8px;background:#00f5a0;color:#062;font:700 10px/15px ui-monospace,monospace;text-align:center;}",
       "#cssos-agent-panel header button:hover{background:rgba(255,255,255,0.06);color:#fff;}",
       "#cssos-agent-messages{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;}",
       ".cssos-agent-msg{max-width:88%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}",
@@ -99,12 +127,33 @@
       ".cssos-agent-seed-card .prompt{font-size:13.5px;color:#daffee;white-space:pre-wrap;}",
       ".cssos-agent-seed-card .meta{font-size:11px;color:#9aa;font-family:ui-monospace,monospace;}",
       ".cssos-agent-seed-card button{align-self:flex-start;padding:6px 14px;border-radius:999px;border:0;background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;font-weight:700;cursor:pointer;font-size:13px;}",
-      "#cssos-agent-input-row{display:flex;gap:8px;padding:10px 12px;border-top:1px solid rgba(255,255,255,0.08);}",
-      "#cssos-agent-input{flex:1;min-height:36px;max-height:120px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;color:#daffee;padding:8px 10px;font:inherit;resize:none;font-size:13.5px;}",
-      "#cssos-agent-input:focus{outline:none;border-color:rgba(0,245,160,0.55);}",
-      "#cssos-agent-send{background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;padding:0 16px;border-radius:10px;cursor:pointer;font-weight:700;font-size:13px;}",
+      /* CSSOS_WAVE_1779 20260726 — Jing「参照 X / Facebook / Threads 的发帖窗口重排」。
+       * 三家的共同骨架 = 顶部关闭条 / 中间输入框占绝大部分 / 底部一排工具图标 + 右下主按钮。
+       * 关键: 输入框是【主体】不是配角 —— 给它 flex:1 吃掉所有剩余高度, 而不是固定 36px 高。 */
+      /* CSSOS_WAVE_1786 20260727 — Jing:「输入框应该从顶部开始, 不要从中间开始」。
+       * 原来 messages(flex:1) 和 compose(flex:1) 平分高度 → 输入框被推到面板正中。
+       * order:-1 把输入框提到 header 正下方(=X / Threads 发帖窗的骨架), 对话记录排在它下面。
+       * 只改排序与起始位置, 不动尺寸/配色/交互。 */
+      "#cssos-agent-compose{order:-1;flex:1;display:flex;min-height:120px;padding:14px 16px 8px;}",
+      "#cssos-agent-input{flex:1;width:100%;background:transparent;border:0;color:#daffee;font:inherit;" +
+        "resize:none;font-size:16px;line-height:1.5;}",   // 16px: iOS 上 <16px 会触发自动放大
+      "#cssos-agent-input::placeholder{color:rgba(218,255,238,0.38);font-size:16px;}",
+      "#cssos-agent-input:focus{outline:none;}",
+      /* 底部工具条: 左边一排图标(音乐源/模版), 右边主按钮 —— 与三家社媒一致。 */
+      "#cssos-agent-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;" +
+        "padding:8px 12px;border-top:1px solid rgba(255,255,255,0.08);}",
+      "#cssos-agent-toolbar .tools{display:flex;gap:2px;}",
+      "#cssos-agent-toolbar .tools button{background:transparent;border:0;color:#daffee;font-size:19px;line-height:1;" +
+        "cursor:pointer;padding:7px 9px;border-radius:9px;transition:background 140ms ease;}",
+      "#cssos-agent-toolbar .tools button:hover{background:rgba(0,245,160,0.14);}",
+      "#cssos-agent-toolbar .tools button[data-on='1']{background:rgba(0,245,160,0.22);}",
+      "#cssos-agent-send{background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;padding:9px 20px;border-radius:999px;cursor:pointer;font-weight:700;font-size:14px;}",
       "#cssos-agent-send[disabled]{opacity:0.5;cursor:default;}",
-      "#cssos-agent-suggestions{padding:8px 12px 0;display:flex;flex-wrap:wrap;gap:6px;}",
+      /* 模版抽屉: 默认收起(高度 0), 点 ✨ 展开。max-height 过渡 → 不把面板撑高、也不跳变。 */
+      "#cssos-agent-suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px;max-height:0;overflow:hidden;" +
+        "opacity:0;transition:max-height 200ms ease,opacity 160ms ease,padding 200ms ease;}",
+      "#cssos-agent-suggestions[data-open='1']{max-height:168px;overflow-y:auto;opacity:1;padding:10px 12px;" +
+        "border-top:1px solid rgba(255,255,255,0.08);}",
       ".cssos-agent-suggestion{padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);color:#daffee;font-size:11.5px;cursor:pointer;}",
       ".cssos-agent-suggestion:hover{background:rgba(0,245,160,0.12);border-color:rgba(0,245,160,0.32);}",
       /* W334 — AI panel = true fullscreen (like MV panel) on the NATIVE APP and
@@ -119,10 +168,13 @@
         "max-height:none!important;max-width:none!important;border-radius:0!important;border:none!important;" +
         "right:0!important;left:0!important;bottom:0!important;top:0!important;}}",
       /* W334b — header/input flush to edges (only when actually fullscreen). */
-      "html.cssos-app #cssos-agent-panel[data-open='1'] header{padding-top:0!important;}",
-      "@media (max-width:768px){#cssos-agent-panel[data-open='1'] header{padding-top:0!important;}}",
-      "html.cssos-app #cssos-agent-panel[data-open='1'] #cssos-agent-input-row{padding-bottom:env(safe-area-inset-bottom,0px)!important;}",
-      "@media (max-width:768px){#cssos-agent-panel[data-open='1'] #cssos-agent-input-row{padding-bottom:env(safe-area-inset-bottom,0px)!important;}}",
+      /* CSSOS_WAVE_1786 20260727 — Jing: 顶部往下压一点, 别和手机刘海儿打架。
+       * 原来 padding-top:0 让标题栏顶到屏幕最上沿, 在刘海/灵动岛机型上被切掉;
+       * 改成让出 safe-area-inset-top(与下方 toolbar 的 inset-bottom 对称)。 */
+      "html.cssos-app #cssos-agent-panel[data-open='1'] header{padding-top:calc(6px + env(safe-area-inset-top,0px))!important;}",
+      "@media (max-width:768px){#cssos-agent-panel[data-open='1'] header{padding-top:calc(6px + env(safe-area-inset-top,0px))!important;}}",
+      "html.cssos-app #cssos-agent-panel[data-open='1'] #cssos-agent-toolbar{padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))!important;}",
+      "@media (max-width:768px){#cssos-agent-panel[data-open='1'] #cssos-agent-toolbar{padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))!important;}}",
       /* FAB: hide when panel is open (panel IS the interface) */
       "#cssos-agent-panel[data-open='1'] ~ #cssos-agent-fab," +
       "body.cssos-agent-open #cssos-agent-fab{display:none!important;}",
@@ -138,9 +190,14 @@
     fab.id = "cssos-agent-fab";
     fab.type = "button";
     fab.title = tr("Chat with the cssOS Creative Assistant", "和 cssOS 创作助手聊一聊");
-    fab.textContent = "💬";
+    // CSSOS_WAVE_1776 — Jing: 图标从 💬 改 ➕(和别的平台一致的"新建/唤起"语义)。
+    // 用 U+FF0B 全宽加号而非 emoji ➕ —— emoji 会被系统换成彩色方块, 破坏黑蓝渐变的质感。
+    fab.textContent = "＋";
+    fab.setAttribute("aria-label", tr("Chat with the cssOS Creative Assistant", "和 cssOS 创作助手聊一聊"));
     fab.addEventListener("click", togglePanel);
     document.body.appendChild(fab);
+    makeFabDraggable(fab);
+    startFabPosSelfHeal();
 
     var panel = document.createElement("section");
     panel.id = "cssos-agent-panel";
@@ -154,15 +211,32 @@
       // duplicated the "Report a bug / diagnose" item already living in
       // the ⋯ overflow menu (app.agent-overflow-menu.js). One entry
       // point only — inside the ⋯ dropdown.
+      // W1780 — Jing: 垃圾桶旁边要有草稿箱(社媒标配)。放在 🗑️ 之前, 与 X/Threads 的 "Drafts" 同位。
+      '    <button type="button" id="cssos-agent-drafts" data-act="drafts" title="' + esc(tr("Drafts", "草稿箱")) + '" aria-label="' + esc(tr("Drafts", "草稿箱")) + '">🗂️</button>',
       '    <button type="button" data-act="clear" title="' + esc(tr("Clear conversation", "清空对话")) + '">🗑️</button>',
       '    <button type="button" data-act="close" title="' + esc(tr("Close", "关闭")) + '">✕</button>',
       '  </div>',
       '</header>',
-      '<div id="cssos-agent-suggestions"></div>',
       '<div id="cssos-agent-messages" role="log" aria-live="polite"></div>',
-      '<div id="cssos-agent-input-row">',
-      '  <textarea id="cssos-agent-input" rows="1" placeholder="' + esc(tr("Tell me what you want to create…", "告诉我你想创作什么…")) + '"></textarea>',
-      '  <button type="button" id="cssos-agent-send">' + esc(tr("Send", "发送")) + '</button>',
+      /* CSSOS_WAVE_1779 20260726 — Jing「参照成熟社媒发帖窗口重排布局」。
+       * 旧布局的问题: 模版胶囊(#cssos-agent-suggestions)平铺一大片, 把输入框挤成最下面一条缝
+       * —— 主次颠倒了。用户是来【说一句话】的, 不是来挑模版的。
+       * 新骨架照 X / Facebook / Threads 的共同结构:
+       *   顶部 = 关闭 + 次要入口 (已有 header)
+       *   主体 = 输入框占绝大部分 (下面这块)
+       *   底部 = 工具条(音乐源/模版…) + 主按钮
+       * 模版从"常驻平铺"改成底部一个 ✨ 按钮, 点开才展开 → 不再吃常驻空间。 */
+      '<div id="cssos-agent-compose">',
+      '  <textarea id="cssos-agent-input" placeholder="' + esc(tr("What do you want to create?", "想创作什么？")) + '"></textarea>',
+      '</div>',
+      // 模版抽屉: 默认收起, 点底部 ✨ 才展开。覆盖在面板上, 不把面板撑高。
+      '<div id="cssos-agent-suggestions" data-open="0"></div>',
+      '<div id="cssos-agent-toolbar">',
+      '  <div class="tools">',
+      '    <button type="button" data-tool="music" title="' + esc(tr("Upload music source (audio / MIDI / MusicXML / sheet)", "上传音乐资源（音频 / MIDI / MusicXML / 乐谱）")) + '" aria-label="' + esc(tr("Upload music source", "上传音乐资源")) + '">🎵</button>',
+      '    <button type="button" data-tool="tpl" title="' + esc(tr("Templates", "模版")) + '" aria-label="' + esc(tr("Templates", "模版")) + '">✨</button>',
+      '  </div>',
+      '  <button type="button" id="cssos-agent-send">' + esc(tr("Create", "生成")) + '</button>',
       '</div>',
     ].join("");
     document.body.appendChild(panel);
@@ -246,6 +320,24 @@
 
     panel.querySelector('[data-act="close"]').addEventListener("click", togglePanel);
     panel.querySelector('[data-act="clear"]').addEventListener("click", clearConversation);
+
+    /* CSSOS_WAVE_1780 20260726 — Jing「垃圾桶旁边应该像社媒有一个草稿箱」。
+     * 语义照 X/Threads: 输入框里没发出去的内容【自动存草稿】, 点 🗂️ 可以取回。
+     * 存本地(localStorage)即可 —— 草稿是"还没想好要不要发"的东西, 不该上传服务器。 */
+    var draftsBtn = panel.querySelector('[data-act="drafts"]');
+    var inputEl = panel.querySelector("#cssos-agent-input");
+    if (inputEl) {
+      // 输入即存(防抖 400ms), 避免每敲一个字都写一次 localStorage。
+      var saveT = null;
+      inputEl.addEventListener("input", function () {
+        if (saveT) clearTimeout(saveT);
+        saveT = setTimeout(function () { saveDraft(inputEl.value); }, 400);
+      });
+    }
+    if (draftsBtn) {
+      draftsBtn.addEventListener("click", function () { openDraftsMenu(draftsBtn); });
+      refreshDraftBadge();
+    }
     // CSSOS_WAVE_133 — the 🐛 report button wiring was removed with the
     // button itself; "Report a bug / diagnose" lives in the ⋯ overflow
     // menu (app.agent-overflow-menu.js), which calls cssosOpenBugReport.
@@ -282,6 +374,30 @@
       } catch (_) {}
     });
     panel.querySelector("#cssos-agent-send").addEventListener("click", sendCurrent);
+
+    /* CSSOS_WAVE_1779 20260726 — Jing: 底部工具条。
+     * ✨ 模版 = 展开/收起模版抽屉(原来是常驻平铺, 霸占整个面板)。
+     * 🎵 音乐源 = 调起既有的「多音乐资源上传」面板。
+     *   注意: .msrc-tabbar(Audio/Video/MIDI/MusicXML/Sheet/Image) 在 W220.A 永久冻结清单里。
+     *   这里【只新建入口去调用它】(mountMusicSourceUploadPanel), 绝不改它的结构或样式。 */
+    var toolbar = panel.querySelector("#cssos-agent-toolbar");
+    if (toolbar) {
+      toolbar.addEventListener("click", function (e) {
+        var b = e.target && e.target.closest ? e.target.closest("[data-tool]") : null;
+        if (!b) return;
+        var tool = b.getAttribute("data-tool");
+        if (tool === "tpl") {
+          var sug = document.getElementById("cssos-agent-suggestions");
+          if (!sug) return;
+          // W1779 — 必须先算出【新】状态再写两个属性; 分开各读一次会读到已被改过的值 → 收不起来。
+          var next = sug.getAttribute("data-open") === "1" ? "0" : "1";
+          sug.setAttribute("data-open", next);
+          b.setAttribute("data-on", next);
+          return;
+        }
+        if (tool === "music") { openMusicSourceSheet(); return; }
+      });
+    }
 
     // CSSOS_WAVE_131 20260514 — Jing: "AI 助理小窗应该可以拖拽，不然会
     // 挡住别的面板". Drag by the header. Switches the panel from
@@ -574,6 +690,692 @@
         globalThis.openLoginPanel();
       }
     } catch (_) {}
+  }
+
+  /* CSSOS_WAVE_1776 20260726 — Jing「AI 助理改可拖拽并记住位置」。
+   *
+   * 为什么不是简单加个 mousedown: 三件事必须一起做对, 少一件就变成 bug ——
+   *   ① 拖拽必须和"点击打开面板"区分开。判据是位移 >4px 才算拖(DRAG_SLOP);
+   *      没超过就当点击, 照常开面板。否则用户想开面板却总是"轻轻拖了一下"什么都没发生。
+   *   ② 位置必须钳进视口(和面板宪法 Article 2 同一条原则): 窗口缩小/横竖屏切换后,
+   *      记住的坐标可能落到屏幕外, 按钮就永远点不到了。故 restore 和 resize 都要重钳。
+   *   ③ 一旦改用 left/top, 必须把 CSS 里的 right/bottom 清成 auto ——
+   *      否则两套定位同时生效, 按钮会被拉伸变形。
+   */
+  /* CSSOS_WAVE_1776d 20260726 — Jing「新位置和旧位置在抢 AI 助理, 在两处之间跳换」根因:
+   * AI 助理有【两个入口元素】—— 主界面的 #cssos-agent-fab 和影院右轨的 #cssos-rail-ai
+   * (影院开时藏前者、显后者)。第一版给它们各存了一个 localStorage key, 于是用户分别拖过
+   * 两处之后, 影院一开一关, 两个按钮各自出现在各自记住的位置 → 看起来就是"在新旧位置之间跳"。
+   *
+   * 修法: 两个入口【共用同一个 key】。它们对用户是同一个功能, 拖任一个就等于给"AI 助理"
+   * 定位, 另一处必须跟着走。同时兼容读取两个旧 key(迁移), 免得已经拖过的用户位置丢失。 */
+  var FAB_POS_KEY = "cssos.aiAssistant.pos";
+  var LEGACY_POS_KEYS = ["cssos.agentFab.pos", "cssos.railAi.pos"];
+  var DRAG_SLOP = 4;
+
+  // 读共享位置; 首次运行时把旧 key 迁移过来并清掉, 避免两处再各自记一份。
+  function readSharedPos() {
+    try {
+      var raw = localStorage.getItem(FAB_POS_KEY);
+      if (raw) { var p = JSON.parse(raw); if (p && typeof p.left === "number") return p; }
+      // 迁移: 取第一个可用的旧位置作为共享位置, 但【两个旧 key 都要清掉】——
+      // 只清取中的那个会留下另一个, 下次又被当成"另一份位置"迁移一遍。
+      var picked = null;
+      for (var i = 0; i < LEGACY_POS_KEYS.length; i++) {
+        var old = localStorage.getItem(LEGACY_POS_KEYS[i]);
+        localStorage.removeItem(LEGACY_POS_KEYS[i]);
+        if (!old || picked) continue;
+        var q = JSON.parse(old);
+        if (q && typeof q.left === "number") picked = q;
+      }
+      if (picked) {
+        localStorage.setItem(FAB_POS_KEY, JSON.stringify(picked));
+        return picked;
+      }
+    } catch (_e) {}
+    return null;
+  }
+  globalThis.cssosReadAiAssistantPos = readSharedPos;   // 供影院右轨复用同一份位置
+
+  function writeSharedPos(left, top) {
+    try { localStorage.setItem(FAB_POS_KEY, JSON.stringify({ left: left, top: top })); } catch (_e) {}
+    LEGACY_POS_KEYS.forEach(function (k) { try { localStorage.removeItem(k); } catch (_e) {} });
+  }
+  globalThis.cssosWriteAiAssistantPos = writeSharedPos;
+
+  // W1778 — 清掉记住的位置 = 回归 CSS 默认锚点(右下角)。吸附回原位和"恢复原始位置"菜单都用它。
+  function clearSharedPos() {
+    try { localStorage.removeItem(FAB_POS_KEY); } catch (_e) {}
+    LEGACY_POS_KEYS.forEach(function (k) { try { localStorage.removeItem(k); } catch (_e) {} });
+  }
+  globalThis.cssosClearAiAssistantPos = clearSharedPos;
+  var SNAP_HOME_PX = 90;   // 拖到距右下角这么近 → 自动吸附回原位
+
+  function clampFabPos(el, left, top) {
+    var w = el.offsetWidth || 46;
+    var h = el.offsetHeight || 46;
+    var maxL = Math.max(0, window.innerWidth - w);
+    var maxT = Math.max(0, window.innerHeight - h);
+    return {
+      left: Math.min(Math.max(0, left), maxL),
+      top: Math.min(Math.max(0, top), maxT),
+    };
+  }
+
+  function applyFabPos(el, left, top) {
+    var p = clampFabPos(el, left, top);
+    el.style.setProperty("left", p.left + "px", "important");
+    el.style.setProperty("top", p.top + "px", "important");
+    // ③ 必须清掉 CSS 的 right/bottom, 否则两套定位打架。
+    // 用 !important —— app.watch-bottom-stack.js 的 alignAgentFab() 用 important 写 bottom,
+    // 不用 important 会被它压过去(这就是"拖走又弹回"的直接原因之一)。
+    el.style.setProperty("right", "auto", "important");
+    el.style.setProperty("bottom", "auto", "important");
+    // 打标记: watch-bottom-stack 认这个标记后就不再自动对齐, 用户的位置说了算。
+    el.setAttribute("data-user-placed", "1");
+  }
+
+  function makeFabDraggable(el) {
+    // 恢复上次位置(若有)。存的是数字, 但仍要重钳 —— 窗口尺寸可能已经变了。
+    var saved = readSharedPos();
+    if (saved) applyFabPos(el, saved.left, saved.top);
+
+    var startX = 0, startY = 0, baseL = 0, baseT = 0, moved = false, dragging = false;
+
+    /* CSSOS_WAVE_1778 20260726 — Jing「AI 助理的动作不要触发别的动作」: 影院手势(上下切歌/
+     * 左右切换)监听在 body、右键菜单监听在 document, 都是全局的; FAB 的事件冒泡上去就被它们
+     * 当成滑动/右击。在 FAB 这一层就地吞掉, 不让往上走。(与 app.watch-social-rail.js 同一处理。) */
+    ["touchstart", "touchmove", "touchend", "mousedown", "wheel", "contextmenu"].forEach(function (ev) {
+      el.addEventListener(ev, function (e) {
+        e.stopPropagation();
+        if (ev === "contextmenu") e.preventDefault();
+      }, false);
+    });
+
+    el.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0 && e.pointerType === "mouse") return;
+      e.stopPropagation();          // 不让影院手势层看到这次按下
+      var r = el.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      baseL = r.left; baseT = r.top;
+      moved = false; dragging = true;
+      try { el.setPointerCapture(e.pointerId); } catch (_e) {}
+    });
+
+    el.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var dx = e.clientX - startX, dy = e.clientY - startY;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;  // ① 还没超过阈值 → 仍算点击
+      if (!moved) { moved = true; el.setAttribute("data-dragging", "1"); }
+      e.preventDefault();
+      applyFabPos(el, baseL + dx, baseT + dy);
+    });
+
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      el.removeAttribute("data-dragging");
+      try { el.releasePointerCapture(e.pointerId); } catch (_e) {}
+      if (moved) {
+        var r = el.getBoundingClientRect();
+        /* CSSOS_WAVE_1778 — Jing「拖到原始位置(右下角)附近时自动吸附回原位」。
+         * 吸附 = 清掉记住的位置, 让它回落到 CSS 默认的右下角锚点 —— 而不是把右下角的坐标
+         * 硬存进去。这样窗口尺寸变化时它仍然跟着右下角走, 和从没拖过时的行为完全一致。
+         * 阈值 90px: 比按钮本身(46px)大一圈, 用户"大概拖回角落"就能吸住, 又不会误吸。 */
+        var homeR = window.innerWidth - r.right;    // 距右边缘
+        var homeB = window.innerHeight - r.bottom;  // 距下边缘
+        if (homeR < SNAP_HOME_PX && homeB < SNAP_HOME_PX) {
+          clearSharedPos();
+          el.style.removeProperty("left");
+          el.style.removeProperty("top");
+          el.style.removeProperty("right");
+          el.style.removeProperty("bottom");
+          el.removeAttribute("data-user-placed");
+        } else {
+          writeSharedPos(r.left, r.top);   // 共享 → 影院右轨那个也会跟着走
+        }
+      }
+    }
+    el.addEventListener("pointerup", endDrag);
+    el.addEventListener("pointercancel", endDrag);
+
+    // ① 真的拖过就吞掉这次 click, 不要顺带把面板打开。
+    el.addEventListener("click", function (e) {
+      if (moved) { e.preventDefault(); e.stopImmediatePropagation(); moved = false; }
+    }, true);
+
+    wireFabGestures(el);
+
+    // ② 窗口尺寸/朝向变化后重新钳一次, 否则按钮可能被留在屏幕外点不到。
+    window.addEventListener("resize", function () {
+      if (!el.style.left) return;   // 没拖过 → 仍走 CSS 的 right/bottom, 不用管
+      applyFabPos(el, parseFloat(el.style.left) || 0, parseFloat(el.style.top) || 0);
+    });
+  }
+
+  /* CSSOS_WAVE_1780 20260726 — 草稿箱。存本地即可(草稿 = 还没想好要不要发的东西, 不上传)。
+   * 最多留 10 条, 去重(同一句话不重复存), 最新在前。 */
+  var DRAFTS_KEY = "cssos.agentDrafts";
+  var DRAFTS_MAX = 10;
+
+  function readDrafts() {
+    try {
+      var a = JSON.parse(localStorage.getItem(DRAFTS_KEY) || "[]");
+      return Array.isArray(a) ? a.filter(function (x) { return x && typeof x.text === "string"; }) : [];
+    } catch (_e) { return []; }
+  }
+  function writeDrafts(list) {
+    try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(list.slice(0, DRAFTS_MAX))); } catch (_e) {}
+    refreshDraftBadge();
+  }
+  function saveDraft(text) {
+    text = String(text || "").trim();
+    if (text.length < 4) return;                 // 太短的不算草稿, 免得存一堆碎字
+    var list = readDrafts().filter(function (d) { return d.text !== text; });
+    list.unshift({ text: text, at: Date.now() });
+    writeDrafts(list);
+  }
+  function refreshDraftBadge() {
+    var b = document.getElementById("cssos-agent-drafts");
+    if (!b) return;
+    var n = readDrafts().length;
+    var old = b.querySelector(".n");
+    if (old) old.remove();
+    if (!n) return;
+    var s = document.createElement("span");
+    s.className = "n";
+    s.textContent = n > 9 ? "9+" : String(n);
+    b.appendChild(s);
+  }
+
+  function openDraftsMenu(anchor) {
+    var old = document.getElementById("cssos-agent-drafts-menu");
+    if (old) { old.remove(); return; }
+    var list = readDrafts();
+
+    var m = document.createElement("div");
+    m.id = "cssos-agent-drafts-menu";
+    var r = anchor.getBoundingClientRect();
+    m.style.cssText =
+      "position:fixed;z-index:10094;right:" + Math.round(window.innerWidth - r.right) + "px;" +
+      "top:" + Math.round(r.bottom + 8) + "px;width:min(340px,calc(100vw - 24px));max-height:320px;overflow:auto;" +
+      "background:linear-gradient(148deg,#07130e,#0d1a14 60%,#020806);border:1px solid rgba(0,245,160,0.30);" +
+      "border-radius:14px;box-shadow:0 12px 40px rgba(2,10,7,0.7);padding:8px;";
+
+    if (!list.length) {
+      var empty = document.createElement("div");
+      empty.textContent = tr("No drafts yet.", "还没有草稿。");
+      empty.style.cssText = "color:#bfe9d8;font:500 12.5px/1.5 inherit;padding:12px 10px;text-align:center;";
+      m.appendChild(empty);
+    } else {
+      list.forEach(function (d, i) {
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:6px;align-items:flex-start;padding:7px 8px;border-radius:9px;";
+        var t = document.createElement("button");
+        t.type = "button";
+        t.textContent = d.text.length > 90 ? d.text.slice(0, 90) + "…" : d.text;
+        t.style.cssText = "flex:1;text-align:left;background:transparent;border:0;color:#eafff6;" +
+          "font:500 12.5px/1.45 inherit;cursor:pointer;padding:0;";
+        t.addEventListener("click", function () {
+          var inp = document.getElementById("cssos-agent-input");
+          if (inp) { inp.value = d.text; inp.focus(); }
+          m.remove();
+        });
+        var del = document.createElement("button");
+        del.type = "button";
+        del.textContent = "✕";
+        del.title = tr("Delete draft", "删除草稿");
+        del.style.cssText = "background:transparent;border:0;color:#7fbfa6;cursor:pointer;font-size:12px;padding:0 2px;";
+        del.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var cur = readDrafts();
+          cur.splice(i, 1);
+          writeDrafts(cur);
+          m.remove();
+          openDraftsMenu(anchor);         // 重开以刷新列表
+        });
+        row.appendChild(t); row.appendChild(del);
+        row.addEventListener("mouseenter", function () { row.style.background = "rgba(0,245,160,0.12)"; });
+        row.addEventListener("mouseleave", function () { row.style.background = "transparent"; });
+        m.appendChild(row);
+      });
+    }
+
+    setTimeout(function () {
+      document.addEventListener("pointerdown", function away(ev) {
+        if (m.contains(ev.target) || anchor.contains(ev.target)) return;
+        m.remove();
+        document.removeEventListener("pointerdown", away, true);
+      }, true);
+    }, 0);
+    document.body.appendChild(m);
+  }
+
+  /* CSSOS_WAVE_1780 20260726 — Jing「左下角的音乐按钮点不动」根因:
+   * mountMusicSourceUploadPanel(root) 的第一行是 `if (!(root instanceof Element)) return;`
+   * —— 它是【挂载函数】不是【打开函数】, 必须给它一个宿主容器。我上一版没传参 → 静默返回,
+   * 什么都不发生, 表现就是"点不动"。
+   * 修法: 自己建一个浮层当宿主, 把 markup 渲进去再 bind 控件。
+   * W220.A 边界: .msrc-tabbar 的结构/样式一行不碰, 只是把它渲染进我的容器里。 */
+  function openMusicSourceSheet() {
+    var old = document.getElementById("cssos-agent-music-sheet");
+    if (old) { old.remove(); return; }          // 再点一次 = 关闭
+
+    var render = globalThis.renderMusicSourceUploadPanelMarkup;
+    var bind = globalThis.mountMusicSourceUploadPanel;
+    if (typeof render !== "function" || typeof bind !== "function") {
+      try {
+        if (typeof globalThis.showToast === "function") {
+          globalThis.showToast(tr("Music upload is still loading — try again in a moment.",
+                                  "音乐上传模块正在加载，请稍后再试"));
+        }
+      } catch (_e) {}
+      return;
+    }
+
+    var wrap = document.createElement("div");
+    wrap.id = "cssos-agent-music-sheet";
+    // z 比助理面板(10091)高一档; 面板宪法的"不越界"原则同样适用 → 限高并可滚。
+    wrap.style.cssText =
+      "position:fixed;z-index:10094;left:50%;top:50%;transform:translate(-50%,-50%);" +
+      "width:min(560px,calc(100vw - 32px));max-height:min(70vh,620px);overflow:auto;" +
+      "background:linear-gradient(148deg,#07130e,#0d1a14 60%,#020806);" +
+      "border:1px solid rgba(0,245,160,0.30);border-radius:16px;" +
+      "box-shadow:0 18px 54px rgba(2,10,7,0.72);padding:14px 16px 18px;color:#eafff6;";
+
+    var head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;";
+    var h = document.createElement("div");
+    h.textContent = "🎵  " + tr("Upload music source", "上传音乐资源");
+    h.style.cssText = "font:700 14px/1 inherit;";
+    var x = document.createElement("button");
+    x.type = "button";
+    x.textContent = "✕";
+    x.setAttribute("aria-label", tr("Close", "关闭"));
+    x.style.cssText = "background:transparent;border:0;color:#9fd;font-size:16px;cursor:pointer;padding:4px 6px;";
+    x.addEventListener("click", function () { wrap.remove(); });
+    head.appendChild(h); head.appendChild(x);
+    wrap.appendChild(head);
+
+    var host = document.createElement("div");
+    wrap.appendChild(host);
+    document.body.appendChild(wrap);
+
+    try {
+      host.innerHTML = render();       // 渲染既有 markup(含 .msrc-tabbar, 原样不动)
+      bind(host);                      // 再把控件事件绑上去
+    } catch (_e) {
+      host.textContent = tr("Could not load the uploader.", "上传面板加载失败。");
+    }
+
+    // 点浮层外收起。
+    setTimeout(function () {
+      document.addEventListener("pointerdown", function away(ev) {
+        if (wrap.contains(ev.target)) return;
+        wrap.remove();
+        document.removeEventListener("pointerdown", away, true);
+      }, true);
+    }, 0);
+  }
+
+  /* CSSOS_WAVE_1778 20260726 — Jing 定义的 AI 助理三种手势:
+   *   单击     → 打开创作入口(社媒发帖式小窗)
+   *   双击     → 惊喜生成: 随机一首歌
+   *   长按/右击 → 内置胶囊菜单, 必有一项「恢复原始位置」
+   *
+   * 单击 vs 双击的冲突, Jing 选了方案 B: 单击【立即】开面板(高频动作不该为低频的双击付延迟),
+   * 双击时先把面板关掉再执行惊喜 —— 代价是双击会有一瞬闪烁, 换来单击完全跟手。
+   *
+   * 长按判定 500ms。长按/右击都走同一个菜单函数, 保证桌面和触屏行为一致。 */
+  var LONG_PRESS_MS = 500;
+
+  function wireFabGestures(el) {
+    var lpTimer = null, lpFired = false;
+
+    function clearLp() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } }
+
+    el.addEventListener("pointerdown", function (e) {
+      lpFired = false;
+      clearLp();
+      lpTimer = setTimeout(function () {
+        lpFired = true;
+        openFabMenu(el);
+      }, LONG_PRESS_MS);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(function (ev) {
+      el.addEventListener(ev, clearLp);
+    });
+    // 拖动一开始就取消长按 —— 拖拽和长按是两回事, 不能同时成立。
+    el.addEventListener("pointermove", function () {
+      if (el.getAttribute("data-dragging") === "1") clearLp();
+    });
+
+    // 右击 = 长按的桌面等价物。contextmenu 的默认行为已在别处 preventDefault。
+    el.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openFabMenu(el);
+    });
+
+    // 方案 B: 单击立即开面板; dblclick 到来时先关面板再跑惊喜。
+    el.addEventListener("click", function (e) {
+      if (lpFired) { e.preventDefault(); e.stopImmediatePropagation(); lpFired = false; }
+    }, true);
+
+    el.addEventListener("dblclick", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        // 先收起单击刚打开的面板, 再触发惊喜 —— 否则面板挡着看不到生成过程。
+        var panel = document.getElementById("cssos-agent-panel");
+        if (panel && panel.getAttribute("data-open") === "1") togglePanel();
+        surpriseCreate();
+      } catch (_e) {}
+    });
+  }
+
+  /* CSSOS_WAVE_1781 20260726 — Jing「惊喜生成必须刹车」。
+   *
+   * 原话: "单曲可以直接生成, 三部曲以上必须暂停, 因为一旦生成就是消耗 3 个生成权的,
+   *        特别是短剧/电视连续剧/电影, 耗资巨大, 必须暂停, 检查用户的平台钱包,
+   *        哪怕足够也要暂停提醒用户, 因为这是随机生成的。"
+   *
+   * 三条硬规矩:
+   *   ① 单曲 = 直接生成(1 份成本, 摩擦要低)。
+   *   ② 三部曲及以上 = 【一律先暂停确认】, 不看余额够不够都要停 ——
+   *      因为内容是【随机】的, 用户可能根本不想要这个题材, 花的却是真钱。
+   *   ③ 确认框必须同时给出: 会生成几份 / 预估花多少 / 钱包还剩多少 / "这是随机"的明确提示。
+   *      余额不够时把"继续"禁掉并指向充值, 而不是让它跑到一半 402。
+   *
+   * 成本口径与后端 MV_STAGE_CEILING_CENTS 对齐(歌词5+封面8+音乐80+视频150=243 分/份),
+   * 取整到 250 分/份便于口算; 显示时明说是"最多"(worst case), 不夸大也不低估。 */
+  var SURPRISE_TIERS = [
+    { key: "single",  works: 1,  label: tr("Single song", "单曲"),              icon: "🎵", gate: false },
+    { key: "trilogy", works: 3,  label: tr("Trilogy (3 songs)", "三部曲（3 首）"), icon: "🎬", gate: true },
+    { key: "opera",   works: 5,  label: tr("Opera (5 acts)", "歌剧（5 幕）"),     icon: "🎭", gate: true },
+    { key: "drama",   works: 12, label: tr("Short drama", "短剧"),               icon: "📺", gate: true, heavy: true },
+    { key: "series",  works: 24, label: tr("TV series", "电视连续剧"),            icon: "📡", gate: true, heavy: true },
+    { key: "film",    works: 40, label: tr("Film", "电影"),                      icon: "🎞️", gate: true, heavy: true },
+  ];
+  var CENTS_PER_WORK = 250;
+
+  function fmtUsdC(cents) { return "$" + (Math.max(0, cents) / 100).toFixed(2); }
+
+  async function fetchBalanceCents() {
+    try {
+      var r = await fetch("/api/credits/balance", { credentials: "include" });
+      if (!r.ok) return null;
+      var j = await r.json();
+      var b = (j && (j.balance != null ? j.balance : (j.data && j.data.balance)));
+      return (typeof b === "number") ? b : null;
+    } catch (_e) { return null; }
+  }
+
+  /* 真正去生成。不自己拼生成参数 —— 交给平台既有入口, 免得和 PIPELINE 的算法推荐脱节
+   * (导演自动流铁律: 不选不填 → 系统算法推荐; 用户干预 → 最高优先)。 */
+  function runSurprise(tier) {
+    var fns = ["cssosSurpriseMe", "cssosRandomCreate", "cssosMvSurprise", "cssosOpenDirectorGate"];
+    for (var i = 0; i < fns.length; i++) {
+      var f = globalThis[fns[i]];
+      if (typeof f === "function") { try { f(tier && tier.key); return; } catch (_e) {} }
+    }
+    try {
+      if (typeof globalThis.cssosOpenAssistantWithPrompt === "function") {
+        globalThis.cssosOpenAssistantWithPrompt(
+          tr("Surprise me — create a random ", "给我一个惊喜——随机生成") + (tier ? tier.label : tr("song", "一首歌")) + "。");
+      }
+    } catch (_e) {}
+  }
+
+  // 双击 = 单曲惊喜, 直接走(① 低摩擦)。多档入口走长按菜单 → surprisePicker()。
+  function surpriseCreate() { runSurprise(SURPRISE_TIERS[0]); }
+
+  /* ② + ③ 刹车确认框。三部曲及以上一律经过这里。 */
+  async function confirmHeavySurprise(tier) {
+    var cost = tier.works * CENTS_PER_WORK;
+    var bal = await fetchBalanceCents();
+    var enough = (bal == null) ? true : (bal >= cost);   // 读不到余额时不硬拦, 但仍然要确认
+
+    var ov = document.createElement("div");
+    ov.id = "cssos-surprise-gate";
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:10096;display:flex;align-items:center;justify-content:center;" +
+      "background:rgba(2,10,7,0.72);backdrop-filter:blur(3px);";
+
+    var box = document.createElement("div");
+    box.style.cssText =
+      "width:min(440px,calc(100vw - 32px));background:linear-gradient(148deg,#07130e,#0d1a14 60%,#020806);" +
+      "border:1px solid rgba(0,245,160,0.32);border-radius:18px;padding:20px 22px;color:#eafff6;" +
+      "box-shadow:0 20px 60px rgba(2,10,7,0.75);";
+
+    var lines = [];
+    lines.push('<div style="font:700 16px/1.3 inherit;margin-bottom:10px;">' + tier.icon + "  " +
+      esc(tr("Confirm before generating", "生成前请确认")) + "</div>");
+    // ③ "这是随机的"必须显式说 —— 用户可能根本不想要这个题材, 花的却是真钱。
+    lines.push('<div style="font:500 13px/1.6 inherit;color:#bfe9d8;margin-bottom:12px;">' +
+      esc(tr("This is a RANDOM generation — the theme, story and style are chosen for you. It costs real money and cannot be undone.",
+             "这是【随机】生成 —— 题材、故事、风格都由系统替你决定。它花的是真钱，且无法撤销。")) + "</div>");
+    lines.push('<div style="display:flex;flex-direction:column;gap:7px;font:600 13px/1 inherit;' +
+      'background:rgba(0,245,160,0.07);border:1px solid rgba(0,245,160,0.20);border-radius:12px;padding:12px 14px;margin-bottom:14px;">');
+    lines.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(tr("What", "生成内容")) +
+      '</span><span>' + esc(tier.label) + '</span></div>');
+    lines.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(tr("Works", "份数")) +
+      '</span><span>' + tier.works + '</span></div>');
+    lines.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(tr("Cost at most", "最多花费")) +
+      '</span><span style="color:#00f5a0;">' + fmtUsdC(cost) + '</span></div>');
+    lines.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(tr("Your wallet", "钱包余额")) +
+      '</span><span style="color:' + (enough ? "#eafff6" : "#ff8a8a") + ';">' +
+      (bal == null ? esc(tr("unknown", "读取失败")) : fmtUsdC(bal)) + '</span></div>');
+    lines.push("</div>");
+    if (!enough) {
+      lines.push('<div style="font:600 12.5px/1.5 inherit;color:#ff8a8a;margin-bottom:12px;">' +
+        esc(tr("Not enough balance — top up first.", "余额不足 —— 请先充值。")) + "</div>");
+    }
+    if (tier.heavy) {
+      lines.push('<div style="font:700 12.5px/1.5 inherit;color:#ffcf6a;margin-bottom:12px;">⚠️ ' +
+        esc(tr("This is a large, expensive job. Consider describing what you want instead of rolling the dice.",
+               "这是一次体量很大、开销很高的生成。建议你直接描述想要什么，而不是交给随机。")) + "</div>");
+    }
+    lines.push('<div style="display:flex;gap:8px;justify-content:flex-end;">');
+    lines.push('<button type="button" data-a="cancel" style="background:transparent;border:1px solid rgba(255,255,255,0.22);' +
+      'color:#cfeee0;font:600 13px/1 inherit;padding:10px 16px;border-radius:999px;cursor:pointer;">' +
+      esc(tr("Cancel", "取消")) + "</button>");
+    if (!enough && bal != null) {
+      lines.push('<button type="button" data-a="topup" style="background:linear-gradient(135deg,#00f5a0,#00b87a);' +
+        'color:#0a0d12;border:0;font:700 13px/1 inherit;padding:10px 18px;border-radius:999px;cursor:pointer;">' +
+        esc(tr("Top up", "去充值")) + "</button>");
+    } else {
+      lines.push('<button type="button" data-a="go" style="background:linear-gradient(135deg,#00f5a0,#00b87a);' +
+        'color:#0a0d12;border:0;font:700 13px/1 inherit;padding:10px 18px;border-radius:999px;cursor:pointer;">' +
+        esc(tr("Generate anyway", "确认生成")) + "</button>");
+    }
+    lines.push("</div>");
+    box.innerHTML = lines.join("");
+
+    box.addEventListener("click", function (e) {
+      var b = e.target && e.target.closest ? e.target.closest("[data-a]") : null;
+      if (!b) return;
+      var a = b.getAttribute("data-a");
+      ov.remove();
+      if (a === "go") runSurprise(tier);
+      else if (a === "topup") {
+        try {
+          if (typeof globalThis.cssosOpenCreditsTopup === "function") globalThis.cssosOpenCreditsTopup();
+          else if (typeof globalThis.openCreditsTopupModal === "function") globalThis.openCreditsTopupModal();
+        } catch (_e) {}
+      }
+    });
+    // 点遮罩 = 取消(不生成)。默认动作永远是"不花钱"。
+    ov.addEventListener("click", function (e) { if (e.target === ov) ov.remove(); });
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+  }
+
+  /* 惊喜档位选择器(长按菜单里的「惊喜生成」进这里)。单曲直接跑, 其余走刹车。 */
+  function surprisePicker(anchor) {
+    var old = document.getElementById("cssos-surprise-picker");
+    if (old) { old.remove(); return; }
+    var m = document.createElement("div");
+    m.id = "cssos-surprise-picker";
+    var r = anchor ? anchor.getBoundingClientRect() : { left: 40, bottom: 80, right: 100, top: 80 };
+    var openLeft = r.left > window.innerWidth / 2;
+    var openUp = r.top > window.innerHeight / 2;
+    m.style.cssText =
+      "position:fixed;z-index:10095;display:flex;flex-direction:column;gap:6px;padding:8px;" +
+      "background:linear-gradient(148deg,#07130e,#0d1a14 60%,#020806);border:1px solid rgba(0,245,160,0.30);" +
+      "border-radius:14px;box-shadow:0 12px 40px rgba(2,10,7,0.7);" +
+      (openLeft ? "right:" + Math.round(window.innerWidth - r.right) + "px;" : "left:" + Math.round(r.left) + "px;") +
+      (openUp ? "bottom:" + Math.round(window.innerHeight - r.top + 8) + "px;" : "top:" + Math.round(r.bottom + 8) + "px;");
+
+    SURPRISE_TIERS.forEach(function (t) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("data-tier", t.key);
+      // 直接标出份数 —— 用户在【点之前】就该知道这会花几份钱, 不是点了才知道。
+      b.innerHTML = esc(t.icon + "  " + t.label) +
+        '<span style="opacity:.62;font-weight:600;margin-left:8px;">' +
+        (t.works > 1 ? "×" + t.works + " · " + fmtUsdC(t.works * CENTS_PER_WORK) : fmtUsdC(CENTS_PER_WORK)) + "</span>";
+      b.style.cssText =
+        "display:flex;align-items:center;justify-content:space-between;gap:10px;white-space:nowrap;width:100%;" +
+        "background:rgba(0,245,160,0.10);border:1px solid rgba(0,245,160,0.26);color:#eafff6;" +
+        "font:600 13px/1 inherit;padding:10px 14px;border-radius:999px;cursor:pointer;text-align:left;";
+      b.addEventListener("mouseenter", function () { b.style.background = "rgba(0,245,160,0.22)"; });
+      b.addEventListener("mouseleave", function () { b.style.background = "rgba(0,245,160,0.10)"; });
+      m.appendChild(b);
+    });
+
+    m.addEventListener("click", function (e) {
+      var b = e.target && e.target.closest ? e.target.closest("[data-tier]") : null;
+      if (!b) return;
+      var key = b.getAttribute("data-tier");
+      m.remove();
+      var tier = SURPRISE_TIERS.filter(function (t) { return t.key === key; })[0];
+      if (!tier) return;
+      if (tier.gate) confirmHeavySurprise(tier);   // ② 三部曲及以上 → 一律先暂停
+      else runSurprise(tier);                      // ① 单曲 → 直接生成
+    });
+
+    setTimeout(function () {
+      document.addEventListener("pointerdown", function away(ev) {
+        if (m.contains(ev.target)) return;
+        m.remove();
+        document.removeEventListener("pointerdown", away, true);
+      }, true);
+    }, 0);
+    document.body.appendChild(m);
+  }
+
+  /* 长按/右击菜单。内容是【胶囊】(与平台 data-pill-bar 视觉语言一致), 选中即触发。
+   * Jing 明确要求: 必有一项「恢复原始位置」。 */
+  function openFabMenu(el) {
+    var old = document.getElementById("cssos-agent-fab-menu");
+    if (old) { old.remove(); return; }   // 再次长按 = 收起
+
+    var items = [
+      { key: "create",  label: tr("Open creation", "打开创作"),        icon: "＋" },
+      { key: "surprise", label: tr("Surprise me", "惊喜生成"),          icon: "🎲" },
+      { key: "music",   label: tr("Upload music source", "上传音乐资源"), icon: "🎵" },
+      { key: "home",    label: tr("Reset to default position", "恢复原始位置"), icon: "⟲" },
+    ];
+
+    var m = document.createElement("div");
+    m.id = "cssos-agent-fab-menu";
+    var r = el.getBoundingClientRect();
+    // 菜单朝屏幕内侧展开 —— FAB 常在右下角, 菜单必须往左上开, 否则会跑到视口外。
+    var openLeft = r.left > window.innerWidth / 2;
+    var openUp = r.top > window.innerHeight / 2;
+    m.style.cssText =
+      "position:fixed;z-index:10093;display:flex;flex-direction:column;gap:6px;padding:8px;" +
+      "background:linear-gradient(148deg,#07130e,#0d1a14 60%,#020806);border:1px solid rgba(0,245,160,0.30);" +
+      "border-radius:14px;box-shadow:0 10px 34px rgba(2,10,7,0.7);" +
+      (openLeft ? "right:" + Math.round(window.innerWidth - r.right) + "px;"
+                : "left:" + Math.round(r.left) + "px;") +
+      (openUp ? "bottom:" + Math.round(window.innerHeight - r.top + 8) + "px;"
+              : "top:" + Math.round(r.bottom + 8) + "px;");
+
+    items.forEach(function (it) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("data-key", it.key);
+      b.textContent = it.icon + "  " + it.label;
+      b.style.cssText =
+        "display:block;width:100%;text-align:left;white-space:nowrap;background:rgba(0,245,160,0.10);" +
+        "border:1px solid rgba(0,245,160,0.26);color:#eafff6;font:600 13px/1 inherit;padding:9px 14px;" +
+        "border-radius:999px;cursor:pointer;";
+      b.addEventListener("mouseenter", function () { b.style.background = "rgba(0,245,160,0.22)"; });
+      b.addEventListener("mouseleave", function () { b.style.background = "rgba(0,245,160,0.10)"; });
+      m.appendChild(b);
+    });
+
+    m.addEventListener("click", function (e) {
+      var b = e.target && e.target.closest ? e.target.closest("[data-key]") : null;
+      if (!b) return;
+      var k = b.getAttribute("data-key");
+      m.remove();
+      try {
+        if (k === "create") {
+          var p = document.getElementById("cssos-agent-panel");
+          if (!p || p.getAttribute("data-open") !== "1") togglePanel();
+        } else if (k === "surprise") {
+          // W1781 — 从菜单进 = 给档位选择器(单曲/三部曲/歌剧/短剧/剧集/电影),
+          // 三部曲及以上会被刹车拦一道。双击仍然是"单曲直发", 保持低摩擦。
+          surprisePicker(el);
+        } else if (k === "music") {
+          /* CSSOS_WAVE_1786 20260727 — Jing:「Upload 按钮不工作, 照搬 AI 助理左下角音乐按钮」。
+           * 原来直接调 mountMusicSourceUploadPanel() 不带参数, 而它首行是
+           * `if (!(root instanceof Element)) return;` → 静默返回, 点了没反应。
+           * 改成走和工具条 🎵 完全同一条路径 openMusicSourceSheet()(它会先建宿主再挂事件)。
+           * Jing 补充:「可以是两个动作」—— ① 先打开 AI 助理 ② 再开音乐面板,
+           * 这样上传面板是落在助理里的, 关掉它还留在创作上下文, 而不是孤零零一个浮层。 */
+          var ap = document.getElementById("cssos-agent-panel");
+          if (!ap || ap.getAttribute("data-open") !== "1") togglePanel();
+          setTimeout(openMusicSourceSheet, 120);   // 等面板挂上再叠浮层
+        } else if (k === "home") {
+          // 恢复原始位置 = 清掉记住的坐标, 两个入口(FAB / 影院右轨)都回落 CSS 默认锚点。
+          clearSharedPos();
+          ["cssos-agent-fab", "cssos-rail-ai"].forEach(function (id) {
+            var t = document.getElementById(id);
+            if (!t) return;
+            ["left", "top", "right", "bottom", "position"].forEach(function (p2) { t.style.removeProperty(p2); });
+            t.removeAttribute("data-user-placed");
+          });
+        }
+      } catch (_e) {}
+    });
+
+    // 点菜单外任意处收起。用 capture + once, 不留监听残渣。
+    setTimeout(function () {
+      document.addEventListener("pointerdown", function onAway(ev) {
+        if (m.contains(ev.target)) return;
+        m.remove();
+        document.removeEventListener("pointerdown", onAway, true);
+      }, true);
+    }, 0);
+
+    document.body.appendChild(m);
+  }
+
+  /* CSSOS_WAVE_1776b 20260726 — Jing「拖走了又弹回原位」的第二个原因(第一个是
+   * watch-bottom-stack 的 alignAgentFab, 已让它认 data-user-placed 标记)。
+   *
+   * 实测: 拖走 7 秒后 FAB 的【内联样式被整个清空】(bottom 变 "" 而不是被改写) ——
+   * 这说明 FAB 是被【销毁重建】或整体重置的, 不是被某处改属性。这条路径不止一处
+   * (影院开关/面板卸载/rail 重建都可能), 逐个去堵会漏, 而且以后新增一处又会复发。
+   *
+   * 所以改成【自愈】: 一道慢安全网, 每 2s 看一眼 —— 只要 localStorage 里存着用户
+   * 摆过的位置, 而当前 FAB 上没有内联 left(= 被清掉了或是新建的), 就重新贴回去。
+   * 代价是每 2s 一次 getElementById + 一次属性读, 可忽略; 换来的是"谁重建都不怕"。
+   * (与本库既有的 2000ms 底部栈安全网同一套路, 见 app.watch-bottom-stack.js start()。) */
+  function startFabPosSelfHeal() {
+    setInterval(function () {
+      try {
+        var el = document.getElementById("cssos-agent-fab");
+        if (!el || el.style.left) return;       // 不存在, 或位置还在 → 无需修
+        var p = readSharedPos();
+        if (!p) return;                         // 用户从未拖过 → 不插手默认布局
+        applyFabPos(el, p.left, p.top);
+      } catch (_e) {}
+    }, 2000);
   }
 
   function togglePanel() {
@@ -1280,9 +2082,10 @@
     ensureAttachStripStyles();
     strip = document.createElement("div");
     strip.id = "cssos-agent-attach-strip";
-    var inputRow = document.getElementById("cssos-agent-input-row");
-    if (inputRow && inputRow.parentNode) {
-      inputRow.parentNode.insertBefore(strip, inputRow);
+    // W1779 — 布局重排后附件条挂在【工具条】之前(原来的 input-row 已拆成 compose + toolbar)。
+    var anchor = document.getElementById("cssos-agent-toolbar");
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(strip, anchor);
     } else {
       panel.appendChild(strip);
     }
@@ -1354,6 +2157,11 @@
     var sendImages = pendingImages.slice();
     pendingImages = [];
     repaintAttachStrip();
+    // W1780 — 发出去了就不再是草稿, 从草稿箱移除(与社媒行为一致)。
+    try {
+      var kept = readDrafts().filter(function (d) { return d.text !== msg; });
+      writeDrafts(kept);
+    } catch (_e) {}
     var localPreviewUrls = sendImages.map(function (im) { return im.data_url; });
     renderMsg("user", msg, null, localPreviewUrls);
     input.value = "";

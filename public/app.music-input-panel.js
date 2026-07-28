@@ -414,6 +414,24 @@ function _miInjectStyle() {
     ".msrc-tabbar > .msrc-tab:nth-child(6n+5).active { background:hsla(45,90%,55%,0.50) !important; }",
     ".msrc-tabbar > .msrc-tab:nth-child(6n+6).active { background:hsla(95,70%,50%,0.50) !important; }",
     ".msrc-tab.coming-soon { opacity:0.55; }",
+    /* CSSOS_WAVE_1786 20260727 — Jing: App 端胶囊轨道要【缩短】, 别顶出面板两边。
+     * 窄屏(手机/助理小窗)下让胶囊可收缩(flex-basis 0 + min-width 0)并收紧内边距,
+     * 六个胶囊就能整条排进轨道, 轨道不再横向溢出。只动尺寸, 几何/配色/交互一律不碰。 */
+    "@media (max-width:560px) {" +
+    "  .msrc-tabbar { max-width:100%; }" +
+    "  .msrc-tab { flex:1 1 0; min-width:0; padding:9px 6px; gap:3px; font-size:11px; }" +
+    "  .msrc-tab > span:not(.msrc-tab-icon) { overflow:hidden; text-overflow:ellipsis; }" +
+    "  .msrc-tab .msrc-tab-icon { font-size:12px; }" +
+    "  .msrc-tab .msrc-tab-badge { display:none; }" +
+    /* 同一波第二处 —— Jing:「下面还有 3 个也需要缩短」(输入框 / Choose File 行 / 应用+清除条)。
+     * 实测元凶不是这三行本身: 原生 file input 的固有最小宽度顺着 .msrc-pane 往上把 .msrc-card
+     * 撑到 399px(容器只有 341px), 于是卡片里所有块级子元素都被拉到同一个超宽宽度。
+     * 给这条链上的三个节点封顶(卡片 max-width + pane/file-input 允许收缩)后
+     * scrollWidth 402→341 = 容器宽, 三行同时归位。只封宽度, 不动别处。 */
+    "  .msrc-card { max-width:100%; box-sizing:border-box; }" +
+    "  .msrc-pane { min-width:0; max-width:100%; }" +
+    "  .msrc-file-input { min-width:0; max-width:100%; box-sizing:border-box; }" +
+    "}",
     ".msrc-tab .msrc-tab-icon { font-size:14px; }",
     ".msrc-tab .msrc-tab-badge { font-size:11px; padding:1px 5px; border-radius:4px; background:rgba(255,200,0,0.18); color:#ffc83d; margin-left:2px; }",
     ".msrc-pane { padding:6px 2px; }",
@@ -462,7 +480,16 @@ function buildMusicSourceUploadCardMarkup() {
   const activeKey = musicSourceUploadState.activeTab || "audio";
   const activeTab = _miFindTab(activeKey) || tabs[0];
 
-  const tabBar = tabs.map((t) => {
+  /* CSSOS_WAVE_1782 20260726 — Jing 明确指令:「选中谁，谁在第一个位置」。
+   * 这是平台胶囊宪法里的 Dock 规则(选中即成为第一颗) —— 选中项当"凸"的锚点岛,
+   * 其余全部凹向它, 整条才读作一条连贯的 凸嵌凹 雕刻带; 锚点在中间时两侧会各断一次。
+   *
+   * ⚠️ .msrc-tabbar 在 W220.A 永久冻结清单里。本次改动是 Jing 指名的那一条(且授权改函数,
+   * 以便高级设置面板同步生效), 只动【顺序】—— 每个 tab 的结构、class、样式一律不碰。 */
+  const orderedTabs = tabs.slice().sort((a, b) =>
+    (a.key === activeKey ? -1 : 0) - (b.key === activeKey ? -1 : 0));
+
+  const tabBar = orderedTabs.map((t) => {
     const isActive = t.key === activeKey;
     const isComing = !t.active;
     return `<button type="button" class="msrc-tab ${isActive ? "active" : ""} ${isComing ? "coming-soon" : ""}" data-msrc-tab="${_miEsc(t.key)}">

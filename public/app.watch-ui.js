@@ -1426,8 +1426,24 @@ function syncForyouActionButtonsModule() {
   }
 }
 
+// W1770 — Jing「取消无操作自动刷新返回主界面」: 有【工作面板】打开时(高级设置/登录/资料/导演/管理…),
+//   不要因无操作把用户甩进影院/主界面(打断正在做的事)。豁免 logo(主页)/foryou/watch —— 它们本就是
+//   欣赏/主界面态, 无操作自动续播是它们的设计。适用于所有工作面板(不止高级设置)。
+function cssosAttractSuppressedForPanels() {
+  try {
+    var EXEMPT = { "logo-panel": 1, "foryou-panel": 1, "watch-panel": 1 };
+    var panels = document.querySelectorAll(".panel:not(.hidden)");
+    for (var i = 0; i < panels.length; i++) {
+      var id = panels[i].id || "";
+      if (id && !EXEMPT[id]) return true;
+    }
+  } catch (_e) { /* no-op */ }
+  return false;
+}
+
 function armAutoEnjoyModule(delayMs = 10000) {
   cancelAutoEnjoyModule();
+  if (cssosAttractSuppressedForPanels()) return; // W1770 — 工作面板打开 → 绝不启动无操作自动欣赏
   autoEnjoyArmed = true;
   // W346/W347 20260523 — Jing: 三合一修复.
   // BUG A — 乱闪: requestForyouThumbnail 在 arm 之后异步覆盖 pool → 5 张杂图
@@ -1494,6 +1510,7 @@ function armAutoEnjoyModule(delayMs = 10000) {
       } catch (_pe) { /* non-fatal */ }
       // 5. BUG-B: 立即播放 — 不依赖可被 mousemove 取消的 10s timer
       cancelAutoEnjoyModule();
+      if (cssosAttractSuppressedForPanels()) return; // W1770 — 异步取数期间开了工作面板 → 别甩进影院
       const _openedCurrent = await openCurrentGeneratedWatchPlaybackModule({
         autoplay: true, preferVideo: true
       });
@@ -1503,6 +1520,7 @@ function armAutoEnjoyModule(delayMs = 10000) {
   })();
   autoEnjoyTimer = setTimeout(async () => {
     if (!autoEnjoyArmed) return;
+    if (cssosAttractSuppressedForPanels()) { cancelAutoEnjoyModule(); return; } // W1770 — 延迟期间开了工作面板 → 取消
     autoEnjoyArmed = false;
     autoEnjoyTimer = null;
     const openedCurrent = await openCurrentGeneratedWatchPlaybackModule({ autoplay: true, preferVideo: true });
@@ -2401,7 +2419,9 @@ function resetTypingStateModule() {
   watchScreen?.classList.remove("is-live-border", "is-stalled");
   watchScreen?.classList.add("is-waiting");
   setWatchPlaybackUiSuppressedModule(false);
-  enterLyricSpellcast();
+  // 方案 A — 走统一指示灯大脑(logo 手, 具名流 'gen'); 大脑未加载则直呼兜底。
+  if (typeof globalThis.cssosBusyBeginNamed === "function") globalThis.cssosBusyBeginNamed("gen");
+  else enterLyricSpellcast();
   setEngineProgressVisibleModule("lyrics", true, { immediate: true });
   setEngineProgressVisibleModule("music", false, { immediate: true });
   setEngineProgressVisibleModule("video", false, { immediate: true });
@@ -6022,7 +6042,10 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
   };
   globalThis.cssosKaraokeNudge = adjustNudge;
   globalThis.cssosKaraokeNudgeReset = () => { __cssosNudgeSec = 0; saveNudge(); flashNudgeBadge(); lastIdx = -1; };
-  document.addEventListener("keydown", (ev) => {
+  // W1766 — handler body unchanged; dispatched via the unified hub at the SAME
+  // document/capture phase (mandatory: nudge must capture Arrow keys before the
+  // player-seek handler). Fallback keeps the raw capturing listener if hub absent.
+  const __nudgeKeyHandler = (ev) => {
     // Ignore when typing in inputs / textareas / contentEditable.
     const t = ev.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
@@ -6035,7 +6058,16 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
     else if (ev.key === "ArrowUp")    { adjustNudge(-1.0);  ev.preventDefault(); }
     else if (ev.key === "ArrowDown")  { adjustNudge(+1.0);  ev.preventDefault(); }
     else if (ev.key === "0")          { __cssosNudgeSec = 0; saveNudge(); flashNudgeBadge(); lastIdx = -1; ev.preventDefault(); }
-  }, true);
+  };
+  if (globalThis.cssosShortcuts && globalThis.cssosShortcuts.register) {
+    globalThis.cssosShortcuts.register({
+      id: "karaoke-nudge", owned: true, target: "document", phase: "capture",
+      handler: __nudgeKeyHandler, keys: "← → ↑ ↓ 0", source: "app.watch-ui.js",
+      desc: () => globalThis.cssosShortcuts.lc("Nudge subtitle timing (±0.25s / ±1s, 0 reset)", "字幕整体平移 (±0.25s / ±1s, 0 归零)")
+    });
+  } else {
+    document.addEventListener("keydown", __nudgeKeyHandler, true);
+  }
 
   const getActiveSourceTime = () => {
     // CSSOS_PHASE2_KARAOKE_NUDGE — apply the user's manual offset so
@@ -6641,8 +6673,9 @@ function wireWatchSwipeOnceModule() {
     flashDirection(direction);
     void globalThis.cssosWatchQueueAdvance?.(direction);
   };
-  // Keyboard.
-  document.addEventListener("keydown", (ev) => {
+  // Keyboard. W1766 — handler body unchanged; dispatched via the unified hub at
+  // the SAME document/bubble phase. Fallback keeps the raw listener if hub absent.
+  const __queueAdvanceKeyHandler = (ev) => {
     if (!watchPanel || watchPanel.classList.contains("hidden")) return;
     if (ev.target && /input|textarea|select/i.test(ev.target.tagName)) return;
     if (ev.key === "ArrowDown" || ev.key === "PageDown") {
@@ -6658,7 +6691,16 @@ function wireWatchSwipeOnceModule() {
       } catch (_e) {}
       ev.preventDefault();
     }
-  });
+  };
+  if (globalThis.cssosShortcuts && globalThis.cssosShortcuts.register) {
+    globalThis.cssosShortcuts.register({
+      id: "queue-advance", owned: true, target: "document", phase: "bubble",
+      handler: __queueAdvanceKeyHandler, keys: "PgUp / PgDn", source: "app.watch-ui.js",
+      desc: () => globalThis.cssosShortcuts.lc("Previous / next work", "上一 / 下一作品")
+    });
+  } else {
+    document.addEventListener("keydown", __queueAdvanceKeyHandler);
+  }
   // Touch swipe.
   let tStartY = null;
   let tStartT = 0;
@@ -6766,7 +6808,11 @@ function wireWatchSwipeOnceModule() {
         }
         ev.preventDefault();
         const videoEl = document.getElementById("watch-video");
-        const target = videoEl || frame;
+        // CSSOS container-first fullscreen — fullscreen the whole #watch-panel so
+        // emotion-FX (爆字) + DOM subtitles stay in the fullscreen subtree; frame
+        // fallback; bare <video> ONLY on iPhone (no element-level FS).
+        const panelEl = document.getElementById("watch-panel");
+        const container = panelEl || frame;
         const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
         if (isFs) {
           const exit =
@@ -6780,21 +6826,27 @@ function wireWatchSwipeOnceModule() {
           document.body.classList.remove("cssos-watch-theater");
           return;
         }
-        const enter =
-          target.requestFullscreen ||
-          target.webkitRequestFullscreen ||
-          target.webkitEnterFullscreen ||
-          target.mozRequestFullScreen ||
-          target.msRequestFullscreen;
+        const cEnter =
+          container &&
+          (container.requestFullscreen ||
+            container.webkitRequestFullscreen ||
+            container.mozRequestFullScreen ||
+            container.msRequestFullscreen);
         // CSSOS_WAVE_438 — only attempt fullscreen inside an active user gesture;
         // a non-gesture call would still emit a console warning even though caught.
         var _ua = (typeof navigator !== "undefined" && navigator.userActivation);
-        if (enter && !(_ua && _ua.isActive === false)) {
-          try {
-            const result = enter.call(target);
-            if (result && typeof result.then === "function") await result;
-          } catch (_e) {}
-          document.body.classList.add("cssos-watch-theater");
+        if (!(_ua && _ua.isActive === false)) {
+          if (cEnter) {
+            try {
+              const result = cEnter.call(container);
+              if (result && typeof result.then === "function") await result;
+            } catch (_e) {}
+            document.body.classList.add("cssos-watch-theater");
+          } else if (videoEl && videoEl.webkitEnterFullscreen) {
+            // iPhone-only: bare-video system fullscreen (platform limitation).
+            try { videoEl.webkitEnterFullscreen(); } catch (_e) {}
+            document.body.classList.add("cssos-watch-theater");
+          }
         }
       } catch (_e) {}
     });
@@ -8484,14 +8536,19 @@ function ensureImmersivePillModule() {
     // video on a curved virtual screen; desktop / mobile go to
     // standard fullscreen with our theater backdrop.
     try {
-      const target = videoEl || frame;
-      if (target?.requestFullscreen) {
-        await target.requestFullscreen();
-      } else if (target?.webkitEnterFullscreen) {
-        // iOS / Vision Pro / older Safari path.
-        target.webkitEnterFullscreen();
-      } else if (target?.webkitRequestFullscreen) {
-        target.webkitRequestFullscreen();
+      // CSSOS container-first fullscreen — emotion-FX (爆字) + DOM subtitles must
+      // stay inside the fullscreen subtree, so fullscreen the whole #watch-panel
+      // (frame fallback); bare <video> ONLY on iPhone (no element-level FS). Never
+      // fullscreen the bare <video> where element FS exists, or the overlay is lost.
+      const panelEl = document.getElementById("watch-panel");
+      const container = panelEl || frame;
+      if (container?.requestFullscreen) {
+        await container.requestFullscreen();
+      } else if (container?.webkitRequestFullscreen) {
+        container.webkitRequestFullscreen();
+      } else if (videoEl?.webkitEnterFullscreen) {
+        // iPhone-only: bare-video system fullscreen (platform limitation).
+        videoEl.webkitEnterFullscreen();
       }
       document.body.classList.add("cssos-watch-theater");
       const onExit = () => {
@@ -8533,15 +8590,20 @@ globalThis.cssosEnterWatchFullscreen = async function () {
   try {
     const videoEl = document.getElementById("watch-video");
     const frame = document.querySelector("#watch-panel .watch-frame");
-    const target = videoEl || frame;
-    if (!target) return;
+    // CSSOS container-first fullscreen — fullscreen the whole #watch-panel so
+    // emotion-FX (爆字) + DOM subtitles stay in the fullscreen subtree; frame
+    // fallback; bare <video> ONLY on iPhone (no element-level FS).
+    const panelEl = document.getElementById("watch-panel");
+    const container = panelEl || frame;
+    if (!container && !videoEl) return;
     if (document.fullscreenElement || document.webkitFullscreenElement) return;
-    if (typeof target.requestFullscreen === "function") {
-      await target.requestFullscreen();
-    } else if (typeof target.webkitEnterFullscreen === "function") {
-      target.webkitEnterFullscreen();
-    } else if (typeof target.webkitRequestFullscreen === "function") {
-      target.webkitRequestFullscreen();
+    if (container && typeof container.requestFullscreen === "function") {
+      await container.requestFullscreen();
+    } else if (container && typeof container.webkitRequestFullscreen === "function") {
+      container.webkitRequestFullscreen();
+    } else if (videoEl && typeof videoEl.webkitEnterFullscreen === "function") {
+      // iPhone-only: bare-video system fullscreen (platform limitation).
+      videoEl.webkitEnterFullscreen();
     }
     document.body.classList.add("cssos-watch-theater");
     const onExit = () => {

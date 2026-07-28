@@ -452,6 +452,11 @@ function renderLoginPlatformsModule() {
   // the UI shipping, and only the credentials toggle whether it works.
   // Collapsed by default; hidden when a user is already signed in.
   appendAppReviewDemoForm();
+  // W1765 — 胶囊宪法: 登录列 = v28 data-pill-bar 等宽胶囊(Jing「翻开胶囊宪法, 套上胶囊风格, 可用等宽」)。
+  //   #login-list 每次渲染就地替换子节点; 而 pill-bar 的 MutationObserver 只在 [data-pill-bar] 节点被【新增】
+  //   时盖章, 不覆盖"容器仍在、子节点被换"这一场景 → 必须每次渲染后手动重盖。用纯 CSS 版 cssosPillBarStamp
+  //   (只赋 key/hue/轨道色, 不绑点击、不夺卡片自身的导航/切号行为; 卡片自管 .active = 当前会话)。
+  try { if (window.cssosPillBarStamp) window.cssosPillBarStamp(loginList); } catch (_ePill) {}
   // CSSOS_WAVE_459 20260527 — Jing: 激活胶囊居中滚入视口。
   // 居中的作用不只是美观：手机窄屏时最多显示 "左邻+激活+右邻" 三粒，
   // 使不相邻的非激活互压死区始终在屏幕外，绕开 W420 的点击死区问题。
@@ -472,7 +477,11 @@ function appendAppReviewDemoForm() {
   try {
     if (!loginList) return;
     if (authState && authState.user) return; // hide once signed in
-    if (loginList.querySelector("[data-cssos-demo-login]")) return; // idempotent
+    // W1765 — #login-list 现在是胶囊宪法 data-pill-bar; 这个演示登录【是可展开的邮箱+密码表单, 不是 provider 胶囊】,
+    //   若仍作为 #login-list 的直接子节点会被 cssosPillBarStamp 当成第 6 粒胶囊(挤成 "APP")。改挂到列【之后】的
+    //   login-body 里, 恢复它本来的虚线可折叠块外观(仍是 Apple 审核唯一的邮箱+密码入口, 不能撤)。
+    var demoHost = loginList.parentNode || loginList;
+    if (demoHost.querySelector("[data-cssos-demo-login]")) return; // idempotent
     const wrap = document.createElement("details");
     wrap.className = "login-demo-wrap";
     wrap.setAttribute("data-cssos-demo-login", "1");
@@ -501,7 +510,9 @@ function appendAppReviewDemoForm() {
       `  <div data-cssos-demo-status style="font-size:11.5px;line-height:1.5;color:rgba(255,255,255,0.55);min-height:1.2em;"></div>`,
       `</div>`,
     ].join("");
-    loginList.appendChild(wrap);
+    // Append AFTER the pill list (not inside it) so it stays a normal collapsible block, not a pill.
+    if (loginList.nextSibling) demoHost.insertBefore(wrap, loginList.nextSibling);
+    else demoHost.appendChild(wrap);
     bindDemoForm(wrap);
   } catch (_e) { /* never break login panel render */ }
 }

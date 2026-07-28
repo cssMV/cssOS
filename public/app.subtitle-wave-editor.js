@@ -971,13 +971,17 @@
 
   globalThis.cssosOpenWaveEditor = open;
 
-  // W1742 — Jing「加个快捷键呼出微调字幕小面板」: 按 S 开/关波形逐字精修面板(切换)。
+  // W1742 — Jing「加个快捷键呼出微调字幕小面板」: 开/关波形逐字精修面板(切换)。
+  //   W1765 — Jing: 触发键由 S 改为 T (S 现仅留给播放截帧 app.mv-keys.js)。目录登记在
+  //   app.shortcuts-registry.js (id: subtitle-fine-tune-toggle)。
   //   让行: 输入框/可编辑元素/按钮(别吞打字或抢控件)、⌘/Ctrl/Alt 组合(留给 ⌘S 等)。开着 → 关;
   //   关着 → 仅当当前作品有字幕时开(currentLineIndex≥0), 免得在无字幕页面误触弹提示。
   (function registerOpenHotkey() {
     try {
-      document.addEventListener("keydown", function (e) {
-        if (e.key !== "s" && e.key !== "S") return;
+      // W1766 — handler body unchanged; dispatched via the unified hub at the
+      // SAME document/bubble phase. Fallback keeps the raw listener if hub absent.
+      var __tuneToggleHandler = function (e) {
+        if (e.key !== "t" && e.key !== "T") return;
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         var t = e.target;
         if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable ||
@@ -993,7 +997,16 @@
         if (!E || !E.currentLineIndex || E.currentLineIndex() < 0) return;
         e.preventDefault();
         try { open(); } catch (_e) {}
-      }, false);
+      };
+      if (globalThis.cssosShortcuts && globalThis.cssosShortcuts.register) {
+        globalThis.cssosShortcuts.register({
+          id: "subtitle-fine-tune-toggle", owned: true, target: "document", phase: "bubble",
+          handler: __tuneToggleHandler, keys: "T", source: "app.subtitle-wave-editor.js",
+          desc: function () { return globalThis.cssosShortcuts.lc("Toggle subtitle fine-tune panel", "呼出 / 关闭字幕微调小面板"); }
+        });
+      } else {
+        document.addEventListener("keydown", __tuneToggleHandler, false);
+      }
     } catch (_e) {}
   })();
 })();

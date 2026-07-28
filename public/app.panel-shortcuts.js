@@ -337,7 +337,17 @@
     }
     if (document.body.dataset.panelShortcutsBound === "true") return;
     document.body.dataset.panelShortcutsBound = "true";
-    window.addEventListener("keydown", handlePanelShortcutKeydown, true);
+    // W1766 — dispatch via unified hub at the SAME window/capture phase; fallback
+    // keeps the raw capturing listener if the hub is absent (zero behavior change).
+    if (globalThis.cssosShortcuts && globalThis.cssosShortcuts.register) {
+      globalThis.cssosShortcuts.register({
+        id: "panel-chord", owned: true, target: "window", phase: "capture",
+        handler: handlePanelShortcutKeydown, keys: "C then S then …", source: "app.panel-shortcuts.js",
+        desc: function () { return globalThis.cssosShortcuts.lc("Open panel by letter (C-S-f/l/m/…)", "面板快捷 chord (C-S-字母)"); }
+      });
+    } else {
+      window.addEventListener("keydown", handlePanelShortcutKeydown, true);
+    }
   }
 
   Object.assign(globalThis, {

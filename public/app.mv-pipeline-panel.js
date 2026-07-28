@@ -1089,16 +1089,30 @@
          * BEFORE clicking Generate. Populated by refreshBillingPreflight()
          * on panel mount and after each successful run. */
         '<div class="mvp-billing-preflight" id="mvp-billing-preflight" hidden></div>' +
+        /* CSSOS_WAVE_1783 20260726 — Jing「把胶囊找回来」。
+         *
+         * 背景: 后端一直有完整的三档(rust billing_matrix.rs 的 mv_tiers):
+         *   lite 幻灯(0% AI 视频, 纯 Ken Burns) / hybrid 混合视频(~20%) / cinematic 真视频(100%)。
+         * 但前端只把它做成了 cycleTier() —— "点一下费用文字循环切换"。原注释自己写着
+         * "This is a v0 tier picker"。用户根本看不出这里能切档, 更不知道有真视频这一档,
+         * "丰俭由人"的设计等于没露出。
+         *
+         * 现在按 Jing 指令排成【两排胶囊】:
+         *   第一排 = 幻灯 / 混合视频 / 真视频 (画面档位, 每档直接标价)
+         *   第二排 = START PIPELINE / 惊喜 (等宽)
+         * 档位数据【从 /api/mv/tiers 读】, 不硬编码 —— 后端改价 UI 自动跟。 */
+        '<div class="mvp-tier-pills" id="mvp-tier-pills" data-pill-bar role="radiogroup" aria-label="' +
+          escapeHtml(copy("Video mode", "画面档位")) + '"></div>' +
         '<div class="mvp-actions">' +
           '<button id="mvp-run" class="cta">' + escapeHtml(runLabel) + '</button>' +
           '<button id="mvp-surprise" class="cta ghost" type="button" title="LLM-generated, truly random">' + escapeHtml(surpriseLabel) + '</button>' +
+        '</div>' +
+        // 清空移出主行(它是低频的破坏性动作, 不该和 START 抢同一条视线)。
+        '<div class="mvp-actions-aux">' +
           '<button id="mvp-clear" class="cta ghost" type="button">' + escapeHtml(clearLabel) + '</button>' +
-          // #147 Save-as-work button removed — auto-save runs on compose-done.
-          // CSSOS_PHASE2_MV_TIER_LABEL 20260419 — 常驻 cost label next to
-          // the Generate button. Populated by refreshTierCostLabel() once
-          // /api/mv/tiers resolves; starts blank so there's no flash of
-          // placeholder text. Click to cycle tiers as a v0 picker.
-          '<span id="mvp-tier-label" class="mvp-tier-label" role="button" tabindex="0" data-tier-id=""></span>' +
+          // 旧的 v0 cost label 保留但隐藏 —— refreshTierCostLabel() 仍会写它,
+          // 别的代码也读它的 data-tier-id; 直接删会连带打断那些通路。
+          '<span id="mvp-tier-label" class="mvp-tier-label" role="button" tabindex="0" data-tier-id="" hidden></span>' +
         '</div>' +
         // CSSOS_MV_DAG_WAVE_2_7B 20260507 — ordinary-MV overall progress
         // block (same 5 chips + rainbow bar as cinema hero). Mounted via
@@ -2212,6 +2226,30 @@
         }
       });
     }
+    /* CSSOS_WAVE_1783 20260726 — 三档胶囊的点击。事件委托挂在容器上, 因为胶囊会被
+     * renderTierPills() 整体重绘(选中者要移到第一位), 直接绑在按钮上会随重绘丢失。 */
+    const tierPills = panel.querySelector("#mvp-tier-pills");
+    if (tierPills) {
+      tierPills.addEventListener("click", function (ev) {
+        const b = ev.target && ev.target.closest ? ev.target.closest("[data-tier]") : null;
+        if (!b) return;
+        const id = String(b.getAttribute("data-tier") || "").toLowerCase();
+        if (!id) return;
+        const api = globalThis.cssmvTiers;
+        if (!api || typeof api.setTier !== "function") return;
+        const prev = String(api.currentTierId ? api.currentTierId() : "hybrid").toLowerCase();
+        if (id === prev) return;
+        api.setTier(id);
+        // Jing:「用户已选择真视频, 马上提醒」—— 选中即弹, 不等点 START。
+        if (id === "cinematic") {
+          let tier = null;
+          try { tier = (api.getTiers() || []).filter((t) => String(t.id).toLowerCase() === "cinematic")[0]; } catch (_e) {}
+          const ov = warnCinematic(tier);
+          // 记住上一档, "切回上一档"才知道回哪儿。
+          if (ov) ov.setAttribute("data-prev", prev === "cinematic" ? "hybrid" : prev);
+        }
+      });
+    }
     refreshTierCostLabel();
     // Kick off the tiers fetch (idempotent — module also warms on load).
     try {
@@ -2254,9 +2292,113 @@
   // rather than hardcoded because the tier list + prices are authoritative
   // on the backend (see billing_matrix.rs::mv_tiers) and can be re-tuned by
   // ops via env vars without a frontend redeploy.
+  /* CSSOS_WAVE_1783 20260726 — 三档胶囊: 幻灯 / 混合视频 / 真视频。
+   * 数据来自 /api/mv/tiers(globalThis.cssmvTiers), 不硬编码 —— 后端改价 UI 自动跟。
+   * 中文名按 Jing 的叫法, 英文用后端 label; 每档直接标价, "丰俭由人"要看得见才成立。 */
+  const TIER_ZH = { lite: "幻灯", hybrid: "混合视频", cinematic: "真视频" };
+  const TIER_ICON = { lite: "🎞️", hybrid: "🎬", cinematic: "🎥" };
+
+  function renderTierPills() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    const host = panel.querySelector("#mvp-tier-pills");
+    if (!host) return;
+    const api = globalThis.cssmvTiers;
+    if (!api || typeof api.getTiers !== "function") return;   // 目录还没到, 等 cssmv:tiers-ready
+    const tiers = api.getTiers() || [];
+    if (!tiers.length) return;
+    const currentId = String(api.currentTierId ? api.currentTierId() : "").toLowerCase();
+
+    /* 选中者到第一位 —— 与平台胶囊宪法的 Dock 规则一致(W1782 刚在音乐源那排定的同一条):
+     * 选中项当"凸"的锚点岛, 其余凹向它, 整条才读作一条连贯的雕刻带。 */
+    const ordered = tiers.slice().sort((a, b) =>
+      ((String(a.id).toLowerCase() === currentId ? -1 : 0) -
+       (String(b.id).toLowerCase() === currentId ? -1 : 0)));
+
+    host.innerHTML = ordered.map((t) => {
+      const id = String(t.id || "").toLowerCase();
+      const active = id === currentId;
+      const zh = TIER_ZH[id] || t.label || id;
+      const label = copy(t.label || id, zh);
+      let price = "";
+      try {
+        const p = t.pricing || {};
+        const usd = Number(p.retail_usd != null ? p.retail_usd : (t.cost_breakdown || {}).total_usd || 0);
+        if (usd > 0) price = "$" + usd.toFixed(2);
+      } catch (_e) { /* 价格读不到就只显示名字, 不阻断渲染 */ }
+      return '<button type="button" class="mvp-tier-pill' + (active ? " active" : "") + '"' +
+        ' data-pill-key="' + escapeHtml(id) + '" data-tier="' + escapeHtml(id) + '"' +
+        ' role="radio" aria-checked="' + (active ? "true" : "false") + '">' +
+        '<span class="ic">' + (TIER_ICON[id] || "🎬") + "</span>" +
+        "<span>" + escapeHtml(label) + "</span>" +
+        (price ? '<span class="pr">' + escapeHtml(price) + "</span>" : "") +
+        "</button>";
+    }).join("");
+  }
+
+  /* Jing:「真视频也要走刹车。用户已选择真视频，马上提醒。」
+   * 注意是【选中即提醒】, 不是等点 START 才提醒 —— 让用户在还能改主意的时候就知道代价。
+   * Cinematic 每一秒都由 AI 视频模型生成, 参考价 $29.99, 比三部曲还贵。 */
+  function warnCinematic(tier) {
+    if (document.getElementById("mvp-cinematic-warn")) return;
+    let usd = "";
+    try {
+      const p = (tier && tier.pricing) || {};
+      const v = Number(p.retail_usd != null ? p.retail_usd : 0);
+      if (v > 0) usd = "$" + v.toFixed(2);
+    } catch (_e) {}
+
+    const ov = document.createElement("div");
+    ov.id = "mvp-cinematic-warn";
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:10096;display:flex;align-items:center;justify-content:center;" +
+      "background:rgba(2,10,7,0.72);backdrop-filter:blur(3px);";
+    const box = document.createElement("div");
+    box.style.cssText =
+      "width:min(430px,calc(100vw - 32px));background:linear-gradient(148deg,#07130e,#0d1a14 60%,#020806);" +
+      "border:1px solid rgba(255,207,106,0.42);border-radius:18px;padding:20px 22px;color:#eafff6;" +
+      "box-shadow:0 20px 60px rgba(2,10,7,0.75);";
+    box.innerHTML =
+      '<div style="font:700 16px/1.3 inherit;margin-bottom:10px;">🎥  ' +
+        escapeHtml(copy("Real video — the expensive one", "真视频 —— 最贵的一档")) + "</div>" +
+      '<div style="font:500 13px/1.65 inherit;color:#bfe9d8;margin-bottom:14px;">' +
+        escapeHtml(copy(
+          "Every second is generated by an AI video model. Highest production value, longest render, and by far the highest cost" +
+          (usd ? " (about " + usd + " per run)" : "") + ". You can switch back to Slideshow or Hybrid any time before starting.",
+          "每一秒画面都由 AI 视频模型生成。成品最好，但渲染最久、花费也远高于其他两档" +
+          (usd ? "（每次约 " + usd + "）" : "") + "。开始之前你随时可以切回幻灯或混合视频。")) + "</div>" +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+        '<button type="button" data-a="back" style="background:transparent;border:1px solid rgba(255,255,255,0.22);' +
+          'color:#cfeee0;font:600 13px/1 inherit;padding:10px 16px;border-radius:999px;cursor:pointer;">' +
+          escapeHtml(copy("Switch back", "切回上一档")) + "</button>" +
+        '<button type="button" data-a="ok" style="background:linear-gradient(135deg,#ffcf6a,#f0a93c);' +
+          'color:#2a1a00;border:0;font:700 13px/1 inherit;padding:10px 18px;border-radius:999px;cursor:pointer;">' +
+          escapeHtml(copy("Keep real video", "就要真视频")) + "</button>" +
+      "</div>";
+    box.addEventListener("click", (e) => {
+      const b = e.target && e.target.closest ? e.target.closest("[data-a]") : null;
+      if (!b) return;
+      const a = b.getAttribute("data-a");
+      ov.remove();
+      if (a === "back") {
+        // 切回上一档(默认回 hybrid; 若本来就在 hybrid 则回 lite)。
+        try {
+          const api = globalThis.cssmvTiers;
+          const prev = ov.getAttribute("data-prev") || "hybrid";
+          if (api && typeof api.setTier === "function") api.setTier(prev);
+        } catch (_e) {}
+      }
+    });
+    ov.addEventListener("click", (e) => { if (e.target === ov) ov.remove(); });
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+    return ov;
+  }
+
   function refreshTierCostLabel() {
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
+    renderTierPills();                     // W1783 — 胶囊与 cost label 同步刷新
     const el = panel.querySelector("#mvp-tier-label");
     if (!el) return;
     const api = globalThis.cssmvTiers;

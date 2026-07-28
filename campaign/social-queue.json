@@ -1,0 +1,118 @@
+{
+  "spacing_seconds": 7200,
+  "last_posted": "2026-07-17T17:21:06-04:00",
+  "platforms": [
+    "X",
+    "LinkedIn",
+    "Facebook",
+    "Threads",
+    "BlueSky",
+    "TruthSocial"
+  ],
+  "rounds": [
+    {
+      "n": 7,
+      "name": "legend",
+      "card": "/Users/cssos/Downloads/card-legend.png",
+      "x": "Everyone tells you to consume stories. We'd rather you create one.\n\nOn CSS Studio you don't just star in a legend — you build one from scratch: your world, your hero, your myth, rendered as a full film, opera, or saga.\n\nCreate your own legend.\ncssstudio.app",
+      "long": "The whole internet is built to make you scroll through other people's stories.\n\nCSS Studio is built for the opposite: to help you create your own. Not just star in a legend — build one from nothing. Your world, your hero, your myth — rendered as a full music video, trilogy, opera, or saga, in any language and any voice.\n\nFor most of history, making an epic meant a studio, a crew, and a fortune. Now it means a sentence.\n\nCreate your own legend.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 8,
+      "name": "playing",
+      "card": "/Users/cssos/Downloads/card-playing.png",
+      "x": "Every other app makes you wait for a loading spinner.\n\nOpen CSS Studio and a finished music video is already playing — with sound — the moment it loads. Then say one sentence and it makes yours.\n\nOpen it. It's already playing.\ncssstudio.app",
+      "long": "Most \"AI\" products open to an empty box and a blinking cursor.\n\nCSS Studio opens differently: a fully-produced music video is already playing the instant it loads — with sound. No prompt, no wait, no spinner. You're inside the product before you've done anything. Then you say one sentence and it makes yours: any language, any voice.\n\nThe demo shouldn't be something you start. It should already be running.\n\nOpen it. It's already playing.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 9,
+      "name": "opera",
+      "card": "/Users/cssos/Downloads/card-opera.png",
+      "x": "Some stories are told. This one is sung.\n\nWe've adapted the creation myths and epics of nearly every civilization on earth — into full opera. The format the big models won't touch.\n\ncssstudio.app",
+      "long": "Here's the corner of CSS Studio I'm proudest of.\n\nWe've taken the creation myths and epics of nearly every civilization on earth — and rendered them as full opera: overture, arias, chorus, the whole form. Not a 30-second clip — a sung, staged epic, in the tradition's own language and voice.\n\nIt's the format the big video models can't or won't attempt. So we did.\n\nSome stories are told. This one is sung.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 10,
+      "name": "anylang",
+      "card": "/Users/cssos/Downloads/card-anylang.png",
+      "x": "Your song shouldn't only exist in English.\n\nOn CSS Studio, make it in any language, sung in any voice — the interface follows your tongue, and so does the music. Plus the world's first emotion subtitles.\n\nAny language. Any voice.\ncssstudio.app",
+      "long": "Almost every creative tool is built English-first, and everyone else adapts.\n\nCSS Studio isn't. Make your song in any language, sung in any voice — the whole interface follows your mother tongue, and the music, lyrics, and vocal timbre come back in it too. Whatever language you dream in, that's what you hear.\n\nAny language. Any voice.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 11,
+      "name": "stream",
+      "card": "/Users/cssos/Downloads/card-stream.png",
+      "x": "We refuse to hide the AI behind a loading spinner.\n\nOn CSS Studio the lyrics, subtitles and frames stream in character by character, live — you watch it think out loud. The stream is the show.\n\nIt doesn't load. It thinks.\ncssstudio.app",
+      "long": "One small design decision I'd defend to the end:\n\nCSS Studio never hides the work behind a spinner. The lyrics, the subtitles, the frames — they stream in, character by character, frame by frame, as the AI generates them. You watch it think out loud, in real time.\n\nThe waiting IS the product — the difference between a vending machine and watching something come alive.\n\nIt doesn't load. It thinks.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 12,
+      "name": "onesentence",
+      "card": "/Users/cssos/Downloads/card-onesentence.png",
+      "x": "For most of history, making a film took a studio, a crew, and a fortune.\n\nOn CSS Studio it takes a sentence — which becomes a music video, a trilogy, an opera, a series, a film.\n\nA sentence becomes a film.\ncssstudio.app",
+      "long": "The roadmap in one line: one sentence → an entire film.\n\nOn CSS Studio a single line of text becomes a music video today, and the same pipeline scales to a trilogy, an opera, a short drama, a series, a feature film. You describe it; it gets rendered — cast, score, subtitles, and all.\n\nFor most of history, making an epic meant a studio, a crew, and a fortune. Now it means a sentence.\n\nA sentence becomes a film.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 13,
+      "name": "everyscreen",
+      "card": "/Users/cssos/Downloads/card-everyscreen.png",
+      "x": "CSS Studio lives on every screen you own — iPhone, iPad, Mac, Apple Watch, Apple TV, and Vision Pro spatial cinema.\n\nSix native apps, built solo, end to end.\n\nFrom your wrist to Vision Pro.\ncssstudio.app",
+      "long": "CSS Studio isn't a website with an app bolted on. It's six native apps across Apple's entire ecosystem — iPhone, iPad, Mac, Apple Watch, Apple TV, and Vision Pro spatial cinema — built solo, end to end.\n\nCreate a music video on your Mac, tap out a quick one from your wrist, then step inside it on Vision Pro. Same world, every screen.\n\nFrom your wrist to Vision Pro.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 14,
+      "name": "emotion",
+      "card": "/Users/cssos/Downloads/card-emotion.png",
+      "x": "Subtitles usually just tell you the words.\n\nCSS Studio has the world's first emotion subtitles — every line carries its mood, so the text feels what the voice feels.\n\nSubtitles that feel.\ncssstudio.app",
+      "long": "A first I don't think anyone else has shipped: emotion subtitles.\n\nOrdinary subtitles transcribe the words. CSS Studio's subtitles carry the feeling — timing, weight, and motion tuned to the emotion in the voice, so reading along feels like the moment sounds. Tender, furious, aching, triumphant — the text feels it too.\n\nSubtitles that feel.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 15,
+      "name": "manifesto",
+      "card": "/Users/cssos/Downloads/card-manifesto.png",
+      "x": "CSS Studio in four words:\n\nPlay it — open it and a music video's already on. Star in it — your face leads. Build it — create your own digital actors. Get paid — sell, take commissions, withdraw real money.\n\ncssstudio.app",
+      "long": "People keep asking me what CSS Studio actually is. Four verbs:\n\nPLAY it — open the app and a finished music video is already playing; make yours in one sentence.\nSTAR in it — drop your own face in and you're the lead.\nBUILD it — create or sign digital actors and put them in the marketplace.\nGET PAID — sell your work, take commissions, collect tips, withdraw real money.\n\nMost apps stop at the first verb. We wanted all four.\n\nPlay it. Star in it. Build it. Get paid.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 16,
+      "name": "askmoon",
+      "card": "/Users/cssos/Downloads/card-askmoon.png",
+      "x": "\"Li Bai, what did the moon mean to you?\"\n\nOn CSS Studio you can actually ask — and the Tang poet answers, face to face, in his own voice and tongue. Not a chatbot in costume. History, looking back.\n\ncssstudio.app",
+      "long": "My favorite thing to show people on CSS Studio:\n\nOpen Li Bai's card and ask him about the moon — the subject he wrote about more than almost anyone. He answers you face to face, in his own voice and his own mother tongue, drawn from who he actually was.\n\nIt's not a chatbot wearing a costume. It's the strange, moving feeling of history looking back at you and replying.\n\nAsk Li Bai about the moon.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 17,
+      "name": "immersive",
+      "card": "/Users/cssos/Downloads/card-immersive.png",
+      "x": "A music video you watch is one thing.\n\nOn Vision Pro, CSS Studio lets you step inside it — the frame becomes a room, the scene wraps around you. Spatial cinema, not a rectangle.\n\nStep inside the music video.\ncssstudio.app",
+      "long": "On a phone, a music video is a rectangle you look at.\n\nOn Apple Vision Pro, CSS Studio turns it into a place you stand in. The frame becomes a room; the scene wraps around you; the performance happens in your space, not behind glass. Spatial cinema, generated from a sentence.\n\nWe built it native for Vision Pro from day one.\n\nStep inside the music video.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 18,
+      "name": "mothertongue",
+      "card": "/Users/cssos/Downloads/card-mothertongue.png",
+      "x": "Click a historical figure on CSS Studio and something quiet happens: they answer in their own mother tongue.\n\nCivilization drives the voice, the era, the instruments, the song — automatically.\n\ncssstudio.app",
+      "long": "A principle we call civilization smart linkage:\n\nWhen you open a person's card on CSS Studio, their civilization silently drives everything downstream — the language they speak and sing, the vocal timbre, the era's instruments, the musical style, some two dozen parameters in all. Click Li Qingzhao and you don't get a generic pop song in English; you get her world.\n\nThey answer in their own mother tongue.\n\n→ cssstudio.app",
+      "status": "done"
+    },
+    {
+      "n": 19,
+      "name": "series",
+      "card": "/Users/cssos/Downloads/card-series.png",
+      "x": "\"Make a 6-episode revenge drama set in the Tang dynasty.\"\n\nOn CSS Studio, one sentence becomes a whole series — episodes, cast, score, subtitles. Binge something that didn't exist this morning.\n\ncssstudio.app",
+      "long": "The same pipeline that makes a music video from a sentence keeps going: short drama, a full series, a season.\n\nDescribe the show — \"a 6-episode revenge drama in the Tang dynasty,\" say — and CSS Studio renders the episodes: cast, score, emotion subtitles, the works. By tonight you can binge something that didn't exist this morning, in any language.\n\nBinge a series that didn't exist this morning.\n\n→ cssstudio.app",
+      "status": "done"
+    }
+  ]
+}

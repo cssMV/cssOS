@@ -330,6 +330,12 @@
   function alignAgentFab() {
     var fab = document.getElementById("cssos-agent-fab");
     if (!fab) return;
+    /* CSSOS_WAVE_1776 20260726 — Jing「我拖到哪里, 他就在哪里; 下次进去他还在哪里」根因:
+     * 本函数(每 2s 安全网 + resize + 一堆 cssos 事件都会跑)会 removeProperty("bottom")
+     * 或 setProperty("bottom", …, "important") —— 于是用户拖走后最多 2 秒就被拉回原位。
+     * 修法: FAB 一旦被手动拖过, app.agent-chat.js 会给它打 data-user-placed="1" 并写 left/top。
+     * 这里认这个标记 → 完全不插手, 用户的位置说了算。自动对齐只服务"从未拖过"的默认态。 */
+    if (fab.getAttribute("data-user-placed") === "1") return;
     // W1735 — Jing「AI 助理跑到上面去了, 放回右下角高于 Dock」根因: 下面按 #watch-subtitle 底边对齐,
     //   只有 watch/影院真正打开时字幕才在底部那一行; 着陆页/大厅字幕元素飘在屏幕中部, 对齐它会把 FAB
     //   顶到中间。改: 仅 cssos-watch-open 时才对齐字幕; 否则清掉内联 bottom → 回落 CSS 默认(Dock 上方)。

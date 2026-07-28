@@ -168,6 +168,30 @@ function resolvePanelMaximizeMode(panel) {
   return "fullscreen";
 }
 
+// CSSOS — generic OS-level fullscreen for ANY maximized panel (Panel Constitution
+// Article 1: ⤢ Maximize = true OS fullscreen for EVERY panel). The watch panel uses
+// its own cssosEnterWatchFullscreen (theater backdrop + container-first emotion-FX);
+// all other panels use these generic vendor-prefixed helpers. Must run inside the
+// click gesture so the browser honors requestFullscreen's user-activation gate. On
+// devices without element-level fullscreen the request no-ops → panel stays CSS-max.
+function cssosEnterPanelFullscreenGeneric(panel) {
+  try {
+    if (!panel) return;
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
+    var fn = panel.requestFullscreen || panel.webkitRequestFullscreen
+      || panel.mozRequestFullScreen || panel.msRequestFullscreen;
+    if (fn) { var r = fn.call(panel); if (r && typeof r.catch === "function") r.catch(function () {}); }
+  } catch (_e) {}
+}
+function cssosExitPanelFullscreenGeneric() {
+  try {
+    if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
+    var fn = document.exitFullscreen || document.webkitExitFullscreen
+      || document.mozCancelFullScreen || document.msExitFullscreen;
+    if (fn) { var r = fn.call(document); if (r && typeof r.catch === "function") r.catch(function () {}); }
+  } catch (_e) {}
+}
+
 function togglePanelMaximizeModule(panel) {
   if (!panel) return;
   const isMaximized = panel.dataset.maximized === "true";
@@ -180,6 +204,9 @@ function togglePanelMaximizeModule(panel) {
     // leave its Immersive Environment when fullscreen exits).
     if (panel.id === "watch-panel" && typeof globalThis.cssosExitWatchFullscreen === "function") {
       globalThis.cssosExitWatchFullscreen();
+    } else if (panel.id !== "watch-panel") {
+      // Article 1 — every panel's restore also exits OS fullscreen.
+      cssosExitPanelFullscreenGeneric();
     }
   } else {
     storePanelStateModule(panel);
@@ -214,6 +241,9 @@ function togglePanelMaximizeModule(panel) {
     // honors the user-activation gate on requestFullscreen.
     if (panel.id === "watch-panel" && typeof globalThis.cssosEnterWatchFullscreen === "function") {
       globalThis.cssosEnterWatchFullscreen();
+    } else if (panel.id !== "watch-panel") {
+      // Article 1 — every panel's ⤢ Maximize is true OS-level fullscreen.
+      cssosEnterPanelFullscreenGeneric(panel);
     }
   }
   focusPanel(panel);

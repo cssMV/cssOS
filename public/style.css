@@ -1801,6 +1801,48 @@ body.longpress-guard * {
   background: rgba(0, 245, 160, 0.16);
 }
 
+/* W1768 — 高级设置【总魔法棒】(#lyrics-regenerate.total-wand): 12 色文明光谱的旋转 conic 描边 + 呼吸光晕,
+   与普通 field-action-btn 一眼区隔 —— 它是"总闸": 点一下, 标题 + 下面所有选项全部启动文明智能联动。
+   深核/浅核遮住环心让 🪄 清晰; prefers-reduced-motion 关动画。 */
+.field-action-btn.total-wand {
+  position: relative;
+  width: 36px !important;
+  height: 36px !important;
+  border: 0 !important;
+  background: rgba(10, 27, 20, 0.92) !important;
+  color: #eafff6 !important;
+  font-size: 24px !important;   /* CSSOS — Jing「彩色圈圈里的魔棒有点小, 大一些」: 17→24px */
+  z-index: 0;
+  animation: total-wand-pulse 2.8s ease-in-out infinite;
+}
+html[data-theme="light"] .field-action-btn.total-wand,
+body[data-theme="light"] .field-action-btn.total-wand {
+  background: rgba(255, 252, 245, 0.96) !important;
+  color: #0a6b46 !important;
+}
+.field-action-btn.total-wand::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  z-index: -1;
+  background: conic-gradient(from 0deg,
+    hsl(155,90%,55%), hsl(192,90%,55%), hsl(235,90%,60%), hsl(268,90%,62%),
+    hsl(310,90%,60%), hsl(342,90%,60%), hsl(22,90%,58%), hsl(48,95%,55%),
+    hsl(82,80%,50%), hsl(118,75%,48%), hsl(168,85%,50%), hsl(210,90%,58%), hsl(155,90%,55%));
+  animation: total-wand-spin 4.2s linear infinite;
+}
+.field-action-btn.total-wand:hover { transform: translateY(-1px) scale(1.08); }
+@keyframes total-wand-spin { to { transform: rotate(360deg); } }
+@keyframes total-wand-pulse {
+  0%, 100% { box-shadow: 0 0 7px hsla(155, 90%, 55%, 0.40); }
+  50%      { box-shadow: 0 0 16px hsla(280, 90%, 62%, 0.60); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .field-action-btn.total-wand,
+  .field-action-btn.total-wand::before { animation: none !important; }
+}
+
 .field-action-btn.is-busy {
   transform: translateY(-1px) scale(1.06);
   border-color: rgba(11, 247, 255, 0.75);
@@ -2376,8 +2418,92 @@ html.cssos-pill-cascade .login-grid.cssmv-pill-bar:not(:has(> .login-card.active
   white-space: nowrap;
 }
 
+/* W1765 — 登录列改用胶囊宪法 v28 `data-pill-bar`(Jing「翻开胶囊宪法, 套上胶囊风格, 可用等宽」),
+   替换上面 W459 的 bespoke `.cssmv-pill-bar` 仿制。几何(等宽/凹凸镶嵌/随机色/轨道色)现由
+   `app.pill-bar.js` 的 `[data-pill-bar][data-pill-equal]` 注入样式统一提供 —— 这里【只补卡片内部内容
+   适配 40px 胶囊】: 图标 + provider 名内联居中, 隐藏副标(Current session / Sign in)与内联解绑按钮。
+   ID(#login-list)作用域, 不外泄到别的胶囊条。旧 .cssmv-pill-bar 规则按迁移政策保留(已失配, 无副作用)。 */
+#login-list[data-pill-bar] > .login-card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  overflow: hidden !important;
+}
+#login-list[data-pill-bar] > .login-card .login-action-tag,
+#login-list[data-pill-bar] > .login-card .login-unlink-btn { display: none !important; }
+#login-list[data-pill-bar] > .login-card .login-title-wrap { display: contents !important; }
+#login-list[data-pill-bar] > .login-card .login-icon {
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#login-list[data-pill-bar] > .login-card .login-icon img { width: 18px !important; height: 18px !important; }
+#login-list[data-pill-bar] > .login-card .login-title {
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+}
+
 .login-summary {
   grid-column: 1 / -1;
+}
+
+/* W1766 — 创作入口「圣诗音乐」复选框 + 各教派子项(非冻结, 独立于音乐风格红线块)。
+   子项胶囊条 #hymn-denom-bar 的几何/色彩由胶囊宪法 app.pill-bar.js(data-pill-bar, 自适应宽)提供;
+   这里只排复选框行 + 提示文字。 */
+#hymn-create-row { margin: 10px 0 6px; }
+#hymn-create-row .hymn-create-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font: 600 13px/1.3 -apple-system, system-ui, sans-serif;
+}
+#hymn-create-row .hymn-create-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #00f5a0;
+  cursor: pointer;
+}
+#hymn-create-row .hymn-create-ico { font-size: 15px; }
+#hymn-denom-wrap { margin-top: 10px; }
+#hymn-denom-wrap .hymn-denom-hint {
+  font-size: 11.5px;
+  opacity: 0.62;
+  margin-bottom: 7px;
+}
+
+/* W1770 — Section Form 末尾「京典模版」复选框 + 提示(section_form 留空由文明智能联动填, 京典是 opt-in)。 */
+.section-form-classic-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  font: 500 12px/1.3 -apple-system, system-ui, sans-serif;
+}
+.section-form-classic-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #00f5a0;
+  cursor: pointer;
+  margin: 0;
+}
+.section-form-classic-row label {
+  cursor: pointer;
+  opacity: 0.9;
+}
+.section-form-hint {
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.55;
+  margin-top: 4px;
 }
 
 /* W306c — compact one-line summary above the pill track */
@@ -2515,6 +2641,8 @@ html.cssos-pill-cascade .login-grid.cssmv-pill-bar:not(:has(> .login-card.active
   background: rgba(0, 0, 0, 0.28);
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
   cursor: pointer;
+  /* W1768 — Jing「图3: 登录面板去掉下划线」: 登录卡是 <a>, 默认给 provider 名加下划线。 */
+  text-decoration: none;
 }
 
 .login-card.enabled {
@@ -3957,6 +4085,11 @@ html[data-theme="light"] .works-fp-optin-desc {
   position: relative;
   width: min(var(--mirror-size, 360px), 100%);
   height: min(var(--mirror-size, 360px), 100%);
+  /* CSSOS — Jing「每次改都差一点点」根因: CSS 之前按【视口 vw】定尺寸, 而魔镜是固定
+     像素(600px), 于是宽屏 vw 撑爆金球、窄屏又缩小 —— 处处不一致。改用【容器单位】:
+     把魔镜设为尺寸容器, CSS/Studio 用 cqmin(=魔镜较短边=金球尺寸的百分比), 于是文字
+     永远是金球的固定比例, 桌面/移动/任何尺寸完全一致。 */
+  container-type: size;
   display: grid;
   place-items: center;
   animation: mirrorBreath 14s ease-in-out infinite;
@@ -3993,30 +4126,10 @@ html[data-theme="light"] .works-fp-optin-desc {
     letter-spacing: .12em !important;
     padding: 0 16px !important;
   }
-  /* CSSOS_WAVE_117_LOGO_TEXT_CENTER 20260513 — Jing: "logo，CSS和Studio
-     没有显示在魔镜中央". Lock the inner text overlay to absolute center
-     of the mirror box, with no left/right padding eating into width. */
-  .mirror-text {
-    position: absolute !important;
-    inset: 0 !important;
-    width: 100% !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 4px !important;
-    padding: 0 !important;
-  }
-  .mirror-title {
-    font-size: clamp(14px, 5.2vw, 24px) !important;   /* CSSOS_WAVE_1208 还原原值(撤销 W1207) */
-    line-height: 1 !important;
-    letter-spacing: 0.04em !important;
-  }
-  .mirror-subtitle {
-    font-size: clamp(10px, 2.2vw, 12px) !important;   /* CSSOS_WAVE_1510 Apple Guideline4 提可读 */
-    line-height: 1 !important;
-    letter-spacing: 0.32em !important;
-  }
+  /* CSSOS — Jing「所有其他地方都一样」: logo 文字(CSS/Studio)的定位与尺寸已【统一】到
+     基类的 container-query(cqmin)方案, 移动端无需任何覆盖 —— cqmin 天然按魔镜尺寸等比,
+     桌面/移动完全一致。原 W117/W1208/W1510 的移动端 mirror-text/title/subtitle 覆盖已
+     移除(它们基于 vw/inset, 正是"每次差一点点"的来源)。 */
 }
 
 .mirror-core {
@@ -4072,28 +4185,60 @@ body.cssos-cinema-mode #logo-panel .mirror-img {
    shrink the mirror to the ~150px Apple-boot-logo footprint. Idle
    (no .lyric-spellcast) keeps the full --mirror-size. */
 .logo-panel.lyric-spellcast .mirror {
-  width: min(150px, 38vw) !important;
-  height: min(150px, 38vw) !important;
-  max-width: 150px !important;
-  max-height: 150px !important;
+  /* CSSOS — Jing【锁定标准】「spinner 再小一点, 外圈缩小到现在的内圈大小」: 加载态魔镜
+     由 44px 再缩到 ~24px(≈ 原 44px 宝石里【内圈金球】的直径), 只当一个极小的呼吸魔镜 +
+     招牌 emoji 喷发指示灯。Idle(无 .lyric-spellcast)保持完整 --mirror-size 品牌 logo。 */
+  width: min(24px, 10vw) !important;
+  height: min(24px, 10vw) !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
   transition: width 360ms ease, height 360ms ease;
 }
 
-.logo-panel.lyric-spellcast--halo .mirror::before {
-  content: "";
+/* CSSOS — Jing: 44px 的加载魔镜放不下 CSS/Studio 文字与 slogan(挤成一团/溢出) →
+   加载态只保留小魔镜 + 光芒, 文字/slogan 隐藏(它们属于 idle 完整 logo)。 */
+.logo-panel.lyric-spellcast .mirror-text,
+.logo-panel.lyric-spellcast .mirror-title,
+.logo-panel.lyric-spellcast .mirror-subtitle,
+.logo-panel.lyric-spellcast .mirror-slogan {
+  display: none !important;
+}
+
+/* CSSOS — Jing「取消外圈光圈, 改成喷平台招牌『字心烟花爆』小 emoji」:
+   加载态不再画任何外圈/光环(::before 光条 + ::after 光晕全撤)。取而代之的是 JS 驱动
+   的 emoji 喷发层(.cssos-spellcast-spray, 由 enter/exitLyricSpellcast 生灭)——小魔镜
+   四周持续喷出招牌火花 emoji, 顺畅完毕立即整层铲除(见 app.js stopLyricSpellcastSpray)。
+   emoji 天然跨平台一致(iPhone/iPad/Watch/TV/Vision 原生渲染), 不吃自定义字体/CSS。 */
+.logo-panel.lyric-spellcast--halo .mirror::before,
+.logo-panel.lyric-spellcast--halo .mirror::after {
+  content: none !important;
+}
+
+/* emoji 喷发层: 挂在魔镜正中央的 0×0 锚点, 粒子从中心喷向四周 + 渐隐。 */
+.cssos-spellcast-spray {
   position: absolute;
-  inset: var(--mirror-mask-inset, 12%);
-  border-radius: 50%;
-  border: 2px solid var(--lyric-spellcast-primary);
-  box-shadow: 0 0 calc(10px * var(--spellcast-glow-scale, 0.18)) var(--lyric-spellcast-primary),
-    0 0 calc(26px * var(--spellcast-glow-scale, 0.18)) var(--lyric-spellcast-secondary),
-    inset 0 0 calc(10px * var(--spellcast-glow-scale, 0.18)) var(--lyric-spellcast-glow);
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  overflow: visible;
   pointer-events: none;
-  /* CSSOS_WAVE_391 — calm idle halo ring pulse (was 0.42s ~2.4Hz strobe). */
-  animation: mirrorSpellcastHalo 3.2s ease-in-out infinite;
-  transform: scale(var(--spellcast-ring-scale, 1));
-  transform-origin: center;
-  z-index: var(--spellcast-ring-z, 0);
+  z-index: 4;
+}
+.cssos-spellcast-spray .spray-emoji {
+  position: absolute;
+  left: 0;
+  top: 0;
+  line-height: 1;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 0 5px var(--lyric-spellcast-glow, rgba(0, 245, 160, 0.55)));
+  animation: cssosSprayFly 1.15s cubic-bezier(0.22, 0.7, 0.3, 1) forwards;
+}
+@keyframes cssosSprayFly {
+  0%   { transform: translate(-50%, -50%) scale(0.2) rotate(0deg); opacity: 0; }
+  22%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))) scale(1) rotate(var(--rot, 0deg)); opacity: 0; }
 }
 
 .logo-panel.lyric-spellcast--breath .mirror {
@@ -4342,39 +4487,60 @@ body.cssos-cinema-mode #logo-panel .mirror-img {
   animation-name: mirrorFadeB;
 }
 
+/* CSSOS — Jing「CSS 和 Studio 不在同一个 DIV 里, 必须分开」: .mirror-text 不再作为
+   共享容器约束二者 —— display:contents 让它从盒子树消失, CSS(.mirror-title)与
+   Studio(.mirror-subtitle)各自成为魔镜的独立定位子元素, 互不牵连。 */
 .mirror-text {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  gap: 10px;
-  text-align: center;
-  pointer-events: none;
-  width: calc(100% - 120px);
+  display: contents;
 }
 
 .mirror-title {
-  /* CSSOS_LOGO_TEXT_FIT_INNER 20260506 — Jing
-     "请顺手把 CSS 设置小一点，刚好撑满魔镜图片的里面那个小的圆圈."
-     Mirror box itself is min(20vw, 480px); the green-crystal inner
-     circle is roughly 35–40% of that diameter. Text needs to live
-     INSIDE that circle, so the font cap drops from 80px → 42px and
-     vw scaling halves (6.2vw → 2.5vw). Letter-spacing also tightened
-     to keep the three letters compact rather than spread past the
-     circle's left/right edges. */
+  /* CSSOS — Jing 逐像素定标 + 手绘参照【锁定标准, 勿改】: CSS 的【中间腰部】必须落在穿过
+     左右两尖角的水平准星线上。魔镜图(260×260)测得左右尖角在图高 48.3% 处(非几何中心 —
+     宝石非正圆), 且图 object-fit:contain 满高填充 → 准星线 = 魔镜盒 top:48.3%。CSS 字形
+     腰部 ≈ 其盒中心(实测偏差 -0.4px), 故 top:48.3% 即让准星线穿过 CSS 腰部。尺寸 14cqmin
+     (金球固定比例≈桌面 40px)落在金球【之内】不撑出里圈, cqmin → 处处一致。z-index>魔镜图。 */
   font-family: "Rubik", "Syne", sans-serif;
   font-weight: 900;
-  font-size: clamp(24px, 3.4vw, 56px);   /* CSSOS_WAVE_1208 还原原值(撤销 W1207 的等比缩放) */
-  letter-spacing: 0.06em;
+  font-size: 16.5cqmin;    /* CSSOS — Jing「CSS 肉眼看必须撑到左右边缘」: 由 14→16.5cqmin, 桌面渲染宽≈101px, 撑满金球左右 */
+  letter-spacing: 0.01em;
   color: #f1fff8;
   text-shadow: 0 0 28px rgba(0, 245, 160, 0.75);
+  position: absolute;
+  left: 50%;
+  top: 48.3%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  width: auto;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .mirror-subtitle {
-  font-size: clamp(11px, 1.4vw, 18px);   /* CSSOS_WAVE_1208 还原原值 */
-  letter-spacing: 0.4em;
+  /* CSSOS — Jing【锁定标准, 勿改】: Studio 独立绝对定位(不与 CSS 共 DIV), 紧挨 CSS 正
+     下方(top:60% ≈ CSS 下沿 +2px), 且与 CSS【等宽】—— 5cqmin + letter-spacing 0.39em
+     调到「STUDIO」渲染宽度 = 「CSS」宽度; padding-left 抵消尾部字距使其居中不左偏。 */
+  font-size: 5.6cqmin;      /* CSSOS — Jing「Studio 也撑满左右, 与 CSS 等宽」: 渲染宽≈101px = CSS */
+  letter-spacing: 0.42em;
+  padding-left: 0.42em;
   text-transform: uppercase;
   color: var(--muted);
+  position: absolute;
+  left: 50%;
+  top: 54.4%;              /* CSSOS — Jing「距离 5px, 是上下方向」: 这是【字形可见间距】5px(非字框!
+                              字框上下有留白, 字框距 5px 时肉眼字距达 ~20px)。按 CSS 字母下沿 →
+                              STUDIO 字母上沿 = 5px 反算得 top:54.4%(字框会与 CSS 略重叠, 正常)。 */
+  right: auto;
+  bottom: auto;
+  transform: translateX(-50%);
+  margin: 0;
+  width: auto;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .mirror-slogan {
@@ -9354,6 +9520,23 @@ body.cssos-nonlogo-front #logo-panel * {
   }
 }
 
+/* CSSOS — radiating light-rays: slow rotation (transform only → GPU-composited,
+   no repaint) + a gentle radial breath so the spokes shimmer outward. */
+@keyframes mirrorSpellcastRays {
+  0% {
+    transform: rotate(0deg) scale(0.97);
+    opacity: 0.7;
+  }
+  50% {
+    transform: rotate(180deg) scale(1.05);
+    opacity: 0.98;
+  }
+  100% {
+    transform: rotate(360deg) scale(0.97);
+    opacity: 0.7;
+  }
+}
+
 @keyframes mirrorSpellcastImageBreath {
   0%,
   100% {
@@ -12974,7 +13157,10 @@ html.cssos-pill-cascade .palette-color-tabs:not(:has(.active)) > .palette-color-
  * child min-width 在 minmax(max-content,1fr) 网格里不折进 max-content, 不可靠(见宪法说明)。
  * 用 minmax(120px,max-content): 短标签撑到 120 地板, 长标签(如 DEFAULT·FREE 徽章)自适应不被裁。 */
 .cssos-lang-picker-grid[data-pill-bar] {
-  grid-auto-columns: minmax(120px, max-content) !important;
+  /* W1767 — Jing「多语言栏目改为自适应宽度」: 原来的 minmax(120px,…) 有 120px 下限, 使每颗语言胶囊
+     都撑成一致的宽列(短名如 EN/DE 也占满 120px = "一整列宽度")。改 max-content → 每颗只占内容宽、
+     左侧紧凑、溢出横滚。此栏 Jing 明确授权自适应宽, 豁免 W497 的 120px 点击下限。 */
+  grid-auto-columns: max-content !important;
 }
 /* cell 内部排版(旗·名·徽章·checkbox 一行, 靠间距分开); 胶囊外观全由 [data-pill-bar]>[data-pill-key] 接管。 */
 .cssos-lang-cell { gap: 8px; }
@@ -13009,6 +13195,14 @@ html[data-theme="light"] #cssos-upcoming-shelf .shelf-sub { color: rgba(20, 36, 
 html[data-theme="light"] #cssos-upcoming-shelf { background: linear-gradient(135deg, rgba(0, 160, 96, 0.06), rgba(0, 120, 80, 0.03)) !important; border-color: rgba(0, 140, 90, 0.22) !important; }
 html[data-theme="light"] .panel-search-meta,
 html[data-theme="light"] .panel-pull-search-hint { color: rgba(20, 36, 28, 0.6) !important; }
+/* W1768 — Jing「图1: 为你创造面板搜索行文字看不清」: 浅底(light theme)下 .panel-search-count 沿用了
+   深色主题的近白字 rgba(218,246,236,.72) → 奶油底上几乎不可见("10 per page")。钉深绿; 同时兜底把
+   For You 搜索行的计数/选择器/输入(及占位符)统一钉深字, 覆盖任何仍取近白的元素。仅 light theme。 */
+html[data-theme="light"] .panel-search-count { color: rgba(20, 36, 28, 0.62) !important; }
+html[data-theme="light"] #foryou-panel .panel-search-count,
+html[data-theme="light"] #foryou-panel .panel-search-select,
+html[data-theme="light"] #foryou-panel .panel-search-input { color: #14241c !important; }
+html[data-theme="light"] #foryou-panel .panel-search-input::placeholder { color: rgba(20, 36, 28, 0.5) !important; }
 html[data-theme="light"] .shelf-title,
 html[data-theme="light"] .shelf-sub { color: #14241c !important; }
 
@@ -13113,6 +13307,13 @@ html[data-theme="light"] #creation-language-picker .cssos-lang-picker-sub {
   flex: 0 0 auto !important;        /* don't shrink — keep each label one line */
   white-space: nowrap !important;
   min-width: max-content !important;
+}
+/* W1767 — Jing「多语言栏目改自适应宽度」: 市场语言筛选条迁到胶囊宪法 v28 data-pill-bar 后, 轨道默认
+   grid-auto-columns:minmax(max-content,1fr) 的 1fr 仍会在语言少时把胶囊撑等宽 → 覆盖为 max-content,
+   每颗只占内容宽、左侧紧凑、溢出横滚(与 .cssos-lang-picker-grid 一致的自适应处理)。上面的遗留
+   .cssmv-pill-bar 规则随 class 移除已失配, 按迁移政策保留。 */
+#foryou-market-lang-chips[data-pill-bar] {
+  grid-auto-columns: max-content !important;
 }
 
 /* CSSOS_WAVE_270 20260521 — TikTok-style create CTA (last N seconds of

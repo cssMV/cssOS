@@ -180,6 +180,19 @@
       ".csr-ic{width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,0.12);display:flex;align-items:center;" +
       "justify-content:center;font-size:21px;line-height:1;color:#fff;transition:transform .15s ease;}" +
       ".csr-item:active .csr-ic{transform:scale(0.92);}" +
+      /* CSSOS_WAVE_1776 20260726 — Jing「影院里的 AI 助理改统一的黑绿渐变粗体 ＋, 可拖拽」。
+         与全局 FAB(app.agent-chat.js #cssos-agent-fab)用同一套不规则黑绿渐变 —— 两个入口
+         必须长得一样, 否则用户会以为是两个不同功能。渐变 = 两层 radial 叠 linear, 亮点偏
+         左上 → 不规则的"液态"感, 不是死板对角线。 */
+      "#cssos-rail-ai .csr-ic{" +
+        "background:radial-gradient(circle at 30% 26%,rgba(0,245,160,0.92) 0%,rgba(0,184,122,0.62) 34%,rgba(6,20,15,0) 62%)," +
+        "radial-gradient(circle at 74% 80%,rgba(0,140,95,0.5) 0%,rgba(2,10,7,0) 58%)," +
+        "linear-gradient(148deg,#07130e 0%,#0d1a14 46%,#020806 100%);" +
+        "border:1px solid rgba(0,245,160,0.36);color:#eafff6;font-size:26px;font-weight:700;" +
+        "box-shadow:0 6px 22px rgba(2,10,7,0.62),0 0 0 1px rgba(255,255,255,0.05) inset;}" +
+      "#cssos-rail-ai{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;}" +
+      "#cssos-rail-ai[data-dragging='1']{cursor:grabbing;}" +
+      "#cssos-rail-ai[data-dragging='1'] .csr-ic{transform:scale(1.1);}" +
       ".csr-item[disabled]{cursor:default;opacity:0.55;}" +
       ".csr-lbl{font-size:11px;color:#e6ddd2;text-shadow:0 1px 3px rgba(0,0,0,0.6);white-space:nowrap;}" +
       ".csr-ic.is-comment{background:rgba(0,245,160,0.18);box-shadow:inset 0 0 0 1.5px #00f5a0;color:#00f5a0;}" +
@@ -419,9 +432,12 @@
       onClick: function (b) { dispatch("buyout", b); }
     }));
 
-    // 7. 🤖 AI 助理 — CSSOS_WAVE_1128 — Jing 指令: 换小机器人收回右轨底部(用右轨统一间距),
+    // 7. AI 助理 — CSSOS_WAVE_1128 — Jing 指令: 收回右轨底部(用右轨统一间距),
     //   隐藏旧 #cssos-agent-fab(避免"太靠近"+重复)。点击 = 打开常驻 AI 助理。
-    rail.appendChild(mkItem("🤖", "", {
+    // CSSOS_WAVE_1776 20260726 — Jing「影院里那个 🤖 也改成黑绿渐变粗体 ➕, 而且要可拖拽」:
+    //   图标 🤖 → ＋(U+FF0B 全宽加号, 不用 emoji ➕ —— emoji 会被系统渲染成彩色方块,
+    //   把黑绿渐变盖掉)。样式由 #cssos-rail-ai 承接(见 injectStyles), 与全局 FAB 同一套渐变。
+    var aiBtn = mkItem("＋", "", {
       aria: copy("AI assistant", "AI 助理"), title: copy("AI assistant", "AI 助理"),
       onClick: function () {
         try {
@@ -429,7 +445,141 @@
           else { var fab = document.getElementById("cssos-agent-fab"); if (fab) { fab.style.display = ""; fab.click(); } }
         } catch (_e) {}
       }
-    }));
+    });
+    aiBtn.id = "cssos-rail-ai";
+    rail.appendChild(aiBtn);
+    makeRailAiDraggable(aiBtn);
+  }
+
+  /* CSSOS_WAVE_1776 20260726 — Jing「影院里的 AI 助理也要可拖拽」。
+   * 与全局 FAB(app.agent-chat.js)同构, 但这里有两点不同, 不能照抄:
+   *   ① 它原本是右轨(#cssos-watch-social-rail)的 flow 子元素, 不是 fixed。拖动时必须
+   *      提成 position:fixed 才能离开右轨; 否则会被父容器的 flex 布局拽回去。
+   *   ② 右轨会被重建(换歌/影院开关都会重渲染), 所以同样需要一道自愈安全网 ——
+   *      重建出来的新按钮没有内联位置, 靠 localStorage 贴回去。 */
+  /* CSSOS_WAVE_1776d 20260726 — Jing「新旧位置在抢 AI 助理, 来回跳」根治:
+   * 位置改与主界面 FAB【共用同一份】(app.agent-chat.js 暴露的 cssosRead/WriteAiAssistantPos)。
+   * 原因: AI 助理有两个入口元素(主界面 #cssos-agent-fab / 影院右轨 #cssos-rail-ai), 影院一开
+   * 一关就换人显示。各存一份位置 → 两处各自出现在各自记住的地方 = 用户看到的"来回跳"。
+   * 共用一份后, 拖任一处 = 给"AI 助理"定位, 另一处跟着走。
+   * globalThis 取不到时(加载顺序异常)退回本地 key, 保证功能不因依赖缺失而崩。 */
+  var RAIL_DRAG_SLOP = 4;
+  var RAIL_FALLBACK_KEY = "cssos.aiAssistant.pos";
+
+  function readAiPos() {
+    if (typeof globalThis.cssosReadAiAssistantPos === "function") {
+      return globalThis.cssosReadAiAssistantPos();
+    }
+    try {
+      var p = JSON.parse(localStorage.getItem(RAIL_FALLBACK_KEY) || "null");
+      return (p && typeof p.left === "number") ? p : null;
+    } catch (_e) { return null; }
+  }
+  function writeAiPos(left, top) {
+    if (typeof globalThis.cssosWriteAiAssistantPos === "function") {
+      globalThis.cssosWriteAiAssistantPos(left, top);
+      return;
+    }
+    try { localStorage.setItem(RAIL_FALLBACK_KEY, JSON.stringify({ left: left, top: top })); } catch (_e) {}
+  }
+
+  function applyRailAiPos(el, left, top) {
+    var w = el.offsetWidth || 40, h = el.offsetHeight || 40;
+    var L = Math.min(Math.max(0, left), Math.max(0, window.innerWidth - w));
+    var T = Math.min(Math.max(0, top), Math.max(0, window.innerHeight - h));
+    el.style.setProperty("position", "fixed", "important");   // ① 提出右轨的 flow
+    el.style.setProperty("left", L + "px", "important");
+    el.style.setProperty("top", T + "px", "important");
+    el.style.setProperty("right", "auto", "important");
+    el.style.setProperty("bottom", "auto", "important");
+    el.style.setProperty("z-index", "10092", "important");    // 高于影院层, 拖到哪都点得到
+    el.setAttribute("data-user-placed", "1");
+  }
+
+  function makeRailAiDraggable(el) {
+    var saved = readAiPos();
+    if (saved) applyRailAiPos(el, saved.left, saved.top);
+
+    var sx = 0, sy = 0, bl = 0, bt = 0, moved = false, dragging = false;
+    el.style.touchAction = "none";
+
+    /* CSSOS_WAVE_1778 20260726 — Jing「AI 助理的动作不要触发别的动作」根因:
+     * 影院手势(上下切歌/左右切换)监听在 body 上、右键菜单监听在 document 上, 都是【全局】的。
+     * FAB 上的 pointer/touch 事件默认会【冒泡】到它们那里 —— 于是拖一下 AI 助理, 影院以为
+     * 用户在滑动切歌, 右击 AI 助理弹出的是作品右键菜单。
+     * 修法: 在 FAB 自己这一层把这些事件【就地拦下】(stopPropagation), 不让它们往上走。
+     * 用 capture 阶段不行 —— 那只会更早触发全局监听; 必须在冒泡路径的起点吞掉。 */
+    ["touchstart", "touchmove", "touchend", "mousedown", "wheel", "contextmenu"].forEach(function (ev) {
+      el.addEventListener(ev, function (e) {
+        e.stopPropagation();
+        // contextmenu 额外阻止默认 —— 否则浏览器/影院的右键菜单照样弹。
+        // (长按/右击的自有行为在下面的 pointer 逻辑里实现, 见 W1778 设计。)
+        if (ev === "contextmenu") e.preventDefault();
+      }, false);
+    });
+
+    el.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.stopPropagation();          // 不让影院手势层看到这次按下
+      var r = el.getBoundingClientRect();
+      sx = e.clientX; sy = e.clientY; bl = r.left; bt = r.top;
+      moved = false; dragging = true;
+      try { el.setPointerCapture(e.pointerId); } catch (_e) {}
+    });
+    el.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var dx = e.clientX - sx, dy = e.clientY - sy;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < RAIL_DRAG_SLOP) return;
+      if (!moved) { moved = true; el.setAttribute("data-dragging", "1"); }
+      e.preventDefault();
+      applyRailAiPos(el, bl + dx, bt + dy);
+    });
+    function end(e) {
+      if (!dragging) return;
+      dragging = false;
+      el.removeAttribute("data-dragging");
+      try { el.releasePointerCapture(e.pointerId); } catch (_e) {}
+      if (moved) {
+        var r = el.getBoundingClientRect();
+        /* CSSOS_WAVE_1781 20260726 — Jing「MV 面板里, AI 助手拖到右下角附近没有自动吸附」。
+         * 上一波(W1778)只给主界面 FAB 加了吸附, 漏了影院右轨这个入口 —— 两处必须一致。
+         * 吸附 = 清掉记住的坐标并抹掉内联定位, 让它回落右轨自己的 flow 位置(而不是硬存坐标),
+         * 这样窗口尺寸变化时仍跟着右轨走。阈值 90px 与主界面 FAB 保持同一个数。 */
+        var toRight = window.innerWidth - r.right;
+        var toBottom = window.innerHeight - r.bottom;
+        if (toRight < 90 && toBottom < 90) {
+          if (typeof globalThis.cssosClearAiAssistantPos === "function") {
+            globalThis.cssosClearAiAssistantPos();
+          } else {
+            try { localStorage.removeItem(RAIL_FALLBACK_KEY); } catch (_e2) {}
+          }
+          ["position", "left", "top", "right", "bottom", "z-index"].forEach(function (p) {
+            el.style.removeProperty(p);
+          });
+          el.removeAttribute("data-user-placed");
+        } else {
+          writeAiPos(r.left, r.top);   // 共享 → 主界面那个 FAB 也会跟着走
+        }
+      }
+    }
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+    // 真拖过就吞掉这次 click, 不要顺带打开助理面板。
+    el.addEventListener("click", function (e) {
+      if (moved) { e.preventDefault(); e.stopImmediatePropagation(); moved = false; }
+    }, true);
+  }
+
+  // ② 右轨重建后自愈: 新按钮没有内联位置 → 从 localStorage 贴回去。2s 慢网, 开销可忽略。
+  function startRailAiSelfHeal() {
+    setInterval(function () {
+      try {
+        var el = document.getElementById("cssos-rail-ai");
+        if (!el || el.style.left) return;
+        var p = readAiPos();
+        if (p) applyRailAiPos(el, p.left, p.top);
+      } catch (_e) {}
+    }, 2000);
   }
 
   // CSSOS_WAVE_1124 — Jing 指令④: 10 秒无操作淡出【返回 / 搜索框 / 多语言】; 右轨图标/传统字幕/AI 常驻。
@@ -457,6 +607,7 @@
 
   function start() {
     schedule();
+    startRailAiSelfHeal();   // W1776 — 右轨重建后把用户拖过的 AI 位置贴回去
     // CSSOS_WAVE_1134 — Jing 指令: 停止每 2.5s 全量重渲染(耗内存 DOM churn + 头像被反复 detach)。
     //   改【纯事件驱动】: 只在真有变化时渲染(换歌/换 workId/作者解析好/面板开关/全屏切换)。
     ["mousemove", "pointerdown", "touchstart", "keydown", "wheel"].forEach(function (ev) {

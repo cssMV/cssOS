@@ -60,87 +60,160 @@
   .tr .pl { color:var(--mint); font-size:13px; margin-top:4px; }
   @keyframes rise { to { opacity:1; transform:none; } }
   @keyframes enter { to { opacity:1; transform:none; } }
+  /* THE GAME · spin-off banner (narrative RPG, same universe) */
+  .game { margin:56px auto 0; max-width:860px; display:flex; gap:20px; align-items:stretch;
+    background:linear-gradient(135deg,#12100a,#0a1115); border:1px solid #2a2416; border-radius:22px;
+    overflow:hidden; opacity:0; animation:rise .9s ease 1.5s forwards; }
+  @media (max-width:640px){ .game{ flex-direction:column; } }
+  .game .gposter { flex:0 0 42%; background:#081012 center/cover no-repeat; min-height:210px; }
+  @media (max-width:640px){ .game .gposter{ flex:none; height:200px; } }
+  .game .gbody { flex:1; padding:22px 22px 24px; display:flex; flex-direction:column; }
+  .gbadge { align-self:flex-start; font-size:11px; letter-spacing:2px; color:#f5c451;
+    border:1px solid #5a4a1c; background:#1f1a0c; padding:3px 10px; border-radius:999px; }
+  .game h2 { font-size:26px; font-weight:800; margin:14px 0 2px; letter-spacing:1px;
+    background:linear-gradient(180deg,#fff,#f5d98a); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .game .gk { color:#b0a878; font-size:12px; letter-spacing:3px; }
+  .game .gp { color:#cdc6b0; font-size:14px; line-height:1.75; margin:14px 0 18px; }
+  .gplay { align-self:flex-start; text-decoration:none; color:#1a1405; font-weight:700; font-size:14px;
+    padding:11px 22px; border-radius:999px; background:linear-gradient(180deg,#f7d873,#e0b64a);
+    box-shadow:0 8px 26px rgba(224,182,74,.22); }
+  .gplay:active{ transform:scale(.98); }
+  .gnote { color:#7a7358; font-size:11px; letter-spacing:.5px; margin-top:12px; }
 </style>
 </head>
 <body>
   <div class="stage">
-    <div class="title"><h1>EMPIRE OF TIME</h1><div class="k">AMERICAN EMPIRE · OPENING · CAST</div></div>
-    <p class="lead">A near-future America. Immortal Martians have quietly tampered with humanity's timeline for centuries — in the name of "ending all pain." Only three can sense that time itself has been rewritten —</p>
+    <div class="title"><h1 data-i18n="te.intro.title">EMPIRE OF TIME</h1><div class="k" data-i18n="te.intro.kicker">AMERICAN EMPIRE · OPENING · CAST</div></div>
+    <p class="lead" data-i18n="te.intro.lead">A near-future America. Immortal Martians have quietly tampered with humanity's timeline for centuries — in the name of "ending all pain." Only three can sense that time itself has been rewritten —</p>
     <div class="cast" id="cast"></div>
-    <button class="enter" onclick="openTrailers()">ENTER THE FILM ▶</button>
-    <button class="enter" style="background:#0c1f19;color:var(--mint);border:1px solid #1c4a3a;box-shadow:none;margin-top:14px" onclick="openSyn()">READ THE STORY</button>
-    <div class="foot">CSS STUDIO · in-house 3D engine</div>
+    <button class="enter" onclick="openTrailers()" data-i18n="te.intro.enterFilm">ENTER THE FILM ▶</button>
+    <button class="enter" style="background:#0c1f19;color:var(--mint);border:1px solid #1c4a3a;box-shadow:none;margin-top:14px" onclick="openSyn()" data-i18n="te.intro.readStory">READ THE STORY</button>
+    <!-- THE GAME · Twin-Star War (narrative RPG, same universe) -->
+    <div class="game">
+      <div class="gposter" style="background-image:url('https://cdn.cssstudio.app/artifacts/te-trailer/twinwar-poster.png')"></div>
+      <div class="gbody">
+        <span class="gbadge" data-i18n="te.game.badge">THE GAME</span>
+        <h2 data-i18n="te.game.title">Twin-Star War</h2>
+        <div class="gk" data-i18n="te.game.tagline">EMPIRE OF TIME · TWIN-STAR WAR · NARRATIVE RPG</div>
+        <p class="gp" data-i18n="te.game.pitch">The same fight, now in your hands. Earth against Mars — choose the hero who saves humanity, or the Martian who conquers the timeline. Every choice forks the ending.</p>
+        <a class="gplay" href="https://cssstudio.app/?cssMV=7804635b-0e82-4984-abd1-ae979f0e523a&amp;teskip=1" data-i18n="te.game.cta">▶ Watch the Announce Trailer</a>
+        <div class="gnote" data-i18n="te.game.note">Preview only — not yet playable. Coming to the Empire of Time universe.</div>
+      </div>
+    </div>
+    <div class="foot" data-i18n="te.intro.foot">CSS STUDIO · in-house 3D engine</div>
   </div>
 
-  <!-- 故事梗概 STORY -->
+  <!-- STORY / synopsis overlay -->
   <div class="overlay" id="synopsis">
-    <button class="back" onclick="closeSyn()">← Back</button>
+    <button class="back" onclick="closeSyn()" data-i18n="te.intro.back">← Back</button>
     <div class="trWrap" style="max-width:680px">
-      <div class="trH">EMPIRE OF TIME</div>
-      <div class="trSub">also known as “Empire of America” · a synopsis</div>
+      <div class="trH" data-i18n="te.syn.title">EMPIRE OF TIME</div>
+      <div class="trSub" data-i18n="te.syn.sub">also known as “Empire of America” · a synopsis</div>
       <div style="color:#cdddda;font-size:15px;line-height:1.95;letter-spacing:.2px">
-        <p><i>Some empires are built on land. This one is built on time.</i></p>
-        <p>For over a century, an immortal visitor from Mars has walked among us — wearing human faces, claiming human births. He holds to one truth: whoever can rewrite the timeline owns the past and commands the future. His edits are written into our wars, our elections, and our quietest catastrophes.</p>
-        <p>A novelist once stumbled onto his secret and warned the world in a single famous book. The warning was filed away as fiction.</p>
-        <p>Now, in a near-future America, a new Envoy — <b>xÈth</b> — has surfaced from a false birth in the south, climbed through politics, and slipped into the highest office in the land. He means to crown a republic an empire, and to declare the first year of a new age.</p>
-        <p>Standing against him: <b>Ethan</b>, his old classmate — half human, half Martian, son of an immortal who chose our side — and <b>the woman he loves</b>. Across years of wits and shadows, the timeline forks toward a set of endings. In one, time is saved. In another, the Empire of Time begins.</p>
-        <p style="color:var(--dim);font-size:13px;margin-top:24px;border-top:1px solid #1f2a30;padding-top:16px">This is a work of science fiction. Characters, an envoy, a president, and events are invented and archetypal. Any resemblance you feel to real people or history is your own — and it is yours to keep.</p>
+        <p data-i18n-html="te.syn.p1"><i>Some empires are built on land. This one is built on time.</i></p>
+        <p data-i18n="te.syn.p2">For over a century, an immortal visitor from Mars has walked among us — wearing human faces, claiming human births. He holds to one truth: whoever can rewrite the timeline owns the past and commands the future. His edits are written into our wars, our elections, and our quietest catastrophes.</p>
+        <p data-i18n="te.syn.p3">A novelist once stumbled onto his secret and warned the world in a single famous book. The warning was filed away as fiction.</p>
+        <p data-i18n-html="te.syn.p4">Now, in a near-future America, a new Envoy — <b>xÈth</b> — has surfaced from a false birth in the south, climbed through politics, and slipped into the highest office in the land. He means to crown a republic an empire, and to declare the first year of a new age.</p>
+        <p data-i18n-html="te.syn.p5">Standing against him: <b>Ethan</b>, his old classmate — half human, half Martian, son of an immortal who chose our side — and <b>the woman he loves</b>. Across years of wits and shadows, the timeline forks toward a set of endings. In one, time is saved. In another, the Empire of Time begins.</p>
+        <p style="color:var(--dim);font-size:13px;margin-top:24px;border-top:1px solid #1f2a30;padding-top:16px" data-i18n="te.syn.disclaimer">This is a work of science fiction. Characters, an envoy, a president, and events are invented and archetypal. Any resemblance you feel to real people or history is your own — and it is yours to keep.</p>
       </div>
     </div>
   </div>
 
-  <!-- 全屏单角色 -->
+  <!-- fullscreen single-character overlay -->
   <div class="overlay" id="fsChar">
-    <button class="back" onclick="closeFs()">← Back</button>
+    <button class="back" onclick="closeFs()" data-i18n="te.intro.back">← Back</button>
     <model-viewer id="fsViewer" auto-rotate rotation-per-second="24deg" camera-controls
       interaction-prompt="none" exposure="1.15" shadow-intensity="0.5"
       camera-orbit="0deg 82deg 105%" field-of-view="30deg"></model-viewer>
     <div id="fsName"></div><div id="fsRole"></div>
-    <a id="fsTrailer" class="enter" style="animation:none;opacity:1;margin:0 auto 34px;max-width:300px">▶ Trailer</a>
+    <a id="fsTrailer" class="enter" style="animation:none;opacity:1;margin:0 auto 34px;max-width:300px" data-i18n="te.intro.trailer">▶ Trailer</a>
   </div>
 
-  <!-- 进入电影 → 三预告片 -->
+  <!-- ENTER THE FILM → trailers overlay -->
   <div class="overlay" id="trailers">
-    <button class="back" onclick="closeTrailers()">← Back</button>
+    <button class="back" onclick="closeTrailers()" data-i18n="te.intro.back">← Back</button>
     <div class="trWrap">
-      <div class="trH">Empire of Time · Trailers</div>
-      <div class="trSub">The feature is not out yet — watch the three trailers</div>
+      <div class="trH" data-i18n="te.tr.title">Empire of Time · Trailers</div>
+      <div class="trSub" data-i18n="te.tr.sub">The feature is not out yet — watch the three trailers</div>
       <div id="trList"></div>
     </div>
   </div>
 
+<!-- i18n runtime: English is the source of truth; other locales auto-generated via the W210 pipeline. Loaded BEFORE the render script so dynamic cast/trailer text can resolve through t(). -->
+<script src="i18n/constants.js"></script>
+<script src="i18n/dict.js"></script>
+<script src="i18n/index.js"></script>
 <script>
   const V = "?v=10";
-  const CAST = [
-    { name:"xÈth — the envoy", role:"The Martian Envoy. Immortal. Gentle, and dangerous. His name carries a single falling mark — è — the old sound of evil that no human tongue can hold.", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/marsenvoy.glb"+V, tr:"e208554a-427a-4273-ae07-8c5d7d042ab6", trName:"The Gambit · Trailer" },
-    { name:"Ethan Vance", role:"The Time Observer. Half-human, half-Martian — torn between two bloods, certain that pain and freedom cannot be parted.", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb"+V, tr:"4a844198-ee87-4023-bc78-aa89733da0aa", trName:"Feature Trailer" },
-    { name:"Clara Sinclair", role:"The one Ethan loves. Sworn to guard the timeline at any cost.", glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb"+V, tr:"23a60517-1bb5-4032-a95b-f0a7831e7e2a", trName:"Constellations · Trailer" },
-  ];
-  const TRAILERS = [
-    // English-dialogue cuts (default) — true separated trailers
-    { id:"4a844198-ee87-4023-bc78-aa89733da0aa", title:"Empire of Time — Feature Trailer", tag:"English", cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/feature/poster.jpg" },
-    { id:"23a60517-1bb5-4032-a95b-f0a7831e7e2a", title:"Constellations — Trailer", tag:"English", cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/constellations/poster.jpg" },
-    { id:"e208554a-427a-4273-ae07-8c5d7d042ab6", title:"The Gambit — Trailer", tag:"English", cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/poster.jpg" },
-    // Original Chinese cuts
-    { id:"59578f73-7298-4aa7-b92c-38d5a649f2b8", title:"Empire of Time — Feature Trailer", tag:"中文", cover:"https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
-    { id:"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", title:"Constellations — Trailer", tag:"中文", cover:"https://cdn.cssstudio.app/covers/trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036.jpg" },
-    { id:"7dc49021-e47e-4f58-8881-faa7ec9abb02", title:"The Gambit — Trailer", tag:"中文", cover:"https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" },
-  ];
-  document.getElementById('cast').innerHTML = CAST.map((c,i) => `
-    <div class="ch" onclick="openChar(${i})">
-      <span class="badge">CAST</span>
-      <model-viewer src="${c.glb}" alt="${c.name}" auto-rotate rotation-per-second="24deg"
-        camera-controls touch-action="pan-y" interaction-prompt="none" exposure="1.15"
-        shadow-intensity="0.5" camera-orbit="0deg 82deg 105%" field-of-view="28deg" disable-zoom></model-viewer>
-      <div class="name">${c.name}</div>
-      <div class="role">${c.role}</div>
-      <a class="trlink" href="https://cssstudio.app/?cssMV=${c.tr}&teskip=1" onclick="event.stopPropagation()">▶ ${c.trName}</a>
-    </div>`).join('');
-  document.getElementById('trList').innerHTML = TRAILERS.map(t => `
-    <a class="tr" href="https://cssstudio.app/?cssMV=${t.id}&teskip=1">
-      <img src="${t.cover}" alt="${t.title}">
-      <div><div class="ti">${t.title} ${t.tag ? '<span style="font-size:11px;font-weight:600;color:#46e3b1;border:1px solid #1c4a3a;border-radius:999px;padding:1px 8px;margin-left:4px;">'+t.tag+'</span>' : ''}</div><div class="pl">▶ Play Trailer</div></div>
-    </a>`).join('');
+  const I18N = window.CSSOS_I18N || null;
+
+  function pickLocale() {
+    var q = new URL(location.href).searchParams.get("lang");
+    if (q) return String(q).toLowerCase().split("-")[0];
+    try { var s = localStorage.getItem("cssos.locale"); if (s) return String(s).toLowerCase().split("-")[0]; } catch (e) {}
+    return (navigator.language || "en").toLowerCase().split("-")[0];
+  }
+  // Defensive translate: real translation when present, else the English fallback passed in (never a bare key / blank).
+  function t(key, fallback) {
+    if (!I18N || !I18N.t) return fallback != null ? fallback : key;
+    var v = I18N.t(key);
+    return (v && v !== key) ? v : (fallback != null ? fallback : key);
+  }
+
+  let CAST = [], TRAILERS = [];
+  function buildData() {
+    CAST = [
+      { name:t("te.cast.xeth.name"),  role:t("te.cast.xeth.role"),  glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/marsenvoy.glb"+V, tr:"e208554a-427a-4273-ae07-8c5d7d042ab6", trName:t("te.cast.xeth.tr") },
+      { name:t("te.cast.ethan.name"), role:t("te.cast.ethan.role"), glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/linmo.glb"+V,    tr:"4a844198-ee87-4023-bc78-aa89733da0aa", trName:t("te.cast.ethan.tr") },
+      { name:t("te.cast.clara.name"), role:t("te.cast.clara.role"), glb:"https://cdn.cssstudio.app/artifacts/timeempire-glb/suwan.glb"+V,    tr:"23a60517-1bb5-4032-a95b-f0a7831e7e2a", trName:t("te.cast.clara.tr") },
+    ];
+    TRAILERS = [
+      // English-dialogue cuts (default)
+      { id:"4a844198-ee87-4023-bc78-aa89733da0aa", title:t("te.tr.feature"),        tag:t("te.tr.tag.english"), cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/feature/poster.jpg" },
+      { id:"23a60517-1bb5-4032-a95b-f0a7831e7e2a", title:t("te.tr.constellations"), tag:t("te.tr.tag.english"), cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/constellations/poster.jpg" },
+      { id:"e208554a-427a-4273-ae07-8c5d7d042ab6", title:t("te.tr.gambit"),         tag:t("te.tr.tag.english"), cover:"https://cdn.cssstudio.app/artifacts/te-trailer-en/gambit/poster.jpg" },
+      // Original Chinese cuts
+      { id:"59578f73-7298-4aa7-b92c-38d5a649f2b8", title:t("te.tr.feature"),        tag:t("te.tr.tag.chinese"), cover:"https://cdn.cssstudio.app/covers/trailer-59578f73-7298-4aa7-b92c-38d5a649f2b8.jpg" },
+      { id:"13c6f963-6c5c-46b6-b2cd-ea4af8ea6036", title:t("te.tr.constellations"), tag:t("te.tr.tag.chinese"), cover:"https://cdn.cssstudio.app/covers/trailer-13c6f963-6c5c-46b6-b2cd-ea4af8ea6036.jpg" },
+      { id:"7dc49021-e47e-4f58-8881-faa7ec9abb02", title:t("te.tr.gambit"),         tag:t("te.tr.tag.chinese"), cover:"https://cdn.cssstudio.app/covers/trailer-7dc49021-e47e-4f58-8881-faa7ec9abb02.jpg" },
+    ];
+  }
+
+  function renderCast() {
+    document.getElementById('cast').innerHTML = CAST.map(function (c, i) {
+      return '<div class="ch" onclick="openChar(' + i + ')">'
+        + '<span class="badge">' + t("te.cast.badge") + '</span>'
+        + '<model-viewer src="' + c.glb + '" alt="' + c.name + '" auto-rotate rotation-per-second="24deg"'
+        + ' camera-controls touch-action="pan-y" interaction-prompt="none" exposure="1.15"'
+        + ' shadow-intensity="0.5" camera-orbit="0deg 82deg 105%" field-of-view="28deg" disable-zoom></model-viewer>'
+        + '<div class="name">' + c.name + '</div>'
+        + '<div class="role">' + c.role + '</div>'
+        + '<a class="trlink" href="https://cssstudio.app/?cssMV=' + c.tr + '&teskip=1" onclick="event.stopPropagation()">▶ ' + c.trName + '</a>'
+        + '</div>';
+    }).join('');
+  }
+  function renderTrailers() {
+    document.getElementById('trList').innerHTML = TRAILERS.map(function (tr) {
+      var tagChip = tr.tag ? '<span style="font-size:11px;font-weight:600;color:#46e3b1;border:1px solid #1c4a3a;border-radius:999px;padding:1px 8px;margin-left:4px;">' + tr.tag + '</span>' : '';
+      return '<a class="tr" href="https://cssstudio.app/?cssMV=' + tr.id + '&teskip=1">'
+        + '<img src="' + tr.cover + '" alt="' + tr.title + '">'
+        + '<div><div class="ti">' + tr.title + ' ' + tagChip + '</div><div class="pl">' + t("te.tr.playBtn") + '</div></div>'
+        + '</a>';
+    }).join('');
+  }
+  // Apply keys on static markup: [data-i18n] → textContent, [data-i18n-html] → innerHTML (for <b>/<i>).
+  function applyStatic() {
+    document.querySelectorAll("[data-i18n]").forEach(function (el) {
+      var k = el.getAttribute("data-i18n"); if (!k) return;
+      var v = t(k, null); if (v && v !== k) el.textContent = v;
+    });
+    document.querySelectorAll("[data-i18n-html]").forEach(function (el) {
+      var k = el.getAttribute("data-i18n-html"); if (!k) return;
+      var v = t(k, null); if (v && v !== k) el.innerHTML = v;
+    });
+  }
+  function renderAll() { buildData(); renderCast(); renderTrailers(); applyStatic(); }
 
   const fs = document.getElementById('fsChar'), fsV = document.getElementById('fsViewer');
   function openChar(i){ const c=CAST[i]; fsV.src=c.glb; document.getElementById('fsName').textContent=c.name;
@@ -152,6 +225,14 @@
   function closeTrailers(){ document.getElementById('trailers').classList.remove('show'); }
   function openSyn(){ document.getElementById('synopsis').classList.add('show'); }
   function closeSyn(){ document.getElementById('synopsis').classList.remove('show'); }
+
+  // Boot: pick locale → render English immediately → re-render once the generated locale resolves.
+  var loc = pickLocale();
+  if (I18N && I18N.setCurrentLocale) I18N.setCurrentLocale(loc);
+  renderAll();
+  if (I18N && loc !== "en" && I18N.ensureGeneratedLocale) {
+    Promise.resolve(I18N.ensureGeneratedLocale(loc)).then(renderAll).catch(function () {});
+  }
 </script>
 </body>
 </html>

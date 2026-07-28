@@ -968,3 +968,141 @@ body[data-theme="light"] #mv-pipeline-panel .mvp-actions > .cta::before {
   letter-spacing: 0.08em;
   margin-top: 2px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_1783 20260726 — Jing「把胶囊找回来」+「视频格式文字太浅」
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 第一排: 画面档位胶囊 (幻灯 / 混合视频 / 真视频) ──
+ * 后端 rust billing_matrix.rs 一直有这三档, 前端却只做成了"点费用文字循环切换"
+ * (原注释自承 v0 picker) —— 用户看不见, "丰俭由人"等于没露出。现在做成真胶囊。
+ * 走平台 data-pill-bar 语言, 不写 bespoke 的 tab 样式。 */
+#mv-pipeline-panel .mvp-tier-pills {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(120px, 1fr);   /* 胶囊宪法: 120px 地板 = 3 × 40px 胶囊高 */
+  gap: 0;
+  margin: 10px 0 8px;
+  border-radius: 999px;
+  background: rgba(120, 150, 135, 0.30);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  overflow: hidden;
+}
+#mv-pipeline-panel .mvp-tier-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font: 600 12.5px/1 -apple-system, system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+#mv-pipeline-panel .mvp-tier-pill .ic { font-size: 14px; }
+/* 价格必须看得见 —— "丰俭由人"要用户在选之前就知道差价。 */
+#mv-pipeline-panel .mvp-tier-pill .pr {
+  font: 700 11.5px/1 ui-monospace, monospace;
+  opacity: 0.72;
+}
+#mv-pipeline-panel .mvp-tier-pill:hover { background: rgba(0, 245, 160, 0.12); }
+/* 选中 = 实心绿胶囊, 3px margin 让轨道色透出(与 START 同一套"镶嵌"语言)。 */
+#mv-pipeline-panel .mvp-tier-pill.active {
+  margin: 3px;
+  background: linear-gradient(135deg, #00c882, #00f5a0);
+  color: #001b14;
+  font-weight: 800;
+  box-shadow: 0 1px 6px rgba(0, 245, 160, 0.35);
+}
+#mv-pipeline-panel .mvp-tier-pill.active .pr { opacity: 0.86; }
+/* 真视频选中时用琥珀色 —— 它是最贵的一档, 视觉上就该和另两档区分开。 */
+#mv-pipeline-panel .mvp-tier-pill.active[data-tier="cinematic"] {
+  background: linear-gradient(135deg, #f0a93c, #ffcf6a);
+  color: #2a1a00;
+  box-shadow: 0 1px 6px rgba(255, 207, 106, 0.38);
+}
+
+/* ── 第二排: START PIPELINE + 惊喜, 等宽 ──
+ * 原来这排是 overflow-x:auto 的横向滚动轨道, START 之外的按钮被推到可视区外,
+ * 用户以为"只剩一个按钮"。改 grid 等宽, 两颗都在同一屏内。 */
+#mv-pipeline-panel .mvp-actions {
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;                  /* 等宽 */
+  overflow: visible !important;            /* 不再横向滚动 */
+}
+#mv-pipeline-panel .mvp-actions > .cta {
+  flex: none;
+  min-width: 0;                            /* 允许等分, 不被 max-content 撑开 */
+}
+/* 清空移到辅助行 —— 低频的破坏性动作, 不该和 START 抢同一条视线。 */
+#mv-pipeline-panel .mvp-actions-aux {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+#mv-pipeline-panel .mvp-actions-aux > .cta {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font: 600 12px/1 -apple-system, system-ui, sans-serif;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+#mv-pipeline-panel .mvp-actions-aux > .cta:hover {
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Jing「视频格式那里, 文字太浅, 看不清」──
+ * 原 opacity:0.75 + 11px, 叠在浅色面板上对比度不足。提到 0.92 并加大半号字。 */
+#mv-pipeline-panel .mvp-aspect-caption {
+  opacity: 0.92;
+  font-size: 11.5px;
+  color: var(--text, #e8f4ec);
+}
+
+/* ── CSSOS_WAVE_1784 20260726 — Jing「这一块文字太浅, 看不清」(第二次报同一类问题) ──
+ *
+ * 根因: 面板的小标题(WORK TYPE / OUTPUT FORMAT 等)用 rgba(232,244,236,0.72) ——
+ * 这是【浅色文字】。深色主题下没问题, 但面板在【浅色主题】下背景也是浅的(#fdf8f3 系),
+ * 浅字浅底 → 对比度掉到 1.5:1 左右, 基本等于看不见。
+ * 修法: 浅色主题单独给深色文字。深色主题保持原样(那里本来是对的)。
+ * 同时把未选中档位胶囊的文字也提上去 —— 它们同样是 rgba(255,255,255,.78) 浅字。 */
+
+body[data-theme="light"] #mv-pipeline-panel .mvp-inputs label,
+html[data-theme="light"] #mv-pipeline-panel .mvp-inputs label {
+  color: rgba(18, 42, 32, 0.82) !important;
+  font-weight: 700;
+}
+body[data-theme="light"] #mv-pipeline-panel .mvp-aspect-caption,
+html[data-theme="light"] #mv-pipeline-panel .mvp-aspect-caption {
+  color: rgba(18, 42, 32, 0.88) !important;
+  opacity: 1;
+}
+body[data-theme="light"] #mv-pipeline-panel .mvp-aspect-x,
+html[data-theme="light"] #mv-pipeline-panel .mvp-aspect-x {
+  color: rgba(18, 42, 32, 0.7) !important;
+  opacity: 1;
+}
+/* 未选中的档位胶囊 / SURPRISE ME: 浅色主题下同样要深字。 */
+body[data-theme="light"] #mv-pipeline-panel .mvp-tier-pill:not(.active),
+html[data-theme="light"] #mv-pipeline-panel .mvp-tier-pill:not(.active),
+body[data-theme="light"] #mv-pipeline-panel .mvp-actions > .cta.ghost,
+html[data-theme="light"] #mv-pipeline-panel .mvp-actions > .cta.ghost {
+  color: rgba(18, 42, 32, 0.80) !important;
+}
+body[data-theme="light"] #mv-pipeline-panel .mvp-tier-pill:not(.active) .pr,
+html[data-theme="light"] #mv-pipeline-panel .mvp-tier-pill:not(.active) .pr {
+  opacity: 0.9;
+}
+/* 深色主题: 未选中胶囊也从 .78 提到 .88, 图标+价格更实。 */
+#mv-pipeline-panel .mvp-tier-pill:not(.active) { color: rgba(255, 255, 255, 0.88); }
+#mv-pipeline-panel .mvp-tier-pill .pr { opacity: 0.85; }

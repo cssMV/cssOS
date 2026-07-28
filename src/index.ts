@@ -4148,11 +4148,12 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
       const lyrics = (lyrRes && lyrRes.ok && lyrRes.content) ? lyrRes.content.trim() : "";
       if (!lyrics) throw new Error("lyrics_failed");
 
-      // ② 唱(suno 优先 → 真人声 + 唱词)。长曲用 V4_5PLUS 防截断。
+      // ② 唱(suno 优先 → 真人声 + 唱词)。CSSOS — Jing「音乐只选 Suno 最新版, 全部升 V5」:
+      //    含长曲一律 V5(不再按时长降到 V4/V4_5PLUS)。env SUNO_DEFAULT_MODEL 可秒回滚。
       const music = await callMusicGen({
         prompt: `${title} — ${style} — ${lyrics.slice(0, 300)}`,
         lyrics, title, language: lang, duration_secs: durationSecs,
-        prefer: ["suno"], sunoModel: durationSecs > 240 ? "V4_5PLUS" : "V4",
+        prefer: ["suno"], sunoModel: "V5",
       });
       let audioUrl = (music && music.ok && music.audio_url) ? String(music.audio_url) : "";
       // suno 返回临时 aiquickdraw URL → rehost 到 R2(永久)。
@@ -5042,6 +5043,10 @@ const CIV_LANGUAGE_ENTRIES: ReadonlyArray<{ match: ReadonlyArray<string>; lang: 
   { match: ["拜占庭", "Byzantine"],                                          lang: "el" },
   { match: ["古罗马", "Ancient Roman", "Roman Empire"],                      lang: "la" },
   { match: ["文艺复兴", "Renaissance"],                                      lang: "it" },
+  // CSSOS_WAVE_1771 (Jing) — 葡语世界此前完全没有 civ→lang 映射, 于是任何葡萄牙/巴西
+  // 人物都会 fall through 到空串, 文明智能联动失效(人物用 UI 语言而非母语回答)。
+  // 必须排在通用 "欧洲"/"European" 兜底之前 —— 该表是【首个命中即返回】。
+  { match: ["葡萄牙", "巴西", "Portug", "Brazil", "Lusophone", "Lusitan"],   lang: "pt" },
   { match: ["启蒙", "Enlightenment"],                                        lang: "fr" },
   { match: ["巴洛克", "Baroque"],                                            lang: "de" },
   { match: ["古典主义", "Classical Europe"],                                 lang: "de" },
@@ -5238,7 +5243,7 @@ function civVisualHint(civilization: string): string {
   return "";
 }
 
-function buildJingdianSystemPrompt(language: string, workType: string = "single", sectionForm: string = "", civilization: string = ""): string {
+function buildJingdianSystemPrompt(language: string, workType: string = "single", sectionForm: string = "", civilization: string = "", jingdian: boolean = false, directives: string = ""): string {
   const langName = languageNameFromCode(language);
   const wt = String(workType || "single").toLowerCase();
   // CSSOS_WAVE_179 — Jing's clarification: 短剧 episodes are DRAMA
@@ -5274,7 +5279,9 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
     ].join("\n");
   }
   const customForm = String(sectionForm || "").trim();
-  const useCustomForm = customForm.length > 0;
+  // W1770 — Jing「京典 master switch」: 勾了京典 → 走后端【精确十节京典默认】(bracketed), 不把前端那串
+  //   逗号 section_form 当自定义结构。没勾但填了自定义结构 → 照用自定义。
+  const useCustomForm = customForm.length > 0 && !jingdian;
   const defaultSectionList = [
     "[Verse 1]", "[Verse 2]", "[Chorus 1]", "[Verse 3]", "[Verse 4]",
     "[Chorus 2]", "[Bridge]", "[Chorus 3]", "[Chorus 4]", "[Outro]",
@@ -5311,8 +5318,22 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
   const dialectNote = civToLangDialectNote(civilization);
   const effectiveLangName = dialectNote ? dialectNote.langDisplay : langName;
 
+  // W1770 (B) — Jing「歌词自定义指令」: 用户在「歌词说明」框写的任意话(每节分语言 / 咒语语言 / 典故 / 小节
+  //   标题风格…) 作为【最高优先 USER DIRECTIVES】注入, 覆盖下方所有默认 —— 仅两条铁律不可覆盖:
+  //   (1) 小节标签保持英文 token(Verse/Chorus/Bridge/Outro); (2) 一切非歌词必须在 ASCII 方括号 [ ] 内。
+  const userDirectivesBlock = String(directives || "").trim()
+    ? [
+        `╔═══ USER DIRECTIVES — HIGHEST PRIORITY (override every default rule below) ═══╗`,
+        `The user gave explicit custom instructions for these lyrics. FOLLOW THEM EXACTLY. They OVERRIDE all defaults below — including per-section / per-line language, the incantation/ritual language, section subtitles, storyline, structure, and 典故/source. ONLY these two rules can NEVER be overridden: (1) section LABELS stay English tokens (Verse/Chorus/Bridge/Outro); (2) all non-lyric text stays inside ASCII square brackets [ ].`,
+        `USER INSTRUCTIONS: ${String(directives).trim().slice(0, 1200)}`,
+        `╚═══════════════════════════════════════════════════════════════════════════╝`,
+        ``,
+      ].join("\n")
+    : "";
+
   return [
-    `LANGUAGE DIRECTIVE (highest priority):`,
+    userDirectivesBlock,
+    `LANGUAGE DIRECTIVE (default when no user directive above overrides it):`,
     `All lyric BODY lines MUST be written in ${effectiveLangName}. Do not switch languages mid-song, do not translate to Chinese, do not "localize" Western personas to Chinese. The body language is fixed by this directive regardless of who the song is about.`,
     // CSSOS_WAVE_358 20260522 — Jing「i18n 铁律」
     `IMPORTANT: the prompt or theme text may be written in a different language (e.g. Chinese). Use it only as a semantic hint — still write the entire song in ${effectiveLangName}. If ${effectiveLangName} does not include Chinese, the lyrics must contain NO Chinese at all.`,
@@ -5353,7 +5374,7 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
   ].filter(s => s !== null && s !== undefined).join("\n");
 }
 
-function buildJingdianUserPrompt(language: string, style: string, prompt: string, workType: string = "single", sectionForm: string = "", civilization: string = "", synopsis: string = ""): string {
+function buildJingdianUserPrompt(language: string, style: string, prompt: string, workType: string = "single", sectionForm: string = "", civilization: string = "", synopsis: string = "", jingdian: boolean = false, directives: string = ""): string {
   const langName = languageNameFromCode(language);
   const dialectNote = civToLangDialectNote(civilization);
   const effectiveLangName = dialectNote ? dialectNote.langDisplay : langName;
@@ -5365,14 +5386,20 @@ function buildJingdianUserPrompt(language: string, style: string, prompt: string
     : wt === "film" || wt === "movie" ? "FILM (电影 — scene cues)"
     : "SINGLE SONG (单曲)";
   // CSSOS_WAVE_443 / 609 — civilization-aware music & vocal style hints.
-  // Jing「别让《长相思》唱 j-pop、《孔子》唱 k-pop」: 改为【无条件】注入 —— 即使给了风格, 也必须
-  // 把演唱/唱腔/配乐【锚定到该文明最具代表性的传统】, 并显式禁止文明错配。
+  // W1770 (A) — Jing「用户可逐项覆盖」: 从【无条件强制】改为【条件默认】——
+  //   · 用户【显式给了曲风 style】→ 用户的曲风 LEADS, 文明只做轻度点缀, 不得盖掉(用户干预永远优先);
+  //   · 用户【没给曲风】→ 才把演唱/唱腔/配乐默认锚到该文明最具代表性传统(仍防《长相思》唱 j-pop)。
+  const userGaveStyle = String(style || "").trim().length > 0;
   const civStyleHint = civilization
-    ? `Civilization context: "${civilization}". MANDATORY: the singing/vocal style AND the backing music MUST be the most representative, most popular tradition of THIS civilization — even if a style is otherwise given, the vocal tradition & instrumentation must stay native to "${civilization}". Examples: 中华/中国 → Chinese classical & 民乐 (guzheng / erhu / 箫 / pipa), 戏曲/古风/民族唱法; 古希腊 → aulos–lyre modal music + tragic chorus; 吠陀印度 → Carnatic ragas + classical bhajan vocal; 中世纪罗马/欧洲 → Gregorian chant + polyphonic choir; 日本古典 → gagaku / shamisen / Noh vocal. ⚠️ NEVER use a foreign idiom that clashes with the civilization — e.g. NO j-pop / k-pop / Western pop for a Chinese or ancient figure (a 南唐 ci like 《长相思》 must sound 婉约 with 古筝/箫/弦乐, NOT j-pop; Confucius must NOT sound like k-pop). Only Japanese personas may use j-pop/演歌, only Korean personas k-pop.`
+    ? (userGaveStyle
+        ? `Civilization context: "${civilization}" (cultural background only). The user EXPLICITLY chose the musical style "${style}" — that choice LEADS and MUST be honored. You may lightly tint instrumentation / vocal texture with "${civilization}" traditions where it genuinely enhances, but DO NOT override the user's chosen style with a civilization-default idiom. (User intervention wins — director law.)`
+        : `Civilization context: "${civilization}". No style was given → DEFAULT the singing/vocal style AND backing music to the most representative, most popular tradition of THIS civilization. Examples: 中华/中国 → Chinese classical & 民乐 (guzheng / erhu / 箫 / pipa), 戏曲/古风/民族唱法; 古希腊 → aulos–lyre modal music + tragic chorus; 吠陀印度 → Carnatic ragas + classical bhajan vocal; 中世纪罗马/欧洲 → Gregorian chant + polyphonic choir; 日本古典 → gagaku / shamisen / Noh vocal. ⚠️ Do NOT use a foreign idiom that clashes with the civilization — e.g. NO j-pop / k-pop / Western pop for a Chinese or ancient figure (a 南唐 ci like 《长相思》 must sound 婉约 with 古筝/箫/弦乐, NOT j-pop; Confucius must NOT sound like k-pop) — UNLESS the user explicitly requested it.`)
     : "";
   return [
+    // W1770 (B) — 用户自定义指令在 user 消息里也复述一遍(最高优先, 已在 system 详述)。
+    String(directives || "").trim() ? `⚠️ USER CUSTOM DIRECTIVES (HIGHEST PRIORITY — override defaults per system rules): ${String(directives).trim().slice(0, 1200)}` : "",
     `Write the FULL lyrics for: ${wtLabel}.`,
-    `Body language: ${effectiveLangName} (language code "${language}"). Add 1 ancestral/ritual line per section where applicable.`,
+    `Body language (default): ${effectiveLangName} (language code "${language}") — unless the user directives above specify otherwise. Add 1 ancestral/ritual line per section where applicable.`,
     style ? `Musical style: ${style}.` : "",
     civStyleHint,
     // CSSOS_WAVE_1537 — 导演入口「故事梗概」是剧情预览: 有梗概时它【决定剧情】,
@@ -5380,7 +5407,8 @@ function buildJingdianUserPrompt(language: string, style: string, prompt: string
     // 依标题+文明自主编剧(即"系统算法推荐剧情"), 与旧行为一致。
     synopsis ? `STORY SYNOPSIS (this DRIVES the plot — the lyrics MUST follow this storyline beat by beat, not drift from it): ${synopsis}` : "",
     `Subject / scene: ${prompt || "an evocative scene"}.`,
-    sectionForm ? `User-specified section form (override default): ${sectionForm}` : "",
+    // W1770 — 勾了京典 → 用默认十节, 不注入自定义 section form(即使前端把京典串填进了字段)。
+    (sectionForm && !jingdian) ? `User-specified section form (override default): ${sectionForm}` : "",
     ``,
     `Reminder: every section label uses ASCII square brackets [ ] with English keyword + subtitle (e.g. [Verse 1 · subtitle]). Body in ${effectiveLangName}. Include [Title: … / … / …], [Style: …], [Source: …] before [Verse 1]. No drafts, no commentary. Target: 4 body lines + 1 ritual line per section so the song runs 5+ minutes.`,
   ].filter(Boolean).join("\n");
@@ -5405,6 +5433,17 @@ function buildJingdianUserPrompt(language: string, style: string, prompt: string
  * Default behavior (when caller doesn't pass anything) = single song
  * with no padding (the deprecated 10-section auto-pad is removed).
  */
+// W1770 — 总魔法棒无标题时后端要【提炼】LLM 自己发明的标题(而非回退 "Untitled")。
+//   京典输出顶部有 `[Title: <母语标题> / <English> / <中文>]` —— 取母语段(第一段)。
+function extractLyricTitle(content: string, fallback: string): string {
+  const m = String(content || "").match(/\[Title:\s*([^\]\n]+)\]/i);
+  if (m && m[1]) {
+    const first = String(String(m[1]).split("/")[0] || "").trim().replace(/^["'“”]+|["'“”]+$/g, "");
+    if (first) return first.slice(0, 100);
+  }
+  return fallback;
+}
+
 type LyricsWorkType = "single" | "triptych" | "opera" | "shortplay" | "series" | "film" | string;
 function normalizeLyricsToJingdian(raw: string, workType: LyricsWorkType = "single", _sectionForm: string = ""): string {
   if (!raw) return raw;
@@ -10906,6 +10945,69 @@ async function creditUserBalance(userId: string, amount: number, reason: string,
   }
 }
 
+/* CSSOS_WAVE_1777 20260726 — Jing「赠送新用户 5 美元现金(不可提现), 用于支付生成费用」。
+ *
+ * 为什么必须有: 见 migrations/111_welcome_bonus.sql 的注释 —— 没有它, 新用户登录后
+ * 第一次想生成就撞 402(音乐要 $0.80 / 视频要 $1.50), 转化漏斗最后一步是断的。
+ *
+ * 三条硬要求:
+ *   ① 只发一次。靠 credit_events 的部分唯一索引在【数据库层】兜死, 而不是应用层判断
+ *      —— 并发的两次注册回调也只有一条能成功。冲突时静默返回, 不当错误。
+ *   ② 不可提现。payload 打 withdrawable:false —— 与钱包铁律一致(只有用户自己充进来的
+ *      钱可提现; 赠送/退款额度留在钱包里花掉)。将来做提现时按这个标记扣除。
+ *   ③ 不发给员工。员工本就 staff_exempt(生成不计费), 发了没用还污染统计。
+ */
+const WELCOME_BONUS_CENTS = 500;
+
+async function grantWelcomeBonus(userId: string): Promise<void> {
+  if (!userId) return;
+  try {
+    // ③ 员工跳过 —— 他们走 staff_exempt, 不需要余额。
+    if (await isCreditExempt(userId)) return;
+  } catch { /* 判定失败就照发, 宁可多发给员工也不要漏发给真用户 */ }
+  try {
+    await withClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        // ① 先抢唯一索引。冲突 = 已经发过 → 整个事务回滚, 一分钱不动。
+        await client.query(
+          `INSERT INTO credit_events (user_id, delta, reason, payload)
+           VALUES ($1::uuid, $2, 'welcome_bonus', $3::jsonb)`,
+          [userId, WELCOME_BONUS_CENTS, JSON.stringify({
+            withdrawable: false,          // ② 不可提现
+            source: "signup",
+            note: "New-user creation credit — spendable on generation, not withdrawable.",
+          })],
+        );
+        await client.query(
+          `INSERT INTO user_credits (user_id, balance, lifetime_earned, updated_at)
+           VALUES ($1::uuid, 0, 0, now())
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId],
+        );
+        await client.query(
+          `UPDATE user_credits
+              SET balance = balance + $2,
+                  lifetime_earned = lifetime_earned + $2,
+                  updated_at = now()
+            WHERE user_id = $1::uuid`,
+          [userId, WELCOME_BONUS_CENTS],
+        );
+        await client.query("COMMIT");
+        console.log(`[welcome-bonus] granted ${WELCOME_BONUS_CENTS}c to ${userId}`);
+      } catch (err) {
+        await client.query("ROLLBACK");
+        // 唯一索引冲突 = 已发过, 这是【正常路径】(重登/并发), 不是错误。
+        const msg = String((err as Error)?.message || "");
+        if (msg.indexOf("credit_events_welcome_bonus_uidx") === -1) throw err;
+      }
+    });
+  } catch (err) {
+    // 发放失败绝不能挡住登录 —— 用户登得进去比拿到赠额重要。
+    console.warn("[welcome-bonus] grant failed:", (err as Error)?.message || err);
+  }
+}
+
 /* CSSOS_WAVE_139 20260514 — Jing's directive: 设置 @cssstudio.app 所有
  * 用户和 jingdudc@gmail.com 等系统管理员，可以免积分. */
 async function isCreditExempt(userId: string): Promise<boolean> {
@@ -11590,6 +11692,44 @@ app.post("/api/coupons/redeem", express.json({ limit: "1kb" }), async (req, res)
 });
 
 // 管理建券 (admin token)。body {code,type,amount,sub_tier?,max_redemptions?,expires_at?,per_user_limit?,campaign?,note?}
+/* CSSOS_WAVE_1777 20260726 — Jing: 新人赠额上线前已注册的用户也要补发。
+ * 逐个走 grantWelcomeBonus(), 所以照样享受"唯一索引只发一次"的保护 —— 这个端点
+ * 可以反复调用, 已发过的用户自动跳过, 绝不会发第二遍。员工也会被 isCreditExempt 跳过。 */
+app.post("/api/admin/backfill-welcome-bonus", express.json({ limit: "1kb" }), async (req, res) => {
+  const adminTokenExpected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!adminTokenExpected || String(req.headers["x-admin-token"] || "").trim() !== adminTokenExpected) {
+    return res.status(403).json({ ok: false, error: "forbidden" });
+  }
+  try {
+    const r = await withClient((c) => c.query<{ id: string }>(
+      // 只挑【还没发过】的用户, 避免白跑一遍已发的。
+      `SELECT u.id FROM users u
+         WHERE NOT EXISTS (
+           SELECT 1 FROM credit_events e
+            WHERE e.user_id = u.id AND e.reason = 'welcome_bonus'
+         )
+         ORDER BY u.created_at`,
+    ));
+    const ids = ((r as any).rows || []).map((x: any) => String(x.id));
+    let granted = 0;
+    for (const id of ids) {
+      const before = await getCreditBalance(id).catch(() => -1);
+      await grantWelcomeBonus(id);
+      const after = await getCreditBalance(id).catch(() => -1);
+      if (after > before) granted += 1;
+    }
+    return res.json({
+      ok: true,
+      candidates: ids.length,
+      granted,
+      skipped_staff_or_already: ids.length - granted,
+      cents_each: WELCOME_BONUS_CENTS,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: (err as Error)?.message || "backfill_failed" });
+  }
+});
+
 app.post("/api/admin/coupons", express.json({ limit: "2kb" }), async (req, res) => {
   const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
   if (!expected || String(req.headers["x-admin-token"] || "").trim() !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
@@ -14520,8 +14660,14 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   {
     const _lyrArr = (body as any).lyrics;
     const _hasLyrics = Array.isArray(_lyrArr) ? _lyrArr.length > 0 : !!String(_lyrArr || "").trim();
-    if (!prompt && !_hasLyrics) {
-      return res.status(400).json({ ok: false, error: "empty_prompt", hint: "no prompt/title/lyrics — nothing to generate" });
+    // W1770 — Jing「总魔法棒」: 无标题 → 系统【发明】标题+歌词, 是合法创作用法(导演律: 不填→系统算法推荐),
+    //   之前被 W856 的空-prompt 闸误杀(总魔法棒送空 prompt → 400 → "did not return usable data")。
+    //   放行条件扩到【有任何创作上下文】: prompt / 已有词 / style(曲风) / civilization / genre 任一存在
+    //   → 交给 callLlm(KIE 优先)发明。纯浏览态(全空) 仍拒, 绝不空烧 KIE。
+    const _ctxStyle = String((body as any).style || (body as any).genre || "").trim();
+    const _ctxCiv = String((body as any).civilization || (body as any).civ || (body as any).personCiv || "").trim();
+    if (!prompt && !_hasLyrics && !_ctxStyle && !_ctxCiv) {
+      return res.status(400).json({ ok: false, error: "empty_prompt", hint: "no prompt/title/lyrics/style/civilization — nothing to generate" });
     }
   }
   // CSSOS_WAVE_401 20260524 — Jing「文明智能联动: 人物母语歌词」: 文明(civilization)
@@ -14556,7 +14702,25 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   // Advanced Settings SECTION FORM wins over the default 10-section
   // template.
   const workType = String((body as any).work_type || (body as any).workType || "single").trim().toLowerCase();
-  const sectionForm = String((body as any).section_form || (body as any).sectionForm || "").trim();
+  const sectionFormRaw = String((body as any).section_form || (body as any).sectionForm || "").trim();
+  // W1770 — 京典 master switch: 前端「京典模版」复选框勾选 → jingdian:true → 后端走精确十节京典默认。
+  const jingdianFlag = !!(body as any).jingdian;
+  // W1770 (B) — 用户「歌词说明 / 自定义指令」自由文本(每节分语言 / 咒语语言 / 典故 / 小节标题风格…)。
+  const lyricDirectives = String((body as any).lyric_directives || (body as any).directives || "").trim();
+  // W1770 (小口子) — Jing「留空 + 不勾京典 → 系统必须随机使用某一种歌词结构」(而非默认京典)。
+  //   只在【本端点】随机(不动共享的 buildJingdian* 默认 → 三部曲等模板不受影响)。勾了京典 → 保持空 →
+  //   builder 走精确十节京典。用户填了结构 → 照用。
+  const RANDOM_SECTION_FORMS = [
+    "[Verse 1], [Chorus 1], [Verse 2], [Chorus 2], [Bridge], [Chorus 3]",
+    "[Intro], [Verse 1], [Pre-Chorus], [Chorus 1], [Verse 2], [Pre-Chorus], [Chorus 2], [Bridge], [Chorus 3], [Outro]",
+    "[Verse 1], [Verse 2], [Chorus 1], [Verse 3], [Bridge], [Chorus 2], [Outro]",
+    "[Chorus 1], [Verse 1], [Verse 2], [Chorus 2], [Verse 3], [Bridge], [Chorus 3], [Outro]",
+    "[Verse 1], [Refrain], [Verse 2], [Refrain], [Verse 3], [Refrain], [Coda]",
+    "[Chorus 1], [Chorus 2], [Verse 1], [Verse 2], [Chorus 3], [Bridge], [Chorus 4], [Outro]",
+  ];
+  const sectionForm = (!sectionFormRaw && !jingdianFlag)
+    ? RANDOM_SECTION_FORMS[Math.floor(Math.random() * RANDOM_SECTION_FORMS.length)]
+    : sectionFormRaw;
   // CSSOS_WAVE_1537 — 导演入口「故事梗概」→ 驱动剧情(≤2000 字)。留空 = 模型自主编剧(系统算法推荐)。
   const synopsis = String((body as any).synopsis || (body as any).story || "").trim().slice(0, 2000);
 
@@ -14600,22 +14764,21 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
     try {
       const tier = await callLlm({
         messages: [
-          { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang) },
-          { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang, synopsis) },
+          { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang, jingdianFlag, lyricDirectives) },
+          { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang, synopsis, jingdianFlag, lyricDirectives) },
         ],
         // W360b — raised from 2600 → 3600: a full 10-section 京典 lyric in
         // Japanese / Korean / Arabic can use more tokens than English.
         // 2600 was causing mid-sentence truncation for non-Latin scripts.
         max_tokens: 3600,
         temperature: 0.7,
-        // CSSOS_WAVE_887 — Jing「歌词改走免费 groq/together, KIE 只做兜底; 但人物母语不能省」。
-        // 信号: _civForLang(civilization)已设 = 人物 MV 母语创作 → 强模型 KIE 不省(小模型写不出
-        // 阿姆哈拉/夏威夷/梵/古波斯等母语)。无 civ(通用/英文/自由创作)→ 免费优先(groq→together),
-        // KIE 自动兜底(llmProviderOrder 在 prefer 之后接全部已配 key 引擎)。这把绝大多数随手创作的
-        // 歌词成本砍到 0, 又绝不动人物母语质量。
-        ...(_civForLang
-          ? { prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS }
-          : { prefer: ["groq", "together"] as LlmProvider[] }),
+        // CSSOS_WAVE_887 → W1770 修正 — Jing「总魔法棒不出词/贴不进编辑器」根因:
+        //   京典歌词是【复杂格式】(十节 + 小节副标题 + 全方括号 + 母语 4 行 + 古老咒语 + [Source] + [Title]),
+        //   小模型(groq llama-3.1/3.3-8~70b)写不出这套 → 输出无 [Verse] 标记 → normalizeLyricsToJingdian
+        //   规整后近乎空 → 前端 "lyrics not filled into the editor"。W887 的"无 civ → 免费 groq 优先"正是元凶。
+        //   回到 W433 铁律【歌词一律先走强模型 KIE Claude】(免费引擎仍在 prefer 之后兜底, 单家欠费自动降级);
+        //   成本走用户钱包(pay-as-you-go)。人物母语(civ)本就走强模型, 现在通用/自由创作也走 → 一致高质。
+        prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS,
       });
       clearInterval(heartbeat);
       const __lyricsCostCents = estimateEngineCostCents("lyrics", tier?.provider, (tier?.content || "").length / 4);
@@ -14628,7 +14791,8 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
           ok: true,
           task_id: `tier-${tier.provider}-${Date.now()}`,
           lyrics: normalizeLyricsToJingdian(tier.content.trim(), workType, sectionForm),
-          derived_settings: { title: prompt.slice(0, 100) || "Untitled", music_style: style },
+          // W1770 — 无标题时提炼 LLM 发明的 [Title:…](而非 "Untitled"); 有标题仍用用户的。
+          derived_settings: { title: extractLyricTitle(tier.content, prompt.slice(0, 100) || "Untitled"), music_style: style },
           sections: null,
           shot_scripts: null,
           model: tier.model,
@@ -14686,8 +14850,8 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   try {
     llm = await callLlm({
       messages: [
-        { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang) },
-        { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang, synopsis) },
+        { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang, jingdianFlag, lyricDirectives) },
+        { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang, synopsis, jingdianFlag, lyricDirectives) },
       ],
       max_tokens: 2600,
       temperature: 0.7,
@@ -17291,17 +17455,22 @@ function pricingPresetForWorkType(workType: CssmvWorkType) {
 
 function defaultCreationPanelTemplate() {
   return {
+    // W1769 — Jing 铁律: 创作/高级设置面板【所有默认值必须留空】(由总魔法棒·文明智能联动生成),
+    //   唯一例外 = section_form 京典模版十节结构。留空 = "" (文本/选择) 或中性值 (range 无法为空,
+    //   前端标 untouched 后由魔法棒填)。曾经的 "Chinese GuFeng"/"Feminine"/tempo 88/key C 全部清空。
     creative: {
-      genre: "Chinese GuFeng",
+      genre: "",
       mood: "",
       instrument: "",
       instrumentation: "",
       ambience: "",
-      vocal_gender: "Feminine",
+      vocal_gender: "",
       vocal_style: "",
       ensemble_style: "",
       arrangement_density: 0.6,
       dynamics_curve: "",
+      // W1770 — Jing: section_form 也留空(不再默认京典)。京典模版改由前端末尾复选框 opt-in;
+      //   留空则总魔法棒按文明智能联动随机选一种结构。
       section_form: "",
       articulation_bias: "",
       voicing_register: "",
@@ -17311,12 +17480,12 @@ function defaultCreationPanelTemplate() {
       inspiration_notes: "",
       licensed_style_pack: "",
       external_audio_adapter: "",
-      tempo_bpm: 88,
-      musical_key: "C",
+      tempo_bpm: "",
+      musical_key: "",
       duration_s: "",
-      language: "zh",
+      language: "",
       prompt: "",
-      work_type: "single",
+      work_type: "",
     },
     pricing_by_type: {
       // CSSOS_WAVE_1153 — Jing 铁律: 聆听价 = 69¢($0.69), 不是 99¢。W1108 漏改了这张模板表。
@@ -17367,7 +17536,10 @@ function mergeCreationPanelTemplate(value: any) {
         ),
       ),
       dynamics_curve: String(creative.dynamics_curve || "").slice(0, 240),
-      section_form: String(creative.section_form || "").slice(0, 240),
+      // W1769 — section_form 是唯一保留默认的字段: 回退到 base(京典模版), 删掉 DB row 后仍显示京典模版。
+      section_form: String(
+        creative.section_form || base.creative.section_form || "",
+      ).slice(0, 240),
       articulation_bias: String(creative.articulation_bias || "").slice(0, 240),
       voicing_register: String(creative.voicing_register || "").slice(0, 240),
       percussion_activity: Math.max(
@@ -17405,21 +17577,20 @@ function mergeCreationPanelTemplate(value: any) {
       external_audio_adapter: String(
         creative.external_audio_adapter || "",
       ).slice(0, 240),
-      tempo_bpm: Math.max(
-        40,
-        Math.min(
-          220,
-          Number.parseInt(
-            String(creative.tempo_bpm || base.creative.tempo_bpm),
-            10,
-          ) || 88,
-        ),
-      ),
+      // W1769 — Jing: tempo/调式 也必须能留空(魔法棒·文明智能联动填)。空/未设 → "" (面板显示空 / Auto);
+      //   有值才 clamp。生成侧 `Number(tempo || 默认)` 已能容忍空值。
+      tempo_bpm:
+        String(creative.tempo_bpm ?? "").trim() === ""
+          ? ""
+          : Math.max(
+              40,
+              Math.min(220, Number.parseInt(String(creative.tempo_bpm), 10) || 88),
+            ),
       musical_key: ["C", "D", "E", "F", "G", "A", "B"].includes(
-        String(creative.musical_key || "C"),
+        String(creative.musical_key || ""),
       )
         ? String(creative.musical_key)
-        : "C",
+        : "",
       duration_s:
         Number.parseInt(String(creative.duration_s || ""), 10) > 0
           ? Math.max(
@@ -17430,15 +17601,14 @@ function mergeCreationPanelTemplate(value: any) {
               ),
             )
           : "",
-      language: ["zh", "en", "ja"].includes(
-        String(creative.language || base.creative.language),
-      )
+      // W1769 — language/work_type 也留空(空 → 面板 Auto/跟随 UI, 魔法棒按标题文明智能联动定)。
+      language: ["zh", "en", "ja"].includes(String(creative.language || ""))
         ? String(creative.language)
-        : "zh",
+        : "",
       prompt: String(creative.prompt || "").slice(0, 500),
-      work_type: normalizeWorkType(
-        creative.work_type || base.creative.work_type,
-      ),
+      work_type: String(creative.work_type || "").trim()
+        ? normalizeWorkType(creative.work_type)
+        : "",
     },
     pricing_by_type: {
       single: pricingPresetForWorkType("single"),
@@ -24386,14 +24556,15 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
         continue; // 叙事视频处理完, 跳过下面 Suno 唱段路径
       }
       try {
-        // CSSOS_WAVE_1458/1459 — Suno 唱段路径只剩歌剧(长片单场更长+V4_5PLUS 防截断)+ 歌/三部曲/插曲(60s);
+        // CSSOS_WAVE_1458/1459 — Suno 唱段路径只剩歌剧(长片单场更长)+ 歌/三部曲/插曲(60s);
         // 短剧/连续剧/电影的剧情叶子已走叙事视频分支(上面 continue)。
+        // CSSOS — Jing「音乐只选 Suno 最新版, 全部升 V5」: 含歌剧长曲一律 V5(不再降 V4_5PLUS)。
         const _isLongForm = String(part.work_type || "") === "opera";
         const tier = await callMusicGen({
           prompt: [part.title, part.style, lyr.slice(0, 300)].filter(Boolean).join(" — "),
           lyrics: lyr,
           duration_secs: _isLongForm ? 240 : 60,
-          ...(_isLongForm ? { sunoModel: "V4_5PLUS" } : {}),
+          sunoModel: "V5",
           // CSSOS_WAVE_1457 多引擎: 用户选的音乐引擎(provider 偏好/模型); 空=router 默认(Suno)。
           ...(_eng.prefer.length ? { prefer: _eng.prefer } : {}),
           ...(Object.keys(_eng.prefer_model).length ? { prefer_model: _eng.prefer_model } : {}),
@@ -24871,9 +25042,14 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 // 语言会乱编、漏译、出乱码。三强按序: Claude → GPT-4o → Gemini Pro。prefer_model 强制 capable 变体
 // (覆盖 provider 默认的 claude-haiku / gpt-4o-mini / gemini-flash —— 此前歌词锁竟在偷用这些小模型)。
 // CSSOS_WAVE_775 — Jing「用 kie 一家即可, 经 kie 用三强, 不再直连 OpenAI/Anthropic/Gemini」:
-// 歌词/lore 只走 kie(claude-opus-4-5 = kie 内的 Claude 强模型)。kie 万一全断, llmProviderOrder
-// 末尾仍会自动续上已配 key 的免费引擎(groq/together/…)兜底; 直连三强(空额度)自然跳过, 不再优先。
-const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie"];
+// 歌词/lore 只走 kie(claude-opus-4-8 = kie 内的 Claude 强模型)。
+// CSSOS — Jing「三强(Claude/OpenAI/Google)最新版永远打前锋, 别让小兵 LLM 白牺牲;
+//   只有三强全挂(不可能)小兵才垫底」: 前锋依次 = kie(Claude Opus 4.8) → anthropic(Claude)
+//   → openai(GPT) → gemini(Gemini Pro)。这四家(全 premium/强模型)在 prefer 里显式排前,
+//   llmProviderOrder 只把【剩下的】免费小兵(groq/cerebras/mistral/together/…)tier-sort 到末尾。
+//   之前 prefer 只有 ["kie"], kie 一断就直接掉进免费小兵档, 三强直连反而排最后 —— 与此意相反,
+//   现已修正。直连三强(空额度)会 credits-fail 快速穿过, 但顺序上强模型始终先于小兵。
+const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemini"];
 const CAPABLE_TEXT_MODELS: Partial<Record<LlmProvider, string>> = {
   kie: "claude-opus-4-8",
   anthropic: "claude-sonnet-4-5",
@@ -25851,7 +26027,9 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
               uploadUrl: String(req.coverUrl).trim(),
               customMode: true,
               instrumental: wantInstrumental,
-              model: "V4_5",                       // V4_5 支持 vocalGender / audioWeight
+              // CSSOS — Jing「音乐只选 Suno 最新版, 全部升 V5」: 翻唱也用 V5(保留 vocalGender/
+              // audioWeight 字段锁原旋律)。env SUNO_DEFAULT_MODEL / req.sunoModel 仍可覆盖回滚。
+              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5").trim() || "V5",
               style: sunoStyle,
               title: String(req.title || "cssOS").slice(0, 80),
               audioWeight: 0.95,                    // CSSOS_WAVE_587 — 拉到 0.95, 尽量锁住原旋律/时值(0.8 时跑偏)
@@ -27682,7 +27860,9 @@ async function upsertOAuthIdentity(args: {
   const displayName = args.displayName || null;
   const avatarUrl = String(args.avatarUrl || "").trim() || null;
   if (!provider || !providerUserId) throw new Error("oauth_identity_invalid");
-  return withClient(async (client) => {
+  // CSSOS_WAVE_1777 — 只有走到"真的新建 users 行"那一支才会被赋值; 老用户重登保持 null。
+  let freshUserId: string | null = null;
+  const resolvedUserId = await withClient(async (client) => {
     await client.query("BEGIN");
     try {
       const found = await client.query<{ user_id: string }>(
@@ -27734,6 +27914,9 @@ async function upsertOAuthIdentity(args: {
       );
       const userId = userRes.rows[0]?.id;
       if (!userId) throw new Error("user_create_failed");
+      // CSSOS_WAVE_1777 — 记下"这次是真的新建了用户", 事务【提交后】再发新人赠额。
+      // 不放事务内: 发放失败绝不能把注册一起回滚掉(登得进去 > 拿到赠额)。
+      freshUserId = userId;
 
       await client.query(
         `INSERT INTO oauth_identities (user_id, provider, provider_user_id)
@@ -27757,6 +27940,10 @@ async function upsertOAuthIdentity(args: {
       throw e;
     }
   });
+  // CSSOS_WAVE_1777 — 事务已提交, 现在才发新人赠额。await 但内部已 try/catch 兜住:
+  // 发放失败只打日志, 绝不抛出 —— 注册必须成功返回。
+  if (freshUserId) await grantWelcomeBonus(freshUserId);
+  return resolvedUserId;
 }
 
 /* CSSOS_PERSON_MV_WAVE77 20260508 — Jing
@@ -37756,7 +37943,8 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
   const lang = String(opts?.lang || "zh").trim() || "zh";
   const baseStyle = String(w.style || "").trim();
   const epicStyle = String(opts?.style || ("epic, thunderous climax, massive choir, soaring strings, cinematic, " + baseStyle)).slice(0, 200);
-  const sunoModel = String(opts?.sunoModel || "V4_5PLUS").trim() || "V4_5PLUS";
+  // CSSOS — Jing「音乐只选 Suno 最新版, 全部升 V5」: Epic 重出长曲也默认 V5(opts.sunoModel 仍可覆盖)。
+  const sunoModel = String(opts?.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5").trim() || "V5";
   // 1) Suno 重谱(prefer suno, customMode 唱【原词】, 画音分层不烧录)。
   const music = await callMusicGen({
     prompt: String(w.title || "cssOS"),
@@ -44322,6 +44510,13 @@ const CIV_EN_SEED: Record<string, string> = {
   "美索不达米亚文明": "Mesopotamia", "美索不达米亚神话": "Mesopotamian Myth", "莫卧儿印度": "Mughal India", "藏文明": "Tibetan",
   "西方文明": "Western", "近代欧洲": "Early Modern Europe", "近现代北美": "Modern North America",
   "近现代欧洲": "Modern Europe", "近现代科学": "Modern Science", "斯拉夫神话": "Slavic Myth",
+  // CSSOS_WAVE_1771 (Jing) — 葡语世界。缺这几行, seedFacePrompt() 会把【中文】civ 串进
+  // 英文 prompt(W1692 修过的同一个坑), 画面被往"泛中式"拽, 也违反 i18n 铁律。
+  "葡萄牙文明": "Portuguese", "近现代葡萄牙": "Modern Portugal", "巴西文明": "Brazilian",
+  // CSSOS_WAVE_1775 (Jing) — 阿拉伯/印度诗人圣者波。「阿拉伯文明」此前只有 civ→lang(ar),
+  // 却漏了英文 civ —— 一旦有 SEED_LEGEND_ACTORS 走这个 civ, face_prompt 就会中英混串。
+  // (已在册的 8 位阿拉伯人物走的是另一条 UUID 种子路径, 没暴露这个洞。)
+  "阿拉伯文明": "Arabic", "波斯苏非": "Persian Sufi",
 };
 function civEnSeed(c?: string | null): string {
   const s = String(c || "").trim();
@@ -44422,6 +44617,48 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-chernobog", name_zh: "切尔诺伯格", name_en: "Chernobog", name_native: "Чернобог", civilization: "斯拉夫神话",
     persona: "Slavic dark god, the embodiment of calamity and night", gender: "male",
     style_descriptor: "slavic black choir / brooding dread", voice_style: "grim thunderous bass", tags: ["dark-god","myth","legend"], archetypes: ["villain","enigma"] },
+  /* CSSOS_WAVE_1771 (Jing) — 补两个文明缺口。
+   * ① 葡语世界此前【零人物】, 而首波广告副测市场正是巴西 —— 广告把葡语用户引进来,
+   *    他们在"问道"里遇不到任何自己文明的人。配套的 civ→lang(pt) 与英文 civ 映射同波补上。
+   * ② 李清照: 她的名字就印在【问道卡】上("妲己·李白·李清照"), 七个语种的问道帖都在
+   *    展示她 —— 但名册里一直没有她本人。卡片承诺 vs 实际缺席, 必须补齐。 */
+  { actor_id: "act-legend-camoes", name_zh: "贾梅士", name_en: "Luís de Camões", name_native: "Luís Vaz de Camões", name_latin: "Ludovicus Camonius", civilization: "葡萄牙文明",
+    persona: "Portugal's national epic poet — one-eyed soldier who survived shipwreck clutching Os Lusíadas, and died in poverty", gender: "male",
+    style_descriptor: "age-of-discovery fado / ocean vastness / saudade", voice_style: "weathered seafaring baritone", tags: ["poet","epic","legend"], archetypes: ["sage","tragic"] },
+  { actor_id: "act-legend-pessoa", name_zh: "佩索阿", name_en: "Fernando Pessoa", name_native: "Fernando Pessoa", civilization: "近现代葡萄牙",
+    persona: "The poet of many selves — invented dozens of heteronyms, each with a life and voice of its own, and stayed unknown until death", gender: "male",
+    style_descriptor: "lisbon melancholy / fragmented modernist fado", voice_style: "quiet introspective tenor", tags: ["poet","modernist","legend"], archetypes: ["enigma","sage"] },
+  { actor_id: "act-legend-machado-de-assis", name_zh: "马查多·德·阿西斯", name_en: "Machado de Assis", name_native: "Joaquim Maria Machado de Assis", civilization: "巴西文明",
+    persona: "Brazil's greatest novelist — grandson of freed slaves, epileptic and stammering, who became the ironic conscience of an empire", gender: "male",
+    style_descriptor: "brazilian belle-époque strings / wry irony", voice_style: "dry ironic baritone", tags: ["novelist","irony","legend"], archetypes: ["sage","enigma"] },
+  { actor_id: "act-legend-li-qingzhao", name_zh: "李清照", name_en: "Li Qingzhao", name_native: "李清照", civilization: "中华文明",
+    persona: "The greatest ci poet in Chinese history — a woman who lost husband, homeland and collection to war, and wrote the sorrow down without flinching", gender: "female",
+    style_descriptor: "song-dynasty guqin / rain on wutong leaves / desolate", voice_style: "clear sorrowful mezzo", tags: ["poet","ci","song-dynasty","legend"], archetypes: ["sage","tragic"] },
+  /* CSSOS_WAVE_1775 (Jing) — 印度 + 阿拉伯的诗人/圣者波。
+   * 起因: wendao 多语言帖里点名的人物, 名册里没有 —— 印地语版点了米拉拜, 阿语版点了穆太奈比。
+   * 这两个文明此前只有神话/民间角色(罗摩衍那诸神、一千零一夜),【没有一个真实的诗人或圣者】。
+   * 而"问道"卖的正是「和历史本人对话」, 缺了诗人这一层, 这两个文明的用户就只剩神怪可问。
+   * 同波补上 CIV_EN_SEED 的「阿拉伯文明」英文映射(见上), 否则 face_prompt 会中英混串。 */
+  // —— 印度: 虔信派(bhakti)诗人圣者。跨越性别、种姓、教派, 都是用【方言白话】而非梵文写作的人。
+  { actor_id: "act-legend-mirabai", name_zh: "米拉拜", name_en: "Mirabai", name_native: "मीराबाई", civilization: "印度文明",
+    persona: "Rajput princess who walked out of a palace for Krishna — sang her devotion in the people's tongue, survived poison sent by her own in-laws", gender: "female",
+    style_descriptor: "bhakti ektara / ecstatic devotional / rajasthani folk", voice_style: "soaring devotional soprano", tags: ["poet","saint","bhakti","legend"], archetypes: ["sage","charmer"] },
+  { actor_id: "act-legend-kabir", name_zh: "迦比尔", name_en: "Kabir", name_native: "कबीर", civilization: "印度文明",
+    persona: "Weaver-mystic claimed by Hindus and Muslims alike, and disowned by both — mocked priest and mullah in the same couplet", gender: "male",
+    style_descriptor: "loom-rhythm doha / austere one-string / plainspoken", voice_style: "weathered truth-telling baritone", tags: ["poet","mystic","doha","legend"], archetypes: ["sage","enigma"] },
+  { actor_id: "act-legend-tulsidas", name_zh: "杜勒西达斯", name_en: "Tulsidas", name_native: "तुलसीदास", civilization: "印度文明",
+    persona: "Author of the Ramcharitmanas — took Rama out of Sanskrit and gave him to everyone who could not read it", gender: "male",
+    style_descriptor: "awadhi chaupai / temple-courtyard chorus / devotional epic", voice_style: "resonant narrating tenor", tags: ["poet","epic","ramayana","legend"], archetypes: ["sage","hero"] },
+  // —— 阿拉伯 / 苏非: 诗人与神秘主义者。穆太奈比是世俗诗歌之巅, 拉比雅与哈拉智是苏非两极。
+  { actor_id: "act-legend-al-mutanabbi", name_zh: "穆太奈比", name_en: "Al-Mutanabbi", name_native: "أبو الطيّب المتنبّي", civilization: "阿拉伯文明",
+    persona: "The greatest poet in the Arabic language, and he said so himself — praised kings, insulted kings, and was killed on the road by a line of his own verse", gender: "male",
+    style_descriptor: "classical qasida oud / desert grandeur / proud", voice_style: "proud declaiming baritone", tags: ["poet","qasida","legend"], archetypes: ["sage","enigma"] },
+  { actor_id: "act-legend-rabia", name_zh: "拉比雅", name_en: "Rabia al-Basri", name_native: "رابعة العدوية", civilization: "阿拉伯文明",
+    persona: "Sold as a slave, freed, and refused every marriage — the woman who taught Sufism to love God for nothing in return, neither for paradise nor from fear of hell", gender: "female",
+    style_descriptor: "basra night ney / ascetic stillness / pure longing", voice_style: "still luminous alto", tags: ["saint","sufi","mystic","legend"], archetypes: ["sage","tragic"] },
+  { actor_id: "act-legend-al-hallaj", name_zh: "哈拉智", name_en: "Al-Hallaj", name_native: "الحسين بن منصور الحلّاج", civilization: "阿拉伯文明",
+    persona: "Said 'I am the Truth' in the open street and was executed for it — the Sufi who would not take the sentence back", gender: "male",
+    style_descriptor: "sufi ecstatic dhikr / baghdad martyrdom / unyielding", voice_style: "burning ecstatic tenor", tags: ["saint","sufi","martyr","legend"], archetypes: ["sage","tragic"] },
 ];
 
 // CSSOS_WAVE_116 — 原创合成恶霸(全自家 IP, 零版权)。戏剧靠反派衬托; 造一批各路坏人平衡"好人多坏人少"。

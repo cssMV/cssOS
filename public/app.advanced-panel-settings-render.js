@@ -32,6 +32,7 @@ const ADVANCED_BLANK_FIELD_IDS = [
   "creation-humanization",
   "creation-inspiration",
   "creation-inspiration-notes",
+  "creation-section-form",
   "creation-tempo",
   "creation-key",
   "creation-duration",
@@ -56,6 +57,10 @@ function clearAdvancedDefaultsToBlank() {
     const el = document.getElementById(id);
     if (!el) continue;
     if (el.dataset.cssmvUserTyped === "1") continue;
+    // W1769 — Jing「总魔法棒带动全部选项 → 输出其他选项(可见)」: 总魔法棒刚由文明智能联动填的字段
+    //   带 cssmvCivDefault 戳记, 别被这道"默认留空"扫除抹掉(否则面板显示空, 而值只在 creationState 里,
+    //   用户看不见)。全新面板未点魔法棒时无此戳记 → 照常留空(Phase2 #181)。用户干预(cssmvUserTyped)仍最高优先。
+    if (el.dataset.cssmvCivDefault) continue;
     if (!el.dataset.cssmvBlankBound) {
       el.dataset.cssmvBlankBound = "1";
       const mark = () => { el.dataset.cssmvUserTyped = "1"; };
@@ -73,18 +78,10 @@ function clearAdvancedDefaultsToBlank() {
       el.value = "";
     }
   }
-  const sectionFormEl = document.getElementById("creation-section-form");
-  if (sectionFormEl) {
-    if (!sectionFormEl.dataset.cssmvBlankBound) {
-      sectionFormEl.dataset.cssmvBlankBound = "1";
-      const mark = () => { sectionFormEl.dataset.cssmvUserTyped = "1"; };
-      sectionFormEl.addEventListener("input", mark);
-      sectionFormEl.addEventListener("change", mark);
-    }
-    if (sectionFormEl.dataset.cssmvUserTyped !== "1") {
-      sectionFormEl.value = ADVANCED_SECTION_FORM_DEFAULT;
-    }
-  }
+  // W1770 — Jing: section_form 不再强制京典模版, 已并入上面的【留空扫除】列表(creation-section-form),
+  //   和其它字段一样默认留空。京典模版改由末尾「京典模版」复选框 opt-in(勾选=cssmvUserTyped→不被抹);
+  //   留空则总魔法棒按文明智能联动随机选一种结构(cssmvCivDefault→不被抹)。ADVANCED_SECTION_FORM_DEFAULT
+  //   仍供复选框(app.section-form-classic.js)使用。
 }
 
 // CSSOS_PHASE2_SMART_FILL 20260504 — Jing

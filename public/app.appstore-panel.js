@@ -175,8 +175,8 @@
   //   分享 → 复制到剪贴板。
   function shareApps() {
     var text =
-      lc("📱 CSS Studio is now on every Apple device — watch + create AI music videos, with sound.",
-         "📱 CSS Studio 已登陆全部苹果设备 —— 看 + 创作 AI 音乐视频, 有声音。") + "\n\n" +
+      lc("📱 CSS Studio is now on every Apple device — open it and a music video's already playing, with sound.",
+         "📱 CSS Studio 已登陆全部苹果设备 —— 打开就有音乐视频在播, 有声音。") + "\n\n" +
       "iPhone · iPad · Mac → " + STORE.iphone + "\n" +
       "Apple Watch → " + STORE.watch + "\n" +
       "Apple TV → " + STORE.tv + "\n" +

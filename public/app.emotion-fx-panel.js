@@ -289,7 +289,7 @@
       // ✎ 微调(order:-1 → ⚙ 之后、多语言之前)→ 直开波形逐字精修
       if (!bar.querySelector(".cssfx-fx-tune")) {
         var t = makeCapButton("cssfx-fx-tune", "✎", lc("Fine-tune", "微调"),
-          lc("Subtitle fine-tune (per word)", "字幕逐字微调"), -1, function () {
+          lc("Subtitle fine-tune (per word) · T", "字幕逐字微调 · T"), -1, function () {
             try {
               if (typeof globalThis.cssosOpenWaveEditor === "function") globalThis.cssosOpenWaveEditor();
               else openFor(bar);

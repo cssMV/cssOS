@@ -33,6 +33,128 @@
   let __currentWorkId = "";
   let __currentWork = null;
 
+  /* ══════════════════════════════════════════════════════════════════
+   * CSSOS_WAVE_1785 20260726 — Jing「串台根治: 标题/歌词/音乐/画面必须唯一」
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * 病史(为什么这是第 8 次治它, 也应该是最后一次):
+   *   W121 这个模块当年就立了合约 —— "任何资源加载器(封面/音频/视频/字幕)在应用前
+   *   必须校验 cssosCurrentWorkId() === ownerWorkId"。审计发现:
+   *   **cssosAssertOwnership 全库调用次数 = 0**。合约从未被执行过。
+   *
+   *   于是每次复发就给那一条道单独打补丁: W362 重放 / W617 幻灯池 / W630 合成部件 /
+   *   W653 音频权威 / W734 __cssosPlayGen(只覆盖一个函数内的 7 个 await) /
+   *   W895 切歌锁 / W1108 字幕 ownerWorkId。七套机制各管一条道、互不知情;
+   *   而真正的写入点有 11 个、分散在 8 个文件, 一个都没校验所有权。
+   *   → 换歌后上一首的异步请求落地时, 没补丁的那条道直接把旧数据写进屏幕
+   *     = 标题唐伯虎 / 歌声李白 / 画面日本。
+   *
+   * 治法: 不再加第 8 套私有补丁, 而是让 W121 的合约【真正可执行】——
+   *   ① 权威从"一个 id"升级成 (workId, gen) 一对。gen 单调递增, 换歌即 ++。
+   *      光比 id 不够: A→B→A 快速切换时, 第一次 A 的在途请求 id 仍然匹配,
+   *      但它属于上一代, 数据可能已经和第二次 A 的不同步。
+   *   ② 一道统一的闸 cssosApplyIfCurrent(token, fn): 令牌不匹配就丢弃 + 打点。
+   *      四条道(将来多视频是第五条)全部走它, 不用各自发明守卫。
+   *   ③ 探测器 cssosCrossTalkProbe(): 比对各道实际挂的 owner, 不一致就上报。
+   *      让下一次复发在用户看见之前被抓到, 而不是等 Jing 截图。
+   */
+  let __gen = 0;
+  const __dropped = [];          // 被闸拦下的写入(诊断用, 只留最近 50 条)
+
+  function currentToken() { return { workId: __currentWorkId, gen: __gen }; }
+
+  /* 资源加载器在【发起请求前】取一枚令牌, 在【落地写入前】用它过闸。 */
+  globalThis.cssosWorkToken = currentToken;
+  globalThis.cssosCurrentGen = function () { return __gen; };
+
+  /* 统一的写入闸。用法:
+   *     const tok = cssosWorkToken();          // 发请求前
+   *     const data = await fetchSomething();   // 异步
+   *     cssosApplyIfCurrent(tok, () => { …真正写 DOM/state… });
+   *
+   * 令牌不匹配 = 这份数据属于已经被切走的作品 → 静默丢弃(不是错误, 是正常竞态),
+   * 但记一笔, 让探测器和诊断面板能看见"刚才拦下了什么"。 */
+  globalThis.cssosApplyIfCurrent = function (token, fn, label) {
+    try {
+      const t = token || {};
+      const okId = !t.workId || t.workId === __currentWorkId;
+      const okGen = (typeof t.gen !== "number") || t.gen === __gen;
+      if (!okId || !okGen) {
+        __dropped.push({
+          at: Date.now(),
+          label: String(label || "(unlabeled)"),
+          wanted: t.workId || "", wantedGen: t.gen,
+          current: __currentWorkId, currentGen: __gen,
+        });
+        if (__dropped.length > 50) __dropped.shift();
+        return false;
+      }
+      if (typeof fn === "function") fn();
+      return true;
+    } catch (_e) { return false; }
+  };
+  globalThis.cssosDroppedWrites = function () { return __dropped.slice(); };
+
+  /* ── 资源登记表 (W1785 第二层) ──────────────────────────────────
+   *
+   * 为什么光有 workId 不够(这是补了七次还复发的结构性原因):
+   *   审计发现四条道的【唯一定位键根本不是同一个】——
+   *     标题 / 封面   → workId
+   *     音频 / 字幕   → workId + lang + voice + take   ← 多三个维度
+   *   一部作品下音频不是一条: 实测 27 部有 2 条轨、14 部 3 条、还有 5 条和 8 条的。
+   *   而【换语言时 workId 不变】, 所以任何"只比 workId"的守卫全都放行 ——
+   *   这就是切语言最容易串台、也是历次补丁都堵不住的那道缝。
+   *
+   * 另一个硬伤: 音频 URL 自己不带身份。
+   *   视频是 artifacts/mv/canon-<workId前缀>-….mp4  → 看 URL 就能自证
+   *   音频是 artifacts/audio/aud-<hash>.mp3          → 看不出属于谁
+   *   所以运行时必须有一张表, 记住"这个 url 是在哪个坐标下被挂上去的"。
+   *
+   * 用法(写入点):
+   *     cssosRegisterAsset('audio', url, { lang:'zh', voice:'auto', take:1 });
+   *   workId/gen 不用传, 登记时自动取当前权威 —— 少一个传错的机会。
+   *
+   * 用法(探测器):
+   *     cssosAssetCoord('audio', url)  → 该 url 登记时的完整坐标, 或 null
+   *
+   * 多视频将来只是坐标里多一个字段(videoTrack), 守卫逻辑一行都不用改。 */
+  var __assets = Object.create(null);      // "channel|url" → coord
+  var __assetOrder = [];                   // FIFO, 控制表大小
+  var ASSET_MAX = 300;
+
+  function assetKey(channel, url) { return String(channel) + "|" + String(url || ""); }
+
+  globalThis.cssosRegisterAsset = function (channel, url, coord) {
+    try {
+      if (!url) return;
+      var k = assetKey(channel, url);
+      if (!(k in __assets)) {
+        __assetOrder.push(k);
+        if (__assetOrder.length > ASSET_MAX) {
+          var old = __assetOrder.shift();
+          delete __assets[old];
+        }
+      }
+      __assets[k] = {
+        channel: String(channel),
+        url: String(url),
+        workId: __currentWorkId,          // 登记时的权威, 不由调用方传
+        gen: __gen,
+        lang: (coord && coord.lang) || "",
+        voice: (coord && coord.voice) || "",
+        take: (coord && coord.take) || "",
+        videoTrack: (coord && coord.videoTrack) || "",   // 预留给多视频
+        at: Date.now(),
+      };
+    } catch (_e) {}
+  };
+  globalThis.cssosAssetCoord = function (channel, url) {
+    try { return __assets[assetKey(channel, url)] || null; } catch (_e) { return null; }
+  };
+  globalThis.cssosAssetTable = function () {
+    return __assetOrder.map(function (k) { return __assets[k]; }).filter(Boolean);
+  };
+
   function flushAllAssetCaches() {
     /* CSSOS_WAVE_204 20260516 — Jing: "关闭MV面板之后，从'为你创作'面板
      * 想再打开，标题/歌词/音频全乱套了，三个不同作品的数据混在一起，
@@ -254,6 +376,9 @@
     // Real switch — flush before rebind so any in-flight async asset load
     // that completes after this point will fail the ownership check.
     flushAllAssetCaches();
+    // W1785 — 代次 ++。必须在 flush 之后、赋新 id 之前/同时做:
+    // 这一刻起, 所有【换歌前取的令牌】立即失效, 在途请求落地时会被闸拦下。
+    __gen += 1;
     __currentWorkId = id;
     __currentWork = work || null;
     // CSSOS_WAVE_550 — flush 清空了 backdrop; 立刻用【新作品】封面重绘, 避免黑屏闪 + 杜绝旧封面残留。

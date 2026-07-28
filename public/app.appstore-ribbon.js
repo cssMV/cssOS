@@ -49,6 +49,27 @@
       try { bar.remove(); } catch (_e2) {}
     });
   }
+  // W1765 — 真全屏也要显示这条公告(Jing)。真全屏用 element.requestFullscreen()
+  //   只渲染那个全屏元素的子树, body 层的 position:fixed 横幅落在子树外 → 不显示
+  //   (与 WAVE_705 爆字/字幕同一根因)。进全屏时把横幅移进 fullscreenElement,
+  //   退出时移回 body。全屏元素是容器 div(审计#1/#2 已改容器优先, 非裸 <video>),
+  //   可安全 appendChild。已 dismiss(横幅被移除)则本函数自然 no-op。
+  function reparentForFullscreen() {
+    try {
+      var bar = document.getElementById("cssos-appstore-ribbon");
+      if (!bar) return;
+      var fsEl = document.fullscreenElement || document.webkitFullscreenElement || null;
+      if (fsEl && fsEl.nodeType === 1 && fsEl.appendChild && bar.parentNode !== fsEl) {
+        fsEl.appendChild(bar);            // 进全屏: 移进全屏子树
+      } else if (!fsEl && bar.parentNode !== document.body) {
+        document.body.appendChild(bar);   // 退出全屏: 移回 body
+      }
+    } catch (_e) {}
+  }
+  try {
+    document.addEventListener("fullscreenchange", reparentForFullscreen, false);
+    document.addEventListener("webkitfullscreenchange", reparentForFullscreen, false);
+  } catch (_e) {}
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", mount);
   } else {

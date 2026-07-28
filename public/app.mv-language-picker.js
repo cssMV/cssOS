@@ -144,6 +144,8 @@
     grid.setAttribute("data-pill-bar", "");
     grid.setAttribute("data-pill-compact", "");
     grid.setAttribute("data-pill-multi", "");
+    // W1767 — 自适应宽度 = 交给 CSS 规则 .cssos-lang-picker-grid[data-pill-bar]{grid-auto-columns:max-content}
+    //   (style.css), 那里是本栏 grid-auto-columns 的既有权威落点, 不在此内联重复。
     container.appendChild(grid);
 
     var priceLine = document.createElement("div");

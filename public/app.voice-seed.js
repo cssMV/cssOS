@@ -304,22 +304,32 @@ function pulseLogoForMic(mode = "listening", durationMs = 900) {
   micForcedMirrorAnimationMode = Object.values(MIRROR_ANIMATION_MODES).includes(singleMode)
     ? singleMode
     : MIRROR_ANIMATION_MODES.HALO;
+  // 方案 A — 麦克风走统一指示灯大脑(logo 手, 具名流 'mic'); 大脑未加载则直呼兜底。
+  var micBegin = function () {
+    if (typeof globalThis.cssosBusyBeginNamed === "function") globalThis.cssosBusyBeginNamed("mic");
+    else enterLyricSpellcast();
+  };
+  var micEnd = function () {
+    if (typeof globalThis.cssosBusyEndNamed === "function") globalThis.cssosBusyEndNamed("mic");
+    else exitLyricSpellcast(true);
+  };
   if (nextMode === "recording" || nextMode === "processing") {
-    enterLyricSpellcast();
+    micBegin();
     applyMirrorAnimationMode(micForcedMirrorAnimationMode);
     return;
   }
-  enterLyricSpellcast();
+  micBegin();
   applyMirrorAnimationMode(micForcedMirrorAnimationMode);
   window.setTimeout(() => {
-    if (!micHoldState.active && !micRecState.started) exitLyricSpellcast();
+    if (!micHoldState.active && !micRecState.started) micEnd();
   }, Math.max(260, Number(durationMs || 900)));
 }
 
 function stopLogoMicPulse() {
   if (!logoPanel) return;
   micForcedMirrorAnimationMode = "";
-  exitLyricSpellcast(true);
+  if (typeof globalThis.cssosBusyEndNamed === "function") globalThis.cssosBusyEndNamed("mic");
+  else exitLyricSpellcast(true);
 }
 
 function clearMicCaptureHideTimer() {

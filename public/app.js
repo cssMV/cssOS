@@ -4057,6 +4057,11 @@ function filterWorkCollection(works, mode = "all") {
     const ownerUserId = String(work?.owner_user_id || "").trim();
     const mine = Boolean(authState.user?.id) && ownerUserId === String(authState.user?.id || "").trim();
     if (mode === "single" || mode === "triptych" || mode === "opera") return workType === mode;
+    // W1768 — 短剧/电视连续剧/电影/游戏: normalizeWorkTypeClient 只归一到 single/triptych/opera(不动它,
+    //   避免影响定价/展示的下游依赖), 故这几类按【原始 work_type 字符串】匹配。目前多为空 = 开放品类占位。
+    if (mode === "short_drama" || mode === "series" || mode === "film" || mode === "game") {
+      return String(work?.work_type || "").trim().toLowerCase() === mode;
+    }
     if (mode === "live") return visibility !== "private" && visibility !== "hidden";
     if (mode === "hidden") return visibility === "private" || visibility === "hidden";
     if (mode === "owned") return mine;
@@ -5131,6 +5136,8 @@ let pipelineStatusTimer = null;
 let topZ = 10;
 let lyricSpellcastDepth = 0;
 let lyricSpellcastColorTimer = null;
+let lyricSpellcastWatchdog = null;
+let lyricSpellcastSprayTimer = null;
 let lastTrailTime = 0;
 let micForcedMirrorAnimationMode = "";
 
@@ -7315,13 +7322,23 @@ function enterLyricSpellcast() {
   lyricSpellcastDepth += 1;
   if (!logoPanel || lyricSpellcastDepth !== 1) return;
   clearInterval(lyricSpellcastColorTimer);
+  clearTimeout(lyricSpellcastWatchdog);
   applyRandomLyricSpellcastPalette();
   lyricSpellcastColorTimer = window.setInterval(
     applyRandomLyricSpellcastPalette,
     220,
   );
+  /* CSSOS — 指示灯内存安全网 (Jing「消失之后不销毁内存导致崩溃」): never let the
+     indicator (220ms color timer + compositor layer + classes) live forever if
+     a matching exit is ever dropped by a caller. Force a full teardown after a
+     hard ceiling well above the longest real generation (~30s KIE Claude), so a
+     leaked cast can't keep a timer + GPU layer alive → crash. */
+  lyricSpellcastWatchdog = window.setTimeout(() => {
+    exitLyricSpellcast(true);
+  }, 90000);
   logoPanel.classList.add("lyric-spellcast");
   applyMirrorAnimationMode(getStoredMirrorAnimationMode());
+  startLyricSpellcastSpray();
 }
 
 function exitLyricSpellcast(force = false) {
@@ -7329,15 +7346,71 @@ function exitLyricSpellcast(force = false) {
   if (!logoPanel || lyricSpellcastDepth > 0) return;
   clearInterval(lyricSpellcastColorTimer);
   lyricSpellcastColorTimer = null;
+  clearTimeout(lyricSpellcastWatchdog);
+  lyricSpellcastWatchdog = null;
   logoPanel.classList.remove("lyric-spellcast");
   MIRROR_SPELLCAST_CLASSNAMES.forEach((className) => logoPanel.classList.remove(className));
   logoPanel.dataset.mirrorAnimationResolved = "";
-  [logoPanel].filter(Boolean).forEach((panel) => {
+  /* CSSOS — the palette is written to BOTH logoPanel and settingsPanel (see
+     applyRandomLyricSpellcastPalette); clean BOTH on teardown so no stale
+     inline --lyric-spellcast-* vars leak onto the settings panel. */
+  [logoPanel, settingsPanel].filter(Boolean).forEach((panel) => {
     panel.style.removeProperty("--lyric-spellcast-primary");
     panel.style.removeProperty("--lyric-spellcast-secondary");
     panel.style.removeProperty("--lyric-spellcast-glow");
     panel.style.removeProperty("--lyric-spellcast-text");
   });
+  stopLyricSpellcastSpray();
+}
+
+/* CSSOS — Jing「取消外圈, 改成喷平台招牌『字心烟花爆』小 emoji」: 加载态小魔镜四周持续
+   喷发招牌火花 emoji。★ 严格内存卫生(Jing 铁律「顺畅完毕立即销毁, 别泄漏崩溃」):
+   发射器 interval + 每个粒子节点都在 cast 结束的瞬间全拆; 粒子自身 animationend + 1.3s
+   硬兜底双清除; 低上限封顶节点数; 退出时整层一次性铲除(带走全部子节点)。90s 看门狗
+   force-exit 也会走到 stopLyricSpellcastSpray, 最终兜底。 */
+const LYRIC_SPRAY_EMOJI = ["✨", "🎇", "🎆", "💥", "🌟", "💫", "⭐️"];
+function ensureLyricSprayLayer() {
+  if (!logoPanel) return null;
+  const mirror = logoPanel.querySelector(".mirror");
+  if (!mirror) return null;
+  let layer = mirror.querySelector(":scope > .cssos-spellcast-spray");
+  if (!layer) {
+    layer = document.createElement("div");
+    layer.className = "cssos-spellcast-spray";
+    layer.setAttribute("aria-hidden", "true");
+    mirror.appendChild(layer);
+  }
+  return layer;
+}
+function spawnLyricSprayEmoji() {
+  const layer = ensureLyricSprayLayer();
+  if (!layer) return;
+  if (layer.childElementCount > 14) return; // 上限, 防堆积
+  const s = document.createElement("span");
+  s.className = "spray-emoji";
+  s.textContent = LYRIC_SPRAY_EMOJI[Math.floor(Math.random() * LYRIC_SPRAY_EMOJI.length)];
+  const ang = Math.random() * Math.PI * 2;
+  const dist = 34 + Math.random() * 40;
+  s.style.setProperty("--dx", (Math.cos(ang) * dist).toFixed(1) + "px");
+  s.style.setProperty("--dy", (Math.sin(ang) * dist).toFixed(1) + "px");
+  s.style.setProperty("--rot", (Math.random() * 160 - 80).toFixed(0) + "deg");
+  s.style.fontSize = (10 + Math.random() * 8).toFixed(0) + "px";
+  layer.appendChild(s);
+  const kill = () => { try { if (s.parentNode) s.parentNode.removeChild(s); } catch (_e) {} };
+  s.addEventListener("animationend", kill, { once: true });
+  setTimeout(kill, 1300); // 兜底: 即使 animationend 没补发也清
+}
+function startLyricSpellcastSpray() {
+  clearInterval(lyricSpellcastSprayTimer);
+  spawnLyricSprayEmoji();
+  lyricSpellcastSprayTimer = window.setInterval(spawnLyricSprayEmoji, 240);
+}
+function stopLyricSpellcastSpray() {
+  clearInterval(lyricSpellcastSprayTimer);
+  lyricSpellcastSprayTimer = null;
+  if (!logoPanel) return;
+  const layer = logoPanel.querySelector(".cssos-spellcast-spray");
+  if (layer && layer.parentNode) layer.parentNode.removeChild(layer); // 一次铲掉容器+全部粒子
 }
 
 function typewriter(el, text, speed = 24, callback) {
@@ -7350,7 +7423,9 @@ function typewriter(el, text, speed = 24, callback) {
   const step = () => {
     if (typingState.canceled) {
       if (lyricsProgress) setProgress(lyricsProgress, 0);
-      exitLyricSpellcast(true);
+      // 方案 A — 歌词流式结束 → 收起 logo 手的 'gen'/'wand' 具名流(幂等); 大脑未加载则直呼兜底。
+      if (typeof globalThis.cssosBusyEndNamed === "function") { globalThis.cssosBusyEndNamed("gen"); globalThis.cssosBusyEndNamed("wand"); }
+      else exitLyricSpellcast(true);
       return;
     }
     if (typingState.paused) {
@@ -7371,7 +7446,9 @@ function typewriter(el, text, speed = 24, callback) {
       typingState.completed = true;
       setEngineDetail("lyrics", "stage: done");
       setEngineProgressVisible("lyrics", false);
-      exitLyricSpellcast(true);
+      // 方案 A — 歌词流式结束 → 收起 logo 手的 'gen'/'wand' 具名流(幂等); 大脑未加载则直呼兜底。
+      if (typeof globalThis.cssosBusyEndNamed === "function") { globalThis.cssosBusyEndNamed("gen"); globalThis.cssosBusyEndNamed("wand"); }
+      else exitLyricSpellcast(true);
       maybeCompactForyouAfterLyrics({ armAuto: false });
       layoutShowcasePanels();
       if (watchPanel && !watchPanel.classList.contains("hidden")) focusPanel(watchPanel);
@@ -7381,7 +7458,9 @@ function typewriter(el, text, speed = 24, callback) {
       typingState.completed = true;
       setEngineDetail("lyrics", "stage: done");
       setEngineProgressVisible("lyrics", false);
-      exitLyricSpellcast(true);
+      // 方案 A — 歌词流式结束 → 收起 logo 手的 'gen'/'wand' 具名流(幂等); 大脑未加载则直呼兜底。
+      if (typeof globalThis.cssosBusyEndNamed === "function") { globalThis.cssosBusyEndNamed("gen"); globalThis.cssosBusyEndNamed("wand"); }
+      else exitLyricSpellcast(true);
       maybeCompactForyouAfterLyrics({ armAuto: false });
       layoutShowcasePanels();
       if (watchPanel && !watchPanel.classList.contains("hidden")) focusPanel(watchPanel);

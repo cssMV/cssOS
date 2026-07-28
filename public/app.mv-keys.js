@@ -82,7 +82,8 @@
     return m + ":" + ss;
   }
 
-  window.addEventListener("keydown", function (e) {
+  // W1766 — handler body unchanged; attached via the unified hub below.
+  var __cssosMvKeysHandler = function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (isTypingTarget(e.target)) return;
     if (!isWatchActive()) return;
@@ -168,7 +169,18 @@
       }
       return;
     }
-  });
+  };
+  // W1766 — dispatch via unified hub at the SAME window/bubble phase; fallback
+  // keeps the raw listener if the hub is absent (zero behavior change).
+  if (globalThis.cssosShortcuts && globalThis.cssosShortcuts.register) {
+    globalThis.cssosShortcuts.register({
+      id: "player-keys", owned: true, target: "window", phase: "bubble",
+      handler: __cssosMvKeysHandler, keys: "J/L/M/S/↑↓←→/0-9", source: "app.mv-keys.js",
+      desc: function () { return globalThis.cssosShortcuts.lc("Media player keys (seek/mute/snapshot/volume/jump)", "播放器键 (快进/静音/截帧/音量/跳转)"); }
+    });
+  } else {
+    window.addEventListener("keydown", __cssosMvKeysHandler, false);
+  }
 
   globalThis.cssosMvKeys = { active: function () { return isWatchVisible(); } };
 })();

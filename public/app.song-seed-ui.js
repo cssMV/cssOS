@@ -1034,8 +1034,29 @@ async function regenerateSeedFieldsModule(target) {
     if (target === "lyrics") {
       lyricStage = "ui-warmup";
       const lyricUiOk = runNonCriticalUiStep(() => {
-        enterLyricSpellcast();
+        // 方案 A — 走统一指示灯大脑(logo 手, 具名流 'wand'); 大脑未加载则直呼兜底。
+        if (typeof globalThis.cssosBusyBeginNamed === "function") globalThis.cssosBusyBeginNamed("wand");
+        else enterLyricSpellcast();
         randomizeCreationForLyricsRefresh(title);
+        // W1768/#3 — 总魔法棒带动【全部】~30 项高级选项: randomize 覆盖既有 6 项(曲风/器乐/tempo/调式/…),
+        //   这里补齐其余(dynamics/articulation/voicing/expression/humanization/section-form/密度/打击/inspiration…),
+        //   全走文明智能联动(文明 + 代表曲风家族派生)。只填用户没动过的(isVirgin/未拖动), 用户改过的绝不覆盖。
+        try { globalThis.cssosApplyCivDefaultsForLyrics && globalThis.cssosApplyCivDefaultsForLyrics(); } catch (_e) { /* no-op */ }
+        // W1769 — tempo/调式/work-type/duration 由 randomize 只写进 creationState、不写 DOM, 且被后续
+        //   流程清掉了 value(戳记还在)→ 面板看不见。延迟回填一次(过了 400ms 的留空扫除, 之后不再被清):
+        //   value 优先取 creationState(randomize 已算好、生成也用它)→ 退回 civ 戳记; 用户改过的(cssmvUserTyped)跳过。
+        setTimeout(function () {
+          try {
+            var cs = globalThis.creationState || {};
+            [["creation-tempo", cs.tempo], ["creation-key", cs.key], ["creation-work-type", cs.workType], ["creation-duration", cs.duration]]
+              .forEach(function (p) {
+                var e = document.getElementById(p[0]);
+                if (!e || (e.dataset && e.dataset.cssmvUserTyped === "1")) return;
+                var val = (p[1] != null && p[1] !== "") ? String(p[1]) : (e.dataset ? (e.dataset.cssmvCivDefault || "") : "");
+                if (val && !String(e.value || "").trim()) { e.value = val; if (e.dataset) e.dataset.cssmvCivDefault = val; }
+              });
+          } catch (_e) { /* no-op */ }
+        }, 650);
       });
       if (!lyricUiOk) {
         setLyricsDebugStatus(
@@ -1246,7 +1267,11 @@ async function regenerateSeedFieldsModule(target) {
     if (target === "lyrics") {
       lyricRegenerateRequestActive = false;
     }
-    if (target === "lyrics") exitLyricSpellcast(true);
+    if (target === "lyrics") {
+      // 方案 A — 结束 'wand' 具名流(logo 手); 大脑未加载则直呼兜底。
+      if (typeof globalThis.cssosBusyEndNamed === "function") globalThis.cssosBusyEndNamed("wand");
+      else exitLyricSpellcast(true);
+    }
     setButtonBusy(trigger, false);
   }
 }

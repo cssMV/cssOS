@@ -1,16 +1,31 @@
 (function initWatchFontManifest(global){
-  const entries = [
-  {
-    "family": "HengShanMaoBiCaoShu",
-    "src": "fonts/HengShanMaoBiCaoShu.ttf",
-    "format": "truetype"
-  },
-  {
-    "family": "PangMenZhengDaoXiXianTi-2",
-    "src": "fonts_cn2/PangMenZhengDaoXiXianTi-2.ttf",
-    "format": "truetype"
-  }
-  ];
+  /* CSSOS_WAVE_1793 20260729 — Jing 选 B: 删掉本地字体清单项, 控制台归零。
+   *
+   * 这两项【不是漏部署, 是刻意不部署】—— 它们是商用中文字体, 授权禁止再分发,
+   * 所以 .gitignore 排除 public/fonts/ 与 public/fonts_cn2/(见其中注释),
+   * scripts/deploy.sh 的 rsync 也显式 --exclude 这三个字体目录。
+   * 把它们挂上 web = 向每个访客分发 = 正是授权禁止的事。
+   *
+   * 结果是清单里两条永远 404 的引用, 探针每 24h 各 HEAD 一次 → 控制台 2 条 404。
+   * Jing 拍板: 删掉, 换控制台干净; 代价是自动恢复机制随之失效。
+   *
+   * ⚠️ 将来买到授权要恢复, 把下面这段原样填回 entries 即可(仅此一步):
+   *
+   *   { "family": "HengShanMaoBiCaoShu",
+   *     "src": "fonts/HengShanMaoBiCaoShu.ttf",
+   *     "format": "truetype" },
+   *   { "family": "PangMenZhengDaoXiXianTi-2",
+   *     "src": "fonts_cn2/PangMenZhengDaoXiXianTi-2.ttf",
+   *     "format": "truetype" }
+   *
+   * 同时还要: ①把字体放进 public/fonts/ 与 public/fonts_cn2/;
+   *           ②从 .gitignore 与 deploy.sh 的 --exclude 里放开对应目录。
+   * 恢复后 app.watch-ui.js 的「HengShan」字体选项才会真正生效
+   * (现在选了等于没选, webfont 加载不到, 静默回落 PingFang SC)。
+   *
+   * 注意: 下面的 Google Fonts 那一整套(GOOGLE_FANCY_FONTS / LANG_SCRIPT_FONTS /
+   * W1763 文明智能联动)【完全不受影响】—— 那些是外链 CSS, 没有本地文件依赖。 */
+  const entries = [];
   // CSSOS_PHASE2_FONT_404_PRUNE 20260426 #134 — Jing
   // "控制台报错，还是这些字体问题，能不能一次性下载他们？免得每次都报错？"
   //
@@ -127,17 +142,25 @@
   // immediately so first paint has the fonts. Then probe in the background
   // to catch any fresh 404s. If no cache, set CSSOS_WATCH_FONT_MANIFEST to
   // an empty array temporarily so consumers don't crash on undefined.
-  const seedCache = readProbeCache();
-  if (seedCache) {
-    injectAvailable(seedCache);
-  } else {
+  // CSSOS_WAVE_1793 — 清单为空时【整段短路】: 不探针、不注入、不打日志。
+  //   否则 injectAvailable({}) 会走到那条 "All font roots probed missing" 的
+  //   console.info —— 那只是把 2 条 404 换成 1 条日志, 不算干净。
+  //   下面的 Google Fonts 注入在本 IIFE 后半段, 不受这里影响。
+  if (entries.length === 0) {
     global.CSSOS_WATCH_FONT_MANIFEST = [];
+  } else {
+    const seedCache = readProbeCache();
+    if (seedCache) {
+      injectAvailable(seedCache);
+    } else {
+      global.CSSOS_WATCH_FONT_MANIFEST = [];
+    }
+    probeRoots().then((roots) => {
+      // If we already injected from a stale cache, don't re-inject.
+      if (document.getElementById("cssos-watch-font-manifest-style")) return;
+      injectAvailable(roots);
+    });
   }
-  probeRoots().then((roots) => {
-    // If we already injected from a stale cache, don't re-inject.
-    if (document.getElementById("cssos-watch-font-manifest-style")) return;
-    injectAvailable(roots);
-  });
 
   // CSSOS_PHASE2_GOOGLE_FANCY_FONTS 20260504 — Jing
   // "希望，尽快看到这样的字体" (Qwitcher Grypen / Ballet / Rochester /

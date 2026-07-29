@@ -18,8 +18,10 @@
 use std::collections::HashMap;
 
 use axum::{
-    extract::{DefaultBodyLimit, Query, State},
+    extract::{DefaultBodyLimit, Query, Request, State},
     http::StatusCode,
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
@@ -65,7 +67,25 @@ pub fn router() -> Router<AppState> {
     // exceed that, especially for Cinematic tier with 12+ AI clips. Lift the
     // limit to 32 MiB on /api/mv/compose specifically. Other routes keep the
     // default so we don't open the whole surface to arbitrary uploads.
-    Router::new()
+    // CSSOS_WAVE_1794 20260729 — Jing: Rust 侧强制校验 x-cssos-internal-token。
+    //
+    // 背景: 鉴权原本【全靠】前面的 Node 网关(Express 认会话 → 带内部令牌转发)。
+    // Rust 自己对 /api/mv/* 不设防, 直连 127.0.0.1:8081 匿名 POST /api/mv/cover
+    // 会返回 200。deploy.sh 的 spot-check 早就断言这里该是 401/503, 但那条检查
+    // 排在一条常年失败的 smoke 后面, 几个月没真正跑到过(见 W1792)。
+    //
+    // 边界划在【花钱/改状态】与【只读目录】之间:
+    //   · 受保护(必须带令牌): cover / lyrics / music / video / subtitles /
+    //     compose / commit —— 这些会调用付费第三方引擎或写状态。
+    //   · 保持公开: engines / tiers —— 纯只读目录(引擎名/版本/价格), 与已公开的
+    //     /cssapi/v1/engines、/cssapi/v1/pricing 同类, 不含任何用户信息。
+    //     W1792 刚把 /api/mv/engines 通过 Node 对游客放开, 前端要用它渲染下拉与
+    //     价格徽章; 且 scripts/smoke-rust-api.sh 默认直连 :8081 探这个路由,
+    //     给它加令牌要求会平白打断现有运维工具。
+    //
+    // 用两个 Router 再 merge, 而不是靠 route_layer 的「只影响此前注册的路由」语义 ——
+    // 后者正确但易被后来者改错(在下面顺手加一行 .route 就悄悄失去保护)。
+    let protected = Router::new()
         .route("/api/mv/cover", post(cover))
         .route("/api/mv/lyrics", post(lyrics))
         .route("/api/mv/music", post(music))
@@ -76,9 +96,46 @@ pub fn router() -> Router<AppState> {
             post(compose).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/api/mv/commit", post(commit))
+        .route_layer(middleware::from_fn(require_internal_token));
+
+    let public_catalog = Router::new()
         .route("/api/mv/engines", get(engines_catalog))
         .route("/api/mv/tiers", get(tiers_catalog))
-        .nest_service("/api/cover-webp", cover_serve)
+        .nest_service("/api/cover-webp", cover_serve);
+
+    protected.merge(public_catalog)
+}
+
+/// CSSOS_WAVE_1794 — 纵深防御: 付费/写状态的 /api/mv/* 必须携带正确的
+/// `x-cssos-internal-token`。监听虽然绑在 127.0.0.1, 但"只有本机能打到"不该是
+/// 唯一的防线 —— 将来同机多跑一个服务、或出现一次 SSRF, 这里就是直通付费引擎的路。
+///
+/// 状态码与 Node 网关保持一致, 也满足 deploy.sh spot-check 的断言(401 或 503):
+///   · 未配置 CSSOS_INTERNAL_TOKEN → 503(配置缺失, 不是调用方的错)
+///   · 令牌缺失/不匹配             → 401
+async fn require_internal_token(req: Request, next: Next) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    let expected = std::env::var("CSSOS_INTERNAL_TOKEN").unwrap_or_default();
+    if expected.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "error": "internal_token_not_configured",
+                "hint": "set CSSOS_INTERNAL_TOKEN in /etc/cssos.env"
+            })),
+        ));
+    }
+    let got = req
+        .headers()
+        .get("x-cssos-internal-token")
+        .and_then(|v| v.to_str().ok());
+    if got != Some(expected.as_str()) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "ok": false, "error": "internal_token_required" })),
+        ));
+    }
+    Ok(next.run(req).await)
 }
 
 fn price_cents(engine: &str, version: &str) -> i64 {

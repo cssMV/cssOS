@@ -336,6 +336,12 @@
     }, 1000);
   }
 
+  // CSSOS_WAVE_1795 20260729 — 暴露开启函数,供 Dock 的【💬 消息】一级入口调用
+  //   (app.messages-hub.js)。此前讨论室【只能】从 AI 助理右上角三点菜单进入 ——
+  //   三层操作,且第一层跟功能毫无语义关系(Jing:「藏得太深」)。
+  //   这里只导出,不改任何既有行为;三点菜单那一项照旧保留。
+  globalThis.cssosOpenRooms = openRoomsModal;
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
   } else {

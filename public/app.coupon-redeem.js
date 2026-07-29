@@ -9,6 +9,14 @@
   if (globalThis.__cssosCouponInstalled) return;
   globalThis.__cssosCouponInstalled = true;
 
+  // CSSOS_WAVE_1795 — 本文件原来没有 i18n 助手(只有深链兑换,无 UI)。
+  //   加上 W1795 的兑换弹窗后需要它;沿用平台惯例:英文是唯一真源,
+  //   loginCopy 会忽略第二个参数并路由到 tr(en)。
+  function tr(en, _zhIgnoredLegacy) {
+    try { if (typeof globalThis.loginCopy === "function") return globalThis.loginCopy(en); } catch (_e) {}
+    return en;
+  }
+
   // 模块解析即抓 URL 里的码(远早于 URL 被清空)。
   var _pendingCode = "";
   try { var m0 = (location.search || "").match(/[?&]coupon=([^&]+)/i); if (m0) _pendingCode = decodeURIComponent(m0[1]); } catch (_e) {}
@@ -51,7 +59,68 @@
       }).catch(function () { toast("Network error — try again.", false); });
   }
   globalThis.cssosRedeemCoupon = redeem;
-  globalThis.cssosOpenCouponRedeem = function () { var c = window.prompt("Enter your coupon code:"); if (c) redeem(c); };
+
+  /* CSSOS_WAVE_1795 20260729 — 原来这里是 window.prompt("Enter your coupon code:")。
+   * 两个问题:①原生 prompt 在 App(WKWebView)里体验很差、也不受 i18n 管;
+   * ②【全平台没有任何按钮调用它】—— 优惠码此前只能靠 ?coupon=CODE 深链兑换,
+   * 手里拿着码但没走深链的人在平台上找不到任何地方输入(扫描 W1795 发现)。
+   * 改成正经小弹窗,并由 app.profile-account-rows.js 在 Profile 面板挂常驻入口。 */
+  function openCouponModal() {
+    var old = document.getElementById("cssos-coupon-modal");
+    if (old) old.remove();
+    if (!document.getElementById("cssos-coupon-css")) {
+      var st = document.createElement("style");
+      st.id = "cssos-coupon-css";
+      st.textContent =
+        "#cssos-coupon-modal{position:fixed;inset:0;z-index:10072;display:flex;align-items:center;justify-content:center;" +
+        "background:rgba(0,0,0,0.46);backdrop-filter:blur(4px);font:500 14px/1.5 -apple-system,system-ui,sans-serif;}" +
+        "#cssos-coupon-modal .ccp-card{width:min(92vw,380px);background:#0d1512;color:#e8fff5;" +
+        "border:1px solid rgba(0,245,160,0.30);border-radius:18px;padding:22px;box-shadow:0 24px 70px rgba(0,0,0,0.55);}" +
+        "#cssos-coupon-modal h3{margin:0 0 14px;font-size:18px;font-weight:700;}" +
+        "#cssos-coupon-modal input{width:100%;padding:11px 12px;border-radius:12px;background:rgba(0,245,160,0.07);" +
+        "border:1px solid rgba(0,245,160,0.28);color:#e8fff5;font-size:15px;letter-spacing:0.08em;text-transform:uppercase;}" +
+        "#cssos-coupon-modal .ccp-row{display:flex;gap:10px;margin-top:16px;}" +
+        "#cssos-coupon-modal button{flex:1;padding:11px;border-radius:999px;border:1px solid rgba(0,245,160,0.30);" +
+        "background:rgba(0,245,160,0.10);color:#e8fff5;font-size:14px;font-weight:600;cursor:pointer;}" +
+        "#cssos-coupon-modal button.ccp-go{background:rgba(0,245,160,0.34);}";
+      (document.head || document.documentElement).appendChild(st);
+    }
+    var ov = document.createElement("div");
+    ov.id = "cssos-coupon-modal";
+    var card = document.createElement("div");
+    card.className = "ccp-card";
+    var h = document.createElement("h3");
+    h.textContent = tr("Redeem a promo code", "兑换优惠码");
+    var inp = document.createElement("input");
+    inp.type = "text";
+    inp.autocapitalize = "characters";
+    inp.spellcheck = false;
+    inp.placeholder = tr("Enter your code", "输入优惠码");
+    var row = document.createElement("div");
+    row.className = "ccp-row";
+    var cancel = document.createElement("button");
+    cancel.textContent = tr("Cancel", "取消");
+    var go = document.createElement("button");
+    go.className = "ccp-go";
+    go.textContent = tr("Redeem", "兑换");
+    row.appendChild(cancel); row.appendChild(go);
+    card.appendChild(h); card.appendChild(inp); card.appendChild(row);
+    ov.appendChild(card);
+    function shut() { ov.remove(); }
+    function submit() {
+      var c = String(inp.value || "").trim();
+      if (!c) return;
+      shut();
+      redeem(c);
+    }
+    cancel.addEventListener("click", shut);
+    go.addEventListener("click", submit);
+    inp.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
+    ov.addEventListener("click", function (e) { if (e.target === ov) shut(); });
+    document.body.appendChild(ov);
+    try { inp.focus(); } catch (_e) {}
+  }
+  globalThis.cssosOpenCouponRedeem = openCouponModal;
 
   function auto() {
     if (_pendingCode) { redeem(_pendingCode); _pendingCode = ""; return; }

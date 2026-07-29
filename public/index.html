@@ -2391,7 +2391,7 @@
     <script src="app.appstore-ribbon.js?v=20260720-w1765-ribbon-fullscreen"></script>
     <script src="app.mobile-app-cta.js?v=20260708-w1603-cta-abovedock"></script>
     <script src="app.appstore-panel.js?v=20260708-w1633-apps"></script>
-    <script src="app.coupon-redeem.js?v=20260709-w1660-coupon"></script>
+    <script src="app.coupon-redeem.js?v=20260729-w1795-modal"></script>
     <!-- CSSOS_WAVE_1790 — 13 岁以下关社交(苹果年龄分级问卷「对<13禁用」豁免的前置条件)。
          权威判定在后端 denySocialForMinor → 403 SOCIAL_DISABLED_MINOR; 这个模块只藏入口 + 兜底提示。
          必须排在社交模块(右轨/评论/私信)【之前】, 让 html.cssos-social-restricted 先就位。 -->
@@ -2439,7 +2439,7 @@
     <script src="app.mv-upscale-and-products.js?v=20260508-wave45-48"></script>
     <!-- CSSOS_PERSON_MV_WAVE53 20260508 — Jing — cinema bilingual subtitles. -->
     <script src="app.cinema-translate.js?v=20260508-wave53"></script>
-    <script src="app.profile-panel.js?v=20260728-w1791-birthday-row"></script>
+    <script src="app.profile-panel.js?v=20260729-w1795-account-rows"></script>
     <!-- CSSOS_WAVE_1107 20260622 — Jing/App Store 2.1 拒因: 订阅/会员面板是苹果审核头号关卡,
          懒加载首点失败 → "Panel failed to load" → 拒。改回 eager 常驻, 付费墙永不加载失败。
          (W534 曾改懒加载瘦身; 付费墙不参与瘦身。) 同步: manifest 删 subscription / router 删 stub. -->
@@ -2456,7 +2456,15 @@
     <script src="app.generation-progress-badge.js?v=20260604-w614"></script>
     <script src="app.agent-overflow-menu.js?v=20260603-w595b-restore"></script>
     <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>
-    <script src="app.chat-rooms.js?v=20260602-w588v-empty"></script>
+    <script src="app.chat-rooms.js?v=20260729-w1795-expose-opener"></script>
+    <!-- CSSOS_WAVE_1795 — 入口深度整改。Jing:「/api/rooms/* 藏在 AI 助理三点里,太深」。
+         · messages-hub: Dock 一级【💬 消息】→ 私信 / 讨论室(必须排在 chat-rooms 之后,
+           它要用 chat-rooms 暴露的 cssosOpenRooms)。也是审核风险修复:我们刚给苹果
+           声明 Messaging and Chat = YES,审核员得找得到私信。
+         · profile-account-rows: 充值 + 优惠码 两行常驻 Profile(原来一个埋在三点菜单、
+           一个完全没有 UI 入口)。 -->
+    <script src="app.messages-hub.js?v=20260729-w1795"></script>
+    <script src="app.profile-account-rows.js?v=20260729-w1795"></script>
     <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
 
     <script src="app.media-buffering-mirror.js?v=20260713-unified-a"></script>

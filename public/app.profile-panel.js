@@ -72,6 +72,16 @@ function buildProfileMetaMarkup(options = {}) {
          style="margin-top:10px;cursor:pointer;text-decoration:underline;">
       ${escapeHtml(loginCopy("Add your birthday — get a birthday MV"))}
     </div>
+    <!-- CSSOS_WAVE_1795 20260729 — 钱相关的两个入口从 AI 助理三点菜单/无入口 搬到这里。
+         同生日行一样,只留稳定锚点;文案与点击由 app.profile-account-rows.js 接管。 -->
+    <div class="profile-account-meta" data-cssos-account-row="topup"
+         style="margin-top:8px;cursor:pointer;text-decoration:underline;">
+      ${escapeHtml(loginCopy("Top up credits"))}
+    </div>
+    <div class="profile-account-meta" data-cssos-account-row="coupon"
+         style="margin-top:8px;cursor:pointer;text-decoration:underline;">
+      ${escapeHtml(loginCopy("Redeem a promo code"))}
+    </div>
     <!-- CSSOS_WAVE_205 20260516 — Jing: Apple 5.1.1(v) in-app account
          deletion path. Bottom-of-meta danger zone with explicit
          confirm modal, POSTs to /api/account/delete with the

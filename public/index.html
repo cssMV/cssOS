@@ -2330,7 +2330,7 @@
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.emotion-subtitle-engine.js?v=20260525-w442-emo-sub"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
-    <script src="app.js?v=20260708-w1602-dockfront"></script>
+    <script src="app.js?v=20260729-w1795-dock-messages"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
@@ -2391,7 +2391,7 @@
     <script src="app.appstore-ribbon.js?v=20260720-w1765-ribbon-fullscreen"></script>
     <script src="app.mobile-app-cta.js?v=20260708-w1603-cta-abovedock"></script>
     <script src="app.appstore-panel.js?v=20260708-w1633-apps"></script>
-    <script src="app.coupon-redeem.js?v=20260729-w1795-modal"></script>
+    <script src="app.coupon-redeem.js?v=20260729-w1795b-cinema-mount"></script>
     <!-- CSSOS_WAVE_1790 — 13 岁以下关社交(苹果年龄分级问卷「对<13禁用」豁免的前置条件)。
          权威判定在后端 denySocialForMinor → 403 SOCIAL_DISABLED_MINOR; 这个模块只藏入口 + 兜底提示。
          必须排在社交模块(右轨/评论/私信)【之前】, 让 html.cssos-social-restricted 先就位。 -->
@@ -2399,7 +2399,7 @@
     <!-- CSSOS_WAVE_1791 — 生日申报入口。一次填写同时喂【生日 MV】(完整月日)和【年龄门】(年份)。
          此前平台【没有任何入口能写生日】, 生日 MV 守护进程扫的一直是空集。
          自动提醒一生最多 2 次且间隔 ≥7 天 —— 不是定时弹窗。 -->
-    <script src="app.birthday-declaration.js?v=20260728-w1791b-profile-row"></script>
+    <script src="app.birthday-declaration.js?v=20260729-w1795b-cinema-mount"></script>
     <script src="app.watch-price-strip.js?v=20260602-w588f-icons"></script>
     <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
          只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
@@ -2463,7 +2463,7 @@
            声明 Messaging and Chat = YES,审核员得找得到私信。
          · profile-account-rows: 充值 + 优惠码 两行常驻 Profile(原来一个埋在三点菜单、
            一个完全没有 UI 入口)。 -->
-    <script src="app.messages-hub.js?v=20260729-w1795"></script>
+    <script src="app.messages-hub.js?v=20260729-w1795c-fs-follow"></script>
     <script src="app.profile-account-rows.js?v=20260729-w1795"></script>
     <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
 

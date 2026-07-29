@@ -32109,7 +32109,14 @@ const DOCK_KEEP_FOR_NONADMIN = new Set([
   //   找不到【删除账户】= 直接拒。上次 W903 收太紧把它也藏了 → build 26 被拒。加回。
   "mic", "mv-pipeline", "watch", "person-mv", "foryou", "works", "settings", "language", "login", "subscription", "about", "profile",
   // W1727 — Jing: 数字演员市场 / 导演入口 / App / 圣诗 这四个面板对【所有人】开放(不再仅 admin)。
-  "actors", "director", "appstore", "hymns"
+  "actors", "director", "appstore", "hymns",
+  // CSSOS_WAVE_1795 20260729 — 消息(私信 / 讨论室)必须对普通用户可见。
+  //   ① 它本来就是普通用户功能,此前埋在 AI 助理三点菜单里(Jing:「藏得太深」);
+  //   ② 和上面 W983 的 "profile" 同一个失败模式 —— 我们刚给四个 App 声明了
+  //      Messaging and Chat = YES,审核员会进 App 找私信在哪。不在这个名单里
+  //      = 对审核员(非 admin 账号)永远 display:none = 找不到 = 拒审。
+  //   漏加这一行,新 Dock 项对所有普通用户静默消失且【无任何报错】。
+  "messages"
 ]);
 function applyAdminDockGateModule() {
   try {

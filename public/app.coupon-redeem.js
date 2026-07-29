@@ -117,7 +117,10 @@
     go.addEventListener("click", submit);
     inp.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
     ov.addEventListener("click", function (e) { if (e.target === ov) shut(); });
-    document.body.appendChild(ov);
+    // W1147:影院全屏时挂 body 的浮层看不见也点不到 —— 一律走 cssosMountInCinema。
+    (globalThis.cssosMountInCinema || function (el) {
+      (document.fullscreenElement || document.webkitFullscreenElement || document.body).appendChild(el);
+    })(ov);
     try { inp.focus(); } catch (_e) {}
   }
   globalThis.cssosOpenCouponRedeem = openCouponModal;

@@ -194,7 +194,12 @@
         });
     });
 
-    document.body.appendChild(ov);
+    // CSSOS_WAVE_1795 修 W1791 的隐患:影院进真全屏时,挂 document.body 的浮层在
+    //   全屏层【外面】,z-index 再高也看不见、点不到(W1147 收口过这个坑)。
+    //   生日弹窗尤其容易撞上 —— 自动连播默认开影院,而它是启动后 2.5s 自动弹的。
+    (globalThis.cssosMountInCinema || function (el) {
+      (document.fullscreenElement || document.webkitFullscreenElement || document.body).appendChild(el);
+    })(ov);
     try { input.focus(); } catch (_e) {}
     try { globalThis.dispatchEvent(new CustomEvent("cssos:birthday-prompt-shown", { detail: { reason: reason || "manual" } })); } catch (_e) {}
   }

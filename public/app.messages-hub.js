@@ -75,9 +75,33 @@
     (document.head || document.documentElement).appendChild(s);
   }
 
+  /* 影院全屏层跟随。
+   * W1147 的 cssosMountInCinema 只在【挂载那一刻】判断全屏元素,这对"先全屏、后弹窗"
+   * 够用;但实测发现另一半场景:弹窗先开(此时还没全屏),App 随后才进影院全屏 ——
+   * 全屏元素自成顶层,挂在 body 上的弹窗当场被甩出层外,看不见也点不到。
+   * 所以这里除了初次挂载,还监听 fullscreenchange 把弹窗搬进/搬出当前全屏元素。
+   * 关闭时务必解绑,否则每开一次就漏一个常驻监听。 */
+  function mountFollowingFullscreen(ov) {
+    function place() {
+      var host = document.fullscreenElement || document.webkitFullscreenElement || document.body;
+      if (ov.parentElement !== host) {
+        try { host.appendChild(ov); } catch (_e) { try { document.body.appendChild(ov); } catch (_e2) {} }
+      }
+    }
+    place();
+    document.addEventListener("fullscreenchange", place);
+    document.addEventListener("webkitfullscreenchange", place);
+    ov.__cmhUnwatch = function () {
+      document.removeEventListener("fullscreenchange", place);
+      document.removeEventListener("webkitfullscreenchange", place);
+    };
+  }
+
   function close() {
     var el = document.getElementById("cssos-messages-hub");
-    if (el) el.remove();
+    if (!el) return;
+    try { if (typeof el.__cmhUnwatch === "function") el.__cmhUnwatch(); } catch (_e) {}
+    el.remove();
   }
 
   function open() {
@@ -108,7 +132,7 @@
       if (act === "dm") openDm();
       else if (act === "rooms") openRooms();
     });
-    document.body.appendChild(ov);
+    mountFollowingFullscreen(ov);
   }
 
   globalThis.cssosOpenMessagesHub = open;

@@ -12199,6 +12199,7 @@ app.get("/api/telemetry/memory/dashboard", async (req, res) => {
 app.post("/api/dm/send", express.json({ limit: "8kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  if (await denySocialForMinor(res, userId)) return; // W1790 <13 关社交
   const body = (req.body && typeof req.body === "object") ? req.body : {};
   const recipientRaw = String((body as any).recipient || "").trim();
   const text = String((body as any).body || "").trim();
@@ -12346,6 +12347,7 @@ app.post("/api/dm/mark-read", express.json({ limit: "4kb" }), async (req, res) =
 app.post("/api/rooms/create", express.json({ limit: "8kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  if (await denySocialForMinor(res, userId)) return; // W1790 <13 关社交
   const body = (req.body && typeof req.body === "object") ? req.body : {};
   const name = String((body as any).name || "").trim().slice(0, 80);
   if (!name) return res.status(400).json({ ok: false, error: "name_required" });
@@ -12484,6 +12486,7 @@ app.get("/api/rooms/:room_id/messages", async (req, res) => {
 app.post("/api/rooms/:room_id/send", express.json({ limit: "8kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  if (await denySocialForMinor(res, userId)) return; // W1790 <13 关社交
   const roomId = String(req.params.room_id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(roomId)) return res.status(400).json({ ok: false, error: "invalid_room_id" });
   const body = (req.body && typeof req.body === "object") ? req.body : {};
@@ -12525,6 +12528,7 @@ app.post("/api/rooms/:room_id/send", express.json({ limit: "8kb" }), async (req,
 app.post("/api/rooms/:room_id/invite", express.json({ limit: "4kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  if (await denySocialForMinor(res, userId)) return; // W1790 <13 关社交
   const roomId = String(req.params.room_id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(roomId)) return res.status(400).json({ ok: false, error: "invalid_room_id" });
   const body = (req.body && typeof req.body === "object") ? req.body : {};
@@ -29763,6 +29767,7 @@ app.post("/api/dm/threads/:thread_id/messages", express.json({ limit: "16kb" }),
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交
     await ensurePersonMvTables();
     const tid = String(req.params.thread_id || "").trim();
     if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
@@ -29918,6 +29923,7 @@ app.post("/api/dm/start", express.json({ limit: "4kb" }), async (req, res) => {
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交
     await ensurePersonMvTables();
     const handle = String((req.body && (req.body.username || req.body.user_id)) || "").trim();
     if (!handle) return res.status(400).json({ ok: false, code: "INVALID_USERNAME" });
@@ -29997,6 +30003,7 @@ app.post("/api/dm/groups", express.json({ limit: "8kb" }), async (req, res) => {
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交
     await ensurePersonMvTables();
     const title = String((req.body && req.body.title) || "").trim().slice(0, 120);
     const handles: string[] = Array.isArray(req.body?.member_handles) ? req.body.member_handles : [];
@@ -30044,6 +30051,7 @@ app.post("/api/dm/groups/:thread_id/invite", express.json({ limit: "2kb" }), asy
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交
     await ensurePersonMvTables();
     const tid = String(req.params.thread_id || "").trim();
     if (!/^[0-9a-fA-F-]{36}$/.test(tid)) return res.status(400).json({ ok: false, code: "INVALID_THREAD" });
@@ -35093,6 +35101,7 @@ app.post("/api/works/:id/comments", express.json({ limit: "8kb" }), async (req, 
   try {
     const me = await getSessionUser(req).catch(() => null);
     if (!me || !me.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, me.id)) return; // W1790 <13 关社交(评论=弹幕来源)
     const workId = String(req.params.id || "").trim();
     if (!workId) return res.status(400).json({ ok: false, code: "BAD_WORK" });
     const body = String(req.body?.body || "").trim().slice(0, 2000);
@@ -43720,6 +43729,7 @@ app.post("/api/person-mv/mvs/:mv_id/like", express.json({ limit: "1kb" }), async
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交(点赞=放大)
     const raw = String(req.params.mv_id || "").trim();
     if (!raw) return res.status(400).json({ ok: false, code: "INVALID_ID" });
     await ensurePersonMvTables();
@@ -48349,6 +48359,9 @@ app.patch("/api/works/:id/pricing", async (req, res) => {
       .toLowerCase();
     const visibility = requestedVisibility === "private" ? "private" : "public";
     const workStatus = visibility === "private" ? "hidden" : "published";
+    // CSSOS_WAVE_1790 — <13 关社交: 不许【公开上架】(这是作品进市场/For You 的唯一开关)。
+    //   改回 private 照常放行 —— 否则未成年人已上架的作品会被困死在市场里下不来。
+    if (visibility === "public" && (await denySocialForMinor(res, user.id))) return;
     const requestedWorkType =
       req.body && Object.prototype.hasOwnProperty.call(req.body, "work_type")
         ? normalizeWorkType(req.body?.work_type)
@@ -52978,6 +52991,7 @@ app.post("/api/users/:username/follow", express.json({ limit: "1kb" }), async (r
   try {
     const viewer = await getSessionUser(req).catch(() => null);
     if (!viewer || !viewer.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, viewer.id)) return; // W1790 <13 关社交
     await ensurePersonMvTables();
     const target = await resolveUserByUsernameOrId(String(req.params.username || "").trim());
     if (!target) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
@@ -55081,6 +55095,7 @@ app.post("/api/person-mv/mvs/:mv_id/comments", express.json({ limit: "8kb" }), a
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交(评论=弹幕来源)
     await ensurePersonMvTables();
     const mvId = await resolvePersonMvId(String(req.params.mv_id || "").trim());
     if (!mvId) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
@@ -55251,6 +55266,7 @@ app.post("/api/comments/:id/react", express.json({ limit: "1kb" }), async (req, 
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交
     await ensurePersonMvTables();
     const cid = String(req.params.id || "").trim();
     if (!cid) return res.status(400).json({ ok: false, code: "INVALID_ID" });
@@ -60853,6 +60869,7 @@ app.post("/api/works/:id/products", express.json({ limit: "4kb" }), async (req, 
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交(挂商品=公开变现)
     await ensurePersonMvTables();
     const id = String(req.params.id || "").trim();
     if (!/^[0-9a-fA-F-]{8,64}$/.test(id)) {
@@ -62108,6 +62125,112 @@ function maxRatingForBirthYear(year: number | null | undefined): ContentRating {
   return "18+";
 }
 
+/* CSSOS_WAVE_1790 20260728 — Jing — 13 岁以下关社交。
+ *
+ * 这是苹果年龄分级问卷「社交媒体能力 → 对 13 岁以下禁用」豁免的【前置条件】:
+ * 声明了豁免就必须真的禁用, 否则比不声明风险更大。
+ *
+ * 谁被限制: 只有【自己填过出生年份、且算出来不满 13 岁】的账号。
+ *   birth_year 是自愿填写且一次写入即锁定的 —— 把所有"没填"都当成儿童会锁死整站,
+ *   苹果那条豁免要求的也只是"对 13 岁以下禁用", 不是"对身份不明者禁用"。
+ *   注意: 这也意味着未申报年龄的账号照常有社交能力。若将来要强制申报生日,
+ *   改这里的 socialRestrictedForBirthYear(null) 返回值即可, 一处生效。
+ *
+ * 限制什么: 只关【发/放大/再分发】方向 —— 评论、弹幕(评论驱动)、私信、群聊/房间、
+ *   关注、点赞、上架市场(公开+定价)、挂商品、二创 remix。
+ *   【看】的方向一律不动: 浏览市场、看作品、读评论、看 For You 都照常。
+ *   删除自己已有的内容(DELETE 评论/商品)、退群、把作品改回 private 也不拦 ——
+ *   否则会把未成年人已有的内容困死在平台上。 */
+const SOCIAL_MINOR_AGE = 13;
+const SOCIAL_MINOR_CACHE_MS = 60_000;
+const socialMinorCache = new Map<string, { restricted: boolean; exp: number }>();
+
+function socialRestrictedForBirthYear(year: number | null | undefined): boolean {
+  if (year == null || !Number.isFinite(Number(year))) return false; // 未申报 = 不限制
+  return new Date().getUTCFullYear() - Number(year) < SOCIAL_MINOR_AGE;
+}
+
+/* CSSOS_WAVE_1791 20260728 — Jing — 未申报账号的宽限期。
+ *
+ * W1790 的原规则是"未申报 = 永远不限制", 那样苹果那句「对 13 岁以下禁用」
+ * 永远不成立 —— 因为平台上始终有一批"年龄不明但能社交"的人。
+ * W1791 补上宽限期: 申报入口给足时间, 期满仍未申报 → 【只关社交】(看和创作不动)。
+ *
+ * 两个安全设计, 别拆:
+ *  1. 【默认关闭】。要 SOCIAL_AGE_GRACE_ENFORCED=1 才生效。这条规则一旦打开会影响
+ *     【全部未申报的存量用户】, 属于不可静默上线的改动 —— 而且 COPPA 那个问题
+ *     (强制收集生日 = 明确知道谁是儿童)还没找人问过。开关交给 Jing。
+ *  2. 【锚点取 max(注册时间, 本波上线时间)】。若直接从注册时间起算, 打开开关的
+ *     那一刻全站老用户(注册都超过 30 天)会被【同时】关掉社交。锚在上线日,
+ *     等于给存量用户同样的 30 天。 */
+const SOCIAL_AGE_GRACE_DAYS = 30;
+const SOCIAL_AGE_ROLLOUT_AT = Date.parse("2026-07-28T00:00:00Z");
+
+function socialAgeGraceEnforced(): boolean {
+  return String(process.env.SOCIAL_AGE_GRACE_ENFORCED || "").trim() === "1";
+}
+
+/** 未申报账号的宽限期截止时间(ms)。前端据此提示"还剩几天"。 */
+function socialAgeGraceDeadline(createdAt: unknown): number {
+  const created = createdAt ? Date.parse(String(createdAt)) : Number.NaN;
+  const anchor = Math.max(Number.isFinite(created) ? created : 0, SOCIAL_AGE_ROLLOUT_AT);
+  return anchor + SOCIAL_AGE_GRACE_DAYS * 86400000;
+}
+
+function socialRestrictedForUndeclared(createdAt: unknown): boolean {
+  if (!socialAgeGraceEnforced()) return false; // 默认关闭
+  return Date.now() > socialAgeGraceDeadline(createdAt);
+}
+
+function invalidateSocialMinorCache(userId: string | null | undefined) {
+  try {
+    socialMinorCache.delete(String(userId || "").trim());
+  } catch {
+    /* noop */
+  }
+}
+
+async function isSocialRestrictedUser(userId: string | null | undefined): Promise<boolean> {
+  const id = String(userId || "").trim();
+  if (!id || !DATABASE_URL) return false;
+  const now = Date.now();
+  const hit = socialMinorCache.get(id);
+  if (hit && hit.exp > now) return hit.restricted;
+  let restricted = false;
+  try {
+    const r = await withClient((c) =>
+      c.query<{ birth_year: number | null; created_at: string | null }>(
+        `SELECT birth_year, created_at FROM users WHERE id = $1::uuid LIMIT 1`,
+        [id],
+      ),
+    );
+    const row = r.rows[0];
+    // W1791 — 已申报走年龄判断; 未申报走宽限期(默认关闭, 见 socialAgeGraceEnforced)。
+    restricted =
+      row && row.birth_year != null
+        ? socialRestrictedForBirthYear(row.birth_year)
+        : socialRestrictedForUndeclared(row?.created_at ?? null);
+  } catch {
+    restricted = false; // 查库失败不误伤已成年用户
+  }
+  socialMinorCache.set(id, { restricted, exp: now + SOCIAL_MINOR_CACHE_MS });
+  return restricted;
+}
+
+/** 社交写操作守卫。用法: `if (await denySocialForMinor(res, userId)) return;` */
+async function denySocialForMinor(
+  res: express.Response,
+  userId: string | null | undefined,
+): Promise<boolean> {
+  if (!(await isSocialRestrictedUser(userId))) return false;
+  res.status(403).json({
+    ok: false,
+    code: "SOCIAL_DISABLED_MINOR",
+    message: "Social features are turned off for accounts under 13.",
+  });
+  return true;
+}
+
 app.post("/api/user/birth-year", express.json({ limit: "1kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -62130,7 +62253,15 @@ app.post("/api/user/birth-year", express.json({ limit: "1kb" }), async (req, res
     await withClient((c) =>
       c.query(`UPDATE users SET birth_year = $1 WHERE id = $2::uuid`, [year, user.id]),
     );
-    return res.json(okData({ birth_year: year, max_rating: maxRatingForBirthYear(year) }));
+    // CSSOS_WAVE_1790 — 生日一落库, <13 社交限制立即生效(别等 60s 缓存过期)。
+    invalidateSocialMinorCache(user.id);
+    return res.json(
+      okData({
+        birth_year: year,
+        max_rating: maxRatingForBirthYear(year),
+        social_enabled: !socialRestrictedForBirthYear(year),
+      }),
+    );
   } catch (err) {
     return res.status(500).json({ ok: false, code: "BIRTH_YEAR_FAILED", message: String(err) });
   }
@@ -62177,9 +62308,187 @@ app.get("/api/user/age-gate", async (req, res) => {
       birthYear = r.rows[0]?.birth_year ?? null;
     }
     const max = maxRatingForBirthYear(birthYear);
-    return res.json(okData({ birth_year: birthYear, max_rating: max, locked: birthYear != null }));
+    // CSSOS_WAVE_1790 — social_enabled: 前端据此隐藏社交入口(评论/分享/私信/关注/上架)。
+    //   权威判定仍在后端各写端点的 denySocialForMinor 守卫, 这里只是别让 UI 摆出点不动的按钮。
+    return res.json(
+      okData({
+        birth_year: birthYear,
+        max_rating: max,
+        locked: birthYear != null,
+        social_enabled: !socialRestrictedForBirthYear(birthYear),
+      }),
+    );
   } catch (err) {
     return res.status(500).json({ ok: false, code: "AGE_GATE_FAILED", message: String(err) });
+  }
+});
+
+/* CSSOS_WAVE_1791 20260728 — Jing — 生日申报:一处填写, 两处生效。
+ *
+ * 仓库现状(查证过, 不是推测): user_preferences.birthday (DATE) 和 users.birth_year (INT)
+ * 早就都在, 但从没接通; 而且 upsertUserPreferences() 全仓库【零调用方】——
+ * 生日 MV 守护进程每 6 小时扫的一直是空集, 上线至今一次都没触发过。
+ * 这两个端点就是缺失的那个写入侧。
+ *
+ * 一次输入 → 完整日期进 user_preferences.birthday(喂生日 MV, 需要月+日),
+ *            年份进 users.birth_year(喂内容分级 + W1790 社交门, 只需要年)。
+ *
+ * 锁定策略(Jing 拍板): 年份写一次即锁 —— 否则改个年龄就能绕过分级;
+ *                      月日允许改一次 —— 完整生日手滑填错不该永久锁死。 */
+function validBirthdayParts(y: number, m: number, d: number): boolean {
+  if (![y, m, d].every((n) => Number.isInteger(n))) return false;
+  const currentYear = new Date().getUTCFullYear();
+  if (y < 1900 || y > currentYear) return false;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  // 真实存在的日期(挡掉 2 月 30 日这类)。
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+function normalizeIanaTimezone(input: unknown): string | null {
+  const tz = String(input || "").trim().slice(0, 64);
+  if (!tz) return null;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return null; // 非法时区静默丢弃, 不因此拒绝整次申报
+  }
+}
+
+type BirthdayStateRow = {
+  birth_year: number | null;
+  created_at: string | null;
+  birthday: string | null;
+  birthday_timezone: string | null;
+  birthday_opt_in: boolean | null;
+  birthday_md_edits: number | null;
+};
+
+async function loadBirthdayState(userId: string): Promise<BirthdayStateRow | null> {
+  const r = await withClient((c) =>
+    c.query<BirthdayStateRow>(
+      `SELECT u.birth_year,
+              u.created_at,
+              to_char(p.birthday, 'YYYY-MM-DD') AS birthday,
+              p.birthday_timezone,
+              p.birthday_opt_in,
+              p.birthday_md_edits
+         FROM users u
+         LEFT JOIN user_preferences p ON p.user_id = u.id
+        WHERE u.id = $1::uuid
+        LIMIT 1`,
+      [userId],
+    ),
+  );
+  return r.rows[0] ?? null;
+}
+
+function birthdayStatePayload(row: BirthdayStateRow | null) {
+  const birthYear = row?.birth_year ?? null;
+  const declared = birthYear != null || !!row?.birthday;
+  const deadline = socialAgeGraceDeadline(row?.created_at ?? null);
+  return {
+    declared,
+    birthday: row?.birthday ?? null,
+    birth_year: birthYear,
+    year_locked: birthYear != null,
+    md_edits_left: Math.max(0, 1 - Number(row?.birthday_md_edits || 0)),
+    opt_in: row?.birthday_opt_in === true,
+    timezone: row?.birthday_timezone ?? null,
+    social_enabled: declared
+      ? !socialRestrictedForBirthYear(birthYear)
+      : !socialRestrictedForUndeclared(row?.created_at ?? null),
+    // 宽限期信息: 只在未申报时对前端有意义。grace_enforced=false 时前端不该催。
+    grace_enforced: socialAgeGraceEnforced(),
+    grace_deadline: declared ? null : new Date(deadline).toISOString(),
+    grace_days_left: declared
+      ? null
+      : Math.max(0, Math.ceil((deadline - Date.now()) / 86400000)),
+  };
+}
+
+app.get("/api/user/birthday", async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    return res.json(okData(birthdayStatePayload(await loadBirthdayState(user.id))));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "BIRTHDAY_STATE_FAILED", message: String(err) });
+  }
+});
+
+app.post("/api/user/birthday", express.json({ limit: "1kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const user = await getSessionUser(req).catch(() => null);
+    if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+
+    const body = (req.body || {}) as any;
+    const year = Number.parseInt(String(body.year), 10);
+    const month = Number.parseInt(String(body.month), 10);
+    const day = Number.parseInt(String(body.day), 10);
+    if (!validBirthdayParts(year, month, day)) {
+      return res.status(400).json({ ok: false, code: "INVALID_BIRTHDAY" });
+    }
+    const timezone = normalizeIanaTimezone(body.timezone);
+    // 生日 MV 是"礼物", 默认送; 但用户显式说不要就尊重(birthday_opt_in 原本默认 false,
+    // 那是"没人问过"的默认值, 不是"用户拒绝过")。
+    const optIn = body.opt_in === false ? false : true;
+
+    const prev = await loadBirthdayState(user.id);
+    const iso = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+    // 年份锁: 已有 birth_year 且与本次不符 → 拒绝(改年龄 = 绕过分级)。
+    if (prev?.birth_year != null && Number(prev.birth_year) !== year) {
+      return res.status(409).json({
+        ok: false,
+        code: "BIRTH_YEAR_LOCKED",
+        birth_year: prev.birth_year,
+        message: "Birth year is set once and cannot be changed.",
+      });
+    }
+
+    // 月日锁: 只允许改一次。
+    let mdEdits = Number(prev?.birthday_md_edits || 0);
+    if (prev?.birthday && prev.birthday !== iso) {
+      if (mdEdits >= 1) {
+        return res.status(409).json({
+          ok: false,
+          code: "BIRTHDAY_MD_LOCKED",
+          birthday: prev.birthday,
+          message: "Month and day can only be corrected once.",
+        });
+      }
+      mdEdits += 1;
+    }
+
+    await withClient(async (c) => {
+      // 年份只在还没写过时写入(沿用既有的写一次即锁语义)。
+      if (prev?.birth_year == null) {
+        await c.query(`UPDATE users SET birth_year = $1 WHERE id = $2::uuid`, [year, user.id]);
+      }
+      await c.query(
+        `INSERT INTO user_preferences
+           (user_id, birthday, birthday_timezone, birthday_opt_in, birthday_md_edits, birthday_declared_at)
+         VALUES ($1::uuid, $2::date, $3, $4, $5, now())
+         ON CONFLICT (user_id) DO UPDATE
+           SET birthday = EXCLUDED.birthday,
+               birthday_timezone = COALESCE(EXCLUDED.birthday_timezone, user_preferences.birthday_timezone),
+               birthday_opt_in = EXCLUDED.birthday_opt_in,
+               birthday_md_edits = EXCLUDED.birthday_md_edits,
+               birthday_declared_at = COALESCE(user_preferences.birthday_declared_at, now()),
+               updated_at = now()`,
+        [user.id, iso, timezone, optIn, mdEdits],
+      );
+    });
+
+    // 申报即刻影响社交门, 别等 60s 缓存过期。
+    invalidateSocialMinorCache(user.id);
+    return res.json(okData(birthdayStatePayload(await loadBirthdayState(user.id))));
+  } catch (err) {
+    return res.status(500).json({ ok: false, code: "BIRTHDAY_SAVE_FAILED", message: String(err) });
   }
 });
 
@@ -63275,6 +63584,7 @@ app.post("/api/works/:work_id/remix", express.json({ limit: "2kb" }), async (req
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交(二创=再分发他人 UGC)
     const origId = String(req.params.work_id || "").trim();
     if (!origId) return res.status(400).json({ ok: false, code: "INVALID_ID" });
     const orig = await withClient((c) =>
@@ -63338,6 +63648,7 @@ app.post("/api/works/:work_id/remix/finalize", async (req, res) => {
   try {
     const user = await getSessionUser(req).catch(() => null);
     if (!user || !user.id) return res.status(401).json({ ok: false, code: "AUTH_REQUIRED" });
+    if (await denySocialForMinor(res, user.id)) return; // W1790 <13 关社交(二创=再分发他人 UGC)
     const remixId = String(req.params.work_id || "").trim();
     const r = await withClient((c) =>
       c.query<{ remix_of_work_id: string | null; user_id: string }>(

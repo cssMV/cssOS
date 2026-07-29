@@ -2392,10 +2392,18 @@
     <script src="app.mobile-app-cta.js?v=20260708-w1603-cta-abovedock"></script>
     <script src="app.appstore-panel.js?v=20260708-w1633-apps"></script>
     <script src="app.coupon-redeem.js?v=20260709-w1660-coupon"></script>
+    <!-- CSSOS_WAVE_1790 — 13 岁以下关社交(苹果年龄分级问卷「对<13禁用」豁免的前置条件)。
+         权威判定在后端 denySocialForMinor → 403 SOCIAL_DISABLED_MINOR; 这个模块只藏入口 + 兜底提示。
+         必须排在社交模块(右轨/评论/私信)【之前】, 让 html.cssos-social-restricted 先就位。 -->
+    <script src="app.social-age-gate.js?v=20260728-w1790"></script>
+    <!-- CSSOS_WAVE_1791 — 生日申报入口。一次填写同时喂【生日 MV】(完整月日)和【年龄门】(年份)。
+         此前平台【没有任何入口能写生日】, 生日 MV 守护进程扫的一直是空集。
+         自动提醒一生最多 2 次且间隔 ≥7 天 —— 不是定时弹窗。 -->
+    <script src="app.birthday-declaration.js?v=20260728-w1791"></script>
     <script src="app.watch-price-strip.js?v=20260602-w588f-icons"></script>
     <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
          只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
-    <script src="app.watch-social-rail.js?v=20260726-w1781-rail-snap"></script>
+    <script src="app.watch-social-rail.js?v=20260728-w1790-social-age-gate"></script>
     <!-- CSSOS_WAVE_1119 — 右轨配套: 左下标题摘要(标题·进度·@作者·时长·摘要)+ 弹幕(评论左下窄道弹入上飘)。
          纯叠加层, 不碰 emotion-fx/字幕/bottom-stack。 -->
     <script src="app.watch-cinema-caption.js?v=20260623-w1119-caption"></script>
@@ -2444,7 +2452,7 @@
     <!-- CSSOS_WAVE_546 20260531 — Jing — 作品中心: 标注未完成草稿 + 继续合成/编辑补救. -->
     <script src="app.draft-rescue-badge.js?v=20260531-w551-resume-api"></script>
     <script src="app.api-billing.js?v=20260602-w588o-authupsell"></script>
-    <script src="app.agent-chat.js?v=20260727-w1786e-fabmenu-2step"></script>
+    <script src="app.agent-chat.js?v=20260728-w1788-cinema-gestures"></script>
     <script src="app.generation-progress-badge.js?v=20260604-w614"></script>
     <script src="app.agent-overflow-menu.js?v=20260603-w595b-restore"></script>
     <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>
@@ -2515,7 +2523,7 @@
     <script src="app.hymn-create-toggle.js?v=20260713-w1766-hymn-create"></script>
     <script src="app.section-form-classic.js?v=20260713-w1770-section-form"></script>
     <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
-    <script src="app.actor-gallery.js?v=20260702-w113-actors"></script>
+    <script src="app.actor-gallery.js?v=20260727-w1787-open-formats-wallet-gate"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-today-shelf.js?v=20260603-w593-civmeta"></script>

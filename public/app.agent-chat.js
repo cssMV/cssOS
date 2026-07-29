@@ -1030,6 +1030,12 @@
   var LONG_PRESS_MS = 500;
 
   function wireFabGestures(el) {
+    if (!el) return;
+    /* CSSOS_WAVE_1788 20260728 — 幂等保护。影院右轨(#cssos-rail-ai)每次换歌/开关影院都会
+     * 重建, 会反复调用本函数; 没有这道闸就会叠加监听, 一次长按开出好几个菜单。 */
+    if (el.dataset.cssosGesturesWired === "1") return;
+    el.dataset.cssosGesturesWired = "1";
+
     var lpTimer = null, lpFired = false;
 
     function clearLp() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } }
@@ -1074,6 +1080,13 @@
     });
   }
 
+  /* CSSOS_WAVE_1788 20260728 — Jing:「AI 助理在 MV 影院模式下无法使用右击/长按」。
+   * 根因: 三种手势(单击/双击/长按·右击)只绑在主界面 FAB #cssos-agent-fab 上;
+   * 影院右轨的 #cssos-rail-ai 是 app.watch-social-rail.js 另建的元素, 只有 onClick + 拖拽。
+   * 两个入口本来就该是同一个「AI 助理」—— 位置已经共用一份(cssosRead/WriteAiAssistantPos),
+   * 手势也照同一个模式暴露出去, 由右轨在建完按钮后调用。这样以后再加手势只需改这一处。 */
+  globalThis.cssosWireAiGestures = wireFabGestures;
+
   /* CSSOS_WAVE_1781 20260726 — Jing「惊喜生成必须刹车」。
    *
    * 原话: "单曲可以直接生成, 三部曲以上必须暂停, 因为一旦生成就是消耗 3 个生成权的,
@@ -1089,8 +1102,11 @@
    *
    * 成本口径与后端 MV_STAGE_CEILING_CENTS 对齐(歌词5+封面8+音乐80+视频150=243 分/份),
    * 取整到 250 分/份便于口算; 显示时明说是"最多"(worst case), 不夸大也不低估。 */
+  /* CSSOS_WAVE_1787 20260727 — Jing:「不要让用户一点击,也不验证平台钱包,也不要求再次确认。
+   * 特别是对长片电影,必须比估算多 20% 缓冲。读不到余额 = 拦住,让用户重试。全系列,从单曲到电影。」
+   * 于是 gate 从"三部曲及以上"扩到【全系列】—— 单曲也验钱包,只是它便宜、确认框更轻。 */
   var SURPRISE_TIERS = [
-    { key: "single",  works: 1,  label: tr("Single song", "单曲"),              icon: "🎵", gate: false },
+    { key: "single",  works: 1,  label: tr("Single song", "单曲"),              icon: "🎵", gate: true },
     { key: "trilogy", works: 3,  label: tr("Trilogy (3 songs)", "三部曲（3 首）"), icon: "🎬", gate: true },
     { key: "opera",   works: 5,  label: tr("Opera (5 acts)", "歌剧（5 幕）"),     icon: "🎭", gate: true },
     { key: "drama",   works: 12, label: tr("Short drama", "短剧"),               icon: "📺", gate: true, heavy: true },
@@ -1098,6 +1114,10 @@
     { key: "film",    works: 40, label: tr("Film", "电影"),                      icon: "🎞️", gate: true, heavy: true },
   ];
   var CENTS_PER_WORK = 250;
+  /* W1787 — 估算只是估算。引擎按实际用量结账,长片尤其容易超。要求钱包比估算多 20%,
+   * 免得跑到第 30 首才发现钱不够、留下一堆半成品和已经烧掉的第三方费用。 */
+  var WALLET_BUFFER = 1.2;
+  function requiredCents(costCents) { return Math.ceil(costCents * WALLET_BUFFER); }
 
   function fmtUsdC(cents) { return "$" + (Math.max(0, cents) / 100).toFixed(2); }
 
@@ -1127,14 +1147,20 @@
     } catch (_e) {}
   }
 
-  // 双击 = 单曲惊喜, 直接走(① 低摩擦)。多档入口走长按菜单 → surprisePicker()。
-  function surpriseCreate() { runSurprise(SURPRISE_TIERS[0]); }
+  /* 双击 = 单曲惊喜。W1787 之前这里直接 runSurprise() 绕过闸门 —— 那是"一点击就花钱、
+   * 既不验钱包也不确认"的最后一个口子。现在单曲也过闸(它便宜, 但同样是真钱)。 */
+  function surpriseCreate() { confirmHeavySurprise(SURPRISE_TIERS[0]); }
 
   /* ② + ③ 刹车确认框。三部曲及以上一律经过这里。 */
   async function confirmHeavySurprise(tier) {
     var cost = tier.works * CENTS_PER_WORK;
+    var need = requiredCents(cost);                       // W1787 — 估算 × 1.2
     var bal = await fetchBalanceCents();
-    var enough = (bal == null) ? true : (bal >= cost);   // 读不到余额时不硬拦, 但仍然要确认
+    /* W1787 — Jing 定的铁律:【读不到余额 = 拦住,让用户重试】。
+     * 旧逻辑读不到就放行(enough=true),等于在看不见钱包的情况下花用户的钱 —— 反了。
+     * 读取失败是"未知",未知一律按不可放行处理。 */
+    var unknown = (bal == null);
+    var enough = !unknown && (bal >= need);
 
     var ov = document.createElement("div");
     ov.id = "cssos-surprise-gate";
@@ -1161,13 +1187,21 @@
       '</span><span>' + esc(tier.label) + '</span></div>');
     lines.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(tr("Works", "份数")) +
       '</span><span>' + tier.works + '</span></div>');
-    lines.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(tr("Cost at most", "最多花费")) +
+    lines.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(tr("Estimated cost", "预估花费")) +
       '</span><span style="color:#00f5a0;">' + fmtUsdC(cost) + '</span></div>');
+    // W1787 — 把 20% 缓冲摆到明面上, 别让用户以为余额刚好够就能跑。
+    lines.push('<div style="display:flex;justify-content:space-between;"><span>' +
+      esc(tr("Wallet must hold (+20% buffer)", "钱包需备（含 20% 缓冲）")) +
+      '</span><span style="color:#ffcf6a;">' + fmtUsdC(need) + '</span></div>');
     lines.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(tr("Your wallet", "钱包余额")) +
       '</span><span style="color:' + (enough ? "#eafff6" : "#ff8a8a") + ';">' +
-      (bal == null ? esc(tr("unknown", "读取失败")) : fmtUsdC(bal)) + '</span></div>');
+      (unknown ? esc(tr("could not read", "读取失败")) : fmtUsdC(bal)) + '</span></div>');
     lines.push("</div>");
-    if (!enough) {
+    if (unknown) {
+      lines.push('<div style="font:600 12.5px/1.5 inherit;color:#ff8a8a;margin-bottom:12px;">' +
+        esc(tr("We could not read your wallet balance, so we will not start a paid job. Please retry.",
+               "我们暂时读不到你的钱包余额，因此不会启动付费生成。请重试。")) + "</div>");
+    } else if (!enough) {
       lines.push('<div style="font:600 12.5px/1.5 inherit;color:#ff8a8a;margin-bottom:12px;">' +
         esc(tr("Not enough balance — top up first.", "余额不足 —— 请先充值。")) + "</div>");
     }
@@ -1180,7 +1214,12 @@
     lines.push('<button type="button" data-a="cancel" style="background:transparent;border:1px solid rgba(255,255,255,0.22);' +
       'color:#cfeee0;font:600 13px/1 inherit;padding:10px 16px;border-radius:999px;cursor:pointer;">' +
       esc(tr("Cancel", "取消")) + "</button>");
-    if (!enough && bal != null) {
+    if (unknown) {
+      // W1787 — 读不到余额: 只给"重试", 绝不给"仍然生成"。默认动作永远是不花钱。
+      lines.push('<button type="button" data-a="retry" style="background:linear-gradient(135deg,#00f5a0,#00b87a);' +
+        'color:#0a0d12;border:0;font:700 13px/1 inherit;padding:10px 18px;border-radius:999px;cursor:pointer;">' +
+        esc(tr("Retry", "重试")) + "</button>");
+    } else if (!enough) {
       lines.push('<button type="button" data-a="topup" style="background:linear-gradient(135deg,#00f5a0,#00b87a);' +
         'color:#0a0d12;border:0;font:700 13px/1 inherit;padding:10px 18px;border-radius:999px;cursor:pointer;">' +
         esc(tr("Top up", "去充值")) + "</button>");
@@ -1198,6 +1237,7 @@
       var a = b.getAttribute("data-a");
       ov.remove();
       if (a === "go") runSurprise(tier);
+      else if (a === "retry") { confirmHeavySurprise(tier); }   // W1787 — 重新读余额, 不放行
       else if (a === "topup") {
         try {
           if (typeof globalThis.cssosOpenCreditsTopup === "function") globalThis.cssosOpenCreditsTopup();
@@ -1251,8 +1291,9 @@
       m.remove();
       var tier = SURPRISE_TIERS.filter(function (t) { return t.key === key; })[0];
       if (!tier) return;
-      if (tier.gate) confirmHeavySurprise(tier);   // ② 三部曲及以上 → 一律先暂停
-      else runSurprise(tier);                      // ① 单曲 → 直接生成
+      // W1787 — 全系列过闸(单曲到电影)。tier.gate 现在全为 true, else 分支留着只是防御:
+      // 万一以后有人加了 gate:false 的档位, 也不能凭空绕过钱包验证。
+      confirmHeavySurprise(tier);
     });
 
     setTimeout(function () {

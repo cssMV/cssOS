@@ -1648,14 +1648,22 @@
     if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast(T("Link copied", "链接已复制"), {});
   }
 
-  // 作品类型: 音乐驱动(现可用) vs 叙事驱动(需自动编剧, 先锁, 以后开)。
+  /* W1787 — 单份作品的估算成本(分)。与 AI 助理的 CENTS_PER_WORK 同一口径,
+   * 两处必须一致, 否则同一部电影在两个入口报出两个价。 */
+  var CAST_CENTS_PER_WORK = 250;
+
+  // 作品类型: 音乐驱动 + 叙事驱动(W1787 起全部开放, 但一律走 castGate 钱包刹车)。
   var CAST_WORK_TYPES = [
-    { key: "single",   emoji: "🎬", en: "MV (single)",  zh: "单曲 MV",  descEn: "One song, one video", descZh: "一首歌 · 一支 MV", ready: true },
-    { key: "triptych", emoji: "🎼", en: "Triptych",     zh: "三部曲",   descEn: "3 connected chapters", descZh: "三段相连的乐章", ready: true },
-    { key: "opera",    emoji: "🎭", en: "Opera",        zh: "歌剧",     descEn: "Multi-act musical epic", descZh: "多幕音乐史诗", ready: true },
-    { key: "shortplay",emoji: "📺", en: "Short drama",  zh: "短剧",     descEn: "Auto-scripted · coming soon", descZh: "自动编剧 · 敬请期待", ready: false },
-    { key: "series",   emoji: "📽", en: "TV series",    zh: "电视连续剧", descEn: "Auto-scripted · coming soon", descZh: "自动编剧 · 敬请期待", ready: false },
-    { key: "film",     emoji: "🎦", en: "Film",         zh: "电影",     descEn: "Auto-scripted · coming soon", descZh: "自动编剧 · 敬请期待", ready: false },
+    { key: "single",   emoji: "🎬", en: "MV (single)",  zh: "单曲 MV",  descEn: "One song, one video", descZh: "一首歌 · 一支 MV", ready: true, works: 1 },
+    { key: "triptych", emoji: "🎼", en: "Triptych",     zh: "三部曲",   descEn: "3 connected chapters", descZh: "三段相连的乐章", ready: true, works: 3 },
+    { key: "opera",    emoji: "🎭", en: "Opera",        zh: "歌剧",     descEn: "Multi-act musical epic", descZh: "多幕音乐史诗", ready: true, works: 5 },
+    /* CSSOS_WAVE_1787 20260727 — Jing 指令:开放短剧/电视连续剧/电影。
+     * 之前锁着是因为"自动编剧还没就绪";现在开放,但【必须走钱包刹车】——
+     * 估算 × 1.2 的余额门槛 + 二次确认,读不到余额一律拦住。见 castGate()。
+     * 这三档 heavy:true,确认框会额外警告体量与费用。 */
+    { key: "shortplay",emoji: "📺", en: "Short drama",  zh: "短剧",     descEn: "Auto-scripted · 12 works", descZh: "自动编剧 · 约 12 段", ready: true, works: 12, heavy: true },
+    { key: "series",   emoji: "📽", en: "TV series",    zh: "电视连续剧", descEn: "Auto-scripted · 24 works", descZh: "自动编剧 · 约 24 段", ready: true, works: 24, heavy: true },
+    { key: "film",     emoji: "🎦", en: "Film",         zh: "电影",     descEn: "Auto-scripted · 40 works", descZh: "自动编剧 · 约 40 段", ready: true, works: 40, heavy: true },
   ];
   function castPromptFor(actor, name, workType) {
     var base;
@@ -2045,11 +2053,102 @@
       window.__cssosDirectorStyle = style.trim() || null;
       var others = cast.filter(function (m) { return m.actor_id !== proto.actor_id; });
       var tv = title.trim();
-      modal.remove(); try { close(); } catch (_e) {}
-      if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast("🎬 " + T("Action!", "开拍!") + " " + T("Starring", "主演") + " " + (proto.name_en || proto.name_zh) + (others.length ? " · " + others.map(function (m) { return T(m.role_label_en || m.role, m.role_label_zh || m.role) + " " + m.name; }).join(" · ") : ""), {});
-      if (typeof startCreation === "function") startCreation(tv, "", { source: "director", workType: fmt, style: (style.trim() || undefined), civilization: (civ || undefined), synopsis: (synopsis.trim() || undefined) });
-      else castRun(proto, fmt === "mv" ? "single" : fmt);
+
+      /* CSSOS_WAVE_1787 20260727 — 钱包刹车。Jing:「不要让用户一点击,也不验证平台钱包,
+       * 也不要求再次确认,是不行的。特别是对长片电影,必须比估算多 20% 缓冲。
+       * 读不到余额 = 拦住,让用户重试。全系列,从单曲到电影。」
+       * 这是导演面板唯一的开火点 —— 闸装在这里,任何格式都绕不过去。 */
+      castGate(fmt, proto, function () {
+        modal.remove(); try { close(); } catch (_e) {}
+        if (typeof window.cssosGuidedToast === "function") window.cssosGuidedToast("🎬 " + T("Action!", "开拍!") + " " + T("Starring", "主演") + " " + (proto.name_en || proto.name_zh) + (others.length ? " · " + others.map(function (m) { return T(m.role_label_en || m.role, m.role_label_zh || m.role) + " " + m.name; }).join(" · ") : ""), {});
+        if (typeof startCreation === "function") startCreation(tv, "", { source: "director", workType: fmt, style: (style.trim() || undefined), civilization: (civ || undefined), synopsis: (synopsis.trim() || undefined) });
+        else castRun(proto, fmt === "mv" ? "single" : fmt);
+      });
+      return;
     }
+
+    /* ---- W1787 钱包刹车 ---- 与 AI 助理里的 confirmHeavySurprise 同一套口径:
+     *   估算 = 份数 × CAST_CENTS_PER_WORK
+     *   门槛 = 估算 × 1.2(20% 缓冲, 引擎按实付结账, 长片最容易超)
+     *   读不到余额 → 只给「重试」, 绝不放行
+     * onOk 只在用户明确确认且余额足够时才被调用。 */
+    async function castGate(fmtKey, proto, onOk) {
+      var key = (fmtKey === "mv") ? "single" : fmtKey;
+      var spec = CAST_WORK_TYPES.filter(function (w) { return w.key === key; })[0] || {};
+      var works = Number(spec.works || 1);
+      var cost = works * CAST_CENTS_PER_WORK;
+      var need = Math.ceil(cost * 1.2);
+      var bal = await castFetchBalance();
+      var unknown = (bal == null);
+      var enough = !unknown && (bal >= need);
+      var money = function (c) { return "$" + (Math.max(0, c) / 100).toFixed(2); };
+
+      var ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;z-index:10097;display:flex;align-items:center;justify-content:center;background:rgba(2,10,7,.74);backdrop-filter:blur(3px);";
+      var rows = [];
+      rows.push('<div style="font:700 16px/1.3 inherit;margin-bottom:10px;">' + (spec.emoji || "🎬") + "  " + esc(T("Confirm before generating", "生成前请确认")) + "</div>");
+      rows.push('<div style="font:500 13px/1.6 inherit;color:#bfe9d8;margin-bottom:12px;">' +
+        esc(T("This starts a paid generation. It costs real money and cannot be undone.",
+              "这会启动一次付费生成。它花的是真钱，且无法撤销。")) + "</div>");
+      rows.push('<div style="display:flex;flex-direction:column;gap:7px;font:600 13px/1 inherit;background:rgba(0,245,160,.07);border:1px solid rgba(0,245,160,.2);border-radius:12px;padding:12px 14px;margin-bottom:14px;">');
+      rows.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(T("Format", "格式")) + '</span><span>' + esc(T(spec.en || key, spec.zh || key)) + '</span></div>');
+      rows.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(T("Works", "份数")) + '</span><span>' + works + '</span></div>');
+      rows.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(T("Estimated cost", "预估花费")) + '</span><span style="color:#00f5a0;">' + money(cost) + '</span></div>');
+      rows.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(T("Wallet must hold (+20% buffer)", "钱包需备（含 20% 缓冲）")) + '</span><span style="color:#ffcf6a;">' + money(need) + '</span></div>');
+      rows.push('<div style="display:flex;justify-content:space-between;"><span>' + esc(T("Your wallet", "钱包余额")) + '</span><span style="color:' + (enough ? "#eafff6" : "#ff8a8a") + ';">' + (unknown ? esc(T("could not read", "读取失败")) : money(bal)) + '</span></div>');
+      rows.push("</div>");
+      if (unknown) {
+        rows.push('<div style="font:600 12.5px/1.5 inherit;color:#ff8a8a;margin-bottom:12px;">' +
+          esc(T("We could not read your wallet balance, so we will not start a paid job. Please retry.",
+                "我们暂时读不到你的钱包余额，因此不会启动付费生成。请重试。")) + "</div>");
+      } else if (!enough) {
+        rows.push('<div style="font:600 12.5px/1.5 inherit;color:#ff8a8a;margin-bottom:12px;">' +
+          esc(T("Not enough balance — top up first.", "余额不足 —— 请先充值。")) + "</div>");
+      }
+      if (spec.heavy) {
+        rows.push('<div style="font:700 12.5px/1.5 inherit;color:#ffcf6a;margin-bottom:12px;">⚠️ ' +
+          esc(T("This is a long-form job — many works, long runtime, high cost.",
+                "这是长片体量的生成 —— 份数多、耗时长、开销高。")) + "</div>");
+      }
+      rows.push('<div style="display:flex;gap:8px;justify-content:flex-end;">');
+      rows.push('<button type="button" data-g="cancel" style="background:transparent;border:1px solid rgba(255,255,255,.22);color:#cfeee0;font:600 13px/1 inherit;padding:10px 16px;border-radius:999px;cursor:pointer;">' + esc(T("Cancel", "取消")) + "</button>");
+      if (unknown) rows.push('<button type="button" data-g="retry" style="background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font:700 13px/1 inherit;padding:10px 18px;border-radius:999px;cursor:pointer;">' + esc(T("Retry", "重试")) + "</button>");
+      else if (!enough) rows.push('<button type="button" data-g="topup" style="background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font:700 13px/1 inherit;padding:10px 18px;border-radius:999px;cursor:pointer;">' + esc(T("Top up", "去充值")) + "</button>");
+      else rows.push('<button type="button" data-g="go" style="background:linear-gradient(135deg,#00f5a0,#00b87a);color:#0a0d12;border:0;font:700 13px/1 inherit;padding:10px 18px;border-radius:999px;cursor:pointer;">' + esc(T("Generate", "确认生成")) + "</button>");
+      rows.push("</div>");
+
+      var box = document.createElement("div");
+      box.style.cssText = "width:min(440px,calc(100vw - 32px));background:linear-gradient(148deg,#07130e,#0d1a14 60%,#020806);border:1px solid rgba(0,245,160,.32);border-radius:18px;padding:20px 22px;color:#eafff6;box-shadow:0 20px 60px rgba(2,10,7,.75);";
+      box.innerHTML = rows.join("");
+      box.addEventListener("click", function (e) {
+        var b = e.target && e.target.closest ? e.target.closest("[data-g]") : null;
+        if (!b) return;
+        var a = b.getAttribute("data-g");
+        ov.remove();
+        if (a === "go") { try { onOk(); } catch (_e) {} }
+        else if (a === "retry") castGate(fmtKey, proto, onOk);       // 重新读余额, 不放行
+        else if (a === "topup") {
+          try {
+            if (typeof window.cssosOpenCreditsTopup === "function") window.cssosOpenCreditsTopup();
+            else if (typeof window.openCreditsTopupModal === "function") window.openCreditsTopupModal();
+          } catch (_e) {}
+        }
+      });
+      ov.addEventListener("click", function (e) { if (e.target === ov) ov.remove(); });  // 点遮罩 = 不花钱
+      ov.appendChild(box);
+      document.body.appendChild(ov);
+    }
+
+    async function castFetchBalance() {
+      try {
+        var r = await fetch("/api/credits/balance", { credentials: "include" });
+        if (!r.ok) return null;
+        var j = await r.json();
+        var b = (j && (j.balance != null ? j.balance : (j.data && j.data.balance)));
+        return (typeof b === "number") ? b : null;
+      } catch (_e) { return null; }
+    }
+
     modal.addEventListener("click", function (e) {
       if (e.target === modal) { stopCd(); modal.remove(); return; }
       var f = e.target.closest && e.target.closest("[data-fmt]");

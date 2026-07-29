@@ -227,6 +227,10 @@
     var b = document.createElement("button");
     b.type = "button";
     b.className = "csr-item";
+    // CSSOS_WAVE_1790 — <13 关社交: 标记【发/再分发】类按钮, 由 app.social-age-gate.js 统一隐藏。
+    //   注意只标"发"的(分享), 💬评论按钮不标 —— 读评论属于"看", 不在禁用范围内
+    //   (评论的输入框由 .cwc-composer 单独隐藏)。
+    if (opts.social) b.setAttribute("data-social-gated", "1");
     if (opts.disabled) b.setAttribute("disabled", "");
     if (opts.title) b.title = opts.title;
     if (opts.aria) b.setAttribute("aria-label", opts.aria);
@@ -380,7 +384,7 @@
     // 2.5 📤 分享 — CSSOS_WAVE_1190 — Jing 指令: 右轨补分享按钮。复用已做好的分享小窗口
     //   openCssosShareDialog({workId,...}) (app.share-dialog.js)。谁的作品好, 谁都可分享(不限自己)。
     rail.appendChild(mkItem("📤", copy("Share", "分享"), {
-      aria: copy("Share", "分享"), title: copy("Share this work", "分享这首作品"),
+      aria: copy("Share", "分享"), title: copy("Share this work", "分享这首作品"), social: true,
       onClick: function () {
         var id = robustWorkId();
         if (!id) { try { if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Loading work…", "作品加载中…")); } catch (_e) {} return; }
@@ -449,6 +453,23 @@
     aiBtn.id = "cssos-rail-ai";
     rail.appendChild(aiBtn);
     makeRailAiDraggable(aiBtn);
+    /* CSSOS_WAVE_1788 20260728 — Jing:「AI 助理在 MV 影院模式下无法使用右击/长按」。
+     * 三种手势(单击=开面板 / 双击=惊喜 / 长按·右击=菜单)原本只绑在主界面 FAB 上,
+     * 影院右轨这个按钮从来没绑过 —— 所以影院里长按右击都没反应。
+     * 复用 agent-chat 暴露的同一套绑定(它自带幂等闸, 右轨反复重建也不会叠加监听),
+     * 而不是在这里另写一份 —— 两份手势迟早会走样。 */
+    /* 加载顺序: 本文件在 index.html 里排在 app.agent-chat.js 【前面】, 所以右轨若在
+     * agent-chat 之前建好按钮, 这个全局还不存在。裸 if 会静默跳过 —— 正是本波要修的那类
+     * 无声失败。改成短重试, 最多 ~2s; 绑定端自带幂等闸, 重试命中也不会叠加。 */
+    (function wireWhenReady(tries) {
+      try {
+        if (typeof globalThis.cssosWireAiGestures === "function") {
+          globalThis.cssosWireAiGestures(aiBtn);
+          return;
+        }
+      } catch (_e) {}
+      if (tries > 0) setTimeout(function () { wireWhenReady(tries - 1); }, 200);
+    })(10);
   }
 
   /* CSSOS_WAVE_1776 20260726 — Jing「影院里的 AI 助理也要可拖拽」。

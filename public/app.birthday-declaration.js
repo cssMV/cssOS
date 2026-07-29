@@ -169,6 +169,7 @@
         .then(function (out) {
           if (out.status === 200 && out.body && out.body.ok) {
             state = (out.body.data) || null;
+            paintProfileRow();
             close();
             toast(tr("Saved. See you on your birthday."));
             try {
@@ -201,8 +202,21 @@
   function refresh() {
     return fetch("/api/user/birthday", { credentials: "include" })
       .then(function (r) { return r && r.ok ? r.json() : null; })
-      .then(function (j) { state = (j && j.data) || null; return state; })
+      .then(function (j) { state = (j && j.data) || null; paintProfileRow(); return state; })
       .catch(function () { return null; });
+  }
+
+  /* Profile 面板是动态注入且会整块重渲的, 挂上去的文案会被冲掉。
+   * 用 MutationObserver 回填 —— 和平台上 data-pill-bar 的做法一致。 */
+  function observeProfileRow() {
+    if (typeof MutationObserver !== "function") return;
+    var pending = false;
+    var mo = new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      setTimeout(function () { pending = false; paintProfileRow(); }, 120);
+    });
+    try { mo.observe(document.body, { childList: true, subtree: true }); } catch (_e) {}
   }
 
   /* 自动提醒: 一生最多 2 次, 间隔 ≥7 天, 已申报/已说"别再问"就永不打扰。
@@ -219,6 +233,26 @@
     open("auto");
   }
 
+  /* Profile 面板那一行常驻入口。用事件委托 + 定期回填, 而不是让 Profile 面板
+   * 自己去关心生日状态 —— 那个面板每次重渲都会重建 DOM, 挂在它身上的监听会丢。 */
+  function paintProfileRow() {
+    var rows = document.querySelectorAll("[data-cssos-birthday-row]");
+    if (!rows.length) return;
+    var label = state && state.declared && state.birthday
+      ? tr("Birthday") + ": " + state.birthday
+      : tr("Add your birthday — get a birthday MV");
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].textContent.trim() !== label) rows[i].textContent = label;
+    }
+  }
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (!t || typeof t.closest !== "function") return;
+    if (!t.closest("[data-cssos-birthday-row]")) return;
+    e.preventDefault();
+    globalThis.cssosOpenBirthdayPrompt("profile");
+  });
+
   globalThis.cssosOpenBirthdayPrompt = function (reason) {
     // 主动入口(生日 MV 按钮、Profile 那一行)不受自动提醒的次数上限约束。
     return refresh().then(function () { open(reason || "manual"); });
@@ -227,6 +261,7 @@
   globalThis.cssosRefreshBirthdayState = refresh;
 
   function boot() {
+    observeProfileRow();
     // 未登录不打扰(端点会 401, state 保持 null → maybeAutoPrompt 直接返回)。
     refresh().then(function () { setTimeout(maybeAutoPrompt, 2500); });
   }

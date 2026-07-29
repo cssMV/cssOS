@@ -65,6 +65,13 @@ function buildProfileMetaMarkup(options = {}) {
     <div class="profile-account-meta">${t("profile.connectedProviders")} ${escapeHtml(linkedText)}</div>
     <div class="profile-account-meta">${t("profile.accountRole")} ${escapeHtml(roleLabel)}</div>
     ${note ? `<div class="profile-account-meta">${escapeHtml(note)}</div>` : ""}
+    <!-- CSSOS_WAVE_1791 20260728 — Jing: 生日常驻入口(不弹窗、不消失)。
+         文案和点击都由 app.birthday-declaration.js 接管(事件委托 + 状态回填),
+         这里只留一个稳定锚点, 免得 Profile 面板每次重渲都要关心生日逻辑。 -->
+    <div class="profile-account-meta" data-cssos-birthday-row
+         style="margin-top:10px;cursor:pointer;text-decoration:underline;">
+      ${escapeHtml(loginCopy("Add your birthday — get a birthday MV"))}
+    </div>
     <!-- CSSOS_WAVE_205 20260516 — Jing: Apple 5.1.1(v) in-app account
          deletion path. Bottom-of-meta danger zone with explicit
          confirm modal, POSTs to /api/account/delete with the

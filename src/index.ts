@@ -15586,9 +15586,26 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
 // (offline, lyrics+duration → SRT/ASS via even-divide or aligned-words from
 // the music engine). No paid API in the path → no tier-sweep needed.
 // /api/mv/compose is pure ffmpeg, also free. Both fall through this catch-all.
+/* CSSOS_WAVE_1792 20260728 — Jing:「/api/mv/engines 未登录 401」。
+ *
+ * 现象两层:①部署脚本的公网 smoke `catalog_music_default_suno` 一直失败;
+ * ②真实影响 —— 前端 app.mv-engines-catalog.js 拿这个目录驱动【每个阶段的
+ * 引擎/版本下拉 + 价格徽章】, 游客态直接 401 → 目录为空。
+ *
+ * 根因不在 smoke, 在这里: nginx 把 /api/* 全部指向 Node(:3000), 而 Node 这个
+ * catch-all 一律要求会话后才转发给 Rust(:8081)。Rust 自己对 /api/mv/engines
+ * 是公开的(直连 200), 会话要求纯粹是这层网关加的。
+ *
+ * 修法: 只读的【公开目录】路由放行, 其余一律照旧要登录。engines 返回的是引擎名/
+ * 版本/价格 —— 和已经公开的 /cssapi/v1/engines、/cssapi/v1/pricing 同类数据,
+ * 不含任何用户信息。白名单显式列举, 绝不做前缀匹配(免得将来有人加个
+ * /api/mv/engines-of-this-user 就顺带漏了)。 */
+const MV_PUBLIC_GET_PATHS = new Set<string>(["/api/mv/engines"]);
+
 app.all(/^\/api\/mv\//, (req, res) => {
   const userId = (req.session as any)?.user_id;
-  if (!userId) {
+  const isPublicCatalog = req.method === "GET" && MV_PUBLIC_GET_PATHS.has(req.path);
+  if (!userId && !isPublicCatalog) {
     return res
       .status(401)
       .json({ ok: false, error: "sign_in_required" });
@@ -15617,7 +15634,9 @@ app.all(/^\/api\/mv\//, (req, res) => {
           (req.headers["content-type"] as string) || "application/json",
         "content-length": Buffer.byteLength(bodyStr),
         "x-cssos-internal-token": CSSOS_INTERNAL_TOKEN,
-        "x-cssos-user": String(userId),
+        // W1792 — 公开目录路由(engines)允许游客通过, 此时没有 userId。
+        //   原来写 String(userId), 游客会把字面量 "undefined" 传给 Rust。
+        "x-cssos-user": String(userId || ""),
         "x-forwarded-for": String(
           req.headers["x-forwarded-for"] ||
             req.ip ||

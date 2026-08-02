@@ -98,6 +98,17 @@
     { match: ["美国", "近现代北美", "Modern North America", "United States", "American"], lang: "en" },
     // ── Africa ──
     { match: ["现代非洲", "Modern Africa"],                              lang: "sw" },
+    /* CSSOS_WAVE_1796 (Jing「必须文明智能联动」) — 与后端 CIV_LANGUAGE_ENTRIES 对齐。
+     * 这 7 个文明此前两端都没有条目 → 返回 "" → 歌词跟 UI 语言走而非人物母语。
+     * 库里已有 27 位上线演员命中这个洞(凯尔特/斯拉夫神话/波利尼西亚/玛雅/约鲁巴)。
+     * 按 W360 现行政策给真母语, 不降级英文。两端必须同步改, 少改一端就是半个联动。 */
+    { match: ["希伯来", "Hebrew"],                                       lang: "he" },
+    { match: ["凯尔特", "Celtic"],                                       lang: "cy" },
+    { match: ["斯拉夫", "Slavic"],                                       lang: "ru" },
+    { match: ["阿兹特克", "Aztec", "Nahua"],                             lang: "nah" },
+    { match: ["玛雅", "Maya"],                                           lang: "yua" },
+    { match: ["约鲁巴", "Yoruba"],                                       lang: "yo" },
+    { match: ["波利尼西亚", "Polynesia", "Hawaii"],                      lang: "haw" },
     // ── Fictional / catch-all Western ──
     { match: ["中土世界", "Middle-earth"],                                lang: "en" },
     { match: ["欧洲", "European", "西方", "Western"],                     lang: "en" },

@@ -5058,6 +5058,19 @@ const CIV_LANGUAGE_ENTRIES: ReadonlyArray<{ match: ReadonlyArray<string>; lang: 
   { match: ["印加", "Inca"],                                                 lang: "es" },
   { match: ["美国", "近现代北美", "Modern North America", "United States", "American"], lang: "en" },
   { match: ["现代非洲", "Modern Africa"],                                   lang: "sw" },
+  /* CSSOS_WAVE_1796 (Jing「必须文明智能联动」) — 补齐 7 个【一直没有母语映射】的文明。
+   * 起因: 建「妲己类」跨文明名册时发现, 库里已上线的 27 位演员(凯尔特5/斯拉夫神话8/
+   * 波利尼西亚5/玛雅4/约鲁巴5)在这张表里【一条都匹配不到】→ civToLanguage 返回 ""
+   * → 人物 MV 的歌词一路跟着 UI 语言走, 而不是人物母语。这正是 W196/W197/W360 那条
+   * 铁律被破的地方, 且破在存量上, 不是新增。
+   * 语言按 W360 的现行政策给【真母语】, 不再降级成英文。 */
+  { match: ["希伯来", "Hebrew"],                                            lang: "he" },
+  { match: ["凯尔特", "Celtic"],                                            lang: "cy" },
+  { match: ["斯拉夫", "Slavic"],                                            lang: "ru" },
+  { match: ["阿兹特克", "Aztec", "Nahua"],                                  lang: "nah" },
+  { match: ["玛雅", "Maya"],                                                lang: "yua" },
+  { match: ["约鲁巴", "Yoruba"],                                            lang: "yo" },
+  { match: ["波利尼西亚", "Polynesia", "Hawaii"],                           lang: "haw" },
   { match: ["中土世界", "Middle-earth"],                                     lang: "en" },
   { match: ["欧洲", "European", "西方", "Western"],                          lang: "en" },
   { match: ["现代文学", "Modern Literature"],                               lang: "en" },
@@ -44546,6 +44559,12 @@ const CIV_EN_SEED: Record<string, string> = {
   // 却漏了英文 civ —— 一旦有 SEED_LEGEND_ACTORS 走这个 civ, face_prompt 就会中英混串。
   // (已在册的 8 位阿拉伯人物走的是另一条 UUID 种子路径, 没暴露这个洞。)
   "阿拉伯文明": "Arabic", "波斯苏非": "Persian Sufi",
+  // CSSOS_WAVE_1796 (Jing) — 「妲己类」跨文明名册引入的新 civ。少一行, seedFacePrompt()
+  //   就会把【中文】civ 串进英文 prompt —— W1692/W1771/W1775 修的是同一个坑, 这是第四次。
+  //   「日本神话」是存量漏网(天照/稻荷/伊邪那美 走的是另一条种子路径, 没暴露)。
+  "希伯来文明": "Hebrew", "凯尔特文明": "Celtic", "阿兹特克文明": "Aztec",
+  "日本神话": "Japanese Myth", "斯拉夫文明": "Slavic", "玛雅文明": "Maya",
+  "约鲁巴文明": "Yoruba", "波利尼西亚文明": "Polynesian",
 };
 function civEnSeed(c?: string | null): string {
   const s = String(c || "").trim();
@@ -44688,6 +44707,95 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-al-hallaj", name_zh: "哈拉智", name_en: "Al-Hallaj", name_native: "الحسين بن منصور الحلّاج", civilization: "阿拉伯文明",
     persona: "Said 'I am the Truth' in the open street and was executed for it — the Sufi who would not take the sentence back", gender: "male",
     style_descriptor: "sufi ecstatic dhikr / baghdad martyrdom / unyielding", voice_style: "burning ecstatic tenor", tags: ["saint","sufi","martyr","legend"], archetypes: ["sage","tragic"] },
+
+  /* ══ CSSOS_WAVE_1796 (Jing) — 「妲己类」跨文明名册 ══════════════════════════
+   * 长文故事系列《重写我》的选角:每个文明都造过一个「祸国的女人」, 用来替一个
+   * 男人的三十年顶罪。这批人物进库后, 每一章文末可以直接链到本人的「问道」对话。
+   *
+   * ★ 戏路刻意【不给 villain / charmer】。ARCHETYPE_TEMPERAMENT 里 villain 会把脸
+   *   画成「阴冷危险」, charmer 会画成「妖冶勾人」—— 那恰恰是这个系列要拆掉的污名。
+   *   平台自己的选角数据不能替史书复读一遍。统一走 tragic(哀而不软)/ ruler(真的
+   *   掌过权的)/ sage(留下过著作的)。
+   * ★ persona 一律写【指控 vs 事实】, 不写「祸国妖姬」。英文是唯一源(i18n 铁律)。
+   * ★ 夏娃(Jing 拍板加入): 她是《创世记》里的人, 不是被崇拜的对象 —— 美术史画了六百年。
+   *   face_prompt 由 seedFacePrompt() 生成, 只出人物肖像 + "Period-accurate attire",
+   *   不带园/蛇/果, 也不会裸体(裸体会直接踩苹果与各社交平台的内容政策)。 */
+
+  // ── 希伯来:西方「女人带来堕落」叙事的源代码 ──
+  { actor_id: "act-legend-eve", name_zh: "夏娃", name_en: "Eve", name_native: "חַוָּה", civilization: "希伯来文明",
+    persona: "The first woman — and the first to be charged. An entire civilisation's doctrine of original sin was hung on one fruit and one conversation, written down long after by men who were not there", gender: "female",
+    style_descriptor: "primeval hebrew chant / first light / vast quiet awe", voice_style: "warm ancient contralto", tags: ["first-woman","blamed","legend"], archetypes: ["tragic","enigma"] },
+  { actor_id: "act-legend-jezebel", name_zh: "耶洗别", name_en: "Jezebel", name_native: "אִיזֶבֶל", civilization: "希伯来文明",
+    persona: "Phoenician princess, queen of Israel — written up so thoroughly that her name is still an insult in a dozen languages. Wrote a person until the name stopped being a name", gender: "female",
+    style_descriptor: "phoenician lyre / levantine court / defiant", voice_style: "commanding regal alto", tags: ["queen","blamed","legend"], archetypes: ["ruler","tragic"] },
+
+  // ── 中华:亡国之女的完整谱系(夏 → 商 → 西周 → 后蜀 → 明清之际) ──
+  { actor_id: "act-legend-moxi", name_zh: "末喜", name_en: "Mo Xi", name_native: "妹喜", civilization: "中华文明",
+    persona: "Consort of the last Xia king — the first woman in the Chinese record charged with bringing down a dynasty, and the template every later charge was cut from", gender: "female",
+    style_descriptor: "xia-dynasty bone flute / archaic ritual / austere", voice_style: "low archaic mezzo", tags: ["xia","blamed","legend"], archetypes: ["tragic","enigma"] },
+  { actor_id: "act-legend-baosi", name_zh: "褒姒", name_en: "Bao Si", name_native: "褒姒", civilization: "中华文明",
+    persona: "Queen of Western Zhou, charged with a dynasty's fall for a single smile — the beacon-fire story first appears centuries after her death, and the king had already deposed his queen and heir", gender: "female",
+    style_descriptor: "western-zhou bronze bells / cold beacon night", voice_style: "clear distant soprano", tags: ["zhou","blamed","legend"], archetypes: ["tragic","enigma"] },
+  { actor_id: "act-legend-huarui", name_zh: "花蕊夫人", name_en: "Lady Huarui", name_native: "花蕊夫人", civilization: "中华文明",
+    persona: "Poet-consort of Later Shu. Taken to the conqueror's court and questioned on her kingdom's fall, she answered in four lines: the king raised the white flag, and I in the inner palace was not told — one hundred and forty thousand men laid down their arms, and not one of them was a man", gender: "female",
+    style_descriptor: "later-shu guqin / palace verse / quiet steel", voice_style: "composed cutting mezzo", tags: ["poet","blamed","legend"], archetypes: ["tragic","sage"] },
+  { actor_id: "act-legend-chen-yuanyuan", name_zh: "陈圆圆", name_en: "Chen Yuanyuan", name_native: "陳圓圓", civilization: "中华文明",
+    persona: "A courtesan on whom a poet hung the fall of the Ming — 'the general's rage, all for a beauty'. The pass was opened by the general", gender: "female",
+    style_descriptor: "late-ming pipa / kunqu / border dust", voice_style: "silken sorrowful soprano", tags: ["ming-qing","blamed","legend"], archetypes: ["tragic","enigma"] },
+
+  // ── 日本:同一只狐狸的第三站 + 两场战乱的女性替罪 ──
+  { actor_id: "act-legend-tamamo", name_zh: "玉藻前", name_en: "Tamamo-no-Mae", name_native: "玉藻前", civilization: "日本神话",
+    persona: "Court beauty of the Toba era, named a demon fox by the diviners. Japanese legend says she was Daji in Shang China and Lady Kayo in India before this — one being made to carry the collapse of three empires", gender: "female",
+    style_descriptor: "heian court gagaku / fox-fire / uncanny", voice_style: "clear uncanny soprano", tags: ["fox","blamed","legend"], archetypes: ["tragic","enigma"] },
+  { actor_id: "act-legend-hino-tomiko", name_zh: "日野富子", name_en: "Hino Tomiko", name_native: "日野富子", civilization: "日本古典",
+    persona: "Shogunal consort blamed for the Onin War and the century of civil collapse that followed — charged with greed for doing what every man in the shogunate was doing", gender: "female",
+    style_descriptor: "muromachi shakuhachi / burning kyoto / cold ledger", voice_style: "measured shrewd alto", tags: ["muromachi","blamed","legend"], archetypes: ["ruler","tragic"] },
+  { actor_id: "act-legend-yodo-dono", name_zh: "淀殿", name_en: "Yodo-dono", name_native: "淀殿", civilization: "日本古典",
+    persona: "Mother of the Toyotomi heir, remembered as the obstinate woman who destroyed her clan — while Tokugawa brought the cannon to Osaka", gender: "female",
+    style_descriptor: "momoyama taiko / osaka siege / defiant", voice_style: "proud unyielding alto", tags: ["sengoku","blamed","legend"], archetypes: ["ruler","tragic"] },
+
+  // ── 朝鲜:结构与妲己完全一致 ──
+  { actor_id: "act-legend-jang-nok-su", name_zh: "张绿水", name_en: "Jang Nok-su", name_native: "장녹수", civilization: "朝鲜古典",
+    persona: "Favourite of Yeonsangun, executed in the open street the day he was deposed — a whole reign of tyranny transferred onto one woman's account", gender: "female",
+    style_descriptor: "joseon gayageum / court intrigue / doomed", voice_style: "sweet perilous soprano", tags: ["joseon","blamed","legend"], archetypes: ["tragic","enigma"] },
+
+  // ── 印度:两条轴 —— 背锅, 与「被要求自证」 ──
+  { actor_id: "act-legend-draupadi", name_zh: "德劳帕蒂", name_en: "Draupadi", name_native: "द्रौपदी", civilization: "印度教神话",
+    persona: "Queen of the Pandavas — staked and lost at dice by her own husbands, dragged into the assembly, and still remembered by many as the cause of the war that followed", gender: "female",
+    style_descriptor: "epic sanskrit chant / dice hall / righteous fury", voice_style: "burning resolute mezzo", tags: ["mahabharata","blamed","legend"], archetypes: ["tragic","hero"] },
+  { actor_id: "act-legend-sita", name_zh: "悉多", name_en: "Sita", name_native: "सीता", civilization: "印度教神话",
+    persona: "Abducted, recovered, and then required to walk through fire to prove she was untouched — and exiled anyway. Not blamed for a fall: made to justify her own existence", gender: "female",
+    style_descriptor: "ramayana veena / fire ordeal / unbroken", voice_style: "pure steady soprano", tags: ["ramayana","blamed","legend"], archetypes: ["tragic","sage"] },
+  { actor_id: "act-legend-kaikeyi", name_zh: "凯克伊", name_en: "Kaikeyi", name_native: "कैकेयी", civilization: "印度教神话",
+    persona: "The queen whose two granted wishes sent Rama into exile — remembered as the villain of the epic for holding a king to a promise he made of his own free will", gender: "female",
+    style_descriptor: "ayodhya court strings / a promise called in", voice_style: "firm insistent alto", tags: ["ramayana","blamed","legend"], archetypes: ["tragic","enigma"] },
+
+  // ── 地中海:西方两大原型 ──
+  { actor_id: "act-legend-pandora", name_zh: "潘多拉", name_en: "Pandora", name_native: "Πανδώρα", civilization: "古希腊神话",
+    persona: "Made by the gods as a punishment for men, handed a sealed jar, then charged with everything that came out of it — the West's source code for blaming a woman first", gender: "female",
+    style_descriptor: "archaic greek lyre / the jar opening / dread and hope", voice_style: "bright fated soprano", tags: ["myth","blamed","legend"], archetypes: ["tragic","enigma"] },
+  { actor_id: "act-legend-cleopatra", name_zh: "克丽奥帕特拉", name_en: "Cleopatra", name_native: "Κλεοπάτρα", name_latin: "Cleopatra VII Philopator", civilization: "古埃及文明",
+    persona: "Last pharaoh of Egypt — scholar, admiral, administrator, fluent in nine languages — rewritten by Octavian's war propaganda into the eastern seductress who unmanned Rome. He won, so the propaganda became the history", gender: "female",
+    style_descriptor: "ptolemaic harp / nile court / imperial gravity", voice_style: "cultivated commanding alto", tags: ["pharaoh","blamed","legend"], archetypes: ["ruler","sage"] },
+  { actor_id: "act-legend-messalina", name_zh: "麦瑟琳娜", name_en: "Messalina", name_native: "Valeria Messalina", name_latin: "Valeria Messalina", civilization: "古罗马文明",
+    persona: "Empress of Claudius whose name became Latin shorthand for insatiable vice — written down by senators with every reason to destroy her house", gender: "female",
+    style_descriptor: "roman cithara / palatine whisper / imperial", voice_style: "assured patrician alto", tags: ["empress","blamed","legend"], archetypes: ["ruler","tragic"] },
+
+  // ── 欧洲近世 ──
+  { actor_id: "act-legend-guinevere", name_zh: "桂妮维亚", name_en: "Guinevere", name_native: "Gwenhwyfar", civilization: "凯尔特文明",
+    persona: "Queen of Camelot, charged with the collapse of the Round Table over a love affair — in a kingdom that was pulled apart by its own men's ambition", gender: "female",
+    style_descriptor: "welsh harp / camelot in autumn / elegiac", voice_style: "warm melancholy mezzo", tags: ["arthurian","blamed","legend"], archetypes: ["tragic","enigma"] },
+  { actor_id: "act-legend-catherine-medici", name_zh: "凯瑟琳·德·美第奇", name_en: "Catherine de' Medici", name_native: "Caterina de' Medici", civilization: "文艺复兴欧洲",
+    persona: "Queen mother of France across three sons' reigns, handed sole authorship of the St Bartholomew's Day massacre by pamphleteers who needed an Italian woman to carry it", gender: "female",
+    style_descriptor: "renaissance consort viols / court of poison / calculating", voice_style: "cool controlled contralto", tags: ["queen","blamed","legend"], archetypes: ["ruler","enigma"] },
+  { actor_id: "act-legend-marie-antoinette", name_zh: "玛丽·安托瓦内特", name_en: "Marie Antoinette", name_native: "Marie-Antoinette", civilization: "启蒙欧洲",
+    persona: "Queen of France, executed at thirty-seven — world-famous for a sentence she never said, first printed in a book written when she was ten years old and still living in Vienna", gender: "female",
+    style_descriptor: "versailles harpsichord / gilded rooms / falling", voice_style: "light refined soprano", tags: ["queen","blamed","legend"], archetypes: ["tragic","ruler"] },
+
+  // ── 美洲:五百年不散的骂名 ──
+  { actor_id: "act-legend-malinche", name_zh: "玛琳切", name_en: "La Malinche", name_native: "Malintzin", civilization: "阿兹特克文明",
+    persona: "Nahua interpreter to Cortes — sold into slavery as a child and not told to whom, then cursed by an entire nation for five centuries. Spanish still carries the word built from her name: malinchista, one who betrays her own", gender: "female",
+    style_descriptor: "nahua flute and drum / two tongues / conquest dusk", voice_style: "steady interpreting alto", tags: ["interpreter","blamed","legend"], archetypes: ["tragic","sage"] },
 ];
 
 // CSSOS_WAVE_116 — 原创合成恶霸(全自家 IP, 零版权)。戏剧靠反派衬托; 造一批各路坏人平衡"好人多坏人少"。

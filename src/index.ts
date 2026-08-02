@@ -44410,7 +44410,13 @@ async function buildActorPromptSuffix(actorId: string): Promise<string> {
     const a = r.rows[0];
     if (!a) return "";
     const name = a.name_en || a.name_zh;
-    const look = String(a.face_prompt || a.persona || "").trim();
+    /* CSSOS_WAVE_1799 (Jing) — 旧写法 face_prompt || persona 是【二选一】: 只要有 face_prompt
+     * 就整段丢掉 persona。马查多·德·阿西斯的封面被画成白人, 病根就在这 ——「获释奴隶的孙子」
+     * 只写在 persona 里, 生成时根本没送进模型。改成【并用】: face_prompt 定身份与气质,
+     * persona 补生平质感; persona 已被 face_prompt 包含时不重复。 */
+    const fp = String(a.face_prompt || "").trim();
+    const ps = String(a.persona || "").trim();
+    const look = (fp && ps && !fp.includes(ps)) ? `${fp} Background: ${ps}.` : (fp || ps);
     if (!look) return `, starring the digital actor ${name}`;
     return `, starring ${name} — the same consistent character throughout: ${look}`;
   } catch { return ""; }
@@ -44601,7 +44607,16 @@ function temperamentFor(arch?: string[] | null): string {
   for (const k of TEMPERAMENT_ORDER) { const t = ARCHETYPE_TEMPERAMENT[k]; if (set.has(k) && t) return t; }
   return "grave and composed";
 }
-function seedFacePrompt(nameEn: string, civ?: string | null, arch?: string[] | null): string {
+/* CSSOS_WAVE_1799 (Jing「先修根,再重跑」) — seedFacePrompt 加【体貌】维度。
+ * 28 张新封面肉眼核查暴露两个病, 病根是同一个: 本函数只吃「名字+文明+戏路」,
+ * 完全没有体貌与年代 ——
+ *   ① 同文明同质化: 末喜(夏)/褒姒(西周)/花蕊夫人(后蜀)/陈圆圆(明末) 四个相隔
+ *      三千年的人, prompt 全是 "Chinese setting", 于是画成同一张脸换戏服。
+ *   ② 族裔被抹平: 马查多·德·阿西斯是获释奴隶的孙子、非裔巴西人(我们自己的 persona
+ *      第一句就写着), 但 prompt 里只有 "Brazilian setting" → 模型默认画成白人。
+ *      把一个以黑人身份写进文学史的人洗白, 这不是风格问题。
+ * digital_actors 早有 appearance_tags 字段, legend 这条种子路径从来没用过。接上。 */
+function seedFacePrompt(nameEn: string, civ?: string | null, arch?: string[] | null, appearance?: string[] | null): string {
   const temper = temperamentFor(arch);
   const civEn = civEnSeed(civ);
   const dark = (arch || []).some((x) => DARK_ARCHETYPES.has(String(x)));
@@ -44613,7 +44628,10 @@ function seedFacePrompt(nameEn: string, civ?: string | null, arch?: string[] | n
    *   ✗ "A calm and contemplative, with a penetrating gaze portrayal of Confucius"
    *   ✓ "Portrait of Confucius, Chinese setting. Calm and contemplative, with a penetrating gaze." */
   const temperSentence = temper.charAt(0).toUpperCase() + temper.slice(1);
-  return `Portrait of ${nameEn}${civEn ? `, ${civEn} setting` : ""}. ${temperSentence}.${guard}` +
+  // 体貌独立成句, 排在气质之后 —— 越靠后的具体特征对扩散模型越有约束力。
+  const look = (appearance || []).map((x) => String(x).trim()).filter(Boolean).join(", ");
+  const lookSentence = look ? ` ${look.charAt(0).toUpperCase() + look.slice(1)}.` : "";
+  return `Portrait of ${nameEn}${civEn ? `, ${civEn} setting` : ""}. ${temperSentence}.${guard}${lookSentence}` +
     ` Period-accurate attire, cinematic portrait, consistent identity across shots.` +
     ` An artistic interpretation, not a real living person.`;
 }
@@ -44694,7 +44712,7 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
     style_descriptor: "lisbon melancholy / fragmented modernist fado", voice_style: "quiet introspective tenor", tags: ["poet","modernist","legend"], archetypes: ["enigma","sage"] },
   { actor_id: "act-legend-machado-de-assis", name_zh: "马查多·德·阿西斯", name_en: "Machado de Assis", name_native: "Joaquim Maria Machado de Assis", civilization: "巴西文明",
     persona: "Brazil's greatest novelist — grandson of freed slaves, epileptic and stammering, who became the ironic conscience of an empire", gender: "male",
-    style_descriptor: "brazilian belle-époque strings / wry irony", voice_style: "dry ironic baritone", tags: ["novelist","irony","legend"], archetypes: ["sage","enigma"] },
+    style_descriptor: "brazilian belle-époque strings / wry irony", voice_style: "dry ironic baritone", tags: ["novelist","irony","legend"], archetypes: ["sage","enigma"], appearance_tags: ["Afro-Brazilian of mixed African descent, brown skin and tightly-curled hair — NOT a white European; 19th-century frock coat, pince-nez, reserved"] },
   { actor_id: "act-legend-li-qingzhao", name_zh: "李清照", name_en: "Li Qingzhao", name_native: "李清照", civilization: "中华文明",
     persona: "The greatest ci poet in Chinese history — a woman who lost husband, homeland and collection to war, and wrote the sorrow down without flinching", gender: "female",
     style_descriptor: "song-dynasty guqin / rain on wutong leaves / desolate", voice_style: "clear sorrowful mezzo", tags: ["poet","ci","song-dynasty","legend"], archetypes: ["sage","tragic"] },
@@ -44740,56 +44758,56 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   // ── 希伯来:西方「女人带来堕落」叙事的源代码 ──
   { actor_id: "act-legend-eve", name_zh: "夏娃", name_en: "Eve", name_native: "חַוָּה", civilization: "希伯来文明",
     persona: "The first woman — and the first to be charged. An entire civilisation's doctrine of original sin was hung on one fruit and one conversation, written down long after by men who were not there", gender: "female",
-    style_descriptor: "primeval hebrew chant / first light / vast quiet awe", voice_style: "warm ancient contralto", tags: ["first-woman","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "primeval hebrew chant / first light / vast quiet awe", voice_style: "warm ancient contralto", tags: ["first-woman","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["Levantine Semitic features, olive skin, long dark hair, simple undyed woven robe"] },
   { actor_id: "act-legend-jezebel", name_zh: "耶洗别", name_en: "Jezebel", name_native: "אִיזֶבֶל", civilization: "希伯来文明",
     persona: "Phoenician princess, queen of Israel — written up so thoroughly that her name is still an insult in a dozen languages. Wrote a person until the name stopped being a name", gender: "female",
-    style_descriptor: "phoenician lyre / levantine court / defiant", voice_style: "commanding regal alto", tags: ["queen","blamed","legend"], archetypes: ["ruler","tragic"] },
+    style_descriptor: "phoenician lyre / levantine court / defiant", voice_style: "commanding regal alto", tags: ["queen","blamed","legend"], archetypes: ["ruler","tragic"], appearance_tags: ["Phoenician features, bronze skin, kohl-lined eyes, Tyrian-purple robe and heavy gold collar"] },
 
   // ── 中华:亡国之女的完整谱系(夏 → 商 → 西周 → 后蜀 → 明清之际) ──
   { actor_id: "act-legend-moxi", name_zh: "末喜", name_en: "Mo Xi", name_native: "妹喜", civilization: "中华文明",
     persona: "Consort of the last Xia king — the first woman in the Chinese record charged with bringing down a dynasty, and the template every later charge was cut from", gender: "female",
-    style_descriptor: "xia-dynasty bone flute / archaic ritual / austere", voice_style: "low archaic mezzo", tags: ["xia","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "xia-dynasty bone flute / archaic ritual / austere", voice_style: "low archaic mezzo", tags: ["xia","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["Xia-era archaic Chinese, jade hairpin and coarse silk, bronze-age simplicity, no later-dynasty ornament"] },
   { actor_id: "act-legend-baosi", name_zh: "褒姒", name_en: "Bao Si", name_native: "褒姒", civilization: "中华文明",
     persona: "Queen of Western Zhou, charged with a dynasty's fall for a single smile — the beacon-fire story first appears centuries after her death, and the king had already deposed his queen and heir", gender: "female",
-    style_descriptor: "western-zhou bronze bells / cold beacon night", voice_style: "clear distant soprano", tags: ["zhou","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "western-zhou bronze bells / cold beacon night", voice_style: "clear distant soprano", tags: ["zhou","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["Western-Zhou Chinese, severe center-parted hair, plain dark-red silk, archaic jade pendant, unsmiling"] },
   { actor_id: "act-legend-huarui", name_zh: "花蕊夫人", name_en: "Lady Huarui", name_native: "花蕊夫人", civilization: "中华文明",
     persona: "Poet-consort of Later Shu. Taken to the conqueror's court and questioned on her kingdom's fall, she answered in four lines: the king raised the white flag, and I in the inner palace was not told — one hundred and forty thousand men laid down their arms, and not one of them was a man", gender: "female",
-    style_descriptor: "later-shu guqin / palace verse / quiet steel", voice_style: "composed cutting mezzo", tags: ["poet","blamed","legend"], archetypes: ["tragic","sage"] },
+    style_descriptor: "later-shu guqin / palace verse / quiet steel", voice_style: "composed cutting mezzo", tags: ["poet","blamed","legend"], archetypes: ["tragic","sage"], appearance_tags: ["Five-Dynasties Shu Chinese, scholar-consort, ink brush at hand, pale plum silk, restrained and literate"] },
   { actor_id: "act-legend-chen-yuanyuan", name_zh: "陈圆圆", name_en: "Chen Yuanyuan", name_native: "陳圓圓", civilization: "中华文明",
     persona: "A courtesan on whom a poet hung the fall of the Ming — 'the general's rage, all for a beauty'. The pass was opened by the general", gender: "female",
-    style_descriptor: "late-ming pipa / kunqu / border dust", voice_style: "silken sorrowful soprano", tags: ["ming-qing","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "late-ming pipa / kunqu / border dust", voice_style: "silken sorrowful soprano", tags: ["ming-qing","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["late-Ming Chinese, Suzhou courtesan-singer, elaborate coiled hair, powder-blue gauze, clear unblemished skin"] },
 
   // ── 日本:同一只狐狸的第三站 + 两场战乱的女性替罪 ──
   { actor_id: "act-legend-tamamo", name_zh: "玉藻前", name_en: "Tamamo-no-Mae", name_native: "玉藻前", civilization: "日本神话",
     persona: "Court beauty of the Toba era, named a demon fox by the diviners. Japanese legend says she was Daji in Shang China and Lady Kayo in India before this — one being made to carry the collapse of three empires", gender: "female",
-    style_descriptor: "heian court gagaku / fox-fire / uncanny", voice_style: "clear uncanny soprano", tags: ["fox","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "heian court gagaku / fox-fire / uncanny", voice_style: "clear uncanny soprano", tags: ["fox","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["Heian-period Japanese court lady, HUMAN — absolutely no animal ears, no tail, no anime styling; floor-length black hair, twelve-layer junihitoe, white face powder"] },
   { actor_id: "act-legend-hino-tomiko", name_zh: "日野富子", name_en: "Hino Tomiko", name_native: "日野富子", civilization: "日本古典",
     persona: "Shogunal consort blamed for the Onin War and the century of civil collapse that followed — charged with greed for doing what every man in the shogunate was doing", gender: "female",
-    style_descriptor: "muromachi shakuhachi / burning kyoto / cold ledger", voice_style: "measured shrewd alto", tags: ["muromachi","blamed","legend"], archetypes: ["ruler","tragic"] },
+    style_descriptor: "muromachi shakuhachi / burning kyoto / cold ledger", voice_style: "measured shrewd alto", tags: ["muromachi","blamed","legend"], archetypes: ["ruler","tragic"], appearance_tags: ["Muromachi-era Japanese, shaved brows and blackened teeth of the era, stiff brocade uchiki, shrewd middle-aged"] },
   { actor_id: "act-legend-yodo-dono", name_zh: "淀殿", name_en: "Yodo-dono", name_native: "淀殿", civilization: "日本古典",
     persona: "Mother of the Toyotomi heir, remembered as the obstinate woman who destroyed her clan — while Tokugawa brought the cannon to Osaka", gender: "female",
-    style_descriptor: "momoyama taiko / osaka siege / defiant", voice_style: "proud unyielding alto", tags: ["sengoku","blamed","legend"], archetypes: ["ruler","tragic"] },
+    style_descriptor: "momoyama taiko / osaka siege / defiant", voice_style: "proud unyielding alto", tags: ["sengoku","blamed","legend"], archetypes: ["ruler","tragic"], appearance_tags: ["Momoyama-era Japanese noblewoman, gold-thread kosode, high formal coiffure, proud and mature"] },
 
   // ── 朝鲜:结构与妲己完全一致 ──
   { actor_id: "act-legend-jang-nok-su", name_zh: "张绿水", name_en: "Jang Nok-su", name_native: "장녹수", civilization: "朝鲜古典",
     persona: "Favourite of Yeonsangun, executed in the open street the day he was deposed — a whole reign of tyranny transferred onto one woman's account", gender: "female",
-    style_descriptor: "joseon gayageum / court intrigue / doomed", voice_style: "sweet perilous soprano", tags: ["joseon","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "joseon gayageum / court intrigue / doomed", voice_style: "sweet perilous soprano", tags: ["joseon","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["Joseon-era Korean, gache wig, jade-green jeogori over crimson chima, fine-boned"] },
 
   // ── 印度:两条轴 —— 背锅, 与「被要求自证」 ──
   { actor_id: "act-legend-draupadi", name_zh: "德劳帕蒂", name_en: "Draupadi", name_native: "द्रौपदी", civilization: "印度教神话",
     persona: "Queen of the Pandavas — staked and lost at dice by her own husbands, dragged into the assembly, and still remembered by many as the cause of the war that followed", gender: "female",
-    style_descriptor: "epic sanskrit chant / dice hall / righteous fury", voice_style: "burning resolute mezzo", tags: ["mahabharata","blamed","legend"], archetypes: ["tragic","hero"] },
+    style_descriptor: "epic sanskrit chant / dice hall / righteous fury", voice_style: "burning resolute mezzo", tags: ["mahabharata","blamed","legend"], archetypes: ["tragic","hero"], appearance_tags: ["South Asian, deep brown skin, unbound waist-length black hair, red-bordered sari, gold nose-ring"] },
   { actor_id: "act-legend-sita", name_zh: "悉多", name_en: "Sita", name_native: "सीता", civilization: "印度教神话",
     persona: "Abducted, recovered, and then required to walk through fire to prove she was untouched — and exiled anyway. Not blamed for a fall: made to justify her own existence", gender: "female",
-    style_descriptor: "ramayana veena / fire ordeal / unbroken", voice_style: "pure steady soprano", tags: ["ramayana","blamed","legend"], archetypes: ["tragic","sage"] },
+    style_descriptor: "ramayana veena / fire ordeal / unbroken", voice_style: "pure steady soprano", tags: ["ramayana","blamed","legend"], archetypes: ["tragic","sage"], appearance_tags: ["South Asian, warm brown skin, single braid with jasmine, plain ochre sari, serene and unadorned"] },
   { actor_id: "act-legend-kaikeyi", name_zh: "凯克伊", name_en: "Kaikeyi", name_native: "कैकेयी", civilization: "印度教神话",
     persona: "The queen whose two granted wishes sent Rama into exile — remembered as the villain of the epic for holding a king to a promise he made of his own free will", gender: "female",
-    style_descriptor: "ayodhya court strings / a promise called in", voice_style: "firm insistent alto", tags: ["ramayana","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "ayodhya court strings / a promise called in", voice_style: "firm insistent alto", tags: ["ramayana","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["South Asian, mature regal features, elaborate jeweled crown and emerald silk, hard-set mouth"] },
 
   // ── 地中海:西方两大原型 ──
   { actor_id: "act-legend-pandora", name_zh: "潘多拉", name_en: "Pandora", name_native: "Πανδώρα", civilization: "古希腊神话",
     persona: "Made by the gods as a punishment for men, handed a sealed jar, then charged with everything that came out of it — the West's source code for blaming a woman first", gender: "female",
-    style_descriptor: "archaic greek lyre / the jar opening / dread and hope", voice_style: "bright fated soprano", tags: ["myth","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "archaic greek lyre / the jar opening / dread and hope", voice_style: "bright fated soprano", tags: ["myth","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["Aegean Greek, bronze-age chiton, dark curled hair bound with cord, holding nothing"] },
   /* CSSOS_WAVE_1797 — 这里【本该有】克丽奥帕特拉, 但库里早就有 act-civ-cleopatra-vii。
    * 我建重了一个 act-legend-cleopatra: 当初用 gender=='female' 筛存量去重, 而
    * act-civ-* 有 112/142 根本没标 gender, 她正好在那 112 位里 —— 用一个大半为空的
@@ -44797,23 +44815,23 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
    * 教训: 去重必须按 name_en / name_native 比对, 不能按可空的分类字段。 */
   { actor_id: "act-legend-messalina", name_zh: "麦瑟琳娜", name_en: "Messalina", name_native: "Valeria Messalina", name_latin: "Valeria Messalina", civilization: "古罗马文明",
     persona: "Empress of Claudius whose name became Latin shorthand for insatiable vice — written down by senators with every reason to destroy her house", gender: "female",
-    style_descriptor: "roman cithara / palatine whisper / imperial", voice_style: "assured patrician alto", tags: ["empress","blamed","legend"], archetypes: ["ruler","tragic"] },
+    style_descriptor: "roman cithara / palatine whisper / imperial", voice_style: "assured patrician alto", tags: ["empress","blamed","legend"], archetypes: ["ruler","tragic"], appearance_tags: ["Roman patrician, Julio-Claudian nodus hairstyle, white stola with gold fibula, imperious"] },
 
   // ── 欧洲近世 ──
   { actor_id: "act-legend-guinevere", name_zh: "桂妮维亚", name_en: "Guinevere", name_native: "Gwenhwyfar", civilization: "凯尔特文明",
     persona: "Queen of Camelot, charged with the collapse of the Round Table over a love affair — in a kingdom that was pulled apart by its own men's ambition", gender: "female",
-    style_descriptor: "welsh harp / camelot in autumn / elegiac", voice_style: "warm melancholy mezzo", tags: ["arthurian","blamed","legend"], archetypes: ["tragic","enigma"] },
+    style_descriptor: "welsh harp / camelot in autumn / elegiac", voice_style: "warm melancholy mezzo", tags: ["arthurian","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["Insular Celtic-Briton, fair freckled skin, red-gold braided hair, green wool gown with torc"] },
   { actor_id: "act-legend-catherine-medici", name_zh: "凯瑟琳·德·美第奇", name_en: "Catherine de' Medici", name_native: "Caterina de' Medici", civilization: "文艺复兴欧洲",
     persona: "Queen mother of France across three sons' reigns, handed sole authorship of the St Bartholomew's Day massacre by pamphleteers who needed an Italian woman to carry it", gender: "female",
-    style_descriptor: "renaissance consort viols / court of poison / calculating", voice_style: "cool controlled contralto", tags: ["queen","blamed","legend"], archetypes: ["ruler","enigma"] },
+    style_descriptor: "renaissance consort viols / court of poison / calculating", voice_style: "cool controlled contralto", tags: ["queen","blamed","legend"], archetypes: ["ruler","enigma"], appearance_tags: ["Florentine Italian, mature, black widow silk with white ruff, pearl rope, watchful"] },
   { actor_id: "act-legend-marie-antoinette", name_zh: "玛丽·安托瓦内特", name_en: "Marie Antoinette", name_native: "Marie-Antoinette", civilization: "启蒙欧洲",
     persona: "Queen of France, executed at thirty-seven — world-famous for a sentence she never said, first printed in a book written when she was ten years old and still living in Vienna", gender: "female",
-    style_descriptor: "versailles harpsichord / gilded rooms / falling", voice_style: "light refined soprano", tags: ["queen","blamed","legend"], archetypes: ["tragic","ruler"] },
+    style_descriptor: "versailles harpsichord / gilded rooms / falling", voice_style: "light refined soprano", tags: ["queen","blamed","legend"], archetypes: ["tragic","ruler"], appearance_tags: ["Austrian-French, powdered pouf coiffure with feathers, pale blue robe a la francaise, porcelain complexion"] },
 
   // ── 美洲:五百年不散的骂名 ──
   { actor_id: "act-legend-malinche", name_zh: "玛琳切", name_en: "La Malinche", name_native: "Malintzin", civilization: "阿兹特克文明",
     persona: "Nahua interpreter to Cortes — sold into slavery as a child and not told to whom, then cursed by an entire nation for five centuries. Spanish still carries the word built from her name: malinchista, one who betrays her own", gender: "female",
-    style_descriptor: "nahua flute and drum / two tongues / conquest dusk", voice_style: "steady interpreting alto", tags: ["interpreter","blamed","legend"], archetypes: ["tragic","sage"] },
+    style_descriptor: "nahua flute and drum / two tongues / conquest dusk", voice_style: "steady interpreting alto", tags: ["interpreter","blamed","legend"], archetypes: ["tragic","sage"], appearance_tags: ["Nahua Mesoamerican, brown skin, straight black hair, embroidered white huipil, quetzal-feather detail"] },
 ];
 
 // CSSOS_WAVE_116 — 原创合成恶霸(全自家 IP, 零版权)。戏剧靠反派衬托; 造一批各路坏人平衡"好人多坏人少"。
@@ -44923,19 +44941,19 @@ async function seedDigitalActorsOnce() {
     // ③ 经典历史/神话名角(马克思=思想家 + 一批公认反派), 带戏路。cover 留空由 atelier 回填。
     for (const a of SEED_LEGEND_ACTORS) {
       // CSSOS_WAVE_1692 — 按【戏路】给气质, 用【英文】civ。见 seedFacePrompt() 的注释。
-      const facePrompt = seedFacePrompt(String(a.name_en), String(a.civilization || ""), a.archetypes as string[]);
+      const facePrompt = seedFacePrompt(String(a.name_en), String(a.civilization || ""), a.archetypes as string[], a.appearance_tags as string[]);
       await withClient((c) =>
         c.query(
           `INSERT INTO digital_actors (
               actor_id, name_zh, name_en, name_native, name_latin, origin_type, civilization, persona,
-              gender, face_prompt, voice_style, style_descriptor, tags, archetypes,
+              gender, face_prompt, voice_style, style_descriptor, tags, archetypes, appearance_tags,
               is_premium, cast_price_cents, license_model, source_status, curation_tier, popularity_score
-           ) VALUES ($1,$2,$3,$4,$5,'civilization',$6,$7,$8,$9,$10,$11,$12,$13,true,199,'per_cast','curated','A',60)
+           ) VALUES ($1,$2,$3,$4,$5,'civilization',$6,$7,$8,$9,$10,$11,$12,$13,$14,true,199,'per_cast','curated','A',60)
            ON CONFLICT (actor_id) DO UPDATE SET
               persona=EXCLUDED.persona, style_descriptor=EXCLUDED.style_descriptor,
-              archetypes=EXCLUDED.archetypes, updated_at=now()`,
+              archetypes=EXCLUDED.archetypes, appearance_tags=EXCLUDED.appearance_tags, updated_at=now()`,
           [a.actor_id, a.name_zh, a.name_en, a.name_native || null, a.name_latin || null, a.civilization, a.persona,
-           a.gender, facePrompt, a.voice_style, a.style_descriptor, a.tags, a.archetypes],
+           a.gender, facePrompt, a.voice_style, a.style_descriptor, a.tags, a.archetypes, (a.appearance_tags as string[]) || []],
         ),
       );
     }
@@ -45228,12 +45246,17 @@ app.post("/api/admin/actors/refresh-face-prompts", express.json({ limit: "8kb" }
   const mode = String(req.body?.mode || "both");
   const doBoiler = mode === "both" || mode === "boilerplate";
   const doCivTok = mode === "both" || mode === "civ-token";
+  /* W1799 — force: 无条件用 seedFacePrompt() 重算。【只在显式给 ids 时允许】——
+   * 不给 ids 就等于对全库整批重写, 那正是 W1798 被 dry-run 拦下的错误做法。
+   * 用途: 种子的 ON CONFLICT 有意不覆盖 face_prompt(W1690 保护人工策展),
+   * 所以给老演员补了 appearance_tags 之后, 需要一条显式通道让新 prompt 落地。 */
+  const force = mode === "force" && !!ids;
   const BOILER_PREFIX = "a dignified, historically or mythologically-inspired original interpretation of ";
   try {
-    const sel = await withClient((c) => c.query<{ actor_id: string; name_en: string; civilization: string | null; archetypes: string[] | null; face_prompt: string | null }>(
+    const sel = await withClient((c) => c.query<{ actor_id: string; name_en: string; civilization: string | null; archetypes: string[] | null; appearance_tags: string[] | null; face_prompt: string | null }>(
       ids
-        ? `SELECT actor_id,name_en,civilization,archetypes,face_prompt FROM digital_actors WHERE actor_id = ANY($1)`
-        : `SELECT actor_id,name_en,civilization,archetypes,face_prompt FROM digital_actors
+        ? `SELECT actor_id,name_en,civilization,archetypes,appearance_tags,face_prompt FROM digital_actors WHERE actor_id = ANY($1)`
+        : `SELECT actor_id,name_en,civilization,archetypes,appearance_tags,face_prompt FROM digital_actors
             WHERE origin_type = 'civilization' AND name_en IS NOT NULL AND name_en <> ''
               AND face_prompt IS NOT NULL AND face_prompt <> ''
               AND (face_prompt LIKE $2 || '%' OR face_prompt ~ '[一-鿿]')
@@ -45245,8 +45268,10 @@ app.post("/api/admin/actors/refresh-face-prompts", express.json({ limit: "8kb" }
       if (FACE_PROMPT_FROZEN.has(a.actor_id)) { frozen++; continue; }
       const cur = String(a.face_prompt || "");
       let next = cur, how = "";
-      if (doBoiler && cur.startsWith(BOILER_PREFIX)) {
-        next = seedFacePrompt(String(a.name_en), a.civilization, a.archetypes); how = "boilerplate";
+      if (force) {
+        next = seedFacePrompt(String(a.name_en), a.civilization, a.archetypes, a.appearance_tags); how = "force";
+      } else if (doBoiler && cur.startsWith(BOILER_PREFIX)) {
+        next = seedFacePrompt(String(a.name_en), a.civilization, a.archetypes, a.appearance_tags); how = "boilerplate";
       } else if (doCivTok && /[一-鿿]/.test(cur)) {
         // 就地替换: 只把中文文明名换成 CIV_EN_SEED 的英文, 长词优先(避免"中华文明"被"中华"截断)。
         const keys = Object.keys(CIV_EN_SEED).sort((x, y) => y.length - x.length);
@@ -45279,7 +45304,13 @@ app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), as
         `SELECT actor_id,name_en,civilization,gender,face_prompt,persona,cover_image FROM digital_actors WHERE cover_image = ANY(reference_images) ORDER BY name_en LIMIT $1`, [limit]));
   const results: Array<Record<string, unknown>> = [];
   for (const a of sel.rows) {
-    const look = String(a.face_prompt || a.persona || "").trim();
+    /* CSSOS_WAVE_1799 (Jing) — 旧写法 face_prompt || persona 是【二选一】: 只要有 face_prompt
+     * 就整段丢掉 persona。马查多·德·阿西斯的封面被画成白人, 病根就在这 ——「获释奴隶的孙子」
+     * 只写在 persona 里, 生成时根本没送进模型。改成【并用】: face_prompt 定身份与气质,
+     * persona 补生平质感; persona 已被 face_prompt 包含时不重复。 */
+    const fp = String(a.face_prompt || "").trim();
+    const ps = String(a.persona || "").trim();
+    const look = (fp && ps && !fp.includes(ps)) ? `${fp} Background: ${ps}.` : (fp || ps);
     const g = a.gender === "male" ? "man" : a.gender === "female" ? "woman" : "person";
     /* CSSOS_WAVE_1688 — body.artistic=true(opt-in, 默认 false → 老行为一字不变):
      *  ① 不再把【中文】civilization 串进英文 prompt(混语会把画面往"泛中式"拽; 也违反 i18n 铁律)。
@@ -45289,7 +45320,13 @@ app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), as
      *  ③ 反宫格约束(本端点存在的理由, W1525)原样保留。 */
     const artistic = !!req.body?.artistic;
     const civTxt = (!artistic && a.civilization) ? `, ${a.civilization}` : "";
-    const antiGrid = "STRICTLY one face — absolutely no grid, no collage, no contact sheet, no multiple faces, no split panels, no text, no watermark.";
+    /* CSSOS_WAVE_1799 — 反文字约束加硬。旧的一句 "no text, no watermark" 被穿透两次:
+     * 贾梅士封面印出 "Luíu de Camões"/"Luía de Camões"(还拼错), 李清照封面左上角出现
+     * 红色印章体汉字块。模型把"名画/古画"的题款、落款、钤印当成画面的一部分在补。
+     * 逐类点名禁止, 并明确"画面任何位置"。 */
+    const antiGrid = "STRICTLY one face — absolutely no grid, no collage, no contact sheet, no multiple faces, no split panels. " +
+      "NO TEXT OF ANY KIND anywhere in the image: no lettering, no words, no names, no captions, no titles, no signature, " +
+      "no artist mark, no calligraphy, no Chinese or Japanese characters, no seal, no red chop or stamp, no inscription, no watermark, no border text.";
     const tail = artistic
       // W1731 — 超知名神话/历史人物(奥丁/托尔…)会诱使模型【复制真实古典名画】(Rosen 的奥丁、Winge 的托尔油画),
       //   出多人物大场面或黑白版画。硬约束成【原创单人角色画像, 绝不复制任何名画】。

@@ -5035,6 +5035,10 @@ const CIV_LANGUAGE_ENTRIES: ReadonlyArray<{ match: ReadonlyArray<string>; lang: 
   // CSSOS_WAVE_433 20260525 — 阿契美尼德 → Old Persian (peo); must precede generic 波斯 entry.
   { match: ["阿契美尼德", "Achaemenid", "居鲁士", "Cyrus", "Darius", "大流士", "薛西斯", "Xerxes"], lang: "peo" },
   { match: ["波斯", "Persia", "Persian", "Iran", "Iranian"],                 lang: "fa" },
+  /* CSSOS_WAVE_1797 (Jing) — 克丽奥帕特拉是【托勒密希腊人】, 母语通用希腊语,
+   * 她还是第一个学会埃及语的托勒密。此前落在 古埃及→ar, 会让她唱阿拉伯语。
+   * 单开一条更具体的 civ, 排在 古埃及 之前 —— 零波及其余 14 位埃及人物。 */
+  { match: ["托勒密", "Ptolemaic"],                                    lang: "el" },
   { match: ["古埃及", "Ancient Egypt", "Egyptian Myth"],                     lang: "ar" },
   { match: ["美索不达米亚", "Mesopotam"],                                   lang: "ar" },
   { match: ["奥斯曼", "Ottoman", "Turkic"],                                 lang: "tr" },
@@ -44564,7 +44568,9 @@ const CIV_EN_SEED: Record<string, string> = {
   //   「日本神话」是存量漏网(天照/稻荷/伊邪那美 走的是另一条种子路径, 没暴露)。
   "希伯来文明": "Hebrew", "凯尔特文明": "Celtic", "阿兹特克文明": "Aztec",
   "日本神话": "Japanese Myth", "斯拉夫文明": "Slavic", "玛雅文明": "Maya",
-  "约鲁巴文明": "Yoruba", "波利尼西亚文明": "Polynesian",
+  "约鲁巴文明": "Yoruba", "波利尼西亚文明": "Polynesian", "托勒密埃及": "Ptolemaic Egypt",
+  // W1798 dry-run 查出的最后一个缺口: 北欧文明(雷神托尔等在用)。全库 52 个中文 civ 现已全覆盖。
+  "北欧文明": "Norse",
 };
 function civEnSeed(c?: string | null): string {
   const s = String(c || "").trim();
@@ -44616,9 +44622,19 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-zhouwang", name_zh: "商纣王", name_en: "King Zhou of Shang", name_native: "帝辛", civilization: "中华文明",
     persona: "Shang dynasty tyrant, debauched and cruel, the ruin of a nation", gender: "male",
     style_descriptor: "ancient court style / bronze bells / ominous", voice_style: "imperious bass", tags: ["tyrant","legend"], archetypes: ["villain","ruler"] },
+  /* CSSOS_WAVE_1797 (Jing) — 妲己去污名。
+   * 旧写法 persona「祸国妖姬 / 迷惑君王的九尾狐」+ archetypes villain,charmer:
+   *   ① 事实层面站不住 —— 现存最早的指控(牧誓)只说【纣听了女人的话】, 酒池肉林出自
+   *      《史记》(晚一千年), 九尾狐出自《封神演义》(晚两千五百年)。顾颉刚数过, 纣的
+   *      罪状从《尚书》的 6 条一路长到明代的 70 条 —— 死了三千年的人还在"犯新罪"。
+   *   ② 产品层面自相矛盾 —— 长文系列《重写我》第一章正是拆这套污名, 读者读完点进来,
+   *      平台自己的选角页却写着「祸国妖姬」。
+   *   ③ 画像层面 villain→"阴冷危险" / charmer→"妖冶勾人"(ARCHETYPE_TEMPERAMENT),
+   *      等于命令模型把史书的判词画成脸。
+   * 改 tragic+enigma, 与本波新建的 20 位「妲己类」人物同一把尺。 */
   { actor_id: "act-legend-daji", name_zh: "妲己", name_en: "Daji", name_native: "妲己", civilization: "中华神话",
-    persona: "A nation-ruining enchantress, a nine-tailed fox spirit who bewitches kings", gender: "female",
-    style_descriptor: "seductive guqin / eerie / bewitching", voice_style: "silken sinister alto", tags: ["femme-fatale","myth","legend"], archetypes: ["villain","charmer","enigma"] },
+    persona: "Consort of the last Shang king. The earliest surviving indictment charges only that the king listened to her — the lake of wine came a thousand years later, the nine tails two and a half thousand", gender: "female",
+    style_descriptor: "shang bronze bells / a burning capital / three thousand years of hearsay", voice_style: "clear unhurried alto", tags: ["shang","blamed","myth","legend"], archetypes: ["tragic","enigma"] },
   { actor_id: "act-legend-qinhui", name_zh: "秦桧", name_en: "Qin Hui", name_native: "秦檜", civilization: "中华文明",
     persona: "Treacherous Southern Song chancellor who framed loyal heroes, deeply scheming", gender: "male",
     style_descriptor: "cold court intrigue / low strings", voice_style: "smooth calculating baritone", tags: ["schemer","legend"], archetypes: ["villain","enigma"] },
@@ -44774,9 +44790,11 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-pandora", name_zh: "潘多拉", name_en: "Pandora", name_native: "Πανδώρα", civilization: "古希腊神话",
     persona: "Made by the gods as a punishment for men, handed a sealed jar, then charged with everything that came out of it — the West's source code for blaming a woman first", gender: "female",
     style_descriptor: "archaic greek lyre / the jar opening / dread and hope", voice_style: "bright fated soprano", tags: ["myth","blamed","legend"], archetypes: ["tragic","enigma"] },
-  { actor_id: "act-legend-cleopatra", name_zh: "克丽奥帕特拉", name_en: "Cleopatra", name_native: "Κλεοπάτρα", name_latin: "Cleopatra VII Philopator", civilization: "古埃及文明",
-    persona: "Last pharaoh of Egypt — scholar, admiral, administrator, fluent in nine languages — rewritten by Octavian's war propaganda into the eastern seductress who unmanned Rome. He won, so the propaganda became the history", gender: "female",
-    style_descriptor: "ptolemaic harp / nile court / imperial gravity", voice_style: "cultivated commanding alto", tags: ["pharaoh","blamed","legend"], archetypes: ["ruler","sage"] },
+  /* CSSOS_WAVE_1797 — 这里【本该有】克丽奥帕特拉, 但库里早就有 act-civ-cleopatra-vii。
+   * 我建重了一个 act-legend-cleopatra: 当初用 gender=='female' 筛存量去重, 而
+   * act-civ-* 有 112/142 根本没标 gender, 她正好在那 112 位里 —— 用一个大半为空的
+   * 字段做去重依据, 是错的。重复行已删, 她的 persona/母语改在 act-civ-cleopatra-vii 上。
+   * 教训: 去重必须按 name_en / name_native 比对, 不能按可空的分类字段。 */
   { actor_id: "act-legend-messalina", name_zh: "麦瑟琳娜", name_en: "Messalina", name_native: "Valeria Messalina", name_latin: "Valeria Messalina", civilization: "古罗马文明",
     persona: "Empress of Claudius whose name became Latin shorthand for insatiable vice — written down by senators with every reason to destroy her house", gender: "female",
     style_descriptor: "roman cithara / palatine whisper / imperial", voice_style: "assured patrician alto", tags: ["empress","blamed","legend"], archetypes: ["ruler","tragic"] },
@@ -45174,6 +45192,79 @@ async function actorVideoAudio14s(voiceUrl: string): Promise<string> {
 // 参考图(reference_images), 其中一部分是多角度人脸【宫格图】→ 卡片显示多头像。这里按
 // 演员的 face_prompt 重新生成一张【单人正脸肖像】做封面, 转存 R2 并更新 cover_image。
 // x-admin-token 鉴权(无会话可调, 供一次性回填脚本)。body: { limit?, ids?[], dry? }。
+/* ═══ CSSOS_WAVE_1798 (Jing) — face_prompt 模板的【存量传播】 ════════════════
+ * 病根不是某一次模板写错, 是【模板修复传播不到存量】这个结构性的洞:
+ *   SEED_LEGEND_ACTORS 与 act-civ-* 两条种子的 ON CONFLICT 都【不更新 face_prompt】
+ *   (W1690 有意为之, 怕覆盖人工策展过的 prompt)。于是 W1692 把模板从
+ *   "a dignified …, <中文 civ> setting …" 改成 seedFacePrompt() 之后,
+ *   这个修复【一行存量都没走到】—— 实测 230 个 civilization 演员里,
+ *   125 个仍是旧 "a dignified" 模板, 123 个 face_prompt 里还串着中文。
+ *   两个后果都在图上: ① "dignified" 给所有人发同一种端庄气质(W1692 原话:
+ *   阎罗被命令画端庄, 妲己被命令画端庄); ② 中文串进英文 prompt 把画面往泛中式拽。
+ * 本端点重跑 seedFacePrompt() 写回, 让以后任何模板修复都能传播。
+ * 只处理 origin_type='civilization' —— synthetic/UGC 是另一套模板(persona +
+ * appearance_tags), 且含用户自有演员, 不在此列。 */
+const FACE_PROMPT_FROZEN = new Set<string>([
+  /* Jing 2026-08-02「妲己不要改」: 她现有的这张脸是投放里最能打的素材 ——
+   * 带脸视频 CTR 1.05% / $0.16 每次点击, 对照静态卡 0.20% / $0.37, 差 5 倍。
+   * 重算 prompt 就有换脸风险, 赢来的素材不能拿去赌。永久冻结, 任何模板刷新都跳过。 */
+  "act-legend-daji",
+]);
+app.post("/api/admin/actors/refresh-face-prompts", express.json({ limit: "8kb" }), async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!expected || String(req.headers["x-admin-token"] || "").trim() !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  const dry = !!req.body?.dry;
+  const limit = Math.min(Math.max(Number(req.body?.limit) || 500, 1), 1000);
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : null;
+  /* ★ W1798 修正(Jing 审过 dry-run 后拍板)——【外科式, 绝不整批重写】。
+   * 第一版想把所有"非新模板"的 face_prompt 都用 seedFacePrompt() 重算, dry-run 拦下了:
+   * 230 个 civilization 演员里【纯样板只有 3 个】, 另外 182 个是逐个手写的视觉描述
+   * (奥顺的金色光晕、托尔的红胡辫发、黄真伊的玉绿赤古里、阿周那的甘狄拔神弓…)。
+   * 整批替换会把这些全抹成一句 "Portrait of X, Y setting. Grave and composed."——
+   * W1690 当年不让 ON CONFLICT 覆盖 face_prompt, 理由正是"怕覆盖人工策展", 那条保护是对的。
+   * 所以只做两件事, 各自独立:
+   *   ① boilerplate: 整条就是空壳样板的 → 用 seedFacePrompt() 重算(净收益)
+   *   ② civ-token : prompt 里串了【中文文明名】的 → 就地把那个词换成英文, 其余一字不动 */
+  const mode = String(req.body?.mode || "both");
+  const doBoiler = mode === "both" || mode === "boilerplate";
+  const doCivTok = mode === "both" || mode === "civ-token";
+  const BOILER_PREFIX = "a dignified, historically or mythologically-inspired original interpretation of ";
+  try {
+    const sel = await withClient((c) => c.query<{ actor_id: string; name_en: string; civilization: string | null; archetypes: string[] | null; face_prompt: string | null }>(
+      ids
+        ? `SELECT actor_id,name_en,civilization,archetypes,face_prompt FROM digital_actors WHERE actor_id = ANY($1)`
+        : `SELECT actor_id,name_en,civilization,archetypes,face_prompt FROM digital_actors
+            WHERE origin_type = 'civilization' AND name_en IS NOT NULL AND name_en <> ''
+              AND face_prompt IS NOT NULL AND face_prompt <> ''
+              AND (face_prompt LIKE $2 || '%' OR face_prompt ~ '[一-鿿]')
+            ORDER BY actor_id LIMIT $1`,
+      ids ? [ids] : [limit, BOILER_PREFIX]));
+    const changed: Array<Record<string, unknown>> = [];
+    let frozen = 0, same = 0;
+    for (const a of sel.rows) {
+      if (FACE_PROMPT_FROZEN.has(a.actor_id)) { frozen++; continue; }
+      const cur = String(a.face_prompt || "");
+      let next = cur, how = "";
+      if (doBoiler && cur.startsWith(BOILER_PREFIX)) {
+        next = seedFacePrompt(String(a.name_en), a.civilization, a.archetypes); how = "boilerplate";
+      } else if (doCivTok && /[一-鿿]/.test(cur)) {
+        // 就地替换: 只把中文文明名换成 CIV_EN_SEED 的英文, 长词优先(避免"中华文明"被"中华"截断)。
+        const keys = Object.keys(CIV_EN_SEED).sort((x, y) => y.length - x.length);
+        for (const k of keys) if (next.includes(k)) next = next.split(k).join(CIV_EN_SEED[k]);
+        how = "civ-token";
+      }
+      if (next === cur) { same++; continue; }
+      if (!dry) await withClient((c) => c.query(`UPDATE digital_actors SET face_prompt=$2, updated_at=now() WHERE actor_id=$1`, [a.actor_id, next]));
+      changed.push({ actor_id: a.actor_id, name: a.name_en, how, before: cur.slice(0, 80), after: next.slice(0, 80) });
+    }
+    const stillZh = changed.filter((r) => /[一-鿿]/.test(String(r.after))).length;
+    return res.json({ ok: true, dry, mode, scanned: sel.rows.length, updated: changed.length, frozen, unchanged: same, still_has_chinese: stillZh, results: changed.slice(0, 400) });
+  } catch (err) {
+    console.warn("[actors] refresh-face-prompts failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "REFRESH_FAILED" });
+  }
+});
+
 app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), async (req, res) => {
   const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
   const provided = String(req.headers["x-admin-token"] || "").trim();

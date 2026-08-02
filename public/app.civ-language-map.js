@@ -73,7 +73,11 @@
     { match: ["阿契美尼德", "Achaemenid", "居鲁士", "Cyrus", "Darius", "大流士", "薛西斯", "Xerxes"], lang: "peo" },
     { match: ["波斯", "Persia", "Persian", "Iran", "Iranian"],            lang: "fa" },
     /* CSSOS_WAVE_229 — 古埃及→ar (当代受众期待阿拉伯语). */
-    { match: ["古埃及", "Ancient Egypt", "Egyptian Myth", "托勒密", "Ptolemaic"], lang: "ar" },
+    /* CSSOS_WAVE_1797 (Jing) — 克丽奥帕特拉是【托勒密希腊人】, 母语通用希腊语,
+     * 她还是第一个学会埃及语的托勒密。此前落在 古埃及→ar, 会让她唱阿拉伯语。
+     * 单开一条更具体的 civ, 排在 古埃及 之前 —— 零波及其余 14 位埃及人物。 */
+    { match: ["托勒密", "Ptolemaic"],                                  lang: "el" },
+    { match: ["古埃及", "Ancient Egypt", "Egyptian Myth"], lang: "ar" },
     { match: ["美索不达米亚", "Mesopotam"],                              lang: "ar" },
     { match: ["奥斯曼", "Ottoman", "Turkic"],                            lang: "tr" },
     { match: ["阿拉伯", "Arab"],                                          lang: "ar" },

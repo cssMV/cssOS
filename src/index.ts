@@ -25342,12 +25342,20 @@ const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemin
  *   · gemini   → gemini-pro-latest(跟随最新 pro 的别名, 免得又放着烂掉)
  * 歌词这条链【可以】用 pro 档: 它不是实时对话, 43s 延迟换质量是划算的 ——
  * 与 /问道 兜底刻意选 gemini-3.6-flash(7.6s)是两个不同场景, 不要拉平。 */
+/* Jing 的判定准绳(2026-08-03):「哪个版本最新在 KIE 上架的, 那个就是最新版, 以此为准。」
+ * ——不靠印象、不靠各家官网口径, 只认 KIE Market(https://kie.ai/market)。理由很实际:
+ * 我们只在 KIE 一处充值, 它上架什么, 我们才真的用得上什么。
+ * 2026-08-03 据此核定:
+ *   · Claude → Fable 5 是 KIE 上最强的一档(Mythos 级); Opus 5 的官方描述是
+ *     "near-Fable 5 intelligence" —— 即它自己承认在 Fable 5 之下。故歌词取 fable-5。
+ *   · GPT    → KIE 列 "GPT-5.6 unites Sol, Terra, and Luna ... built for
+ *     frontier intelligence, efficient everyday work, and fast high-volume execution"
+ *     —— 三档按序对应, Sol = frontier = 旗舰。(上一版这里是猜的, 现已查证。)
+ *   · Gemini → KIE 的 chat 只上了 Gemini 3.6 Flash; 我们这一格是直连 Google 的,
+ *     取 gemini-pro-latest(跟随最新 pro 的别名), 档位不低于 KIE 的参照。 */
 const CAPABLE_TEXT_MODELS: Partial<Record<LlmProvider, string>> = {
-  kie: "claude-opus-5",
-  anthropic: "claude-opus-5",
-  /* ⚠️ 待核实: OpenAI 最新一代是 gpt-5.6-{luna,sol,terra} 三个代号, API 目录里【看不出】
-   * 谁是旗舰(不像上一代有明确的 gpt-5.5-pro), 而账户停用又无法实测。暂填 sol;
-   * 若将来给 OpenAI 充值, 先验证三者档位再定, 不要沿用这一行当既成事实。 */
+  kie: "claude-fable-5",
+  anthropic: "claude-fable-5",
   openai: "gpt-5.6-sol",
   gemini: "gemini-pro-latest",
 };

@@ -4153,7 +4153,7 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
       const music = await callMusicGen({
         prompt: `${title} — ${style} — ${lyrics.slice(0, 300)}`,
         lyrics, title, language: lang, duration_secs: durationSecs,
-        prefer: ["suno"], sunoModel: "V5",
+        prefer: ["suno"], sunoModel: "V5_5",
       });
       let audioUrl = (music && music.ok && music.audio_url) ? String(music.audio_url) : "";
       // suno 返回临时 aiquickdraw URL → rehost 到 R2(永久)。
@@ -24835,7 +24835,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
           prompt: [part.title, part.style, lyr.slice(0, 300)].filter(Boolean).join(" — "),
           lyrics: lyr,
           duration_secs: _isLongForm ? 240 : 60,
-          sunoModel: "V5",
+          sunoModel: "V5_5",
           // CSSOS_WAVE_1457 多引擎: 用户选的音乐引擎(provider 偏好/模型); 空=router 默认(Suno)。
           ...(_eng.prefer.length ? { prefer: _eng.prefer } : {}),
           ...(Object.keys(_eng.prefer_model).length ? { prefer_model: _eng.prefer_model } : {}),
@@ -25332,11 +25332,24 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 //   之前 prefer 只有 ["kie"], kie 一断就直接掉进免费小兵档, 三强直连反而排最后 —— 与此意相反,
 //   现已修正。直连三强(空额度)会 credits-fail 快速穿过, 但顺序上强模型始终先于小兵。
 const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemini"];
+/* CSSOS_WAVE_1808 (Jing)「歌词/音乐必须前三强最新版, 和 KIE 同步更新」——
+ * 体检发现除 kie 外三格全部落后好几代(gpt-4o / claude-sonnet-4-5 / gemini-2.5-pro),
+ * 和 gemini-2.0-flash 被下架却没人发现是同一种腐烂: 写死的型号不会自己报警。
+ * 各家在售清单实测拉取(api-vm, 2026-08-03), 不是凭印象填:
+ *   · kie      → claude-opus-5(判别法见 LLM_PROVIDER_DEFAULTS.kie 注释)
+ *   · anthropic→ claude-opus-5(Claude 5 家族当前最强; 那把 key 故意不充值, 会 credits-fail 快速穿过)
+ *   · openai   → 见下方说明; 账户 W1655 起 "account is not active", 同样快速穿过
+ *   · gemini   → gemini-pro-latest(跟随最新 pro 的别名, 免得又放着烂掉)
+ * 歌词这条链【可以】用 pro 档: 它不是实时对话, 43s 延迟换质量是划算的 ——
+ * 与 /问道 兜底刻意选 gemini-3.6-flash(7.6s)是两个不同场景, 不要拉平。 */
 const CAPABLE_TEXT_MODELS: Partial<Record<LlmProvider, string>> = {
   kie: "claude-opus-5",
-  anthropic: "claude-sonnet-4-5",
-  openai: "gpt-4o",
-  gemini: "gemini-2.5-pro",
+  anthropic: "claude-opus-5",
+  /* ⚠️ 待核实: OpenAI 最新一代是 gpt-5.6-{luna,sol,terra} 三个代号, API 目录里【看不出】
+   * 谁是旗舰(不像上一代有明确的 gpt-5.5-pro), 而账户停用又无法实测。暂填 sol;
+   * 若将来给 OpenAI 充值, 先验证三者档位再定, 不要沿用这一行当既成事实。 */
+  openai: "gpt-5.6-sol",
+  gemini: "gemini-pro-latest",
 };
 
 // CSSOS_WAVE_659 — kie.ai 模型【档位注册表】(丰俭由人骨架). 图像/视频/音乐引擎按【免费/便宜/收费】
@@ -26319,7 +26332,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
               instrumental: wantInstrumental,
               // CSSOS — Jing「音乐只选 Suno 最新版, 全部升 V5」: 翻唱也用 V5(保留 vocalGender/
               // audioWeight 字段锁原旋律)。env SUNO_DEFAULT_MODEL / req.sunoModel 仍可覆盖回滚。
-              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5").trim() || "V5",
+              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5_5").trim() || "V5_5",
               style: sunoStyle,
               title: String(req.title || "cssOS").slice(0, 80),
               audioWeight: 0.95,                    // CSSOS_WAVE_587 — 拉到 0.95, 尽量锁住原旋律/时值(0.8 时跑偏)
@@ -26330,8 +26343,13 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
               customMode: true,
               instrumental: wantInstrumental,
               /* CSSOS_WAVE_824d — Jing「版本跟随 KIE 升级, 默认用最新」: 默认 Suno 版本升 V4→V5
-               * (env SUNO_DEFAULT_MODEL 可秒回滚, 防新版涨价/字符串不符)。req.sunoModel 仍优先(如 epic 传 V4_5PLUS)。 */
-              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5").trim() || "V5",
+               * (env SUNO_DEFAULT_MODEL 可秒回滚, 防新版涨价/字符串不符)。req.sunoModel 仍优先(如 epic 传 V4_5PLUS)。
+               * CSSOS_WAVE_1808 — Jing「音乐必须最新版, 和 KIE 同步更新」: 再升 V5→V5_5。
+               *   KIE 文档 model 枚举现为 V4 / V4_5 / V4_5PLUS / V4_5ALL / V5 / V5_5, V5_5 列为最新。
+               *   ⚠️ 按版本的单价 KIE 没有公开, 未能核实 V5_5 是否比 V5 贵; 而 estimateEngineCostCents
+               *   的 music 档是【按类目定价、不区分 Suno 版本】的 —— 若 V5_5 更贵, 我们会少扣用户的钱。
+               *   涨价或字符串不符时: `SUNO_DEFAULT_MODEL=V5` 秒回滚, 五处默认全部跟着回去。 */
+              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5_5").trim() || "V5_5",
               style: sunoStyle.slice(0, 200),
               // CSSOS_WAVE_830 — Suno V5/V5.5 raises the title cap to 100 chars (was 80).
               title: String(req.title || "cssOS").slice(0, 100),
@@ -38239,7 +38257,7 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
   const baseStyle = String(w.style || "").trim();
   const epicStyle = String(opts?.style || ("epic, thunderous climax, massive choir, soaring strings, cinematic, " + baseStyle)).slice(0, 200);
   // CSSOS — Jing「音乐只选 Suno 最新版, 全部升 V5」: Epic 重出长曲也默认 V5(opts.sunoModel 仍可覆盖)。
-  const sunoModel = String(opts?.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5").trim() || "V5";
+  const sunoModel = String(opts?.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5_5").trim() || "V5_5";
   // 1) Suno 重谱(prefer suno, customMode 唱【原词】, 画音分层不烧录)。
   const music = await callMusicGen({
     prompt: String(w.title || "cssOS"),

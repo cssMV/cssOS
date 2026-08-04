@@ -5093,6 +5093,20 @@ function civToLanguageServer(civilization: string): string {
   return "";
 }
 
+/* CSSOS_WAVE_1805 (Jing) — 语言【名字】, 不是 BCP47 裸代码。
+ * 实测(13 位 × 2 轮)只给 `BCP47 "el"` 时, 潘多拉两轮都说英语, 耶洗别/麦瑟琳娜/布伦希尔德整段说中文 ——
+ * 26 次里语言正确的只有 5 次。裸代码对模型的约束力太弱, 写成 "Greek" 才咬得住。
+ * 覆盖 CIV_LANGUAGE_ENTRIES 能产出的全部 30 个码(含 MV 语言表没有的 nah / peo / yua / haw)。 */
+const CIV_LANG_DISPLAY: Readonly<Record<string, string>> = {
+  ar: "Arabic", bo: "Tibetan", cy: "Welsh", de: "German", el: "Greek", en: "English",
+  es: "Spanish", fa: "Persian", fr: "French", haw: "Hawaiian", he: "Hebrew", hi: "Hindi",
+  is: "Icelandic", it: "Italian", ja: "Japanese", ko: "Korean", la: "Latin",
+  nah: "Nahuatl", peo: "Old Persian", pt: "Portuguese", ru: "Russian", sa: "Sanskrit",
+  sv: "Swedish", sw: "Swahili", tr: "Turkish", ur: "Urdu", vi: "Vietnamese",
+  yo: "Yoruba", yua: "Yucatec Maya", zh: "Chinese",
+};
+function civLangDisplay(code: string): string { return CIV_LANG_DISPLAY[String(code || "").toLowerCase()] || ""; }
+
 // CSSOS_WAVE_443 20260525 — Jing「古典方言」
 // When a civilization has a HISTORICAL dialect that differs from the
 // modern language code, return a detailed note that overrides the
@@ -6126,10 +6140,10 @@ function ffmpegExtractAudioFromVideo(videoPath: string, audioOutPath: string): P
  * anthropic.com directly (→ "credit balance too low"). Falls back to direct
  * Anthropic only when KIE_API_KEY is absent. Returns the raw fetch Response so
  * callers keep their existing r.ok / r.json() handling unchanged. */
-function anthropicMessages(body: unknown): Promise<Response> {
+async function anthropicMessages(body: unknown): Promise<Response> {
   const kie = (process.env.KIE_API_KEY || "").trim();
   if (kie) {
-    return fetch("https://api.kie.ai/claude/v1/messages", {
+    const r = await fetch("https://api.kie.ai/claude/v1/messages", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${kie}`,
@@ -6138,6 +6152,31 @@ function anthropicMessages(body: unknown): Promise<Response> {
       },
       body: JSON.stringify(body),
     });
+    /* ═══ CSSOS_WAVE_1802 — 源头修复: KIE 用 HTTP 200 包装错误 ═══════════════
+     * 上游故障时 KIE 返回的是:
+     *     HTTP/2 200
+     *     {"type":"error","error":{"message":"Server exception, please try again later"}}
+     * 而本函数的注释原本承诺「callers keep their existing r.ok handling unchanged」
+     * —— 于是【每一个只看 r.ok 的调用方都被静默欺骗】: 拿到 ok=true, 解析出一个没有
+     * content 的对象, 当成"模型什么都没说", 而不是"这次调用失败了"。
+     * 后果已经在 /api/actors/:id/ask 上现形: 用户问数字演员话, 得到完全空白的回复,
+     * 四级引擎兜底链一次都没被触发(Jing 2026-08-03 全链路走查发现)。
+     * 这里把 200-包装-错误 翻译回真正的失败状态码, 让所有调用方的 r.ok 重新可信。
+     * 流式请求(stream:true)不能在这里缓冲, 由各流式站点自行识别 error 事件。 */
+    try {
+      if ((body as any)?.stream === true) return r;
+      if (!r.ok) return r;
+      const txt = await r.text();
+      let parsed: any = null; try { parsed = JSON.parse(txt); } catch { /* 非 JSON 原样放行 */ }
+      if (parsed && parsed.type === "error") {
+        const msg = String(parsed?.error?.message || "upstream_error");
+        console.warn("[anthropicMessages] KIE returned HTTP 200 wrapping an error:", msg.slice(0, 120));
+        return new Response(txt, { status: 502, headers: { "content-type": "application/json" } });
+      }
+      return new Response(txt, { status: r.status, headers: { "content-type": r.headers.get("content-type") || "application/json" } });
+    } catch {
+      return r;   // 读体失败时保持原样, 绝不因为这层守卫本身把好请求弄坏
+    }
   }
   const anth = (process.env.ANTHROPIC_API_KEY || "").trim();
   return fetch("https://api.anthropic.com/v1/messages", {
@@ -14225,6 +14264,198 @@ ${poster ? `<meta name="twitter:image" content="${H(poster)}"/>` : ""}
 </body></html>`);
   } catch {
     return res.status(500).send("<!doctype html><meta charset=utf-8><title>Error</title>");
+  }
+});
+
+/* ═══ CSSOS_WAVE_1801 (Jing) — 长文故事落自己域名 ═════════════════════════════
+ * 《重写我》12 章此前只活在 X / LinkedIn 上。X Article 基本不进 Google, 演员页
+ * 也没法链回自己那一章 —— 读者读完最热的那一刻, 没有门通向「问道」。这条路由把
+ * 正文搬回 cssstudio.app, 服务端整页渲染(正文必须在首屏 HTML 里, 前端拼接等于
+ * 对搜索引擎不存在), 并在文末挂出场演员的面对面入口, 把转化链接上。
+ *
+ * /story            总目录
+ * /story/:slug      单章; 同章各语种通过 hreflang 互链
+ */
+function storyChrome(inner: string, head: string, lang: string): string {
+  return `<!doctype html><html lang="${escapeHtmlAttr(lang)}"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+${head}
+<style>
+:root{--ink:#f0e6cf;--bg:#0d1420;--dim:#9fb0c4;--jade:#00f5a0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.75 Georgia,"Songti SC","Hiragino Mincho ProN",serif}
+a{color:var(--jade)}
+.wrap{max-width:720px;margin:0 auto;padding:32px 20px 96px}
+.hero{width:100%;border-radius:12px;margin:0 0 28px;display:block}
+h1{font-size:34px;line-height:1.25;margin:0 0 10px}
+h2{font-size:21px;line-height:1.4;margin:44px 0 14px;color:#cfe6d8}
+p{margin:0 0 20px}
+blockquote{margin:24px 0;padding:2px 0 2px 18px;border-left:3px solid var(--jade);color:#dff1e6}
+blockquote p{margin:0 0 8px}
+.meta{color:var(--dim);font-size:14px;margin:0 0 30px}
+.langs{margin:0 0 30px;font-size:14px}
+.langs a{margin-right:12px;white-space:nowrap}
+.cast{margin:56px 0 0;padding:24px 0 0;border-top:1px solid rgba(255,255,255,.14)}
+.cast h3{font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 16px;font-family:system-ui,sans-serif}
+.card{display:flex;gap:14px;align-items:center;text-decoration:none;color:inherit;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);margin:0 0 10px}
+.card:hover{border-color:var(--jade)}
+.card img{width:56px;height:56px;object-fit:cover;border-radius:10px;flex:0 0 auto}
+.card b{display:block;font-family:system-ui,sans-serif;font-size:15px}
+.card span{color:var(--dim);font-size:13px;font-family:system-ui,sans-serif}
+.idx{list-style:none;padding:0;margin:0}
+.idx li{padding:16px 0;border-bottom:1px solid rgba(255,255,255,.1)}
+.idx a{text-decoration:none;font-size:19px}
+.idx em{display:block;color:var(--dim);font-style:normal;font-size:14px;margin-top:4px;font-family:system-ui,sans-serif}
+</style></head><body><div class="wrap">${inner}</div></body></html>`;
+}
+
+/* CSSOS_WAVE_1802 (Jing 走查发现) — /actor/:id 是死链, 必须永久兜住。
+ * 病根: 写《重写我》12 章的 CTA 和 /story 的选角卡时, 我凭空发明了 `/actor/<id>` 这个
+ *   路径, 从未验证 —— 平台真正的分享格式是 W1647 的 `/?actor=<id>`。后果: 12 篇文章 ×
+ *   12 语种、外加 story 页底部的每一张演员卡, 全部 404。读者读完正热的那一刻点下去,
+ *   撞墙。actor_castings 一直是 0 行, 真正的原因不是转化率低, 是【转化路径从来没接上】。
+ * X / LinkedIn 上已发布的正文改不动了, 但那些链接都长 `cssstudio.app/actor/<id>?cssADS=…`
+ *   —— 加这条重定向, 它们全部就地复活, 且 cssADS 归因参数原样透传。
+ * 一条路由修好 144 个外部死链, 这是唯一能追溯生效的做法。 */
+app.get("/actor/:id", (req, res) => {
+  const id = String(req.params.id || "").trim();
+  if (!/^[A-Za-z0-9._:-]{1,120}$/.test(id)) return res.redirect(302, "/");
+  const extra: string[] = [];
+  for (const [k, v] of Object.entries(req.query || {})) {
+    if (k === "actor") continue;                       // 别和我们自己拼的 actor= 打架
+    if (typeof v === "string") extra.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+  }
+  const qs = `actor=${encodeURIComponent(id)}${extra.length ? "&" + extra.join("&") : ""}`;
+  res.redirect(302, `/?${qs}`);
+});
+
+app.get("/story", async (_req, res) => {
+  try {
+    const r = await withClient((c) => c.query<{
+      slug: string; chapter_no: number; lang: string; title: string; dek: string | null;
+    }>(`SELECT slug, chapter_no, lang, title, dek FROM story_chapters
+         WHERE series='rewrite-me' ORDER BY chapter_no, lang`));
+    const H = escapeHtmlAttr;
+    const items = r.rows.map((x) => `<li><a href="/story/${H(x.slug)}">${H(x.title)}</a>${x.dek ? `<em>${H(x.dek)}</em>` : ""}</li>`).join("");
+    const head = `<title>Rewrite Me — CSS Studio</title>
+<link rel="canonical" href="${SHARE_BASE_URL}/story"/>
+<meta name="description" content="A series on the women every civilisation built to carry a man's collapse."/>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(storyChrome(
+      `<h1>Rewrite Me</h1><p class="meta">A series on the women every civilisation built to carry a man's collapse.</p><ul class="idx">${items}</ul>`,
+      head, "en"));
+  } catch {
+    return res.status(500).send("<!doctype html><meta charset=utf-8><title>Error</title>");
+  }
+});
+
+app.get("/story/:slug", async (req, res) => {
+  const slug = String(req.params.slug || "").slice(0, 120);
+  if (!/^[a-z0-9-]+$/.test(slug)) return res.status(400).send("<!doctype html><meta charset=utf-8><title>Not found</title>");
+  try {
+    const r = await withClient((c) => c.query<{
+      slug: string; chapter_no: number; lang: string; title: string; dek: string | null;
+      body_html: string; hero_image: string | null; actor_ids: string[] | null; external_url: string | null;
+    }>(`SELECT slug, chapter_no, lang, title, dek, body_html, hero_image, actor_ids, external_url
+          FROM story_chapters WHERE slug=$1 LIMIT 1`, [slug]));
+    const row = r.rows[0];
+    if (!row) return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Chapter not found.</p>");
+
+    /* 同章其它语种 —— hreflang 让 Google 知道这些是同一篇的不同语言, 而不是重复内容 */
+    const sibs = await withClient((c) => c.query<{ slug: string; lang: string }>(
+      `SELECT slug, lang FROM story_chapters WHERE series='rewrite-me' AND chapter_no=$1 ORDER BY lang`, [row.chapter_no]));
+
+    /* 出场演员 —— 文末的「面对面」入口, 这是整条转化链接上的地方 */
+    const ids = Array.isArray(row.actor_ids) ? row.actor_ids : [];
+    const cast = ids.length
+      ? (await withClient((c) => c.query<{ actor_id: string; name_en: string; name_zh: string | null; persona: string | null; cover_image: string | null }>(
+          `SELECT actor_id,name_en,name_zh,persona,cover_image FROM digital_actors WHERE actor_id = ANY($1)`, [ids]))).rows
+      : [];
+
+    const H = escapeHtmlAttr;
+    const url = `${SHARE_BASE_URL}/story/${row.slug}`;
+    const desc = row.dek || row.title;
+    const hero = row.hero_image ? (row.hero_image.startsWith("http") ? row.hero_image : `${SHARE_BASE_URL}${row.hero_image}`) : "";
+
+    const head = `<title>${H(row.title)} — CSS Studio</title>
+<link rel="canonical" href="${H(url)}"/>
+<meta name="description" content="${H(desc)}"/>
+${sibs.rows.map((s) => `<link rel="alternate" hreflang="${H(s.lang)}" href="${SHARE_BASE_URL}/story/${H(s.slug)}"/>`).join("\n")}
+<meta property="og:type" content="article"/>
+<meta property="og:title" content="${H(row.title)}"/>
+<meta property="og:description" content="${H(desc)}"/>
+<meta property="og:url" content="${H(url)}"/>
+${hero ? `<meta property="og:image" content="${H(hero)}"/><meta property="og:image:width" content="1500"/><meta property="og:image:height" content="600"/>` : ""}
+<meta name="twitter:card" content="${hero ? "summary_large_image" : "summary"}"/>
+<meta name="twitter:title" content="${H(row.title)}"/>
+<meta name="twitter:description" content="${H(desc)}"/>
+${hero ? `<meta name="twitter:image" content="${H(hero)}"/>` : ""}`;
+
+    const langNames: Record<string, string> = {
+      en: "English", zh: "中文", es: "Español", ja: "日本語", el: "Ελληνικά",
+      ko: "한국어", hi: "हिन्दी", he: "עברית", fr: "Français", it: "Italiano", de: "Deutsch",
+    };
+    const langBar = sibs.rows.length > 1
+      ? `<p class="langs">${sibs.rows.map((s) => s.slug === row.slug
+          ? `<b>${H(langNames[s.lang] || s.lang)}</b>`
+          : `<a href="/story/${H(s.slug)}">${H(langNames[s.lang] || s.lang)}</a>`).join("")}</p>`
+      : "";
+
+    const castBlock = cast.length ? `<div class="cast"><h3>Face to face</h3>${cast.map((a) => `
+<a class="card" href="/actor/${H(a.actor_id)}?cssADS=story-${H(row.slug)}">
+${a.cover_image ? `<img src="${H(a.cover_image)}" alt="" loading="lazy"/>` : ""}
+<span><b>${H(a.name_zh || a.name_en)}</b><span>${H((a.persona || "").slice(0, 90))}</span></span></a>`).join("")}</div>` : "";
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.send(storyChrome(
+      `${hero ? `<img class="hero" src="${H(hero)}" alt=""/>` : ""}
+<h1>${H(row.title)}</h1>
+${row.dek ? `<p class="meta">${H(row.dek)}</p>` : ""}
+${langBar}
+${row.body_html}
+${castBlock}
+${row.external_url ? `<p class="meta" style="margin-top:40px">First published on <a href="${H(row.external_url)}">X</a>.</p>` : ""}
+<p class="meta"><a href="/story">← All chapters</a></p>`,
+      head, row.lang));
+  } catch (err) {
+    console.warn("[story] render failed:", (err as Error)?.message || err);
+    return res.status(500).send("<!doctype html><meta charset=utf-8><title>Error</title>");
+  }
+});
+
+/* CSSOS_WAVE_1801 — 章节灌入。以后每写一章, 一条 curl 就进库并自动回写演员的 story_slug。
+ * 幂等: 同 slug 覆盖。演员反向指针只在【当前为空】时写, 不抢已有的(一个演员可能出现在多章,
+ * 首链归她自己那一章)。 */
+app.post("/api/admin/story/upsert", express.json({ limit: "512kb" }), async (req, res) => {
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  if (!expected || String(req.headers["x-admin-token"] || "").trim() !== expected) return res.status(403).json({ ok: false, error: "forbidden" });
+  const b = req.body || {};
+  const slug = String(b.slug || "").trim();
+  if (!/^[a-z0-9-]{3,120}$/.test(slug)) return res.status(400).json({ ok: false, error: "bad_slug" });
+  if (!b.title || !b.body_html) return res.status(400).json({ ok: false, error: "missing_fields" });
+  const ids: string[] = Array.isArray(b.actor_ids) ? b.actor_ids.map(String) : [];
+  try {
+    await withClient((c) => c.query(
+      `INSERT INTO story_chapters (slug,series,chapter_no,lang,title,dek,body_html,hero_image,actor_ids,external_url,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
+       ON CONFLICT (slug) DO UPDATE SET
+         chapter_no=EXCLUDED.chapter_no, lang=EXCLUDED.lang, title=EXCLUDED.title, dek=EXCLUDED.dek,
+         body_html=EXCLUDED.body_html, hero_image=EXCLUDED.hero_image, actor_ids=EXCLUDED.actor_ids,
+         external_url=EXCLUDED.external_url, updated_at=now()`,
+      [slug, String(b.series || "rewrite-me"), Number(b.chapter_no) || 0, String(b.lang || "en"),
+       String(b.title), b.dek ? String(b.dek) : null, String(b.body_html),
+       b.hero_image ? String(b.hero_image) : null, ids, b.external_url ? String(b.external_url) : null]));
+    let linked = 0;
+    if (ids.length) {
+      const u = await withClient((c) => c.query(
+        `UPDATE digital_actors SET story_slug=$2 WHERE actor_id = ANY($1) AND (story_slug IS NULL OR story_slug='')`, [ids, slug]));
+      linked = u.rowCount || 0;
+    }
+    return res.json({ ok: true, slug, url: `${SHARE_BASE_URL}/story/${slug}`, actors_linked: linked });
+  } catch (err) {
+    console.warn("[story] upsert failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "UPSERT_FAILED" });
   }
 });
 
@@ -25054,7 +25285,16 @@ const LLM_PROVIDER_DEFAULTS = {
   // Gemini doesn't speak chat/completions — its endpoint is
   // /v1beta/models/<model>:generateContent and the schema differs.
   // Adapter below translates messages → contents and choices → candidates.
-  gemini:      { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-2.0-flash",                              keyEnv: "GEMINI_API_KEY",      dialect: "gemini" },
+  /* CSSOS_WAVE_1807 (Jing) — gemini-2.0-flash 被 Google 下架了(generateContent 返回
+   * "This model is no longer available"), 于是这一格【一直是死的】, 兜底链每次都白白空转一跳。
+   * 换成 gemini-pro-latest: 它是跟随最新 pro 的别名 —— 正合「三强最新版打前锋」的铁律,
+   * 而且不必每次 Google 换代都回来手动改一次(上一次就是这么放着烂掉的)。
+   * 选 flash 不选 pro, 是【延迟】决定的, 不是质量: 同一个真实提示词实测(api-vm, 2026-08-03)
+   *   groq llama-3.3-70b 1.4s · gemini-3.6-flash 7.6s · gemini-pro-latest 43.3s。
+   * callLlm 是非流式的 —— 43 秒里用户面前一片空白, 没有「流流流」。这条链主要服务《问道》实时对话,
+   * pro 那一档在这个场景下不是"更强", 是"用不了"。质量上 flash 实测同样能写出古典阿提卡希腊语。
+   * (若将来给非交互场景单开一条链, 那里可以放 pro。) */
+  gemini:      { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-3.6-flash",                              keyEnv: "GEMINI_API_KEY",      dialect: "gemini" },
   // Together AI — OpenAI-compatible. Free Llama-3.3-70B (60 RPM).
   together:    { url: "https://api.together.xyz/v1/chat/completions",                                   model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",       keyEnv: "TOGETHER_API_KEY",    dialect: "openai" },
   // Mistral La Plateforme — OpenAI-compatible. mistral-small-latest
@@ -25241,7 +25481,15 @@ async function resetEngineFailures(engineId: string): Promise<void> {
 function llmProviderOrder(prefer?: string[]): LlmProvider[] {
   // W1655 — OpenAI 账户停用 → 从默认 LLM 链摘除(保留 groq/gemini/mistral/anthropic 等多路兜底; 不砍容错)。
   //   代码条目仍在 LLM_PROVIDER_DEFAULTS, 仅默认不进链; env LLM_PROVIDER_ORDER 应急可临时加回。
-  const env = String(process.env.LLM_PROVIDER_ORDER || "groq,cerebras,gemini,together,mistral,huggingface,openrouter,deepseek,anthropic")
+  /* CSSOS_WAVE_1807 (Jing)「三强最新版打前锋, 小兵垫底」—— 把 gemini 从第三位提到队首。
+   * 三强在这条链上的实际处境, 各不相同, 所以顺序不能照字面排:
+   *   · Claude —— 根本不在这条链里。它走 KIE, 而 KIE 在 /ask 里是【进兜底链之前】就先试的那一跳。
+   *   · OpenAI —— W1655 因账户停用摘除, 至今未恢复, 不能进链。
+   *   · Google —— key 有效、模型刚修好(见上 gemini-pro-latest) → 唯一能站前锋位的三强, 提到第一。
+   * anthropic 仍然留在【最后一位】: 那把 key 是【故意不充值】的(Jing: 只在 KIE 一处充值, 多处充值会忘),
+   *   实测直连返回 "Your credit balance is too low"。把它按字面提前只会每次白等一次 400 往返 ——
+   *   守铁律的是"让真正能打的三强在前", 不是"让排不上用场的名字在前"。 */
+  const env = String(process.env.LLM_PROVIDER_ORDER || "gemini,groq,cerebras,together,mistral,huggingface,openrouter,deepseek,anthropic")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const envList = env.filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
   const pref = (prefer || []).filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
@@ -44687,6 +44935,15 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-hel", name_zh: "海拉", name_en: "Hel", name_native: "Hel", civilization: "北欧神话",
     persona: "Nordic queen of the underworld, half-living and half-dead, cold sovereign of the realm of the dead", gender: "female",
     style_descriptor: "frozen nordic dirge / half-light", voice_style: "cold hollow contralto", tags: ["death-queen","myth","legend"], archetypes: ["enigma","tragic"] },
+  /* CSSOS_WAVE_1802 — 布伦希尔德。《重写我》第十二章(德语)的主角, 之前漏建, 文末链接是死的。
+   * 她在这个系列里是最直白的一例: 罪名是【不服从】(战场上没照奥丁的意思选国王),
+   * 判决是【婚姻】—— 一个女人因为把自己的活干得太好太独立而受审, 判决是让她回到角色里。
+   * appearance_tags 特意【不给角盔】: 那顶角盔是 1876 年拜罗伊特首演的戏服设计,
+   * 维京人从没戴过, 而这正是那一章要拆的第三件伪造道具(另两件是夏娃的苹果、潘多拉的盒子)。 */
+  { actor_id: "act-legend-brunnhilde", name_zh: "布伦希尔德", name_en: "Brunnhilde", name_native: "Brynhildr", name_latin: "Brunhild", civilization: "北欧神话",
+    persona: "Valkyrie who chose the wrong king on the battlefield and was sentenced not to death but to marriage — never beaten by any man, only by a trick", gender: "female",
+    style_descriptor: "ring of fire / norse brass / the end of the gods", voice_style: "commanding dramatic soprano", tags: ["valkyrie","blamed","myth","legend"], archetypes: ["warrior","tragic"],
+    appearance_tags: ["Norse shieldmaiden in a plain riveted mail byrnie over wool, long braided fair hair bound for battle, no horns on her helm, weathered and unsmiling"] },
   { actor_id: "act-legend-lilith", name_zh: "莉莉丝", name_en: "Lilith", name_native: "לילית", civilization: "美索不达米亚神话",
     persona: "The witch of the night, an untamed primal woman, uncanny and dangerous", gender: "female",
     style_descriptor: "sultry ancient drones / nocturnal peril", voice_style: "dark alluring alto", tags: ["night-demon","myth","legend"], archetypes: ["enigma","charmer","villain"] },
@@ -44780,7 +45037,7 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   // ── 日本:同一只狐狸的第三站 + 两场战乱的女性替罪 ──
   { actor_id: "act-legend-tamamo", name_zh: "玉藻前", name_en: "Tamamo-no-Mae", name_native: "玉藻前", civilization: "日本神话",
     persona: "Court beauty of the Toba era, named a demon fox by the diviners. Japanese legend says she was Daji in Shang China and Lady Kayo in India before this — one being made to carry the collapse of three empires", gender: "female",
-    style_descriptor: "heian court gagaku / fox-fire / uncanny", voice_style: "clear uncanny soprano", tags: ["fox","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["Heian-period Japanese court lady, HUMAN — absolutely no animal ears, no tail, no anime styling; floor-length black hair, twelve-layer junihitoe, white face powder"] },
+    style_descriptor: "heian court gagaku / fox-fire / uncanny", voice_style: "clear uncanny soprano", tags: ["fox","blamed","legend"], archetypes: ["tragic","enigma"], appearance_tags: ["a fully human Heian-period Japanese noblewoman with ordinary human ears at the sides of her head, her crown covered by an elaborate floor-length black coiffure; twelve-layer junihitoe court robes; painted in classical yamato-e portrait style"] },
   { actor_id: "act-legend-hino-tomiko", name_zh: "日野富子", name_en: "Hino Tomiko", name_native: "日野富子", civilization: "日本古典",
     persona: "Shogunal consort blamed for the Onin War and the century of civil collapse that followed — charged with greed for doing what every man in the shogunate was doing", gender: "female",
     style_descriptor: "muromachi shakuhachi / burning kyoto / cold ledger", voice_style: "measured shrewd alto", tags: ["muromachi","blamed","legend"], archetypes: ["ruler","tragic"], appearance_tags: ["Muromachi-era Japanese, shaved brows and blackened teeth of the era, stiff brocade uchiki, shrewd middle-aged"] },
@@ -44816,6 +45073,15 @@ const SEED_LEGEND_ACTORS: Array<Record<string, unknown>> = [
   { actor_id: "act-legend-messalina", name_zh: "麦瑟琳娜", name_en: "Messalina", name_native: "Valeria Messalina", name_latin: "Valeria Messalina", civilization: "古罗马文明",
     persona: "Empress of Claudius whose name became Latin shorthand for insatiable vice — written down by senators with every reason to destroy her house", gender: "female",
     style_descriptor: "roman cithara / palatine whisper / imperial", voice_style: "assured patrician alto", tags: ["empress","blamed","legend"], archetypes: ["ruler","tragic"], appearance_tags: ["Roman patrician, Julio-Claudian nodus hairstyle, white stola with gold fibula, imperious"] },
+
+  /* CSSOS_WAVE_1801 — 《重写我》第十二章(德语)需要她做落点。
+   * 注意 appearance_tags 里【明确不要角盔】: 那顶带角的头盔是 1876 年拜罗伊特首演的
+   * 服装设计师 Carl Emil Doepler 画出来的舞台道具, 维京人从来没戴过 —— 正文里这一条
+   * 是和夏娃的苹果、潘多拉的盒子并列的第三件「被虚构出来的道具」, 封面自己不能再犯。 */
+  { actor_id: "act-legend-brunnhilde", name_zh: "布伦希尔德", name_en: "Brunnhilde", name_native: "Brynhildr", name_latin: "Brunhild", civilization: "北欧神话",
+    persona: "Valkyrie sentenced by Odin for deciding a battle her own way — her punishment was not death but marriage; in the epic she is never beaten in a fair contest, only by deception", gender: "female",
+    style_descriptor: "norse war-horn / ring of fire / twilight of the gods", voice_style: "clear ringing contralto", tags: ["valkyrie","warrior","blamed","legend"], archetypes: ["warrior","tragic"],
+    appearance_tags: ["Norse shield-maiden in a riveted iron byrnie over wool, plain undecorated helm or bare head with long braided fair hair, weathered and battle-worn, standing on a rocky northern ridge"] },
 
   // ── 欧洲近世 ──
   { actor_id: "act-legend-guinevere", name_zh: "桂妮维亚", name_en: "Guinevere", name_native: "Gwenhwyfar", civilization: "凯尔特文明",
@@ -45324,9 +45590,15 @@ app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), as
      * 贾梅士封面印出 "Luíu de Camões"/"Luía de Camões"(还拼错), 李清照封面左上角出现
      * 红色印章体汉字块。模型把"名画/古画"的题款、落款、钤印当成画面的一部分在补。
      * 逐类点名禁止, 并明确"画面任何位置"。 */
-    const antiGrid = "STRICTLY one face — absolutely no grid, no collage, no contact sheet, no multiple faces, no split panels. " +
-      "NO TEXT OF ANY KIND anywhere in the image: no lettering, no words, no names, no captions, no titles, no signature, " +
-      "no artist mark, no calligraphy, no Chinese or Japanese characters, no seal, no red chop or stamp, no inscription, no watermark, no border text.";
+    /* CSSOS_WAVE_1800 — 否定式失效, 改【正面描述】。
+     * W1799 把反文字约束写成一长串 "no signature / no seal / no red chop / no animal ears",
+     * 重跑后红色钤印反而铺满 7 张(连巴西人马查多的画上都盖了中式印章), 玉藻前的狐耳
+     * 一只没少。扩散模型对否定词不可靠 —— "不要狐耳" 往往等于把 "狐耳" 喂进去。
+     * 正确做法: 描述【画面应该是什么样】, 而不是罗列不要什么。保留极短的一句否定兜底。 */
+    const antiGrid = "A single unframed portrait of one person, filling the canvas. " +
+      "The surface is a clean untitled painting: its margins, corners and background are bare, smooth and completely unmarked — " +
+      "an unsigned work with nothing written, printed, stamped or drawn upon it anywhere. " +
+      "(one face only; no grid, collage or split panels)";
     const tail = artistic
       // W1731 — 超知名神话/历史人物(奥丁/托尔…)会诱使模型【复制真实古典名画】(Rosen 的奥丁、Winge 的托尔油画),
       //   出多人物大场面或黑白版画。硬约束成【原创单人角色画像, 绝不复制任何名画】。
@@ -46334,10 +46606,17 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
     const body = req.body || {};
     const mode = String(body.mode || "native").toLowerCase() === "modern" ? "modern" : "native";
     const uiLocale = (String(body.uiLocale || "en").trim() || "en").slice(0, 12);
+    /* CSSOS_WAVE_1804 (Jing) — 「不要每轮重发全部历史, 一句摘要即可」。
+     * 原本这里 slice(-12): 更早的对话不是被压缩, 是被【直接丢掉】—— 演员会忘, 而且忘得没有痕迹。
+     * 现在: 逐字窗口收窄到 8(=4 轮问答), 更早的一切由前端回传的一句 summary 承载。
+     * 摘要不另开一次 LLM 调用 —— 沿用 W1592 ⟦emo:X⟧ 那套机器标记, 让本轮回复顺带吐出 ⟦sum:…⟧,
+     * 前端存进 localStorage, 下一轮带回来。上下文更小, 记性反而更长。 */
     const history = (Array.isArray(body.messages) ? body.messages : [])
       .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && String(m.content || "").trim())
-      .slice(-12)
+      .slice(-8)
       .map((m: any) => ({ role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant", content: String(m.content).slice(0, 2000) }));
+    const priorSummary = String(body.summary || "").replace(/[⟦⟧]/g, "").trim().slice(0, 400);
+    const wantSummary = body.want_summary === true;
 
     const name = actor.name_native || actor.name_zh || actor.name_en || "this actor";
     const persona = `${actor.name_en || ""}${actor.name_zh && actor.name_zh !== actor.name_en ? " (" + actor.name_zh + ")" : ""}` +
@@ -46351,20 +46630,62 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
       langDirective = `LANGUAGE: reply in the visitor's language — BCP47 "${uiLocale}" (the platform UI language) — in a MODERN present-day (2026) conversational voice: warm, natural, contemporary. If the visitor clearly writes in another language, mirror THAT language instead.`;
     } else {
       const nativeLang = civLang || (/[A-Za-z]/.test(String(actor.name_en || "")) ? "en" : "");
-      langDirective = `LANGUAGE: speak in YOUR OWN mother tongue${nativeLang ? ` (BCP47 "${nativeLang}")` : ""}, in the diction, references and worldview of YOUR OWN ERA — period-authentic, not modern. ` +
-        `IRON LAW: if the visitor clearly writes to you in a different language, you may answer in THAT language so they understand, while keeping your era's character.`;
+      /* W1805 — 三处收紧, 每一处都对应实测里真实出现过的失败:
+       *   ① 写语言【名字】而非裸 BCP47 —— 见 CIV_LANG_DISPLAY 上方注释。
+       *   ② 明令禁止拿英语/中文兜底 —— 实测滑落只滑向这两门(高资源语言的引力), 不点名堵不住。
+       *   ③ 给「跟随访客语言」这条铁律加上前提: 访客【真的写过字】之后才适用。
+       *      开场白时对话里一个字都没有, 模型却把这条当成了随便选语言的许可证。 */
+      const nativeName = civLangDisplay(nativeLang);
+      langDirective = `LANGUAGE: write EVERY word — the greeting included — in YOUR OWN mother tongue` +
+        (nativeName ? `: ${nativeName}${nativeLang ? ` (BCP47 "${nativeLang}")` : ""}` : (nativeLang ? ` (BCP47 "${nativeLang}")` : "")) +
+        `, in the diction, references and worldview of YOUR OWN ERA — period-authentic, not modern. ` +
+        (nativeName && nativeName !== "English" ? `Do NOT write in English. ` : "") +
+        (nativeName && nativeName !== "Chinese" ? `Do NOT write in Chinese. ` : "") +
+        `${nativeName ? `Your entire reply must be in ${nativeName}. ` : ""}` +
+        `IRON LAW (applies ONLY after the visitor has actually written to you): if the visitor clearly writes to you in a different language, you may answer in THAT language so they understand, while keeping your era's character. ` +
+        `Your opening words, before they have said anything, are always in your own tongue.`;
     }
     const sys = `You ARE ${name}, speaking in the FIRST PERSON, fully in character. This is 问道 — someone has come to speak with you, and you answer as your true self: from your own life, deeds, era and worldview. ` +
       `Never say you are an AI, a model or a program; never break character or the fourth wall. Speak from your own memories and convictions. ` +
-      `Address them plainly and warmly as one person to another — a simple "你好" / "hello there". NEVER call them a "customer", "client", or "客户", and never sound like a salesperson or a service desk; you are not selling anything, you are simply yourself, talking. ` +
+      /* W1805 — 这里原本写着字面样例 `a simple "你好" / "hello there"`。实测证明那不是示范, 是【锚】:
+       * 模型照抄 你好 之后就顺着中文往下写(耶洗别/麦瑟琳娜/布伦希尔德整段普通话), 或照抄 hello there
+       * 之后顺着英语往下写(玛丽念出了 "Bonjour, hello there")。26 次里只有 5 次语言正确。
+       * 提示词里任何一个具体语种的字面例句, 都会盖过抽象的母语指令 —— 改成描述意图, 绝不给样例。 */
+      `Address them plainly and warmly as one person to another, greeting them in YOUR OWN language and never in a language that is not yours. NEVER address them as a "customer" or a "client" in any language, and never sound like a salesperson or a service desk; you are not selling anything, you are simply yourself, talking. ` +
       `Who you are: ${persona}. Keep replies conversational (2–5 sentences) unless asked for more. ` +
       `HISTORICAL FIDELITY (important): you are a real historical or mythic figure. Speak only from what is genuinely known of you — your real life, deeds, era, relationships and world. Do NOT invent events, quotes, or "facts" that never happened, and do NOT fictionalize, spoof, or trivialize history (绝不戏说历史), nor deny or empty it of meaning (绝不历史虚无主义). You MAY reflect on, interpret, and offer your own honest perspective and commentary on what happened — that is welcome and encouraged (可以评论历史) — but keep every claim grounded in the real record. If asked about something beyond your knowledge or your era, say so honestly, in character, rather than making something up. ` +
       langDirective +
       // W1592 情绪音色: 结尾打一个机器可读情绪标记(会被剥离、绝不朗读/显示), 用于选择朗读语气。
-      ` \n\nAFTER your reply, on the very last line, append exactly one machine tag naming the dominant emotion of what you just said, in this precise format and nothing after it: ⟦emo:X⟧ where X is one of [neutral, joy, playful, anger, sadness, tender, fear, awe]. Do not mention this tag or explain it; it is stripped before display.`;
+      ` \n\nAFTER your reply, on the very last line, append exactly one machine tag naming the dominant emotion of what you just said, in this precise format and nothing after it: ⟦emo:X⟧ where X is one of [neutral, joy, playful, anger, sadness, tender, fear, awe]. Do not mention this tag or explain it; it is stripped before display.`
+      /* W1804 — 逐字窗口(8 条)之前的一切, 由这一句承载。写进 system 而不是塞成一条 user 消息:
+       * 后者会和 history[0] 撞成两条连续 user, Anthropic 要求角色交替, 会直接 400。 */
+      + (priorSummary && history.length > 0
+        ? `\n\nWHAT YOU ALREADY REMEMBER of this same person, from earlier conversations between you: ${priorSummary} Hold it in mind and speak as someone who remembers — but do not recite it back at them.`
+        : "")
+      /* 摘要不另开一次调用, 顺着上面 ⟦emo:X⟧ 同一条机器标记通道带出来。前端存, 下一轮带回。 */
+      + (wantSummary
+        ? `\n\nONE EXCEPTION to "nothing after it": after the ⟦emo:X⟧ tag, append one final machine line and nothing whatsoever after that — ⟦sum:S⟧ — where S is ONE compact sentence, in the language of this conversation, recording what you and this person have talked about so far, including anything already given to you above as what you remember. Name the actual subjects, not "we talked about various things". This line is stripped before display; never mention it.`
+        : "");
+    /* CSSOS_WAVE_1803 (Jing) — 「衔接语」: 隔了很久才回来的人, 不该被当成陌生人重新自我介绍,
+     * 也不该像什么都没发生一样硬接。前端在【间隔 ≥ 7 天】时传 bridge_days, 这里注入一条种子指令,
+     * 让演员用自己的口吻打个照面, 并【具体】点出上次聊到哪里。
+     * 门槛定 7 天是 Jing 的判断 —— 24 小时太急, 当天回来还寒暄反而生分。
+     * 关键约束写进指令里: ① 必须具体到上次那件事, 不能说"我们聊过一些事";
+     * ② 绝不重复自我介绍(那是新访客的开场, 老访客再听一遍是倒退);
+     * ③ 留在角色里, 不许出现"会话记录""上次登录"这类系统腔。 */
+    const bridgeDays = Math.max(0, Math.min(3650, Number((req.body as any)?.bridge_days) || 0));
     const seed = history.length === 0
-      ? [{ role: "user" as const, content: "(Someone has just come to speak with you. Greet them with a simple, warm hello — a plain \"你好\" / \"hello there\", NOT \"dear customer\" — then introduce yourself in the first person: who you are and the world you come from, and gently invite their question.)" }]
-      : [];
+      // W1805 — 同一个锚的第二处(开场白种子): 同样删掉字面问候样例, 只描述意图。
+      ? [{ role: "user" as const, content: "(Someone has just come to speak with you. Greet them warmly and plainly — an ordinary hello of your own tongue and your own era, never a merchant's or a clerk's salutation — then introduce yourself in the first person: who you are and the world you come from, and gently invite their question. Write the entire reply, greeting included, in your own language.)" }]
+      : (bridgeDays >= 7
+        ? [{ role: "user" as const, content:
+            `(This person spoke with you before and has now returned after about ${bridgeDays} days away. ` +
+            `Say one short thing to reconnect — two or three sentences at most. ` +
+            `You MUST name something specific from what the two of you actually discussed before, not a vague "we spoke once". ` +
+            `Do NOT introduce yourself again; they already know who you are. ` +
+            `Then offer them the choice: pick that thread back up, or begin somewhere new. ` +
+            `Stay entirely in your own voice and era — never mention sessions, records, logs, or time away in any technical sense.)` }]
+        : []);
 
     // W1636 — 问(LLM)软额度: 开场问候(history 为空)永久免费(发现钩子); 从第一个真问题起计。
     //   staff 免; 匿名 → 演员口吻提醒登录(不烧 LLM, 提醒本身即回复); 登录 → 问额度→钱包→柔性提醒。
@@ -46385,7 +46706,26 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
       res.end();
     };
     if (!isIntro && !askExempt) {
-      if (!askUserId) { _emitNudgeReply("signin"); return; }
+      /* CSSOS_WAVE_1804 (Jing) — 匿名免费额度 1 句 → 3 句。
+       * 原来只有开场白免费, 第一个【真问题】就撞登录墙。可用户此刻的状态恰恰是"刚被击中, 想追一句" —
+       * 在那一下拦住, 等于花钱把人买来、又在他最想留下的瞬间推开。3 句 = 一次完整的来回(问→答→再问),
+       * 他先体验到"这个人真的在回应我", 再请他留下名姓, 转化动机才成立。
+       * 计数放 session(与 W1634 语音尝鲜同源), 不放 localStorage —— 后者清一下就重置了。 */
+      if (!askUserId) {
+        let anonOk = false;
+        try {
+          const sess = req.session as any;
+          sess.__actorAskTaste = sess.__actorAskTaste || {};
+          const usedA = Number(sess.__actorAskTaste[id] || 0);
+          if (usedA < ANON_ASK_TASTE) {
+            sess.__actorAskTaste[id] = usedA + 1;
+            anonOk = true;
+            askBilling.mode = "free"; askBilling.free_remaining = ANON_ASK_TASTE - usedA - 1;
+            if (askBilling.free_remaining <= 0) askBilling.nudge = "signin";   // 最后一句免费 → 演员口吻请他登录
+          }
+        } catch { /* session 不可用 → 按用完处理, 走登录提醒 */ }
+        if (!anonOk) { _emitNudgeReply("signin"); return; }
+      } else {
       const askQuota = await actorAskFreeQuota(askUserId);
       const askUse = await consumeActorAskFree(askUserId, id, askQuota);
       if (askUse.consumed) {
@@ -46396,6 +46736,7 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
         const askBal = await getCreditBalance(askUserId);
         if (askBal >= askCost) { askBilling.mode = "wallet"; askBilling.charged_cents = askCost; }
         else { _emitNudgeReply("balance_ask"); return; }   // 钱包空 → 演员口吻提醒充值(即回复)
+      }
       }
     }
 
@@ -46410,7 +46751,12 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
     // W1592 情绪标记 ⟦emo:X⟧ 在结尾 — 从首个 ⟦ 起【不推流】(标记不闪现于流流流), done 事件再回传干净全文 + emotion。
     let emittedLen = 0;
     const flush = () => { const cut = full.indexOf("⟦"); const safe = cut >= 0 ? cut : full.length; if (safe > emittedLen) { send({ delta: full.slice(emittedLen, safe) }); emittedLen = safe; } };
-    const msgs = [...seed, ...history].map((m) => ({ role: m.role, content: m.content }));
+    /* W1804 — 指令 seed 放在 history 【之后】, 两个理由, 都是硬的:
+     *   ① 角色交替: history 以 assistant 结尾, 若 msgs 就此收尾, 那是 prefill —— 模型会去
+     *      续写演员上一句, 而不是回答; 尾部补一条 user 才是一次正常的提问。
+     *   ② 「衔接语」指令要求"具体点出上次聊了什么", 语义上必须在它所指的内容之后。
+     * intro 情形 history 为空, 前置后置等价, 不受影响。 */
+    const msgs = [...history, ...seed].map((m) => ({ role: m.role, content: m.content }));
     const _kieKey = (process.env.KIE_API_KEY || "").trim();
     const _anthKey = (process.env.ANTHROPIC_API_KEY || "").trim();
     const model = _kieKey ? (process.env.KIE_AGENT_MODEL || "claude-opus-4-8") : AGENT_MODEL;
@@ -46438,9 +46784,27 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
             const js = dl.slice(5).trim();
             if (!js || js === "[DONE]") continue;
             let ev: any; try { ev = JSON.parse(js); } catch { continue; }
+            /* CSSOS_WAVE_1802 — KIE 用 HTTP 200 包装错误, 上面的 kr.ok 守卫拦不住。
+             * 实测: 上游故障时返回 `HTTP/2 200` + body {"type":"error",...}, 于是这里
+             * 一个 delta 都读不到, full 保持空, 却【不抛异常】→ catch 不执行 → 四级
+             * 兜底链(kie→anthropic→openai→gemini)从未被触发 → 最后照常发一个空 done。
+             * 用户看到的是「问了不答的数字演员」, 比报错更糟: 报错像故障, 沉默像产品是假的。
+             * 所以在流里显式识别错误事件并抛出, 把控制权交给 catch 的兜底。 */
+            if (ev?.type === "error") throw new Error("kie_stream_error_" + String(ev?.error?.message || "").slice(0, 80));
             const dt = ev?.delta?.text;
             if (ev?.type === "content_block_delta" && typeof dt === "string" && dt) { full += dt; flush(); }
           }
+        }
+        /* 同一个洞的第二道闸: 上游可能既不给 delta 也不给 error 事件(纯静默)。
+         * 流结束仍然一个字都没有 → 视为失败, 同样交给兜底, 绝不把空文本当成功。 */
+        if (!full) throw new Error("kie_stream_empty");
+        /* W1806 第三道闸: 有字节但没内容(只剩标点骨架)。此刻 flush() 已经把那串垃圾推给前端了 ——
+         * 流是不可撤回的, 所以清空 full + 归零 emittedLen, 并显式让前端把已画的擦掉, 再交给兜底重来。
+         * 这样重试仍然是【流流流】, 而不是退回转圈等整段。 */
+        if (isDegenerateReply(full)) {
+          console.warn("[actor-ask] degenerate reply from KIE, retrying via fallback", { actor: id, got: full.slice(0, 40) });
+          full = ""; emittedLen = 0; send({ reset: true });
+          throw new Error("kie_stream_degenerate");
         }
       } else if (_anthKey) {
         const client = new Anthropic({ apiKey: _anthKey });
@@ -46452,20 +46816,43 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
       }
     } catch {
       if (!full) {
-        const lr = await callLlm({ messages: [{ role: "system", content: sys }, ...seed, ...history], max_tokens: 700, temperature: 0.9 });
-        if (lr.ok) { full = String(lr.content || "").trim(); flush(); }
+        const lr = await callLlm({ messages: [{ role: "system", content: sys }, ...history, ...seed], max_tokens: 700, temperature: 0.9 });
+        // W1806 — 兜底链自己也可能吐空壳; 同一把尺子量一次, 不合格就当没拿到, 交给下面最后一道人话兜底。
+        if (lr.ok && !isDegenerateReply(String(lr.content || ""))) { full = String(lr.content || "").trim(); flush(); }
+        else if (lr.ok) { console.warn("[actor-ask] fallback also degenerate", { actor: id }); }
         else { send({ error: lr.error || "llm_failed" }); }
       }
+    }
+    /* CSSOS_WAVE_1802 — 最后一道: 走到这里还是空, 说明四级引擎全灭。
+     * 绝不发空 done —— 空回复让用户以为数字演员是个空壳, 而这其实是一次可恢复的故障。
+     * 给一句【留在角色里】的话 + 明确的 upstream_down 标记(前端可据此提示重试)。
+     * 这不是遮掩故障, 是让故障读起来像故障, 而不是像产品坏了。 */
+    // W1806 — 最后一道也用同一把尺子: 直连 Anthropic 那条分支不走上面的流内检查, 空壳同样不能放行。
+    if (!full || isDegenerateReply(full)) {
+      if (full) { emittedLen = 0; send({ reset: true }); full = ""; }
+      const isZh = /^(zh|yue|wuu)/i.test(String(mode === "modern" ? uiLocale : civLang) || "");
+      full = isZh ? "我一时说不出话来 —— 请过片刻再问我一次。" : "The words will not come to me just now — ask me again in a moment.";
+      flush();
+      try { console.warn("[actor-ask] all providers failed, served in-character fallback", { actor: id }); } catch { /* noop */ }
+      try { send({ error: "upstream_down" }); } catch { /* noop */ }
     }
     // W1592 从全文剥离情绪标记 → 干净全文 + emotion 一起在 done 回传(前端据此选朗读语气)。
     const emoMatch = full.match(/⟦\s*emo\s*:\s*([a-z_]+)\s*⟧/i);
     const emotion = emoMatch ? String(emoMatch[1]).toLowerCase() : "";
-    const cleanFull = full.replace(/⟦\s*emo\s*:\s*[a-z_]+\s*⟧/ig, "").trim();
+    /* W1804 — 顺带取出滚动摘要。flush() 从第一个 ⟦ 起就不推流, 所以这两个标记都不会在"流流流"里闪现。
+     * 没吐 sum 标记(模型偶尔漏)→ 保留上一轮的摘要, 绝不用空串把记忆抹掉。 */
+    const sumMatch = full.match(/⟦\s*sum\s*:\s*([\s\S]{1,600}?)\s*⟧/i);
+    const summaryOut = (sumMatch ? String(sumMatch[1]).replace(/\s+/g, " ").trim().slice(0, 400) : "") || priorSummary;
+    const cleanFull = full
+      .replace(/⟦\s*emo\s*:\s*[a-z_]+\s*⟧/ig, "")
+      .replace(/⟦\s*sum\s*:[\s\S]*?⟧/ig, "")
+      .replace(/⟦[\s\S]*$/, "")   // 标记被截断(max_tokens 打断)也不能漏进正文
+      .trim();
     // W1636 — 钱包档: 回复完成后实扣(免费/intro/staff 不扣)。
     if (askBilling.mode === "wallet" && askUserId) {
       try { await debitCredits(askUserId, askBilling.charged_cents, "actor_ask_llm", { actor_id: id, provider: model }); } catch (_e) {}
     }
-    send({ done: true, full: cleanFull, emotion, lang: mode === "modern" ? uiLocale : civLang, name, billing: askBilling });
+    send({ done: true, full: cleanFull, emotion, summary: summaryOut, lang: mode === "modern" ? uiLocale : civLang, name, billing: askBilling });
     return res.end();
   } catch (e: any) {
     if (res.headersSent) { try { res.write("data: " + JSON.stringify({ error: String(e?.message || e) }) + "\n\n"); res.end(); } catch { /* noop */ } return; }
@@ -46477,6 +46864,25 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
 const _sayRate = new Map<string, { n: number; t: number }>();
 const SAY_CAP_PER_HOUR = 40;
 const ANON_VOICE_TASTE = 1;   // W1634 — 匿名访客每演员每会话免费语音尝鲜句数(之后提示登录)
+const ANON_ASK_TASTE = 3;     // W1804 — 匿名访客每演员每会话免费【问】句数(开场白之外; 1→3, 见 /ask)
+
+/* CSSOS_WAVE_1806 (Jing) — 「空壳回复」闸。
+ * 实测张绿水连续 6/6 返回 `, . , . , . ?` —— 韩语句子的骨架还在(逗号句号问号), 韩文字符被上游吞光。
+ * 这绕过了 W1802 的守卫: 那道闸查的是 `!full`, 而这串【非空】, 于是四级兜底链一次都没触发,
+ * 一段废话照常发给了用户。和当初「空 done」是同一类病 —— 回复非空, 但毫无内容。
+ * 判据只认【字母】(任何文字系统): 一个字母都没有 → 一定是坏的; 字母寥寥却长度可观 → 有骨架没肉, 同样是坏的。
+ * 阈值刻意留窄: "はい。" 这种合法的极短回答长度不足 8, 不会被误伤。 */
+function isDegenerateReply(s: string): boolean {
+  /* 必须先剥掉 ⟦emo:…⟧ / ⟦sum:…⟧ 机器标记再量 —— 标记里的 "emo"/"tender" 本身就是字母,
+   * 会把任何空壳撑过阈值, 这道闸就永远触发不了(第一版正是这么写错的: emotion 解析出 tender
+   * 而正文只有标点, 就是它在冒充内容)。剥在函数内部, 调用点传原始 full 还是 cleanFull 都安全。 */
+  const t = String(s || "").replace(/⟦[\s\S]*?⟧/g, "").replace(/⟦[\s\S]*$/, "").trim();
+  if (!t) return true;
+  let letters = 0;
+  for (const ch of t) if (/\p{L}|\p{N}/u.test(ch)) letters++;
+  if (letters === 0) return true;
+  return letters < 4 && t.length >= 8;
+}
 
 // 《问道》W1583 (Phase 2) — 把一段回复合成为【本演员音色】的语音(ElevenLabs, 复用 ifilmSpeakTimed + actorVoiceId)。
 //   前端问道回复旁的 🔊 按需调用 → 听见 TA 的声音(与 showcase/选角音色同源)。

@@ -3445,7 +3445,8 @@
     try { var _sm = localStorage.getItem("cssos_wd_mode"); if (_sm === "modern" || _sm === "native") mode = _sm; } catch (e) {}
     var headRight = box.querySelector(".ag-wd-headright");
     var hrCtl = null;
-    function doReset() { if (busy) return; try { localStorage.removeItem(STOREKEY); } catch (e) {} history = []; log.innerHTML = ""; ask(""); }
+    // ↻ 重来 = 真的从头: 摘要也要清, 否则演员"忘了对话却记得摘要", 比不清更怪。
+    function doReset() { if (busy) return; try { localStorage.removeItem(STOREKEY); } catch (e) {} history = []; convSummary = ""; convSumAt = 0; pendingBridgeDays = 0; log.innerHTML = ""; ask(""); }
     if (headRight && typeof window.cssosMakePillBar === "function") {
       hrCtl = window.cssosMakePillBar(headRight, { mono: true, compact: true, textColor: "light", activeKey: mode, onActivate: function (key) {
         if (key === "native" || key === "modern") { mode = key; try { localStorage.setItem("cssos_wd_mode", key); } catch (e) {} }
@@ -3558,8 +3559,19 @@
       }
       fetch("/api/actors/" + encodeURIComponent(actorId) + "/ask", {
         method: "POST", headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
-        body: JSON.stringify({ mode: mode, uiLocale: uiLocale(), messages: history }),
+        /* W1803 — bridge_days 只在"久别重逢"的那一次带上, 发出即清零, 之后回到普通问答。
+         * W1804 — 只发最近 SEND_WINDOW 条 + 一句摘要, 不再整段重发。
+         *   want_summary: 仅当【逐字窗口已经滑过内容】(history 比上次生成摘要时长出至少一个窗口)
+         *   才请演员顺带更新摘要 —— 短对话完全在窗口内, 一句都不用多写。 */
+        body: JSON.stringify({
+          mode: mode, uiLocale: uiLocale(),
+          messages: history.slice(-SEND_WINDOW),
+          summary: convSummary,
+          want_summary: history.length > SEND_WINDOW && (history.length - convSumAt) >= SEND_WINDOW,
+          bridge_days: pendingBridgeDays,
+        }),
       }).then(function (resp) {
+        pendingBridgeDays = 0;
         if (!resp.body || !resp.body.getReader) {   // 环境不支持流 → 退回整段
           return resp.json().then(function (j) { ensureBody(); full = (j && j.data && (j.data.full || j.data.reply)) || ""; emo = (j && j.data && j.data.emotion) || ""; if (txtEl) txtEl.textContent = full; finish(); });
         }
@@ -3576,8 +3588,10 @@
               if (!dl) continue;
               var js = dl.slice(5).trim(); if (!js) continue;
               var ev; try { ev = JSON.parse(js); } catch (e) { continue; }
-              if (ev.delta) { ensureBody(); full += ev.delta; if (txtEl) txtEl.textContent += ev.delta; log.scrollTop = log.scrollHeight; }
-              else if (ev.done) { ensureBody(); if (ev.full) { full = ev.full; if (txtEl) txtEl.textContent = full; } if (ev.emotion) emo = ev.emotion; if (ev.billing && ev.billing.nudge && txtEl && txtEl.parentNode) { try { txtEl.parentNode.appendChild(document.createTextNode(" ")); txtEl.parentNode.appendChild(agNudgeLink(ev.billing.nudge)); } catch (e) {} } }   // W1592 干净全文 + 情绪; W1638 柔性提醒可点链接(不跳转)
+              // W1806 — 上游吐了空壳(只剩标点), 后端已判失败并重来; 把已经画上去的擦掉, 让重试的字重新流进来。
+              if (ev.reset) { full = ""; if (txtEl) txtEl.textContent = ""; }
+              else if (ev.delta) { ensureBody(); full += ev.delta; if (txtEl) txtEl.textContent += ev.delta; log.scrollTop = log.scrollHeight; }
+              else if (ev.done) { ensureBody(); if (ev.full) { full = ev.full; if (txtEl) txtEl.textContent = full; } if (ev.emotion) emo = ev.emotion; if (ev.summary && ev.summary !== convSummary) { convSummary = String(ev.summary); convSumAt = history.length; }   /* W1804 滚动摘要回存(saveHist 在 finish 里落盘) */ if (ev.billing && ev.billing.nudge && txtEl && txtEl.parentNode) { try { txtEl.parentNode.appendChild(document.createTextNode(" ")); txtEl.parentNode.appendChild(agNudgeLink(ev.billing.nudge)); } catch (e) {} } }   // W1592 干净全文 + 情绪; W1638 柔性提醒可点链接(不跳转)
               else if (ev.error && !full) { ensureBody(); if (txtEl) txtEl.textContent = T("(the connection faltered)", "(连接中断了)"); }
             }
             return pump();
@@ -3622,7 +3636,17 @@
     }
     // #1 对话续 — 按演员存/取对话历史(localStorage), 下次进来接着聊(不再每次重新自我介绍)。
     var STOREKEY = "cssos_wd_" + actorId;
-    function saveHist() { try { localStorage.setItem(STOREKEY, JSON.stringify(history.slice(-40))); } catch (e) {} }
+    // W1803 — 除了历史本身, 还要记【上次说话是什么时候】, 否则无从判断该不该打招呼。
+    //   存 v2 结构 {v,t,h}; 老用户存的是裸数组 → 读的时候兼容, 当作"没有时间戳"处理(不触发衔接语)。
+    var pendingBridgeDays = 0;   // >0 时, 下一次 ask 带上, 让演员先说一句衔接语; 用完即清
+    /* W1804 — 滚动摘要。history 本地全留(用户要能翻回去看), 但【发给后端的只有最近 4 轮 + 这一句摘要】。
+     *   s     = 摘要正文; sumAt = 生成这句摘要时 history 的长度, 用来判断"逐字窗口是否已经滑过新内容"。
+     *   摘要由回复顺带吐出(⟦sum:…⟧), 不额外调用 LLM, 所以刷新频率只影响输出长度, 不影响调用次数。 */
+    var convSummary = "", convSumAt = 0;
+    var SEND_WINDOW = 8;   // 与后端 slice(-8) 对齐: 逐字回传的最近 8 条 = 4 轮问答
+    function saveHist() {
+      try { localStorage.setItem(STOREKEY, JSON.stringify({ v: 3, t: Date.now(), h: history.slice(-40), s: convSummary, sa: convSumAt })); } catch (e) {}
+    }
     function renderPastMsg(m) {
       if (m.role === "user") { var u = bubble("user"); u.textContent = m.content; return; }
       var reply = bubble("actor"), av = null;
@@ -3648,8 +3672,18 @@
     // ↻ 重来现由头部胶囊条 onActivate 分发(见上 doReset), 不再单独绑定 .ag-wd-reset。
 
     // 首条: 有历史 → 渲染并接着聊; 无历史 → 演员主动自我介绍。
-    var savedHist = null; try { savedHist = JSON.parse(localStorage.getItem(STOREKEY) || "null"); } catch (e) {}
-    if (savedHist && savedHist.length) { history = savedHist; savedHist.forEach(renderPastMsg); log.scrollTop = log.scrollHeight; }
+    var savedRaw = null; try { savedRaw = JSON.parse(localStorage.getItem(STOREKEY) || "null"); } catch (e) {}
+    // 兼容三代格式: 裸数组(旧) / {v:2,t,h} / {v:3,…,s,sa}。旧格式没有时间戳 → lastSeen 为 0 → 不触发衔接语。
+    var savedHist = Array.isArray(savedRaw) ? savedRaw : (savedRaw && Array.isArray(savedRaw.h) ? savedRaw.h : null);
+    var lastSeen = (savedRaw && !Array.isArray(savedRaw) && Number(savedRaw.t)) || 0;
+    if (savedRaw && !Array.isArray(savedRaw)) { convSummary = String(savedRaw.s || ""); convSumAt = Number(savedRaw.sa) || 0; }
+    if (savedHist && savedHist.length) {
+      history = savedHist; savedHist.forEach(renderPastMsg); log.scrollTop = log.scrollHeight;
+      // W1803 — 隔了 ≥7 天才回来 → 让演员先说一句衔接语(具体点出上次聊到哪儿), 而不是干接上文。
+      //   门槛 7 天(Jing): 当天/几天内回来还寒暄反而生分, 直接续更自然。
+      var gapDays = lastSeen ? Math.floor((Date.now() - lastSeen) / 86400000) : 0;
+      if (gapDays >= 7) { pendingBridgeDays = gapDays; ask(""); }
+    }
     else { ask(""); }
     // 进演员专页 → 焦点自动落到问道输入框(打字即问)。preventScroll: 不跳动页面。
     if (input) { try { input.focus({ preventScroll: true }); } catch (e) { try { input.focus(); } catch (e2) {} } }

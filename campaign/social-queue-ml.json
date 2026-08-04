@@ -807,7 +807,8 @@
       "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
       "x": "普通字幕只告诉你词。CSS Studio 有世界首创的情感字幕——每一句都带着它的情绪,文字和声音一起动情。\n\n会动情的字幕。\ncssstudio.app/?cssADS=emotion-zh",
       "long": "普通字幕只告诉你词。CSS Studio 有世界首创的情感字幕——每一句都带着它的情绪,文字和声音一起动情。\n\n会动情的字幕。\ncssstudio.app",
-      "status": "in_flight"
+      "status": "done",
+      "last_posted": "2026-07-28T22:29:25-04:00"
     },
     {
       "n": 86,
@@ -816,7 +817,8 @@
       "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
       "x": "普通の字幕は言葉を伝えるだけ。CSS Studio には世界初の感情字幕——一行ごとに感情が宿り、文字が声とともに震える。\n\n感情のある字幕。\ncssstudio.app/?cssADS=emotion-ja",
       "long": "普通の字幕は言葉を伝えるだけ。CSS Studio には世界初の感情字幕——一行ごとに感情が宿り、文字が声とともに震える。\n\n感情のある字幕。\ncssstudio.app",
-      "status": "pending"
+      "status": "done",
+      "last_posted": "2026-07-28T23:52:24-04:00"
     },
     {
       "n": 87,
@@ -825,7 +827,8 @@
       "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
       "x": "보통 자막은 단어만 전합니다. CSS Studio엔 세계 최초의 감정 자막 — 모든 줄이 감정을 담아, 글자가 목소리와 함께 떨립니다.\n\n감정을 느끼는 자막.\ncssstudio.app/?cssADS=emotion-ko",
       "long": "보통 자막은 단어만 전합니다. CSS Studio엔 세계 최초의 감정 자막 — 모든 줄이 감정을 담아, 글자가 목소리와 함께 떨립니다.\n\n감정을 느끼는 자막.\ncssstudio.app",
-      "status": "pending"
+      "status": "done",
+      "last_posted": "2026-07-29T00:13:10-04:00"
     },
     {
       "n": 88,
@@ -834,7 +837,8 @@
       "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
       "x": "Les sous-titres ordinaires disent les mots. CSS Studio a les premiers sous-titres émotionnels au monde — chaque ligne porte son émotion, le texte ressent ce que ressent la voix.\n\nDes sous-titres qui ressentent.\ncssstudio.app/?cssADS=emotion-fr",
       "long": "Les sous-titres ordinaires disent les mots. CSS Studio a les premiers sous-titres émotionnels au monde — chaque ligne porte son émotion, le texte ressent ce que ressent la voix.\n\nDes sous-titres qui ressentent.\ncssstudio.app",
-      "status": "pending"
+      "status": "done",
+      "last_posted": "2026-07-29T00:36:17-04:00"
     },
     {
       "n": 89,
@@ -843,7 +847,8 @@
       "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
       "x": "Los subtítulos normales solo dicen las palabras. CSS Studio tiene los primeros subtítulos con emoción del mundo — cada línea lleva su estado de ánimo.\n\nSubtítulos que sienten.\ncssstudio.app/?cssADS=emotion-es",
       "long": "Los subtítulos normales solo dicen las palabras. CSS Studio tiene los primeros subtítulos con emoción del mundo — cada línea lleva su estado de ánimo.\n\nSubtítulos que sienten.\ncssstudio.app",
-      "status": "pending"
+      "status": "done",
+      "last_posted": "2026-07-29T01:06:45-04:00"
     },
     {
       "n": 90,
@@ -852,7 +857,8 @@
       "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
       "x": "Обычные субтитры передают слова. В CSS Studio — первые в мире эмоциональные субтитры: каждая строка несёт своё настроение, текст чувствует то же, что и голос.\n\nСубтитры, которые чувствуют.\ncssstudio.app/?cssADS=emotion-ru",
       "long": "Обычные субтитры передают слова. В CSS Studio — первые в мире эмоциональные субтитры: каждая строка несёт своё настроение, текст чувствует то же, что и голос.\n\nСубтитры, которые чувствуют.\ncssstudio.app",
-      "status": "pending"
+      "status": "done",
+      "last_posted": "2026-07-29T01:36:42-04:00"
     },
     {
       "n": 91,
@@ -861,7 +867,9 @@
       "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
       "x": "Legendas comuns te mostram as palavras. O CSS Studio tem legendas emocionais, uma novidade mundial — cada frase carrega o próprio sentimento, texto e voz se emocionam juntos.\n\nLegendas que sentem.\ncssstudio.app/?cssADS=emotion-pt",
       "long": "Legendas comuns te mostram as palavras. O CSS Studio tem legendas emocionais, uma novidade mundial — cada frase carrega o próprio sentimento, texto e voz se emocionam juntos.\n\nLegendas que sentem.\ncssstudio.app",
-      "status": "pending"
+      "status": "done",
+      "last_posted": "2026-07-29T06:09:00-04:00",
+      "note": "completed 2026-07-29 by a later session; queue never updated"
     },
     {
       "n": 92,
@@ -870,7 +878,8 @@
       "card": "/Users/cssos/cssOS/campaign/card-emotion.png",
       "x": "आम सबटाइटल सिर्फ़ शब्द दिखाते हैं। CSS Studio में दुनिया के पहले भावनात्मक सबटाइटल हैं — हर पंक्ति अपने जज़्बे के साथ, शब्द और आवाज़ साथ में महसूस करते हैं।\n\nसबटाइटल जो महसूस करें।\ncssstudio.app/?cssADS=emotion-hi",
       "long": "आम सबटाइटल सिर्फ़ शब्द दिखाते हैं। CSS Studio में दुनिया के पहले भावनात्मक सबटाइटल हैं — हर पंक्ति अपने जज़्बे के साथ, शब्द और आवाज़ साथ में महसूस करते हैं।\n\nसबटाइटल जो महसूस करें।\ncssstudio.app",
-      "status": "pending"
+      "status": "done",
+      "last_posted": "2026-08-02T01:05:08-04:00"
     },
     {
       "n": 93,
@@ -913,9 +922,6 @@
       "last_posted": "2026-07-28T18:39:15-04:00"
     }
   ],
-  "in_flight": {
-    "name": "emotion-zh",
-    "started": "2026-07-28T19:39:44-04:00"
-  },
+  "in_flight": null,
   "lock_stale_seconds": 2700
 }

@@ -10223,7 +10223,7 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
     ? new Anthropic({ apiKey, baseURL: "https://api.kie.ai/claude", defaultHeaders: { Authorization: `Bearer ${apiKey}` } })
     : new Anthropic({ apiKey });
   // KIE Claude 通道的模型名(W774: claude-opus-4-5); 直连 Anthropic 时用 AGENT_MODEL。可被 env 覆盖。
-  const agentModel = _useKie ? (process.env.KIE_AGENT_MODEL || "claude-opus-4-8") : AGENT_MODEL;
+  const agentModel = _useKie ? (process.env.KIE_AGENT_MODEL || "claude-opus-5") : AGENT_MODEL;
   const toolCallsLog: { name: string; input: any; result_summary: string }[] = [];
   let finalText = "";
   let totalInputTokens = 0;
@@ -14983,7 +14983,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   // (`body.engine` ∈ openai|anthropic) escalates to the Rust upstream.
   // CSSOS_WAVE_828 20260616 — Jing「歌词不参与档位, 一律走 KIE, 别直连 OpenAI/Anthropic」根治:
   // 之前 engine=openai/anthropic 会走 Rust 直连第三方(line 11395)→ OpenAI 账户一欠费就 429 整关失败。
-  // 现在【永远 false】→ 歌词永远走 callLlm(prefer=CAPABLE_TEXT_PREFER=kie 的 claude-opus-4-8 + 三强/全家降级),
+  // 现在【永远 false】→ 歌词永远走 callLlm(prefer=CAPABLE_TEXT_PREFER=kie 的 claude-opus-5 + 三强/全家降级),
   // 账单只在 kie.ai, 单家欠费自动降级, 绝不因 OpenAI 欠费而挂。(explicitEngine 仅作日志参考)
   const userForcedPremiumLlm = false;
   void explicitEngine; // 不再据此直连第三方
@@ -25279,7 +25279,9 @@ const LLM_PROVIDER_DEFAULTS = {
   // CSSOS_WAVE_774 — kie.ai 聚合器 Claude 通道(Bearer 鉴权 + Anthropic Messages 格式)。让歌词转译/文本
   // 走 kie(用 kie credits, 320 引擎一家通吃), 永不被 OpenAI/Anthropic/Gemini 直连断供拦。端点格式实测:
   // POST https://api.kie.ai/claude/v1/messages  Authorization: Bearer KIE_API_KEY  body{model,max_tokens,messages,system?}。
-  kie:         { url: "https://api.kie.ai/claude/v1/messages",                                          model: "claude-opus-4-8",                               keyEnv: "KIE_API_KEY",         dialect: "kie" }, /* W824b — 升 4-5→4-8(最新最强 Claude, KIE 已上架) */
+  kie:         { url: "https://api.kie.ai/claude/v1/messages",                                          model: "claude-opus-5",                               keyEnv: "KIE_API_KEY",         dialect: "kie" }, /* W824b 升 4-5→4-8; W1808 升 4-8→opus-5(Jing:「保持和 KIE 同步更新, 不要再用过期下架的老版本」)。
+                                                                                                                                                                                        * 判别法(KIE 宕机时也能用): 不提供的型号返回 "The page does not exist", 提供的返回 "Server exception"。
+                                                                                                                                                                                        * 2026-08-03 实测 KIE 已上架 claude-opus-5 / claude-sonnet-5, 而 claude-opus-4-1 未上架。 */
   groq:        { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",                       keyEnv: "GROQ_API_KEY",        dialect: "openai" },
   cerebras:    { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama3.1-8b",                                   keyEnv: "CEREBRAS_API_KEY",    dialect: "openai" },
   // Gemini doesn't speak chat/completions — its endpoint is
@@ -25322,7 +25324,7 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 // 语言会乱编、漏译、出乱码。三强按序: Claude → GPT-4o → Gemini Pro。prefer_model 强制 capable 变体
 // (覆盖 provider 默认的 claude-haiku / gpt-4o-mini / gemini-flash —— 此前歌词锁竟在偷用这些小模型)。
 // CSSOS_WAVE_775 — Jing「用 kie 一家即可, 经 kie 用三强, 不再直连 OpenAI/Anthropic/Gemini」:
-// 歌词/lore 只走 kie(claude-opus-4-8 = kie 内的 Claude 强模型)。
+// 歌词/lore 只走 kie(claude-opus-5 = kie 内的 Claude 强模型)。
 // CSSOS — Jing「三强(Claude/OpenAI/Google)最新版永远打前锋, 别让小兵 LLM 白牺牲;
 //   只有三强全挂(不可能)小兵才垫底」: 前锋依次 = kie(Claude Opus 4.8) → anthropic(Claude)
 //   → openai(GPT) → gemini(Gemini Pro)。这四家(全 premium/强模型)在 prefer 里显式排前,
@@ -25331,7 +25333,7 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 //   现已修正。直连三强(空额度)会 credits-fail 快速穿过, 但顺序上强模型始终先于小兵。
 const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemini"];
 const CAPABLE_TEXT_MODELS: Partial<Record<LlmProvider, string>> = {
-  kie: "claude-opus-4-8",
+  kie: "claude-opus-5",
   anthropic: "claude-sonnet-4-5",
   openai: "gpt-4o",
   gemini: "gemini-2.5-pro",
@@ -46759,7 +46761,7 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
     const msgs = [...history, ...seed].map((m) => ({ role: m.role, content: m.content }));
     const _kieKey = (process.env.KIE_API_KEY || "").trim();
     const _anthKey = (process.env.ANTHROPIC_API_KEY || "").trim();
-    const model = _kieKey ? (process.env.KIE_AGENT_MODEL || "claude-opus-4-8") : AGENT_MODEL;
+    const model = _kieKey ? (process.env.KIE_AGENT_MODEL || "claude-opus-5") : AGENT_MODEL;
     let full = "";
     try {
       if (_kieKey) {

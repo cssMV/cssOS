@@ -6233,7 +6233,7 @@ async function moderateVideoNsfw(videoPath: string): Promise<{ nsfw: boolean; re
     }));
     content.push({ type: "text", text: "These are sampled frames from a user-uploaded video. Classify strictly for adult/sexual content." });
     const r = await anthropicMessages({
-      model: "claude-sonnet-4-6",
+      model: KIE_CLAUDE_UTILITY_MODEL,
       max_tokens: 200,
       system:
         "You are a content-safety classifier for a general-audience music-video platform. " +
@@ -6278,7 +6278,7 @@ async function assessAudioForMv(transcription: string): Promise<{
   if (!text) return { looks_like_song: false, lyrics_quality: "none", detected_title: null };
   try {
     const r = await anthropicMessages({
-      model: "claude-sonnet-4-6",
+      model: KIE_CLAUDE_UTILITY_MODEL,
       max_tokens: 200,
       system:
         "You assess an auto-transcription of an uploaded audio file for a music-video platform. " +
@@ -8287,7 +8287,7 @@ app.get("/api/account/fingerprint-optin", async (req, res) => {
  * straight into the MV pipeline.
  *
  * Architecture:
- *   - Claude is the dispatcher (claude-sonnet-4-5 default; haiku
+ *   - Claude is the dispatcher (claude-fable-5 default; haiku
  *     fallback when OPENAI/anthropic key absent).
  *   - Tools wrap existing internal HTTP endpoints in-process to
  *     avoid the network roundtrip — we call the handler functions
@@ -8305,7 +8305,18 @@ app.get("/api/account/fingerprint-optin", async (req, res) => {
  *     'agent_chat' so we can rate-limit and bill.
  * ═══════════════════════════════════════════════════════════════════ */
 
-const AGENT_MODEL = (process.env.AGENT_MODEL || "claude-sonnet-4-5").trim();
+/* CSSOS_WAVE_1808c (Jing)「不但升级了, 而且要和 KIE 同步更新, 不要每次都要手动改」——
+ * KIE 的 Claude 型号此前散落在【五处】硬编码里(/ask · agent chat · LLM_PROVIDER_DEFAULTS ·
+ * CAPABLE_TEXT_MODELS.kie/anthropic), 每次 KIE 上新都要人肉全改一遍, 漏一处就悄悄用着旧版。
+ * 收敛成这一个旋钮, 并且【可用 env 在运行时覆盖】—— 于是 /srv/cssos/kie-model-sync.sh
+ * (systemd timer, 每天一次)探到 KIE 上了更新的版本时, 只改 /etc/cssos.env 里这一行即可生效,
+ * 不需要改代码、不需要重新部署。硬编码值只是 env 缺失时的兜底。
+ * 判别法(KIE 宕机时依然有效): 未上架的型号返回 "The page does not exist",
+ * 已上架的返回 "Server exception" —— 见 LLM_PROVIDER_DEFAULTS.kie 注释。 */
+const KIE_CLAUDE_MODEL = (process.env.KIE_CLAUDE_MODEL || "claude-fable-5").trim();
+/* 工具类调用(内容审核/歌词识别/JSON 抽取/图像分析)刻意走 sonnet 档控成本, 单独一个旋钮。 */
+const KIE_CLAUDE_UTILITY_MODEL = (process.env.KIE_CLAUDE_UTILITY_MODEL || "claude-sonnet-5").trim();
+const AGENT_MODEL = (process.env.AGENT_MODEL || KIE_CLAUDE_MODEL).trim();
 const AGENT_FALLBACK_MODEL = (process.env.AGENT_FALLBACK_MODEL || "claude-haiku-4-5").trim();
 const AGENT_MAX_TURNS = 8;
 const AGENT_TURNS_PER_USER_PER_HOUR = 60;
@@ -9045,7 +9056,7 @@ async function runAgentTool(
           // 不再走 free→cheap 路由(那是 504「整点恢复」的根因)。
           const _heavyMulti = wt === "shortplay" || wt === "opera" || wt === "triptych" || wt === "series" || wt === "film";
           const llmPrefer = _heavyMulti ? ["anthropic", "kie"] : undefined;   // W1655 — 重型多角色不再退 OpenAI(停用), 退 KIE
-          const llmPreferModel = wt === "shortplay" ? { anthropic: "claude-sonnet-4-5" } : undefined;
+          const llmPreferModel = wt === "shortplay" ? { anthropic: KIE_CLAUDE_MODEL } : undefined;
           const r = await Promise.race([
             callLlm({
               messages: [
@@ -10223,7 +10234,7 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
     ? new Anthropic({ apiKey, baseURL: "https://api.kie.ai/claude", defaultHeaders: { Authorization: `Bearer ${apiKey}` } })
     : new Anthropic({ apiKey });
   // KIE Claude 通道的模型名(W774: claude-opus-4-5); 直连 Anthropic 时用 AGENT_MODEL。可被 env 覆盖。
-  const agentModel = _useKie ? (process.env.KIE_AGENT_MODEL || "claude-opus-5") : AGENT_MODEL;
+  const agentModel = _useKie ? (process.env.KIE_AGENT_MODEL || KIE_CLAUDE_MODEL) : AGENT_MODEL;
   const toolCallsLog: { name: string; input: any; result_summary: string }[] = [];
   let finalText = "";
   let totalInputTokens = 0;
@@ -10437,7 +10448,7 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
     return { role: m.role, content: lean };
   });
   await appendAgentSession(userId, sessionId, newTurns);
-  // Cost estimate: claude-sonnet-4-5 at $3 / 1M input, $15 / 1M output.
+  // Cost estimate: 旧口径按 claude-sonnet-4-5($3/1M in, $15/1M out)估的; W1808c 起实际跑 claude-fable-5, 单价更高, 此估算偏低待校准。
   // Round up to nearest cent.
   const costCents = Math.max(
     1,
@@ -13570,7 +13581,7 @@ app.post("/api/mv/image/analyze", (req, res, next) => {
 
   try {
     const r = await anthropicMessages({
-        model: "claude-sonnet-4-6",
+        model: KIE_CLAUDE_UTILITY_MODEL,
         max_tokens: 800,
         system: systemPrompt,
         messages: [{
@@ -14160,7 +14171,7 @@ async function analyzeSheetMusicWithVision(
 
   try {
     const r = await anthropicMessages({
-        model: "claude-sonnet-4-6",
+        model: KIE_CLAUDE_UTILITY_MODEL,
         max_tokens: 4000,
         system: systemPrompt,
         messages: [{
@@ -14983,7 +14994,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   // (`body.engine` ∈ openai|anthropic) escalates to the Rust upstream.
   // CSSOS_WAVE_828 20260616 — Jing「歌词不参与档位, 一律走 KIE, 别直连 OpenAI/Anthropic」根治:
   // 之前 engine=openai/anthropic 会走 Rust 直连第三方(line 11395)→ OpenAI 账户一欠费就 429 整关失败。
-  // 现在【永远 false】→ 歌词永远走 callLlm(prefer=CAPABLE_TEXT_PREFER=kie 的 claude-opus-5 + 三强/全家降级),
+  // 现在【永远 false】→ 歌词永远走 callLlm(prefer=CAPABLE_TEXT_PREFER=kie 的 claude-fable-5 + 三强/全家降级),
   // 账单只在 kie.ai, 单家欠费自动降级, 绝不因 OpenAI 欠费而挂。(explicitEngine 仅作日志参考)
   const userForcedPremiumLlm = false;
   void explicitEngine; // 不再据此直连第三方
@@ -25279,7 +25290,7 @@ const LLM_PROVIDER_DEFAULTS = {
   // CSSOS_WAVE_774 — kie.ai 聚合器 Claude 通道(Bearer 鉴权 + Anthropic Messages 格式)。让歌词转译/文本
   // 走 kie(用 kie credits, 320 引擎一家通吃), 永不被 OpenAI/Anthropic/Gemini 直连断供拦。端点格式实测:
   // POST https://api.kie.ai/claude/v1/messages  Authorization: Bearer KIE_API_KEY  body{model,max_tokens,messages,system?}。
-  kie:         { url: "https://api.kie.ai/claude/v1/messages",                                          model: "claude-opus-5",                               keyEnv: "KIE_API_KEY",         dialect: "kie" }, /* W824b 升 4-5→4-8; W1808 升 4-8→opus-5(Jing:「保持和 KIE 同步更新, 不要再用过期下架的老版本」)。
+  kie:         { url: "https://api.kie.ai/claude/v1/messages",                                          model: KIE_CLAUDE_MODEL,                              keyEnv: "KIE_API_KEY",         dialect: "kie" }, /* W824b 升 4-5→4-8; W1808 升 4-8→opus-5(Jing:「保持和 KIE 同步更新, 不要再用过期下架的老版本」)。
                                                                                                                                                                                         * 判别法(KIE 宕机时也能用): 不提供的型号返回 "The page does not exist", 提供的返回 "Server exception"。
                                                                                                                                                                                         * 2026-08-03 实测 KIE 已上架 claude-opus-5 / claude-sonnet-5, 而 claude-opus-4-1 未上架。 */
   groq:        { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",                       keyEnv: "GROQ_API_KEY",        dialect: "openai" },
@@ -25324,7 +25335,7 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 // 语言会乱编、漏译、出乱码。三强按序: Claude → GPT-4o → Gemini Pro。prefer_model 强制 capable 变体
 // (覆盖 provider 默认的 claude-haiku / gpt-4o-mini / gemini-flash —— 此前歌词锁竟在偷用这些小模型)。
 // CSSOS_WAVE_775 — Jing「用 kie 一家即可, 经 kie 用三强, 不再直连 OpenAI/Anthropic/Gemini」:
-// 歌词/lore 只走 kie(claude-opus-5 = kie 内的 Claude 强模型)。
+// 歌词/lore 只走 kie(claude-fable-5 = KIE 上架的最强 Claude, 见 CAPABLE_TEXT_MODELS 上方准绳)。
 // CSSOS — Jing「三强(Claude/OpenAI/Google)最新版永远打前锋, 别让小兵 LLM 白牺牲;
 //   只有三强全挂(不可能)小兵才垫底」: 前锋依次 = kie(Claude Opus 4.8) → anthropic(Claude)
 //   → openai(GPT) → gemini(Gemini Pro)。这四家(全 premium/强模型)在 prefer 里显式排前,
@@ -25336,8 +25347,8 @@ const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemin
  * 体检发现除 kie 外三格全部落后好几代(gpt-4o / claude-sonnet-4-5 / gemini-2.5-pro),
  * 和 gemini-2.0-flash 被下架却没人发现是同一种腐烂: 写死的型号不会自己报警。
  * 各家在售清单实测拉取(api-vm, 2026-08-03), 不是凭印象填:
- *   · kie      → claude-opus-5(判别法见 LLM_PROVIDER_DEFAULTS.kie 注释)
- *   · anthropic→ claude-opus-5(Claude 5 家族当前最强; 那把 key 故意不充值, 会 credits-fail 快速穿过)
+ *   · kie      → claude-fable-5(判别法见 LLM_PROVIDER_DEFAULTS.kie 注释)
+ *   · anthropic→ claude-fable-5(KIE 上架的最强 Claude; 那把 key 故意不充值, 会 credits-fail 快速穿过)
  *   · openai   → 见下方说明; 账户 W1655 起 "account is not active", 同样快速穿过
  *   · gemini   → gemini-pro-latest(跟随最新 pro 的别名, 免得又放着烂掉)
  * 歌词这条链【可以】用 pro 档: 它不是实时对话, 43s 延迟换质量是划算的 ——
@@ -25354,8 +25365,8 @@ const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemin
  *   · Gemini → KIE 的 chat 只上了 Gemini 3.6 Flash; 我们这一格是直连 Google 的,
  *     取 gemini-pro-latest(跟随最新 pro 的别名), 档位不低于 KIE 的参照。 */
 const CAPABLE_TEXT_MODELS: Partial<Record<LlmProvider, string>> = {
-  kie: "claude-fable-5",
-  anthropic: "claude-fable-5",
+  kie: KIE_CLAUDE_MODEL,
+  anthropic: KIE_CLAUDE_MODEL,
   openai: "gpt-5.6-sol",
   gemini: "gemini-pro-latest",
 };
@@ -46787,7 +46798,7 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
     const msgs = [...history, ...seed].map((m) => ({ role: m.role, content: m.content }));
     const _kieKey = (process.env.KIE_API_KEY || "").trim();
     const _anthKey = (process.env.ANTHROPIC_API_KEY || "").trim();
-    const model = _kieKey ? (process.env.KIE_AGENT_MODEL || "claude-opus-5") : AGENT_MODEL;
+    const model = _kieKey ? (process.env.KIE_AGENT_MODEL || KIE_CLAUDE_MODEL) : AGENT_MODEL;
     let full = "";
     try {
       if (_kieKey) {

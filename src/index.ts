@@ -1137,7 +1137,7 @@ async function transcreateLyrics(
     ],
     max_tokens: 1400,
     temperature: 0.95,
-    prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS,
+    prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
   });
   if (!result.ok) throw new Error("transcreate_llm_failed: " + (result.error || ""));
   return result.content.trim();
@@ -1299,7 +1299,7 @@ async function annotateEmotions(sections: LyricsSection[], lang: string): Promis
       ],
       max_tokens: 600,
       temperature: 0.2,
-      prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS,
+      prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
     });
     if (!result.ok) return [];
     const raw = result.content.trim();
@@ -2786,7 +2786,7 @@ async function backfillSeedLyrics(): Promise<number> {
         const user = buildJingdianUserPrompt(lang, String(w.style || ""), focus || String(w.title || ""), "single", "", civ);
         const r = await callLlm({
           messages: [{ role: "system", content: sys }, { role: "user", content: user }],
-          prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS,
+          prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
           max_tokens: 3600,
           temperature: 0.85,
         });
@@ -8947,7 +8947,7 @@ async function runAgentTool(
                 { role: "system", content: "You are a libretto / concept-album structure planner. Output ONLY a compact JSON array, no prose." },
                 { role: "user", content: planUser },
               ],
-              prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS,
+              prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
               max_tokens: 6000, // CSSOS_WAVE_633 — 列上百幕(幕标题+每幕场数, 紧凑)留足空间
               temperature: 0.6,
             });
@@ -8999,7 +8999,7 @@ async function runAgentTool(
               const pSys = buildJingdianSystemPrompt(lang, "single", "", civilization);
               let pUser = buildJingdianUserPrompt(lang, style, `${lf.focus} —— 《${lf.leafTitle}》${nested ? ` (${_hw.outer} 《${lf.outerTitle}》)` : ""} of ${wt} 《${title}》`, "single", "", civilization);
               if (requiredHooks.length) pUser += `\n\nMANDATORY chorus lines (verbatim, do not paraphrase or translate):\n` + requiredHooks.map((h, i) => `${i + 1}. ${h}`).join("\n");
-              const r = await callLlm({ messages: [{ role: "system", content: pSys }, { role: "user", content: pUser }], prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, max_tokens: 3600, temperature: 0.85 });
+              const r = await callLlm({ messages: [{ role: "system", content: pSys }, { role: "user", content: pUser }], prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS, max_tokens: 3600, temperature: 0.85 });
               return { idx: g.idx, text: (r && r.ok && r.content) ? r.content.trim() : "" };
             });
             const aiTextByIdx = new Map<number, string>(aiResults.map((t: { idx: number; text: string }) => [t.idx, t.text]));
@@ -15041,7 +15041,7 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
         //   规整后近乎空 → 前端 "lyrics not filled into the editor"。W887 的"无 civ → 免费 groq 优先"正是元凶。
         //   回到 W433 铁律【歌词一律先走强模型 KIE Claude】(免费引擎仍在 prefer 之后兜底, 单家欠费自动降级);
         //   成本走用户钱包(pay-as-you-go)。人物母语(civ)本就走强模型, 现在通用/自由创作也走 → 一致高质。
-        prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS,
+        prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
       });
       clearInterval(heartbeat);
       const __lyricsCostCents = estimateEngineCostCents("lyrics", tier?.provider, (tier?.content || "").length / 4);
@@ -25276,6 +25276,11 @@ type LlmRequest = {
    * coherent long-form drama writer) without changing the default for
    * every other call. */
   prefer_model?: Record<string, string>;
+  /** CSSOS_WAVE_1815 (Jing)「把歌词这条链的超时抬上去」—— 单次调用覆盖路由超时。
+   * 为什么不改全局 LLM_ROUTER_TIMEOUT_MS: 那是所有引擎共用的,抬高它意味着【任何一家】
+   * 卡住时每条路径都要多等 30 秒 —— 为歌词一条链让全站变慢, 不划算。
+   * 实测歌词(1400 tokens)在 KIE 上成功要 32-39s, 60s 余量太窄; 这里单独放宽。 */
+  timeout_ms?: number;
 };
 type LlmResponse = {
   ok: boolean;
@@ -25343,6 +25348,14 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 //   之前 prefer 只有 ["kie"], kie 一断就直接掉进免费小兵档, 三强直连反而排最后 —— 与此意相反,
 //   现已修正。直连三强(空额度)会 credits-fail 快速穿过, 但顺序上强模型始终先于小兵。
 const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemini"];
+/* CSSOS_WAVE_1815 (Jing)「歌词这条链的超时抬到 90 秒或更长」。
+ * 实测 KIE 上 1400-token 歌词成功耗时 32-39s, 全局 60s 只剩 20s 余量 —— 一旦上游变慢就在超时边缘反复摩擦。
+ * 这里给【歌词/京典/lore】这条 capable 链单独放宽到 120s(env 可调)。
+ * 最坏情况的账(重要): 单次尝试最多 120s; 而 kie 分支的重试预算是 45s ——
+ *   失败通常 8-11s 就断 → 还在预算内 → 重试; 若某次真的耗到 120s, 已超预算 → 不再重试, 直接让给下一家。
+ *   所以 KIE 这一段最坏 ~120s, 之后才轮到 Gemini。歌词是带进度条的生成任务, 这个等待可接受;
+ *   实时对话链绝不用它(/问道 走自己的流式, 不经 callLlm)。 */
+const CAPABLE_TEXT_TIMEOUT_MS = Number(process.env.CAPABLE_TEXT_TIMEOUT_MS || 120_000);
 /* CSSOS_WAVE_1808 (Jing)「歌词/音乐必须前三强最新版, 和 KIE 同步更新」——
  * 体检发现除 kie 外三格全部落后好几代(gpt-4o / claude-sonnet-4-5 / gemini-2.5-pro),
  * 和 gemini-2.0-flash 被下架却没人发现是同一种腐烂: 写死的型号不会自己报警。
@@ -25653,7 +25666,7 @@ async function resolveEngineModel(
 async function callLlm(req: LlmRequest): Promise<LlmResponse> {
   // CSSOS_WAVE_202 — shadow global fetch with a 60s-timeout wrapper.
   // eslint-disable-next-line @typescript-eslint/no-shadow
-  const fetch = makeTimeoutFetch(LLM_ROUTER_TIMEOUT_MS);
+  const fetch = makeTimeoutFetch(req.timeout_ms || LLM_ROUTER_TIMEOUT_MS);   // W1815 — 允许单次调用放宽(歌词链)
   const order = llmProviderOrder(req.prefer);
   let lastErr = "no_providers_available";
   let lastStatus = 0;
@@ -25749,7 +25762,20 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
         const kieMessages = req.messages
           .filter((m) => m.role !== "system")
           .map((m) => ({ role: (m.role === "assistant" ? "assistant" : "user"), content: m.content }));
-        const body: Record<string, unknown> = { model, max_tokens: req.max_tokens || 1024, messages: kieMessages };
+        /* CSSOS_WAVE_1813 (Jing) — 【必须走流式】。
+         * 2026-08-04 实测钉死: KIE 的 /claude/v1/messages 【非流式】对所有型号、所有 max_tokens
+         * 一律返回 {"type":"error","message":"Server exception"}, 而【流式】完全正常。
+         * 这一路原本是非流式 → 歌词/京典链(CAPABLE_TEXT_PREFER 把 kie 排第一)每次调 KIE 必然失败,
+         * 然后静默降级到小兵。旗舰歌词其实一直没用上 Claude, 而日志只是安静地掉到下一家。
+         * (/api/actors/:id/ask 之所以一直正常, 正因为它本来就是流式的。)
+         * 这里发流式请求, 再把 SSE 聚合成一整段, 对上层调用者保持原样 —— 调用方无感。 */
+        const KIE_MIN_TOKENS = 128;   // 实测 max_tokens<100 时流式返回异常字节, 给个下限(cap 而非目标, 不改变语义)
+        const body: Record<string, unknown> = {
+          model,
+          max_tokens: Math.max(req.max_tokens || 1024, KIE_MIN_TOKENS),
+          messages: kieMessages,
+          stream: true,
+        };
         if (systemMsgs) body.system = systemMsgs;
         if (req.temperature !== undefined) body.temperature = req.temperature;
         // CSSOS_WAVE_885 — 审计每次 KIE Claude(opus, 付费)LLM 调用: 模型+时间+调用栈, 明早可查。
@@ -25757,24 +25783,93 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
           const _stk = (new Error().stack || "").split("\n").slice(2, 5).map((s) => s.trim().replace(/^at\s+/, "")).join(" <- ");
           console.warn(`[KIE-SPEND] llm=${model} at=${new Date().toISOString()} caller=${_stk.slice(0, 220)}`);
         } catch { /* no-op */ }
-        upstream = await fetch(cfg.url, {
-          method: "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify(body),
-        });
-        json = await upstream.json().catch(() => null);
-        const kieErrCode = (json && typeof json.code === "number") ? json.code : (upstream.ok ? 200 : upstream.status);
-        if (!upstream.ok || (typeof kieErrCode === "number" && kieErrCode >= 400)) {
-          lastErr = String(json?.msg || json?.error?.message || `kie_${kieErrCode}`);
-          lastStatus = kieErrCode || 500;
-          if (isCreditsError(lastStatus, JSON.stringify(json || {}) + " " + lastErr)) console.warn(`[llm-router] kie credits exhausted, falling through`);
+        /* CSSOS_WAVE_1814 (Jing)「加重试」—— KIE 的流式【会中途断】, 而且断得很快。
+         * 实测(2026-08-04, claude-fable-5):
+         *   700 tokens  成功 4/6, 成功均 15s
+         *   1400 tokens 成功 2/6, 成功均 34s
+         * 失败形态高度一致: message_start 正常发出, 然后 7-11 秒时流断掉, 一个 delta 都没有。
+         * 关键在于【失败很便宜】(8-11s)而【成功很值钱】(旗舰歌词才能用上 Claude),
+         * 所以重试的期望收益远大于代价: 单次 33% → 三次约 70%。
+         * 两道闸防止把便宜的失败拖成昂贵的等待:
+         *   ① 最多 3 次;
+         *   ② 整个 kie 分支有总时间预算, 超了立刻让给下一家 —— 绝不让用户为重试无限等。
+         * 鉴权/额度类错误不重试(重试也不会变好), 直接下一家。 */
+        const KIE_MAX_ATTEMPTS = 3;
+        const KIE_RETRY_BUDGET_MS = 45_000;
+        const kieT0 = Date.now();
+        let kieText = "";
+        let kieStreamErr = "";
+        // 用局部 resp 承接每次尝试 —— 外层 upstream 是 `let upstream: Response`(无初始值),
+        // TS 的确定赋值分析追不进 for 循环, 直接赋它会报 "used before being assigned"。
+        let resp!: Response;
+        for (let attempt = 1; attempt <= KIE_MAX_ATTEMPTS; attempt++) {
+          kieText = ""; kieStreamErr = "";
+          resp = await fetch(cfg.url, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify(body),
+          });
+          upstream = resp;
+          /* 把 SSE 聚合回一整段。三种失败都要抓住, 缺一种就会把"没内容"当成功:
+           *   ① HTTP 层非 2xx / 没有 body;
+           *   ② 流里显式 {"type":"error"} 事件 —— KIE 会用 HTTP 200 包装错误(W1802 的教训);
+           *   ③ 流正常结束却一个字都没有(纯静默)—— 这正是最常见的那种断法。 */
+          if (resp.ok && (resp as any).body) {
+            try {
+              const reader = ((resp as any).body as ReadableStream<Uint8Array>).getReader();
+              const dec = new TextDecoder();
+              let buf = "";
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                let nl: number;
+                while ((nl = buf.indexOf("\n\n")) >= 0) {
+                  const blk = buf.slice(0, nl); buf = buf.slice(nl + 2);
+                  const dl = blk.split("\n").find((l) => l.startsWith("data:"));
+                  if (!dl) continue;
+                  const js = dl.slice(5).trim();
+                  if (!js || js === "[DONE]") continue;
+                  let ev: any; try { ev = JSON.parse(js); } catch { continue; }
+                  if (ev?.type === "error") { kieStreamErr = String(ev?.error?.message || "kie_stream_error"); break; }
+                  const dt = ev?.delta?.text;
+                  if (ev?.type === "content_block_delta" && typeof dt === "string") kieText += dt;
+                }
+                if (kieStreamErr) break;
+              }
+            } catch (e) { kieStreamErr = String((e as Error)?.message || e); }
+          } else {
+            // 非 2xx 或无 body → 按老路读一次 JSON 拿错误详情
+            json = await resp.json().catch(() => null);
+            kieStreamErr = String(json?.msg || json?.error?.message || `kie_${resp.status}`);
+            // 鉴权/额度类: 重试无意义, 立即让给下一家
+            if (resp.status === 401 || resp.status === 403
+                || isCreditsError(resp.status, JSON.stringify(json || {}) + " " + kieStreamErr)) break;
+          }
+          if (kieText) {
+            if (attempt > 1) console.warn(`[llm-router] kie recovered on attempt ${attempt}/${KIE_MAX_ATTEMPTS} (${Date.now() - kieT0}ms)`);
+            break;
+          }
+          const spent = Date.now() - kieT0;
+          if (attempt < KIE_MAX_ATTEMPTS && spent < KIE_RETRY_BUDGET_MS) {
+            console.warn(`[llm-router] kie stream died with no content (attempt ${attempt}/${KIE_MAX_ATTEMPTS}, ${spent}ms spent) — retrying`);
+            continue;
+          }
+          if (attempt >= KIE_MAX_ATTEMPTS) console.warn(`[llm-router] kie exhausted ${KIE_MAX_ATTEMPTS} attempts in ${spent}ms — falling through`);
+          else console.warn(`[llm-router] kie retry budget ${KIE_RETRY_BUDGET_MS}ms spent (${spent}ms) — falling through`);
+          break;
+        }
+        upstream = resp;   // 循环外再赋一次: TS 的确定赋值分析不进 for, 少了这行下面 return 处会报未赋值
+        if (kieStreamErr || !kieText) {
+          lastErr = kieStreamErr || "kie_stream_empty";
+          lastStatus = resp.ok ? 502 : resp.status;
+          if (isCreditsError(lastStatus, lastErr)) console.warn(`[llm-router] kie credits exhausted, falling through`);
           else console.warn(`[llm-router] kie ${lastStatus}: ${lastErr.slice(0, 200)}`);
           continue;
         }
-        const blocks = json?.content;
-        content = Array.isArray(blocks)
-          ? blocks.filter((b: any) => b && b.type === "text").map((b: any) => String(b.text || "")).join("")
-          : "";
+        // 合成一个 Anthropic 形状的 json, 让下面统一返回逻辑与非流式时代保持一致。
+        json = { content: [{ type: "text", text: kieText }] };
+        content = kieText;
       } else {
         // OpenAI-compatible (Groq / Cerebras / OpenAI).
         const body: Record<string, unknown> = {
@@ -25803,6 +25898,20 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
         content = String(json?.choices?.[0]?.message?.content || "");
       }
       void resetEngineFailures(provider);
+      /* CSSOS_WAVE_1816 (Jing)「歌词如何真正优先三强」——
+       * 答案不是改顺序(顺序一直是对的), 是【让降级发不出声这件事本身】不再可能。
+       * 真实经过: kie 走非流式必挂、anthropic 故意不充值、openai 账户停用、gemini 型号被下架,
+       * 三强的四个位置在同一时期全灭, 于是每次都静静地掉到小兵 —— 好几周, 零日志, 无人知晓。
+       * 从此: 凡是表达过 prefer 的调用, 若最终由 prefer 之外的引擎接单, 必须大声喊出来。
+       * 这条不删小兵兜底(铁律要求它垫底), 只是把"悄悄垫底"变成"喊着垫底"。 */
+      try {
+        const _pref = Array.isArray(req.prefer) ? req.prefer : [];
+        if (_pref.length && !_pref.includes(provider)) {
+          console.warn(`[llm-router] ⚠ DEGRADED — 首选 [${_pref.join(",")}] 全数落空, 实际由 ${provider}/${model} 接单`);
+        } else {
+          console.warn(`[llm-router] served by ${provider}/${model}`);
+        }
+      } catch { /* 日志绝不能影响主流程 */ }
       return { ok: true, status: upstream.status, provider, model, content, raw: json };
     } catch (err) {
       lastErr = String((err as Error)?.message || err);
@@ -38517,7 +38626,7 @@ app.post("/api/admin/create-civ-flagship", express.json({ limit: "16kb" }), asyn
     const sys = `You are a master lyricist for the "${civ}" civilization. Write an EPIC, anthemic SONG entirely in that civilization's MOTHER TONGUE (ISO/language code "${lang}"). Theme: "${theme || title}". RULES: (1) Output ONLY the lyrics, in "${lang}" — NO translation, NO English (unless ${lang} is English), NO romanization line, NO production/arrangement notes, NO commentary. (2) Use bare structure tags on their own lines: [Intro] [Verse 1] [Verse 2] [Chorus] [Bridge] [Chorus] [Outro]. (3) Make it singable, grand, with a soaring repeated chorus — flagship quality. (4) 14-28 lyric lines total. If the ancient tongue is sparse/uncertain, use the closest living descendant language and keep it authentic to "${civ}".`;
     const llm = await callLlm({
       messages: [{ role: "system", content: sys }, { role: "user", content: `Write the flagship epic song "${title}" for ${civ}.` }],
-      temperature: 0.85, max_tokens: 1400, prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS,
+      temperature: 0.85, max_tokens: 1400, prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
     });
     const lyrics = String(llm?.content || "").trim();
     if (!llm?.ok || lyrics.length < 30) return res.status(503).json({ ok: false, code: "LYRICS_FAILED", detail: llm?.error || "" });

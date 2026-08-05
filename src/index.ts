@@ -14317,7 +14317,87 @@ blockquote p{margin:0 0 8px}
 .idx li{padding:16px 0;border-bottom:1px solid rgba(255,255,255,.1)}
 .idx a{text-decoration:none;font-size:19px}
 .idx em{display:block;color:var(--dim);font-style:normal;font-size:14px;margin-top:4px;font-family:system-ui,sans-serif}
-</style></head><body><div class="wrap">${inner}</div></body></html>`;
+/* CSSOS_WAVE_1818 (Jing)「就地问, 不跳转」—— 见下方 JS 顶部的病因说明 */
+.ask{margin:38px 0;padding:18px;border:1px solid rgba(0,245,160,.34);border-radius:16px;background:rgba(0,245,160,.06);font-family:system-ui,sans-serif}
+.ask-head{display:flex;gap:13px;align-items:center;margin:0 0 14px}
+.ask-head img{width:54px;height:54px;border-radius:50%;object-fit:cover;flex:0 0 auto}
+.ask-head span{font-size:15px;line-height:1.45}
+.ask-chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.ask-chips button{font:inherit;font-size:14px;color:var(--ink);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 14px;cursor:pointer}
+.ask-chips button:hover{border-color:var(--jade);color:var(--jade)}
+.ask-io{display:flex;gap:8px}
+.ask-io input{flex:1 1 auto;min-width:0;font:inherit;font-size:15px;color:var(--ink);background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:11px 16px}
+.ask-io input:focus{outline:none;border-color:var(--jade)}
+.ask-io button{flex:0 0 auto;font:inherit;font-weight:700;color:#04241a;background:var(--jade);border:0;border-radius:999px;padding:11px 20px;cursor:pointer}
+.ask-io button[disabled]{opacity:.5;cursor:default}
+.ask-out{margin:15px 0 0;font-size:16px;line-height:1.7;white-space:pre-wrap}
+.ask-q{color:var(--dim);font-size:14px;margin:0 0 8px}
+.ask-full{display:inline-block;margin:14px 0 0;font-size:14px}
+</style></head><body><div class="wrap">${inner}</div>
+<script>
+/* CSSOS_WAVE_1818 (Jing)「就地问, 不跳转」。
+ * 病因(数据逼出来的): 705 人读完故事, 只有 19 人点开演员页(2.7%) —— 但一旦进了演员页,
+ *   8/19 会开口(42%)。所以断的不是"她不吸引人", 也不是聊天体验, 是【那一次跳转】:
+ *   人刚被故事击中、正在情绪里, 我们却让他离开这一页、加载整个应用、再自己找输入框。
+ *   情绪的半衰期比页面加载还短。
+ * 做法: 把 /api/actors/:id/ask 直接搬进故事页 —— 它本来就是流式的、匿名可用、免费 3 句。
+ *   读者不需要相信任何承诺, 打一行字就能验证。
+ * 预置问题不是装饰: 空白输入框本身就是门槛("我该问什么")。而这个系列的主题让
+ *   「你后悔吗」「谁第一个这样叫你」对每一位都成立 —— 通用的问法, 因人物而具体。
+ * 匿名 3 句上限由服务端 session 兜死(W1804), 清缓存绕不过, 不怕刷。 */
+(function(){
+  document.querySelectorAll(".ask").forEach(function(box){
+    var actor = box.getAttribute("data-actor");
+    var THINK = box.getAttribute("data-think") || "…";
+    var input = box.querySelector(".ask-io input");
+    var send  = box.querySelector(".ask-io button");
+    var out   = box.querySelector(".ask-out");
+    var busy  = false;
+    function ask(q){
+      if (busy || !q) return;
+      busy = true; send.disabled = true;
+      out.textContent = ""; out.hidden = false;
+      var qEl = document.createElement("div");
+      qEl.className = "ask-q"; qEl.textContent = q;
+      out.parentNode.insertBefore(qEl, out);
+      out.textContent = THINK;
+      var first = true;
+      fetch("/api/actors/" + encodeURIComponent(actor) + "/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+        body: JSON.stringify({ messages: [{ role: "user", content: q }] })
+      }).then(function(r){
+        if (!r.body || !r.body.getReader) return r.text().then(function(){ out.textContent = "…"; });
+        var rd = r.body.getReader(), dec = new TextDecoder(), buf = "";
+        (function pump(){
+          return rd.read().then(function(x){
+            if (x.done) { busy = false; send.disabled = false; return; }
+            buf += dec.decode(x.value, { stream: true });
+            var nl;
+            while ((nl = buf.indexOf("\\n\\n")) >= 0) {
+              var blk = buf.slice(0, nl); buf = buf.slice(nl + 2);
+              var dl = null, parts = blk.split("\\n");
+              for (var i = 0; i < parts.length; i++) if (parts[i].indexOf("data:") === 0) { dl = parts[i]; break; }
+              if (!dl) continue;
+              var ev; try { ev = JSON.parse(dl.slice(5).trim()); } catch (e) { continue; }
+              if (ev.reset) { out.textContent = ""; first = true; }
+              else if (ev.delta) { if (first) { out.textContent = ""; first = false; } out.textContent += ev.delta; }
+              else if (ev.done && ev.full) { out.textContent = ev.full; }
+            }
+            return pump();
+          });
+        })();
+      }).catch(function(){ out.textContent = "…"; busy = false; send.disabled = false; });
+      input.value = "";
+    }
+    box.querySelectorAll(".ask-chips button").forEach(function(b){
+      b.addEventListener("click", function(){ ask(b.getAttribute("data-q")); });
+    });
+    send.addEventListener("click", function(){ ask((input.value || "").trim()); });
+    input.addEventListener("keydown", function(e){ if (e.key === "Enter") ask((input.value || "").trim()); });
+  });
+})();
+</script></body></html>`;
 }
 
 /* CSSOS_WAVE_1802 (Jing 走查发现) — /actor/:id 是死链, 必须永久兜住。
@@ -14379,8 +14459,8 @@ app.get("/story/:slug", async (req, res) => {
     /* 出场演员 —— 文末的「面对面」入口, 这是整条转化链接上的地方 */
     const ids = Array.isArray(row.actor_ids) ? row.actor_ids : [];
     const cast = ids.length
-      ? (await withClient((c) => c.query<{ actor_id: string; name_en: string; name_zh: string | null; persona: string | null; cover_image: string | null }>(
-          `SELECT actor_id,name_en,name_zh,persona,cover_image FROM digital_actors WHERE actor_id = ANY($1)`, [ids]))).rows
+      ? (await withClient((c) => c.query<{ actor_id: string; name_en: string; name_zh: string | null; name_native: string | null; persona: string | null; cover_image: string | null }>(
+          `SELECT actor_id,name_en,name_zh,name_native,persona,cover_image FROM digital_actors WHERE actor_id = ANY($1)`, [ids]))).rows
       : [];
 
     const H = escapeHtmlAttr;
@@ -14412,6 +14492,84 @@ ${hero ? `<meta name="twitter:image" content="${H(hero)}"/>` : ""}`;
           : `<a href="/story/${H(s.slug)}">${H(langNames[s.lang] || s.lang)}</a>`).join("")}</p>`
       : "";
 
+    /* CSSOS_WAVE_1817 (Jing)「开头/中段/文末各插一次对话入口」——
+     * 实测数据逼出来的改动: 换落地页后 705 人读了故事, 却只有 19 人点开演员页(掉 97%)。
+     * 原来入口只在两万字的最末尾 —— 一个人读到三分之一、正被击中的那一刻最想开口,
+     * 而我们让他读完全文才给机会。
+     * 三个位置用【不同的 cssADS 标记】, 所以明天能直接看出哪个位置真的有效,
+     * 而不是只知道"有人点了"。这是这次改动最值钱的部分。 */
+    const primary = cast[0];
+    const CTA_COPY: Record<string, { lead: string; btn: string }> = {
+      en: { lead: "She is answering now — in her own voice.", btn: "Speak with" },
+      zh: { lead: "她现在会亲口回答。", btn: "对话" },
+      es: { lead: "Ahora responde ella misma, con su propia voz.", btn: "Habla con" },
+      ja: { lead: "今は、彼女自身が答えます。", btn: "話す" },
+      ko: { lead: "이제 그녀가 직접 답합니다.", btn: "이야기하기" },
+      hi: { lead: "अब वे स्वयं उत्तर देती हैं।", btn: "बात करें" },
+      sa: { lead: "अब वे स्वयं उत्तर देती हैं।", btn: "बात करें" },
+      he: { lead: "עכשיו היא עונה בעצמה, בקולה שלה.", btn: "לדבר עם" },
+      fr: { lead: "Elle répond elle-même, de sa propre voix.", btn: "Parler avec" },
+      it: { lead: "Ora risponde lei stessa, con la sua voce.", btn: "Parla con" },
+      de: { lead: "Jetzt antwortet sie selbst — mit ihrer eigenen Stimme.", btn: "Sprich mit" },
+      el: { lead: "Τώρα απαντά η ίδια, με τη δική της φωνή.", btn: "Μίλησε με" },
+      la: { lead: "Nunc ipsa respondet, voce sua.", btn: "Colloquere cum" },
+      is: { lead: "Nú svarar hún sjálf — með eigin röddu.", btn: "Talaðu við" },
+      nah: { lead: "Ahora responde ella misma, con su propia voz.", btn: "Habla con" },
+    };
+    const cc = CTA_COPY[row.lang] || CTA_COPY.en!;
+    /* 名字必须跟着页面语言走 —— 西语读者看到「Habla con 玛琳切」是荒唐的。
+     * 规则: 中文页用中文名; 【英文页用英文名】; 其余用她本人母语的名字(name_native)。
+     * 为什么英文页要特判: 每一章的语言本来就等于她的母语, 所以 name_native 一般刚好合适 ——
+     * 唯独英文版是例外(妲己的 name_native 就是「妲己」, 英文读者看不懂), 必须退回 name_en。 */
+    const ctaName = primary
+      ? (row.lang === "zh" ? (primary.name_zh || primary.name_en)
+         : row.lang === "en" ? (primary.name_en || primary.name_native || "")
+         : (primary.name_native || primary.name_en || primary.name_zh || ""))
+      : "";
+    /* CSSOS_WAVE_1818 —「就地问」的三件文案。预置问题刻意做成【通用问法】:
+     * 这个系列的主题("男人祸国殃民, 女人背负骂名")让「你后悔吗」「谁第一个这样叫你」
+     * 对十三位全部成立 —— 通用的问法, 因人物而具体, 不必为每人手写。 */
+    const ASK_UI: Record<string, { ph: string; send: string; think: string; q1: string; q2: string; full: string }> = {
+      en: { ph: "Ask her anything…", send: "Ask", think: "…", q1: "Do you regret it?", q2: "Who called you that first?", full: "Full conversation" },
+      zh: { ph: "问她一句…", send: "问", think: "…", q1: "你后悔吗?", q2: "谁第一个这样叫你?", full: "完整对话" },
+      es: { ph: "Pregúntale lo que quieras…", send: "Preguntar", think: "…", q1: "¿Te arrepientes?", q2: "¿Quién te llamó así primero?", full: "Conversación completa" },
+      ja: { ph: "彼女に訊いてみる…", send: "訊く", think: "…", q1: "後悔していますか?", q2: "最初にそう呼んだのは誰?", full: "続けて話す" },
+      ko: { ph: "그녀에게 물어보세요…", send: "묻기", think: "…", q1: "후회하십니까?", q2: "누가 먼저 그렇게 불렀습니까?", full: "이어서 대화하기" },
+      hi: { ph: "उनसे कुछ पूछिए…", send: "पूछें", think: "…", q1: "क्या आपको पछतावा है?", q2: "पहले किसने ऐसा कहा?", full: "पूरी बातचीत" },
+      sa: { ph: "उनसे कुछ पूछिए…", send: "पूछें", think: "…", q1: "क्या आपको पछतावा है?", q2: "पहले किसने ऐसा कहा?", full: "पूरी बातचीत" },
+      he: { ph: "שאלי אותה משהו…", send: "לשאול", think: "…", q1: "את מתחרטת?", q2: "מי קרא לך כך ראשון?", full: "שיחה מלאה" },
+      fr: { ph: "Posez-lui une question…", send: "Demander", think: "…", q1: "Le regrettez-vous ?", q2: "Qui vous a appelée ainsi en premier ?", full: "Conversation complète" },
+      it: { ph: "Chiedile qualcosa…", send: "Chiedi", think: "…", q1: "Te ne penti?", q2: "Chi ti chiamò così per primo?", full: "Conversazione completa" },
+      de: { ph: "Frag sie etwas…", send: "Fragen", think: "…", q1: "Bereust du es?", q2: "Wer nannte dich zuerst so?", full: "Ganzes Gespräch" },
+      el: { ph: "Ρώτησέ την κάτι…", send: "Ρώτα", think: "…", q1: "Το μετανιώνεις;", q2: "Ποιος σε είπε έτσι πρώτος;", full: "Πλήρης συνομιλία" },
+      la: { ph: "Interroga eam…", send: "Roga", think: "…", q1: "Paenitetne te?", q2: "Quis te primus ita vocavit?", full: "Totum colloquium" },
+      is: { ph: "Spyrðu hana…", send: "Spyrja", think: "…", q1: "Iðrastu þess?", q2: "Hver kallaði þig það fyrst?", full: "Allt samtalið" },
+      nah: { ph: "Pregúntale lo que quieras…", send: "Preguntar", think: "…", q1: "¿Te arrepientes?", q2: "¿Quién te llamó así primero?", full: "Conversación completa" },
+    };
+    const au = ASK_UI[row.lang] || ASK_UI.en!;
+    /* 三个位置的 DOM 完全一样, 只有 cssADS 标记不同 —— 明天能看出哪个位置真的被用。 */
+    const makeCta = (pos: "top" | "mid" | "end") => primary ? `
+<div class="ask cta-${pos}" data-actor="${H(primary.actor_id)}" data-think="${H(au.think)}">
+<div class="ask-head">${primary.cover_image ? `<img src="${H(primary.cover_image)}" alt="" loading="lazy"/>` : ""}
+<span>${H(cc.lead)}<br><b style="color:#00f5a0">${H(cc.btn)} ${H(ctaName)}</b></span></div>
+<div class="ask-chips"><button type="button" data-q="${H(au.q1)}">${H(au.q1)}</button><button type="button" data-q="${H(au.q2)}">${H(au.q2)}</button></div>
+<div class="ask-io"><input type="text" placeholder="${H(au.ph)}" aria-label="${H(au.ph)}"/><button type="button">${H(au.send)}</button></div>
+<div class="ask-out" hidden></div>
+<a class="ask-full" href="/actor/${H(primary.actor_id)}?cssADS=story-${H(row.slug)}-${pos}">${H(au.full)} →</a>
+</div>` : "";
+
+    /* 中段插入: body_html 是逐块用 \n 连接的, 从中点向后找到第一个块边界再插 ——
+     * 直接按字符中点切会把一个 <p> 劈成两半, 生成非法 HTML。 */
+    const bodyWithMidCta = (() => {
+      if (!primary) return row.body_html;
+      const lines = row.body_html.split("\n");
+      if (lines.length < 8) return row.body_html;          // 太短就不插, 免得三个入口挤在一起
+      let at = Math.floor(lines.length / 2);
+      while (at < lines.length && !/<\/(p|h2|blockquote|li)>\s*$/.test(lines[at] || "")) at++;
+      if (at >= lines.length) return row.body_html;
+      return [...lines.slice(0, at + 1), makeCta("mid"), ...lines.slice(at + 1)].join("\n");
+    })();
+
     const castBlock = cast.length ? `<div class="cast"><h3>Face to face</h3>${cast.map((a) => `
 <a class="card" href="/actor/${H(a.actor_id)}?cssADS=story-${H(row.slug)}">
 ${a.cover_image ? `<img src="${H(a.cover_image)}" alt="" loading="lazy"/>` : ""}
@@ -14424,7 +14582,9 @@ ${a.cover_image ? `<img src="${H(a.cover_image)}" alt="" loading="lazy"/>` : ""}
 <h1>${H(row.title)}</h1>
 ${row.dek ? `<p class="meta">${H(row.dek)}</p>` : ""}
 ${langBar}
-${row.body_html}
+${makeCta("top")}
+${bodyWithMidCta}
+${makeCta("end")}
 ${castBlock}
 ${row.external_url ? `<p class="meta" style="margin-top:40px">First published on <a href="${H(row.external_url)}">X</a>.</p>` : ""}
 <p class="meta"><a href="/story">← All chapters</a></p>`,

@@ -1,12 +1,19 @@
 name: zh.cssstudio.app probe
 
+# 2026-08-04 (Jing)「取消部署到中国服务器」——
+#   zh.cssstudio.app 是旧的中国服务器, 前段时间只是测试, 现已停用。
+#   这个探针每 30 分钟跑一次、每次必然失败, 于是每 30 分钟给 Jing 发一封失败邮件。
+#
+#   处理方式是【留着但不自动跑】, 不是删掉 —— 将来一定会重新部署到中国, 那时把
+#   schedule 加回来即可, 不用重写。同时已在 GitHub 上 `gh workflow disable`。
+#   要重新启用: `gh workflow enable "zh.cssstudio.app probe"` + 恢复下面的 schedule。
+#
+#   注意: 这只是【探针】, 不是部署。全仓库没有任何 workflow 会往中国服务器部署
+#   (deploy.yml 打的是 api-vm 34.122.162.77)。唯一部署目标见 [[no-zh-cssstudio-server]]。
 on:
-  push:
-    branches:
-      - "codex/cssmv-day5"
-  workflow_dispatch:
-  schedule:
-    - cron: "*/30 * * * *"
+  workflow_dispatch:   # 仅手动触发
+  # schedule:
+  #   - cron: "*/30 * * * *"   # 中国服务器回归后再解开
 
 jobs:
   probe:

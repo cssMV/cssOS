@@ -14345,6 +14345,38 @@ blockquote p{margin:0 0 8px}
  * 预置问题不是装饰: 空白输入框本身就是门槛("我该问什么")。而这个系列的主题让
  *   「你后悔吗」「谁第一个这样叫你」对每一位都成立 —— 通用的问法, 因人物而具体。
  * 匿名 3 句上限由服务端 session 兜死(W1804), 清缓存绕不过, 不怕刷。 */
+/* W1819 埋点 — 用 img 而不是 fetch/sendBeacon: FB 内置浏览器对前两者的支持参差,
+ * 而一个 1px 的 GET 请求在任何浏览器里都成立, 且直接落进 nginx access.log。 */
+(function(){
+  var slug = (location.pathname.split("/story/")[1] || "").split("?")[0];
+  var src  = (location.search.match(/cssADS=([A-Za-z0-9._-]+)/) || [])[1] || "-";
+  var sent = {};
+  function beat(e){
+    if (sent[e]) return; sent[e] = 1;
+    try { new Image().src = "/api/story/beat?e=" + e + "&s=" + encodeURIComponent(slug) + "&a=" + encodeURIComponent(src) + "&r=" + Math.random(); } catch (x) {}
+  }
+  beat("arrive");
+  setTimeout(function(){ beat("alive3"); }, 3000);
+  setTimeout(function(){ beat("alive15"); }, 15000);
+  /* W1820 — 刻度必须配得上页面长度。手机上正文高 11,000px 而一屏只有 812px,
+   * 首屏仅占全文 7.3% —— 原来最细的一档 s25 要滑过 3.3 屏才触发, 于是
+   * 「完全没滑」和「滑了两屏但没读完四分之一」被算成同一件事。
+   * 现在最细一档是【离开首屏】(>200px, 约四分之一屏), 那才是"他到底动没动"的分界。 */
+  function onScroll(){
+    var h = document.documentElement;
+    var y = h.scrollTop || window.scrollY || 0;
+    var p = (y + window.innerHeight) / Math.max(h.scrollHeight, 1);
+    if (y > 200)  beat("moved");    // 动了 —— 和"没动"分开
+    if (y > 812)  beat("scr1");     // 翻过一屏
+    if (p > 0.10) beat("s10");
+    if (p > 0.25) beat("s25");
+    if (p > 0.75) beat("s75");
+    if (sent.s75) window.removeEventListener("scroll", onScroll);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  window.__storyBeat = beat;
+})();
 (function(){
   document.querySelectorAll(".ask").forEach(function(box){
     var actor = box.getAttribute("data-actor");
@@ -14355,6 +14387,7 @@ blockquote p{margin:0 0 8px}
     var busy  = false;
     function ask(q){
       if (busy || !q) return;
+      try { if (window.__storyBeat) window.__storyBeat("ask"); } catch (e) {}
       busy = true; send.disabled = true;
       out.textContent = ""; out.hidden = false;
       var qEl = document.createElement("div");
@@ -14367,7 +14400,24 @@ blockquote p{margin:0 0 8px}
         headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
         body: JSON.stringify({ messages: [{ role: "user", content: q }] })
       }).then(function(r){
-        if (!r.body || !r.body.getReader) return r.text().then(function(){ out.textContent = "…"; });
+        /* W1819 — Facebook 安卓内置浏览器(FB_IAB)不支持 fetch 的流式读取, 而它正是我们
+         * 一半流量的来源。原来这里读完 r.text() 就把内容【扔掉】、只显示「…」, 发送按钮
+         * 还永远卡在 disabled —— 在那些机器上等于功能完全不存在, 且看起来像坏了。
+         * 现在: 非流式环境下把整段 SSE 文本解析出来, 一次性显示。慢一点, 但答案会出现。 */
+        if (!r.body || !r.body.getReader) {
+          return r.text().then(function(t){
+            var full = "";
+            t.split("\\n").forEach(function(line){
+              if (line.indexOf("data:") !== 0) return;
+              var ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { return; }
+              if (ev.reset) full = "";
+              else if (ev.delta) full += ev.delta;
+              else if (ev.done && ev.full) full = ev.full;
+            });
+            out.textContent = full || "…";
+            busy = false; send.disabled = false;
+          });
+        }
         var rd = r.body.getReader(), dec = new TextDecoder(), buf = "";
         (function pump(){
           return rd.read().then(function(x){
@@ -14438,6 +14488,22 @@ app.get("/story", async (_req, res) => {
   } catch {
     return res.status(500).send("<!doctype html><meta charset=utf-8><title>Error</title>");
   }
+});
+
+/* CSSOS_WAVE_1819 (Jing)「加埋点找真因」——
+ * 已知: 1,001 人落地故事页, 79% 只发 1 个请求就走, 中位数就是 1。
+ * 未知: 为什么走。三个候选分不开 —— ①加载太慢 ②首屏是大图+长标题, 手机上要滑几屏才见正文
+ *   ③广告承诺(妲己的脸)与落地内容(一篇长文)错位。
+ * 这几个事件正好把三者分开:
+ *   arrive  落地即打  → 分母
+ *   alive3  3 秒仍在  → 排除"太慢/秒退"
+ *   s25/s75 滚动深度  → 排除"看不到正文"; 若 alive3 高而 s25 低, 就是首屏结构的问题
+ *   ask     点了提问  → 真转化
+ * 只回 204、不写库、不做任何判断 —— 全部证据留在 nginx access.log 里, grep 即可。
+ * 故意不用现成的 telemetry 端点: 那些会写库, 而这是广告流量, 量大且没必要落库。 */
+app.get("/api/story/beat", (req, res) => {
+  noStore(res);
+  res.status(204).end();
 });
 
 app.get("/story/:slug", async (req, res) => {

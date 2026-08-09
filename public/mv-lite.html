@@ -1,44 +1,69 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>cssMV Lite</title>
     <link rel="stylesheet" href="/style.mv-lite.css" />
+    <!-- W1822 — 本页原先整页硬编码中文, 违反「English is the single source of
+         truth」。所有可见文案改为英文原文 + data-i18n 键; 其他语言由 en 兜底,
+         并在 /i18n/generated/<locale>.json 到位后自动接管。
+         这是独立页, 拿不到 app.js 的 applyI18nModule, 故只加载 t() 所需的最小
+         三件套 (constants → dict → index), 由 mv-lite.js 自带一个轻量应用器。 -->
+    <script src="/i18n/constants.js"></script>
+    <script src="/i18n/dict.js?v=20260809-w1822-mvlite"></script>
+    <script src="/i18n/index.js?v=20260622-w1107b"></script>
   </head>
   <body>
     <main class="mv-lite-shell">
       <section class="mv-lite-hero">
         <p class="mv-lite-kicker">cssMV</p>
-        <h1>一句话，生成一支 MV。</h1>
-        <p class="mv-lite-subtitle">
-          不进编辑器，不配参数。输入一句想法，系统自动跑歌词、音乐、视频整条链。
+        <h1 data-i18n="mvlite.hero.title">One sentence, one MV.</h1>
+        <p class="mv-lite-subtitle" data-i18n="mvlite.hero.subtitle">
+          No editor, no parameters. Type a single idea and the system runs the
+          whole chain — lyrics, music, video.
         </p>
       </section>
 
-      <section class="mv-lite-compose" aria-label="生成面板">
-        <label class="mv-lite-label" for="mv-lite-prompt">你想做什么 MV？</label>
+      <section
+        class="mv-lite-compose"
+        aria-label="Generation panel"
+        data-i18n-aria="mvlite.compose.aria"
+      >
+        <label class="mv-lite-label" for="mv-lite-prompt" data-i18n="mvlite.compose.label"
+          >What MV do you want?</label
+        >
         <div class="mv-lite-compose-row">
           <input
             id="mv-lite-prompt"
             class="mv-lite-input"
             type="text"
-            placeholder="例如：史诗级骑士爱情悲剧"
+            placeholder="e.g. an epic tragedy of knightly love"
+            data-i18n-placeholder="mvlite.compose.placeholder"
           />
-          <button id="mv-lite-generate" class="mv-lite-button" type="button">生成 MV</button>
+          <button
+            id="mv-lite-generate"
+            class="mv-lite-button"
+            type="button"
+            data-i18n="mvlite.compose.button"
+          >
+            Generate MV
+          </button>
         </div>
-        <p id="mv-lite-hint" class="mv-lite-hint">默认会走 cssMV 自研视频引擎。</p>
+        <p id="mv-lite-hint" class="mv-lite-hint" data-i18n="mvlite.hint.default">
+          Runs on the cssMV in-house video engine by default.
+        </p>
       </section>
 
       <section class="mv-lite-results">
         <div class="mv-lite-results-head">
-          <h2>生成结果</h2>
+          <h2 data-i18n="mvlite.results.title">Results</h2>
           <span id="mv-lite-count" class="mv-lite-count">0</span>
         </div>
         <div id="mv-lite-grid" class="mv-lite-grid" aria-live="polite"></div>
       </section>
     </main>
 
-    <script type="module" src="/mv-lite.js"></script>
+    <script type="module" src="/mv-lite.js?v=20260809-w1822-i18n"></script>
   </body>
 </html>

@@ -1,3 +1,35 @@
+// W1822 — 本页原先所有文案都是硬编码中文。改为: 英文原文写在 dict.js 的 en 基准表,
+// 标记走 data-i18n / data-i18n-placeholder / data-i18n-aria, JS 动态文案走 T(key)。
+// 英文同样【不硬编码】—— 页面里的英文只是 en 词条的可见兜底, 真正的取值一律经 t()。
+//
+// 这是独立页, 拿不到 app.js 的 applyI18nModule(它依赖 app.js 的 state / I18N 全局),
+// 所以自带下面这个二十行的轻量应用器。
+
+const I18N = () => window.CSSOS_I18N || null;
+
+function T(key, vars) {
+  const mod = I18N();
+  // t() 缺键时返回 TODO_i18n(key); 宁可回落到英文兜底也不要把它显示给用户。
+  if (!mod || typeof mod.t !== "function") return "";
+  const text = mod.t(key, vars || {});
+  return !text || text.startsWith("TODO_i18n(") ? "" : text;
+}
+
+function applyI18n(root) {
+  const scope = root || document;
+  const pairs = [
+    ["data-i18n", (el, text) => { el.textContent = text; }],
+    ["data-i18n-placeholder", (el, text) => el.setAttribute("placeholder", text)],
+    ["data-i18n-aria", (el, text) => el.setAttribute("aria-label", text)],
+  ];
+  pairs.forEach(([attr, set]) => {
+    scope.querySelectorAll(`[${attr}]`).forEach((el) => {
+      const text = T(el.getAttribute(attr));
+      if (text) set(el, text);
+    });
+  });
+}
+
 const grid = document.getElementById("mv-lite-grid");
 const count = document.getElementById("mv-lite-count");
 const input = document.getElementById("mv-lite-prompt");
@@ -6,12 +38,27 @@ const hint = document.getElementById("mv-lite-hint");
 
 const tasks = new Map();
 
+// 非英文 locale 的译文在 /i18n/generated/<locale>.json, 到位后再整页应用一次;
+// 拿不到就保持 en 兜底, 页面不会因此空白。
+(async function bootI18n() {
+  try {
+    const mod = I18N();
+    if (mod && typeof mod.ensureGeneratedLocale === "function") {
+      await mod.ensureGeneratedLocale();
+    }
+  } catch (_) { /* 译文没到位就用英文兜底 */ }
+  applyI18n(document);
+})();
+
 function updateCount() {
   count.textContent = String(tasks.size);
 }
 
-function setHint(text, tone = "neutral") {
-  hint.textContent = text;
+function setHint(key, vars, tone = "neutral") {
+  const text = T(key, vars);
+  if (text) hint.textContent = text;
+  // 动态提示替换掉了静态兜底文案, 清掉 data-i18n 免得后续整页重扫把它盖回去。
+  hint.removeAttribute("data-i18n");
   hint.dataset.tone = tone;
 }
 
@@ -19,9 +66,9 @@ function buildStatusBadge(status, progress) {
   const badge = document.createElement("span");
   badge.className = `mv-lite-badge mv-lite-badge-${status}`;
   if (status === "succeeded" || status === "done") {
-    badge.textContent = "已完成";
+    badge.textContent = T("mvlite.badge.done");
   } else if (status === "failed") {
-    badge.textContent = "失败";
+    badge.textContent = T("mvlite.badge.failed");
   } else {
     badge.textContent = `${progress || 0}%`;
   }
@@ -35,7 +82,7 @@ function createCard(taskId, prompt) {
 
   const title = document.createElement("h3");
   title.className = "mv-lite-card-title";
-  title.textContent = prompt || "随机生成";
+  title.textContent = prompt || T("mvlite.card.untitled");
 
   const statusRow = document.createElement("div");
   statusRow.className = "mv-lite-card-status";
@@ -43,7 +90,7 @@ function createCard(taskId, prompt) {
 
   const preview = document.createElement("div");
   preview.className = "mv-lite-preview mv-lite-preview-pending";
-  preview.textContent = "正在生成视频…";
+  preview.textContent = T("mvlite.card.generating");
 
   const actions = document.createElement("div");
   actions.className = "mv-lite-card-actions";
@@ -52,7 +99,7 @@ function createCard(taskId, prompt) {
   watchLink.className = "mv-lite-link";
   watchLink.target = "_blank";
   watchLink.rel = "noreferrer";
-  watchLink.textContent = "打开视频";
+  watchLink.textContent = T("mvlite.action.openVideo");
   watchLink.style.display = "none";
 
   const statusLink = document.createElement("a");
@@ -60,7 +107,7 @@ function createCard(taskId, prompt) {
   statusLink.target = "_blank";
   statusLink.rel = "noreferrer";
   statusLink.href = `/cssapi/v1/mv/tasks/${encodeURIComponent(taskId)}`;
-  statusLink.textContent = "查看状态";
+  statusLink.textContent = T("mvlite.action.viewStatus");
 
   actions.append(watchLink, statusLink);
   article.append(title, statusRow, preview, actions);
@@ -96,7 +143,7 @@ function renderVideo(card, videoUrl) {
 
 function renderFailure(card) {
   card.preview.className = "mv-lite-preview mv-lite-preview-failed";
-  card.preview.textContent = "生成失败，请重试。";
+  card.preview.textContent = T("mvlite.card.failed");
 }
 
 function updateCard(card, payload) {
@@ -118,7 +165,7 @@ function updateCard(card, payload) {
   }
 
   card.preview.className = "mv-lite-preview mv-lite-preview-pending";
-  card.preview.textContent = `正在生成视频… ${progress}%`;
+  card.preview.textContent = T("mvlite.card.generatingPct", { progress });
   return false;
 }
 
@@ -144,14 +191,18 @@ async function pollTask(card) {
       card.timer = null;
     }
   } catch (error) {
-    setHint(`状态轮询失败：${error.message}`, "error");
+    setHint("mvlite.hint.pollFailed", { message: error.message }, "error");
   }
 }
+
+// 送给生成接口的兜底提示词 —— 这是 API 载荷不是界面文案, 保持英文常量,
+// 不随界面语言变化(歌词语言由后端的文明智能联动决定, 不由这里的 UI locale 决定)。
+const FALLBACK_PROMPT = "a random song";
 
 async function handleGenerate() {
   const prompt = String(input.value || "").trim();
   button.disabled = true;
-  setHint("正在创建任务…");
+  setHint("mvlite.hint.creating");
 
   try {
     const response = await fetch("/cssapi/v1/mv/generate", {
@@ -161,7 +212,7 @@ async function handleGenerate() {
         Accept: "application/json",
       },
       body: JSON.stringify({
-        prompt: prompt || "随机生成一首歌",
+        prompt: prompt || FALLBACK_PROMPT,
       }),
     });
     if (!response.ok) {
@@ -169,13 +220,13 @@ async function handleGenerate() {
       throw new Error(body || `generate failed: ${response.status}`);
     }
     const payload = await response.json();
-    const card = createCard(payload.task_id, prompt || "随机生成");
-    setHint("任务已创建，正在自动生成歌词、音乐和 MV。", "success");
+    const card = createCard(payload.task_id, prompt || T("mvlite.card.untitled"));
+    setHint("mvlite.hint.created", null, "success");
     await pollTask(card);
     card.timer = window.setInterval(() => pollTask(card), 2500);
     input.value = "";
   } catch (error) {
-    setHint(`创建任务失败：${error.message}`, "error");
+    setHint("mvlite.hint.createFailed", { message: error.message }, "error");
   } finally {
     button.disabled = false;
   }

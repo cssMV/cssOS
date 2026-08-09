@@ -69,6 +69,17 @@ sync_public() {
     fi
   "
 
+  # CSSOS_SYMLINK_EXCLUDE 20260809 — 下面三个 fonts* 与 assets/examples 的 exclude
+  # 【一律不带尾斜杠】, 这是硬要求, 不是风格:
+  #   线上 public/fonts, public/fonts_cn2, public/assets/examples 都是【符号链接】
+  #   (-> /srv/cssos/shared/assets/…), 而 rsync 里带尾斜杠的模式【只匹配目录,
+  #   不匹配符号链接】。原先写成 'fonts/' → 保护从未生效 → 每次部署的 --delete
+  #   都把软链删掉 → 全站字体丢失, 这就是「字体反复消失」的真凶。
+  #   assets/examples (2.69 GB 演示视频, app.watch-ui.js 的 DEMO_BASES 在用)
+  #   此前连 exclude 都没有, 更暴露。
+  # 注意: 注释只能放在 rsync 调用【之外】——反斜杠续行中间插 '#' 会把后续参数
+  #   连同源/目标路径一起吃掉 (实测 `echo A \ / --b \ / # c \ / --d` 只输出 "A --b")。
+  # 验证: 加 --dry-run --itemize-changes, 输出里不应出现 '*deleting fonts' 之类。
   say "rsync public/ -> ${TARGET}:${REMOTE_STATIC}/"
   rsync -az --delete \
     --chmod=a+rX \
@@ -79,14 +90,10 @@ sync_public() {
     --exclude 'artifacts/' \
     --exclude 'uploads/' \
     --exclude 'works/' \
-    # CSSOS_FONTS_SYMLINK_EXCLUDE 20260809 — 尾斜杠是「字体反复消失」的真凶。
-    #   线上 public/fonts 与 public/fonts_cn2 是【符号链接】(-> /srv/cssos/shared/assets/…),
-    #   而 rsync 的 'fonts/' 带尾斜杠【只匹配目录, 不匹配符号链接】→ 保护从未生效,
-    #   每次前端部署 --delete 都把两个链接删掉 → 全站字体丢失。去掉尾斜杠即可两者都护住。
-    #   验证方法: rsync 加 --dry-run --itemize-changes, 输出里不应再出现 '*deleting fonts'。
     --exclude 'fonts' \
     --exclude 'fonts_cn2' \
     --exclude 'fonts_en' \
+    --exclude 'assets/examples' \
     "${REPO_ROOT}/public/" \
     "${TARGET}:${REMOTE_STATIC}/"
 

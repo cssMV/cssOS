@@ -79,9 +79,14 @@ sync_public() {
     --exclude 'artifacts/' \
     --exclude 'uploads/' \
     --exclude 'works/' \
-    --exclude 'fonts/' \
-    --exclude 'fonts_cn2/' \
-    --exclude 'fonts_en/' \
+    # CSSOS_FONTS_SYMLINK_EXCLUDE 20260809 — 尾斜杠是「字体反复消失」的真凶。
+    #   线上 public/fonts 与 public/fonts_cn2 是【符号链接】(-> /srv/cssos/shared/assets/…),
+    #   而 rsync 的 'fonts/' 带尾斜杠【只匹配目录, 不匹配符号链接】→ 保护从未生效,
+    #   每次前端部署 --delete 都把两个链接删掉 → 全站字体丢失。去掉尾斜杠即可两者都护住。
+    #   验证方法: rsync 加 --dry-run --itemize-changes, 输出里不应再出现 '*deleting fonts'。
+    --exclude 'fonts' \
+    --exclude 'fonts_cn2' \
+    --exclude 'fonts_en' \
     "${REPO_ROOT}/public/" \
     "${TARGET}:${REMOTE_STATIC}/"
 

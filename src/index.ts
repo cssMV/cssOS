@@ -14297,7 +14297,9 @@ ${head}
 body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.75 Georgia,"Songti SC","Hiragino Mincho ProN",serif}
 a{color:var(--jade)}
 .wrap{max-width:720px;margin:0 auto;padding:32px 20px 96px}
-.hero{width:100%;border-radius:12px;margin:0 0 28px;display:block}
+/* W1821 — 题图是【横幅】不是方图: 演员封面多为方/竖构图, 全宽铺开会占掉手机近半屏,
+   把正文推得更远, 与"让人往下读"正好相反。定高 200px + object-position 偏上取脸。 */
+.hero{width:100%;height:200px;object-fit:cover;object-position:center 28%;border-radius:12px;margin:0 0 22px;display:block}
 h1{font-size:34px;line-height:1.25;margin:0 0 10px}
 h2{font-size:21px;line-height:1.4;margin:44px 0 14px;color:#cfe6d8}
 p{margin:0 0 20px}
@@ -14532,7 +14534,15 @@ app.get("/story/:slug", async (req, res) => {
     const H = escapeHtmlAttr;
     const url = `${SHARE_BASE_URL}/story/${row.slug}`;
     const desc = row.dek || row.title;
-    const hero = row.hero_image ? (row.hero_image.startsWith("http") ? row.hero_image : `${SHARE_BASE_URL}${row.hero_image}`) : "";
+    /* CSSOS_WAVE_1821 (Jing 走查 + 埋点共同定位) —— 落地页必须先接住广告里的那张脸。
+     * 数据: 865 人落地, 只有 87 人(10%)滑动过一次, 而一半人停留 15 秒以上 ——
+     *   他们盯着首屏看了很久, 然后什么都没做就走了。
+     * 手机首屏实拍才看明白: 15 章【全部没有题图】, 用户看到的是三行大标题 + 一个绿框表单。
+     *   而广告是一张会说话的脸。视觉上完全接不上 ——「这不是我点的那个东西」。
+     * 修法: 没有 hero_image 就用【本章主演自己的封面】。她的脸既是广告里的脸,
+     *   也是文章的主角, 是这条链上唯一天然连续的东西。 */
+    const heroRaw = row.hero_image || (cast[0]?.cover_image || "");
+    const hero = heroRaw ? (heroRaw.startsWith("http") ? heroRaw : `${SHARE_BASE_URL}${heroRaw}`) : "";
 
     const head = `<title>${H(row.title)} — CSS Studio</title>
 <link rel="canonical" href="${H(url)}"/>
@@ -14542,7 +14552,7 @@ ${sibs.rows.map((s) => `<link rel="alternate" hreflang="${H(s.lang)}" href="${SH
 <meta property="og:title" content="${H(row.title)}"/>
 <meta property="og:description" content="${H(desc)}"/>
 <meta property="og:url" content="${H(url)}"/>
-${hero ? `<meta property="og:image" content="${H(hero)}"/><meta property="og:image:width" content="1500"/><meta property="og:image:height" content="600"/>` : ""}
+${hero ? `<meta property="og:image" content="${H(hero)}"/>${row.hero_image ? `<meta property="og:image:width" content="1500"/><meta property="og:image:height" content="600"/>` : ""}` : ""}
 <meta name="twitter:card" content="${hero ? "summary_large_image" : "summary"}"/>
 <meta name="twitter:title" content="${H(row.title)}"/>
 <meta name="twitter:description" content="${H(desc)}"/>

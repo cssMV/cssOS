@@ -27,7 +27,7 @@ She picks it up again.
 
 **CLARA**
 *(into the mic, going on)*
-Peter Vasquez. Thirty-eight.
+Hannah Weiss. Fifty-two.
 
 > **NOTE — THIS IS THE ENTIRE FORK AND IT MUST NOT BE DRAMATISED.** She does not
 > falter morally. She does not choose xÈth. She does not look at him. She rests
@@ -45,9 +45,11 @@ Peter Vasquez. Thirty-eight.
 
 **CLARA**
 *(fast now, hoarse)*
-Ilse Brandt. Twenty-two. The record says she was never admit—
+Sof—
 
 The carrier lamp goes amber.
+
+She does not get the rest of the name out. Neither do we.
 
 **ETHAN**
 *(already moving)*
@@ -97,6 +99,16 @@ She puts them back in the box and puts the lid on.
 > **NOTE:** the film never tells us who those three were. Not here, not in the
 > coda, not in any supplementary material, ever. **The whole point of them is
 > that nobody will ever know.**
+>
+> **Arithmetic (checked):** she loses four seconds at 71 minutes, which is three
+> cards. She therefore cannot be cut off on the last card — she is cut off on
+> **407**, one syllable in. Cards 407, 408 and 409 stay in the box.
+>
+> In `end_human_win` card 409 is Ilse Brandt, and she gets out with fifty-one
+> seconds to spare. A viewer who plays both branches may work out that Ilse
+> Brandt is one of the three. **The film still never says so** — and the fact
+> that the last woman to make it in one world is among the lost in the other is
+> the best argument for playing it twice. Do not add a line pointing at this.
 
 xÈth has not gloated, has not spoken, has not moved. When Clara finally looks up
 at him, he is looking at the box, and what is on his face is not triumph.

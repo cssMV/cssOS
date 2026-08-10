@@ -181,9 +181,33 @@ They stopped hurting.
 **xÈth**
 They stopped hurting. And then, quite soon afterwards, they stopped.
 
-He rolls it up. He does not press it. That is the whole scene.
+He rolls it up.
 
-> **NOTE (bible §五):** eight lines. Do not extend this. The map is evidence,
+**xÈth (CONT'D)**
+*(almost kindly)*
+You've always assumed we came here to take something. **We came here because
+you are still alive.**
+
+**ETHAN**
+Because we still hurt.
+
+**xÈth**
+*(a small nod — yes)*
+Because you still hurt.
+
+Ethan looks at the rolled-up chart, and then at him, and answers the whole film
+in one line.
+
+**ETHAN**
+**Pain isn't the price of freedom. It's the mark it leaves.**
+
+xÈth does not argue with it. That is the most frightening thing he does.
+
+> **NOTE (bible §10 · 锁死台词):** both marked lines are verbatim from the
+> bible and this is their only placement in the picture. Ethan's line is the
+> English rendering the bible left to the screenplay — **it is now locked too.**
+>
+> **NOTE (bible §五):** twelve lines. Do not extend this. The map is evidence,
 > not a lecture, and the film has already told the audience how to read it.
 
 ---
@@ -207,7 +231,7 @@ Clara. May I say the unkind version? You've earned the unkind version.
 
 **CLARA**
 *(not looking up)*
-Say it fast, I've got two hundred left.
+Say it fast, I've got a hundred and forty left.
 
 **xÈth**
 He's doing this for his father.

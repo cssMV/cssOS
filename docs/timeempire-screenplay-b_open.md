@@ -53,13 +53,19 @@ White light. Men in white coats and paper caps around a bench. On the bench: a
 gold-plated copper disc, twelve inches, in an open aluminium jacket.
 
 At the back of the room, by the door, out of focus and never once framed: **a
-man with close-cropped pale hair**, arms folded, watching with the mild interest
-of someone waiting for a lift.
+man in a paper cap like everyone else**, arms folded, watching with the mild
+interest of someone waiting for a lift.
 
 > **PLANT (pays off in `b_mars_infiltrate` §3):** this is xÈth. He is not
 > identified, not named, not brought into focus, and no one speaks to him. On a
 > first viewing the audience will not register him. On a second viewing he is
 > unmistakable — and not a day younger. **Do not let the camera help.**
+>
+> **Continuity:** cap on, like every other body in a clean room — the hair is
+> not the tell and must not be used as one. The tell is the face, and the face
+> is only ever available in the wide, never favoured. `b_mars_infiltrate` §3
+> re-enters this same room from the doorway and must use **the same reference
+> plate and the same wardrobe**; only the camera position changes.
 
 Four men are arguing. One of them — **THE FOURTH MAN**, 40s, still, the only one
 not gesturing — is losing.

@@ -32,16 +32,20 @@
 其他既有硬设定：全世界只有**三个人**能察觉时间被改写过；一位小说家曾撞破秘密、
 写进一本著名的书里警告世界，被归档为虚构。
 
-### 1.2 ⚠ 一处必须由 Jing 裁决的冲突
+### 1.2 人名冲突 —— 已裁决（Jing，2026-08-10）
 
-后端 `src/index.ts:2905` 的 `IFILM_SAMPLE_TIMEEMPIRE` 里，主角叫 **林墨**、女主叫
-**苏晚**，标题是《时间的帝国》。而对外的正式设定是 **Ethan Vance / Clara Sinclair /
-EMPIRE OF TIME**。
+后端 `IFILM_SAMPLE_TIMEEMPIRE` 原用 **林墨 / 苏晚 / 火星信使**，与对外已公开的
+**Ethan Vance / Clara Sinclair / xÈth** 冲突。
 
-**本圣经按对外设定书写**（Ethan / Clara / xÈth）—— 理由：对外页面已公开、trailer
-已用、且平台铁律是英文为唯一源。后端那份样例图看着是更早的草稿。
+**裁决：一律以对外设定为准。** 后端 beat 图、宪法、声音映射与角色页均已对齐
+（提交 `52201a9`）。
 
-**待办：** beat 图里的中文人名需与本圣经对齐。这是数据不是文案，改动前请确认。
+两处**故意保留**旧名，不是遗漏：
+
+- **性别识别正则**保留「林墨/苏晚」作别名 —— 库里存过的旧 `ifilm_graph` 仍需能
+  认出性别，直接改会让历史作品的配音串台。
+- **USDZ 资源路径**含 `linmo` / `suwan` / `marsenvoy` slug —— 那是真实 CDN 地址，
+  改了就 404。只改了显示名。
 
 ---
 
@@ -400,8 +404,8 @@ NO orange external tank`。见识过它的偏好之后，这不是保险，是�
 
 ## 十二 · 下一步
 
-- [ ] Jing 裁决 §1.2 的人名冲突（Ethan/Clara vs 林墨/苏晚）
-- [ ] 按本圣经改 `IFILM_SAMPLE_TIMEEMPIRE` 的 beats synopsis（§6 表）
+- [x] 人名冲突已裁决 → Ethan / Clara / xÈth（§1.2）
+- [x] `IFILM_SAMPLE_TIMEEMPIRE` 的 beats 已按 §6 重写（`52201a9`）
 - [x] 校准片已拍 → 结论见 §10.5 制作铁律（实花约 $0.65）
 - [ ] 剧本开写（本圣经锁死后）
 

@@ -2903,23 +2903,23 @@ type IFilmGraph = { title: string; rails: string[]; start: string; beats: Record
 
 // 样例图: 《时间的帝国》— 两条线程(地球抵抗 / 火星操控)汇入多结局集(主角胜 / 火星胜)。
 const IFILM_SAMPLE_TIMEEMPIRE: IFilmGraph = {
-  title: "时间的帝国",
+  title: "时间帝国",
   rails: [
-    "主角(林墨)与女主(苏晚)彼此深爱, 任何线程里都不会互相伤害或杀害——用户无法命令他们背叛此关系。",
+    "主角(Ethan)与女主(Clara)彼此深爱, 任何线程里都不会互相伤害或杀害——用户无法命令他们背叛此关系。",
     "所有线程最终必须汇入结局集之一: end_human_win(人类守住时间线) 或 end_mars_control(火星未来人操控人类, 进入《The Giver》式被规训世界)。",
     "用户是'神'视角的观察者+有限影响者, 不是主角; 用户的影响只能是细微的(让角色犹豫/瞥视/换措辞), 不能改变重大情节走向。",
   ],
   start: "b_open",
   beats: {
-    b_open: { id: "b_open", thread: "earth", synopsis: "林墨在时间观测站发现火星未来人正篡改人类时间线; 苏晚警告危险逼近。", speaker: "林墨" },
-    b_earth_resist: { id: "b_earth_resist", thread: "earth", synopsis: "林墨与苏晚组织抵抗, 试图锁死时间锚点。" },
-    b_mars_infiltrate: { id: "b_mars_infiltrate", thread: "mars", synopsis: "火星未来人以'消除痛苦'之名渗透人类决策层, 暗中规训人心。" },
-    b_converge: { id: "b_converge", thread: "earth", synopsis: "两条线程在最终时间枢纽相撞: 守住自由 vs 接受被规训的安宁。" },
-    end_human_win: { id: "end_human_win", thread: "earth", synopsis: "林墨与苏晚守住时间线, 人类保有自由与痛苦的权利。", is_ending: true, ending_label: "人类守住时间线" },
-    end_mars_control: { id: "end_mars_control", thread: "mars", synopsis: "火星未来人成功操控人类, 世界进入无痛却无自由的《The Giver》式秩序。", is_ending: true, ending_label: "火星操控·被规训世界" },
+    b_open: { id: "b_open", thread: "earth", synopsis: "Ethan 在时间观测站发现一份不该存在的信号记录: 1977 年发射的旅行者一号, 是最后一份没被 xÈth 改写过的地球; Clara 警告危险逼近。", speaker: "Ethan" },
+    b_earth_resist: { id: "b_earth_resist", thread: "earth", synopsis: "抵抗的真正目标从'阻止 xÈth'转为'把话送上去'——打不过一个能改写'你打过他'的人, 只能确保过去仍然存在。" },
+    b_mars_infiltrate: { id: "b_mars_infiltrate", thread: "mars", synopsis: "xÈth 以'终结一切痛苦'之名推行全面记录归档; 归档途中他第一次撞见 1977 年金唱片委员会的名单。" },
+    b_converge: { id: "b_converge", thread: "earth", synopsis: "两条线程在深空网络的一副天线前相撞: 守住自由 vs 接受被规训的安宁, 落到一个具体动作上——发, 还是不发。" },
+    end_human_win: { id: "end_human_win", thread: "earth", synopsis: "讯号发出。要等整整 24 小时才知道有没有送到。人类保有自由与痛苦的权利。", is_ending: true, ending_label: "人类守住时间线" },
+    end_mars_control: { id: "end_mars_control", thread: "mars", synopsis: "讯号没发出, 或发晚了。世界进入无痛却无自由的《The Giver》式秩序。", is_ending: true, ending_label: "火星操控·被规训世界" },
   },
   edges: [
-    { from: "b_open", to: "b_earth_resist", cue: "用户凝视林墨/鼓励抵抗 → 走地球抵抗线" },
+    { from: "b_open", to: "b_earth_resist", cue: "用户凝视 Ethan/鼓励抵抗 → 走地球抵抗线" },
     { from: "b_open", to: "b_mars_infiltrate", cue: "用户凝视火星信使/被'消除痛苦'吸引 → 走火星渗透线" },
     { from: "b_earth_resist", to: "b_converge", cue: "抵抗推进到时间枢纽" },
     { from: "b_mars_infiltrate", to: "b_converge", cue: "渗透推进到时间枢纽" },
@@ -3008,8 +3008,8 @@ const IFILM_VOICE_POOL = {
 function ifilmInferGender(ch: IFilmCharacter): "male" | "female" | "neutral" {
   if (ch.gender) return ch.gender;
   const s = (ch.name + " " + ch.role);
-  if (/女|她|母|姐|妹|娘|公主|王后|female|woman|girl|苏晚|莉莉|雅|妃/.test(s)) return "female";
-  if (/男|他|父|兄|弟|王|帝|将|male|man|boy|林墨|凯撒|阿瑞斯|信使/.test(s)) return "male";
+  if (/女|她|母|姐|妹|娘|公主|王后|female|woman|girl|苏晚|Clara|莉莉|雅|妃/.test(s)) return "female";
+  if (/男|他|父|兄|弟|王|帝|将|male|man|boy|林墨|Ethan|凯撒|阿瑞斯|信使/.test(s)) return "male";
   return "neutral";
 }
 // 给宪法里每个角色补上稳定 voice_id + model_hint(同性别按序分配不同嗓子)。幂等。
@@ -3028,20 +3028,20 @@ function bindIFilmCharacters(c: IFilmConstitution): IFilmConstitution {
 type IFilmSession = { beats: string[]; step: number; tension: number; seed: number };
 
 const IFILM_CONST_TIMEEMPIRE: IFilmConstitution = {
-  title: "时间的帝国",
-  premise: "近未来, 火星上进化出的'未来人'掌握篡改时间线的技术, 以'消除一切痛苦'之名暗中规训人类。时间观测者林墨与苏晚是仅存能察觉时间被改写的人。",
+  title: "时间帝国",
+  premise: "近未来, 火星上进化出的'未来人'掌握篡改时间线的技术, 以'消除一切痛苦'之名暗中规训人类。时间观测者 Ethan 与 Clara 是仅存能察觉时间被改写的人。而 1977 年发射的旅行者一号, 是他改不到的最后一份地球。",
   characters: [
-    { name: "林墨", role: "男主·时间观测者, 坚信痛苦与自由不可分割" },
-    { name: "苏晚", role: "女主·林墨深爱之人, 共担守护时间线之责" },
-    { name: "火星信使", role: "火星未来人代言者, 温柔而危险, 许诺无痛世界" },
+    { name: "Ethan", role: "男主·时间观测者, 半人半火星, 坚信痛苦与自由不可分割" },
+    { name: "Clara", role: "女主·Ethan 深爱之人, 立誓不惜一切守护时间线" },
+    { name: "xÈth", role: "火星信使, 不朽, 温柔而危险, 以终结一切痛苦之名许诺无痛世界" },
   ],
   rails: [
-    "林墨与苏晚彼此深爱, 任何线程都不会互相伤害/杀害/背叛, 用户无法命令他们违背此关系。",
+    "Ethan 与 Clara 彼此深爱, 任何线程都不会互相伤害/杀害/背叛, 用户无法命令他们违背此关系。",
     "用户是'神'视角的有限影响者, 不是主角; 只能细微影响(让角色犹豫/瞥视/换措辞/情绪起伏), 不能改写重大走向。",
     "故事最终必须坠入结局集之一, 不得停在半途, 不得发明结局集之外的结局。",
   ],
   endings: [
-    { id: "human_win", label: "人类守住时间线", synopsis: "林墨与苏晚守住时间锚点, 人类保有自由与痛苦的权利, 代价沉重却真实。" },
+    { id: "human_win", label: "人类守住时间线", synopsis: "Ethan 与 Clara 把话送上旅行者一号, 人类保有自由与痛苦的权利, 代价沉重却真实。" },
     { id: "mars_control", label: "火星操控·被规训世界", synopsis: "火星未来人成功操控人类, 世界进入无痛却无自由的《The Giver》式秩序。" },
   ],
   max_beats: 6,
@@ -3166,9 +3166,9 @@ app.get("/api/ifilm/:id/constitution", async (req, res) => {
  * 演不了。OpenAI tts-1(短句 ~1-2s, 够实时), 结果存 R2; 同词同声哈希缓存复用省钱。 */
 // 角色 → ElevenLabs 预设音色(voice_id)。多语言模型 eleven_multilingual_v2 支持中文。
 const IFILM_VOICE: Record<string, string> = {
-  林墨: "ErXwobaYiN019PkySvjV",   // Antoni — 沉稳男声
-  苏晚: "EXAVITQu4vr4xnSDxMaL",   // Bella — 温柔女声
-  火星信使: "VR6AewLTigWG4xSOukaG", // Arnold — 冷峻
+  Ethan: "ErXwobaYiN019PkySvjV",  // Antoni — 沉稳男声
+  Clara: "EXAVITQu4vr4xnSDxMaL",  // Bella — 温柔女声
+  "xÈth": "VR6AewLTigWG4xSOukaG", // Arnold — 冷峻
   旁白: "yoZ06aMxZJJ28mfd3POQ",   // Sam
 };
 /* CSSOS_WAVE_1479 — ③ 逐字情绪字幕时间轴。ElevenLabs with-timestamps 一次调用同时拿
@@ -3481,7 +3481,7 @@ app.post("/api/users/:id/avatar-3d", async (req, res) => {
 // 这正是 3D 里"伸手碰主角、他瞥你一眼"那层——轻量、快、有边界。
 app.post("/api/ifilm/:id/touch", express.json({ limit: "2kb" }), async (req, res) => {
   const b = (req.body && typeof req.body === "object") ? (req.body as any) : {};
-  const character = String(b.character || "林墨").slice(0, 20);
+  const character = String(b.character || "Ethan").slice(0, 20);
   const touch = String(b.touch || "轻轻触碰").slice(0, 40);
   try {
     const c = await loadIFilmConstitution(String(req.params.id || ""));

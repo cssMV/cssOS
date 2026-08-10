@@ -52,8 +52,12 @@ The needles jump.
 White light. Men in white coats and paper caps around a bench. On the bench: a
 gold-plated copper disc, twelve inches, in an open aluminium jacket.
 
-Four men are arguing. One of them — DANIEL VANCE, 40s, still, the only one not
-gesturing — is losing.
+Four men are arguing. One of them — **THE FOURTH MAN**, 40s, still, the only one
+not gesturing — is losing.
+
+> **NOTE:** he is not named in this beat and no one addresses him by name. His
+> identity is revealed in `b_earth_resist`. Frame him so his face is available
+> but never emphasised — he is a man in a room, not a portrait.
 
 **COMMITTEE MAN #1**
 It's a greeting card. You don't put a funeral on a greeting card.
@@ -62,28 +66,28 @@ It's a greeting card. You don't put a funeral on a greeting card.
 Nobody's saying pretend. We're saying *select*. There's ninety minutes.
 Ninety. You want to spend four of them on a woman crying in Georgia?
 
-**VANCE**
+**THE FOURTH MAN**
 Yes.
 
 Silence. Somebody laughs, once, and stops.
 
 **COMMITTEE MAN #1**
-Daniel. Whoever finds this — if anybody ever finds this — the first thing they
+Whoever finds this — if anybody ever finds this — the first thing they
 learn about us shouldn't be that we hurt.
 
-**VANCE**
+**THE FOURTH MAN**
 It should be the second thing.
 
 He picks up the disc. Handles it the way you handle something already old.
 
-**VANCE (CONT'D)**
+**THE FOURTH MAN (CONT'D)**
 Put in the thunder. Put in the whales. Put in the mother, and the war song, and
 the funeral. Put in all of it.
 
 **COMMITTEE MAN #2**
 Why?
 
-**VANCE**
+**THE FOURTH MAN**
 *(simply)*
 Because someone is going to try to take it out.
 
@@ -102,7 +106,7 @@ Uranium two-thirty-eight. Electroplated. Half-life's four and a half billion
 years — so whoever picks it up can measure what's left and work out how long
 ago we sent it.
 
-**VANCE (V.O.)**
+**THE FOURTH MAN (V.O.)**
 *(quietly, off)*
 A clock nobody can argue with.
 
@@ -410,16 +414,27 @@ Clara comes in with two coffees, stops, watches him watch it.
 You've been on that for an hour.
 
 **ETHAN**
-My father was on the committee.
+The consolidation swept up a set of minutes from 1977. Four men arguing about
+what to put on a phonograph record.
 
 **CLARA**
-*(carefully)*
-I know.
+*(not following)*
+And?
 
 **ETHAN**
-No — Clara, he was on the *record* committee. Nineteen seventy-seven. He argued
-to keep the grief in. It's minuted. It's the only argument he ever lost in
-writing and he lost it *up*.
+One of them wanted the funerals left in. The thunder, the war song, a woman
+crying. The others thought it was a greeting card.
+*(beat)*
+He lost the argument in the room. But I pulled the contents list.
+*(beat)*
+It's all in there. Every last unbearable second of it.
+
+**CLARA**
+So he lost and won.
+
+**ETHAN**
+Somebody made sure that record was *honest*. Fifty years before anybody needed
+it to be.
 
 He turns the projector so the frame falls across her.
 
@@ -522,9 +537,9 @@ was us who decided.
 
 **尚未落定、需要 Jing 拍板的：**
 
-1. **Daniel Vance 在 1977 出场是否过早。** 现在观众第一场戏就知道锚是他埋的，
-   Ethan 却要到第 6 场才知道。这是标准的戏剧反讽，也是「明牌」路线的必然结果 ——
-   但它把父亲这条线的悬念提前用掉了。**要不要留到 `b_earth_resist` 再揭？**
-2. **Margot 那场的「两百一十一」改成「一百四十九」** —— 数字是我随手定的，
-   如果后面剧情要用到具体年份/地点，现在改比以后改便宜。
-3. xÈth 的「Office of Remembrance」是我起的名。要不要换。
+1. ~~父亲是否 1977 就露面~~ —— **已裁决（Jing）：留到 `b_earth_resist` 再揭。**
+   本稿已回改：1977 那位改为不具名的「THE FOURTH MAN」，第 6 场 Ethan 只读到
+   一份匿名会议纪要。赌注（旅行者一号是最后一份没被改过的地球、且正在离开）
+   仍在第 6 场全部交底，明牌铁律不受影响 —— 扣下的只是「那个人是谁」。
+2. ~~洪水数字~~ —— **已裁决：不动。** 211 → 149。
+3. ~~Office of Remembrance~~ —— **已裁决：不动。**

@@ -1,0 +1,122 @@
+<style>
+  @page { size: 2400px 1030px; margin: 0 }
+  html,body { margin:0; padding:0; width:2400px; height:1030px; overflow:hidden;
+              background:#100c08; font-family:"Courier New",Courier,monospace }
+  .table { position:absolute; inset:0;
+    background:
+      repeating-linear-gradient(93deg, rgba(0,0,0,.30) 0 2px, rgba(255,255,255,.018) 2px 7px,
+                                rgba(0,0,0,.14) 7px 13px, rgba(255,255,255,.01) 13px 22px),
+      linear-gradient(178deg,#3a2a1c 0%,#2b1e14 45%,#1a120c 100%); }
+  /* 台灯从左上斜切过来 */
+  .lamp { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(120% 95% at 18% -12%,
+      rgba(255,236,200,.60) 0%, rgba(255,228,185,.30) 26%,
+      rgba(0,0,0,0) 62%); mix-blend-mode:screen }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(85% 78% at 42% 40%, rgba(0,0,0,0) 40%, rgba(0,0,0,.80) 100%) }
+  .grain { position:absolute; inset:0; pointer-events:none; opacity:.16;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='.5'/></svg>") }
+
+  .page { position:absolute; width:840px; height:1120px; padding:66px 62px;
+    background:linear-gradient(172deg,#efe6d2 0%,#e6dcc4 55%,#d9cdb2 100%);
+    color:#241d13; box-sizing:border-box;
+    box-shadow: 0 34px 60px rgba(0,0,0,.72), 0 3px 0 rgba(0,0,0,.45);
+    font-size:19px; line-height:1.62 }
+  .L { left:150px;  top:-30px;  transform:rotate(-0.7deg) }
+  .R { left:1120px; top:-14px;  transform:rotate(0.5deg) }
+  /* 右页更新更白一点 —— 它是「刚印的那一份」 */
+  .R { background:linear-gradient(172deg,#f4ecdb 0%,#ece2cd 55%,#e0d6bd 100%) }
+
+  .hdr { text-align:center; letter-spacing:.20em; font-size:16px; margin-bottom:6px }
+  .sub { text-align:center; letter-spacing:.09em; font-size:15px; color:#4a4033 }
+  .rule { border-bottom:2px solid #241d13; margin:16px 0 22px }
+  .meta { font-size:15px; color:#3c3226; margin-bottom:20px }
+  .meta span { display:inline-block; min-width:196px }
+  h2 { font-size:17px; letter-spacing:.13em; margin:26px 0 10px; font-weight:normal;
+       border-bottom:1px solid #8b7d68; padding-bottom:5px }
+  p { margin:0 0 13px }
+  .fig { width:74%; border-collapse:collapse; font-size:16px; margin:6px 0 4px;
+         line-height:1.9 }
+  .fig td { padding:2px 0; border-bottom:1px dotted #9a8c76;
+            vertical-align:baseline }
+  .fig td:last-child { text-align:right; width:92px }
+  .key td { font-size:20px; padding-top:8px }
+  .num { font-weight:bold; letter-spacing:.04em }
+  .foot { position:absolute; left:62px; right:62px; bottom:52px;
+          font-size:13px; color:#5d5142; border-top:1px solid #a3947c; padding-top:9px;
+          display:flex; justify-content:space-between }
+  .stamp { position:absolute; right:58px; top:132px; font-size:13px; letter-spacing:.18em;
+           color:#6b5f4e; border:1px solid #8b7d68; padding:5px 11px; transform:rotate(3deg) }
+</style>
+
+<div class="table"></div>
+
+<div class="page L">
+  <div class="hdr">FEDERAL RECORDS OFFICE</div>
+  <div class="sub">CONSOLIDATED INCIDENT SUMMARY</div>
+  <div class="rule"></div>
+  <div class="meta">
+    <span>FILE&nbsp;&nbsp;09&#8209;4&#8209;A</span> SHEET 1 OF 3<br>
+    <span>EVENT&nbsp;&nbsp;RIVER FLOOD</span> 9 APRIL
+  </div>
+  <div class="stamp">COPY 1</div>
+
+  <h2>1. SUMMARY</h2>
+  <p>Sustained rainfall over the upper catchment produced a rise of
+  4.1 m at the town gauge between 02:10 and 06:40. Evacuation notice
+  was issued at 04:55. Water entered the low district before the
+  notice was completed.</p>
+
+  <h2>2. CASUALTIES</h2>
+  <table class="fig">
+    <tr><td>Recovered, identified</td><td class="num">188</td></tr>
+    <tr><td>Recovered, unidentified</td><td class="num">14</td></tr>
+    <tr><td>Not recovered</td><td class="num">9</td></tr>
+    <tr class="key"><td><b>CONFIRMED FATALITIES</b></td><td class="num"><b>211</b></td></tr>
+  </table>
+  <p>Figures compiled from county coroner returns and the register of
+  the receiving hospital. Three entries remain under review and are
+  included above.</p>
+
+  <h2>3. NOTE</h2>
+  <p>This sheet supersedes the preliminary summary of 12 April.</p>
+
+  <div class="foot"><span>FRO&nbsp;09&#8209;4&#8209;A</span><span>PAGE 1</span></div>
+</div>
+
+<div class="page R">
+  <div class="hdr">FEDERAL RECORDS OFFICE</div>
+  <div class="sub">CONSOLIDATED INCIDENT SUMMARY</div>
+  <div class="rule"></div>
+  <div class="meta">
+    <span>FILE&nbsp;&nbsp;09&#8209;4&#8209;A</span> SHEET 1 OF 3<br>
+    <span>EVENT&nbsp;&nbsp;RIVER FLOOD</span> 9 APRIL
+  </div>
+  <div class="stamp">COPY 1</div>
+
+  <h2>1. SUMMARY</h2>
+  <p>Sustained rainfall over the upper catchment produced a rise of
+  4.1 m at the town gauge between 02:10 and 06:40. Evacuation notice
+  was issued at 04:55. Water entered the low district before the
+  notice was completed.</p>
+
+  <h2>2. CASUALTIES</h2>
+  <table class="fig">
+    <tr><td>Recovered, identified</td><td class="num">140</td></tr>
+    <tr><td>Recovered, unidentified</td><td class="num">9</td></tr>
+    <tr><td>Not recovered</td><td class="num">0</td></tr>
+    <tr class="key"><td><b>CONFIRMED FATALITIES</b></td><td class="num"><b>149</b></td></tr>
+  </table>
+  <p>Figures compiled from county coroner returns and the register of
+  the receiving hospital. All entries are settled and no entry remains
+  under review.</p>
+
+  <h2>3. NOTE</h2>
+  <p>This sheet supersedes the preliminary summary of 12 April.</p>
+
+  <div class="foot"><span>FRO&nbsp;09&#8209;4&#8209;A</span><span>PAGE 1</span></div>
+</div>
+
+<div class="lamp"></div>
+<div class="grain"></div>
+<div class="vig"></div>

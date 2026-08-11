@@ -1,0 +1,65 @@
+<!-- b_earth_resist §6 — Ethan 那盒卡片里的一张。Clara 在车里念出来的就是它。
+     文字承担叙事(名字/年龄/死法/那句改写) → 确定性道具, 不交给生成模型(圣经铁律 7.6)。
+     铅笔字: 用手写体 + 低对比灰, 不用纯黑。
+     渲染: chrome --headless --window-size=2000,1200 --screenshot -->
+<style>
+  html,body { margin:0; width:2000px; height:1200px; overflow:hidden;
+              background:#0b0906; font-family:"Courier New",Courier,monospace }
+  .desk { position:absolute; inset:0;
+    background: repeating-linear-gradient(89deg, rgba(0,0,0,.30) 0 2px,
+                  rgba(255,255,255,.014) 2px 9px, rgba(0,0,0,.13) 9px 16px),
+                linear-gradient(176deg,#382719 0%,#261a11 52%,#150e09 100%) }
+  /* 车内仪表盘的冷绿微光 + 一点暖光 —— 剧本里这是夜里的车上 */
+  .glow { position:absolute; inset:0; pointer-events:none; mix-blend-mode:screen;
+    background: radial-gradient(88% 76% at 50% 108%, rgba(150,220,170,.30) 0%,
+                                rgba(120,190,150,.10) 34%, rgba(0,0,0,0) 66%),
+                radial-gradient(70% 60% at 22% -6%, rgba(255,232,190,.30) 0%,
+                                rgba(0,0,0,0) 60%) }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(72% 68% at 50% 48%, rgba(0,0,0,0) 34%, rgba(0,0,0,.90) 100%) }
+  .grain { position:absolute; inset:0; pointer-events:none; opacity:.20;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='.5'/></svg>") }
+
+  .card { position:absolute; left:300px; top:210px; width:1400px; height:800px;
+    box-sizing:border-box; padding:74px 84px 0; transform:rotate(-1.4deg);
+    background:
+      /* 横线 */
+      repeating-linear-gradient(180deg, rgba(0,0,0,0) 0 87px,
+                                rgba(96,122,150,.34) 87px 89px),
+      linear-gradient(172deg,#f4efe2 0%,#ece5d4 58%,#ded5c0 100%);
+    background-position: 0 96px, 0 0;
+    box-shadow:0 34px 58px rgba(0,0,0,.78), 0 2px 0 rgba(0,0,0,.4) }
+  /* 顶端红线 */
+  .card::before { content:""; position:absolute; left:0; right:0; top:96px; height:2px;
+    background:rgba(178,86,86,.50) }
+  /* 左侧竖红边线 */
+  .card::after { content:""; position:absolute; top:0; bottom:0; left:150px; width:2px;
+    background:rgba(178,86,86,.34) }
+
+  .pen { font-family:"Bradley Hand","Noteworthy","Marker Felt","Segoe Print",cursive;
+         color:#4a4640; }
+  .line { position:absolute; left:186px; right:80px; }
+  .l1 { top:112px; font-size:52px }
+  .l2 { top:200px; font-size:44px }
+  .l3 { top:288px; font-size:44px }
+  .l4 { top:376px; font-size:44px }
+  /* 最后一行下笔更重 —— 那是被改写的那句 */
+  .l6 { top:552px; font-size:46px; color:#3a3630 }
+  .ref { position:absolute; right:86px; top:36px; font-size:26px; color:#6d6455;
+         font-family:"Courier New",monospace; letter-spacing:.12em }
+</style>
+
+<div class="desk"></div>
+
+<div class="card">
+  <span class="ref">0 0 1</span>
+  <div class="pen line l1">Marion Bell &nbsp;&nbsp;61</div>
+  <div class="pen line l2">drowned in her kitchen, 9 April —</div>
+  <div class="pen line l3">held the back door shut against the</div>
+  <div class="pen line l4">water. the dog was still inside.</div>
+  <div class="pen line l6">record says she moved to Ohio.</div>
+</div>
+
+<div class="glow"></div>
+<div class="grain"></div>
+<div class="vig"></div>

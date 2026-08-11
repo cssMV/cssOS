@@ -111,7 +111,7 @@ NO rocket, NO wings, NO solar panels, NO glowing parts`。
 
 ## 三 · 主参考脸
 
-`face-ethan.png` / `face-clara.png` / `face-xeth.png`
+`face-ethan.png` / `face-clara.png` / `face-xeth.png` / `face-woman-1977.png`
 
 **原创合成脸，不像任何真实在世或历史人物**（圣经 §10.5 铁律 5 红线 ——
 xÈth 是总统角色）。
@@ -121,6 +121,11 @@ xÈth 是总统角色）。
 - **Ethan** — 左眉一道细竖疤
 - **Clara** — 右眼下一颗小痣
 - **xÈth** — 淡琥珀色瞳、无皱纹
+- **无名女子（1977 实验室）** — 左下颌一颗小痣、中分直发、浓直眉
+
+**选标记要看镜头**：那位女子在 `1C` 里全程**闭眼**，所以瞳色一类的标记在
+那个镜头里失效。给她的三样都是闭眼也成立的。定标记前先想一遍：这个角色
+最关键的那个镜头里，什么是看得见的。
 
 用法：每个含该角色的镜头，把对应 PNG 作 `image_urls` 条件传给
 `google/nano-banana`；多人同框传多张。已实测通过（跨场景、三人同框、

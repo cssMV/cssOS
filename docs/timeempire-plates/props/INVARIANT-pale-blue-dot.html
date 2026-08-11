@@ -1,0 +1,52 @@
+<!-- 暗淡蓝点 —— xÈth 的圣像。全片反复出现, 必须每次完全一致。
+     【为什么是道具不是生成】校准时这一格是失败的那个: 那个点在六秒里长成了
+     一颗能看出圆盘的行星, 而 Sagan 那句话的全部力量恰恰在于它与一粒尘埃
+     无法区分。引擎受不了「什么都不发生」, 也受不了「主体小到看不清」——
+     这是否定性要求, 交给确定性工具(圣经铁律 7.6 / 7)。
+     渲染: chrome --headless --window-size=1470,630 --screenshot -->
+<style>
+  html,body { margin:0; width:1470px; height:630px; overflow:hidden; background:#000 }
+  .space { position:absolute; inset:0; background:#000 }
+
+  /* 散射阳光的斜带 —— 相机内部反射造成的伪影, 不是真实天体 */
+  .beam {
+    position:absolute; left:-18%; top:-62%; width:136%; height:224%;
+    transform:rotate(28deg); transform-origin:50% 50%;
+    background:
+      linear-gradient(90deg,
+        rgba(0,0,0,0)            0%,
+        rgba(0,0,0,0)           36%,
+        rgba(150,124,88,.16)    41%,
+        rgba(226,196,148,.52)   48%,
+        rgba(238,210,164,.62)   51%,
+        rgba(214,182,134,.44)   55%,
+        rgba(140,116,82,.13)    60%,
+        rgba(0,0,0,0)           66%,
+        rgba(0,0,0,0)          100%);
+    filter: blur(2.2px) }
+  /* 带子里的横向条纹 —— 老式 vidicon 摄像管的行结构 */
+  .lines { position:absolute; inset:0; pointer-events:none; opacity:.30;
+    background: repeating-linear-gradient(0deg,
+      rgba(255,255,255,.030) 0 1px, rgba(0,0,0,0) 1px 3px) }
+
+  /* 地球。整张图里唯一一个「主体」, 而它只有 3 个像素宽。
+     不许放大, 不许加光晕, 不许加大气层。 */
+  .dot { position:absolute; left:50.8%; top:43.2%;
+    width:4px; height:4px; border-radius:50%;
+    background:#a9c4dd;
+    box-shadow:0 0 1.5px .4px rgba(150,185,215,.55) }
+
+  .stars { position:absolute; inset:0; pointer-events:none; opacity:.09;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='2'/><feColorMatrix type='matrix' values='0 0 0 0 .8 0 0 0 0 .85 0 0 0 0 1 0 0 0 -9 4.6'/></filter><rect width='400' height='400' filter='url(%23s)'/></svg>") }
+  .grain { position:absolute; inset:0; pointer-events:none; opacity:.07;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='.5'/></svg>") }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(78% 82% at 50% 50%, rgba(0,0,0,0) 52%, rgba(0,0,0,.55) 100%) }
+</style>
+
+<div class="space"></div>
+<div class="beam"><div class="lines"></div></div>
+<div class="stars"></div>
+<div class="dot"></div>
+<div class="grain"></div>
+<div class="vig"></div>

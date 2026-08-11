@@ -1,0 +1,86 @@
+<!-- b_mars_infiltrate §4 — 那张登记表。费米寂静的全部呈现。
+     剧本铁律: 不许任何角色讲授大过滤器 —— 意思必须由这张表自己说出来。
+     两列日期: 开始发声 / 停止发声。每一行都有第二个日期。
+     文字与数据承担叙事 → 确定性道具(圣经铁律 7.6)。
+     渲染: chrome --headless --window-size=2200,1500 --screenshot -->
+<style>
+  html,body { margin:0; width:2200px; height:1500px; overflow:hidden;
+              background:#0a0806; font-family:"Courier New",Courier,monospace }
+  .desk { position:absolute; inset:0;
+    background: repeating-linear-gradient(90deg, rgba(0,0,0,.30) 0 2px,
+                  rgba(255,255,255,.014) 2px 8px, rgba(0,0,0,.12) 8px 15px),
+                linear-gradient(177deg,#332417 0%,#241910 52%,#140d08 100%) }
+  /* 绿罩台灯 —— 与 xÈth 房间同一盏 */
+  .lamp { position:absolute; inset:0; pointer-events:none; mix-blend-mode:screen;
+    background: radial-gradient(84% 70% at 38% -10%,
+      rgba(214,236,200,.34) 0%, rgba(196,222,186,.14) 34%, rgba(0,0,0,0) 68%) }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(76% 72% at 48% 46%, rgba(0,0,0,0) 36%, rgba(0,0,0,.88) 100%) }
+  .grain { position:absolute; inset:0; pointer-events:none; opacity:.15;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='.5'/></svg>") }
+
+  /* 一张摊开的长卷 —— 上下边缘有卷曲的暗影 */
+  .roll { position:absolute; left:150px; top:96px; width:1900px; height:1320px;
+    padding:70px 96px 0; box-sizing:border-box; transform:rotate(-0.4deg);
+    background:linear-gradient(180deg,
+      #b9ab90 0%, #efe7d4 5%, #f2ebda 46%, #ece4d1 88%, #b5a78c 100%);
+    color:#1e1810; box-shadow:0 34px 64px rgba(0,0,0,.80) }
+
+  .hdr { text-align:center; letter-spacing:.30em; font-size:26px }
+  .sub { text-align:center; letter-spacing:.12em; font-size:19px; color:#4a4033; margin-top:10px }
+  .rule { border-bottom:2px solid #1e1810; margin:22px 0 8px }
+
+  table { width:100%; border-collapse:collapse; font-size:21px; line-height:1.5 }
+  th { text-align:left; font-weight:normal; letter-spacing:.13em; font-size:17px;
+       color:#4c4234; padding:14px 0 10px; border-bottom:1px solid #8d7f6a }
+  td { padding:7px 0; border-bottom:1px dotted #a89a83; vertical-align:baseline }
+  .coord { width:36%; letter-spacing:.06em }
+  .d1 { width:20%; color:#3a3125 }
+  .d2 { width:20%; }
+  .cls { width:24%; color:#574c3c; font-size:19px }
+  /* 第二列日期 —— 每一行都有。这是这张表唯一要说的话。 */
+  .d2 b { font-weight:bold; letter-spacing:.04em }
+
+  .foot { position:absolute; left:96px; right:96px; bottom:96px; font-size:18px;
+          color:#5a4f40; border-top:1px solid #a2947c; padding-top:14px;
+          display:flex; justify-content:space-between }
+</style>
+
+<div class="desk"></div>
+
+<div class="roll">
+  <div class="hdr">REGISTER OF EMISSIONS</div>
+  <div class="sub">SOURCES DETECTED · GALACTIC SURVEY · CONTINUING</div>
+  <div class="rule"></div>
+
+  <table>
+    <tr><th class="coord">SOURCE</th><th class="d1">FIRST HEARD</th>
+        <th class="d2">LAST HEARD</th><th class="cls">CLASS</th></tr>
+    <tr><td class="coord">17 42 29 &minus;28 59 18</td><td class="d1">-114 402</td><td class="d2"><b>-113 786</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">05 35 17 &minus;05 23 28</td><td class="d1">-98 551</td><td class="d2"><b>-98 090</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">18 53 35 &plus;33 01 45</td><td class="d1">-86 233</td><td class="d2"><b>-85 902</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">12 30 49 &plus;12 23 28</td><td class="d1">-71 908</td><td class="d2"><b>-71 655</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">03 47 24 &plus;24 07 00</td><td class="d1">-64 470</td><td class="d2"><b>-64 219</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">20 41 26 &plus;45 16 49</td><td class="d1">-59 112</td><td class="d2"><b>-58 984</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">10 08 22 &plus;11 58 02</td><td class="d1">-52 806</td><td class="d2"><b>-52 601</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">06 45 09 &minus;16 42 58</td><td class="d1">-47 330</td><td class="d2"><b>-47 118</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">14 39 36 &minus;60 50 02</td><td class="d1">-38 915</td><td class="d2"><b>-38 744</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">22 57 39 &minus;29 37 20</td><td class="d1">-31 227</td><td class="d2"><b>-31 049</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">01 37 43 &minus;57 14 12</td><td class="d1">-24 660</td><td class="d2"><b>-24 502</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">19 50 47 &plus;08 52 06</td><td class="d1">-16 084</td><td class="d2"><b>-15 971</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">08 55 11 &plus;05 12 44</td><td class="d1">-9 771</td><td class="d2"><b>-9 668</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">04 20 00 &plus;16 30 33</td><td class="d1">-4 402</td><td class="d2"><b>-4 336</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">16 29 24 &minus;26 25 55</td><td class="d1">-1 918</td><td class="d2"><b>-1 871</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">02 31 49 &plus;89 15 51</td><td class="d1">-806</td><td class="d2"><b>-742</b></td><td class="cls">technological</td></tr>
+    <tr><td class="coord">18 36 56 &plus;38 47 01</td><td class="d1">-311</td><td class="d2"><b>-268</b></td><td class="cls">technological</td></tr>
+    <!-- 最后一行没有第二个日期。整张表里唯一一个还在响的。 -->
+    <tr><td class="coord">SOL &nbsp;&nbsp;&nbsp;19 07 34 &plus;15 41 02</td><td class="d1">-49</td>
+        <td class="d2"><b>&mdash;</b></td><td class="cls">technological</td></tr>
+  </table>
+
+  <div class="foot"><span>ENTRIES 1&ndash;18 OF 40 921</span><span>SHEET 1</span></div>
+</div>
+
+<div class="lamp"></div>
+<div class="grain"></div>
+<div class="vig"></div>

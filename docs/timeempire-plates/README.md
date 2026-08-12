@@ -9,8 +9,12 @@
 > 脸、另一间屋子、另一艘探测器**，前面所有已生成的镜头就对不上了。
 > 这不是素材，是**基准**。基准必须可复现，所以必须落库。
 >
-> **待办：** 按平台铁律「生成的媒体必须落我们域名/R2」，这批应同时上传 R2
-> 并在此登记 URL 与 sha256。现在只在 git 里，够安全但不够正式。
+> **已落 R2（2026-08-12）：** 113 个文件、171.9 MB，全部在
+> `https://cdn.cssstudio.app/timeempire/plates/…`，每个文件的 sha256 与 URL
+> 登记在 `R2-MANIFEST.json`。
+>
+> 除了合规，这一步有个实际理由：**基准板有了固定 URL 才能直接当参考图用。**
+> 暗淡蓝点那次就是因为本地 PNG 没有 URL，只能改走 ffmpeg 合成。
 
 ---
 
@@ -23,6 +27,27 @@
 |---|---|---|
 | `INVARIANT-final4.mp4` | 静帧 + ffmpeg 定格，无损编码 | `653a1f39…a43353` |
 | `INVARIANT-pale-blue-dot.png` | HTML + Chrome 渲染 | `1c716752…b24d9f3e` |
+| `INVARIANT-heartbeat.wav` | 纯 Python 合成 | `c16d3470…2106a5e3` |
+| `INVARIANT-final4-with-heartbeat.mp4` | 上面两者合成（**交付版**） | `bdc389e4…81fcc23e` |
+
+### `INVARIANT-heartbeat.wav` — 母题，全片只许出现三次
+
+冷开场黑屏 · `b_converge` 第 71 分钟 · 最后四秒。**三次必须完全一致** ——
+所以它和最后四秒、暗淡蓝点同类：不可以是生成的。
+
+纯 Python 合成（`props/INVARIANT-heartbeat.py`）：78 bpm（「比静息稍快一点」），
+S1「lub」44 Hz 低而长，S2「dub」58 Hz 略高而短，收缩期 0.30 s，加一层极轻的
+低频房间声，因为这是一次接触式录音、不是合成器音色。
+
+**同一脚本两次渲染，哈希相同 —— 已实测。**
+
+### 交付版 `INVARIANT-final4-with-heartbeat.mp4`
+
+心跳合进最后四秒。**视频流是逐字节复制的**（`-c:v copy`），所以合成后
+重新验过：**96 帧解码仍然唯一哈希 1 个**，「什么都不动」这个保证没被破坏。
+
+**这是两条尾巴共用的那一份。** 旧的无音轨版 `INVARIANT-final4.mp4` 保留作
+画面权威，但**成片必须用带音轨这一版**。
 
 ### `INVARIANT-pale-blue-dot.png` — xÈth 的圣像
 

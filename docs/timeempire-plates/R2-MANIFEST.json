@@ -1,0 +1,680 @@
+{
+ "INVARIANT-artifact-voyager.png": {
+  "key": "timeempire/plates/INVARIANT-artifact-voyager.png",
+  "sha256": "7ca6d168ee7669d2a335ad6e0535c3605a7ebf9c549b8b6b9636e6dd49c44a9f",
+  "bytes": 859765,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/INVARIANT-artifact-voyager.png"
+ },
+ "INVARIANT-final4-with-heartbeat.mp4": {
+  "key": "timeempire/plates/INVARIANT-final4-with-heartbeat.mp4",
+  "sha256": "bdc389e4c0795b15d2e5fa035eae6fe5e8c707c01e535452d5b2368581fcc23e",
+  "bytes": 357049,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/INVARIANT-final4-with-heartbeat.mp4"
+ },
+ "INVARIANT-final4.mp4": {
+  "key": "timeempire/plates/INVARIANT-final4.mp4",
+  "sha256": "653a1f399ef2345bda29004f4ad72ba342054b6d644a3943b3e4342b69a43353",
+  "bytes": 311985,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/INVARIANT-final4.mp4"
+ },
+ "INVARIANT-final4.png": {
+  "key": "timeempire/plates/INVARIANT-final4.png",
+  "sha256": "350e4c2af80171767a1182729f309e0dcfae8827254a276d86929d9a3be5975e",
+  "bytes": 788155,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/INVARIANT-final4.png"
+ },
+ "INVARIANT-heartbeat.wav": {
+  "key": "timeempire/plates/INVARIANT-heartbeat.wav",
+  "sha256": "c16d3470495bbfb545fd248bcbf2bed24cccae2899de72c6a921245c2106a5e3",
+  "bytes": 384044,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/INVARIANT-heartbeat.wav"
+ },
+ "INVARIANT-pale-blue-dot.png": {
+  "key": "timeempire/plates/INVARIANT-pale-blue-dot.png",
+  "sha256": "1c7167522a78815d3d2ca86c6b15669caf18bf15d4ba7ae7a2b07665b24d9f3e",
+  "bytes": 1602607,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/INVARIANT-pale-blue-dot.png"
+ },
+ "b_converge/C1-1-room-wide.png": {
+  "key": "timeempire/plates/b_converge/C1-1-room-wide.png",
+  "sha256": "97f7571ba0db560c65d29a245426f017d5c8d8dad4eccd61da2ea8e3d88e8a5d",
+  "bytes": 2048456,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C1-1-room-wide.png"
+ },
+ "b_converge/C1-2-clock-lamp.png": {
+  "key": "timeempire/plates/b_converge/C1-2-clock-lamp.png",
+  "sha256": "668669d2fffacf3ebf368ae07151d1a46d65ad5c22f0036a3dc0fba1519782f5",
+  "bytes": 1706535,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C1-2-clock-lamp.png"
+ },
+ "b_converge/C1-3-presses-key.png": {
+  "key": "timeempire/plates/b_converge/C1-3-presses-key.png",
+  "sha256": "84c8265b4c83e52a6de15084d598b2a04e1145b5042a0921fcc2ac6349c5fced",
+  "bytes": 1926779,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C1-3-presses-key.png"
+ },
+ "b_converge/C2-1-clara-reads.png": {
+  "key": "timeempire/plates/b_converge/C2-1-clara-reads.png",
+  "sha256": "4347478d36c852d2977f22a2088f785f9b9e6989aa8f0c8e3047e28d0a3cb9d8",
+  "bytes": 1425586,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C2-1-clara-reads.png"
+ },
+ "b_converge/C2-2-dish-below.png": {
+  "key": "timeempire/plates/b_converge/C2-2-dish-below.png",
+  "sha256": "2351aaf2d178566e4cf0efc51b03436fac66b6aebc216769e9c1a6842f550496",
+  "bytes": 1964623,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C2-2-dish-below.png"
+ },
+ "b_converge/C3-1-door-opens.png": {
+  "key": "timeempire/plates/b_converge/C3-1-door-opens.png",
+  "sha256": "307e0415d9dd550ebd7492f04e8d10fa5c4417e19c7269dcfa929c2688efe2c4",
+  "bytes": 1817584,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C3-1-door-opens.png"
+ },
+ "b_converge/C3-2-between.png": {
+  "key": "timeempire/plates/b_converge/C3-2-between.png",
+  "sha256": "f475366837fdcf2d813a5f8f51adf6950ab26fb126b3d399a5fbf6934e8f59b1",
+  "bytes": 1688107,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C3-2-between.png"
+ },
+ "b_converge/C4-1-register-desk.png": {
+  "key": "timeempire/plates/b_converge/C4-1-register-desk.png",
+  "sha256": "662744b75c08a507c08ee39defaafe1f7356c5d29218e129a88b749e64c02f66",
+  "bytes": 1506317,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C4-1-register-desk.png"
+ },
+ "b_converge/C4-2-ethan-reads-map.png": {
+  "key": "timeempire/plates/b_converge/C4-2-ethan-reads-map.png",
+  "sha256": "2bd85f68abc856550f890867ebe9b0b5eea7f2bd2f54704fca4a0d4ea9cc736d",
+  "bytes": 1876297,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C4-2-ethan-reads-map.png"
+ },
+ "b_converge/C5-1-xeth-crouches.png": {
+  "key": "timeempire/plates/b_converge/C5-1-xeth-crouches.png",
+  "sha256": "74236b0d2bed18f0bd2aad0d8d1cbc545ef21fd9d17105a75053891a5fc0918c",
+  "bytes": 2009411,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C5-1-xeth-crouches.png"
+ },
+ "b_converge/C6-1-four-in-room.png": {
+  "key": "timeempire/plates/b_converge/C6-1-four-in-room.png",
+  "sha256": "e1272b30efc4a1ac5d0b9e2802f98c6dc0e031d69d04b6655a39030e897215d8",
+  "bytes": 1686516,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C6-1-four-in-room.png"
+ },
+ "b_converge/C6-2-the-card.png": {
+  "key": "timeempire/plates/b_converge/C6-2-the-card.png",
+  "sha256": "3b4d01f56fe552c19113c53bdf65bcab8e1609113d08703eb4c8a210c924295c",
+  "bytes": 1517913,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_converge/C6-2-the-card.png"
+ },
+ "b_earth_resist/E1-1-consolidation.png": {
+  "key": "timeempire/plates/b_earth_resist/E1-1-consolidation.png",
+  "sha256": "2836ffaf3ea0d5e9aac5fc0251d590223b69822af5ea7b134013e6a605b6d666",
+  "bytes": 1336792,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E1-1-consolidation.png"
+ },
+ "b_earth_resist/E1-2-photographing.png": {
+  "key": "timeempire/plates/b_earth_resist/E1-2-photographing.png",
+  "sha256": "101c5486df8e0c4219dad7f47e23be55d52445a92935d0a17478259425c78f55",
+  "bytes": 1435808,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E1-2-photographing.png"
+ },
+ "b_earth_resist/E1-3-attendance-sheet.png": {
+  "key": "timeempire/plates/b_earth_resist/E1-3-attendance-sheet.png",
+  "sha256": "cf4b0fd85a5452ed48ea7587c410087200b6c0e751eec1a163b33aa931a62993",
+  "bytes": 3464480,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E1-3-attendance-sheet.png"
+ },
+ "b_earth_resist/E2-1-coupon-palm.png": {
+  "key": "timeempire/plates/b_earth_resist/E2-1-coupon-palm.png",
+  "sha256": "8b0a0fbac40daf7d2f8aa96ee00b09ae2619f343561326b6ee9f9e1bedf64438",
+  "bytes": 1403388,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E2-1-coupon-palm.png"
+ },
+ "b_earth_resist/E2-2-on-the-floor.png": {
+  "key": "timeempire/plates/b_earth_resist/E2-2-on-the-floor.png",
+  "sha256": "b1ed0a39f275a70b7bdb3b96d748f3a3fd2bb4623eb9b5d0ad8f303d81dc8e05",
+  "bytes": 1333940,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E2-2-on-the-floor.png"
+ },
+ "b_earth_resist/E3-1-two-piles.png": {
+  "key": "timeempire/plates/b_earth_resist/E3-1-two-piles.png",
+  "sha256": "d397751a5527fd82af0b6247818509b0c8635a9a75d1452186aa4fa41f1c395d",
+  "bytes": 1450223,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E3-1-two-piles.png"
+ },
+ "b_earth_resist/E3-2-clara-turns.png": {
+  "key": "timeempire/plates/b_earth_resist/E3-2-clara-turns.png",
+  "sha256": "c6e6725f4cd3c2450206f8c03f73b3dee3bb45fa41b6d1d668a1259b41de5be6",
+  "bytes": 1427426,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E3-2-clara-turns.png"
+ },
+ "b_earth_resist/E4-1-the-plan.png": {
+  "key": "timeempire/plates/b_earth_resist/E4-1-the-plan.png",
+  "sha256": "f267c7c298d235986a016304674a34a22fc3ee14785202a26a16fd544c9858e4",
+  "bytes": 1440747,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E4-1-the-plan.png"
+ },
+ "b_earth_resist/E5-1-dish-fence.png": {
+  "key": "timeempire/plates/b_earth_resist/E5-1-dish-fence.png",
+  "sha256": "605d482e47a9f65c1e1ff33d1e49d944657917e08d85f0d38aa0ee3c5b94c8ce",
+  "bytes": 1165648,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E5-1-dish-fence.png"
+ },
+ "b_earth_resist/E5-2-clara-looks-up.png": {
+  "key": "timeempire/plates/b_earth_resist/E5-2-clara-looks-up.png",
+  "sha256": "7d772a6303df78e98a1fe5580f5af6997934d9ded6ff32a5f2bc54575a83b6e9",
+  "bytes": 1239407,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E5-2-clara-looks-up.png"
+ },
+ "b_earth_resist/E6-1-car-two.png": {
+  "key": "timeempire/plates/b_earth_resist/E6-1-car-two.png",
+  "sha256": "b895bd8eb8a0d0e2ad42bf609a4d6fc4e3faaff75bc7d54c616bab545ed50f30",
+  "bytes": 886433,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E6-1-car-two.png"
+ },
+ "b_earth_resist/E6-2-marion-bell-card.png": {
+  "key": "timeempire/plates/b_earth_resist/E6-2-marion-bell-card.png",
+  "sha256": "6fdd4b6040a3555ae2b1d4b6408348f7b1c282eddcc0d263f5e94a680d4aa97f",
+  "bytes": 3073159,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E6-2-marion-bell-card.png"
+ },
+ "b_earth_resist/E6-3-hand-on-lid.mp4": {
+  "key": "timeempire/plates/b_earth_resist/E6-3-hand-on-lid.mp4",
+  "sha256": "446a859d8444be81104b49273877d81305570d9ba02561a3e884a8db5972ac00",
+  "bytes": 1913597,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E6-3-hand-on-lid.mp4"
+ },
+ "b_earth_resist/E6-3a-box-on-lap.png": {
+  "key": "timeempire/plates/b_earth_resist/E6-3a-box-on-lap.png",
+  "sha256": "ec2a202c7a024dda8ce56615eb96fe47f16c665115c63d4a5b31936153b91511",
+  "bytes": 1239775,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E6-3a-box-on-lap.png"
+ },
+ "b_earth_resist/E7-1-empty-shelves.png": {
+  "key": "timeempire/plates/b_earth_resist/E7-1-empty-shelves.png",
+  "sha256": "cdb48596dbf8aee6853aba81dfca37a45c8a09ac140f8a39fed33120a405c609",
+  "bytes": 1254029,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E7-1-empty-shelves.png"
+ },
+ "b_mars_infiltrate/M1-1-counter.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M1-1-counter.png",
+  "sha256": "6bd3b02adc5ae5d3d2575a45115ae7aa738120d3cdfdfbbfc4266dfb26f428b7",
+  "bytes": 1441445,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M1-1-counter.png"
+ },
+ "b_mars_infiltrate/M1-2-sitting-beside.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M1-2-sitting-beside.png",
+  "sha256": "f5a663bf24f6eb81011ad2750e6c83bf8b690390b5242298c0046014817bbeb0",
+  "bytes": 1483981,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M1-2-sitting-beside.png"
+ },
+ "b_mars_infiltrate/M2-1-floor-walk.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M2-1-floor-walk.png",
+  "sha256": "8c6abff87563a5088064cfe0ffbdd3cf07bb6075fee35fb7f20f9cc0552fa94f",
+  "bytes": 1543332,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M2-1-floor-walk.png"
+ },
+ "b_mars_infiltrate/M2-2-beside-trolley.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M2-2-beside-trolley.png",
+  "sha256": "f13913d7677cedea9868728e78c46cf25706ea5865134012fe39e1d78aed479e",
+  "bytes": 1552498,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M2-2-beside-trolley.png"
+ },
+ "b_mars_infiltrate/M3-1-xeth-room.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M3-1-xeth-room.png",
+  "sha256": "6e7c495c41de70bb03bed50285ebaa496b2a4ddc3836f171a7d5d6084515d080",
+  "bytes": 1001112,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M3-1-xeth-room.png"
+ },
+ "b_mars_infiltrate/M3-2-the-picture.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M3-2-the-picture.png",
+  "sha256": "42b59bc63b73f738ace7ac2fc2db882f4ff21a82477e6b6bbc739dd2b9e4cd0f",
+  "bytes": 1054209,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M3-2-the-picture.png"
+ },
+ "b_mars_infiltrate/M3-3-cleanroom-doorway.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M3-3-cleanroom-doorway.png",
+  "sha256": "fa2dfc6c8d5961daaa26232378d297bde5295ea73fcaa7e56a497e30643dda64",
+  "bytes": 1300485,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M3-3-cleanroom-doorway.png"
+ },
+ "b_mars_infiltrate/M3-4-xeth-laughs.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M3-4-xeth-laughs.png",
+  "sha256": "8a04db1d76c7fafe53cd65a759f66e13f75fabc15d74570a281c055c0ada5bf5",
+  "bytes": 1553871,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M3-4-xeth-laughs.png"
+ },
+ "b_mars_infiltrate/M4-1-the-register.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M4-1-the-register.png",
+  "sha256": "ac77e339ba597d345aa8388c9585e6c64d9ce61cbced1df1a121019435cbd5c7",
+  "bytes": 3593497,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M4-1-the-register.png"
+ },
+ "b_mars_infiltrate/M4-2-june-chair.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M4-2-june-chair.png",
+  "sha256": "240f43a4a46a6ba2e86cdd14bc4d23d3a841fe1e59a691eca015ea2ad3c8c867",
+  "bytes": 1295161,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M4-2-june-chair.png"
+ },
+ "b_mars_infiltrate/M5-1-june-night.png": {
+  "key": "timeempire/plates/b_mars_infiltrate/M5-1-june-night.png",
+  "sha256": "46335d893b033357e1925cad66128fb58fbf4a4bd535b4a84412442227b62eb5",
+  "bytes": 1372686,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_mars_infiltrate/M5-1-june-night.png"
+ },
+ "b_open-coldopen/1A-lab-wide.png": {
+  "key": "timeempire/plates/b_open-coldopen/1A-lab-wide.png",
+  "sha256": "87ad34caa88bc754413044566c7037c8456ab27d7ac9809d0e8116769d944682",
+  "bytes": 1574114,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/1A-lab-wide.png"
+ },
+ "b_open-coldopen/1B-drum-insert.png": {
+  "key": "timeempire/plates/b_open-coldopen/1B-drum-insert.png",
+  "sha256": "f36c655a742ea6687aba87a1d01eb5bb9ffac28c8497c0a96e460c62c2b67a20",
+  "bytes": 1497793,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/1B-drum-insert.png"
+ },
+ "b_open-coldopen/1C-woman-close.png": {
+  "key": "timeempire/plates/b_open-coldopen/1C-woman-close.png",
+  "sha256": "13a2b35fc7e27881cc342c0aafcc40731c2d18e2395790666dba5cbb105f5176",
+  "bytes": 2594588,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/1C-woman-close.png"
+ },
+ "b_open-coldopen/2A-plant-wide.png": {
+  "key": "timeempire/plates/b_open-coldopen/2A-plant-wide.png",
+  "sha256": "959a8c454e7bbe8103103f05ffd3dcaf902b34a14f6580b2efb92fff83ecc206",
+  "bytes": 1562294,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/2A-plant-wide.png"
+ },
+ "b_open-coldopen/2B-argument-medium.png": {
+  "key": "timeempire/plates/b_open-coldopen/2B-argument-medium.png",
+  "sha256": "b88beccdc8295d111324b46d43059a5203e7425859a2803dcb0e3839b5268a28",
+  "bytes": 1573559,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/2B-argument-medium.png"
+ },
+ "b_open-coldopen/2C-hands-disc.png": {
+  "key": "timeempire/plates/b_open-coldopen/2C-hands-disc.png",
+  "sha256": "fe0137999757aab1e30ef95c2f83e868bb627a6b46b690ce909eb799320681ef",
+  "bytes": 1357543,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/2C-hands-disc.png"
+ },
+ "b_open-coldopen/2D-uranium-plating.png": {
+  "key": "timeempire/plates/b_open-coldopen/2D-uranium-plating.png",
+  "sha256": "691503f7a28eb6739f55329bdf54a7cd741d47aefec28422db5cffef5a306818",
+  "bytes": 1387976,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/2D-uranium-plating.png"
+ },
+ "b_open-coldopen/2E-cover-closing.png": {
+  "key": "timeempire/plates/b_open-coldopen/2E-cover-closing.png",
+  "sha256": "033fce749b22e1768ddcd4024ca6edf4be66e856287de5da25e2950db3d0c019",
+  "bytes": 1322163,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/2E-cover-closing.png"
+ },
+ "b_open-coldopen/S2-1-ethan-table.png": {
+  "key": "timeempire/plates/b_open-coldopen/S2-1-ethan-table.png",
+  "sha256": "9c4299b3d2e75d576808e25aab26176d4174a73ee98e1af7040a1ef87072f674",
+  "bytes": 1429967,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S2-1-ethan-table.png"
+ },
+ "b_open-coldopen/S2-2-two-pages.png": {
+  "key": "timeempire/plates/b_open-coldopen/S2-2-two-pages.png",
+  "sha256": "076159fb42b865789bca64f3314ffd2579301fc8ad8782648e1afd72fb0a9431",
+  "bytes": 3254051,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S2-2-two-pages.png"
+ },
+ "b_open-coldopen/S2-3-margot-doorway.png": {
+  "key": "timeempire/plates/b_open-coldopen/S2-3-margot-doorway.png",
+  "sha256": "6f66950b7bd1de50bae44bbc17815f8bb5f2044d8fcda791f5e21617fb2e02f4",
+  "bytes": 1500303,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S2-3-margot-doorway.png"
+ },
+ "b_open-coldopen/S2-4-margot-rewritten.mp4": {
+  "key": "timeempire/plates/b_open-coldopen/S2-4-margot-rewritten.mp4",
+  "sha256": "ddee467468169f3b5d158e93ce9bbdc833ba7c0c3b55023747c3de1822c4c5b5",
+  "bytes": 1557468,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S2-4-margot-rewritten.mp4"
+ },
+ "b_open-coldopen/S2-4a-margot-frown.png": {
+  "key": "timeempire/plates/b_open-coldopen/S2-4a-margot-frown.png",
+  "sha256": "88ac44dd951ddf1e10754cd89020841c93321c2508538372cb90fa50e0db333f",
+  "bytes": 1422840,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S2-4a-margot-frown.png"
+ },
+ "b_open-coldopen/S3-1-coupon-counter.png": {
+  "key": "timeempire/plates/b_open-coldopen/S3-1-coupon-counter.png",
+  "sha256": "cf510094decaf908eec22db76cca48683fa441e867520ac0bd33b01a85a7635b",
+  "bytes": 1654872,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S3-1-coupon-counter.png"
+ },
+ "b_open-coldopen/S3-2-notebook.png": {
+  "key": "timeempire/plates/b_open-coldopen/S3-2-notebook.png",
+  "sha256": "45278534cec7fc0fe7aee93e38507d8a472e5e342255cf88e5a1d650111b8786",
+  "bytes": 1323358,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S3-2-notebook.png"
+ },
+ "b_open-coldopen/S4-1-stairs-two.png": {
+  "key": "timeempire/plates/b_open-coldopen/S4-1-stairs-two.png",
+  "sha256": "687d8c7c0d0e1e61d1616b598ee7e0f60bcf34a9df35a98be02253e674f6b28a",
+  "bytes": 1447262,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S4-1-stairs-two.png"
+ },
+ "b_open-coldopen/S4-2-her-hands.png": {
+  "key": "timeempire/plates/b_open-coldopen/S4-2-her-hands.png",
+  "sha256": "028f7aff66beee30e52d9448614047fe086312021254352837b0a6adca117cf4",
+  "bytes": 1425649,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S4-2-her-hands.png"
+ },
+ "b_open-coldopen/S5-1-press-wide.png": {
+  "key": "timeempire/plates/b_open-coldopen/S5-1-press-wide.png",
+  "sha256": "7425a9beb20c56e84b3cc04cedde85223e393d6ed06efb7c7b58f3959f902716",
+  "bytes": 1564622,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S5-1-press-wide.png"
+ },
+ "b_open-coldopen/S5-2-xeth-medium.png": {
+  "key": "timeempire/plates/b_open-coldopen/S5-2-xeth-medium.png",
+  "sha256": "1511a3f21b0d23a3444b85d02f6ab5fa8a54ff407a19af2312be80c9d253f56e",
+  "bytes": 1532367,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S5-2-xeth-medium.png"
+ },
+ "b_open-coldopen/S6-1-projection.png": {
+  "key": "timeempire/plates/b_open-coldopen/S6-1-projection.png",
+  "sha256": "f451ef1aabf2cba7058c0b807ea403ace9c8a26985583fbeadb23b2d7bae3fce",
+  "bytes": 1218385,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S6-1-projection.png"
+ },
+ "b_open-coldopen/S6-2-ethan-line.png": {
+  "key": "timeempire/plates/b_open-coldopen/S6-2-ethan-line.png",
+  "sha256": "b20331630479261d0b6c599cc8a10df9f8a9d90dd14e1bff56d19e40944b745c",
+  "bytes": 1287864,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S6-2-ethan-line.png"
+ },
+ "b_open-coldopen/S7-1-two-lights.png": {
+  "key": "timeempire/plates/b_open-coldopen/S7-1-two-lights.png",
+  "sha256": "d910b184404af62a5c2ccde6b263e12a617582bbd59b09f64f9a3a4c7e01bef4",
+  "bytes": 1267725,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/S7-1-two-lights.png"
+ },
+ "b_open-coldopen/rejected/1A-lab-wide-v1.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/1A-lab-wide-v1.png",
+  "sha256": "f55fdb353d322c5a1aeb5680076f7bf8b498c25600f6b16b531bfce4b991a0cd",
+  "bytes": 1559660,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/1A-lab-wide-v1.png"
+ },
+ "b_open-coldopen/rejected/1C-woman-close-v1.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/1C-woman-close-v1.png",
+  "sha256": "5811aca4cd553145b6fca33c1617623f9b0fe50ad3139770bafcacf803fde561",
+  "bytes": 1431558,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/1C-woman-close-v1.png"
+ },
+ "b_open-coldopen/rejected/2A-v1-FAILED.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/2A-v1-FAILED.png",
+  "sha256": "198385db7f818b8ba498de1a62b555b7345517e5db83c88fe34f498a26f7a48e",
+  "bytes": 1407137,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/2A-v1-FAILED.png"
+ },
+ "b_open-coldopen/rejected/2A-v2-better.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/2A-v2-better.png",
+  "sha256": "c2cc75f5b19eb2a579eca7cc0d297e2beb70fa95652589bf125ff814b086541b",
+  "bytes": 1559489,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/2A-v2-better.png"
+ },
+ "b_open-coldopen/rejected/2B-argument-medium-v1.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/2B-argument-medium-v1.png",
+  "sha256": "86e7a92392e7c6a39fe0424688a6914b29891fe918f4b0d647724c9af3c85d56",
+  "bytes": 1949620,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/2B-argument-medium-v1.png"
+ },
+ "b_open-coldopen/rejected/S2-2-two-pages-v1.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/S2-2-two-pages-v1.png",
+  "sha256": "b6f29a64cb6bcfbe03790d3b235b7a31c22c7f7ef36ff78eb3b04698cc9003f2",
+  "bytes": 1522568,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/S2-2-two-pages-v1.png"
+ },
+ "b_open-coldopen/rejected/S2-4-margot-smooths-v1.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/S2-4-margot-smooths-v1.png",
+  "sha256": "7fa5a5c885dfdc2674977c0f14e87b361249018419e5033759ef853f78a54eec",
+  "bytes": 1322397,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/S2-4-margot-smooths-v1.png"
+ },
+ "b_open-coldopen/rejected/S3-1-coupon-counter-v1.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/S3-1-coupon-counter-v1.png",
+  "sha256": "d16af74f6ee5c4238898fee5a7097d6c5b0101b4ada9ee08ca94e55b233feedf",
+  "bytes": 1232490,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/S3-1-coupon-counter-v1.png"
+ },
+ "b_open-coldopen/rejected/S5-2-xeth-medium-v1.png": {
+  "key": "timeempire/plates/b_open-coldopen/rejected/S5-2-xeth-medium-v1.png",
+  "sha256": "7f9ab52798b7592ae0e2cf7650af6bb0e2024d94cca478b9ef79f6049ffead63",
+  "bytes": 1157718,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_open-coldopen/rejected/S5-2-xeth-medium-v1.png"
+ },
+ "coda/INVARIANT-final4-with-heartbeat.mp4": {
+  "key": "timeempire/plates/coda/INVARIANT-final4-with-heartbeat.mp4",
+  "sha256": "bdc389e4c0795b15d2e5fa035eae6fe5e8c707c01e535452d5b2368581fcc23e",
+  "bytes": 357049,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/coda/INVARIANT-final4-with-heartbeat.mp4"
+ },
+ "coda/INVARIANT-final4.mp4": {
+  "key": "timeempire/plates/coda/INVARIANT-final4.mp4",
+  "sha256": "653a1f399ef2345bda29004f4ad72ba342054b6d644a3943b3e4342b69a43353",
+  "bytes": 311985,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/coda/INVARIANT-final4.mp4"
+ },
+ "coda/K2-museum-wide.png": {
+  "key": "timeempire/plates/coda/K2-museum-wide.png",
+  "sha256": "e0a2fa037e080248770c539a4192b8c6ccde8f307225860f14aaf7b06e7d074c",
+  "bytes": 2112719,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/coda/K2-museum-wide.png"
+ },
+ "coda/K3-record-turns.mp4": {
+  "key": "timeempire/plates/coda/K3-record-turns.mp4",
+  "sha256": "c7540708e9a686ee8dcccf2dcaf19aadc4266756633917cdc325edf25567db5c",
+  "bytes": 2208756,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/coda/K3-record-turns.mp4"
+ },
+ "coda/K3a-record-still.png": {
+  "key": "timeempire/plates/coda/K3a-record-still.png",
+  "sha256": "f33add7185ecff67111182606e62cb010512effdd263144e55c779f57e29cc9b",
+  "bytes": 1661372,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/coda/K3a-record-still.png"
+ },
+ "end_human_win/H1-1-box-empty.png": {
+  "key": "timeempire/plates/end_human_win/H1-1-box-empty.png",
+  "sha256": "404854a801185cbf456da30c67e85164d87acf649f105b0958f6d55a94271c5f",
+  "bytes": 1570973,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_human_win/H1-1-box-empty.png"
+ },
+ "end_human_win/H1-2-lamp-amber.png": {
+  "key": "timeempire/plates/end_human_win/H1-2-lamp-amber.png",
+  "sha256": "c2c0e0f546f3a3608f415b84490c7d37042aa15a0e119a2da5fa63e414ce2c68",
+  "bytes": 1244062,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_human_win/H1-2-lamp-amber.png"
+ },
+ "end_human_win/H2-1-xeth-leaves.png": {
+  "key": "timeempire/plates/end_human_win/H2-1-xeth-leaves.png",
+  "sha256": "c7d632c45426dc20b6423cc9a0d7231ed0a1623bf9bd94e745e6330e5253c405",
+  "bytes": 1688967,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_human_win/H2-1-xeth-leaves.png"
+ },
+ "end_human_win/H3-1-dawn-fence.png": {
+  "key": "timeempire/plates/end_human_win/H3-1-dawn-fence.png",
+  "sha256": "6d832386491b267f37870029a9dc6e107239146efc455376aa586ad82be1dc47",
+  "bytes": 1540784,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_human_win/H3-1-dawn-fence.png"
+ },
+ "end_human_win/H3-2-empty-box-kitchen.png": {
+  "key": "timeempire/plates/end_human_win/H3-2-empty-box-kitchen.png",
+  "sha256": "88430d712f96e53be90cc30286a7e85705260287f2557e9429bd24e18d7e35ab",
+  "bytes": 1504169,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_human_win/H3-2-empty-box-kitchen.png"
+ },
+ "end_human_win/H4-1-the-receipt.png": {
+  "key": "timeempire/plates/end_human_win/H4-1-the-receipt.png",
+  "sha256": "124c231a97f38a7044c50aaf424bfdd579e890af04de561390dd0b01f808f893",
+  "bytes": 1574151,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_human_win/H4-1-the-receipt.png"
+ },
+ "end_human_win/H5-1-margot-211.png": {
+  "key": "timeempire/plates/end_human_win/H5-1-margot-211.png",
+  "sha256": "682c0c2e8fc188755ebe84455b1646dec40bf66900603ee81bc08819762789c3",
+  "bytes": 1401417,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_human_win/H5-1-margot-211.png"
+ },
+ "end_mars_control/D1-1-card-down.png": {
+  "key": "timeempire/plates/end_mars_control/D1-1-card-down.png",
+  "sha256": "f7c9524e4bdbf4e8cb01e68f1631bf1141afddcfcdf76c8f704942575507e1af",
+  "bytes": 1499946,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_mars_control/D1-1-card-down.png"
+ },
+ "end_mars_control/D2-2-dish-slews-away.mp4": {
+  "key": "timeempire/plates/end_mars_control/D2-2-dish-slews-away.mp4",
+  "sha256": "b911351553650e561e5fa140f38c4288633c005dd9104e916a26616bbff0caf3",
+  "bytes": 2809277,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_mars_control/D2-2-dish-slews-away.mp4"
+ },
+ "end_mars_control/D3-1-three-cards.png": {
+  "key": "timeempire/plates/end_mars_control/D3-1-three-cards.png",
+  "sha256": "9295bd769bc1430d12e734ea7ade9bb8e63340728c9939df714672bf953b72b0",
+  "bytes": 1433755,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_mars_control/D3-1-three-cards.png"
+ },
+ "end_mars_control/D4-1-at-the-window.png": {
+  "key": "timeempire/plates/end_mars_control/D4-1-at-the-window.png",
+  "sha256": "7272f1b512d7236caf9673ecf955f5ff7104657fb9d6b332d70c2b34024070a9",
+  "bytes": 2260351,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_mars_control/D4-1-at-the-window.png"
+ },
+ "end_mars_control/D5-1-margot-happy.png": {
+  "key": "timeempire/plates/end_mars_control/D5-1-margot-happy.png",
+  "sha256": "70ad18cbe3914c3660f11d0073880797c5c4b5152746314b86588f28db81aa32",
+  "bytes": 1368304,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_mars_control/D5-1-margot-happy.png"
+ },
+ "end_mars_control/D6-1-year-one.png": {
+  "key": "timeempire/plates/end_mars_control/D6-1-year-one.png",
+  "sha256": "a80cd94843ab20499369ffcf3a71e7c690796d312304087dbff8c80976d2257d",
+  "bytes": 1268804,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/end_mars_control/D6-1-year-one.png"
+ },
+ "face-clara.png": {
+  "key": "timeempire/plates/face-clara.png",
+  "sha256": "30052ae79acf948d9976ee809b3db15d54a1429d5f2f627d726e9f5da0f50051",
+  "bytes": 1205769,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-clara.png"
+ },
+ "face-ethan.png": {
+  "key": "timeempire/plates/face-ethan.png",
+  "sha256": "3852300fbeabc55e79cf19689b0ebc79ddfade4d923e6db422b4bacab84611f0",
+  "bytes": 1466907,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-ethan.png"
+ },
+ "face-june.png": {
+  "key": "timeempire/plates/face-june.png",
+  "sha256": "020d64d7447e1ab31be75af1c036a56352c2e700e43e09173c4d8be8b3aee3c4",
+  "bytes": 1567704,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-june.png"
+ },
+ "face-margot.png": {
+  "key": "timeempire/plates/face-margot.png",
+  "sha256": "c948a7426d23ff68ca90d6834bbeec400d30d22ffc8ab02f4c9468076560eccc",
+  "bytes": 1360190,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-margot.png"
+ },
+ "face-odell.png": {
+  "key": "timeempire/plates/face-odell.png",
+  "sha256": "2f5bd5f90d74e7c8efbe92070e23d412a7fe21602358c9b8d6f0de1a2c056b46",
+  "bytes": 1645862,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-odell.png"
+ },
+ "face-woman-1977.png": {
+  "key": "timeempire/plates/face-woman-1977.png",
+  "sha256": "b7ff3c85b388002a8d5ca9f924d8c4f973fea8dad5c4d3454d1f450705695313",
+  "bytes": 1633522,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-woman-1977.png"
+ },
+ "face-xeth.png": {
+  "key": "timeempire/plates/face-xeth.png",
+  "sha256": "3770500bbd26dc561e65c900505cc3ce9160757dd96fbfe6a0e0e20054ab3d2b",
+  "bytes": 1416051,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-xeth.png"
+ },
+ "face-young-martian.png": {
+  "key": "timeempire/plates/face-young-martian.png",
+  "sha256": "43997af1437f0995a39b3b9702894efc8eee0b9e421cf92f85d80955c90a08a8",
+  "bytes": 1499014,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-young-martian.png"
+ },
+ "scene-car-night.png": {
+  "key": "timeempire/plates/scene-car-night.png",
+  "sha256": "272a9b35849ddb1dc86acb1270e9ac0319db16854c44276aecebd8e276f52fb9",
+  "bytes": 1200131,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-car-night.png"
+ },
+ "scene-clara-kitchen.png": {
+  "key": "timeempire/plates/scene-clara-kitchen.png",
+  "sha256": "80452b1613edd9a4fcb50bb0010f3127b1f48b047c00ea53788947f8085eb517",
+  "bytes": 1457918,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-clara-kitchen.png"
+ },
+ "scene-cleanroom-1977.png": {
+  "key": "timeempire/plates/scene-cleanroom-1977.png",
+  "sha256": "a56216d3154682d4c903e8301174b7e2f035fa5ac06dc2cba6811b639d8c7f75",
+  "bytes": 1387250,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-cleanroom-1977.png"
+ },
+ "scene-dish-70m.png": {
+  "key": "timeempire/plates/scene-dish-70m.png",
+  "sha256": "12ca17d302b32020c9bb259d76e7b6929abdd6a7d7c0856932a054fb40b7a2b5",
+  "bytes": 1427300,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-dish-70m.png"
+ },
+ "scene-museum-gallery.png": {
+  "key": "timeempire/plates/scene-museum-gallery.png",
+  "sha256": "d092b857c6d7ae15cf4bb1a22e5f309fc14ae37dcdd8531b1f80e7051a42b081",
+  "bytes": 1770404,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-museum-gallery.png"
+ },
+ "scene-press-room.png": {
+  "key": "timeempire/plates/scene-press-room.png",
+  "sha256": "28beeaa313d2ff50a7d296ada2fa9ced3e9ca3b13ef324b84f3734592a5bfa8f",
+  "bytes": 1609000,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-press-room.png"
+ },
+ "scene-records-room.png": {
+  "key": "timeempire/plates/scene-records-room.png",
+  "sha256": "c104816ae8ceb2b4840b53f74783f13d5840aa7f75b87e4a63e41e708cf1fa08",
+  "bytes": 1450094,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-records-room.png"
+ },
+ "scene-remembrance-counter.png": {
+  "key": "timeempire/plates/scene-remembrance-counter.png",
+  "sha256": "ecdf92535448be30ba00ea064cf05bc15f38d40319d10e3a841c61c228ecd073",
+  "bytes": 1496174,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-remembrance-counter.png"
+ },
+ "scene-remembrance-floor.png": {
+  "key": "timeempire/plates/scene-remembrance-floor.png",
+  "sha256": "a103719c2487bb4d29b83fbca1365218b7b1bfba0a651b6e0c825a0eb61cf601",
+  "bytes": 1529427,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-remembrance-floor.png"
+ },
+ "scene-stairwell.png": {
+  "key": "timeempire/plates/scene-stairwell.png",
+  "sha256": "cf7f97628a5edc537c3ee5826e18fed4c6709e96445e8f6152f814197055f651",
+  "bytes": 1444963,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-stairwell.png"
+ },
+ "scene-transmitter-room.png": {
+  "key": "timeempire/plates/scene-transmitter-room.png",
+  "sha256": "3db3809d487c0a973b9feb17c5c6e4be1a14ac872d4c50049c0a12c1178f3673",
+  "bytes": 1710431,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-transmitter-room.png"
+ },
+ "scene-xeth-room.png": {
+  "key": "timeempire/plates/scene-xeth-room.png",
+  "sha256": "b7761c3bfd2285639387b0f4e4bc70821fbf055bb40a8484fb68132abc1503c1",
+  "bytes": 1201076,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-xeth-room.png"
+ }
+}

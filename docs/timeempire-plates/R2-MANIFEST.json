@@ -144,10 +144,11 @@
   "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E3-1-two-piles.png"
  },
  "b_earth_resist/E3-2-clara-turns.png": {
-  "key": "timeempire/plates/b_earth_resist/E3-2-clara-turns.png",
-  "sha256": "c6e6725f4cd3c2450206f8c03f73b3dee3bb45fa41b6d1d668a1259b41de5be6",
-  "bytes": 1427426,
-  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E3-2-clara-turns.png"
+  "key": "timeempire/plates/b_earth_resist/E3-2-clara-turns-v2.png",
+  "sha256": "09a3c9a009b72984c7fcb47554aa564023550065cf0f8716414a1697979a5d61",
+  "bytes": 2190771,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/b_earth_resist/E3-2-clara-turns-v2.png",
+  "note": "v2 (2026-08-12 返工服装). v1 的 key 因 immutable 缓存不可覆盖, 已作废; 本地留档 rejected/E3-2-v1-period-dress.png"
  },
  "b_earth_resist/E4-1-the-plan.png": {
   "key": "timeempire/plates/b_earth_resist/E4-1-the-plan.png",

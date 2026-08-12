@@ -213,7 +213,45 @@ further any of them urgently needed to say.
 > silence in this beat. **No character explains the Great Filter, ever.** If a
 > future draft adds a paragraph here, delete the paragraph.
 
-June sits with it.
+June sits with it. And then asks the only personal question anyone has put to
+him in a very long time.
+
+**JUNE**
+Where are you from?
+
+**xÈth**
+*(a beat — he is not evading; he is deciding whether she'll follow)*
+Further along.
+
+**JUNE**
+Further along what?
+
+**xÈth**
+You think it runs in a line.
+*(beat)*
+It runs like a strip of paper with one twist in it. You can walk the whole way
+round and come back on the other side without ever having crossed an edge.
+
+She doesn't know what to do with that. He doesn't help her.
+
+**JUNE**
+…And Mars?
+
+**xÈth**
+Mars was the last place we stopped.
+
+> **NOTE (bible §2.5 / §2.6 — 已进 canon 2026-08-12):**
+> Those two short answers carry the entire cosmology and the entire history of
+> his people, and **the film never confirms either of them.**
+>
+> "Mars was the last place we stopped" is the whole of §2.5: Martian is an
+> address, not a species. It also quietly gives the register on the desk a
+> second reading — those forty thousand LAST HEARD dates may be civilisations
+> that finished, **or civilisations he reached.** Nobody ever says which.
+>
+> **Forbidden:** no diagram, no hand gesture describing a twist, no follow-up
+> question that gets answered, and Ethan never rebuts it anywhere in the film.
+> Direct it as a man stating a fact about the weather.
 
 **JUNE**
 That's the plan? That's what we're *for*?

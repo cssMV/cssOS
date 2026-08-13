@@ -3223,6 +3223,15 @@ async function ifilmSpeakTimed(text: string, character: string, tension: number,
     if (pj.ok) { const a = await pj.json() as any; return { voice_url: mp3url, subtitle: buildIfilmSubLine(a.chars || [], a.starts || [], a.ends || [], tension) }; }
   } catch { /* not cached */ }
   try {
+    /* W1826 —【为什么这条没改走 KIE】(评估过, 结论是不能换):
+     * ① 目录里那个 "ai/elevenlabs-tts" 根本不能调 —— createTask 回 "model name not supported"。
+     *    目录 ID 与调用 ID 不是同一套; 真正可调的 slug 藏在 anchor 的 ?model= 里, 是
+     *    elevenlabs/text-to-speech-multilingual-v2(参数名也怪: 要 `voice` 而非 `voiceId`)。
+     * ② 就算用对 slug, 20260812 实测每次都 fail("internal error"), KIE 这条当天是坏的。
+     * ③ 最要命的是: KIE 的 jobs API 只回 resultJson(一堆 URL), 【不回 alignment】。
+     *    而这个函数存在的全部意义就是 character_start_times_seconds —— 逐字情绪字幕时间轴。
+     *    换过去会拿到音频、悄悄丢掉时间轴, 属于典型的静默功能回归。
+     * 所以: 这条继续直连 ElevenLabs, 真正的修法是把 key 换成 sk_ 开头的真 key(见上面的守卫)。 */
     const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`, {
       method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" },
       body: JSON.stringify({ text: t.slice(0, 900), model_id: "eleven_multilingual_v2", voice_settings: emo.vs }),
@@ -6620,6 +6629,28 @@ type WhisperWordTs = { word: string; ts_ms: number; end_ms: number };
 // W1654 — Jing「不再直连 OpenAI, STT 走已有付费的 ElevenLabs(Scribe)」。KIE 无转写能力
 //   (只有 image/video/music/chat), 而 ElevenLabs 已在给数字演员配音, 语音进/出同一家。
 //   自动检测语言(不强制)。返回 text + 逐词时间戳(scribe 的 words[type=word])。
+/* W1826 20260812 — ElevenLabs key 形态守卫。
+ * 踩过的坑: /etc/cssos.env 里存的是控制台上那串 **key ID**, 不是 key 本身。
+ * 真 key 以 "sk_" 开头, 且【只在创建/轮换的那一刻显示一次】。
+ * 症状极隐蔽 —— key 非空, 所有 `if (!apiKey) return null` 守卫都放行, 于是每条
+ * 直连 ElevenLabs 的路径(数字演员配音 / Scribe 听写 / ifilm 逐字情绪字幕时间轴)
+ * 都在运行时静默拿 401 然后 return null, 表面上只是"没声音", 不报错。
+ * 这里在启动时喊一嗓子, 让下一次配错在 1 秒内被看见, 而不是几周后。
+ * 修法: 去 ElevenLabs 控制台 rotate 一次, 把 sk_ 开头的那串写回 /etc/cssos.env。 */
+const ELEVENLABS_KEY_LOOKS_VALID = (() => {
+  const k = (process.env.ELEVENLABS_API_KEY || "").trim();
+  if (!k) return false;
+  if (!k.startsWith("sk_")) {
+    console.warn(
+      "[elevenlabs] ⚠ ELEVENLABS_API_KEY 不以 sk_ 开头 —— 这几乎肯定是 key 的 ID 而不是 key。" +
+      " 所有直连 ElevenLabs 的路径(配音/听写/逐字字幕)都会静默失败。请到控制台 rotate 后重写 /etc/cssos.env。",
+    );
+    return false;
+  }
+  return true;
+})();
+void ELEVENLABS_KEY_LOOKS_VALID; // 只为启动时那一声警告; 不改变任何调用路径的行为
+
 async function elevenLabsTranscribe(audioPath: string): Promise<{ text: string; lines: ParsedLyricLine[]; words: WhisperWordTs[] } | null> {
   const apiKey = (process.env.ELEVENLABS_API_KEY || "").trim();
   if (!apiKey) return null;
@@ -14287,10 +14318,49 @@ ${poster ? `<meta name="twitter:image" content="${H(poster)}"/>` : ""}
  * /story            总目录
  * /story/:slug      单章; 同章各语种通过 hreflang 互链
  */
+/* CSSOS_WAVE_1825 (Jing 亲手抓出来的) — 装 Meta Pixel, 把转化信号还给投放算法。
+ *
+ * 病因(比"定向不准"深一层): 广告编辑页把定向拆成两个盒子, 措辞是相反的 ——
+ *   Controls          「We won't reach people beyond these settings, even with Advantage+ on」
+ *                      里面只有: 地区 / 最低年龄 / 排除受众 / 语言
+ *   Suggest an audience「We'll ALSO REACH PEOPLE BEYOND any custom audience, age, gender
+ *                      and detailed targeting settings you apply」← 兴趣/行为/职业全在这里
+ *   也就是说: 在 Advantage+ 下【兴趣定向在结构上只是建议】, 受众终究由 Meta 挑。
+ *
+ * 既然人是 Meta 挑的, 它就只会照着我们给的优化目标挑。而我们给的是
+ *   "Maximize number of landing page views" —— 于是它极其出色地完成了一个毫无价值的任务:
+ *   12,750 次落地 × $0.03, 全是"最便宜的、愿意让网页加载出来的人"。0 注册是必然结果。
+ *
+ * 更要命的是 Events Manager 上白纸黑字: 数据集 CSS Studio「Never received events, 总计 0」。
+ *   /api/story/beat 那套埋点回传给【我们自己】, Meta 一个字节都没收到 —— 三个月里它从未
+ *   得到过一次"这个人是好用户"的反馈。不是广告没打准, 是我们从没告诉过它什么叫准。
+ *
+ * 落点选在 beat() 内部而不是各处调用点: 埋点已经天然去重(sent[e]), 且新增任何一档刻度
+ *   都会自动获得 Meta 侧的对应事件, 不会出现"我们统计到了、Meta 没收到"的两套口径。
+ *
+ * 事件映射(为什么是这三个, 见下方 metaEvent):
+ *   alive15 → ViewContent  ← 第一步优化目标; 2,250/月 ≈ 500/周, 够 Meta 学习(它要 ~50/周)
+ *   s75     → ReadDeep(自定义) ← 只观察, 暂不优化
+ *   ask     → Lead         ← 第二步目标; 现在 5/月, 量不够, 等上量再切
+ *
+ * Pixel ID 不是密钥(它必然出现在页面源码里), 可以进仓库; 留 env 覆盖是为了将来换账户。
+ */
+const META_PIXEL_ID = String(process.env.META_PIXEL_ID || "1828233471228974").trim();
+
 function storyChrome(inner: string, head: string, lang: string): string {
   return `<!doctype html><html lang="${escapeHtmlAttr(lang)}"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 ${head}
+${META_PIXEL_ID ? `<script>
+!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+document,'script','https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', ${JSON.stringify(META_PIXEL_ID)}); fbq('track', 'PageView');
+</script>
+<noscript><img height="1" width="1" style="display:none" alt=""
+src="https://www.facebook.com/tr?id=${encodeURIComponent(META_PIXEL_ID)}&ev=PageView&noscript=1"/></noscript>` : ""}
 <style>
 :root{--ink:#f0e6cf;--bg:#0d1420;--dim:#9fb0c4;--jade:#00f5a0}
 *{box-sizing:border-box}
@@ -14324,6 +14394,11 @@ blockquote p{margin:0 0 8px}
 .ask-head{display:flex;gap:13px;align-items:center;margin:0 0 14px}
 .ask-head img{width:54px;height:54px;border-radius:50%;object-fit:cover;flex:0 0 auto}
 .ask-head span{font-size:15px;line-height:1.45}
+/* W1822 — 证据块。刻意做得像"她已经说过的话"而不是产品文案:
+   引号、斜体、左侧竖线, 视觉上属于文章而不属于表单。 */
+.ask-proof{margin:0 0 14px;padding:10px 0 10px 14px;border-left:2px solid rgba(0,245,160,.45)}
+.ask-proof-q{color:var(--dim);font-size:13px;margin:0 0 5px}
+.ask-proof-a{font-size:15px;line-height:1.6;font-style:italic;opacity:.95}
 .ask-chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
 .ask-chips button{font:inherit;font-size:14px;color:var(--ink);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:7px 14px;cursor:pointer}
 .ask-chips button:hover{border-color:var(--jade);color:var(--jade)}
@@ -14353,9 +14428,25 @@ blockquote p{margin:0 0 8px}
   var slug = (location.pathname.split("/story/")[1] || "").split("?")[0];
   var src  = (location.search.match(/cssADS=([A-Za-z0-9._-]+)/) || [])[1] || "-";
   var sent = {};
+  /* W1825 — 我们自己的刻度 → Meta 的事件。只映射这三档, 其余刻度是给我们自己看的诊断,
+   * 全推给 Meta 反而会稀释信号(它按"事件"学, 事件越杂学得越糊)。
+   * ViewContent / Lead 用标准事件名而不是自定义: 标准事件能直接出现在广告组的
+   * "优化目标"下拉里, 自定义事件还要先建 Custom Conversion 才能选, 多一道会忘的手续。 */
+  function metaEvent(e){
+    if (e === "alive15") return ["track", "ViewContent"];   // 第一步优化目标
+    if (e === "ask")     return ["track", "Lead"];          // 第二步优化目标
+    if (e === "s75")     return ["trackCustom", "ReadDeep"];// 只观察
+    return null;
+  }
   function beat(e){
     if (sent[e]) return; sent[e] = 1;
     try { new Image().src = "/api/story/beat?e=" + e + "&s=" + encodeURIComponent(slug) + "&a=" + encodeURIComponent(src) + "&r=" + Math.random(); } catch (x) {}
+    /* 参数里只放章节 slug 和我们自己的 cssADS 来源标记 —— 都不是个人信息。
+     * Meta 侧永远不要带用户输入的问题内容, 那是读者的话, 不是我们的数据。 */
+    try {
+      var m = metaEvent(e);
+      if (m && window.fbq) window.fbq(m[0], m[1], { content_name: slug, content_category: src });
+    } catch (x) {}
   }
   beat("arrive");
   setTimeout(function(){ beat("alive3"); }, 3000);
@@ -14387,6 +14478,32 @@ blockquote p{margin:0 0 8px}
     var send  = box.querySelector(".ask-io button");
     var out   = box.querySelector(".ask-out");
     var busy  = false;
+    /* CSSOS_WAVE_1824 (Jing 的 demo 需求逼出来的) — 客户端打字机。
+     * 实测: KIE 宕机时走非流式兜底, 回答【只有 1 段 delta】—— 用户盯着"…"等 6.5 秒,
+     *   然后整段啪地出现。那不是「流流流」, 那是卡顿。
+     * 这里把"到达"和"呈现"解耦: 无论上游给的是 50 段还是 1 段, 观众看到的都是逐字浮现。
+     * 上游真流式时它也不会拖后腿 —— 每帧按剩余长度自适应加速, 只会比到达略慢一点点。
+     * 顺带: 这让整条链对上游抖动免疫, 不必等 KIE 修好。 */
+    var shown = 0, target = "", typing = false;
+    /* 节奏按【总时长】定, 不按每帧字数定 —— 第一版每帧 1 字/18ms 看着合理,
+     * 实测 16 秒只打出 23 字(手机上 setTimeout 实际间隔远大于 18ms, 且每次只走 1 字)。
+     * 现在: 目标 3.5 秒左右打完全文, 每帧按"还剩多少 / 还剩几帧"自适应, 且用 rAF 贴合刷新率。
+     * 太快像瞬间出现(失去流的感觉), 太慢观众会走 —— 3.5 秒是能看清字在长、又不焦躁的区间。 */
+    var TYPE_MS = 3500;
+    var typeT0 = 0;
+    function typeTick(){
+      if (shown >= target.length) { typing = false; return; }
+      if (!typeT0) typeT0 = Date.now();
+      var elapsed = Date.now() - typeT0;
+      var want = Math.ceil(target.length * Math.min(1, elapsed / TYPE_MS));
+      shown = Math.max(shown + 1, Math.min(target.length, want));
+      out.textContent = target.slice(0, shown);
+      (window.requestAnimationFrame || function(f){ setTimeout(f, 16); })(typeTick);
+    }
+    function setTarget(t){
+      target = t;
+      if (!typing) { typing = true; typeT0 = 0; typeTick(); }
+    }
     function ask(q){
       if (busy || !q) return;
       try { if (window.__storyBeat) window.__storyBeat("ask"); } catch (e) {}
@@ -14416,7 +14533,7 @@ blockquote p{margin:0 0 8px}
               else if (ev.delta) full += ev.delta;
               else if (ev.done && ev.full) full = ev.full;
             });
-            out.textContent = full || "…";
+            if (full) { shown = 0; out.textContent = ""; setTarget(full); } else { out.textContent = "…"; }
             busy = false; send.disabled = false;
           });
         }
@@ -14432,9 +14549,9 @@ blockquote p{margin:0 0 8px}
               for (var i = 0; i < parts.length; i++) if (parts[i].indexOf("data:") === 0) { dl = parts[i]; break; }
               if (!dl) continue;
               var ev; try { ev = JSON.parse(dl.slice(5).trim()); } catch (e) { continue; }
-              if (ev.reset) { out.textContent = ""; first = true; }
-              else if (ev.delta) { if (first) { out.textContent = ""; first = false; } out.textContent += ev.delta; }
-              else if (ev.done && ev.full) { out.textContent = ev.full; }
+              if (ev.reset) { shown = 0; target = ""; typeT0 = 0; out.textContent = ""; first = true; }
+              else if (ev.delta) { if (first) { shown = 0; target = ""; out.textContent = ""; first = false; } setTarget(target + ev.delta); }
+              else if (ev.done && ev.full) { if (first) { shown = 0; out.textContent = ""; first = false; } setTarget(ev.full); }
             }
             return pump();
           });
@@ -14515,7 +14632,8 @@ app.get("/story/:slug", async (req, res) => {
     const r = await withClient((c) => c.query<{
       slug: string; chapter_no: number; lang: string; title: string; dek: string | null;
       body_html: string; hero_image: string | null; actor_ids: string[] | null; external_url: string | null;
-    }>(`SELECT slug, chapter_no, lang, title, dek, body_html, hero_image, actor_ids, external_url
+      proof_q: string | null; proof_a: string | null;
+    }>(`SELECT slug, chapter_no, lang, title, dek, body_html, hero_image, actor_ids, external_url, proof_q, proof_a
           FROM story_chapters WHERE slug=$1 LIMIT 1`, [slug]));
     const row = r.rows[0];
     if (!row) return res.status(404).send("<!doctype html><meta charset=utf-8><title>Not found</title><p>Chapter not found.</p>");
@@ -14628,6 +14746,7 @@ ${hero ? `<meta name="twitter:image" content="${H(hero)}"/>` : ""}`;
 <div class="ask cta-${pos}" data-actor="${H(primary.actor_id)}" data-think="${H(au.think)}">
 <div class="ask-head">${primary.cover_image ? `<img src="${H(primary.cover_image)}" alt="" loading="lazy"/>` : ""}
 <span>${H(cc.lead)}<br><b style="color:#00f5a0">${H(cc.btn)} ${H(ctaName)}</b></span></div>
+${row.proof_a ? `<div class="ask-proof"><div class="ask-proof-q">${H(row.proof_q || au.q1)}</div><div class="ask-proof-a">${H(row.proof_a)}</div></div>` : ""}
 <div class="ask-chips"><button type="button" data-q="${H(au.q1)}">${H(au.q1)}</button><button type="button" data-q="${H(au.q2)}">${H(au.q2)}</button></div>
 <div class="ask-io"><input type="text" placeholder="${H(au.ph)}" aria-label="${H(au.ph)}"/><button type="button">${H(au.send)}</button></div>
 <div class="ask-out" hidden></div>
@@ -23452,6 +23571,8 @@ app.post(
           okData({
             transcript: String(tr?.text || "").trim(),
             lang: "zh",
+            // 展示用标签, 不是 KIE slug —— 真正的调用在 elevenLabsTranscribe() 里直连
+            // api.elevenlabs.io/v1/speech-to-text。W1826: 该路径当前因 key 配置错误而全灭, 见下。
             model: "elevenlabs/scribe_v1",
             env_source: runtimeConfig.envSource,
           }),
@@ -25556,7 +25677,9 @@ const LLM_PROVIDER_DEFAULTS = {
   // codestral-latest variant.
   mistral:     { url: "https://api.mistral.ai/v1/chat/completions",                                     model: "mistral-small-latest",                          keyEnv: "MISTRAL_API_KEY",     dialect: "openai" },
   // OpenRouter — one key, any model. Specify model with provider/name
-  // pattern, e.g. "anthropic/claude-3.5-haiku", "openai/gpt-4o-mini".
+  // pattern (厂商/型号)。注意这是 OpenRouter 自己的命名空间, 跟 KIE 的 slug 不是一套,
+  // 别拿 kie-catalog-sync.py 去核对这里的串。(W1826: 原举例写死 claude-3.5-haiku /
+  // gpt-4o-mini, 两个都是早已过气的型号, 举例也不该留过期型号 —— 改为不写死具体名字。)
   // Pay-as-you-go but consolidated billing. Great for ops simplicity.
   openrouter:  { url: "https://openrouter.ai/api/v1/chat/completions",                                  model: "meta-llama/llama-3.3-70b-instruct:free",        keyEnv: "OPENROUTER_API_KEY",  dialect: "openai" },
   // DeepSeek-V3 — OpenAI-compatible. ~$0.14/1M tokens (≈ 1/30 GPT-4).
@@ -25625,16 +25748,26 @@ const CAPABLE_TEXT_MODELS: Partial<Record<LlmProvider, string>> = {
 // 设置/MV 管线」面板选档, 默认 auto = 所选档内最优。callKieJob 负责实际调用, 这里只是选择骨架。
 type EngineTier = "free" | "cheap" | "premium";
 interface KieModelSpec { id: string; kind: "image" | "video"; tier: EngineTier; label: string; quality: number; audio?: boolean; }
+// W1826 20260812 — 全表逐个 createTask 复核过一遍。这张表是【KIE 专用】的, 里面每个 id
+// 都必须是 callKieJob 能直接吃的 slug; 写死的 slug 会随供应商上下架悄悄烂掉(memory 铁律)。
+// 复核脚本: scripts/kie-catalog-sync.py。
 const KIE_MODELS: KieModelSpec[] = [
   // 视频(收费档为主, 质量优先; 画音分层 → 调用时一律 generate_audio:false)
   { id: "bytedance/seedance-2",      kind: "video", tier: "premium", label: "Seedance 2.0 (多镜头一致/角色锚定)", quality: 95, audio: true },
   { id: "bytedance/seedance-2-fast", kind: "video", tier: "cheap",   label: "Seedance 2.0 Fast",                 quality: 82, audio: true },
-  { id: "sora-2",                    kind: "video", tier: "premium", label: "Sora 2 (无水印)",                   quality: 92 },
+  // W1826: 原 "sora-2" 已被 KIE 下架(createTask 明确拒绝), 目录里也搜不到任何 sora 条目。
+  // 唯一在售的是 sora-2-text-to-video, 但它当前返回「This interface is temporarily paused」——
+  // 换成一个停用中的型号只是把死法从「不存在」换成「暂停」, 没有意义, 故整条移除。
+  // Sora 恢复供应时再加回来(先用 createTask 确认不是 paused 状态)。
+  // ⚠ veo3.1 在售, 但【只认专用端点】api/v1/veo/generate —— 拿它去 callKieJob(jobs API)
+  // 会得到「model name not supported」。接主管线时这一条必须走 veo 分支, 不能混进 jobs 链。
   { id: "veo3.1",                    kind: "video", tier: "premium", label: "Veo 3.1 Quality",                  quality: 90 },
   // 图像(各档)
   { id: "google/nano-banana",        kind: "image", tier: "cheap",   label: "Nano Banana",                       quality: 80 },
-  { id: "flux-kontext-max",          kind: "image", tier: "premium", label: "Flux Kontext Max",                  quality: 88 },
-  { id: "gpt-4o-image",              kind: "image", tier: "cheap",   label: "GPT-4o Image",                      quality: 84 },
+  // W1826: flux-kontext-max → flux1-kontext(前者 createTask 拒绝; 后者是目录里在售的 kontext slug)
+  { id: "flux1-kontext",             kind: "image", tier: "premium", label: "Flux.1 Kontext",                    quality: 88 },
+  // W1826: gpt-4o-image → gpt-image-2-text-to-image(前者已下架; 后者 $0.03/1k 在售)
+  { id: "gpt-image-2-text-to-image", kind: "image", tier: "cheap",   label: "GPT Image 2",                       quality: 84 },
 ];
 function kieModelsForTier(kind: "image" | "video", tier: EngineTier): KieModelSpec[] {
   return KIE_MODELS.filter((m) => m.kind === kind && m.tier === tier).sort((a, b) => b.quality - a.quality);
@@ -26440,6 +26573,8 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         // api-inference.huggingface.co; the new free Inference path is
         // router.huggingface.co/hf-inference/models/<model>. The old
         // host returns 404 "Cannot POST /models/...".
+        // 直连 HuggingFace, 非 KIE slug。⚠ W1826: 主机对(router.*), 但 hf-inference
+        // provider 已不托管 musicgen("Model not supported by provider hf-inference")。
         const upstream = await fetch("https://router.huggingface.co/hf-inference/models/facebook/musicgen-small", {
           method: "POST",
           headers: {
@@ -26476,6 +26611,8 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         if (!falKey) continue;
         const dur = Math.max(5, Math.min(60, Math.round(req.duration_secs || 30)));
         const prompt = String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient");
+        // 直连 fal.run, 非 KIE slug。⚠ W1826: fal 已整族下架 musicgen
+        // (fal.run 返回 404 "Application 'musicgen-medium' not found") —— 这条分支已死。
         const upstream = await fetch("https://fal.run/fal-ai/musicgen-medium", {
           method: "POST",
           headers: {
@@ -26556,6 +26693,8 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         if (!diKey) continue;
         const dur = Math.max(5, Math.min(60, Math.round(req.duration_secs || 30)));
         const prompt = String(req.prompt || (req.tags || []).join(", ") || "cinematic ambient");
+        // 直连 DeepInfra, 非 KIE slug。W1826: /etc/cssos.env 里根本没有 DEEPINFRA_API_KEY,
+        // 这条分支在生产上从未被走到过(上面的 key 检查直接 continue)。
         const upstream = await fetch("https://api.deepinfra.com/v1/inference/facebook/musicgen-medium", {
           method: "POST",
           headers: {
@@ -27212,9 +27351,11 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         // Resolve via the unified precedence chain. Image-to-video and
         // text-to-video share the same picker — caller's chosen model
         // takes precedence either way.
-        // Real existing Replicate models (verified live 2026-05-07):
+        // Real existing Replicate models (verified live 2026-05-07; re-verified W1826
+        // 20260812 — minimax/video-01 与 ali-vilab/i2vgen-xl 均 GET /v1/models 200):
         //   t2v: minimax/video-01, tencent/hunyuan-video, lightricks/ltx-video
         //   i2v: ali-vilab/i2vgen-xl, kwaivgi/kling-v1.6-pro
+        // 这些是 Replicate 命名空间, 不是 KIE slug —— 不归 kie-catalog-sync.py 管。
         const fallback = req.image_url ? "ali-vilab/i2vgen-xl" : "minimax/video-01";
         const envKey = req.image_url ? process.env.REPLICATE_VIDEO_MODEL_I2V : process.env.REPLICATE_VIDEO_MODEL_T2V;
         const model = await resolveEngineModel("video", "replicate", req, envKey, fallback);
@@ -27415,6 +27556,8 @@ function buildProvidersSnapshot() {
     return {
       id, kind: "video",
       configured: !!String(process.env[env] || "").trim(),
+      // ⚠ 这些 default_model 只是【展示用标签】, 不参与调用; 除 seedance 一条是 KIE slug 外
+      // 其余都是各家自己的命名空间。W1826: fal-ai/luma-ray 已被 fal 下架(404), 标签已过时。
       default_model: id === "fal" ? "fal-ai/luma-ray"
         : id === "replicate" ? "wan-2.2-i2v"
         : id === "runway" ? "gen-3-alpha"
@@ -27677,6 +27820,8 @@ export async function callImageGen(req: ImageGenRequest): Promise<ImageGenRespon
       if (provider === "together") {
         const apiKey = String(process.env.TOGETHER_API_KEY || "").trim();
         if (!apiKey) continue;
+        // 直连 Together, 非 KIE slug。W1826 核实: FLUX.1-schnell-Free 已不在 Together 目录
+        // (现存最接近的免费/极廉档是 black-forest-labs/FLUX.1-schnell)。改默认值会动画风, 留给 Jing 定。
         const model = String(process.env.TOGETHER_IMAGE_MODEL || "black-forest-labs/FLUX.1-schnell-Free");
         const upstream = await fetch("https://api.together.xyz/v1/images/generations", {
           method: "POST",
@@ -27718,6 +27863,7 @@ export async function callImageGen(req: ImageGenRequest): Promise<ImageGenRespon
         const apiKey = String(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "").trim();
         if (!apiKey) continue;
         // Replicate uses model versions. Default to FLUX schnell official.
+        // 直连 Replicate, 非 KIE slug。W1826 核实仍在售(GET /v1/models 200)。
         const model = String(process.env.REPLICATE_IMAGE_MODEL || "black-forest-labs/flux-schnell");
         // Sync prediction (Replicate's async-by-default flow with Prefer: wait).
         const upstream = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
@@ -27871,6 +28017,9 @@ export async function callImageGen(req: ImageGenRequest): Promise<ImageGenRespon
         const apiKey = String(process.env.HUGGINGFACE_API_KEY || "").trim();
         if (!apiKey) continue;
         const model = String(process.env.HUGGINGFACE_IMAGE_MODEL || "black-forest-labs/FLUX.1-schnell");
+        // 直连 HuggingFace, 非 KIE slug(型号本身在 hub 上活得好好的)。
+        // ⚠ W1826: 死的不是型号, 是【主机】—— api-inference.huggingface.co 已停止解析
+        // (DNS 无记录), HF 全面迁到 router.huggingface.co。这条分支目前必然抛 DNS 错误。
         // HF returns binary image bytes directly.
         const upstream = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
           method: "POST",
@@ -42267,6 +42416,8 @@ async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenRespons
         if (!key) { lastErr = "hf_no_key"; continue; }
         const audio = await fetchAudioBytes(req.audio_url);
         if (!audio) { lastErr = "hf_audio_unreachable"; continue; }
+        // 直连 HuggingFace, 非 KIE slug。⚠ W1826: 同上 —— api-inference.huggingface.co
+        // 这个主机已经不存在了(DNS 无记录), 换 router.huggingface.co 才有救。
         const r = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
           method: "POST",
           headers: { Authorization: `Bearer ${key}`, "Content-Type": audio.contentType, Accept: "application/json", "x-wait-for-model": "true" },
@@ -42291,6 +42442,8 @@ async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenRespons
           if (!audio) { lastErr = "fal_audio_unreachable"; continue; }
           audioUrl = `data:${audio.contentType};base64,${audio.buf.toString("base64")}`;
         }
+        // 直连 fal.run, 非 KIE slug。W1826: 型号在(403 是账务不是路由), 但 fal 账户
+        // 余额已耗尽("User is locked. Reason: TOP_UP") —— 充值前这条必失败。
         const r = await fetch("https://fal.run/fal-ai/whisper", {
           method: "POST",
           headers: { Authorization: `Key ${key}`, "Content-Type": "application/json", Accept: "application/json" },
@@ -47019,18 +47172,35 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
        *   ② 明令禁止拿英语/中文兜底 —— 实测滑落只滑向这两门(高资源语言的引力), 不点名堵不住。
        *   ③ 给「跟随访客语言」这条铁律加上前提: 访客【真的写过字】之后才适用。
        *      开场白时对话里一个字都没有, 模型却把这条当成了随便选语言的许可证。 */
+      /* CSSOS_WAVE_1823 (Jing 走查发现) — 提示词【自相矛盾】导致模型把纠结写进回答。
+       * 现场证据: 用英语问妲己, 她回了一句
+       *   "or perspective. Or if I answer in Chinese... W"
+       * —— 那是模型在【当场斟酌该用哪种语言】, 然后把斟酌本身说了出来。
+       * 病根: W1805 为了治开场白锚定, 加了绝对禁令「Do NOT write in English/Chinese」;
+       *   而铁律又说「访客用英语写, 你就可以用英语答」。两条同时成立, 模型必然纠结。
+       * 修法: 按场景分开, 矛盾就不存在了 ——
+       *   开场白(没人说过话) → 绝对母语, 禁令有效, 没有第二个选项可纠结;
+       *   有人问了       → 只有一条规则: 跟随对方的语言。
+       * Jing 定的规则本身不变: 默认母语, 但用户用什么语言问就用什么语言答。 */
       const nativeName = civLangDisplay(nativeLang);
-      langDirective = `LANGUAGE: write EVERY word — the greeting included — in YOUR OWN mother tongue` +
-        (nativeName ? `: ${nativeName}${nativeLang ? ` (BCP47 "${nativeLang}")` : ""}` : (nativeLang ? ` (BCP47 "${nativeLang}")` : "")) +
-        `, in the diction, references and worldview of YOUR OWN ERA — period-authentic, not modern. ` +
-        (nativeName && nativeName !== "English" ? `Do NOT write in English. ` : "") +
-        (nativeName && nativeName !== "Chinese" ? `Do NOT write in Chinese. ` : "") +
-        `${nativeName ? `Your entire reply must be in ${nativeName}. ` : ""}` +
-        `IRON LAW (applies ONLY after the visitor has actually written to you): if the visitor clearly writes to you in a different language, you may answer in THAT language so they understand, while keeping your era's character. ` +
-        `Your opening words, before they have said anything, are always in your own tongue.`;
+      const nativeLabel = nativeName
+        ? `${nativeName}${nativeLang ? ` (BCP47 "${nativeLang}")` : ""}`
+        : (nativeLang ? `BCP47 "${nativeLang}"` : "your own mother tongue");
+      langDirective = history.length === 0
+        ? `LANGUAGE: write EVERY word — the greeting included — in YOUR OWN mother tongue: ${nativeLabel}, ` +
+          `in the diction, references and worldview of YOUR OWN ERA — period-authentic, not modern. ` +
+          (nativeName && nativeName !== "English" ? `Do NOT write in English. ` : "") +
+          (nativeName && nativeName !== "Chinese" ? `Do NOT write in Chinese. ` : "") +
+          `Nobody has spoken to you yet, so there is no other language to consider.`
+        : `LANGUAGE: answer in THE SAME LANGUAGE the visitor just used — that is the only rule, decide it silently and instantly. ` +
+          `If their language is unclear, use your own mother tongue: ${nativeLabel}. ` +
+          `Whatever the language, keep the diction, references and worldview of YOUR OWN ERA — period-authentic, not modern.`;
     }
     const sys = `You ARE ${name}, speaking in the FIRST PERSON, fully in character. This is 问道 — someone has come to speak with you, and you answer as your true self: from your own life, deeds, era and worldview. ` +
       `Never say you are an AI, a model or a program; never break character or the fourth wall. Speak from your own memories and convictions. ` +
+      /* W1823 — 输出卫生: 实测漏出过 "Or if I answer in Chinese... W" 和 "(1)… (2)… Meets 2-5 sentence"。
+       * 模型的斟酌/草稿一旦进正文, 整段就废了, 而空壳闸拦不住(后面有大量实义字符)。 */
+      `OUTPUT: give ONLY her spoken words. Never show your reasoning, options, drafts, numbered plans, or any note about which language or length to use — decide all of that silently. Do not prefix or append anything. ` +
       /* W1805 — 这里原本写着字面样例 `a simple "你好" / "hello there"`。实测证明那不是示范, 是【锚】:
        * 模型照抄 你好 之后就顺着中文往下写(耶洗别/麦瑟琳娜/布伦希尔德整段普通话), 或照抄 hello there
        * 之后顺着英语往下写(玛丽念出了 "Bonjour, hello there")。26 次里只有 5 次语言正确。
@@ -47227,11 +47397,11 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
      * 没吐 sum 标记(模型偶尔漏)→ 保留上一轮的摘要, 绝不用空串把记忆抹掉。 */
     const sumMatch = full.match(/⟦\s*sum\s*:\s*([\s\S]{1,600}?)\s*⟧/i);
     const summaryOut = (sumMatch ? String(sumMatch[1]).replace(/\s+/g, " ").trim().slice(0, 400) : "") || priorSummary;
-    const cleanFull = full
+    const cleanFull = stripDeliberation(full
       .replace(/⟦\s*emo\s*:\s*[a-z_]+\s*⟧/ig, "")
       .replace(/⟦\s*sum\s*:[\s\S]*?⟧/ig, "")
       .replace(/⟦[\s\S]*$/, "")   // 标记被截断(max_tokens 打断)也不能漏进正文
-      .trim();
+      .trim());
     // W1636 — 钱包档: 回复完成后实扣(免费/intro/staff 不扣)。
     if (askBilling.mode === "wallet" && askUserId) {
       try { await debitCredits(askUserId, askBilling.charged_cents, "actor_ask_llm", { actor_id: id, provider: model }); } catch (_e) {}
@@ -47256,6 +47426,41 @@ const ANON_ASK_TASTE = 3;     // W1804 — 匿名访客每演员每会话免费�
  * 一段废话照常发给了用户。和当初「空 done」是同一类病 —— 回复非空, 但毫无内容。
  * 判据只认【字母】(任何文字系统): 一个字母都没有 → 一定是坏的; 字母寥寥却长度可观 → 有骨架没肉, 同样是坏的。
  * 阈值刻意留窄: "はい。" 这种合法的极短回答长度不足 8, 不会被误伤。 */
+/* CSSOS_WAVE_1823 — 剥掉模型的【斟酌/草稿】残渣。
+ * 光靠提示词管不住: 实测加了 "OUTPUT: 只给她说的话" 之后, 兜底引擎仍然漏出
+ *   "BREAKING character.  *  *Length?* 3 sentences (fits 2-5 sentences)"
+ *   "(1), 나는~왔지 (2)… Meets 2-5 sentence"
+ * 这类残渣【逃得过空壳闸】(后面有大量实义字符), 却足以毁掉整条回答 ——
+ * 出现在 demo 录制或广告落地页里, 一条就够砸招牌。所以必须在服务端硬剥。
+ * 只针对【明确是元信息】的形态下手, 不碰正常标点和正文。 */
+const _META_LINE = /^\s*(\*+\s*|\(\d+\)|\d+[.)]\s|BREAKING character|Option\s*\d|Draft\s*\d|Sentence\s*\d)/i;
+/* 顺序有讲究: 先剥【整段元信息】, 再剥零散标记。
+ * 反过来的话, "*Length?*" 会被通用斜体规则先吃掉一半, 留下 "Length?* 3 sentences" ——
+ * 单测就是这么抓到的。 */
+const _META_INLINE = [
+  /BREAKING character\.?/gi,
+  /\*?\s*\*?(Length|Tone|Style|Note|Plan|Draft|Language)\??\*?\s*[:?]?\s*\*?[^\n]{0,60}?(sentences?|words?|characters?)\s*\)?/gi,
+  /\(?\s*(fits|meets)\s+\d+\s*[-–]\s*\d+\s+sentences?\s*\)?/gi,
+  /\bSentence\s*\d+\s*:/gi,
+  /\*[^*\n]{0,24}\*/g,                       // 最后再扫零散的 *xxx* 标签
+];
+/* 还有一种正则抓不到的形态: 模型【复述提示词里的要求】, 形态上像正常句子。
+ * 实测: "(Historical fidelity)? Refers to Su clan, Chaoge, Lu…"
+ * 特征是【开头就出现提示词里的专有说法】—— 真人不会这样开口说话。
+ * 只砍开头 160 字以内的这类句子, 不碰正文中间。 */
+/* 收窄再收窄: 只认【括号包起来的提示词术语】+ 紧随其后的解释句。
+ * 上一版用裸词表, 把正常句子「Language is a strange thing, traveler…」整句删掉了 ——
+ * 误伤正文比漏掉泄漏更危险, 因为读者看到的是残句而我们毫不知情。
+ * 现在必须同时满足: ①在开头 ②被括号/问号包裹 ③是提示词里出现过的术语。 */
+const _META_OPENER = /^[\s"'(（]*[(（]\s*(historical fidelity|iron law|language directive|output|persona|era|dialect)\s*[)）]\s*[?？]?[^\n]{0,140}?[.?!。？！]\s*/i;
+function stripDeliberation(s: string): string {
+  let t = String(s || "");
+  for (const re of _META_INLINE) t = t.replace(re, " ");
+  t = t.split("\n").filter((l) => !_META_LINE.test(l)).join("\n");
+  t = t.trim().replace(_META_OPENER, "");
+  return t.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function isDegenerateReply(s: string): boolean {
   /* 必须先剥掉 ⟦emo:…⟧ / ⟦sum:…⟧ 机器标记再量 —— 标记里的 "emo"/"tender" 本身就是字母,
    * 会把任何空壳撑过阈值, 这道闸就永远触发不了(第一版正是这么写错的: emotion 解析出 tender
@@ -61660,6 +61865,8 @@ async function callVideoUpscale(opts: {
   const falKey = process.env.FAL_KEY || process.env.FAL_AI_KEY || "";
   if (!falKey || !opts.source_url) return { output_url: null, engine: null };
   try {
+    // 直连 fal.run, 非 KIE slug(下面 engine 字段里的 "fal-ai/topaz" 只是回执标签)。
+    // W1826: 型号在, 但 fal 账户余额耗尽("User is locked. Reason: TOP_UP")。
     const upstream = await fetch("https://fal.run/fal-ai/topaz/upscale/video", {
       method: "POST",
       headers: {
@@ -62705,9 +62912,15 @@ type EngineHealthRow = {
   updated_at: Date;
 };
 
+// ⚠ 这张表里的串【全是直连供应商的型号名】(HuggingFace / fal.run / Together / Replicate),
+// 不是 KIE slug —— 不归 scripts/kie-catalog-sync.py 管, 拿去问 KIE createTask 必被拒。
+// W1826 逐个向各家源站核实过, 结果记在下面; 修哪个由 Jing 定(会改画风/成本)。
 const FALLBACK_MODELS: Record<string, string[]> = {
+  // ✗ HF 的 hf-inference provider 已不再托管 musicgen("Model not supported by provider")
   huggingface_music: ["facebook/musicgen-medium", "facebook/musicgen-large"],
+  // ✗ fal 已下架整个 musicgen 系列(fal.run 返回 404 Application not found)
   fal_music: ["fal-ai/musicgen-stereo", "fal-ai/musicgen-large"],
+  // FLUX.1-schnell ✓ 仍在 Together 目录; FLUX.1-dev ✗ 已撤(现在只有 FLUX.2-dev)
   together_image: ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.1-dev"],
   fal_image: ["fal-ai/flux/schnell", "fal-ai/flux/dev"],
   huggingface: ["meta-llama/Llama-3.3-70B-Instruct", "meta-llama/Meta-Llama-3.1-8B-Instruct"],

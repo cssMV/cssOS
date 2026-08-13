@@ -424,7 +424,47 @@ Ethan stands in the corridor with the applause coming through the wall.
 
 ## 待办
 
-- [ ] 新基准板：`scene-mars-city-grid` · `scene-cold-island-house` · `scene-ballroom-election` · `scene-service-corridor`
-- [ ] 新面部基准板：`face-novelist` · `face-ethan-v2`（40s，灰发）
+- [x] **`scene-mars-city-grid`** —— 已拍，见下
+- [x] **`face-ethan-v2`** —— 已拍，见下
+- [ ] 新基准板：`scene-cold-island-house` · `scene-ballroom-election` · `scene-service-corridor`
+- [ ] 新面部基准板：`face-novelist`
 - [ ] 确定性道具：`prop-birth-ledger-1961`（第一部复用同一份）
 - [ ] 1977 段落：从已拍的 19 条 i2v 里挑，确认哪几条直接进序章
+
+---
+
+## 已拍的两张基准板（2026-08-12）
+
+### `scene-mars-city-grid.png` —— 一次通过
+
+引擎默认会给废墟星球。压住它靠的不是「不要废墟」，而是**互斥的正面物理事实**
+（铁律 7），其中**遮挡那一条最硬**：
+
+> each wall meets its own roof along a clean unbroken line, and each wall casts
+> **ONE CONTINUOUS UNBROKEN SHADOW** across the ground for its full length ·
+> every road runs unbroken from edge to edge and meets every cross-road at an
+> exact right angle · a thin **even** layer of rust-red dust lies undisturbed
+> over the entire grid, **the same depth everywhere**
+
+**一道破损的墙投不出一条完整的影子。** 这一句比十条否定都管用。
+
+造型上写死了「**像一个从上方看的档案柜**」（low flat-roofed blocks, all the same
+size, a strict repeating grid, like a filing system seen from above）——
+所以这颗星球不是异星奇观，它是**一套办公系统**，跟 §三·场面 3 那个体育场
+办公室是同一个东西的两个尺度。
+
+### `face-ethan-v2.png` —— 一次通过（外加一次白跑的返工）
+
+40 多岁，两鬓灰得厉害，短须里全是白。以 `face-ethan.png` 为参考图老化而成。
+
+**两条记录给后来人：**
+
+1. **左眉那道疤偏红，那是 canon，不是缺陷。** 原始 `face-ethan.png` 一直是
+   这个样子，89 个已拍镜头全都带着它。我当时判成「新鲜伤口」要修，是错的 ——
+   **动手改基准板之前，先去看原板。**
+2. **短须偏离了我写的「三天胡茬」，但采纳。** v2 的 Ethan 必须一眼看得出比
+   v1 老了、耗掉了；短须正好承担这件事。**规格与画面冲突时，先问哪个对，
+   不要默认规格对。**
+
+返工那一次是白跑的：提示词写成「keep this man EXACTLY as he is，只改两点」，
+约束太满，编辑模型基本没动。**「保持一切不变」是一句会让编辑模型空转的话。**

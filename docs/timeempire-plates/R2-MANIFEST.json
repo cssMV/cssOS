@@ -677,5 +677,19 @@
   "sha256": "b7761c3bfd2285639387b0f4e4bc70821fbf055bb40a8484fb68132abc1503c1",
   "bytes": 1201076,
   "url": "https://cdn.cssstudio.app/timeempire/plates/scene-xeth-room.png"
+ },
+ "scene-mars-city-grid.png": {
+  "key": "timeempire/plates/scene-mars-city-grid.png",
+  "sha256": "18bb72f69e3b1b78365718432492e8030780ec0f3af693c89aa0804fb3b16f68",
+  "bytes": 2020487,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-mars-city-grid.png",
+  "note": "圣经 v2 序章 §1 —— 全片第一优先级参考图。完好, 非废墟。"
+ },
+ "face-ethan-v2.png": {
+  "key": "timeempire/plates/face-ethan-v2.png",
+  "sha256": "ac1a5ac25fbd8b28248539fd94bf59364aa5fd4ecb3a80cdf4dffe82c6df9674",
+  "bytes": 1661722,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-ethan-v2.png",
+  "note": "圣经 v2 的 Ethan: 40 多岁, 两鬓灰, 短须。左眉那道疤沿用 face-ethan.png 的原样(canon)。"
  }
 }

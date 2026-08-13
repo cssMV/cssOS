@@ -14344,8 +14344,17 @@ ${poster ? `<meta name="twitter:image" content="${H(poster)}"/>` : ""}
  *   ask     → Lead         ← 第二步目标; 现在 5/月, 量不够, 等上量再切
  *
  * Pixel ID 不是密钥(它必然出现在页面源码里), 可以进仓库; 留 env 覆盖是为了将来换账户。
+ *
+ * ⚠ 别再拿错 ID(第一版就拿错了): 账户里原本唯一的数据集 CSS Studio / 1828233471228974
+ *   是四个 iOS App 上架时自动生成的【App 数据集】, 不是网页 Pixel —— 分辨方法:
+ *   Events Manager 里图标是手机而非显示器, 详情页写的是 "App ID" 且多一个 "Facebook SDK"
+ *   标签, 打开 /list/dataset/<id> 会被重定向成 /list/app/<id>。
+ *   把网页事件打过去, Meta 边缘服务器照样返回 200(facebook.com/tr 有响应!), 但不入库,
+ *   仪表盘永远停在 "Never received events" —— 【HTTP 成功不等于事件被接收】, 这一条只能
+ *   靠 Events Manager 侧的计数验证, 不能靠客户端网络面板。
+ *   下面这个 1357957192654815 = 2026-08-13 新建的网页 Pixel "cssstudio.app Web"。
  */
-const META_PIXEL_ID = String(process.env.META_PIXEL_ID || "1828233471228974").trim();
+const META_PIXEL_ID = String(process.env.META_PIXEL_ID || "1357957192654815").trim();
 
 function storyChrome(inner: string, head: string, lang: string): string {
   return `<!doctype html><html lang="${escapeHtmlAttr(lang)}"><head><meta charset="utf-8"/>

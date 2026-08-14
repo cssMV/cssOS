@@ -25677,8 +25677,11 @@ const LLM_PROVIDER_DEFAULTS = {
    *   groq llama-3.3-70b 1.4s · gemini-3.6-flash 7.6s · gemini-pro-latest 43.3s。
    * callLlm 是非流式的 —— 43 秒里用户面前一片空白, 没有「流流流」。这条链主要服务《问道》实时对话,
    * pro 那一档在这个场景下不是"更强", 是"用不了"。质量上 flash 实测同样能写出古典阿提卡希腊语。
-   * (若将来给非交互场景单开一条链, 那里可以放 pro。) */
-  gemini:      { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-3.6-flash",                              keyEnv: "GEMINI_API_KEY",      dialect: "gemini" },
+   * (若将来给非交互场景单开一条链, 那里可以放 pro。)
+   * W1827 20260814(每月 KIE Market 复核) — KIE 上架了 Gemini 3.7 Flash(比 3.6 Flash 新一档),
+   * 按 Jing 准绳「KIE 上架最新即最新」跟进。api-vm 实测同一提示词: 3.7-flash 3.0s · 3.6-flash 4.6s
+   * —— 新版更快, 《问道》这条实时链只赚不亏。(env GEMINI_MODEL 不存在, 这里是唯一旋钮。) */
+  gemini:      { url: "https://generativelanguage.googleapis.com/v1beta/models",                       model: "gemini-3.7-flash",                              keyEnv: "GEMINI_API_KEY",      dialect: "gemini" },
   // Together AI — OpenAI-compatible. Free Llama-3.3-70B (60 RPM).
   together:    { url: "https://api.together.xyz/v1/chat/completions",                                   model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",       keyEnv: "TOGETHER_API_KEY",    dialect: "openai" },
   // Mistral La Plateforme — OpenAI-compatible. mistral-small-latest
@@ -25733,7 +25736,7 @@ const CAPABLE_TEXT_TIMEOUT_MS = Number(process.env.CAPABLE_TEXT_TIMEOUT_MS || 12
  *   · openai   → 见下方说明; 账户 W1655 起 "account is not active", 同样快速穿过
  *   · gemini   → gemini-pro-latest(跟随最新 pro 的别名, 免得又放着烂掉)
  * 歌词这条链【可以】用 pro 档: 它不是实时对话, 43s 延迟换质量是划算的 ——
- * 与 /问道 兜底刻意选 gemini-3.6-flash(7.6s)是两个不同场景, 不要拉平。 */
+ * 与 /问道 兜底刻意选 flash 档(W1827 起 gemini-3.7-flash, 实测 3.0s)是两个不同场景, 不要拉平。 */
 /* Jing 的判定准绳(2026-08-03):「哪个版本最新在 KIE 上架的, 那个就是最新版, 以此为准。」
  * ——不靠印象、不靠各家官网口径, 只认 KIE Market(https://kie.ai/market)。理由很实际:
  * 我们只在 KIE 一处充值, 它上架什么, 我们才真的用得上什么。

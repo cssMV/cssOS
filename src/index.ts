@@ -25798,7 +25798,10 @@ const PROVIDER_TIERS: Record<string, "free" | "cheap" | "standard" | "premium"> 
   // image
   pollinations: "free", // no-key, fully free, last-resort before SVG placeholder
   fal: "free",          // fal flux-schnell free tier
-  huggingface: "free",  // also LLM free tier
+  // W1827: 保留 "free" 只为不改动 tierSortProviders 的既有排序语义 —— 但注意这已【名不副实】:
+  // HF 账户额度耗尽, 所有 Inference Providers 路由统一 402。它已从 LLM 默认链摘除,
+  // 也已从两处 free_tier 展示标签摘除; 这里留着是给 env 应急加回时用的档位。
+  huggingface: "free",  // ⚠ 名义档位, 实际 402 —— 充值后才名副其实
   together: "cheap",    // also LLM cheap/free
   replicate: "cheap",
   fireworks: "cheap",       // FLUX-1-schnell-fp8 via Fireworks workflow
@@ -25917,7 +25920,14 @@ function llmProviderOrder(prefer?: string[]): LlmProvider[] {
    * anthropic 仍然留在【最后一位】: 那把 key 是【故意不充值】的(Jing: 只在 KIE 一处充值, 多处充值会忘),
    *   实测直连返回 "Your credit balance is too low"。把它按字面提前只会每次白等一次 400 往返 ——
    *   守铁律的是"让真正能打的三强在前", 不是"让排不上用场的名字在前"。 */
-  const env = String(process.env.LLM_PROVIDER_ORDER || "gemini,groq,cerebras,together,mistral,huggingface,openrouter,deepseek,anthropic")
+  /* W1827 —— huggingface 从默认链摘除(照 W1655 摘 OpenAI 的老规矩: 代码条目保留,
+   * 只是默认不进链, env LLM_PROVIDER_ORDER 应急可随时加回)。
+   * 原因: HF 账户额度已耗尽, router.huggingface.co/v1/chat/completions 实测统一返回
+   * 402 "You have depleted your monthly included credits" —— 它挂在链里的名义身份是
+   * 【免费档】, 所以排得很靠前, 结果每次生成都先白等一次 402 往返才轮到真能打的。
+   * 这正是 anthropic 被压到最后一位的同一个道理: 守铁律的是"让真正能打的在前"。
+   * 其余各级 20260812 实测均 200: gemini/groq/cerebras/together/mistral/openrouter/deepseek。 */
+  const env = String(process.env.LLM_PROVIDER_ORDER || "gemini,groq,cerebras,together,mistral,openrouter,deepseek,anthropic")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const envList = env.filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
   const pref = (prefer || []).filter((p): p is LlmProvider => p in LLM_PROVIDER_DEFAULTS);
@@ -27513,7 +27523,9 @@ function buildProvidersSnapshot() {
       configured: !!key,
       default_model: cfg.model,
       dialect: cfg.dialect,
-      free_tier: ["groq", "cerebras", "gemini", "together", "mistral", "huggingface", "openrouter"].includes(p),
+      // W1827: huggingface 摘出免费档 —— 账户额度已耗尽, 现在一律 402, 既不免费也不可用。
+      // (这是给前端引擎面板看的标签; 标错会让用户以为还有一条免费路可选。)
+      free_tier: ["groq", "cerebras", "gemini", "together", "mistral", "openrouter"].includes(p),
     };
   });
   const image = (IMAGE_PROVIDERS as readonly string[]).map((id) => {
@@ -27532,7 +27544,9 @@ function buildProvidersSnapshot() {
         : id === "huggingface" ? "FLUX.1-schnell"
         : id === "nanobanana" ? "google/nano-banana"
         : "gpt-image-1",
-      free_tier: id === "fal" || id === "together" || id === "huggingface",
+      // W1827: 同上摘掉 huggingface(402); fal 也不再是免费档(账户欠费锁定, 403 TOP_UP),
+      // 但 fal 的免费额度是可以再充回来的, 故只把已确定性失效的 huggingface 摘掉。
+      free_tier: id === "fal" || id === "together",
     };
   });
   const music = (MUSIC_PROVIDERS as readonly string[]).map((id) => {
@@ -27569,8 +27583,10 @@ function buildProvidersSnapshot() {
       id, kind: "video",
       configured: !!String(process.env[env] || "").trim(),
       // ⚠ 这些 default_model 只是【展示用标签】, 不参与调用; 除 seedance 一条是 KIE slug 外
-      // 其余都是各家自己的命名空间。W1826: fal-ai/luma-ray 已被 fal 下架(404), 标签已过时。
-      default_model: id === "fal" ? "fal-ai/luma-ray"
+      // 其余都是各家自己的命名空间。
+      // W1827: fal-ai/luma-ray 这个名字在 fal 上根本不存在(404 Application not found),
+      // 真名是 fal-ai/luma-dream-machine(实测 403 = 存在, 只是账户欠费)。纯标签订正。
+      default_model: id === "fal" ? "fal-ai/luma-dream-machine"
         : id === "replicate" ? "wan-2.2-i2v"
         : id === "runway" ? "gen-3-alpha"
         : id === "luma" ? "ray-2"
@@ -27832,9 +27848,12 @@ export async function callImageGen(req: ImageGenRequest): Promise<ImageGenRespon
       if (provider === "together") {
         const apiKey = String(process.env.TOGETHER_API_KEY || "").trim();
         if (!apiKey) continue;
-        // 直连 Together, 非 KIE slug。W1826 核实: FLUX.1-schnell-Free 已不在 Together 目录
-        // (现存最接近的免费/极廉档是 black-forest-labs/FLUX.1-schnell)。改默认值会动画风, 留给 Jing 定。
-        const model = String(process.env.TOGETHER_IMAGE_MODEL || "black-forest-labs/FLUX.1-schnell-Free");
+        // 直连 Together, 非 KIE slug。
+        // W1827: 原默认 "FLUX.1-schnell-Free" 已被 Together 撤下 serverless
+        // ("Unable to access non-serverless model", 400)。换成同一个模型的正式档
+        // FLUX.1-schnell —— 不是换模型, 只是换掉那个已经不存在的免费档后缀, 画风不变。
+        // 已实测: 200, 真出图, inference 0.14s。
+        const model = String(process.env.TOGETHER_IMAGE_MODEL || "black-forest-labs/FLUX.1-schnell");
         const upstream = await fetch("https://api.together.xyz/v1/images/generations", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
@@ -28029,11 +28048,17 @@ export async function callImageGen(req: ImageGenRequest): Promise<ImageGenRespon
         const apiKey = String(process.env.HUGGINGFACE_API_KEY || "").trim();
         if (!apiKey) continue;
         const model = String(process.env.HUGGINGFACE_IMAGE_MODEL || "black-forest-labs/FLUX.1-schnell");
-        // 直连 HuggingFace, 非 KIE slug(型号本身在 hub 上活得好好的)。
-        // ⚠ W1826: 死的不是型号, 是【主机】—— api-inference.huggingface.co 已停止解析
-        // (DNS 无记录), HF 全面迁到 router.huggingface.co。这条分支目前必然抛 DNS 错误。
+        /* 直连 HuggingFace, 非 KIE slug(型号本身在 hub 上活得好好的)。
+         * W1827 —— 主机迁移: api-inference.huggingface.co 【已停止解析】(DNS 无记录),
+         * HF 全面改用 router.huggingface.co/<provider>/models/<id>。旧地址会抛 DNS 异常。
+         * ⚠ 但迁完这条也还不通, 另有两道墙(都不是代码能修的):
+         *   ① hf-inference 已弃养这个模型 → 410 "model is deprecated and no longer
+         *      supported by provider hf-inference"(真正还在托管它的是 nscale/together/
+         *      replicate/fal-ai —— 而 together 和 replicate 本来就是本链里的另外两级);
+         *   ② HF 账户额度已耗尽 → 402 "You have depleted your monthly included credits"。
+         * 迁移的意义是: 让它【快速失败于一个看得懂的错误】, 而不是每次卡在 DNS 上。 */
         // HF returns binary image bytes directly.
-        const upstream = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        const upstream = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({
@@ -42326,11 +42351,19 @@ type WhisperGenResponse = {
   chunks?: WhisperChunk[];
   error?: string;
 };
-const WHISPER_PROVIDERS = ["whisper_hf", "whisper_fal", "whisper_openai"] as const;
+const WHISPER_PROVIDERS = ["whisper_groq", "whisper_hf", "whisper_fal", "whisper_openai"] as const;
 function whisperProviderOrder(prefer?: string[]): string[] {
   // W1654 — 默认链去掉 whisper_openai(Jing「彻底无 OpenAI 直连」+ 账户停用)。HF → fal 为主。
   //   whisper_openai 分支保留但默认永不进链(除非 env 显式加回); 运行时不再直连 OpenAI。
-  const env = String(process.env.WHISPER_PROVIDER_ORDER || "whisper_hf,whisper_fal")
+  /* W1827 —— 这条链当时【两级全灭, 等于整个 ASR 路由器是死的】:
+   *   whisper_hf  → HF 账户额度耗尽, 402;
+   *   whisper_fal → fal 账户欠费锁定, 403 "User is locked. Reason: TOP_UP"。
+   * 而 whisper_openai 又被 W1654 主动摘掉 → 三级全不通, callWhisperGen 必返
+   * all_providers_failed。补 whisper_groq 打头: groq 已配 key 且实测健康,
+   * 上面就有 whisper-large-v3-turbo(卡拉 OK 那条路径早就在用它了),
+   * 逐词时间戳格式与 OpenAI verbose_json 一致, 可直接复用 normalizeOpenAiWords。
+   * 实测 200, 返回 words[{word,start,end}]。 */
+  const env = String(process.env.WHISPER_PROVIDER_ORDER || "whisper_groq,whisper_hf,whisper_fal")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (WHISPER_PROVIDERS as readonly string[]).includes(p));
@@ -42423,14 +42456,50 @@ async function callWhisperGen(req: WhisperGenRequest): Promise<WhisperGenRespons
   for (const provider of order) {
     if (await isEngineDisabled(provider)) continue;
     try {
+      if (provider === "whisper_groq") {
+        /* W1827 — groq 的转写接口与 OpenAI 完全兼容(multipart + verbose_json),
+         * 故这段刻意照抄下面 whisper_openai 的组包方式, 只换 host / key / model。
+         * 返回体也同形(words[{word,start,end}]), 直接复用 normalizeOpenAiWords。 */
+        const key = String(process.env.GROQ_API_KEY || "").trim();
+        if (!key) { lastErr = "groq_no_key"; continue; }
+        const audio = await fetchAudioBytes(req.audio_url);
+        if (!audio) { lastErr = "groq_audio_unreachable"; continue; }
+        const model = String(process.env.GROQ_WHISPER_MODEL || "whisper-large-v3-turbo").trim();
+        const boundary = "----cssos" + crypto.randomBytes(8).toString("hex");
+        const ext = audio.contentType.includes("wav") ? "wav" : audio.contentType.includes("ogg") ? "ogg" : "mp3";
+        const parts: Buffer[] = [];
+        const push = (s: string) => parts.push(Buffer.from(s, "utf8"));
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n`);
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\nverbose_json\r\n`);
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="timestamp_granularities[]"\r\n\r\nword\r\n`);
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="timestamp_granularities[]"\r\n\r\nsegment\r\n`);
+        if (req.language) push(`--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${req.language}\r\n`);
+        push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${ext}"\r\nContent-Type: ${audio.contentType}\r\n\r\n`);
+        parts.push(audio.buf);
+        push(`\r\n--${boundary}--\r\n`);
+        const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+          body: Buffer.concat(parts) as any,
+        });
+        lastStatus = r.status;
+        const bodyText = await r.text();
+        if (!r.ok) { lastErr = `groq_${r.status}: ${bodyText.slice(0, 200)}`; console.warn("[whisper]", lastErr); continue; }
+        let raw: any = null;
+        try { raw = JSON.parse(bodyText); } catch { lastErr = "groq_parse"; continue; }
+        const chunks = normalizeOpenAiWords(raw);
+        if (!chunks.length) { lastErr = "groq_no_chunks"; continue; }
+        { void resetEngineFailures(provider); return { ok: true, status: r.status, provider, model, text: String(raw?.text || ""), chunks, srt: chunksToSrt(chunks) }; }
+      }
       if (provider === "whisper_hf") {
         const key = String(process.env.HUGGINGFACE_API_KEY || process.env.HF_API_KEY || "").trim();
         if (!key) { lastErr = "hf_no_key"; continue; }
         const audio = await fetchAudioBytes(req.audio_url);
         if (!audio) { lastErr = "hf_audio_unreachable"; continue; }
-        // 直连 HuggingFace, 非 KIE slug。⚠ W1826: 同上 —— api-inference.huggingface.co
-        // 这个主机已经不存在了(DNS 无记录), 换 router.huggingface.co 才有救。
-        const r = await fetch("https://api-inference.huggingface.co/models/openai/whisper-large-v3", {
+        /* 直连 HuggingFace, 非 KIE slug。W1827 主机迁移(同上: 旧域名已不解析)。
+         * 这条比图像那条有救 —— hf-inference 【仍在托管】whisper-large-v3,
+         * 实测唯一的拦路是 402 额度耗尽。HF 账户一充值, 这条就自动复活。 */
+        const r = await fetch("https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3", {
           method: "POST",
           headers: { Authorization: `Bearer ${key}`, "Content-Type": audio.contentType, Accept: "application/json", "x-wait-for-model": "true" },
           body: audio.buf as any,
@@ -47143,6 +47212,48 @@ app.post("/api/actors/:id/talking-video", async (req, res) => {
 //   默认母语(civToLanguageServer, 与文明智能联动 / showcase 同源)+ 其【时代口吻】;
 //   mode=modern → 用户界面语言 + 2026 现代口吻。铁律: 默认说母语, 但能跟随用户语言。
 //   复用 showcase(下方 44156)的 persona + 母语锁构造。非流式(前端打字机流字), Phase2 升级 SSE。
+/* CSSOS_WAVE_1828 (Jing)「请从明天起把提问存下来」——
+ * 病因: 想回看 2026-08-14 那 3 个人问了妲己什么, 发现一句都没有。/ask 从不落库,
+ *   nginx 不记请求体, Node 只在失败时才写日志。每天最值钱的东西 —— 读者不经引导、
+ *   自己打出来的字 —— 全部流走。
+ * Jing 划死的边界: 只存【问题正文 + 演员 + 来源页 + 时间】, 不存 IP / UA / user_id,
+ *   不做指纹。访客是匿名的, 存的只能是他说的话, 不能是他这个人。 */
+let _askLogReady: Promise<void> | null = null;
+function ensureActorAskLog(): Promise<void> {
+  if (!DATABASE_URL) return Promise.resolve();
+  if (!_askLogReady) {
+    _askLogReady = withClient((c) => c.query(`
+      CREATE TABLE IF NOT EXISTS actor_ask_log (
+        id          BIGSERIAL PRIMARY KEY,
+        asked_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        actor_id    TEXT        NOT NULL,
+        question    TEXT        NOT NULL,
+        source_path TEXT,
+        source_slug TEXT,
+        source_ads  TEXT
+      );
+      CREATE INDEX IF NOT EXISTS actor_ask_log_asked_at_idx ON actor_ask_log (asked_at DESC);
+      CREATE INDEX IF NOT EXISTS actor_ask_log_actor_idx    ON actor_ask_log (actor_id, asked_at DESC);
+    `)).then(() => undefined).catch((e) => {
+      _askLogReady = null;                    // 建表失败就让下一次重试, 别永久卡死
+      console.warn("[ask-log] ensure table failed", String(e));
+    });
+  }
+  return _askLogReady;
+}
+
+/* referer 原样存不得: 里面挂着 fbclid / _aem_ 这类 Meta 跨站追踪串, 那本身就是一种标识符。
+ * 只提炼我们自己要的三样(路径 / 章节 slug / cssADS), 其余全部丢弃。 */
+function askSourceFromReferer(ref: string): { path: string | null; slug: string | null; ads: string | null } {
+  try {
+    const u = new URL(String(ref || ""));
+    const path = u.pathname.slice(0, 300) || "/";
+    const slug = (u.pathname.match(/^\/story\/([A-Za-z0-9._-]{1,120})/) || [])[1] || null;
+    const ads  = (u.searchParams.get("cssADS") || "").slice(0, 120) || null;
+    return { path, slug, ads };
+  } catch { return { path: null, slug: null, ads: null }; }
+}
+
 app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -47166,6 +47277,21 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
       .map((m: any) => ({ role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant", content: String(m.content).slice(0, 2000) }));
     const priorSummary = String(body.summary || "").replace(/[⟦⟧]/g, "").trim().slice(0, 400);
     const wantSummary = body.want_summary === true;
+
+    /* W1828 — 落库【在这里】而不是等答完: 答不出来的那些才最该看见。
+     * 2026-08-14 03:24 就有一次回复 0 字节, 同一人 19 秒后换页重问 —— 若只记成功的,
+     * 这种「问了但没答上」永远不会进统计, 而它恰恰是最该修的。
+     * 全程 fire-and-forget: 记录失败绝不能连累回答, 读者等的是妲己, 不是我们的日志。 */
+    const askedQuestion = [...history].reverse().find((m) => m.role === "user")?.content?.trim() || "";
+    if (askedQuestion) {
+      const src = askSourceFromReferer(String(req.get("referer") || ""));
+      ensureActorAskLog()
+        .then(() => withClient((c) => c.query(
+          `INSERT INTO actor_ask_log (actor_id, question, source_path, source_slug, source_ads)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [id, askedQuestion.slice(0, 2000), src.path, src.slug, src.ads])))
+        .catch((e) => { try { console.warn("[ask-log] insert failed", String(e)); } catch { /* noop */ } });
+    }
 
     const name = actor.name_native || actor.name_zh || actor.name_en || "this actor";
     const persona = `${actor.name_en || ""}${actor.name_zh && actor.name_zh !== actor.name_en ? " (" + actor.name_zh + ")" : ""}` +
@@ -62926,14 +63052,19 @@ type EngineHealthRow = {
 
 // ⚠ 这张表里的串【全是直连供应商的型号名】(HuggingFace / fal.run / Together / Replicate),
 // 不是 KIE slug —— 不归 scripts/kie-catalog-sync.py 管, 拿去问 KIE createTask 必被拒。
-// W1826 逐个向各家源站核实过, 结果记在下面; 修哪个由 Jing 定(会改画风/成本)。
+// W1826 逐个向各家源站核实过; W1827 按核实结果修掉了能修的。
 const FALLBACK_MODELS: Record<string, string[]> = {
-  // ✗ HF 的 hf-inference provider 已不再托管 musicgen("Model not supported by provider")
+  // ⚰ musicgen 在 HuggingFace 上【已经没有任何 serverless provider】了
+  // (models API 的 inferenceProviderMapping 为空)。留着这两个名字只是留个墓碑,
+  // 换成别的名字也一样跑不起来 —— 这条链要活, 得换供应商, 不是换型号。见 W1827 报告。
   huggingface_music: ["facebook/musicgen-medium", "facebook/musicgen-large"],
-  // ✗ fal 已下架整个 musicgen 系列(fal.run 返回 404 Application not found)
+  // ⚰ fal 已整族下架 musicgen(fal.run 404 "Application not found")。
+  // fal 上仍在售的音乐模型有 stable-audio / minimax-music / ace-step 等,
+  // 但换哪一个 = 换兜底音乐的音色, 是产品决定; 且 fal 账户当前欠费锁定,
+  // 换了也跑不起来。故此处不擅自替换, 留给 Jing 定。
   fal_music: ["fal-ai/musicgen-stereo", "fal-ai/musicgen-large"],
-  // FLUX.1-schnell ✓ 仍在 Together 目录; FLUX.1-dev ✗ 已撤(现在只有 FLUX.2-dev)
-  together_image: ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.1-dev"],
+  // W1827: FLUX.1-dev ✗ 已撤 → 换 FLUX.2-dev(实测 200 真出图)。FLUX.1-schnell ✓ 仍在售。
+  together_image: ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.2-dev"],
   fal_image: ["fal-ai/flux/schnell", "fal-ai/flux/dev"],
   huggingface: ["meta-llama/Llama-3.3-70B-Instruct", "meta-llama/Meta-Llama-3.1-8B-Instruct"],
 };

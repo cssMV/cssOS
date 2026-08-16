@@ -3937,13 +3937,32 @@
     if (!id) { open(1); return; }
     open(1, id);   // solo: 只拉这一位演员并展开, 不全量加载(分享进来不会顶不住)。
   };
+  /* CSSOS_WAVE_1829 (Jing)「用户点击进来应该直接进入面对面, 而不是去看文字」——
+   * 面对面此前【只有一个入口】: 人先进图鉴、再展开某张卡、再点封面左下的胶囊。广告落地页
+   * 到这里隔着三次点击, 实测两天 3,628 次到达里 86% 一个像素都没滑就走了。
+   * 这里补上 URL 深链 /?actor=<id>&f2f=1 —— 让广告可以【一步直达】。
+   * 为什么轮询而不是回调: 图鉴是异步拉的, 卡片和 __actor 要等网络回来才存在;
+   * 20 秒拉不到就安静放弃(人留在图鉴里, 不弹错) —— 慢网络下宁可少一层, 不给一个报错。 */
+  function armF2fDeeplink(id) {
+    var tries = 0;
+    var timer = setInterval(function () {
+      if (++tries > 100) { clearInterval(timer); return; }        // 100 × 200ms = 20s 上限
+      var card = document.querySelector(".ag-card.expanded");
+      var a = card && card.__actor;
+      if (!a || String(a.actor_id) !== String(id)) return;
+      clearInterval(timer);
+      try { openFaceToFace(a.actor_id, a); } catch (_e) {}
+    }, 200);
+  }
   function readActorDeeplink() {
     try {
       var m = (location.search || "").match(/[?&]actor=([^&]+)/);
       if (m) {
         try { globalThis.__cssosShareLinkActive = true; } catch (_e2) {}   // W1647 — 再钉一次(DOMContentLoaded 路径)
         try { _agCloseAllPanels(); } catch (_e3) {}                        // W1647 — 分享进来直接关掉已开的 MV/其它面板
-        window.cssosOpenActor(decodeURIComponent(m[1]));
+        var _id = decodeURIComponent(m[1]);
+        window.cssosOpenActor(_id);
+        if (/[?&]f2f=1\b/.test(location.search || "")) armF2fDeeplink(_id);   // W1829
       }
     } catch (_e) {}
   }

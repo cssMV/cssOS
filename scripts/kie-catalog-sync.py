@@ -184,6 +184,16 @@ def repo_ids(path):
     # ① callKieJob("literal", ...) —— jobs API 唯一咽喉点, 字面量直接算数
     kie |= set(re.findall(r'callKieJob\(\s*"([^"]+)"', src))
 
+    # ①b 显式标记 —— 有些 slug 不是字面量直接喂给 callKieJob, 而是先落到一个常量上
+    #     (如 GEMINI_TTS_MODEL = process.env.KIE_TTS_MODEL || "google/gemini-3-1-flash-tts",
+    #      又如放大那条的 const ENGINE = "topaz/video-upscale")。
+    #     靠正则去追常量的去向既脆弱又容易追错, 不如让写代码的人一句话讲清楚:
+    #     在那一行尾部加 /* kie-model */, 本工具就认。加标记的成本是 15 个字符,
+    #     不加的代价是这个 slug 从此再没人核对 —— W1826 漏掉 sora-2 就是这么漏的。
+    #     ⚠ 字符串体必须写成 [^"\n]+ 而不是 [^"]+ —— 后者会跨行吞掉整段注释,
+    #       把一堆中文散文当成"模型名"送去问 createTask(第一版就这么翻过车)。
+    kie |= set(re.findall(r'"([^"\n]+)"[^\n]*?/\*\s*kie-model\s*\*/', src))
+
     # ② KIE 专用注册表: KIE_MODELS / KIE_IMAGE_GEN_MODELS 里的 id/model 字段。
     #    这两张表的语义就是"给 callKieJob 用的 slug", 不管有没有厂商前缀。
     for tbl in ("KIE_MODELS", "KIE_IMAGE_GEN_MODELS"):

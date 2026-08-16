@@ -3210,42 +3210,121 @@ function emoToVoice(emotion?: string): { vs: Record<string, unknown>; tag: strin
   if (!p) return { vs: { stability: 0.4, similarity_boost: 0.8 }, tag: "" };
   return { vs: { stability: p.stability, similarity_boost: 0.8, style: p.style, use_speaker_boost: true }, tag: e };
 }
+/* W1829 (Jing:「统一走 KIE 的 key, ElevenLabs 也可以走 kie 的」) —— 配音改由 KIE 出。
+ *
+ * 【为什么最后不是 ElevenLabs on KIE】KIE 目录里那三条 ElevenLabs(multilingual-v2 /
+ * turbo-2-5 / text-to-dialogue-v3)【全族服务端故障】: 0812 与 0814 两天、四次调用,
+ * 一律 state=fail "Internal Error", creditsConsumed 0。不是参数错、也不是没上架。
+ * 而 KIE 上真正能出声的是 Gemini TTS —— 实测出真 wav(24kHz mono PCM), 英文中文都行。
+ * Jing 要的是「只在 KIE 一处充值」, 不是「非 ElevenLabs 不可」, 所以选能干活的那个。
+ *
+ * 【丢掉的 alignment 怎么补回来】ElevenLabs 的 with-timestamps 会直接回
+ * character_start_times_seconds; KIE 的 jobs API 只回 resultUrls, 没有任何时间轴 ——
+ * 而逐字情绪字幕正是靠它。补法: 音频拿回来后用 groq whisper 做一次逐词对齐
+ * (免费档、key 已有、不新增任何充值关系), 再把词区间【等距展开成字级】喂给
+ * buildIfilmSubLine。渲染器与 IFilmSubLine 类型一个字都不用改。
+ * 实测: 英文 "Time is a river that carries us away." → 8 词全中;
+ *       中文「时间是一条河」→ 时间/是/一/条/河 5 段, 展开后逐字有时间。
+ * 精度上从"字级真值"降为"词内等距插值" —— 这是这次换供应商唯一的真实损失, 记在这里。 */
+
+// ElevenLabs voiceId → Gemini voice_name。Gemini 的 voice_name 是有校验的(乱填回 422),
+// 所以这张表里的名字都逐个 createTask 验过: Puck/Aoede/Charon/Kore 均接受。
+const GEMINI_TTS_VOICE: Record<string, string> = {
+  ErXwobaYiN019PkySvjV: "Charon",  // Antoni  沉稳男声
+  VR6AewLTigWG4xSOukaG: "Fenrir",  // Arnold  冷峻男声
+  pNInz6obpgDQGcFmaJgB: "Puck",    // Adam
+  TxGEqnHWrfWFTfGW9XjX: "Orus",    // Josh
+  EXAVITQu4vr4xnSDxMaL: "Aoede",   // Bella   温柔女声
+  "21m00Tcm4TlvDq8ikWAM": "Kore",  // Rachel
+  MF3mGyEYCl7XYWbV9V6O: "Leda",    // Elli
+  AZnzlk1XvdvUeBnXmlld: "Despina", // Domi
+  yoZ06aMxZJJ28mfd3POQ: "Zephyr",  // Sam     旁白
+};
+const GEMINI_TTS_MODEL = (process.env.KIE_TTS_MODEL || "google/gemini-3-1-flash-tts" /* kie-model */).trim();
+
+/** groq whisper 逐词时间戳。免费档, 只用来给 KIE 出的音频补时间轴。 */
+async function groqWordTimings(buf: Buffer, contentType: string): Promise<{ word: string; start: number; end: number }[]> {
+  const key = String(process.env.GROQ_API_KEY || "").trim();
+  if (!key) return [];
+  const boundary = "----cssos" + crypto.randomBytes(8).toString("hex");
+  const ext = contentType.includes("wav") ? "wav" : contentType.includes("ogg") ? "ogg" : "mp3";
+  const parts: Buffer[] = [];
+  const push = (s: string) => parts.push(Buffer.from(s, "utf8"));
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${String(process.env.GROQ_WHISPER_MODEL || "whisper-large-v3-turbo")}\r\n`);
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\nverbose_json\r\n`);
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="timestamp_granularities[]"\r\n\r\nword\r\n`);
+  push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.${ext}"\r\nContent-Type: ${contentType}\r\n\r\n`);
+  parts.push(buf);
+  push(`\r\n--${boundary}--\r\n`);
+  const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    body: Buffer.concat(parts) as any,
+  });
+  if (!r.ok) { console.warn("[ifilm-tts] groq align", r.status, (await r.text().catch(() => "")).slice(0, 140)); return []; }
+  const j = await r.json() as any;
+  const ws = Array.isArray(j?.words) ? j.words : [];
+  return ws.map((w: any) => ({ word: String(w?.word ?? ""), start: Number(w?.start), end: Number(w?.end) }))
+           .filter((w: any) => w.word && isFinite(w.start) && isFinite(w.end));
+}
+
+/** 把词级时间轴等距展开成字级 —— buildIfilmSubLine 要的就是 chars/starts/ends 三个平行数组。 */
+function wordsToCharTimeline(words: { word: string; start: number; end: number }[]): { chars: string[]; starts: number[]; ends: number[] } {
+  const chars: string[] = [], starts: number[] = [], ends: number[] = [];
+  for (let wi = 0; wi < words.length; wi++) {
+    const w = words[wi]!;
+    // groq 的分词自带原文空白语义: 英文回 " Time"(有前导空格), 中文回 "时间"(没有)。
+    // 【必须照抄这个信号】—— 早期版本无脑给每个词前面补空格, 结果中文 line.text 变成
+    // "时间 是 一 条 河"。空白虽然不出字幕 token(buildIfilmSubLine 会跳过),
+    // 但 text 字段是 chars.join("") 拼的, 平白多出来的空格会直接显示出去。
+    const leadsWithSpace = /^\s/.test(w.word);
+    const body = w.word.trim();
+    if (!body) continue;
+    if (chars.length && leadsWithSpace) { chars.push(" "); starts.push(w.start); ends.push(w.start); } // 占位, 不出 token
+    const cs = Array.from(body);                 // Array.from 而非 split("") —— 别把 emoji/代理对劈开
+    const span = Math.max(0, w.end - w.start) / cs.length;
+    for (let i = 0; i < cs.length; i++) {
+      chars.push(cs[i]!);
+      starts.push(w.start + span * i);
+      ends.push(i === cs.length - 1 ? w.end : w.start + span * (i + 1));
+    }
+  }
+  return { chars, starts, ends };
+}
+
 async function ifilmSpeakTimed(text: string, character: string, tension: number, voiceOverride?: string, emotion?: string): Promise<{ voice_url: string; subtitle: IFilmSubLine } | null> {
   const t = String(text || "").trim(); if (!t) return null;
-  const key = (process.env.ELEVENLABS_API_KEY || "").trim(); if (!key) return null;
+  if (!(process.env.KIE_API_KEY || "").trim()) return null;
   const voiceId = voiceOverride || IFILM_VOICE[character] || "EXAVITQu4vr4xnSDxMaL";
+  const voiceName = GEMINI_TTS_VOICE[voiceId] || "Aoede";
+  // emoToVoice 现在只贡献缓存 tag: Gemini TTS 不吃 ElevenLabs 那套 stability/style 旋钮。
+  // 情绪仍然完整保留在字幕 token 上(buildIfilmSubLine 按 tension 上色), 只是不再改音色参数。
   const emo = emoToVoice(emotion);
-  const sha = crypto.createHash("sha1").update(voiceId + "|" + t + (emo.tag ? "|" + emo.tag : "")).digest("hex").slice(0, 24);
-  const mp3 = `artifacts/ifilm-voice/${sha}.mp3`, jsn = `artifacts/ifilm-voice/${sha}.json`;
-  const mp3url = `https://cdn.cssstudio.app/${mp3}`;
+  // 缓存键带上 voiceName 与 "g1"(引擎代号): 换了引擎音色就该重出, 不能命中 ElevenLabs 时代的旧音频。
+  const sha = crypto.createHash("sha1").update("g1|" + voiceName + "|" + t + (emo.tag ? "|" + emo.tag : "")).digest("hex").slice(0, 24);
+  const wav = `artifacts/ifilm-voice/${sha}.wav`, jsn = `artifacts/ifilm-voice/${sha}.json`;
+  const wavurl = `https://cdn.cssstudio.app/${wav}`;
   try {
     const pj = await fetch(`https://cdn.cssstudio.app/${jsn}`);
-    if (pj.ok) { const a = await pj.json() as any; return { voice_url: mp3url, subtitle: buildIfilmSubLine(a.chars || [], a.starts || [], a.ends || [], tension) }; }
+    if (pj.ok) { const a = await pj.json() as any; return { voice_url: wavurl, subtitle: buildIfilmSubLine(a.chars || [], a.starts || [], a.ends || [], tension) }; }
   } catch { /* not cached */ }
   try {
-    /* W1826 —【为什么这条没改走 KIE】(评估过, 结论是不能换):
-     * ① 目录里那个 "ai/elevenlabs-tts" 根本不能调 —— createTask 回 "model name not supported"。
-     *    目录 ID 与调用 ID 不是同一套; 真正可调的 slug 藏在 anchor 的 ?model= 里, 是
-     *    elevenlabs/text-to-speech-multilingual-v2(参数名也怪: 要 `voice` 而非 `voiceId`)。
-     * ② 就算用对 slug, 20260812 实测每次都 fail("internal error"), KIE 这条当天是坏的。
-     * ③ 最要命的是: KIE 的 jobs API 只回 resultJson(一堆 URL), 【不回 alignment】。
-     *    而这个函数存在的全部意义就是 character_start_times_seconds —— 逐字情绪字幕时间轴。
-     *    换过去会拿到音频、悄悄丢掉时间轴, 属于典型的静默功能回归。
-     * 所以: 这条继续直连 ElevenLabs, 真正的修法是把 key 换成 sk_ 开头的真 key(见上面的守卫)。 */
-    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`, {
-      method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: t.slice(0, 900), model_id: "eleven_multilingual_v2", voice_settings: emo.vs }),
-    });
-    if (!r.ok) { console.warn("[ifilm-tts] ts", r.status, (await r.text().catch(() => "")).slice(0, 120)); return null; }
-    const j = await r.json() as any;
-    const audio = Buffer.from(String(j.audio_base64 || ""), "base64");
-    const al = j.alignment || j.normalized_alignment || {};
-    const chars: string[] = al.characters || [];
-    const starts: number[] = al.character_start_times_seconds || [];
-    const ends: number[] = al.character_end_times_seconds || [];
-    await uploadBufferToR2(audio, mp3, "audio/mpeg").catch(() => null);
+    const job = await callKieJob(GEMINI_TTS_MODEL, {
+      speakers: [{ speaker_id: "Speaker 1", voice_name: voiceName }],
+      dialogue_turns: [{ speaker_id: "Speaker 1", text: t.slice(0, 900) }],
+    }, { timeoutMs: 180_000 });
+    const src = job.ok ? String(job.urls?.[0] || "") : "";
+    if (!src) { console.warn("[ifilm-tts] kie", job.error || "no_url"); return null; }
+    // 铁律(memory: all-generated-media-must-persist-to-r2): KIE 回的是
+    // file.aiquickdraw.com 的【第三方临时 URL】, 必须落我们自己的 R2, 绝不入库。
+    const ar = await fetch(src);
+    if (!ar.ok) { console.warn("[ifilm-tts] fetch audio", ar.status); return null; }
+    const audio = Buffer.from(await ar.arrayBuffer());
+    const ctype = String(ar.headers.get("content-type") || "audio/wav");
+    const { chars, starts, ends } = wordsToCharTimeline(await groqWordTimings(audio, ctype));
+    await uploadBufferToR2(audio, wav, "audio/wav").catch(() => null);
     await uploadBufferToR2(Buffer.from(JSON.stringify({ chars, starts, ends })), jsn, "application/json").catch(() => null);
-    return { voice_url: mp3url, subtitle: buildIfilmSubLine(chars, starts, ends, tension) };
+    return { voice_url: wavurl, subtitle: buildIfilmSubLine(chars, starts, ends, tension) };
   } catch (e) { console.warn("[ifilm-tts] ts err", e instanceof Error ? e.message : String(e)); return null; }
 }
 // 简版(/touch 短反应用): 只要音频 url。
@@ -6626,60 +6705,50 @@ async function parseMusicXmlFile(filePath: string): Promise<MidiLyricsResult & {
 /* OpenAI Whisper transcription. ~$0.006/min. Returns plain text +
  * (when available) verbose JSON for word-level timestamps. */
 type WhisperWordTs = { word: string; ts_ms: number; end_ms: number };
-// W1654 — Jing「不再直连 OpenAI, STT 走已有付费的 ElevenLabs(Scribe)」。KIE 无转写能力
-//   (只有 image/video/music/chat), 而 ElevenLabs 已在给数字演员配音, 语音进/出同一家。
-//   自动检测语言(不强制)。返回 text + 逐词时间戳(scribe 的 words[type=word])。
-/* W1826 20260812 — ElevenLabs key 形态守卫。
- * 踩过的坑: /etc/cssos.env 里存的是控制台上那串 **key ID**, 不是 key 本身。
- * 真 key 以 "sk_" 开头, 且【只在创建/轮换的那一刻显示一次】。
- * 症状极隐蔽 —— key 非空, 所有 `if (!apiKey) return null` 守卫都放行, 于是每条
- * 直连 ElevenLabs 的路径(数字演员配音 / Scribe 听写 / ifilm 逐字情绪字幕时间轴)
- * 都在运行时静默拿 401 然后 return null, 表面上只是"没声音", 不报错。
- * 这里在启动时喊一嗓子, 让下一次配错在 1 秒内被看见, 而不是几周后。
- * 修法: 去 ElevenLabs 控制台 rotate 一次, 把 sk_ 开头的那串写回 /etc/cssos.env。 */
-const ELEVENLABS_KEY_LOOKS_VALID = (() => {
-  const k = (process.env.ELEVENLABS_API_KEY || "").trim();
-  if (!k) return false;
-  if (!k.startsWith("sk_")) {
-    console.warn(
-      "[elevenlabs] ⚠ ELEVENLABS_API_KEY 不以 sk_ 开头 —— 这几乎肯定是 key 的 ID 而不是 key。" +
-      " 所有直连 ElevenLabs 的路径(配音/听写/逐字字幕)都会静默失败。请到控制台 rotate 后重写 /etc/cssos.env。",
-    );
-    return false;
-  }
-  return true;
-})();
-void ELEVENLABS_KEY_LOOKS_VALID; // 只为启动时那一声警告; 不改变任何调用路径的行为
-
-async function elevenLabsTranscribe(audioPath: string): Promise<{ text: string; lines: ParsedLyricLine[]; words: WhisperWordTs[] } | null> {
-  const apiKey = (process.env.ELEVENLABS_API_KEY || "").trim();
+/* W1829 (Jing:「统一走 KIE 的 key」+「不走 kie 的 API, 宁缺毋滥」) —— STT 改用 groq。
+ *
+ * 【为什么不是 KIE】KIE 【完全没有】转写能力: 415 条目录里 transcribe / speech-to-text /
+ * whisper / scribe / subtitle / caption 六个关键词命中数全是 0。这不是"没找对 slug",
+ * 是这个品类不存在。所以 STT 不可能"走 KIE 的 key"。
+ *
+ * 【为什么 groq 不违背铁律】铁律的实质是「只在 KIE 一处充值」(memory: 多处充值会忘)。
+ * groq 是免费档、key 早就配好、不新增任何付费关系 —— 跟 LLM 链里的
+ * gemini/cerebras/mistral 同一性质。真正被"宁缺毋滥"砍掉的是那些【要再掏钱才能复活】的
+ * HuggingFace 与 fal。
+ *
+ * 原实现走 ElevenLabs Scribe(W1654), 已随配音一起下线: 那把 key 存的是 key 的 ID 不是
+ * key 本身, 且我们不再为第二家供应商充值。groq whisper-large-v3-turbo 逐词时间戳实测可用。 */
+async function sttTranscribe(audioPath: string): Promise<{ text: string; lines: ParsedLyricLine[]; words: WhisperWordTs[] } | null> {
+  const apiKey = (process.env.GROQ_API_KEY || "").trim();
   if (!apiKey) return null;
   try {
     const audioBytes = fs.readFileSync(audioPath);
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(audioBytes)]), path.basename(audioPath));
-    form.append("model_id", "scribe_v1");
-    const r = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+    form.append("model", String(process.env.GROQ_WHISPER_MODEL || "whisper-large-v3-turbo"));
+    form.append("response_format", "verbose_json");
+    form.append("timestamp_granularities[]", "word");
+    const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST",
-      headers: { "xi-api-key": apiKey },
+      headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
     });
     if (!r.ok) {
       const errText = await r.text().catch(() => "");
-      console.warn("[el-stt] failed:", r.status, errText.slice(0, 200));
+      console.warn("[stt] failed:", r.status, errText.slice(0, 200));
       return null;
     }
     const j: any = await r.json().catch(() => null);
     if (!j) return null;
     const text = String(j.text || "").trim();
-    // Scribe words: {text,start,end,type}; type∈word/spacing/audio_event → 只取 word。→ WhisperWordTs{word,ts_ms,end_ms}
+    // groq(OpenAI verbose_json 同构): words:[{word,start,end}] → WhisperWordTs{word,ts_ms,end_ms}
     const words: WhisperWordTs[] = Array.isArray(j.words)
       ? j.words
-          .filter((w: any) => w && w.type !== "spacing" && w.type !== "audio_event" && (w.text || w.word))
-          .map((w: any) => ({ word: String(w.text || w.word || "").trim(), ts_ms: Math.round(Number(w.start || 0) * 1000), end_ms: Math.round(Number(w.end || 0) * 1000) }))
+          .filter((w: any) => w && (w.word || w.text))
+          .map((w: any) => ({ word: String(w.word || w.text || "").trim(), ts_ms: Math.round(Number(w.start || 0) * 1000), end_ms: Math.round(Number(w.end || 0) * 1000) }))
           .filter((w: WhisperWordTs) => w.word && w.end_ms >= w.ts_ms)
       : [];
-    // Scribe 不返 segments → 自己按【词间停顿 >700ms 或句末标点】断行, 供卡拉OK歌词对齐。
+    // 按【词间停顿 >700ms 或句末标点】断行, 供卡拉OK歌词对齐。
     const lines: ParsedLyricLine[] = [];
     let cur = "", curStart = -1, prevEnd = -1;
     for (const w of words) {
@@ -6693,15 +6762,15 @@ async function elevenLabsTranscribe(audioPath: string): Promise<{ text: string; 
     if (!lines.length && text) lines.push({ ts_ms: 0, text });
     return { text, lines, words };
   } catch (e) {
-    console.warn("[el-stt] error:", (e as Error)?.message || e);
+    console.warn("[stt] error:", (e as Error)?.message || e);
     return null;
   }
 }
 
 async function whisperTranscribe(audioPath: string, language?: string): Promise<{ text: string; lines: ParsedLyricLine[]; words?: WhisperWordTs[] } | null> {
-  // W1654 — 统一走 ElevenLabs Scribe(不再直连 OpenAI; 歌词逐字对齐够用)。语言自动检测, language 忽略。
+  // W1829 — 统一走 groq whisper(不再直连 OpenAI/ElevenLabs; 歌词逐字对齐够用)。语言自动检测, language 忽略。
   void language;
-  return elevenLabsTranscribe(audioPath);
+  return sttTranscribe(audioPath);
 }
 
 /* CSSOS_WAVE_159 20260514 — 情绪字幕引擎 (Emotional Subtitle Engine).
@@ -14778,6 +14847,23 @@ ${row.proof_a ? `<div class="ask-proof"><div class="ask-proof-q">${H(row.proof_q
 <a class="card" href="/actor/${H(a.actor_id)}?cssADS=story-${H(row.slug)}">
 ${a.cover_image ? `<img src="${H(a.cover_image)}" alt="" loading="lazy"/>` : ""}
 <span><b>${H(a.name_zh || a.name_en)}</b><span>${H((a.persona || "").slice(0, 90))}</span></span></a>`).join("")}</div>` : "";
+
+    /* CSSOS_WAVE_1829 (Jing)「用户点击进来应该直接进入面对面, 而不是去看文字。」
+     * 数据(08-15/16 两天, nginx 埋点): 到达 3,628 → 停留 15 秒 1,577(43%) → 【滑动过只有 440(12%)】。
+     *   给了我们 15 秒的人里, 四分之三一个像素都没滑。而唯一一条自己打字的提问是
+     *   "What is the song name" —— 广告是音乐视频, 落地页是无声长文, 广告文案还写着
+     *   "Tap it. It's already playing."。我们自己许的诺, 落地页没兑现。
+     * 修法: 广告来的人直接进面对面, 不再先读文字。
+     * 【只对广告流量生效】—— 认 cssADS 的 meta- 前缀。没有这个参数的(搜索引擎、直接输网址、
+     *   站内链接)照旧渲染全文, 所以 SEO 资产一根头发都没动。这是刻意的: 长文是给 Google 看的,
+     *   面对面是给活人看的, 两者不该互相牺牲。
+     * 保留 cssADS 原样透传, 归因链不断(外链铁律 [[no-bare-outbound-urls]])。 */
+    const adsTag = String(req.query.cssADS || "").trim().slice(0, 120);
+    if (primary && /^meta-/i.test(adsTag)) {
+      const q = `actor=${encodeURIComponent(primary.actor_id)}&f2f=1&cssADS=${encodeURIComponent(adsTag)}`;
+      res.setHeader("Cache-Control", "no-store");   // 广告参数千变万化, 别让 CDN 把跳转缓存成全站行为
+      return res.redirect(302, `/?${q}`);
+    }
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=300");
@@ -23551,7 +23637,7 @@ app.post(
         ),
       );
     }
-    if (!(process.env.ELEVENLABS_API_KEY || "").trim()) {
+    if (!(process.env.GROQ_API_KEY || "").trim()) {
       return res.json(
         okEmpty(
           {
@@ -23561,12 +23647,12 @@ app.post(
             env_source: runtimeConfig.envSource,
             error_code: "missing_api_key",
           },
-          "ElevenLabs API key is not configured",
+          "Speech-to-text API key is not configured",
         ),
       );
     }
     try {
-      // W1654 — 唤醒口令听写改走 ElevenLabs Scribe(不再直连 OpenAI)。Scribe 自动检测语言、不吃 prompt。
+      // W1829 — 唤醒口令听写改走 groq whisper(KIE 无转写品类; ElevenLabs 已整体下线)。自动检测语言、不吃 prompt。
       const extension =
         contentType.includes("mp4") || contentType.includes("m4a") ? "m4a"
           : contentType.includes("mpeg") || contentType.includes("mp3") ? "mp3"
@@ -23575,14 +23661,13 @@ app.post(
       const micTmp = path.join(os.tmpdir(), `cssos-mic-${Date.now()}-${audioBuffer.length}.${extension}`);
       try {
         fs.writeFileSync(micTmp, audioBuffer);
-        const tr = await elevenLabsTranscribe(micTmp);
+        const tr = await sttTranscribe(micTmp);
         return res.json(
           okData({
             transcript: String(tr?.text || "").trim(),
             lang: "zh",
-            // 展示用标签, 不是 KIE slug —— 真正的调用在 elevenLabsTranscribe() 里直连
-            // api.elevenlabs.io/v1/speech-to-text。W1826: 该路径当前因 key 配置错误而全灭, 见下。
-            model: "elevenlabs/scribe_v1",
+            // 展示用标签; 真正的调用在 sttTranscribe() 里(groq whisper)。
+            model: "whisper-large-v3-turbo",
             env_source: runtimeConfig.envSource,
           }),
         );
@@ -42363,7 +42448,11 @@ function whisperProviderOrder(prefer?: string[]): string[] {
    * 上面就有 whisper-large-v3-turbo(卡拉 OK 那条路径早就在用它了),
    * 逐词时间戳格式与 OpenAI verbose_json 一致, 可直接复用 normalizeOpenAiWords。
    * 实测 200, 返回 words[{word,start,end}]。 */
-  const env = String(process.env.WHISPER_PROVIDER_ORDER || "whisper_groq,whisper_hf,whisper_fal")
+  /* W1829 (Jing:「不走 kie 的 API, 宁缺毋滥」) —— whisper_hf / whisper_fal 一并摘出默认链。
+   * 它们要复活都得【再向第二、第三家供应商充值】(HF 402 额度耗尽 / fal 403 欠费锁定),
+   * 而铁律是只在 KIE 一处充值。KIE 本身没有转写品类, 故这条链只留 groq(免费档, 不新增付费关系)。
+   * 三个分支的代码都保留, env WHISPER_PROVIDER_ORDER 可随时加回。 */
+  const env = String(process.env.WHISPER_PROVIDER_ORDER || "whisper_groq")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const list = (prefer && prefer.length ? prefer : env).filter((p) =>
     (WHISPER_PROVIDERS as readonly string[]).includes(p));
@@ -47616,7 +47705,9 @@ function isDegenerateReply(s: string): boolean {
 app.post("/api/actors/:id/say", express.json({ limit: "16kb" }), async (req, res) => {
   noStore(res);
   try {
-    if (!(process.env.ELEVENLABS_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "TTS_UNAVAILABLE" });
+    // W1829 — 配音已改由 KIE 出(见 ifilmSpeakTimed), 闸门跟着换成 KIE_API_KEY。
+    // 继续查 ELEVENLABS_API_KEY 会在那把 key 被清掉后, 把一个能用的功能 503 掉。
+    if (!(process.env.KIE_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "TTS_UNAVAILABLE" });
     // 成本闸: 每 IP 每小时 SAY_CAP_PER_HOUR 次, 超出 → 429(前端转手动 + 提示)。
     const rk = String((req.headers["x-forwarded-for"] || (req as any).ip || "anon")).split(",")[0]!.trim();
     const nowMs = Date.now();
@@ -47695,8 +47786,8 @@ const _sttRate = new Map<string, { n: number; t: number }>();
 app.post("/api/actors/stt", express.raw({ type: () => true, limit: "12mb" }), async (req, res) => {
   noStore(res);
   try {
-    // W1654 — STT 改走 ElevenLabs(Scribe), 不再直连 OpenAI(账号 billing_not_active + KIE 无转写能力)。
-    if (!(process.env.ELEVENLABS_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "STT_UNAVAILABLE" });
+    // W1829 — STT 改走 groq whisper(KIE 至今没有转写品类; ElevenLabs 已整体下线)。
+    if (!(process.env.GROQ_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "STT_UNAVAILABLE" });
     // 登录门(和聊天一致): staff 或 登录用户放行; 匿名 → 提示登录。
     const email = String((req.session as any)?.email || "").toLowerCase();
     const userId = String((req.session as any)?.user_id || "").trim();
@@ -47717,8 +47808,8 @@ app.post("/api/actors/stt", express.raw({ type: () => true, limit: "12mb" }), as
     const tmp = path.join(os.tmpdir(), `cssos-stt-${userId || "anon"}-${nowMs}-${Math.round(buf.length)}.${ext}`);
     try {
       fs.writeFileSync(tmp, buf);
-      void lang;   // ElevenLabs Scribe 自动检测语言(不强制) —— 你说中文出中文、英文出英文
-      const tr = await elevenLabsTranscribe(tmp);
+      void lang;   // groq whisper 自动检测语言(不强制) —— 你说中文出中文、英文出英文
+      const tr = await sttTranscribe(tmp);
       if (!tr) return res.status(502).json({ ok: false, code: "STT_FAILED" });
       return res.json({ ok: true, data: { text: tr.text, words: tr.words || [] } });
     } finally {
@@ -47903,7 +47994,8 @@ app.get("/api/actors/:id/showcase", async (req, res) => {
     const actor = ar.rows[0];
     if (!actor) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     if (actor.showcase && !regen) return res.json({ ok: true, data: { showcase: actor.showcase, cached: true } });
-    if (!(process.env.ELEVENLABS_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "TTS_UNAVAILABLE" });
+    // W1829 — 同上: 配音源已是 KIE。
+    if (!(process.env.KIE_API_KEY || "").trim()) return res.status(503).json({ ok: false, code: "TTS_UNAVAILABLE" });
 
     // ① LLM 写 3 段台词(自我介绍 / 正派 / 反派), 该演员母语或英文, 绝不给非中文演员用中文。
     const persona = `${actor.name_en}${actor.name_zh && actor.name_zh !== actor.name_en ? " (" + actor.name_zh + ")" : ""}` +
@@ -62000,31 +62092,29 @@ async function callVideoUpscale(opts: {
   source_url: string;
   target_resolution: "1080p" | "4k";
 }): Promise<{ output_url: string | null; engine: string | null }> {
-  const falKey = process.env.FAL_KEY || process.env.FAL_AI_KEY || "";
-  if (!falKey || !opts.source_url) return { output_url: null, engine: null };
+  /* W1829 — 4K 放大从直连 fal 搬到 KIE。
+   * fal 那条不是型号问题(fal-ai/topaz/upscale/video 仍在), 是【账户欠费锁定】
+   * ("User is locked. Reason: TOP_UP"), 要复活得再向 fal 充值 —— 违背「只在 KIE
+   * 一处充值」。而 KIE 目录里本来就有 Topaz: topaz/video-upscale(1x/2x $0.04, 4x $0.07),
+   * createTask 实测 ALIVE(回 "video_url is required" = 型号在, 只是参数没给)。
+   * 于是同一个 Topaz 引擎, 换成走我们唯一充值的那家。 */
+  const ENGINE = "topaz/video-upscale"; /* kie-model */
+  if (!opts.source_url) return { output_url: null, engine: null };
+  if (!(process.env.KIE_API_KEY || "").trim()) return { output_url: null, engine: null };
   try {
-    // 直连 fal.run, 非 KIE slug(下面 engine 字段里的 "fal-ai/topaz" 只是回执标签)。
-    // W1826: 型号在, 但 fal 账户余额耗尽("User is locked. Reason: TOP_UP")。
-    const upstream = await fetch("https://fal.run/fal-ai/topaz/upscale/video", {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${falKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        video_url: opts.source_url,
-        target_resolution: opts.target_resolution === "4k" ? "4k" : "1080p",
-      }),
-    });
-    if (!upstream.ok) return { output_url: null, engine: "fal-ai/topaz" };
-    const json: any = await upstream.json().catch(() => null);
-    const url = json?.video?.url || json?.output?.url || json?.url || null;
-    return {
-      output_url: typeof url === "string" ? url : null,
-      engine: "fal-ai/topaz",
-    };
+    // KIE 的 Topaz 按【放大倍数】计费, 不认 "1080p"/"4k" 这种目标分辨率字面量。
+    // 我们的调用方只有 720p→1080p / 720p→4k / 1080p→4k 三种, 折算成 2 / 4 两档。
+    // ⚠ upscale_factor 必须是【数字字符串】: 传数字 4 → "it must be a string";
+    //   传 "4x"/"x4"/"four" → "not within the range of allowed options"。只有 "1"/"2"/"4" 过关。
+    const job = await callKieJob(ENGINE, {
+      video_url: opts.source_url,
+      upscale_factor: opts.target_resolution === "4k" ? "4" : "2",
+    }, { timeoutMs: 900_000 });
+    const url = job.ok ? String(job.urls?.[0] || "") : "";
+    if (!url) { console.warn("[upscale] kie", job.error || "no_url"); return { output_url: null, engine: ENGINE }; }
+    return { output_url: url, engine: ENGINE };
   } catch {
-    return { output_url: null, engine: "fal-ai/topaz" };
+    return { output_url: null, engine: ENGINE };
   }
 }
 
@@ -63318,15 +63408,20 @@ app.post("/api/admin/engine-health/clear-disable", async (req, res) => {
 });
 
 /* CSSOS_PERSON_MV_WAVE60 20260508 — Jing — balance alerts.
- * Every 6h check fal/openai/elevenlabs/replicate balances vs. thresholds.
- * If a balance crosses below threshold, fan out a `system_alert`
- * notification to every admin user (by email match). De-duped via
- * engine_balance_alerts: max 1 alert per engine per 24h. */
+ * Every 6h check remaining vendor balances vs. thresholds. If a balance
+ * crosses below threshold, fan out a `system_alert` notification to every
+ * admin user (by email match). De-duped via engine_balance_alerts:
+ * max 1 alert per engine per 24h.
+ *
+ * W1829 (Jing:「不走 kie 的 API, 宁缺毋滥」) —— fal / elevenlabs 从告警表移除。
+ * 我们已经【不再向这两家充值】, 它们的余额永远低于阈值, 留着只会每 24h 准时
+ * 给 Jing 推一条永远修不掉的告警 —— 告警疲劳比没有告警更糟。
+ * openai / replicate 暂留(仍是 env 应急路径, 且账上还有余额)。
+ * KIE 是我们唯一充值的那家, 但它没有可查余额的公开端点, 故不在此表;
+ * 真要盯 KIE 的钱, 看 callKieJob 打的 [KIE-SPEND] 审计行。 */
 const BALANCE_THRESHOLDS: Record<string, { metric: "usd" | "credits"; value: number }> = {
-  fal: { metric: "usd", value: 5 },
   openai: { metric: "usd", value: 10 },
   replicate: { metric: "usd", value: 5 },
-  elevenlabs: { metric: "credits", value: 100 },
 };
 
 async function listAdminUserIds(): Promise<string[]> {

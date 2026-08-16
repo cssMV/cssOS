@@ -410,7 +410,16 @@
        *   有片子才盖上去, 没有则这两层根本不渲染 → 278 位演员里没铺到的照旧走静态封面, 一行不坏。
        *   .ag-f2f-vid 在 .ag-f2f-face 之上、.ag-f2f-mouth 之下: 说话片自带真唇动, 所以说话时
        *   把贴片嘴和 agFaceAlive 呼吸动画一起关掉(真的动起来了, 假的必须让位, 否则双重抖动)。 */
-      ".ag-f2f-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;border-radius:inherit;pointer-events:none;opacity:0;transition:opacity .28s ease;}" +
+      /* W1830b (Jing 走查:「只看到半边脸」) — 这两条片是 9:16 竖片, 而桌面窗口是横的。
+       *   原来写 object-fit:cover + object-position:center top → 竖片被撑满宽度、纵向巨幅溢出,
+       *   只剩发髻, 脸整个被切掉。这正是 W1643/W1652 在静态脸层上修过的同一个坑
+       *   (那边用的是人脸焦点 f2fFacePos, 不是写死的 top) —— 视频层不该重犯。
+       * 改 contain: 人物【完整】显示, 不裁一刀。空出来的地方不留黑边 ——
+       *   下面那层 .ag-f2f-face 本来就是同一张封面(background-size:cover), 加模糊放大当背景板,
+       *   零新增元素、零额外解码器(这条链上的历史崩溃都是多加一路媒体累积出来的)。
+       * 手机竖屏时容器本就接近 9:16, contain 与 cover 几乎等同 —— 主力流量那一侧没有代价。 */
+      ".ag-f2f-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center center;border-radius:inherit;pointer-events:none;opacity:0;transition:opacity .28s ease;}" +
+      ".ag-f2f-actor.has-vid .ag-f2f-face{filter:blur(26px) brightness(.5);transform:scale(1.12);}" +
       ".ag-f2f-actor:not(.speaking) .ag-f2f-vid-idle{opacity:1;}" +
       ".ag-f2f-actor.speaking .ag-f2f-vid-talk{opacity:1;}" +
       ".ag-f2f-actor.has-vid.speaking .ag-f2f-mouth{opacity:0!important;}" +

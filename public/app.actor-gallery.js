@@ -405,6 +405,16 @@
       "@keyframes agFaceAlive{0%,100%{transform:translateY(0) rotate(0deg) scale(1.006)}30%{transform:translateY(-.5%) rotate(-.35deg) scale(1.012)}65%{transform:translateY(.35%) rotate(.3deg) scale(1.008)}}" +
       ".ag-f2f-mouth{position:absolute;left:var(--mouthx,50%);top:var(--mouthy,54%);width:14%;height:8%;transform:translate(-50%,-50%) scaleY(var(--lip,0));transform-origin:50% 42%;border-radius:50%;background:radial-gradient(ellipse at 50% 42%,rgba(18,4,7,.5),rgba(30,8,12,.2) 55%,transparent 76%);opacity:calc(.06 + var(--lip,0)*.34);pointer-events:none;}" +
       ".ag-f2f-actor:not(.speaking) .ag-f2f-mouth{opacity:0;}" +
+      /* ===== CSSOS_WAVE_1830 — 会动的演员。两条 5 秒竖屏循环片(待机/说话)叠在脸层之上,
+       *   由【已有的 .speaking class】切换 —— 不碰驱动它的那 6 处调用点, 也不新开 JS 状态。
+       *   有片子才盖上去, 没有则这两层根本不渲染 → 278 位演员里没铺到的照旧走静态封面, 一行不坏。
+       *   .ag-f2f-vid 在 .ag-f2f-face 之上、.ag-f2f-mouth 之下: 说话片自带真唇动, 所以说话时
+       *   把贴片嘴和 agFaceAlive 呼吸动画一起关掉(真的动起来了, 假的必须让位, 否则双重抖动)。 */
+      ".ag-f2f-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;border-radius:inherit;pointer-events:none;opacity:0;transition:opacity .28s ease;}" +
+      ".ag-f2f-actor:not(.speaking) .ag-f2f-vid-idle{opacity:1;}" +
+      ".ag-f2f-actor.speaking .ag-f2f-vid-talk{opacity:1;}" +
+      ".ag-f2f-actor.has-vid.speaking .ag-f2f-mouth{opacity:0!important;}" +
+      ".ag-f2f-actor.has-vid.speaking .ag-f2f-face{animation:none;}" +
       // W1610 — 标题移到 stage 级后要补回舒适内距(大框 inset:12, 原先在 tile 内还有 14 → 现在合计 ~26)。
       ".ag-f2f-title{position:absolute;left:26px;top:24px;z-index:2;text-shadow:0 2px 8px #000;text-align:center;}" +
       ".ag-f2f-names{display:flex;align-items:center;gap:8px;justify-content:center;}" +
@@ -2683,6 +2693,11 @@
     var _fyUp = Math.min(0.94, _fy + 0.08);   // W1652 — 脸略上移(露更多下巴/嘴, 少额头)
     var f2fFacePos = (_fx * 100).toFixed(1) + "% " + (_fyUp * 100).toFixed(1) + "%";
     var f2fMouthY = Math.min(86, _fy * 100 + 4).toFixed(0) + "%";
+    // W1830 — 两态循环片。只认同源 /artifacts/ 路径: 这两个字段将来若被写脏, 也不该变成
+    //   往任意第三方域名发请求的口子(演员数据是可编辑的, 当不可信输入待)。
+    var _vidOk = function (u) { return typeof u === "string" && /^https:\/\/cssstudio\.app\/artifacts\//.test(u); };
+    var f2fIdleUrl = _vidOk(a && a.f2f_idle_url) ? a.f2f_idle_url : "";
+    var f2fTalkUrl = f2fIdleUrl && _vidOk(a && a.f2f_talk_url) ? a.f2f_talk_url : "";   // 没有待机片就不单挂说话片
     var name = (a && T(a.name_en || a.name_zh || "", a.name_zh || a.name_en || "")) || "";   // W1730 — locale-aware(英文 UI 不再露中文名)
     var uiLoc = (typeof window.cssosLocale === "string" && window.cssosLocale) || (document.documentElement.lang || "en");
     var ov = document.createElement("div"); ov.className = "ag-f2f-ov";
@@ -2690,7 +2705,13 @@
       '<div class="ag-f2f-stage" data-speaker="actor">' +
         // W1607 — 面对面标题钉在 stage 左上角(不再挂在妲己 tile 里, 否则她变小窗时标题跟着跑进小框)。
         '<div class="ag-f2f-title"><div class="ag-f2f-names"></div><div class="ag-f2f-brand">Face on Face</div></div>' +
-        '<div class="ag-f2f-actor" style="--mouthy:' + f2fMouthY + '"><div class="ag-f2f-face" style="background-image:url(\'' + cover + '\');background-position:' + f2fFacePos + '"></div><div class="ag-f2f-mouth"></div><div class="ag-f2f-caption"></div></div>' +
+        /* W1830 — 有循环片就叠两层 <video>(待机/说话), 没有就完全不渲染这两层(回落静态封面)。
+         * muted+playsinline+loop 是移动端自动播放的三个硬条件, 缺一在 iOS 上就不动。
+         * poster 用封面: 视频到位前先显示同一张脸, 不会有黑框闪一下。 */
+        '<div class="ag-f2f-actor' + (f2fIdleUrl ? " has-vid" : "") + '" style="--mouthy:' + f2fMouthY + '"><div class="ag-f2f-face" style="background-image:url(\'' + cover + '\');background-position:' + f2fFacePos + '"></div>' +
+        (f2fIdleUrl ? '<video class="ag-f2f-vid ag-f2f-vid-idle" src="' + esc(f2fIdleUrl) + '" poster="' + esc(cover) + '" muted playsinline loop autoplay preload="auto"></video>' : "") +
+        (f2fTalkUrl ? '<video class="ag-f2f-vid ag-f2f-vid-talk" src="' + esc(f2fTalkUrl) + '" poster="' + esc(cover) + '" muted playsinline loop preload="auto"></video>' : "") +
+        '<div class="ag-f2f-mouth"></div><div class="ag-f2f-caption"></div></div>' +
         '<div class="ag-f2f-me"><video class="ag-f2f-video" autoplay muted playsinline></video><div class="ag-f2f-melabel">' + esc(T("You", "你")) + '</div></div>' +
       '</div>' +
       // 单条凸嵌凹胶囊轨道: 输入框(field)靠 cssosMakePillBar 的 input-fills-rest 吃满剩余长度, 3 按钮按内容自适应。
@@ -2703,6 +2724,37 @@
       '<button class="ag-f2f-x" aria-label="close">×</button>';
     document.body.appendChild(ov);
     var stage = ov.querySelector(".ag-f2f-stage"), actorTile = ov.querySelector(".ag-f2f-actor"), caption = ov.querySelector(".ag-f2f-caption");
+    /* W1830 — 说话片默认暂停(opacity 变 1 但不播 = 一张定格), 所以跟着 .speaking 播/停。
+     * 用 MutationObserver 而不是改那 6 处 add/remove("speaking") 的调用点: 那 6 处分散在
+     * 有声/无声/失败三条回放路径里, 逐个去改迟早漏一处; 盯 class 只有一个入口, 漏不掉。
+     * 说完回到待机时把说话片 currentTime 归零 —— 否则下一句从半截嘴型接上, 看着像跳帧。
+     * observer 必须随覆盖层一起 disconnect, 否则关掉面对面还在跑 → 又是一处内存泄漏。 */
+    var _vidTalk = ov.querySelector(".ag-f2f-vid-talk"), _vidIdle = ov.querySelector(".ag-f2f-vid-idle"), _vidObs = null;
+    if (_vidTalk) {
+      var _syncVid = function () {
+        var on = actorTile.classList.contains("speaking");
+        try {
+          if (on) { var p = _vidTalk.play(); if (p && p.catch) p.catch(function () {}); }
+          else { _vidTalk.pause(); _vidTalk.currentTime = 0; }
+        } catch (e) {}
+      };
+      _vidObs = new MutationObserver(_syncVid);
+      _vidObs.observe(actorTile, { attributes: true, attributeFilter: ["class"] });
+      _syncVid();
+    }
+    // 移动端偶尔会拒掉首次 autoplay(即便 muted); 补一次 play(), 失败就退回 poster(那也是同一张脸)。
+    if (_vidIdle) { try { var _pi = _vidIdle.play(); if (_pi && _pi.catch) _pi.catch(function () {}); } catch (e) {} }
+    /* W1830 — 标签页切走再回来要接着动。浏览器为省电会挂起【后台标签里的静音视频】:
+     * play() 照样 resolve、pause() 也不会被调用, 但 currentTime 就是不走 —— 回来时停在定格帧,
+     * 一张不动的脸比静态封面更糟(它看起来像卡死了)。所以可见性一恢复就补一次 play。
+     * (这条是实测逼出来的: 调试时浏览器窗口在后台, 一路查到 visibilityState=hidden 才定位。) */
+    var _onVis = function () {
+      if (document.visibilityState !== "visible") return;
+      var want = actorTile.classList.contains("speaking") ? _vidTalk : _vidIdle;
+      if (!want || !want.paused) return;
+      try { var p = want.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+    };
+    if (_vidIdle) document.addEventListener("visibilitychange", _onVis);
     try { frameFaceF2F(ov.querySelector(".ag-f2f-face"), actorTile, cover); } catch (e) {}   // W1643 — FaceDetector 精修脸框(异步)
     var video = ov.querySelector(".ag-f2f-video"), input = ov.querySelector(".ag-f2f-text"), sendBtn = ov.querySelector(".ag-f2f-send"), micBtn = ov.querySelector(".ag-f2f-mic"), recBtn = ov.querySelector(".ag-f2f-rec");
     // 底部输入条: 输入框最长(flex:1) + 三个胶囊按钮按内容自适应(不等宽), 每个都带图标+文字。
@@ -2770,6 +2822,11 @@
       if (audio) { try { audio.pause(); audio.src = ""; } catch (e) {} audio = null; }             // 停音频 + 释放
       try { if (_bgGuardTimer) { clearInterval(_bgGuardTimer); _bgGuardTimer = 0; } } catch (e) {}   // 停后台媒体守卫
       try { _pausedMedia.forEach(function (m) { try { if (m.__cssosF2fMuted) { m.muted = false; delete m.__cssosF2fMuted; } } catch (e2) {} try { var pr = m.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e3) {} }); _pausedMedia = []; } catch (e) {}   // W1627 — 还原静音 + 续播后台媒体
+      /* W1830 — 两态循环片收尾: 断观察器 + 停播 + 清 src。只 remove() 不清 src, 解码器不会
+       * 马上释放, 连着开关几次面对面就会累积 —— 这条链上历史崩溃(W1617/W1627)都是这么来的。 */
+      try { if (_vidObs) { _vidObs.disconnect(); _vidObs = null; } } catch (e) {}
+      try { document.removeEventListener("visibilitychange", _onVis); } catch (e) {}
+      try { [_vidIdle, _vidTalk].forEach(function (v) { if (!v) return; try { v.pause(); } catch (e2) {} try { v.removeAttribute("src"); v.load(); } catch (e3) {} }); } catch (e) {}
       stream = null; rec = null; ov.remove();
     }
     ov.querySelector(".ag-f2f-x").onclick = close;

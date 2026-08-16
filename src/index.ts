@@ -45998,7 +45998,8 @@ app.get("/api/actors", async (req, res) => {
              gender, age_range, appearance_tags, voice_style, style_descriptor, tags,
              model_3d_url, is_premium, cast_price_cents, license_model, curation_tier,
              popularity_score, cast_count, owner_user_id::text AS owner_user_id, creator_royalty,
-             visibility, role_range, archetypes, sub_roles
+             visibility, role_range, archetypes, sub_roles,
+             f2f_idle_url, f2f_talk_url                       -- W1830 面对面两态循环片(可为 NULL → 回落静态封面)
         FROM digital_actors
         WHERE ${where.join(" AND ")}
         ORDER BY (curation_tier='S') DESC, popularity_score DESC, name_en ASC

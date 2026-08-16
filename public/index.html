@@ -2531,7 +2531,7 @@
     <script src="app.hymn-create-toggle.js?v=20260713-w1766-hymn-create"></script>
     <script src="app.section-form-classic.js?v=20260713-w1770-section-form"></script>
     <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
-    <script src="app.actor-gallery.js?v=20260816-w1829-f2f-deeplink"></script>
+    <script src="app.actor-gallery.js?v=20260816-w1830b-f2f-video"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-today-shelf.js?v=20260603-w593-civmeta"></script>
@@ -2965,10 +2965,19 @@
             // 歌词被跳过。现在: 当前作品的 canonical 对(video + audio-preview)的静音
             // 状态【完全交给 watch-ui】, 本裁判只负责【静音并暂停杂散元素】
             // (mic-capture / foryou-thumb / mirror / 重复元素), 绝不碰那一对。
+            // CSSOS_WAVE_1830 — 面对面(.ag-f2f-ov)是全屏独占模式, 它【自己】已经把所有后台
+            //   媒体暂停+静音+断源了(app.actor-gallery.js 的 _pauseBgMedia + 1s 守卫), 不需要本裁判
+            //   再插手; 而它内部的媒体是这个模式的主体 —— 摄像头画面、以及 W1830 的演员待机/说话
+            //   循环片(muted 装饰视频, 不出声, 不可能造成"串台")。
+            //   本裁判此前会把它们一并 pause() → 演员片刚 play 就被按停, 只剩一张定格首帧。
+            //   另外两个守卫早已写了 ov.contains(m) 豁免, 唯独这里漏了; 这是补齐, 不是放宽:
+            //   裁判要治的"杂散元素"(mic-capture / foryou-thumb / mirror / 重复元素)一个没放过。
+            var _f2fOv = document.querySelector(".ag-f2f-ov");
             try {
               var v = document.getElementById("watch-video");
               document.querySelectorAll("audio, video").forEach(function (el) {
                 if (el === v || el.id === "watch-audio-preview") return; // owned by watch-ui
+                if (_f2fOv && _f2fOv.contains(el)) return;               // W1830 — 面对面自治
                 try {
                   el.muted = true;
                   el.setAttribute("muted", "");

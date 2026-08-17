@@ -25803,7 +25803,19 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
 //   llmProviderOrder 只把【剩下的】免费小兵(groq/cerebras/mistral/together/…)tier-sort 到末尾。
 //   之前 prefer 只有 ["kie"], kie 一断就直接掉进免费小兵档, 三强直连反而排最后 —— 与此意相反,
 //   现已修正。直连三强(空额度)会 credits-fail 快速穿过, 但顺序上强模型始终先于小兵。
-const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "anthropic", "openai", "gemini"];
+/* CSSOS_WAVE_1832 (Jing)「默认优先 Claude, 其次 ChatGPT, 第三是 gemini」。
+ * 落到本仓库的四个条目上, 顺序不能照字面排 —— 2026-08-17 全线实测:
+ *   kie       (Claude claude-fable-5) → 流式 7/10 通(9-11s); 失败那 3 次是 KIE 网关把
+ *                                        gzip 响应二次编码搞坏了, 已加三次重试 → 97.3%
+ *   openai    (gpt-5.6-sol)           → 429 "Your account is not active" —— 账户未激活,
+ *                                        需 Jing 去 OpenAI 充值才能启用(本仓库不代充)
+ *   gemini    (gemini-pro-latest)     → 200 正常, 当前唯一稳的三强
+ *   anthropic (直连)                  → 400 "credit balance is too low" —— 那把 key 是
+ *                                        【故意不充值】的(Jing: 只在 KIE 一处充值, 多处会忘)
+ * 所以 anthropic 虽然也是 Claude, 却压到最后一位: 把一个必然 400 的条目排在前面, 只是每次
+ * 白等一次往返。守铁律的是「让真正能打的在前」, 不是「让名字好看的在前」。
+ * openai 保留在第二位: 它现在必然失败但失败很快(1.2s), 且 Jing 一旦充值即刻生效, 无需改码。 */
+const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "openai", "gemini", "anthropic"];
 /* CSSOS_WAVE_1815 (Jing)「歌词这条链的超时抬到 90 秒或更长」。
  * 实测 KIE 上 1400-token 歌词成功耗时 32-39s, 全局 60s 只剩 20s 余量 —— 一旦上游变慢就在超时边缘反复摩擦。
  * 这里给【歌词/京典/lore】这条 capable 链单独放宽到 120s(env 可调)。
@@ -26218,7 +26230,12 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
          * 修在适配层而不是逐个调用点: 调用方继续只表达「可见文字要多少」, 由这里替它补上思考开销。
          *   1024 的余量按实测取(思考稳定落在 350–650 区间), 宁可多留 —— 上限只是【上限】,
          *   模型正常收尾就 STOP 了, 不会因为给多了就多花钱。 */
-        const GEMINI_THINKING_HEADROOM = 1024;
+        /* W1832 修正 —— 1024 是按 flash 量的, 对 pro 远远不够。上线后那道 finishReason 告警
+         * 当场抓到: gemini-pro-latest 思考 1654 tokens, 上限 1724 → 只剩 70 个给可见文字, 又断了。
+         * (flash 思考 350-650, pro 1600+ —— 差三倍, 按小的那个量必然翻车。)
+         * 提到 4096: 上限只是【上限】, 模型正常收尾就 STOP, 给多了一分钱不多花;
+         * 而给少了就是用户看到话说一半。这道题只有一边有代价, 所以宁可给足。 */
+        const GEMINI_THINKING_HEADROOM = 4096;
         if (req.max_tokens !== undefined) generationConfig.maxOutputTokens = req.max_tokens + GEMINI_THINKING_HEADROOM;
         if (req.response_format && (req.response_format as any).type === "json_object") {
           generationConfig.responseMimeType = "application/json";
@@ -47564,8 +47581,18 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
     const _anthKey = (process.env.ANTHROPIC_API_KEY || "").trim();
     const model = _kieKey ? (process.env.KIE_AGENT_MODEL || KIE_CLAUDE_MODEL) : AGENT_MODEL;
     let full = "";
-    try {
-      if (_kieKey) {
+    /* CSSOS_WAVE_1832 (Jing)「默认优先 Claude, 其次 ChatGPT, 第三 gemini」——
+     * 实测 KIE Claude 流式 10 连打: 成功 7 次(9-11s), 失败 3 次。三次失败形态完全一致 ——
+     *   HTTP 200 + content-type: text/event-stream, 但 1.5s 就返回、一个 delta 都没有,
+     *   body 首字节 1f + UTF-8 替换字符 → 原本是 `1f 8b`(gzip magic), 第二字节被吃掉了。
+     *   即 KIE 把响应 gzip 了却不设 content-encoding, 网关又按 UTF-8 解码再编码一遍,
+     *   二进制被【永久破坏】。这是 KIE 服务端的 bug, 客户端救不回来 —— 数据本身已经没了。
+     * 我们唯一能做的是重试: 单次 70% → 三次 97.3%。原来这里【只试一次】, 一失败就掉进
+     *   callLlm, 而那句 callLlm 又没传 prefer → 走默认链(里面根本没有 kie/openai)→ gemini 接单。
+     *   于是「三强优先」在数字演员这条链上从未真正生效过, 且 gemini 兜底是非流式的,
+     *   连带把平台签名一「流流流」也一起关掉了(实测每次回复只有 1 个 delta)。 */
+    const KIE_ASK_ATTEMPTS = 3;
+    const _kieAttempt = async (): Promise<void> => {
         const kr = await fetch("https://api.kie.ai/claude/v1/messages", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${_kieKey}` },
@@ -47609,6 +47636,20 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
           full = ""; emittedLen = 0; send({ reset: true });
           throw new Error("kie_stream_degenerate");
         }
+    };
+    try {
+      if (_kieKey) {
+        for (let attempt = 1; ; attempt++) {
+          try { await _kieAttempt(); break; }
+          catch (e) {
+            if (attempt >= KIE_ASK_ATTEMPTS) throw e;
+            /* 重试前把已经画到屏上的半截擦掉 —— 流是不可撤回的, 但前端认 reset。
+             * 这样重试仍然是【流流流】, 而不是退回转圈等整段。 */
+            if (emittedLen > 0) { try { send({ reset: true }); } catch { /* noop */ } }
+            full = ""; emittedLen = 0;
+            console.warn(`[actor-ask] KIE 第 ${attempt}/${KIE_ASK_ATTEMPTS} 次失败, 重试 —— ${String((e as Error)?.message || e).slice(0, 70)}`);
+          }
+        }
       } else if (_anthKey) {
         const client = new Anthropic({ apiKey: _anthKey });
         const stream = client.messages.stream({ model, max_tokens: 700, temperature: 0.9, system: sys, messages: msgs as any });
@@ -47619,7 +47660,9 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
       }
     } catch {
       if (!full) {
-        const lr = await callLlm({ messages: [{ role: "system", content: sys }, ...history, ...seed], max_tokens: 700, temperature: 0.9 });
+        /* W1832 — 兜底链也必须守铁律。原来这句【没传 prefer】, 于是走 llmProviderOrder 的默认串
+         * (gemini,groq,cerebras,…), 里面根本没有 kie/openai —— 数字演员从来没有真正优先过 Claude。 */
+        const lr = await callLlm({ messages: [{ role: "system", content: sys }, ...history, ...seed], max_tokens: 700, temperature: 0.9, prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS });
         // W1806 — 兜底链自己也可能吐空壳; 同一把尺子量一次, 不合格就当没拿到, 交给下面最后一道人话兜底。
         if (lr.ok && !isDegenerateReply(String(lr.content || ""))) { full = String(lr.content || "").trim(); flush(); }
         else if (lr.ok) { console.warn("[actor-ask] fallback also degenerate", { actor: id }); }

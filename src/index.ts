@@ -25742,6 +25742,13 @@ type LlmResponse = {
   raw: unknown;
   error?: string;
 };
+/* CSSOS_WAVE_1831/1832 —— 思考型模型的预算补偿。Gemini 的 maxOutputTokens 是【思考 + 可见输出】
+ * 共用的总预算, 而本仓库每处调用的 max_tokens 都是按「我要多少可见文字」估的, 从没为思考留位置。
+ * 实测: flash 思考 350-650, pro 1654 —— 1024 的余量对 pro 不够, 提到 4096。
+ * 上限只是【上限】: 模型正常收尾就 STOP, 给多了一分钱不多花; 给少了就是用户看到话说一半。
+ * 定在模块级是因为流式(W1833)和非流式两条路必须共用同一个数 —— 各写各的迟早只改一处。 */
+const GEMINI_THINKING_HEADROOM = 4096;
+
 const LLM_PROVIDER_DEFAULTS = {
   // CSSOS_WAVE_774 — kie.ai 聚合器 Claude 通道(Bearer 鉴权 + Anthropic Messages 格式)。让歌词转译/文本
   // 走 kie(用 kie credits, 320 引擎一家通吃), 永不被 OpenAI/Anthropic/Gemini 直连断供拦。端点格式实测:
@@ -26230,12 +26237,6 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
          * 修在适配层而不是逐个调用点: 调用方继续只表达「可见文字要多少」, 由这里替它补上思考开销。
          *   1024 的余量按实测取(思考稳定落在 350–650 区间), 宁可多留 —— 上限只是【上限】,
          *   模型正常收尾就 STOP 了, 不会因为给多了就多花钱。 */
-        /* W1832 修正 —— 1024 是按 flash 量的, 对 pro 远远不够。上线后那道 finishReason 告警
-         * 当场抓到: gemini-pro-latest 思考 1654 tokens, 上限 1724 → 只剩 70 个给可见文字, 又断了。
-         * (flash 思考 350-650, pro 1600+ —— 差三倍, 按小的那个量必然翻车。)
-         * 提到 4096: 上限只是【上限】, 模型正常收尾就 STOP, 给多了一分钱不多花;
-         * 而给少了就是用户看到话说一半。这道题只有一边有代价, 所以宁可给足。 */
-        const GEMINI_THINKING_HEADROOM = 4096;
         if (req.max_tokens !== undefined) generationConfig.maxOutputTokens = req.max_tokens + GEMINI_THINKING_HEADROOM;
         if (req.response_format && (req.response_format as any).type === "json_object") {
           generationConfig.responseMimeType = "application/json";
@@ -47382,6 +47383,104 @@ function askSourceFromReferer(ref: string): { path: string | null; slug: string 
   } catch { return { path: null, slug: null, ads: null }; }
 }
 
+/* ═══ CSSOS_WAVE_1833 (Jing)「给 Gemini 也实现流式」═══════════════════════════════
+ * 病因: 「流流流」是平台签名一, 但它此前【只在 Claude 接单时才存在】——
+ *   /ask 里只有 KIE 那一跳是流式的, 一旦 KIE 抖(2026-08-17 实测半小时内从 7/10 掉到 0/10),
+ *   就落进非流式的 callLlm, 整段答案憋几秒后啪地出现。实测每次回复只有 1 个 delta。
+ *   前端打字机(W1824)替它遮住了, 所以没人察觉 —— 但签名一实际上是关的。
+ * 修法: 把 OpenAI 和 Gemini 的流式也补上, 于是【无论谁接单, 观众看到的都是逐字浮现】。
+ *   顺序仍严格按 CAPABLE_TEXT_PREFER(Claude→OpenAI→Gemini), 流式只是让每一棒都不掉链子。
+ * OpenAI 这一棒现在必然 429(账户未激活), 仍然实现: Jing 一充值即刻生效, 不必再改码 ——
+ *   把「充值后还要再来一次工程」留给未来的自己, 是最没必要的债。 */
+type AskMsg = { role: "user" | "assistant"; content: string };
+
+/* Gemini: POST …:streamGenerateContent?alt=sse → 标准 SSE, 每块 candidates[0].content.parts[].text。
+ * 注意必须带 alt=sse —— 不带的话它返回的是【一个巨大的 JSON 数组】而不是 SSE, 只能等全部下载完,
+ * 那就白做了。 */
+async function streamGeminiInto(
+  model: string, system: string, msgs: AskMsg[], maxTokens: number, temperature: number,
+  onText: (t: string) => void,
+): Promise<void> {
+  const key = (process.env.GEMINI_API_KEY || "").trim();
+  if (!key) throw new Error("no_gemini_key");
+  const body: Record<string, unknown> = {
+    contents: msgs.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+    generationConfig: { temperature, maxOutputTokens: maxTokens + GEMINI_THINKING_HEADROOM },
+  };
+  if (system) body.systemInstruction = { parts: [{ text: system }] };
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+  );
+  if (!r.ok || !r.body) throw new Error("gemini_stream_http_" + r.status);
+  const reader = (r.body as any).getReader();
+  const dec = new TextDecoder();
+  let buf = "", got = 0, finish = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const js = line.slice(5).trim();
+      if (!js || js === "[DONE]") continue;
+      let ev: any; try { ev = JSON.parse(js); } catch { continue; }
+      const cand = ev?.candidates?.[0];
+      if (cand?.finishReason) finish = String(cand.finishReason);
+      const parts = cand?.content?.parts;
+      if (Array.isArray(parts)) {
+        for (const p of parts) {
+          const t = String(p?.text || "");
+          if (t) { got += t.length; onText(t); }
+        }
+      }
+    }
+  }
+  /* 同 W1831 那道闸: 撞顶必须出声, 否则截断又变成静默的。 */
+  if (finish && finish !== "STOP") console.warn(`[ask-stream] ⚠ gemini 未正常收尾 finishReason=${finish} model=${model}`);
+  if (!got) throw new Error("gemini_stream_empty");
+}
+
+/* OpenAI: 标准 chat/completions SSE, 每块 choices[0].delta.content。 */
+async function streamOpenAIInto(
+  model: string, system: string, msgs: AskMsg[], maxTokens: number, temperature: number,
+  onText: (t: string) => void,
+): Promise<void> {
+  const key = (process.env.OPENAI_API_KEY || "").trim();
+  if (!key) throw new Error("no_openai_key");
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: system ? [{ role: "system", content: system }, ...msgs] : msgs,
+      max_completion_tokens: maxTokens, temperature, stream: true,
+    }),
+  });
+  if (!r.ok || !r.body) throw new Error("openai_stream_http_" + r.status);
+  const reader = (r.body as any).getReader();
+  const dec = new TextDecoder();
+  let buf = "", got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const js = line.slice(5).trim();
+      if (!js || js === "[DONE]") continue;
+      let ev: any; try { ev = JSON.parse(js); } catch { continue; }
+      const t = String(ev?.choices?.[0]?.delta?.content || "");
+      if (t) { got += t.length; onText(t); }
+    }
+  }
+  if (!got) throw new Error("openai_stream_empty");
+}
+
 app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res) => {
   noStore(res);
   try {
@@ -47659,9 +47758,30 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
         throw new Error("no_llm_key");
       }
     } catch {
+      /* W1833 — Claude 那一棒掉了, 但【下一棒仍然要是流式的】。按 Jing 定的顺序依次尝试:
+       *   ② OpenAI 流式 → ③ Gemini 流式 → 最后才是非流式 callLlm。
+       * 只要这两棒里有一棒接住, 观众看到的就仍然是逐字浮现, 而不是憋几秒啪地整段出现。 */
+      if (!full) {
+        for (const step of [
+          { name: "openai", model: CAPABLE_TEXT_MODELS.openai || "gpt-5.6-sol", run: streamOpenAIInto },
+          { name: "gemini", model: CAPABLE_TEXT_MODELS.gemini || "gemini-pro-latest", run: streamGeminiInto },
+        ]) {
+          try {
+            await step.run(step.model, sys, [...history, ...seed] as AskMsg[], 700, 0.9, (t) => { full += t; flush(); });
+            if (isDegenerateReply(full)) throw new Error(step.name + "_degenerate");
+            console.warn(`[ask-stream] ${step.name}/${step.model} 接住了流式兜底`);
+            break;
+          } catch (e) {
+            if (emittedLen > 0) { try { send({ reset: true }); } catch { /* noop */ } }
+            full = ""; emittedLen = 0;
+            console.warn(`[ask-stream] ${step.name} 流式失败 —— ${String((e as Error)?.message || e).slice(0, 80)}`);
+          }
+        }
+      }
       if (!full) {
         /* W1832 — 兜底链也必须守铁律。原来这句【没传 prefer】, 于是走 llmProviderOrder 的默认串
-         * (gemini,groq,cerebras,…), 里面根本没有 kie/openai —— 数字演员从来没有真正优先过 Claude。 */
+         * (gemini,groq,cerebras,…), 里面根本没有 kie/openai —— 数字演员从来没有真正优先过 Claude。
+         * W1833 后这里是【最后一道】: 上面三棒流式全掉了才走到这, 此时非流式总比没有强。 */
         const lr = await callLlm({ messages: [{ role: "system", content: sys }, ...history, ...seed], max_tokens: 700, temperature: 0.9, prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS });
         // W1806 — 兜底链自己也可能吐空壳; 同一把尺子量一次, 不合格就当没拿到, 交给下面最后一道人话兜底。
         if (lr.ok && !isDegenerateReply(String(lr.content || ""))) { full = String(lr.content || "").trim(); flush(); }

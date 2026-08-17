@@ -26207,7 +26207,19 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
           .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
         const generationConfig: Record<string, unknown> = {};
         if (req.temperature !== undefined) generationConfig.temperature = req.temperature;
-        if (req.max_tokens !== undefined) generationConfig.maxOutputTokens = req.max_tokens;
+        /* CSSOS_WAVE_1831 (Jing 走查:「数字演员总是只说了一半就停了」) —— 思考型模型的预算陷阱。
+         * 实测(gemini-3.7-flash, 同一句提问):
+         *   maxOutputTokens=700  → finishReason=MAX_TOKENS, 思考 645 tokens, 可见输出只剩 51 → 断在词中间
+         *   maxOutputTokens=2048 → finishReason=STOP,       思考 603 tokens, 输出 85       → 完整收尾
+         * 病根: Gemini 的 maxOutputTokens 是【思考 + 可见输出】共用的总预算, 而本仓库每一处
+         *   callLlm 的 max_tokens 都是按「我要多少可见文字」估的 —— 从来没有人为思考留过位置。
+         *   于是模型把预算烧在内部推理上, 话说到一半撞顶。这不止影响数字演员对话:
+         *   凡是掉到 gemini 接单的调用(歌词、翻译、摘要…)都在被同样地静默截断。
+         * 修在适配层而不是逐个调用点: 调用方继续只表达「可见文字要多少」, 由这里替它补上思考开销。
+         *   1024 的余量按实测取(思考稳定落在 350–650 区间), 宁可多留 —— 上限只是【上限】,
+         *   模型正常收尾就 STOP 了, 不会因为给多了就多花钱。 */
+        const GEMINI_THINKING_HEADROOM = 1024;
+        if (req.max_tokens !== undefined) generationConfig.maxOutputTokens = req.max_tokens + GEMINI_THINKING_HEADROOM;
         if (req.response_format && (req.response_format as any).type === "json_object") {
           generationConfig.responseMimeType = "application/json";
         }
@@ -26231,6 +26243,15 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
         content = Array.isArray(parts)
           ? parts.map((p: { text?: string }) => String(p?.text || "")).join("")
           : "";
+        /* W1831 — 撞顶必须出声。这个 bug 之所以能活到用户来报, 正是因为 finishReason 从来没人看:
+         * 截断的回答和正常的回答走同一条成功路径, 日志里一模一样, 只有读者看得见话说了一半。 */
+        const _fr = String(json?.candidates?.[0]?.finishReason || "");
+        if (_fr && _fr !== "STOP") {
+          const _u = json?.usageMetadata || {};
+          console.warn(`[llm-router] ⚠ gemini 输出未正常收尾 finishReason=${_fr} model=${model} ` +
+            `思考tokens=${_u.thoughtsTokenCount ?? "n/a"} 输出tokens=${_u.candidatesTokenCount ?? "n/a"} ` +
+            `上限=${generationConfig.maxOutputTokens} —— 回答可能被截断`);
+        }
       } else if (cfg.dialect === "kie") {
         // CSSOS_WAVE_774 — kie.ai Claude 通道(裸 fetch, Bearer 鉴权, Anthropic Messages body)。
         // 成功响应 = Anthropic 格式 {content:[{type:"text",text}]}; 错误带 {code,msg}。

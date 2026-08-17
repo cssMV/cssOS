@@ -47394,77 +47394,104 @@ function askSourceFromReferer(ref: string): { path: string | null; slug: string 
  *   把「充值后还要再来一次工程」留给未来的自己, 是最没必要的债。 */
 type AskMsg = { role: "user" | "assistant"; content: string };
 
-/* Gemini: POST …:streamGenerateContent?alt=sse → 标准 SSE, 每块 candidates[0].content.parts[].text。
- * 注意必须带 alt=sse —— 不带的话它返回的是【一个巨大的 JSON 数组】而不是 SSE, 只能等全部下载完,
- * 那就白做了。 */
-async function streamGeminiInto(
-  model: string, system: string, msgs: AskMsg[], maxTokens: number, temperature: number,
-  onText: (t: string) => void,
-): Promise<void> {
-  const key = (process.env.GEMINI_API_KEY || "").trim();
-  if (!key) throw new Error("no_gemini_key");
-  const body: Record<string, unknown> = {
-    contents: msgs.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-    generationConfig: { temperature, maxOutputTokens: maxTokens + GEMINI_THINKING_HEADROOM },
-  };
-  if (system) body.systemInstruction = { parts: [{ text: system }] };
-  const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`,
-    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
-  );
-  if (!r.ok || !r.body) throw new Error("gemini_stream_http_" + r.status);
-  const reader = (r.body as any).getReader();
-  const dec = new TextDecoder();
-  let buf = "", got = 0, finish = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-      if (!line.startsWith("data:")) continue;
-      const js = line.slice(5).trim();
-      if (!js || js === "[DONE]") continue;
-      let ev: any; try { ev = JSON.parse(js); } catch { continue; }
-      const cand = ev?.candidates?.[0];
-      if (cand?.finishReason) finish = String(cand.finishReason);
-      const parts = cand?.content?.parts;
-      if (Array.isArray(parts)) {
-        for (const p of parts) {
-          const t = String(p?.text || "");
-          if (t) { got += t.length; onText(t); }
-        }
-      }
-    }
-  }
-  /* 同 W1831 那道闸: 撞顶必须出声, 否则截断又变成静默的。 */
-  if (finish && finish !== "STOP") console.warn(`[ask-stream] ⚠ gemini 未正常收尾 finishReason=${finish} model=${model}`);
-  if (!got) throw new Error("gemini_stream_empty");
+/* ═══ CSSOS_WAVE_1834 (Jing)「铁律都是锁了, 只走 kie」+「严格按三强顺序 Claude/ChatGPT/Gemini」
+ * W1833 我把 GPT 和 Gemini 两棒都写成了【直连】(api.openai.com / generativelanguage.googleapis.com),
+ * 那违反铁律。GPT 那条更是 100% 白跑 —— 直连 key 返回 billing_not_active, 和 Anthropic 直连那把
+ * 同一个状态: Jing 只在 KIE 一处充值, 这两条线本来就没打算通电。
+ *
+ * 三强在 KIE 上【全都有】(Chat Models 分类: GPT / Claude / Codex / Gemini / Grok)。我起初误判成
+ * 「KIE 只做 Claude」, 是因为探测时错了两处, 而报错长得一模一样(422 The model is not supported),
+ * 分辨不出是型号错还是端点错:
+ *   ① 端点错: KIE 不用统一的 /openai/v1/chat/completions, 而是【按型号分路径】
+ *      GPT 5.6 → /codex/v1/responses ; Gemini 3.1 Pro → /gemini-3.1-pro/v1/chat/completions
+ *   ② 型号 ID 错: 定价页显示 gpt-5.6-sol(点), API 要的是 gpt-5-6-sol(横杠)。
+ * 教训: KIE 的型号存亡不能靠猜端点试出来, 要读 docs.kie.ai/llms.txt(全站 URL 清单)。
+ *
+ * /codex/v1/responses 默认带 Codex 编程助手人格("You are Codex, a coding agent"),
+ * 必须用 instructions 覆盖 —— 实测覆盖有效, 妲己能正常入戏。 */
+const KIE_CHAT_BASE = "https://api.kie.ai";
+
+/* W1834c —— 【每一跳都必须能被掐断】。2026-08-17 实测: KIE 的 /codex/v1/responses 会
+ * 【挂住不返回】(45 秒 0 字节, 既不报错也不出数据)。我最初两个流式函数没有任何超时, 于是
+ * 一次挂起就把整条兜底链堵死 —— 日志里 Gemini 一次错都没报, 却有一半请求空手而归,
+ * 因为压根没轮到它。这比返回 500 隐蔽得多: 失败会重试, 挂起只会静静耗光用户的耐心。
+ * 25 秒: 正常首字 1-3 秒, 全程 8-15 秒; 超过 25 秒基本可判定这一跳废了, 让给下一棒更划算。 */
+const KIE_STREAM_TIMEOUT_MS = Number(process.env.KIE_STREAM_TIMEOUT_MS || 25_000);
+
+async function kieChatFetch(url: string, body: unknown): Promise<Response> {
+  const key = (process.env.KIE_API_KEY || "").trim();
+  if (!key) throw new Error("no_kie_key");
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), KIE_STREAM_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ac.signal as any,
+    });
+  } finally { clearTimeout(timer); }
 }
 
-/* OpenAI: 标准 chat/completions SSE, 每块 choices[0].delta.content。 */
-async function streamOpenAIInto(
+/* GPT(Responses API): SSE 事件 response.output_text.delta, 文字在 .delta。
+ * 系统提示词走 instructions 而不是 input 里的 system 消息 —— 那才是覆盖 Codex 人格的开关。 */
+async function streamKieGptInto(
+  model: string, system: string, msgs: AskMsg[], maxTokens: number, _temperature: number,
+  onText: (t: string) => void,
+): Promise<void> {
+  const r = await kieChatFetch(`${KIE_CHAT_BASE}/codex/v1/responses`, {
+    model, stream: true, instructions: system,
+    input: msgs.map((m) => ({ role: m.role, content: m.content })),
+    max_output_tokens: maxTokens,
+    reasoning: { effort: "low" },   // 数字演员要的是快和入戏, 不是深推理
+  });
+  if (!r.ok || !r.body) throw new Error("kie_gpt_http_" + r.status);
+  let got = 0;
+  await readSse(r, (ev) => {
+    if (ev?.type === "response.output_text.delta") {
+      const t = String(ev?.delta || "");
+      if (t) { got += t.length; onText(t); }
+    }
+  });
+  if (!got) throw new Error("kie_gpt_empty");
+}
+
+/* Gemini(KIE 的 openai 兼容通道): 标准 chat/completions SSE, 文字在 choices[0].delta.content。
+ * 端点按型号分路径, 所以 model 名要和路径一起换 —— 见 CAPABLE_TEXT_MODELS 旁的映射。 */
+async function streamKieGeminiInto(
   model: string, system: string, msgs: AskMsg[], maxTokens: number, temperature: number,
   onText: (t: string) => void,
 ): Promise<void> {
-  const key = (process.env.OPENAI_API_KEY || "").trim();
-  if (!key) throw new Error("no_openai_key");
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: system ? [{ role: "system", content: system }, ...msgs] : msgs,
-      max_completion_tokens: maxTokens, temperature, stream: true,
-    }),
+  const path = (process.env.KIE_GEMINI_PATH || "/gemini-3.1-pro/v1/chat/completions").trim();
+  const r = await kieChatFetch(`${KIE_CHAT_BASE}${path}`, {
+    model,
+    messages: system ? [{ role: "system", content: system }, ...msgs] : msgs,
+    max_tokens: maxTokens, temperature, stream: true,
   });
-  if (!r.ok || !r.body) throw new Error("openai_stream_http_" + r.status);
+  if (!r.ok || !r.body) throw new Error("kie_gemini_http_" + r.status);
+  let got = 0;
+  await readSse(r, (ev) => {
+    const t = String(ev?.choices?.[0]?.delta?.content || "");
+    if (t) { got += t.length; onText(t); }
+  });
+  if (!got) throw new Error("kie_gemini_empty");
+}
+
+/* 两条通道的 SSE 逐行解析是同一套, 抽出来 —— 各写各的迟早只修一处。
+ * 【死线必须罩住读取循环, 不能只罩 fetch】: AbortController 只保证「连上」这一步不卡,
+ * 而 KIE 挂起的典型形态是【连上了、200 了、然后一个字节都不再来】。只掐 fetch 等于没掐。 */
+async function readSse(r: Response, onEvent: (ev: any) => void): Promise<void> {
   const reader = (r.body as any).getReader();
   const dec = new TextDecoder();
-  let buf = "", got = 0;
+  const deadline = Date.now() + KIE_STREAM_TIMEOUT_MS;
+  let buf = "";
   for (;;) {
-    const { done, value } = await reader.read();
+    if (Date.now() > deadline) { try { await reader.cancel(); } catch { /* noop */ } throw new Error("kie_stream_stalled"); }
+    const { done, value } = await Promise.race([
+      reader.read(),
+      new Promise<{ done: true; value: undefined }>((_, rej) =>
+        setTimeout(() => rej(new Error("kie_stream_stalled")), Math.max(1000, deadline - Date.now()))),
+    ]) as { done: boolean; value: Uint8Array | undefined };
     if (done) break;
     buf += dec.decode(value, { stream: true });
     let nl: number;
@@ -47473,12 +47500,9 @@ async function streamOpenAIInto(
       if (!line.startsWith("data:")) continue;
       const js = line.slice(5).trim();
       if (!js || js === "[DONE]") continue;
-      let ev: any; try { ev = JSON.parse(js); } catch { continue; }
-      const t = String(ev?.choices?.[0]?.delta?.content || "");
-      if (t) { got += t.length; onText(t); }
+      try { onEvent(JSON.parse(js)); } catch { /* 半包/心跳, 跳过 */ }
     }
   }
-  if (!got) throw new Error("openai_stream_empty");
 }
 
 app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res) => {
@@ -47762,19 +47786,30 @@ app.post("/api/actors/:id/ask", express.json({ limit: "32kb" }), async (req, res
        *   ② OpenAI 流式 → ③ Gemini 流式 → 最后才是非流式 callLlm。
        * 只要这两棒里有一棒接住, 观众看到的就仍然是逐字浮现, 而不是憋几秒啪地整段出现。 */
       if (!full) {
+        /* W1834 — 严格三强顺序(Jing), 且【三棒全部走 KIE】, 一条直连都不留。
+         * Claude 那一棒是上面的 KIE /claude/v1/messages(已重试 3 次), 这里接 ② GPT → ③ Gemini。 */
+        /* W1834b — 每棒【各重试 2 次】。Claude 那棒早就有 3 次重试, 而 GPT/Gemini 只试一次 ——
+         * 2026-08-17 KIE 全线抖动时实测只有 3/6 成功: 两棒各一枪, 两枪都空就整段没了。
+         * KIE 的抖是【单次随机】而非持续不可用(同一分钟内 500 与 200 交替), 所以重试极其有效:
+         * 单棒 50% 失败 → 两棒各两次 ≈ 6%。这也正是「只走 KIE」下唯一正确的抗抖手段 ——
+         * 不是去找第二家, 是在同一家上多敲两次门。 */
+        const STREAM_ATTEMPTS = 2;
+        outer:
         for (const step of [
-          { name: "openai", model: CAPABLE_TEXT_MODELS.openai || "gpt-5.6-sol", run: streamOpenAIInto },
-          { name: "gemini", model: CAPABLE_TEXT_MODELS.gemini || "gemini-pro-latest", run: streamGeminiInto },
+          { name: "kie-gpt",    model: (process.env.KIE_GPT_MODEL    || "gpt-5-6-sol").trim(),  run: streamKieGptInto },
+          { name: "kie-gemini", model: (process.env.KIE_GEMINI_MODEL || "gemini-3-pro").trim(), run: streamKieGeminiInto },
         ]) {
-          try {
-            await step.run(step.model, sys, [...history, ...seed] as AskMsg[], 700, 0.9, (t) => { full += t; flush(); });
-            if (isDegenerateReply(full)) throw new Error(step.name + "_degenerate");
-            console.warn(`[ask-stream] ${step.name}/${step.model} 接住了流式兜底`);
-            break;
-          } catch (e) {
-            if (emittedLen > 0) { try { send({ reset: true }); } catch { /* noop */ } }
-            full = ""; emittedLen = 0;
-            console.warn(`[ask-stream] ${step.name} 流式失败 —— ${String((e as Error)?.message || e).slice(0, 80)}`);
+          for (let attempt = 1; attempt <= STREAM_ATTEMPTS; attempt++) {
+            try {
+              await step.run(step.model, sys, [...history, ...seed] as AskMsg[], 700, 0.9, (t) => { full += t; flush(); });
+              if (isDegenerateReply(full)) throw new Error(step.name + "_degenerate");
+              console.warn(`[ask-stream] ${step.name}/${step.model} 接住了流式兜底(第 ${attempt} 次)`);
+              break outer;
+            } catch (e) {
+              if (emittedLen > 0) { try { send({ reset: true }); } catch { /* noop */ } }
+              full = ""; emittedLen = 0;
+              console.warn(`[ask-stream] ${step.name} 第 ${attempt}/${STREAM_ATTEMPTS} 次失败 —— ${String((e as Error)?.message || e).slice(0, 80)}`);
+            }
           }
         }
       }

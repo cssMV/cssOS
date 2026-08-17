@@ -2,7 +2,7 @@
 
 ## 「被归档为虚构」 · FILED AS FICTION
 
-**Draft:** 1 · **2026-08-12** · **约 62 分钟** · 8 场
+**Draft:** 2 · **2026-08-12** · **约 62 分钟** · 10 场 · 21 个场景标头
 
 > 建在 `docs/timeempire-bible-v2-epic.md`（圣经 v2）之上。
 > 承接 `timeempire-screenplay-prologue.md`，接往 **第二部 · 行政机关**。
@@ -27,7 +27,77 @@
 
 ---
 
-## 1. THE OATH
+## 1. NINETY SECONDS, EVERY MORNING
+
+**INT. ETHAN'S HOUSE — KITCHEN — EARLY MORNING**
+
+Grey light. A kettle not yet on. **ETHAN**, dressed for work, stands at the
+counter with a battered spiral notebook open in front of him.
+
+He does not read the whole thing. He turns to a page near the front — the paper
+has gone soft from being turned — and reads three lines. His lips move.
+
+Then he picks up his phone and looks up three things.
+
+The first one matches. He makes a small pencil tick.
+
+The second one matches. Tick.
+
+He looks at the third one for slightly longer than the other two.
+
+Then he crosses out what is written in the notebook, and writes the new thing
+underneath it, and dates it.
+
+He closes the notebook, puts it in the drawer with the batteries and the string,
+and puts the kettle on.
+
+The whole thing has taken ninety seconds. **He has done it every morning for
+twenty years.**
+
+**CLARA (O.S.)**
+Anything?
+
+**ETHAN**
+*(getting cups down)*
+Charlotte.
+
+**CLARA**
+*(coming in, doing her earring)*
+What about her.
+
+**ETHAN**
+She was born in April.
+
+**CLARA**
+She was born in April.
+
+**ETHAN**
+She's always been born in April.
+
+Beat. Clara stops doing her earring.
+
+**CLARA**
+Whose Charlotte?
+
+**ETHAN**
+*(and this is the whole marriage in one line)*
+Exactly.
+
+He hands her a cup. She takes it. Neither of them says anything else about it,
+because there is nothing else to say about it, and they have both known that for
+a long time.
+
+> **NOTE —— 全片对「代价」的唯一一次正面处理，而且它必须是家常的。**
+> 不许闪回、不许崩溃、不许有人解释这是什么。观众只需要看见：
+> **一个人每天早上花九十秒确认世界还是不是昨天那个**，而且这已经是他生活里
+> 最普通的一项家务。
+>
+> 「Charlotte」是谁，**全片不解释**。她不再存在，Clara 想不起来她是谁，
+> 而 Ethan 记得她是四月生的。这一格就够了。
+>
+> **NOTE (铁律 5):** 划掉与重写那一下必须 i2v —— 铅笔在纸上动。
+
+## 2. THE OATH
 
 **EXT. THE CAPITOL — INAUGURATION DAY — MORNING**
 
@@ -77,7 +147,7 @@ Right.
 
 ---
 
-## 2. A HISTORY LECTURE, INTERRUPTED
+## 3. A HISTORY LECTURE, INTERRUPTED
 
 **INT. STATE UNIVERSITY — LECTURE HALL — DAY**
 
@@ -148,13 +218,13 @@ finding nothing there.
 
 She shrugs and goes.
 
-> **PLANT —— 这是第一部最重要的一个伏笔，第 8 场兑现。**
+> **PLANT —— 这是第一部最重要的一个伏笔，第 10 场兑现。**
 > 全国性的默哀日，没有一个人说得出是为了什么。埋的时候要**完全随手**，
 > 不给任何强调，不给音乐，不给反打。
 
 ---
 
-## 3. THE CUSTODIAN
+## 4. THE CUSTODIAN
 
 **INT. NATIONAL ARCHIVES — ANALOGUE PRESERVATION — SUB-LEVEL — DAY**
 
@@ -218,7 +288,7 @@ I know. It's on my calendar. **He** put it on my calendar.
 
 ---
 
-## 4. MARGOT
+## 5. MARGOT
 
 **INT. STATE UNIVERSITY — DEPARTMENT OFFICE — DAY**
 
@@ -280,7 +350,147 @@ Please.
 
 ---
 
-## 5. THE OLD SCHOOL
+## 6. THE COUNTRY, AND THE WOMAN WHO CAME TO ASK
+
+**EXT. A STREET — MIDDAY**
+
+An ordinary town in an ordinary year. Not dystopian. Nothing is broken, nobody is
+frightened, the coffee is fine.
+
+At a bus stop, TWO WOMEN in their fifties, mid-conversation.
+
+**WOMAN A**
+—no, because they closed it the year my mother went in.
+
+**WOMAN B**
+It never closed.
+
+**WOMAN A**
+*(entirely certain)*
+It closed for two years.
+
+**WOMAN B**
+*(equally certain)*
+Sandra. It has never once closed.
+
+Beat. Both of them look at the road.
+
+**WOMAN A**
+*(shrugging, and it is a shrug we will see all over this country)*
+Huh.
+
+The bus comes. They get on it and talk about something else.
+
+> **NOTE —— 近未来美国的质感，用二十秒说完。**
+> **禁止**：不许有无人机、不许有全息广告、不许有士兵、不许有宵禁。这个国家
+> **一点问题都没有**，除了没有人能确定任何事情，而且大家都已经习惯了。
+> 那个耸肩是全片的国民表情。
+
+**INT. STATE UNIVERSITY — ETHAN'S OFFICE — AFTERNOON**
+
+Books, papers, a window. A knock, and **JUNE HALE** (30s) is already halfway in,
+because she has forty minutes and three more people to see.
+
+**JUNE**
+Professor Vance? June Hale, from the President's office. I know. I'm sorry.
+I've been apologising all day.
+
+**ETHAN**
+*(standing)*
+For what?
+
+**JUNE**
+For being from the President's office.
+*(she puts a folder down and does not sit)*
+Thursday. The old university, the quadrangle, twenty minutes, no press, no
+photographs. He asked for you by name and he asked me to say that if you say no
+that is a complete answer and I'm not to come back a second time.
+
+**ETHAN**
+*(a beat)*
+He said that.
+
+**JUNE**
+He wrote it out for me. He was quite firm about it.
+*(she almost smiles)*
+He's firm about odd things.
+
+**ETHAN**
+And your wife —
+*(catching himself)*
+Sorry. **My** wife.
+
+**JUNE**
+Mrs Sinclair's invited too. I sent hers first.
+*(beat, and now she does sit, on the arm of the chair, for eight seconds)*
+Can I say something out of turn? I've had this job eleven days. Everybody told
+me what he'd be like.
+*(beat)*
+He's not like that.
+
+**ETHAN**
+No. He isn't.
+
+She stands, collects the folder, and is at the door.
+
+**JUNE**
+Thursday. Nine-forty.
+*(and she means it kindly)*
+Bring a coat, it's a long lawn.
+
+She goes.
+
+> **PLANT —— June Hale。第二部 `mars` 线的视点人物。**
+> 她在第一部**只出现这一次**，而且她必须让观众喜欢她。她高效、诚实、
+> 有点累、对老板有真实的好感 —— 而那份好感是**有根据的**。
+>
+> **禁止**：不许把她写成走狗；不许让她说任何暗示阴谋的话；不许给她
+> 「若有所思」的反打。她只是一个把工作做好的人。
+
+## 7. THE OLD SCHOOL
+
+**INT. A CAR — PARKED OUTSIDE THE OLD UNIVERSITY — MORNING**
+
+Engine off. Ethan and Clara, not getting out. Through the windscreen, a long
+brick frontage and a lawn with frost still on the shaded half.
+
+**CLARA**
+What do I call him.
+
+**ETHAN**
+Whatever you want. He genuinely won't mind.
+
+**CLARA**
+That's worse.
+*(beat)*
+Ethan. What was he like. Then.
+
+**ETHAN**
+*(and he has to think about it, which is itself an answer)*
+Kind.
+
+**CLARA**
+Don't.
+
+**ETHAN**
+I'm not being clever. He was the kindest man in that year. He sat up three nights
+with a boy in our hall who'd had bad news and none of the rest of us went near it.
+*(beat)*
+I've had thirty years to find the moment where he turned into something else and
+I have never found it. **There isn't one.** He's been doing the same thing the
+whole time.
+
+**CLARA**
+Then what changed?
+
+**ETHAN**
+He got the country.
+
+She looks at the lawn a moment longer.
+
+**CLARA**
+*(unbuckling)*
+Right.
 
 **EXT. THE OLD UNIVERSITY — QUADRANGLE — DAY**
 
@@ -388,9 +598,68 @@ You're mourning people I **saved.**
 Ethan has no immediate answer. **The film should not give him one.**
 
 **xÈth (CONT'D)**
-*(walking on, easily)*
+*(to Ethan, unhurried)*
+Ask me the other one. The one you've been carrying since the lounge.
+
+**ETHAN**
+Where does it go.
+
+**xÈth**
+Where does what go.
+
+**ETHAN**
+The twenty-three. You didn't put them somewhere else, you took them **out.**
+So where does it go — the fact. It existed. Where is it now.
+
+**xÈth**
+*(and for the first time he takes a moment)*
+Nowhere. It's the only genuinely clean thing I do.
+
+**ETHAN**
+That's not an answer, that's an assertion.
+
+**xÈth**
+*(pleased)*
+Yes. It's my department.
+
+**CLARA**
+And when you get it wrong?
+
+**xÈth**
+I don't.
+
+**CLARA**
+Ever?
+
+xÈth stops walking. It is a very small pause and both of them see it.
+
+**xÈth**
+Once.
+*(and then he walks on, and the subject is shut, and it is shut so smoothly that
+Clara does not realise until later that she has been moved past a door)*
+
+**xÈth (CONT'D)**
 Come and see the numbers before you decide. That's all I'd ask. Come and see the
 numbers.
+
+**ETHAN**
+And if I come and see them and still say no?
+
+**xÈth**
+*(genuinely)*
+Then you'll be the only person in the world who's looked. That's worth something
+to me on its own.
+*(beat)*
+Ethan — I'm not going to hurt you. I want you to hear that in the open air with a
+witness. Whatever happens, that isn't on the table, and it never was.
+
+**ETHAN**
+I believe you.
+
+**xÈth**
+*(nodding, satisfied)*
+Good. Because it's the last true thing anybody's going to be able to say about
+this and I'd like it said early.
 
 He claps Ethan once on the shoulder and goes toward the road, and the agents
 close in around him, and he is a president again.
@@ -407,7 +676,7 @@ close in around him, and he is a president again.
 
 ---
 
-## 6. THE BOOK ON THE SHELF
+## 8. THE BOOK ON THE SHELF
 
 **INT. NATIONAL ARCHIVES — CLARA'S OFFICE — NIGHT**
 
@@ -443,7 +712,16 @@ It's been read so many times it can't be true.
 
 ---
 
-## 7. THE LAST PERSON IN THE ROOM
+## 9. THE LAST PERSON IN THE ROOM
+
+**EXT. A CARE HOME — DAY**
+
+Low brick, a car park, a flowerbed somebody looks after properly. Ethan sits in
+the car with a folder on his knee and doesn't get out for a while.
+
+He is looking at a photocopy: the 1977 attendance sheet. **Three signatures.**
+
+He puts it in the folder and gets out.
 
 **INT. A CARE HOME — DAY ROOM — DAY**
 
@@ -539,8 +817,64 @@ Well, he's in it, so he must have been there.
 *(she takes the frame back, looks once more, shrugs, and hangs it up)*
 There were only three of us that afternoon, though. I'd remember.
 
-She goes back to the day room. Ethan stays where he is, looking at a photograph
-of four people on a wall.
+**INT. CARE HOME — DAY ROOM — LATER**
+
+She is back in her chair with tea somebody brought her. Ethan sits down opposite,
+and he asks it as lightly as he has ever asked anything.
+
+**ETHAN**
+Dr Reese — the man who said the thing. About someone trying to take it out.
+
+**HELEN**
+*(pleasantly)*
+Which man?
+
+**ETHAN**
+You told me his name about four minutes ago.
+
+**HELEN**
+*(and she is not defensive, she is simply correcting a young man who has got
+something muddled)*
+No, dear. There were three of us. Marion, Baz and me.
+*(beat)*
+Somebody said it, though. Somebody definitely said it. I remember laughing.
+
+**ETHAN**
+You remember laughing.
+
+**HELEN**
+*(and she smiles, and it is the worst thing in the scene)*
+Oh, we roared.
+
+Beat. Ethan looks at her for a long moment. She looks back, comfortable, a
+pleasant old woman having a pleasant afternoon.
+
+**ETHAN**
+*(standing, and he keeps his voice completely level)*
+Thank you. You've been very helpful.
+
+**HELEN**
+Come back. Nobody asks about the good part.
+
+**INT. CARE HOME — CORRIDOR — CONTINUOUS**
+
+Ethan walks out along a corridor with handrails on both sides.
+
+Halfway down it, he stops. Puts one hand flat on the rail. Stands there.
+
+Then he takes out his phone and photographs the photocopy of the attendance
+sheet, and then, after a moment, he writes something in the spiral notebook —
+the first new entry we have seen him make that is not a correction.
+
+**HE WRITES:** *Daniel Vance. 1977. Four in the room.*
+
+He looks at it. Then he underlines it twice, which he has never done.
+
+> **NOTE —— 铁律 5：写字与画线必须 i2v。** 这是全片第二次看见那本笔记本
+> （第一次在 §1），而这一次他不是在划掉，他是在**存证**。
+>
+> 「Daniel Vance」这个姓氏观众已经见过一次了（`ETHAN VANCE`）。
+> **电影此刻仍然一个字都不解释。**
 
 > **NOTE —— 这是全片最重要的一场戏，因为它把两条规则钉在同一格画面里
 > （圣经 §2.3）：**
@@ -560,7 +894,7 @@ of four people on a wall.
 
 ---
 
-## 8. THE WAR THAT WAS DELETED
+## 10. THE WAR THAT WAS DELETED
 
 **INT. NATIONAL ARCHIVES — ANALOGUE PRESERVATION — NIGHT**
 
@@ -586,30 +920,94 @@ Beat. And she turns and walks, fast, and he goes after her.
 
 **INT. NATIONAL ARCHIVES — DEEP STACK — CONTINUOUS**
 
-She pulls a drawer of index cards — paper, handwritten, decades old — and lays it
-against a screen listing, and runs both with two fingers.
+She pulls a drawer of index cards — paper, handwritten, decades old — and sets it
+on the bench beside a terminal.
 
 **CLARA**
-*(flat, working)*
-Cans go in by accession number. The number is stamped in the metal at intake.
-Physical. Not typed.
-*(she stops)*
-There are eleven cans in this room whose numbers aren't in the catalogue.
+Cans go in by accession number. The number is stamped into the rim at intake, by
+a machine, in metal.
+*(she taps the screen)*
+And it's typed into this. Two records of the same thing. One of them is a shape.
+
+**ETHAN**
+And if they don't agree.
+
+**CLARA**
+They always agree. That's the entire job.
+
+She starts. Card, screen. Card, screen. Card, screen.
+
+**MONTAGE — THE COUNT**
+
+Hours. The overhead lights on a timer clunk off in one aisle and she goes and
+punches them back on without stopping. Ethan carries cans two at a time. Coffee
+appears. Coffee goes cold.
+
+Card, screen. Card, screen.
+
+And then Clara's hand stops on a card.
+
+She reads it. She reads the screen. She reads the card again. She types the
+number a second time, slowly, in case it was her.
+
+**CLARA (CONT'D)**
+*(quietly)*
+Bring me 4471.
+
+He brings it. She turns the rim to the light and reads the stamp with her thumb
+on it like a blind woman.
+
+**CLARA (CONT'D)**
+It's here. It's in my hand. It weighs eleven hundred grams.
+*(she turns to the screen)*
+And this says that number was never issued.
+
+**INT. NATIONAL ARCHIVES — DEEP STACK — LATER**
+
+Eleven film cans in a row on the bench. Clara stands looking at them with her
+arms folded, and she has gone somewhere else.
 
 **ETHAN**
 Eleven.
 
 **CLARA**
-*(and now she is frightened, and it is the first time)*
+*(and now she is frightened, and it is the first time in the film)*
 Ethan, there are **eleven numbers stamped into metal** that the record says were
 never issued.
+*(beat)*
+Somebody came down here and corrected the catalogue. And then they went home.
+Because they'd finished. Because as far as the record is concerned, **that's what
+finished looks like.**
+*(she puts a hand on the nearest can)*
+They didn't think to check whether the thing was still on the shelf.
+
+**ETHAN**
+Why would they.
+
+**CLARA**
+*(and this is the line that arms the whole film)*
+Because they've never once had to. Nobody has ever checked them.
 
 **INT. NATIONAL ARCHIVES — SCREENING ROOM — NIGHT**
 
 A small room. Two chairs. A projector she has to switch on with a physical
-breaker.
+breaker, which throws with a sound like a door bolt.
 
-The leader runs. Numbers, scratches, dust.
+**CLARA**
+*(threading it, not looking up)*
+If this is a training film about fire safety I'm going to be very embarrassed.
+
+**ETHAN**
+I hope it is.
+
+**CLARA**
+*(and she means it)*
+So do I.
+
+She kills the lights.
+
+The leader runs. Numbers, scratches, dust. Ten seconds of nothing, which is
+exactly long enough for both of them to relax.
 
 And then:
 
@@ -624,8 +1022,27 @@ Cut. **A DEFENSIVE LINE** — ordinary men and women behind a wall of vehicles,
 in ordinary coats, holding rifles the way people hold rifles when nobody has ever
 taught them.
 
-Cut. And now, coming up a street toward the camera, unhurried, in a line that
-does not break:
+Cut. **A CHURCH HALL**, handheld, jerking: rows of camp beds, children asleep in
+coats, a woman writing names on a blackboard in chalk. The camera pans the
+blackboard slowly, deliberately, because whoever was holding it understood that
+this was the only place those names now existed.
+
+Cut. **A HARBOUR**, wide, static, held for a very long time: a line of small boats
+going out loaded and coming back empty, over and over, until the light goes.
+
+Cut. **A MAN** in a doorway, close, saying something directly into the lens with
+great urgency. **There is no sound.** He says it three times to be sure. Then he
+nods once, and steps back inside, and closes the door.
+
+Cut. **A DEFENSIVE LINE**, second position, and this time we are behind it, and
+we can see what they are looking at down the length of the street.
+
+Nothing is coming.
+
+They wait. Somebody laughs, badly. They keep waiting.
+
+Cut. And now, coming up that same street toward the camera, unhurried, in a line
+that does not break:
 
 **THEM.**
 
@@ -635,9 +1052,30 @@ Not monsters. Not armour. Not weapons.
 folders.** And where they have passed, the street behind them is orderly and
 undamaged and completely empty.
 
-The camera operator runs. The frame goes to sky, to legs, to gravel, to nothing.
+One of them, in passing, stops. Looks directly into the lens — mildly, the way
+you look at a parking meter — and reaches toward it.
 
-The reel runs out and the tail flaps around the take-up.
+**A GLOVED HAND FILLS THE FRAME.**
+
+Not violently. He simply puts his hand over the lens, the way you would put a
+cloth over a birdcage.
+
+The camera operator runs. The frame goes to sky, to legs, to gravel, to a
+shopfront, to a shoe, to nothing.
+
+And then — for eleven frames, and only if you are watching — **a face**, turned
+back over a shoulder in the moving line. No cap. Silver hair. Not a day younger.
+
+The reel runs out and the tail flaps around the take-up, slap, slap, slap, until
+Clara reaches over and stops it with one finger.
+
+> **NOTE (重看结构 —— 与 1977 洁净室背景里那一格同类):**
+> 那十一帧**观众第一遍绝对看不见**，而且不许用任何手段提示。第二遍看，
+> 它是全片最冷的一格。**剪辑上必须真的只有十一帧**，不许延长到「刚好能看清」。
+>
+> **NOTE —— 那只手套。** 他们对镜头做的事，和他们对整场战争做的事，
+> 是同一个动作：**不是砸碎它，是盖住它。** 这一格是全片主题最经济的一次表达，
+> 而且它不需要一个字。
 
 > **NOTE (圣经 v2 §三·场面 1) —— 全片第一个史诗场面，而它的核心是一个反转：**
 >
@@ -703,7 +1141,7 @@ you what for.
 
 **HARD CUT TO BLACK.**
 
-> **PAYOFF (§2 埋的伏笔) —— 全国默哀日。**
+> **PAYOFF (§3 埋的伏笔) —— 全国默哀日。**
 >
 > **NOTE (圣经 §2.3 第三样不可改写的东西 —— 亲历经验):**
 > 这是全片对这条规则最好的一次使用，也是它的解法：**亲历经验确实改不掉，
@@ -724,18 +1162,24 @@ you what for.
 
 | 场 | 处理 |
 |---|---|
-| §1 就职 | 群戏难镜。字幕那一格是**确定性道具**（铁律 7.6）—— 有文字，绝不进生成。 |
-| §2 讲堂 | **必须 i2v**（铁律 5）：八十四→六十一的变化本身 + 两百支笔在动。这是本部最难的单镜之一。 |
-| §2 默哀日通知 | 确定性道具。第 8 场要再出现，必须同一份文件。 |
-| §3 模拟库 | 新基准板 `scene-analogue-vault`：冷、暗、冷机嗡鸣、一排排胶片罐与玻璃底片。引擎默认会给「科幻服务器机房」，写死**金属罐、纸盒、木架**。 |
-| §3 1931 接触印样 | 确定性道具（要能数出 84 个形状）。 |
-| §4 Margot | **沿用已拍素材** `S2-3` / `S2-4`。不重拍。 |
-| §5 老校园 | 新基准板 `scene-old-quad`：砖、榆树、长草坪。三人步行长谈 —— 需要 Ethan / Clara / xÈth 三张面部板同时在场，属最高身份漂移风险（铁律 7.7），建议拆成多个双人机位。 |
-| §6 那本书 | **确定性道具** `prop-the-book`。全片三次出现同一份。 |
-| §7 疗养院 | 新基准板 `scene-care-home`。 |
-| §7 **那张四人合影** | **全片最重要的确定性道具**。必须与 `scene-cleanroom-1977.png` 同源、必须**前后逐像素相同**。绝不进生成 —— 它一旦有一帧变化，整场戏的论点就反了。 |
-| §8 被删掉的战争 | 全片最贵的一段。**必须做成幸存胶片质感**：划痕、闪烁、跳帧、光晕、片尾甩尾。建议先拍 30 秒试片验质感与身份稳定性，再投全段。 |
-| §8 走来的那一列 | 铁律 6 死写：灰色公务外套、正常步速、拿文件夹、**无武器无装甲无奔跑**、身后街道完好。 |
+| §2 就职 | 群戏难镜。字幕那一格是**确定性道具**（铁律 7.6）—— 有文字，绝不进生成。 |
+| §3 讲堂 | **必须 i2v**（铁律 5）：八十四→六十一的变化本身 + 两百支笔在动。这是本部最难的单镜之一。 |
+| §3 默哀日通知 | 确定性道具。第 8 场要再出现，必须同一份文件。 |
+| §4 模拟库 | 新基准板 `scene-analogue-vault`：冷、暗、冷机嗡鸣、一排排胶片罐与玻璃底片。引擎默认会给「科幻服务器机房」，写死**金属罐、纸盒、木架**。 |
+| §4 1931 接触印样 | 确定性道具（要能数出 84 个形状）。 |
+| §5 Margot | **沿用已拍素材** `S2-3` / `S2-4`。不重拍。 |
+| §7 老校园 | 新基准板 `scene-old-quad`：砖、榆树、长草坪。三人步行长谈 —— 需要 Ethan / Clara / xÈth 三张面部板同时在场，属最高身份漂移风险（铁律 7.7），建议拆成多个双人机位。 |
+| §8 那本书 | **确定性道具** `prop-the-book`。全片三次出现同一份。 |
+| §9 疗养院 | 新基准板 `scene-care-home`。 |
+| §9 **那张四人合影** | **全片最重要的确定性道具**。必须与 `scene-cleanroom-1977.png` 同源、必须**前后逐像素相同**。绝不进生成 —— 它一旦有一帧变化，整场戏的论点就反了。 |
+| §10 被删掉的战争 | 全片最贵的一段。**必须做成幸存胶片质感**：划痕、闪烁、跳帧、光晕、片尾甩尾。建议先拍 30 秒试片验质感与身份稳定性，再投全段。 |
+| §1 厨房 | 新基准板 `scene-ethan-kitchen`。**铅笔划掉与重写必须 i2v**（铁律 5）。 |
+| §6 公交站 | 群众小场。**死写**：无无人机、无全息广告、无士兵、无宵禁 —— 这个国家一点问题都没有。 |
+| §6 June Hale | 需新面部基准板 `face-june-v2`（v2 里她在白宫，不在邮局）。 |
+| §7 车内 | 双人静态，易镜。 |
+| §10 清点蒙太奇 | 大量道具特写 + 手部动作。索引卡与罐沿钢印是**确定性道具**。 |
+| §10 那十一帧 | **剪辑工序，不是生成工序。** 从已有的 xÈth 素材里取 11 帧插入，不另拍。 |
+| §10 走来的那一列 | 铁律 6 死写：灰色公务外套、正常步速、拿文件夹、**无武器无装甲无奔跑**、身后街道完好。 |
 
 ## 待办
 

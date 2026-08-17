@@ -25756,6 +25756,16 @@ const LLM_PROVIDER_DEFAULTS = {
   kie:         { url: "https://api.kie.ai/claude/v1/messages",                                          model: KIE_CLAUDE_MODEL,                              keyEnv: "KIE_API_KEY",         dialect: "kie" }, /* W824b 升 4-5→4-8; W1808 升 4-8→opus-5(Jing:「保持和 KIE 同步更新, 不要再用过期下架的老版本」)。
                                                                                                                                                                                         * 判别法(KIE 宕机时也能用): 不提供的型号返回 "The page does not exist", 提供的返回 "Server exception"。
                                                                                                                                                                                         * 2026-08-03 实测 KIE 已上架 claude-opus-5 / claude-sonnet-5, 而 claude-opus-4-1 未上架。 */
+  /* CSSOS_WAVE_1835 (Jing)「歌词那条链也要改为走 KIE 三强」——
+   * 歌词链此前是 ["kie","openai","gemini","anthropic"]: 第一棒走 KIE, 后三棒【全是直连】,
+   * 其中 openai/anthropic 两把 key 还是故意不充值的死号。等于「三强」只有第一强是真的,
+   * 第二三棒必然空转, 最后落进免费小兵 —— 正是 [[best-engine-per-category-law]] 记的那个
+   * 「顺序写对了也会静默失效」。
+   * 这两格把 GPT 和 Gemini 也搬上 KIE, 于是三强【三棒都在同一个有余额的账户上】。
+   * kie_gemini 复用现成的 openai dialect —— KIE 的 Gemini 通道就是 OpenAI 兼容格式, 零新代码;
+   * kie_gpt 走 Responses API, 需要下面的 kie_responses 分支。 */
+  kie_gpt:     { url: "https://api.kie.ai/codex/v1/responses",                                         model: "gpt-5-6-sol",                                   keyEnv: "KIE_API_KEY",         dialect: "kie_responses" },
+  kie_gemini:  { url: "https://api.kie.ai/gemini-3.1-pro/v1/chat/completions",                         model: "gemini-3-pro",                                  keyEnv: "KIE_API_KEY",         dialect: "openai" },
   groq:        { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",                       keyEnv: "GROQ_API_KEY",        dialect: "openai" },
   cerebras:    { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama3.1-8b",                                   keyEnv: "CEREBRAS_API_KEY",    dialect: "openai" },
   // Gemini doesn't speak chat/completions — its endpoint is
@@ -25822,7 +25832,11 @@ type LlmProvider = keyof typeof LLM_PROVIDER_DEFAULTS;
  * 所以 anthropic 虽然也是 Claude, 却压到最后一位: 把一个必然 400 的条目排在前面, 只是每次
  * 白等一次往返。守铁律的是「让真正能打的在前」, 不是「让名字好看的在前」。
  * openai 保留在第二位: 它现在必然失败但失败很快(1.2s), 且 Jing 一旦充值即刻生效, 无需改码。 */
-const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "openai", "gemini", "anthropic"];
+/* W1835 (Jing)「歌词那条链也要改为走 KIE 三强」+ 铁律「所有 API 全部走 KIE」——
+ * 旧值 ["kie","openai","gemini","anthropic"]: 只有第一棒真在 KIE, 后三棒全是直连,
+ * 其中 openai/anthropic 是故意不充值的死号 → 「三强」实际只剩一强, 一断就掉进免费小兵。
+ * 现在三棒同在 KIE 的一个有余额账户上, 顺序严格 Claude → GPT → Gemini。 */
+const CAPABLE_TEXT_PREFER: LlmProvider[] = ["kie", "kie_gpt", "kie_gemini"];
 /* CSSOS_WAVE_1815 (Jing)「歌词这条链的超时抬到 90 秒或更长」。
  * 实测 KIE 上 1400-token 歌词成功耗时 32-39s, 全局 60s 只剩 20s 余量 —— 一旦上游变慢就在超时边缘反复摩擦。
  * 这里给【歌词/京典/lore】这条 capable 链单独放宽到 120s(env 可调)。
@@ -26270,6 +26284,43 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
             `思考tokens=${_u.thoughtsTokenCount ?? "n/a"} 输出tokens=${_u.candidatesTokenCount ?? "n/a"} ` +
             `上限=${generationConfig.maxOutputTokens} —— 回答可能被截断`);
         }
+      } else if (cfg.dialect === "kie_responses") {
+        /* W1835 — KIE 的 GPT 通道(/codex/v1/responses, OpenAI Responses API 格式)。
+         * 两处和别家不同, 都是实测踩出来的:
+         *  ① 系统提示词走 `instructions` 字段, 不是 input 里的 system 消息 —— 这个端点默认带
+         *     "You are Codex, a coding agent" 的人格, 只有 instructions 能覆盖它。
+         *     当成普通 system 消息塞进 input, 覆盖不掉, 歌词会写成一股工程味。
+         *  ② 非流式在这条通道上是【正常的】—— 和 KIE 的 Claude 通道相反(那条非流式 100% 报
+         *     Server exception, 见 W1813)。所以这里不必像 kie 分支那样被迫上流式。 */
+        const sysText = req.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+        const body: Record<string, unknown> = {
+          model, stream: false,
+          input: req.messages.filter((m) => m.role !== "system")
+            .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+          max_output_tokens: Math.max(req.max_tokens || 1024, 256),
+          reasoning: { effort: "low" },
+        };
+        if (sysText) body.instructions = sysText;
+        try {
+          const _stk = (new Error().stack || "").split("\n").slice(2, 5).map((s) => s.trim().replace(/^at\s+/, "")).join(" <- ");
+          console.warn(`[KIE-SPEND] llm=${model} at=${new Date().toISOString()} caller=${_stk.slice(0, 220)}`);
+        } catch { /* no-op */ }
+        upstream = await fetch(cfg.url, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+        });
+        json = await upstream.json().catch(() => null);
+        if (!upstream.ok) {
+          lastErr = String(json?.error?.message || json?.msg || `kie_gpt_${upstream.status}`);
+          lastStatus = upstream.status;
+          console.warn(`[llm-router] kie_gpt ${upstream.status}: ${lastErr.slice(0, 200)}`);
+          continue;
+        }
+        /* 正文藏在 output[].content[].text; output 里还混着 reasoning 块, 只取有 text 的。 */
+        content = (Array.isArray(json?.output) ? json.output : [])
+          .flatMap((o: any) => Array.isArray(o?.content) ? o.content : [])
+          .map((c: any) => String(c?.text || "")).filter(Boolean).join("").trim();
       } else if (cfg.dialect === "kie") {
         // CSSOS_WAVE_774 — kie.ai Claude 通道(裸 fetch, Bearer 鉴权, Anthropic Messages body)。
         // 成功响应 = Anthropic 格式 {content:[{type:"text",text}]}; 错误带 {code,msg}。

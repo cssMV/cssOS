@@ -114,6 +114,24 @@
     <link rel="stylesheet" href="style.watch.css?v=20260621-w1094-scroll" />
     <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
 
+    <!-- CSSOS_WAVE_1836 — Meta Pixel 补装到主应用页。
+         病因(我自己造的): W1829 把广告落地页从 /story/… 改成【直接进面对面】/?actor=…&f2f=1,
+         而 Pixel 当时只装在 storyChrome() 里 → 全部广告流量一夜之间搬离了唯一有埋点的页面。
+         后果不只是"看不见": 转化战役正按 ViewContent 优化, 而它 22 小时【一个事件都没收到】——
+         Meta 的优化器在没有信号的情况下继续花钱, 比没开优化更糟。
+         教训: 改落地页 = 改埋点面。以后动 landing URL, 必须同时确认新页面上有 Pixel。 -->
+    <script>
+      !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+      n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}
+      (window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init','1357957192654815'); fbq('track','PageView');
+      /* 与故事页同口径: 停留 15 秒 = ViewContent(转化战役的优化目标)。
+       * 用同一个事件名是刻意的 —— 两个落地面必须喂同一个信号, 否则优化器学到的是两套东西。 */
+      setTimeout(function(){ try{ fbq('track','ViewContent'); }catch(e){} }, 15000);
+    </script>
+
   </head>
   <body>
     <!-- CSSOS_WAVE_491 20260529 — Jing「启动: 魔镜 logo 接力到主界面, 中间不要黑屏」.
@@ -2531,7 +2549,7 @@
     <script src="app.hymn-create-toggle.js?v=20260713-w1766-hymn-create"></script>
     <script src="app.section-form-classic.js?v=20260713-w1770-section-form"></script>
     <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
-    <script src="app.actor-gallery.js?v=20260816-w1830c-f2f-framing"></script>
+    <script src="app.actor-gallery.js?v=20260817-w1836-pixel-lead"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-today-shelf.js?v=20260603-w593-civmeta"></script>

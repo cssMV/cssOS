@@ -3140,6 +3140,14 @@
     function ask(text) {
       if (busy) return; busy = true; micPaused = true; sendBtn.disabled = true;
       if (text) { history.push({ role: "user", content: text }); lastQ = text; }
+      /* W1836 — 面对面里【真的开口】= Lead。这是整条广告漏斗唯一算数的终点:
+       * 停留和滑动都只是接近, 打出一句话才是转化。故事页那边同名事件已在跑,
+       * 两个落地面必须喂同一个信号, 否则 Meta 学到的是两套东西。
+       * 只记第一句(_leadSent), 免得同一个人聊十句就被当成十次转化, 把优化器带偏。 */
+      if (text && !window.__cssosLeadSent) {
+        window.__cssosLeadSent = 1;
+        try { if (window.fbq) window.fbq("track", "Lead"); } catch (e) {}
+      }
       stopSubtitle(); caption.textContent = "…"; var full = "", emo = "";
       fetch("/api/actors/" + encodeURIComponent(actorId) + "/ask", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "text/event-stream" }, body: JSON.stringify({ mode: "modern", uiLocale: uiLoc, messages: history }) })
         .then(function (resp) {

@@ -687,6 +687,130 @@ June sits alone in the staff room with a coffee she has not made.
 > - June **不许**当场被说服。她只是坐在那儿。
 > - **不许**配乐。
 
+## 8. YOU MAY GO
+
+**INT. xÈth's ROOM — MORNING**
+
+He is signing things. June stands. He does not make her wait long.
+
+**xÈth**
+Parrish has gone.
+
+**JUNE**
+Yes.
+
+**xÈth**
+Nineteen years. She was very good.
+*(he signs another)*
+You may go too.
+
+**JUNE**
+*(caught)*
+Sir?
+
+**xÈth**
+*(putting the pen down, and giving her his whole attention, which is worse)*
+I'm not being rhetorical. There's no notice and no interview. I'll write you a
+reference this morning and every word of it will be true, and nobody will ever
+ring you about this building again.
+*(beat)*
+People come here and then one day they can't. It isn't a failure. Parrish did
+four thousand of them; that's four thousand more than most.
+
+June says nothing for a moment.
+
+**JUNE**
+Are you asking me to?
+
+**xÈth**
+No.
+
+**JUNE**
+Are you telling me I should?
+
+**xÈth**
+*(honestly)*
+I don't know. That's why I'm offering.
+
+Long beat. And when she answers, she is not defensive and she is not
+brainwashed; she is a person who has seen something and is refusing to un-see it.
+
+**JUNE**
+Last Tuesday I watched a woman go out through those doors and stop on the step
+and look up at the sky.
+*(beat)*
+Like she'd never noticed there was weather.
+
+**xÈth**
+Mrs Leigh.
+
+**JUNE**
+Mrs Leigh.
+*(beat)*
+Parrish is sad, and she's right, and I can't answer her.
+*(beat)*
+But I'm not going to un-see that woman on the step because I lost an argument in
+a staff room.
+
+Silence. He looks at her for a good while.
+
+And then he picks the pen back up.
+
+**xÈth**
+Good.
+
+He goes back to signing. That is the entire response.
+
+June stands there half a second too long, waiting for something else, and there
+isn't anything else, and she goes.
+
+> **NOTE —— 「June 留在 xÈth 身边到最后」这个决定的承重场次（圣经 v1 §待拍板 2，
+> v2 保留）。没有这一场，她的留下是默认；有了这一场，她的留下是「选择」。**
+>
+> **死规矩：**
+> - 那扇门**必须是真的开着的**。他不许有任何挽留、暗示、条件、威胁。
+> - June **不许**说出任何被洗脑的话。她的理由是**一个她亲眼看见的具体事实**，
+>   而观众也看见了那件事。
+> - 他最后只说「Good」然后继续签字。**不许给他反打，不许让他笑，
+>   不许让他说任何深刻的话。** 那半秒的空落就是这场戏的余味。
+
+---
+
+## 9. HER FATHER'S KEY
+
+**INT. JUNE'S FLAT — NIGHT**
+
+Small, decent, under-furnished in the way of somebody who has moved recently and
+is not sure she is staying.
+
+She eats standing up. She washes one plate.
+
+On top of the wardrobe there is a cardboard box with a strip of tape across it
+that has gone yellow. She has looked at it before. She looks at it now.
+
+She does not get it down.
+
+She takes her keys out of her coat instead and sits on the end of the bed with
+them in her hand.
+
+Among her own keys — flat, office, a padlock she can't place — there is a **car
+key.** Old. Rubber grip perished. Not for any car she owns.
+
+She turns it over once and puts the keys on the bedside table and turns the lamp
+off.
+
+> **NOTE —— 三分钟，一句台词都没有。**
+>
+> 这是 June 唯一一场在建筑之外的戏，而它的全部内容是：**她把一样东西留在
+> 钥匙圈上，四年了。**
+>
+> 与第 10 场（她被拒的理由）扣在一起 —— 那场争吵是关于一辆车的。
+> **电影不许把这两件事连起来说给观众听。** 谁看见谁看见。
+>
+> **禁止**：不许闪回、不许照片、不许她哭、不许配乐。她只是关了灯。
+
+---
+
 ## 10. WHY YOU WERE REFUSED
 
 **INT. xÈth's ROOM — EVENING**

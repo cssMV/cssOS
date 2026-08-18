@@ -935,7 +935,7 @@ names that nobody on this planet can prove.
 
 ## 待办
 
-- [ ] 新基准板：`scene-transmitter-room` · `scene-great-hall` · `scene-gymnasium-club` · `scene-plateau-dish` · `scene-green-valley-dish` · `scene-rooftop-aerial` · `scene-fishing-boat`
+- [ ] 新基准板：~~`scene-transmitter-room`~~（**已存在**，见 `timeempire-shot-list-v2.md` §一）· `scene-great-hall` · `scene-gymnasium-club` · `scene-plateau-dish` · `scene-green-valley-dish` · `scene-rooftop-aerial` · `scene-fishing-boat`
 - [ ] 确定性道具：`prop-order-of-ceremony`（一份，四次出现）· `prop-the-list`（十九处同一份印刷名单）· `prop-counter-reading`
 - [ ] 加冕三遍的素材复用方案：先出一遍全套，再只补书记员与文件两组镜头
 - [ ] §8 四人同框的机位拆分表

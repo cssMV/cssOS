@@ -1,21 +1,33 @@
 # EMPIRE OF TIME — CODA
 
-**Shared final scene · Draft: 1 · 2026-08-10**
+**Shared final scene · Draft: 2 · 2026-08-12（圣经 v2：从 2 个结局扩到 5 个）**
 
 > ## ⚠ THIS FILE IS THE SINGLE SOURCE OF TRUTH FOR THE END OF THE FILM
 >
-> `end_human_win` and `end_mars_control` both terminate here. Neither of them
-> contains a copy of this text and **neither of them may ever contain a copy of
-> this text.** They point at this file.
+> **All FIVE endings terminate here.** None of them contains a copy of this text
+> and **none of them may ever contain a copy of this text.** They point at this
+> file.
+>
+> | # | 结局 | 文件 |
+> |---|---|---|
+> | 1 | 时间被守住 | `timeempire-screenplay-end1-time-saved.md` |
+> | 2 | 时间帝国建立 | `timeempire-screenplay-end2-empire.md` |
+> | 3 | 第 40,922 行 | `timeempire-screenplay-end3-line-40922.md` |
+> | 4 | 他签下自己的名字 | `timeempire-screenplay-end4-he-signs.md` |
+> | 5 | 莫比乌斯 | `timeempire-screenplay-end5-mobius.md` |
+>
+> **结局从 2 个变成 5 个，这条规矩只会更硬，不会更松。**
+> 五个结局的观众走到这里时，脑子里装的是五种完全不同的东西 ——
+> 而画面必须一帧都不差。
 >
 > This is bible §6.1 enforced at the file level, for the same reason the bible
 > forbids hard-coded counts: a scene that exists in two places will eventually
 > differ in two places. The one structural promise this film makes to a viewer
-> who plays both branches is that **the last thing they see did not move.** A
+> who plays more than one branch is that **the last thing they see did not move.** A
 > copy-paste is how that promise gets broken six months from now by someone
 > polishing one file and not the other.
 >
-> **Generation rule:** both branches must be cut from the *same rendered
+> **Generation rule:** all five branches must be cut from the *same rendered
 > frames* — not two renders of the same prompt. Same file, same hash, spliced
 > onto two different tails. See production note at the bottom.
 

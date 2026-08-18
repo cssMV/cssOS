@@ -2,6 +2,16 @@
 
 **Thread:** earth · **Draft:** 1 · **2026-08-10**
 
+
+> ## ⚠️ 2026-08-12 —— 本文件已被取代
+>
+> 圣经 v2 史诗重构后，结局从 2 个扩到 5 个，且规模层与人物层全部重写。
+> **本文件的对应新稿：`timeempire-screenplay-end1-time-saved.md`。**
+>
+> 保留本文件仅作 v1 决策记录，**不要再据此拍摄**。
+
+---
+
 > Entered from `b_converge` when the observer's attention held steady on Clara.
 > She lifted the card. She did not stop again.
 >

@@ -1,0 +1,48 @@
+<style>
+  html,body { margin:0; width:1800px; height:1200px; overflow:hidden;
+              background:#0a0806; font-family:"Courier New",Courier,monospace }
+  .desk { position:absolute; inset:0;
+    background: repeating-linear-gradient(90deg, rgba(0,0,0,.30) 0 2px,
+                  rgba(255,255,255,.014) 2px 8px, rgba(0,0,0,.12) 8px 15px),
+                linear-gradient(177deg,#332417 0%,#241910 52%,#140d08 100%) }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(76% 72% at 48% 46%, rgba(0,0,0,0) 36%, rgba(0,0,0,.88) 100%) }
+  .grain { position:absolute; inset:0; pointer-events:none; opacity:.15;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='.5'/></svg>") }
+  .paper { position:absolute; box-sizing:border-box; color:#1e1810;
+    background:linear-gradient(180deg,#b9ab90 0%,#efe7d4 5%,#f2ebda 46%,#ece4d1 88%,#b5a78c 100%);
+    box-shadow:0 34px 64px rgba(0,0,0,.80) }
+</style>
+<div class="desk"></div>
+<style>
+  .shelf { position:absolute; left:0; right:0; top:300px; height:600px;
+           background:linear-gradient(180deg,#3a2a1c,#241810); }
+  .lip   { position:absolute; left:0; right:0; top:895px; height:26px;
+           background:linear-gradient(180deg,#5a4028,#2a1c10); box-shadow:0 8px 18px rgba(0,0,0,.7) }
+  .row   { position:absolute; left:120px; bottom:305px; height:560px;
+           display:flex; align-items:flex-end; gap:3px }
+  .bk    { width:44px; border-radius:2px 2px 0 0;
+           box-shadow:inset -6px 0 10px rgba(0,0,0,.45), 0 -2px 6px rgba(0,0,0,.4) }
+  /* 那一本 —— 布面书脊, 磨到发白, 比邻居矮一点、旧一点。没有一个字。 */
+  .the   { width:52px; height:470px; background:linear-gradient(90deg,#4e5b4a,#66735e 30%,#3f4a3c);
+           box-shadow:inset -7px 0 12px rgba(0,0,0,.5), 0 -2px 8px rgba(0,0,0,.5);
+           position:relative }
+  .the:after { content:""; position:absolute; left:6px; right:6px; top:70px; height:2px;
+               background:rgba(230,225,205,.30) }
+  .the:before{ content:""; position:absolute; left:0; right:0; top:0; height:26px;
+               background:linear-gradient(180deg,rgba(240,236,220,.22),rgba(0,0,0,0)) }
+  .lamp  { position:absolute; inset:0; pointer-events:none; mix-blend-mode:screen;
+           background:radial-gradient(46% 42% at 34% 44%, rgba(226,206,150,.30), rgba(0,0,0,0) 70%) }
+</style>
+<div class="shelf"></div><div class="row" id="r"></div><div class="lip"></div>
+<div class="lamp"></div>
+<script>
+  // 邻居们随机而【固定】—— 用定死的序列, 不用 Math.random(), 否则不可复现
+  const H=[520,478,540,505,462,530,496,470,548,512,484,536,458,522,500,474,544,490];
+  const C=['#5a2f28','#2f3b52','#4a3f2a','#3a2a34','#54462c','#26343a','#4a2f3c','#3d4a35'];
+  const r=document.getElementById('r'); let html='';
+  for(let i=0;i<9;i++) html+=`<div class="bk" style="height:${H[i]}px;background:${C[i%8]}"></div>`;
+  html+='<div class="the"></div>';
+  for(let i=9;i<18;i++) html+=`<div class="bk" style="height:${H[i]}px;background:${C[i%8]}"></div>`;
+  r.innerHTML=html;
+</script><div class="grain"></div><div class="vig"></div>

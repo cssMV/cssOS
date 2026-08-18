@@ -1,0 +1,49 @@
+<style>
+  html,body { margin:0; width:1900px; height:1300px; overflow:hidden;
+              background:#0a0806; font-family:"Courier New",Courier,monospace }
+  .desk { position:absolute; inset:0;
+    background: repeating-linear-gradient(90deg, rgba(0,0,0,.30) 0 2px,
+                  rgba(255,255,255,.014) 2px 8px, rgba(0,0,0,.12) 8px 15px),
+                linear-gradient(177deg,#332417 0%,#241910 52%,#140d08 100%) }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(76% 72% at 48% 46%, rgba(0,0,0,0) 36%, rgba(0,0,0,.88) 100%) }
+  .grain { position:absolute; inset:0; pointer-events:none; opacity:.15;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='.5'/></svg>") }
+  .paper { position:absolute; box-sizing:border-box; color:#1e1810;
+    background:linear-gradient(180deg,#b9ab90 0%,#efe7d4 5%,#f2ebda 46%,#ece4d1 88%,#b5a78c 100%);
+    box-shadow:0 34px 64px rgba(0,0,0,.80) }
+</style>
+<div class="desk"></div>
+<style>
+  .paper { left:170px; top:110px; width:1560px; height:1080px; padding:56px 60px;
+           transform:rotate(-0.35deg) }
+  .hdr { font:19px "Courier New",monospace; letter-spacing:.22em; color:#3b3226;
+         border-bottom:1.5px solid #6f6350; padding-bottom:14px; margin-bottom:26px;
+         display:flex; justify-content:space-between }
+  .field { position:relative; width:100%; height:820px;
+           background:linear-gradient(180deg,#8e8878 0%,#6f6a5d 58%,#565248 100%);
+           box-shadow:inset 0 0 90px rgba(0,0,0,.55) }
+  .row { position:absolute; left:0; right:0; display:flex; gap:0px }
+  .sh  { width:80px; height:26px; border-radius:13px;
+         background:linear-gradient(180deg,#d6d0c0,#a8a294);
+         box-shadow:0 2px 4px rgba(0,0,0,.55) }
+  .cap { margin-top:18px; font:17px "Courier New",monospace; letter-spacing:.14em;
+         color:#443b2d; display:flex; justify-content:space-between }
+</style>
+<div class="paper">
+  <div class="hdr"><span>KELLERMAN COLLIERY</span><span>14 MARCH 1931</span><span>PLATE 3 OF 3</span></div>
+  <div class="field" id="f"></div>
+  <div class="cap"><span>PITHEAD — RECOVERED</span><span id="n"></span></div>
+</div>
+<script>
+  // 84 个。七行, 每行十二个。观众数得出来 —— 那是这张图的全部工作。
+  const N=84, PER=12, f=document.getElementById('f');
+  let h='';
+  for(let r=0;r<N/PER;r++){
+    h+=`<div class="row" style="top:${70+r*104}px; left:${58+(r%2?16:0)}px">`;
+    for(let c=0;c<PER;c++) h+=`<div class="sh" style="margin-right:${c===PER-1?0:20}px"></div>`;
+    h+='</div>';
+  }
+  f.innerHTML=h;
+  document.getElementById('n').textContent = N + ' RECOVERED';
+</script><div class="grain"></div><div class="vig"></div>

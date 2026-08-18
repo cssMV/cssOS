@@ -1,0 +1,43 @@
+<style>
+  html,body { margin:0; width:1900px; height:1200px; overflow:hidden;
+              background:#06080a; font-family:"Courier New",Courier,monospace }
+  .desk { position:absolute; inset:0;
+    background: repeating-linear-gradient(90deg, rgba(0,0,0,.30) 0 2px,
+                  rgba(255,255,255,.014) 2px 8px, rgba(0,0,0,.12) 8px 15px),
+                linear-gradient(177deg,#332417 0%,#241910 52%,#140d08 100%) }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(76% 72% at 48% 46%, rgba(0,0,0,0) 36%, rgba(0,0,0,.88) 100%) }
+  .grain { position:absolute; inset:0; pointer-events:none; opacity:.15;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='.5'/></svg>") }
+  .paper { position:absolute; box-sizing:border-box; color:#1e1810;
+    background:linear-gradient(180deg,#b9ab90 0%,#efe7d4 5%,#f2ebda 46%,#ece4d1 88%,#b5a78c 100%);
+    box-shadow:0 34px 64px rgba(0,0,0,.80) }
+</style>
+<div class="desk"></div>
+<style>
+  .term { position:absolute; left:130px; top:100px; width:1640px; height:1000px;
+          background:#0a1410; border:2px solid #16281f; box-sizing:border-box;
+          padding:56px 64px; font:22px "Courier New",monospace; color:#8fd8a8;
+          box-shadow:0 0 90px rgba(40,200,120,.10) inset }
+  .sc { position:absolute; inset:0; pointer-events:none;
+        background:repeating-linear-gradient(180deg, rgba(0,0,0,.30) 0 2px, rgba(0,0,0,0) 2px 4px) }
+  .q  { color:#4f8f68; letter-spacing:.10em }
+  .k  { color:#5f9f78; display:inline-block; width:290px }
+  .v  { color:#c6f0d4 }
+  .hr { border-bottom:1px solid #1e3a2b; margin:26px 0 22px }
+  .cur{ display:inline-block; width:14px; height:24px; background:#8fd8a8;
+        vertical-align:-4px; margin-left:8px }
+</style>
+<div class="term">
+  <div class="q">&gt; SEARCH  NAME="VANCE, DANIEL R"  SCOPE=PUBLIC</div>
+  <div class="hr"></div>
+  <div><span class="k">FULL NAME</span><span class="v">VANCE, DANIEL ROBERT</span></div>
+  <div><span class="k">BORN</span><span class="v">1938 &middot; KINGSLEY COUNTY</span></div>
+  <div><span class="k">OCCUPATION</span><span class="v">INSURANCE ADJUSTER</span></div>
+  <div><span class="k">EMPLOYER</span><span class="v">MERIDIAN MUTUAL, 1961&ndash;1991</span></div>
+  <div><span class="k">DIED</span><span class="v">1994 &middot; KINGSLEY COUNTY</span></div>
+  <div><span class="k">SURVIVED BY</span><span class="v">ONE SON</span></div>
+  <div class="hr"></div>
+  <div class="q">1 RECORD. NO AMENDMENTS ON FILE.<span class="cur"></span></div>
+</div>
+<div class="sc"></div><div class="grain"></div><div class="vig"></div>

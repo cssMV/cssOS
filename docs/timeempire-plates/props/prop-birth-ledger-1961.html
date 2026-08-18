@@ -1,0 +1,49 @@
+<style>
+  html,body { margin:0; width:2000px; height:1300px; overflow:hidden;
+              background:#0a0806; font-family:"Courier New",Courier,monospace }
+  .desk { position:absolute; inset:0;
+    background: repeating-linear-gradient(90deg, rgba(0,0,0,.30) 0 2px,
+                  rgba(255,255,255,.014) 2px 8px, rgba(0,0,0,.12) 8px 15px),
+                linear-gradient(177deg,#332417 0%,#241910 52%,#140d08 100%) }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(76% 72% at 48% 46%, rgba(0,0,0,0) 36%, rgba(0,0,0,.88) 100%) }
+  .grain { position:absolute; inset:0; pointer-events:none; opacity:.15;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23n)' opacity='.5'/></svg>") }
+  .paper { position:absolute; box-sizing:border-box; color:#1e1810;
+    background:linear-gradient(180deg,#b9ab90 0%,#efe7d4 5%,#f2ebda 46%,#ece4d1 88%,#b5a78c 100%);
+    box-shadow:0 34px 64px rgba(0,0,0,.80) }
+</style>
+<div class="desk"></div>
+<style>
+  .paper { left:100px; top:90px; width:1800px; height:1120px; padding:0;
+           transform:rotate(0.3deg);
+           background:linear-gradient(180deg,#c9bda0 0%,#efe8d6 4%,#f1ead8 50%,#e6dfcc 92%,#bfb298) }
+  .head { padding:44px 70px 0; font:20px "Courier New",monospace; letter-spacing:.20em;
+          color:#3d3427; display:flex; justify-content:space-between }
+  table { width:calc(100% - 140px); margin:30px 70px 0; border-collapse:collapse;
+          font:20px "Courier New",monospace }
+  th { font-weight:normal; text-align:left; font-size:15px; letter-spacing:.16em;
+       color:#5a4f3e; border-bottom:2px solid #3d3427; padding:0 0 10px }
+  td { padding:15px 0; border-bottom:1px solid #b3a68d; color:#241d13 }
+  .ink { color:#1a2a52; font-family:Georgia,serif; font-style:italic; font-size:23px }
+  .hi  { background:linear-gradient(90deg, rgba(0,0,0,0), rgba(0,0,0,.045) 12%,
+                    rgba(0,0,0,.045) 88%, rgba(0,0,0,0)) }
+  .fan { position:absolute; inset:0; pointer-events:none; mix-blend-mode:multiply;
+         background:conic-gradient(from 20deg at 62% -30%,
+           rgba(0,0,0,.14) 0 6%, rgba(0,0,0,0) 6% 25%, rgba(0,0,0,.14) 25% 31%,
+           rgba(0,0,0,0) 31% 50%, rgba(0,0,0,.14) 50% 56%, rgba(0,0,0,0) 56% 100%) }
+</style>
+<div class="paper">
+  <div class="head"><span>REGISTER OF BIRTHS</span><span>VOL. XI</span><span>PAGE 214</span></div>
+  <table>
+    <tr><th style="width:9%">No.</th><th style="width:20%">DATE</th>
+        <th style="width:34%">NAME</th><th style="width:14%">WEIGHT</th>
+        <th style="width:23%">INFORMANT</th></tr>
+    <tr><td>0411</td><td>3 JUNE 1961</td><td class="ink">Mary Ellen Cobb</td><td>7 lb 2 oz</td><td>Mother</td></tr>
+    <tr><td>0412</td><td>3 JUNE 1961</td><td class="ink">Walter J. Ridley</td><td>6 lb 11 oz</td><td>Father</td></tr>
+    <tr class="hi"><td>0413</td><td>4 JUNE 1961</td><td class="ink">x&Egrave;th</td><td>7 lb 0 oz</td><td class="ink">Self</td></tr>
+    <tr><td>0414</td><td>4 JUNE 1961</td><td class="ink">Anne-Marie Fowles</td><td>5 lb 14 oz</td><td>Mother</td></tr>
+    <tr><td>0415</td><td>6 JUNE 1961</td><td class="ink">Thomas R. Baird</td><td>8 lb 3 oz</td><td>Father</td></tr>
+  </table>
+</div>
+<div class="fan"></div><div class="grain"></div><div class="vig"></div>

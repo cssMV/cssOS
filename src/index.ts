@@ -12259,6 +12259,13 @@ async function ensureTelemetryMemorySchema(): Promise<void> {
         script_tags_lazy INTEGER NOT NULL DEFAULT 0,
         open_panels JSONB NOT NULL DEFAULT '[]'::jsonb,
         open_panel_count INTEGER NOT NULL DEFAULT 0,
+        /* CSSOS_WAVE_1837 — 探针一直在【算】DOM 热点(泄漏节点所在容器 + span/strong/a 计数),
+         * 但建表时漏了这一列, 于是每一份都在落库前被丢掉。2026-08-19 追 For You / 作品中心
+         * 那个 +843 节点/分钟的泄漏时, 手上有 grow=SPAN+1211,STRONG+577,A+558 这样的指纹,
+         * 却【没有容器路径】—— 只能靠 grep 猜是哪个模块, 猜了两轮全错。补上这一列, 下一次
+         * 泄漏现场会直接把容器选择器写出来。raf_sites 同理(哪段 rAF 在空转)。 */
+        dom_hotspot JSONB NULL,
+        raf_sites JSONB NULL,
         visibility TEXT NULL,
         ua TEXT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -12271,6 +12278,9 @@ async function ensureTelemetryMemorySchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS telemetry_memory_samples_crash_idx
         ON telemetry_memory_samples (created_at DESC)
         WHERE crash_recovered = TRUE;
+    
+      ALTER TABLE telemetry_memory_samples ADD COLUMN IF NOT EXISTS dom_hotspot JSONB NULL;
+      ALTER TABLE telemetry_memory_samples ADD COLUMN IF NOT EXISTS raf_sites   JSONB NULL;
     `));
     __telemetryMemorySchemaEnsured = true;
   } catch (e) {
@@ -12294,14 +12304,16 @@ app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, re
         dom_nodes, images, videos, audios,
         blob_urls, inflight_fetch, active_intervals, module_globals,
         script_tags_eager, script_tags_lazy,
-        open_panels, open_panel_count, visibility, ua
+        open_panels, open_panel_count, visibility, ua,
+        dom_hotspot, raf_sites
       ) VALUES (
         $1::uuid, $2, $3, $4, $5, $6,
         $7, $8, $9,
         $10, $11, $12, $13,
         $14, $15, $16, $17,
         $18, $19,
-        $20::jsonb, $21, $22, $23
+        $20::jsonb, $21, $22, $23,
+        $24::jsonb, $25::jsonb
       )`,
       [
         userId, safeStr(b.platform, 32), safeStr(b.pressure, 16),
@@ -12316,6 +12328,20 @@ app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, re
         JSON.stringify(Array.isArray(b.open_panels) ? b.open_panels.slice(0, 32).map((x: any) => String(x).slice(0, 64)) : []),
         safeInt(b.open_panel_count, 1000),
         safeStr(b.visibility, 16), safeStr(b.ua, 200),
+        /* W1837 — 容器路径要【截断后存】: sel 是 DOM 选择器, 泄漏严重时可能很长;
+         * 这里只保留够定位的长度, 免得一条上报把行撑爆。 */
+        b.dom_hotspot && typeof b.dom_hotspot === "object"
+          ? JSON.stringify({
+              sel: safeStr((b.dom_hotspot as any).sel, 200),
+              descendants: safeInt((b.dom_hotspot as any).descendants, 500000),
+              span: safeInt((b.dom_hotspot as any).span, 500000),
+              strong: safeInt((b.dom_hotspot as any).strong, 500000),
+              a: safeInt((b.dom_hotspot as any).a, 500000),
+            })
+          : null,
+        Array.isArray(b.raf_sites)
+          ? JSON.stringify(b.raf_sites.slice(0, 5).map((x: any) => String(x).slice(0, 200)))
+          : null,
       ],
     ));
     return res.json({ ok: true, stored: true });

@@ -781,5 +781,137 @@
   "sha256": "45ae629fe16f0c707bdda2655be03f06c46299b0449eeb1e9dee5a84a4f27e30",
   "bytes": 1609729,
   "url": "https://cdn.cssstudio.app/timeempire/plates/face-unknown-president.png"
+ },
+ "scene-ballroom-election.png": {
+  "key": "timeempire/plates/scene-ballroom-election.png",
+  "sha256": "44124e447356135c89656729c87854846d12ec9176358b1bec9574d72f3e1f46",
+  "bytes": 1986059,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-ballroom-election.png"
+ },
+ "scene-care-home.png": {
+  "key": "timeempire/plates/scene-care-home.png",
+  "sha256": "aba1f15012274b863ec314af9c6b151905a2ef158e76fee0f267c76217ad1f4d",
+  "bytes": 2041304,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-care-home.png"
+ },
+ "scene-city-square-14th.png": {
+  "key": "timeempire/plates/scene-city-square-14th.png",
+  "sha256": "eb1b3e057a8c8d96505d07e9f1a249b9993a5077ca216f975a0efa2c9242a06a",
+  "bytes": 1720070,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-city-square-14th.png"
+ },
+ "scene-cold-island-house.png": {
+  "key": "timeempire/plates/scene-cold-island-house.png",
+  "sha256": "353cb78b5d9f5125372e465b954f622d8b3a233e791e72a433e78c17810de483",
+  "bytes": 1659030,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-cold-island-house.png"
+ },
+ "scene-deleted-war-street.png": {
+  "key": "timeempire/plates/scene-deleted-war-street.png",
+  "sha256": "086877313c4d7704de225fb909aa899f9d0bb9995add2d18e74eabf0f6107b70",
+  "bytes": 1854625,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-deleted-war-street.png"
+ },
+ "scene-fishing-boat.png": {
+  "key": "timeempire/plates/scene-fishing-boat.png",
+  "sha256": "46a9ec9577800d2a5e500b378872ac57e70cd47d3f0c2d72c1446ab54cad1f24",
+  "bytes": 1612490,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-fishing-boat.png"
+ },
+ "scene-great-hall.png": {
+  "key": "timeempire/plates/scene-great-hall.png",
+  "sha256": "afb40c5fb1a9cfee7b4346b4c25b3db20d989bc9134ddd54d094e026ce3c9c0a",
+  "bytes": 1695691,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-great-hall.png"
+ },
+ "scene-green-valley-dish.png": {
+  "key": "timeempire/plates/scene-green-valley-dish.png",
+  "sha256": "013b1d452558c02ee9e1906484de12b7cfaf9119b62217f0636be9b1493595e5",
+  "bytes": 1877980,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-green-valley-dish.png"
+ },
+ "scene-gymnasium-club.png": {
+  "key": "timeempire/plates/scene-gymnasium-club.png",
+  "sha256": "aacae840ada13e5668dc352873317162450ca9fa3fa21043851322689a9fff68",
+  "bytes": 1903488,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-gymnasium-club.png"
+ },
+ "scene-ham-shack.png": {
+  "key": "timeempire/plates/scene-ham-shack.png",
+  "sha256": "18a0ddf2caaa41964cc9df77b26d3b4113f1456e6c70a726e04950180f5738a7",
+  "bytes": 2041165,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-ham-shack.png"
+ },
+ "scene-june-flat.png": {
+  "key": "timeempire/plates/scene-june-flat.png",
+  "sha256": "8e4a9228699364424acea2b3274c617d2b5d6a23982a909b0f4846cbf938e119",
+  "bytes": 1673500,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-june-flat.png"
+ },
+ "scene-lecture-hall.png": {
+  "key": "timeempire/plates/scene-lecture-hall.png",
+  "sha256": "30f30c09f81ca4fccc4ed95cbb4548901467bb4a5ba861e5596a59ccd1581f56",
+  "bytes": 1788578,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-lecture-hall.png"
+ },
+ "scene-motorway-14th.png": {
+  "key": "timeempire/plates/scene-motorway-14th.png",
+  "sha256": "6cb99c277e2d2a0898d3f6f4f053decfcff2ba56a0934ab8546480474e0d591e",
+  "bytes": 1758475,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-motorway-14th.png"
+ },
+ "scene-newsroom.png": {
+  "key": "timeempire/plates/scene-newsroom.png",
+  "sha256": "d0b602d61ad6555829c09f501cd0843717206c55e20920c2c08a65e5385b834d",
+  "bytes": 1804078,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-newsroom.png"
+ },
+ "scene-norris-office.png": {
+  "key": "timeempire/plates/scene-norris-office.png",
+  "sha256": "cb09f9344e979fbcc55a79de7215146117b3d1677d2b25a050e2f095924bc305",
+  "bytes": 1752776,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-norris-office.png"
+ },
+ "scene-plateau-dish.png": {
+  "key": "timeempire/plates/scene-plateau-dish.png",
+  "sha256": "559cb5537c66c866719b26bbbc76d0a40f9f227fd814808407b85369487ccc3d",
+  "bytes": 1828681,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-plateau-dish.png"
+ },
+ "scene-playground-14th.png": {
+  "key": "timeempire/plates/scene-playground-14th.png",
+  "sha256": "2a57202eaa15f07d0e79ce15763fae2abc9747306dc24183f42cc43b47139ed1",
+  "bytes": 1832304,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-playground-14th.png"
+ },
+ "scene-print-shop.png": {
+  "key": "timeempire/plates/scene-print-shop.png",
+  "sha256": "14447325ff6c50b547443225a959db5608db240506f4c0830552e3fa3e6dab28",
+  "bytes": 1843125,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-print-shop.png"
+ },
+ "scene-rooftop-aerial.png": {
+  "key": "timeempire/plates/scene-rooftop-aerial.png",
+  "sha256": "b6bb91f57724b077baa172b56ac2f69bae1007508afb9fd56252069b11cb93c8",
+  "bytes": 1778609,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-rooftop-aerial.png"
+ },
+ "scene-service-corridor.png": {
+  "key": "timeempire/plates/scene-service-corridor.png",
+  "sha256": "27efee8738424ce8d7a6fb9f5d02187950e6debdcd46c36fcdb06791024c321b",
+  "bytes": 1834277,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-service-corridor.png"
+ },
+ "scene-the-floor.png": {
+  "key": "timeempire/plates/scene-the-floor.png",
+  "sha256": "817bd793daa60d74977cf34c05822a4f2ac879cf62ff8bfb2875aec55923c207",
+  "bytes": 2747542,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-the-floor.png"
+ },
+ "scene-town-counter.png": {
+  "key": "timeempire/plates/scene-town-counter.png",
+  "sha256": "2544a181dd7227715beaf5778b94911424e6aa62f4a48bef937ee2c62cc7b374",
+  "bytes": 1750499,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/scene-town-counter.png"
  }
 }

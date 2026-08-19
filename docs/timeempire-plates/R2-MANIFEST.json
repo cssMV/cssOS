@@ -691,5 +691,95 @@
   "bytes": 1661722,
   "url": "https://cdn.cssstudio.app/timeempire/plates/face-ethan-v2.png",
   "note": "圣经 v2 的 Ethan: 40 多岁, 两鬓灰, 短须。左眉那道疤沿用 face-ethan.png 的原样(canon)。"
+ },
+ "face-helen-reese.png": {
+  "key": "timeempire/plates/face-helen-reese.png",
+  "sha256": "c63b696c516cba3bc9f6956d7713f2b9568eac1831cb75ff07b8ce1b094c8a3a",
+  "bytes": 1684503,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-helen-reese.png"
+ },
+ "face-clara-v2.png": {
+  "key": "timeempire/plates/face-clara-v2.png",
+  "sha256": "82e817971ba81e1532a9726a7933225708644c842a388c1b31ce4d1b6c2594fd",
+  "bytes": 1633752,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-clara-v2.png"
+ },
+ "face-june-v2.png": {
+  "key": "timeempire/plates/face-june-v2.png",
+  "sha256": "c3c1266cc6a1ac1dea2de17017c0824a502cb44d2055a62f0b82b855c4da74c1",
+  "bytes": 1513361,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-june-v2.png"
+ },
+ "face-daniel-vance.png": {
+  "key": "timeempire/plates/face-daniel-vance.png",
+  "sha256": "177e25d964a59ba1d6a9a055c5afef3204e5f221d07e4715c7ca585a92790fd5",
+  "bytes": 1314629,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-daniel-vance.png"
+ },
+ "face-audrey-leigh.png": {
+  "key": "timeempire/plates/face-audrey-leigh.png",
+  "sha256": "1f1895d304da8175f6b977b74e40f2a0d5222d8a431b2b28c7fdb158bc900281",
+  "bytes": 1578248,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-audrey-leigh.png"
+ },
+ "face-novelist.png": {
+  "key": "timeempire/plates/face-novelist.png",
+  "sha256": "340340658d1f3be8328c778d6835aeca0ee37a1df283ee24096a487621c35e97",
+  "bytes": 1633770,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-novelist.png"
+ },
+ "face-parrish.png": {
+  "key": "timeempire/plates/face-parrish.png",
+  "sha256": "69060b129e333f8449745068bfd70b28e4197f4df8ddc2a0e04e809d7de94a25",
+  "bytes": 1639512,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-parrish.png"
+ },
+ "face-norris.png": {
+  "key": "timeempire/plates/face-norris.png",
+  "sha256": "bd43f8c865f29f4ccb9d5b3ec9dc63f962f1c6af62271a464b3323f13703a9b2",
+  "bytes": 1505600,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-norris.png"
+ },
+ "face-harold-beak.png": {
+  "key": "timeempire/plates/face-harold-beak.png",
+  "sha256": "1cb3170dcc7dd6207871312cd4cfedcea3822c72b1d96daf5c1e6a458c4e00fe",
+  "bytes": 1768349,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-harold-beak.png"
+ },
+ "face-priya-shah.png": {
+  "key": "timeempire/plates/face-priya-shah.png",
+  "sha256": "1c68d50cac9629c6758e378d67a69a7016b17b0f4e3057101826e0f2a2de102d",
+  "bytes": 1557314,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-priya-shah.png"
+ },
+ "face-holbrook.png": {
+  "key": "timeempire/plates/face-holbrook.png",
+  "sha256": "e0f168fd53ce894a2a121143019e288be8e084a7d5de115a430f997b9077f5d4",
+  "bytes": 1581933,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-holbrook.png"
+ },
+ "face-declan.png": {
+  "key": "timeempire/plates/face-declan.png",
+  "sha256": "563ee56294549b892386aac9d5d8a9fe46b146fefdc20c78d8b75b737b1d0760",
+  "bytes": 1630064,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-declan.png"
+ },
+ "face-brewer.png": {
+  "key": "timeempire/plates/face-brewer.png",
+  "sha256": "11afe5f3349b267bf935b40160368ef8d0c6671ceaad07fe4bac649f8c4ee17d",
+  "bytes": 1588817,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-brewer.png"
+ },
+ "face-merritt.png": {
+  "key": "timeempire/plates/face-merritt.png",
+  "sha256": "fe843d534ea00204949c6e2175d2b9c4ccd4c03ebbe43148839c1e1c732bd725",
+  "bytes": 1682010,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-merritt.png"
+ },
+ "face-unknown-president.png": {
+  "key": "timeempire/plates/face-unknown-president.png",
+  "sha256": "45ae629fe16f0c707bdda2655be03f06c46299b0449eeb1e9dee5a84a4f27e30",
+  "bytes": 1609729,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/face-unknown-president.png"
  }
 }

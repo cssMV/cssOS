@@ -913,5 +913,12 @@
   "sha256": "2544a181dd7227715beaf5778b94911424e6aa62f4a48bef937ee2c62cc7b374",
   "bytes": 1750499,
   "url": "https://cdn.cssstudio.app/timeempire/plates/scene-town-counter.png"
+ },
+ "INVARIANT-1977-group-photo.png": {
+  "key": "timeempire/plates/INVARIANT-1977-group-photo.png",
+  "sha256": "58e9a48b45977eb872dc83fb15150fd5bacde91c904a194481bc58e6d4133501",
+  "bytes": 698822,
+  "url": "https://cdn.cssstudio.app/timeempire/plates/INVARIANT-1977-group-photo.png",
+  "note": "不变量。第一部 §9 前后两次出现【逐像素相同】—— 照片不变, 变的是 Helen。任何地方引用必须是这一份文件。与 INVARIANT-artifact-voyager / INVARIANT-pale-blue-dot / INVARIANT-final4-with-heartbeat 同级。"
  }
 }

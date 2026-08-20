@@ -105,7 +105,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260713-orb-fill" />
+    <link rel="stylesheet" href="style.css?v=20260820-w1840-cinema-noborder" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
     <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
@@ -2256,7 +2256,7 @@
     <script src="app.civ-language-map.js?v=20260802-w1797-ptolemaic"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
-    <script src="app.work-id-binding.js?v=20260726-w1785b-assets"></script>
+    <script src="app.work-id-binding.js?v=20260820-w1839-partid"></script>
     <!-- CSSOS_WAVE_1785 — 串台探测器: 只观测不修改, 每秒比对四条道的 owner。
          必须排在 work-id-binding 之后(它依赖 cssosCurrentWorkId / cssosCurrentGen)。 -->
     <script src="app.crosstalk-probe.js?v=20260726-w1785b"></script>
@@ -2603,6 +2603,7 @@
          rendered subtitles + titles. Lyrics editor stays raw. -->
     <script src="app.subtitle-cleaner.js?v=20260525-w419-dualclean"></script>
     <script src="app.mv-title-sync.js?v=20260503-mv-title-sync-1"></script>
+    <script src="app.title-authority.js?v=20260820-w1839"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505c — Jing
          These 19 helpers must load AFTER all the file-level helpers above
          (especially app.delivery-digest-ui.js which defines

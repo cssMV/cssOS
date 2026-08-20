@@ -31,6 +31,7 @@
   if (globalThis.cssosBindToWorkId) return;
 
   let __currentWorkId = "";
+  let __currentPartId = "";   // W1839 — 带 __part_N 的完整身份 id(root 只用于取资产)
   let __currentWork = null;
 
   /* ══════════════════════════════════════════════════════════════════
@@ -366,8 +367,34 @@
       return false;
     }
     if (!id) return false;
-    // 归一到 root: 合成部件(…__part_N)复用 root 的音轨/帧, 避免 400 → 无声/封面串台。
+    /* CSSOS_WAVE_1839 (Jing:「标题从头到尾一直显示《春风得意》」「请去掉这些 __part_N,
+     * 要显示小标题」) —— 【资产 ID】和【身份 ID】必须分开。
+     *
+     * 原来这里一句 id = cssosRootWorkId(id) 就把两者合成了一个: 合成部件
+     * <root>__part_1 / __part_2 / __part_3 被剥成【同一个 root id】, 于是下一行
+     * `if (id === __currentWorkId) return true` 判定"没换歌" → 不冲缓存、不派发
+     * cssos:work-id-changed → 标题/字幕/弹幕全部停在第一部, 而音视频照常前进。
+     * 这就是"标题、字幕、画面、音乐不是同一首歌"的根, 也是弹幕轨永不清空
+     * (它按 work id 变化才清)导致 DOM 只涨不掉的根。
+     *
+     * 但归一【不能删】: W630 的理由仍然成立 —— 合成 id 不是 36 位 UUID, 拿去请求
+     * /api/works/:id/{language-tracks,slideshow} 会 400 → 无声 + 封面串台。
+     * 所以: root 继续用于取资产, 完整 id 用于判身份和取标题。 */
+    const __fullId = id;
     id = globalThis.cssosRootWorkId(id);
+    if (id === __currentWorkId && __fullId !== __currentPartId) {
+      // 同一首歌的【不同部件】: 资产共用(不 flush, 避免无谓黑屏), 但身份变了 —— 必须广播出去,
+      // 让标题/字幕/弹幕按新部件重绘。这一条正是以前被整个吞掉的分支。
+      __currentPartId = __fullId;
+      if (work) __currentWork = work;
+      try {
+        window.dispatchEvent(new CustomEvent("cssos:work-id-changed", {
+          detail: { workId: id, partId: __fullId, work: __currentWork, partOnly: true },
+        }));
+      } catch (_) {}
+      return true;
+    }
+    __currentPartId = __fullId;
     if (id === __currentWorkId) {
       // Same work — just update the work object if a fresher one arrived
       if (work) __currentWork = work;

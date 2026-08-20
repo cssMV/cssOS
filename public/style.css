@@ -13920,3 +13920,30 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
     z-index: 10075 !important;
   }
 }
+
+/* CSSOS_WAVE_1840 20260820 — Jing「MV 真全屏超宽电影模式下, Watch 面板不要再用绿色描边,
+ *   保持不描边, 让随机色进度条按照进度来描边」。
+ *
+ * 现状: W1041 之后, 影院里同时存在【两圈】边——
+ *   ① .panel 的 1px 绿边 + #watch-panel::before 的周长渐变边(W?? 的彩虹流光, 影院里被
+ *      Fix B 冻成静态辉光, 但【依然可见】);
+ *   ② .cssmv-border-bar —— watch-stage-bars.js 画的随机色周长进度环, 才是真正表达进度的那一圈。
+ * 两圈重叠时, 静态的那圈把进度那圈的颜色压住, 看起来就是"永远绿边、进度看不出来"。
+ *
+ * 只在【真全屏 / 影院】态下去掉 ①: 窗口态的面板边框是面板宪法的一部分, 不动。
+ * 去掉的是边框本身而不是 ::before 元素 —— ::before 还兼着别的层(遮罩/圆角), 整个 display:none
+ * 会连带影响圆角裁切; 把它的边框绘制归零最小侵入。 */
+#watch-panel.is-cssmv-fullscreen,
+#watch-panel.cssmv-cinema,
+body.cssos-cinema-mode #watch-panel {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+#watch-panel.is-cssmv-fullscreen::before,
+#watch-panel.cssmv-cinema::before,
+body.cssos-cinema-mode #watch-panel::before {
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  opacity: 0 !important;
+}

@@ -460,7 +460,7 @@
       // 单条凸嵌凹胶囊轨道: 输入段(say)靠 cssosMakePillBar 的 input-fills-rest 吃满剩余; 3 按钮 max-content。
       ".ag-f2f-track{width:100%;}" +
       // 输入段: 不吃凸嵌凹 mask(否则右边凹进去切掉输入区)+ 保留可读深色底 + 左对齐。
-      ".ag-f2f-track>.ag-f2f-text{-webkit-mask:none !important;mask:none !important;margin:0 !important;width:auto !important;border-radius:999px 0 0 999px !important;background:rgba(0,0,0,.42) !important;color:#eafff6 !important;min-height:44px;max-height:100px;resize:none;font-size:16px;font-family:inherit;text-align:left;padding:11px 16px !important;}" +
+      ".ag-f2f-track>.ag-f2f-text{-webkit-mask:none !important;mask:none !important;margin:0 !important;width:auto !important;border-radius:999px 0 0 999px !important;background:rgba(0,0,0,.42) !important;color:#eafff6 !important;min-height:44px;max-height:100px;resize:none;font-size:16px;font-family:inherit;text-align:left;padding:11px 16px !important;line-height:22px;}" +
       ".ag-f2f-track>.ag-f2f-mic,.ag-f2f-track>.ag-f2f-rec,.ag-f2f-track>.ag-f2f-send{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:5px;color:#eafff6;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;}" +
       ".ag-f2f-rec>span{font-size:13px;}" +
       // 录制/免手中的红色态: !important 压过 pill 宪法的绿。

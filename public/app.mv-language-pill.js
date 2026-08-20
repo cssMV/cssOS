@@ -207,14 +207,48 @@
     }
     var lastT = -1, sameCount = 0, curSrc = "", reloads = 0, videoFallback = false;
     // W737B — 把当前播放中的视频解/复静音(.mp3 卡死时的兜底声源; 恢复则复静音, 防双声)。
+    /* CSSOS_WAVE_1841 (Jing:「播放一首歌会出现大约 0.1 秒延迟, 像 ECHO 一样, 不是只有唯一
+     * 播放音乐的吗?」) —— 重音的结构性根因就在这个兜底里。
+     *
+     * 现场证据(echo-probe 抓到 60 次, 最近 2026-08-18):
+     *   echo[overlap-diff] n=2  #watch-video:final.mp4  +  #watch-audio-preview
+     * 即【视频自带音轨】和【独立音频】同时出声, 起播差几十毫秒 = 用户听到的回声。
+     *
+     * 原实现只做了"解开视频静音", 注释写着"此刻 .mp3 静默, 不会双声" —— 但 .mp3 【随时会
+     * 自己恢复】, 而这条看门狗 1.2 秒才查一次。那一秒多的窗口里两路一起响, 正是 ECHO。
+     * 靠"检查得更勤"治不了(缩短间隔只是把窗口变小, 且更费电)。
+     *
+     * 改成【互斥】而不是【时序】: 开兜底前先把音频 pause+mute(它已经卡死, 掐掉零损失),
+     * 撤兜底前先把视频复静音, 再让音频回来。任何时刻只有一路是活的 —— 双声在结构上不可能。 */
     function setVideoFallback(on) {
       try {
+        var a = document.getElementById("watch-audio-preview");
+        /* 不能靠 a.muted=true 掐声: W667 的硬解静音锁把 muted 的 setter 改成了强制 false,
+         * 这一句是【空操作】。也不能只 a.pause(): 音频权威(W653)的看门狗会在 ~1.5s 内把
+         * 卡死的音频救活续播 —— 于是又双声。
+         * 走仓库自己的让位契约 W1676: 置 cssosAudioIntentPaused=true, 权威的救活逻辑闭嘴。
+         * 保存原值并在撤兜底时还原, 不抢别的 UI(波形精修等)对这个旗标的所有权。 */
+        if (on && a) {
+          try { if (!("__cssosPrevIntentPaused" in setVideoFallback)) setVideoFallback.__cssosPrevIntentPaused = !!globalThis.cssosAudioIntentPaused; } catch (_e) {}
+          try { globalThis.cssosAudioIntentPaused = true; } catch (_e) {}
+          try { a.pause(); } catch (_e) {}
+        }
         var vids = document.querySelectorAll("#watch-video, video");
         for (var i = 0; i < vids.length; i++) {
           var v = vids[i];
           if (!v) continue;
+          if (v.getAttribute && v.getAttribute("data-live-capture") === "1") continue;   // 摄像头预览不碰
           if (on) { if (!v.paused && v.readyState >= 2) { v.muted = false; try { v.volume = 1; } catch (_e) {} } }
           else { v.muted = true; }
+        }
+        if (!on && a) {
+          // 视频已复静音, 现在才把音频放回来 —— 还原旗标(不覆盖别人后来设的值)
+          try {
+            var prev = setVideoFallback.__cssosPrevIntentPaused;
+            globalThis.cssosAudioIntentPaused = (prev === true);
+            delete setVideoFallback.__cssosPrevIntentPaused;
+          } catch (_e) {}
+          try { var pr = a.play && a.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (_e) {}
         }
       } catch (_e) {}
     }

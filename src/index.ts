@@ -12337,6 +12337,15 @@ app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, re
               span: safeInt((b.dom_hotspot as any).span, 500000),
               strong: safeInt((b.dom_hotspot as any).strong, 500000),
               a: safeInt((b.dom_hotspot as any).a, 500000),
+              /* W1838 — top3(已剔祖先)才是真正指认组件的那一项; 逐字段重建时别把它漏掉,
+               * 否则又退回"只知道泄漏在 main.stage"的粗粒度。 */
+              top3: Array.isArray((b.dom_hotspot as any).top3)
+                ? (b.dom_hotspot as any).top3.slice(0, 3).map((x: any) => ({
+                    sel: safeStr(x?.sel, 200),
+                    span: safeInt(x?.span, 500000),
+                    descendants: safeInt(x?.descendants, 500000),
+                  }))
+                : undefined,
             })
           : null,
         Array.isArray(b.raf_sites)

@@ -669,8 +669,19 @@ async function loadVersionsModule(elements) {
       versions.find((entry) => String(entry?.id || entry?.version || entry?.name || "").trim() === current) ||
       versions[0];
     renderVersionHeroModule(elements, activeEntry, current);
+    /* CSSOS_WAVE_1838 (遥测实锤) — 只渲染最近 N 个版本, 不再把【全部】版本塞进 DOM。
+     * 2026-08-20 升级后的 domHotspot 一上线就抓到: #version-list 单块 1,716 个节点
+     * (572 个版本 × <a>+<strong>+<span>), 占整页 DOM 的 39%, 且【常驻】——
+     * 它不是泄漏(每次先 innerHTML="" 清空), 但它是白白被吃掉的余量:
+     * iOS 正是被 DOM 压力压垮的, 而这一块每发一次版就再长 3 个节点, 只增不减。
+     * 版本菜单是个折叠面板, 用户实际只看最近几个; 572 条里 542 条从没被看过一眼。
+     * 当前版本永远保留(即使它很旧), 否则用户会找不到自己正在用的那个。 */
+    const VERSION_LIST_MAX = 30;
+    const _cur = versions.filter((e) => String(e?.id || e?.version || e?.name || "").trim() === current);
+    const _recent = versions.slice(0, VERSION_LIST_MAX);
+    const versionsShown = _cur.length && !_recent.includes(_cur[0]) ? [..._recent, _cur[0]] : _recent;
     versionList.innerHTML = "";
-    versions.forEach((entry) => {
+    versionsShown.forEach((entry) => {
       const id = entry.id || entry.version || entry.name;
       if (!id) return;
       const safePath = entry.path || `/v/${encodeURIComponent(id)}`;

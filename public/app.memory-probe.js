@@ -158,21 +158,46 @@
       return seg;
     } catch (_) { return "?"; }
   }
+  /* CSSOS_WAVE_1838 — 原版只报【后代最多】的那一个容器, 粒度太粗。
+   * 2026-08-19 实测: 它每次都指向 main.stage(descendants 2244→5931, span 369→2056),
+   * 而 main.stage 是整个舞台的根 —— 等于只说了"泄漏在页面里", 没说在哪个组件里。
+   * 改成: 按 span 数排序取前三, 并【剔除祖先】(父子都上榜时只留最深的那个),
+   * 于是报出来的一定是真正在长的那个组件, 而不是包着它的容器。
+   * 仍保留 top1 的旧字段名(sel/descendants/span/…), 老看板不受影响。 */
   function domHotspot() {
     try {
-      let best = null, bestN = 0;
-      const cands = document.querySelectorAll(".panel,[id],main,section,[data-work-id]");
+      const cands = document.querySelectorAll(".panel,[id],main,section,[data-work-id],div");
+      const rows = [];
       for (let i = 0; i < cands.length; i++) {
-        const n = cands[i].getElementsByTagName("*").length;
-        if (n > bestN) { bestN = n; best = cands[i]; }
+        const el = cands[i];
+        const sp = el.getElementsByTagName("span").length;
+        if (sp >= 40) rows.push({ el, span: sp });      // 40 以下不是泄漏, 别刷屏
       }
-      if (!best) return null;
+      if (!rows.length) return null;
+      rows.sort((x, y) => y.span - x.span);
+      // 剔祖先: 若某行包含了另一行(更深的), 留深的 —— 深的才是真正的产出点
+      const kept = [];
+      for (let i = 0; i < rows.length && kept.length < 3; i++) {
+        const r = rows[i];
+        let isAncestor = false;
+        for (let j = 0; j < rows.length; j++) {
+          if (rows[j] !== r && r.el.contains(rows[j].el) && rows[j].span >= r.span * 0.8) { isAncestor = true; break; }
+        }
+        if (!isAncestor) kept.push(r);
+      }
+      const list = (kept.length ? kept : rows.slice(0, 3)).map((r) => ({
+        sel: selectorOf(r.el),
+        span: r.span,
+        descendants: r.el.getElementsByTagName("*").length,
+      }));
+      const top = list[0];
       return {
-        sel: selectorOf(best),
-        descendants: bestN,
-        span: best.getElementsByTagName("span").length,
-        strong: best.getElementsByTagName("strong").length,
-        a: best.getElementsByTagName("a").length,
+        sel: top.sel,
+        descendants: top.descendants,
+        span: top.span,
+        strong: kept.length ? kept[0].el.getElementsByTagName("strong").length : 0,
+        a: kept.length ? kept[0].el.getElementsByTagName("a").length : 0,
+        top3: list,
       };
     } catch (_) { return null; }
   }

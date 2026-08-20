@@ -38,7 +38,8 @@
       "  pointer-events:none;text-align:center;padding:24px;",
       "}",
       "#watch-panel .watch-screen .cssmv-deadmedia.is-on{display:flex;}",
-      ".cssmv-deadmedia-logo{font-size:54px;line-height:1;filter:drop-shadow(0 2px 12px rgba(0,0,0,0.5));}",
+      ".cssmv-deadmedia-logo{width:76px;height:76px;line-height:0;filter:drop-shadow(0 2px 12px rgba(0,0,0,0.5));}",
+      ".cssmv-deadmedia-logo img{width:100%;height:100%;object-fit:contain;display:block;}",
       ".cssmv-deadmedia-text{font:700 17px/1.3 \"Syne\",system-ui,sans-serif;",
       "  color:rgba(255,255,255,0.92);letter-spacing:0.04em;text-shadow:0 1px 8px rgba(0,0,0,0.6);}",
       ".cssmv-deadmedia-sub{font:500 12px/1.4 system-ui,sans-serif;color:rgba(255,255,255,0.62);max-width:240px;}"
@@ -65,8 +66,18 @@
           sub = globalThis.tr("Preview unavailable — tap ✨ to make one like this");
         }
       } catch (_e) {}
+      /* CSSOS_WAVE_1842 (Jing 走查:「这个不是我们的 logo, 为什么不使用我们平台的 logo?」)
+       * 原来这里放的是 emoji 🪞 —— 它由【系统字体】渲染, iOS 上是一面带红棕色手柄的小镜子,
+       * 和我们的魔镜毫无关系。而这个占位恰恰出现在【画面加载失败】的时刻 —— 用户最需要
+       * 认出"这是 CSS Studio 而不是坏了"的那一刻, 看到的却是苹果的美术。
+       * 换成平台真身 assets/mirror-1.webp(logo 用的同一张)。
+       * onerror 直接把节点移除, 退化成纯文字, 绝不退回 emoji —— 品牌位宁可空着,
+       * 也不能长成别人的样子。 */
       p.innerHTML =
-        '<div class="cssmv-deadmedia-logo">🪞</div>' +
+        '<div class="cssmv-deadmedia-logo">' +
+          '<img src="assets/mirror-1.webp" alt="CSS Studio" ' +
+               'onerror="this.parentNode &amp;&amp; this.parentNode.remove()" />' +
+        '</div>' +
         '<div class="cssmv-deadmedia-text">' + t1 + '</div>' +
         '<div class="cssmv-deadmedia-sub">' + sub + '</div>';
       screen.appendChild(p);

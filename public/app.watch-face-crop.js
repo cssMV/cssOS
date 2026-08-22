@@ -56,6 +56,18 @@
     var z = String(wp.getAttribute("data-face-zone") || "").trim();
     var pos = MAP[z];
     if (!pos) return;                       // 未知/无信号 → 不干预
+    /* W1858 — 【没有真 FaceDetector 时不要相信纵向判断】。
+     * Safari/iOS 不提供 FaceDetector(线上实测 typeof window.FaceDetector === "undefined"),
+     * face-safe-overlay 于是退回"亮度网格: 最亮的连通块就是脸"。这个假设在真人摄影下大致成立,
+     * 但我们的作品多是绘画风: Jing 那张李白, 最亮的是【白胡子和浅色衣袍】而不是面部 ——
+     * 启发式把胡子当成了脸, 裁切据此下移, 头反而被切掉(Jing 走查两次都指出这一点)。
+     * 处置: 无真检测器时只采信【横向】区位, 纵向一律钳到上三分之一。
+     * 依据是构图常识而非猜测: 人物画/人像照的面部几乎总在画面上半部, 宁可多留头顶空间,
+     * 也不能把脸切掉 —— 这是 Jing 明说过"整个画面最不该截断的就是人物的面部"。 */
+    if (typeof window.FaceDetector === "undefined") {
+      var x = String(pos).split(/\s+/)[0] || "50%";
+      pos = x + " 18%";
+    }
     wp.style.setProperty("--cssos-face-pos", pos);
   }
 

@@ -77,15 +77,31 @@
   //   + 这里的 320ms 重试会把用户的暂停一次次 play() 回来 —— 正是 Jing「现在无法暂停」。
   function intentPaused() { try { return !!globalThis.cssosAudioIntentPaused; } catch (e) { return false; } }
 
+  /* CSSOS_WAVE_1857 (Jing:「播放完毕, 卡住, 不自动播放下去, 重复播放同一首」) ——
+   * 本模块【从来不检查 ended】(改这行之前, 全文件 grep "ended" 一处都没有)。
+   * 于是一首歌正常放完后:
+   *   歌 ended → 元素变成 paused → 本模块的看门狗判定"卡死了, 救活它" → play()
+   *   → 从头重播 → watch-ui 的 onMediaEnded 守卫(W1083a)看到"音频正在播、还剩 >2s"
+   *   → 判定"这次 ended 来自 5 秒短视频, 不是歌结束" → 拒绝切歌
+   *   → 重播完再 ended → 无限循环。
+   * 两个子系统各自的逻辑都对, 合起来把整个连播锁死。线上实测: 一首 265 秒的歌
+   * 在 727 秒里被完整播了两遍, 换歌数始终是 1; 而手动调 watchQueueAdvanceModule(+1)
+   * 立刻就能换 —— 证明切歌功能是好的, 只是永远轮不到它。
+   *
+   * 边界: 只拦【已 ended 的】。真正卡死的源(readyState=0 / 中途 paused)ended 为 false,
+   * 照常救活 —— W653 治的那个"每首要点一下才响"不会复发。 */
   function tryPlay(a, mySeq) {
     if (!a || mySeq !== _seq) return;
     if (intentPaused()) return;
+    if (a.ended) return;   // 放完了就该让位给切歌逻辑, 不是把它拉回来重播
     try {
       var p = a.play();
       if (p && p.catch) {
         p.catch(function () {
           if (soundAllowed() && mySeq === _seq && !intentPaused()) {
-            setTimeout(function () { try { if (mySeq === _seq && a.paused && !intentPaused()) a.play().catch(function () {}); } catch (e) {} }, 320);
+            // W1857 — 这条 320ms 的二次重试是【独立路径】, 不经过 tryPlay 的入口检查,
+            //   不在这里同样拦 ended, 上面那道闸就等于漏了一半。
+            setTimeout(function () { try { if (mySeq === _seq && a.paused && !a.ended && !intentPaused()) a.play().catch(function () {}); } catch (e) {} }, 320);
           }
         });
       }

@@ -35,7 +35,16 @@
     if (document.getElementById("cssos-cinema-caption-css")) return;
     var s = document.createElement("style"); s.id = "cssos-cinema-caption-css";
     s.textContent =
-      "#cssos-watch-caption{position:absolute;left:14px;bottom:58px;max-width:min(46vw,440px);z-index:22;" +
+      /* CSSOS_WAVE_1858 (Jing:「虽说竖屏宽度不大, 可是我们却还是只用 1/3 宽度, 为什么?
+       * 请使用整个屏幕宽度」) —— 原值 min(46vw,440px): 46vw 是【视口宽度的 46%】,
+       * 手机 390px 竖屏算下来只有 179px, 正好就是"1/3 宽"。桌面影院态下 46vw 是有意的
+       * (标题不该横贯整个银幕), 但手机上没有这个顾虑 —— 屏幕本来就窄, 再砍一半只剩零头。
+       * 【Jing 定死】不要再限制宽度 —— 不分档、不设上限, 一律用整个屏幕宽度;
+       *   标题若仍超宽, 交给 W1856 的跑马灯滚动。所以这里 left/right 各留 14px 边距,
+       *   max-width 显式设为 none, 不留任何比例或像素上限。
+       *   (我上一版做了 ≤600px 分档, Jing 明确否掉: 宽屏也不该限。)
+       * 标题仍然单行 + 溢出才滚动(W1856), 所以放宽只会让更多标题【不必滚动】。 */
+      "#cssos-watch-caption{position:absolute;left:14px;right:14px;bottom:58px;max-width:none;z-index:22;" +
       "pointer-events:none;text-shadow:0 1px 4px rgba(0,0,0,0.7);}" +
       "#cssos-watch-caption .cwc-title{font:600 15px/1.25 -apple-system,system-ui,sans-serif;color:#fff;" +
       "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}" +

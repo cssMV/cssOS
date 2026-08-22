@@ -13921,36 +13921,21 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
   }
 }
 
-/* CSSOS_WAVE_1840 20260820 — Jing「MV 真全屏超宽电影模式下不要绿色描边」
- * → 20260821 收紧为【任何时候、任何形态都不描边】(Jing:「MV面板不管何时, 不管哪种形态,
- *   都不要描边, 就是那个绿色的边, 请去掉」)。
+/* CSSOS_WAVE_1840 20260821 — Jing「MV 面板不管何时、不管哪种形态, 都不要那个绿色边框」
  *
- * 背景: Watch 面板身上同时压着【两圈】边——
- *   ① .panel 的 1px 绿边 + #watch-panel::before 的周长渐变(影院里曾被冻成静态辉光, 依然可见);
- *   ② .cssmv-border-bar —— watch-stage-bars.js 画的随机色周长【进度】环, 才是要表达信息的那一圈。
- * 两圈重叠时静态的那圈把进度环压住 = "永远绿边、看不出进度"。
+ * 为什么要去: 真全屏下【绿边和边框进度条不重合, 变成两根平行的线】。
+ * 根因就在下面这一句 —— .watch-screen::before 的 inset:2px:
+ *   进度环(.cssmv-border-bar)贴着边走, 这圈绿光内缩 2px → 天然错开 2px = 那根多出来的线。
+ * 面板周长是给【进度环】表达信息的, 再叠一圈静态绿光既冗余又对不齐。
  *
- * 这是面板宪法的一个【具名例外】: 宪法要求面板有边框, 但 Watch 面板的周长已被进度环占用,
- * 再叠一圈静态边属于信息冗余。例外只针对 #watch-panel, 其它面板一律照旧。
+ * 我前两轮改错了地方(改的是 #watch-panel::before), 因为扫描时只查了 backgroundColor ——
+ * 而这圈绿光是【渐变】, 渐变在 backgroundImage 里, 所以扫描显示"0 个绿边"。
+ * 教训: 查颜色必须同时查 backgroundImage / boxShadow / filter, 只查 backgroundColor 会漏掉
+ * 所有渐变和发光。真正定位靠的是浏览器里的计算样式扫描, 不是读 CSS 源码猜。
  *
- * 去掉边框绘制而不是 display:none ::before —— 后者还兼着圆角裁切层, 整个隐藏会连带影响裁切。 */
-#watch-panel,
-#watch-panel.panel-front,
-#watch-panel.panel-active,
-#watch-panel.is-cssmv-fullscreen,
-#watch-panel.cssmv-cinema,
-body.cssos-cinema-mode #watch-panel {
-  border-color: transparent !important;
-  box-shadow: none !important;
-}
-#watch-panel::before,
-#watch-panel.panel-front::before,
-#watch-panel.panel-active::before,
-#watch-panel.is-cssmv-fullscreen::before,
-#watch-panel.cssmv-cinema::before,
-body.cssos-cinema-mode #watch-panel::before {
+ * 只关掉绘制(背景/发光), 保留元素本身 —— 它还兼着 2px 内缩的圆角裁切层。 */
+#watch-panel .watch-screen::before {
   background: none !important;
-  border: 0 !important;
   box-shadow: none !important;
-  opacity: 0 !important;
+  border: 0 !important;
 }

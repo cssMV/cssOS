@@ -26,20 +26,48 @@
   var MAX_TRACKS = 40, DEBOUNCE_MS = 1500;
   var n = 0, lastAt = 0;
 
-  function fire() {
+  function fire(via) {
     var now = Date.now();
+    if (via === "bind") sawBindAt = now;
     if (now - lastAt < DEBOUNCE_MS) return;      // ① 去抖
     lastAt = now;
     if (n >= MAX_TRACKS) return;                 // ② 上限
     n += 1;
     try {
       if (globalThis.cssmemProbe && typeof globalThis.cssmemProbe.beacon === "function") {
-        globalThis.cssmemProbe.beacon("track_" + n);
+        // reason 里带上触发来源: srcmiss = 换歌了但没人调 bind(契约违规的直接证据)
+        globalThis.cssmemProbe.beacon("track_" + n + "_" + (via || "?"));
       }
     } catch (_e) {}
   }
 
-  window.addEventListener("cssos:work-id-changed", fire, { passive: true });
+  window.addEventListener("cssos:work-id-changed", function () { fire("bind"); }, { passive: true });
+
+  /* CSSOS_WAVE_1845b —— 【不能只靠 bind 事件】。2026-08-21 实测: Jing 在真机上播完整场,
+   * 账本只收到 track_0_baseline, 一条 track_N 都没有 —— 说明自动连播全程【从未调用
+   * cssosBindToWorkId】, 那个"唯一真源"契约在这条路上是空的。
+   * (这也解释了为什么标题冻在第一首、弹幕轨永不清空: 16 个模块都挂在这个事件上等消息,
+   *  而消息从来没发出来。W1839 修的是"同 root 被判为没换歌", 但如果压根不调 bind, 修了也白修。)
+   *
+   * 所以改用【地面真相】: 音频/视频的 src 变了, 就是换了一首 —— 这个判据不依赖任何人守约。
+   * 同时把"src 变了但 bind 没来"这件事本身记成 contract_miss 上报: 它是比泄漏更根本的病,
+   * 必须留下证据, 不能再靠我读代码猜。 */
+  var lastSrc = "", sawBindAt = 0;
+  function srcOf(el) { try { return String((el && (el.currentSrc || el.src)) || "").split("?")[0]; } catch (_e) { return ""; } }
+  setInterval(function () {
+    try {
+      var a = document.getElementById("watch-audio-preview");
+      var v = document.getElementById("watch-video");
+      var cur = srcOf(a) || srcOf(v);
+      if (!cur) return;
+      if (!lastSrc) { lastSrc = cur; return; }
+      if (cur === lastSrc) return;
+      lastSrc = cur;
+      // src 换了 = 换歌。若最近 3 秒内没有 bind 事件 → 契约违规, 单独标记。
+      var missed = (Date.now() - sawBindAt) > 3000;
+      fire(missed ? "srcmiss" : "src");
+    } catch (_e) {}
+  }, 1500);
   // 开播那一刻先记一条基线(track_1 之前的起点), 否则第一首的增量无从相减
   setTimeout(function () {
     try {

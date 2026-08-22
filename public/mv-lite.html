@@ -11,7 +11,7 @@
          这是独立页, 拿不到 app.js 的 applyI18nModule, 故只加载 t() 所需的最小
          三件套 (constants → dict → index), 由 mv-lite.js 自带一个轻量应用器。 -->
     <script src="/i18n/constants.js"></script>
-    <script src="/i18n/dict.js?v=20260809-w1822-mvlite"></script>
+    <script src="/i18n/dict.js?v=20260822-w1853b-gate"></script>
     <script src="/i18n/index.js?v=20260622-w1107b"></script>
   </head>
   <body>
@@ -45,13 +45,15 @@
             id="mv-lite-generate"
             class="mv-lite-button"
             type="button"
-            data-i18n="mvlite.compose.button"
+            data-i18n="mvlite.compose.openStudio"
           >
-            Generate MV
+            Open CSS Studio
           </button>
         </div>
-        <p id="mv-lite-hint" class="mv-lite-hint" data-i18n="mvlite.hint.default">
-          Runs on the cssMV in-house video engine by default.
+        <!-- W1853 — 这条入口接的旧管线已停用(见 mv-lite.js 注释)。
+             在接到 UI 那条正式管线之前, 这里如实说明并把人带去主应用。 -->
+        <p id="mv-lite-hint" class="mv-lite-hint" data-i18n="mvlite.hint.offline">
+          This quick entry is being rebuilt — open the full studio to make your MV now.
         </p>
       </section>
 
@@ -64,6 +66,6 @@
       </section>
     </main>
 
-    <script type="module" src="/mv-lite.js?v=20260809-w1822-i18n"></script>
+    <script type="module" src="/mv-lite.js?v=20260822-w1853c-auth"></script>
   </body>
 </html>

@@ -24919,6 +24919,19 @@ async function persistRemoteAudioToStable(url: string): Promise<string> {
   } catch (e) {
     console.warn("[rehost-audio] failed, keep temp url:", (e as Error)?.message || e);
   }
+  /* CSSOS_WAVE_1851 (Jing:「把所有还不是我们域名的内容全部搬到 R2」+ 源头必须堵住) ——
+   * 这里【曾经】静默 return u, 即转存失败就把第三方临时链原样交还调用方, 只在日志里 warn 一句。
+   * 调用方拿到的是一个看起来完全正常的 URL, 于是直接写进库 —— 铁律写在注释里, 代码却在悄悄违反它。
+   *
+   * 后果是实测过的: 2026-08-22 全平台普查出 366 条第三方资产, 抽样发现【全部已死】,
+   * 一条都搬不回来。而当晚 epic-render 又新写进一条 musicfile.kie.ai —— 清完还会再长。
+   *
+   * 现在: 失败必须【大声】。DEGRADED 级别的告警 + 明确标出这条 URL 会过期,
+   * 让它出现在 `journalctl | grep DEGRADED` 里, 而不是淹没在 warn 流里。
+   * 仍然返回 u(不能让整条生成链因为转存失败而白烧一次 Suno), 但从此不会再无声无息。 */
+  try {
+    console.warn(`[llm-router] ⚠ DEGRADED rehost-audio 转存失败, 落库的是【会过期的第三方链】: ${u.slice(0, 120)}`);
+  } catch { /* never block on logging */ }
   return u;
 }
 
@@ -27127,12 +27140,21 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
           lastErr = `suno_generate_net_${(netErr as Error)?.message || netErr}`;
           continue;
         }
-        // Poll record-info. Suno typically lands in 40-120s; deadline 240s.
-        // Suno V4 returns TWO tracks per task — collect them all so we
-        // can pick whichever one actually has an aligned timeline.
+        /* Poll record-info。Suno V4 每个 task 返回两条轨, 全收下, 后面挑有对齐时间轴的那条。
+         *
+         * CSSOS_WAVE_1849 (Jing:「请先调超时」) — 等待预算 240s → 900s。
+         * 原注释写「Suno 通常 40-120 秒」, 那个经验只对【短曲】成立。2026-08-21 批量补音轨时
+         * 11 首里 6 首返回 suno_poll_timeout, 而失败的全是几分钟的长曲 ——
+         * 【不是 Suno 拒绝, 是我们没等到】: 任务在它那边照常跑完, 我们提前判死, 于是
+         * 钱照烧、东西不要, 重试还会再烧一次。这是最贵的一种失败。
+         *
+         * 900s 是【上限不是目标】: 正常 40-120s 就返回, 给多了一分钱不多花;
+         * 给少了就是白烧。这道题只有一边有代价, 所以宁可给足。
+         * (同 W1832 给 Gemini 思考余量时的同一个判断。)
+         * 可用 SUNO_POLL_TIMEOUT_MS 覆盖。 */
         type SunoTrack = { audioUrl: string; audioId: string; durationS: number };
         let tracks: SunoTrack[] = [];
-        const deadline = Date.now() + 240_000;
+        const deadline = Date.now() + Number(process.env.SUNO_POLL_TIMEOUT_MS || 900_000);
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 5000));
           let info: any = null;
@@ -39238,6 +39260,42 @@ app.post("/api/admin/regen-cover/:workId", express.json({ limit: "8kb" }), async
     return res.json({ ok: true, workId, cover });
   } catch (e) {
     return res.status(500).json({ ok: false, code: "REGEN_COVER_FAILED", detail: (e as Error)?.message || "" });
+  }
+});
+/* CSSOS_WAVE_1851 哨兵 — 「还有多少资产不在我们手上」一问即答。
+ * 为什么需要它: 2026-08-22 那次普查是我手写 SQL 拼出来的, 下次没人记得怎么拼。
+ * 铁律(生成即落 R2)必须有一个【随时可验的读数】, 否则它只是一句口号:
+ * 转存失败是静默的, 库里悄悄长出第三方链, 等到发现时那些文件已经全部过期、一条都搬不回来
+ * (那 366 条就是这么没的)。
+ * 纯读, 不改任何数据; 有 admin token 就能查。 */
+app.get("/api/admin/asset-audit", async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  try {
+    const r = await withClient((c) => c.query<{ loc: string; host: string; n: string }>(`
+      WITH src AS (
+        SELECT 'user_works.cover_image' AS loc, cover_image AS u FROM user_works WHERE cover_image LIKE 'http%'
+        UNION ALL SELECT 'user_works.preview_video_url', preview_video_url FROM user_works WHERE preview_video_url LIKE 'http%'
+        UNION ALL SELECT 'user_works.preview_image_url', preview_image_url FROM user_works WHERE preview_image_url LIKE 'http%'
+        UNION ALL SELECT 'user_works.preview_audio_url', preview_audio_url FROM user_works WHERE preview_audio_url LIKE 'http%'
+        UNION ALL SELECT 'work_assets.url', url FROM work_assets WHERE url LIKE 'http%'
+        UNION ALL SELECT 'work_language_tracks.audio_url', audio_url FROM work_language_tracks WHERE audio_url LIKE 'http%'
+      )
+      SELECT loc, substring(u from '^https?://([^/]+)') AS host, count(*)::text AS n
+      FROM src WHERE substring(u from '^https?://([^/]+)') NOT LIKE '%cssstudio.app'
+      GROUP BY 1,2 ORDER BY 3 DESC`));
+    const total = r.rows.reduce((a, x) => a + Number(x.n || 0), 0);
+    return res.json({
+      ok: true,
+      third_party_total: total,
+      clean: total === 0,
+      hint: total > 0 ? "这些链会过期; 趁还活着搬到 R2, 死了就搬不回来了" : "全部资产都在我们域名上",
+      rows: r.rows,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "AUDIT_FAILED", detail: (e as Error)?.message || "" });
   }
 });
 app.post("/api/admin/create-civ-flagship", express.json({ limit: "16kb" }), async (req, res) => {

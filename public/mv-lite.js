@@ -199,7 +199,81 @@ async function pollTask(card) {
 // 不随界面语言变化(歌词语言由后端的文明智能联动决定, 不由这里的 UI locale 决定)。
 const FALLBACK_PROMPT = "a random song";
 
+/* CSSOS_WAVE_1853 (Jing:「新入口是一个假的入口, 不工作」→「加登录门」) ——
+ *
+ * 病根不是"接口坏了", 是【这条入口接的是另一条早该退役的管线】:
+ *   /mv-lite → /cssapi/v1/mv/generate → nginx → :8081 Rust API
+ * 它返回 202 Accepted(页面于是显示"Task created, 正在生成"), 随即 failed/progress 0。
+ * 任务 ID 形如 run_20260822_… —— 和库里那 33 条死链 works/run_2026…/final_mv.mp4
+ * 是同一格式, 说明那批"没有画面"的作品正是这条管线的历史产物。
+ * 平台铁律是【只留 UI Create 真走的那条 MV 管线】, 这条本就该断。
+ *
+ * 现在改接真管线: /api/mv/lyrics → /api/mv/music → /api/mv/video。
+ * 这三个都要登录会话(sign_in_required)+ 钱包预检 —— 所以必须先有登录门。
+ * 匿名时不再假装能生成, 而是明说要登录; 用户打的字存进 sessionStorage,
+ * 登录回来自动回填, 不让他白打一遍。 */
+let __signedIn = null;
+
+async function checkAuth() {
+  try {
+    const r = await fetch("/api/me", { credentials: "include" });
+    const j = await r.json().catch(() => null);
+    // 实测 /api/me 的真实形状: {ok:true, data:{authenticated:false, user:null, auth_provider:null}}
+    // —— 判据只认 data.authenticated, 不猜字段名(猜错会把所有人当成已登录或都当成匿名)
+    __signedIn = !!(j && j.data && j.data.authenticated === true);
+  } catch (_e) { __signedIn = false; }
+  if (!__signedIn) {
+    setHint("mvlite.auth.required", null, "error");
+    const label = T("mvlite.auth.button");
+    if (button && label) { button.textContent = label; button.removeAttribute("data-i18n"); }
+  } else {
+    setHint("mvlite.hint.default");
+  }
+}
+
+async function runRealPipeline(prompt) {
+  const card = createCard("live-" + Date.now(), prompt || T("mvlite.card.untitled"));
+  // createCard 返回的记录里进度节点叫 preview(不是 element) —— 照它的真实字段来
+  const say = (k) => { const s = T(k); if (card && card.preview && s) card.preview.textContent = s; };
+  const post = async (path, body) => {
+    const r = await fetch(path, { method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => null);
+    if (!r.ok || (j && j.ok === false)) throw new Error((j && (j.error || j.code)) || ("HTTP " + r.status));
+    return j;
+  };
+  say("mvlite.stage.lyrics");
+  const L = await post("/api/mv/lyrics", { prompt: prompt, title: prompt });
+  say("mvlite.stage.music");
+  const M = await post("/api/mv/music", { lyrics: L?.lyrics || L?.data?.lyrics || prompt, title: prompt });
+  say("mvlite.stage.video");
+  await post("/api/mv/video", { prompt: prompt, cover_url: M?.cover_url || M?.data?.cover_url || "" });
+  setHint("mvlite.hint.created", null, "success");
+}
+
 async function handleGenerate() {
+  const prompt = String(input.value || "").trim();
+  try { sessionStorage.setItem("cssos:pendingPrompt", prompt); } catch (_e) {}
+  if (__signedIn === null) await checkAuth();
+  if (!__signedIn) {
+    // 登录门: 带上来路, 登录后回到这一页; 刚打的字已存, 回来自动回填
+    window.location.assign("/auth/google?next=" + encodeURIComponent("/mv-lite?cssADS=mvlite"));
+    return;
+  }
+  button.disabled = true;
+  try { await runRealPipeline(prompt); }
+  catch (err) { setHint("mvlite.hint.createFailed", { message: err.message }, "error"); }
+  finally { button.disabled = false; }
+}
+
+// 登录回来后回填刚才打的字, 不让用户重打
+try {
+  const pend = sessionStorage.getItem("cssos:pendingPrompt");
+  if (pend && input && !input.value) input.value = pend;
+} catch (_e) {}
+checkAuth();
+
+async function __retiredHandleGenerate() {
   const prompt = String(input.value || "").trim();
   button.disabled = true;
   setHint("mvlite.hint.creating");

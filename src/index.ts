@@ -5163,6 +5163,27 @@ const CIV_LANGUAGE_ENTRIES: ReadonlyArray<{ match: ReadonlyArray<string>; lang: 
   { match: ["玛雅", "Maya"],                                                lang: "yua" },
   { match: ["约鲁巴", "Yoruba"],                                            lang: "yo" },
   { match: ["波利尼西亚", "Polynesia", "Hawaii"],                           lang: "haw" },
+  /* CSSOS_WAVE_1868 (Jing:「东南亚 0 位、非洲只有约鲁巴… 都补上」) —— 补文明【之前】先补映射。
+   * 顺序不能反: 先有语言映射, 新演员一上线就带正确母语; 反过来则是"一上线就是死的",
+   * 等于把 W1867 刚清掉的 12 个无映射标签重新造一批出来。
+   * 语言一律给【真母语】(W360 政策), 不降级成英文。 */
+  { match: ["泰国", "暹罗", "Thai", "Siam"],                                 lang: "th" },
+  { match: ["印尼", "爪哇", "满者伯夷", "Indonesia", "Javanese", "Majapahit"], lang: "id" },
+  { match: ["高棉", "吴哥", "柬埔寨", "Khmer", "Angkor", "Cambodia"],         lang: "km" },
+  { match: ["缅甸", "蒲甘", "Burm", "Myanmar", "Bagan"],                      lang: "my" },
+  { match: ["菲律宾", "他加禄", "Philippin", "Tagalog"],                      lang: "tl" },
+  { match: ["马来", "Malay"],                                                lang: "ms" },
+  { match: ["埃塞俄比亚", "阿克苏姆", "Ethiopia", "Aksum", "Abyssinia"],       lang: "am" },
+  { match: ["祖鲁", "南非", "Zulu", "South Africa"],                          lang: "zu" },
+  { match: ["阿散蒂", "加纳", "Ashanti", "Asante", "Ghana", "Akan"],          lang: "ak" },
+  { match: ["马里帝国", "曼丁哥", "松海", "Mali Empire", "Mandinka", "Songhai"], lang: "bm" },
+  { match: ["斯瓦希里", "桑给巴尔", "Swahili", "Zanzibar"],                    lang: "sw" },
+  { match: ["毛利", "新西兰", "Maori", "M\u0101ori", "Aotearoa"],             lang: "mi" },
+  { match: ["澳洲原住民", "Aboriginal", "Dreamtime"],                         lang: "en" },
+  { match: ["苏美尔", "Sumer", "Akkad", "阿卡德"],                            lang: "ar" },
+  { match: ["腓尼基", "迦太基", "Phoenic", "Carthag"],                        lang: "he" },
+  { match: ["蒙古", "Mongol"],                                               lang: "mn" },
+  { match: ["安第斯", "Andean", "Quechua", "克丘亚"],                         lang: "qu" },
   { match: ["中土世界", "Middle-earth"],                                     lang: "en" },
   { match: ["欧洲", "European", "西方", "Western"],                          lang: "en" },
   { match: ["现代文学", "Modern Literature"],                               lang: "en" },
@@ -5192,6 +5213,8 @@ const CIV_LANG_DISPLAY: Readonly<Record<string, string>> = {
   nah: "Nahuatl", peo: "Old Persian", pt: "Portuguese", ru: "Russian", sa: "Sanskrit",
   sv: "Swedish", sw: "Swahili", tr: "Turkish", ur: "Urdu", vi: "Vietnamese",
   yo: "Yoruba", yua: "Yucatec Maya", zh: "Chinese",
+  th: "Thai", id: "Indonesian", km: "Khmer", my: "Burmese", tl: "Tagalog", ms: "Malay",
+  am: "Amharic", zu: "Zulu", ak: "Akan", bm: "Bambara", mi: "Maori", mn: "Mongolian", qu: "Quechua",
 };
 function civLangDisplay(code: string): string { return CIV_LANG_DISPLAY[String(code || "").toLowerCase()] || ""; }
 

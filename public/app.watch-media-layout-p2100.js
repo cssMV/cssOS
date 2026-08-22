@@ -120,10 +120,15 @@
    single-line: each lyric phrase on its OWN line, ellipsis if it overflows
    the frame width. Per-glyph random fonts still apply via .cssmv-p2100-glyph. */
 #watch-panel .cssmv-mv-title {
-  white-space: normal !important;
-  word-break: break-word !important;
-  overflow-wrap: anywhere !important;
-  max-width: min(92%, 1100px) !important;
+  /* CSSOS_WAVE_1862 (Jing:「不要再限制标题宽度, 放开, 如果标题超过宽度就滚动」) ——
+     原来这里是 max-width: min(92%,1100px) + white-space:normal(允许折行)。
+     Jing 要求: 一行显示、用满宽度、超了才滚(滚动由 W1856 的跑马灯负责)。
+     所以宽度上限去掉, 折行也去掉 —— 两者都由"单行 + 溢出滚动"这一条规则取代。 */
+  white-space: nowrap !important;
+  max-width: none !important;
+  width: 100% !important;
+  left: 0 !important;
+  transform: none !important;
   line-height: 1.18 !important;
   max-height: 86% !important;
   overflow: hidden !important;
@@ -199,7 +204,8 @@
 /* Title random-position rule — only on .cssmv-mv-title (song title), NOT
    on .watch-subtitle (status text). */
 #watch-panel .cssmv-mv-title {
-  max-width: min(92%, 1100px) !important;
+  /* W1862 — 同上: 不再限制宽度(这是第二处重复声明, 一并放开, 否则会把上面那条盖回去) */
+  max-width: none !important;
 }
 
 /* Vertical writing mode for CJK-dominant text (Jing 2026-04-25 #102h —

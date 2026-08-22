@@ -8586,8 +8586,38 @@ function ensureImmersivePillModule() {
 // desktop / mobile fall back to standard fullscreen with our theater
 // backdrop. webkitEnterFullscreen is the iOS / older Safari path on
 // the <video> element directly.
+/* CSSOS_WAVE_1862 (Jing:「图2 那句文字提示, 去掉, 取消这个全屏」) ——
+ * iOS Safari 进入网页全屏时会强加一条系统横幅:
+ *   "cssstudio.app" is in full screen. Swipe down to exit.
+ * 外加左上角一个原生 ✕。这两样【网页删不掉】—— 仓库里 W314 早已记录过同一结论
+ * (当时的处置是: 在 Capacitor App 里干脆不用网页 Fullscreen API)。
+ * 当年只绕开了 App, iOS Safari 没绕, 于是 Jing 在 iPhone 浏览器里又撞见同一个东西。
+ *
+ * 唯一能去掉那句提示的办法, 就是【在 iOS 上根本不调用网页全屏 API】。
+ * 影院观感不依赖它: is-cssmv-fullscreen + cssos-cinema-mode 这套 CSS 已经把面板铺满整屏
+ * (桌面实测 1512×806 = 视口尺寸), 视觉上就是全屏, 只是没有系统 chrome。
+ *
+ * 桌面(含 Vision Pro Safari)保持原样调 requestFullscreen —— 那是 Apple Vision Pro
+ * 进入 Immersive Environment 的唯一入口, 也是 Jing 明确要保留的"真全屏超宽影院模式"。
+ * 换句话说: 去掉的只是 iOS 手机上那条删不掉的横幅, 不是全屏能力本身。 */
+function __cssosIsIOSLike() {
+  try {
+    var ua = navigator.userAgent || "";
+    if (document.documentElement.classList.contains("cssos-app")) return true;   // W314: Capacitor 内不用网页全屏
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    // iPadOS 13+ 伪装成 Mac, 靠触点数分辨
+    if (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return true;
+  } catch (e) {}
+  return false;
+}
+
 globalThis.cssosEnterWatchFullscreen = async function () {
   try {
+    if (__cssosIsIOSLike()) {
+      // iOS: 只走 CSS 影院态, 不请求系统全屏(否则必然带出那条 Swipe down 横幅)
+      document.body.classList.add("cssos-watch-theater");
+      return;
+    }
     const videoEl = document.getElementById("watch-video");
     const frame = document.querySelector("#watch-panel .watch-frame");
     // CSSOS container-first fullscreen — fullscreen the whole #watch-panel so

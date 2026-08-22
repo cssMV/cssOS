@@ -550,18 +550,40 @@
     // marked exhausted so no background fetch reorders it. Pair with
     // setActive(listId) + seekTo(clickedWorkId) so the next/prev walk
     // is bounded to the panel the user opened from.
+    /* CSSOS_WAVE_1864 (Jing:「经常看到 This work is no longer available, 为什么?」) ——
+     * 这条提示【和 R2 无关】。它由 market-commerce 在 /api/works/public/:id 返回
+     * 404 / WORK_DELETED 时弹出, 意思是"这一项在库里已删除或不可公开", 不是"文件丢了"。
+     *
+     * 根因在灌列表这一步: 默认列表 "mine" 拉的是 /api/works/mine?limit=1000, 而那个端点
+     * 只按 user_id 过滤、【没有任何状态过滤】—— draft / ready / deleted 全都返回。
+     * 实测: 已发布可播的只有 135 首, 而播放列表里有 620 项。连播走到那些空壳就弹提示,
+     * 于是"经常看到"。作品中心需要看到草稿(那是它的职责), 但【播放列表不需要】。
+     *
+     * 所以过滤放在这里而不是改 API: 改 API 会让作品中心看不见自己的草稿, 那是另一个功能。
+     * 判据只认两件事 —— 没被删, 且确实有可播的媒体。宁可列表短一点, 也不要连播中途撞墙。 */
     populate(listId, works) {
       if (!listId || !state.lists[listId]) return false;
       const list = state.lists[listId];
       const seen = new Set();
       const items = [];
+      const playable = (w) => {
+        try {
+          const st = String(w && w.status || "").toLowerCase();
+          if (st === "deleted") return false;
+          return !!(w && (w.preview_video_url || w.preview_audio_url || w.final_mv_url
+                       || w.audio_track_1_url || w.canonical_mv_url));
+        } catch (_e) { return false; }
+      };
+      let dropped = 0;
       for (const w of (Array.isArray(works) ? works : [])) {
+        if (!playable(w)) { dropped++; continue; }
         const it = normaliseItem({ ...w, is_own: list.id === "mine" });
         if (it && !seen.has(it.id)) {
           items.push(it);
           seen.add(it.id);
         }
       }
+      if (dropped) { try { console.warn("[playlists] " + listId + ": 过滤掉 " + dropped + " 个不可播项(草稿/未发布/已删除/无媒体), 保留 " + items.length); } catch (_e) {} }
       list.items = items;
       list.exhausted = true;
       list.loading = false;

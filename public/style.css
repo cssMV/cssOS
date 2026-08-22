@@ -9304,7 +9304,13 @@ html.cssos-watch-open { --cssos-dock-clear: 0px; }
  * ① 隐藏 For You 选择 pill(loop+For You 源)。② 搜索框两端让位: 左给头像(40px@left:12)、右给关闭 ✕
  *   (top:12 right:12)→ 头像/搜索框/关闭三者一行不重叠。头像定位由 styleCircle 管(top safe+8, left:12)。 */
 #watch-playlist-pill { display: none !important; }
-#watch-search-box { left: 60px !important; right: 54px !important; }
+/* CSSOS_WAVE_1863 (Jing:「MV 面板里的搜索, 不要左右摇摆不定, 应该固定」) ——
+ * 原值 left:60px / right:54px 是【不对称】的(为左侧头像 40px@12 和右侧 ✕ 让位, 两边算出来差 6px),
+ * 再叠上内层 #watch-search-inputwrap 的 margin:0 auto + width:min(760px, 100%-120px):
+ * 可用宽度一变, auto 居中的落点就跟着变 —— 而两侧那些按钮(头像/关闭/返回)本身是会
+ * 出现和消失的(影院态、idle 隐藏、全屏 ✕…), 于是搜索框每次都停在不同的横向位置 = "左右摇摆"。
+ * 改成两侧同值: 中心从此只由视口决定, 与旁边有没有按钮无关。取 60px(按较大的那侧, 保证不重叠)。 */
+#watch-search-box { left: 60px !important; right: 60px !important; }
 
 /* CSSOS_WAVE_905 20260617 — Jing「英伟达: 网站要像功能完整的产品网站」: web 冷访客的产品一句话 + 导航。
  * 仅 web 显示; 原生 App(html.cssos-app)隐藏, 保持纯净 App 外观。主题感知配色, 两主题都清晰。 */

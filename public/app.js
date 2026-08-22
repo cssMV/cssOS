@@ -9436,7 +9436,10 @@ function openPanel(panel, options = {}) {
       // data-maximize-mode + cleared inline styles, otherwise the
       // .panel.maximized[data-maximize-mode="fullscreen"] rule won't
       // match and the panel stays floating.
-      globalThis.togglePanelMaximize(panel);
+      // W1861 (Jing:「取消打开面板进入现在的全屏方式」) —— 首次打开自动最大化【不请求 OS 全屏】。
+      // 那个左上角 ✕ 和 "按 ESC 退出" 是浏览器强加的原生 chrome, 网页删不掉;
+      // 用户没要求全屏却被塞一脸系统 UI。用户主动按 ⤢/⛶ 时仍是真全屏(Vision Pro Immersive 不受影响)。
+      globalThis.togglePanelMaximize(panel, { osFullscreen: false });
       panel.dataset.firstOpenMaximized = "1";
     }
   } catch (_e) { /* non-fatal */ }

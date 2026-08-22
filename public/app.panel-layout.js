@@ -192,8 +192,28 @@ function cssosExitPanelFullscreenGeneric() {
   } catch (_e) {}
 }
 
-function togglePanelMaximizeModule(panel) {
+/* CSSOS_WAVE_1861 (Jing:「请取消打开面板进入现在的『全屏』方式, 包括 MV 面板, 因为
+ * 现在的进入方式总是显示一个关闭按钮在左上角, 还显示一段文字提醒按 ESC 退出,
+ * 很影响美观」) —— 新增 osFullscreen 开关。
+ *
+ * 那个 ✕ 和 "Press ESC to exit" 是【浏览器/系统强加的原生 UI】, 网页删不掉 ——
+ * 这一点仓库里早有记录: W314 当年就因为同样的原因, 在 Capacitor App 里禁用了网页
+ * Fullscreen API(注释原话:「iOS WebKit 全屏会强加一个左上角原生 ✕ + swipe down to exit
+ * 提示, 那个删不掉、点了只退全屏不退影院, 纯误会」)。当时只绕开了 App, 桌面没绕,
+ * 于是 Jing 在 MacBook 上又撞见同一个东西。
+ *
+ * 病灶不是"全屏"本身, 是【自动进全屏】: 面板首次打开会自动最大化
+ * (CSSOS_PHASE2_OPEN_MAXIMIZED_PROPER), 而 Dock 点击带着用户手势, 于是这次
+ * requestFullscreen 真的成功 —— 用户没要求全屏, 却被塞了一脸系统 chrome。
+ *
+ * 分开处理, 两边都不牺牲:
+ *   · 自动打开   → osFullscreen:false, 只做 CSS 最大化, 干净无 chrome
+ *   · 用户按 ⤢/⛶ → 照旧真 OS 全屏, 面板宪法第一条不变, Apple Vision Pro 的
+ *                   Immersive Environment 依然能被触发(那正是 Jing 要保留的
+ *                   "真全屏超宽影院模式")。 */
+function togglePanelMaximizeModule(panel, options = {}) {
   if (!panel) return;
+  const wantOsFullscreen = options.osFullscreen !== false;
   const isMaximized = panel.dataset.maximized === "true";
   if (isMaximized) {
     restorePanelModule(panel);
@@ -239,7 +259,10 @@ function togglePanelMaximizeModule(panel) {
     // pill that used to sit in the bottom-left of the media frame.
     // Must be called from inside this click handler so the browser
     // honors the user-activation gate on requestFullscreen.
-    if (panel.id === "watch-panel" && typeof globalThis.cssosEnterWatchFullscreen === "function") {
+    // W1861 — 只有【用户主动】最大化才请求 OS 全屏; 自动打开时跳过(见函数顶注释)。
+    if (!wantOsFullscreen) {
+      /* 什么都不做: 面板已经通过 CSS 铺满, 视觉上就是最大化, 只是没有系统 chrome。 */
+    } else if (panel.id === "watch-panel" && typeof globalThis.cssosEnterWatchFullscreen === "function") {
       globalThis.cssosEnterWatchFullscreen();
     } else if (panel.id !== "watch-panel") {
       // Article 1 — every panel's ⤢ Maximize is true OS-level fullscreen.
@@ -251,7 +274,8 @@ function togglePanelMaximizeModule(panel) {
 
 function openAndMaximizeModule(panel, options = {}) {
   openPanel(panel, options);
-  togglePanelMaximizeModule(panel);
+  // W1861 — 打开即最大化属于"自动", 不请求 OS 全屏
+  togglePanelMaximizeModule(panel, { osFullscreen: false });
 }
 
 /* CSSOS_PHASE1_STACK00_LAYOUT 20260417:

@@ -72,6 +72,42 @@
     } catch (e) {}
   }
 
+  /* CSSOS_WAVE_1865 (Jing:「播放回音, 又发作了」) —— 起播竞态, 不是兜底路径。
+   * 探针现场(2026-08-22 19:00-19:02, 三条独立记录):
+   *   #watch-video:mv_1782075707434.mp4@0.08 + #watch-audio-preview:aud-9d7c…@0
+   *   #watch-video:epic-f034f7be….mp4@0      + #watch-audio-preview:twinwar-music.mp3@0.04
+   * 两个源都在【时间 0 附近】同时出声 —— 这排除了 W1841 修的那条"mp3 卡死才解静音"的兜底
+   * (那条要连续重踢 6 次才触发, 不可能发生在 0.04 秒)。
+   *
+   * 真因: 本模块确实会把视频静音(enforce 里两处 v.muted=true), 但那是【enforce 跑起来之后】。
+   * 切歌时视频元素一被设上 src 就开播, 而 muted 默认是 false —— 从"开播"到"enforce 静音"
+   * 之间有一个窗口, 视频在这段时间用自己烧录的音轨出声, 和独立音频叠在一起 = 回音。
+   * W1841 让兜底路径互斥, 治的是另一条; 这条是起播竞态, 必须在【元素开始播的那一刻】就闭合。
+   *
+   * 判据严格: 只有【存在独立音频源】时才静音视频。纯视频作品(film- 开头 / 没有 audio src)必须保留
+   * 自己的声音 —— 实测确有这类作品(见 W1857 验证记录), 一刀切静音会把它们变成哑片。 */
+  function enforceVideoMuteInvariant() {
+    var v = vEl();
+    if (!v || v.__cssosMuteInvariantWired) return;
+    v.__cssosMuteInvariantWired = true;
+    var apply = function () {
+      try {
+        var a = aEl();
+        var hasSeparateAudio = !!(a && (a.currentSrc || a.src));
+        if (hasSeparateAudio && !v.muted) v.muted = true;
+      } catch (e) {}
+    };
+    ["loadstart", "loadedmetadata", "canplay", "play", "playing", "volumechange"].forEach(function (ev) {
+      try { v.addEventListener(ev, apply, { passive: true }); } catch (e) {}
+    });
+    apply();
+  }
+  try { enforceVideoMuteInvariant(); } catch (e) {}
+  /* 视频元素可能被整体替换(切歌时重建), 所以要持续认领新的那个 */
+  try {
+    setInterval(function () { try { enforceVideoMuteInvariant(); } catch (e) {} }, 2000);
+  } catch (e) {}
+
   // CSSOS_WAVE_1676 — 让位契约: 当某个 UI(波形逐字精修等)明确表达「用户要停」时置
   //   globalThis.cssosAudioIntentPaused=true, 本模块的救活逻辑必须闭嘴。否则 1.5s 安全 tick
   //   + 这里的 320ms 重试会把用户的暂停一次次 play() 回来 —— 正是 Jing「现在无法暂停」。

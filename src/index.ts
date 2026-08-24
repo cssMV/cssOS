@@ -26924,7 +26924,141 @@ function clampLyricsForEngine(lyrics: string): string {
   return cut.trim();
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_1925 20260824 — 文明智能联动 · 人物声部咽喉 (Jing 红线)
+ *
+ * Jing:「某天妲己会不会也会被当成男性?」「请以后,特别是数字演员,一定要
+ * 分清人物性别。」
+ *
+ * 出事的实况: 李白(男)被唱成日本 J-pop 女声。查下来不是引擎的错 ——
+ *   · digital_actors 里 343 位演员, 343 位都有 gender / voice_style /
+ *     style_descriptor, 档案 100% 完整;
+ *   · user_works 里 1680 首在世作品, 只有 2 首填了 voice_gender。
+ *   · 566 首标题点名了演员的作品, 只有 3 首把性别传给了引擎, 其余 563 首
+ *     全靠引擎抛硬币 —— 妲己 6 首、武则天 13 首、居里夫人 11 首, 无一例外。
+ * 知识满格地躺在演员库里, 却从来没有一根管子把它送到引擎。
+ *
+ * 为什么塞在 callMusicGen 里面: 全平台有 18 个调用点(创作、周年、生日、
+ * 节日、圣诗、重生成、系统补音…)。逐个改必然漏, 而且下一个新入口又会漏。
+ * callMusicGen 是它们唯一的门 —— 和 assertNoAudioBurnIn 塞进 spawnFfmpeg
+ * 是同一个套路: 守门, 不守调用者。
+ *
+ * 两条不能破的规矩:
+ *   ① 用户/调用方已经说了性别或唱腔 → 系统让位, 一个字都不改
+ *      (导演自动流铁律: 用户干预 = 最高优先)。
+ *   ② 纯器乐 (instrumental) 不碰 —— 没有唱的东西谈不上唱腔。
+ * ───────────────────────────────────────────────────────────────────────── */
+type CssosActorVoice = {
+  actor_id: string; name: string; gender: string;
+  voice_style: string; style_descriptor: string; civilization: string;
+};
+let __actorVoiceLexicon: { at: number; rows: CssosActorVoice[] } | null = null;
+const ACTOR_LEXICON_TTL_MS = 10 * 60 * 1000;
+
+async function __loadActorVoiceLexicon(): Promise<CssosActorVoice[]> {
+  if (__actorVoiceLexicon && (Date.now() - __actorVoiceLexicon.at) < ACTOR_LEXICON_TTL_MS) {
+    return __actorVoiceLexicon.rows;
+  }
+  const rows: CssosActorVoice[] = [];
+  try {
+    const r = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT actor_id, name_zh, name_en, name_native, name_latin, name_variants,
+              gender, voice_style, style_descriptor, civilization
+         FROM digital_actors
+        WHERE gender IS NOT NULL AND gender <> ''`));
+    for (const a of (r.rows as Record<string, unknown>[])) {
+      const names: string[] = [];
+      for (const k of ["name_zh", "name_en", "name_native", "name_latin"]) {
+        const v = String(a[k] || "").trim();
+        if (v) names.push(v);
+      }
+      // name_variants 可能是 text[] 也可能是逗号串, 两种都吃。
+      const nv = a.name_variants;
+      if (Array.isArray(nv)) for (const v of nv) { const t = String(v || "").trim(); if (t) names.push(t); }
+      else if (typeof nv === "string" && nv.trim()) {
+        for (const v of nv.split(/[,、|]/)) { const t = v.trim(); if (t) names.push(t); }
+      }
+      for (const n of names) {
+        // 2 字以下的名字太容易误命中普通词, 一律不入词表。
+        if (n.length < 2) continue;
+        rows.push({
+          actor_id: String(a.actor_id || ""), name: n,
+          gender: String(a.gender || "").toLowerCase(),
+          voice_style: String(a.voice_style || ""),
+          style_descriptor: String(a.style_descriptor || ""),
+          civilization: String(a.civilization || ""),
+        });
+      }
+    }
+    // 长名字优先 —— 「克利奥帕特拉七世」必须先于「克利奥帕特拉」命中。
+    rows.sort((x, y) => y.name.length - x.name.length);
+    __actorVoiceLexicon = { at: Date.now(), rows };
+  } catch (e) {
+    console.warn("[W1925] 演员词表加载失败(本次跳过声部联动):", e instanceof Error ? e.message : e);
+    return __actorVoiceLexicon?.rows || [];
+  }
+  return rows;
+}
+
+/** 从任意文本(标题 + 提示词 + 标签)里认出被点名的数字演员。认不出返回 null。 */
+async function cssosResolveActorFromText(text: string): Promise<CssosActorVoice | null> {
+  const hay = String(text || "");
+  if (hay.length < 2) return null;
+  const lex = await __loadActorVoiceLexicon();
+  const lowHay = hay.toLowerCase();
+  for (const row of lex) {
+    if (/^[\x00-\x7F]+$/.test(row.name)) {
+      // 拉丁名走词边界, 免得 "Li Bai" 命中 "Li Bailey" 之类。
+      const re = new RegExp("(^|[^A-Za-z])" + row.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "([^A-Za-z]|$)");
+      if (re.test(lowHay)) return row;
+    } else if (hay.includes(row.name)) {
+      return row;
+    }
+  }
+  return null;
+}
+
+/** 调用方是否已经自己说了性别/唱腔 —— 说了就一个字都不改。 */
+function __promptAlreadyStatesVoice(text: string): boolean {
+  return /\b(male|female|man|woman|baritone|tenor|bass|soprano|alto|mezzo|countertenor|falsetto)\b/i.test(String(text || ""))
+      || /男声|女声|男中音|男高音|女高音|女中音|童声/.test(String(text || ""));
+}
+
+/**
+ * 声部联动: 认出人物 → 把 gender / voice_style / style_descriptor 灌进提示词。
+ * 返回 { req, actor } —— actor 非空表示确实联动了(供日志与 DB 回填)。
+ */
+async function cssosApplyActorVoiceLinkage(
+  req: MusicGenRequest,
+): Promise<{ req: MusicGenRequest; actor: CssosActorVoice | null }> {
+  try {
+    if (!req || req.instrumental === true) return { req, actor: null };          // 规矩②
+    const surface = [req.title || "", req.prompt || "", (req.tags || []).join(" ")].join(" \n ");
+    if (__promptAlreadyStatesVoice(surface)) return { req, actor: null };        // 规矩①
+    const actor = await cssosResolveActorFromText(surface);
+    if (!actor || !actor.gender) return { req, actor: null };
+
+    const g = actor.gender === "female" ? "FEMALE" : actor.gender === "male" ? "MALE" : "";
+    if (!g) return { req, actor: null };
+    const bits: string[] = [`${g} lead vocal (${actor.gender === "female" ? "no male" : "no female"} vocal)`];
+    if (actor.voice_style) bits.push(actor.voice_style);
+    if (actor.style_descriptor && actor.style_descriptor !== actor.voice_style) bits.push(actor.style_descriptor);
+
+    const next: MusicGenRequest = { ...req, prompt: `${bits.join(", ")}; ${req.prompt || ""}`.trim() };
+    console.log("[W1925] 声部联动命中 %s(%s) → %s", actor.name, actor.actor_id, g);
+    return { req: next, actor };
+  } catch (e) {
+    console.warn("[W1925] 声部联动异常(放行, 不阻断生成):", e instanceof Error ? e.message : e);
+    return { req, actor: null };
+  }
+}
+
 async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
+  // CSSOS_WAVE_1925 — 咽喉: 任何路径进来, 先把人物声部灌进去(见上方大段说明)。
+  {
+    const linked = await cssosApplyActorVoiceLinkage(req);
+    req = linked.req;
+  }
   // CSSOS_WAVE_430 — never exceed the engine's 5000-char lyrics cap.
   if (req && typeof req.lyrics === "string") {
     req = { ...req, lyrics: clampLyricsForEngine(req.lyrics) };
@@ -32717,6 +32851,388 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
  *   # 真跑
  *   ... -d '{"title_like":"声声慢","dry_run":false}'
  */
+/* ─────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_1926 20260824 — 数字演员身份参数化 (Jing:「①②③全做」)
+ *
+ * 起因: 李白被唱成日本 J-pop 女声。Jing:「这 55 个字段会不会生成西施、杨玉环、
+ * 王母娘娘?甚至生成男性李白、唐伯虎?这些参数够了吗?」
+ * 实测答案 —— 不够, 而且已经在撞车:
+ *   · 343 位演员, 机器可读参数只能区分 248 种组合 → 95 位跟别人完全撞号
+ *   · 苏格拉底 = 柏拉图 = 亚里士多德 = 阿基米德 = 毕达哥拉斯 = 希波克拉底
+ *   · 孔子 = 老子 = 孟子 = 孙子 = 玄奘;  妲己 = 嫦娥
+ *   · 李白 vs 西施 原型同为 {charmer,tragic}, 只有 gender 一个字段分开他俩
+ *   · 121/343 标签是自动占位 {civilization,文明名} = 零信息
+ *
+ * 真正撑起人物身份的一直是 face_prompt + bio 两段散文 —— 画面单点吊在一句
+ * 冻结的 face_prompt 上, 音乐引擎/检索/去重/防串播一个字都读不到。
+ * 这里把散文里的身份信息抽成结构化字段, 让引擎也能用。
+ *
+ * 三条纪律:
+ *   · dry_run 默认 true —— 先看清楚再落库(Jing 的规矩, 也是我上次清空 1633 行
+ *     focal 的教训: 破坏性写入前必须先 SELECT)。
+ *   · 只填【空着的】字段, 已有值一律不覆盖。
+ *   · 抽不出来就留空, 绝不编 —— 编造的朝代比没有朝代更坏。
+ *
+ * 用法:
+ *   curl -sS -X POST https://cssstudio.app/api/admin/actors/enrich \
+ *     -H 'content-type: application/json' -H "x-cssos-internal-token: $TOK" \
+ *     -d '{"dry_run":false,"max_actors":400}'
+ * ───────────────────────────────────────────────────────────────────────── */
+/* CSSOS_WAVE_1926b — KIE 内部三强降级。
+ * 铁律: 一切调用 host 必须是 api.kie.ai(Jing 已锁, 不再讨论)。
+ * 实测(20260824): KIE 的 Claude 通道返回「Server exception」—— 按既有判据这是
+ * 【型号在架但服务端故障】, 不是型号下架。Gemini / GPT 通道同时是好的。
+ * 所以降级顺序 Claude → Gemini → GPT, 三条腿全在 KIE 上, 一条断了不至于停工。
+ * 返回纯文本; 调用方自己从里面抠 JSON。 */
+async function kieTextTrio(system: string, user: string, maxTokens = 4000): Promise<string> {
+  const key = (process.env.KIE_API_KEY || "").trim();
+  if (!key) return "";
+  const H = { "Authorization": `Bearer ${key}`, "content-type": "application/json" };
+  // ① Claude(首选 —— 文史考据最稳)
+  try {
+    const r = await anthropicMessages({ model: KIE_CLAUDE_UTILITY_MODEL, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] });
+    const j: any = await r.json();
+    const t = Array.isArray(j?.content) ? j.content.map((c: any) => c?.text || "").join("") : "";
+    if (t.trim()) return t;
+  } catch (_e) { /* 落到 ② */ }
+  // ② Gemini
+  try {
+    const r = await fetch("https://api.kie.ai/gemini-3.1-pro/v1/chat/completions", {
+      method: "POST", headers: { ...H, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "gemini-3-pro", max_tokens: maxTokens,
+        messages: [{ role: "system", content: system }, { role: "user", content: user }] }),
+    });
+    const j: any = await r.json();
+    const t = String(j?.choices?.[0]?.message?.content || "");
+    if (t.trim()) return t;
+  } catch (_e) { /* 落到 ③ */ }
+  // ③ GPT(codex/responses, 走非流式)
+  try {
+    const r = await fetch("https://api.kie.ai/codex/v1/responses", {
+      method: "POST", headers: H,
+      body: JSON.stringify({ model: "gpt-5-6-sol", stream: false, input: `${system}\n\n${user}` }),
+    });
+    const j: any = await r.json();
+    const t = typeof j?.output_text === "string" ? j.output_text
+      : Array.isArray(j?.output) ? j.output.map((o: any) => (o?.content || []).map((c: any) => c?.text || "").join("")).join("") : "";
+    if (t.trim()) return t;
+  } catch (_e) { /* 三条都断 */ }
+  console.warn("[W1926b] KIE 三强通道全部无回应");
+  return "";
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_1926c — ③ 别名合并 + ② 缺失人物盘点 (Jing:「①②③全做」)
+ *
+ * ③ 别名: 杨玉环 / 杨贵妃 是同一个人, 系统当两个人; 唐寅 / 唐伯虎 是同一个人,
+ *    系统一个都没有 —— 可平台上有 10 首唐伯虎的作品。别名不合并, 一个人的作品
+ *    被劈成两半, 撞号统计和防串播都不准。
+ *    做法: 让 LLM 把 343 个名字聚成「同一人」簇, 簇内取一个 canonical, 其余写
+ *    canonical_actor_id 指过去, 并把别名并进 name_variants(供 W1925 声部咽喉
+ *    的词表认名)。不删任何一行 —— 合并是加指针, 不是删数据。
+ *
+ * ② 缺失: 1114 首在世作品没有人物连线。多数本来就没人物(节日/心情曲), 但
+ *    「米开朗基罗 忌辰纪念」「Shiva」「唐伯虎」这类是【点了名却没档案】。
+ *    做法: 把这些标题喂给 LLM 判断是否点名了真实/神话人物, 与演员库(含别名)
+ *    比对, 输出两张单子: 能连的 → 连上; 缺档案的 → 列出来等 Jing 拍板建档。
+ *    本端点【只盘点与连线, 不自动建演员】—— 建档要定 face_prompt, 那是 Jing
+ *    的红线(「妲己不要改」), 不能由我代劳。
+ * ───────────────────────────────────────────────────────────────────────── */
+app.post("/api/admin/actors/merge-aliases", express.json({ limit: "16kb" }), async (req, res) => {
+  const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
+  if (!(CSSOS_INTERNAL_TOKEN && internalToken === CSSOS_INTERNAL_TOKEN)) {
+    const uid = (req.session as any)?.user_id;
+    if (!uid) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const r = await withClient((c) => c.query<{ role: string }>(`SELECT role FROM users WHERE id=$1::uuid LIMIT 1`, [uid]));
+    if (r.rows[0]?.role !== "admin") return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  const b = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+  const dryRun = b.dry_run === false ? false : true;
+
+  const all = await withClient((c) => c.query<Record<string, unknown>>(
+    `SELECT actor_id, name_zh, name_en, civilization, gender,
+            COALESCE(popularity_score,0) AS pop, COALESCE(cast_count,0) AS casts
+       FROM digital_actors ORDER BY actor_id`));
+  const roster = (all.rows as Record<string, unknown>[]).map((a) => ({
+    id: String(a.actor_id || ""), zh: String(a.name_zh || ""), en: String(a.name_en || ""),
+    civ: String(a.civilization || ""), g: String(a.gender || ""),
+    pop: Number(a.pop || 0), casts: Number(a.casts || 0),
+  }));
+  /* 正主由【确定性规则】选, 不交给 LLM —— 实测它把 索尔(act-civ-thor, 热度 90)
+   * 判给了 托尔(UUID 副本, 热度 0)。规则优先级: 被用次数 > 热度 > act-* 策展前缀。
+   * 依据: act-civ-* 是策展正主(热度 86-91), UUID 那批是后来灌进来的副本(热度 0)。 */
+  const electCanonical = (ids: string[]): string => {
+    const rows = ids.map((i) => roster.find((r) => r.id === i)).filter(Boolean) as typeof roster;
+    if (!rows.length) return ids[0] || "";
+    rows.sort((x, y) =>
+      (y.casts - x.casts) ||
+      (y.pop - x.pop) ||
+      ((y.id.startsWith("act-") ? 1 : 0) - (x.id.startsWith("act-") ? 1 : 0)) ||
+      x.id.localeCompare(y.id));
+    return rows[0]!.id;
+  };
+
+  const sys = [
+    "你是文史考据员。下面是一份数字演员名册。找出其中【指向同一个真实/神话人物】的重复条目。",
+    "只在确实是同一人时才归为一组, 例如 杨玉环=杨贵妃、唐寅=唐伯虎、李耳=老子。",
+    "不要把【同时代不同人】或【师徒/亲属】归为一组。孔子和孟子不是同一人。",
+    "同名不同人(如两个不同文明的同名者)也不要合并 —— civilization 不同要格外谨慎。",
+    "只输出 JSON 数组, 每项 {canonical_actor_id, duplicate_actor_ids:[], person:\"人物中文名\", aliases:[\"别名\"]}",
+    "canonical 选【最广为人知的那个名字】所在的 actor_id。没有任何重复就输出 []。",
+  ].join("\n");
+
+  const text = await kieTextTrio(sys, JSON.stringify(roster), 4000);
+  const m = text.match(/\[[\s\S]*\]/);
+  if (!m) return res.json({ ok: false, error: "llm_no_json", dry_run: dryRun });
+  let groups: any[] = [];
+  try { groups = JSON.parse(m[0]); } catch { return res.json({ ok: false, error: "llm_bad_json" }); }
+
+  const applied: any[] = [];
+  for (const g of groups) {
+    const llmCanon = String(g?.canonical_actor_id || "");
+    const rawDups = Array.isArray(g?.duplicate_actor_ids) ? g.duplicate_actor_ids.map(String).filter(Boolean) : [];
+    const aliases = Array.isArray(g?.aliases) ? g.aliases.map(String).filter(Boolean) : [];
+    // 幻觉 id 一律丢弃 —— 只认名册里真实存在的
+    const members = [llmCanon, ...rawDups].filter((x, i, arr) => x && arr.indexOf(x) === i && roster.some((r) => r.id === x));
+    if (members.length < 2) continue;
+    const canon = electCanonical(members);                                   // 正主按规则选, 不听 LLM
+    const realDups = members.filter((d) => d !== canon);
+    if (!realDups.length) continue;
+    applied.push({ person: String(g?.person || ""), canonical: canon, duplicates: realDups, aliases });
+    if (!dryRun) {
+      await withClient((c) => c.query(
+        `UPDATE digital_actors SET canonical_actor_id=$1, updated_at=now() WHERE actor_id = ANY($2::text[])`,
+        [canon, realDups]));
+      // 别名并进 canonical 的 name_variants —— 让 W1925 声部词表也能认出别名
+      const names = realDups.map((d: string) => roster.find((r) => r.id === d)?.zh || "").filter(Boolean).concat(aliases);
+      if (names.length) {
+        /* name_variants 是 jsonb(不是 text[]) —— 而且历史行里可能是 '{}'(空对象)
+         * 而不是 '[]'(空数组), 所以先按 jsonb_typeof 归一, 再并集去重。 */
+        await withClient((c) => c.query(
+          `UPDATE digital_actors
+              SET name_variants = (
+                    SELECT COALESCE(jsonb_agg(DISTINCT v), '[]'::jsonb) FROM (
+                      SELECT jsonb_array_elements_text(
+                               CASE WHEN jsonb_typeof(name_variants) = 'array'
+                                    THEN name_variants ELSE '[]'::jsonb END) AS v
+                      UNION
+                      SELECT unnest($2::text[]) AS v
+                    ) q
+                  ),
+                  updated_at = now()
+            WHERE actor_id = $1`, [canon, names]));
+      }
+    }
+  }
+  return res.json({ ok: true, dry_run: dryRun, roster: roster.length, merged_groups: applied.length, groups: applied });
+});
+
+app.post("/api/admin/actors/find-missing", express.json({ limit: "16kb" }), async (req, res) => {
+  const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
+  if (!(CSSOS_INTERNAL_TOKEN && internalToken === CSSOS_INTERNAL_TOKEN)) {
+    const uid = (req.session as any)?.user_id;
+    if (!uid) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const r = await withClient((c) => c.query<{ role: string }>(`SELECT role FROM users WHERE id=$1::uuid LIMIT 1`, [uid]));
+    if (r.rows[0]?.role !== "admin") return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  const b = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+  const dryRun = b.dry_run === false ? false : true;
+  const maxTitles = Math.min(600, Math.max(1, Number(b.max_titles || 200)));
+
+  const t = await withClient((c) => c.query<Record<string, unknown>>(
+    `SELECT DISTINCT title FROM user_works
+      WHERE status <> 'deleted' AND actor_id IS NULL AND title IS NOT NULL AND title <> ''
+      ORDER BY title LIMIT $1`, [maxTitles]));
+  const titles = (t.rows as Record<string, unknown>[]).map((r) => String(r.title || "")).filter(Boolean);
+  if (!titles.length) return res.json({ ok: true, dry_run: dryRun, titles: 0 });
+
+  const sys = [
+    "下面是一批音乐作品标题。判断每个标题是否【点名了某个真实历史人物或神话人物】。",
+    "节日、心情、场景、抽象概念不算人物 ——「春节 · 节日纪念」「霓虹心碎」「旧厨房的记忆」都不是。",
+    "只在标题里确实出现人名时才算, 不要从主题推测。",
+    "只输出 JSON 数组, 每项 {title, person, civilization}。没有人物的标题不要出现在结果里。",
+    "person 用最广为人知的中文名(外国人也给中文译名), civilization 用中文文明名。",
+  ].join("\n");
+
+  const found: any[] = [];
+  const BATCH = 60;
+  for (let i = 0; i < titles.length; i += BATCH) {
+    const text = await kieTextTrio(sys, JSON.stringify(titles.slice(i, i + BATCH)), 4000);
+    const m = text.match(/\[[\s\S]*\]/);
+    if (!m) continue;
+    try { for (const x of JSON.parse(m[0])) if (x?.title && x?.person) found.push(x); } catch { /* 跳过这批 */ }
+  }
+
+  // 与演员库(含别名)比对
+  const lex = await withClient((c) => c.query<Record<string, unknown>>(
+    `SELECT actor_id, name_zh, name_en, name_variants FROM digital_actors`));
+  /* 匹配必须【包含式】, 不能只做精确串比对。
+   * 实测教训: LLM 会回全名「路德维希·凡·贝多芬」「阿尔伯特·爱因斯坦」, 而库里
+   * 存的是「贝多芬」「爱因斯坦」→ 精确比对全部落空 → 报成缺失 → 照单建档就会
+   * 造出重复人物, 正是本波刚清掉的那种问题(4 组北欧神重复)。 */
+  const norm = (x: string) => String(x || "").toLowerCase().replace(/[·・\s.,'’-]/g, "");
+  const knownList: { key: string; id: string }[] = [];
+  for (const a of (lex.rows as Record<string, unknown>[])) {
+    const id = String(a.actor_id);
+    const push = (n: string) => { const k = norm(n); if (k.length >= 2) knownList.push({ key: k, id }); };
+    push(String(a.name_zh || "")); push(String(a.name_en || ""));
+    const nv = a.name_variants;
+    if (Array.isArray(nv)) for (const v of nv) push(String(v || ""));
+    else if (nv && typeof nv === "object") { try { for (const v of Object.values(nv as any)) push(String(v || "")); } catch { /* 忽略 */ } }
+  }
+  // 长 key 优先, 免得「李白」先于「李白之友」这类误命中
+  knownList.sort((x, y) => y.key.length - x.key.length);
+  const known = {
+    get(person: string): string | undefined {
+      const k = norm(person);
+      if (k.length < 2) return undefined;
+      for (const e of knownList) if (k === e.key || k.includes(e.key) || e.key.includes(k)) return e.id;
+      return undefined;
+    },
+  };
+
+  const linkable: any[] = [], missing = new Map<string, { person: string; civilization: string; titles: string[] }>();
+  for (const f of found) {
+    const person = String(f.person || "");
+    const hit = known.get(person);
+    if (hit) linkable.push({ title: String(f.title), person, actor_id: hit });
+    else {
+      const cur = missing.get(person) || { person, civilization: String(f.civilization || ""), titles: [] };
+      if (cur.titles.length < 5) cur.titles.push(String(f.title));
+      missing.set(person, cur);
+    }
+  }
+
+  let linked = 0;
+  if (!dryRun) {
+    for (const l of linkable) {
+      const r = await withClient((c) => c.query(
+        `UPDATE user_works SET actor_id=$1, updated_at=now()
+          WHERE title=$2 AND status<>'deleted' AND actor_id IS NULL`, [l.actor_id, l.title]));
+      linked += r.rowCount || 0;
+    }
+    // 顺手把新连上的作品补声部(仍然只填空的)
+    await withClient((c) => c.query(
+      `UPDATE user_works w
+          SET voice_gender = COALESCE(w.voice_gender, a.gender),
+              vocal_style  = COALESCE(w.vocal_style, NULLIF(a.voice_style,'')),
+              updated_at   = now()
+         FROM digital_actors a
+        WHERE w.actor_id = a.actor_id AND w.status<>'deleted'
+          AND (w.voice_gender IS NULL OR w.vocal_style IS NULL)
+          AND a.gender IS NOT NULL AND a.gender <> ''`));
+  }
+  return res.json({
+    ok: true, dry_run: dryRun, titles_scanned: titles.length,
+    named_person_titles: found.length, linkable: linkable.length, linked_rows: linked,
+    missing_actors: Array.from(missing.values()).sort((a, b) => b.titles.length - a.titles.length),
+  });
+});
+
+app.post("/api/admin/actors/enrich", express.json({ limit: "16kb" }), async (req, res) => {
+  const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
+  const tokenOk = !!(CSSOS_INTERNAL_TOKEN && internalToken && internalToken === CSSOS_INTERNAL_TOKEN);
+  if (!tokenOk) {
+    const uid = (req.session as any)?.user_id;
+    if (!uid) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const r = await withClient((c) => c.query<{ role: string }>(`SELECT role FROM users WHERE id=$1::uuid LIMIT 1`, [uid]));
+    if (r.rows[0]?.role !== "admin") return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  const b = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+  const dryRun = b.dry_run === false ? false : true;
+  const maxActors = Math.min(400, Math.max(1, Number(b.max_actors || 40)));
+  const only = Array.isArray(b.actor_ids) ? (b.actor_ids as unknown[]).map(String).filter(Boolean) : [];
+
+  const rows = await withClient((c) => c.query<Record<string, unknown>>(
+    only.length
+      ? `SELECT actor_id, name_zh, name_en, civilization, gender, age_range, bio, persona,
+                style_descriptor, tags, dynasty, species, source_work, identity_keywords
+           FROM digital_actors WHERE actor_id = ANY($1::text[]) LIMIT $2`
+      : `SELECT actor_id, name_zh, name_en, civilization, gender, age_range, bio, persona,
+                style_descriptor, tags, dynasty, species, source_work, identity_keywords
+           FROM digital_actors
+          WHERE identity_enriched_at IS NULL
+            AND (dynasty IS NULL OR identity_keywords IS NULL OR species IS NULL)
+          ORDER BY popularity_score DESC NULLS LAST, actor_id LIMIT $1`,
+    only.length ? [only, maxActors] : [maxActors]));
+
+  const todo = rows.rows as Record<string, unknown>[];
+  if (!todo.length) return res.json({ ok: true, dry_run: dryRun, considered: 0, note: "没有待补的演员" });
+
+  const out: any[] = []; let written = 0; let failed = 0;
+  const BATCH = 8;
+  for (let i = 0; i < todo.length; i += BATCH) {
+    const chunk = todo.slice(i, i + BATCH);
+    const payload = chunk.map((a) => ({
+      actor_id: String(a.actor_id || ""),
+      name: String(a.name_zh || a.name_en || ""),
+      civilization: String(a.civilization || ""),
+      gender: String(a.gender || ""),
+      style_descriptor: String(a.style_descriptor || "").slice(0, 300),
+      bio: String(a.bio || "").slice(0, 1200),
+      persona: String(a.persona || "").slice(0, 800),
+    }));
+    const sys = [
+      "你是文史考据员。根据给定的人物资料, 抽取结构化身份字段。",
+      "严格规则:",
+      "1) 只抽【资料里有据可依 或 属于该人物公认常识】的信息。拿不准就留 null —— 编造的朝代比没有朝代更坏。",
+      "2) dynasty: 中文朝代/时代名, 如 商、春秋、盛唐、北宋、古典希腊、文艺复兴。神话人物填其传说所属时代。",
+      "3) era_start_year / era_end_year: 该人物在世(或传说设定)的年份, 公元前用负数。不确定填 null。",
+      "4) species: human / deity / immortal / fox-spirit / dragon / spirit / robot 之一, 或更贴切的英文短词。",
+      "5) source_work: 出处典籍/作品名(如《封神演义》《三国演义》), 史实人物填 史实。",
+      "6) age_range: 该人物最具代表性的年龄段, 如 少女、青年、中年、老年。",
+      "7) identity_keywords: 3-8 个【能把此人和同文明同性别他人区分开】的关键词(中文)。",
+      "   反例: 「美丽」「悲剧」—— 谁都能用。正例: 妲己 → 狐妖、苏护之女、帝辛、鹿台、封神演义。",
+      "只输出 JSON 数组, 不要任何解释文字。每项: {actor_id, dynasty, era_start_year, era_end_year, species, source_work, age_range, identity_keywords:[]}",
+    ].join("\n");
+    try {
+      const text = await kieTextTrio(sys, JSON.stringify(payload, null, 1), 4000);
+      const m = text.match(/\[[\s\S]*\]/);
+      if (!m) { failed += chunk.length; continue; }
+      const parsed = JSON.parse(m[0]) as any[];
+      for (const p of parsed) {
+        const id = String(p?.actor_id || "");
+        if (!id) continue;
+        const kw = Array.isArray(p?.identity_keywords) ? p.identity_keywords.map(String).filter(Boolean).slice(0, 8) : [];
+        const rec = {
+          actor_id: id,
+          dynasty: p?.dynasty ? String(p.dynasty) : null,
+          // 公元 0 年不存在 —— 模型用 0 表示「不确定」, 一律存 null, 别让 0 冒充史实
+          era_start_year: (Number.isFinite(Number(p?.era_start_year)) && Number(p.era_start_year) !== 0) ? Number(p.era_start_year) : null,
+          era_end_year: (Number.isFinite(Number(p?.era_end_year)) && Number(p.era_end_year) !== 0) ? Number(p.era_end_year) : null,
+          species: p?.species ? String(p.species) : null,
+          source_work: p?.source_work ? String(p.source_work) : null,
+          age_range: p?.age_range ? String(p.age_range) : null,
+          identity_keywords: kw,
+        };
+        out.push(rec);
+        if (!dryRun) {
+          // 只填空着的 —— COALESCE 保证已有值绝不被覆盖
+          await withClient((c) => c.query(
+            `UPDATE digital_actors
+                SET dynasty            = COALESCE(dynasty, $2),
+                    era_start_year     = COALESCE(era_start_year, $3),
+                    era_end_year       = COALESCE(era_end_year, $4),
+                    species            = COALESCE(species, $5),
+                    source_work        = COALESCE(source_work, $6),
+                    age_range          = COALESCE(NULLIF(age_range,''), $7),
+                    identity_keywords  = COALESCE(identity_keywords, $8::text[]),
+                    identity_enriched_at = now(),
+                    updated_at         = now()
+              WHERE actor_id = $1`,
+            [rec.actor_id, rec.dynasty, rec.era_start_year, rec.era_end_year,
+             rec.species, rec.source_work, rec.age_range, kw.length ? kw : null]));
+          written++;
+        }
+      }
+    } catch (e) {
+      failed += chunk.length;
+      console.warn("[W1926] 抽取批次失败:", e instanceof Error ? e.message : e);
+    }
+  }
+  return res.json({ ok: true, dry_run: dryRun, considered: todo.length, extracted: out.length, written, failed, sample: out.slice(0, 6) });
+});
+
 app.post("/api/admin/lyrics/regenerate", express.json({ limit: "16kb" }), async (req, res) => {
   const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
   const tokenOk = !!(CSSOS_INTERNAL_TOKEN && internalToken && internalToken === CSSOS_INTERNAL_TOKEN);

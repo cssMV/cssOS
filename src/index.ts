@@ -499,7 +499,42 @@ function previewCachePath(originalAbsPath: string): string {
   return path.join(MEDIA_PREVIEW_CACHE_DIR, `${tag}.preview.mp4`);
 }
 
-function spawnFfmpeg(args: string[]): Promise<{ code: number; stderr: string }> {
+/* CSSOS_WAVE_1881 20260823 — 「歌词/音乐/视频永不烧录在一起」从【文档铁律】升级为【代码禁令】。
+ *
+ * Jing:「为什么到现在还总是犯这个错误? 都说了多少遍, 铁律也这样记住了, 可是为什么还是每次都
+ *        烧录在一起? 我们可以分离, 可是用户呢? 用户怎么分离?」
+ *
+ * 复盘 —— 为什么反复发生: 铁律一直只写在 CLAUDE.md 和记忆里, 那是【文档层】。代码层没有任何
+ * 东西阻止下一个 ffmpeg 调用带上 -c:a。每次被指出, 我只改被指出的那一处, 从没扫过整个面。
+ * 文档拦不住代码 —— 所以把它变成代码。
+ *
+ * 规则: 任何写出【视频容器】的 ffmpeg 调用, 只要同时带音频流, 一律【抛错拒绝执行】,
+ * 除非调用方显式传入 CSSOS_FFMPEG_ALLOW_MUX 哨兵并注明为什么是合法例外
+ * (目前唯一合法例外 = 用户自己上传的问道视频片段, 那是用户的原声, 不是平台四轨之一)。
+ *
+ * 为什么"抛错"而不是"自动加 -an": 自动修正会让错误无声消失, 下一个人照样写错。抛错会在
+ * 开发/部署时立刻炸出来, 逼人当场想清楚这条视频到底该不该有声音。 */
+const CSSOS_FFMPEG_ALLOW_MUX = "__CSSOS_ALLOW_AUDIO_MUX__";
+function assertNoAudioBurnIn(rawArgs: string[]): string[] {
+  const allow = rawArgs.includes(CSSOS_FFMPEG_ALLOW_MUX);
+  const clean = allow ? rawArgs.filter((a) => a !== CSSOS_FFMPEG_ALLOW_MUX) : rawArgs;
+  if (allow) return clean;
+  const out = clean[clean.length - 1] || "";
+  if (!/\.(mp4|mov|mkv|webm|m4v)$/i.test(out)) return clean;
+  const hasAudio = clean.some((a, i) =>
+    a === "-c:a" || a === "-b:a" || a === "-acodec"
+    || (a === "-map" && /^\d+:a/.test(String(clean[i + 1] || ""))));
+  if (hasAudio) {
+    throw new Error(
+      "[CSSOS 铁律] 拒绝把音频烧录进视频: " + out
+      + " —— 歌词/音乐/视频/情绪字幕必须四轨分离(见 CLAUDE.md)。"
+      + " 平台生成的画面一律加 -an; 若这是用户自带原声的素材, 传 CSSOS_FFMPEG_ALLOW_MUX 并写明理由。");
+  }
+  return clean;
+}
+
+function spawnFfmpeg(rawArgs: string[]): Promise<{ code: number; stderr: string }> {
+  const args = assertNoAudioBurnIn(rawArgs);
   return new Promise((resolve) => {
     const ff = spawn("/usr/bin/ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
@@ -641,28 +676,38 @@ const CSSOS_INTERNAL_TOKEN = (
 ).trim();
 const RUST_MV_HOST = (process.env.RUST_MV_HOST || "127.0.0.1").trim();
 
-// CSSOS_WAVE_444 20260525 — Jing「铁律：屏幕宽高比」
-// IRON RULE: NEVER output 16:9 or 9:16 (stretched).
-//   Desktop / landscape → Anamorphic 2.39:1 (classic cinema scope)
-//   Mobile  / portrait  → Phone Fullscreen device-fit (9:19.5 ≈ 1170×2532)
-//
-// All image/video/ffmpeg generation paths use these constants.
-// Provider-specific rounding happens inside callImageGen / callVideoGen.
+/* CSSOS_WAVE_1903 20260824 — Jing「铁律改版: 之前要求 2.39:1, 现在起改为 32:9。
+ *   构图/输出都是 32:9。手机等竖屏设备自动顺时针旋转 90 度并适应屏幕。存为铁律。」
+ *
+ * 一个必须记下的取舍(Jing 明确做的, 不是我推导的 —— 免得下次有人"优化"回去):
+ *   32/9 = 3.556, 比 2.39 更宽。竖屏手机是 9:19.5 ≈ 0.46。
+ *   32:9 转 90° 得 9:32 = 0.281 —— 比手机更窄, 转过来左右会留边;
+ *   2.39:1 转 90° 得 1:2.39 = 0.418, 反而更贴合。
+ *   也就是【2.39 转屏更贴, 32:9 更有超宽气势】。Jing 要气势, 贴屏交给播放端。
+ *
+ * 尺寸取 2560×720: 2560/720 = 3.5556 = 32/9 精确, 两边可被 16 整除(编码器友好),
+ *   像素量 1.84M 与原 1920×804(1.54M)同量级, 不额外烧钱。
+ *
+ * IRON RULE: NEVER output 16:9 or 9:16 (stretched).
+ *   Desktop / landscape → Super-wide 32:9 (2560×720)
+ *   Mobile  / portrait  → 播放端把 32:9 顺时针转 90° 贴屏(app.watch-face-crop.js W1902);
+ *                         生成侧【不再另出竖版】—— 一次生成, 两端各自贴合。
+ *
+ * All image/video/ffmpeg generation paths use these constants. */
 const CINEMA_LANDSCAPE = Object.freeze({
-  key:     "2.39:1",
-  w:       1920,
-  h:       804,               // 1920/804 = 2.388 ≈ 2.39:1 — divisible by 4
-  size:    "1920x804",        // passed to callImageGen
-  ffmpeg:  "1920:804",        // used in scale/pad ffmpeg filters
-  framing: "ultra-wide anamorphic 2.39:1 cinematic composition, subject framed for widescreen scope, " +
+  key:     "32:9",
+  w:       2560,
+  h:       720,               // 2560/720 = 3.5556 = 32/9 精确; 两边可被 16 整除
+  size:    "2560x720",        // passed to callImageGen
+  ffmpeg:  "2560:720",        // used in scale/pad ffmpeg filters
+  framing: "super-wide 32:9 cinematic composition, subject framed for ultra-panoramic scope, " +
            "environment visible on both sides, horizontal letterbox bars absent, " +
-           "classic cinema aspect ratio, " +
+           "extreme widescreen aspect ratio, " +
            // CSSOS 20260701 — Jing「堵源头」: 人脸感知构图在源头就做,而非事后裁切。
-           // 若主体是人物, 头脸必须完整入镜、头顶留空、绝不削去头顶或半张脸。
            "if a person is the subject, keep the full head and face inside the frame with " +
            "comfortable headroom above the head, never crop the top of the head or half the face, " +
            "position the face along the upper-third of the frame",
-  label:   "Anamorphic 2.39:1",
+  label:   "Super-wide 32:9",
 });
 const PHONE_FULLSCREEN = Object.freeze({
   key:     "9:19.5",
@@ -679,6 +724,10 @@ const PHONE_FULLSCREEN = Object.freeze({
 // "16:9" and "9:16" entries are kept for backward compat with older
 // clients but redirect to the correct cinema/phone sizes.
 const ASPECT_SIZE_MAP: Record<string, string> = {
+  /* W1903 — 32:9 是新铁律的正主; 2.39:1 / anamorphic 保留为别名并【重映射到 32:9】,
+   * 历史请求与老客户端因此不会突然拿到旧尺寸, 也不必逐个改调用方。 */
+  "32:9": CINEMA_LANDSCAPE.size,
+  "superwide": CINEMA_LANDSCAPE.size,
   "2.39:1": CINEMA_LANDSCAPE.size,
   "anamorphic": CINEMA_LANDSCAPE.size,
   "9:19.5": PHONE_FULLSCREEN.size,
@@ -5436,7 +5485,7 @@ function buildJingdianSystemPrompt(language: string, workType: string = "single"
       return [
         // CSSOS_WAVE_603 — Jing「三部曲少了第三部 / part 命名是 (N/2) 而非乐章名」根因 + 修复:
         // 强制 EXACTLY THREE 部(别只出 2), 且每部 marker 里【带上乐章标题】→ split 后 part 名就是乐章名。
-        `WORK TYPE: triptych (三部曲) — produce EXACTLY THREE complete songs (Part I, Part II, Part III) in this single response — never two, never one. Do NOT stop after two parts. Open EACH part with its own marker line carrying the movement title: "[Part I · <movement title>]" / "[Part II · <movement title>]" / "[Part III · <movement title>]". If the user gave movement titles (e.g. 少年的火 / 风雨同舟 / 白发未忘), use them VERBATIM in the markers; otherwise invent a distinct evocative title per part. Each part follows its own complete section template below.`,
+        `WORK TYPE: triptych (三部曲) — produce EXACTLY THREE complete songs (Part I, Part II, Part III) in this single response — never two, never one. Do NOT stop after two parts. Open EACH part with its own marker line carrying the movement title: "[Part I · <movement title>]" / "[Part II · <movement title>]" / "[Part III · <movement title>]". If the user gave movement titles (e.g. 少年的火 / 风雨同舟 / 白发未忘), use them VERBATIM in the markers; otherwise invent a distinct evocative title per part. Each part follows its own complete section template below. CRITICAL: each part independently gets its OWN full 10 sections and its OWN 40-50 lyric lines (40 without ritual lines, 50 with). A triptych therefore totals 30 sections and 120-150 lines. NEVER split one 40-50 line lyric across the three parts — that produces 1-2 minute songs and is rejected.`,
       ].join("\n");
     }
     // CSSOS_WAVE_176 — marker words match the create_work hierarchy
@@ -5587,6 +5636,42 @@ function extractLyricTitle(content: string, fallback: string): string {
 }
 
 type LyricsWorkType = "single" | "triptych" | "opera" | "shortplay" | "series" | "film" | string;
+/* CSSOS_WAVE_1910 20260824 — 歌词令牌预算: 按【部数】放大, 不再一个上限包打天下。
+ * 单首十节 ≈ 3600(W360b 实测值)。多部作品乘上部数, 再留 15% 余量给小节标题与咒语行。 */
+function __lyricsPartCountFor(workType: string, sectionForm: string): number {
+  const wt = String(workType || "single").toLowerCase();
+  if (wt === "triptych") return 3;
+  if (["opera", "shortplay", "short_play", "series", "tv_series", "film", "movie"].includes(wt)) {
+    /* 幕数/集数由 AI 推导、不预设上限(见记忆 unbounded-generation-by-decomposition),
+     * 这里只给一个保守的令牌预算, 真实分幕仍由内容决定。 */
+    const n = Number((String(sectionForm || "").match(/(\d+)/) || [])[1] || 0);
+    return Math.min(12, Math.max(3, n || 5));
+  }
+  return 1;
+}
+function __lyricsMaxTokensFor(workType: string, sectionForm: string): number {
+  const per = 3600;                     // 一首完整十节(含非拉丁文字)的实测用量
+  const parts = __lyricsPartCountFor(workType, sectionForm);
+  return Math.min(32000, Math.round(per * parts * 1.15));  // 15% 余量; 上限防跑飞
+}
+
+/* CSSOS_WAVE_1910 — 歌词完整度验收(Jing 铁律:「不到 10 节、不到 40 行的都算不完整」)。
+ * 只测量, 不改写 —— 判定交给调用方, 这样「重试一次」和「照收但标记」能分开决定。
+ * 节数 = 方括号小节标题数; 行数 = 非空且非纯标题的行; 多部作品按【每部】折算。 */
+function assessLyricsCompleteness(text: string, workType: string = "single", sectionForm: string = ""): {
+  sections: number; lines: number; parts: number; perPartSections: number; perPartLines: number; ok: boolean;
+} {
+  const t = String(text || "");
+  const sections = (t.match(/\[[^\]\n]{1,60}\]/g) || []).length;
+  const lines = t.split("\n").map((l) => l.trim())
+                 .filter((l) => l && !/^\[[^\]]*\]$/.test(l)).length;
+  const parts = Math.max(1, __lyricsPartCountFor(workType, sectionForm));
+  return { sections, lines, parts,
+           perPartSections: Math.floor(sections / parts),
+           perPartLines: Math.floor(lines / parts),
+           ok: Math.floor(sections / parts) >= 10 && Math.floor(lines / parts) >= 40 };
+}
+
 function normalizeLyricsToJingdian(raw: string, workType: LyricsWorkType = "single", _sectionForm: string = ""): string {
   if (!raw) return raw;
   let text = String(raw).replace(/\r\n?/g, "\n").trim();
@@ -8608,7 +8693,7 @@ const AGENT_TOOLS = [
     // (cover above, audio/video buttons below). For triptych/opera/
     // multi-scene types, returns an array of cards.
     name: "create_work",
-    description: "Generate a full cssOS work (lyrics + cover) for the user from a free-text prompt. Use this whenever the user asks you to create a song, MV, opera, triptych, short play, series, or film. The user owns the resulting work. Output is rendered inline as rich work cards in the chat. Cost: ~$0.01 per song (lite tier — lyrics + cover only; audio/video are deferred to a separate explicit step). Lyrics always follow the 京典 10-section template (Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro — 4 body lines per section + 1 ancestral-language ritual line, 40-50 lines total).",
+    description: "Generate a full cssOS work (lyrics + cover) for the user from a free-text prompt. Use this whenever the user asks you to create a song, MV, opera, triptych, short play, series, or film. The user owns the resulting work. Output is rendered inline as rich work cards in the chat. Cost: ~$0.01 per song (lite tier — lyrics + cover only; audio/video are deferred to a separate explicit step). Lyrics always follow the 京典 10-section template (Verse 1, Verse 2, Chorus 1, Verse 3, Verse 4, Chorus 2, Bridge, Chorus 3, Chorus 4, Outro — 4 body lines per section + 1 ancestral-language ritual line, 40-50 lines PER PART (40 without the ritual line, 50 with it) — for multi-part works (triptych/opera/series/film) EVERY part gets its own full 10 sections and its own 40-50 lines; never divide one 40-50 line lyric across the parts).",
     input_schema: {
       type: "object",
       properties: {
@@ -15538,10 +15623,17 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
           { role: "system", content: buildJingdianSystemPrompt(language, workType, sectionForm, _civForLang, jingdianFlag, lyricDirectives) },
           { role: "user", content: buildJingdianUserPrompt(language, style, prompt, workType, sectionForm, _civForLang, synopsis, jingdianFlag, lyricDirectives) },
         ],
-        // W360b — raised from 2600 → 3600: a full 10-section 京典 lyric in
-        // Japanese / Korean / Arabic can use more tokens than English.
-        // 2600 was causing mid-sentence truncation for non-Latin scripts.
-        max_tokens: 3600,
+        /* CSSOS_WAVE_1910 20260824 — Jing:「10 节歌词, 只生成 1 分多钟的音乐? 很明显,
+         * 生成的歌词不到 10 节。」—— 根因就是这一行。
+         *
+         * W360b 把 2600→3600 是为了【一首】非拉丁文字的十节歌词。但三部曲要的是
+         * 3 × (10 节 / 40-50 行) = 120-150 行 —— 3600 token 装不下, 模型写到一半被截断,
+         * 每部只剩 4-5 节, 于是成品音乐 1-2 分钟。
+         * 李清照三部曲实测 5+4+4 = 13 节, 正好是"一首的量被摊成三部"。
+         * 歌剧/短剧/连续剧部数更多, 以前被截得更狠。
+         *
+         * 令牌必须按【部数】放大, 不能所有作品共用一个上限。 */
+        max_tokens: __lyricsMaxTokensFor(workType, sectionForm || ""),
         temperature: 0.7,
         // CSSOS_WAVE_887 → W1770 修正 — Jing「总魔法棒不出词/贴不进编辑器」根因:
         //   京典歌词是【复杂格式】(十节 + 小节副标题 + 全方括号 + 母语 4 行 + 古老咒语 + [Source] + [Title]),
@@ -15558,10 +15650,22 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
       if (tier && tier.ok && tier.content) { await chargeMvStageActual(userId, "lyrics", __lyricsCostCents, tier?.provider, _lyricsPipelineRunId); }
       if (tier && tier.ok && tier.content && tier.content.trim()) {
         console.log(`[mv-lyrics] tier sweep WIN: provider=${tier.provider} model=${tier.model}`);
+          /* CSSOS_WAVE_1910 — 歌词完整度验收(Jing 铁律: 不到 10 节 / 40 行 = 不完整)。
+           * 只【测量并如实上报】, 不在这里自动重试: 歌词是流式写回客户端的(上面已经
+           * 发过 200 头和心跳), 此刻重来会把已开始的响应搅乱; 而且重试要再烧一次钱,
+           * 那是调用方该决定的事。所以把量出来的数字随响应一起给出去 —— 谁调用谁决定
+           * 重试还是收下, 而不是像以前那样【连短了都不知道】, 等用户看见 1 分钟成品才发现。 */
+          const __lyricsCheck = assessLyricsCompleteness(tier.content, workType, sectionForm || "");
+          if (!__lyricsCheck.ok) {
+            console.warn("[mv-lyrics][INCOMPLETE] 不达 10 节/40 行铁律: parts=%d sections=%d(每部%d) lines=%d(每部%d) wt=%s",
+              __lyricsCheck.parts, __lyricsCheck.sections, __lyricsCheck.perPartSections,
+              __lyricsCheck.lines, __lyricsCheck.perPartLines, workType);
+          }
         res.write(JSON.stringify({
           ok: true,
           task_id: `tier-${tier.provider}-${Date.now()}`,
           lyrics: normalizeLyricsToJingdian(tier.content.trim(), workType, sectionForm),
+            lyrics_completeness: __lyricsCheck,
           // W1770 — 无标题时提炼 LLM 发明的 [Title:…](而非 "Untitled"); 有标题仍用用户的。
           derived_settings: { title: extractLyricTitle(tier.content, prompt.slice(0, 100) || "Untitled"), music_style: style },
           sections: null,
@@ -16937,20 +17041,17 @@ async function __buildOgShare(): Promise<Buffer> {
     .toBuffer();
 }
 
-app.get("/og/share.png", async (_req, res) => {
-  try {
-    if (!__ogShareCache || (Date.now() - __ogShareCache.at) >= OG_SHARE_TTL_MS) {
-      __ogShareCache = { at: Date.now(), buf: await __buildOgShare() };
-    }
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.type("image/png");
-    return res.send(__ogShareCache.buf);
-  } catch (_e) {
-    // Guaranteed fallback: the shipped static collage.
-    res.setHeader("Cache-Control", "public, max-age=600");
-    res.type("image/png");
-    return res.sendFile(path.join(PUBLIC_DIR, "og", "share.png"));
-  }
+/* CSSOS_WAVE_1924 20260824 — Jing:「永远的删掉那个三联图」。
+ * W1623 那条动态路由把【平台当下最热的三个封面】拼成三联图当分享缩略图,
+ * 于是分享 cssstudio.app 时代表平台的是三张随机作品帧 —— 今天一位无名老人,
+ * 明天一盘围棋。一个每天变脸、且是 AI 生成人物的拼图代表不了品牌。
+ * 品牌卡必须是【固定的、我们自己的 logo】: 魔镜 + cssOS 字标, 一年到头一个样。
+ * 动态生成整条摘除 —— 只 sendFile 静态 public/og/share.png (那就是 logo 卡)。
+ * 重新接回动态拼图 = 再次违反本条。 */
+app.get("/og/share.png", (_req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.type("image/png");
+  return res.sendFile(path.join(PUBLIC_DIR, "og", "share.png"));
 });
 
 /* CSSOS_WAVE_1633 — /apps 全平台下载落地页。
@@ -16983,10 +17084,10 @@ app.get("/apps", (_req, res) => {
 <meta property="og:description" content="iPhone · iPad · Mac · Apple Watch · Apple TV · Vision Pro — watch + create AI music videos, with sound.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://cssstudio.app/apps">
-<meta property="og:image" content="https://cssstudio.app/og/share.png?v=708">
+<meta property="og:image" content="https://cssstudio.app/og/share.png?v=824">
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://cssstudio.app/og/share.png?v=708">
+<meta name="twitter:image" content="https://cssstudio.app/og/share.png?v=824">
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;font:400 16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Display",system-ui,sans-serif;
@@ -24960,6 +25061,78 @@ async function persistRemoteAudioToStable(url: string): Promise<string> {
 
 // CSSOS_WAVE_1459 — 视频转存稳定 R2(叙事视频引擎 Veo/Kling 返回临时链, 几天 404)。下载→uploadBufferToR2
 // →返回 cdn.cssstudio.app 稳定链。遵 [所有输出落 R2 铁律]。已是本域/已转存直接返回。
+/* CSSOS_WAVE_1897 20260823 —— 补上 W1881 守卫漏掉的一整类入口(Jing:「这关系到从现在起
+ * 还会不会继续产生新的烧录作品」)。
+ *
+ * W1881 的守卫钉在 spawnFfmpeg 上 —— 它只管【我们自己调 ffmpeg 生成】的文件。
+ * 但还有一条完全绕过它的路: **第三方引擎返回的成品 mp4 本身就带音轨**, 我们只是下载转存。
+ * 实测(2026-08-23): 今天新建的 mv_1787448659802.mp4 = video + audio, 而那条音轨是
+ * 【日文歌】, 配着标题「李白 饮者三部曲 天地留名」—— 烧录让这个错误永久不可挽回。
+ * 全量重扫又查出 514 首同样情况(全是 ready/draft, 上一轮只扫 published 漏掉了)。
+ *
+ * 这条路(叙事视频 seedance native_audio)的音轨是【对白/环境音】而非音乐 —— 但结论一样:
+ * 必须可分离。烧死了就换不了语言、重不了配音、也修不了配错的音轨。
+ * 所以这里不是"丢掉声音", 而是【当场拆成两轨】: 画面 mp4 + 独立音轨 m4a, 都落 R2。
+ * 拆分一律 -c copy(无损搬运原始流), 画质音质与厂商原件逐比特一致。 */
+function probeHasAudio(file: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const pr = spawn("ffprobe", ["-v", "error", "-select_streams", "a",
+        "-show_entries", "stream=codec_type", "-of", "csv=p=0", file], { stdio: ["ignore", "pipe", "ignore"] });
+      let out = "";
+      pr.stdout.on("data", (d) => { out += String(d); });
+      pr.on("close", () => resolve(/audio/i.test(out)));
+      pr.on("error", () => resolve(false));
+    } catch { resolve(false); }
+  });
+}
+
+/** 把厂商成品 mp4 就地拆成 画面/音轨 两条, 各自落 R2。本来就没音轨则原样上传。 */
+async function splitVendorVideo(buf: Buffer, sha: string): Promise<{ video: string | null; audio: string | null }> {
+  const dir = os.tmpdir();
+  const tag = crypto.randomBytes(5).toString("hex");
+  const inF = path.join(dir, `vend-${tag}.mp4`);
+  const vOut = path.join(dir, `vend-${tag}-a0.mp4`);
+  const aOut = path.join(dir, `vend-${tag}.m4a`);
+  const cleanup = () => { for (const f of [inF, vOut, aOut]) { try { fs.unlinkSync(f); } catch {} } };
+  try {
+    fs.writeFileSync(inF, buf);
+    if (!(await probeHasAudio(inF))) {
+      cleanup();
+      const only = await uploadBufferToR2(buf, `artifacts/video/vid-${sha}.mp4`, "video/mp4").catch(() => null);
+      return { video: only, audio: null };
+    }
+    console.info(`[W1897] 厂商返回的是【带音轨的成品】→ 就地拆两轨 (sha=${sha})`);
+    let audioUrl: string | null = null;
+    const ar = await spawnFfmpeg(["-y", "-loglevel", "error", "-i", inF, "-vn", "-c:a", "copy",
+      "-movflags", "+faststart", aOut]);
+    if (ar.code === 0 && fs.existsSync(aOut) && fs.statSync(aOut).size > 1024) {
+      audioUrl = await uploadBufferToR2(fs.readFileSync(aOut), `artifacts/audio/split-${sha}.m4a`, "audio/mp4").catch(() => null);
+    }
+    const vr = await spawnFfmpeg(["-y", "-loglevel", "error", "-i", inF, "-c", "copy", "-an",
+      "-movflags", "+faststart", vOut]);
+    let videoUrl: string | null = null;
+    if (vr.code === 0 && fs.existsSync(vOut) && fs.statSync(vOut).size > 4096) {
+      videoUrl = await uploadBufferToR2(fs.readFileSync(vOut), `artifacts/video/vid-${sha}-a0.mp4`, "video/mp4").catch(() => null);
+    }
+    cleanup();
+    /* 拆分失败宁可保留原件也不丢作品 —— 但要吼一声, 别让它静默变成新的烧录件。 */
+    if (!videoUrl) {
+      console.warn(`[W1897] 拆分失败, 回退存原件(仍是烧录件, 需人工处理): sha=${sha}`);
+      videoUrl = await uploadBufferToR2(buf, `artifacts/video/vid-${sha}.mp4`, "video/mp4").catch(() => null);
+    }
+    return { video: videoUrl, audio: audioUrl };
+  } catch (e) {
+    cleanup();
+    console.warn("[W1897] split failed:", e instanceof Error ? e.message : String(e));
+    const only = await uploadBufferToR2(buf, `artifacts/video/vid-${sha}.mp4`, "video/mp4").catch(() => null);
+    return { video: only, audio: null };
+  }
+}
+
+/** 最近拆分出来的音轨 URL(按画面 URL 索引), 供调用方写进 work_assets。 */
+const _splitAudioByVideoUrl = new Map<string, string>();
+
 async function persistRemoteVideoToStable(url: string): Promise<string> {
   const u = String(url || "").trim();
   if (!u || !/^https?:\/\//i.test(u)) return u;
@@ -24975,8 +25148,12 @@ async function persistRemoteVideoToStable(url: string): Promise<string> {
     } finally { clearTimeout(to); }
     if (buf && buf.byteLength > 4096 && buf.byteLength < 300 * 1024 * 1024) {
       const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
-      const r2 = await uploadBufferToR2(buf, `artifacts/video/vid-${sha}.mp4`, "video/mp4").catch(() => null);
-      if (r2) return r2;
+      /* W1897 —— 不再原样上传。厂商成品若带音轨, 就地拆成 画面/音轨 两条。 */
+      const split = await splitVendorVideo(buf, sha);
+      if (split.video) {
+        if (split.audio) _splitAudioByVideoUrl.set(split.video, split.audio);
+        return split.video;
+      }
     }
   } catch (e) { console.warn("[rehost-video] failed, keep url:", (e as Error)?.message || e); }
   return u;
@@ -25161,10 +25338,13 @@ async function ensureCanonicalMV(workId: string): Promise<{ ok: boolean; url?: s
       "zoompan=z='min(1.0+0.00018*on,1.18)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1470x630:fps=25,format=yuv420p";
     const r = await spawnFfmpeg(["-y", "-loglevel", "error",
       "-loop", "1", "-framerate", "25", "-i", imgPath, "-i", aPath,
-      "-vf", vf, "-map", "0:v", "-map", "1:a",
+      /* W1881 — 只出画面, 不出声。音频仍以独立音轨存在(preview_audio_url / audio_track_1),
+       * 播放端实时对齐两条轨。原来靠 -shortest 跟住音频时长, 现在没有音频流可跟,
+       * 改用上面 ffprobe 得到的 durSecs 显式定长, 成片时长不变。 */
+      "-vf", vf, "-map", "0:v", "-an",
       "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high", "-pix_fmt", "yuv420p",
-      "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-      "-shortest", "-movflags", "+faststart", outPath]);
+      ...(durSecs > 0 ? ["-t", String(durSecs)] : []),
+      "-movflags", "+faststart", outPath]);
     if (r.code !== 0 || !fs.existsSync(outPath)) { console.warn("[canon] ffmpeg failed:", r.stderr.slice(0, 300)); return { ok: false, error: "ffmpeg" }; }
     const buf = fs.readFileSync(outPath);
     const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
@@ -25212,8 +25392,10 @@ async function stitchNarrativeRootVideo(rootId: string): Promise<void> {
     const listPath = path.join(dir, `stitch-${tag}.txt`);
     fs.writeFileSync(listPath, tmp.map((f) => `file '${f}'`).join("\n")); tmp.push(listPath);
     const outPath = path.join(dir, `stitch-${tag}-out.mp4`); tmp.push(outPath);
+    /* W1881 — 整片 = 各场景【画面】的拼接, 声音不进来。
+     * 三部曲 / 歌剧 / 短剧 / 电视连续剧 / 电影一视同仁。 */
     const r = await spawnFfmpeg(["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", listPath,
-      "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-movflags", "+faststart", outPath]);
+      "-c:v", "libx264", "-preset", "veryfast", "-an", "-movflags", "+faststart", outPath]);
     if (r.code !== 0 || !fs.existsSync(outPath)) { console.warn("[stitch] ffmpeg failed:", r.stderr.slice(0, 300)); return; }
     const buf = fs.readFileSync(outPath);
     const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
@@ -25237,9 +25419,10 @@ async function makeStubVideoClip(seed: string): Promise<string> {
     const dir = os.tmpdir(); const tag = crypto.randomBytes(5).toString("hex");
     const out = path.join(dir, `stub-${tag}.mp4`); tmp.push(out);
     const r = await spawnFfmpeg(["-y", "-loglevel", "error",
+      /* W1881 — 占位色块不再挂 anullsrc 静音轨: 它同样是"视频里带音频流", 与铁律形状相同,
+       * 留着就是给下一个人做了个坏样板。 */
       "-f", "lavfi", "-i", `color=c=0x${hex}:s=1280x536:d=3`,
-      "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-      "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", out]);
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", "-movflags", "+faststart", out]);
     if (r.code !== 0 || !fs.existsSync(out)) { console.warn("[stub] ffmpeg failed:", r.stderr.slice(0, 200)); return ""; }
     const buf = fs.readFileSync(out);
     const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
@@ -25348,6 +25531,21 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               `INSERT INTO work_assets (work_id, asset_type, url, meta)
                  VALUES ($1::uuid, 'final_mv', $2, '{}'::jsonb) ON CONFLICT DO NOTHING`,
               [part.id, stableVid]).catch(() => {});
+            /* W1897 —— 厂商成品被拆出的那条音轨(叙事对白/环境音)必须落成【独立音轨】,
+             * 否则画面剥干净了、声音却丢了。播放端本来就是两轨对齐播的。 */
+            {
+              const _splitAudio = _splitAudioByVideoUrl.get(stableVid);
+              if (_splitAudio) {
+                _splitAudioByVideoUrl.delete(stableVid);
+                await pool.query(
+                  `UPDATE user_works SET preview_audio_url = COALESCE(preview_audio_url, $2), updated_at = now()
+                     WHERE id = $1::uuid`, [part.id, _splitAudio]).catch(() => {});
+                await pool.query(
+                  `INSERT INTO work_assets (work_id, asset_type, url, meta)
+                     VALUES ($1::uuid, 'audio_track_1', $2, '{"source":"w1897_split_from_vendor_mp4"}'::jsonb)
+                     ON CONFLICT DO NOTHING`, [part.id, _splitAudio]).catch(() => {});
+              }
+            }
             made += 1;
             // CSSOS_WAVE_1460 — 叙事视频对白→情绪字幕: 转写视频音轨(Veo 自带对白)→ whisper_words →
             // karaoke_words → 影院逐字情绪字幕(与唱段同款体验)。点火即走。
@@ -32149,7 +32347,9 @@ async function backfillSystemWorkMedia(
             { role: "system", content: systemPrompt },
             { role: "user",   content: userPrompt   },
           ],
-          max_tokens: 3200, // 10 sections × ~5 lines × ~30 tokens = 1500; 2× headroom for 文言文 + safety
+          /* CSSOS_WAVE_1911 — 同 W1910: 这个预算也是按【一首】算的(注释自己写着 10 sections × ~5 lines)。
+         * 多部作品必须乘部数, 否则模型写到一半被截断, 每部只剩 4-5 节。 */
+        max_tokens: __lyricsMaxTokensFor("single", ""),   // 纪念日回填一律单曲
           temperature: attempt === 1 ? 0.7 : 0.85, // bump temperature on retry
         });
         const text = (tier && tier.ok && tier.content) ? tier.content.trim() : "";
@@ -32497,6 +32697,214 @@ async function runSystemAudioBackfillBatch(maxBudgetCents?: number): Promise<{
 }
 
 /* POST /api/system-media/audio-backfill-now — admin or internal-token. */
+/* CSSOS_WAVE_1912 20260824 — 歌词批量重生成(admin)。Jing:「请给我一条 admin 批量路径,
+ * 先重跑李清照和苏东坡两个三部曲。」
+ *
+ * 为什么要单独一条路: 生成接口 /api/mv/lyrics 绑会话(要用户登录态)。批量重做是运维动作,
+ * 不该借用户会话, 也不该在浏览器里一首一首点。这条走 x-cssos-internal-token。
+ *
+ * 三条安全线(花的是真钱, 一条都不能省):
+ *   ① dry_run 默认 true —— 不传就只报告"会做什么", 不生成、不花钱、不写库;
+ *   ② max_works 硬上限, 防手滑把 675 首一次跑掉;
+ *   ③ 验收不过【不写库】—— 重生成还是短的, 宁可保留旧的也不用更短的覆盖掉。
+ *      每首最多重试一次(第二次仍短就如实报告, 不无限烧钱)。
+ *
+ * 用法:
+ *   # 先看会做什么(不花钱)
+ *   curl -sS -X POST https://cssstudio.app/api/admin/lyrics/regenerate \
+ *     -H "x-cssos-internal-token: $TOKEN" -H 'content-type: application/json' \
+ *     -d '{"title_like":"声声慢"}'
+ *   # 真跑
+ *   ... -d '{"title_like":"声声慢","dry_run":false}'
+ */
+app.post("/api/admin/lyrics/regenerate", express.json({ limit: "16kb" }), async (req, res) => {
+  const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
+  const tokenOk = !!(CSSOS_INTERNAL_TOKEN && internalToken && internalToken === CSSOS_INTERNAL_TOKEN);
+  if (!tokenOk) {
+    const uid = (req.session as any)?.user_id;
+    if (!uid) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const r = await withClient((c) => c.query<{ role: string }>(`SELECT role FROM users WHERE id=$1::uuid LIMIT 1`, [uid]));
+    if (r.rows[0]?.role !== "admin") return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+
+  const b = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+  const dryRun = b.dry_run === false ? false : true;          // 默认只演练
+  /* CSSOS_WAVE_1913 — Jing:「歌词达标 → 自动接着重跑音乐」。
+   * 默认开启 —— 旧音轨是配着短歌词唱的, 词换了不换曲等于只做一半。
+   * 传 with_music:false 可以只重做歌词。 */
+  const withMusic = b.with_music === false ? false : true;
+  /* CSSOS_WAVE_1913b — force_music: 歌词已达标、但音轨还是【配着旧短词唱的那版】时用。
+   * 这正是李清照/苏东坡现在的处境: 词已经重写成 10 节 50 行, 曲还停在 1-2 分钟的旧版。
+   * 不加这个开关的话, 歌词闸会把它们判为"无需处理"而跳过, 音乐永远换不掉。 */
+  const forceMusic = b.force_music === true;
+  const maxWorks = Math.min(50, Math.max(1, Number(b.max_works || 10)));
+  const ids = Array.isArray(b.work_ids) ? (b.work_ids as unknown[]).map(String).filter(Boolean) : [];
+  const titleLike = String(b.title_like || "").trim();
+  if (!ids.length && !titleLike) {
+    return res.status(400).json({ ok: false, error: "need work_ids or title_like" });
+  }
+
+  /* 只挑【真正不达标】的。达标的不动 —— 重做达标作品既烧钱又可能更差。 */
+  const rows = await withClient((c) => c.query<{
+    id: string; title: string; style: string | null; language: string | null;
+    civilization: string | null; work_type: string; lyrics_preview: string | null; duration_secs: number | null;
+  }>(
+    ids.length
+      ? `SELECT id::text, title, style, language, civilization, work_type, lyrics_preview, duration_secs
+           FROM user_works WHERE id = ANY($1::uuid[]) AND status <> 'deleted' LIMIT $2`
+      : `SELECT id::text, title, style, language, civilization, work_type, lyrics_preview, duration_secs
+           FROM user_works WHERE title LIKE $1 AND status <> 'deleted'
+            AND structure_role <> 'root' ORDER BY created_at LIMIT $2`,
+    ids.length ? [ids, maxWorks] : [`%${titleLike}%`, maxWorks],
+  ));
+
+  /* CSSOS_WAVE_1914 20260824 — Jing:「以后遇到这种"只差一两行但成品很好"的, 请保留。」
+   *
+   * 由来: 《长相思 · 风月闲》原本 14 节 38 行、成品 11.9 分钟 —— 只差 2 行不达标,
+   * 但它本身是首好歌。按铁律硬跑了一遍, 换来一首"合规但未必更好"的。花了钱, 赌了运气。
+   *
+   * 容差条件(三条【全】要满足, 少一条都不放行):
+   *   ① 节数已经够(≥10) —— 结构完整, 只是行数差一点;
+   *   ② 行数 ≥ 38 —— 也就是"只差一两行", 差三行以上不算;
+   *   ③ 成品音乐 ≥ 4 分钟 —— 这是"成品很好"的可测代理: 时长本来就是歌词长度的探针,
+   *      曲子够长说明词其实撑得住, 那两行是统计口径的边界而非真缺。
+   * 三条同时成立才保留。任何一条不满足, 照旧重做。 */
+  const KEEP_MIN_LINES = 38, KEEP_MIN_SECTIONS = 10, KEEP_MIN_DURATION = 240;
+  const plan = rows.rows.map((w) => {
+    const before = assessLyricsCompleteness(w.lyrics_preview || "", "single", "");
+    const nearMiss = !before.ok
+      && before.sections >= KEEP_MIN_SECTIONS
+      && before.lines >= KEEP_MIN_LINES
+      && Number(w.duration_secs || 0) >= KEEP_MIN_DURATION;
+    return { id: w.id, title: w.title, before, nearMiss,
+             needs: !before.ok && !nearMiss, row: w };
+  });
+  const todo = forceMusic ? plan : plan.filter((p) => p.needs);   // W1913b — 强制重跑曲时全都要
+
+  if (dryRun) {
+    return res.json({
+      ok: true, dry_run: true,
+      hint: "加 \"dry_run\": false 才真跑。这一步不花钱、不写库。",
+      with_music: withMusic,
+      note: withMusic
+        ? "歌词达标后会【自动接着重跑音乐】(Suno, 每首数分钟)。传 with_music:false 可只做歌词。"
+        : "只重做歌词, 不动音乐。",
+      total: plan.length, will_regenerate: todo.length,
+      works: plan.map((p) => ({ id: p.id, title: p.title,
+        sections: p.before.sections, lines: p.before.lines, ok: p.before.ok,
+        verdict: p.before.ok ? "达标" : (p.nearMiss ? "只差一两行但成品好 → 保留" : "重做") })),
+    });
+  }
+
+  const out: Array<Record<string, unknown>> = [];
+  for (const p of todo) {
+    const w = p.row;
+    /* 每一部都当【单曲】生成 —— Jing:「三部曲, 每一部都是一个单曲, 每个单曲都是 40-50 行」。
+     * 所以 workType 一律传 "single", 令牌按单曲给足, 绝不出现"一份摊三份"。 */
+    const wt = "single";
+    const lang = String(w.language || "zh");
+    const civ = String(w.civilization || "");
+    const style = String(w.style || "");
+    type LyricPick = { text: string; check: ReturnType<typeof assessLyricsCompleteness> };
+    let best: LyricPick | null = null;
+
+    /* W1913b — 歌词已达标就【不重写词】, 直接用现有的去重跑曲。
+     * 重写达标的好词既烧钱又可能更差 —— 这里要换的是旋律, 不是词。 */
+    if (!p.needs && forceMusic) {
+      best = { text: String(w.lyrics_preview || ""), check: p.before };
+    }
+
+    let bestLines = -1;
+    for (let attempt = 0; !best && attempt < 2; attempt += 1) {
+      const nudge = attempt === 0 ? ""
+        : "上一次输出不足 10 节 / 40 行, 属于废歌词。这一次必须写满完整十节, 每节 4 行正文(有咒语则 5 行), 全篇 40-50 行。";
+      let r: Awaited<ReturnType<typeof callLlm>> | null = null;
+      try {
+        r = await callLlm({
+          messages: [
+            { role: "system", content: buildJingdianSystemPrompt(lang, wt, "", civ, true, nudge) },
+            { role: "user", content: buildJingdianUserPrompt(lang, style, w.title, wt, "", civ, "", true, nudge) },
+          ],
+          max_tokens: __lyricsMaxTokensFor(wt, ""),
+          temperature: 0.7,
+          prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
+        });
+      } catch (e) {
+        out.push({ id: w.id, title: w.title, ok: false, error: (e as Error)?.message?.slice(0, 120) });
+        break;
+      }
+      if (!r || !r.ok || !r.content?.trim()) continue;
+      const text = normalizeLyricsToJingdian(r.content.trim(), wt as LyricsWorkType, "");
+      const check = assessLyricsCompleteness(text, wt, "");
+      /* 不在循环里读 best —— 循环条件 !best 会把它收窄成 null, 再读 .check 就是 never。
+       * 改用独立的行数游标记录当前最优, best 只做赋值。 */
+      if (check.lines > bestLines) { bestLines = check.lines; best = { text, check }; }
+      if (check.ok) break;
+    }
+
+    if (!best) { out.push({ id: w.id, title: w.title, ok: false, error: "no_output" }); continue; }
+    if (!best.check.ok) {
+      /* 安全线③: 还是短的就【不写库】—— 保留旧的, 好过用更短的覆盖掉。 */
+      out.push({ id: w.id, title: w.title, ok: false, wrote: false,
+                 error: "still_incomplete", sections: best.check.sections, lines: best.check.lines });
+      continue;
+    }
+    const rewroteLyrics = p.needs;      // 只有原本不达标才写词; 达标的原样保留
+    if (rewroteLyrics) {
+      await withClient((c) => c.query(
+        `UPDATE user_works SET lyrics_preview = $2, updated_at = now() WHERE id = $1::uuid`,
+        [w.id, best!.text],
+      ));
+    }
+    const rec: Record<string, unknown> = {
+      id: w.id, title: w.title, ok: true, wrote: rewroteLyrics,
+      before: { sections: p.before.sections, lines: p.before.lines },
+      after: { sections: best.check.sections, lines: best.check.lines },
+    };
+
+    /* CSSOS_WAVE_1913 — 歌词达标 → 接着重跑音乐(Jing 指示)。
+     * 词换了不换曲等于只做一半: 旧音轨是配着 4 节短词唱的, 时长也才 1-2 分钟。
+     * 时长按新歌词行数估: 10 节 50 行 ≈ 4-5 分钟, 给引擎一个真实目标而不是让它自己猜短。
+     * 音频【必落 R2】—— Suno 返回的是 aiquickdraw 临时链, 存库会过期(见铁律
+     * all-generated-media-must-persist-to-r2)。 */
+    if (withMusic) {
+      try {
+        const est = Math.max(180, Math.min(480, Math.round(best.check.lines * 6)));
+        const music = await callMusicGen({
+          prompt: `${w.title} — ${style} — ${best.text.slice(0, 300)}`,
+          lyrics: best.text, title: w.title, language: lang,
+          duration_secs: est, prefer: ["suno"], sunoModel: "V5_5",
+        });
+        let audioUrl = (music && music.ok && music.audio_url) ? String(music.audio_url) : "";
+        if (audioUrl && !isR2Url(audioUrl)) {
+          try {
+            const ab = await (await fetch(audioUrl)).arrayBuffer();
+            const u = await uploadBufferToR2(Buffer.from(ab), `artifacts/audio/${w.id}/a1.mp3`, "audio/mpeg");
+            if (u) audioUrl = u;
+          } catch (e) { console.warn("[regen-music] rehost failed", (e as Error).message); }
+        }
+        if (audioUrl) {
+          await withClient((c) => c.query(
+            `UPDATE user_works SET preview_audio_url = $2, duration_secs = NULL, updated_at = now()
+               WHERE id = $1::uuid`, [w.id, audioUrl]));
+          await withClient((c) => c.query(
+            `INSERT INTO work_assets (work_id, asset_type, url, meta)
+               VALUES ($1::uuid,'audio_track_1',$2,'{"source":"w1913_regen"}'::jsonb)
+             ON CONFLICT DO NOTHING`, [w.id, audioUrl])).catch(() => {});
+          rec.music = { ok: true, target_secs: est, url_tail: audioUrl.slice(-38) };
+        } else {
+          rec.music = { ok: false, error: (music && music.error) || "no_audio_url" };
+        }
+      } catch (e) {
+        rec.music = { ok: false, error: (e as Error)?.message?.slice(0, 140) };
+      }
+    }
+    out.push(rec);
+  }
+  return res.json({ ok: true, dry_run: false, processed: out.length, results: out });
+});
+
+
 app.post("/api/system-media/audio-backfill-now", async (req, res) => {
   const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
   const tokenOk = !!(CSSOS_INTERNAL_TOKEN && internalToken && internalToken === CSSOS_INTERNAL_TOKEN);
@@ -48313,7 +48721,9 @@ app.post("/api/actors/:id/wendao/clip", (req, res) => {
       const tmpOut = path.join(os.tmpdir(), `clip_${sid}.mp4`);
       try {
         fs.writeFileSync(tmpIn, file.buffer);
-        const ff = await spawnFfmpeg(["-y", "-i", tmpIn, "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-vf", "scale=640:-2", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", tmpOut]);
+        /* W1881 合法例外 —— 这是【用户自己上传】的问道视频片段, 音频是他本人的原声,
+         * 不是平台四轨里的"音乐"。剥掉才是破坏用户素材。显式放行, 不让守卫默默漏过。 */
+        const ff = await spawnFfmpeg([CSSOS_FFMPEG_ALLOW_MUX, "-y", "-i", tmpIn, "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-vf", "scale=640:-2", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", tmpOut]);
         if (ff.code === 0 && fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 1024) {
           outBuf = fs.readFileSync(tmpOut);
         } else {
@@ -48678,7 +49088,34 @@ app.get("/api/works/public/:id", async (req, res) => {
            (SELECT array_agg(sf.url)
               FROM (SELECT sf2.url FROM work_assets sf2
                      WHERE sf2.work_id = w.id AND sf2.asset_type = 'slideshow_frame'
-                     ORDER BY random() LIMIT 15) sf) AS cover_slides
+                     ORDER BY random() LIMIT 15) sf) AS cover_slides,
+             -- CSSOS_WAVE_1880 20260823 — 多画面胶囊(Jing)要知道这条画面【到底是什么】。
+             -- 判据 = "有没有真的付过视频引擎的钱": engines.video_cents > 0 才是真视频。
+             -- 绝不能用"有没有 mp4"判断 —— 实测已发布作品里 video_cents>0 的数量 = 0,
+             -- 那 99 个 mp4 全是平台自己用封面拼出来的幻灯片视频。按 mp4 判 = 在 UI 上撒谎。
+             -- Jing 2026-08-23:「我们自己把封面拼出来的幻灯片视频, 就是幻灯, 不能归类到真视频,
+             --   也不能归类到混合视频。」「目前平台除了那些预告片是真视频之外, 其余都是幻灯。」
+             -- 真视频的两个判据(缺一不可地都要认):
+             --   ① engines.video_cents > 0 —— 真的付过视频引擎的钱。对【将来】的作品永远正确。
+             --   ② URL 前缀 te-trailer- / film- —— 今天那 6 部预告片。film- 是把各场景的真视频
+             --      concat 出来的整片(见 stitch), 所以是真视频。
+             -- 明确【不】算真视频的: canon-  它是 ffmpeg 拿【一张静态图】+ 音频做 Ken Burns 缓推,
+             --   本质就是幻灯; epic- 同理是平台自己拼的。按"有 mp4"判断会把它们全标成真视频 = 撒谎。
+             CASE
+               WHEN (COALESCE((final_mv_asset.meta->'engines'->>'video_cents')::int, 0) > 0
+                     OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/te-trailer%'
+                     OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/film-%')
+                    AND EXISTS (SELECT 1 FROM work_assets vk WHERE vk.work_id = w.id AND vk.asset_type = 'slideshow_frame')
+                 THEN 'hybrid'
+               WHEN COALESCE((final_mv_asset.meta->'engines'->>'video_cents')::int, 0) > 0
+                     OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/te-trailer%'
+                     OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/film-%'
+                 THEN 'video'
+               ELSE 'slides'
+             END AS visual_kind,
+             -- 幻灯是用几张封面拼的 —— 胶囊要标"N张", 数字必须真。
+             (SELECT count(*) FROM work_assets vf
+               WHERE vf.work_id = w.id AND vf.asset_type = 'slideshow_frame') AS visual_frames
          FROM user_works w
          JOIN users u ON u.id = w.user_id
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -48797,6 +49234,9 @@ app.get("/api/works/public/:id", async (req, res) => {
           if (urls.length) return urls;
           return normalized.cover_image ? [normalized.cover_image] : [];
         })(),
+        // CSSOS_WAVE_1880 — 多画面胶囊的类型与张数(判据见上面 SELECT 的注释)。
+        visual_kind: String((row as any).visual_kind || "slides"),
+        visual_frames: Number((row as any).visual_frames || 0) || 0,
         // Playable URL: signed token, full kind for full-access viewers,
         // preview kind for guests on paid works (player honours the
         // X-Preview-Limit-Seconds header response from /secure/artifacts).
@@ -49071,6 +49511,35 @@ app.get("/api/works/market", async (req, res) => {
               FROM (SELECT sf2.url FROM work_assets sf2
                      WHERE sf2.work_id = w.id AND sf2.asset_type = 'slideshow_frame'
                      ORDER BY random() LIMIT 15) sf) AS cover_slides,
+             -- CSSOS_WAVE_1880 20260823 — 多画面胶囊(Jing)要知道这条画面【到底是什么】。
+             -- 判据 = "有没有真的付过视频引擎的钱": engines.video_cents > 0 才是真视频。
+             -- 绝不能用"有没有 mp4"判断 —— 实测已发布作品里 video_cents>0 的数量 = 0,
+             -- 那 99 个 mp4 全是平台自己用封面拼出来的幻灯片视频。按 mp4 判 = 在 UI 上撒谎。
+             -- Jing 2026-08-23:「我们自己把封面拼出来的幻灯片视频, 就是幻灯, 不能归类到真视频,
+             --   也不能归类到混合视频。」「目前平台除了那些预告片是真视频之外, 其余都是幻灯。」
+             -- 真视频的两个判据(缺一不可地都要认):
+             --   ① engines.video_cents > 0 —— 真的付过视频引擎的钱。对【将来】的作品永远正确。
+             --   ② URL 前缀 te-trailer- / film- —— 今天那 6 部预告片。film- 是把各场景的真视频
+             --      concat 出来的整片(见 stitch), 所以是真视频。
+             -- 明确【不】算真视频的: canon-  它是 ffmpeg 拿【一张静态图】+ 音频做 Ken Burns 缓推,
+             --   本质就是幻灯; epic- 同理是平台自己拼的。按"有 mp4"判断会把它们全标成真视频 = 撒谎。
+             CASE
+               WHEN (COALESCE((SELECT (fa.meta->'engines'->>'video_cents')::int FROM work_assets fa
+                                WHERE fa.work_id = w.id AND fa.asset_type = 'final_mv' LIMIT 1), 0) > 0
+                     OR w.preview_video_url LIKE '%/te-trailer%'
+                     OR w.preview_video_url LIKE '%/film-%')
+                    AND EXISTS (SELECT 1 FROM work_assets vk WHERE vk.work_id = w.id AND vk.asset_type = 'slideshow_frame')
+                 THEN 'hybrid'
+               WHEN COALESCE((SELECT (fa2.meta->'engines'->>'video_cents')::int FROM work_assets fa2
+                                WHERE fa2.work_id = w.id AND fa2.asset_type = 'final_mv' LIMIT 1), 0) > 0
+                     OR w.preview_video_url LIKE '%/te-trailer%'
+                     OR w.preview_video_url LIKE '%/film-%'
+                 THEN 'video'
+               ELSE 'slides'
+             END AS visual_kind,
+             -- 幻灯是用几张封面拼的 —— 胶囊要标"N张", 数字必须真。
+             (SELECT count(*) FROM work_assets vf
+               WHERE vf.work_id = w.id AND vf.asset_type = 'slideshow_frame') AS visual_frames,
            -- CSSOS_TIER_C_MULTILINGUAL C6 — which languages this work has
            -- as READY voice tracks (for card badges + language filter UI).
            (SELECT array_agg(wlt.lang ORDER BY wlt.track_order)
@@ -66098,4 +66567,28 @@ setInterval(() => { rateLimitCleanup().catch(() => {}); }, 60 * 60 * 1000).unref
 start().catch((err) => {
   console.error("Startup failed", err);
   process.exit(1);
+});
+
+
+/* CSSOS_WAVE_1899 20260823 —— Vision(visionOS 原生 app)的作品详情别名。
+ *
+ * 实测(2026-08-23)Vision 侧接口核对: CSSBackend.swift 第 12 行调的是
+ *   GET /api/works/{id}
+ * 而后端【只有】 GET /api/works/public/{id}。前者 404 —— 也就是说已经上架的
+ * cssVision 从来就拉不到作品详情, 装上去就是黑屏。
+ *
+ * 为什么修在服务端而不是改 Swift: Vision app 已经在 App Store 上, 用户手里是旧二进制。
+ * 改 Swift 要重新打包 + 审核, 而加一条服务端别名【所有已装用户立刻恢复】。
+ * Swift 那边也会改成正规路径, 但那是下一个版本的事, 不该让现有用户等。
+ *
+ * 注册位置在所有具名路由之后 —— :id 是通配段, 放前面会吃掉 /api/works/mine、
+ * /api/works/market、/api/works/flagships 这些字面量路由(Express 按注册顺序匹配)。
+ * 带额外路径段的(/api/works/:id/comments 等)不受影响, 段数不同。 */
+app.get("/api/works/:id", (req, res, next) => {
+  const id = String(req.params.id || "");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return next();
+  /* 用 302 而不是内部重派发: 我先写的 (app as any)._router.handle(req,res,next) 直接 500 ——
+   * Express 5 的内部路由器不是这样重入的。302 简单、可观测, 而且 URLSession / fetch
+   * 默认都会跟随重定向, 对已上架的 Vision app 是透明的。 */
+  return res.redirect(302, `/api/works/public/${encodeURIComponent(id)}`);
 });

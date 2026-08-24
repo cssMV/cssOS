@@ -71,7 +71,15 @@
          - 不规则渐变 = 两层 radial-gradient 叠在 linear 上, 亮点偏左上 → 有"液态玻璃"的不规则感,
            不是死板的对角线。绿用品牌 #00f5a0 系, 底用近黑 → 黑绿。
          - transition 只留 transform, 不能给 left/top 加过渡 —— 否则拖拽会"追不上手指"。 */
-      "#cssos-agent-fab{position:fixed;right:14px;bottom:calc(var(--cssos-dock-clear,0px) + env(safe-area-inset-bottom,0px) + 5px);top:auto;width:46px;height:46px;border-radius:50%;" +
+      /* CSSOS_WAVE_1894 20260823 —— Jing:「AI 助理默认位置在右下角…移动到 Dock 上方。」(第三次提)
+           * 前两次没生效的真因(实测): app.watch-bottom-stack.js 给 FAB 写【内联】
+           *   position:absolute; inset:auto 14px 14px auto
+           * —— position:absolute 让它贴的是某个容器的底边而不是视口, 我在 CSS 里改的 bottom
+           * 被整个绕开(实测它甚至掉到视口外: 中心 y=843 > 视口高 812)。清掉历史拖拽坐标
+           * (W1892)也救不了, 因为压它的根本不是那份坐标。
+           * 修法: 定位四件套全部 !important —— 样式表的 !important 压得过普通内联。
+           * 位置 = Dock 正上方: Dock 自身 bottom(max(13px, safe+8px)) + Dock 高 54px + 8px 间隙。 */
+          "#cssos-agent-fab{position:fixed !important;right:14px !important;left:auto !important;bottom:calc(max(13px, env(safe-area-inset-bottom,5px) + 8px) + 62px) !important;top:auto !important;width:46px;height:46px;border-radius:50%;" +
         "background:radial-gradient(circle at 30% 26%,rgba(0,245,160,0.92) 0%,rgba(0,184,122,0.62) 34%,rgba(6,20,15,0) 62%)," +
         "radial-gradient(circle at 74% 80%,rgba(0,140,95,0.5) 0%,rgba(2,10,7,0) 58%)," +
         "linear-gradient(148deg,#07130e 0%,#0d1a14 46%,#020806 100%);" +
@@ -197,6 +205,48 @@
     fab.addEventListener("click", togglePanel);
     document.body.appendChild(fab);
     makeFabDraggable(fab);
+
+    /* CSSOS_WAVE_1896 20260823 —— Jing 第四次提「AI 助理放到 Dock 上方」。
+     *
+     * 前三次(W1878 改 CSS bottom / W1892 清历史拖拽坐标 / W1894 全部 !important)都没生效,
+     * 因为它们都在跟【层叠】较劲, 而真正的问题在【父容器】。实测证据:
+     *   父元素 = .watch-screen(不是 body);
+     *   computed 明明是 position:fixed; right:14px; bottom:75px —— 我的 !important 赢了;
+     *   但实际矩形 right=405, 而视口只有 375 宽 —— 它被摆到视口外去了。
+     * 计算值和实际布局对不上, 只可能是它被塞在一个比视口宽的容器里, fixed 的参照系不是视口。
+     * 那么改多少 bottom / right 都没有意义 —— 参照系本身是错的。
+     *
+     * 修法: 不在影院态时, FAB 必须是 document.body 的直接子元素。挂在 body 上,
+     * position:fixed 的参照系就是视口本身, 再没有第三方容器能挪动它。
+     * 影院/全屏时【不动它】—— 那时它必须留在全屏元素子树内, 否则会被甩出层外看不见
+     * (这是 cssosMountInCinema 存在的理由, 不能为了位置把那个修好的问题弄坏)。 */
+    (function keepFabOnBody() {
+      /* W1896b —— 上一版把 cssos-watch-theater / cssos-cinema-mode 也当成"影院态", 于是守卫
+       * 永远不动手(播放时那两个 class 一直挂着)。它们只是【CSS 影院观感】, body 仍然是布局根,
+       * 挂在 body 上完全正常。真正需要让位的只有【真 OS 全屏】—— 那时只渲染 fullscreenElement
+       * 子树, 挂 body 的元素会被甩出层外(见记忆 dock-item-and-popup-gotchas)。 */
+      function inCinema() {
+        try { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+        catch (_e) { return false; }
+      }
+      function ensure() {
+        try {
+          var el = document.getElementById("cssos-agent-fab");
+          if (!el) return;
+          if (inCinema()) return;                       // 影院态: 交给 cssosMountInCinema, 不抢
+          if (el.parentElement === document.body) return;
+          document.body.appendChild(el);
+          /* 被别的模块摆过的内联几何一并清掉, 让样式表里的默认位置(Dock 上方)重新说了算。 */
+          ["position", "left", "top", "right", "bottom", "inset", "width", "height", "min-width"]
+            .forEach(function (k) { try { el.style.removeProperty(k); } catch (_e) {} });
+        } catch (_e) {}
+      }
+      ensure();
+      try { setInterval(ensure, 1500); } catch (_e) {}
+      ["cssos:watch-close", "fullscreenchange", "webkitfullscreenchange"].forEach(function (ev) {
+        try { window.addEventListener(ev, function () { setTimeout(ensure, 60); }, { passive: true }); } catch (_e) {}
+      });
+    })();
     startFabPosSelfHeal();
 
     var panel = document.createElement("section");
@@ -530,7 +580,7 @@
       "【硬性要求】每首的高潮副歌(Chorus)必须逐字包含以下两句(required hooks),绝不改动:",
       "古来圣贤皆寂寞",
       "惟有饮者留其名",
-      "【音乐风格(英文,Suno 要求)】epic Chinese, guofeng rock, guqin, pipa, erhu, guzheng, taiko drums, hybrid strings, choir, cinematic; mood: solitary → rebellious → transcendent.",
+      "【音乐风格(英文,Suno 要求)】epic Chinese, guofeng rock, guqin, pipa, erhu, guzheng, Chinese war drums (dagu), hybrid strings, choir, cinematic; mood: solitary → rebellious → transcendent.",
       "三部递进:Ⅰ《圣贤之寂》— 寒窗孤影、功名如梦、初饮出世;Ⅱ《醉里狂歌》— 长街烈酒、世人笑我、大醉狂歌;Ⅲ《天地留名》— 回首千年、超脱看穿、举杯天地、凡人成传奇。"
     ].join("\n");
     var libaiTpl = {
@@ -567,7 +617,7 @@
       "【硬性要求】每首的高潮副歌(Chorus)必须逐字包含以下两句(required hooks),绝不改动:",
       "无边落木萧萧下",
       "不尽长江滚滚来",
-      "【音乐风格(英文,Suno 要求)】epic Chinese, guofeng, autumnal grandeur, guqin, erhu, dizi flute, pipa, taiko drums, cinematic strings, choir; mood: desolate → sorrowful → transcendent.",
+      "【音乐风格(英文,Suno 要求)】epic Chinese, guofeng, autumnal grandeur, guqin, erhu, dizi flute, pipa, Chinese war drums (dagu), cinematic strings, choir; mood: desolate → sorrowful → transcendent.",
       "三部递进(忠于原诗意象):Ⅰ《风急天高》— 秋江峡口、猿啸鸟回、登台远眺、萧瑟苍茫;Ⅱ《万里悲秋》— 万里作客、百年多病、独登高台、身世飘零;Ⅲ《潦倒停杯》— 艰难苦恨、霜鬓潦倒、新停浊酒,却于落木长江间见天地永恒、悲怆中得超脱。"
     ].join("\n");
     var dufuTpl = {
@@ -712,6 +762,27 @@
   var FAB_POS_KEY = "cssos.aiAssistant.pos";
   var LEGACY_POS_KEYS = ["cssos.agentFab.pos", "cssos.railAi.pos"];
   var DRAG_SLOP = 4;
+
+  /* CSSOS_WAVE_1892 20260823 —— Jing:「说了, AI 助理默认位置在右下角, 和 Dock 上的
+   * 话筒图标一样高。」—— 这是他第二次提。
+   *
+   * W1878 已经把 CSS 默认高度改对了(bottom 跟 #dock 同基准 −3px, 让 46px 的 FAB 圆心
+   * 对齐话筒胶囊圆心), 但对他【无效】: readSharedPos() 会把历史拖拽坐标以【内联
+   * left/top】写回元素, 内联坐标压过 CSS 的 bottom → 只要以前拖过一次, 新默认永远不生效。
+   *
+   * 修法: 位置存储加一个 schema 版本。版本对不上(= W1892 之前存的)就【丢弃一次】,
+   * 让所有人回到新默认位置; 此后用户再拖, 照常记住他自己的选择。
+   * 只重置一次, 不反复清 —— 否则用户永远拖不动它。 */
+  var FAB_POS_VER_KEY = "cssos.aiAssistant.posVer";
+  var FAB_POS_VER = "w1892";
+  (function resetStalePosOnce() {
+    try {
+      if (localStorage.getItem(FAB_POS_VER_KEY) === FAB_POS_VER) return;
+      localStorage.removeItem(FAB_POS_KEY);
+      LEGACY_POS_KEYS.forEach(function (k) { try { localStorage.removeItem(k); } catch (_e) {} });
+      localStorage.setItem(FAB_POS_VER_KEY, FAB_POS_VER);
+    } catch (_e) {}
+  })();
 
   // 读共享位置; 首次运行时把旧 key 迁移过来并清掉, 避免两处再各自记一份。
   function readSharedPos() {

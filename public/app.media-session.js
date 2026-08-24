@@ -33,7 +33,23 @@
       globalThis.currentWatchPreviewWork ||
       globalThis.cssmvPipelineLastResult ||
       {};
-    var title = String(work.title || "").trim();
+    /* CSSOS_WAVE_1929 20260824 — Jing 截图(锁屏): 正在播的是《François-Marie Arouet》,
+     * 锁屏 Now Playing 却显示「cyber samurai meditating in rain」—— 那是一句【画面
+     * 提示词】, 不是歌名。
+     *
+     * 根因: 标题从 currentWatchPreviewWork / cssmvPipelineLastResult 两个全局取。
+     * 后者是【创作管线】的结果对象, .title 装的是场景/画面提示词; 而且这两个全局
+     * 由别的模块各自维护, 切歌后可能陈旧 —— 又一个绕过唯一真源的读法。
+     *
+     * 改为优先读【标题权威】(app.title-authority.js W1888 发布的
+     * __cssosTitleAuthorityValue): 屏幕上显示什么, 锁屏就显示什么, 一个来源。
+     * 权威没就位(冷启动极短窗口)才回退旧路径。 */
+    var title = "";
+    try {
+      var __auth = String(globalThis.__cssosTitleAuthorityValue || "").trim();
+      if (__auth && __auth.toUpperCase() !== "MV PANEL" && __auth.toUpperCase() !== "WATCH") title = __auth;
+    } catch (_eAuth) {}
+    if (!title) title = String(work.title || "").trim();
     if (!title) {
       var bar = document.querySelector("#watch-panel .panel-title");
       if (bar && bar.textContent) {

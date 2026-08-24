@@ -208,7 +208,68 @@
         try { v.addEventListener(ev, markSourceOrientation, { passive: true }); } catch (_e) {}
       });
     }
+      /* W1930 收口 — 方向已判定且 transform 已落好 → 揭幕, 这一步才是"先转好再露面"。
+       * 只有拿到【真实尺寸】(w/h 都 > 0)才算判定成功; 尺寸还没出来就不揭, 交给硬超时。 */
+      try { if (w > 0 && h > 0) dropCurtain(); } catch (_e) {}
   }
+
+  /* ───────────────────────────────────────────────────────────────────────
+   * CSSOS_WAVE_1930 20260824 — Jing:「不要急急忙忙先显示一个横屏, 然后又急急忙忙
+   * 旋转, 而是在后台检测、在后台旋转好, 再显示出来, 用户才不会感到很唐突。」
+   *
+   * 病根是【时序】: markSourceOrientation 挂在 loadedmetadata 上, 而那一刻浏览器
+   * 已经能画出第一帧了 —— 于是必然"先露出没转的横画面, 再啪一下转过去"。方向判得
+   * 再准也救不了, 因为判断发生在露面【之后】。
+   *
+   * 幕布: 源一变就先把画面层遮住(opacity:0), 等方向判完、transform 落好再揭开。
+   * 用户看到的第一帧就已经是转好的。
+   *
+   * 两条硬约束:
+   *  · 竖屏设备【不可以】显示横屏媒体 → 必须先转好才准露面(本条的目的);
+   *    横屏设备【可以】显示竖屏媒体 → 不转, 判定即揭幕, 不多等一帧。
+   *    规则本来就不对称 —— 32:9 是生成侧铁律, 横屏遇竖媒体是少数情况, 留边即可。
+   *  · 幕布必须有硬超时: 画面绝不能黑着不动(Jing:「画面不能是黑乎乎的视频框」)。
+   *    360ms 兜底揭幕 —— 宁可露一下没转好的, 也不能卡成黑屏。 */
+  var CURTAIN_MS = 360;
+  function visualLayers() {
+    var out = [];
+    ["#watch-video", ".watch-svg", ".cssmv-cover-slide", ".watch-music-art"].forEach(function (sel) {
+      try { [].slice.call(document.querySelectorAll(sel)).forEach(function (e) { if (e) out.push(e); }); } catch (_e) {}
+    });
+    return out;
+  }
+  function armCurtain() {
+    visualLayers().forEach(function (e) {
+      try {
+        if (e.__cssosCurtained) return;
+        e.__cssosCurtained = true;
+        e.style.setProperty("transition", "opacity 140ms ease-out", "important");
+        e.style.setProperty("opacity", "0", "important");
+      } catch (_e) {}
+    });
+    try { clearTimeout(globalThis.__cssosCurtainTimer); } catch (_e) {}
+    globalThis.__cssosCurtainTimer = setTimeout(dropCurtain, CURTAIN_MS);   // 硬超时, 绝不黑屏
+  }
+  function dropCurtain() {
+    try { clearTimeout(globalThis.__cssosCurtainTimer); } catch (_e) {}
+    visualLayers().forEach(function (e) {
+      try {
+        if (!e.__cssosCurtained) return;
+        e.__cssosCurtained = false;
+        e.style.setProperty("opacity", "1", "important");
+      } catch (_e) {}
+    });
+  }
+  globalThis.cssosVisualCurtain = { arm: armCurtain, drop: dropCurtain };
+
+  /* 换歌 / 换源 → 立刻拉幕(赶在任何一帧被画出来之前) */
+  try { window.addEventListener("cssos:work-id-changed", armCurtain, { passive: true }); } catch (_e) {}
+  try {
+    var __v0 = document.getElementById("watch-video");
+    if (__v0) ["emptied", "loadstart"].forEach(function (ev) {
+      try { __v0.addEventListener(ev, armCurtain, { passive: true }); } catch (_e) {}
+    });
+  } catch (_e) {}
 
   injectStyle();
   apply();

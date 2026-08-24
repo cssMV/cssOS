@@ -273,6 +273,22 @@ struct ImmersiveView: View {
                 }
             }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.regular)
 
+            /* CSSOS_WAVE_1935 — 星空样式 A/B 对照。放在菜单里, 是为了让 Jing 在头显里
+             * 当场来回切着看, 不用改代码重编 —— 观感这种事只能眼睛判, 不能靠我描述。
+             * 「Emoji 立体」那档彩色会变单色浮雕: RealityKit 挤出网格只吃字形轮廓,
+             * 是固有限制不是 bug, 所以标注写明, 免得看到掉色以为坏了。 */
+            Text(L("Starfield", "星空")).font(.headline).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ForEach(CathedralSettings.starfieldStyles, id: \.key) { st in
+                    Button(L(st.en, st.zh)) { settings.starfieldStyle = st.key }
+                        .lineLimit(1).fixedSize()
+                        .tint(settings.starfieldStyle == st.key ? .green : nil)
+                }
+            }.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.regular)
+            Text(L("3D emoji renders as monochrome relief — extruded text meshes take glyph outlines only.",
+                   "「Emoji 立体」会是单色浮雕 —— 挤出网格只吃字形轮廓, 彩色要选「Emoji 彩色」。"))
+                .font(.caption2).foregroundStyle(.secondary).frame(width: 460, alignment: .leading)
+
             // W966 — 恢复: 用户自带环境(作品封面 / 自填 360 图)。开放平台, 环境也交给用户。
             HStack(spacing: 10) {
                 Button(L("Use cover as scene", "用本作品封面")) {
@@ -348,7 +364,17 @@ struct ImmersiveView: View {
                 //   不再持续跟头(与大厅星空一致)。密度也与大厅一致(共用网格后内存是零头, 不必省)。
                 let starAnchor = AnchorEntity(.head)
                 starAnchor.anchoring.trackingMode = .once
-                StarfieldVolume.make(into: starAnchor, count: 1600)   // W1398 — 影院近景星加密(略低于大厅, 给视频解码留余量)
+                /* CSSOS_WAVE_1935 — 星空 A/B 对照。三种样式共用同一套摆位(整球面均匀 + 有远有近),
+                 * 这样在头显里切换才是真可比。emoji 两版都只有 50 颗 —— 对照版刻意少, 先看观感
+                 * 再谈密度; 真要上量靠的是"按字形建一份资源、其余克隆复用"。 */
+                switch settings.starfieldStyle {
+                case "emoji-flat":
+                    StarfieldEmoji.make(into: starAnchor, count: 50, mode: .flat)
+                case "emoji-3d":
+                    StarfieldEmoji.make(into: starAnchor, count: 50, mode: .extruded)
+                default:
+                    StarfieldVolume.make(into: starAnchor, count: 1600)   // W1398 — 影院近景星加密
+                }
                 content.add(starAnchor)
             }
 

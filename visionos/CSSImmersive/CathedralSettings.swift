@@ -29,6 +29,21 @@ final class CathedralSettings: ObservableObject {
         ("deepsea", "Sea of Chaos", "混沌深海"),
     ]
 
+    /* CSSOS_WAVE_1935 20260824 — 星空样式 A/B 对照(Jing:「先做个 50 颗的 3D emoji 对照版」)。
+     *   "classic"     现行 1600 颗贴图星点(共用网格, 便宜)
+     *   "emoji-flat"  50 颗【彩色】emoji 贴片, 面向用户 —— 保留颜色, 开销≈星点
+     *   "emoji-3d"    50 颗【真挤出】emoji 网格, 有厚度侧面可见 —— 但彩色会变单色浮雕
+     *                 (RealityKit 文字网格只吃字形轮廓, 固有限制, 不是 bug)
+     * 持久化, 免得每次进殿都要重选。 */
+    @Published var starfieldStyle: String = UserDefaults.standard.string(forKey: "cssStarfieldStyle") ?? "classic" {
+        didSet { UserDefaults.standard.set(starfieldStyle, forKey: "cssStarfieldStyle"); bump() }
+    }
+    static let starfieldStyles: [(key: String, en: String, zh: String)] = [
+        ("classic",    "Stars (1600)",      "星点 · 1600"),
+        ("emoji-flat", "Emoji color (50)",  "Emoji 彩色 · 50"),
+        ("emoji-3d",   "Emoji 3D (50)",     "Emoji 立体 · 50"),
+    ]
+
     /// W961 — 菜单开关。空间里的 3D 魔镜 logo 点一下 → 切换它 → 空间菜单浮层显隐。
     @Published var menuOpen: Bool = false
     /// W964 — 已自动进殿过一次(避免退出后重开窗口又被自动拉进去)。

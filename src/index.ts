@@ -33228,6 +33228,58 @@ app.post("/api/admin/actors/find-missing", express.json({ limit: "16kb" }), asyn
   });
 });
 
+/* CSSOS_WAVE_1939 20260824 — 圣殿大门「文明之门」的数据源(Jing 选定的方向)。
+ *
+ * 旧大门是【一枚金球 + 一句欢迎词 + 一个按钮】—— 进门是"按一下", 与平台是什么没关系。
+ * 新大门要表达的是: 你站在一圈文明中间, 每个文明是一道门。这才对得上平台的底子 ——
+ * 343 位数字演员本来就按文明分, 64 个文明各有各的画面、乐器、唱腔。
+ *
+ * 这个接口只回【做门面要用的最少信息】: 文明名 + 一位代表演员 + 他的封面 + 该文明的
+ * 演员数(决定门的大小/排序)。不回 bio/persona 那些长文本 —— 头显那边只需要贴图和标题,
+ * 多回一个字节都是白占带宽。
+ *
+ * 代表演员的选法: 该文明里【最热且有封面】的那位。孔子代表中华文明、奥丁代表北欧神话、
+ * 湿婆代表印度教神话 —— 一眼认得出是哪个世界, 这正是"选一个世界"该有的第一印象。
+ */
+app.get("/api/civilizations/gates", async (req, res) => {
+  try {
+    const limit = Math.min(64, Math.max(4, Number(req.query.limit || 16)));
+    const r = await withClient((c) => c.query<Record<string, unknown>>(
+      `WITH face AS (
+         SELECT DISTINCT ON (civilization)
+                civilization, actor_id, name_zh, name_en, cover_image,
+                COALESCE(popularity_score, 0) AS pop
+           FROM digital_actors
+          WHERE civilization IS NOT NULL AND civilization <> ''
+            AND cover_image IS NOT NULL AND cover_image <> ''
+          ORDER BY civilization, COALESCE(popularity_score,0) DESC, actor_id
+       ),
+       cnt AS (
+         SELECT civilization, count(*)::int AS actor_count
+           FROM digital_actors
+          WHERE civilization IS NOT NULL AND civilization <> ''
+          GROUP BY civilization
+       )
+       SELECT f.civilization, f.actor_id, f.name_zh, f.name_en, f.cover_image, c.actor_count
+         FROM face f JOIN cnt c USING (civilization)
+        ORDER BY c.actor_count DESC, f.pop DESC
+        LIMIT $1`, [limit]));
+
+    const gates = (r.rows as Record<string, unknown>[]).map((g) => ({
+      civilization: String(g.civilization || ""),
+      face_actor_id: String(g.actor_id || ""),
+      face_name: String(g.name_zh || g.name_en || ""),
+      cover: String(g.cover_image || ""),
+      actor_count: Number(g.actor_count || 0),
+    }));
+    res.setHeader("Cache-Control", "public, max-age=600");
+    return res.json({ ok: true, gates });
+  } catch (e) {
+    console.warn("[W1939] 文明之门数据失败:", e instanceof Error ? e.message : e);
+    return res.status(500).json({ ok: false, error: "gates_failed" });
+  }
+});
+
 app.post("/api/admin/actors/enrich", express.json({ limit: "16kb" }), async (req, res) => {
   const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
   const tokenOk = !!(CSSOS_INTERNAL_TOKEN && internalToken && internalToken === CSSOS_INTERNAL_TOKEN);

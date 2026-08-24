@@ -34,6 +34,10 @@ struct GateView: View {
     @State private var creatingProgress = 0.0
     @State private var pendingSpell = ""
     @State private var lobbyDragBase: SIMD3<Float>? = nil   // W1580 — 大厅面板拖拽基准
+    /* CSSOS_WAVE_1939 — 文明之门(Jing 选定的新大门方向)。 */
+    @State private var civGates: [CivGate] = []
+    @State private var gateRing: Entity? = nil
+    @State private var pickedCiv: String = ""
 
     var body: some View {
         // W1389 — 卡片进不去真凶根治: 不再切到独立 ImmersiveCinema 空间(GateSpace 还开着时 open 另一个会静默 .error,
@@ -99,11 +103,33 @@ struct GateView: View {
             }
             // W1391 — 体积星空: 真 3D 散布四周(有远有近=包围感), 随机形状/角数, 随机闪烁 + 偶发流星。
             StarfieldVolume.make(into: anchor)
+
+            /* CSSOS_WAVE_1939 — 文明之门环。
+             *
+             * 旧大门是【一枚金球 + 一句欢迎词 + 捏一下开面板】—— 换成任何 App 都成立,
+             * 它没有说出这个平台是什么。新大门说的是: 你站在一圈文明中间, 每个文明是
+             * 一道门。这不是隐喻 —— 343 位数字演员本就分属 64 个文明, 各有画面/乐器/
+             * 唱腔/语言(文明智能联动)。进门 = 选一个世界。
+             *
+             * 门环与金球同 anchor(trackingMode = .once)→ 世界固定, 绝不跟头转
+             * (W1393 的教训: 跟头转 = 头晕)。金球留下, 降为门环中心的【拱心石】。 */
+            let ringHost = Entity()
+            ringHost.name = "civ-gate-ring"
+            anchor.addChild(ringHost)
+            gateRing = ringHost
+            Task { @MainActor in
+                let gs = await CSSBackend.fetchCivGates(limit: 16)
+                guard !gs.isEmpty else { return }
+                civGates = gs
+                CivilizationGateRing.build(into: ringHost, gates: gs)
+            }
         } update: { _, _ in
             refs.lobby?.isEnabled = showLobby && !creating
             refs.orb?.isEnabled = !showLobby && !creating   // W1381 — 进圣殿大门 → gate 金球消失
             refs.creation?.isEnabled = creating              // W1382 — 创作时显进度球, 盖住大厅/金球
             refs.welcome?.isEnabled = !showLobby && !creating   // W1386 — 欢迎词只在大门态
+            // W1939 — 文明之门只在【大门态】立着; 进了大厅/创作中就收起, 不跟画面抢注意力。
+            gateRing?.isEnabled = !showLobby && !creating
         } attachments: {
             Attachment(id: "lobby") {
                 LobbyView(
@@ -128,8 +154,9 @@ struct GateView: View {
                     Text(L("Welcome to CSS Vision", "欢迎来到 CSS Vision"))
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
-                    Text(L("Gaze the orb · pinch to enter the sanctuary",
-                           "凝视魔镜 · 捏合步入圣殿"))
+                    // W1939 — 新大门是文明之门, 指引也要跟着改: 看的是门, 不是球。
+                    Text(L("Gaze a civilization · pinch to step through",
+                           "凝视一道文明之门 · 捏合穿门而入"))
                         .font(.system(size: 18, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.7))
                 }
@@ -141,6 +168,23 @@ struct GateView: View {
         // W1384 — 手势【只盯金球】(.has(GateOrbMarker)), 不再 targetedToAnyEntity → 大厅卡片的捏不再被截走。
         // W1385 — 大厅态把金球手势【让位给子视图(卡片)】: including:.subviews → RealityView 自身手势停用,
         //   大厅 attachment 里卡片的 onTapGesture 才能收到捏。大门态 .all → 金球手势正常。这是"捏不进卡片"真凶。
+        /* CSSOS_WAVE_1939 — 捏一道文明之门 → 穿门而入。
+         *
+         * 为什么凝视【不】直接触发: Vision 上视线会到处乱扫, 凝视即进门 = 误入地狱。
+         * 所以分工写死 —— 凝视只做提示(门发亮 + 前倾靠近 + 名字浮现), 捏合才是决定。
+         * 这条别改。
+         *
+         * 手势只认带 CivGateMarker 的实体, 与金球那条(GateOrbMarker)各盯各的, 互不截胡
+         * (W1384 的教训: targetedToAnyEntity 会把大厅卡片的捏也吃掉)。 */
+        .gesture(
+            SpatialTapGesture().targetedToEntity(where: .has(CivGateMarker.self)).onEnded { v in
+                guard let civ = v.entity.components[CivGateMarker.self]?.civilization, !civ.isEmpty else { return }
+                pickedCiv = civ
+                refs.journey?.cancel(); refs.journey = nil   // 打断金球巡游, 用户已经做了选择
+                if !router.fireBeams { router.fireBeams = true }   // 沿用既有的光束入殿仪式
+            },
+            including: showLobby ? .subviews : .all
+        )
         .gesture(
             SpatialTapGesture().targetedToEntity(where: .has(GateOrbMarker.self)).onEnded { _ in
                 refs.journey?.cancel(); refs.journey = nil  // W1423 — 用户捏 → 立刻打断三处巡游(不再继续爆)

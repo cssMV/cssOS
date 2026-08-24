@@ -23,6 +23,11 @@
 		73E26C62CA2A120E8D751212 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E02FD07F4CB126DC80F00491 /* Assets.xcassets */; };
 		77E18880D9A1C1773B13E2E8 /* SignInOrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_CBBF7C82-2E05-40EE-91F9-502F14DBC774" /* SignInOrbView.swift */; };
 		791B9EECBAF8BAFE84BC21F8 /* SpatialTip.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F78D2ECF-FE9E-4440-AD3C-CDB57BB0C63F" /* SpatialTip.swift */; };
+		A1647ADA768A421AAFD2486C /* CSSTruth.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD4B48A45C40422C9E5BA20C /* CSSTruth.swift */; };
+		27FE9280B8C441D0A3859753 /* EmotionSubtitleOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661EF6B857F243DE837D31D5 /* EmotionSubtitleOverlay.swift */; };
+		110090968DB4495B996AF309 /* FontRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 581395748288426A949F074C /* FontRegistry.swift */; };
+		A1FD25FA2C20422AA653E8AA /* SlideshowDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BDC2442023E4CE4AC3C7468 /* SlideshowDriver.swift */; };
+		1A133522091B470487104D06 /* StarfieldEmoji.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CA6D47EDD5644DEB949CF35 /* StarfieldEmoji.swift */; };
 		8937CFEBDFF1695CEDEE0C68 /* CathedralSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_403E277D-411B-480D-97EB-4718ED667417" /* CathedralSettings.swift */; };
 		94871ADD8DD4AD3AC3737DE0 /* VoiceInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_F9A44166-5C7D-4B9C-B413-C1BD55A74BE2" /* VoiceInput.swift */; };
 		B9FFAB6B035DA1FE74D134C7 /* CSSImmersiveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_4EE3A894-4951-48D2-9367-03971EC0EFCE" /* CSSImmersiveApp.swift */; };
@@ -68,6 +73,11 @@
 		"TEMP_EA3CD1EF-03AD-4E52-80F5-FD3A927B8672" /* SharePlayCathedral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePlayCathedral.swift; sourceTree = "<group>"; };
 		"TEMP_F0D050E0-AE63-425C-B4FB-A195DAC75166" /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		"TEMP_F78D2ECF-FE9E-4440-AD3C-CDB57BB0C63F" /* SpatialTip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTip.swift; sourceTree = "<group>"; };
+		CD4B48A45C40422C9E5BA20C /* CSSTruth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSSTruth.swift; sourceTree = "<group>"; };
+		661EF6B857F243DE837D31D5 /* EmotionSubtitleOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmotionSubtitleOverlay.swift; sourceTree = "<group>"; };
+		581395748288426A949F074C /* FontRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontRegistry.swift; sourceTree = "<group>"; };
+		3BDC2442023E4CE4AC3C7468 /* SlideshowDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlideshowDriver.swift; sourceTree = "<group>"; };
+		7CA6D47EDD5644DEB949CF35 /* StarfieldEmoji.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StarfieldEmoji.swift; sourceTree = "<group>"; };
 		"TEMP_F9A44166-5C7D-4B9C-B413-C1BD55A74BE2" /* VoiceInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInput.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -102,6 +112,11 @@
 				"TEMP_CBBF7C82-2E05-40EE-91F9-502F14DBC774" /* SignInOrbView.swift */,
 				"TEMP_CD13BF44-0A74-42BC-B0FF-246E065BFE89" /* SpatialSubtitleSystem.swift */,
 				"TEMP_F78D2ECF-FE9E-4440-AD3C-CDB57BB0C63F" /* SpatialTip.swift */,
+				CD4B48A45C40422C9E5BA20C /* CSSTruth.swift */,
+				661EF6B857F243DE837D31D5 /* EmotionSubtitleOverlay.swift */,
+				581395748288426A949F074C /* FontRegistry.swift */,
+				3BDC2442023E4CE4AC3C7468 /* SlideshowDriver.swift */,
+				7CA6D47EDD5644DEB949CF35 /* StarfieldEmoji.swift */,
 				"TEMP_F9A44166-5C7D-4B9C-B413-C1BD55A74BE2" /* VoiceInput.swift */,
 			);
 			name = "Recovered References";
@@ -221,6 +236,11 @@
 				77E18880D9A1C1773B13E2E8 /* SignInOrbView.swift in Sources */,
 				CC07FF6F697E39907A2954F6 /* SpatialSubtitleSystem.swift in Sources */,
 				791B9EECBAF8BAFE84BC21F8 /* SpatialTip.swift in Sources */,
+				A1647ADA768A421AAFD2486C /* CSSTruth.swift in Sources */,
+				27FE9280B8C441D0A3859753 /* EmotionSubtitleOverlay.swift in Sources */,
+				110090968DB4495B996AF309 /* FontRegistry.swift in Sources */,
+				A1FD25FA2C20422AA653E8AA /* SlideshowDriver.swift in Sources */,
+				1A133522091B470487104D06 /* StarfieldEmoji.swift in Sources */,
 				94871ADD8DD4AD3AC3737DE0 /* VoiceInput.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -297,7 +317,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CSSImmersive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = QBG9PRVBYZ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
@@ -305,7 +325,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.vision;
 				SDKROOT = xros;
 				SWIFT_VERSION = 5.0;
@@ -375,7 +395,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CSSImmersive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = QBG9PRVBYZ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
@@ -383,7 +403,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.cssstudio.vision;
 				SDKROOT = xros;
 				SWIFT_VERSION = 5.0;

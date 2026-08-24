@@ -130,7 +130,7 @@ struct EmotionSubtitleOverlay: View {
                         Group {
                             // W1317 — Jing: 前奏/间奏/尾声器乐段不显示生硬的 "[Music...]", 改随机几个小音符。
                             if isInstrumental(line) {
-                                instrumentalNotesLine(seed: Int(line.tStart))
+                                instrumentalNotesLine(seed: Int(line.tStart ?? 0))   // W1936 — Vision 侧 tStart 是可选
                             } else {
                                 karaokeLine(toks, t: t)
                             }

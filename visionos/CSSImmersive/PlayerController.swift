@@ -104,6 +104,10 @@ final class PlayerController: ObservableObject {
 
     /// CSSOS_WAVE_939 — SharePlay 媒体同步用: 当前激活屏的画面播放器。
     var activeVideoPlayer: AVPlayer? { videoPlayers[safe: activeIndex] }
+    /* CSSOS_WAVE_1934 — 幻灯轨要跟【音乐时间】换图, 所以得拿到当前音轨的时钟。
+     * 不给幻灯自己开计时器: 那样暂停时画面还在走、拖进度画面对不上 ——
+     * 四轨分离不等于各跑各的, 是各自独立但共用同一根时间轴。 */
+    var audioPlayer: AVPlayer? { audioPlayers[safe: activeIndex] ?? nil }
 
     /* CSSOS_WAVE_1900 — 播放态。ControlsPanel(四轨控制台)要据它显示 ▶ / ❚❚,
      * 而此前 PlayerController 只有 playAll/pauseAll 两个动作、没有可观察的状态 ——

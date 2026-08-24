@@ -23,6 +23,9 @@ struct ImmersiveView: View {
     /// CSSOS_WAVE_940 — 特效容器 + 环境引用(随情绪变色)。W952 去掉地板。
     @State private var fxRoot = Entity()
     @State private var envModel: ModelEntity? = nil
+    /* CSSOS_WAVE_1934 — 幻灯驱动必须被持有: 局部变量出作用域就释放, 定时器随之停,
+     * 银幕会永远停在第一张。每块银幕一个驱动。 */
+    @State private var slideshowDrivers: [SlideshowDriver] = []
     // W1400 — 影院弧形银幕【捏住拖动】(沉浸内自由摆位/拉远近, 无拖拽条): 所有银幕+字幕挂这个容器, 拖它即整组移动。
     @State private var cinemaRoot = Entity()
     @State private var cinemaDragBase: SIMD3<Float>? = nil
@@ -354,6 +357,12 @@ struct ImmersiveView: View {
 
             // W1400 — 银幕容器(可整组捏住拖动)。
             content.add(cinemaRoot)
+            /* CSSOS_WAVE_1934 — 重建银幕前先拆掉上一批幻灯驱动。
+             * 不拆的话每次重建就多一批定时器: 几首之后是多个驱动抢同一块银幕换图,
+             * 外加纹理缓存累积 —— 头显上就是画面乱闪 + 内存涨。
+             * (这正是 web 端"54 个模块各碰同一对媒体元素"那种病的雏形, 在这里掐掉。) */
+            slideshowDrivers.forEach { $0.detach() }
+            slideshowDrivers.removeAll()
             // 2) 每个变体一块弧形银幕, 摆到环绕弧线上, 配一个标签。
             for (i, v) in player.variants.enumerated() {
                 let player = self.player
@@ -370,9 +379,23 @@ struct ImmersiveView: View {
                 screen.generateCollisionShapes(recursive: false)
                 ImmersiveScene.placeOnArc(screen, angleDegrees: v.angleDegrees, radius: Float(settings.radius))
                 cinemaRoot.addChild(screen)   // W1400 — 挂容器(随拖动整组移动)
-                // CSSOS_WAVE_1106 — 纯音频作品(无 final_mv_url)→ 银幕贴作品封面(否则空 VideoMaterial=黑屏)。
-                if (v.videoURL ?? "").isEmpty, let cover = player.work?.coverURL, !cover.isEmpty {
-                    ImmersiveScene.applyCoverTexture(cover, to: screen)
+                /* CSSOS_WAVE_1934 20260824 — 画面轨降级: 视频 → 幻灯 → 封面 → 品牌底色。
+                 *
+                 * W1106 原本只有"没视频就贴一张静态封面"。可实测下来平台【一个真视频
+                 * 都没有】: 1680 首里 648 首有 mp4, 但这 648 首 video_cents>0 的是 0 首 ——
+                 * 全是平台自己把封面拼出来的幻灯片视频。Jing 的裁定是那就算幻灯。
+                 * 于是"没视频"不是边缘情况, 是常态; 盯着一张不动的图听完三四分钟,
+                 * 等于没有画面。而作品其实带着十几张幻灯帧。
+                 * 这里改成: 有幻灯就跑幻灯(跟音乐时间走), 没幻灯才退回单张封面。 */
+                if (v.videoURL ?? "").isEmpty {
+                    let pool = player.work?.slides ?? []
+                    if !pool.isEmpty {
+                        let driver = SlideshowDriver()
+                        driver.attach(screen: screen, urls: pool, clock: player.audioPlayer)
+                        slideshowDrivers.append(driver)   // 持有, 否则出作用域即释放, 幻灯不动
+                    } else if let cover = player.work?.coverURL, !cover.isEmpty {
+                        ImmersiveScene.applyCoverTexture(cover, to: screen)
+                    }
                 }
                 // W958 — 去掉每屏语言标签(视频上角看不清的小信息)。语言在菜单里看。
             }

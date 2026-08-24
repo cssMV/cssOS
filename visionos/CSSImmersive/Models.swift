@@ -21,6 +21,21 @@ struct CSSWork: Codable, Identifiable {
     /// 逐字情绪字幕时间轴(可空 = 该作品还没对齐)。
     var alignedLyrics: [SubtitleLine]?
 
+    /* CSSOS_WAVE_1933 20260824 — 画面轨不是"有没有视频", 是【四选一】:
+     * 真视频 / 混合视频 / 幻灯 / 封面图。Jing:「画面不能是黑乎乎的视频框, 必须显示
+     * 画面, 哪怕是一张封面图。」
+     * 实测旗舰《混沌の海》: visual_kind=slides, final_mv_url 为空, 画面全靠 15 张幻灯 ——
+     * 只认 videoURL 的话银幕就是黑的。所以幻灯池必须是模型里的一等公民。 */
+    var slides: [String]?
+    /// 画面形态标签(真视频/混合视频/幻灯/封面图)—— 四轨控制台的"画面"轨直接显示它。
+    var visualKind: String?
+    /// 画幅 —— 在建图层【之前】就知道方向, 不必等解码(web 端就是等解码才判, 于是
+    /// "先露横的再啪一下转", 只能靠幕布补救)。
+    var frameWidth: Int?
+    var frameHeight: Int?
+    /// 作品语言 —— 字幕按【作品】选轨, 不跟界面语言走(否则就是"音乐日语字幕中文")。
+    var language: String?
+
     /// CSSOS_WAVE_937 — 多银幕变体: Take 2 / 不同语言版。后端可在 work 里带 variants,
     /// 没有就只有主屏。每个变体一块环绕银幕。
     var variants: [CSSVariant]?
@@ -82,9 +97,17 @@ struct SubtitleLine: Codable {
     var tStart: Double?   // ms
     var tEnd: Double?     // ms
     var tokens: [SubtitleToken]?
+    /* CSSOS_WAVE_1898 20260823 —— Jing:「Vision 端的情绪字幕很乱, 请参照 TV 端那一套。」
+     * 病因(实测真实字幕 JSON): 数据里带 adlib 标记, 例如第一个 token 就是
+     *   {"char":"[Music...]", "t_start":250, "t_end":21589,
+     *    "emotion":"ignite", "emotion_intensity":0.987, "adlib":true}
+     * —— 一个长达 21 秒、强度 0.987 的结构标记。TV 的模型解了 adlib(CSSSubLine.adlib),
+     * Vision 这边【整个字段都没解】, 于是这类标记被当成正常字词, 在空间里炸成巨大爆字。
+     * 那正是"乱"的来源: 不是渲染写错了, 是该丢的数据没丢。 */
+    var adlib: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case text, line, tokens
+        case text, line, tokens, adlib
         case tStart = "t_start"
         case tEnd = "t_end"
     }
@@ -111,9 +134,10 @@ struct SubtitleToken: Codable {
     var tEnd: Double?              // ms
     var emotion: String?
     var emotionIntensity: Double?  // 0..1
+    var adlib: Bool?               // W1898 — 结构/伴唱标记, 不进画面
 
     enum CodingKeys: String, CodingKey {
-        case char, text, emotion
+        case char, text, emotion, adlib
         case tStart = "t_start"
         case tEnd = "t_end"
         case emotionIntensity = "emotion_intensity"

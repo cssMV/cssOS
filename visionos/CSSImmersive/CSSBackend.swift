@@ -7,8 +7,17 @@ enum CSSBackend {
     /// 线上后端。真机/模拟器都可直连(只读 works 接口, 无需鉴权即可拿公开作品)。
     static let baseURL = "https://cssstudio.app"
 
-    /// 拉单首作品(含 aligned_lyrics)。后端: GET /api/works/:id → { data: { work: {...} } }。
+    /// 拉单首作品。
+    ///
+    /// CSSOS_WAVE_1933 20260824 — 改走【唯一真源】 /api/works/public/:id (见 CSSTruth.swift)。
+    /// 原本打的是 /api/works/:id —— 那条现在只是一条 302 跳转, 而且不带字幕轨/语言/画幅。
+    /// 真源接口 W1931 补全后, 按 ID 一次就能拿全画面·音乐·字幕·画幅·文明, 不必再各处凑。
     static func fetchWork(id: String) async throws -> CSSWork {
+        return try await loadWork(id: id)
+    }
+
+    /// 旧解码路径保留给可能的离线样本, 不再用于线上取数。
+    static func fetchWorkLegacy(id: String) async throws -> CSSWork {
         guard let url = URL(string: "\(baseURL)/api/works/\(id)") else {
             throw URLError(.badURL)
         }
@@ -39,6 +48,27 @@ enum CSSBackend {
     /// 画面=final_mv_url(静音视觉), 声音=独立音轨 a1.m4a(画音分层铁律)。
     /// 情绪字幕需 aligned_lyrics(market 不带, 下一里程碑接专门端点), 暂 nil → 先放真 MV+真声音。
     static func defaultWork() async -> CSSWork {
+        /* CSSOS_WAVE_1933 20260824 — 手写 URL 拼作品的老路已封。
+         *
+         * 原来这里把 video / audio / cover 三个地址【写死在代码里】。那是 web 端串播
+         * 三十年的同一种病: 不按 ID 取真源, 而是信一串从别处抄来的 URL。地址一过期、
+         * 一改名, 或者哪天有人复制这段去拼别的作品, 画面音乐就对不上了。
+         * 现在只给 ID, 其余全部由真源说了算(拿不到就退回离线样本, 绝不留黑屏)。 */
+        if let w = try? await loadWork(id: sampleWorkID) {
+            let langs = await fetchLanguageVariants(
+                workID: sampleWorkID,
+                video: w.videoURL ?? "",
+                audio: w.audioURL ?? ""
+            )
+            let others = langs.filter { $0.id != "orig" }
+            var out = w
+            if out.alignedLyrics == nil {
+                out.alignedLyrics = langs.first(where: { $0.id == "orig" })?.alignedLyrics ?? langs.first?.alignedLyrics
+            }
+            out.variants = others.isEmpty ? nil : others
+            return out
+        }
+        // 真源不可达(离线/首启动断网)时的样本, 只为让银幕有东西可看, 不作为数据来源。
         let video = "https://cdn.cssstudio.app/artifacts/mv/mv_1777776785412.mp4"
         let audio = "https://cdn.cssstudio.app/artifacts/audio/aud_100fee69-4d74-4744-a4c0-f3dc88a4ea52.a1.m4a"
         // W950 — 多银幕: 拉所有语言轨, 母语(orig)做主屏, 其余语言各占一段环绕弧。
@@ -105,8 +135,19 @@ enum CSSBackend {
             guard let url = URL(string: "https://cdn.cssstudio.app/works/\(workID)/subtitle-\(take).json"),
                   let (data, _) = try? await URLSession.shared.data(from: url),
                   let doc = try? JSONDecoder().decode(SubtitleDoc.self, from: data) else { continue }
-            // 优先母语轨 "orig", 否则第一条。
-            let lang = doc.languages?.first(where: { ($0.lang ?? "") == "orig" }) ?? doc.languages?.first
+            /* CSSOS_WAVE_1898 —— 选轨规则对齐 TV(cssTV/CSSBackend.swift fetchSubtitles)。
+             * 旧规则"没有 orig 就取第一条"很脆: 实测线上字幕文档里常常【没有 orig 轨】
+             * (例如某首只有 ["zh"]), 而多语言作品里第一条可能是几乎空的占位轨 →
+             * 空间里就只剩零星几个字乱飘。TV 的规则是【取 token 最多的那一门】,
+             * 因为 token 数直接等于"这门语言到底对齐了多少字", 是唯一可靠的丰满度判据。 */
+            func tokenCount(_ l: LangBlock) -> Int {
+                (l.sections ?? []).reduce(0) { acc, sec in
+                    acc + (sec.lines ?? []).reduce(0) { $0 + ($1.tokens?.count ?? 0) }
+                }
+            }
+            let lang = doc.languages?.first(where: { ($0.lang ?? "") == "orig" })
+                ?? doc.languages?.max(by: { tokenCount($0) < tokenCount($1) })
+                ?? doc.languages?.first
             let lines = (lang?.sections ?? []).flatMap { $0.lines ?? [] }.filter { line in
                 let t = line.resolvedText.trimmingCharacters(in: .whitespaces)
                 if t.isEmpty { return false }

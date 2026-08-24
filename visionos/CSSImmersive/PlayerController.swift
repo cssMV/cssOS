@@ -105,10 +105,17 @@ final class PlayerController: ObservableObject {
     /// CSSOS_WAVE_939 — SharePlay 媒体同步用: 当前激活屏的画面播放器。
     var activeVideoPlayer: AVPlayer? { videoPlayers[safe: activeIndex] }
 
+    /* CSSOS_WAVE_1900 — 播放态。ControlsPanel(四轨控制台)要据它显示 ▶ / ❚❚,
+     * 而此前 PlayerController 只有 playAll/pauseAll 两个动作、没有可观察的状态 ——
+     * 面板只能自己猜, 一旦有别的路径(转头、SharePlay、连播)动了播放, 按钮就会显错。
+     * 状态跟着唯一的两个动作走, 不另开第二处真相。 */
+    @Published private(set) var isPlaying: Bool = false
+
     func playAll() {
         // W950 — 只播激活屏(其余无项=不解码)。
         videoPlayers[safe: activeIndex]?.play()
         (audioPlayers[safe: activeIndex] ?? nil)?.play()
+        isPlaying = true
     }
 
     func pauseAll() {
@@ -117,6 +124,7 @@ final class PlayerController: ObservableObject {
             audioPlayers[i]?.pause()
         }
         stopHeadTracking()
+        isPlaying = false
     }
 
     // ── 激活屏切换(转头 / 点选都走这里)──────────────────────────────────────
@@ -188,12 +196,23 @@ final class PlayerController: ObservableObject {
         fireTokens.removeAll(); nextFireIdx = 0; lastTickSec = 0
         lineSpans.removeAll(); nextLineEndIdx = 0
         let lines = variants[safe: activeIndex]?.alignedLyrics ?? []
+        /* CSSOS_WAVE_1898 —— 该丢的丢在这里(唯一发射口), 而不是让渲染层去猜。
+         * 判据和 TV 一致: adlib 标记 + 结构行([Music...] / 【副歌】 / #tag)一律不发爆字。
+         * 之前这里【零过滤】, 于是 21 秒的 "[Music...]" 带着 0.987 强度炸满整个空间。 */
+        func isStructural(_ s: String) -> Bool {
+            let t = s.trimmingCharacters(in: .whitespaces)
+            if t.isEmpty { return true }
+            return t.hasPrefix("[") || t.hasPrefix("【") || t.hasPrefix("#") || t.hasPrefix("(")
+        }
         for (li, line) in lines.enumerated() {
+            if line.adlib == true { continue }              // 整行是伴唱/标记 → 跳过
+            if isStructural(line.resolvedText) { continue } // 整行是结构标记 → 跳过
             var lineMaxEnd = line.endSeconds
             if let toks = line.tokens, !toks.isEmpty {
                 for tk in toks {
+                    if tk.adlib == true { continue }        // 该 token 是标记 → 不发
                     let txt = tk.resolvedText.trimmingCharacters(in: .whitespaces)
-                    guard !txt.isEmpty else { continue }
+                    guard !txt.isEmpty, !isStructural(txt) else { continue }
                     fireTokens.append(FireToken(text: txt, start: tk.startSeconds,
                                                 emotion: tk.emotion ?? "",
                                                 intensity: tk.emotionIntensity ?? 0.6, lineIndex: li))
@@ -201,7 +220,7 @@ final class PlayerController: ObservableObject {
                 }
             } else {
                 let txt = line.resolvedText.trimmingCharacters(in: .whitespaces)
-                if !txt.isEmpty {
+                if !txt.isEmpty, !isStructural(txt) {
                     fireTokens.append(FireToken(text: txt, start: line.startSeconds, emotion: "", intensity: 0.7, lineIndex: li))
                 }
             }

@@ -199,30 +199,37 @@ struct ImmersiveView: View {
     @ViewBuilder private var controlBar: some View {
         HStack(spacing: 9) {
             // W1068 — 首版无内购(3.1.1): 打赏 + 买断隐藏; 保留欣赏/聆听(免费)+ 多语言。
+            /* CSSOS_WAVE_1900 — emoji → SF Symbols(与 ControlsPanel / LangVoiceCapsuleBar 同批清理)。
+             * emoji 跟随系统字体, 粗细与风格在 Vision 近距离高分辨率下与其余描边图标对不齐;
+             * 且不吃 foregroundStyle, 激活态染不上色。符号与 ControlsPanel 的交易行一一对应
+             * (heart/eye/headphones/cube/globe), 两处surface 说同一套语言。
+             * 只改 Vision —— 网页 Dock 的 emoji 是胶囊宪法要求的视觉锚, 不动。 */
             if CSSPayments.visionPurchasesEnabled {
-                capsule("💝 " + L("Tip", "打赏"), tint: .green) {
+                capsule("heart", L("Tip", "打赏"), tint: .green) {
                     let angle = player.variants[safe: player.activeIndex]?.angleDegrees ?? 0
                     SpatialTip.flyTip(to: angle, into: fxRoot)
                     if let id = player.work?.id { Task { await SpatialTip.sendTip(workID: id, amountCents: 100) } }
                 }
             }
-            capsule("👁 " + L("View · Free", "欣赏 · 免费")) {}
-            capsule("🎧 " + L("Listen · Free", "聆听 · 免费")) {}
+            capsule("eye", L("View · Free", "欣赏 · 免费")) {}
+            capsule("headphones", L("Listen · Free", "聆听 · 免费")) {}
             if CSSPayments.visionPurchasesEnabled {
-                capsule("💎 " + L("Buyout · Priceless", "买断 · 无价")) {}
+                capsule("cube", L("Buyout · Priceless", "买断 · 无价")) {}
             }
-            capsule("🌐 " + L("Languages", "多语言")) { settings.menuOpen = true }
+            capsule("globe", L("Languages", "多语言")) { settings.menuOpen = true }
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .glassBackgroundEffect(in: Capsule())
     }
 
-    private func capsule(_ text: String, tint: Color = .white, _ action: @escaping () -> Void) -> some View {
+    private func capsule(_ symbol: String, _ text: String, tint: Color = .white, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(text)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .foregroundStyle(tint == .green ? .green : .white.opacity(0.92))
-                .padding(.horizontal, 14).padding(.vertical, 8)
+            HStack(spacing: 7) {
+                Image(systemName: symbol).font(.system(size: 15, weight: .medium))
+                Text(text).font(.system(size: 17, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(tint == .green ? .green : .white.opacity(0.92))
+            .padding(.horizontal, 14).padding(.vertical, 8)
         }
         .buttonStyle(.plain)
         .background(.ultraThinMaterial, in: Capsule())

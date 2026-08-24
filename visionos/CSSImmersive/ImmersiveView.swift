@@ -435,20 +435,16 @@ struct ImmersiveView: View {
             // 3b) W1580 — Jing「面板不许跟头转, 只有我明确拖动才动」: 头锚 .once 实测【仍跟头】→ 改放【世界空间】
             //   (与环绕银幕同一套: 用户进影院时在原点附近、面朝 -Z; 面板摆左右下方的世界坐标 → 世界固定, 绝不跟头)。
             //   拖拽只放在标题栏(见 panelHeader), 下方按钮纯点按零冲突。
-            if let left = attachments.entity(for: "leftPanel") {
-                let p = SIMD3<Float>(-0.55, 1.10, -0.50)   // 世界: 左下(眼下方)
-                left.position = p
-                left.orientation = simd_quatf(angle: atan2(-p.x, -p.z), axis: SIMD3<Float>(0, 1, 0))
-                left.name = "panel-left"; leftPanelEntity = left
-                content.add(left)
-            }
-            if let right = attachments.entity(for: "rightPanel") {
-                let p = SIMD3<Float>(0.55, 1.10, -0.50)   // 世界: 右下
-                right.position = p
-                right.orientation = simd_quatf(angle: atan2(-p.x, -p.z), axis: SIMD3<Float>(0, 1, 0))
-                right.name = "panel-right"; rightPanelEntity = right
-                content.add(right)
-            }
+            /* CSSOS_WAVE_1938 20260824 — Jing:「播放器里左右两侧的控制台, 一个 Watch 一个 Menu,
+             * 点又点不动, 也无法移动, 纯粹是在那里挡路。请删掉。」
+             *
+             * 两块侧板(左 Watch/观赏, 右 Menu/操作)不再进场。它们的功能没有丢:
+             *   · 上一首/下一首 → 新控制台(设计 A)的【传输】区
+             *   · 场景/设置     → 点空间魔镜开【⚙ 设置菜单】
+             *   · 大厅          → 设置菜单里的返回
+             *   · 退出          → Vision Pro 按数码表冠随时退出沉浸空间(系统级, 永远可用)
+             * 视图构造器 leftPanel / rightPanel 【故意保留但不再被引用】—— 万一要回滚,
+             * 恢复这一段即可; 重新挂回去 = 重犯本条。 */
             // W1418 — Jing「多语言胶囊放视频框【右下角外侧】, 别在控制台」: 挂 cinemaRoot(跟视频走/世界固定/不跟头),
             //   摆到银幕右边沿外侧 + 底边高度(贴框外右下)。
             if let lv = attachments.entity(for: "langvoice") {
@@ -535,8 +531,7 @@ struct ImmersiveView: View {
             }
         } attachments: {
             // W958 — 去掉每屏语言标签(视频上角看不清的小信息)。
-            Attachment(id: "leftPanel") { leftPanel }       // W1580 — 左·观赏(下一首/场景/打赏)
-            Attachment(id: "rightPanel") { rightPanel }     // W1580 — 右·操作(大厅/设置/创作/退出)
+            // W1938 — 左右两块侧板已撤(Jing:「点不动、移不了、纯粹挡路」)。见上方摆位处说明。
             Attachment(id: "menu") { spaceMenu }            // 设置菜单(⚙ 切换: 弧度/半径/场景细节)
             /* CSSOS_WAVE_1936 20260824 — Jing:「情绪字幕还是旧版, 请使用 TV 版的情绪字幕,
              * 现在 Vision 版的情绪字幕错别太多。」

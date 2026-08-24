@@ -94,10 +94,20 @@ enum CSSBackend {
                   let (data, _) = try? await URLSession.shared.data(from: url),
                   let doc = try? JSONDecoder().decode(SubtitleDoc.self, from: data),
                   let langs = doc.languages, !langs.isEmpty else { continue }
+            /* CSSOS_WAVE_1937 — 垃圾轨过滤(与 CSSTruth.fetchSubtitleTrack 同一判据)。
+             * 实测《混沌の海》字幕文件里的 orig-pre-epic 轨装的是 LLM 独白:
+             *   "I notice the request asks me to write lyrics in \"orig-pre-epic\" but this…"
+             * 它会被做成一块环绕银幕的"语言变体", 用户切过去看到的就是这段废话。
+             * 判据: token 数不到最长轨一半的, 视为残缺/占位轨, 不做成变体。 */
+            func tokCount(_ lb: LangBlock) -> Int {
+                (lb.sections ?? []).reduce(0) { $0 + ($1.lines ?? []).reduce(0) { $0 + ($1.tokens?.count ?? 0) } }
+            }
+            let bestCount = langs.map(tokCount).max() ?? 0
             var out: [CSSVariant] = []
             for lb in langs {
                 let code = (lb.lang ?? "").trimmingCharacters(in: .whitespaces)
                 guard !code.isEmpty else { continue }
+                guard bestCount == 0 || tokCount(lb) * 2 >= bestCount else { continue }
                 let lines = (lb.sections ?? []).flatMap { $0.lines ?? [] }.filter { l in
                     let t = l.resolvedText.trimmingCharacters(in: .whitespaces)
                     if t.isEmpty { return false }

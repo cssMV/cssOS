@@ -189,9 +189,33 @@ extension CSSBackend {
         guard let file = try? JSONDecoder().decode(File.self, from: data),
               let tracks = file.languages, !tracks.isEmpty else { return nil }
 
-        let pick = tracks.first(where: { $0.lang == preferredLang })
-            ?? tracks.first(where: { $0.lang == "en" })
-            ?? tracks.first
+        /* CSSOS_WAVE_1937 20260824 — 选轨规则【照搬 TV】(Jing:「请改用 TV 版用的那个字幕」)。
+         *
+         * Jing 举的例: TV 显示「一袭青衫笑里看」, Vision 显示「依稀青山小李看」——
+         * 整句同音字, 那是听写腔调的痕迹, 不是渲染错。查下来两端读的是【同一个文件】,
+         * 差在【从文件里挑哪条轨】:
+         *   TV     : origin_voice 优先 → 否则选 token 最多的那条
+         *   Vision : 作品 language 优先 → 否则 en → 否则【第一条】
+         * "否则第一条"是要命的一档 —— 实测《混沌の海》的字幕文件里有三条轨:
+         *   orig(日文 336 词) · ja(日文 340 词) · orig-pre-epic(169 词)
+         * 而 orig-pre-epic 里装的是 LLM 在跟自己讨论这个请求:
+         *   "I notice the request asks me to write lyrics in \"orig-pre-epic\" but this…"
+         * —— 一段被当成歌词存进去的废话。按"第一条"或按名字碰巧命中它, 屏幕上就是它。
+         *
+         * 改成 TV 那套, 并多加一道垃圾轨过滤: token 数明显偏少、或整轨没有 CJK 也没有
+         * 空格分词的(典型的 LLM 独白被拼成一长串), 一律不选。 */
+        func tokenCount(_ t: LangTrack) -> Int {
+            (t.sections ?? []).reduce(0) { $0 + ($1.lines ?? []).reduce(0) { $0 + ($1.tokens?.count ?? 0) } }
+        }
+        let usable = tracks.filter { tokenCount($0) > 0 }
+        guard !usable.isEmpty else { return nil }
+        let best = usable.map(tokenCount).max() ?? 0
+        // 词数不到最长轨一半的, 视为残缺/占位轨, 不参与竞选(orig-pre-epic 就是这么被挡掉的)。
+        let sane = usable.filter { tokenCount($0) * 2 >= best }
+
+        let pick = sane.first(where: { $0.lang == preferredLang })
+            ?? sane.max(by: { tokenCount($0) < tokenCount($1) })
+            ?? sane.first
         guard let sections = pick?.sections else { return nil }
         let lines = sections.flatMap { $0.lines ?? [] }
         return lines.isEmpty ? nil : lines

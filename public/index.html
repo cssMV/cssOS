@@ -58,7 +58,7 @@
     <meta property="og:description" content="Open the app and a fully-produced music video plays — with sound — the moment it loads. Then make your own in one sentence: any language, any voice, the world's first emotion subtitles. (Under the hood, it's all AI.)" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://cssstudio.app/" />
-    <meta property="og:image" content="https://cssstudio.app/og/share.png?v=708" />
+    <meta property="og:image" content="https://cssstudio.app/og/share.png?v=824" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:type" content="image/png" />
@@ -66,7 +66,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CSS Studio — a music video is already playing. Make yours in a sentence." />
     <meta name="twitter:description" content="Open it and a full music video plays with sound, instantly. Then make your own in one sentence — any language, any voice, emotion subtitles." />
-    <meta name="twitter:image" content="https://cssstudio.app/og/share.png?v=708" />
+    <meta name="twitter:image" content="https://cssstudio.app/og/share.png?v=824" />
     <script>
       // Pre-paint theme resolver — applies user's saved theme BEFORE any CSS loads
       // to prevent flash-of-unstyled-theme (FOUT). Must stay in sync with
@@ -105,7 +105,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260822-w1863-searchfix" />
+    <link rel="stylesheet" href="style.css?v=20260824-w1917-border" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
     <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
@@ -2257,7 +2257,7 @@
     <script src="app.civ-language-map.js?v=20260822-w1868b-sync"></script>
     <!-- CSSOS_WAVE_121 — work-id binding: every watch render flushes
          asset caches first to prevent 张冠李戴. -->
-    <script src="app.work-id-binding.js?v=20260820-w1839-partid"></script>
+    <script src="app.work-id-binding.js?v=20260824-w1918-globalid"></script>
     <!-- CSSOS_WAVE_1785 — 串台探测器: 只观测不修改, 每秒比对四条道的 owner。
          必须排在 work-id-binding 之后(它依赖 cssosCurrentWorkId / cssosCurrentGen)。 -->
     <script src="app.crosstalk-probe.js?v=20260726-w1785b"></script>
@@ -2326,7 +2326,7 @@
     <script src="app.floating-search.js?v=20260521-w294-floatsearch"></script>
     <script src="app.create-cta.js?v=20260521-w283-inplace"></script>
     <script src="app.preview-cap.js?v=20260506-a11y"></script>
-    <script src="app.tab-title-sync.js?v=20260506-tab-sync"></script>
+    <script src="app.tab-title-sync.js?v=20260823-w1889c"></script>
     <!-- W1766 — unified keyboard-shortcut hub. MUST load before any feature file
          that registers a shortcut (mv-keys, boot, watch-ui, panel-shortcuts, …). -->
     <script src="app.shortcuts-registry.js?v=20260720-w1766-shortcut-hub"></script>
@@ -2348,7 +2348,7 @@
     <script defer src="app.flagship-badges.js?v=20260614-w788"></script>
     <script defer src="app.video-slideshow-fallback.js?v=20260615-w789"></script>
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
-    <script src="app.emotion-subtitle-engine.js?v=20260525-w442-emo-sub"></script>
+    <script src="app.emotion-subtitle-engine.js?v=20260824-w1919-subrace"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
     <script src="app.js?v=20260822-w1861-nochrome"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
@@ -2391,23 +2391,25 @@
          Load it BEFORE app.watch-ui.js so buildWatchFontCatalogModule() can
          see the manifest on first call. -->
     <script src="app.watch-font-manifest.js?v=20260729-w1793-drop-local-fonts"></script>
-    <script src="app.playlists.js?v=20260822-w1864-playable"></script>
+    <script src="app.playlists.js?v=20260824-w1928"></script>
     <script src="app.emotion-fx.js?v=20260607-w668b"></script>
     <script src="app.emotion-fx-panel.js?v=20260720-w1765-tune-tooltip-t"></script>
     <script src="app.subtitle-tune.js?v=20260618-w995"></script>
     <script src="app.subtitle-wave-editor.js?v=20260720-w1766-tune-hub"></script>
-    <script src="app.watch-ui.js?v=20260822-w1862-nofsbanner"></script>
+    <script src="app.watch-ui.js?v=20260824-w1918b-fallback"></script>
     <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
     <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
     <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
     <script src="app.watch-bottom-stack.js?v=20260726-w1776-respect-userpos"></script>
-    <script src="app.lang-flag-pills.js?v=20260602-w588h-laftunify"></script>
+    <script src="app.lang-flag-pills.js?v=20260823-w1883-guide"></script>
+    <!-- CSSOS_WAVE_1880 — 多画面胶囊(幻灯/混合视频/真视频), 必须在 lang-flag-pills 之后 -->
+    <script src="app.watch-visual-pills.js?v=20260823-w1882-render"></script>
     <!-- CSSOS_WAVE_581 20260531 — Jing — 给现有作品加语言的弹窗(选语言→报价→提交). -->
     <!-- CSSOS_WAVE_584 20260531 — Jing — 多声线: 给现有作品加声线(同语言换音色重唱). -->
     <script src="app.my-voice-entry.js?v=20260602-w587y-langrow"></script>
     <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
-    <script src="app.autoplay-feed.js?v=20260726-w1772b-referrer"></script>
+    <script src="app.autoplay-feed.js?v=20260823-w1891-single"></script>
     <script src="app.appstore-ribbon.js?v=20260720-w1765-ribbon-fullscreen"></script>
     <script src="app.mobile-app-cta.js?v=20260708-w1603-cta-abovedock"></script>
     <script src="app.appstore-panel.js?v=20260708-w1633-apps"></script>
@@ -2426,7 +2428,7 @@
     <script src="app.watch-social-rail.js?v=20260728-w1790-social-age-gate"></script>
     <!-- CSSOS_WAVE_1119 — 右轨配套: 左下标题摘要(标题·进度·@作者·时长·摘要)+ 弹幕(评论左下窄道弹入上飘)。
          纯叠加层, 不碰 emotion-fx/字幕/bottom-stack。 -->
-    <script src="app.watch-cinema-caption.js?v=20260822-w1859-nolimit"></script>
+    <script src="app.watch-cinema-caption.js?v=20260824-w1905-style"></script>
     <!-- CSSOS_WAVE_120A — Admin-only crash telemetry dashboard. Floating
          button bottom-left + slide-in right panel. Hidden for non-admin. -->
     <script src="app.crash-log-dashboard.js?v=20260526-w463-skeleton-admin"></script>
@@ -2450,7 +2452,7 @@
     <script src="app.pill-bar.js?v=20260708-w1605-pill-interlock"></script>
     <!-- CSSOS_WAVE_576 20260531 — Jing — 通用【左凹向激活】兜底(宪法 :has 在 iOS 被剥, 左凹失效). -->
     <script src="app.pill-left-concave.js?v=20260602-w588h-rightmost"></script>
-    <script src="app.market-commerce.js?v=20260603-w590-coveronce"></script>
+    <script src="app.market-commerce.js?v=20260823-w1901-nopart"></script>
     <!-- CSSOS_WAVE_220A 20260519 — Jing: title edit/refine button was
          implemented but never loaded. Wiring it in now. -->
     <script src="app.title-edit-refine.js?v=20260603-w588w-selfheal"></script>
@@ -2472,7 +2474,7 @@
     <!-- CSSOS_WAVE_546 20260531 — Jing — 作品中心: 标注未完成草稿 + 继续合成/编辑补救. -->
     <script src="app.draft-rescue-badge.js?v=20260531-w551-resume-api"></script>
     <script src="app.api-billing.js?v=20260602-w588o-authupsell"></script>
-    <script src="app.agent-chat.js?v=20260728-w1788-cinema-gestures"></script>
+    <script src="app.agent-chat.js?v=20260823-w1896b"></script>
     <script src="app.generation-progress-badge.js?v=20260604-w614"></script>
     <script src="app.agent-overflow-menu.js?v=20260603-w595b-restore"></script>
     <script src="app.dm-inbox-indicator.js?v=20260514-wave143-fab-position-fix"></script>
@@ -2488,7 +2490,7 @@
     <!-- CSSOS_WAVE_528 — app.credits-topup-modal.js 已移除: 完整三件套自包含模块, 由通用 router 桩 cssosOpenCreditsTopup 按需注入. 回退: 改回普通 src. -->
 
     <script src="app.media-buffering-mirror.js?v=20260713-unified-a"></script>
-    <script src="app.busy-indicator.js?v=20260713-bootgate"></script>
+    <script src="app.busy-indicator.js?v=20260823-w1878-nospinner"></script>
     <script src="app.vtt-immersive-captions.js?v=20260617-w933"></script>
     <script src="app.provider-health-dashboard.js?v=20260514-wave139c"></script>
     <script src="app.today-in-history-shelf.js?v=20260603-w593-civmeta"></script>
@@ -2504,7 +2506,7 @@
     <script src="app.delivery-dashboard-bindings.js?v=20260712-i18n"></script>
     <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-layout.js?v=20260822-w1861-nochrome"></script>
+    <script src="app.panel-layout.js?v=20260823-w1877-mvonly"></script>
     <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
     <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
@@ -2551,7 +2553,7 @@
     <script src="app.hymn-create-toggle.js?v=20260713-w1766-hymn-create"></script>
     <script src="app.section-form-classic.js?v=20260713-w1770-section-form"></script>
     <script src="app.person-mv-panel.js?v=20260603-w593-civmeta"></script>
-    <script src="app.actor-gallery.js?v=20260823-w1872-inputcenter"></script>
+    <script src="app.actor-gallery.js?v=20260823-w1873-nativename"></script>
     <script src="app.person-mv-discover-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-groups-shelf.js?v=20260603-w593-civmeta"></script>
     <script src="app.person-mv-today-shelf.js?v=20260603-w593-civmeta"></script>
@@ -2575,13 +2577,13 @@
     <script src="app.person-mv-civ-era-pages.js?v=20260602-w588v-empty"></script>
     <script src="app.tutorials.js?v=20260508-wave74"></script>
     <script src="app.cover-slideshow.js?v=20260604-w617-poolclear"></script>
-    <script src="app.watch-stage-bars.js?v=20260525-w358-fs-btn-offset"></script>
+    <script src="app.watch-stage-bars.js?v=20260823-w1875-5stages"></script>
     <script src="app.watch-music-ring.js?v=20260420-shared-arc-end-burst-1"></script>
     <script src="app.watch-media-chrome.js?v=20260506-pip-allow"></script>
-    <script src="app.watch-media-overlays.js?v=20260526-w447-reflow"></script>
+    <script src="app.watch-media-overlays.js?v=20260823-w1889"></script>
     <script src="app.watch-deadmedia-fallback.js?v=20260820-w1842-logo"></script>
-    <script src="app.watch-media-layout-p2100.js?v=20260822-w1862-titlewide"></script>
-    <script src="app.watch-face-crop.js?v=20260822-w1858-topbias"></script>
+    <script src="app.watch-media-layout-p2100.js?v=20260823-w1879-title1line"></script>
+    <script src="app.watch-face-crop.js?v=20260825-w1909-app"></script>
     <script src="app.watch-title-marquee.js?v=20260822-w1856"></script>
     <script src="app.watch-playback-watchdog.js?v=20260822-w1860"></script>
     <!-- CSSMV_POPUPS_THEME_FIX 20260425 #108 — Jing: light-theme paint
@@ -2606,15 +2608,15 @@
          markers (**Verse 1**, [Chorus], …) and "/" separators from
          rendered subtitles + titles. Lyrics editor stays raw. -->
     <script src="app.subtitle-cleaner.js?v=20260525-w419-dualclean"></script>
-    <script src="app.mv-title-sync.js?v=20260503-mv-title-sync-1"></script>
-    <script src="app.title-authority.js?v=20260820-w1839"></script>
+    <script src="app.mv-title-sync.js?v=20260823-w1888b"></script>
+    <script src="app.title-authority.js?v=20260823-w1888b"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505c — Jing
          These 19 helpers must load AFTER all the file-level helpers above
          (especially app.delivery-digest-ui.js which defines
          renderDeliveryDigestSummaryModule that app.cssmv-governance.js
          calls at top-level), but BEFORE app.boot.js so the bridges are
          present when boot wires up event handlers. -->
-    <script src="app.panel-shell-actions.js?v=20260529-w486-clamp-observer"></script>
+    <script src="app.panel-shell-actions.js?v=20260823-w1874-exitfs"></script>
     <script src="app.panel-drag.js?v=20260505c-end"></script>
     <script src="app.panel-focus.js?v=20260530-w506-revert"></script>
     <script src="app.i18n-hierarchy-defaults.js?v=20260505c-end"></script>
@@ -2622,6 +2624,9 @@
     <script src="app.delivery-copy.js?v=20260505c-end"></script>
     <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
     <script src="app.final-audio-artifacts.js?v=20260505c-end"></script>
+    <script src="app.solo-player.js?v=20260824-w1923"></script>
+    <script src="app.playback-authority.js?v=20260824-w1922"></script>
+    <script src="app.single-audio-enforcer.js?v=20260824-w1920"></script>
     <script src="app.watch-audio-authority.js?v=20260822-w1865b-fix"></script>
     <script src="app.song-creation-payload.js?v=20260505c-end"></script>
     <script src="app.structure-planning.js?v=20260712-i18n"></script>

@@ -45,6 +45,26 @@
       '#watch-panel[data-face-zone] .watch-music-art {',
       '  background-position: var(--cssos-face-pos, 50% 50%) !important;',
       '  object-position: var(--cssos-face-pos, 50% 50%) !important;',
+      '}',
+      /* CSSOS_WAVE_1893 20260823 —— Jing:「我说要检测人物脸部, 好了, 现在特写整个鼻子。
+       * 我要求的是完整的人物脸部, 没必要特写到鼻子。」
+       *
+       * 这次不是裁切【位置】错, 是裁切【倍率】离谱 —— 位移再准也救不回来:
+       *   竖屏手机把画框做成满屏 9:19.5, 而片源是 16:9 横屏;
+       *   app.watch-ui.js 对 <video> 一律 object-fit:cover → 要放大约 2.2 倍才填得满
+       *   这个高瘦画框 → 裁出来正好只剩鼻子。在 2.2 倍放大下, object-position 怎么调
+       *   都装不下一张完整的脸。
+       *
+       * 修法: 竖屏遇到【横屏片源】时改用 contain —— 整帧完整显示, 脸自然完整。
+       * 上下留白不是空的: .watch-screen-backdrop 那层模糊底图已经在垫着。
+       * 竖屏片源(videoHeight >= videoWidth)不受影响, 继续 cover 填满, 那本来就没问题。
+       *
+       * !important 是必需的: watch-ui 用【内联样式】写的 cover, 只有样式表里的
+       * !important 压得过内联(反过来不行)。 */
+      '@media (orientation: portrait) {',
+      '  #watch-panel .watch-video[data-cssos-landscape="1"] {',
+      '    object-fit: contain !important;',
+      '  }',
       '}'
     ].join("\n");
     (document.head || document.documentElement).appendChild(st);
@@ -71,8 +91,132 @@
     wp.style.setProperty("--cssos-face-pos", pos);
   }
 
+  /* W1893 —— 给 <video> 打"片源是横屏"的标记, 供上面那条竖屏规则使用。
+   * 只信解码器给的真实尺寸(videoWidth/videoHeight), 不猜、不查库。 */
+  function markSourceOrientation() {
+    var v = document.getElementById("watch-video");
+    if (!v) return;
+    var w = Number(v.videoWidth || 0), h = Number(v.videoHeight || 0);
+    if (w < 8 || h < 8) {
+      /* W1893d —— 视频还没元数据(纯幻灯作品可能【永远】没有)时, 用当前幻灯帧的真实像素判横竖,
+       * 否则幻灯层永远等不到这条规则。同样只信解码/解码后的真实尺寸, 不猜。 */
+      var img = document.querySelector("#watch-panel .watch-svg, #watch-panel .cssmv-cover-slide, #watch-panel .watch-music-art");
+      var iw = img && Number(img.naturalWidth || 0), ih = img && Number(img.naturalHeight || 0);
+      if (!iw || !ih || iw < 8 || ih < 8) return;     // 都拿不到 → 不标, 等下一轮
+      w = iw; h = ih;
+    }
+    var landscape = w > h;
+    if (landscape) v.setAttribute("data-cssos-landscape", "1");
+    else v.removeAttribute("data-cssos-landscape");
+    /* W1893b —— 光有样式表规则不够(实测: 规则注入了、选择器匹配、竖屏成立, computed 仍是 cover)。
+     * 原因: app.watch-ui.js 在 loadedmetadata / 转屏 / 每次换歌时都会重新写【内联】
+     * objectFit="cover", 而它写得比我们晚 —— 同为内联时后写的赢。
+     * 所以这里也走内联, 并显式带 "important": 内联 !important 是层叠里的最高一级,
+     * 它再怎么回写普通内联都盖不过来。判据仍只信解码器给的真实尺寸, 不猜。 */
+    try {
+      /* CSSOS_WAVE_1906 20260824 — Jing:「横屏禁止使用竖图封面图, 竖屏禁止使用横屏封面图,
+       * 改为顺时针旋转 90 度。」—— 从"竖屏遇横片源"扩成【任一方向不符都转】。
+       * 判据从"是不是竖屏"改成"片源方向 ≠ 屏幕方向", 一个条件覆盖两种情况:
+       *   竖屏 + 横片源 → 转;  横屏 + 竖片源 → 也转。 */
+      /* CSSOS_WAVE_1927 20260824 — Jing 截图: 桌面横屏 Safari 里, 耶路撒冷金顶【躺倒】。
+       *
+       * W1906 把规则扩成双向(源方向 ≠ 屏方向就转), 逻辑本身没错 —— 错在【拿错了
+       * 比较对象】: 它比的是【浏览器窗口】方向, 而画面真正渲染进去的是【媒体框】。
+       * 桌面上窗口是横的, 媒体框却是一根竖长条 —— 一张竖帧本来完美贴合那根竖框,
+       * 却因为"窗口是横的"被判不符, 白白转了 90°。
+       *
+       * 改为量【容器】: 用媒体元素父框的实际尺寸。手机上媒体框铺满屏幕, 容器方向
+       * == 窗口方向, 行为与 W1906 完全一致(不回归); 桌面/平板上媒体框自成一格, 才
+       * 按它自己的方向判 —— 这才是"适应屏幕"的本意。容器量不到(未布局/尺寸为 0)
+       * 时退回窗口, 保持旧行为, 不至于变成空判。 */
+      var __box = null;
+      try { __box = (v.parentElement && v.parentElement.getBoundingClientRect()) || null; } catch (_b) { __box = null; }
+      var __cw = (__box && __box.width  > 8) ? __box.width  : (window.innerWidth  || 0);
+      var __ch = (__box && __box.height > 8) ? __box.height : (window.innerHeight || 0);
+      var portrait = __ch > __cw;
+      /* CSSOS_WAVE_1927b 20260824 — Jing:「横屏横媒体, 你没事找事乱旋转干嘛?
+       * 横屏横媒体多么的完美, 你却一定要旋转一下。」—— 他是对的, 这个错是 W1906
+       * 我自己扩出来的。
+       *
+       * 铁律原文(CLAUDE.md 画幅铁律)只有一句: 【竖屏设备遇横片源 → 顺时针转 90°】。
+       * W1906 把它读成"源方向 ≠ 屏方向就转", 于是横屏遇竖媒体【也】转 —— 而那种
+       * 情况本来只要左右留边就行, 转过来是把好好的画面弄躺倒。
+       *
+       * 恢复单向, 并写死不给下一个人再"对称化"的余地:
+       *   竖显示区 + 横片源 → 转   (贴屏, 不裁切)
+       *   其余一切组合      → 不转 (横屏横媒体 = 完美, 一个像素都别动)
+       * 判据用【容器】而不是 window: 画面真正渲染进去的是媒体框, 桌面上窗口是横的
+       * 而媒体框可能是竖的, 比错对象就会转错(W1927 的教训)。 */
+      var mismatch = (portrait && landscape);
+      /* CSSOS_WAVE_1902 20260824 — 画幅铁律(CLAUDE.md「32:9 + 转屏不裁切」)的播放端落地。
+       * Jing:「之前是要求剪裁 32:9 横图来适应屏幕, 现在起要求, 顺时针旋转 90 度来适应屏幕。」
+       *
+       * 三次没修对的经过, 写在这里免得再来第四次:
+       *   W1854/W1858 调 object-position → 位置对了, 倍率还是 ~3.9 倍, 照样只剩鼻子;
+       *   W1893       改 contain → 整脸完整了, 但上下两条大黑边, 画面缩成一小条;
+       *   W1902(本条) 顺时针转 90° → 一帧不裁, 画面填满。
+       * 一句话教训: **倍率错了, 位置再准也没用。** */
+      if (mismatch) {
+        v.style.setProperty("object-fit", "cover", "important");
+        v.style.setProperty("width", "100vh", "important");        // 转 90° 后宽高互换
+        v.style.setProperty("height", "100vw", "important");
+        v.style.setProperty("position", "absolute", "important");
+        v.style.setProperty("top", "50%", "important");
+        v.style.setProperty("left", "50%", "important");
+        /* CSSOS_WAVE_1909 20260824 — Capacitor App 专属硬化(Jing 要求验 App 这条路)。
+         * App 里有 `html.cssos-app #watch-panel .watch-video { inset:0 !important }` ——
+         * inset 是简写, 同时钉死 right/bottom。我只设了 top/left, 于是四边同时被约束,
+         * 元素被拉回铺满而不是按 100vh×100vw 旋转。必须显式把另两边放开。
+         * (内联 !important 压得过样式表 !important, 所以只要"设到", 就赢。) */
+        v.style.setProperty("right", "auto", "important");
+        v.style.setProperty("bottom", "auto", "important");
+        v.style.setProperty("transform-origin", "center center", "important");
+        v.style.setProperty("transform", "translate(-50%,-50%) rotate(90deg)", "important");
+      } else {
+        ["object-fit","transform","width","height","position","top","left","right","bottom","transform-origin"].forEach(function (k) { try { v.style.removeProperty(k); } catch (_e) {} });
+      }
+      /* W1893d —— Jing:「不要特写鼻子, 要人物脸部。」(截图里上半条是已修好的 <video>,
+       * 下面那个大鼻子是【另一层】——幻灯图层/背景层, 它们还是 cover。)
+       * 画面不止 <video> 一层: 幻灯帧(.watch-svg / .cssmv-cover-slide)、封面(.watch-music-art)
+       * 都会占满同一个画框。只修视频等于只修了一半, 用户看到的还是被放大到只剩鼻子的那半。
+       * 同一条判据(横片源 + 竖屏 → contain)一并套到所有可见画面层。
+       * 背景模糊层(.watch-screen-backdrop)【不动】—— 它本来就该铺满做底衬。 */
+      var LAYERS = "#watch-panel .watch-svg, #watch-panel .cssmv-cover-slide, #watch-panel .watch-music-art";
+      [].slice.call(document.querySelectorAll(LAYERS)).forEach(function (el) {
+        try {
+          /* W1902 — 幻灯/封面层同样旋转: 画面不止 <video> 一层, 只转视频等于只转一半(W1893 的教训)。 */
+          if (mismatch) {
+            el.style.setProperty("object-fit", "cover", "important");
+            el.style.setProperty("width", "100vh", "important");        // 转 90° 后宽高互换
+            el.style.setProperty("height", "100vw", "important");
+            el.style.setProperty("position", "absolute", "important");
+            el.style.setProperty("top", "50%", "important");
+            el.style.setProperty("left", "50%", "important");
+            el.style.setProperty("right", "auto", "important");    // W1909 — 同上, App 的 inset:0
+            el.style.setProperty("bottom", "auto", "important");
+            el.style.setProperty("transform-origin", "center center", "important");
+            el.style.setProperty("transform", "translate(-50%,-50%) rotate(90deg)", "important");
+          } else {
+            ["object-fit","transform","width","height","position","top","left","right","bottom","transform-origin"].forEach(function (k) { try { el.style.removeProperty(k); } catch (_e) {} });
+          }
+        } catch (_e) {}
+      });
+    } catch (_e) {}
+    if (!v.__cssosOrientWired) {
+      v.__cssosOrientWired = true;
+      ["loadedmetadata", "resize", "emptied"].forEach(function (ev) {
+        try { v.addEventListener(ev, markSourceOrientation, { passive: true }); } catch (_e) {}
+      });
+    }
+  }
+
   injectStyle();
   apply();
+  markSourceOrientation();
+  try { setInterval(markSourceOrientation, 2000); } catch (_e) {}
+  ["resize", "orientationchange"].forEach(function (ev) {
+    try { window.addEventListener(ev, markSourceOrientation, { passive: true }); } catch (_e) {}
+  });
 
   // 检测器每 ~2s 改一次 data-face-zone; 只观察这一个属性, 开销可忽略
   try {

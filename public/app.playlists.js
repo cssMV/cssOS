@@ -253,7 +253,20 @@
         if (p) {
           anySuccess = true;
           const mktFlat = flattenWorksTree(p?.data?.works || p?.works || []);
-          // market 已按服务端顺序 (热门/最新), 不再二次排序; 仅追加在自己作品之后.
+          /* CSSOS_WAVE_1885 20260823 —— Jing:「为什么不是从最新到最旧播放?现在的播放顺序是什么?」
+           *
+           * 旧注释写着"market 已按服务端顺序(热门/最新), 不再二次排序" —— 这个假设是错的。
+           * 浏览器实测(623 首队列): 队首是 2026-05-27, 而最新的作品是 2026-08-23, 它被排在
+           * 【第 301 位】; 8-19 的在 #389, 7-13 的在 #481。整条队列有 36 个逆序跳变
+           * (05-06 → 06-03 → 04-29 → 05-26 …), 因为服务端是按"精选/热门"分组返回的,
+           * 组内才有时间序 —— 从来就不是全局最新优先。
+           *
+           * 于是最新作品要等三百首之后才轮到, 用户观感就是"永远在放那几首老的"。
+           * 修法: 追加前按 created_at 全局倒序。这只排 market 这一段, 不动用户自己的作品
+           * (那段本来就已倒序, 且必须继续排在最前 —— 自己的新作品优先看到)。 */
+          mktFlat.sort((a, b) =>
+            (Date.parse(String(b?.created_at || "")) || 0) -
+            (Date.parse(String(a?.created_at || "")) || 0));
           pushUnique(list, have, mktFlat, null);
         }
       } catch (_e) {}
@@ -399,10 +412,56 @@
     return end > start ? { start, end } : null;
   }
 
+  /* CSSOS_WAVE_1886 20260823 —— Jing:「不管切歌到哪里了, 标题永远不变, 歌词永远不变,
+   * 音乐永远不变, 视频永远不变。为什么切歌不是按照 uuid 切歌的?」
+   *
+   * ── 根因(浏览器实测锁定) ────────────────────────────────────────────────
+   * 平台确实是按 uuid 切歌的 —— 但"换歌"这件事有两半, 只做了一半:
+   *   ① 换裸媒体元素(<video>/<audio> 的 src) —— 连播路径做了;
+   *   ② 广播"现在是哪一首"(cssos:work-id-changed) —— 连播路径【从来没做】。
+   * 全平台有 20 个模块靠 ② 才知道该重绘: app.title-authority(标题) /
+   * app.emotion-subtitle-engine(情绪字幕) / app.watch-visual-pills(画面) /
+   * app.watch-audio-authority(音频权威) / 弹幕 / 人脸裁切 / 上一首下一首条 …
+   * 唯一会广播的是【深链】(app.share-link-router) —— 所以深链打开一首歌一切正常,
+   * 自动连播就"标题/歌词/画面/音乐全是上一首的"。同一个 bug 的两张脸。
+   *
+   * ── 为什么修在这里 ──────────────────────────────────────────────────────
+   * step() 是所有切歌路径的【唯一收口】: 自动连播、上下滑、下一首按钮、随机、循环
+   * 全部经过它。在这里广播 = 一处修好全部路径, 而不是给每个调用方各打一个补丁。
+   * cssosBindToWorkId 内部自带"同一首就不重复广播"的判定, 重复调用是安全的。 */
+  function emitSwitch(item) {
+    if (!item) return item;
+    try {
+      if (typeof globalThis.cssosBindToWorkId === "function") {
+        globalThis.cssosBindToWorkId(item.id || item.work_id || item, item);
+      }
+    } catch (_e) {}
+    return item;
+  }
+
   function step(direction /* +1 or -1 */) {
     const list = state.lists[state.active];
     if (!list || list.items.length === 0) return null;
     const len = list.items.length;
+      /* CSSOS_WAVE_1928 20260824 — Jing:「播放问题一直不解决」实测根因之一。
+       *
+       * loop_single 是【分享单曲会话】的模式(点开分享链接只循环那一首), 由
+       * share-link-router / market-commerce / watch-ui 三处设置。但 mode 是【全局】的,
+       * 一旦泄漏到 622 首的 For You 列表, step() 就永远返回当前这首 —— 用户看到的是
+       * 「切不动歌、永远播一首」。
+       *
+       * W731x 修过一次, 但闸装在 setActive() 里 —— 只有【切列表】才还原。实测时活动
+       * 列表已经是 for-you, 没人调 setActive, 泄漏进来的 loop_single 永远还原不回来。
+       * 闸门装错了位置。
+       *
+       * 改装在 step() —— 每次翻页都必经的路。判据: 真·单曲会话的标志是列表 id 为
+       * share-link, 或列表本来就只有 1 项; 除此之外的多曲列表出现 loop_single 一律
+       * 判为泄漏, 就地还原成 loop_all 并持久化(不只是本次绕过, 否则下次又卡)。 */
+      if (state.mode === "loop_single" && state.active !== "share-link" && len > 1) {
+        try { console.warn("[W1928] loop_single 泄漏到多曲列表(" + state.active + ", " + len + " 首) → 还原 loop_all"); } catch (_e) {}
+        state.mode = "loop_all";
+        try { persist(); } catch (_e2) {}
+      }
     const mode = state.mode;
     if (mode === "loop_single") {
       // 单部循环: 多部作品 → 在本部段内循环(第一集→最后一集→回第一集); 独立单曲 → 原地循环。
@@ -412,10 +471,10 @@
         const rel = state.index - g.start;
         const nextRel = ((rel + direction) % span + span) % span;   // 在部段内环绕
         state.index = g.start + nextRel;
-        return list.items[state.index] || null;
+        return emitSwitch(list.items[state.index] || null);
       }
       // Stay on current item; force re-render by returning current.
-      return list.items[state.index] || null;
+      return emitSwitch(list.items[state.index] || null);
     }
     // CSSOS_WAVE_1187 20260624 — Jing「从 root 播就必须播完整个多部; 从多部的某个枝丫开始播,
     //   就顺着播完整个多部」: 在有序模式(sequential / reverse / loop_all)下, 只要当前 item 属于
@@ -429,7 +488,7 @@
         const within = state.index + direction;
         if (within >= g.start && within <= g.end) {
           state.index = within;
-          return list.items[state.index] || null;
+          return emitSwitch(list.items[state.index] || null);
         }
       }
     }
@@ -437,7 +496,7 @@
       ensureShuffleOrder(list);
       state.shuffleCursor = (state.shuffleCursor + direction + len) % len;
       state.index = state.shuffleOrder[state.shuffleCursor];
-      return list.items[state.index] || null;
+      return emitSwitch(list.items[state.index] || null);
     }
     // sequential / reverse / loop_all
     let logicalDir = direction;
@@ -452,7 +511,7 @@
       if (next < 0) return null;
     }
     state.index = next;
-    return list.items[state.index] || null;
+    return emitSwitch(list.items[state.index] || null);
   }
 
   // ─── Public API ─────────────────────────────────────────────────────

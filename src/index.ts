@@ -32938,6 +32938,52 @@ async function kieTextTrio(system: string, user: string, maxTokens = 4000): Prom
  *    本端点【只盘点与连线, 不自动建演员】—— 建档要定 face_prompt, 那是 Jing
  *    的红线(「妲己不要改」), 不能由我代劳。
  * ───────────────────────────────────────────────────────────────────────── */
+/* CSSOS_WAVE_1925c — 声部咽喉的【干跑验证台】(Jing 点名要的)。
+ *
+ * 为什么需要它: W1925 装在 callMusicGen 内部, 想验证它是否命中就得真调引擎 ——
+ * 一次要花钱, 而且要等几分钟。更糟的是, 李白那次重生成日志里【没有】命中记录,
+ * 查下来不是失效, 是守门规矩①正确退让了(我早先手工往 style 串写死了
+ * "MALE baritone", 咽喉见调用方已指定就一字不改)。逻辑对, 但等于没验证到。
+ *
+ * 这个端点跑【同一个 cssosApplyActorVoiceLinkage】, 只是不往下调引擎:
+ * 给一个标题/提示词, 直接返回「咽喉会认出谁、会往引擎里灌什么」。
+ * 不调引擎 = 不花一分钱, 可以随便测、可以当回归用例。
+ *
+ *   curl -sS -X POST .../api/admin/actors/voice-preview \
+ *     -H "x-cssos-internal-token: $TOK" -H 'content-type: application/json' \
+ *     -d '{"cases":[{"title":"妲己 · 千年狐"},{"title":"武则天 · 无字碑"}]}'
+ */
+app.post("/api/admin/actors/voice-preview", express.json({ limit: "32kb" }), async (req, res) => {
+  const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
+  if (!(CSSOS_INTERNAL_TOKEN && internalToken === CSSOS_INTERNAL_TOKEN)) {
+    const uid = (req.session as any)?.user_id;
+    if (!uid) return res.status(401).json({ ok: false, error: "sign_in_required" });
+    const r = await withClient((c) => c.query<{ role: string }>(`SELECT role FROM users WHERE id=$1::uuid LIMIT 1`, [uid]));
+    if (r.rows[0]?.role !== "admin") return res.status(403).json({ ok: false, error: "admin_only" });
+  }
+  const b = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+  const cases = Array.isArray(b.cases) ? (b.cases as any[]).slice(0, 40) : [];
+  if (!cases.length) return res.status(400).json({ ok: false, error: "need cases[]" });
+
+  const out: any[] = [];
+  for (const c of cases) {
+    // exactOptionalPropertyTypes: 可选字段要么给值要么【整个不出现】, 不能给 undefined
+    const reqIn: MusicGenRequest = { prompt: String(c?.prompt || ""), title: String(c?.title || "") };
+    if (Array.isArray(c?.tags)) reqIn.tags = c.tags.map(String);
+    if (c?.instrumental === true) reqIn.instrumental = true;
+    const linked = await cssosApplyActorVoiceLinkage(reqIn);
+    out.push({
+      输入标题: reqIn.title,
+      输入提示词: reqIn.prompt || "(空)",
+      认出的人物: linked.actor ? `${linked.actor.name} (${linked.actor.actor_id})` : "(没认出)",
+      性别: linked.actor?.gender || "—",
+      灌进引擎的前缀: linked.actor ? String(linked.req.prompt || "").slice(0, 160) : "(原样透传, 未改)",
+      是否命中: !!linked.actor,
+    });
+  }
+  return res.json({ ok: true, cases: out.length, results: out });
+});
+
 app.post("/api/admin/actors/merge-aliases", express.json({ limit: "16kb" }), async (req, res) => {
   const internalToken = String(req.header("x-cssos-internal-token") || "").trim();
   if (!(CSSOS_INTERNAL_TOKEN && internalToken === CSSOS_INTERNAL_TOKEN)) {
@@ -33122,10 +33168,63 @@ app.post("/api/admin/actors/find-missing", express.json({ limit: "16kb" }), asyn
           AND (w.voice_gender IS NULL OR w.vocal_style IS NULL)
           AND a.gender IS NOT NULL AND a.gender <> ''`));
   }
+  /* 复核关: 字符串匹配救不了【同一人不同中文名】。
+   * 实测被抓到的假缺失: 孙武→孙子(act-civ-sun-tzu)、玛丽·居里→居里夫人
+   * (act-civ-marie-curie)、苏东坡→苏轼(act-civ-su-shi) —— 三对之间一个字都
+   * 不重合, 包含式匹配也命中不了。而且候选里「米开朗基罗」和「米开朗琪罗」
+   * 是同一人被列了两次。照未复核的单子建档 = 一口气造出 4 个重复人物, 正是
+   * 本波刚清掉的病。所以缺失单必须过这一关才交出去。 */
+  let candidates = Array.from(missing.values()).sort((a, b) => b.titles.length - a.titles.length);
+  const falsePositives: any[] = [];
+  if (candidates.length) {
+    const rosterNames = (lex.rows as Record<string, unknown>[]).map((a) =>
+      ({ id: String(a.actor_id), zh: String(a.name_zh || ""), en: String(a.name_en || "") }));
+    const vsys = [
+      "下面给你两份数据: roster(已有的数字演员名册) 和 candidates(疑似缺档案的人物名)。",
+      "任务: 找出 candidates 里【其实已经在 roster 中, 只是中文名/译名不同】的那些。",
+      "例: 孙武 就是 roster 里的 孙子; 玛丽·居里 就是 居里夫人; 苏东坡 就是 苏轼。",
+      "同时找出 candidates 内部【互为同一人的不同译名】(如 米开朗基罗 / 米开朗琪罗)。",
+      "只输出 JSON: {\"already_present\":[{\"candidate\":\"\",\"actor_id\":\"\"}],\"dupe_groups\":[[\"名A\",\"名B\"]]}",
+      "拿不准就不要放进 already_present —— 漏判只是多建一个档案, 误判会永久合并两个不同的人。",
+    ].join("\n");
+    const vtext = await kieTextTrio(vsys, JSON.stringify({
+      roster: rosterNames, candidates: candidates.map((c) => c.person),
+    }), 4000);
+    const vm = vtext.match(/\{[\s\S]*\}/);
+    if (vm) {
+      try {
+        const v = JSON.parse(vm[0]);
+        const present = new Map<string, string>();
+        for (const x of (v?.already_present || [])) {
+          const cand = String(x?.candidate || ""), aid = String(x?.actor_id || "");
+          if (cand && aid && rosterNames.some((r) => r.id === aid)) present.set(cand, aid);
+        }
+        // 候选内部的同人组: 只留组里第一个, 其余标为重复译名
+        const dupeAlias = new Map<string, string>();
+        for (const grp of (v?.dupe_groups || [])) {
+          if (!Array.isArray(grp) || grp.length < 2) continue;
+          const keep = String(grp[0]);
+          for (const other of grp.slice(1)) dupeAlias.set(String(other), keep);
+        }
+        candidates = candidates.filter((c) => {
+          if (present.has(c.person)) {
+            falsePositives.push({ person: c.person, 其实是: present.get(c.person), 原因: "库里已有, 中文名不同" });
+            return false;
+          }
+          if (dupeAlias.has(c.person)) {
+            falsePositives.push({ person: c.person, 其实是: dupeAlias.get(c.person), 原因: "候选内部同人异译" });
+            return false;
+          }
+          return true;
+        });
+      } catch { /* 复核失败就原样交出, 但下面会标明未复核 */ }
+    }
+  }
   return res.json({
     ok: true, dry_run: dryRun, titles_scanned: titles.length,
     named_person_titles: found.length, linkable: linkable.length, linked_rows: linked,
-    missing_actors: Array.from(missing.values()).sort((a, b) => b.titles.length - a.titles.length),
+    missing_actors: candidates,
+    false_positives_removed: falsePositives,
   });
 });
 
@@ -49577,6 +49676,17 @@ app.get("/api/works/public/:id", async (req, res) => {
            w.preview_video_url,
            w.language,
            w.civilization,
+           -- CSSOS_WAVE_1931 20260824 — 唯一真源必须【完整】。实测: 独播器按 ID 取真源,
+           -- 却拿不到字幕地址/语言/画幅 → 情绪字幕永远空白, 旋转也只能等媒体解码后才判
+           -- (于是"先露横的再啪一下转")。真源缺字段 = 唯一真源这套设计在这几维上空转。
+           w.aspect_ratio,
+           w.frame_width,
+           w.frame_height,
+           w.cover_focal_x,
+           w.cover_focal_y,
+           w.voice_gender,
+           w.vocal_style,
+           w.actor_id,
            u.display_name AS owner_name,
            u.email AS owner_email,
            u.avatar_url AS owner_avatar_url,
@@ -49739,6 +49849,25 @@ app.get("/api/works/public/:id", async (req, res) => {
         lyrics_preview: normalized.lyrics_preview,
         owner_name: normalized.owner_name || null,
         duration_secs: normalized.duration_secs || null,
+        /* CSSOS_WAVE_1931 — 播放端要的真源字段, 之前 SQL 查了却没往外返:
+         *  · subtitle_take*_json_url → 情绪字幕轨(不给就永远空白, 实测 cues=0 的真因)
+         *  · language / civilization → 字幕该选哪条语言轨、文明联动
+         *  · aspect_ratio / frame_*  → 【媒体加载前】就能定旋转, 配合 W1930 幕布做到
+         *                              "先转好再露面", 不必等 loadedmetadata
+         *  · cover_focal_*           → 人脸焦点, 前端不用再猜
+         *  · voice_gender/vocal_style/actor_id → W1925/W1926 的人物声部 */
+        subtitle_take1_json_url: (row as any).subtitle_take1_json_url || null,
+        subtitle_take2_json_url: (row as any).subtitle_take2_json_url || null,
+        language: (row as any).language || null,
+        civilization: (row as any).civilization || null,
+        aspect_ratio: (row as any).aspect_ratio || null,
+        frame_width: Number((row as any).frame_width || 0) || null,
+        frame_height: Number((row as any).frame_height || 0) || null,
+        cover_focal_x: (row as any).cover_focal_x != null ? Number((row as any).cover_focal_x) : null,
+        cover_focal_y: (row as any).cover_focal_y != null ? Number((row as any).cover_focal_y) : null,
+        voice_gender: (row as any).voice_gender || null,
+        vocal_style: (row as any).vocal_style || null,
+        actor_id: (row as any).actor_id || null,
         cover_image: normalized.cover_image || null,
         preview_image_url: normalized.preview_image_url || null,
         // CSSOS_WAVE_220A_COVER_POOL 20260519 — Jing: 5-image cover pool.

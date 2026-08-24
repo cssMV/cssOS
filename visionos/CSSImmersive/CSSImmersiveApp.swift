@@ -11,6 +11,11 @@ struct CSSImmersiveApp: App {
     @StateObject private var auth = CSSAuth()                 // W1062 — Vision 鉴权(Apple + Optic ID)
     @StateObject private var router = GateRouter()            // W1093 — 沉浸大厅 ↔ 窗口编排
 
+    /* CSSOS_WAVE_1936 — 打包花体注册。TV 版情绪字幕的「逐字随机字体」(W1323)要从这里挑;
+     * 不注册的话只剩四种系统字形, 花体全丢, 视觉退一档。Fonts/ 里没有 .ttf 时 custom 为空,
+     * 字幕自动退回系统字形, 不会崩 —— 所以放心在启动时无条件调。 */
+    init() { CSSFonts.registerBundled() }
+
     var body: some Scene {
         WindowGroup(id: "launch") {       // W964 — 给窗口 id, 进殿后 dismissWindow 真正关掉(消除拖拽条)
             ContentView()

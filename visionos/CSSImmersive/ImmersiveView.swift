@@ -538,8 +538,26 @@ struct ImmersiveView: View {
             Attachment(id: "leftPanel") { leftPanel }       // W1580 — 左·观赏(下一首/场景/打赏)
             Attachment(id: "rightPanel") { rightPanel }     // W1580 — 右·操作(大厅/设置/创作/退出)
             Attachment(id: "menu") { spaceMenu }            // 设置菜单(⚙ 切换: 弧度/半径/场景细节)
+            /* CSSOS_WAVE_1936 20260824 — Jing:「情绪字幕还是旧版, 请使用 TV 版的情绪字幕,
+             * 现在 Vision 版的情绪字幕错别太多。」
+             *
+             * 原来这里只贴一行 SubtitleLineView(当前行纯文本) —— 那根本不是情绪字幕,
+             * 只是一条字幕。真正的招牌(逐字爆 + 卡拉OK擦除 + 器乐段 emoji)在 Vision 上
+             * 是另写的一套 3D 文字实体, 与 TV/桌面各走各的, 所以错层出不穷。
+             * 现在整体换成 TV 端跑通的 EmotionSubtitleOverlay(W1247), 一行渲染逻辑没改,
+             * 只做了类型适配 —— 两端从此同源, 不会再各自长歪。
+             *
+             * 为什么用 2D 浮层而不是 3D 文字实体: 头显里 2D 反而更清晰稳定, 而且免掉
+             * 空间排版那一整类错(字重叠、朝向偏、远近字号失控)。 */
             Attachment(id: "subtitle") {
-                SubtitleLineView(text: player.currentLineText)
+                if let lines = player.work?.alignedLyrics, !lines.isEmpty,
+                   let clock = player.audioPlayer {
+                    EmotionSubtitleOverlay(lines: lines, player: clock)
+                        .frame(width: 1400, height: 620)     // 贴合银幕比例, 由 placeOnArc 摆到下沿
+                        .allowsHitTesting(false)             // 字幕不吃注视/捏合, 别挡住银幕选中
+                } else {
+                    SubtitleLineView(text: player.currentLineText)   // 没有逐字轨时的朴素兜底
+                }
             }
             Attachment(id: "welcome") {
                 CathedralWelcomeView()

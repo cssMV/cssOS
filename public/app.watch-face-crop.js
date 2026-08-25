@@ -280,6 +280,8 @@
   }
 
   var CURTAIN_MS = 360;
+  // W1962 — 幕布硬超时(兜底用)。判定成功会立刻揭幕, 这个数只在【始终量不到尺寸】时才生效。
+  var CURTAIN_HARD_MS = 1500;
   function visualLayers() {
     var out = [];
     ["#watch-video", ".watch-svg", ".cssmv-cover-slide", ".watch-music-art"].forEach(function (sel) {
@@ -297,10 +299,30 @@
       } catch (_e) {}
     });
     try { clearTimeout(globalThis.__cssosCurtainTimer); } catch (_e) {}
-    globalThis.__cssosCurtainTimer = setTimeout(dropCurtain, CURTAIN_MS);   // 硬超时, 绝不黑屏
+    /* CSSOS_WAVE_1962 20260825 — Jing:「旋转毛病又复发了。不要等到显示了横屏画面才去旋转,
+     * 而是在显示画面之前就要检测, 如果是横屏就顺时针向右转 90 度。」
+     *
+     * W1930 的幕布思路是对的, 回归出在【硬超时太短】:
+     *   · CURTAIN_MS 只有 360ms。网络稍慢时 loadedmetadata 还没到, 幕布就先揭了
+     *     —— 于是又变成"先露没转的横画面, 再啪一下转过去", 正是要根治的那一幕。
+     *   · 纯幻灯作品【永远】不会有 loadedmetadata, 只能等 2 秒一次的巡检 →
+     *     360ms 必然先揭, 每一次换歌都闪。
+     *
+     * 改成【判定驱动揭幕, 超时只兜底】: 拉幕后每 50ms 主动量一次, 一旦量到真实尺寸,
+     * markSourceOrientation() 自己会把 transform 落好并 dropCurtain() —— 用户看到的
+     * 第一帧就是转好的。硬超时放宽到 1500ms, 仍然保证绝不永久黑屏。
+     *
+     * 只改【何时揭幕】, 判据一个字没动: 仍是 (竖显示区 && 横片源) 才转,
+     * 横屏设备显示竖屏媒体照旧不转。 */
+    try { clearInterval(globalThis.__cssosCurtainPoll); } catch (_e) {}
+    globalThis.__cssosCurtainPoll = setInterval(function () {
+      try { markSourceOrientation(); } catch (_e) {}
+    }, 50);
+    globalThis.__cssosCurtainTimer = setTimeout(dropCurtain, CURTAIN_HARD_MS);   // 硬超时, 绝不黑屏
   }
   function dropCurtain() {
     try { clearTimeout(globalThis.__cssosCurtainTimer); } catch (_e) {}
+    try { clearInterval(globalThis.__cssosCurtainPoll); } catch (_e) {}   // W1962 停掉快速轮询
     visualLayers().forEach(function (e) {
       try {
         if (!e.__cssosCurtained) return;

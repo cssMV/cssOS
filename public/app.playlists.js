@@ -596,6 +596,17 @@
           state.shuffleCursor = state.shuffleOrder.indexOf(idx);
           if (state.shuffleCursor < 0) state.shuffleCursor = 0;
         }
+        /* CSSOS_WAVE_1963 20260825 — Jing:「切歌了好几首, 但是标题一直被扣住不放。」
+         * 实测(浏览器现场): seekTo() 之后列表已经在第 0 首, 屏幕标题还挂着上一首。
+         *
+         * 根因: 切歌【收口】是 emitSwitch() → cssosBindToWorkId() → 派发
+         * cssos:work-id-changed, 标题权威(app.title-authority.js)只听这一个事件。
+         * step() 每条分支都走 emitSwitch, 唯独 seekTo() 只改 index + notify(),
+         * 【没走收口】—— 于是凡是经 seekTo 换的歌, 标题/字幕/画面全收不到通知。
+         *
+         * seekTo 的调用方不少(连播到尽头回头、点播放列表某一项、CTA 预选、分享链接落地),
+         * 所以这一处漏掉等于好几条切歌路一起哑。补上收口即可, 不新增任何机制。 */
+        emitSwitch(list.items[idx] || null);
         notify();
         return true;
       }

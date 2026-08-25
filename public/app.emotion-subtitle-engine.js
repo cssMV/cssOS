@@ -109,12 +109,33 @@
         globalThis.cssosSongVolumeCurve = null;
       }
     } catch (_e) {}
-    // CSSOS_WAVE_641 — lang 兜底: track.lang(可能是 'orig'/种子默认轨)对不上时, 退到 zh→en→ja→首个,
-    // 保证有字幕可显示(否则旗舰款因 lang 不匹配整段空白)。
+    /* CSSOS_WAVE_1961 20260825 — Jing:「一首歌一个作品可以有多种语言/字幕/声线/画面,
+     * 但一定要一致。中文版音乐必须显示中文版歌词, 不能显示为其他语言歌词。」
+     *
+     * 原 W641 在 lang 对不上时会退到 zh → en → languages[0]。那条兜底的动机是
+     *「保证有字幕可显示」, 代价却是【拿另一种语言顶上】—— 只要某作品字幕 JSON 的
+     * 第一条恰好是 ja, 中文音频就会配上日文字幕。这正是 Jing 看到的「中文歌配日文字幕」。
+     *
+     * 新规矩: 严格按当前在播轨的 lang 取;取不到就返回 null(不显示)。
+     * 宁可空白, 绝不错配 —— 错的语言比没有字幕更糟。
+     * 唯一保留的宽松是【同语族标签归一】(zh-CN/zh-Hans → zh, en-US → en),
+     * 那不是换语言, 只是同一种语言的不同写法。 */
+    var _norm = function (x) {
+      var v = String(x || "").toLowerCase().replace("_", "-");
+      var base = v.split("-")[0];
+      return base || v;
+    };
+    var _want = _norm(lang);
     var langEntry = subtitleJson.languages.find(function (l) { return l.lang === lang; })
-      || subtitleJson.languages.find(function (l) { return l.lang === "zh"; })
-      || subtitleJson.languages.find(function (l) { return l.lang === "en"; })
-      || subtitleJson.languages[0];
+      || (_want ? subtitleJson.languages.find(function (l) { return _norm(l.lang) === _want; }) : null)
+      || null;
+    if (!langEntry) {
+      try {
+        console.warn("[emo-sub] 无 " + lang + " 字幕, 按 W1961 不显示(绝不用别的语言顶替)。可用: "
+          + subtitleJson.languages.map(function (l) { return l.lang; }).join(","));
+      } catch (_e) {}
+      return null;
+    }
     if (!langEntry || !Array.isArray(langEntry.sections)) return null;
 
     var cues = [];
@@ -478,7 +499,37 @@
         }
       } catch (_e) { _tokenEdits = { added: [], deleted: {}, renamed: {} }; }
       var tracks = (j && j.tracks) || [];
-      var def = tracks.find(function (t) { return t.is_default; })
+      /* CSSOS_WAVE_1961 20260825 — 字幕必须跟着【当前正在播的那条轨】走, 不是跟着 is_default。
+       *
+       * 原来第一顺位是 tracks.find(t => t.is_default) —— 它根本不知道用户切到了哪条轨。
+       * 换语言时 workId 不变, 于是「歌声已经是英文, 字幕还是默认的中文」。
+       *
+       * 当前在播轨的坐标有现成真源: app.mv-language-pill.js 在挂音频的那一刻调
+       * cssosRegisterAsset('audio', url, {lang, voice, take}), 读取端是
+       * cssosAssetCoord('audio', url)(app.work-id-binding.js)。直接用, 不另造。
+       * 取不到坐标(极早期/异常路径)才退回原来的 is_default 顺位。 */
+      var _coord = null;
+      try {
+        var _aEl = document.getElementById("watch-audio-preview")
+                || document.querySelector("#watch-panel audio");
+        var _aSrc = _aEl && _aEl.currentSrc ? _aEl.currentSrc : (_aEl && _aEl.src) || "";
+        if (_aSrc && typeof globalThis.cssosAssetCoord === "function") {
+          _coord = globalThis.cssosAssetCoord("audio", _aSrc);
+        }
+      } catch (_e) {}
+      var _playing = null;
+      if (_coord && _coord.lang) {
+        var _cv = String(_coord.voice || "auto");
+        _playing = tracks.find(function (t) {
+          return t.lang === _coord.lang && String(t.voice || "auto") === _cv;
+        }) || tracks.find(function (t) { return t.lang === _coord.lang; }) || null;
+        try {
+          console.info("[emo-sub] 跟随在播轨 lang=" + _coord.lang + " voice=" + _cv
+            + (_playing ? "" : " (作品里没有这条轨, 退回默认)"));
+        } catch (_e) {}
+      }
+      var def = _playing
+        || tracks.find(function (t) { return t.is_default; })
         || tracks.find(function (t) { return t.status === "ready" && t.subtitle_take1_json_url; })
         || tracks.find(function (t) { return t.subtitle_take1_json_url; })
         || tracks[0];

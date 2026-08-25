@@ -10316,11 +10316,31 @@ function queueStructuredWatchAdvanceModule() {
   // CSSOS_WAVE_895 — 单点切歌锁: CTA 预选时让位; 2.5s 内已有切歌则去重让位(防与 onMediaEnded/手点撞车)。
   try {
     if (typeof globalThis.__cssosUpNextHasPreselect === "function" && globalThis.__cssosUpNextHasPreselect()) return;
+  } catch (_qsLockErr) {}
+  /* CSSOS_WAVE_1963 20260825 — Jing:「每次播放, 都总是循环第一首歌好几遍, 为什么不是直接切歌
+   * 到下一首?」实测根因(浏览器现场 instrument, 连发 5 次 ended, index 一动不动):
+   *
+   * 同一个 ended 事件上挂着【两条】切歌接线:
+   *   ① 本函数 queueStructuredWatchAdvanceModule —— 只管【多部作品分集】, 闸门是
+   *      structuredWatchQueueIsActiveModule()(老的 currentStructuredWatchQueue);
+   *      普通单曲时老队列是空的 → 闸门 false → 本函数什么都不做。
+   *   ② onMediaEnded → watchQueueAdvanceModule(+1) —— 走现代 cssosPlaylists(622 首),
+   *      这才是真正会切歌的那条。
+   *
+   * 原来的顺序是【先占锁, 再判闸门】: 本函数抢到 __cssosEndedSwitchLock 之后, 因为闸门
+   * false 直接 return —— 锁却留下了。于是 2.5 秒内 ② 被这把【没人在用的锁】挡住,
+   * 实测日志就是那句「2.5s 内已有切歌 → 本次 ended 去重让位」。
+   * 每首歌放完都撞一次 → 永远切不走 → 用户看到的就是「循环第一首好几遍」。
+   *
+   * 修法: 把闸门判断提到占锁【之前】—— 不干活就不占锁。锁本身的语义(防两条切歌撞车)
+   * 一个字没改, 只是不再让不切歌的人把锁拿走。 */
+  if (structuredWatchQueueAdvancePending || !structuredWatchQueueIsActiveModule()) return;
+  try {
     var _qsNow = Date.now();
     if (globalThis.__cssosEndedSwitchLock && (_qsNow - globalThis.__cssosEndedSwitchLock) < 2500) return;
     globalThis.__cssosEndedSwitchLock = _qsNow;
-  } catch (_qsLockErr) {}
-  if (structuredWatchQueueAdvancePending || !structuredWatchQueueIsActiveModule()) return;
+  } catch (_qsLockErr2) {}
+  if (structuredWatchQueueAdvancePending) return;
   structuredWatchQueueAdvancePending = true;
   window.setTimeout(async () => {
     structuredWatchQueueAdvancePending = false;

@@ -36475,7 +36475,13 @@ async function consumeBillableAction(args: {
       relatedUsageEventId
     ) {
       await client.query(
-        "INSERT INTO ledger_entries (user_id, kind, amount_cents, balance_after_cents, related_usage_event_id, note) VALUES ($1,$2,$3,$4,$5,$6)",
+        /* CSSOS_WAVE_1949 20260825 — 列名写错, 这条插入【从来没成功过】。
+         * 表里的列是 type / ref_usage_event_id, 这里写的是 kind / related_usage_event_id
+         * —— Postgres 直接抛 column does not exist。后果: 企业额度覆盖的那条用量路径
+         * 一笔账都没记进去, 而账本是要给用户看的东西, 缺一笔就是不可信。
+         * (rust-api/src/billing.rs 那三处列名是对的, 所以库里 743 条都来自 Rust 侧;
+         *  它们 amount=0 是因为 engine=cssmv-local 本就免费, 那是对的, 不是漏记。) */
+        "INSERT INTO ledger_entries (user_id, type, amount_cents, balance_after_cents, ref_usage_event_id, note) VALUES ($1,$2,$3,$4,$5,$6)",
         [
           args.userId,
           "debit",

@@ -32108,6 +32108,9 @@ function restoreDockOrder() {
 //   新增任何面板都默认对普通用户隐藏, 不会漏。admin 仍看全部。(关于 about 这次也对普通用户隐藏 — 以表为准。)
 // CSSOS_WAVE_904 — Jing: about 加回白名单(普通用户需要"关于/隐私政策"入口, 否则苹果挑"无隐私政策")。
 const DOCK_KEEP_FOR_NONADMIN = new Set([
+  // W1950 — 钱包必须对普通用户可见: 不进这个白名单会对非 admin 静默消失,
+  // W983 就是这样被苹果拒过一次。而钱包正是付费漏斗的第一步, 消失=没人能付钱。
+  "wallet",
   // CSSOS_WAVE_983 — Jing/Apple 5.1.1(v): "profile"(账户面板)必须对普通用户可见, 否则审核员
   //   找不到【删除账户】= 直接拒。上次 W903 收太紧把它也藏了 → build 26 被拒。加回。
   "mic", "mv-pipeline", "watch", "person-mv", "foryou", "works", "settings", "language", "login", "subscription", "about", "profile",

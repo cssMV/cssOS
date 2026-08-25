@@ -126,7 +126,7 @@
         '<div class="wl-acts">' +
           '<button type="button" class="wl-btn" id="wl-topup">＋ ' + esc(lc("Add funds", "充值")) + "</button>" +
           '<button type="button" class="wl-btn" id="wl-withdraw" disabled>' +
-            esc(lc("Withdraw · coming", "提现 · 开放中")) + "</button>" +
+            esc(lc("Withdraw", "提现")) + "</button>" +
         "</div>" +
         '<div class="wl-sec">' + esc(lc("Activity", "收支明细")) + "</div>" +
         '<div class="wl-rows" id="wl-rows"><div class="wl-empty">' + esc(lc("Loading…", "读取中…")) + "</div></div>" +
@@ -172,6 +172,37 @@
       document.getElementById("wl-balsub").textContent = lc("Could not read balance.", "余额读取失败。");
     }
 
+    /* CSSOS_WAVE_1955 — 提现: 按资格接口决定按钮能不能点, 并把【为什么不能】直说。
+     *
+     * 之前这个按钮是恒置灰的"开放中"。现在后端通了(W1955), 但能不能提取决于四件事:
+     * 有没有绑收款账户、账户 onboarding 走没走完、earning 桶够不够 $20、有没有在
+     * 反洗钱冷却期内。任何一条不满足都直接写在按钮上 —— 用户不该点了才知道为什么不行。 */
+    try {
+      var er = await fetch("/api/wallet/withdraw/eligibility", { credentials: "include" });
+      var ej = await er.json();
+      var wb = document.getElementById("wl-withdraw");
+      if (wb && ej && ej.authenticated) {
+        var reasons = ej.reasons || [];
+        if (ej.eligible) {
+          wb.disabled = false;
+          wb.textContent = lc("Withdraw", "提现") + " " + money(ej.withdrawable_cents);
+          wb.addEventListener("click", function () { void doWithdraw(ej); });
+        } else if (reasons.indexOf("no_payout_account") >= 0) {
+          wb.disabled = false;
+          wb.textContent = lc("Set up payouts", "绑定收款账户");
+          wb.addEventListener("click", function () { void startConnectOnboarding(); });
+        } else if (reasons.indexOf("payout_account_incomplete") >= 0) {
+          wb.disabled = false;
+          wb.textContent = lc("Finish payout setup", "完成收款设置");
+          wb.addEventListener("click", function () { void startConnectOnboarding(); });
+        } else if (reasons.indexOf("below_minimum") >= 0) {
+          wb.textContent = lc("Withdraw · min", "提现 · 满") + " " + money(ej.minimum_cents);
+        } else if (reasons.indexOf("deposit_cooldown") >= 0) {
+          wb.textContent = lc("Withdraw · wait", "提现 · 还需") + " " + ej.deposit_cooldown_days + lc("d", " 天");
+        }
+      }
+    } catch (_e) { /* 资格读不到就保持置灰, 不给一个点了会失败的按钮 */ }
+
     // 明细 —— 这是全平台第一次真正把 /api/billing/ledger 呈现出来
     try {
       var lr = await fetch("/api/billing/ledger?limit=40", { credentials: "include" });
@@ -189,6 +220,61 @@
     } catch (_e) {
       document.getElementById("wl-rows").innerHTML =
         '<div class="wl-empty">' + esc(lc("Could not load activity.", "明细读取失败。")) + "</div>";
+    }
+  }
+
+  /* W1955 — 绑定收款账户: 跳 Stripe 托管的 onboarding。
+   * 银行账号/身份/税务信息都在 Stripe 页面上填, 我们和 Jing 都碰不到 —— 这是对的,
+   * 也是合规的做法(平台不该接触这些)。 */
+  async function startConnectOnboarding() {
+    try {
+      var r = await fetch("/api/stripe/connect/start", { method: "POST", credentials: "include" });
+      var j = await r.json();
+      var url = (j && (j.url || (j.data && j.data.url))) || "";
+      if (url) { window.location.href = url; return; }
+      alert(lc("Could not start payout setup.", "无法开始收款设置。"));
+    } catch (_e) {
+      alert(lc("Could not start payout setup.", "无法开始收款设置。"));
+    }
+  }
+
+  /* W1955 — 发起提现。带 request_id 幂等 —— 重复点击/网络重试不能提两次。 */
+  async function doWithdraw(elig) {
+    var maxC = Number(elig.withdrawable_cents || 0);
+    var input = prompt(
+      lc("How much to withdraw? (USD)", "提现多少?(美元)") + "  " +
+      lc("Available", "可提") + " " + money(maxC),
+      (maxC / 100).toFixed(2));
+    if (input == null) return;
+    var cents = Math.round(parseFloat(String(input).replace(/[^0-9.]/g, "")) * 100);
+    if (!isFinite(cents) || cents <= 0) return;
+    if (cents > maxC) { alert(lc("More than available.", "超过可提金额。")); return; }
+    var rid = "w" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    try {
+      var r = await fetch("/api/wallet/withdraw", {
+        method: "POST", credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount_cents: cents, request_id: rid }),
+      });
+      var j = await r.json();
+      if (j && j.ok) {
+        alert(lc("Withdrawal sent. Stripe usually settles to your bank in a few business days.",
+                 "提现已发出。Stripe 结算到银行通常需要数个工作日。"));
+        close(); open();
+        return;
+      }
+      var m = {
+        no_payout_account: lc("Set up payouts first.", "请先绑定收款账户。"),
+        payout_account_incomplete: lc("Finish payout setup first.", "请先完成收款设置。"),
+        deposit_cooldown: lc("Recent top-up — withdrawals unlock 30 days after.", "近期有充值 —— 充值满 30 天后才可提现。"),
+        below_minimum: lc("Below the $20 minimum.", "低于 $20 起提额。"),
+        exceeds_withdrawable: lc("More than your withdrawable earnings.", "超过可提现收入。"),
+        kyc_required: lc("Tax info required past $600/yr.", "年累计超 $600 需先完成税务信息。"),
+        transfer_failed_refunded: lc("Transfer failed — refunded to your wallet.", "转账失败 —— 已退回钱包。"),
+      };
+      alert(m[j && j.error] || lc("Withdrawal could not be completed.", "提现未能完成。"));
+    } catch (_e) {
+      alert(lc("Withdrawal could not be completed.", "提现未能完成。"));
     }
   }
 

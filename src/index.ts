@@ -55403,6 +55403,239 @@ app.post("/api/stripe/checkout/cancel", async (req, res) => {
   }
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_1955 20260825 — 钱包提现:创作者把 earning 桶里的钱转到自己银行账户。
+ *
+ * 背景与分工(查清楚才动手, 不重复造):
+ *   已有: /api/stripe/connect/status + /start(绑定收款账户) · stripe_connected_accounts ·
+ *         creator_payouts · payout_reconciliations · 购买时的 destination transfer。
+ *   Jing 早先真金白银验证过的那条路是【购买当时直接 transfer 到对方 Connect 账户】,
+ *   由 Stripe 自动结算(约两周到账) —— 所以 creator_payouts 至今是空的。
+ *   而 W1952 的钱包购买把钱记进了【卖家钱包的 earning 桶】, 不再当场 transfer。
+ *   于是缺了这最后一环: 钱包 earning → Stripe Connect → 银行。这就是本波。
+ *
+ * 这段代码动的是【真钱, 且不可逆】, 所以七条闸门, 一条都不能省:
+ *   ① 只能提 earning 桶 —— 充值(deposit)是用户自己的钱, 赠送(bonus)按宪法不可提现。
+ *      拿总余额去提, 等于把赠金和别人的充值当成收入发出去。
+ *   ② $20 起(宪法), 且不得超过 earning 余额。
+ *   ③ 收款账户必须已 onboarding 且 payouts_enabled —— 实测 4 个绑定账号里
+ *      payouts_enabled 全是 0(开了头没走完), 不挡住就会转账失败还扣了钱。
+ *   ④ 反洗钱延迟(宪法): 同卡充值 30 天内不得提现。这里保守到"任何一笔 deposit 进账
+ *      不足 30 天就不放行"—— 宁可慢, 不可被当成洗钱通道。
+ *   ⑤ 幂等: 同一 request_id 只执行一次。重复点击/网络重试不能提两次。
+ *   ⑥ 先扣后转, 转账失败【立刻原路退回】—— 绝不留下"钱扣了没到账"。
+ *   ⑦ $600/年触发 KYC(1099-K 线, 宪法): 超线且未完成税务信息 → 拦下并提示, 不偷偷发。
+ * ───────────────────────────────────────────────────────────────────────── */
+app.get("/api/wallet/withdraw/eligibility", async (req, res) => {
+  noStore(res);
+  try {
+    const viewer = await getSessionUser(req);
+    if (!viewer?.id) return res.json({ ok: true, authenticated: false });
+
+    const cr = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT COALESCE(earned_cents,0) AS earned, COALESCE(balance,0) AS balance
+         FROM user_credits WHERE user_id=$1::uuid LIMIT 1`, [viewer.id]));
+    const earned = Number(cr.rows[0]?.earned || 0);
+
+    const ar = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT stripe_account_id, COALESCE(payouts_enabled,false) AS payouts_enabled
+         FROM stripe_connected_accounts WHERE user_id=$1::uuid
+         ORDER BY updated_at DESC NULLS LAST LIMIT 1`, [viewer.id]));
+    const acct = ar.rows[0];
+    const hasAccount = !!acct?.stripe_account_id;
+    const payoutsEnabled = acct?.payouts_enabled === true;
+
+    // 闸④ — 最近一笔充值距今多久(反洗钱冷却)
+    let depositCooldownDays = 0;
+    try {
+      const dr = await withClient((c) => c.query<Record<string, unknown>>(
+        `SELECT MAX(created_at) AS last_deposit FROM credit_events
+          WHERE user_id=$1::uuid AND delta>0 AND payload->>'fund_source'='deposit'`, [viewer.id]));
+      const last = dr.rows[0]?.last_deposit ? new Date(String(dr.rows[0].last_deposit)) : null;
+      if (last) {
+        const days = (Date.now() - last.getTime()) / 86400000;
+        if (days < 30) depositCooldownDays = Math.ceil(30 - days);
+      }
+    } catch (_e) { /* 查不到就不拦 —— 但下面 withdraw 会再查一次 */ }
+
+    // 闸⑦ — 本年度累计提现(1099-K 线)
+    let ytdCents = 0;
+    try {
+      const yr = await withClient((c) => c.query<Record<string, unknown>>(
+        `SELECT COALESCE(SUM(net_cents),0) AS ytd FROM creator_payouts
+          WHERE creator_id=$1::uuid AND payout_status <> 'failed'
+            AND created_at >= date_trunc('year', now())`, [viewer.id]));
+      ytdCents = Number(yr.rows[0]?.ytd || 0);
+    } catch (_e) { /* 忽略 */ }
+
+    const MIN = 2000;   // $20 起(宪法)
+    const reasons: string[] = [];
+    if (!hasAccount) reasons.push("no_payout_account");
+    else if (!payoutsEnabled) reasons.push("payout_account_incomplete");
+    if (earned < MIN) reasons.push("below_minimum");
+    if (depositCooldownDays > 0) reasons.push("deposit_cooldown");
+
+    return res.json({
+      ok: true, authenticated: true,
+      withdrawable_cents: earned,
+      minimum_cents: MIN,
+      has_payout_account: hasAccount,
+      payouts_enabled: payoutsEnabled,
+      deposit_cooldown_days: depositCooldownDays,
+      ytd_payout_cents: ytdCents,
+      kyc_threshold_cents: 60000,           // $600/年 → 1099-K
+      eligible: reasons.length === 0,
+      reasons,
+    });
+  } catch (e) {
+    console.warn("[W1955] 提现资格查询失败:", e instanceof Error ? e.message : e);
+    return res.status(500).json({ ok: false, error: "eligibility_failed" });
+  }
+});
+
+app.post("/api/wallet/withdraw", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const viewer = await getSessionUser(req);
+    if (!viewer?.id) return res.status(401).json({ ok: false, error: "sign_in_required" });
+
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    const amount = Math.max(0, Math.round(Number(body.amount_cents || 0)));
+    const requestId = String(body.request_id || "").trim().slice(0, 80);
+    const MIN = 2000;
+
+    if (amount < MIN) return res.status(400).json({ ok: false, error: "below_minimum", minimum_cents: MIN });
+
+    // 闸⑤ — 幂等: 同一 request_id 只执行一次
+    if (requestId) {
+      const dup = await withClient((c) => c.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM creator_payouts
+          WHERE creator_id=$1::uuid AND note = $2`, [viewer.id, `req:${requestId}`]));
+      if ((dup.rows[0]?.count || 0) > 0) {
+        return res.json({ ok: true, duplicate: true, message: "already_processed" });
+      }
+    }
+
+    // 闸③ — 收款账户必须能收款
+    const ar = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT id, stripe_account_id, COALESCE(payouts_enabled,false) AS payouts_enabled
+         FROM stripe_connected_accounts WHERE user_id=$1::uuid
+         ORDER BY updated_at DESC NULLS LAST LIMIT 1`, [viewer.id]));
+    const acct = ar.rows[0];
+    if (!acct?.stripe_account_id) return res.status(400).json({ ok: false, error: "no_payout_account" });
+    if (acct.payouts_enabled !== true) return res.status(400).json({ ok: false, error: "payout_account_incomplete" });
+
+    // 闸④ — 反洗钱冷却
+    const dr = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT MAX(created_at) AS last_deposit FROM credit_events
+        WHERE user_id=$1::uuid AND delta>0 AND payload->>'fund_source'='deposit'`, [viewer.id]));
+    const last = dr.rows[0]?.last_deposit ? new Date(String(dr.rows[0].last_deposit)) : null;
+    if (last && (Date.now() - last.getTime()) < 30 * 86400000) {
+      return res.status(400).json({ ok: false, error: "deposit_cooldown" });
+    }
+
+    // 闸①② — 只能提 earning 桶, 且不超过它
+    const cr = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT COALESCE(earned_cents,0) AS earned, COALESCE(balance,0) AS balance
+         FROM user_credits WHERE user_id=$1::uuid LIMIT 1`, [viewer.id]));
+    const earned = Number(cr.rows[0]?.earned || 0);
+    const balance = Number(cr.rows[0]?.balance || 0);
+    if (amount > earned) {
+      return res.status(400).json({ ok: false, error: "exceeds_withdrawable", withdrawable_cents: earned });
+    }
+    if (amount > balance) {   // 双保险: 桶不该大于总余额, 大了说明账对不上, 宁可拦下
+      return res.status(409).json({ ok: false, error: "ledger_mismatch" });
+    }
+
+    // 闸⑦ — 1099-K 线
+    const yr = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT COALESCE(SUM(net_cents),0) AS ytd FROM creator_payouts
+        WHERE creator_id=$1::uuid AND payout_status <> 'failed'
+          AND created_at >= date_trunc('year', now())`, [viewer.id]));
+    const ytd = Number(yr.rows[0]?.ytd || 0);
+    if (ytd + amount > 60000) {
+      // 不偷偷发 —— 超线必须先完成税务信息(1099-K)
+      const taxOk = String((viewer as any)?.tax_info_status || "").toLowerCase() === "verified";
+      if (!taxOk) {
+        return res.status(400).json({
+          ok: false, error: "kyc_required",
+          ytd_payout_cents: ytd, threshold_cents: 60000,
+        });
+      }
+    }
+
+    // 闸⑥ — 先扣后转; 扣款把 earning 桶一并减掉(它是可提现额度的真相)
+    const debited = await withClient(async (client) => {
+      await client.query("BEGIN");
+      try {
+        const u = await client.query<{ balance: string }>(
+          `UPDATE user_credits
+              SET balance = balance - $2, earned_cents = earned_cents - $2, updated_at = now()
+            WHERE user_id = $1::uuid AND balance >= $2 AND earned_cents >= $2
+            RETURNING balance`, [viewer.id, amount]);
+        if (!u.rows.length) { await client.query("ROLLBACK"); return null; }
+        await client.query(
+          `INSERT INTO credit_events (user_id, delta, reason, payload)
+           VALUES ($1::uuid, $2, 'wallet_withdraw', $3::jsonb)`,
+          [viewer.id, -amount, JSON.stringify({ fund_source: "spend", request_id: requestId })]);
+        await client.query("COMMIT");
+        return Number(u.rows[0]?.balance || 0);
+      } catch (err) { await client.query("ROLLBACK"); throw err; }
+    });
+    if (debited === null) {
+      return res.status(409).json({ ok: false, error: "balance_changed_retry" });
+    }
+
+    // 记一笔待打款
+    let payoutId = "";
+    try {
+      const pr = await withClient((c) => c.query<{ id: string }>(
+        `INSERT INTO creator_payouts
+           (creator_id, kind, gross_cents, platform_fee_cents, net_cents, currency, payout_status, note)
+         VALUES ($1::uuid,'wallet_withdraw',$2,0,$2,'usd','pending',$3)
+         RETURNING id::text`, [viewer.id, amount, requestId ? `req:${requestId}` : "wallet_withdraw"]));
+      payoutId = String(pr.rows[0]?.id || "");
+    } catch (e) {
+      await creditUserBalance(viewer.id, amount, "refund_withdraw", { reason: "payout_row_failed" }, "earning");
+      console.warn("[W1955] 提现建单失败已退回:", e instanceof Error ? e.message : e);
+      return res.status(500).json({ ok: false, error: "payout_record_failed_refunded" });
+    }
+
+    // 真转账
+    try {
+      const stripe = getStripeClient();
+      if (!stripe) throw new Error("stripe_unavailable");
+      const transfer = await stripe.transfers.create({
+        amount,
+        currency: "usd",
+        destination: String(acct.stripe_account_id),
+        metadata: { payout_id: payoutId, creator_id: viewer.id, kind: "wallet_withdraw" },
+      });
+      await withClient((c) => c.query(
+        `UPDATE creator_payouts SET payout_status='paid', paid_at=now(),
+                payout_batch_id=$2, note = COALESCE(note,'') WHERE id=$1::uuid`,
+        [payoutId, String(transfer.id)]));
+      return res.json({
+        ok: true, payout_id: payoutId, transfer_id: transfer.id,
+        amount_cents: amount, balance_cents: debited,
+        note: "Stripe 结算到银行通常需要数个工作日。",
+      });
+    } catch (e) {
+      // 闸⑥ — 转账失败立刻原路退回, 绝不留下"钱扣了没到账"
+      await creditUserBalance(viewer.id, amount, "refund_withdraw", { reason: "transfer_failed", payout_id: payoutId }, "earning");
+      try {
+        await withClient((c) => c.query(
+          `UPDATE creator_payouts SET payout_status='failed' WHERE id=$1::uuid`, [payoutId]));
+      } catch (_e2) {}
+      console.warn("[W1955] 转账失败已退回:", e instanceof Error ? e.message : e);
+      return res.status(502).json({ ok: false, error: "transfer_failed_refunded" });
+    }
+  } catch (e) {
+    console.warn("[W1955] 提现异常:", e instanceof Error ? e.message : e);
+    return res.status(500).json({ ok: false, error: "withdraw_failed" });
+  }
+});
+
 app.get("/api/stripe/connect/status", async (req, res) => {
   noStore(res);
   try {

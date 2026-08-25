@@ -737,25 +737,45 @@ sites may still reference them.
 **Jing 2026-08-25:「媒体框，保留绿色光芒边框；MV边框，取消绿色描边。」
 「一个保留，一个取消。你为什么总是保留就两个一起保留，取消就两个一起取消？」**
 
-### 两个框各是谁 —— 本节最重要的一句
+### 真相:从头到尾只有一圈,不是两圈
 
-它们是**两个毫不相干的元素**,天然就是分开的,**不需要拆、不需要新建、不需要变量**:
+`.watch-screen::before` **一个元素同时扮演两个角色** —— 因为 `.watch-screen`
+在不同状态下是不同的东西:
 
-| 对象 | 元素 | 位置 | 结论 |
+| 状态 | `.watch-screen` 是什么 | 那圈画在哪 | Jing 看到的 |
 |---|---|---|---|
-| **媒体框**(画面那圈绿色光芒) | `.watch-screen::before` | `style.watch.css` ~240 | **保留,一个字不许改** |
-| **MV 面板描边**(面板外圈绿边) | `.panel.flow::after` | `style.css` ~683 | **关掉** |
+| 窗口态 | = 画面 | 贴着画面 | **媒体框光芒 → 保留** |
+| 影院 / 最大化 | 被拉成**整个窗口**(实测 716×863 = 满窗) | 贴着窗口 | **「MV 面板描边」→ 取消** |
 
-MV 那圈的真身是 `.panel.flow::after`(`inset:4px` 的 `1px solid rgba(0,245,160,0.2)`
-+ `box-shadow: 0 0 28px rgba(0,245,160,0.25)`),而 `#watch-panel` 正好带
-`panel` + `flow` 两个类。关它的现成写法就在它上面 8 行 ——
-`.logo-panel.panel.flow::after { content: none; }`,照抄即可:
+**这就是「保留就两个一起保留、取消就两个一起取消」的真正原因** —— 它本来就是
+同一个东西。我一整晚以为在找两个元素,所以怎么关都不对。
+
+**定案写法(按状态分开,已验收):**
 
 ```css
-#watch-panel.panel.flow::after { content: none; }
+/* 影院/最大化态: 只清绘制, 保留元素 —— is-live-border / is-waiting 画在同一个 ::before 上 */
+#watch-panel.maximized .watch-screen::before,
+#watch-panel.is-cssmv-fullscreen .watch-screen::before,
+body.cssos-cinema-mode .watch-screen::before,
+html.cssos-app .watch-screen::before {
+  background: none !important;
+  box-shadow: none !important;
+}
 ```
 
-**W1960 定案(Jing 验收通过):画面有绿色光芒 ✅ / 面板外圈无绿色描边 ✅**
+另外 `#watch-panel.panel.flow::after { content: none; }` 关掉 `.panel.flow::after`
+(`inset:4px` 的 1px 绿边 + `0 0 28px` 绿辉光),写法照抄它上面 8 行已有的
+`.logo-panel.panel.flow::after`。
+
+**窗口态那圈 `.watch-screen::before` 的声明一个字不许改**(`style.watch.css` ~240,
+自 `08588b9` 起从未变过)。
+
+**W1960 定案(Jing 验收通过):窗口态画面有绿色光芒 ✅ / 影院态窗口边缘无绿色描边 ✅**
+
+**测状态必须真的切换状态:** 落地页 `body` 常挂 `cssos-cinema-mode`、面板常挂
+`is-cssmv-fullscreen`,所谓"窗口态"其实还是影院态。不剥掉这些类去量,
+得到的结论是假的(我因此误判过一次"两个态都被关掉了")。
+
 
 ### 红线 —— 改动必须先征得 Jing 同意
 

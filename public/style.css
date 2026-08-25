@@ -743,6 +743,28 @@ html[data-theme="light"] .dock {
   content: none;
 }
 
+/* CSSOS_WAVE_1960 20260825 — Jing:「请关掉 MV 面板边框。」
+ *
+ * 实测(getComputedStyle 扫描, 最大化态): #watch-panel 里唯一还在画绿色的元素是
+ * .watch-screen::before, 而 .watch-screen 在最大化/影院态被拉成【整个窗口】
+ * (实测 716×863 top0 = 满窗)。所以那一圈【就是媒体框那圈】, 只是贴到了窗口边缘,
+ * 看起来才像 MV 面板描边。从头到尾只有一圈, 不是两圈 —— 这也是"关掉就一起关掉"
+ * 的真正原因。
+ *
+ * 只在【.watch-screen == 窗口】的这几个态里关掉绘制;窗口态不受影响,
+ * 那里 .watch-screen == 画面, 那圈仍旧贴着画面走(Jing 已验收通过的样子)。
+ * 只清 background / box-shadow, 保留元素本身 —— is-live-border / is-waiting
+ * 两个生成态动画画在同一个 ::before 上, 删整块会连带弄坏。
+ *
+ * 【窗口态那圈一个字不许动】—— 见 CLAUDE.md 边框宪法 W1960。 */
+#watch-panel.maximized .watch-screen::before,
+#watch-panel.is-cssmv-fullscreen .watch-screen::before,
+body.cssos-cinema-mode .watch-screen::before,
+html.cssos-app .watch-screen::before {
+  background: none !important;
+  box-shadow: none !important;
+}
+
 .logo-panel.panel-active,
 .logo-panel.panel-front,
 .logo-panel.panel-locked,

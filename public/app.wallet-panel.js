@@ -154,9 +154,20 @@
       var cents = Number(j.balance_cents != null ? j.balance_cents : j.balance || 0);
       var authed = j.authenticated !== false;
       document.getElementById("wl-balance").textContent = authed ? money(cents) : "—";
-      document.getElementById("wl-balsub").textContent = authed
-        ? lc("Available balance", "可用余额")
-        : lc("Sign in to see your wallet", "登录后查看你的钱包");
+      /* CSSOS_WAVE_1953 — 分桶显示。总余额里能提走的只有【创作者分成】那一部分:
+       * 赠送/优惠券按宪法不可提现, 用户自己充的可退但有反洗钱延迟。
+       * 不说清楚, 用户会以为总余额都能拿走 —— 到提现那天才发现拿不走, 那是最伤的。 */
+      var sub = document.getElementById("wl-balsub");
+      if (!authed) {
+        sub.textContent = lc("Sign in to see your wallet", "登录后查看你的钱包");
+      } else {
+        var earned = Number(j.earned_cents || 0);
+        var bonus = Number(j.bonus_cents || 0);
+        var parts = [lc("Available balance", "可用余额")];
+        if (earned > 0) parts.push(money(earned) + " " + lc("withdrawable", "可提现"));
+        if (bonus > 0) parts.push(money(bonus) + " " + lc("bonus · not withdrawable", "赠送 · 不可提现"));
+        sub.textContent = parts.join(" · ");
+      }
     } catch (_e) {
       document.getElementById("wl-balsub").textContent = lc("Could not read balance.", "余额读取失败。");
     }

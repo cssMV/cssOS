@@ -11182,7 +11182,31 @@ async function readRootGenEngineConfig(rootId: string): Promise<{ prefer: string
 /* CSSOS_WAVE_139B 20260514 — Jing: credit top-up.
  * Atomic upsert into user_credits + audit row in credit_events. Used
  * by both Apple IAP verify (W118) and Stripe checkout webhook (W139B). */
-async function creditUserBalance(userId: string, amount: number, reason: string, payload: any = {}): Promise<{ ok: boolean; balance: number; error?: string }> {
+/* CSSOS_WAVE_1953 20260825 — 进账必须带【资金来源】, 因为提现资格取决于钱是哪来的。
+ *
+ * Jing 问「能不能用平台钱包给员工发工资」→ 不能(FLSA 禁止 company scrip)。但顺着问出
+ * 了真问题: 钱包合法的用途是给创作者分成后提现, 而能不能提、要不要 KYC, 取决于来源:
+ *   deposit 用户自己充的    可退; 同卡 30 天内提现要延迟(反洗钱, 宪法已有)
+ *   earning 卖作品/打赏分成  可提现; 年累计 $600 触发 KYC + 1099-K(宪法已有)
+ *   bonus   赠送/优惠券      ❌ 不可提现(宪法已有)
+ *   refund  退款回来的       不计入可提现, 保守处理
+ * 不在进账当时分好, 等真有提现请求再回头翻历史账逐笔考据, 成本高得多且很可能分不准。
+ *
+ * 没显式传 source 时按 reason 推断 —— 既有调用点不改也能分对类, 不留"未分类"的历史包袱。
+ * 推断不出来的一律当 bonus(最保守: 不可提现), 宁可少算不可多给。 */
+function inferFundSource(reason: string): "deposit" | "earning" | "bonus" | "refund" {
+  const r = String(reason || "").toLowerCase();
+  if (r.startsWith("sale_") || r.includes("royalty") || r.includes("payout")) return "earning";
+  if (r.includes("topup") || r.includes("top_up") || r.includes("purchase_credits") || r.includes("stripe")) return "deposit";
+  if (r.startsWith("refund")) return "refund";
+  return "bonus";
+}
+
+async function creditUserBalance(
+  userId: string, amount: number, reason: string, payload: any = {},
+  source?: "deposit" | "earning" | "bonus" | "refund",
+): Promise<{ ok: boolean; balance: number; error?: string }> {
+  const src = source || inferFundSource(reason);
   if (amount <= 0) return { ok: false, balance: 0, error: "non_positive_amount" };
   try {
     return await withClient(async (client) => {
@@ -11194,10 +11218,18 @@ async function creditUserBalance(userId: string, amount: number, reason: string,
            ON CONFLICT (user_id) DO NOTHING`,
           [userId],
         );
+          /* W1953 — 分桶余额与总余额【同一事务】更新。三个桶是衍生值, 真相仍在流水;
+           * 但提现要按桶算, 每次全表扫账本太贵, 所以在这里同步维护。
+           * refund 不进任何桶: 它只是把钱还回来, 不该凭空变成"可提现的收入"。 */
+          const bucketCol = src === "deposit" ? "deposited_cents"
+                          : src === "earning" ? "earned_cents"
+                          : src === "bonus"   ? "bonus_cents"
+                          : "";
         const u = await client.query<{ balance: string }>(
           `UPDATE user_credits
               SET balance = balance + $2,
                   lifetime_earned = lifetime_earned + $2,
+                    ${bucketCol ? `${bucketCol} = ${bucketCol} + $2,` : ""}
                   updated_at = now()
             WHERE user_id = $1::uuid
             RETURNING balance`,
@@ -12099,12 +12131,31 @@ app.get("/api/credits/balance", async (req, res) => {
   const userId = (req.session as any)?.user_id;
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const balance = await getCreditBalance(userId);
+  /* W1953 — 同时回【分桶】: 提现资格看的是 earned(创作者分成), 不是总余额。
+   * 赠送/优惠券(bonus)按宪法不可提现; 用户自己充的(deposited)可退但有反洗钱延迟。
+   * 前端钱包据此显示"可提现 / 不可提现", 不让用户以为总余额都能拿走。 */
+  let buckets = { deposited_cents: 0, earned_cents: 0, bonus_cents: 0 };
+  try {
+    const br = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT COALESCE(deposited_cents,0) AS deposited_cents,
+              COALESCE(earned_cents,0)    AS earned_cents,
+              COALESCE(bonus_cents,0)     AS bonus_cents
+         FROM user_credits WHERE user_id = $1::uuid LIMIT 1`, [userId]));
+    const b: any = br.rows[0];
+    if (b) buckets = {
+      deposited_cents: Number(b.deposited_cents || 0),
+      earned_cents: Number(b.earned_cents || 0),
+      bonus_cents: Number(b.bonus_cents || 0),
+    };
+  } catch (_e) { /* 取不到就都按 0 报, 前端会退回只显示总余额 */ }
   // CSSOS_WAVE_218 — surface real-dollar view so the frontend can
   // render "$X.XX" without a unit-conversion bug. balance == cents.
   return res.json({
     ok: true,
     balance,
     balance_cents: balance,
+    ...buckets,
+    withdrawable_cents: buckets.earned_cents,   // W1953 — 只有创作者分成可提现
     balance_usd: fmtUsd(balance),
   });
 });
@@ -33419,7 +33470,7 @@ app.post("/api/works/:id/wallet-purchase", express.json({ limit: "2kb" }), async
       orderId = String(or.rows[0]?.id || "");
     } catch (e) {
       // 写单失败 → 原路退回, 绝不留下"钱没了没货"
-      try { await creditUserBalance(viewer.id, amount, `refund_work_${kind}`, { work_id: workId, reason: "order_insert_failed" }); } catch (_e2) {}
+      try { await creditUserBalance(viewer.id, amount, `refund_work_${kind}`, { work_id: workId, reason: "order_insert_failed" }, "refund"); } catch (_e2) {}
       console.warn("[W1952] 下单失败已退款:", e instanceof Error ? e.message : e);
       return res.status(500).json({ ok: false, error: "order_failed_refunded" });
     }
@@ -33427,7 +33478,8 @@ app.post("/api/works/:id/wallet-purchase", express.json({ limit: "2kb" }), async
     // 卖家进账(卖家不是官方账号才入账 —— 官方的作品收入直接留在平台)
     try {
       if (sellerNet > 0 && !(await isCreditExempt(sellerId))) {
-        await creditUserBalance(sellerId, sellerNet, `sale_${kind}`, { work_id: workId, order_id: orderId });
+        // W1953 — 明确标 earning: 这是创作者的收入, 是【可提现】的那一类(与充值/赠送分开)
+        await creditUserBalance(sellerId, sellerNet, `sale_${kind}`, { work_id: workId, order_id: orderId }, "earning");
       }
     } catch (e) { console.warn("[W1952] 卖家入账失败(订单已成立):", e instanceof Error ? e.message : e); }
 

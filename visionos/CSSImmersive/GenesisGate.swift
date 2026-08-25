@@ -45,11 +45,20 @@ enum GenesisGate {
     static let footDrop: Float = -2.6
 
     /// 半扇门的四边形(uMin…uMax 决定取纹理的哪半边)。
+    /* CSSOS_WAVE_1946 20260825 — Jing:「大门应该是向着用户打开, 仿佛是用户进入大门的
+     * 感觉, 而不是大门的两扇门跑掉了。」
+     *
+     * 上一版把两扇整体【平移】出画 —— 那是"门跑了", 不是"门开了"。真正的门绕【外侧
+     * 边框】转, 内侧那条边朝你扫过来。所以几何必须从铰链边起算, 而不是各自居中:
+     *   左扇: x ∈ [0, +halfW], 铰链(x=0)放在门的最左侧 → 自由边在右, 向内向你转
+     *   右扇: x ∈ [-halfW, 0], 铰链(x=0)放在门的最右侧 → 自由边在左, 向内向你转
+     * 居中的话转起来会绕自己中心打转, 像旋转门, 完全不是推门。 */
     private static func halfQuad(width w: Float, height h: Float,
-                                 uMin: Float, uMax: Float) -> MeshResource? {
-        let hw = w / 2
+                                 uMin: Float, uMax: Float, hingeAtLeft: Bool) -> MeshResource? {
+        let x0: Float = hingeAtLeft ? 0 : -w
+        let x1: Float = hingeAtLeft ? w : 0
         let pos: [SIMD3<Float>] = [
-            SIMD3(-hw, 0, 0), SIMD3(hw, 0, 0), SIMD3(hw, h, 0), SIMD3(-hw, h, 0),
+            SIMD3(x0, 0, 0), SIMD3(x1, 0, 0), SIMD3(x1, h, 0), SIMD3(x0, h, 0),
         ]
         // 自定义网格纹理原点在【左下】(W1943 的教训: 按左上算会整张倒立)
         let uv: [SIMD2<Float>] = [
@@ -66,19 +75,20 @@ enum GenesisGate {
     static func make(into host: Entity) {
         host.children.forEach { $0.removeFromParent() }
         let halfW = gateWidth / 2
-        guard let lm = halfQuad(width: halfW, height: gateHeight, uMin: 0, uMax: 0.5),
-              let rm = halfQuad(width: halfW, height: gateHeight, uMin: 0.5, uMax: 1) else { return }
+        guard let lm = halfQuad(width: halfW, height: gateHeight, uMin: 0, uMax: 0.5, hingeAtLeft: true),
+              let rm = halfQuad(width: halfW, height: gateHeight, uMin: 0.5, uMax: 1, hingeAtLeft: false) else { return }
 
         var base = UnlitMaterial()
         base.color = .init(tint: UIColor(white: 0.08, alpha: 1.0))   // 贴图到位前是暗石, 不是黑洞
 
+        // W1946 — 铰链就摆在门的最外侧两根立柱上, 门扇挂在铰链上(局部原点=转轴)。
         let left = ModelEntity(mesh: lm, materials: [base])
         left.name = "genesis-left"
-        left.position = SIMD3<Float>(-halfW / 2, footDrop, -distance)
+        left.position = SIMD3<Float>(-halfW, footDrop, -distance)   // 左立柱
 
         let right = ModelEntity(mesh: rm, materials: [base])
         right.name = "genesis-right"
-        right.position = SIMD3<Float>(halfW / 2, footDrop, -distance)
+        right.position = SIMD3<Float>(halfW, footDrop, -distance)   // 右立柱
 
         // 中缝的光: 一条竖直亮面, 夹在两扇之间, 门开时随之变宽变亮。
         let seam = ModelEntity(
@@ -97,9 +107,12 @@ enum GenesisGate {
             e.components.set(HoverEffectComponent())
             e.components.set(InputTargetComponent())
             // W1943 的教训: 平面自动碰撞体零厚度, 射线打不中 → 显式给厚度, 中心抬到门高一半
+            // W1946 — 几何不再居中(从铰链边起算), 碰撞盒要跟着偏到门扇实际所在的一侧,
+            // 否则盒子长在立柱外面, 又变成"看得见碰不着"(W1943 的同一个坑)。
+            let side: Float = (e.name == "genesis-left") ? +halfW / 2 : -halfW / 2
             e.components.set(CollisionComponent(shapes: [
                 .generateBox(width: halfW, height: gateHeight, depth: 0.2)
-                    .offsetBy(translation: SIMD3<Float>(0, gateHeight / 2, 0))
+                    .offsetBy(translation: SIMD3<Float>(side, gateHeight / 2, 0))
             ]))
             host.addChild(e)
         }
@@ -115,26 +128,43 @@ enum GenesisGate {
     }
 
     /// 推开。两扇向两侧滑开并后退, 中缝的光扩张吞没视野 —— 走完回调。
+    /* W1946 — 推开 = 两段:
+     *   ① 绕铰链【朝用户】外开 82° —— 内侧自由边向你扫过来, 这才是"门朝我开"
+     *   ② 整座门从身边掠过(向 +Z 推到用户身后)并让开视野 —— 这才是"我进去了"
+     * 上一版缺的就是第二段: 门只是让开, 人没有前进的感觉。
+     *
+     * 转向怎么定(别再算错): 绕 Y 转 θ 时, 点 (d,0,0) → (d·cosθ, 0, −d·sinθ)。
+     * 要自由边朝用户(+Z), 需 −d·sinθ > 0。
+     *   左扇自由边在 +x(d>0) → 需 sinθ<0 → θ 取负
+     *   右扇自由边在 −x(d<0) → 需 sinθ>0 → θ 取正 */
     static func open(_ host: Entity, completion: @escaping () -> Void) {
-        let dur: TimeInterval = 1.6
+        let swing: Float = 82 * .pi / 180
+        let d1: TimeInterval = 1.15      // 开门
+        let d2: TimeInterval = 1.05      // 穿门
+
         for c in host.children {
             guard let m = c as? ModelEntity else { continue }
             var t = m.transform
             switch m.name {
             case "genesis-left":
-                t.translation.x -= gateWidth * 0.62
-                t.translation.z -= 1.2                 // 同时后退, 像被推进去
+                t.rotation = simd_quatf(angle: -swing, axis: SIMD3<Float>(0, 1, 0))
             case "genesis-right":
-                t.translation.x += gateWidth * 0.62
-                t.translation.z -= 1.2
+                t.rotation = simd_quatf(angle:  swing, axis: SIMD3<Float>(0, 1, 0))
             case "genesis-seam":
-                t.scale = SIMD3<Float>(gateWidth * 2.2, 1.15, 1)   // 光扩张吞没视野
+                t.scale = SIMD3<Float>(gateWidth * 1.6, 1.1, 1)    // 门缝的光随之涌开
             default: continue
             }
-            m.move(to: t, relativeTo: m.parent, duration: dur, timingFunction: .easeInOut)
+            m.move(to: t, relativeTo: m.parent, duration: d1, timingFunction: .easeInOut)
         }
+
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(dur * 0.82 * 1_000_000_000))
+            // ② 穿门: 整座门朝用户推进并掠过身侧 —— 视觉上等于人往前迈了进去。
+            try? await Task.sleep(nanoseconds: UInt64(d1 * 0.72 * 1_000_000_000))
+            var ht = host.transform
+            ht.translation.z += distance + 2.4        // 从 7m 外推到身后
+            ht.scale = SIMD3<Float>(repeating: 1.45)  // 逼近时的透视放大
+            host.move(to: ht, relativeTo: host.parent, duration: d2, timingFunction: .easeIn)
+            try? await Task.sleep(nanoseconds: UInt64(d2 * 0.80 * 1_000_000_000))
             completion()
         }
     }

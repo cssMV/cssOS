@@ -240,23 +240,19 @@
 .watch-screen::before {
   content: "";
   position: absolute;
+  /* CSSOS_WAVE_1960 20260825 — Jing:「媒体框,保留绿色光芒边框;MV边框,取消绿色描边。」
+   * 这一条才是真正画出 MV 面板外圈那道绿描边的规则(它加载在 style.css 之后,
+   * 把 style.css:7241 那条整个盖掉)—— W1959 我一直在改被盖住的那条, 所以
+   * 无论怎么改, Jing 屏幕上的描边纹丝不动。改样式前先确认【谁最终生效】。
+   * 现在: 常态不画背景/辉光, 只留空壳给 .is-live-border / .is-waiting 两个
+   * 生成态动画用(它们各自 override background, 删整块会连带弄坏)。
+   * 媒体框那圈光芒搬到 .watch-screen::after(style.css), 见 CLAUDE.md 边框宪法。 */
   inset: 1px;
   border-radius: 14px;
   padding: var(--watch-frame-border-thickness);
-  background: linear-gradient(
-    120deg,
-    rgba(0, 245, 160, 0.12),
-    var(--watch-frame-accent-1),
-    var(--watch-frame-accent-2),
-    var(--watch-frame-accent-1),
-    rgba(0, 245, 160, 0.12)
-  );
-  background-size: 360% 360%;
+  background: none;
+  box-shadow: none;
   animation: none;
-  box-shadow:
-    0 0 calc(22px + 24px * var(--watch-frame-border-energy)) color-mix(in srgb, var(--watch-frame-accent-1) calc(34% + var(--watch-frame-border-energy) * 32%), transparent),
-    0 0 calc(52px + 40px * var(--watch-frame-border-energy)) color-mix(in srgb, var(--watch-frame-accent-2) calc(18% + var(--watch-frame-border-energy) * 28%), transparent),
-    0 0 calc(72px + 52px * var(--watch-frame-border-energy)) color-mix(in srgb, var(--watch-frame-accent-3) calc(10% + var(--watch-frame-border-energy) * 18%), transparent);
   pointer-events: none;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;

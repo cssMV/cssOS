@@ -7241,15 +7241,36 @@ body.cssos-cinema-mode [class*=" bg-blob"] {
 .watch-screen::before {
   content: "";
   position: absolute;
-  /* CSSOS_WAVE_1959 20260825 — Jing:「凡是平台已经有的风格, 不要重新造。」
-   * 我先前另建了一个 .watch-media-ring 并"抄"了这里的声明 —— 抄了声明不等于复用:
-   * 换了盒子、换了尺寸, background-size:360% 的渐变采样点和辉光扩散都跟着变,
-   * 出来是一条扁平青线, 根本不是这套光芒。
-   * 正解是【根本不新建元素】—— 就用这一个 ::before, 只改它坐在哪。
-   * 同一个元素 → 渲染必然一模一样, 这才叫复用。
-   * inset 改成变量驱动: 默认仍是 2px(非影院态一个像素不变);
-   * 影院态由 app.watch-face-crop.js 把四个变量设成画面的实际偏移, 让这圈光芒
-   * 从"框住窗口"变成"框住画面"。 */
+  /* CSSOS_WAVE_1960 20260825 — Jing:「媒体框,保留绿色光芒边框;MV边框,取消绿色描边。」
+   * W1959 我把两件事塞在同一个 ::before 上用 inset 变量来回搬 —— 一个元素
+   * 当然做不到「一个留一个删」, 所以每次都是「加就一起加, 取消就一起取消」。
+   * W1960 彻底拆开:
+   *   ::before = MV 面板边框  → 常态【无绿色描边】(本块)
+   *   ::after  = 媒体框光芒    → 保留原来那圈绿色光芒(下一块)
+   * 这里保留空壳(inset/mask/定位不动), 是因为 .is-live-border / .is-waiting
+   * 这两个生成态动画就画在 ::before 上, 删掉整块会连带弄坏它们。 */
+  inset: 2px;
+  border-radius: 14px;
+  padding: 2px;
+  background: none;
+  box-shadow: none;
+  animation: none;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: 2;
+}
+
+.watch-screen::after {
+  content: "";
+  position: absolute;
+  /* CSSOS_WAVE_1960 20260825 — 媒体框那圈绿色光芒。声明与平台原有那圈逐字一致
+   * (120deg 渐变 / 360% 采样 / 16px 绿 + 36px 青 / content-box xor 挖空),
+   * 只是坐标改成【画面的实际矩形】—— app.watch-face-crop.js 量出画面位置后
+   * 写 --mv-ring-* 四个变量并打上 data-mv-ring="1"。
+   * 默认 display:none —— 没量到画面就不画, 绝不退回去框住整个面板。 */
+  display: none;
   inset: var(--mv-ring-top, 2px) var(--mv-ring-right, 2px)
          var(--mv-ring-bottom, 2px) var(--mv-ring-left, 2px);
   border-radius: 14px;
@@ -7263,7 +7284,6 @@ body.cssos-cinema-mode [class*=" bg-blob"] {
     rgba(0, 245, 160, 0.12)
   );
   background-size: 360% 360%;
-  animation: none;
   box-shadow: 0 0 16px rgba(0, 245, 160, 0.5), 0 0 36px rgba(11, 247, 255, 0.3);
   pointer-events: none;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -7271,6 +7291,8 @@ body.cssos-cinema-mode [class*=" bg-blob"] {
   mask-composite: exclude;
   z-index: 2;
 }
+
+.watch-screen[data-mv-ring="1"]::after { display: block; }
 
 .watch-video {
   width: 100%;

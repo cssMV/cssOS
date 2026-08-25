@@ -12,11 +12,46 @@ Every panel has exactly **three window buttons** and a draggable titlebar:
 | Button | Action |
 |--------|--------|
 | **—** Minimize | Hide the panel body; keep the titlebar visible as a collapsed strip |
-| **⤢** Maximize / Restore | **True OS-level window maximize** — `document.documentElement.requestFullscreen()` (with vendor prefixes). On Apple Vision Pro this enters Immersive Space. Must never be a CSS-only trick. Restore returns to the last user-sized floating position. |
+| **⤢** Maximize / Restore | Fills the viewport in CSS. Restore returns to the last user-sized floating position. **Does NOT request OS fullscreen** — see the exception below. |
 | **×** Close | Collapse panel to its Dock icon (never destroy state) |
 
 Panels are **draggable** (titlebar = handle) and **resizable** from all 8
 edges/corners. Both behaviors apply to dynamically injected panels too.
+
+#### Article 1.1 — OS-level fullscreen belongs to the MV panel ALONE (W1876–W1877)
+
+**Only `#watch-panel` (the MV panel) may call `requestFullscreen()`. No other
+panel may, ever.**
+
+*Why the MV panel keeps it:* real OS fullscreen is the **only** entry point to
+Apple Vision Pro's Immersive Environment. Everything the user came for —
+watching, creating, trading, talking — lives inside `#watch-panel`, and
+fullscreen renders only the fullscreen element's subtree, so the request must
+target the whole panel container (never the bare `<video>`, which would hand
+the frame to the system player and throw away our entire DOM layer).
+
+*Why every other panel lost it:* the browser attaches system chrome to any
+fullscreen element — a "press ESC to exit" toast on desktop, an undeletable
+"Swipe down to exit" banner plus a native ✕ on iOS. A settings or gallery panel
+gains nothing from OS fullscreen and pays that cost in full. Pure loss.
+
+Three rules that come with it:
+
+1. **Only inside a real user gesture, and only on explicit maximize.** Opening
+   a panel must never auto-request fullscreen (W1861). Guard on
+   `navigator.userActivation.isActive` — calling without a gesture both fails
+   *and* logs a console error.
+2. **iPhone/iPad Safari and the Capacitor app skip the OS request entirely** and
+   use the CSS theater state instead — the iOS banner is not removable, so on
+   those devices it is never worth it. Desktop and visionOS Safari take the real
+   request. (`__cssosIsIOSLike()` in `app.watch-ui.js`.)
+3. **Closing or minimizing a panel MUST exit fullscreen if that panel owns the
+   fullscreen element** (`app.panel-shell-actions.js`, W1874). Skipping this
+   leaves a full-screen black rectangle after the panel is gone.
+
+`cssosEnterPanelFullscreenGeneric()` in `app.panel-layout.js` is kept as a
+deliberately **unreferenced** helper. Re-wiring it to any panel re-breaks this
+article.
 
 ### Article 2 — Screen-boundary clamp
 
@@ -201,6 +236,36 @@ platform uses the **v28 凸嵌凹 pill constitution**:
 The W220.A frozen items (`.creation-tabs`, `.seed-script-tabs`,
 `.msrc-tabbar`, `.palette-presets`) are exempt from migration but must not
 regress; new components always use `data-pill-bar`.
+
+---
+
+## 画幅铁律 · 32:9 + 转屏不裁切 (W1903)
+
+**Jing 2026-08-24:「之前我们是要求输出 2.39:1,现在起改为输出 32:9,构图/输出,
+都是这样 32:9,手机等竖屏设备,请自动顺时针旋转 90 度,并适应屏幕。存为铁律。」
+「之前是要求剪裁 32:9 横图来适应屏幕,现在起要求,顺时针旋转 90 度来适应屏幕。存为铁律。」**
+
+| | |
+|---|---|
+| 生成(构图 + 输出) | **32:9** · `2560×720`(32/9 精确,两边可被 16 整除) |
+| 竖屏设备适配 | **顺时针旋转 90°** 并贴屏 —— **绝不裁切** |
+| 旧键 | `2.39:1` / `anamorphic` 保留为别名,重映射到 32:9 |
+
+**为什么不裁切:** 32:9 裁进竖屏要放大约 3.9 倍,必然只剩局部 —— 实测结果就是「一个鼻子
+特写」。在这个倍率下,`object-position` 怎么调都救不回来:**倍率错了,位置再准也没用**
+(W1854 / W1858 / W1893 三次都栽在这里)。旋转则一帧不裁、画面填满。手机可以转,黑边不能。
+
+**一个 Jing 明确做过、不要"优化"回去的取舍:** 32/9 = 3.556 比 2.39 更宽;转 90° 后
+32:9 → 9:32 = 0.281,比手机的 9:19.5 ≈ 0.46 **更窄**,左右会留边;而 2.39:1 转过来是
+0.418,反而更贴合。**即:2.39 转屏更贴,32:9 更有超宽气势 —— Jing 选气势,贴屏交给播放端。**
+
+**Enforcement:**
+1. `CINEMA_LANDSCAPE`(`src/index.ts`)是画幅的**唯一真源**,改画幅只改这一处。
+2. 播放端竖屏遇横片源 → **旋转**,不是 `object-fit: contain/cover`
+   (`app.watch-face-crop.js`)。
+3. **画面不止 `<video>` 一层** —— 幻灯 `.watch-svg`、封面 `.watch-music-art` 必须同样
+   处理。只转视频等于只转一半(W1893 的教训)。
+4. 生成侧**不再另出竖版**:一次生成 32:9,两端各自贴合。
 
 ---
 
@@ -664,3 +729,71 @@ sites may still reference them.
   JS. Use `data-i18n="..."` on DOM or `tr("English")` in JS.
 - `loginCopy(en, _zhIgnoredLegacy)` ignores its second arg and routes to
   `tr(en)`.
+
+---
+
+## 边框宪法 · 媒体框留光芒 / MV 框取消描边 (W1960)
+
+**Jing 2026-08-25:「媒体框，保留绿色光芒边框；MV边框，取消绿色描边。」
+「一个保留，一个取消。你为什么总是保留就两个一起保留，取消就两个一起取消？」**
+
+| 对象 | 规则 | 载体 |
+|---|---|---|
+| **媒体框**(画面本身的矩形) | **保留**绿色光芒边框 | `.watch-screen::after` |
+| **MV 面板边框**(面板/窗口外圈) | **取消**绿色描边 | `.watch-screen::before` |
+
+**⛔ 红线 —— 改动必须先征得 Jing 同意。**
+
+这两个框(媒体框光芒 / MV 面板描边)**任何改动都必须先问 Jing 并拿到明确
+「同意」才能动手**,格式:「我打算改 <哪一个框> 的 <什么>,原因 <一句话>。
+是否同意?(yes/no)」。**没有 yes 就不动。** 不接受「顺手」「保持一致」
+「看着不对」「重构时捎带」任何形式的自作主张。
+
+也包括**看似无关的改动会波及它们**的情况 —— 例如动 `.watch-screen` /
+`.watch-frame` 的定位尺寸、动 `app.watch-face-crop.js` 的量算、动加载顺序或
+新增会盖住它们的 CSS 文件。发现会波及,**先停下来问**。
+
+**W1960 已定案的终态(这就是 Jing 验收通过的样子):**
+- 画面矩形四周 = 绿色光芒边框 ✅
+- 面板外圈 = 无绿色描边 ✅
+
+**为什么要立这条红线:** 这件事本身极简单 —— 一个留、一个删。但我连改四轮
+都做成了「一起加/一起删」,把 Jing 一整晚拖进来反复截图、反复解释、直到发火。
+**简单的事被我搞复杂,代价全由 Jing 承担。** 所以这里的成本不在代码,在他的
+时间和情绪:再来一次「我以为我懂了」的自作主张,就是再烧他一晚。先问一句,
+十秒钟的事。
+
+### 为什么必须是两个伪元素,不能是一个
+
+W1959 我把两件事塞在**同一个** `::before` 上,靠 `inset` 变量来回搬位置。
+**一个元素只能在一个地方 —— 所以它必然是「加就一起加,取消就一起取消」。**
+Jing 连续四轮看到的都是这个:要他删 MV 描边,媒体光芒跟着没;要他恢复媒体
+光芒,MV 描边跟着回来。**根因不是我找错了样式,是我用错了元素数量。**
+
+凡是「A 要留、B 要删」的一对视觉,**先问它们是不是同一个元素在画**。是,
+就先拆开,再动手。
+
+### 实现要点(改动前先读完)
+
+1. **`::before` 保留空壳,不要整块删。** `is-live-border` / `is-waiting`
+   两个生成态动画就画在 `::before` 上,删整块会连带弄坏它们。只把
+   `background` / `box-shadow` 置空,`inset` / `mask` / 定位一律不动。
+2. **`::after` 的声明与平台原有那圈逐字一致** —— `120deg` 渐变、
+   `background-size: 360%`、`0 0 16px 绿 + 0 0 36px 青`、
+   `content-box` + `mask-composite: exclude` 挖空。
+   **抄声明 ≠ 复用:** 换了盒子、换了尺寸,`360%` 的渐变采样点和辉光扩散全
+   跟着变,出来会是一条扁平青线(W1959 栽过两次)。声明必须一字不改。
+3. **`::after` 默认 `display: none`,由 `data-mv-ring="1"` 开。**
+   `app.watch-face-crop.js` 的 `syncRingToMedia()` 量到画面矩形后写
+   `--mv-ring-top/right/bottom/left` 四个变量并打开关;量不到就
+   `removeAttribute`。**量不到宁可不画,绝不退回去框住整个面板** —— 那正是
+   Jing 要取消的那圈。
+4. **量画面时不看 `opacity`。** W1930 的幕布换源时会把画面淡到 0,那是临时
+   的;只看 `display` / `visibility` + 尺寸。
+
+### 与「不要重复造轮子」的关系
+
+Jing 的原话:「凡是平台已经有的风格,不要重新造……如果每个地方都造一套风格,
+会很乱。」拆成两个伪元素**不违反**这条 —— 复用的是**同一套声明**,拆的只是
+**承载的位置**。真正违反的是 W1959 我新建 `.watch-media-ring` 那次:新元素 +
+抄来的声明 = 又一套轮子。**判据:新增的是"位置",不是"风格"。**

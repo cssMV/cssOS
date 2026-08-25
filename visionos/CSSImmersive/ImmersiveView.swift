@@ -111,10 +111,18 @@ struct ImmersiveView: View {
     }
 
     // 命中的实体(或其某个祖先)属于哪个【可拖根】: 银幕→整组影院 cinemaRoot; 面板→该面板本身。
+    /* CSSOS_WAVE_1941 20260824 — Jing:「媒体框不再允许手捏移动, 应该固定。」
+     *
+     * 原来 screen-* 这一支把整个 cinemaRoot 交给拖拽 —— 于是捏住画面一动就把银幕
+     * 整组拖走了。银幕不是面板: 它是这个空间的【舞台】, 位置由弧度/半径/高度三个参数
+     * 决定(设置菜单里可调), 不该被随手碰移。而且捏画面本来就有别的意思(选激活屏),
+     * 两者抢同一个手势, 结果是想选屏却把影院拽偏。
+     *
+     * 现在只有面板(panel-*)可拖, 银幕固定。要改位置 → 设置菜单里的远近/弧度/高度。 */
     private func draggableTarget(for entity: Entity) -> Entity? {
         var e: Entity? = entity
         while let cur = e {
-            if cur.name.hasPrefix("screen-") { return cinemaRoot }
+            if cur.name.hasPrefix("screen-") { return nil }   // W1941 — 银幕钉死, 不跟手
             if cur.name.hasPrefix("panel-") { return cur }
             e = cur.parent
         }

@@ -38,6 +38,9 @@ struct GateView: View {
     @State private var civGates: [CivGate] = []
     @State private var gateRing: Entity? = nil
     @State private var pickedCiv: String = ""
+    /* CSSOS_WAVE_1940 — 星穹作品阵(取代 2D 大厅面板)。 */
+    @State private var shelfHost: Entity? = nil
+    @State private var shelfItems: [CSSBackend.LobbyItem] = []
 
     var body: some View {
         // W1389 — 卡片进不去真凶根治: 不再切到独立 ImmersiveCinema 空间(GateSpace 还开着时 open 另一个会静默 .error,
@@ -117,6 +120,15 @@ struct GateView: View {
             ringHost.name = "civ-gate-ring"
             anchor.addChild(ringHost)
             gateRing = ringHost
+
+            /* CSSOS_WAVE_1940 — 星穹作品阵。穿过文明之门后, 作品【悬在空间里】,
+             * 不再装进一块 2D 面板。与门环同 anchor → 世界固定, 不跟头。
+             * 门环与作品阵互斥显示: 大门态看门, 进殿后看作品。 */
+            let shelf = Entity()
+            shelf.name = "spatial-shelf"
+            shelf.isEnabled = false
+            anchor.addChild(shelf)
+            shelfHost = shelf
             Task { @MainActor in
                 let gs = await CSSBackend.fetchCivGates(limit: 16)
                 guard !gs.isEmpty else { return }
@@ -124,7 +136,12 @@ struct GateView: View {
                 CivilizationGateRing.build(into: ringHost, gates: gs)
             }
         } update: { _, _ in
-            refs.lobby?.isEnabled = showLobby && !creating
+            /* W1940 — 2D 大厅面板【不再进场】。Jing 看到它时说「这是旧的圣殿大门, 请重新
+             * 设计」—— 一块灰面板 + 三个标签 + 一排横滑小卡, 那是手机界面搬进头显, 也
+             * 违反本文件开头写着的「沉浸里一切皆沉浸, 零 2D」。改由星穹作品阵承担。
+             * LobbyView 与这个 attachment 【故意保留但恒隐藏】—— 要回滚改这一行即可。 */
+            refs.lobby?.isEnabled = false
+            shelfHost?.isEnabled = showLobby && !creating
             refs.orb?.isEnabled = !showLobby && !creating   // W1381 — 进圣殿大门 → gate 金球消失
             refs.creation?.isEnabled = creating              // W1382 — 创作时显进度球, 盖住大厅/金球
             refs.welcome?.isEnabled = !showLobby && !creating   // W1386 — 欢迎词只在大门态
@@ -205,6 +222,17 @@ struct GateView: View {
                 .onEnded { _ in dragBase = nil },
             including: showLobby ? .subviews : .all
         )
+        /* W1940 — 捏一件作品 → 进影院。与文明之门(W1939)同一套规矩:
+         * 凝视只放大+浮名(提示), 捏合才是决定。两处必须一致, 否则用户学不会。
+         * 只认 SpatialWorkMarker, 与门环/金球各盯各的。 */
+        .gesture(
+            SpatialTapGesture().targetedToEntity(where: .has(SpatialWorkMarker.self)).onEnded { v in
+                guard let mk = v.entity.components[SpatialWorkMarker.self],
+                      let item = shelfItems.first(where: { $0.id == mk.workID }) else { return }
+                Task { await enterCinema(work: item.toWork()) }
+            },
+            including: .all
+        )
         .onChange(of: router.fireBeams) { _, want in
             guard want else { return }
             router.fireBeams = false
@@ -214,6 +242,13 @@ struct GateView: View {
         .onChange(of: auth.isSignedIn) { _, signed in
             if signed {
                 withAnimation(.easeInOut(duration: 0.4)) { showLobby = true }
+                /* W1940 — 进殿即铺星穹作品阵。取 for-you(最新在前) —— 作品阵按序号编码
+                 * 深度, 越前面越近, 所以"最新的先撞见你", 用户不必读日期。 */
+                Task { @MainActor in
+                    let items = await CSSBackend.fetchShelf("for-you", limit: 18)
+                    shelfItems = items
+                    if let host = shelfHost { SpatialShelf.build(into: host, items: items) }
+                }
                 if !pendingSpell.isEmpty { let s = pendingSpell; pendingSpell = ""; startSpell(s) }
             }
         }

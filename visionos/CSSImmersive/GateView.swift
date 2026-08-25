@@ -137,7 +137,6 @@ struct GateView: View {
              *   ① 每次 make 都把 gateOpened 归零 —— 大门是仪式, 每次进来都要推一次;
              *   ② GenesisGate.make / CivilizationGateRing.build 进场前先清空 host 的旧子实体
              *      (make 里已 removeFromParent, 这里再把 host 本身重建, 双保险)。 */
-            gateOpened = false
             let genesis = Entity()
             genesis.name = "genesis-gate"
             anchor.addChild(genesis)
@@ -286,6 +285,12 @@ struct GateView: View {
             },
             including: .all
         )
+        /* W1947 — 每次进场都从"门关着"开始。
+         * 放在 onAppear 而不是 RealityView 的 make 闭包里: make 属【视图构建期】, 在那里
+         * 改 @State 是"modifying state during view update", SwiftUI 可能不生效 ——
+         * 而这正是 Jing 看到"上次进去过就直接显示文明小门"的原因之一。
+         * 大门是仪式, 不记忆: 每次进来都要亲手推一次。 */
+        .onAppear { gateOpened = false }
         .onChange(of: router.fireBeams) { _, want in
             guard want else { return }
             router.fireBeams = false

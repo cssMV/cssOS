@@ -137,34 +137,65 @@ enum GenesisGate {
      * 要自由边朝用户(+Z), 需 −d·sinθ > 0。
      *   左扇自由边在 +x(d>0) → 需 sinθ<0 → θ 取负
      *   右扇自由边在 −x(d<0) → 需 sinθ>0 → θ 取正 */
+    /* CSSOS_WAVE_1947 20260825 — Jing:「大门和文明小门是不可能同时显示的。必须是: 用户
+     * 进入平台空间, 捏金球, 大门打开, 不要搞突然消失, 应该是, 两扇门缓缓打开, 并向用户
+     * 靠近, 让用户有走进大门的感觉, 之后, 两扇大门继续往用户后面移动并逐渐消失, 这时候,
+     * 文明小门才显示并环绕用户。」
+     *
+     * 上一版两个毛病:
+     *   · completion 在第二段走到八成时就回调 → 文明环在大门还杵在眼前时就亮了(截图里
+     *     两者同时在场)。回调必须等到门【彻底不在了】才发。
+     *   · 门是"到点直接 isEnabled=false" → 突然消失。必须真的淡出。
+     *
+     * 现在是四拍, 一拍没走完不进下一拍:
+     *   ①(1.6s) 缓缓开 —— 绕铰链朝用户外开 82°, 同时整座门向你靠近一点(z+3.2, 放大 1.25×)
+     *                     这一拍要慢, 慢才有"门在为你打开"的分量
+     *   ②(1.3s) 掠过身侧 —— 继续推到身后(再 z+5.2, 放大 1.75×), 同步淡出到 0
+     *   ③        彻底隐藏(isEnabled=false) —— 到这一步门才真的不在了
+     *   ④        才回调 → 文明环浮现并环绕
+     * 淡出用 OpacityComponent 手动补间(RealityKit 的 move(to:) 不管透明度)。 */
     static func open(_ host: Entity, completion: @escaping () -> Void) {
         let swing: Float = 82 * .pi / 180
-        let d1: TimeInterval = 1.15      // 开门
-        let d2: TimeInterval = 1.05      // 穿门
+        let dOpen: TimeInterval = 1.6      // ① 缓缓开
+        let dPass: TimeInterval = 1.3      // ② 掠过并淡出
 
+        // ① 门扇绕铰链朝用户开; 整座门同时靠近一点(不是一步冲到脸上, 只是"迎上来")
         for c in host.children {
             guard let m = c as? ModelEntity else { continue }
             var t = m.transform
             switch m.name {
-            case "genesis-left":
-                t.rotation = simd_quatf(angle: -swing, axis: SIMD3<Float>(0, 1, 0))
-            case "genesis-right":
-                t.rotation = simd_quatf(angle:  swing, axis: SIMD3<Float>(0, 1, 0))
-            case "genesis-seam":
-                t.scale = SIMD3<Float>(gateWidth * 1.6, 1.1, 1)    // 门缝的光随之涌开
+            case "genesis-left":  t.rotation = simd_quatf(angle: -swing, axis: SIMD3<Float>(0, 1, 0))
+            case "genesis-right": t.rotation = simd_quatf(angle:  swing, axis: SIMD3<Float>(0, 1, 0))
+            case "genesis-seam":  t.scale = SIMD3<Float>(gateWidth * 1.6, 1.1, 1)
             default: continue
             }
-            m.move(to: t, relativeTo: m.parent, duration: d1, timingFunction: .easeInOut)
+            m.move(to: t, relativeTo: m.parent, duration: dOpen, timingFunction: .easeInOut)
         }
+        var near = host.transform
+        near.translation.z += 3.2
+        near.scale = SIMD3<Float>(repeating: 1.25)
+        host.move(to: near, relativeTo: host.parent, duration: dOpen, timingFunction: .easeInOut)
 
         Task { @MainActor in
-            // ② 穿门: 整座门朝用户推进并掠过身侧 —— 视觉上等于人往前迈了进去。
-            try? await Task.sleep(nanoseconds: UInt64(d1 * 0.72 * 1_000_000_000))
-            var ht = host.transform
-            ht.translation.z += distance + 2.4        // 从 7m 外推到身后
-            ht.scale = SIMD3<Float>(repeating: 1.45)  // 逼近时的透视放大
-            host.move(to: ht, relativeTo: host.parent, duration: d2, timingFunction: .easeIn)
-            try? await Task.sleep(nanoseconds: UInt64(d2 * 0.80 * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(dOpen * 1_000_000_000))
+
+            // ② 掠过身侧到身后, 同步淡出 —— 不是消失, 是走远走淡
+            var pass = host.transform
+            pass.translation.z += 5.2
+            pass.scale = SIMD3<Float>(repeating: 1.75)
+            host.move(to: pass, relativeTo: host.parent, duration: dPass, timingFunction: .easeIn)
+
+            host.components.set(OpacityComponent(opacity: 1))
+            let steps = 26
+            for k in 0...steps {
+                let p = Float(k) / Float(steps)
+                host.components.set(OpacityComponent(opacity: 1 - p * p))   // 后段掉得快, 像被甩到身后
+                try? await Task.sleep(nanoseconds: UInt64(dPass / Double(steps) * 1_000_000_000))
+            }
+
+            // ③ 到这一步门才真的不在了
+            host.isEnabled = false
+            // ④ 才轮到文明环
             completion()
         }
     }

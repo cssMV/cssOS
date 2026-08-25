@@ -28438,6 +28438,25 @@ function imageFetchInit(init: RequestInit = {}): RequestInit {
 }
 
 export async function callImageGen(req: ImageGenRequest): Promise<ImageGenResponse> {  // W1703 — 导出供圣诗 MV 复用
+  /* CSSOS_WAVE_1964b 20260825 — Jing:「这样的构图才是好的构图……请构图/生成封面图的时候,
+   * 必须有一定的艺术氛围。」
+   *
+   * 为什么装在这里, 而不是去各个调用点补:
+   * 本波刚查出【五处】调用点各自写死画幅、绕过唯一真源(其中 cssosGenCivCover 还强制指定了
+   * 一个不吃画幅的模型)。构图与美学如果也靠"每个调用点自己记得拼", 必然重演同样的漏网 ——
+   * 事实上刚才那张让 Jing 满意的封面, 走的正是【没有拼构图段】的路径, 好看纯属运气。
+   *
+   * 收口打法(平台既有惯例): 闸门装在所有路径的必经之门上, 而不是装在调用方。
+   * 判据: 只要这次请求要的是电影画幅(CINEMA_LANDSCAPE.size), 就自动把画幅+构图+艺术指导
+   * 拼进 prompt。已经自己拼过的调用点靠子串检测跳过, 不会重复。
+   * 非电影画幅(角色参考图 / 演员头像等方图)一律不碰。 */
+  try {
+    const _wantCinema = String(req.size || "") === CINEMA_LANDSCAPE.size;
+    const _p = String(req.prompt || "");
+    if (_wantCinema && _p && !_p.includes("ART DIRECTION")) {
+      req = { ...req, prompt: `${_p}, ${CINEMA_LANDSCAPE.framing}`.slice(0, 5000) };
+    }
+  } catch { /* 拼不上就按原样发, 绝不因为修辞让生成失败 */ }
   /* CSSOS_WAVE_201 — shadow the global `fetch` with a per-call wrapper
    * that injects AbortSignal.timeout. Every `await fetch(...)` below
    * (9 different provider calls + 1 GET) gets a 15s ceiling for free.

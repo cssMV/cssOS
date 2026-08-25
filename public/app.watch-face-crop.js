@@ -211,6 +211,8 @@
       /* W1930 收口 — 方向已判定且 transform 已落好 → 揭幕, 这一步才是"先转好再露面"。
        * 只有拿到【真实尺寸】(w/h 都 > 0)才算判定成功; 尺寸还没出来就不揭, 交给硬超时。 */
       try { if (w > 0 && h > 0) dropCurtain(); } catch (_e) {}
+      // W1957b — 方向/尺寸定了才贴光环, 否则会贴到还没布局好的框上
+      try { syncMediaRing(); } catch (_e) {}
   }
 
   /* ───────────────────────────────────────────────────────────────────────
@@ -230,6 +232,60 @@
    *    规则本来就不对称 —— 32:9 是生成侧铁律, 横屏遇竖媒体是少数情况, 留边即可。
    *  · 幕布必须有硬超时: 画面绝不能黑着不动(Jing:「画面不能是黑乎乎的视频框」)。
    *    360ms 兜底揭幕 —— 宁可露一下没转好的, 也不能卡成黑屏。 */
+  /* ─────────────────────────────────────────────────────────────────────────
+   * CSSOS_WAVE_1957b 20260825 — 画面光环层贴合。
+   *
+   * Jing:「取消 MV 面板的绿色边框, 保留媒体框绿色边框」+「你这是在重复造轮子…
+   * 这套绿色边框太亮, 请查找我们一直在用的那套风格」。
+   *
+   * 平台本来就有那套光芒边框(style.css .watch-screen::before): 渐变描边 +
+   * mask-composite 挖空 + 双色辉光。但它贴的是【容器】—— 影院态下容器铺满整个面板,
+   * 于是绿边跑到窗口最外圈, 而画面只是中间那条带, 上下什么都没有。
+   *
+   * <video>/<img> 不能有伪元素, 所以做一个专用光环层 .watch-media-ring, 样式原样复用
+   * 那套(一个数值没改), 位置由这里按【当前媒体元素的实际矩形】实时贴合。
+   * 跟着已有的 markSourceOrientation 走 —— 它在 loadedmetadata / 转屏 / 每 2 秒都会跑,
+   * 不再另开计时器。
+   * 量不到画面(尺寸为 0 / 还没解码)就不显示 —— 宁可没有, 也不要先在窗口上闪一圈。 */
+  function syncMediaRing() {
+    try {
+      var screen = document.querySelector(".watch-screen");
+      if (!screen) return;
+      var ring = screen.querySelector(":scope > .watch-media-ring");
+      if (!ring) {
+        ring = document.createElement("div");
+        ring.className = "watch-media-ring";
+        screen.appendChild(ring);
+      }
+      // 当前真正在显示的那一层: 视频 → 幻灯 → 封面(画面轨四选一)
+      var el = null;
+      var cands = [document.getElementById("watch-video"),
+                   screen.querySelector(".watch-svg"),
+                   screen.querySelector(".watch-music-art")];
+      for (var i = 0; i < cands.length; i++) {
+        var c = cands[i]; if (!c) continue;
+        var cs = getComputedStyle(c);
+        /* W1957c — 【不能】拿 opacity 判断有没有画面: W1930 的幕布在换源时会把画面
+         * opacity 设成 0(它是临时的, 转好方向就揭开)。我第一版据此判定"没有画面"→
+         * 连光环一起关掉, 结果光环位置贴对了却永远不亮。
+         * 只看 display/visibility 和尺寸 —— 幕布期间光环跟着画面一起淡, 天经地义。 */
+        if (cs.display === "none" || cs.visibility === "hidden") continue;
+        var rr = c.getBoundingClientRect();
+        if (rr.width > 40 && rr.height > 40) { el = c; break; }
+      }
+      if (!el) { ring.classList.remove("is-on"); return; }
+      var sr = screen.getBoundingClientRect(), er = el.getBoundingClientRect();
+      ring.style.left = Math.round(er.left - sr.left) + "px";
+      ring.style.top = Math.round(er.top - sr.top) + "px";
+      ring.style.width = Math.round(er.width) + "px";
+      ring.style.height = Math.round(er.height) + "px";
+      // 光环的可见度跟随画面本身 —— 幕布把画面淡掉时, 光环一起淡, 不会剩一圈孤零零的边
+      var mediaOpacity = Number(getComputedStyle(el).opacity);
+      ring.style.opacity = String(isFinite(mediaOpacity) ? mediaOpacity : 1);
+      ring.classList.add("is-on");
+    } catch (_e) {}
+  }
+
   var CURTAIN_MS = 360;
   function visualLayers() {
     var out = [];

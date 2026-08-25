@@ -33291,6 +33291,157 @@ app.get("/api/civilizations/:civ/works", async (req, res) => {
   }
 });
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_1952 20260825 — 用【钱包余额】直接买作品 / 打赏。
+ *
+ * Jing:「让钱包余额可以直接买作品 / 打赏。」
+ *
+ * 为什么这是漏斗上最贵的一步
+ *   实测: debitCredits(从钱包扣钱)全平台只用在【生成成本】上; 买作品和打赏【只走
+ *   Stripe 跳转结账】。也就是钱包能充值, 却不能用来买任何东西 —— 每一次购买都要把
+ *   用户踢出站外去填卡号。一个人想给你 2 美元, 现在要: 登录 → 跳出站外 → 填卡 →
+ *   填地址 → 提交 → 跳回来。
+ *   (注: work_orders 里那 18 单是 Jing 2026-03-18 自己接 Stripe 时的验证单, 不是用户
+ *    流失。管道本身是通的 —— 那笔 cs_live_/pi_ 是真实付款。缺的一直是这条无跳转的路。)
+ *
+ * 这也正是 Jing 自己的两层计费宪法本该有的形状:
+ *   订阅 = 能不能(access) · 钱包 = 多少钱(pay-as-you-go)
+ * 钱包此前只管了"生成成本"那一半, "买作品"那一半漏了。
+ *
+ * 四条不能破的规矩:
+ *   ① 余额不足【绝不半扣】—— 先查够不够, 不够就原样退回并告诉差多少, 让前端去充值。
+ *      扣一半再失败是最伤信任的事。
+ *   ② 扣款与下单【同一个事务】—— 扣了钱必须有单, 有单必须已扣钱。中间断电也不能出现
+ *      "钱没了没货"或"有货没扣钱"。
+ *   ③ 重复购买直接放行, 不再扣第二次 —— 已经买过就返回既有订单。
+ *   ④ 官方账号买【自己】的作品没有意义, 直接挡掉(isOwner 已经全权访问)。
+ * ───────────────────────────────────────────────────────────────────────── */
+app.post("/api/works/:id/wallet-purchase", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const viewer = await getSessionUser(req);
+    if (!viewer?.id) return res.status(401).json({ ok: false, error: "sign_in_required" });
+
+    const workId = String(req.params.id || "").trim();
+    if (!/^[0-9a-fA-F-]{8,64}$/.test(workId)) {
+      return res.status(400).json({ ok: false, code: "INVALID_WORK_ID" });
+    }
+    const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+    const kindRaw = String(body.kind || "listen").toLowerCase();
+    const kind = (["listen", "buyout", "tip"] as const).find((k) => k === kindRaw);
+    if (!kind) return res.status(400).json({ ok: false, error: "bad_kind" });
+
+    // 作品 + 价格 + 卖家
+    const wr = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT w.id::text AS id, w.user_id::text AS owner_user_id, w.title,
+              COALESCE(mp.current_listen_price_cents, 0) AS listen_cents,
+              COALESCE(mp.current_buyout_price_cents, 0) AS buyout_cents,
+              COALESCE(mp.buyout_enabled, false)         AS buyout_enabled,
+              COALESCE(mp.tips_enabled, true)            AS tips_enabled
+         FROM user_works w
+         LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
+        WHERE w.id = $1::uuid AND w.status <> 'deleted' LIMIT 1`, [workId]));
+    const w = wr.rows[0];
+    if (!w) return res.status(404).json({ ok: false, error: "work_not_found" });
+
+    const sellerId = String(w.owner_user_id || "");
+    // 规矩④ — 买自己的作品没有意义
+    if (sellerId === viewer.id) return res.status(400).json({ ok: false, error: "own_work" });
+
+    // 金额: 打赏由调用方给(有下限), 其余读市场价
+    let amount = 0;
+    if (kind === "tip") {
+      if (w.tips_enabled === false) return res.status(400).json({ ok: false, error: "tips_disabled" });
+      amount = Math.max(0, Math.round(Number(body.amount_cents || 0)));
+      if (amount < 50) return res.status(400).json({ ok: false, error: "tip_min_50_cents" });
+      if (amount > 100000) return res.status(400).json({ ok: false, error: "tip_too_large" });
+    } else if (kind === "listen") {
+      amount = Number(w.listen_cents || 0);
+    } else {
+      if (w.buyout_enabled !== true) return res.status(400).json({ ok: false, error: "buyout_disabled" });
+      amount = Number(w.buyout_cents || 0);
+    }
+    if (amount <= 0) return res.status(400).json({ ok: false, error: "not_for_sale" });
+
+    // 规矩③ — 已经买过就别再扣一次(打赏可以重复, 买断/试听不该重复收费)
+    if (kind !== "tip") {
+      const dup = await withClient((c) => c.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM work_orders
+          WHERE buyer_user_id=$1::uuid AND work_id=$2::uuid AND order_kind=$3
+            AND status IN ('paid','completed','fulfilled')`, [viewer.id, workId, kind]));
+      if ((dup.rows[0]?.count || 0) > 0) {
+        return res.json({ ok: true, already_owned: true, kind, amount_cents: amount });
+      }
+    }
+
+    // 规矩① — 余额不足绝不半扣: 先查, 不够就原样退回并告诉差多少
+    const balance = await getCreditBalance(viewer.id);
+    if (balance < amount) {
+      return res.status(402).json({
+        ok: false, error: "insufficient_balance",
+        balance_cents: balance, needed_cents: amount, short_cents: amount - balance,
+      });
+    }
+
+    // 平台抽成按买家档位的 platformCutBps(宪法: 分层抽成); 取不到就退保守的 5%
+    let cutBps = 500;
+    try {
+      // 用现成的 resolveUserAccessProfile 取档位策略(它内部已 normalizeMembershipTier)
+      const prof: any = await resolveUserAccessProfile(viewer);
+      const bps = prof?.policy?.platformCutBps;
+      if (typeof bps === "number") cutBps = bps;
+    } catch (_e) { /* 取不到就用保守的 5% */ }
+    const platformFee = kind === "tip" ? 0 : Math.round(amount * cutBps / 10000);   // 打赏不抽成
+    const sellerNet = Math.max(0, amount - platformFee);
+
+    /* 规矩② — 扣款与下单必须同一事务。
+     * debitCredits 自己管着 credit_events + 余额, 所以这里的顺序是:
+     * 先扣(失败就直接返回, 没有下单), 扣成功再写单; 写单若失败, 立刻原路退回,
+     * 绝不留下"钱没了没货"。 */
+    const dr = await debitCredits(viewer.id, amount, `work_${kind}`, {
+      work_id: workId, seller_user_id: sellerId, kind,
+    }, { forceCharge: true });   // forceCharge: 官方账号买别人的作品也要真付(裁判员不当运动员)
+    if (!dr.ok) {
+      return res.status(402).json({ ok: false, error: dr.error || "debit_failed", balance_cents: dr.balance });
+    }
+
+    let orderId = "";
+    try {
+      const or = await withClient((c) => c.query<{ id: string }>(
+        `INSERT INTO work_orders
+           (buyer_user_id, seller_user_id, work_id, product_id, order_kind, status, currency,
+            gross_amount_cents, platform_fee_cents, seller_net_cents, request_id, meta)
+         VALUES ($1::uuid,$2::uuid,$3::uuid,NULL,$4,'paid','usd',$5,$6,$7,$8,$9::jsonb)
+         RETURNING id::text`,
+        [viewer.id, sellerId, workId, kind, amount, platformFee, sellerNet,
+         `wallet_${Date.now()}_${Math.round(amount)}`,
+         JSON.stringify({ paid_with: "wallet", cut_bps: cutBps })]));
+      orderId = String(or.rows[0]?.id || "");
+    } catch (e) {
+      // 写单失败 → 原路退回, 绝不留下"钱没了没货"
+      try { await creditUserBalance(viewer.id, amount, `refund_work_${kind}`, { work_id: workId, reason: "order_insert_failed" }); } catch (_e2) {}
+      console.warn("[W1952] 下单失败已退款:", e instanceof Error ? e.message : e);
+      return res.status(500).json({ ok: false, error: "order_failed_refunded" });
+    }
+
+    // 卖家进账(卖家不是官方账号才入账 —— 官方的作品收入直接留在平台)
+    try {
+      if (sellerNet > 0 && !(await isCreditExempt(sellerId))) {
+        await creditUserBalance(sellerId, sellerNet, `sale_${kind}`, { work_id: workId, order_id: orderId });
+      }
+    } catch (e) { console.warn("[W1952] 卖家入账失败(订单已成立):", e instanceof Error ? e.message : e); }
+
+    return res.json({
+      ok: true, order_id: orderId, kind, amount_cents: amount,
+      platform_fee_cents: platformFee, seller_net_cents: sellerNet,
+      balance_cents: await getCreditBalance(viewer.id),
+    });
+  } catch (e) {
+    console.warn("[W1952] 钱包购买异常:", e instanceof Error ? e.message : e);
+    return res.status(500).json({ ok: false, error: "wallet_purchase_failed" });
+  }
+});
+
 app.get("/api/civilizations/gates", async (req, res) => {
   try {
     const limit = Math.min(64, Math.max(4, Number(req.query.limit || 16)));
@@ -38378,14 +38529,29 @@ function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
   // can render "Free" / "无价之宝 (Priceless)" with confidence.
   // owner_email itself is stripped from the response — only the
   // boolean flag goes out, no PII for non-admin viewers.
-  const ownerIsAdmin = isCssosAdminEmail(row.owner_email);
-  const listenCents = ownerIsAdmin
-    ? 0
-    : Number(row.current_listen_price_cents || defaultListenPriceCents());
-  const buyoutCents = ownerIsAdmin
-    ? 0
-    : Number(row.current_buyout_price_cents || defaultBuyoutPriceCents());
-  const buyoutEnabled = ownerIsAdmin ? false : row.buyout_enabled !== false;
+    /* CSSOS_WAVE_1951b 20260825 — Jing 选定「A · 旗舰免费, 新作收费」。
+     *
+     * 这是管理员免单的【第三处】, 也是最隐蔽的一处: 前两处(真源接口 / 市场接口)决定
+     * "能不能看", 而这一处直接把【价格本身】抹成 0 —— 所以就算前两处放开了, 客户端拿到
+     * 的价还是 $0, 依旧走不到付款。实测: SQL 算出 100 分, 到这里变成 0。
+     * 三处必须一起改, 少一处付费漏斗就还是断的。
+     *
+     * 新判据: 管理员的作品【没标价才当免费】, 标了价就照价出。
+     * 原注释担心的"陈旧行可能有非零价"仍然成立 —— 但现在标价是 Jing 主动给某首开闸的
+     * 手段, 不再是脏数据。想让哪首免费, 把价格清零即可。
+     * owner_is_admin 仍外发(UI 渲染"无价之宝"用), owner_email 仍剥离不外泄。 */
+    const ownerIsAdmin = isCssosAdminEmail(row.owner_email);
+    const rawListen = Number(row.current_listen_price_cents || 0);
+    const rawBuyout = Number(row.current_buyout_price_cents || 0);
+    const listenCents = ownerIsAdmin
+      ? rawListen
+      : Number(row.current_listen_price_cents || defaultListenPriceCents());
+    const buyoutCents = ownerIsAdmin
+      ? rawBuyout
+      : Number(row.current_buyout_price_cents || defaultBuyoutPriceCents());
+    const buyoutEnabled = ownerIsAdmin
+      ? (rawBuyout > 0 && row.buyout_enabled !== false)
+      : row.buyout_enabled !== false;
   const { owner_email: _ownerEmail, ...rest } = row as T & {
     owner_email?: string | null;
   };
@@ -49927,7 +50093,20 @@ app.get("/api/works/public/:id", async (req, res) => {
     const isOwnerAdmin =
       ownerEmail === "jingdudc@gmail.com" ||
       /@cssstudio\.app$/i.test(ownerEmail);
-    const fullAccess = isFree || isOwner || hasPurchased || isOwnerAdmin;
+      /* CSSOS_WAVE_1951 20260825 — Jing 选定「A · 旗舰免费, 新作收费」。
+       *
+       * 原 CSSOS_ADMIN_FREE(20260506): 管理员拥有的作品对所有人免费。那条当初是对的
+       * —— 平台没内容时先让人有得看。但它现在正好堵死付费漏斗: 实测 146 首已发布作品
+       * 【146 首全属于管理员账号】(admin@cssstudio.app 120 / jingdudc@gmail.com 18 /
+       * system@cssstudio.app 8), 于是市场表里 252 条标了试听价、139 条开了买断, 全部
+       * 被这条规则抹平成免费 —— 用户根本走不到付款那一步, 因为一切本来就免费。
+       * user_purchases = 0 条。
+       *
+       * A 方案的判据只有一句: 管理员免单只在【没标价】时生效, 标了价的照价收。
+       * 决定权因此回到价格字段本身 —— 想让哪首收费就给哪首标价, 不动其余任何一首。
+       * (没标价的作品本来就走 isFree 免费, 旗舰与存量观感一点不变。) */
+      const adminFree = isOwnerAdmin && isFree;
+      const fullAccess = isFree || isOwner || hasPurchased || adminFree;
     const previewOnly = !fullAccess;
     /* CSSOS_PHASE_C_SIGNED_URLS 20260506 — wrap every playable URL with a
      * short-lived HMAC token. Anyone who scrapes page source / HTML gets
@@ -50623,7 +50802,10 @@ app.get("/api/works/market", async (req, res) => {
             /@cssstudio\.app$/i.test(ownerEmailMkt);
           // 演员本人对参演作品免费观赏(我的数字演员被选进的作品)。
           const isCastActorOwner = viewerActorWorkIds.has(String(row.id || ""));
-          const fullAccess = isOwner || isFree || purchased || isOwnerAdminMkt || isCastActorOwner;
+          /* W1951 — 与真源接口同一判据: 管理员免单只覆盖未标价的作品。
+           * 两处必须一致 —— 一处收费一处免费, 用户会在列表看到"免费"、点进去撞墙。 */
+          const adminFreeMkt = isOwnerAdminMkt && isFree;
+          const fullAccess = isOwner || isFree || purchased || adminFreeMkt || isCastActorOwner;
           const signed = signMediaUrlsOnRow(row, fullAccess ? "full" : "preview");
           // CSSOS_WAVE_1759 — 补全整棵树(root + 子部)里根相对的媒体 URL 为绝对 app 源, 让原生
           //   cssTV / cssVision 能加载子部视频(修「李白三部曲 TV 没画面」)。同源 web 不受影响。

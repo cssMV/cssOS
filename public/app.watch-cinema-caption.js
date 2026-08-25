@@ -88,15 +88,24 @@
     var who = String(w.owner_display_name || w.owner_handle || "").trim();
     var metaBits = [];
     if (who) metaBits.push("@" + who);
-    var typ = String(w._root_work_type || w.work_type || w.style || "").trim();
+    /* W1905 — meta 行不再回落 style: style 现在是下面那行说明文字, 两处都放就重复了。 */
+    var typ = String(w._root_work_type || w.work_type || "").trim();
     if (typ) metaBits.push(typ);
     var dur = fmtDur(w.duration_secs || w.duration);
     if (dur) metaBits.push(dur);
-    var summary = String(w.summary || w.description || w.lyrics_preview || "").replace(/\s+/g, " ").trim();
+    /* CSSOS_WAVE_1905 20260824 — Jing:「传统标题之下的说明文字就应该是这个: style」
+     *
+     * 原来这行优先取 summary / description / lyrics_preview。取到歌词时会出两个毛病:
+     *   ① 歌词是【多语言】的, 于是标题中文、说明日文, 看着像两首歌拼起来的;
+     *   ② 歌词已经在情绪字幕轨上逐字放了, 这里再放一遍是重复, 白占一行。
+     * style 才是这首作品的"它是什么" —— epic Chinese, guofeng, jiangnan elegance,
+     * guqin, pipa, dizi flute… 一眼说清曲风/乐器/气质, 而且它随文明走(见文明×曲风不变量 W1904)。
+     * 所以: style 第一优先; 没有 style 才回落 summary/description; 歌词彻底不再进这行。 */
+    var summary = String(w.style || w.summary || w.description || "").replace(/\s+/g, " ").trim();
     cap.innerHTML =
       '<div class="cwc-title">' + esc(title) + badge + "</div>" +
       (metaBits.length ? '<div class="cwc-meta">' + esc(metaBits.join(" · ")) + "</div>" : "") +
-      (summary ? '<div class="cwc-sum">' + esc(summary.slice(0, 60)) + "</div>" : "");
+      (summary ? '<div class="cwc-sum">' + esc(summary.slice(0, 96)) + "</div>" : "");
   }
 
   // ── 弹幕(评论) ──

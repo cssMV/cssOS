@@ -330,10 +330,17 @@
       // 桌面 web: 尊重 never + 保留"本会话已退出影院就不再自动打扰"语义。
       if (_pref === "never") return;              // 用户明确选择不自动进
       if (userClosedThisSession()) return;
-      // W1772 — 广告来源: 视同 always, 不问直接进(广告承诺"打开即播")。放在 pref 判断之后,
-      // 所以【用户明确选过 never】仍然优先 —— 广告不该覆盖用户的明确拒绝。
-      if (_pref !== "always" && !isAdReferral()) { showAutoEnterPromptOnce(); return; } // ask → 先问
-      // 桌面 web + (always | 广告来源) → 继续往下走, 直接进。
+      /* CSSOS_WAVE_1891 20260823 —— 回退 W1884(Jing:「10 秒倒数又播放一首歌, 就会造成
+       * 两首歌打架。请取消新添加的进入平台自动播放」)。
+       *
+       * 我错在哪: W1884 改成"弹提示 + 继续往下自动进", 但那个提示框自带【10 秒倒计时,
+       * 到点自动替用户点「欣赏 MV」】→ 那一下会以 {fromPrompt:true, force:true} 再进一次。
+       * 于是同一次进站开了两首歌, 互相抢音频。
+       *
+       * 而且 W1884 本来就不必要: 已问标记存在 sessionStorage(不是 localStorage), 每个新
+       * 会话都会重新弹提示, 倒计时到点自己就进 —— 进站自动播放【原本就有】, 我加的是
+       * 一条多余的第二入口。恢复原样: 只留提示框这一条路, 一次进站只开一首歌。 */
+      if (_pref !== "always" && !isAdReferral()) { showAutoEnterPromptOnce(); return; }
     }
 
     // CSSOS_WAVE_468 20260527 — Jing「App 进入 MV 面板时闪退」根因(强韧化收口): 上一版

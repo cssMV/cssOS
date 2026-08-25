@@ -46,7 +46,12 @@
   // CSSOS_WAVE_157 20260514 — Jing: pipeline order is
   // 歌词→封面图→音乐→视频→字幕→合成. Lyrics first so the 京典 text
   // seeds the cover prompt, music mood, and subtitle timeline.
-  const STAGES = ["lyrics", "cover", "music", "video", "subtitles", "compose"];
+  /* CSSOS_WAVE_1875 (Jing:「我们平台根本不需要 Compose —— 歌词/音乐/视频都是分开的,
+   * 不像传统的需要烧录在一起」) —— 进度条从 6 段改回 5 段。
+   * 只改【展示】: 后端 CSSOS_MV_STAGE_ORDER 里的 compose 保留不动 —— 历史作品的
+   * cost_breakdown / 通知主题 / 已存进度记录都带着这个键, 拔掉会让旧数据解析不上。
+   * 用户看到的是 5 个胶囊, 库里的历史仍然完整。 */
+  const STAGES = ["lyrics", "cover", "music", "video", "subtitles"];
   // Watch panel border-radius. Matches style.css --radius (24px) on
   // desktop. CSSOS_WAVE_297 20260521 — Jing: 全屏 App 里进度环贴边(inset:0)
   // 走 MV 边框, 四角要顺着【设备屏幕圆角】走, 否则直角会被设备圆角裁掉. 现代

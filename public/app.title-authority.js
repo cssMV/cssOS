@@ -28,11 +28,28 @@
   if (globalThis.__cssosTitleAuthorityWired) return;
   globalThis.__cssosTitleAuthorityWired = true;
 
-  var TITLE_SINKS = ["#watch-title-text", ".watch-title-text", ".watch-frame-title", "#watch-frame-title"];
+  /* CSSOS_WAVE_1887 20260823 —— Jing:「不管切歌到哪里了, 标题永远不变。」
+   *
+   * 本模块的契约和三条防串台闸都是对的, 广播也确实收到了(W1886 修好后实测到事件带着
+   * 正确的新标题"时间的帝国(电影预告)")—— 但它把标题写进了【屏幕上没人看的四个元素】。
+   * MV 面板右上角真正显示的那行是 .cssmv-mv-title, 从来不在这个清单里。
+   * 于是标题权威一直在忠实地更新四个不可见的容器, 用户看到的那行永远停在第一首。
+   *
+   * (这个元素我在 W1857 查"标题不限宽"时就踩过一次: 当时改了 #cssos-watch-caption,
+   *  改完没效果, 才发现可见的是 .cssmv-mv-title。同一个坑踩第二次, 这次写进注释。) */
+  var TITLE_SINKS = ["#watch-title-text", ".watch-title-text", ".watch-frame-title", "#watch-frame-title",
+                     ".cssmv-mv-title", "#cssos-watch-caption"];
 
   function applyTitle(t) {
     var title = String(t || "").trim();
     if (!title) return;                                   // 闸③
+    /* CSSOS_WAVE_1888 —— 公布权威值。app.mv-title-sync.js 是 2026-05 写的"标题镜像"兜底
+     * (把面板标题栏文字镜像进画面大标题), 当年用来救那些【不广播】的切歌路径。
+     * 它的五个取值源如今有四个在 DOM 里已不存在, 只剩 .panel-title, 而连播不更新那个元素
+     * → 它会拿着陈旧文字, 在权威刚写对之后立刻覆盖回去。实测写入序列:
+     *     render:废墟孤影 → render:时间的帝国·对弈(预告) → DOM 定格在旧标题。
+     * 治冻结的药变成了冻结本身。这里留下权威值, 让镜像知道该让位。 */
+    try { globalThis.__cssosTitleAuthorityValue = title; } catch (_e) {}
     for (var i = 0; i < TITLE_SINKS.length; i++) {
       var els = document.querySelectorAll(TITLE_SINKS[i]);
       for (var j = 0; j < els.length; j++) {

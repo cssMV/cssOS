@@ -27,6 +27,14 @@
   var BRAND = "CSS Studio";
 
   function readWorkTitle() {
+    /* CSSOS_WAVE_1889 20260823 —— 标签页标题跟 .cssmv-mv-title 犯的是同一个错: 过去读
+     * #watch-panel .panel-title, 而连播【不更新那个元素】→ 页签永远停在第一首。
+     * 现在一律先认标题权威(app.title-authority.js 按 work uuid 取, 平台唯一真源),
+     * 只有权威没发过话时才回落到旧的 DOM 探测。 */
+    try {
+      var auth = String(globalThis.__cssosTitleAuthorityValue || "").trim();
+      if (auth) return auth;
+    } catch (_e) {}
     // Prefer the watch-panel's title bar if present and not the placeholder.
     var bar = document.getElementById("watch-panel");
     if (bar) {

@@ -6621,6 +6621,80 @@ globalThis.cssosWatchQueueAdvance = watchQueueAdvanceModule;
 globalThis.cssosWatchQueuePrefetch = fetchWatchQueueMoreModule;
 globalThis.applyWatchQueueItemModule = applyWatchQueueItemModule;
 
+/* CSSOS_WAVE_1918 20260824 — 画面层订阅切歌广播(Jing:「标题是李白, 画面是唐伯虎…
+ * 这个串播问题 30 年了都解决不了」)。
+ *
+ * ── 浏览器实测锁定的机制 ────────────────────────────────────────────────────
+ * 平台有【两条切歌路径】:
+ *   完整路径: applyWatchQueueItemModule(item) —— 一次把画面/音频/标题全换掉;
+ *   半截路径: 只换音频 + 发 cssos:work-id-changed 广播, 【完全不碰画面】。
+ * 而广播的 20 个订阅者里【没有一个负责装载新视频】—— 视频只由上面那个函数装。
+ * 于是只要切歌走了半截路径, <video> 就停在上一首的最后一帧:
+ *   标题=新歌 · 水印=新歌 · 音乐=新歌 · 画面=上一首。
+ * 三次快照实测: video 只收到 emptied, 从来没有 loadstart —— 旧的被清空, 新的没装上。
+ *
+ * ── 修法 ────────────────────────────────────────────────────────────────────
+ * 让画面也挂到广播上。广播是唯一收口(W1886 已保证所有切歌路径都发它),
+ * 画面订阅它就再也不会被落下, 无论切歌是谁触发的。
+ * 完整路径已经装好的情况下, 这里比对 src 后【跳过】, 不会重复装、不会打断播放。 */
+(function wireVisualToWorkSwitch() {
+  if (globalThis.__cssosVisualSwitchWired) return;
+  globalThis.__cssosVisualSwitchWired = true;
+
+  function pickVideoUrl(work) {
+    try {
+      return String((work && (work.final_mv_url || work.preview_video_url)) || "").trim();
+    } catch (_e) { return ""; }
+  }
+  /* 只比对「路径 + 文件名」而不是整串: currentSrc 会被浏览器补成绝对 URL,
+   * 而 work 里存的可能是相对路径 —— 直接字符串相等会永远不等, 导致每次都重装。 */
+  function sameAsset(a, b) {
+    try {
+      var f = function (u) { return String(u || "").split("?")[0].split("/").pop(); };
+      return !!f(a) && f(a) === f(b);
+    } catch (_e) { return false; }
+  }
+
+  /* CSSOS_WAVE_1918b 20260824 — 收窄。上一版(W1918)每次切歌都抢在完整路径【之前】装一次,
+   * 实测一次切歌里 video.src 被设了两次:
+   *   ① 本处装了一个带 "&e=…&k=full" 查询串的【签名过期链】;
+   *   ② 完整路径随后才装上正确的 -a0.mp4。
+   * 两次装载 = Jing 说的"几首歌打架"; 装到过期链 = "谁都播不了"。
+   * 根因是我的比对按【文件名】判等, 而签名链的文件名段是 "-JQ&e=…", 与目标永远不等
+   * → 每次都判"不一样"→ 每次都抢先装一个错的。这是我引入的回归。
+   *
+   * 收窄成【纯兜底】:
+   *   · 只接受 https 且【不带查询串】的干净 URL —— 签名/临时链一律不碰;
+   *   · 延后 1.2s 再看 —— 给完整路径先做完的机会, 它做完了本处就什么都不做;
+   *   · 到点时复检 workId 仍是当前, 且 <video> 确实【没有 src 或仍停在别的作品】才补装。
+   * 也就是: 完整路径正常工作时, 本处永远静默; 只有它没做(半截路径)才出手。 */
+  window.addEventListener("cssos:work-id-changed", function (ev) {
+    try {
+      var d = (ev && ev.detail) || {};
+      var work = d.work, wid = String(d.workId || "");
+      if (!work || !wid) return;
+      var url = pickVideoUrl(work);
+      /* 只认干净的直链: 带 ? 的是签名/临时链, 装了就是过期播不了。 */
+      if (!url || url.indexOf("?") >= 0 || !/^https?:\/\//i.test(url)) return;
+      try { if (globalThis.__cssosVisualFallbackTimer) clearTimeout(globalThis.__cssosVisualFallbackTimer); } catch (_e) {}
+      globalThis.__cssosVisualFallbackTimer = setTimeout(function () {
+        try {
+          if (String(globalThis.__cssosCurrentWorkId || "") !== wid) return;   // 又切走了 → 丢弃
+          var v = document.getElementById("watch-video");
+          if (!v) return;
+          var cur = String(v.currentSrc || v.getAttribute("src") || "");
+          if (cur && sameAsset(cur, url)) return;        // 完整路径已装好 → 静默
+          if (cur && cur.indexOf("?") >= 0) return;      // 当前是签名链 → 不是我该管的, 别乱动
+          v.src = url;
+          try { v.load && v.load(); } catch (_e) {}
+          try { var p = v.play && v.play(); if (p && p.catch) p.catch(function () {}); } catch (_e) {}
+          console.info("[W1918b] 完整路径没装画面, 兜底补装:", wid.slice(0, 8), url.slice(-34));
+        } catch (_e) {}
+      }, 1200);
+    } catch (_e) {}
+  }, { passive: true });
+})();
+
 // CSSOS_PHASE2_SWIPE_NAVIGATION 20260430 #201/#232 — Jing
 // "上下滑切歌" — TikTok/抖音-style continuous navigation: any up/down
 // gesture jumps to next/prev song. The ♪1↔♪2 take toggle stays
@@ -8613,8 +8687,16 @@ function __cssosIsIOSLike() {
 
 globalThis.cssosEnterWatchFullscreen = async function () {
   try {
+    /* CSSOS_WAVE_1877 (Jing 澄清范围:「MV 面板必须能够触发 Vision Pro 的 Immersive 全屏,
+     * 其他面板没必要」) —— 我在 W1876 里把范围搞错了, 连 MV 面板一起砍了, 这里恢复。
+     *
+     * 分档的依据是【那条系统横幅在哪些设备上无法接受】, 不是"要不要全屏":
+     *   · iPhone/iPad Safari: iOS 强加 "is in full screen. Swipe down to exit" 横幅 +
+     *     左上角原生 ✕, 网页删不掉 → 这些设备只走 CSS 影院态。
+     *   · 桌面 / Vision Pro Safari: 真 requestFullscreen —— 这是 Apple Vision Pro 进入
+     *     Immersive Environment 的【唯一入口】, 也是面板宪法 Article 1 的要求。
+     * 关面板时会自动退出(W1874), 所以不会再留下整屏纯黑。 */
     if (__cssosIsIOSLike()) {
-      // iOS: 只走 CSS 影院态, 不请求系统全屏(否则必然带出那条 Swipe down 横幅)
       document.body.classList.add("cssos-watch-theater");
       return;
     }
@@ -11234,29 +11316,46 @@ function promptManualWatchPlaybackModule(message) {
     ov.id = "cssos-tap-to-play-overlay";
     ov.setAttribute("role", "button");
     ov.setAttribute("aria-label", "Tap to play");
+    /* CSSOS_WAVE_1890 20260823 —— Jing:「用户进来就是黑屏, 什么都没有。」
+     *
+     * 这层蒙层原本 inset:0 + 半透明黑 + 模糊, 盖住整个媒体框。首帧还没解码出来时,
+     * 底下本来就是黑的, 再盖一层黑 → 用户看到的就是【纯黑屏 + 一行小字】。
+     *
+     * 现在可以不这么做了, 而且原因正是 W1881: 平台生成的画面已经【不含音轨】
+     * (四轨分离铁律的副产品)。浏览器只拦【有声】自动播放 —— 无声视频一律放行。
+     * 所以画面可以立刻开播, 需要手势的只剩那条独立音轨。
+     *
+     * 于是: 画面照常放, 蒙层缩成底部一条"点一下开声音"的提示条, 不再遮挡任何画面。
+     * 点击行为完全不变(仍然解锁整段会话的音频)。 */
     ov.style.cssText =
-      "position:absolute;inset:0;z-index:9999;display:flex;flex-direction:column;" +
-      "align-items:center;justify-content:center;gap:16px;cursor:pointer;" +
-      "background:radial-gradient(ellipse at center,rgba(0,0,0,.55),rgba(0,0,0,.82));" +
-      "backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);" +
+      "position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;" +
+      "display:flex;flex-direction:row;align-items:center;gap:10px;cursor:pointer;" +
+      "padding:10px 18px;border-radius:999px;max-width:calc(100% - 32px);" +
+      "background:rgba(6,18,13,0.82);border:1px solid rgba(0,245,160,0.42);" +
+      "box-shadow:0 6px 24px rgba(0,0,0,0.45);" +
       "animation:cssosTapPulse 1.8s ease-in-out infinite;";
+    /* W1890 — 文案随之改变: 画面已经在放了, 缺的只是声音。旧文案"Tap to play"会让人
+     * 以为什么都没播。走 i18n(英文是源, 见 CLAUDE.md「English is the single source of truth」)。 */
+    var _tapSound = (typeof globalThis.tr === "function")
+      ? globalThis.tr("Tap for sound") : "Tap for sound";
     ov.innerHTML =
-      '<div style="width:104px;height:104px;border-radius:50%;background:rgba(0,245,160,.18);' +
-      'border:2px solid rgba(0,245,160,.85);display:flex;align-items:center;justify-content:center;' +
-      'box-shadow:0 0 32px 6px rgba(0,245,160,.45);">' +
-      '<div style="width:0;height:0;border-left:32px solid #daffee;border-top:20px solid transparent;' +
-      'border-bottom:20px solid transparent;margin-left:8px;"></div></div>' +
-      '<div style="font:700 16px/1.4 ui-sans-serif,system-ui;color:#daffee;letter-spacing:.04em;' +
-      'text-shadow:0 2px 8px rgba(0,0,0,.6);">Tap to play</div>' +
-      '<div style="font:500 12px/1.4 ui-monospace,monospace;color:rgba(218,255,238,.7);' +
-      'max-width:280px;text-align:center;">' +
-      'Browsers block autoplay on first visit. One tap unlocks the whole session.' +
-      '</div>';
+      '<div style="width:30px;height:30px;flex:0 0 30px;border-radius:50%;background:rgba(0,245,160,.20);' +
+      'border:1.5px solid rgba(0,245,160,.85);display:flex;align-items:center;justify-content:center;">' +
+      '<div style="width:0;height:0;border-left:11px solid #daffee;border-top:7px solid transparent;' +
+      'border-bottom:7px solid transparent;margin-left:3px;"></div></div>' +
+      '<div style="font:700 13.5px/1.3 ui-sans-serif,system-ui;color:#daffee;letter-spacing:.03em;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + _tapSound + '</div>';
+
+    /* W1890 — 画面立刻开播。视频无音轨 → 浏览器不拦; 万一被拦也只是保持原状, 不影响提示条。 */
+    try {
+      var _v = document.getElementById("watch-video");
+      if (_v && _v.paused) { var _p = _v.play(); if (_p && _p.catch) _p.catch(function () {}); }
+    } catch (_e) {}
     if (!document.getElementById("cssos-tap-pulse-style")) {
       const st = document.createElement("style");
       st.id = "cssos-tap-pulse-style";
       st.textContent =
-        "@keyframes cssosTapPulse{0%,100%{background-color:rgba(0,0,0,.55)}50%{background-color:rgba(0,0,0,.72)}}";
+        "@keyframes cssosTapPulse{0%,100%{box-shadow:0 6px 24px rgba(0,0,0,.45)}50%{box-shadow:0 6px 28px rgba(0,245,160,.34)}}";
       document.head.appendChild(st);
     }
     const dismiss = () => {

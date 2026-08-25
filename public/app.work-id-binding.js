@@ -387,6 +387,12 @@
       // 让标题/字幕/弹幕按新部件重绘。这一条正是以前被整个吞掉的分支。
       __currentPartId = __fullId;
       if (work) __currentWork = work;
+      /* CSSOS_WAVE_1918 20260824 — 广播时同步写全局 workId。
+       * 实测(浏览器三次快照): 广播明明发到 078cb56e, 而 __cssosCurrentWorkId
+       * 从头到尾停在上一首 7aad7642 —— 因为【只有深链路径写它, 广播路径不写】。
+       * 任何读这个全局的模块(画面胶囊、人脸裁切、弹幕…)都因此拿到上一首。
+       * 广播是唯一收口(W1886 已保证所有切歌路径都发它), 全局就该跟着它走。 */
+      try { globalThis.__cssosCurrentWorkId = __fullId || id; } catch (_) {}
       try {
         window.dispatchEvent(new CustomEvent("cssos:work-id-changed", {
           detail: { workId: id, partId: __fullId, work: __currentWork, partOnly: true },
@@ -462,6 +468,12 @@
         }
       }
     } catch (_) {}
+    /* CSSOS_WAVE_1918 20260824 — 广播时同步写全局 workId。
+     * 实测(浏览器三次快照): 广播明明发到 078cb56e, 而 __cssosCurrentWorkId
+     * 从头到尾停在上一首 7aad7642 —— 因为【只有深链路径写它, 广播路径不写】。
+     * 任何读这个全局的模块(画面胶囊、人脸裁切、弹幕…)都因此拿到上一首。
+     * 广播是唯一收口(W1886 已保证所有切歌路径都发它), 全局就该跟着它走。 */
+    try { globalThis.__cssosCurrentWorkId = __fullId || id; } catch (_) {}
     try {
       window.dispatchEvent(new CustomEvent("cssos:work-id-changed", {
         detail: { workId: id, work: __currentWork },

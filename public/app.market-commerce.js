@@ -3305,7 +3305,12 @@ function buildFallbackHierarchyChildren(work = {}) {
     const segments = splitLyricsLinesForHierarchy(work, totalParts);
     return segments.map((lines, index) => ({
       id: `${String(work?.work_id || work?.id || work?.local_id || rootTitle)}__part_${index + 1}`,
-      title: `${rootTitle} · ${loginCopy("Part")} ${index + 1}`,
+        /* CSSOS_WAVE_1901 20260823 (Jing:「标题应该是《李白·饮者三部曲·天地留名》, 不要 Part 3」)
+         * 这里给合成子件拼 "· Part N" 是把【部序】塞进了【名字】。而作品标题里往往已经带着
+         * 那一部自己的小标题(天地留名 / 春风得意 / 看不穿)—— 再拼一次就成了"天地留名 · Part 3"。
+         * 部序不是名字的一部分, 它属于元信息行(sequence_index 已经在往下传, UI 用那个显示
+         * "第 N 部 / 共 N 部")。标题只放名字。 */
+        title: rootTitle,
       work_type: "single",
       structure_role: "part",
       sequence_index: index + 1,
@@ -5217,7 +5222,48 @@ async function dispatchMarketWorkPayment(workId, orderKind, button) {
     await startStripeCheckoutForWork(id, orderKind, button);
     return;
   }
+  /* CSSOS_WAVE_1954 — 先问一次余额, 好决定"用余额支付"这一项给不给、能不能点。
+   * 读不到就不给这个选项(balance 传 null)—— 宁可不给, 也不给一个点了会失败的按钮。 */
+  let __balCents = null;
+  try {
+    const br = await fetch("/api/credits/balance", { credentials: "include" });
+    const bj = await br.json();
+    if (bj && bj.authenticated !== false) __balCents = Number(bj.balance_cents != null ? bj.balance_cents : bj.balance || 0);
+  } catch (_e) { __balCents = null; }
+
   picker({
+    title,
+    amountCents,
+    balance: __balCents == null ? null : {
+      balanceCents: __balCents,
+      onSelect: async () => {
+        try {
+          const r = await fetch("/api/works/" + encodeURIComponent(id) + "/wallet-purchase", {
+            method: "POST", credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ kind }),
+          });
+          const j = await r.json();
+          if (j && j.ok) {
+            showToast(j.already_owned
+              ? loginCopy("You already own this.")
+              : loginCopy("Paid from balance — enjoy."));
+            // 立刻刷新访问状态, 让画面/下载权当场解锁, 不用用户自己刷新页面
+            try { if (typeof globalThis.refreshMarketModule === "function") globalThis.refreshMarketModule(); } catch (_e) {}
+            try { window.dispatchEvent(new CustomEvent("cssos:purchase-completed", { detail: { work_id: id, kind: kind } })); } catch (_e) {}
+            return;
+          }
+          if (j && j.error === "insufficient_balance") {
+            showToast(loginCopy("Not enough balance — top up first."));
+            try { if (typeof globalThis.cssosOpenCreditsTopup === "function") globalThis.cssosOpenCreditsTopup(); } catch (_e) {}
+            return;
+          }
+          showToast(loginCopy("Payment could not be completed."));
+        } catch (_e) {
+          showToast(loginCopy("Payment could not be completed."));
+        }
+      },
+    },
     title,
     amountCents,
     stripe: {

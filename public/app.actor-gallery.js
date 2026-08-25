@@ -2376,7 +2376,12 @@
           // 《问道》W1582 — 与本演员第一人称对话(母语·古 / 现代 胶囊切换; 逐字流式)。
           '<div class="ag-wendao">' +
             '<div class="ag-wd-head">' +
-              '<span class="ag-wd-title">🗣 ' + esc(T("Ask", "问道")) + ' · ' + esc(a.name_zh || a.name_en || "") + '</span>' +
+              /* CSSOS_WAVE_1873 (Jing:「ASK 之后不要用中文名字, 请用该数字演员的母语名字」) ——
+               * 原来是 name_zh || name_en: 无论访客用什么语言、无论这位演员来自哪个文明,
+               * 标题一律显示中文名。恩赫杜安娜是苏美尔人, 她的名字该是 𒂗𒃶𒌌𒀭𒈾 而不是"恩赫杜安娜"。
+               * 这也正是"文明智能联动"的题中之义: 人物用自己的母语说话, 名字自然也该是母语的。
+               * 顺序 native → zh → en: 母语名优先, 缺了才退回中文/英文(有些合成角色没有母语名)。 */
+              '<span class="ag-wd-title">🗣 ' + esc(T("Ask", "问道")) + ' · ' + esc(a.name_native || a.name_zh || a.name_en || "") + '</span>' +
               // W1607 — 头部控件并成一条凸嵌凹胶囊: 🔊静音 · ↻重来 · 母语古/现代(动作键点完弹回语言锚点)。
               '<div class="ag-wd-headright" data-pill-bar>' +
                 '<button class="ag-wd-mute" data-pill-key="mute" title="' + esc(T("Voice on / off", "语音 开/关")) + '">🔊</button>' +

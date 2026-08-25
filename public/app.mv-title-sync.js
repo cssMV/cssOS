@@ -48,6 +48,20 @@
       scheduled = false;
       const t = readTitleSourceText();
       if (!t) return;
+      /* CSSOS_WAVE_1888 20260823 (Jing:「哪个代码 hold 住标题不放?不管切歌到哪里, 标题永远不变」)
+       *
+       * 本模块 2026-05 的使命已经完成, 并且【反转成了危害】:
+       *   · 当年: 好几条切歌路径不广播 work-id-changed, 画面大标题冻在第一首 → 用镜像兜底。
+       *   · 今天: W1886 已让所有切歌路径(step() 是唯一收口)都广播, 权威按 uuid 取标题;
+       *     而本模块五个取值源有四个在 DOM 里已不存在, 只剩 .panel-title —— 连播不更新它。
+       *   · 结果: 权威写对新标题后, 本模块立刻拿陈旧的 .panel-title 覆盖回去 = 标题永远不变。
+       *
+       * 让位规则: 权威已按 uuid(唯一真源)为当前作品定过标题 → 镜像不得改写。
+       * 只有权威没发过话(极早期/异常路径)时, 镜像才继续做它的兜底老本行。 */
+      try {
+        const auth = String(global.__cssosTitleAuthorityValue || "").trim();
+        if (auth && auth !== t) return;   // 权威说了算, 镜像闭嘴
+      } catch (_e) {}
       try {
         if (typeof global.cssmvRenderMvArtTitle === "function") {
           global.cssmvRenderMvArtTitle(t);

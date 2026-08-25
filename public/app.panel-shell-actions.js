@@ -358,7 +358,26 @@ function attachPanelFocusBridge() {
   });
 }
 
+/* CSSOS_WAVE_1874 (Jing:「我关闭了面板, 面板也关了, 可是为什么还留着这么一个黑屏?」) ——
+ * 关闭面板只做了 classList.add("hidden"), 【从不退出系统全屏】。
+ * 于是: 面板 DOM 藏起来了, 浏览器却仍处在 requestFullscreen 状态 —— 全屏元素是
+ * #watch-panel 本身, 它一 hidden 就什么都不画, 屏幕只剩纯黑, 用户以为程序死了。
+ * 而且此时 ESC 还能退出(浏览器仍认为在全屏), 但没人会想到去按。
+ *
+ * 修法: 关面板即退全屏。只在【当前全屏元素就是这个面板或其子树】时才退 ——
+ * 否则会误伤别人开的全屏(例如影院里另开的分享弹窗)。 */
+function __cssosExitFullscreenIfOwnedBy(panel) {
+  try {
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!fsEl) return;
+    if (fsEl !== panel && !(panel && panel.contains && panel.contains(fsEl))) return;
+    var fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
+    if (typeof fn === "function") { var r = fn.call(document); if (r && r.catch) r.catch(function () {}); }
+  } catch (e) {}
+}
+
 function minimizeToDockBridge(panel) {
+  __cssosExitFullscreenIfOwnedBy(panel);
   panel.classList.add("hidden");
   panel.dataset.minimized = "true";
   if (panel === watchPanel) {

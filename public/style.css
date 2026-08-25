@@ -13940,8 +13940,12 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
  * 所有渐变和发光。真正定位靠的是浏览器里的计算样式扫描, 不是读 CSS 源码猜。
  *
  * 只关掉绘制(背景/发光), 保留元素本身 —— 它还兼着 2px 内缩的圆角裁切层。 */
-#watch-panel .watch-screen::before {
-  background: none !important;
-  box-shadow: none !important;
-  border: 0 !important;
-}
+/* CSSOS_WAVE_1917 20260824 — 撤销 W1840, 恢复媒体框绿边(Jing:「我叫你取消 MV 面板的
+ * 绿色边框, 你却取消了媒体框的绿色边框, 请马上恢复」)。
+ *
+ * 我当时改错了对象: Jing 说的是【MV 面板】的边框, 我关掉的是【媒体框 .watch-screen】的。
+ * 而且我在 W1840 的注释里还给自己找了个理由("和边框进度条不重合"), 把一个越权的改动
+ * 写得像个修复 —— 那正是最不该做的事: 指令范围之外的东西, 不许自作主张动。
+ *
+ * 这里只是【不再覆盖】—— 基础规则 .watch-screen::before(style.css 7241) 原样生效,
+ * 渐变绿光 + 发光都回来。 */

@@ -996,7 +996,29 @@
         if (_c && _c.workId && _c.workId !== id) { _c.data = null; _c.pending = true; }
       } catch (_e) {}
       // 稍候 700ms 等 watch 面板/媒体元素就位再加载。
-      setTimeout(function () { loadForWork(id); }, 700);
+      /* CSSOS_WAVE_1919 20260824 — Jing:「字幕是另一种语言」根治。
+       *
+       * 原本是裸 setTimeout(700ms) 去加载字幕, 【既不取消也不复检】。
+       * 连播时两次切歌的间隔常常小于 700ms, 于是【上一首的定时器照样开火】,
+       * 把旧作品的字幕拉进来覆盖掉新的 —— 一场没人管的赛跑。
+       * 屏幕上就成了: 标题是新歌, 字幕是上一首(甚至上上首)的语言。
+       *
+       * 两道闸(与 app.title-authority.js 的闸①同一思路):
+       *   ① 新的一次切歌先【取消】上一次挂起的定时器, 不让过期请求还在路上;
+       *   ② 到点时【复检 id 是否仍是当前】, 700ms 里又切了就丢弃。
+       * 复检依赖 __cssosCurrentWorkId —— 它现在由广播统一维护(W1918), 判据才可靠。 */
+      try { if (globalThis.__cssosSubLoadTimer) clearTimeout(globalThis.__cssosSubLoadTimer); } catch (_e) {}
+      globalThis.__cssosSubLoadTimer = setTimeout(function () {
+        try {
+          var now = String(globalThis.__cssosCurrentWorkId || "");
+          /* now 为空说明全局还没就位 → 照常加载(总比不加载好)。 */
+          if (now && String(id) !== now && String(id).indexOf(now) < 0 && now.indexOf(String(id)) < 0) {
+            try { console.info("[emo-sub] 丢弃过期字幕加载:", String(id).slice(0,8), "→ 当前", now.slice(0,8)); } catch (_e2) {}
+            return;
+          }
+        } catch (_e) {}
+        loadForWork(id);
+      }, 700);
     });
   } catch (_e) {}
 })();

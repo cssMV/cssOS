@@ -61,7 +61,13 @@
     meta.since = nowMs();
     active.set(token, meta);
     if (meta.onHide) { if (typeof meta.onShow === "function") { try { meta.onShow(); } catch (e) {} } }
-    else { logoCount += 1; if (logoCount === 1 && booted) logoOn(); }  // booted 前压制 logo 手(首屏不叠 spinner)
+    /* CSSOS_WAVE_1878 (Jing:「主界面不要显示这个 spinner, 除了主界面, 其他面板都可以」) ——
+     * meta.silent 的 token 完全不参与 logo 手的合流计数, 连灯都不点。
+     * 目前只有【自动 fetch 卡顿】是 silent: 用户什么都没做, 却因为后台某个慢请求
+     * 看见主界面 logo 转起来 —— 那是噪音, 不是反馈。
+     * 用户主动触发的三条(魔法棒 / 麦克风 / 生成运行)保留 —— 砍掉它们等于让这些
+     * 动作变成零反馈, 那是另一个 bug。媒体小魔镜(面板内)不受影响, 它走 onHide 分支。 */
+    else if (!meta.silent) { logoCount += 1; if (logoCount === 1 && booted) logoOn(); }
   }
   function end(token) {
     var p = pending.get(token);
@@ -70,7 +76,7 @@
     if (!meta) return;
     active.delete(token);
     if (meta.onHide) { try { meta.onHide(); } catch (e) {} }
-    else { logoCount = Math.max(0, logoCount - 1); if (logoCount === 0) logoOff(); }
+    else if (!meta.silent) { logoCount = Math.max(0, logoCount - 1); if (logoCount === 0) logoOff(); }
   }
 
   // 后台轮询 / 心跳 / 埋点 / 崩溃日志等非用户可感知的加载不点灯。
@@ -90,7 +96,9 @@
       var url = urlOf(input);
       if (SKIP_RE.test(url)) return _origFetch(input, init);
       var token = "fetch#" + (++seq);
-      pending.set(token, setTimeout(function () { pending.delete(token); begin(token); }, FETCH_SLOW_MS));
+      /* W1878 — silent:true → 慢请求仍然入册(45s 硬顶 / 孤儿清扫照常管它, 不留泄漏),
+       * 但【不点亮】主界面 logo。 */
+      pending.set(token, setTimeout(function () { pending.delete(token); begin(token, { silent: true }); }, FETCH_SLOW_MS));
       var done = function () { end(token); };
       var pr;
       try { pr = _origFetch(input, init); } catch (e) { done(); throw e; }

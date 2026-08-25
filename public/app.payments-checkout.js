@@ -545,6 +545,47 @@
     // Build groups
     const hasStripe = options.stripe && typeof options.stripe.onSelect === "function";
     const hasNihao = options.nihaopay && typeof options.nihaopay.onSelect === "function";
+    const hasBalance = options.balance && typeof options.balance.onSelect === "function";
+
+    /* CSSOS_WAVE_1954 20260825 — 「用余额支付」放在【第一位】。
+     *
+     * Jing 让走一遍付费漏斗时查到: 钱包能充值却不能买任何东西, 每次购买都要把用户踢出
+     * 站外去填卡 —— 一个人想给 2 美元, 要走 登录→跳出站外→填卡→填地址→提交→跳回来。
+     * W1952 把后端那条无跳转的路打通了(POST /api/works/:id/wallet-purchase),
+     * 这里是它在界面上的落点。
+     *
+     * 三条:
+     *  · 排在 Stripe 之前 —— 它是唯一不跳转、不填卡的路, 摩擦最小的应该最先看见;
+     *  · 余额不够就【置灰并写清还差多少】, 不让用户点进去才被拒(那等于白跑一趟);
+     *  · 余额读不到(未登录/接口挂了)就整组不显示 —— 宁可不给这个选项, 也不给一个
+     *    点了会失败的按钮。 */
+    if (hasBalance) {
+      const balCents = Math.max(0, Math.round(Number(options.balance.balanceCents || 0)));
+      const needCents = Math.max(0, Math.round(Number(options.amountCents || 0)));
+      const enough = balCents >= needCents && needCents > 0;
+      const gb = document.createElement("div");
+      gb.className = "pay-group";
+      gb.innerHTML =
+        '<div class="pay-group-title">' +
+          tr("payments.picker.wallet", "Wallet") +
+          ' <span class="pay-group-note">' + formatUsd(balCents) + '</span>' +
+        '</div>' +
+        '<button type="button" class="mini-btn pay-balance"' + (enough ? "" : " disabled") + '>' +
+          (enough
+            ? tr("payments.picker.payWithBalance", "Pay with balance")
+            : tr("payments.picker.needMore", "Need") + " " + formatUsd(needCents - balCents) + " " +
+              tr("payments.picker.moreToPay", "more")) +
+        '</button>';
+      groupsEl.appendChild(gb);
+      const bb = gb.querySelector(".pay-balance");
+      if (bb && enough) {
+        bb.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          closePicker();
+          try { options.balance.onSelect(); } catch (_e) {}
+        });
+      }
+    }
 
     if (hasStripe) {
       const g = document.createElement("div");
@@ -678,7 +719,7 @@
       groupsEl.appendChild(g);
     }
 
-    if (!hasStripe && !hasNihao) {
+    if (!hasStripe && !hasNihao && !hasBalance) {
       const msg = document.createElement("div");
       msg.className = "css-pay-picker-empty";
       msg.textContent = tr("payments.picker.empty", "No payment methods configured.");

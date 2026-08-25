@@ -920,7 +920,13 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       // multi-line heavy/light <br> breaks. Karaoke + subtitle stay on
       // a single line so each lyric phrase reads cleanly.
       const isTitle = el.classList && el.classList.contains("cssmv-mv-title");
-      el.innerHTML = buildWeightedHtml(pieces, { skipBr: !isTitle });
+      /* CSSOS_WAVE_1879 (Jing 第二次要求:「标题还是多行, 今天已经说过, 标题改为只能一行
+       * 显示, 超过宽度就左右滚动」) —— 根因在这里, 不在 CSS。
+       * W1856 给标题加了 white-space:nowrap, 但 nowrap 【管不了显式 <br> 元素】——
+       * 而 2026-04-26 #120 那一波正是【故意】在 heavy/light 组之间插 <br> 造"多行感"。
+       * 所以标题在 DOM 层面就是多行的, 任何 CSS 都救不回来。改成一律 skipBr。
+       * 单行放不下时由 app.watch-title-marquee.js(W1856)左右滚动。 */
+      el.innerHTML = buildWeightedHtml(pieces, { skipBr: true });
       // Random alignment within the frame — left / center / right.
       const aligns = ["left", "center", "right"];
       el.style.textAlign = aligns[Math.floor(Math.random() * aligns.length)];
@@ -936,10 +942,12 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       // CSSMV_LYRIC_SINGLE_LINE 20260426 #120 — vertical writing mode
       // is reserved for the song title only; single-line karaoke/subtitle
       // never goes vertical.
-      if (isTitle && cjkRatio >= 0.6 && Math.random() < 0.4) {
-        const cls = Math.random() < 0.5 ? "cssmv-p2100-vertical-rl" : "cssmv-p2100-vertical-lr";
-        el.classList.add(cls);
-      }
+      /* W1879 —— 竖排(vertical-rl/lr)天然是【多列】排版, 和"只能一行"直接冲突:
+       * 一个 6 字中文标题竖排后就是 6 行。既然 Jing 要求单行 + 超宽跑马灯,
+       * 标题的竖排模式一并停用。
+       * ⚠ 这是一项审美功能的代价, 已当面告知 Jing —— 若他要竖排回来, 那就得放弃"单行"。
+       * 变量保留引用避免 lint 报未使用。 */
+      void cjkRatio; void isTitle;
       // CSSOS_WAVE_271 20260521 — Jing: 快照本次随机结果. 当 overlays 抹掉我们的
       // glyph 后(同一行文本)走恢复路径时, 原样重贴这份快照而不再重新随机,
       // 消除"恢复抖动"(对齐跳/字体变)的闪烁. 仅真正的新文本才会重新随机.
@@ -2098,7 +2106,8 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
   // ========================================================================
   (function installSixStageTitleAndAutoplay() {
     // CSSOS_WAVE_157 20260514 — order: 歌词→封面图→音乐→视频→字幕→合成.
-    const ALL_STAGES = ["lyrics", "cover", "music", "video", "subtitles", "compose"];
+    /* W1875 — 同 app.watch-stage-bars.js: 展示层去掉 compose(平台不做烧录合成) */
+    const ALL_STAGES = ["lyrics", "cover", "music", "video", "subtitles"];
     let _autoPlayed = false;
     let _allDoneAt = 0;
 

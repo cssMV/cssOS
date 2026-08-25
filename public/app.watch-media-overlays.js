@@ -1097,7 +1097,33 @@
   let mvTitleLastText = "";
   function renderMvArtTitle(text) {
     const frame = qFrame();
-    const clean = String(text || "").trim();
+    let clean = String(text || "").trim();
+    /* CSSOS_WAVE_1889 20260823 —— Jing:「哪个代码 hold 住标题不放?不管切歌到哪里,
+     * 标题永远不变。为什么切歌不是按照 uuid 切歌的?」
+     *
+     * ── 现场证据(浏览器实测的写入序列 + 调用链) ──────────────────────────────
+     *   1. ""                    ← app.work-id-binding.js ← app.create-cta.js
+     *   2. "时间的帝国(电影预告)"  ← app.title-authority.js      ← 按 uuid 取的【正确】标题
+     *   3. "时间的帝国·对弈(预告)" ← app.watch-ui.js ← app.market-commerce.js ← 旧标题覆盖
+     * 屏幕最终定格在第 3 步的旧标题 —— 这就是"标题永远不变"。
+     *
+     * ── 为什么会这样 ─────────────────────────────────────────────────────────
+     * 2026-05-03 为了修同一个"标题冻结"bug, 一次性打了【三个】补丁, 各自直接调本函数:
+     *   · app.mv-title-sync.js     (镜像面板标题栏)
+     *   · app.watch-ui.js:5209     (队列推进路径)
+     *   · app.market-commerce.js   (卡片点击路径)
+     * 它们都用【自己手里那份 item.title】, 而连播时那份常常已经过期; 又都排在权威之后触发,
+     * 于是权威刚写对就被覆盖。四方抢一个元素, 谁最后写谁赢 —— 赢的偏偏是拿着旧数据的那个。
+     *
+     * ── 修法: 让所有者认权威, 而不是再打第四个补丁 ───────────────────────────
+     * 本函数是 .cssmv-mv-title 的唯一所有者。权威(app.title-authority.js)按 work uuid ——
+     * 平台唯一真源 —— 取标题, 它说了算。权威发过话之后, 任何带着不同文字的调用一律降级为
+     * 【重绘成权威值】而不是写入自己的值: 既挡住旧标题, 又保留调用方"请重绘"的正当意图。
+     * 这样将来再多几个调用方也不会重现本 bug。 */
+    try {
+      const auth = String(globalThis.__cssosTitleAuthorityValue || "").trim();
+      if (auth && clean && clean !== auth) clean = auth;
+    } catch (_e) {}
     /* CSSOS_WAVE_207 20260516 — Jing: "Du Fu × Yueyang Tower 妖怪". The
      * old early-return when !frame left mvTitleCachedText stuck on the
      * previous work's title. When the watch frame later remounted,

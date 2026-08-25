@@ -67,7 +67,8 @@
   }
   function curMode() {
     var m = globalThis.__cssosLangPillMode;
-    return (m === "voice") ? "voice" : "lang";
+    /* CSSOS_WAVE_1880 (Jing:「请给多语言胶囊/多声线胶囊加上多画面胶囊」) —— 第三态 visual。 */
+    return (m === "voice") ? "voice" : (m === "visual") ? "visual" : "lang";
   }
 
   function flagFor(txt) {
@@ -128,16 +129,33 @@
       // CSSOS_WAVE_678 胶囊宪法 v2 — 门控直接挂 bar 本身(不依赖 #cssos-lang-fold 祖先): 之前选择器要求
       // bar 在 fold 里, render 重建后若没包进 fold → 门控全失效 → 语言/声线 cell 混显 + 两个 guide 全露。
       // 现在每个胶囊头各管各轨: [data-expanded=lang]→只显语言 cell, [voice]→只显声线 cell, 折叠→只剩模式胶囊。
-      "#watch-language-pill:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]) .cssos-cell{display:none !important;}",
+      /* W1880 — 门控从两态扩到三态(lang / voice / visual)。每一条都要显式列出第三态,
+       * 漏掉任何一条就会出现"画面 cell 混进语言轨"这类串显。 */
+      "#watch-language-pill:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]):not([data-expanded=\"visual\"]) .cssos-cell{display:none !important;}",
       "#watch-language-pill[data-expanded=\"lang\"]  .cssos-cell-voice,",
+      "#watch-language-pill[data-expanded=\"lang\"]  .cssos-cell-visual,",
+      "#watch-language-pill[data-expanded=\"lang\"]  .cssos-visual-guide,",
       "#watch-language-pill[data-expanded=\"lang\"]  .cssos-voice-guide{display:none !important;}",
       "#watch-language-pill[data-expanded=\"voice\"] .cssos-cell-lang,",
+      "#watch-language-pill[data-expanded=\"voice\"] .cssos-cell-visual,",
+      "#watch-language-pill[data-expanded=\"voice\"] .cssos-visual-guide,",
       "#watch-language-pill[data-expanded=\"voice\"] .cssos-lang-guide{display:none !important;}",
+      "#watch-language-pill[data-expanded=\"visual\"] .cssos-cell-lang,",
+      "#watch-language-pill[data-expanded=\"visual\"] .cssos-cell-voice,",
+      "#watch-language-pill[data-expanded=\"visual\"] .cssos-lang-guide,",
+      "#watch-language-pill[data-expanded=\"visual\"] .cssos-voice-guide,",
+      "#watch-language-pill[data-expanded=\"visual\"] .cssos-want-guide{display:none !important;}",
+      /* CSSOS_WAVE_1883 (Jing:「多画面胶囊轨道最后的新建胶囊根本没有动作, 根本打不开」)
+       * —— 上一行把非作者的 want-guide 在画面模式下也藏了, 而画面模式【自己那颗从没做过】,
+       * 结果画面轨道末尾空空如也。这里给它补上, 并保证它只在画面模式出现。 */
+      "#watch-language-pill:not([data-expanded=\"visual\"]) .cssos-visual-guide{display:none !important;}",
       // 非作者的统一 guide(cssos-want-guide, 不带 lang/voice 类)在任一展开模式都显一颗(去重双 Want an MV)。
       "#watch-language-pill:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]) .cssos-want-guide{display:none !important;}",
+      "#watch-language-pill .cssos-cell-visual .cssos-vspec{opacity:0.72;font-weight:700;margin-left:3px;font-size:0.86em;}",
       // cell 紧接着模式胶囊向右展开(transform-origin 左 = 从🎤胶囊处长出); 仅 transform/opacity(合规)。
       "#watch-language-pill{transform-origin:left center;}",
       "#cssos-lang-fold[data-expanded=\"lang\"] #watch-language-pill,",
+      "#cssos-lang-fold[data-expanded=\"visual\"] #watch-language-pill,",
       "#cssos-lang-fold[data-expanded=\"voice\"] #watch-language-pill{animation:cssosExpandTrack .24s cubic-bezier(.2,.7,.2,1);}",
       "@keyframes cssosExpandTrack{from{transform:scaleX(.55);opacity:0.2}to{transform:scaleX(1);opacity:1}}",
       // CSSOS_WAVE_571 — 不要覆盖宪法 button 的 width/min-width! 宪法用 width:calc(100%+20px) 做左右咬合,
@@ -162,7 +180,7 @@
       // CSSOS_WAVE_678q — 引导胶囊(Want an MV / 加语言 / 加声线)【退出凹咬宽度】: cc-left 的 width:calc(100%+20px)
       // 在 WebKit 网格里 100% 循环引用解析偏小 → guide 被压窄(既截断、点击区又变小=像点不动)。强制 width:auto
       //+min-width:max-content+无mask+margin归零 → 纯自适应整颗, 永远完整 + 全可点。(guide 不需要凹咬嵌套。)
-      "#watch-language-pill > button.cssos-want-guide,#watch-language-pill > button.cssos-lang-guide,#watch-language-pill > button.cssos-voice-guide{",
+      "#watch-language-pill > button.cssos-want-guide,#watch-language-pill > button.cssos-lang-guide,#watch-language-pill > button.cssos-visual-guide,#watch-language-pill > button.cssos-voice-guide{",
       "width:auto !important;min-width:max-content !important;margin-left:0 !important;margin-right:0 !important;",
       "-webkit-mask-image:none !important;mask-image:none !important;border-radius:999px !important;}",
       // CSSOS_WAVE_758 — Jing「Want an MV 胶囊总不凹向左边」: 给引导胶囊补【左凹咬】, 但避开 W678q 截断陷阱
@@ -252,7 +270,8 @@
   function ensureModeSwitch(fold, bar) {
     if (bar.querySelector(".cssos-mode-cap")) return; // 已在
     var caps = [];
-    ["voice", "lang"].forEach(function (mode) { // prepend 逆序 → 最终顺序 lang, voice
+    /* W1880 — 逆序 prepend, 最终顺序 = 多语言 | 多声线 | 多画面。 */
+    ["visual", "voice", "lang"].forEach(function (mode) { // prepend 逆序 → 最终顺序 lang, voice, visual
       var b = document.createElement("button");
       b.type = "button";
       b.className = "cssos-mode-cap";
@@ -315,12 +334,19 @@
       var nm = b.querySelector(".lang-name");
       var nn = b.querySelector(".cssos-mode-n");
       if (mode === "lang") { ico.textContent = "🌐"; nm.textContent = zh ? "多语言" : "Languages"; nn.textContent = nLang > 1 ? ("· " + nLang) : ""; }
+      /* W1880 — 多画面头。计数 = 本作品【真实可用】的画面形态数(由 app.watch-visual-pills.js
+       * 写进 bar.dataset.nVisual), 不是写死的 3 —— 只有一种形态时不显数字, 与另两个头同规矩。 */
+      else if (mode === "visual") {
+        var nVis = Number(bar.dataset.nVisual || 0) || bar.querySelectorAll(".cssos-cell-visual").length;
+        ico.textContent = "🎞"; nm.textContent = zh ? "多画面" : "Visuals"; nn.textContent = nVis > 1 ? ("· " + nVis) : "";
+      }
       else { ico.textContent = "🎤"; nm.textContent = zh ? "多声线" : "Voices"; nn.textContent = nVoice > 1 ? ("· " + nVoice) : ""; }
       b.classList.toggle("active", curMode() === mode);
       // CSSOS_WAVE_678f — 两个头【永远都显】: 未激活头是宪法凹咬编排的主角(咬向激活组), 不可隐藏。
       b.classList.remove("cssos-cap-hidden");
       // CSSOS_WAVE_587c — 短 title(长串原生 tooltip 浮在轨道上很乱, 见图2)。
-      b.title = mode === "lang" ? (zh ? "多语言" : "Languages") : (zh ? "多声线" : "Voices");
+      b.title = mode === "lang" ? (zh ? "多语言" : "Languages")
+        : mode === "visual" ? (zh ? "多画面" : "Visuals") : (zh ? "多声线" : "Voices");
     });
   }
   // CSSOS_WAVE_678c 胶囊宪法 v2 — 统一凹咬模型(本条由 paintConcave 全权控制, 全局凹凸已跳过本 bar)。
@@ -549,9 +575,17 @@
     //(open-shim 会懒加载 mv-pipeline 模块再开), 失败兜底点 AI 助理 FAB。不暂停当前播放。
     // CSSOS_WAVE_679c — Jing 铁律: MV 面板内打开的任何东西(MV 管线/AI 助理)都必须【高于媒体】, 否则被影院
     // 媒体框盖住 = 看着没反应。开面板后把它 z 抬到 watch popover(10055)之上 + display 强制可见(懒加载→重试)。
+    /* CSSOS_WAVE_1883 —— Jing:「根本没有动作, 根本打不开」的真因, 浏览器实测锁定:
+     *   点击后 #cssmv-panel 的 className 仍是 "panel flow hidden", computed opacity = 0。
+     * 也就是说面板【确实被打开了】, 但 .hidden 类从没被摘掉, 而 .hidden{opacity:0 !important}
+     * 压过这里写的内联 opacity:1 → 面板存在、占位、z 也抬了, 就是完全透明 = 看着毫无反应。
+     * 旧代码只写内联样式, 从不碰 class, 所以永远赢不了那个 !important。
+     * 修法: 先摘 class/属性(让 CSS 自己回到可见), 内联只作兜底。 */
     var raiseAboveMedia = function (sel, tries) {
       var el = document.querySelector(sel);
       if (el) {
+        try { el.classList.remove("hidden"); } catch (_e) {}
+        try { el.removeAttribute("hidden"); } catch (_e) {}
         el.style.zIndex = "10060";
         if (getComputedStyle(el).display === "none") el.style.display = "flex";
         el.style.visibility = "visible"; el.style.opacity = "1";
@@ -597,6 +631,16 @@
   }
 
   var pending = false;
+  /* W1880 — 暴露给 app.watch-visual-pills.js: 它注入/更新画面 cell 后要重画头计数与凹咬。 */
+  globalThis.cssosLangPillRepaint = function () {
+    try {
+      var bar = document.getElementById("watch-language-pill");
+      if (!bar) return;
+      paintModeSwitch(bar);
+      paintConcave(bar);
+    } catch (_e) {}
+  };
+
   function schedule() {
     if (pending) return;
     pending = true;

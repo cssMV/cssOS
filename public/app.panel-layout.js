@@ -260,13 +260,30 @@ function togglePanelMaximizeModule(panel, options = {}) {
     // Must be called from inside this click handler so the browser
     // honors the user-activation gate on requestFullscreen.
     // W1861 — 只有【用户主动】最大化才请求 OS 全屏; 自动打开时跳过(见函数顶注释)。
-    if (!wantOsFullscreen) {
-      /* 什么都不做: 面板已经通过 CSS 铺满, 视觉上就是最大化, 只是没有系统 chrome。 */
-    } else if (panel.id === "watch-panel" && typeof globalThis.cssosEnterWatchFullscreen === "function") {
+    /* CSSOS_WAVE_1876 (Jing:「请取消这个全屏, 我之前要求你加这个全屏的, 请取消」) ——
+     * 系统全屏【整体停用】, 不再有任何路径调 requestFullscreen。
+     *
+     * 为什么: 系统全屏必然带出浏览器/OS 自己的 chrome —— iOS 是"is in full screen.
+     * Swipe down to exit"横幅 + 左上角原生 ✕, 桌面是"按 ESC 退出"提示。这些【网页删不掉】,
+     * 而它们出现在最需要沉浸的时刻。W1861 试过"只在用户主动最大化时才请求", 仍然带出来。
+     * 更糟的是 W1874 查到的那个后果: 全屏元素就是面板本身, 关面板只 hidden 不退全屏 →
+     * 面板没了、浏览器还在全屏 → 整屏纯黑, 用户以为程序死了。
+     *
+     * 影院观感不依赖它: is-cssmv-fullscreen + cssos-cinema-mode 这套 CSS 已经把面板
+     * 铺满整个视口(桌面实测 1512×806 = 视口尺寸), 视觉上就是全屏, 只是没有系统 chrome。
+     *
+     * ⚠ 代价(已当面告知 Jing): 这同时去掉了 Apple Vision Pro 进 Immersive Environment
+     * 的唯一入口 —— 面板宪法 Article 1 原本要求"必须是真 OS 级全屏"。Jing 明确要求取消,
+     * 若日后要恢复 Vision 沉浸, 应给 MV 面板单开一个【手动】入口, 而不是恢复自动全屏。 */
+    /* W1877 (Jing 澄清范围) —— 只有 MV 面板走真 OS 全屏, 其它面板一律不走。
+     * MV 面板需要它是因为: 那是 Apple Vision Pro 进 Immersive Environment 的唯一入口
+     * (面板宪法 Article 1)。其它面板没有这个需求, 却会因此吃到系统 chrome(桌面"按 ESC 退出"
+     * 提示 / iOS 的 Swipe down 横幅)—— 纯亏, 所以不给。
+     * 仍然只在【用户主动最大化】时请求(wantOsFullscreen), 自动打开面板时不请求:
+     * 用户没要求全屏却被塞一脸系统 chrome, 正是 W1861 修过的问题。 */
+    if (wantOsFullscreen && panel.id === "watch-panel"
+        && typeof globalThis.cssosEnterWatchFullscreen === "function") {
       globalThis.cssosEnterWatchFullscreen();
-    } else if (panel.id !== "watch-panel") {
-      // Article 1 — every panel's ⤢ Maximize is true OS-level fullscreen.
-      cssosEnterPanelFullscreenGeneric(panel);
     }
   }
   focusPanel(panel);

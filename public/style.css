@@ -13949,3 +13949,49 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
  *
  * 这里只是【不再覆盖】—— 基础规则 .watch-screen::before(style.css 7241) 原样生效,
  * 渐变绿光 + 发光都回来。 */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_1957 20260825 — 绿边贴【画面】走, 不贴【窗口】走。
+ *
+ * Jing:「取消 MV 面板的绿色边框, 保留媒体框绿色边框。你搞反了。」—— 他是对的,
+ * 而我前两轮量错了两次, 原因写在这里免得第三次:
+ *
+ *   第一次: 面板收起时量的(0×240), 那时媒体查询走的是另一套, 结论完全不作数。
+ *   第二次: 浏览器窗格视口是 0×0, 同一个坑。
+ *   量对之后才看清: 影院态下 .watch-screen 铺满整个面板(1600×1000), 而真正的画面
+ *   只是中间那条 1600×669 的带(上下各 ~165px 黑边)。绿边画在 .watch-screen::before
+ *   上 = 画在窗口最外圈 —— 用户看到的就是"MV 面板有绿边、画面没有"。
+ *   两者在影院态是同一个矩形, 所以我之前查计算样式得出"面板没绿边、媒体框有绿边",
+ *   数据没错, 但那不是 Jing 眼睛看到的分法。
+ *
+ * 修法: 影院态下关掉窗口那圈, 把绿光换成【贴着媒体元素本身】的一圈 ——
+ * 视频、幻灯、封面三层都给, 因为画面轨是四选一(真视频/混合/幻灯/封面), 只给视频
+ * 等于幻灯作品还是没有边(而平台现在【全部】是幻灯)。
+ * 用 box-shadow 而不是 border: 它不参与布局, 不会把画面挤小一圈。
+ * 非影院态不动 —— 那时 .watch-screen 本来就紧贴画面, 它就是"媒体框"。
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ① 影院/全屏态: 关掉贴着窗口那圈绿边(它是 Jing 说的"MV 面板的绿色边框") */
+#watch-panel.is-cssmv-fullscreen .watch-screen::before,
+#watch-panel.cssmv-cinema .watch-screen::before,
+#watch-panel.maximized .watch-screen::before {
+  background: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+/* ② 同一状态下, 绿光改为贴着【画面本身】——视频/幻灯/封面三层都给 */
+#watch-panel.is-cssmv-fullscreen #watch-video,
+#watch-panel.cssmv-cinema #watch-video,
+#watch-panel.maximized #watch-video,
+#watch-panel.is-cssmv-fullscreen .watch-svg,
+#watch-panel.cssmv-cinema .watch-svg,
+#watch-panel.maximized .watch-svg,
+#watch-panel.is-cssmv-fullscreen .watch-music-art,
+#watch-panel.cssmv-cinema .watch-music-art,
+#watch-panel.maximized .watch-music-art {
+  box-shadow:
+    0 0 0 1.5px rgba(0, 245, 160, 0.55),
+    0 0 26px rgba(0, 245, 160, 0.34) !important;
+  border-radius: 10px;
+}

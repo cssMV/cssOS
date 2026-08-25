@@ -706,7 +706,21 @@ const CINEMA_LANDSCAPE = Object.freeze({
            // CSSOS 20260701 — Jing「堵源头」: 人脸感知构图在源头就做,而非事后裁切。
            "if a person is the subject, keep the full head and face inside the frame with " +
            "comfortable headroom above the head, never crop the top of the head or half the face, " +
-           "position the face along the upper-third of the frame",
+           "position the face along the upper-third of the frame, " +
+           /* CSSOS_WAVE_1964 20260825 — Jing:「不再允许输出半个头, 必须好好构图, 要有点艺术风格。」
+            * 前一句「never crop … half the face」2026-07 就写了, 之所以没生效, 是因为画幅本身
+            * 从没传出去(kieAspectRatio 把 32:9 压成 16:9, 链首 nano-banana 干脆不传)——
+            * 模型收到的是方图任务, 一张方构图硬塞进 32:9 的框里, 必然只剩中间那块脸。
+            * 画幅那两处已在本波修好; 这里补的是【构图与美学】的正面要求, 不再只写"不要什么"。 */
+           "COMPOSITION: full-body or wide medium shot with generous negative space, " +
+           "never a tight face close-up, never a cropped or partial head, " +
+           "subject occupies at most one third of the frame width and is placed off-center " +
+           "on a rule-of-thirds line, the remaining two thirds carry meaningful environment, " +
+           "clear foreground / midground / background depth layers. " +
+           "ART DIRECTION: painterly cinematic still with intentional art direction — " +
+           "motivated directional lighting, deliberate restrained color palette, " +
+           "atmospheric depth (haze, light shafts, weather), film-grade tonal contrast, " +
+           "the composition of a poster or a gallery print rather than a snapshot",
   label:   "Super-wide 32:9",
 });
 const PHONE_FULLSCREEN = Object.freeze({
@@ -28302,15 +28316,52 @@ const IMAGE_PROVIDERS = ["fal", "huggingface", "pollinations", "fireworks", "dee
 // 入参各异: 多数需 aspect_ratio; nano-banana 只认 prompt(多传即 500)。slug 已逐个 createTask 验证。
 // 工具类(Topaz 放大/Recraft 去背/Ideogram reframe/各家 edit)不在此链, 接各自功能。env NANOBANANA_MODEL 可锁单模型。
 // 已逐个 createTask 验证 success 的 4 个(其余如 flux-2 需 resolution、seedream 需额外字段, 摸清入参再加)。
+/* CSSOS_WAVE_1964 20260825 — 顺序重排 + nano-banana 降级。Jing 两条铁律:
+ *   ①「所有封面图/视频, 必须用 32:9 构图/输出, 不再允许输出半个头。」
+ *   ②「每一类都选最佳; LLM 三强打头阵, 小兵垫底。」
+ *
+ * 实测证据(2116 张在线封面全量量过): 32:9 合规 0 张; 975 张是 1024×1024 方图,
+ * 66 张竖图 —— 正是 Jing 说的「丑陋的人物头像」。方图占绝对多数的原因就在下面这一行:
+ * nano-banana 标着 aspect:false(它多传字段会 500), 于是【完全不传画幅】,
+ * 模型按自己默认出 1024×1024 —— 而它还排在链首, 是默认命中的那一个。
+ *
+ * 一个不传画幅的模型, 不能再做「画幅铁律」的默认。重排为:
+ *   1) OpenAI  gpt-image-2   —— 三强之一, 吃 aspect
+ *   2) Google  imagen4-fast  —— 三强之一, 吃 aspect
+ *   3) Ideogram v3           —— 小兵, 吃 aspect(文字渲染强)
+ *   4) Grok                  —— 小兵, 吃 aspect
+ *   5) nano-banana           —— 末位兜底; 前四家全挂了才用, 宁可画幅不准也别没有图
+ * (Anthropic 没有图像生成模型 —— 图像类的"三强"只能是 OpenAI + Google 两家, 不编第三个。)
+ *
+ * nano-banana 仍是锁脸参考图生成(callKieJob("google/nano-banana", {image_urls}))的
+ * 唯一选择, 那条路不走本链, 不受影响。 */
 const KIE_IMAGE_GEN_MODELS: { model: string; aspect: boolean }[] = [
-  { model: "google/nano-banana",          aspect: false },  // $0.02 Google, 默认
-  { model: "google/imagen4-fast",         aspect: true  },  // $0.02 Google Imagen4
+  { model: "gpt-image-2-text-to-image",   aspect: true  },  // OpenAI, 吃 aspect
+  { model: "google/imagen4-fast",         aspect: true  },  // Google Imagen4
   { model: "ideogram/v3-text-to-image",   aspect: true  },  // 文字渲染强
   { model: "grok-imagine/text-to-image",  aspect: true  },  // $0.02 Grok
+  { model: "google/nano-banana",          aspect: false },  // 末位兜底: 不吃 aspect → 会出方图
 ];
 let __kieImageRotor = 0;
 function kieAspectRatio(w: number, h: number): string {
+  /* CSSOS_WAVE_1964 20260825 — Jing:「所有封面图/视频, 必须用 32:9 构图/输出,
+   * 不再允许输出半个头。」
+   *
+   * 这里是画幅铁律【被无声吃掉】的第一处: 原来只有三档(16:9 / 9:16 / 1:1),
+   * 任何 r > 1.25 一律返回 "16:9" —— CINEMA_LANDSCAPE 的 2560×720(r=3.556)
+   * 传进来也变成 16:9。铁律在这一行就丢了, 后面再怎么写提示词都没用。
+   *
+   * 补上超宽档。KIE 各家对超宽的 slug 不完全一致, 按【最宽优先、逐级回落】给,
+   * 调用侧遇到不认的值会拿到 400 并跳下一个模型(轮换链本来就有备胎)。 */
+  /* 厂商实测(2026-08-25, KIE): "32:9" 被【所有】图像模型拒绝 ——
+   *   gpt-image-2 / imagen4-fast / grok 都回 500
+   *   "This aspect_ratio is not within the range of allowed options"。
+   * 各家提供的最宽档是 21:9。所以超宽一律送 21:9(= 2.33, 已经很接近 2.39 电影宽幅),
+   * 这至少把封面从 1:1 方图救到超宽 —— 方图才是「半个头」的真正成因。
+   * 要真正拿到 32:9(3.556), 只能在 21:9 出图后再做一步【外扩绘制 outpaint】把左右补出去,
+   * 那是另一条流水线(额外成本), 需 Jing 拍板后单独立波。绝不用裁切凑数(裁切=违反铁律)。 */
   const r = w / Math.max(1, h);
+  if (r >= 2.2) return "21:9";     // 超宽: 32:9 / 2.39:1 统一落到厂商最宽档
   if (r > 1.25) return "16:9";
   if (r < 0.8) return "9:16";
   return "1:1";
@@ -32572,7 +32623,8 @@ async function backfillSystemWorkMedia(
       ].filter(Boolean);
       const img = await callImageGen({
         prompt: promptParts.join(" — "),
-        size: "1024x1024",
+        // W1964 — 封面走画幅唯一真源(原写死方图, 绕过 32:9 铁律)
+        size: CINEMA_LANDSCAPE.size,
       });
       if (img && img.ok) {
         coverUrl = img.image_url
@@ -40492,7 +40544,12 @@ const CSSOS_FLAGSHIP_OWNER = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb"; // 现有�
  * prefer nanobanana 直奔有额度的引擎; 返回 url(临时 aiquickdraw)→ rehost 稳定; 或 b64 → persist。失败返回 ""。 */
 async function cssosGenCivCover(prompt: string, ownerId: string): Promise<string> {
   try {
-    const img = await callImageGen({ prompt, size: "1024x1024", prefer: ["nanobanana"] });
+    /* CSSOS_WAVE_1964 20260825 — 原来这一行有【两处】绕开画幅铁律:
+     *   ① size 写死 "1024x1024"(方图), 而铁律是 32:9 = 2560×720;
+     *   ② prefer 强制 ["nanobanana"] —— 它恰是链里唯一【不吃 aspect】的模型。
+     * 两条叠加 = 这条路的封面 100% 是方图。实测 2116 张在线封面 975 张方图,
+     * 正是「丑陋的人物头像」——方构图塞进 32:9 的框必然只剩中间那块脸。 */
+    const img = await callImageGen({ prompt, size: CINEMA_LANDSCAPE.size });
     if (img?.ok && img.image_url) return await persistRemoteImageToStable(String(img.image_url));
     if (img?.ok && img.image_b64) return await persistBase64Cover(img.image_b64, ownerId);
   } catch (_e) { /* optional */ }
@@ -49845,7 +49902,8 @@ app.post("/api/admin/pipeline/dry-run", async (req, res) => {
 
     // 2. Cover — fal Flux
     mt = Date.now();
-    const img = await callImageGen({ prompt, size: "1024x1024" });
+    // W1964 — 封面走画幅唯一真源(原写死方图, 绕过 32:9 铁律)
+    const img = await callImageGen({ prompt, size: CINEMA_LANDSCAPE.size });
     pushStage("cover", img.ok, Date.now() - mt, img.provider, img.image_url, img.error);
 
     // 3. Video — Kling i2v if cover succeeded, else t2v

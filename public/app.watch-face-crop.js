@@ -269,8 +269,6 @@
       if (!el) {
         ["--mv-ring-top", "--mv-ring-right", "--mv-ring-bottom", "--mv-ring-left"]
           .forEach(function (k) { st.removeProperty(k); });
-        // CSSOS_WAVE_1960 — 量不到画面就摘掉开关: 光芒宁可不画, 也绝不退回去框住整个面板
-        screen.removeAttribute("data-mv-ring");
         return;
       }
       var sr = screen.getBoundingClientRect(), er = el.getBoundingClientRect();
@@ -278,49 +276,8 @@
       st.setProperty("--mv-ring-left",   Math.max(0, Math.round(er.left - sr.left)) + "px");
       st.setProperty("--mv-ring-right",  Math.max(0, Math.round(sr.right - er.right)) + "px");
       st.setProperty("--mv-ring-bottom", Math.max(0, Math.round(sr.bottom - er.bottom)) + "px");
-      // CSSOS_WAVE_1960 — 量到画面了才让 .watch-screen::after 那圈绿色光芒显示出来
-      screen.setAttribute("data-mv-ring", "1");
     } catch (_e) {}
   }
-
-  /* CSSOS_WAVE_1960 20260825 — 媒体框那圈绿色光芒必须【一直贴着画面】。
-   * 原先只在换源(markSourceOrientation)时算一次 —— 一旦那次没触发, 面板上
-   * 就会「MV 描边没了、媒体光芒也没亮」= 两个都没有, 正是 Jing 最不能接受的结果。
-   * 这里加一道兜底: 只要 MV 面板开着就每 500ms 重新对齐一次(只做几次
-   * getBoundingClientRect, 开销可忽略), 面板关掉就停, 不留常驻定时器。 */
-  (function ringKeepAlive() {
-    var timer = null;
-    function tick() {
-      try {
-        var panel = document.getElementById("watch-panel");
-        var open = panel && !panel.classList.contains("hidden");
-        if (!open) {
-          var sc = document.querySelector(".watch-screen");
-          if (sc) sc.removeAttribute("data-mv-ring");
-          return;
-        }
-        syncRingToMedia();
-      } catch (_e) {}
-    }
-    function start() {
-      if (timer) return;
-      timer = setInterval(function () {
-        var panel = document.getElementById("watch-panel");
-        if (!panel || panel.classList.contains("hidden")) { clearInterval(timer); timer = null; tick(); return; }
-        tick();
-      }, 500);
-    }
-    try {
-      var mo = new MutationObserver(function () {
-        var panel = document.getElementById("watch-panel");
-        if (panel && !panel.classList.contains("hidden")) start(); else tick();
-      });
-      mo.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["class"] });
-    } catch (_e) {}
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
-    else start();
-    addEventListener("resize", tick, { passive: true });
-  })();
 
   var CURTAIN_MS = 360;
   function visualLayers() {

@@ -133,6 +133,8 @@ enum CivilizationGateRing {
 
     /// 把一圈文明之门造进 anchor。onPick 由外部接手势后回调。
     static func build(into anchor: Entity, gates: [CivGate]) {
+        // W1945 — 先清空旧门, 否则场景重建时新旧两套叠在一起(Jing:「重复了」)。
+        anchor.children.forEach { $0.removeFromParent() }
         guard !gates.isEmpty else { return }
         guard let mesh = archMesh(width: gateWidth, height: gateHeight) else { return }
         let n = gates.count

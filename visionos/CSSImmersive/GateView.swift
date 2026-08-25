@@ -125,6 +125,19 @@ struct GateView: View {
              *   第一层 巨门 = 气势与仪式(没有选择, 只有"进不进")
              *   第二层 文明环 = 选择(这时你已经在里面了)
              * 巨门在前, 文明环藏在它身后; 推开门 → 光吞没视野 → 文明环浮现。 */
+            /* CSSOS_WAVE_1945 — Jing:「应该是每次用户进入都显示大门…现在是, 上次已经进去过,
+             * 直接显示文明小门, 可是还同时显示后面的大门。重复了。」
+             *
+             * 两个毛病同一个根: gateOpened 是 @State, 跨场景重建【留着上一次的值】。
+             * 从影院退回来时 gateBody 重建 → make 里又造了一套巨门+文明环, 而 gateOpened
+             * 仍是 true → 文明环直接显示; 上一次那套巨门实体还挂在旧 anchor 上没清 →
+             * 于是"文明小门"和"后面的大门"同时在场。
+             *
+             * 修法两条, 缺一不可:
+             *   ① 每次 make 都把 gateOpened 归零 —— 大门是仪式, 每次进来都要推一次;
+             *   ② GenesisGate.make / CivilizationGateRing.build 进场前先清空 host 的旧子实体
+             *      (make 里已 removeFromParent, 这里再把 host 本身重建, 双保险)。 */
+            gateOpened = false
             let genesis = Entity()
             genesis.name = "genesis-gate"
             anchor.addChild(genesis)
@@ -215,7 +228,8 @@ struct GateView: View {
         /* W1943 — 改 simultaneousGesture: 原本用 .gesture 加在金球那条【之前】, SwiftUI
          * 里后加的 .gesture 会压过先加的 → 捏门的手势整条被金球那条截走, 门当然捏不动。
          * simultaneousGesture 让两条并存, 各认各的标记(CivGateMarker / GateOrbMarker)。 */
-        /* W1944 — 捏巨门 → 两扇向两侧滑开、中缝的光扩张吞没视野 → 文明环浮现。 */
+        /* W1944 — 捏巨门本身也能推开(备选)。W1945 起【金球才是主路】(Jing 指定),
+         * 这条留着是因为伸手去推门是更直觉的动作, 两条都通不冲突 —— 同一个 open()。 */
         .simultaneousGesture(
             SpatialTapGesture().targetedToEntity(where: .has(GenesisGateMarker.self)).onEnded { _ in
                 guard !gateOpened, let host = genesisHost else { return }
@@ -237,6 +251,14 @@ struct GateView: View {
             SpatialTapGesture().targetedToEntity(where: .has(GateOrbMarker.self)).onEnded { _ in
                 refs.journey?.cancel(); refs.journey = nil  // W1423 — 用户捏 → 立刻打断三处巡游(不再继续爆)
                 bumpSpin()                                  // 捏瞬间转速猛增(发力感)
+                /* CSSOS_WAVE_1945 20260825 — Jing:「需要捏金球, 大门打开, 显示文明小门。」
+                 * 金球是【推门的手】, 不是直接进大厅的按钮。所以:
+                 *   巨门还关着 → 捏金球 = 推开巨门(推完才轮到文明环)
+                 *   巨门已推开 → 金球回到原职(光束仪式), 不再重复推门 */
+                if !gateOpened, let host = genesisHost {
+                    GenesisGate.open(host) { gateOpened = true }
+                    return
+                }
                 if !router.fireBeams { router.fireBeams = true }
             },
             including: showLobby ? .subviews : .all

@@ -45,6 +45,26 @@ struct CivGateMarker: Component {
 }
 
 extension CSSBackend {
+    /* CSSOS_WAVE_1942 — 取【某个文明的作品】。
+     * 没有这一步, 文明之门只是好看的开场: 选了中华文明进去还是通用作品阵, 那门就白选了。
+     * 选择必须有后果, 否则它不是选择, 是动画。 */
+    static func fetchCivWorks(_ civ: String, limit: Int = 18) async -> [LobbyItem] {
+        guard let enc = civ.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/api/civilizations/\(enc)/works?limit=\(limit)"),
+              let (data, _) = try? await URLSession.shared.data(from: url) else { return [] }
+        struct W: Codable {
+            let id: String; let title: String; let cover: String
+            let video: String?; let audio: String?; let duration_secs: Int?; let style: String?
+        }
+        struct Env: Codable { let ok: Bool?; let works: [W]? }
+        guard let ws = (try? JSONDecoder().decode(Env.self, from: data))?.works else { return [] }
+        return ws.map {
+            LobbyItem(id: $0.id, title: $0.title, coverURL: $0.cover,
+                      meta: $0.style ?? "", durSecs: $0.duration_secs ?? 0, createdAt: "",
+                      videoURL: $0.video ?? "", audioURL: $0.audio ?? "")
+        }
+    }
+
     /// 取文明之门清单。只回门面要用的最少信息(文明名 + 代表演员 + 封面 + 演员数)。
     static func fetchCivGates(limit: Int = 16) async -> [CivGate] {
         guard let url = URL(string: "\(baseURL)/api/civilizations/gates?limit=\(limit)") else { return [] }
@@ -135,7 +155,9 @@ enum CivilizationGateRing {
 
             // 贴图异步上, 不阻塞开场 —— 门先立起来, 画面随后填进去。
             Task { @MainActor in
-                guard let tex = await loadTexture(g.cover) else { return }
+                // W1942b — 文明名烘进门面下缘(同 SpatialShelf 的做法与理由): 一直在但压得低,
+                // 远看是一圈画面, 走近才读得出"中华文明""北欧神话"。
+                guard let tex = await loadTexture(g.cover, title: g.civilization) else { return }
                 var tm = UnlitMaterial()
                 tm.color = .init(texture: .init(tex))
                 e.model?.materials = [tm]
@@ -143,10 +165,11 @@ enum CivilizationGateRing {
         }
     }
 
-    private static func loadTexture(_ urlString: String) async -> TextureResource? {
+    private static func loadTexture(_ urlString: String, title: String = "") async -> TextureResource? {
         guard let url = URL(string: urlString),
               let (data, _) = try? await URLSession.shared.data(from: url),
-              let img = UIImage(data: data), let cg = img.cgImage else { return nil }
+              let img = UIImage(data: data) else { return nil }
+        guard let cg = SpatialShelf.compose(cover: img, title: title) ?? img.cgImage else { return nil }
         return try? await TextureResource(image: cg, options: .init(semantic: .color))
     }
 

@@ -245,7 +245,13 @@ struct GateView: View {
                 /* W1940 — 进殿即铺星穹作品阵。取 for-you(最新在前) —— 作品阵按序号编码
                  * 深度, 越前面越近, 所以"最新的先撞见你", 用户不必读日期。 */
                 Task { @MainActor in
-                    let items = await CSSBackend.fetchShelf("for-you", limit: 18)
+                    /* W1942 — 走哪道门, 就看哪个文明的作品。没选门(直接捏金球进来)才回落
+                     * 通用 for-you。这一步是文明之门"有后果"的落点。 */
+                    var items: [CSSBackend.LobbyItem] = []
+                    if !pickedCiv.isEmpty {
+                        items = await CSSBackend.fetchCivWorks(pickedCiv, limit: 18)
+                    }
+                    if items.isEmpty { items = await CSSBackend.fetchShelf("for-you", limit: 18) }
                     shelfItems = items
                     if let host = shelfHost { SpatialShelf.build(into: host, items: items) }
                 }

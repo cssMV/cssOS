@@ -87,7 +87,7 @@ enum SpatialShelf {
             host.addChild(e)
 
             Task { @MainActor in
-                guard let tex = await texture(it.coverURL) else { return }
+                guard let tex = await texture(it.coverURL, title: it.title) else { return }
                 var tm = UnlitMaterial()
                 tm.color = .init(texture: .init(tex))
                 e.model?.materials = [tm]
@@ -109,10 +109,50 @@ enum SpatialShelf {
         }
     }
 
-    private static func texture(_ urlString: String) async -> TextureResource? {
+    /* CSSOS_WAVE_1942b — 标题【烘进画面下缘】, 而不是"凝视时浮现"。
+     *
+     * 我上一版写的是"名字只在你凝视它时才浮现" —— 那在 visionOS 上【做不到】:
+     * 苹果出于隐私不把注视目标交给 App(HoverEffectComponent 是系统自己画高亮,
+     * 不回传是哪一个)。所以那个交互从一开始就不成立, 是我没验证就写了。
+     *
+     * 可行的替代: 标题烘在画面底部一条压暗的带子里 —— 一直在, 但压得很低。
+     * 远看是一片作品(不抢画面), 走近/放大才读得清。既守住"视野里是作品不是文字",
+     * 又不依赖拿不到的信号。 */
+    static func compose(cover: UIImage, title: String) -> CGImage? {
+        let W = cover.size.width, H = cover.size.height
+        guard W > 0, H > 0 else { return cover.cgImage }
+        let fmt = UIGraphicsImageRendererFormat.default(); fmt.opaque = true; fmt.scale = 1
+        let out = UIGraphicsImageRenderer(size: CGSize(width: W, height: H), format: fmt).image { ctx in
+            cover.draw(in: CGRect(x: 0, y: 0, width: W, height: H))
+            guard !title.isEmpty else { return }
+            let bandH = max(28, H * 0.16)
+            let band = CGRect(x: 0, y: H - bandH, width: W, height: bandH)
+            // 底部渐暗, 让白字在任何封面上都读得出 —— 不是加个黑条, 是让画面自己沉下去。
+            if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                  colors: [UIColor.black.withAlphaComponent(0).cgColor,
+                                           UIColor.black.withAlphaComponent(0.72).cgColor] as CFArray,
+                                  locations: [0, 1]) {
+                ctx.cgContext.saveGState(); ctx.cgContext.clip(to: band)
+                ctx.cgContext.drawLinearGradient(g,
+                    start: CGPoint(x: 0, y: band.minY), end: CGPoint(x: 0, y: band.maxY), options: [])
+                ctx.cgContext.restoreGState()
+            }
+            let f = UIFont.systemFont(ofSize: bandH * 0.42, weight: .semibold)
+            let para = NSMutableParagraphStyle(); para.lineBreakMode = .byTruncatingTail
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: f, .foregroundColor: UIColor.white.withAlphaComponent(0.92), .paragraphStyle: para]
+            let pad = W * 0.045
+            let r = CGRect(x: pad, y: H - bandH * 0.72, width: W - pad * 2, height: bandH * 0.55)
+            NSString(string: title).draw(in: r, withAttributes: attrs)
+        }
+        return out.cgImage
+    }
+
+    private static func texture(_ urlString: String, title: String = "") async -> TextureResource? {
         guard !urlString.isEmpty, let url = URL(string: urlString),
               let (data, _) = try? await URLSession.shared.data(from: url),
-              let img = UIImage(data: data), let cg = img.cgImage else { return nil }
+              let img = UIImage(data: data) else { return nil }
+        guard let cg = compose(cover: img, title: title) ?? img.cgImage else { return nil }
         return try? await TextureResource(image: cg, options: .init(semantic: .color))
     }
 }

@@ -33241,6 +33241,56 @@ app.post("/api/admin/actors/find-missing", express.json({ limit: "16kb" }), asyn
  * 代表演员的选法: 该文明里【最热且有封面】的那位。孔子代表中华文明、奥丁代表北欧神话、
  * 湿婆代表印度教神话 —— 一眼认得出是哪个世界, 这正是"选一个世界"该有的第一印象。
  */
+/* CSSOS_WAVE_1942 20260824 — 穿过一道文明之门 → 看到【那个文明的作品】。
+ *
+ * 没有这一步的话, 文明之门只是个好看的开场: 选了中华文明, 进去还是通用作品阵, 那门就
+ * 白选了。选择必须有后果, 否则它不是选择, 是动画。
+ *
+ * 作品归属哪个文明, 有两条线索, 这里【两条都认】:
+ *   ① user_works.civilization —— 生成时写下的(791/1680 有值)
+ *   ② actor_id → digital_actors.civilization —— W1926 补的人物连线(713 首有)
+ * 只认第一条会漏掉一批老作品; 两条并起来覆盖面明显大(中华文明 214 首、古罗马 80、
+ * 文艺复兴欧洲 54…)。
+ *
+ * 返回结构与 /api/works/market 的条目对齐 —— 头显那边复用同一个 LobbyItem 解码, 不为
+ * 一个新接口再造一套模型。
+ */
+app.get("/api/civilizations/:civ/works", async (req, res) => {
+  try {
+    const civ = String(req.params.civ || "").trim();
+    if (!civ) return res.status(400).json({ ok: false, error: "need_civilization" });
+    const limit = Math.min(60, Math.max(1, Number(req.query.limit || 18)));
+    const r = await withClient((c) => c.query<Record<string, unknown>>(
+      `SELECT w.id::text AS id, w.title, w.style,
+              w.cover_image, w.preview_video_url, w.preview_audio_url,
+              w.duration_secs, w.created_at,
+              COALESCE(w.civilization, a.civilization) AS civ
+         FROM user_works w
+         LEFT JOIN digital_actors a ON a.actor_id = w.actor_id
+        WHERE w.status <> 'deleted'
+          AND COALESCE(w.civilization, a.civilization) = $1
+          AND w.cover_image IS NOT NULL AND w.cover_image <> ''
+        ORDER BY w.created_at DESC
+        LIMIT $2`, [civ, limit]));
+
+    const works = (r.rows as Record<string, unknown>[]).map((w) => ({
+      id: String(w.id || ""),
+      title: String(w.title || ""),
+      cover: String(w.cover_image || ""),
+      video: String(w.preview_video_url || ""),
+      audio: String(w.preview_audio_url || ""),
+      duration_secs: Number(w.duration_secs || 0) || 0,
+      style: String(w.style || ""),
+      civilization: String(w.civ || civ),
+    }));
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.json({ ok: true, civilization: civ, works });
+  } catch (e) {
+    console.warn("[W1942] 文明作品失败:", e instanceof Error ? e.message : e);
+    return res.status(500).json({ ok: false, error: "civ_works_failed" });
+  }
+});
+
 app.get("/api/civilizations/gates", async (req, res) => {
   try {
     const limit = Math.min(64, Math.max(4, Number(req.query.limit || 16)));

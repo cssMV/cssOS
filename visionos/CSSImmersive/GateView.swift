@@ -38,6 +38,9 @@ struct GateView: View {
     @State private var civGates: [CivGate] = []
     @State private var gateRing: Entity? = nil
     @State private var pickedCiv: String = ""
+    /* CSSOS_WAVE_1944 — 第一层: 开天辟地的巨门。gateOpened 之前只有巨门, 之后才是文明环。 */
+    @State private var genesisHost: Entity? = nil
+    @State private var gateOpened = false
     /* CSSOS_WAVE_1940 — 星穹作品阵(取代 2D 大厅面板)。 */
     @State private var shelfHost: Entity? = nil
     @State private var shelfItems: [CSSBackend.LobbyItem] = []
@@ -116,6 +119,18 @@ struct GateView: View {
              *
              * 门环与金球同 anchor(trackingMode = .once)→ 世界固定, 绝不跟头转
              * (W1393 的教训: 跟头转 = 头晕)。金球留下, 降为门环中心的【拱心石】。 */
+            /* W1944 — 第一层: 一道开天辟地的巨门。
+             * 十六道文明之门各自都不可能大(要围住人, 每道只占 22.5°), 而"开天辟地"要的
+             * 恰是【唯一】和【巨大】—— 两件事在同一层里不可能同时成立, 所以分层:
+             *   第一层 巨门 = 气势与仪式(没有选择, 只有"进不进")
+             *   第二层 文明环 = 选择(这时你已经在里面了)
+             * 巨门在前, 文明环藏在它身后; 推开门 → 光吞没视野 → 文明环浮现。 */
+            let genesis = Entity()
+            genesis.name = "genesis-gate"
+            anchor.addChild(genesis)
+            genesisHost = genesis
+            GenesisGate.make(into: genesis)
+
             let ringHost = Entity()
             ringHost.name = "civ-gate-ring"
             anchor.addChild(ringHost)
@@ -146,7 +161,9 @@ struct GateView: View {
             refs.creation?.isEnabled = creating              // W1382 — 创作时显进度球, 盖住大厅/金球
             refs.welcome?.isEnabled = !showLobby && !creating   // W1386 — 欢迎词只在大门态
             // W1939 — 文明之门只在【大门态】立着; 进了大厅/创作中就收起, 不跟画面抢注意力。
-            gateRing?.isEnabled = !showLobby && !creating
+            // W1944 — 两层互斥: 巨门未推开 → 只有巨门; 推开后 → 文明环。
+            genesisHost?.isEnabled = !gateOpened && !showLobby && !creating
+            gateRing?.isEnabled = gateOpened && !showLobby && !creating
         } attachments: {
             Attachment(id: "lobby") {
                 LobbyView(
@@ -172,8 +189,10 @@ struct GateView: View {
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                     // W1939 — 新大门是文明之门, 指引也要跟着改: 看的是门, 不是球。
-                    Text(L("Gaze a civilization · pinch to step through",
-                           "凝视一道文明之门 · 捏合穿门而入"))
+                    // W1944 — 两层, 指引也分两句: 门前说推门, 门后说选文明。
+                    Text(gateOpened
+                         ? L("Gaze a civilization · pinch to step through", "凝视一道文明之门 · 捏合穿门而入")
+                         : L("Gaze the gate · pinch to push it open", "凝视巨门 · 捏合推开"))
                         .font(.system(size: 18, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.7))
                 }
@@ -196,6 +215,15 @@ struct GateView: View {
         /* W1943 — 改 simultaneousGesture: 原本用 .gesture 加在金球那条【之前】, SwiftUI
          * 里后加的 .gesture 会压过先加的 → 捏门的手势整条被金球那条截走, 门当然捏不动。
          * simultaneousGesture 让两条并存, 各认各的标记(CivGateMarker / GateOrbMarker)。 */
+        /* W1944 — 捏巨门 → 两扇向两侧滑开、中缝的光扩张吞没视野 → 文明环浮现。 */
+        .simultaneousGesture(
+            SpatialTapGesture().targetedToEntity(where: .has(GenesisGateMarker.self)).onEnded { _ in
+                guard !gateOpened, let host = genesisHost else { return }
+                refs.journey?.cancel(); refs.journey = nil   // 打断金球巡游, 用户已经在推门了
+                GenesisGate.open(host) { gateOpened = true }
+            },
+            including: .all
+        )
         .simultaneousGesture(
             SpatialTapGesture().targetedToEntity(where: .has(CivGateMarker.self)).onEnded { v in
                 guard let civ = v.entity.components[CivGateMarker.self]?.civilization, !civ.isEmpty else { return }

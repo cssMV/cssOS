@@ -126,9 +126,42 @@
       return base || v;
     };
     var _want = _norm(lang);
+    /* CSSOS_WAVE_1965 20260825 — 占位符标签兼容(不放松 W1961 的严格匹配)。
+     *
+     * 历史字幕 JSON 里有一批标签是 "orig" / "auto" / 空 —— 那是【单轨作品伪轨的占位符】,
+     * 不是语言(生成侧本波已改为写真语言, 但存量文件仍是占位符)。
+     * 实测: 李清照·寻寻觅觅 字幕内容 53 行全中文、完全正确, 却因标签是 "orig" 被严格匹配
+     * 挡掉, 整首哑掉 —— 这是【假阴性】, 不是 Jing 要防的「拿别的语言顶替」。
+     *
+     * 放行判据必须同时满足两条, 缺一不可:
+     *   ① 该条目标签是占位符, 且【全文件只有这一条】—— 没有第二种语言可选, 谈不上"顶替";
+     *   ② 正文字形与请求语言【实测一致】(汉字→zh / 假名→ja / 谚文→ko / 其余→拉丁系)。
+     * 两条都过, 才认为"这就是本作品自己那条轨, 只是没贴标签"。
+     * 任何一条不过 → 仍旧返回 null, 宁可空白。 */
     var langEntry = subtitleJson.languages.find(function (l) { return l.lang === lang; })
       || (_want ? subtitleJson.languages.find(function (l) { return _norm(l.lang) === _want; }) : null)
       || null;
+    if (!langEntry && subtitleJson.languages.length === 1) {
+      var _only = subtitleJson.languages[0];
+      var _tag = String(_only && _only.lang || "").toLowerCase();
+      if (_tag === "" || _tag === "orig" || _tag === "auto" || _tag === "und") {
+        var _txt = "";
+        try {
+          (_only.sections || []).slice(0, 6).forEach(function (sec) {
+            (sec.lines || []).slice(0, 8).forEach(function (ln) { _txt += " " + String(ln && ln.text || ""); });
+          });
+        } catch (_e) {}
+        var _script = /[\uAC00-\uD7AF]/.test(_txt) ? "ko"
+                    : /[\u3040-\u30FF]/.test(_txt) ? "ja"
+                    : /[\u4E00-\u9FFF]/.test(_txt) ? "zh"
+                    : /[A-Za-z]/.test(_txt)          ? "latin" : "";
+        var _ok = (_script === _want) || (_script === "latin" && _want && "zh ja ko".indexOf(_want) < 0);
+        if (_ok) {
+          langEntry = _only;
+          try { console.info("[emo-sub] 占位标签 \"" + _tag + "\" 且字形实测为 " + _script + " → 认作本作品自己的 " + _want + " 轨"); } catch (_e2) {}
+        }
+      }
+    }
     if (!langEntry) {
       try {
         console.warn("[emo-sub] 无 " + lang + " 字幕, 按 W1961 不显示(绝不用别的语言顶替)。可用: "

@@ -40242,9 +40242,19 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         } catch (_e) { /* SER 失败 → 回退分位 */ }
       }
       sections = derivePerTokenEmotion(sections); // #44 逐字情绪强度(SER 优先, 否则分位)
-      await upsertSubtitleJson(workId, tr.lang, 1, sections, _volCurve);
+      /* CSSOS_WAVE_1965 20260825 — 写【真语言】, 不再把占位符原样写进字幕 JSON。
+       *
+       * 单轨 MV 作品(work_language_tracks 里没有行, 音频挂在 user_works.preview_audio_url)
+       * 走 W765 的伪轨兜底, 伪轨 lang 写死 "orig" —— 而这里原样把 "orig" 写进了字幕 JSON。
+       * 后果(实测李清照·寻寻觅觅): 字幕内容完全正确(53 行中文), 播放器按 zh 去取却取不到,
+       * 控制台 "无 zh 字幕…可用: orig" → 整首哑掉。
+       * "orig" 不是语言, 是占位符。上面几行早就算出了真语言 alignLang(realLangCodes 命中就用
+       * 轨自己的, 否则按歌词字形判定 detectLyricLang), 这里直接用它。
+       * 注: 语言【匹配】必须严格(W1961: 绝不拿别的语言顶替), 但那要求标签本身是真的 ——
+       * 用占位符当标签, 等于让严格匹配对着一个假标签空转。 */
+      await upsertSubtitleJson(workId, alignLang, 1, sections, _volCurve);
       results.push({
-        lang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
+        lang: alignLang, srcTrackLang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),
         dtw: dtwMerged,   // W776 — true = forced-align 失败后走了【写词+ASR时间戳】兜底
         even: forceEven,  // W789 — true = 稀缺语言均匀分布合成时间线

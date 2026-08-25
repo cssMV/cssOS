@@ -193,7 +193,10 @@ struct GateView: View {
          *
          * 手势只认带 CivGateMarker 的实体, 与金球那条(GateOrbMarker)各盯各的, 互不截胡
          * (W1384 的教训: targetedToAnyEntity 会把大厅卡片的捏也吃掉)。 */
-        .gesture(
+        /* W1943 — 改 simultaneousGesture: 原本用 .gesture 加在金球那条【之前】, SwiftUI
+         * 里后加的 .gesture 会压过先加的 → 捏门的手势整条被金球那条截走, 门当然捏不动。
+         * simultaneousGesture 让两条并存, 各认各的标记(CivGateMarker / GateOrbMarker)。 */
+        .simultaneousGesture(
             SpatialTapGesture().targetedToEntity(where: .has(CivGateMarker.self)).onEnded { v in
                 guard let civ = v.entity.components[CivGateMarker.self]?.civilization, !civ.isEmpty else { return }
                 pickedCiv = civ
@@ -225,7 +228,7 @@ struct GateView: View {
         /* W1940 — 捏一件作品 → 进影院。与文明之门(W1939)同一套规矩:
          * 凝视只放大+浮名(提示), 捏合才是决定。两处必须一致, 否则用户学不会。
          * 只认 SpatialWorkMarker, 与门环/金球各盯各的。 */
-        .gesture(
+        .simultaneousGesture(   // W1943 — 同理: 与其它手势并存, 不被后加的压掉
             SpatialTapGesture().targetedToEntity(where: .has(SpatialWorkMarker.self)).onEnded { v in
                 guard let mk = v.entity.components[SpatialWorkMarker.self],
                       let item = shelfItems.first(where: { $0.id == mk.workID }) else { return }

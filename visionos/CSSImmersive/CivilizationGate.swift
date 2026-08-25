@@ -105,12 +105,17 @@ enum CivilizationGateRing {
         }
         pts.append(SIMD2(-hw, straight))
 
+        /* CSSOS_WAVE_1943 20260824 — Jing:「4 个拱门全部是倒立的, 哈哈哈哈」。
+         * 我按"纹理原点在左上"算了 v = 1 - y/h, 但 RealityKit 自定义网格的纹理坐标
+         * 原点在【左下】(OpenGL 惯例) —— 于是整张图上下颠倒, 连烘在底部的文明名都跑到
+         * 顶上去了。内置 generatePlane 帮你处理了这件事, 手写 MeshDescriptor 不会。
+         * 判据很简单: 门是【下平上圆】, 图也必须头在上 —— v 直接取 y/h。 */
         let center = SIMD2<Float>(0, h * 0.5)
         var positions: [SIMD3<Float>] = [SIMD3(center.x, center.y, 0)]
-        var uvs: [SIMD2<Float>] = [SIMD2((center.x + hw) / w, 1 - center.y / h)]
+        var uvs: [SIMD2<Float>] = [SIMD2((center.x + hw) / w, center.y / h)]
         for p in pts {
             positions.append(SIMD3(p.x, p.y, 0))
-            uvs.append(SIMD2((p.x + hw) / w, 1 - p.y / h))
+            uvs.append(SIMD2((p.x + hw) / w, p.y / h))
         }
         var idx: [UInt32] = []
         let n = UInt32(pts.count)
@@ -132,9 +137,11 @@ enum CivilizationGateRing {
         guard let mesh = archMesh(width: gateWidth, height: gateHeight) else { return }
         let n = gates.count
         // 门环留一个缺口在正后方 —— 人总得有个"背后", 全封死会闷。
-        let spanDeg: Float = 300
+        /* W1943b — Jing 要的是【围绕四周】, 所以走满 360°(原先留 60° 缺口是我自作主张
+         * 的"总得有个背后"; 他要的是转身也有门)。首尾不重合: 用 n 等分而不是 n-1。 */
+        let spanDeg: Float = 360
         for (i, g) in gates.enumerated() {
-            let t = n == 1 ? 0.5 : Float(i) / Float(n - 1)
+            let t = Float(i) / Float(n)            // 360° 等分, 首尾不重合
             let angle = (-spanDeg / 2 + spanDeg * t) * .pi / 180
 
             var m = UnlitMaterial()
@@ -145,12 +152,26 @@ enum CivilizationGateRing {
             // 凝视高亮: 用系统 HoverEffect —— 它跟随用户视线且零功耗, 比自己算注视靠谱。
             e.components.set(HoverEffectComponent())
             e.components.set(InputTargetComponent())
-            e.generateCollisionShapes(recursive: false)
+            /* W1943 — Jing:「无法凝视/捏任何一道门」。根因: 平面网格 generateCollisionShapes
+             * 生成的是【零厚度】碰撞体, visionOS 的射线打不中 —— 于是门看得见、碰不着。
+             * 必须显式给一个有厚度的盒子(6cm), 并把中心抬到门高一半(拱门原点在门脚)。 */
+            e.components.set(CollisionComponent(shapes: [
+                .generateBox(width: gateWidth, height: gateHeight, depth: 0.06)
+                    .offsetBy(translation: SIMD3<Float>(0, gateHeight / 2, 0))
+            ]))
 
             let x = sin(angle) * ringRadius
             let z = -cos(angle) * ringRadius
             e.position = SIMD3<Float>(x, -0.55, z)          // 门脚落在眼下方 ≈ 地面
-            e.orientation = simd_quatf(angle: angle, axis: SIMD3<Float>(0, 1, 0))   // 门面朝圆心
+            /* CSSOS_WAVE_1943b — Jing:「门在我前面自己围成一个圈, 应该是围绕着用户周围才对。」
+             *
+             * 这才是"只看得见 4 道门"的真因 —— 朝向算反了。
+             * 门在角度 θ 处, 位置 (sinθ·r, y, −cosθ·r)。要面朝圆心, 法线须指向
+             * (−sinθ, 0, cosθ)。而绕 Y 轴转【+θ】把 +Z 映射到 (sinθ, 0, cosθ) —— 正好相反。
+             * θ 越大偏得越狠: θ=90°(正右)时门法线指向 +X, 完全背对用户 → 单面材质 = 隐形。
+             * 于是侧面和背后的门全都看不见, 只剩正前方那几道, 观感就是"门在前面围成一圈"。
+             * 正解是 −θ: 绕 Y 转 −90° 恰把 +Z 映射到 (−1,0,0), 正对圆心。 */
+            e.orientation = simd_quatf(angle: -angle, axis: SIMD3<Float>(0, 1, 0))
             anchor.addChild(e)
 
             // 贴图异步上, 不阻塞开场 —— 门先立起来, 画面随后填进去。

@@ -78,12 +78,16 @@ enum SpatialShelf {
             e.components.set(SpatialWorkMarker(workID: it.id, title: it.title))
             e.components.set(HoverEffectComponent())                  // 系统凝视高亮, 零功耗
             e.components.set(InputTargetComponent())
-            e.generateCollisionShapes(recursive: false)
+            // W1943 — 同门环: 平面的自动碰撞体零厚度, 射线打不中 → 显式给厚度。
+            e.components.set(CollisionComponent(shapes: [
+                .generateBox(width: cardWidth, height: cardHeight, depth: 0.05)
+            ]))
 
             let x = sin(angle) * radius
             let z = -cos(angle) * radius
             e.position = SIMD3<Float>(x, tier, z)
-            e.orientation = simd_quatf(angle: angle, axis: SIMD3<Float>(0, 1, 0))   // 面朝圆心(用户)
+            // W1943b — 同门环的朝向修正: 必须是 −θ 才真的面朝用户(+θ 会让侧面的作品背过去)。
+            e.orientation = simd_quatf(angle: -angle, axis: SIMD3<Float>(0, 1, 0))
             host.addChild(e)
 
             Task { @MainActor in

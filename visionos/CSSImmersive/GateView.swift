@@ -10,7 +10,19 @@ import RealityKit
 import UIKit
 import simd
 
-private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var welcome: Entity?; var speedRef: MagicMirrorOrb.SpeedRef?; var journey: Task<Void, Never>? }
+/* CSSOS_WAVE_1948 20260825 — genesis / ring / shelf 三个实体引用【必须放这里】, 不能用 @State。
+ *
+ * Jing 连着三轮都在说「大门和文明小门同时显示」, 我修了回调时序、修了状态归零, 都没治好。
+ * 真因在这: 那三个引用原本是 @State, 而我【在 RealityView 的 make 闭包里给它们赋值】——
+ * 那属于视图构建期, @State 赋值不生效。于是 update 闭包里三个全是 nil:
+ *     genesisHost?.isEnabled = ...   // nil, 这行什么都没做
+ *     gateRing?.isEnabled    = ...   // nil, 这行也什么都没做
+ * 两个 isEnabled 谁都没被设过 → 默认全是 true → 两者当然同时在场。
+ *
+ * refs 是普通 class(引用类型), 在 make 里写它的属性是实打实写进对象的 —— 这个文件里
+ * refs.lobby / refs.orb / refs.welcome 一直好使, 就是这个道理。
+ * 教训: RealityView 的 make 闭包里【只能写 refs 这类引用对象, 不能写 @State】。 */
+private final class GateViewRefs { var head: Entity?; var orbAnchor: Entity?; var lobby: Entity?; var orb: Entity?; var creation: Entity?; var welcome: Entity?; var speedRef: MagicMirrorOrb.SpeedRef?; var journey: Task<Void, Never>?; var genesis: Entity?; var ring: Entity?; var shelf: Entity? }
 
 // W1384 — 金球标记: 手势只盯带此标记的实体(金球), 不再 targetedToAnyEntity 截走大厅卡片的捏。
 struct GateOrbMarker: Component {}
@@ -36,13 +48,10 @@ struct GateView: View {
     @State private var lobbyDragBase: SIMD3<Float>? = nil   // W1580 — 大厅面板拖拽基准
     /* CSSOS_WAVE_1939 — 文明之门(Jing 选定的新大门方向)。 */
     @State private var civGates: [CivGate] = []
-    @State private var gateRing: Entity? = nil
     @State private var pickedCiv: String = ""
     /* CSSOS_WAVE_1944 — 第一层: 开天辟地的巨门。gateOpened 之前只有巨门, 之后才是文明环。 */
-    @State private var genesisHost: Entity? = nil
     @State private var gateOpened = false
     /* CSSOS_WAVE_1940 — 星穹作品阵(取代 2D 大厅面板)。 */
-    @State private var shelfHost: Entity? = nil
     @State private var shelfItems: [CSSBackend.LobbyItem] = []
 
     var body: some View {
@@ -140,13 +149,16 @@ struct GateView: View {
             let genesis = Entity()
             genesis.name = "genesis-gate"
             anchor.addChild(genesis)
-            genesisHost = genesis
+            refs.genesis = genesis
             GenesisGate.make(into: genesis)
 
             let ringHost = Entity()
             ringHost.name = "civ-gate-ring"
+            // W1948 — 出生即隐藏。update 会在门推开后打开它; 但万一 update 那一拍没赶上,
+            // 默认可见就会闪一下"两者同框"。仪式的第一帧必须只有巨门。
+            ringHost.isEnabled = false
             anchor.addChild(ringHost)
-            gateRing = ringHost
+            refs.ring = ringHost
 
             /* CSSOS_WAVE_1940 — 星穹作品阵。穿过文明之门后, 作品【悬在空间里】,
              * 不再装进一块 2D 面板。与门环同 anchor → 世界固定, 不跟头。
@@ -155,7 +167,7 @@ struct GateView: View {
             shelf.name = "spatial-shelf"
             shelf.isEnabled = false
             anchor.addChild(shelf)
-            shelfHost = shelf
+            refs.shelf = shelf
             Task { @MainActor in
                 let gs = await CSSBackend.fetchCivGates(limit: 16)
                 guard !gs.isEmpty else { return }
@@ -168,14 +180,14 @@ struct GateView: View {
              * 违反本文件开头写着的「沉浸里一切皆沉浸, 零 2D」。改由星穹作品阵承担。
              * LobbyView 与这个 attachment 【故意保留但恒隐藏】—— 要回滚改这一行即可。 */
             refs.lobby?.isEnabled = false
-            shelfHost?.isEnabled = showLobby && !creating
+            refs.shelf?.isEnabled = showLobby && !creating
             refs.orb?.isEnabled = !showLobby && !creating   // W1381 — 进圣殿大门 → gate 金球消失
             refs.creation?.isEnabled = creating              // W1382 — 创作时显进度球, 盖住大厅/金球
             refs.welcome?.isEnabled = !showLobby && !creating   // W1386 — 欢迎词只在大门态
             // W1939 — 文明之门只在【大门态】立着; 进了大厅/创作中就收起, 不跟画面抢注意力。
             // W1944 — 两层互斥: 巨门未推开 → 只有巨门; 推开后 → 文明环。
-            genesisHost?.isEnabled = !gateOpened && !showLobby && !creating
-            gateRing?.isEnabled = gateOpened && !showLobby && !creating
+            refs.genesis?.isEnabled = !gateOpened && !showLobby && !creating
+            refs.ring?.isEnabled = gateOpened && !showLobby && !creating
         } attachments: {
             Attachment(id: "lobby") {
                 LobbyView(
@@ -231,7 +243,7 @@ struct GateView: View {
          * 这条留着是因为伸手去推门是更直觉的动作, 两条都通不冲突 —— 同一个 open()。 */
         .simultaneousGesture(
             SpatialTapGesture().targetedToEntity(where: .has(GenesisGateMarker.self)).onEnded { _ in
-                guard !gateOpened, let host = genesisHost else { return }
+                guard !gateOpened, let host = refs.genesis else { return }
                 refs.journey?.cancel(); refs.journey = nil   // 打断金球巡游, 用户已经在推门了
                 GenesisGate.open(host) { gateOpened = true }
             },
@@ -254,7 +266,7 @@ struct GateView: View {
                  * 金球是【推门的手】, 不是直接进大厅的按钮。所以:
                  *   巨门还关着 → 捏金球 = 推开巨门(推完才轮到文明环)
                  *   巨门已推开 → 金球回到原职(光束仪式), 不再重复推门 */
-                if !gateOpened, let host = genesisHost {
+                if !gateOpened, let host = refs.genesis {
                     GenesisGate.open(host) { gateOpened = true }
                     return
                 }
@@ -311,7 +323,7 @@ struct GateView: View {
                     }
                     if items.isEmpty { items = await CSSBackend.fetchShelf("for-you", limit: 18) }
                     shelfItems = items
-                    if let host = shelfHost { SpatialShelf.build(into: host, items: items) }
+                    if let host = refs.shelf { SpatialShelf.build(into: host, items: items) }
                 }
                 if !pendingSpell.isEmpty { let s = pendingSpell; pendingSpell = ""; startSpell(s) }
             }

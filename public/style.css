@@ -7241,7 +7241,17 @@ body.cssos-cinema-mode [class*=" bg-blob"] {
 .watch-screen::before {
   content: "";
   position: absolute;
-  inset: 2px;
+  /* CSSOS_WAVE_1959 20260825 — Jing:「凡是平台已经有的风格, 不要重新造。」
+   * 我先前另建了一个 .watch-media-ring 并"抄"了这里的声明 —— 抄了声明不等于复用:
+   * 换了盒子、换了尺寸, background-size:360% 的渐变采样点和辉光扩散都跟着变,
+   * 出来是一条扁平青线, 根本不是这套光芒。
+   * 正解是【根本不新建元素】—— 就用这一个 ::before, 只改它坐在哪。
+   * 同一个元素 → 渲染必然一模一样, 这才叫复用。
+   * inset 改成变量驱动: 默认仍是 2px(非影院态一个像素不变);
+   * 影院态由 app.watch-face-crop.js 把四个变量设成画面的实际偏移, 让这圈光芒
+   * 从"框住窗口"变成"框住画面"。 */
+  inset: var(--mv-ring-top, 2px) var(--mv-ring-right, 2px)
+         var(--mv-ring-bottom, 2px) var(--mv-ring-left, 2px);
   border-radius: 14px;
   padding: 2px;
   background: linear-gradient(
@@ -13950,58 +13960,6 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
  * 这里只是【不再覆盖】—— 基础规则 .watch-screen::before(style.css 7241) 原样生效,
  * 渐变绿光 + 发光都回来。 */
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * CSSOS_WAVE_1957 20260825 — 绿边贴【画面】走, 不贴【窗口】走。
- *
- * Jing:「取消 MV 面板的绿色边框, 保留媒体框绿色边框。你搞反了。」
- *
- * 我量反了两次, 原因写在这里免得第三次:
- *   第一次 面板收起时量的(0×240), 媒体查询走的另一套, 结论不作数;
- *   第二次 浏览器窗格视口 0×0, 同一个坑。
- * 量对之后才看清: 影院态下 .watch-screen 铺满整个面板(1600×1000), 而画面只是中间
- * 那条 1600×669 的带(上下各 ~165px 黑边)。绿边画在 .watch-screen::before 上 = 画在
- * 窗口最外圈 —— 用户看到的就是"MV 面板有绿边、画面没有"。两者在影院态是同一个矩形,
- * 所以查计算样式得出的"面板没绿边、媒体框有绿边"数据没错, 但那不是 Jing 眼睛看到的分法。
- *
- * ── W1957b 修正(Jing:「你这是在重复造轮子…这套绿色边框太亮」) ──
- * 我第一版自己造了一圈 box-shadow 绿环 —— 又亮又不是平台的语汇。
- * 平台【本来就有】这套光芒边框: .watch-screen::before(style.css:7241) ——
- * 120° 绿→青→绿渐变描边 + mask-composite 挖空成"只有边不填充" + 双色辉光。
- * 现在原样复用它的每一条声明, 只把它贴到画面而不是窗口。
- * 不要再另起炉灶: 一个平台只该有一种媒体边框。
- * ═══════════════════════════════════════════════════════════════════════════ */
-
-/* ① 影院/全屏态: 关掉贴着窗口那圈(它就是 Jing 说的"MV 面板的绿色边框") */
-#watch-panel.is-cssmv-fullscreen .watch-screen::before,
-#watch-panel.cssmv-cinema .watch-screen::before,
-#watch-panel.maximized .watch-screen::before {
-  background: none !important;
-  box-shadow: none !important;
-  border-color: transparent !important;
-}
-
-/* ② 画面光环层 —— 声明【原样抄自 .watch-screen::before】, 一个数值都没改。
- *    位置由 app.watch-face-crop.js 按当前媒体元素的实际矩形实时贴合。 */
-.watch-media-ring {
-  position: absolute;
-  border-radius: 14px;
-  padding: 2px;
-  background: linear-gradient(
-    120deg,
-    rgba(0, 245, 160, 0.12),
-    rgba(0, 245, 160, 0.85),
-    rgba(11, 247, 255, 0.5),
-    rgba(0, 245, 160, 0.85),
-    rgba(0, 245, 160, 0.12)
-  );
-  background-size: 360% 360%;
-  box-shadow: 0 0 16px rgba(0, 245, 160, 0.5), 0 0 36px rgba(11, 247, 255, 0.3);
-  pointer-events: none;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: 3;
-  opacity: 0;                      /* 未贴合到画面前不露面, 免得先闪一圈在窗口上 */
-  transition: opacity 180ms ease-out;
-}
-.watch-media-ring.is-on { opacity: 1; }
+/* CSSOS_WAVE_1959 — 先前 W1957 在这里另建了 .watch-media-ring 并关掉了
+ * .watch-screen::before。那是重复造轮子(Jing 当场指出"绝对不是我们一直在用的那套")。
+ * 整段撤掉 —— 现在改由上方 ::before 的 inset 变量实现同一个目的, 不新建任何元素。 */

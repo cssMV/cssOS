@@ -2127,8 +2127,18 @@ function buildMarketCardsMarkup(works = []) {
       // is_priceless / owner_is_admin are surfaced by the backend's
       // normalizeWorkTreeRow for any work owned by a cssOS staff
       // account. Show "Free" / "Priceless" instead of dollar amounts.
-      const isPricelessAdminWork = Boolean(
-        work?.is_priceless || work?.owner_is_admin,
+        /* CSSOS_WAVE_1956 20260825 — 管理员免单的【第四处】, 在界面上。
+         *
+         * Jing:「《杜甫·登高三部曲》这首是免费」—— 而后端此刻明明回的是
+         * is_free=false / listen_price_cents=100 / preview_only=true。
+         * 因为这里只看 owner_is_admin 就把价格覆盖成"免费/无价之宝" —— 后端算得再对,
+         * 界面照样说免费。前三处(真源接口 / 市场接口 / normalizeWorkTreeRow)都改了,
+         * 漏了这一处, 用户看到的还是免费, 付费漏斗在【最后一米】断掉。
+         *
+         * 新判据与后端 W1951 一致: 管理员的作品【没标价才叫免费】, 标了价就显示价格。
+         * 想让哪首显示"无价之宝", 把价格清零 —— 决定权在价格字段, 不在作者身份。 */
+        const isPricelessAdminWork = Boolean(
+          (work?.is_priceless || work?.owner_is_admin) && !(listenCents > 0),
       );
       const listenPrice = isPricelessAdminWork
         ? loginCopy("Free", "免费")

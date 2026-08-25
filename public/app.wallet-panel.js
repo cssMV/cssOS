@@ -295,7 +295,11 @@
     var dock = document.querySelector(".dock") || document.querySelector("#dock");
     if (!dock) return false;
     if (dock.querySelector('[data-action="wallet"]')) return true;
-    var anchor = dock.querySelector('[data-action="appstore"]') ||
+    /* W1956b — Jing:「钱包图标请放到 works 附近」。
+     * 钱包是买卖的落点, 挨着作品才说得通; 挨着 App 下载那一栏是我上一版随手挂的。 */
+    var anchor = dock.querySelector('[data-action="works"]') ||
+                 dock.querySelector('[data-action="market"]') ||
+                 dock.querySelector('[data-action="appstore"]') ||
                  dock.querySelector('[data-action="actors"]');
     if (!anchor && !force) return false;
     var item = document.createElement("button");

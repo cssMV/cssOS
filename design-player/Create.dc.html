@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap">
+  <style>
+    body { margin:0; font-family:"Space Grotesk","Segoe UI",sans-serif; }
+    a { color:#00f5a0; } a:hover { color:#7dffd0; }
+    .t { font-family:"Syne","Space Grotesk",sans-serif; }
+    .mono { font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+  </style>
+</helmet>
+
+<div style="width:700px;height:1000px;box-sizing:border-box;padding:34px 30px 26px;color:#eafff6;position:relative;overflow:hidden;
+            background:radial-gradient(62% 44% at 50% 34%,hsla(48,92%,52%,.13),transparent 66%),
+                       linear-gradient(168deg,rgba(9,20,16,.95),rgba(3,8,7,.99));
+            border:1px solid rgba(0,245,160,.16);border-radius:34px;display:flex;flex-direction:column;gap:0">
+
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <span class="mono" style="font-size:11px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.46)">创作中</span>
+    <span class="t" style="font-size:24px;font-weight:800;line-height:1.2">魔镜正在造你的 MV</span>
+  </div>
+
+  <!-- 咒语回显 -->
+  <div style="margin-top:20px;padding:15px 18px;border-radius:20px;
+              background:rgba(234,255,246,.045);border:1px solid rgba(234,255,246,.1)">
+    <span class="mono" style="font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(234,255,246,.4)">你说的</span>
+    <div class="t" style="margin-top:7px;font-size:19px;font-weight:700;line-height:1.4;color:rgba(234,255,246,.94)">
+      「盛唐月夜,李白独酌,写一首豪放的」
+    </div>
+  </div>
+
+  <!-- 活的魔镜球(沿用 CreationOrbView 的概念, 不另起炉灶) -->
+  <div style="margin:26px auto 0;position:relative;width:300px;height:300px;flex:0 0 300px">
+    <svg viewBox="0 0 300 300" style="position:absolute;inset:0;width:100%;height:100%">
+      <circle cx="150" cy="150" r="128" fill="none" stroke="rgba(234,255,246,.08)" stroke-width="2"/>
+      <circle cx="150" cy="150" r="128" fill="none" stroke="hsl(48,95%,58%)" stroke-width="4"
+              stroke-linecap="round" stroke-dasharray="804" stroke-dashoffset="322"
+              transform="rotate(-90 150 150)"/>
+      <defs>
+        <radialGradient id="orb" cx="38%" cy="32%">
+          <stop offset="0%"  stop-color="hsl(48,100%,78%)"/>
+          <stop offset="52%" stop-color="hsl(42,92%,52%)"/>
+          <stop offset="100%" stop-color="hsl(36,88%,26%)"/>
+        </radialGradient>
+      </defs>
+      <circle cx="150" cy="150" r="86" fill="url(#orb)"/>
+      <circle cx="150" cy="150" r="86" fill="none" stroke="hsla(48,100%,80%,.5)" stroke-width="1.5"/>
+    </svg>
+    <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center">
+      <div class="mono" style="font-size:34px;font-weight:700;color:rgba(20,12,2,.86)">60%</div>
+      <div class="t" style="margin-top:2px;font-size:15px;font-weight:800;color:rgba(20,12,2,.7)">成像中</div>
+    </div>
+  </div>
+
+  <!-- 五阶段 · 其中四个就是四轨 -->
+  <div style="margin-top:26px;display:flex;flex-direction:column;gap:9px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between">
+      <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.34)">五阶段</span>
+      <span class="mono" style="font-size:10.5px;color:rgba(234,255,246,.34)">其中四个, 就是那四轨</span>
+    </div>
+    <sc-for list="{{stages}}" as="s" hint-placeholder-count="5">
+      <div style="{{s.row}}">
+        <span style="{{s.led}}"></span>
+        <span style="font-size:14px;font-weight:{{s.w}};min-width:74px">{{s.name}}</span>
+        <span class="mono" style="font-size:11px;color:rgba(234,255,246,.44);flex:1;min-width:0">{{s.engine}}</span>
+        <span style="{{s.tag}}">{{s.role}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="margin-top:auto;display:flex;flex-direction:column;gap:7px;padding:14px 16px;border-radius:18px;
+              background:hsla(155,72%,50%,.08);border:1px solid hsla(155,90%,62%,.26)">
+    <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:hsl(155,92%,76%)">没有第六阶段</span>
+    <span style="font-size:12.5px;line-height:1.6;color:rgba(234,255,246,.84)">
+      到「情绪字幕」就完了 —— <strong>没有合成这一步</strong>。四轨各自落地, 播放时实时对齐。
+      合成会把换语言、换声线、换画面这些能力一次性烧死, 所以这个阶段被删掉了, 不是省时间。
+    </span>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    // done / doing / todo
+    const row = (state) => `display:flex;align-items:center;gap:11px;padding:12px 15px;border-radius:15px;min-height:50px;box-sizing:border-box;`
+      + (state === "doing" ? `background:hsla(48,72%,50%,.14);border:1px solid hsla(48,90%,62%,.4);`
+                           : `background:rgba(234,255,246,.032);border:1px solid rgba(234,255,246,.07);`);
+    const led = (h, state) => `width:9px;height:9px;border-radius:50%;flex:0 0 9px;`
+      + (state === "done"  ? `background:hsl(${h},95%,58%);box-shadow:0 0 8px hsla(${h},100%,58%,.7);`
+      :  state === "doing" ? `background:hsl(48,95%,60%);box-shadow:0 0 10px hsla(48,100%,60%,.95);`
+                           : `background:transparent;border:1.5px solid rgba(234,255,246,.2);`);
+    const tag = (h, isTrack) => `font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap;`
+      + (isTrack ? `background:hsla(${h},72%,50%,.18);border:1px solid hsla(${h},90%,62%,.38);color:hsl(${h},95%,76%);`
+                 : `background:rgba(234,255,246,.06);border:1px solid rgba(234,255,246,.1);color:rgba(234,255,246,.45);`);
+
+    const S = (name, engine, h, isTrack, state) => ({
+      name, engine, w: state === "doing" ? 700 : 500,
+      role: isTrack ? "→ 一条轨" : "封面",
+      row: row(state), led: led(h, state), tag: tag(h, isTrack),
+    });
+
+    return { stages: [
+      S("吟词",     "Claude → GPT → Gemini", 155, true,  "done"),
+      S("绘封面",   "KIE · 图像",             300, false, "done"),
+      S("谱曲",     "Suno",                  192, true,  "done"),
+      S("成像",     "Sora",                  268, true,  "doing"),
+      S("情绪字幕", "自研 · 逐字对齐",         48,  true,  "todo"),
+    ] };
+  }
+}
+</script>
+</body>
+</html>

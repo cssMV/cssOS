@@ -1,0 +1,227 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap">
+  <style>
+    body { margin:0; font-family:"Space Grotesk","Segoe UI",sans-serif; }
+    a { color:#00f5a0; } a:hover { color:#7dffd0; }
+    .t { font-family:"Syne","Space Grotesk",sans-serif; }
+    .mono { font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+  </style>
+</helmet>
+
+<div style="width:660px;height:1080px;box-sizing:border-box;padding:32px 30px 26px;position:relative;overflow:hidden;
+            background:linear-gradient(168deg,rgba(9,20,16,.95) 0%,rgba(5,12,10,.97) 60%,rgba(3,8,7,.99) 100%);
+            border:1px solid rgba(0,245,160,.16);border-radius:34px;color:#eafff6;
+            display:flex;flex-direction:column;gap:22px">
+
+  <div style="position:absolute;inset:-46% -30% auto -30%;height:72%;pointer-events:none;
+              background:radial-gradient(58% 58% at 50% 0%,hsla({{ah}},100%,62%,.15),transparent 70%)"></div>
+
+  <!-- 头 -->
+  <div style="display:flex;flex-direction:column;gap:8px;position:relative">
+    <div style="display:flex;align-items:center;gap:9px">
+      <span style="width:7px;height:7px;border-radius:50%;background:hsl({{ah}},100%,60%);
+                   box-shadow:0 0 10px hsla({{ah}},100%,60%,.9)"></span>
+      <span class="mono" style="font-size:11px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.48)">Now playing · 唐 · 盛唐</span>
+    </div>
+    <div class="t" style="font-size:30px;font-weight:800;line-height:1.15;letter-spacing:-.012em;text-wrap:pretty">李白 · 饮者三部曲 · 天地留名</div>
+    <div class="mono" style="font-size:12.5px;color:rgba(234,255,246,.44)">Li Bai · 701–762 · 第三部 / 共三部</div>
+  </div>
+
+  <!-- 舞台 —— 从方向 C 移植: 逐字情绪字幕【直接压在画面上】, 不被面板挤走。
+       字幕本来就是独立一轨, 所以它是"叠在画面之上", 而不是"烧进画面里"。 -->
+  <div style="{{stageBox}}">
+    <div style="position:absolute;inset:0;
+                background:radial-gradient(120% 90% at 24% 16%,hsla({{ah}},92%,52%,.20),transparent 58%),
+                           radial-gradient(90% 80% at 82% 76%,hsla({{ah2}},88%,56%,.17),transparent 60%),
+                           linear-gradient(158deg,#0b1c16,#050d0b)"></div>
+    <div style="position:absolute;inset:0;display:grid;place-items:center;pointer-events:none">
+      <span class="t" style="font-size:62px;font-weight:800;color:rgba(234,255,246,.05);letter-spacing:.08em">天地留名</span>
+    </div>
+
+    <div style="position:absolute;left:14px;top:13px;display:flex;align-items:center;gap:7px;
+                padding:6px 11px;border-radius:999px;background:rgba(4,12,9,.6);border:1px solid rgba(234,255,246,.12)">
+      <span style="width:5px;height:5px;border-radius:50%;background:hsl(268,95%,66%);box-shadow:0 0 7px hsla(268,100%,66%,.9)"></span>
+      <span class="mono" style="font-size:10px;letter-spacing:.1em;color:rgba(234,255,246,.72)">幻灯 · 3 张 · 1280×720</span>
+    </div>
+
+    <!-- 逐字爆字: 已唱的字亮且带情绪色 + 辉光, 未到的字暗 -->
+    <div style="position:absolute;left:0;right:0;bottom:0;padding:0 20px 20px;display:flex;gap:7px;align-items:baseline;flex-wrap:wrap">
+      <sc-for list="{{words}}" as="w" hint-placeholder-count="7">
+        <span class="t" style="{{w.style}}">{{w.ch}}</span>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- 四轨: 点哪一轨, 下面的切换器就换成那一轨的 -->
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="mono" style="font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(234,255,246,.34)">四轨 · 永不烧录在一起</div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px">
+      <sc-for list="{{tracks}}" as="tk" hint-placeholder-count="4">
+        <div onClick="{{tk.pick}}" style="{{tk.card}}">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="color:hsl({{tk.h}},95%,{{tk.lum}}%);height:20px">{{tk.icon}}</span>
+            <span style="{{tk.dot}}"></span>
+          </div>
+          <div style="font-size:13.5px;font-weight:700;line-height:1.15">{{tk.name}}</div>
+          <div class="mono" style="font-size:10px;line-height:1.35;color:rgba(234,255,246,{{tk.sub}})">{{tk.src}}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- 选中轨的切换器 —— 每一轨自己拥有它的选项 -->
+  <div style="display:flex;flex-direction:column;gap:9px;padding:15px 16px 17px;border-radius:22px;
+              background:hsla({{ah}},70%,50%,.07);border:1px solid hsla({{ah}},88%,62%,.24)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+      <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:hsl({{ah}},90%,72%)">{{barLabel}}</span>
+      <span class="mono" style="font-size:10.5px;color:rgba(234,255,246,.4)">{{barHint}}</span>
+    </div>
+    <div style="display:flex;align-items:center;height:52px;border-radius:999px;overflow:hidden;
+                border:1px solid hsla({{ah}},90%,62%,.30);background:hsla({{ah}},72%,50%,.07)">
+      <sc-for list="{{opts}}" as="it" hint-placeholder-count="3">
+        <div onClick="{{it.pick}}" style="{{it.style}}"><span style="font-size:14.5px;font-weight:{{it.w}}">{{it.text}}</span></div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- 传输 -->
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="position:relative;height:4px;border-radius:999px;background:rgba(234,255,246,.11)">
+      <div style="position:absolute;inset:0 62% 0 0;border-radius:999px;
+                  background:linear-gradient(90deg,hsl({{ah}},100%,55%),hsl({{ah2}},100%,62%));
+                  box-shadow:0 0 14px hsla({{ah}},100%,60%,.5)"></div>
+      <div style="position:absolute;left:38%;top:50%;width:13px;height:13px;margin:-6.5px 0 0 -6.5px;border-radius:50%;
+                  background:#eafff6;box-shadow:0 0 0 4px hsla({{ah}},100%,55%,.26)"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between" class="mono">
+      <span style="font-size:12px;color:rgba(234,255,246,.6)">1:14</span>
+      <span style="font-size:12px;color:rgba(234,255,246,.36)">−1:48</span>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:18px">
+      <sc-for list="{{transport}}" as="b" hint-placeholder-count="5">
+        <button onClick="{{b.tap}}" style="{{b.style}}">{{b.icon}}</button>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- 交易(沿用 Vision 现有 ControlsPanel 的四项, 未接 IAP 的两项留灰) -->
+  <div style="margin-top:auto;display:flex;flex-direction:column;gap:9px">
+    <div class="mono" style="font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(234,255,246,.34)">这一首</div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px">
+      <sc-for list="{{deals}}" as="d" hint-placeholder-count="4">
+        <div style="{{d.style}}">
+          <span style="height:18px;color:{{d.ink}}">{{d.icon}}</span>
+          <span style="font-size:13.5px;font-weight:600">{{d.text}}</span>
+          <span class="mono" style="margin-left:auto;font-size:12px;color:rgba(234,255,246,.42)">{{d.price}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "dense":{"editor":"boolean","default":false,"section":"密度"}
+}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { track: 2, opt: { 0:0, 1:0, 2:2, 3:1 }, playing: true }; }
+
+  renderVals() {
+    const ico = (d, s) => `<svg width="${s||20}" height="${s||20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const DEF = [
+      { h:155, name:"歌词", src:"Claude → GPT → Gemini", d:'<path d="M4 6h16"/><path d="M4 12h11"/><path d="M4 18h14"/>',
+        label:"语言 · Language", hint:"3 条已生成", opts:["中文","English","日本語"] },
+      { h:192, name:"音乐", src:"Suno v5", d:'<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+        label:"声线 · Voice", hint:"旋律不变, 换声重唱", opts:["Original","女声","男声"] },
+      { h:268, name:"画面", src:"Sora 2", d:'<rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="m10 9.5 5 3-5 3z"/>',
+        label:"画面形态 · Visual", hint:"1280×720 · 720P", opts:["幻灯 · 3 张","混合","真视频"] },
+      { h:48,  name:"情绪字幕", src:"自研 · 逐字", d:'<path d="M4 5h16v11H8l-4 3z"/><path d="M8 10h3"/><path d="M14 10h3"/>',
+        label:"字幕样式 · Subtitle", hint:"209 字已对齐", opts:["爆字","逐字","整行"] },
+    ];
+    const sel = this.state.track, cur = DEF[sel], ah = cur.h, ah2 = DEF[(sel+1)%4].h;
+
+    const tracks = DEF.map((t, i) => {
+      const on = i === sel;
+      return { ...t, icon: ico(t.d), lum: on ? 70 : 60, sub: on ? .62 : .4,
+        pick: () => this.setState({ track: i }),
+        card: `display:flex;flex-direction:column;gap:8px;padding:13px 12px 12px;border-radius:18px;cursor:pointer;`
+            + `background:hsla(${t.h},72%,50%,${on ? .19 : .07});`
+            + `border:1px solid hsla(${t.h},90%,62%,${on ? .58 : .2});`
+            + (on ? `box-shadow:0 0 0 1px hsla(${t.h},95%,62%,.28),0 8px 26px hsla(${t.h},90%,40%,.26);` : ``),
+        dot: `width:6px;height:6px;border-radius:50%;background:hsl(${t.h},95%,62%);opacity:${on ? 1 : .3};`
+           + (on ? `box-shadow:0 0 8px hsla(${t.h},100%,60%,.9);` : ``) };
+    });
+
+    const R = 26, ai = this.state.opt[sel] ?? 0;
+    const cell = (pos) => {
+      const b = "flex:1;height:52px;display:grid;place-items:center;box-sizing:border-box;cursor:pointer;";
+      if (pos === "on")  return b + `background:hsla(${ah},85%,52%,.34);border-radius:999px;z-index:2;`;
+      if (pos === "aft") return b + `background:hsla(${ah},70%,50%,.10);border-radius:0 999px 999px 0;margin-left:-${R}px;padding-left:${R}px;`
+        + `-webkit-mask-image:radial-gradient(circle ${R}px at 0px 50%,transparent ${R-.5}px,#000 ${R}px);mask-image:radial-gradient(circle ${R}px at 0px 50%,transparent ${R-.5}px,#000 ${R}px);`;
+      return b + `background:hsla(${ah},70%,50%,.10);border-radius:999px 0 0 999px;margin-right:-${R}px;padding-right:${R}px;`
+        + `-webkit-mask-image:radial-gradient(circle ${R}px at 100% 50%,transparent ${R-.5}px,#000 ${R}px);mask-image:radial-gradient(circle ${R}px at 100% 50%,transparent ${R-.5}px,#000 ${R}px);`;
+    };
+    const opts = cur.opts.map((text, i) => ({ text, w: i === ai ? 700 : 500,
+      style: cell(i === ai ? "on" : (i > ai ? "aft" : "bef")),
+      pick: () => this.setState({ opt: { ...this.state.opt, [sel]: i } }) }));
+
+    const ghost = "all:unset;cursor:pointer;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;color:#eafff6;background:rgba(234,255,246,.06);border:1px solid rgba(234,255,246,.13);";
+    const playing = this.state.playing;
+    const transport = [
+      { icon: ico('<path d="M12 5v6l4.5-3z" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="9"/><path d="M9 15h6"/>', 22), style: ghost },
+      { icon: ico('<path d="M19 20 9 12l10-8z"/><path d="M5 19V5"/>', 22), style: ghost },
+      { icon: playing
+          ? ico('<rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="#04140e" stroke="none"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="#04140e" stroke="none"/>', 30)
+          : ico('<path d="M8 5.5v13a1 1 0 0 0 1.53.85l10-6.5a1 1 0 0 0 0-1.7l-10-6.5A1 1 0 0 0 8 5.5z" fill="#04140e" stroke="none"/>', 30),
+        style: `all:unset;cursor:pointer;width:80px;height:80px;border-radius:50%;display:grid;place-items:center;`
+             + `background:linear-gradient(150deg,hsl(${ah},100%,58%),hsl(${ah},92%,44%));box-shadow:0 10px 32px hsla(${ah},100%,45%,.42);`,
+        tap: () => this.setState({ playing: !playing }) },
+      { icon: ico('<path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/>', 22), style: ghost },
+      { icon: ico('<path d="M17 2.1 21 6l-4 3.9"/><path d="M3 12V9a3 3 0 0 1 3-3h15"/><path d="M7 21.9 3 18l4-3.9"/><path d="M21 12v3a3 3 0 0 1-3 3H3"/>', 22), style: ghost },
+    ];
+
+    const deal = (d, text, price, live) => ({
+      icon: ico(d, 18), text, price, ink: live ? `hsl(${ah},95%,70%)` : "rgba(234,255,246,.34)",
+      style: `display:flex;align-items:center;gap:10px;padding:14px 15px;border-radius:17px;min-height:52px;box-sizing:border-box;`
+           + `background:rgba(234,255,246,${live ? .07 : .03});border:1px solid rgba(234,255,246,${live ? .15 : .07});`
+           + `color:rgba(234,255,246,${live ? .95 : .42});` });
+    const deals = [
+      deal('<path d="M12 20s-7-4.4-7-9.2A4 4 0 0 1 12 8a4 4 0 0 1 7-2.8"/><path d="M19 10.8C19 15.6 12 20 12 20"/>', "打赏", "未接 IAP", false),
+      deal('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>', "欣赏", "免费", true),
+      deal('<path d="M3 14v-2a9 9 0 0 1 18 0v2"/><rect x="2.5" y="13.5" width="4" height="6" rx="2"/><rect x="17.5" y="13.5" width="4" height="6" rx="2"/>', "聆听", "免费", true),
+      deal('<path d="m12 3 8 5v8l-8 5-8-5V8z"/><path d="m12 12 8-4"/><path d="M12 12v9"/><path d="m12 12-8-4"/>', "买断", "未接 IAP", false),
+    ];
+
+    /* 从方向 C 移植的逐字情绪字幕。选中【情绪字幕】那一轨时舞台上的字加重 ——
+     * 把移植进来的这块和 A 的"每轨自己的切换器"接在一起, 而不是并排放着互不相干。 */
+    const subOn = sel === 3;
+    const seq = [
+      { ch:"天", h:48,  on:1 },   { ch:"生", h:48,  on:1 },
+      { ch:"我", h:342, on:1 },   { ch:"材", h:342, on:.86 },
+      { ch:"必", h:155, on:.5 },  { ch:"有", h:155, on:.28 }, { ch:"用", h:155, on:.16 },
+    ];
+    const words = seq.map((w) => ({
+      ch: w.ch,
+      style: `font-size:${(subOn ? 34 : 30) + w.on * (subOn ? 13 : 10)}px;font-weight:800;line-height:1;`
+           + `color:hsla(${w.h},100%,${62 + w.on * 12}%,${0.26 + w.on * 0.74});`
+           + (w.on > .8 ? `text-shadow:0 0 ${subOn ? 26 : 18}px hsla(${w.h},100%,60%,${subOn ? .68 : .5});` : ""),
+    }));
+    const stageBox = `position:relative;height:300px;flex:0 0 300px;border-radius:22px;overflow:hidden;`
+      + `border:1px solid hsla(268,90%,62%,${subOn ? .18 : .30});`
+      + (subOn ? `box-shadow:0 0 0 1px hsla(48,95%,62%,.4),0 10px 30px hsla(48,88%,42%,.2);` : ``);
+
+    return { ah, ah2, tracks, opts, transport, deals, words, stageBox,
+             barLabel: cur.label, barHint: cur.hint };
+  }
+}
+</script>
+</body>
+</html>

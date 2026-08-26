@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;800&family=Space+Grotesk:wght@400;500;700&display=swap">
+  <style>
+    body { margin:0; font-family:"Space Grotesk","Segoe UI",sans-serif; }
+    a { color:#00f5a0; } a:hover { color:#7dffd0; }
+    .t { font-family:"Syne","Space Grotesk",sans-serif; }
+    .mono { font-variant-numeric:tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width:980px;height:700px;box-sizing:border-box;padding:38px 40px;color:#eafff6;
+            background:linear-gradient(170deg,rgba(8,18,15,.96),rgba(3,8,7,.99));
+            border:1px solid rgba(0,245,160,.16);border-radius:30px;display:flex;flex-direction:column;gap:26px">
+
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <span class="t" style="font-size:23px;font-weight:800">凸嵌凹胶囊 · 空间尺度</span>
+    <span class="mono" style="font-size:12px;color:rgba(234,255,246,.44);line-height:1.5">
+      宪法 v28 几何原样搬到 52pt 轨高 · 遮罩半径 = 轨高 ÷ 2 · 激活位一变, 全条凹向重算
+    </span>
+  </div>
+
+  <sc-for list="{{demos}}" as="d" hint-placeholder-count="3">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.36)">{{d.label}}</span>
+      <div style="display:flex;align-items:center;height:52px;border-radius:999px;overflow:hidden;
+                  border:1px solid hsla({{d.h}},90%,62%,.30);background:hsla({{d.h}},72%,50%,.07)">
+        <sc-for list="{{d.items}}" as="it" hint-placeholder-count="4">
+          <div style="{{it.style}}"><span style="font-size:15px;font-weight:{{it.w}}">{{it.text}}</span></div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+
+  <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px">
+    <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.36)">四轨色相 · 取自 12 色相盘</span>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+      <sc-for list="{{swatch}}" as="s" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:11px;padding:14px 16px;border-radius:18px;
+                    background:hsla({{s.h}},72%,50%,.10);border:1px solid hsla({{s.h}},90%,62%,.30)">
+          <span style="width:28px;height:28px;border-radius:9px;flex:0 0 28px;background:hsl({{s.h}},95%,58%);
+                       box-shadow:0 0 16px hsla({{s.h}},100%,58%,.5)"></span>
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+            <span style="font-size:13.5px;font-weight:700">{{s.name}}</span>
+            <span class="mono" style="font-size:10.5px;color:rgba(234,255,246,.5)">hue {{s.h}}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:10px;margin-top:auto">
+    <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.36)">触控尺度 · visionOS</span>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="width:64px;height:64px;border-radius:50%;display:grid;place-items:center;
+                  background:rgba(234,255,246,.07);border:1px solid rgba(234,255,246,.14)">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#eafff6" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19 20 9 12l10-8z"/><path d="M5 19V5"/></svg>
+      </div>
+      <div style="width:82px;height:82px;border-radius:50%;display:grid;place-items:center;
+                  background:linear-gradient(150deg,hsl(155,100%,58%),hsl(155,92%,44%));box-shadow:0 10px 34px hsla(155,100%,45%,.42)">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="#04140e"><path d="M8 5.5v13a1 1 0 0 0 1.53.85l10-6.5a1 1 0 0 0 0-1.7l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span style="font-size:13px;font-weight:700">64 / 82 pt</span>
+        <span class="mono" style="font-size:11px;color:rgba(234,255,246,.46)">沿用 Vision 现有 cap 的 64pt 下限 · 主键放大到 82</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    const R = 26;
+    const cell = (h, pos) => {
+      const base = "flex:1;height:52px;display:grid;place-items:center;box-sizing:border-box;";
+      if (pos === "on")  return base + `background:hsla(${h},85%,52%,.34);border-radius:999px;z-index:2;`;
+      if (pos === "aft") return base + `background:hsla(${h},70%,50%,.10);border-radius:0 999px 999px 0;margin-left:-${R}px;padding-left:${R}px;`
+        + `-webkit-mask-image:radial-gradient(circle ${R}px at 0px 50%,transparent ${R-0.5}px,#000 ${R}px);mask-image:radial-gradient(circle ${R}px at 0px 50%,transparent ${R-0.5}px,#000 ${R}px);`;
+      return base + `background:hsla(${h},70%,50%,.10);border-radius:999px 0 0 999px;margin-right:-${R}px;padding-right:${R}px;`
+        + `-webkit-mask-image:radial-gradient(circle ${R}px at 100% 50%,transparent ${R-0.5}px,#000 ${R}px);mask-image:radial-gradient(circle ${R}px at 100% 50%,transparent ${R-0.5}px,#000 ${R}px);`;
+    };
+    const bar = (label, h, items, ai) => ({ label, h,
+      items: items.map((text, i) => ({ text, w: i === ai ? 700 : 500,
+        style: cell(h, i === ai ? "on" : (i > ai ? "aft" : "bef")) })) });
+    return {
+      demos: [
+        bar("激活在首位 —— 河水全部向右流", 155, ["中文", "English", "日本語", "한국어"], 0),
+        bar("激活在中间 —— 两侧同时凹向岛", 192, ["幻灯 · 3 张", "混合", "真视频"], 1),
+        bar("激活在末位 —— 河水全部向左流", 268, ["Original", "女声", "男声", "合唱"], 3),
+      ],
+      swatch: [
+        { h: 155, name: "歌词" }, { h: 192, name: "音乐" },
+        { h: 268, name: "画面" }, { h: 48,  name: "情绪字幕" },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

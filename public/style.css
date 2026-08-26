@@ -757,13 +757,18 @@ html[data-theme="light"] .dock {
  * 两个生成态动画画在同一个 ::before 上, 删整块会连带弄坏。
  *
  * 【窗口态那圈一个字不许动】—— 见 CLAUDE.md 边框宪法 W1960。 */
-#watch-panel.maximized .watch-screen::before,
-#watch-panel.is-cssmv-fullscreen .watch-screen::before,
-body.cssos-cinema-mode .watch-screen::before,
-html.cssos-app .watch-screen::before {
-  background: none !important;
-  box-shadow: none !important;
-}
+/* CSSOS_WAVE_1971b 20260826 — Jing:「媒体框的绿色光芒边框, 你又重新造一条, 请去找回来。」
+ *
+ * 他是对的。我先后在这里加过两条【我自己写的】覆写:
+ *   W1960  影院态把 background/box-shadow 置空 —— 绿光整个没了;
+ *   W1971  影院态把 inset 改成 --mv-ring-* 变量 —— 又是一条新规则。
+ * 两条都是"我造的",不是"原来的"。
+ *
+ * 现在【一条都不留】: .watch-screen::before 在所有状态下都按 style.watch.css 那一块的
+ * 原样跑(inset:1px + 原渐变 + 原三层辉光 + 原 mask)。要它变, 得先问 Jing ——
+ * 见 CLAUDE.md 边框宪法 W1960 的红线。
+ * (MV 面板那圈描边是另一个元素 .panel.flow::after, 由下方那条关掉, 与本圈无关。) */
+
 
 .logo-panel.panel-active,
 .logo-panel.panel-front,
@@ -7294,17 +7299,11 @@ body.cssos-cinema-mode [class*=" bg-blob"] {
 .watch-screen::before {
   content: "";
   position: absolute;
-  /* CSSOS_WAVE_1959 20260825 — Jing:「凡是平台已经有的风格, 不要重新造。」
-   * 我先前另建了一个 .watch-media-ring 并"抄"了这里的声明 —— 抄了声明不等于复用:
-   * 换了盒子、换了尺寸, background-size:360% 的渐变采样点和辉光扩散都跟着变,
-   * 出来是一条扁平青线, 根本不是这套光芒。
-   * 正解是【根本不新建元素】—— 就用这一个 ::before, 只改它坐在哪。
-   * 同一个元素 → 渲染必然一模一样, 这才叫复用。
-   * inset 改成变量驱动: 默认仍是 2px(非影院态一个像素不变);
-   * 影院态由 app.watch-face-crop.js 把四个变量设成画面的实际偏移, 让这圈光芒
-   * 从"框住窗口"变成"框住画面"。 */
-  inset: var(--mv-ring-top, 2px) var(--mv-ring-right, 2px)
-         var(--mv-ring-bottom, 2px) var(--mv-ring-left, 2px);
+  /* CSSOS_WAVE_1971b 20260826 — 还原成原值 2px。
+   * 这一条 .watch-screen::before 实际上是【死规则】—— style.watch.css 加载在本文件之后,
+   * 同选择器整块覆盖它, 真正生效的是那一条。但它里面留着我 W1959 加的 --mv-ring-* 变量,
+   * 会让下一个人以为变量还在用。清掉, 不留我造过的痕迹。 */
+  inset: 2px;
   border-radius: 14px;
   padding: 2px;
   background: linear-gradient(

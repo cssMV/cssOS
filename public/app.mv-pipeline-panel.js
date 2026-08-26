@@ -1622,11 +1622,39 @@
       ]);
       if (!balR || !balR.ok) { el.hidden = true; return; }
       const balUsd = balR.balance_usd || ("$" + ((balR.balance_cents || balR.balance || 0) / 100).toFixed(2));
-      const upTo = rateR && rateR.ok ? rateR.total_ceiling_usd : null;
+      /* CSSOS_WAVE_1967 20260826 — Jing:「这行提示, 换到真视频, 提示还是 2.43」
+       *
+       * 两个 bug 叠在一起:
+       *  ① upTo 取的是 /api/mv/stage-rates 的 total_ceiling_usd = 各阶段【单次调用】上限之和
+       *     (cover 8¢ + lyrics 5¢ + music 80¢ + video 150¢ = $2.43)。
+       *     其中 video 的 150¢ 是【一个片段】的上限 —— 而 cinematic 档一部 5 分钟 MV 要调
+       *     54 次视频, 真实上限约 $81。把单次上限当整部报价, 差 30 倍。
+       *  ② 这个数是【静态常量之和】, 跟用户选了 lite / hybrid / cinematic 毫无关系, 永远不变。
+       *
+       * 而紧挨着下面那排档位条已经把每档的总价算好了(cssmvTiers.currentTier())。
+       * 这里改成优先读【选中档】的真实总价; 档位目录还没到位时才退回阶段上限,
+       * 并且明确标注那是"每阶段单次上限", 不再冒充整部报价。 */
+      let upTo = null, upToNote = "";
+      try {
+        const _t = (globalThis.cssmvTiers && globalThis.cssmvTiers.currentTier)
+          ? globalThis.cssmvTiers.currentTier() : null;
+        const _usd = _t && _t.cost_breakdown && Number(_t.cost_breakdown.total_usd);
+        if (_t && isFinite(_usd) && _usd > 0) {
+          upTo = "$" + _usd.toFixed(2);
+          upToNote = " (" + String(_t.default_label || _t.id || "") + " 档)";
+        }
+      } catch (_e) {}
+      if (!upTo && rateR && rateR.ok) {
+        upTo = rateR.total_ceiling_usd;
+        upToNote = " (每阶段单次上限; 真视频档会调用多次)";
+      }
       el.hidden = false;
       el.style.cssText = "margin:6px 0 2px;font:12px/1.4 system-ui;color:var(--muted,#666);display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
       el.innerHTML =
-        '<span>This run will cost up to <strong style="color:var(--text,#222)">' + (upTo || "$2.43") + '</strong> (you pay only the engines’ actual cost).</span>' +
+        // W1967 — 算不出来就【不报价】, 绝不拿写死的 $2.43 冒充真实报价。
+        (upTo
+          ? '<span>This run will cost up to <strong style="color:var(--text,#222)">' + upTo + '</strong>' + upToNote + ' (you pay only the engines’ actual cost).</span>'
+          : '<span>Cost estimate unavailable — pick a tier below to see the price.</span>') +
         '<span>Balance: <strong style="color:var(--text,#222)">' + balUsd + '</strong></span>' +
         '<a href="#" data-mvp-topup="1" style="color:var(--accent,#2a7);text-decoration:underline;">Top up</a>';
       const topup = el.querySelector('[data-mvp-topup="1"]');

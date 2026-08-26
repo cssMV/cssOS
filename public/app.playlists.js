@@ -155,6 +155,12 @@
       take_index: raw.take_index || null,
       root_work_id: raw.root_work_id || null,
       sequence_index: raw.sequence_index ?? 0,
+      /* CSSOS_WAVE_1970g 20260826 — normaliseItem 是【白名单式】的: 没列进来的字段一律丢掉。
+       * 真视频优先排序读的正是这两个字段, 结果排序函数永远拿到 undefined → 三档判定全落到
+       * 第 2 档 → 排序等于没做(实测: 列表项 is_real_video_mv 全是 false, 而库里是 t)。
+       * 白名单的好处是干净, 代价就是这个 —— 新字段必须记得加进来。 */
+      is_real_video_mv: raw.is_real_video_mv === true,
+      visual_kind: String(raw.visual_kind || "").trim() || null,
       // CSSOS_WAVE_1092 — 多部作品上下文(供 up-next 卡显示三部曲/歌剧/剧集 N 部 + 第几/共几)
       work_type: String(raw.work_type || "").trim() || null,
       part_index: Number(raw._part_index || 0) || null,
@@ -240,9 +246,20 @@
           if (p) {
             anySuccess = true;
             const mineFlat = flattenWorksTree(p?.data?.works || p?.works || []);
-            mineFlat.sort((a, b) =>
-              (Date.parse(String(b?.created_at || "")) || 0) -
-              (Date.parse(String(a?.created_at || "")) || 0));
+            /* CSSOS_WAVE_1970h 20260826 — Jing:「用户进入平台, 默认优先播放真视频 MV。」
+             * For You 的拼装顺序是【先自己的作品, 再平台精选】, 而自己那段原来只按时间排 ——
+             * 于是登录用户永远先播自己最新的作品, 真视频优先在这一段被绕过。
+             * 用与市场段【同一套三档判据】, 两段行为一致:
+             *   0 显式标记(亲手分镜合成的整片真视频) > 1 老判据认出的视频 > 2 其余
+             * 同档内仍是最新优先, 不动 W1885 的结论。 */
+            const _tierM = (w) => (w?.is_real_video_mv === true) ? 0
+                               : (String(w?.visual_kind || "").toLowerCase() === "video") ? 1 : 2;
+            mineFlat.sort((a, b) => {
+              const ta = _tierM(a), tb = _tierM(b);
+              if (ta !== tb) return ta - tb;
+              return (Date.parse(String(b?.created_at || "")) || 0) -
+                     (Date.parse(String(a?.created_at || "")) || 0);
+            });
             pushUnique(list, have, mineFlat, true);
           }
         } catch (_e) { /* mine fetch failed — fall through to market */ }
@@ -264,9 +281,28 @@
            * 于是最新作品要等三百首之后才轮到, 用户观感就是"永远在放那几首老的"。
            * 修法: 追加前按 created_at 全局倒序。这只排 market 这一段, 不动用户自己的作品
            * (那段本来就已倒序, 且必须继续排在最前 —— 自己的新作品优先看到)。 */
-          mktFlat.sort((a, b) =>
-            (Date.parse(String(b?.created_at || "")) || 0) -
-            (Date.parse(String(a?.created_at || "")) || 0));
+          /* CSSOS_WAVE_1970e 20260826 — Jing:「用户进入平台, 默认优先播放真视频 MV。」
+           *
+           * 服务端(W1970)已经把 is_real_video_mv 排在最前, 但【这一行把它抹掉了】——
+           * W1885 当时为了治"最新作品排到第 301 位"加了这次按 created_at 全局倒序,
+           * 结果连真视频优先一起重排没了。两条都要: 先真视频, 同组内再最新优先。
+           *
+           * 判据用 visual_kind === 'video'(市场接口已返回), 不另外造字段。 */
+          /* 三档, 不是两档 —— 这一点很关键:
+           *   0 显式标记 is_real_video_mv  = 我们【亲手分镜、逐镜生成、合成整片】的真视频 MV
+           *   1 visual_kind === 'video'    = 老判据(URL 带 te-trailer / film-)认出来的视频,
+           *                                  多半是预告片/片段, 不是整片
+           *   2 其余
+           * 只分两档的话,「时间的帝国」那几部预告片按老判据也算 video, 且更新 → 压在前面,
+           * 于是《李清照》永远轮不到。显式标记必须压过 URL 猜测。 */
+          const _tier = (w) => (w?.is_real_video_mv === true) ? 0
+                             : (String(w?.visual_kind || "").toLowerCase() === "video") ? 1 : 2;
+          mktFlat.sort((a, b) => {
+            const ta = _tier(a), tb = _tier(b);
+            if (ta !== tb) return ta - tb;
+            return (Date.parse(String(b?.created_at || "")) || 0) -
+                   (Date.parse(String(a?.created_at || "")) || 0);  // 同档内最新优先
+          });
           pushUnique(list, have, mktFlat, null);
         }
       } catch (_e) {}

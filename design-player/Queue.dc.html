@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap">
+  <style>
+    body { margin:0; font-family:"Space Grotesk","Segoe UI",sans-serif; }
+    a { color:#00f5a0; } a:hover { color:#7dffd0; }
+    .t { font-family:"Syne","Space Grotesk",sans-serif; }
+    .mono { font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+  </style>
+</helmet>
+
+<div style="width:700px;height:1000px;box-sizing:border-box;padding:32px 30px 26px;color:#eafff6;
+            background:linear-gradient(168deg,rgba(9,20,16,.95),rgba(3,8,7,.99));
+            border:1px solid rgba(0,245,160,.16);border-radius:34px;display:flex;flex-direction:column;gap:20px">
+
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <span class="mono" style="font-size:11px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.46)">队列 · For you</span>
+      <span class="t" style="font-size:26px;font-weight:800;line-height:1.1">623 首 · 最新在前</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:999px;
+                background:hsla(155,72%,50%,.12);border:1px solid hsla(155,90%,62%,.32)">
+      <span style="width:6px;height:6px;border-radius:50%;background:hsl(155,100%,60%);box-shadow:0 0 8px hsla(155,100%,60%,.9)"></span>
+      <span class="mono" style="font-size:11.5px;color:hsl(155,92%,76%)">不间断 · 已 15h</span>
+    </div>
+  </div>
+
+  <!-- 连播方式: 与网页端同一套 5 种, 不另造 -->
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.34)">连播方式</span>
+    <div style="display:flex;align-items:center;height:52px;border-radius:999px;overflow:hidden;
+                border:1px solid hsla(192,90%,62%,.30);background:hsla(192,72%,50%,.07)">
+      <sc-for list="{{modes}}" as="m" hint-placeholder-count="5">
+        <div style="{{m.style}}"><span style="font-size:13.5px;font-weight:{{m.w}}">{{m.text}}</span></div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- 待播: 每首都显示四轨齐不齐 -->
+  <div style="display:flex;flex-direction:column;gap:10px;flex:1;min-height:0">
+    <div style="display:flex;align-items:baseline;justify-content:space-between">
+      <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:rgba(234,255,246,.34)">接下来</span>
+      <span class="mono" style="font-size:10.5px;color:rgba(234,255,246,.34)">四轨齐不齐 · 一眼看出</span>
+    </div>
+
+    <sc-for list="{{queue}}" as="q" hint-placeholder-count="5">
+      <div style="{{q.row}}">
+        <span class="mono" style="width:26px;flex:0 0 26px;font-size:12px;color:rgba(234,255,246,{{q.numInk}})">{{q.n}}</span>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:14.5px;font-weight:{{q.tw}};line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{q.title}}</span>
+          <span class="mono" style="font-size:10.5px;color:rgba(234,255,246,.4)">{{q.meta}}</span>
+        </div>
+        <div style="display:flex;gap:5px;flex:0 0 auto">
+          <sc-for list="{{q.dots}}" as="d" hint-placeholder-count="4">
+            <span title="{{d.name}}" style="{{d.style}}"></span>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:7px;padding:14px 16px;border-radius:18px;
+              background:hsla(268,72%,50%,.08);border:1px solid hsla(268,90%,62%,.26)">
+    <span class="mono" style="font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:hsl(268,92%,76%)">缺轨怎么办</span>
+    <span style="font-size:12.5px;line-height:1.6;color:rgba(234,255,246,.84)">
+      空心点 = 那一轨这首没有。<strong>不跳过、不报错</strong> —— 到它的时候该轨降级(画面落封面幻灯、字幕落整行),另外三轨照常演。
+      队列不该因为一轨不全就把一首歌整个丢掉。
+    </span>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    const R = 26, H = 192, ai = 0;
+    const cell = (pos) => {
+      const b = "flex:1;height:52px;display:grid;place-items:center;box-sizing:border-box;";
+      if (pos === "on")  return b + `background:hsla(${H},85%,52%,.34);border-radius:999px;z-index:2;`;
+      if (pos === "aft") return b + `background:hsla(${H},70%,50%,.10);border-radius:0 999px 999px 0;margin-left:-${R}px;padding-left:${R}px;`
+        + `-webkit-mask-image:radial-gradient(circle ${R}px at 0px 50%,transparent ${R-.5}px,#000 ${R}px);mask-image:radial-gradient(circle ${R}px at 0px 50%,transparent ${R-.5}px,#000 ${R}px);`;
+      return b + `background:hsla(${H},70%,50%,.10);border-radius:999px 0 0 999px;margin-right:-${R}px;padding-right:${R}px;`
+        + `-webkit-mask-image:radial-gradient(circle ${R}px at 100% 50%,transparent ${R-.5}px,#000 ${R}px);mask-image:radial-gradient(circle ${R}px at 100% 50%,transparent ${R-.5}px,#000 ${R}px);`;
+    };
+    const MODES = ["顺序", "倒序", "随机", "列表循环", "单曲循环"];
+    const modes = MODES.map((text, i) => ({ text, w: i === ai ? 700 : 500,
+      style: cell(i === ai ? "on" : (i > ai ? "aft" : "bef")) }));
+
+    const HUE = { 歌词:155, 音乐:192, 画面:268, 情绪字幕:48 };
+    const dots = (have) => Object.keys(HUE).map((name) => {
+      const on = have.includes(name), h = HUE[name];
+      return { name, style: `width:9px;height:9px;border-radius:50%;`
+        + (on ? `background:hsl(${h},95%,60%);box-shadow:0 0 7px hsla(${h},100%,60%,.75);`
+              : `background:transparent;border:1.5px solid hsla(${h},80%,62%,.42);`) };
+    });
+    const ALL = ["歌词","音乐","画面","情绪字幕"];
+    const item = (n, title, meta, have, now) => ({
+      n: now ? "▶" : String(n), numInk: now ? .95 : .38, tw: now ? 700 : 500, title, meta, dots: dots(have),
+      row: `display:flex;align-items:center;gap:13px;padding:13px 15px;border-radius:17px;min-height:62px;box-sizing:border-box;`
+         + (now ? `background:hsla(155,72%,50%,.15);border:1px solid hsla(155,90%,62%,.42);`
+                : `background:rgba(234,255,246,.035);border:1px solid rgba(234,255,246,.075);`) });
+
+    return { modes, queue: [
+      item(0, "李白 · 饮者三部曲 · 天地留名", "2026-08-23 · 第三部 / 共三部", ALL, true),
+      item(1, "The Diary of an Old Soul",     "2026-08-23 · single", ["歌词","音乐","情绪字幕"], false),
+      item(2, "苏东坡 · 明月三部曲 · 千里共婵娟", "2026-08-19 · 第二部 / 共三部", ALL, false),
+      item(3, "时间帝国 · 双星战争(预告)",   "2026-07-13 · trailer", ["音乐","画面"], false),
+      item(4, "Empire of Time: The Gambit",   "2026-06-30 · trailer", ALL, false),
+    ] };
+  }
+}
+</script>
+</body>
+</html>

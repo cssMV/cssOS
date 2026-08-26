@@ -2220,10 +2220,28 @@ function buildMarketCardsMarkup(works = []) {
       //   • listen chip → "Free", buyout chip → "Priceless · 无价之宝"
       //   • a "公共作品" badge replaces the transaction buttons
       // Everyone — including guests — can hit ENJOY to play for free.
-      const _isAdminOwned = typeof globalThis.isAdminWorkModule === "function"
-        ? globalThis.isAdminWorkModule(work) : false;
-      const cardListenChip = _isAdminOwned ? loginCopy("Free") : escapeHtml(listenPrice);
-      const cardBuyoutChip = _isAdminOwned ? loginCopy("Priceless") : escapeHtml(buyoutPrice);
+        /* CSSOS_WAVE_1958 20260825 — 管理员免单的【第五处】, 也是最后一处。
+         *
+         * Jing:「无法在市场购买聆听。点击是进入播放界面, 在那里也无法购买。」
+         * 前四处(真源接口 / 市场接口 / normalizeWorkTreeRow / 卡片价格文案)都改成了
+         * "标了价就照价收", 唯独这里还按【作者身份】决定要不要渲染购买按钮:
+         *     ${!_isAdminOwned ? `<button data-market-action="listen">` : ""}
+         * 于是管理员的作品【根本不渲染购买按钮】, 旁边还挂一个 "Public · Free for all"。
+         * 价格显示对了、后端也肯收钱, 但用户【没有按钮可点】—— 漏斗断在最后一厘米。
+         *
+         * 判据统一(与前四处一致): 管理员的作品【没标价才叫公共免费】。
+         * 标了价 → 显示价格、渲染购买按钮、照价收; 想回到"无价之宝" → 把价格清零。
+         * 决定权在价格字段, 不在作者身份。
+         *
+         * 教训: 一条业务规则散在五个地方, 改四处等于没改。而且前四处我都验证通过了,
+         * 偏偏漏了"按钮存不存在"这一处 —— 以后改这类规则, 必须从【用户能不能点】倒着验。 */
+        const _adminOwnedRaw = typeof globalThis.isAdminWorkModule === "function"
+          ? globalThis.isAdminWorkModule(work) : false;
+        const _listedListenCents = Math.max(0, Number(work?.current_listen_price_cents || work?.listen_price_cents || 0));
+        const _listedBuyoutCents = Math.max(0, Number(work?.current_buyout_price_cents || work?.buyout_price_cents || 0));
+        const _isAdminOwned = _adminOwnedRaw && _listedListenCents <= 0 && _listedBuyoutCents <= 0;
+        const cardListenChip = (_adminOwnedRaw && _listedListenCents <= 0) ? loginCopy("Free") : escapeHtml(listenPrice);
+        const cardBuyoutChip = (_adminOwnedRaw && _listedBuyoutCents <= 0) ? loginCopy("Priceless") : escapeHtml(buyoutPrice);
       // CSSOS_PHASE2_PLAYED_INDICATOR 20260504 — Jing
       // "已经欣赏过/播放过的作品和还没有欣赏过/播放过的作品，是否
       //  用点什么比如颜色之类的区分一下". Played-state class so CSS

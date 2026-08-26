@@ -39051,7 +39051,30 @@ async function loadMineWorkDescendants(rootIds: string[]) {
               final_mv_asset.meta AS final_mv_meta,
               audio_track_1_asset.url AS audio_track_1_url,
               audio_track_2_asset.url AS audio_track_2_url,
-              subtitle_asset.url AS subtitle_srt_url
+              subtitle_asset.url AS subtitle_srt_url,
+              /* CSSOS_WAVE_1970d 20260826 — Jing:「请让分集也带上 visual_kind。」
+               *
+               * 多画面胶囊读的是 work.visual_kind。父查询(市场/为你创作)取了这个字段,
+               * 但【分集是从本函数单独加载的】, 而本函数没取 —— 于是播放器打开分集时
+               * visual_kind 是 undefined → 胶囊判定落到 else 分支 → 只显示一颗"幻灯",
+               * 哪怕画面正在放真视频。实测:《寻寻觅觅》根节点 kind=video, 分集 kind=None。
+               *
+               * 判据与父查询一致: 显式标记 is_real_video_mv 优先, 其次才是 URL 特征。
+               * 三部曲的每一集本来就是【独立可播的 MV】, 字段自然也该独立完整。 */
+              CASE
+                WHEN w.is_real_video_mv
+                     AND EXISTS (SELECT 1 FROM work_assets vk3 WHERE vk3.work_id = w.id AND vk3.asset_type = 'slideshow_frame')
+                  THEN 'hybrid'
+                WHEN w.is_real_video_mv THEN 'video'
+                WHEN COALESCE((final_mv_asset.meta->'engines'->>'video_cents')::int, 0) > 0
+                     OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/te-trailer%'
+                     OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/film-%'
+                  THEN 'video'
+                ELSE 'slides'
+              END AS visual_kind,
+              (SELECT count(*) FROM work_assets vf2
+                WHERE vf2.work_id = w.id AND vf2.asset_type = 'slideshow_frame') AS visual_frames,
+              w.is_real_video_mv
        FROM user_works w
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
        LEFT JOIN work_access_products listen_product
@@ -39134,7 +39157,22 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
          COALESCE(final_mv_asset.url, w.preview_video_url) AS final_mv_url,
          COALESCE(audio_track_1_asset.url, w.preview_audio_url) AS audio_track_1_url,
          audio_track_2_asset.url AS audio_track_2_url,
-         subtitle_asset.url AS subtitle_srt_url
+         subtitle_asset.url AS subtitle_srt_url,
+         /* CSSOS_WAVE_1970i 20260826 — 市场路径的【分集】查询也要带这两个字段。
+          *
+          * 走了一圈弯路记在这: 我先补的是 loadMineWorkDescendants(那是 /api/works/mine 用的),
+          * 而市场/For You 用的是本函数 loadMarketWorkDescendants —— 补错了函数, 所以怎么刷新都不变。
+          * 更关键的一点: 根节点(「李清照·声声慢三部曲」)是容器、没有媒体, normaliseItem 会把它
+          * 整条丢掉; 真正进播放列表的是【分集】。所以标记只打在根上没用, 分集必须自己带。 */
+         CASE
+           WHEN w.is_real_video_mv THEN 'video'
+           WHEN COALESCE((final_mv_asset.meta->'engines'->>'video_cents')::int, 0) > 0
+                OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/te-trailer%'
+                OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/film-%'
+             THEN 'video'
+           ELSE 'slides'
+         END AS visual_kind,
+         w.is_real_video_mv
        FROM user_works w
        JOIN users u ON u.id = w.user_id
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -39324,7 +39362,19 @@ app.get("/api/works/mine", async (req, res) => {
                 final_mv_asset.meta AS final_mv_meta,
                 audio_track_1_asset.url AS audio_track_1_url,
                 audio_track_2_asset.url AS audio_track_2_url,
-                subtitle_asset.url AS subtitle_srt_url
+                 subtitle_asset.url AS subtitle_srt_url,
+                 /* CSSOS_WAVE_1970h 20260826 — /api/works/mine 也要带这两个字段。
+                  * For You 的第一段是【自己的作品】, 排序要按真视频优先, 读的就是它们。
+                  * 判据与市场查询一致: 显式标记优先, 其次才是 URL 特征。 */
+                 CASE
+                   WHEN w.is_real_video_mv THEN 'video'
+                   WHEN COALESCE((final_mv_asset.meta->'engines'->>'video_cents')::int, 0) > 0
+                        OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/te-trailer%'
+                        OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/film-%'
+                     THEN 'video'
+                   ELSE 'slides'
+                 END AS visual_kind,
+                 w.is_real_video_mv
          FROM user_works w
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
          LEFT JOIN work_access_products listen_product
@@ -40626,6 +40676,128 @@ async function cssosGenMvVideo(prompt: string, coverUrl: string, workId: string)
     return tmp; // R2 off → keep temp (better than nothing)
   } catch (_e) { return ""; }
 }
+/* CSSOS_WAVE_1966 20260825 — 分镜镜头生成(第一部真视频 MV:《李清照·寻寻觅觅》54 镜)。
+ *
+ * 为什么不复用 /api/admin/regen-video/:workId:
+ * 那个端点会把生成的片子写进 user_works.preview_video_url —— 拍分镜要出几十条片段,
+ * 每条都覆盖作品的正片视频, 等于边拍边毁。本端点【只出片, 不碰任何作品行】。
+ *
+ * 入参: { prompt, image_url?(锁脸定妆图), duration_secs?(默认5), aspect_ratio?(默认21:9), shot?(编号) }
+ * 出参: { ok, video, provider, ms }  —— video 已转存到我们自己的 R2(铁律: 绝不留第三方临时URL)
+ * generate_audio 恒为 false —— 画音分层铁律, 永不烧录。
+ */
+/* W1966 — 画幅字面量白名单; 未知值落 21:9(厂商实测最宽档)。 */
+const _MV_SHOT_ASPECTS = ["16:9","9:16","2.39:1","1:1","9:19.5","21:9","4:5"] as const;
+type MvShotAspect = (typeof _MV_SHOT_ASPECTS)[number];
+function _mvShotAspect(v: unknown): MvShotAspect {
+  const s = String(v || "");
+  return (_MV_SHOT_ASPECTS as readonly string[]).includes(s) ? (s as MvShotAspect) : "21:9";
+}
+/* CSSOS_WAVE_1970 20260826 — Jing:「真视频 MV 必须排在最先, 优先播放……同时保留封面图/
+ * 幻灯版作为降维画面。」
+ *
+ * 标记一部作品为【真视频 MV】(视频覆盖整首歌), 并挂上合成好的视频轨。
+ * 为什么要显式标记而不是靠判据猜: 库里很多作品都有 preview_video_url, 但那是 5 秒短片
+ * 垫在整首歌下面(画音分层), 不是真视频 MV。而"视频时长 ≥ 音频 80%"这种判据需要两个
+ * 时长都在库里 —— 实测 871/1680 首连 duration_secs 都是空的, 猜必然误判。
+ *
+ * 降维回退不需要额外做: 多画面胶囊(W1880)本来就是"真视频 > 混合 > 幻灯"逐级回落,
+ * 拿不到真视频的设备(如车机)自动落到封面/幻灯。这里只负责【把真视频这一层加进去】。 */
+app.post("/api/admin/mark-real-video-mv/:workId", express.json({ limit: "4kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const workId = String(req.params.workId || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
+  const b = (req.body || {}) as Record<string, unknown>;
+  const videoUrl = String(b.video_url || "").trim();
+  const on = b.off ? false : true;
+  try {
+    if (on && videoUrl) {
+      await withClient((c) => c.query(
+        `UPDATE user_works SET is_real_video_mv = true, preview_video_url = $2, updated_at = now()
+          WHERE id = $1::uuid`, [workId, videoUrl]));
+    } else {
+      await withClient((c) => c.query(
+        `UPDATE user_works SET is_real_video_mv = $2, updated_at = now() WHERE id = $1::uuid`,
+        [workId, on]));
+    }
+    /* CSSOS_WAVE_1970b — 多部作品: 标记【向上传播到根节点】。
+     * 市场/For You 展示的是树根(「李清照·声声慢三部曲」), 不是分集(「寻寻觅觅」)。
+     * 只标分集的话, 根节点没有标 → 整部作品在列表里根本不冒头(实测: 603 条里找不到)。
+     * 任一集是真视频, 整部就该算真视频 —— 用户点进去看到的就是那一集。 */
+    let promotedRoot: string | null = null;
+    if (on) {
+      const r = await withClient((c) => c.query<{ root: string | null }>(
+        `SELECT COALESCE(root_work_id, parent_work_id) AS root FROM user_works WHERE id=$1::uuid`, [workId]));
+      const root = String(r.rows[0]?.root || "").trim();
+      if (root && root !== workId) {
+        await withClient((c) => c.query(
+          `UPDATE user_works SET is_real_video_mv = true, updated_at = now() WHERE id = $1::uuid`, [root]));
+        promotedRoot = root;
+      }
+    }
+    return res.json({ ok: true, workId, is_real_video_mv: on, video_url: videoUrl || null, promoted_root: promotedRoot });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "MARK_FAILED", detail: (e as Error)?.message || "" });
+  }
+});
+
+app.post("/api/admin/mv-shot", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const b = (req.body || {}) as Record<string, unknown>;
+  const prompt = String(b.prompt || "").trim();
+  if (!prompt) return res.status(400).json({ ok: false, code: "PROMPT_REQUIRED" });
+  const shot = String(b.shot || "x").replace(/[^0-9a-zA-Z_-]/g, "").slice(0, 12) || "x";
+  const t0 = Date.now();
+  try {
+    const vreq: VideoGenRequest = {
+      prompt,
+      duration_secs: Math.max(3, Math.min(12, Number(b.duration_secs) || 5)),
+      // 只接受 VideoGenRequest 允许的画幅字面量; 未知值一律落到 21:9(厂商最宽档)
+      aspect_ratio: _mvShotAspect(b.aspect_ratio),
+      prefer: ["seedance"],
+    };
+    const img = String(b.image_url || "").trim();
+    if (img) vreq.image_url = img;
+    /* CSSOS_WAVE_1968 20260826 — 允许按镜指定型号, 用于同题材同 prompt 的【多型号横评】。
+     * 起因: KIE 价目表实测 —— 同一家族差 5–12 倍
+     *   seedance-2      41 credits/秒   (我们一直在用的)
+     *   seedance-2 fast 24.8
+     *   seedance-2-mini  8.2
+     *   seedance-1.5-pro 3.5 (无音频 720p)
+     * 便宜的档能不能用, 只能实拍对比 —— 尤其是 image_url 锁脸和多镜头一致这两个硬能力,
+     * KIE 只确认了 2-fast 与标准版一致, mini / 1.5-pro 未确认。
+     * 复用平台既有的 prefer_model 机制(resolveEngineModel 第一顺位), 不新造开关。 */
+    const model = String(b.model || "").trim();
+    if (model) (vreq as unknown as { prefer_model?: Record<string, string> }).prefer_model = { seedance: model };
+    const v = await callVideoGen(vreq);
+    if (!v?.ok || !v.video_url) {
+      return res.status(503).json({ ok: false, code: "VIDEO_UNAVAILABLE", detail: v?.error || "", provider: v?.provider || "" });
+    }
+    let out = String(v.video_url);
+    // 铁律: 生成即落我们自己的域名/R2, 绝不把第三方临时 URL 当成交付物。
+    if (!/cssstudio\.app|\/artifacts\/mv/i.test(out)) {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 90_000);
+      let buf: Buffer | null = null;
+      try { const r = await fetch(out, { signal: ctrl.signal, redirect: "follow" }); if (r.ok) buf = Buffer.from(await r.arrayBuffer()); }
+      finally { clearTimeout(to); }
+      if (buf && buf.byteLength > 4096) {
+        const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
+        const url = await uploadBufferToR2(buf, `artifacts/mv-shots/xunxunmimi/shot-${shot}-${sha}.mp4`, "video/mp4");
+        if (url) out = url;
+      }
+    }
+    return res.json({ ok: true, shot, video: out, provider: v.provider || "", ms: Date.now() - t0 });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "MV_SHOT_FAILED", detail: (e as Error)?.message || "", ms: Date.now() - t0 });
+  }
+});
+
 app.post("/api/admin/regen-video/:workId", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
@@ -50161,6 +50333,15 @@ app.get("/api/works/public/:id", async (req, res) => {
              -- 明确【不】算真视频的: canon-  它是 ffmpeg 拿【一张静态图】+ 音频做 Ken Burns 缓推,
              --   本质就是幻灯; epic- 同理是平台自己拼的。按"有 mp4"判断会把它们全标成真视频 = 撒谎。
              CASE
+               -- CSSOS_WAVE_1970c 20260826 — 显式标记优先于一切 URL 猜测。
+               -- 原判据靠三个 URL/元数据特征(video_cents / te-trailer / film-)。《寻寻觅觅》的
+               -- 真视频落在 /artifacts/mv/xunxunmimi-realvideo-seedance2.mp4, 三个都不匹配 →
+               -- 被判成 slides → 多画面胶囊只剩一颗"幻灯", 而画面明明在放真视频。
+               -- is_real_video_mv 是合成整片视频轨时打的标, 比 URL 猜得准。
+               WHEN w.is_real_video_mv
+                    AND EXISTS (SELECT 1 FROM work_assets vk2 WHERE vk2.work_id = w.id AND vk2.asset_type = 'slideshow_frame')
+                 THEN 'hybrid'
+               WHEN w.is_real_video_mv THEN 'video'
                WHEN (COALESCE((final_mv_asset.meta->'engines'->>'video_cents')::int, 0) > 0
                      OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/te-trailer%'
                      OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/film-%')
@@ -50174,7 +50355,10 @@ app.get("/api/works/public/:id", async (req, res) => {
              END AS visual_kind,
              -- 幻灯是用几张封面拼的 —— 胶囊要标"N张", 数字必须真。
              (SELECT count(*) FROM work_assets vf
-               WHERE vf.work_id = w.id AND vf.asset_type = 'slideshow_frame') AS visual_frames
+               WHERE vf.work_id = w.id AND vf.asset_type = 'slideshow_frame') AS visual_frames,
+             -- W1970h — 列本身也要取出来。此前只在 CASE 里【用】了它算 visual_kind,
+             -- 却没把列 SELECT 出来 → 前端排序读到 undefined → 真视频优先等于没做。
+             w.is_real_video_mv
          FROM user_works w
          JOIN users u ON u.id = w.user_id
          LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
@@ -50327,6 +50511,8 @@ app.get("/api/works/public/:id", async (req, res) => {
         })(),
         // CSSOS_WAVE_1880 — 多画面胶囊的类型与张数(判据见上面 SELECT 的注释)。
         visual_kind: String((row as any).visual_kind || "slides"),
+        // W1970e — 前端排序(真视频优先)与多画面胶囊都要读它, 显式带出去。
+        is_real_video_mv: (row as any).is_real_video_mv === true,
         visual_frames: Number((row as any).visual_frames || 0) || 0,
         // Playable URL: signed token, full kind for full-access viewers,
         // preview kind for guests on paid works (player honours the
@@ -50615,6 +50801,15 @@ app.get("/api/works/market", async (req, res) => {
              -- 明确【不】算真视频的: canon-  它是 ffmpeg 拿【一张静态图】+ 音频做 Ken Burns 缓推,
              --   本质就是幻灯; epic- 同理是平台自己拼的。按"有 mp4"判断会把它们全标成真视频 = 撒谎。
              CASE
+               -- CSSOS_WAVE_1970c 20260826 — 显式标记优先于一切 URL 猜测。
+               -- 原判据靠三个 URL/元数据特征(video_cents / te-trailer / film-)。《寻寻觅觅》的
+               -- 真视频落在 /artifacts/mv/xunxunmimi-realvideo-seedance2.mp4, 三个都不匹配 →
+               -- 被判成 slides → 多画面胶囊只剩一颗"幻灯", 而画面明明在放真视频。
+               -- is_real_video_mv 是合成整片视频轨时打的标, 比 URL 猜得准。
+               WHEN w.is_real_video_mv
+                    AND EXISTS (SELECT 1 FROM work_assets vk2 WHERE vk2.work_id = w.id AND vk2.asset_type = 'slideshow_frame')
+                 THEN 'hybrid'
+               WHEN w.is_real_video_mv THEN 'video'
                WHEN (COALESCE((SELECT (fa.meta->'engines'->>'video_cents')::int FROM work_assets fa
                                 WHERE fa.work_id = w.id AND fa.asset_type = 'final_mv' LIMIT 1), 0) > 0
                      OR w.preview_video_url LIKE '%/te-trailer%'
@@ -50631,6 +50826,9 @@ app.get("/api/works/market", async (req, res) => {
              -- 幻灯是用几张封面拼的 —— 胶囊要标"N张", 数字必须真。
              (SELECT count(*) FROM work_assets vf
                WHERE vf.work_id = w.id AND vf.asset_type = 'slideshow_frame') AS visual_frames,
+             -- W1970h — 列本身也要取出来。此前只在 CASE 里【用】了它算 visual_kind,
+             -- 却没把列 SELECT 出来 → 前端排序读到 undefined → 真视频优先等于没做。
+             w.is_real_video_mv,
            -- CSSOS_TIER_C_MULTILINGUAL C6 — which languages this work has
            -- as READY voice tracks (for card badges + language filter UI).
            (SELECT array_agg(wlt.lang ORDER BY wlt.track_order)
@@ -50717,6 +50915,13 @@ app.get("/api/works/market", async (req, res) => {
          -- 把 admin 置顶升回【主序第一档】—— 现在置顶是【刻意、稀少】的(清空后仅 Jerusalem 1 首),
          -- 与 W588 当初"一堆陈旧自动置顶霸屏"的情形不同, 故置顶优先是对的。置顶 → 活媒体/新作 → 最新。
          ORDER BY
+           -- CSSOS_WAVE_1970 20260826 — Jing:「真视频 MV 必须排在最先, 优先播放。用户进入平台,
+           --   默认优先播放真视频 MV……以后还有真视频 MV, 还是排在最前面。」
+           --   真视频排在【置顶之前】: 置顶是运营手段, 真视频是产品形态 —— 全网还没有第二家
+           --   做得出整片真视频, 它就该是用户进来看到的第一样东西。
+           --   判据用显式标记 is_real_video_mv, 不猜: 库里很多作品都有 preview_video_url,
+           --   但那是 5 秒短片垫在整首歌下面(画音分层), 不是真视频 MV。
+           (CASE WHEN w.is_real_video_mv THEN 0 ELSE 1 END) ASC,
            (CASE WHEN w.admin_pinned_at IS NOT NULL THEN 0 ELSE 1 END) ASC,
            w.admin_pinned_at DESC NULLS LAST,
            -- CSSOS_WAVE_1287 — Jing「唐伯虎三部曲等新作不进 For You」根因: 这些作品媒体存在

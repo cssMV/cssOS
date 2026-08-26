@@ -2343,19 +2343,20 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
 
 
 /* ============================================================================
- * CSSOS_WAVE_1982 20260826 — 媒体框那圈绿色光芒:【原样搬回来】
+ * CSSOS_WAVE_1983 20260826 — 媒体框:【只要光芒, 不要绿边】(Jing 授权重做)
  *
- * 找回来的东西 = c2909b1 里 .watch-screen::before 的那一整套声明,逐字照抄:
- *   padding: var(--watch-frame-border-thickness)   ← 4px(不是我之前写的 2px)
- *   三层 color-mix 辉光 22px / 52px / 72px         ← 不是我之前写的 16px + 36px
- *   accent-1 / accent-2 变量渐变 + 360% 采样
+ * Jing:「边框不能太绿, 而是散发绿色光芒。」
  *
- * W1960 我说「声明与平台原有那圈逐字一致」,但实际写的是自己捏的
- * 2px + 16/36px —— 又细又弱,所以出来是一条硬绿线,不是原来那团光芒。
- * 这就是 Jing 连续看了十几轮「你又重新造一个」的真身。
+ * 「太绿」的来源是原版那条【实心绿带】—— padding + 120deg 渐变 + content-box
+ * mask 挖空, 合起来画出一圈 4px 的实边。辉光只是它外面的附属。
+ * 这一版把实带整条去掉(background:none / padding:0 / mask:none),
+ * 只留 box-shadow: 向外三层扩散 + 向内一层晕染 —— 画面边缘是「渗出来的绿光」,
+ * 没有任何一条看得见的绿线。
  *
- * 唯一与原版不同的:坐标。原版 inset:1px 框住整个面板(= 要取消的 MV 外框),
- * 这里换成 --mv-ring-* 量出来的【画面矩形】。位置换了,风格一个字没换。
+ * 直角(border-radius:0): Jing 明确说过不要圆角。
+ * 坐标: --mv-ring-* = app.watch-face-crop.js 量出来的画面矩形; 没量到就不画。
+ *
+ * 【定稿后不许再动】—— Jing 确认即锁, 任何改动须先拿到明确 yes。
  * ========================================================================== */
 .watch-screen::after {
   content: "";
@@ -2363,26 +2364,20 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   display: none;
   inset: var(--mv-ring-top, 2px) var(--mv-ring-right, 2px)
          var(--mv-ring-bottom, 2px) var(--mv-ring-left, 2px);
-  border-radius: 14px;
-  padding: var(--watch-frame-border-thickness);
-  background: linear-gradient(
-    120deg,
-    rgba(0, 245, 160, 0.12),
-    var(--watch-frame-accent-1),
-    var(--watch-frame-accent-2),
-    var(--watch-frame-accent-1),
-    rgba(0, 245, 160, 0.12)
-  );
-  background-size: 360% 360%;
+  border-radius: 0;
+  padding: 0;
+  background: none;
   animation: none;
+  -webkit-mask: none;
+  mask: none;
+  -webkit-mask-composite: initial;
+  mask-composite: initial;
   box-shadow:
-    0 0 calc(22px + 24px * var(--watch-frame-border-energy)) color-mix(in srgb, var(--watch-frame-accent-1) calc(34% + var(--watch-frame-border-energy) * 32%), transparent),
-    0 0 calc(52px + 40px * var(--watch-frame-border-energy)) color-mix(in srgb, var(--watch-frame-accent-2) calc(18% + var(--watch-frame-border-energy) * 28%), transparent),
-    0 0 calc(72px + 52px * var(--watch-frame-border-energy)) color-mix(in srgb, var(--watch-frame-accent-3) calc(10% + var(--watch-frame-border-energy) * 18%), transparent);
+    0 0 14px rgba(0, 245, 160, 0.34),
+    0 0 38px rgba(0, 245, 160, 0.22),
+    0 0 78px rgba(11, 247, 255, 0.12),
+    inset 0 0 22px rgba(0, 245, 160, 0.13);
   pointer-events: none;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
   z-index: 2;
 }
 .watch-screen[data-mv-ring="1"]::after { display: block; }

@@ -367,11 +367,29 @@
       opened = true;
       try { globalThis.cssosPlaylists.setActive("for-you"); } catch (_e) {}
       setTimeout(function () {
+        /* CSSOS_WAVE_1974 20260826 — Jing:「用户进入平台默认播放真视频。」
+         *
+         * 列表排序(W1970)已经把真视频 MV 排到第一, 但【起播的不是列表第一首】——
+         * 这里传的是 preferLatestOwned:true, 它挑的是"最新的自有作品"。实测: 列表首位
+         * 是《寻寻觅觅》(real=true), 屏幕上起播的却是另一首。排序修对了也没用。
+         *
+         * 改法: 列表首位若是真视频 MV, 先 seekTo 到它再开面板 —— 让"默认播放"真的落在
+         * 真视频上。首位不是真视频时, 一个字不改, 保持 preferLatestOwned 原行为
+         * (登录创作者进来先看到自己最新的作品, 那条是对的, 不该被这次改动波及)。 */
+        var _first = null;
+        try {
+          var _items = (globalThis.cssosPlaylists.getActive() || {}).items || [];
+          _first = _items[0] || null;
+        } catch (_e) {}
+        var _firstIsReal = !!(_first && _first.is_real_video_mv === true);
+        if (_firstIsReal) {
+          try { globalThis.cssosPlaylists.seekTo(_first.id); } catch (_e) {}
+        }
         try {
           globalThis.openWatchPreviewFlowModule({
             preferredTab: "mv",
             clearLimit: true,
-            preferLatestOwned: true,
+            preferLatestOwned: !_firstIsReal,
           });
         } catch (_e) {}
       }, 120);

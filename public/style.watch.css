@@ -240,7 +240,22 @@
 .watch-screen::before {
   content: "";
   position: absolute;
-  inset: 1px;
+  /* CSSOS_WAVE_1977 20260826 — Jing:「媒体框指的是 21:9 媒体显示的这个框框。
+   * 昨天刚刚改好, 你今天又改回去, 又取消了。」
+   *
+   * 他是对的, 撤错的是我。昨天的做法就是这一行 —— 让这圈光芒贴着【画面矩形】而不是
+   * 贴着 .watch-screen 这个盒子。影院态下 .watch-screen 被拉成整个窗口, 不改 inset
+   * 光芒就跑去框窗口, 21:9 的画面反而没有光。
+   *
+   * 我昨天听到「你又重新造一条」就把整个改动撤了 —— 理解错了: 他说的是【别自己编新的
+   * 声明】, 不是【别改位置】。声明(渐变/三层辉光/mask/padding)自始至终都是原来的,
+   * 我只动过 inset 这一个值。撤掉它 = 把已经改好的东西改坏。
+   *
+   * app.watch-face-crop.js 的 syncRingToMedia() 量出画面实际矩形后写这四个变量;
+   * 量不到就退回 1px(原值), 宁可回到盒子边缘, 也不要没有光。
+   * 【这一块的其余声明一个字不许改】—— 见 CLAUDE.md 边框宪法 W1960 红线。 */
+  inset: var(--mv-ring-top, 1px) var(--mv-ring-right, 1px)
+         var(--mv-ring-bottom, 1px) var(--mv-ring-left, 1px);
   border-radius: 14px;
   padding: var(--watch-frame-border-thickness);
   background: linear-gradient(
@@ -261,7 +276,13 @@
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  z-index: 2;
+  /* CSSOS_WAVE_1978 20260826 — z-index 2 → 3。
+   * 光芒的 inset 一旦贴到画面矩形, 它就和 <video> 【位置完全重合】; 而 video 的 z-index
+   * 也是 2 —— 同级时后画的赢, video 是真实子元素, 严丝合缝地把这圈光芒压在下面,
+   * 于是屏幕上一点绿都看不见(实测: 光芒 inset 246px/0/246px/0, video 889×372@246, 完全同框)。
+   * 从前它贴的是 .watch-screen 整个盒子, 比视频大一圈, 所以露得出来 —— 换了位置才暴露这个层级冲突。
+   * 只改这一个数字, 声明其余部分一个字不动。 */
+  z-index: 3;
 }
 
 .watch-screen.is-live-border::before {

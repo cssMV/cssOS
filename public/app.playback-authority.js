@@ -126,4 +126,56 @@
       };
     },
   };
+
+  /* CSSOS_WAVE_1976 20260826 — 真视频的【画音同步】。
+   *
+   * 这是"真视频"带来的全新需求, 平台此前不需要, 所以一行都没有:
+   * 以前画面永远是【5 秒短片垫在整首歌下面】或幻灯, 循环播就行, 同步与否无所谓。
+   * 现在《寻寻觅觅》是一条 355 秒、《怎一个愁字》574 秒的整片视频 —— 它必须和音频
+   * 逐帧对齐。实测现场: 音频跑到 126 秒, 视频停在 60 秒且处于暂停 —— 画面卡成一张
+   * 静止图, 用户看到的就是"还是图片"。手动 play() 立刻正常, 说明不是浏览器策略拦的,
+   * 是某处代码暂停后【没有人再把它接回去】。
+   *
+   * 规矩(和权威的四条一脉相承: 音频是时间的唯一真源):
+   *   · 只在【整片真视频】上生效 —— 判据是视频时长与音频时长相差 < 10%。
+   *     短视频垫底那种(5 秒 vs 355 秒)一律不碰, 它本来就该自己循环。
+   *   · 音频 play/pause/seek → 视频跟随。音频是主, 视频是从, 永不反向。
+   *   · 每 1 秒查一次漂移, 超过 0.35 秒就把视频拉回音频的时刻。
+   *     (0.35s 是肉眼开始察觉口型/动作错位的阈值; 再小会因解码抖动频繁重定位。)
+   *   · 视频被任何人暂停而音频还在跑 → 立刻续上。这一条就是本次的直接病因。 */
+  (function videoAudioSync() {
+    var THRESH = 0.35, EVERY = 1000, RATIO = 0.10;
+    function el(id) { try { return document.getElementById(id); } catch (_e) { return null; } }
+    function isFullVideo(v, a) {
+      var dv = Number(v && v.duration) || 0, da = Number(a && a.duration) || 0;
+      if (!(dv > 0 && da > 0)) return false;
+      return Math.abs(dv - da) / da < RATIO;      // 整片真视频: 时长基本一致
+    }
+    function sync(force) {
+      var v = el("watch-video"), a = el("watch-audio-preview");
+      if (!v || !a || !isFullVideo(v, a)) return;
+      try {
+        if (Math.abs(v.currentTime - a.currentTime) > (force ? 0.05 : THRESH)) {
+          v.currentTime = a.currentTime;
+        }
+        if (!a.paused && v.paused) { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+        if (a.paused && !v.paused) { v.pause(); }
+      } catch (_e) {}
+    }
+    function wire() {
+      var a = el("watch-audio-preview");
+      if (!a || a.__cssosAvSyncWired) return;
+      a.__cssosAvSyncWired = true;
+      ["play", "playing", "pause", "seeked", "ratechange"].forEach(function (ev) {
+        try { a.addEventListener(ev, function () { sync(true); }, { passive: true }); } catch (_e) {}
+      });
+    }
+    try {
+      setInterval(function () { wire(); sync(false); }, EVERY);
+      globalThis.addEventListener("cssos:work-id-changed", function () {
+        setTimeout(function () { wire(); sync(true); }, 800);
+      }, { passive: true });
+    } catch (_e) {}
+    globalThis.cssosAvSync = { now: function () { sync(true); } };
+  })();
 })();

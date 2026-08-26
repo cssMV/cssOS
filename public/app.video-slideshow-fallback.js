@@ -26,6 +26,28 @@
     } catch (_e) {}
   }
 
+  /* CSSOS_WAVE_1975 20260826 — Jing:「播放还是封面图的幻灯, 不是真视频。」
+   *
+   * 实测现场: video.src 已经是《寻寻觅觅》的真视频, 但 .watch-screen 上挂着
+   * watch-screen-audio-fallback —— 那个类把视频压到 opacity:0.1, 封面层透出来,
+   * 于是真视频被"盖住"了, 用户看到的是幻灯。
+   *
+   * 这个类是上一首留下的: 前一首是几秒的短视频垫在整首歌下面, 短视频守卫
+   * (cssosShortVideoLoopGuard)给屏幕挂上了它 —— 而【切歌时没有任何人摘掉】。
+   * 于是一旦播过一首短视频作品, 后面所有作品都被压成幻灯, 哪怕它有整片真视频。
+   *
+   * 闸门装在切歌收口(cssos:work-id-changed)上, 而不是去各个挂类的地方补摘 ——
+   * 挂它的地方有四处(本模块 / 短视频守卫 / 音频模式 / 多画面胶囊), 逐处补必然漏。
+   * 换歌 = 新的一张白纸: 先摘干净, 该挂的那几处会在这一首自己重新判定后再挂。 */
+  try {
+    globalThis.addEventListener("cssos:work-id-changed", function () {
+      try {
+        var ws = document.querySelector(".watch-screen");
+        if (ws) ws.classList.remove("watch-screen-audio-fallback");
+      } catch (_e) {}
+    }, { passive: true });
+  } catch (_e) {}
+
   function hasRealVideoSrc(v) {
     var s = String((v && (v.currentSrc || v.getAttribute("src"))) || "");
     return !!s && !/^data:image\/svg/i.test(s) && !/^data:/i.test(s);

@@ -39001,7 +39001,20 @@ function buildWorkTree<T extends WorkTreeRow>(rows: T[]) {
       hydrateStructuredChildren(node);
     }
   });
-  sorter(reconciled);
+  /* CSSOS_WAVE_1984 20260826 — Jing:「设定《李清照·声声慢三部曲》为默认播放 + 全网置顶」
+   *   查下去发现根本不是置顶没写进库 —— 库里 admin_pinned_at 有、is_real_video_mv 有,
+   *   SQL 的 ORDER BY(真视频 0 → 置顶 0 → 活媒体 → 最新)单独跑也确实把三部曲排第一。
+   *   是这里把它推翻了: 原来这行是 `sorter(reconciled)`, 对【根列表】也排了一遍
+   *   sequence_index ASC → created_at DESC。而 sequence_index 只对【分集】有意义
+   *   (第 1/2/3 部), 根节点全是 0 → 整个退化成纯 created_at DESC, SQL 排序全废。
+   *   实测: 三部曲(06-28)被 Empire of Time 预告(06-30)压到第 7 位。
+   *
+   *   修法: 根列表【保持 SQL 给的顺序】(每个调用点的 ORDER BY 才是真源),
+   *   sorter 只负责把每个根底下的分集按 sequence_index 排好 —— 那才是它本来的职责。
+   *   sorter 自身是递归的, 所以传 children 进去就够了。 */
+  reconciled.forEach((node) =>
+    sorter(Array.isArray(node?.children) ? node.children : []),
+  );
   return reconciled;
 }
 

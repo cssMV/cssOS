@@ -28335,12 +28335,25 @@ const IMAGE_PROVIDERS = ["fal", "huggingface", "pollinations", "fireworks", "dee
  *
  * nano-banana 仍是锁脸参考图生成(callKieJob("google/nano-banana", {image_urls}))的
  * 唯一选择, 那条路不走本链, 不受影响。 */
-const KIE_IMAGE_GEN_MODELS: { model: string; aspect: boolean }[] = [
-  { model: "gpt-image-2-text-to-image",   aspect: true  },  // OpenAI, 吃 aspect
-  { model: "google/imagen4-fast",         aspect: true  },  // Google Imagen4
-  { model: "ideogram/v3-text-to-image",   aspect: true  },  // 文字渲染强
-  { model: "grok-imagine/text-to-image",  aspect: true  },  // $0.02 Grok
-  { model: "google/nano-banana",          aspect: false },  // 末位兜底: 不吃 aspect → 会出方图
+/* CSSOS_WAVE_1964c 20260825 — 每家的 aspect 允许集【各不相同】, 必须逐个给。
+ *
+ * 实测(20 张批量重生成的日志): 送统一的 "21:9" 之后 ——
+ *   grok-imagine  12× "aspect_ratio is not within the range of allowed options"
+ *   imagen4-fast   4× 同上
+ *   ideogram       8× internal error
+ * 前面几家一路失败 → 跌到末位 nano-banana(不吃 aspect)→ 出 1024×1024 方图。
+ * 结果 17 张里只有 3 张是宽的, 恰好是轮到 gpt-image-2 的那几次。
+ * 「链首换成会吃 aspect 的模型」不够 —— 还得让每一家收到【它自己允许】的值。
+ *
+ * widest: 该模型实测能接受的最宽档。要电影画幅时送这个值, 而不是统一值。
+ * 只有 gpt-image-2 实测吃 21:9(产出 1915×821 = 2.333); 其余先按 16:9(通用安全值),
+ * 等各家逐个验过再往上抬 —— 宁可稳出 16:9, 不要再跌回方图。 */
+const KIE_IMAGE_GEN_MODELS: { model: string; aspect: boolean; widest?: string }[] = [
+  { model: "gpt-image-2-text-to-image",   aspect: true,  widest: "21:9" },  // OpenAI, 实测吃 21:9
+  { model: "google/imagen4-fast",         aspect: true,  widest: "16:9" },  // 实测拒 21:9
+  { model: "ideogram/v3-text-to-image",   aspect: true,  widest: "16:9" },
+  { model: "grok-imagine/text-to-image",  aspect: true,  widest: "16:9" },  // 实测拒 21:9
+  { model: "google/nano-banana",          aspect: false },                  // 末位兜底: 不吃 aspect → 方图
 ];
 let __kieImageRotor = 0;
 function kieAspectRatio(w: number, h: number): string {
@@ -28496,12 +28509,19 @@ export async function callImageGen(req: ImageGenRequest): Promise<ImageGenRespon
         const locked = String(process.env.NANOBANANA_MODEL || "").trim();
         const chain = locked ? [{ model: locked, aspect: !/nano-banana/.test(locked) }] : KIE_IMAGE_GEN_MODELS;
         const ar = kieAspectRatio(w, h);
-        const start = __kieImageRotor++ % chain.length;
+        /* CSSOS_WAVE_1964c — 要【超宽画幅】时不再随机轮换起点。
+         * 轮换的目的是风格多样(W1496), 但画幅铁律优先于风格多样:
+         * 随机起点意味着 4/5 的调用从吃不下宽幅的模型开始, 一路失败跌到 nano-banana 出方图
+         * (实测 17 张只有 3 张是宽的)。超宽请求一律从链首(最宽的那家)开始, 失败再依次回落。
+         * 非超宽请求(方图/竖图, 如角色参考图)保持原来的轮换, 风格多样不受影响。 */
+        const wantsWide = /^(21:9|32:9)$/.test(ar);
+        const start = wantsWide ? 0 : (__kieImageRotor++ % chain.length);
         let kieErr = "kie_image_failed";
         for (let k = 0; k < chain.length; k++) {
           const spec = chain[(start + k) % chain.length]; if (!spec) continue;
           const input: Record<string, unknown> = { prompt: String(req.prompt || "").slice(0, 5000) };
-          if (spec.aspect) input.aspect_ratio = ar;
+          // W1964c — 送【这一家自己吃得下】的最宽档, 而不是统一值(各家允许集不同)。
+          if (spec.aspect) input.aspect_ratio = (wantsWide && spec.widest) ? spec.widest : ar;
           const r = await callKieJob(spec.model, input, { timeoutMs: 300_000 });
           if (r.ok && r.urls && r.urls.length) {
             return { ok: true, status: 200, provider: "nanobanana", model: spec.model, image_url: String(r.urls[0]), raw: r };

@@ -732,6 +732,86 @@ sites may still reference them.
 
 ---
 
+## 🔒 媒体框宪法 · 散发绿色光芒边框 —— 【W1983 定稿 · 已锁 · 不得再改】
+
+**Jing 2026-08-26 明确确认:「确认。就要这版,以后不得再改,再改我就草泥马十八代祖宗。
+马上订成宪法:媒体框散发绿色光芒边框,把参数定下来,写下来,记下来,不要再改。」**
+
+这是**唯一合法**的媒体框观感,写在 `public/style.watch.css` 文件末尾。
+**逐字定稿如下,任何一个数值都不许动:**
+
+```css
+.watch-screen::after {
+  content: "";
+  position: absolute;
+  display: none;
+  inset: var(--mv-ring-top, 2px) var(--mv-ring-right, 2px)
+         var(--mv-ring-bottom, 2px) var(--mv-ring-left, 2px);
+  border-radius: 0;
+  padding: 0;
+  background: none;
+  animation: none;
+  -webkit-mask: none;
+  mask: none;
+  -webkit-mask-composite: initial;
+  mask-composite: initial;
+  box-shadow:
+    0 0 14px rgba(0, 245, 160, 0.34),
+    0 0 38px rgba(0, 245, 160, 0.22),
+    0 0 78px rgba(11, 247, 255, 0.12),
+    inset 0 0 22px rgba(0, 245, 160, 0.13);
+  pointer-events: none;
+  z-index: 2;
+}
+.watch-screen[data-mv-ring="1"]::after { display: block; }
+```
+
+### 五条不可动摇的性质(改任何一条 = 违宪)
+
+| 性质 | 定稿值 | 为什么 |
+|---|---|---|
+| **没有实心绿带** | `background:none` `padding:0` `mask:none` | 「太绿」的唯一来源就是原版那条 4px 实边(渐变 + content-box mask 挖出来的)。**整条必须不存在。** |
+| **只有辉光** | 向外 `14 / 38 / 78px` 三层 + 向内 `inset 22px` | Jing 要的是「**散发**绿色光芒」,不是「绿色边框」。光是渗出来的,不是画出来的。 |
+| **直角** | `border-radius: 0` | Jing 反复说过不要圆角。 |
+| **贴画面矩形** | `--mv-ring-*`(`app.watch-face-crop.js` 实测写入) | 贴 21:9 画面走,不贴窗口走。没量到画面(`data-mv-ring` 缺失)就**不画**。 |
+| **MV 面板外圈保持取消** | `#watch-panel.panel.flow::after{content:none}` 等 | 里面有光芒 / 外面干净。两件事,分开管。 |
+
+### 红线
+
+1. **任何改动都必须先拿到 Jing 明确的「yes」。** 格式:「我打算改媒体框光芒的 <哪个值>,
+   原因 <一句话>。是否同意?(yes/no)」**没有 yes 就不动。**
+2. 不接受「顺手」「保持一致」「看着不对」「重构时捎带」「优化一下」。
+3. **会波及它的改动同样受限** —— 动 `.watch-screen` / `.watch-frame` 的定位尺寸、
+   动 `app.watch-face-crop.js` 的 `syncRingToMedia()`、动 CSS 加载顺序、
+   新增可能覆盖 `.watch-screen::after` 的规则。发现会波及,**先停下来问**。
+4. `style.css:7265` 那份旧 `::after`(2px + 16/36px)**已死**,被 `style.watch.css`
+   末尾这条覆盖。**不要再去改那份**,改了屏幕上纹丝不动。
+
+### 这条宪法的代价(别再付第二次)
+
+W1959→W1983,**十几轮返工、两个整晚**。根因两条,都在我身上:
+
+1. **我一直在改被覆盖掉的那条规则。** 三条 `.watch-screen::before` 里,
+   `style.watch.css` 加载最后、赢下级联;我连改三轮 `style.css:7241`,
+   Jing 屏幕上纹丝不动,只能一次次截图问「你当我眼瞎吗」。
+   **→ 改样式前,先 `getComputedStyle` 量出真正生效的声明,再去找是谁写的。**
+2. **我在 W1960 的注释里写了「声明与平台原有那圈逐字一致」—— 那句是假的。**
+   实际敲进去的是我自己捏的 `padding:2px` + `0 0 16px/36px`,而原版是
+   `4px` + `22/52/72px` 三层。**又细又弱 → 渲染成一条硬绿线,不是一团光芒。**
+   Jing 每次说「像,但不是」「你又重新造一个」,指的就是这个差;
+   而我每次都去改 z-index / inset / 圆角,**方向全错 —— 差的从来不是位置,是数值。**
+   那句假注释让后面十几轮排查全部信错了前提。
+   **→ 搬平台已有视觉,只准 `git show <commit>:<file>` 整块复制,禁止手敲近似值;
+   写「与原版一致」之前,先 `diff` 一遍再写。**
+
+**另:「A 保留 B 取消」先查它们是不是同一个元素在画。** 原版那圈从 `08588b9` 到
+`c2909b1` 一个字符没变过,它靠的是 `.watch-screen` 的双重身份 —— 窗口态 = 画面
+(媒体框光芒),影院/最大化态被拉成满窗 716×863(MV 外框描边)。**同一条规则,两个身份**,
+这才是「保留就两个一起保留、取消就两个一起取消」的真正原因。W1983 已彻底拆开:
+光芒归 `::after`(贴画面),外框归 `.panel.flow::after`(已取消)。
+
+---
+
 ## 边框宪法 · 媒体框留光芒 / MV 框取消描边 (W1960)
 
 **Jing 2026-08-25:「媒体框，保留绿色光芒边框；MV边框，取消绿色描边。」

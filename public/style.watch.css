@@ -2356,7 +2356,10 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
  * 直角(border-radius:0): Jing 明确说过不要圆角。
  * 坐标: --mv-ring-* = app.watch-face-crop.js 量出来的画面矩形; 没量到就不画。
  *
- * 【定稿后不许再动】—— Jing 确认即锁, 任何改动须先拿到明确 yes。
+ * 🔒【已定稿 · 已锁 · 不得再改】Jing 2026-08-26 确认:
+ *    「确认。就要这版, 以后不得再改。马上订成宪法, 把参数定下来。」
+ *    任何改动必须先拿到 Jing 明确的 yes。见 CLAUDE.md「媒体框宪法 W1983」。
+ *    注: style.css:7265 那份旧 ::after(2px + 16/36px) 已被本条覆盖, 改那份无效。
  * ========================================================================== */
 .watch-screen::after {
   content: "";

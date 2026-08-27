@@ -63,7 +63,18 @@ m=re.search(r"\{.*\}",str(t),re.S)
 print(m.group(0) if m else "NO_JSON:"+str(t)[:160])'
 }
 
-printf '%s' "$PROMPT" > /tmp/np_prompt.txt
+# CSSOS_WAVE_2004b — 这一行原来是【无条件覆盖】:
+#   printf '%s' "$PROMPT" > /tmp/np_prompt.txt
+# 于是任何想换判据的调用方(现代物校验 / 人物合规校验)刚写好的提示,
+# 在第一次调用 np.sh 时就被默认的"数人"提示盖掉 —— 判据被静默换掉,
+# 解析器找不到自己的字段 -> 恒为 0 -> 全部报 ✅。实测: 现代物校验前 29 镜
+# 的"通过"全是假的。校验器自己出假阴性, 比不校验更危险。
+# 改成: 调用方可用 NP_PROMPT_FILE 指定判据; 没指定才写默认。
+if [ -n "${NP_PROMPT_FILE:-}" ] && [ -f "${NP_PROMPT_FILE}" ]; then
+  cp "${NP_PROMPT_FILE}" /tmp/np_prompt.txt
+else
+  printf '%s' "$PROMPT" > /tmp/np_prompt.txt
+fi
 
 case "${1:-}" in
 calibrate)

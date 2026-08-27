@@ -61,10 +61,14 @@ SCENE = {
        "reddish-brown volcanic rock pitted with small empty carved niches, thick moss in the cracks, "
        "very straight tall cedars in front, pale shafts of light between them, worn stone steps "
        "climbing into the trees. "),
+ # W2003 — 银河的表述必须用【样镜里验证有效的那一句】: 说"horizontally"不够,
+ # 实拍出来是斜的; 必须明确"从最左边缘到最右边缘"并否掉 vertical/diagonal/partial。
+ # 「よこたふ」原句写的就是横, 这是画幅在全片最强的一击, 不能靠模型自己领会。
  "3": ("NIGHT on a deserted shore at Izumozaki, Edo-period Japan. Heavy white surf breaks across the "
-       "bottom of the frame; far out a long low BLACK ISLAND lies horizontally; above it the MILKY WAY "
-       "stretches horizontally right across the sky. Three horizontal bands: silver stars on top, "
-       "black island in the middle, white surf below. "),
+       "bottom of the frame; far out a long low BLACK ISLAND lies horizontally; above it THE MILKY WAY "
+       "STRETCHES HORIZONTALLY FROM THE EXTREME LEFT EDGE TO THE EXTREME RIGHT EDGE as a broad silver "
+       "river of stars lying flat across the whole sky — NOT vertical, NOT diagonal, NOT partial. "
+       "Three horizontal bands: silver stars on top, black island in the middle, white surf below. "),
 }
 STYLE = (" Palette strictly three colours: ink black, moss green, snow white"
          " (part three adds the silver of the stars)."
@@ -73,7 +77,16 @@ STYLE = (" Palette strictly three colours: ink black, moss green, snow white"
          " no handheld shake. Edo-period Japan — absolutely no modern object: no wires, no concrete,"
          " no ships, no road signs, no railings."
          " Cinematic photoreal, cold restrained grade. Silent, no text, no watermark.")
-NO_HUMAN = ""   # 芭蕉三部都允许旅人剪影(≤1/8 宽, 背身无脸), 没有"无人部"
+# CSSOS_WAVE_2003 20260827 — 人物约束【不能留空】。
+# 我原来把它设成空串, 理由是"芭蕉三部都允许旅人剪影, 没有无人部" —— 那是把
+# 【允许一个背影】误读成【不必约束】。实测后果: 第三部 #36 拍出三个人站在岸边,
+# 其中一位和服女性正面、脸可见、占画面约 1/5, 而分镜写的是
+# 「旅人剪影, 永不超过 1/8 宽, 绝无脸部特写」。允许 ≤1 不等于不设上限。
+PERSON = (" AT MOST ONE human may appear, and only as a distant back-facing silhouette of a "
+          "single travelling monk-poet in a woven sedge hat, occupying no more than one eighth "
+          "of the frame width. NEVER show a face. NEVER show two or more people. "
+          "NO woman, NO group, NO crowd, NO close-up of any person.")
+NO_HUMAN = PERSON
 
 def load(p, d):
     try:
@@ -99,7 +112,7 @@ def clean(desc):
 
 def shoot(tok, part, idx, num, dur, desc, is_p3):
     tag = f"bs{part}{str(num).replace('.', 'x')}"
-    prompt = SCENE.get(str(part), SCENE["1"]) + clean(desc) + STYLE
+    prompt = SCENE.get(str(part), SCENE["1"]) + clean(desc) + STYLE + PERSON
     body = {"shot": tag, "project": "basho", "model": MODEL,
             "duration_secs": int(dur), "image_url": PLATE_BY_PART.get(str(part), PLATE_BY_PART["1"]), "prompt": prompt}
     assert int(dur) in (4, 6, 8), f"非法时长 {dur} —— veo 兜底只收 4/6/8"

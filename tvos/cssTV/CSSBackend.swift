@@ -143,8 +143,21 @@ enum CSSBackend {
         }
         // ① Today's Picks = 系统推荐: 用后端原生序(置顶/活媒体/curation 在前), 这才是"算法推荐"。
         rail("today", "Today's Picks", "sparkles", works)
-        // ② For You — 严格从新到旧(W1281: 后端"媒体优先"档会把老成品顶到真正最新前面 → 客户端按 created_at 重排)。
-        rail("foryou", "For You", "flame.fill", works.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") })
+        // ② For You — 真视频优先, 其余从新到旧。
+        //   CSSOS_WAVE_1984d 20260826 — Jing:「TV 版还是旧数据, 没有《李清照·声声慢三部曲》。」
+        //   数据是新的(cache-control: no-store, 每次启动 .task 重拉) —— 是这里把它埋了:
+        //   原来一律按 created_at 倒序重排, 把后端排好的【真视频优先 → 置顶】整个丢掉。
+        //   三部曲 06-28, 在 48 条里被所有更新的作品压到下面, 大屏上根本翻不到。
+        //   W1281 当初这么排是对的(后端"媒体优先"档会把老成品顶到真正最新前面), 但那是
+        //   在后端还没有显式档位的年代; 现在后端有 is_real_video_mv 了, 只需把这一档抬出来,
+        //   其余仍旧从新到旧 —— W1281 的初衷一个字没丢。
+        //   同一个教训在 Web 端也栽过两次(buildWorkTree / mktFlat): 服务端排好的顺序,
+        //   客户端不要再无条件重排一遍。
+        rail("foryou", "For You", "flame.fill", works.sorted {
+            let a = ($0.isRealVideoMV ?? false), b = ($1.isRealVideoMV ?? false)
+            if a != b { return a }                                    // 真视频永远在前
+            return ($0.createdAt ?? "") > ($1.createdAt ?? "")        // 同档内最新优先
+        })
         // ③ Most Played — 占位排序(后端暂无播放数; TODO 接 play_count)。
         rail("most-played", "Most Played", "chart.bar.fill", works.sorted { $0.id.hashValue > $1.id.hashValue })
         // CSSOS_WAVE_1560 — Jing「右栏 1:1 映射侧栏所有分类(除 Home), 哪怕只有一个预告片; 空分类

@@ -89,6 +89,9 @@ struct CSSWork: Codable, Identifiable {
     var createdAt: String?
     /// W1329 — 多部作品的子作品(各 part)。market 序列化带 children。
     var children: [CSSWork]?
+    /// CSSOS_WAVE_1984d 20260826 — 真视频 MV 的显式标记(后端 is_real_video_mv)。
+    ///   For You 栏靠它把真视频顶在最前, 与 Web 端同一判据 —— 不用 URL 猜。
+    var isRealVideoMV: Bool?
     /// W1329 — 媒体兜底列(多部 children 媒体常在 preview 列, 非 work_assets)。
     var previewAudio: String?
     var previewVideo: String?
@@ -111,6 +114,7 @@ struct CSSWork: Codable, Identifiable {
         case workType = "work_type"
         case createdAt = "created_at"
         case children
+        case isRealVideoMV = "is_real_video_mv"
         case previewAudio = "preview_audio_url"
         case previewVideo = "preview_video_url"
         case listenPriceCents = "current_listen_price_cents"

@@ -69,11 +69,57 @@
   }
   globalThis.__cssosFallbackShowVideo = showVideoAgain;
 
+  /* CSSOS_WAVE_2002 20260827 — Jing:「还是显示黑框, 应该至少显示一个封面图。」
+   *
+   * W1989 把视频藏掉了, 但【没有保证后面有东西】—— 藏掉之后露出来的是黑。
+   * 实测(线上): .watch-svg 其实是好的(已加载 1915x821, opacity 1, z-index 1),
+   * 视频 z-index 2 压在它上面; 可一旦那一刻 .watch-svg 没有 src(封面 404 /
+   * 切歌途中 / 作品本就无封面), 藏掉视频就真的什么都不剩。
+   * 而原来的补图那一路走 cssmvSetCoverSlides(covers) —— 它收到空数组直接 return,
+   * 等于没喂, 且不报错。依赖别的模块先准备好, 就一定有准备不好的时候。
+   *
+   * 兜底必须【自给自足】: 视频元素自带 poster(就是本作品封面), 直接把它画成
+   * .watch-screen 的 background-image —— 这一层没有任何前置条件, 不可能是空的。
+   * 顺序: 幻灯层已有图 -> 用它; 否则 poster; 否则 curCoverList 第一张。 */
+  function coverFloor() {
+    var v = document.getElementById("watch-video");
+    var ws = v && v.closest ? v.closest(".watch-screen") : document.querySelector(".watch-screen");
+    var svg = document.querySelector(".watch-svg");
+    var url = "";
+    try { if (svg && svg.naturalWidth > 0 && (svg.currentSrc || svg.src)) url = String(svg.currentSrc || svg.src); } catch (_e) {}
+    if (!url && v) url = String(v.getAttribute("poster") || "").trim();
+    if (!url) { try { url = (curCoverList() || [])[0] || ""; } catch (_e) {} }
+    if (!url) return false;
+    if (ws) {
+      try {
+        ws.style.setProperty("background-image", 'url("' + url + '")', "important");
+        ws.style.setProperty("background-size", "cover", "important");
+        ws.style.setProperty("background-position", "center center", "important");
+        ws.style.setProperty("background-repeat", "no-repeat", "important");
+        ws.setAttribute("data-cssos-cover-floor", "1");
+      } catch (_e) {}
+    }
+    // 幻灯层如果是空的, 也把这张补进去(它在视频下面, 露出来就是它)
+    try { if (svg && !(svg.naturalWidth > 0)) svg.src = url; } catch (_e) {}
+    return true;
+  }
+  function clearCoverFloor() {
+    try {
+      var ws = document.querySelector('.watch-screen[data-cssos-cover-floor="1"]');
+      if (!ws) return;
+      ["background-image", "background-size", "background-position", "background-repeat"]
+        .forEach(function (k) { ws.style.removeProperty(k); });
+      ws.removeAttribute("data-cssos-cover-floor");
+    } catch (_e) {}
+  }
+
   function reveal(reason) {
     try {
       var ws = document.querySelector(".watch-screen");
       if (ws && !ws.classList.contains("watch-screen-audio-fallback")) ws.classList.add("watch-screen-audio-fallback");
     } catch (_e) {}
+    /* 先铺地板, 再藏视频 —— 顺序不能反: 反过来会有一帧真的是黑的。 */
+    try { coverFloor(); } catch (_e) {}
     try { hideVideoHard(document.getElementById("watch-video")); } catch (_e) {}
     try {
       var covers = curCoverList();
@@ -113,6 +159,7 @@
       /* W1989b — 摘类的同时也要把我们写死的 inline 撤掉, 否则新一首的视频会
        * 被上一首留下的 opacity:0!important 永久按住 —— 那就是 W1975 那个坑的镜像。 */
       try { showVideoAgain(document.getElementById("watch-video")); } catch (_e) {}
+      try { clearCoverFloor(); } catch (_e) {}
     }, { passive: true });
   } catch (_e) {}
 
@@ -198,8 +245,16 @@
      * 一旦不在降级态了, 立刻把我们写的 inline 撤掉, 绝不留下一个永远看不见的视频。 */
     try {
       var ws2 = v.closest ? v.closest(".watch-screen") : document.querySelector(".watch-screen");
-      if (ws2 && ws2.classList.contains("watch-screen-audio-fallback")) hideVideoHard(v);
-      else showVideoAgain(v);
+      if (ws2 && ws2.classList.contains("watch-screen-audio-fallback")) {
+        hideVideoHard(v);
+        /* CSSOS_WAVE_2002b — 地板也要在这里补。
+         * coverFloor() 原来只在 reveal() 里跑, 可【挂上降级类的地方有四处】
+         * (本模块 / 短视频守卫 / 音频模式 / 多画面胶囊) —— 另外三处挂了类却
+         * 没铺地板, 视频一藏就是黑。这正是 Jing 看到黑框的场景。
+         * 装在 poll 的自愈分支上, 无论谁挂的类都能兜住(与 W1975 同一个打法:
+         * 闸门装在必经之路, 不去各个挂类的地方补)。 */
+        try { if (!ws2.getAttribute("data-cssos-cover-floor")) coverFloor(); } catch (_e) {}
+      } else { showVideoAgain(v); clearCoverFloor(); }
     } catch (_e) {}
   }
 

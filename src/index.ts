@@ -40766,6 +40766,7 @@ app.post("/api/admin/mv-shot", express.json({ limit: "16kb" }), async (req, res)
   const prompt = String(b.prompt || "").trim();
   if (!prompt) return res.status(400).json({ ok: false, code: "PROMPT_REQUIRED" });
   const shot = String(b.shot || "x").replace(/[^0-9a-zA-Z_-]/g, "").slice(0, 12) || "x";
+  const project = String(b.project || "xunxunmimi").replace(/[^0-9a-zA-Z_-]/g, "").slice(0, 40) || "xunxunmimi";
   const t0 = Date.now();
   try {
     const vreq: VideoGenRequest = {
@@ -40801,7 +40802,10 @@ app.post("/api/admin/mv-shot", express.json({ limit: "16kb" }), async (req, res)
       finally { clearTimeout(to); }
       if (buf && buf.byteLength > 4096) {
         const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
-        const url = await uploadBufferToR2(buf, `artifacts/mv-shots/xunxunmimi/shot-${shot}-${sha}.mp4`, "video/mp4");
+        /* CSSOS_WAVE_1985 20260826 — 路径按项目分目录。原来写死 artifacts/mv-shots/xunxunmimi/,
+         * 于是《旧时相识》《怎一个愁字》的镜头全落进《寻寻觅觅》的文件夹(只靠 shot 前缀 js/zy 区分),
+         * 到王维这一部就再也分不清了。加 project 参数, 缺省仍是 xunxunmimi(旧素材路径一个字不动)。 */
+        const url = await uploadBufferToR2(buf, `artifacts/mv-shots/${project}/shot-${shot}-${sha}.mp4`, "video/mp4");
         if (url) out = url;
       }
     }
@@ -40903,6 +40907,56 @@ app.get("/api/works/by-creator/:id", async (req, res) => {
     return res.status(500).json({ ok: false, error: (e as Error)?.message || "failed", items: [] });
   }
 });
+/* CSSOS_WAVE_1985 20260826 — 独立「锚图」出图口(不挂任何 work)。
+ *
+ * 为什么需要它: 分镜片的第一步永远是先出一张定妆图/地貌图当 image_url 锚, 全片引用它。
+ * 现有两条路都走不通 —— /api/mv/cover 要登录会话(命令行拿不到); regen-cover 必须挂在
+ * 某个 workId 上, 而且会覆盖那个作品的封面。锚图既不属于任何作品, 也不该污染任何作品。
+ *
+ * 不另造引擎: 直接走 callImageGen —— 画幅/构图/艺术指导的闸门(W1964b)就装在它入口,
+ * 从这里出的锚图自动带 32:9 构图, 与全平台同一真源。
+ * 铁律: 生成即落 R2, 绝不把第三方临时 URL 当交付物。 */
+app.post("/api/admin/mv-plate", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const b = (req.body || {}) as Record<string, unknown>;
+  const prompt = String(b.prompt || "").trim();
+  if (!prompt) return res.status(400).json({ ok: false, code: "PROMPT_REQUIRED" });
+  const project = String(b.project || "plates").replace(/[^0-9a-zA-Z_-]/g, "").slice(0, 40) || "plates";
+  const name = String(b.name || "plate").replace(/[^0-9a-zA-Z_-]/g, "").slice(0, 24) || "plate";
+  const t0 = Date.now();
+  try {
+    const img = await callImageGen({
+      prompt,
+      size: CINEMA_LANDSCAPE.size,
+      output_format: "png",
+      quality: "high",
+    });
+    if (!img?.ok) {
+      return res.status(503).json({ ok: false, code: "IMAGE_UNAVAILABLE", detail: img?.error || "", provider: img?.provider || "" });
+    }
+    let buf: Buffer | null = null;
+    if (img.image_b64) {
+      buf = Buffer.from(img.image_b64, "base64");
+    } else if (img.image_url) {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 90_000);
+      try { const r = await fetch(img.image_url, { signal: ctrl.signal, redirect: "follow" }); if (r.ok) buf = Buffer.from(await r.arrayBuffer()); }
+      finally { clearTimeout(to); }
+    }
+    if (!buf || buf.byteLength < 4096) {
+      return res.status(503).json({ ok: false, code: "PLATE_EMPTY", provider: img.provider || "" });
+    }
+    const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
+    const url = await uploadBufferToR2(buf, `artifacts/mv-plates/${project}/${name}-${sha}.png`, "image/png");
+    if (!url) return res.status(503).json({ ok: false, code: "R2_UPLOAD_FAILED" });
+    return res.json({ ok: true, project, name, plate: url, provider: img.provider || "", model: img.model || "", bytes: buf.byteLength, ms: Date.now() - t0 });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "MV_PLATE_FAILED", detail: (e as Error)?.message || "", ms: Date.now() - t0 });
+  }
+});
+
 app.post("/api/admin/regen-cover/:workId", express.json({ limit: "8kb" }), async (req, res) => {
   noStore(res);
   const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();

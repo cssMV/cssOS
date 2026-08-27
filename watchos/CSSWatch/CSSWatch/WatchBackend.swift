@@ -11,7 +11,20 @@ enum WatchBackend {
         guard let (data, _) = try? await URLSession.shared.data(from: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let works = (obj["data"] as? [String: Any])?["works"] as? [[String: Any]] else { return [] }
-        return works.compactMap { w in
+        /* CSSOS_WAVE_1984f 20260826 — Jing:「Watch 端也检查一下。」
+         * Watch 这边【没有】客户端重排(这点是对的, 三处别的端都栽了), 但它有另一个漏:
+         * 只读顶层 works, 不看 children —— 而多部作品(三部曲/歌剧/剧集)的【根节点是个
+         * 只有封面的容器】, 自己没有音频, 下面那句 guard !audio.isEmpty 会把它丢掉,
+         * 分集又在 children 里从没被读过 → 整部作品在表上彻底消失。
+         * 实测:《李清照·声声慢三部曲》根节点 audio_track_1_url / preview_audio_url 都是 null。
+         * 修法: 先把树摊平(根 + 各分集), 再走原来的逐条映射 —— 有音频的分集就能上表,
+         * 没音频的容器仍旧被 guard 丢掉, 原有行为不变。 */
+        var flat: [[String: Any]] = []
+        for w in works {
+            flat.append(w)
+            if let kids = w["children"] as? [[String: Any]] { flat.append(contentsOf: kids) }
+        }
+        return flat.compactMap { w in
             let id = (w["id"] as? String) ?? ""
             guard !id.isEmpty else { return nil }
             let title = (w["title"] as? String) ?? "—"

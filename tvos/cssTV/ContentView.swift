@@ -93,6 +93,8 @@ private struct CSSScrollOffsetKey: PreferenceKey {
 
 struct ContentView: View {
     @State private var allWorks: [CSSWork] = []
+    /// W1984g — 回到前台重拉作品列表用(见下方 .onChange(of: scenePhase))。
+    @Environment(\.scenePhase) private var scenePhase
     // W1260 — Home 不再默认选中: pickedCategory=nil 时侧栏不高亮任何项, 内容仍按 .all(For You…)。
     @State private var pickedCategory: HomeCategory? = nil
     private var category: HomeCategory { pickedCategory ?? .all }
@@ -275,6 +277,21 @@ struct ContentView: View {
         }
         .onChange(of: auth.isSignedIn) { _, signed in
             if signed { Task { allWorks = await CSSBackend.fetchFeed() } }  // 登录后重拉 → 带 viewer_orders 解锁已购
+        }
+        /* CSSOS_WAVE_1984g 20260826 — Jing:「TV 版读的数据为什么不是最新的?」
+         * 数据源没问题(cache-control: no-store), 是【从来没有在回到前台时重拉过】:
+         * .task 只在视图首次出现时触发一次, tvOS 把 app 挂起后再切回来 → 还是上次那批。
+         * 只有彻底退出重开才会刷新, 而遥控器上没人会这么做。
+         * 补上 scenePhase: 每次回到 .active 重拉一次(no-store, 命中的一定是最新)。 */
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                let fresh = await CSSBackend.fetchFeed()
+                if !fresh.isEmpty {
+                    allWorks = fresh
+                    CSSBackend.writeTopShelfCache(fresh)
+                }
+            }
         }
         // W1564 — Jing「Menu 键应退回上一级, 而非退出平台」: 选中某分类时 Menu → 回 Home(清 pickedCategory);
         //   已在 Home(category==.all)则不接管 → 交系统默认(退出/回 tvOS 主屏)。

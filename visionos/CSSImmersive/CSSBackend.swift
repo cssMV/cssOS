@@ -312,7 +312,18 @@ enum CSSBackend {
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             var works = ((obj?["data"] as? [String: Any])?["works"] as? [[String: Any]]) ?? []
             if shelf != "flagship" {
+                /* CSSOS_WAVE_1984e 20260826 — Jing:「Vision 端也检查一下有没有同样问题。」
+                 * 有, 而且比 TV 更狠: 这里取 60 条池子 → 按 created_at 重排 → 后面 prefix(limit=24)。
+                 * 三部曲 06-28, 只要池子里有 24 条比它新的, 它不是排到后面, 是【被整个切掉】。
+                 * W1097 当初这么排是对的(「大厅卡片要最新 5 个, 不要总是 Epic 优先」), 但那是
+                 * 后端还没有 is_real_video_mv 显式档位的年代。现在把真视频这一档抬出来,
+                 * 其余仍旧最新优先 —— W1097 的初衷一个字没丢。
+                 * 同一个教训今天已经栽过三次(Web buildWorkTree / Web mktFlat / TV For You):
+                 * 服务端排好的顺序, 客户端不要再无条件重排一遍。 */
                 works.sort {  // created_at 是 ISO 串, 字典序倒排=时间倒排(最新在前)
+                    let ra = ($0["is_real_video_mv"] as? Bool) ?? false
+                    let rb = ($1["is_real_video_mv"] as? Bool) ?? false
+                    if ra != rb { return ra }              // 真视频 MV 永远在前
                     let a = ($0["created_at"] as? String) ?? ($0["createdAt"] as? String) ?? ""
                     let b = ($1["created_at"] as? String) ?? ($1["createdAt"] as? String) ?? ""
                     return a > b

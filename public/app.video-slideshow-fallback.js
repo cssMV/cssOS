@@ -15,14 +15,79 @@
       return String(c || "").trim();
     } catch (_e) { return ""; }
   }
+  /* CSSOS_WAVE_1989 20260826 — Jing:「降级到【用封面图制作成的幻灯】, 不要留一个黑乎乎的媒体框。」
+   * 原来只喂 curCover() 一张 —— 那是【静图】, 不是幻灯。有几张就全喂进去:
+   * cover_slides / slideshow_frames(库里的 slideshow_frame 资产) / 封面 / 预览图,
+   * 顺序去重由 cssmvSetCoverSlides 自己做。 */
+  function curCoverList() {
+    var out = [];
+    try {
+      var w = globalThis.cssosCurrentWork || null;
+      if (w) {
+        var pools = [w.cover_slides, w.slideshow_frames, w.visual_frames];
+        for (var i = 0; i < pools.length; i++) {
+          if (Array.isArray(pools[i])) for (var j = 0; j < pools[i].length; j++) {
+            var u = pools[i][j];
+            u = String((u && (u.url || u.src)) || u || "").trim();
+            if (u) out.push(u);
+          }
+        }
+        [w.cover_image, w.cover_url, w.preview_image_url].forEach(function (u) {
+          u = String(u || "").trim(); if (u) out.push(u);
+        });
+      }
+    } catch (_e) {}
+    if (!out.length) { var c = curCover(); if (c) out.push(c); }
+    return out;
+  }
+  /* CSSOS_WAVE_1989b 20260826 — 光加那个 class 【压不住画面】(实测):
+   * 切换 watch-screen-audio-fallback, 视频 computed opacity 纹丝不动(off=0.95 / on=0.95),
+   * 尽管元素确实 matches 那条 !important 的 0.1 规则。页面有 46 张样式表(含多张 JS 注入的
+   * inline sheet), 而旋转路径还会往元素上写 inline `opacity:1 !important` —— 谁最终赢
+   * 不可预测。而对用户来说后果很确定: 视频还盖在幻灯上面 = 还是那个黑框。
+   * 所以不跟层叠缠斗 —— 降级模块【自己在元素上写 inline !important】。
+   *
+   * 实测结果比预想更怪, 记在这里省得下次再查一遍:
+   *   inline `visibility: hidden !important`  → 生效, 且 400ms 后仍在
+   *   inline `opacity: 0 !important`          → 【不生效】, computed 始终 0.95
+   * inline !important 是层叠最高优先级, 按理不可能输 —— 唯一解释是有一个【每帧重写
+   * video 内联样式】的循环(旋转/贴画面那条路)在不停地把 opacity 写回去; 它写 opacity,
+   * 不写 visibility, 所以 visibility 活了下来。
+   * 结论: 【藏画面靠 visibility, 不靠 opacity】。两个都写(opacity 属于锦上添花,
+   * 哪天那个循环停了它也能生效), 但真正干活的是 visibility。
+   * poll 每 2.5s 在降级态下补写一次, 万一被谁抹掉也能自愈。 */
+  function hideVideoHard(v) {
+    if (!v) return;
+    try {
+      v.style.setProperty("opacity", "0", "important");
+      v.style.setProperty("visibility", "hidden", "important");
+    } catch (_e) {}
+  }
+  function showVideoAgain(v) {
+    if (!v) return;
+    try { v.style.removeProperty("opacity"); v.style.removeProperty("visibility"); } catch (_e) {}
+  }
+  globalThis.__cssosFallbackShowVideo = showVideoAgain;
+
   function reveal(reason) {
     try {
       var ws = document.querySelector(".watch-screen");
       if (ws && !ws.classList.contains("watch-screen-audio-fallback")) ws.classList.add("watch-screen-audio-fallback");
     } catch (_e) {}
+    try { hideVideoHard(document.getElementById("watch-video")); } catch (_e) {}
     try {
-      var cover = curCover();
-      if (cover && typeof globalThis.cssmvSetCoverSlides === "function") globalThis.cssmvSetCoverSlides([cover]);
+      var covers = curCoverList();
+      if (covers.length && typeof globalThis.cssmvSetCoverSlides === "function") globalThis.cssmvSetCoverSlides(covers);
+      /* 音频必须继续 —— Jing:「即阻止播放视频, 降级幻灯 + 音频。」
+       * reveal() 只加一个 CSS 类(把视频压到 opacity:0.1), 不碰音轨; 这里再补一脚,
+       * 确保独立音轨没有被"视频播不了"连带停住。 */
+      try {
+        var auds = document.querySelectorAll("audio");
+        for (var ai = 0; ai < auds.length; ai++) {
+          var a = auds[ai];
+          if (a && a.currentSrc && a.paused) { try { a.play().catch(function () {}); } catch (_e2) {} }
+        }
+      } catch (_e3) {}
     } catch (_e) {}
   }
 
@@ -45,6 +110,9 @@
         var ws = document.querySelector(".watch-screen");
         if (ws) ws.classList.remove("watch-screen-audio-fallback");
       } catch (_e) {}
+      /* W1989b — 摘类的同时也要把我们写死的 inline 撤掉, 否则新一首的视频会
+       * 被上一首留下的 opacity:0!important 永久按住 —— 那就是 W1975 那个坑的镜像。 */
+      try { showVideoAgain(document.getElementById("watch-video")); } catch (_e) {}
     }, { passive: true });
   } catch (_e) {}
 
@@ -59,6 +127,39 @@
     v.__cssosFbWired = true;
     v.addEventListener("error", function () { reveal("video-error"); });
     v.addEventListener("stalled", function () { if (v.readyState < 2 && hasRealVideoSrc(v)) reveal("video-stalled"); });
+    /* CSSOS_WAVE_1989 — 原来的三个触发条件(error / stalled / readyState 0)漏掉了
+     * 【最典型的那一种】: 特斯拉这类车机浏览器把视频【加载成功但不许播】——
+     * readyState 是 2+、没有 error、也不 stalled, 于是一条都不命中, 用户面前
+     * 就是一个黑乎乎的媒体框, 永远不降级。补三条: */
+    // ① play() 被策略拒绝(NotAllowedError / NotSupportedError)
+    if (!v.__cssosPlayWrapped) {
+      v.__cssosPlayWrapped = true;
+      var _origPlay = v.play;
+      try {
+        v.play = function () {
+          var p;
+          try { p = _origPlay.apply(this, arguments); } catch (e) { reveal("play-throw"); throw e; }
+          if (p && typeof p.catch === "function") {
+            p.catch(function (err) {
+              var n = String((err && err.name) || "");
+              if (n === "NotAllowedError" || n === "NotSupportedError" || n === "AbortError") reveal("play-rejected:" + n);
+            });
+          }
+          return p;
+        };
+      } catch (_e) {}
+    }
+    // ② 编解码根本不支持 —— 不用等, 挂上源就知道
+    v.addEventListener("loadstart", function () {
+      try {
+        if (!hasRealVideoSrc(v) || typeof v.canPlayType !== "function") return;
+        var src = String(v.currentSrc || v.src || "");
+        var m = /\.mp4(\?|$)/i.test(src) ? "video/mp4"
+              : /\.webm(\?|$)/i.test(src) ? "video/webm"
+              : /\.mov(\?|$)/i.test(src) ? "video/quicktime" : "";
+        if (m && v.canPlayType(m) === "") reveal("codec-unsupported:" + m);
+      } catch (_e) {}
+    });
   }
 
   // 轮询: 影院开着 + 视频有真源, 但 readyState 长时间为 0(被拦/解码不出)→ 透出幻灯。
@@ -75,6 +176,31 @@
       if (!stuckSince) stuckSince = now;
       else if (now - stuckSince > 4500) { reveal("video-blocked"); stuckSince = 0; }
     } else { stuckSince = 0; }
+    /* ③ CSSOS_WAVE_1989 —「加载好了但画面不走」看门狗。
+     * readyState>=2 且有真源, 但 currentTime 连续 ~5s 一动不动 —— 无论是被策略暂停、
+     * 解码卡死还是静默拒播, 对用户都是同一件事: 黑框。判据只看【画面有没有在走】,
+     * 不去猜是哪一种原因(猜原因就会漏, 特斯拉那种正是被漏掉的一类)。
+     * 用户自己按暂停不算: v.paused 且从未播过(currentTime 0)才判死; 播过又暂停的放过。 */
+    try {
+      if (hasRealVideoSrc(v) && v.readyState >= 2 && !v.ended) {
+        var t = Number(v.currentTime) || 0;
+        var userPaused = v.paused && t > 0.05;   // 播过再暂停 = 用户意图, 不降级
+        if (!userPaused) {
+          if (v.__cssosLastT === t) {
+            v.__cssosFrozen = (v.__cssosFrozen || 0) + 1;   // poll 每 2.5s 一次
+            if (v.__cssosFrozen >= 2) { reveal("video-frozen"); v.__cssosFrozen = 0; }
+          } else { v.__cssosFrozen = 0; }
+          v.__cssosLastT = t;
+        } else { v.__cssosFrozen = 0; v.__cssosLastT = t; }
+      }
+    } catch (_e) {}
+    /* W1989b — 降级态期间持续把画面按住(旋转路径每次同步都会重写 inline style);
+     * 一旦不在降级态了, 立刻把我们写的 inline 撤掉, 绝不留下一个永远看不见的视频。 */
+    try {
+      var ws2 = v.closest ? v.closest(".watch-screen") : document.querySelector(".watch-screen");
+      if (ws2 && ws2.classList.contains("watch-screen-audio-fallback")) hideVideoHard(v);
+      else showVideoAgain(v);
+    } catch (_e) {}
   }
 
   // CSSOS_WAVE_924 — Jing「轻装上阵」: 1500ms→2500ms(省 ~40%)。poll 本就在面板 hidden 时秒退(几乎零成本),

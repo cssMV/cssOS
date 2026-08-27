@@ -297,11 +297,26 @@
            * 于是《李清照》永远轮不到。显式标记必须压过 URL 猜测。 */
           const _tier = (w) => (w?.is_real_video_mv === true) ? 0
                              : (String(w?.visual_kind || "").toLowerCase() === "video") ? 1 : 2;
+          /* CSSOS_WAVE_1984b 20260826 — Jing:「设定《声声慢三部曲》为默认播放的三部曲。」
+           *   排序修对之后, 三部曲三集确实占据了列表前三位, 但顺序是【倒的】:
+           *   怎一个愁字(第三部) → 旧时相识(第二部) → 寻寻觅觅(第一部) ——
+           *   因为同档内的 tiebreaker 是 created_at DESC, 而分集正是按 1→2→3 先后生成的。
+           *   三部曲必须从第一部开始播, 不是从最后拍完的那部开始。
+           *
+           *   修法: 同属一部作品(root_work_id 相同)时改用 sequence_index 升序;
+           *   跨作品仍旧 created_at DESC —— Jing 的「最新作品优先」是【作品之间】的规则,
+           *   不该被推广到【一部作品内部的分集】(这正是我反复犯的"把单向规则对称化")。 */
+          const _root = (w) => String(w?.root_work_id || "").trim();
           mktFlat.sort((a, b) => {
             const ta = _tier(a), tb = _tier(b);
             if (ta !== tb) return ta - tb;
+            const ra = _root(a), rb = _root(b);
+            if (ra && ra === rb) {
+              const sa = Number(a?.sequence_index || 0), sb = Number(b?.sequence_index || 0);
+              if (sa !== sb) return sa - sb;                       // 同一部作品: 分集正序
+            }
             return (Date.parse(String(b?.created_at || "")) || 0) -
-                   (Date.parse(String(a?.created_at || "")) || 0);  // 同档内最新优先
+                   (Date.parse(String(a?.created_at || "")) || 0);  // 跨作品: 最新优先
           });
           pushUnique(list, have, mktFlat, null);
         }

@@ -382,14 +382,33 @@
           _first = _items[0] || null;
         } catch (_e) {}
         var _firstIsReal = !!(_first && _first.is_real_video_mv === true);
-        if (_firstIsReal) {
-          try { globalThis.cssosPlaylists.seekTo(_first.id); } catch (_e) {}
+        /* CSSOS_WAVE_1984c 20260826 — W1974 的 seekTo 只【移动播放列表指针】, 没把作品
+         *   装进面板。实测冷启动结果是最坏的那种:
+         *     画面 = 寻寻觅觅真视频   音频/标题/workId = François-Marie Arouet
+         *   —— 正是 Jing 的铁律「没有画面就黑屏, 不要随便拿别的画面充数」的违规,
+         *   而且发生在【每个访客进来看到的第一屏】。
+         *
+         *   成因: seekTo 触发 cssos:work-id-changed → 视频层换了源; 但随后的
+         *   openWatchPreviewFlowModule(preferLatestOwned:false) 走 ensureWatchPanelPreviewPlayback(),
+         *   它开的是"面板当前作品", 也就是上一次留下的那首 → 音频/标题跟着那首走。
+         *   两条线各开各的, 就串台了。
+         *
+         *   修法: 首位是真视频时, 直接走【点卡片播放走的同一条路】openMarketWorkPreview() ——
+         *   它一次性把 targetWork 的音频/画面/标题/playlist 全部对齐到同一个作品,
+         *   不再让"指针"和"面板"两头各走各的。首位不是真视频时一个字不改, 保持原行为。 */
+        if (_firstIsReal && typeof globalThis.openMarketWorkPreview === "function") {
+          try {
+            globalThis.openMarketWorkPreview(
+              Object.assign({}, _first, { __cssosOpenedFrom: "for-you" }),
+            );
+            return;
+          } catch (_e) {}
         }
         try {
           globalThis.openWatchPreviewFlowModule({
             preferredTab: "mv",
             clearLimit: true,
-            preferLatestOwned: !_firstIsReal,
+            preferLatestOwned: true,
           });
         } catch (_e) {}
       }, 120);

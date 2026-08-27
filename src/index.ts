@@ -38708,7 +38708,13 @@ function normalizeWorkTreeRow<T extends WorkTreeRow>(row: T) {
     current_buyout_price_cents: buyoutCents,
     buyout_enabled: buyoutEnabled,
     owner_is_admin: ownerIsAdmin,
-    is_priceless: ownerIsAdmin,
+    /* CSSOS_WAVE_1987 20260826 — Jing:「买断价格还是保留无价之宝, 即不出售。」
+     * 他把这两件事画了等号, 而平台之前只认「admin 作品 = 无价之宝」这一条 ——
+     * 普通用户根本没有办法表达「我这件不卖」。
+     * 后果(实测 374 件): 关掉买断的非 staff 作品, 右轨仍按兜底价显示 ¢599, 按钮还能点,
+     * 点进去是一条走不通的路 —— 既标错价, 又骗点击。
+     * 判据收敛到语义本身: 买断关掉 = 不出售 = 无价之宝。 */
+    is_priceless: ownerIsAdmin || buyoutEnabled === false,
     structure_role: workStructureRoleLabel(row.structure_role, row.work_type),
     sequence_index: Number(row.sequence_index || 0),
     cover_image: String(row.cover_image || "").trim() || null,
@@ -40907,6 +40913,82 @@ app.get("/api/works/by-creator/:id", async (req, res) => {
     return res.status(500).json({ ok: false, error: (e as Error)?.message || "failed", items: [] });
   }
 });
+/* CSSOS_WAVE_1986 20260826 — 独立「出歌口」(不挂任何 work), 与 mv-shot / mv-plate 同构。
+ *
+ * 为什么需要它: 一部三部曲的第一步是先把三首歌做出来 —— 分镜的时间轴必须由歌的
+ * 逐字对齐反推, 歌不出来, 161 个镜头就只能切在配额时间上, 装配时必然对不上。
+ * 而 /api/mv/music 要登录会话(命令行拿不到)。
+ *
+ * 不另造引擎: 直接走 callMusicGen(与 UI Create 同一条管线的同一个函数), 引擎铁律
+ * 「音乐只选 Suno 最新版」由 resolveEngineModel 决定, 这里不写死型号。
+ * 铁律: 生成即落 R2, 绝不把第三方临时 URL 当交付物(Suno 的链会过期)。
+ * 返回 takes[] —— Suno 一次产两条, 两条都留, 由人选。 */
+app.post("/api/admin/mv-song", express.json({ limit: "64kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const b = (req.body || {}) as Record<string, unknown>;
+  const lyrics = String(b.lyrics || "").trim();
+  const title = String(b.title || "").trim();
+  if (!lyrics) return res.status(400).json({ ok: false, code: "LYRICS_REQUIRED" });
+  if (!title) return res.status(400).json({ ok: false, code: "TITLE_REQUIRED" });
+  const project = String(b.project || "songs").replace(/[^0-9a-zA-Z_-]/g, "").slice(0, 40) || "songs";
+  const slug = String(b.slug || "song").replace(/[^0-9a-zA-Z_-]/g, "").slice(0, 24) || "song";
+  const t0 = Date.now();
+  try {
+    const mreq: MusicGenRequest = {
+      prompt: String(b.style || b.prompt || "").trim() || title,
+      lyrics,
+      title,
+      language: String(b.language || "zh").trim() || "zh",
+      instrumental: false,
+      prefer: ["suno"],
+    };
+    const dur = Number(b.duration_secs) || 0;
+    if (dur > 0) mreq.duration_secs = dur;
+    const m = await callMusicGen(mreq);
+    if (!m?.ok) {
+      return res.status(503).json({ ok: false, code: "MUSIC_UNAVAILABLE", detail: m?.error || "", provider: m?.provider || "" });
+    }
+    /* Suno 一次两条 take。不同版本的返回字段不一致, 全部收进来再去重 —— 少收一条
+     * 就等于白花一半的钱(两条是同价打包的)。 */
+    const raw = m as unknown as Record<string, unknown>;
+    const cand: string[] = [];
+    /* CSSOS_WAVE_1986b — take 2 的字段名是 alt_audio_url(见 MusicGenResponse 的
+     * W158 注释), 我第一版只猜了 audio_url_2/url 这类名字, 于是第二条 take 生成了
+     * 却没落地 —— 两条是同价打包的, 漏收一条就等于白花一半的钱。字段名不要猜, 去看类型。 */
+    for (const k of ["audio_url", "alt_audio_url", "audio_url_2", "url"]) {
+      const v = String(raw[k] || "").trim(); if (v) cand.push(v);
+    }
+    if (Array.isArray(raw.audio_urls)) for (const v of raw.audio_urls as unknown[]) { const t = String(v || "").trim(); if (t) cand.push(t); }
+    if (Array.isArray(raw.takes)) for (const v of raw.takes as unknown[]) { const t = String(v || "").trim(); if (t) cand.push(t); }
+    const uniq = [...new Set(cand)];
+    if (!uniq.length) return res.status(503).json({ ok: false, code: "NO_AUDIO_URL", provider: m.provider || "", raw_keys: Object.keys(raw) });
+    const takes: string[] = [];
+    for (let i = 0; i < uniq.length; i++) {
+      let out = String(uniq[i] || "");
+      if (!out) continue;
+      if (!/cssstudio\.app/i.test(out)) {
+        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 120_000);
+        let buf: Buffer | null = null;
+        try { const r = await fetch(out, { signal: ctrl.signal, redirect: "follow" }); if (r.ok) buf = Buffer.from(await r.arrayBuffer()); }
+        catch { /* 单条失败不拖垮另一条 */ }
+        finally { clearTimeout(to); }
+        if (buf && buf.byteLength > 16384) {
+          const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
+          const url = await uploadBufferToR2(buf, `artifacts/mv-songs/${project}/${slug}-take${i + 1}-${sha}.mp3`, "audio/mpeg");
+          if (url) out = url;
+        }
+      }
+      takes.push(out);
+    }
+    return res.json({ ok: true, project, slug, title, takes, provider: m.provider || "", model: (m as { model?: string }).model || "", ms: Date.now() - t0 });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "MV_SONG_FAILED", detail: (e as Error)?.message || "", ms: Date.now() - t0 });
+  }
+});
+
 /* CSSOS_WAVE_1985 20260826 — 独立「锚图」出图口(不挂任何 work)。
  *
  * 为什么需要它: 分镜片的第一步永远是先出一张定妆图/地貌图当 image_url 锚, 全片引用它。

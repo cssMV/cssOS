@@ -2792,9 +2792,17 @@ function buildWorksCardPricingMarkup(options = {}) {
   const listenPrice = String(
     options.listenPrice || loginCopy("Not set"),
   );
-  const buyoutPrice = String(
-    options.buyoutPrice || loginCopy("Not set"),
-  );
+  /* CSSOS_WAVE_1987 20260826 — Jing:「那就让普通用户也可以设置无价之宝。」
+   * 这个开关其实一直都在 —— 买断价填 0 就是不出售 —— 只是没人看得出来:
+   * 界面显示的是 "$0.00" 或 "Not set", 而 W1258 铁律说得很清楚:
+   * 买断 0/未设 = 【无价之宝】, 绝不是免费/0, 两者天差地别。
+   * 现在把这句话写到用户眼前: 填 0 保存后, 这个位子直接显示「无价之宝」,
+   * 用户于是知道自己刚设的是什么。配合 W1987 后端(buyout_enabled=false →
+   * is_priceless), 普通用户和 admin 现在有了同一种表达方式。 */
+  const _rawBuyoutCents = Number(options.buyoutPriceCents);
+  const buyoutPrice = (Number.isFinite(_rawBuyoutCents) && _rawBuyoutCents <= 0)
+    ? loginCopy("Priceless", "无价之宝")
+    : String(options.buyoutPrice || loginCopy("Priceless", "无价之宝"));
   const visibility = String(options.visibility || "public").toLowerCase();
   const createdAt = String(options.createdAt || "").trim();
   const voiceSourceBadge = options.voiceSourceBadge === true;

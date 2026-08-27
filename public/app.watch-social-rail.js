@@ -329,7 +329,9 @@
     var _ownerEmail = String(w.owner_email || "").toLowerCase().trim();
     var _ownWork = (!!_ownerId && !!_viewerId && _ownerId === _viewerId) ||
                    (!!_ownerEmail && _ownerEmail === viewerEmail());
-    var _noSale = _staff || _ownerStaff || _ownWork;   // 买卖不可(任一方 staff, 或本人作品)
+    // CSSOS_WAVE_1987 — 买断关掉的作品必须【也】置灰: 之前 _noSale 只看 staff/本人,
+    //   于是 374 件关了买断的作品按钮仍可点, 点进去走不通。不出售就不该能点。
+    var _noSale = _staff || _ownerStaff || _ownWork || w.buyout_enabled === false;
     var _noTip = _staff || _ownWork;                    // 打赏不可(staff 主动给, 或本人作品)
 
     // 1. 作者头像 + 关注

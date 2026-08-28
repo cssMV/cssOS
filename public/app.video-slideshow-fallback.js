@@ -10,7 +10,8 @@
 
   function curCover() {
     try {
-      var w = globalThis.cssosCurrentWork || null;
+      /* CSSOS_WAVE_2026 20260828 — cssosCurrentWork 是【函数】不是对象(app.work-id-binding.js:343 `globalThis.cssosCurrentWork = function(){...}`)。 当对象读: 函数是 truthy, 于是 `w && w.cover_image` 静静地给出 undefined —— 不报错、不为空、就是永远拿不到封面。特斯拉黑框的【真正根因】: 库里补多少张封面都没用, 降级层根本读不到。查法是在真页面上 typeof 一下, 而不是读代码猜。 */
+      var w = (typeof globalThis.cssosCurrentWork === "function" ? globalThis.cssosCurrentWork() : (globalThis.cssosCurrentWork || null));
       var c = w && (w.cover_image || w.cover_url || w.preview_image_url || (w.cover_slides && w.cover_slides[0]));
       return String(c || "").trim();
     } catch (_e) { return ""; }
@@ -22,7 +23,7 @@
   function curCoverList() {
     var out = [];
     try {
-      var w = globalThis.cssosCurrentWork || null;
+      var w = (typeof globalThis.cssosCurrentWork === "function" ? globalThis.cssosCurrentWork() : (globalThis.cssosCurrentWork || null));   // 同上, 函数要调用
       if (w) {
         var pools = [w.cover_slides, w.slideshow_frames, w.visual_frames];
         for (var i = 0; i < pools.length; i++) {

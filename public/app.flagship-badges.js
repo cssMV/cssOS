@@ -83,7 +83,11 @@
   function decorateMv() {
     if (!DATA.ready) return;
     var panel = document.getElementById("watch-panel"); if (!panel) return;
-    var id = String(globalThis.cssosCurrentWorkId || "");
+    /* CSSOS_WAVE_2026 — cssosCurrentWorkId 同样是【函数】。原来是 String(fn || "") ——
+     * 把函数源码当成 work id 去比对, 于是这个徽章【从来没有显示过】。
+     * (列表里那个 ★Flagship 是另一套代码, 一直正常 —— 所以这个坏了也没人发现。) */
+    var id = String((typeof globalThis.cssosCurrentWorkId === "function"
+      ? globalThis.cssosCurrentWorkId() : globalThis.cssosCurrentWorkId) || "");
     var flag = DATA.flagship.has(id), epic = DATA.epic.has(id);
     var el = document.getElementById("cssos-mv-flagship-badge");
     var visible = panel && !panel.classList.contains("hidden");

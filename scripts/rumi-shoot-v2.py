@@ -57,14 +57,29 @@ WHO = {"无": NONE, "女": WOMAN, "群": GROUP, "男": MAN}
 
 def clean(d): return re.sub(r"\s+", " ", re.sub(r"\*\*", "", d)).strip()
 
-def post(path, body, tries=3):
-    for _ in range(tries):
+def post(path, body, tries=6):
+    """CSSOS_WAVE_2024b — 重试必须【退避】, 失败必须【带出原因】。
+
+    第一版是 `for _ in range(3)` 无间隔重试, 而且失败只返回 None。
+    两部并行开拍时供应商限流, 三次重试在几秒内烧完 -> 一镜记失败,
+    163 镜里 150 镜就是这么"失败"的 —— 而单镜直测 85 秒就成功。
+    我因此一度以为是 prompt 被内容过滤了, 差点回去改剧本。
+
+    退避 30/60/120/240/480s; 每次把服务端真实响应打出来。
+    (同一个毛病今天已经栽了两次: 封面回填 12 张失败 7 张也是它。)"""
+    import time as _t
+    last = ""
+    for i in range(tries):
+        if i: _t.sleep(min(480, 30 * (2 ** (i - 1))))
         r = subprocess.run(["curl","-s","-m","900","-X","POST",f"http://127.0.0.1:3000{path}",
             "-H",f"x-admin-token: {TOK}","-H","content-type: application/json",
             "--data-binary", json.dumps(body)], capture_output=True, text=True)
         try: j = json.loads(r.stdout)
         except Exception: j = {}
         if j.get("ok"): return j
+        last = (r.stdout or r.stderr or "no output")[:150].replace(chr(10), " ")
+        if i: print(f"    重试 {i}: {last}", flush=True)
+    print(f"    放弃: {last}", flush=True)
     return None
 
 def make_plates():

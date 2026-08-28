@@ -2575,16 +2575,20 @@
     if (!host) return;
     if (host.dataset && host.dataset.cssosOverallMounted) return;
     if (host.dataset) host.dataset.cssosOverallMounted = "1";
-    // CSSOS_WAVE_158 20260514 — Jing: 6 capsules, order
-    // 歌词→封面图→音乐→视频→字幕→合成. subtitles was missing entirely;
-    // weights re-sum to 100 (5+10+30+40+5+10).
+    // CSSOS_WAVE_2021 20260828 — 【5 个胶囊, 不是 6 个】。Jing 第二次指出:
+    //   「不要再有 6 胶囊, 上次已经说了, 只有 5 胶囊。为什么? 因为我们不需要把
+    //     歌词/字幕/音乐/视频/画面烧录在一起, 都是分开的, compose 已经失去了功能。」
+    // 交付物是【可重组的舞台】, 不是一个视频文件 —— 四条轨(歌词/音乐/视频/情绪字幕)
+    // 永远分开, 播放端实时合成。所以 Compose 这一阶段本身已经没有意义,
+    // 进度条上却还占着 10% 的权重, 让用户等一个不会发生的东西。
+    // 权重按原比例摊回其余五个, 重新合到 100 (6+11+33+44+6)。
+    // (原 W158 的 6 胶囊版留档于此: lyrics5/cover10/music30/video40/subs5/compose10)
     const STAGE_META = [
-      { id: "lyrics",    weight: 5,  icon: "✍️", label: "Lyrics" },
-      { id: "cover",     weight: 10, icon: "🖼️", label: "Cover" },
-      { id: "music",     weight: 30, icon: "🎵", label: "Music" },
-      { id: "video",     weight: 40, icon: "🎬", label: "Video" },
-      { id: "subtitles", weight: 5,  icon: "💬", label: "Subtitles" },
-      { id: "compose",   weight: 10, icon: "🎞️", label: "Compose" }
+      { id: "lyrics",    weight: 6,  icon: "✍️", label: "Lyrics" },
+      { id: "cover",     weight: 11, icon: "🖼️", label: "Cover" },
+      { id: "music",     weight: 33, icon: "🎵", label: "Music" },
+      { id: "video",     weight: 44, icon: "🎬", label: "Video" },
+      { id: "subtitles", weight: 6,  icon: "💬", label: "Subtitles" }
     ];
     host.innerHTML =
       '<div class="cinema-hero-progress" data-mvp-progress>' +
@@ -2595,7 +2599,7 @@
     const stagesEl = host.querySelector("[data-mvp-progress-stages]");
     const fillEl = host.querySelector("[data-mvp-progress-fill]");
     const pctEl = host.querySelector("[data-mvp-progress-pct]");
-    let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0, compose: 0 };
+    let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0 };
     const _chipHues = {};
     const _hueFor = function (id) {
       if (_chipHues[id] == null) _chipHues[id] = Math.floor(Math.random() * 360);
@@ -2738,7 +2742,7 @@
         detail: {
           run_id: runId,
           title: String(state.title || "").trim(),
-          stage_label: `Cover ${cover_p}% · Lyrics ${lyrics_p}% · Music ${music_p}% · Video ${video_p}% · Subs ${subtitles_p}% · Compose ${compose_p}%`,
+          stage_label: `Cover ${cover_p}% · Lyrics ${lyrics_p}% · Music ${music_p}% · Video ${video_p}% · Subs ${subtitles_p}%`,
           progress: {
             cover: cover_p,
             lyrics: lyrics_p,
@@ -2853,7 +2857,7 @@
           detail: {
             run_id: runId,
             title: String(state.title || "").trim(),
-            stage_label: `Cover ${cover_p}% · Lyrics ${lyrics_p}% · Music ${music_p}% · Video ${video_p}% · Subs ${subtitles_p}% · Compose ${compose_p}%`,
+            stage_label: `Cover ${cover_p}% · Lyrics ${lyrics_p}% · Music ${music_p}% · Video ${video_p}% · Subs ${subtitles_p}%`,
             progress: {
               cover: cover_p,
               lyrics: lyrics_p,
@@ -9779,7 +9783,7 @@
     const fillEl = loading.querySelector("[data-cinema-progress-fill]");
     const pctEl = loading.querySelector("[data-cinema-progress-pct]");
     const statusEl = loading.querySelector(".cinema-hero-status-line");
-    let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0, compose: 0 };
+    let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0 };
     let lastActiveStageId = ""; // W356 — tracks which stage is active for detail text
     // CSSOS_WAVE_158 — dual-track durations, captured from the music
     // stage; rendered into the pct readout once overall hits 100%.

@@ -18,10 +18,27 @@
  *   • Wraps around: swiping left from the last panel goes to the first.
  *   • Shows a brief swipe-hint chip so the gesture feels responsive.
  */
+/* ─────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_2016 20260828 — 【整模块停用】。Jing:
+ *   「请取消左右滑动切换面板功能。以前我们允许同时打开几个面板, 所以左右滑动
+ *     用来切换面板; 但现在已经规定只能单线程, 左右滑动已经失去了应用, 可是这个
+ *     功能还保留, 导致左右滑动的时候变成了【退出当前面板】, 特别是 MV 面板。」
+ *
+ * 这条手势是 W445 为【多面板并存】设计的 —— 那个前提没有了, 它就不再是"切换",
+ * 而是"把用户正在看的东西划走"。在 MV 面板上尤其致命: 用户想左右拖进度/翻页,
+ * 结果整个面板没了。
+ *
+ * 停用方式选【整模块 early-return】而不是在里面加条件:
+ * 这个模块从头到尾只干这一件事, 留着一半逻辑等于留一个随时会复活的坑。
+ * 文件保留不删 —— 将来若恢复多面板, 把下面这个 return 去掉即可, 手势逻辑还在。
+ *
+ * 面板宪法第 4 条(swipe to switch)因此作废; 已同步改 CLAUDE.md。
+ * ───────────────────────────────────────────────────────────────────── */
 (function () {
   "use strict";
   if (globalThis.__cssosSwipeNavInstalled) return;
   globalThis.__cssosSwipeNavInstalled = true;
+  return;   // ← W2016: 单面板时代, 左右滑动不再切换面板
 
   /* Panels that are purely utility / admin — never part of the swipe
    * cycle even if they have a dock item.                              */

@@ -72,11 +72,25 @@ sits on top. All other panels sit below it in activation order. A single
 `zIndexCounter` tracks the global stacking order; each activation increments
 it and sets the panel's `z-index`.
 
-### Article 4 — Swipe to switch (multi-panel)
+### Article 4 — ~~Swipe to switch (multi-panel)~~ 【已作废 · W2016】
 
-When two or more panels are open, a **left / right swipe** cycles focus
-between them (brings next/previous panel to front, Article 3). The swipe
-gesture is recognized on the panel body and the dock area.
+🔴 **本条作废(2026-08-28)。左右滑动不再切换面板。**
+
+Jing:「以前我们允许同时打开几个面板, 所以左右滑动用来切换面板; 但现在已经
+规定只能单线程, 左右滑动已经失去了应用, 可是这个功能还保留, 导致左右滑动的
+时候变成了【退出当前面板】, 特别是 MV 面板。」
+
+**为什么必须废而不是修:** 这条手势的前提是【多面板并存】。前提没有了, 它就不再是
+"切换", 而是"把用户正在看的东西划走"。在 MV 面板上尤其致命 —— 用户想左右拖进度或
+翻页, 结果整个面板没了。
+
+**实现:** `app.panel-swipe-nav.js` 整模块 early-return 停用(文件保留, 不删)。
+选整模块停用而不是在里面加条件, 是因为这个模块从头到尾只干这一件事,
+留着一半逻辑等于留一个随时会复活的坑。将来若恢复多面板, 去掉那个 `return` 即可。
+
+**不要因为"宪法里写着"就把它加回来 —— 这一条已经被 Jing 明确取消。**
+
+(原文留档: 当两个或以上面板打开时, 左右滑动在它们之间循环切换焦点。)
 
 ### Article 5 — Quick swipe up = close
 

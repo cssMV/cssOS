@@ -95,8 +95,13 @@
   document.addEventListener("cssmv:lyrics-updated", function (ev) {
     try {
       var d = ev && ev.detail;
-      if (!d || !d.lyrics) return;
+      if (!d) return;
       if (d.source && d.source !== "mv-pipeline-panel") return;
+      /* CSSOS_WAVE_2025 — 空歌词 = 【新一轮开始, 把上一部的词擦掉】, 不是"没内容"。
+       * 原来这里是 `if (!d || !d.lyrics) return;` —— 清空指令被当成空事件丢掉,
+       * 于是上一部的歌词一直挂在屏幕上, 直到新歌词写完才被顶掉。
+       * Jing 截图里"萨福的标题 + 鲁米的波斯语歌词"就是这么来的。 */
+      if (!d.lyrics) { stop(false); return; }
       start(d.lyrics);
     } catch (_e) {}
   });

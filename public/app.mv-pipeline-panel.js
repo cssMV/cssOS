@@ -5053,9 +5053,20 @@
           // can clear its own cached display BEFORE the new LLM call
           // returns (prevents the user briefly seeing OLD lyrics in the
           // textarea while the new request is in flight).
+          /* CSSOS_WAVE_2025 20260828 — 这道清空【从来没有生效过】。
+           * 现象(Jing 截图): 标题已经是「Σαπφώ · 萨福三部曲」, 影院 hero 左下角
+           * 流的却是上一部【鲁米的波斯语歌词】。
+           * 根因两条, 各自单独就足以让它失效:
+           *   ① 派发目标错了 —— 这里发在 globalThis(window), 而三个显示歌词的监听器
+           *      (app.mv-early-lyrics / 本文件 hero / app.watch-ui) 【全部挂在 document 上】。
+           *      window 上派发的事件不会往 document 传(反向才会冒泡, 而且这里 bubbles 还是默认 false)。
+           *   ② 就算传到了, app.mv-early-lyrics 里有一句 `if (!d.lyrics) return;` ——
+           *      空字符串的【清空指令】被当成"没内容"直接丢掉。
+           * 真正的歌词事件(本文件另两处)发的是 document, 所以它们能显示、却清不掉。
+           * 现在: 与真实歌词事件【同一个派发目标】。 */
           try {
-            globalThis.dispatchEvent(new CustomEvent("cssmv:lyrics-updated", {
-              detail: { lyrics: "", source: "mv-pipeline-runLyricsStage-reset" }
+            document.dispatchEvent(new CustomEvent("cssmv:lyrics-updated", {
+              detail: { lyrics: "", wipe: true, source: "mv-pipeline-panel" }
             }));
           } catch (_e) {}
         };

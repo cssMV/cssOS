@@ -40796,7 +40796,68 @@ app.post("/api/admin/mark-real-video-mv/:workId", express.json({ limit: "4kb" })
         promotedRoot = root;
       }
     }
-    return res.json({ ok: true, workId, is_real_video_mv: on, video_url: videoUrl || null, promoted_root: promotedRoot });
+    /* CSSOS_WAVE_2022 20260828 — 【上线闸门: 没有封面不许上线】。
+     *
+     * Jing:「那几部作品的 cover_image 根本是空的, 空的? 不可能是空的!…
+     *        而我们系统一点都没有报错? 查一下。」
+     *
+     * 查的结果(证据在 work_assets):
+     *   走正常管线的作品(李白/杜甫/李清照) 有 2-3 张 slideshow_frame —— 那就是"默认 3 张封面"的落点;
+     *   而鲁米/芭蕉/萨福 只有 audio_track_1/2, 【一张封面资产都没有】。
+     *   不是"生成了没落 R2", 是【封面阶段根本没跑】——
+     *   /api/admin/mv-song 只做音乐, 从头到尾没提过 cover/callImageGen。
+     *
+     * 为什么一声不吭: 这个上线端点从头到尾也没提过 cover ——
+     *   它只管把 is_real_video_mv 置 true 再向上传播。【没有人负责问一句"有封面吗"。】
+     *   于是作品带着空封面上线, 特斯拉这类不能播视频的浏览器降级时无图可画 = 黑框。
+     *
+     * 闸门装在这里而不是装在调用方: 这是【所有真视频上线的必经之路】,
+     * 装在这里, 任何路径(包括我这种 admin 直出)都漏不掉。
+     * 兜底不依赖任何第三方: 直接从视频本身抽一帧 —— 视频都有了, 就一定有画面。
+     * 并且【一定在响应里说清楚】cover 是 existing / derived / failed, 绝不静默。 */
+    let coverState = "skipped";
+    if (on && videoUrl) {
+      try {
+        const cur = await withClient((c) => c.query<{ cover: string | null; frames: string }>(
+          `SELECT COALESCE(NULLIF(w.cover_image,''), NULLIF(w.preview_image_url,'')) AS cover,
+                  (SELECT COUNT(*)::text FROM work_assets a
+                    WHERE a.work_id = w.id AND a.asset_type = 'slideshow_frame') AS frames
+             FROM user_works w WHERE w.id = $1::uuid`, [workId]));
+        const hasCover = Boolean(String(cur.rows[0]?.cover || "").trim());
+        const hasFrames = Number(cur.rows[0]?.frames || "0") > 0;
+        if (hasCover || hasFrames) {
+          coverState = "existing";
+        } else {
+          // 抽第 5 秒那一帧(避开常见的黑场起手)。ffmpeg 直接读远端 URL, 不落盘。
+          const jpg: Buffer = await new Promise((resolve, reject) => {
+            const ff = spawn("ffmpeg", ["-nostdin", "-loglevel", "error", "-ss", "5",
+              "-i", videoUrl, "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "3", "pipe:1"]);
+            const chunks: Buffer[] = [];
+            ff.stdout.on("data", (d: Buffer) => chunks.push(d));
+            ff.on("error", reject);
+            ff.on("close", () => {
+              const buf = Buffer.concat(chunks);
+              buf.length > 1024 ? resolve(buf) : reject(new Error("empty_frame"));
+            });
+          });
+          const sha = crypto.createHash("sha256").update(jpg).digest("hex").slice(0, 16);
+          const url = await uploadBufferToR2(jpg, `artifacts/mv-covers/${workId}-${sha}.jpg`, "image/jpeg");
+          await withClient((c) => c.query(
+            `UPDATE user_works SET cover_image = $2, preview_image_url = $2, updated_at = now()
+              WHERE id = $1::uuid`, [workId, url]));
+          await withClient((c) => c.query(
+            `INSERT INTO work_assets (work_id, asset_type, url, meta)
+             VALUES ($1::uuid, 'slideshow_frame', $2, '{"derived_from":"video_frame"}'::jsonb)`,
+            [workId, url]));
+          coverState = "derived";
+        }
+      } catch (e) {
+        // 抽帧失败不拦上线(视频本身是好的), 但【必须让调用方看见】。
+        coverState = "failed:" + String((e as Error)?.message || "").slice(0, 60);
+      }
+    }
+    return res.json({ ok: true, workId, is_real_video_mv: on, video_url: videoUrl || null,
+                      promoted_root: promotedRoot, cover: coverState });
   } catch (e) {
     return res.status(500).json({ ok: false, code: "MARK_FAILED", detail: (e as Error)?.message || "" });
   }
@@ -41085,7 +41146,37 @@ app.post("/api/admin/mv-plate", express.json({ limit: "16kb" }), async (req, res
     const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
     const url = await uploadBufferToR2(buf, `artifacts/mv-plates/${project}/${name}-${sha}.png`, "image/png");
     if (!url) return res.status(503).json({ ok: false, code: "R2_UPLOAD_FAILED" });
-    return res.json({ ok: true, project, name, plate: url, provider: img.provider || "", model: img.model || "", bytes: buf.byteLength, ms: Date.now() - t0 });
+    /* CSSOS_WAVE_2023 20260828 — 【锚图顺手挂到作品上】。
+     *
+     * Jing:「比如你每次放出来的"验妆图", 为什么不可以拿来做封面图?
+     *        宁愿保持媒体框黑屏也不愿拿来做封面图? 为什么?」
+     *
+     * 没有为什么, 就是没想到用。每一部拍摄前我都会出锚图 —— 32:9、已落我们域名、
+     * 一分钱不用再花 —— 而我却让作品顶着空封面上线, 然后再去【另花钱生成 12 张新封面】。
+     * 锚图本来还正好是幻灯的现成素材(每部 3 张, 一个三部曲 9 张)。
+     *
+     * 现在: 调用方带上 work_id, 这张图就自动
+     *   ① 进 work_assets 当 slideshow_frame(幻灯素材, 可以有很多张);
+     *   ② 如果该作品还没有封面, 顺便当封面(不覆盖已有的)。
+     * 挂载失败不影响出图本身, 但【一定在响应里说清楚】attached 的结果, 绝不静默。 */
+    let attached: string | null = null;
+    const workId = String((req.body as Record<string, unknown>)?.work_id || "").trim();
+    if (/^[0-9a-f-]{36}$/i.test(workId)) {
+      try {
+        await withClient((c) => c.query(
+          `INSERT INTO work_assets (work_id, asset_type, url, meta)
+           VALUES ($1::uuid, 'slideshow_frame', $2, '{"derived_from":"mv_plate"}'::jsonb)`,
+          [workId, url]));
+        const r = await withClient((c) => c.query(
+          `UPDATE user_works SET cover_image = $2, preview_image_url = $2, updated_at = now()
+            WHERE id = $1::uuid AND COALESCE(NULLIF(cover_image,''), '') = ''
+            RETURNING id`, [workId, url]));
+        attached = r.rowCount ? "frame+cover" : "frame";
+      } catch (e) {
+        attached = "failed:" + String((e as Error)?.message || "").slice(0, 60);
+      }
+    }
+    return res.json({ ok: true, project, name, plate: url, provider: img.provider || "", model: img.model || "", bytes: buf.byteLength, attached, ms: Date.now() - t0 });
   } catch (e) {
     return res.status(500).json({ ok: false, code: "MV_PLATE_FAILED", detail: (e as Error)?.message || "", ms: Date.now() - t0 });
   }

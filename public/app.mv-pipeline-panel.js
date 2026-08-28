@@ -9728,15 +9728,15 @@
       } catch (_e) {}
       return zh;
     };
-    // CSSOS_WAVE_158 20260514 — Jing: 6 capsules, order
-    // 歌词→封面图→音乐→视频→字幕→合成. subtitles was missing.
+    // CSSOS_WAVE_2021 20260828 — 【5 个胶囊】。见本文件另一处同名 STAGE_META 的完整说明。
+    // ⚠️ 本文件里有【两份】STAGE_META, 这一份才是截图里那条 —— 它用 en/zh 而不是 label,
+    //    所以按 `label: "Compose"` 去搜是搜不到的。改一份等于没改。
     const STAGE_META = [
-      { id: "lyrics",    weight: 5,  icon: "✍️", en: "Lyrics",    zh: "歌词" },
-      { id: "cover",     weight: 10, icon: "🖼️", en: "Cover",     zh: "封面图" },
-      { id: "music",     weight: 30, icon: "🎵", en: "Music",     zh: "音乐" },
-      { id: "video",     weight: 40, icon: "🎬", en: "Video",     zh: "视频" },
-      { id: "subtitles", weight: 5,  icon: "💬", en: "Subtitles", zh: "字幕" },
-      { id: "compose",   weight: 10, icon: "🎞️", en: "Compose",   zh: "合成" }
+      { id: "lyrics",    weight: 6,  icon: "✍️", en: "Lyrics",    zh: "歌词" },
+      { id: "cover",     weight: 11, icon: "🖼️", en: "Cover",     zh: "封面图" },
+      { id: "music",     weight: 33, icon: "🎵", en: "Music",     zh: "音乐" },
+      { id: "video",     weight: 44, icon: "🎬", en: "Video",     zh: "视频" },
+      { id: "subtitles", weight: 6,  icon: "💬", en: "Subtitles", zh: "字幕" }
     ];
     loading.innerHTML =
       bgImg +

@@ -77,12 +77,32 @@ STYLE = (" Palette: earth ochre, red-ochre, indigo night, and the gold of candle
          "no drone move, no handheld shake. Cinematic photoreal, warm restrained grade. "
          "NO modern object: no wires, no concrete, no cars, no plastic, no electric light, no modern clothing. "
          "Silent, no text, no watermark.")
-# 人物约束:【绝不留空】—— 芭蕉那次留空拍出 41 镜违规的教训。
-# 本片允许正面与特写(这是压测点), 但人数与考据必须锁死。
-PERSON = (" AT MOST ONE person may appear, always an ADULT MALE Sufi dervish. "
-          "He wears a plain cylindrical camel-hair FELT hat (sikke) — NOT a fur hat — with short dark "
-          "hair completely under it, NO long flowing hair. Plain long white robe. "
-          "NEVER two or more people, NO crowd, NO audience, NO woman, NO child.")
+# CSSOS_WAVE_2012 —— 人物约束必须【按镜判断该不该有人】, 不能只给上限。
+#
+# 我原来写的是 "AT MOST ONE person may appear"(至多一人)。实拍结果:
+# p1#3「大远景: 整片苇丛在风里倒向一侧」、p1#4「风过, 苇穗齐齐翻白」——
+# 分镜里这两镜【都没有人】(第一个人影要到 #13 才极小地出现), 可画面正中都站着一个人。
+# 【模型把"至多一人"读成了"放一个人"。】
+# 约束只说了允许什么, 没说需要什么。
+#   芭蕉那次: 上限留空 -> 出现三个人
+#   这次:     给了上限 -> 每镜都塞一个
+# 两次都是同一个毛病的两面。
+#
+# 修法: 从分镜描述判断这一镜该不该有人 —— 描述里出现 人/影/手/行者/脚 的才给人,
+# 其余一律钉死"无人", 且用【正面表述】(锚图那次证明 UNINHABITED 有效、no people 无效)。
+import re as _re
+_HAS_PERSON = _re.compile(r"人影|行者|笠影|一双手|手指|只拍手|只拍脚|赤脚|背影|剪影|他|舞|旋转|坐着|站立|弯腰")
+PERSON_ONE = (" EXACTLY ONE person is present: an ADULT MALE Sufi dervish. "
+              "He wears a plain cylindrical camel-hair FELT hat (sikke) — NOT a fur hat — "
+              "with short dark hair completely under it, NO long loose hair. Plain long white robe. "
+              "NEVER two or more people, NO crowd, NO audience, NO woman, NO child.")
+PERSON_NONE = (" This place is completely deserted — there is NOT A SINGLE PERSON anywhere in the frame, "
+               "near or far, and no silhouette, no figure on the horizon, no crowd. "
+               "The frame contains only landscape, architecture, objects and light. "
+               "No lamps or lights on the horizon, no glowing points in the distance.")
+def person_clause(desc):
+    return PERSON_ONE if _HAS_PERSON.search(desc or "") else PERSON_NONE
+PERSON = PERSON_ONE
 NO_HUMAN = PERSON
 
 def load(p, d):
@@ -109,7 +129,7 @@ def clean(desc):
 
 def shoot(tok, part, idx, num, dur, desc, is_p3):
     tag = f"rm{part}{str(num).replace('.', 'x')}"
-    prompt = SCENE.get(str(part), SCENE["1"]) + clean(desc) + STYLE + PERSON
+    prompt = SCENE.get(str(part), SCENE["1"]) + clean(desc) + STYLE + person_clause(desc)
     body = {"shot": tag, "project": "rumi", "model": MODEL,
             "duration_secs": int(dur), "image_url": PLATE_BY_PART.get(str(part), PLATE_BY_PART["1"]), "prompt": prompt}
     assert int(dur) in (4, 6, 8), f"非法时长 {dur} —— veo 兜底只收 4/6/8"

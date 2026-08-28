@@ -1391,9 +1391,19 @@ function buildSubtitleSections(
     emoAnnotations.map((e) => [e.tag.toLowerCase().trim(), e]),
   );
 
-  // Helper: is this language char-level (CJK/Arabic/Devanagari etc.)
+  /* CSSOS_WAVE_2017 20260828 — 【逐字 vs 逐词】按【有没有词间空格】分, 不按"看起来像外文"分。
+   *
+   * 原来这一行把【阿拉伯字母 ؀-ۿ / 天城体 ऀ-ॿ / 希腊 Ͱ-Ͽ】也算成"逐字语言", 像中文那样
+   * 一个字符一个 token。可波斯语/阿拉伯语/印地语/希腊语都是【带空格分词】的 ——
+   * Whisper 返回 308 个【词】, 我们却拆出 1400 多个【字符】, 数量差 4~5 倍。
+   * 下面的配对是 units[i] <-> wt[i] 一一对应, 多出来的 1100 个单元走兜底"每个 +300ms 往后排":
+   *   1100 x 300ms = 330s, 接在最后一个真词(336s)之后 ≈ 666s
+   * 这就是鲁米字幕跑到 599s 而音频只有 347s 的真因 —— 不是对齐不准, 是【切分单位错了】。
+   *
+   * 判据: 只有【不用空格分词】的文字才逐字 —— 汉字/假名/谚文/泰文/高棉/老挝/缅甸。
+   * 其余(阿拉伯·波斯 / 希伯来 / 天城体 / 希腊 / 西里尔 / 拉丁)一律逐词。 */
   const isCjkChar = (c: string) =>
-    /[一-鿿぀-ヿ가-힯؀-ۿऀ-ॿͰ-Ͽ]/.test(c);
+    /[一-鿿぀-ヿ가-힯฀-๿ក-៿຀-໿က-႟]/.test(c);
 
   // CSSOS_WAVE_664 — token 级防污染: 去掉残留 markdown/标记符, 丢弃纯标记 token(共享 helper)。
   const stripMarkup = stripTokenMarkup;
@@ -1424,15 +1434,30 @@ function buildSubtitleSections(
     t1: Math.round((w.end ?? 0) * 1000),
   })).filter((w) => w.text);
 
-  // Sequential match: pair units[i] ↔ wt[i]. For overflow units use linear interpolation.
+  /* CSSOS_WAVE_2017 — 配对改成【按比例映射】, 不再是 1:1 + 溢出往后排。
+   *
+   * 旧写法的问题: 单元数和 Whisper token 数只要对不上(切分粒度不同、Whisper 漏词、
+   * 合唱段重复……), 多出来的部分就以固定 300ms 一路排到音频之外 —— 时间轴跑飞,
+   * 而且【没有任何东西拦得住它】。鲁米就是这样跑到音频时长的 1.7 倍。
+   *
+   * 现在: 第 i 个单元映射到第 floor(i * wt.length / units.length) 个 token。
+   * 无论两边数量差多少, 所有单元都落在【真实时间轴之内】, 永远不会超出最后一个词。
+   * 数量相等时退化成原来的 1:1, 与旧行为一致。 */
   const paired: Array<{ text: string; t0: number; t1: number }> = units.map((u, i) => {
-    const wti = wt[i];
-    if (i < wt.length && wti) {
-      return { text: u.text, t0: wti.t0, t1: wti.t1 };
+    if (!wt.length) return { text: u.text, t0: i * 300, t1: (i + 1) * 300 };
+    if (units.length === wt.length) {
+      const w = wt[i]!;
+      return { text: u.text, t0: w.t0, t1: w.t1 };
     }
-    const last = wt.length > 0 ? (wt[wt.length - 1]?.t1 ?? 0) : 0;
-    const gap = 300;
-    return { text: u.text, t0: last + gap * (i - wt.length), t1: last + gap * (i - wt.length + 1) };
+    const j = Math.min(wt.length - 1, Math.floor((i * wt.length) / units.length));
+    const jn = Math.min(wt.length - 1, Math.floor(((i + 1) * wt.length) / units.length));
+    const a = wt[j]!;
+    const b = wt[jn]!;
+    // 同一个 token 内挤了多个单元时, 在这个 token 的时长里等分, 保证严格递增
+    const span = Math.max(1, b.t1 - a.t0);
+    const per = Math.max(1, Math.round(span / Math.max(1, Math.ceil(units.length / wt.length))));
+    const off = (i % Math.max(1, Math.ceil(units.length / wt.length))) * per;
+    return { text: u.text, t0: a.t0 + off, t1: Math.min(b.t1, a.t0 + off + per) };
   });
 
   // Re-group into SubSection/SubLine/SubToken
@@ -40149,14 +40174,28 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
     const lyricsDoc = (await downloadJsonFromR2(`works/${workId}/lyrics.json`)) as LyricsJson | null;
     const results: Array<Record<string, unknown>> = [];
     // 文本判定真实对齐语言(老轨 lang 常是 'orig'/'auto'/空)。Hangul→ko, 假名→ja, 汉→zh, 否则 en。
+    /* CSSOS_WAVE_2006 20260827 — 只认韩/日/中三种文字, 其余【一律回落 en】。
+     * 后果不是"少一种语言", 是【判错】: 波斯语歌词被当成英语去强制对齐,
+     * 50 行波斯语只对出 319 词(同规格的日语是 691 词) —— 字幕轨从根上就是错的,
+     * 而文明智能联动要求字幕跟人物母语走。
+     * 这不是波斯语专有: 俄文/希腊文/泰文/希伯来文/天城体 全都会被误判成英语。
+     * 按【文字系统】补齐主要几种; 仍认不出才回落 en。
+     * 注意 zh 必须放在 ja 之后 —— 日文里有汉字, 先判汉字会把日语误判成中文。 */
     const detectLyricLang = (text: string): string => {
       const t = String(text || "");
       if (/[가-힯]/.test(t)) return "ko";
-      if (/[぀-ヿ]/.test(t)) return "ja";
+      if (/[぀-ヿ]/.test(t)) return "ja";          // 假名(汉字之前判)
       if (/[一-鿿]/.test(t)) return "zh";
+      if (/[\u0600-\u06FF\u0750-\u077F]/.test(t)) return "fa";   // 阿拉伯字母 -> 波斯语
+      if (/[\u0400-\u04FF]/.test(t)) return "ru";                  // 西里尔
+      if (/[\u0370-\u03FF]/.test(t)) return "el";                  // 希腊
+      if (/[\u0590-\u05FF]/.test(t)) return "he";                  // 希伯来
+      if (/[\u0900-\u097F]/.test(t)) return "hi";                  // 天城体
+      if (/[\u0E00-\u0E7F]/.test(t)) return "th";                  // 泰文
       return "en";
     };
-    const realLangCodes = new Set(["zh", "en", "ja", "ko", "es", "fr", "de", "it", "pt", "ru"]);
+    const realLangCodes = new Set(["zh", "en", "ja", "ko", "es", "fr", "de", "it", "pt", "ru",
+                                   "fa", "el", "he", "hi", "th", "ar", "tr"]);
     // CSSOS_WAVE_724 — 整曲音量包络: 算一次(用第一条轨的音频), 全语言共用(器乐相同)。给 [Music...] emoji。
     let _volCurve: { step_ms: number; values: number[]; norm?: number } | null = null;
     try {
@@ -40965,25 +41004,38 @@ app.post("/api/admin/mv-song", express.json({ limit: "64kb" }), async (req, res)
     if (Array.isArray(raw.takes)) for (const v of raw.takes as unknown[]) { const t = String(v || "").trim(); if (t) cand.push(t); }
     const uniq = [...new Set(cand)];
     if (!uniq.length) return res.status(503).json({ ok: false, code: "NO_AUDIO_URL", provider: m.provider || "", raw_keys: Object.keys(raw) });
+    /* CSSOS_WAVE_2005 20260827 — 转存失败【绝不把第三方 URL 当交付物】。
+     * 原来的写法在下载/上传失败时把 out 原样 push 进 takes —— 于是返回一条
+     * musicfile.kie.ai 的临时链, 调用方以为拿到了成品。实测: Rūmī 第一首的
+     * take1 就是这样, 等我去抢救时那条链【已经返回 0 字节】, 素材直接没了。
+     * 这正是铁律「生成即落我们域名/R2」要防的事, 而静默保留临时链等于绕过它。
+     * 现在: 转存不成 -> 丢掉这一条并记进 failed[], 由调用方决定重试, 不假装成功。 */
     const takes: string[] = [];
+    const failed: Array<{ i: number; url: string; why: string }> = [];
     for (let i = 0; i < uniq.length; i++) {
-      let out = String(uniq[i] || "");
-      if (!out) continue;
-      if (!/cssstudio\.app/i.test(out)) {
-        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 120_000);
-        let buf: Buffer | null = null;
-        try { const r = await fetch(out, { signal: ctrl.signal, redirect: "follow" }); if (r.ok) buf = Buffer.from(await r.arrayBuffer()); }
-        catch { /* 单条失败不拖垮另一条 */ }
-        finally { clearTimeout(to); }
-        if (buf && buf.byteLength > 16384) {
-          const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
-          const url = await uploadBufferToR2(buf, `artifacts/mv-songs/${project}/${slug}-take${i + 1}-${sha}.mp3`, "audio/mpeg");
-          if (url) out = url;
-        }
+      const src = String(uniq[i] || "");
+      if (!src) continue;
+      if (/cssstudio\.app/i.test(src)) { takes.push(src); continue; }
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 120_000);
+      let buf: Buffer | null = null;
+      let why = "";
+      try {
+        const r = await fetch(src, { signal: ctrl.signal, redirect: "follow" });
+        if (r.ok) buf = Buffer.from(await r.arrayBuffer()); else why = `http_${r.status}`;
+      } catch (e) { why = `fetch_failed:${(e as Error)?.name || ""}`; }
+      finally { clearTimeout(to); }
+      if (!buf || buf.byteLength <= 16384) {
+        failed.push({ i: i + 1, url: src, why: why || `too_small:${buf ? buf.byteLength : 0}` });
+        continue;
       }
-      takes.push(out);
+      const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
+      const url = await uploadBufferToR2(buf, `artifacts/mv-songs/${project}/${slug}-take${i + 1}-${sha}.mp3`, "audio/mpeg");
+      if (url) takes.push(url); else failed.push({ i: i + 1, url: src, why: "r2_upload_failed" });
     }
-    return res.json({ ok: true, project, slug, title, takes, provider: m.provider || "", model: (m as { model?: string }).model || "", ms: Date.now() - t0 });
+    if (!takes.length) {
+      return res.status(503).json({ ok: false, code: "PERSIST_FAILED", failed, provider: m.provider || "" });
+    }
+    return res.json({ ok: true, project, slug, title, takes, failed, provider: m.provider || "", model: (m as { model?: string }).model || "", ms: Date.now() - t0 });
   } catch (e) {
     return res.status(500).json({ ok: false, code: "MV_SONG_FAILED", detail: (e as Error)?.message || "", ms: Date.now() - t0 });
   }

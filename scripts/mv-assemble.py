@@ -61,6 +61,25 @@ CONF = {
      "p3": grade("eq=saturation=0.95:contrast=1.02:brightness=0.03:gamma_b=1.04,"
                  "colorbalance=rs=-0.04:gs=0.00:bs=0.08:rm=-0.02:bm=0.06:rh=0.03:bh=0.03,"
                  "curves=all='0/0.05 0.5/0.54 1/1'")}),
+ "meghaduta": dict(
+   shotlist="/tmp/meghaduta-shotlist.json",
+   progress="/srv/cssos/tmp/megha-shoot-progress.json",
+   work="/srv/cssos/tmp/megha-assemble",
+   audio={"p1": 376.09, "p2": 352.21, "p3": 358.59},
+   out={"p1": "megha-p1-purvamegha.mp4", "p2": "megha-p2-marga.mp4", "p3": "megha-p3-uttaramegha.mp4"},
+   grade={
+     # 一 · 相遇: 旱季末 → 第一场雨。压暖、提对比, 焦土的赭红要留住, 雨到时天要沉下来。
+     "p1": grade("eq=saturation=0.90:contrast=1.06:brightness=0.00:gamma_r=1.03,"
+                 "colorbalance=rs=0.05:gs=0.01:bs=-0.04:rm=0.03:bm=-0.03,"
+                 "curves=all='0/0.03 0.5/0.50 1/0.97'"),
+     # 二 · 云路: 全程在雨里飞。降饱和、抬黑位(雨天没有死黑), 绿要湿不要艳。
+     "p2": grade("eq=saturation=0.84:contrast=0.98:brightness=0.02:gamma_g=1.03,"
+                 "colorbalance=rs=-0.03:gs=0.03:bs=0.04:rm=-0.02:gm=0.02:bm=0.03,"
+                 "curves=all='0/0.07 0.5/0.52 1/0.96'"),
+     # 三 · 阿罗迦: 永恒的春天 + 月光。青金与月白, 曼陀罗花的橙不能被洗掉。
+     "p3": grade("eq=saturation=0.96:contrast=1.04:brightness=0.01:gamma_b=1.04,"
+                 "colorbalance=rs=-0.02:bs=0.06:rm=0.02:bm=0.04:rh=0.03:bh=0.02,"
+                 "curves=all='0/0.04 0.5/0.53 1/0.98'")}),
  "sappho": dict(
    shotlist="/tmp/sappho-shotlist.json",
    progress="/srv/cssos/tmp/sappho-shoot-progress.json",

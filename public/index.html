@@ -67,6 +67,26 @@
     <meta name="twitter:title" content="CSS Studio — a music video is already playing. Make yours in a sentence." />
     <meta name="twitter:description" content="Open it and a full music video plays with sound, instantly. Then make your own in one sentence — any language, any voice, emotion subtitles." />
     <meta name="twitter:image" content="https://cssstudio.app/og/share.png?v=824" />
+
+    <!-- CSSOS_WAVE_2034 20260829 — Pinterest 专用 2:3 抓图(第二张 og:image)。
+       Jing:「解法是站上放一张 2:3 的 OG 图专供抓取。要做。」
+
+       起因: Pinterest 只收 2:3~1:1 的竖/方图, 而我们【站上每一张图都是 32:9】(画幅铁律),
+       它一张都抓不到 —— 建 Pin 只能走 Save-from-URL, 而那条路会把目标链接锁死成图片地址,
+       ?cssADS= 归因带不上(实测)。
+
+       **第一版我做错了**: 在 body 里放了一张 display:none 的 <img>, 想着"爬虫读 HTML 就看得见"。
+       拿真的 Pinterest 抓了一次 —— 仍旧 No suitable images found。隐藏的图爬虫普遍会跳过。
+       【推断爬虫行为不算数, 要拿真爬虫量。】
+
+       现在的做法: 追加【第二个 og:image】。OG 规范允许多张, 结构化属性(width/height/alt)
+       归属它前面那一张。第一张仍是 1200x630, Facebook/X 取第一张 —— 它们的预览卡一个字没动;
+       Pinterest 会在候选里挑到这张 2:3 的。 -->
+    <meta property="og:image" content="https://cssstudio.app/og/pin.jpg?v=20260829" />
+    <meta property="og:image:width" content="1000" />
+    <meta property="og:image:height" content="1500" />
+    <meta property="og:image:alt" content="Kalidasa Meghaduta - the Cloud Messenger, sung in Sanskrit on cssOS" />
+
     <script>
       // Pre-paint theme resolver — applies user's saved theme BEFORE any CSS loads
       // to prevent flash-of-unstyled-theme (FOUT). Must stay in sync with
@@ -134,6 +154,7 @@
 
   </head>
   <body>
+
     <!-- CSSOS_WAVE_491 20260529 — Jing「启动: 魔镜 logo 接力到主界面, 中间不要黑屏」.
          原生闪屏 launchShowDuration=1200ms 后固定消失, 但此时网页主界面常还没渲染好 →
          露出黑色 WKWebView 空档。这个网页端启动遮罩用【同一个魔镜 logo】从首帧就盖住屏幕,

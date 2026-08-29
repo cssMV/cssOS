@@ -40168,9 +40168,11 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       trackRows = [{ lang: "orig", audio_url: pau, vocal_url: null, track_order: 0, lyrics: null, duration_secs: null }] as any;
     }
     // CSSOS_WAVE_657 — 老作品多无 R2 lyrics.json, 歌词在 DB(轨.lyrics / lyrics_preview)。批量回填要兜底。
-    const workRow = await withClient((c) => c.query<{ lyrics_preview: string | null }>(
-      `SELECT lyrics_preview FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+    const workRow = await withClient((c) => c.query<{ lyrics_preview: string | null; language: string | null }>(
+      `SELECT lyrics_preview, language FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
     const previewLyrics = String(workRow.rows[0]?.lyrics_preview || "");
+    // W2030 — 作品行声明的语言, 供下面 alignLang 在【同文字】时优先采信。
+    const declaredWorkLang = String(workRow.rows[0]?.language || "");
     const lyricsDoc = (await downloadJsonFromR2(`works/${workId}/lyrics.json`)) as LyricsJson | null;
     const results: Array<Record<string, unknown>> = [];
     // 文本判定真实对齐语言(老轨 lang 常是 'orig'/'auto'/空)。Hangul→ko, 假名→ja, 汉→zh, 否则 en。
@@ -40264,8 +40266,40 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         results.push({ lang: tr.lang, ok: false, reason: "no_lyrics" });
         continue;
       }
-      // 对齐用【真实语言】(orig→检测); 写回 subtitle 仍用 tr.lang 作轨标识。
-      const alignLang = realLangCodes.has(String(tr.lang)) ? String(tr.lang) : detectLyricLang(reLyrics);
+      /* 对齐用【真实语言】(orig→检测); 写回 subtitle 仍用 tr.lang 作轨标识。
+       *
+       * CSSOS_WAVE_2030 20260829 — 【作品行声明的语言, 优先于字形猜测】。
+       *
+       * 起因: 《云使》是梵语(sa), 作品行也写的 sa, 而 detectLyricLang 按字形只能看出
+       * 「这是天城体」→ 返回 hi(印地语)。于是字幕 JSON 标成 hi、作品行是 sa,
+       * 播放端按 W1961 的【严格匹配】去要 sa —— 取不到, 整首哑掉, 而且一声不响。
+       *
+       * 把作品行改成 hi 是错的: 梵语不是印地语, 笈多王朝也不是现代印度 ——
+       * 那等于为了让匹配通过而毁掉文明智能联动的输入。
+       *
+       * 正确的方向: 字形只能定【文字】, 定不了【语言】。一种文字底下往往压着好几种语言
+       *   天城体  → 梵语 / 印地语 / 马拉地语
+       *   阿拉伯字母 → 阿拉伯语 / 波斯语 / 乌尔都语
+       *   西里尔  → 俄语 / 塞尔维亚语 / 保加利亚语
+       * 而作品行的 language 是【人(或文明联动)明确定下来的】, 比猜测更权威。
+       * 所以: 只要声明语言与检测语言【属于同一种文字】, 就采信声明的那个。
+       * 不同文字才说明声明是错的(例如声明 zh 却是一篇希腊文), 那时仍以字形为准。 */
+      const _detected = realLangCodes.has(String(tr.lang)) ? String(tr.lang) : detectLyricLang(reLyrics);
+      const SCRIPT_FAMILY: Record<string, string> = {
+        sa: "deva", hi: "deva", mr: "deva", ne: "deva",
+        ar: "arab", fa: "arab", ur: "arab", ps: "arab",
+        ru: "cyrl", sr: "cyrl", bg: "cyrl", uk: "cyrl",
+        zh: "hani", ja: "jpan", ko: "kore", el: "grek", he: "hebr", th: "thai",
+      };
+      // split("-")[0] 在 noUncheckedIndexedAccess 下是 string|undefined —— 必须收口, 否则
+      // 它会被当索引用而编译不过(而 deploy 脚本里 tsc 失败时会沿用上一版 build, 静默跑旧码)。
+      const _declared = (String(declaredWorkLang || "").trim().toLowerCase().split("-")[0] || "");
+      const alignLang = (_declared && _declared !== _detected
+        && SCRIPT_FAMILY[_declared] && SCRIPT_FAMILY[_declared] === SCRIPT_FAMILY[_detected])
+        ? _declared : _detected;
+      if (alignLang !== _detected) {
+        console.info(`[resubtitle] 采信作品行声明语言 ${alignLang}(字形检测为 ${_detected}, 同属 ${SCRIPT_FAMILY[_declared] || "?"} 文字)`);
+      }
       const emo = await annotateEmotions(parseLyricsToSections(reLyrics), alignLang);
       // CSSOS_WAVE_1267 — Jing「🥇 保证 stem 就位」: 强制对齐前若本轨没有人声 stem, 先跑 Demucs 分离 + 落库,
       //   让对齐永远落在【干净人声】上(全混音对齐=器乐搅扰→咬字飘移 + 无refText时ASR别字的真因)。

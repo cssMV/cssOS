@@ -10,6 +10,28 @@ say() {
   printf '[deploy-express] %s\n' "$*"
 }
 
+# CSSOS_WAVE_2031 20260829 — 【本地 typecheck 闸门, 不过不许发】。
+#
+# 起因: 我改完 src/index.ts, 本地 `npx tsc --noEmit` 是【红的】, 而这个脚本
+# 照样一路跑到 "done"。我据此告诉 Jing"正在部署", 其实线上跑的是【上一版 build】,
+# 重跑对齐当然还是旧结果 —— 我对他说了一句错话, 而脚本没有任何地方拦我。
+#
+# 远端虽然也 tsc, 但那时源码已经 rsync 过去、可能已经动了半个环境;
+# 更要命的是失败信号没能一路冒到这里, 最后打印的仍是成功的收尾行。
+# 闸门装在【最前面】: 一行代码都还没出本机, 就先判生死。
+#
+# 跳过方式只有一个, 而且必须是人显式写出来的: DEPLOY_SKIP_TYPECHECK=1。
+# 留这个口子是为了紧急回滚(线上着火时不该被 tsc 拦住), 不是为了图快。
+if [ "${DEPLOY_SKIP_TYPECHECK:-0}" != "1" ]; then
+  say "typecheck (npx tsc --noEmit) — 不过不发"
+  if ! (cd "${REPO_ROOT}" && npx tsc --noEmit); then
+    say "❌ typecheck 失败 —— 【没有部署任何东西】, 线上仍是上一版。"
+    say "   修好再发; 紧急情况可 DEPLOY_SKIP_TYPECHECK=1 强发(会带着类型错误上线)。"
+    exit 1
+  fi
+  say "typecheck ✅"
+fi
+
 sync_src() {
   say "rsync src/ -> ${TARGET}:${REMOTE_REPO}/src/"
   rsync -az --delete \

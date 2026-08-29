@@ -26,7 +26,7 @@ PARTS = [
 def parse_storyboard():
     txt = open(SB, encoding="utf-8").read()
     marks = [m.start() for m in re.finditer(r"^# 第[一二三]部", txt, re.M)]
-    marks.append(txt.index("## 五 · 执行清单"))
+    marks.append(txt.index("## 四 · 执行清单"))
     out = {}
     for i, key in enumerate(["p1", "p2", "p3"]):
         body = txt[marks[i]:marks[i+1]]

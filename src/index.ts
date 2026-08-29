@@ -40825,8 +40825,27 @@ app.post("/api/admin/mark-real-video-mv/:workId", express.json({ limit: "4kb" })
              FROM user_works w WHERE w.id = $1::uuid`, [workId]));
         const hasCover = Boolean(String(cur.rows[0]?.cover || "").trim());
         const hasFrames = Number(cur.rows[0]?.frames || "0") > 0;
-        if (hasCover || hasFrames) {
+        if (hasCover) {
           coverState = "existing";
+        } else if (hasFrames) {
+          /* CSSOS_WAVE_2029 20260829 — 【有幻灯帧但没封面】也算缺封面。
+           * 原来这里是 `if (hasCover || hasFrames) → existing` 就跳过了。
+           * 漏洞: 降级幻灯确实有图可播了, 但市场/列表的缩略图读的是 cover_image ——
+           * 卡片还是空的。实测有两条《寻寻觅觅》正是这个状态: 闸门报 existing,
+           * 而库里 cover_image 依旧为空。
+           * 免费的修法: 把已有的第一帧提上来当封面, 不必再生成任何东西。 */
+          const f = await withClient((c) => c.query<{ url: string }>(
+            `SELECT url FROM work_assets WHERE work_id=$1::uuid AND asset_type='slideshow_frame'
+              ORDER BY created_at LIMIT 1`, [workId]));
+          const u = String(f.rows[0]?.url || "").trim();
+          if (u) {
+            await withClient((c) => c.query(
+              `UPDATE user_works SET cover_image=$2, preview_image_url=$2, updated_at=now()
+                WHERE id=$1::uuid`, [workId, u]));
+            coverState = "promoted_frame";
+          } else {
+            coverState = "frames_but_unreadable";
+          }
         } else {
           // 抽第 5 秒那一帧(避开常见的黑场起手)。ffmpeg 直接读远端 URL, 不落盘。
           const jpg: Buffer = await new Promise((resolve, reject) => {

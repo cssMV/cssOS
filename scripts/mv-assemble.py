@@ -38,6 +38,29 @@ CONF = {
    audio={"p1": 347.1, "p2": 327.4, "p3": 343.8},
    out={"p1": "rumi-v2-p1-neyname.mp4", "p2": "rumi-v2-p2-biya.mp4", "p3": "rumi-v2-p3-sama.mp4"},
    grade={"p1": RUMI_G, "p2": RUMI_G, "p3": RUMI_G}),
+ "meghaduta": dict(
+   shotlist="/tmp/meghaduta-shotlist.json",
+   progress="/srv/cssos/tmp/megha-shoot-progress.json",
+   work="/srv/cssos/tmp/megha-assemble",
+   # 出歌之后由 meghaduta-prep.py 按【解码实测】写进 megha-audio-len.json,
+   # 装配时读它 —— 绝不在这里手写一个数(ffprobe 对 VBR 会谎报)。
+   audio=__import__("json").load(open("/srv/cssos/tmp/megha-audio-len.json")),
+   out={"p1": "megha-p1-purvamegha.mp4", "p2": "megha-p2-marga.mp4",
+        "p3": "megha-p3-uttaramegha.mp4"},
+   # 云使按【部】调色 —— 三部的光是三种天气, 不是三种风格:
+   #   一 旱季末转骤雨: 干、硬、然后压暗
+   #   二 雨中飞行: 散射光, 低对比, 湿绿
+   #   三 阿罗迦: 月与花, 青金 + 月白, 提亮不提暖
+   grade={
+     "p1": grade("eq=saturation=0.86:contrast=1.10:brightness=0.01:gamma_r=1.05,"
+                 "colorbalance=rs=0.07:gs=0.02:bs=-0.05:rm=0.04:bm=-0.04:rh=0.03:bh=-0.02,"
+                 "curves=all='0/0.02 0.5/0.50 1/0.98'"),
+     "p2": grade("eq=saturation=0.90:contrast=0.96:brightness=0.02:gamma_g=1.04,"
+                 "colorbalance=rs=-0.03:gs=0.04:bs=0.03:rm=-0.02:gm=0.03:bm=0.02,"
+                 "curves=all='0/0.07 0.5/0.52 1/0.95'"),
+     "p3": grade("eq=saturation=0.95:contrast=1.02:brightness=0.03:gamma_b=1.04,"
+                 "colorbalance=rs=-0.04:gs=0.00:bs=0.08:rm=-0.02:bm=0.06:rh=0.03:bh=0.03,"
+                 "curves=all='0/0.05 0.5/0.54 1/1'")}),
  "sappho": dict(
    shotlist="/tmp/sappho-shotlist.json",
    progress="/srv/cssos/tmp/sappho-shoot-progress.json",

@@ -12,7 +12,8 @@
  3. 要局部就写【中景裁切, 身体继续延伸出画】, 绝不写"只拍手/只拍衣" ——
     芭蕉那只悬空的手、鲁米那件自己站着的袍子, 都是从这种写法里长出来的。
 """
-import json, os, re, subprocess, sys
+import concurrent.futures as cf
+import json, os, re, subprocess, sys, threading
 
 ROOT = "/srv/cssos/tmp"
 SHOTS = json.load(open("/tmp/sappho-shotlist.json"))
@@ -112,25 +113,43 @@ def make_plates():
         print(("✅ " if url else "❌ ") + k, url or "")
     json.dump(out, open(PLATE_F, "w")); return out
 
-def shoot(part_keys):
+def shoot(keys, workers=3):
+    """CSSOS_WAVE_2024c — 并发 3。
+
+    串行实测 ~3 分钟/镜(供应商队列忙, 不是我们慢), 300 镜 = 15 小时, 太久。
+    上一次崩不是因为"并发", 是因为【无退避重试】: 一限流就三次瞬间烧完记失败,
+    然后下一镜继续轰 —— 雪崩。退避装好之后, 适度并发是安全的。
+    取 3 而不是 8: 再高就是在赌供应商的限流阈值, 而赌输的代价是整批重来。
+    进度文件加锁写 —— 三个线程同时 json.dump 会写出半个文件, 那比慢更贵。"""
     plates = json.load(open(PLATE_F))
     prog = json.load(open(PROG_F)) if os.path.exists(PROG_F) else {}
-    todo = [r for k in part_keys for r in SHOTS[k]]
-    print(f"待拍 {len(todo)} 镜(已完成 {sum(1 for v in prog.values() if v.get('ok'))})")
-    for pk, num, t0, t1, dur, desc, who in todo:
-        key = f"{pk}:{num}"
-        if prog.get(key, {}).get("ok"): continue
+    todo = [r for k in keys for r in SHOTS[k] if not prog.get(f"{k}:{r[1]}", {}).get("ok")]
+    print(f"待拍 {len(todo)} 镜 (并发 {workers})", flush=True)
+    lock = threading.Lock()
+
+    def one(row):
+        pk, num, _t0, _t1, dur, desc, who = row
         j = post("/api/admin/mv-shot", {
-            "shot": f"sp{pk[1]}{num}", "project": "sappho",
+            "shot": f"{SHOT_PREFIX}{pk[1]}{num}", "project": PROJECT,
             "model": "bytedance/seedance-1.5-pro", "duration_secs": int(dur),
             "image_url": plates[pk],
             "prompt": SCENE[pk] + clean(desc) + STYLE + WHO[who]})
         url = (j or {}).get("video")
-        prog[key] = {"ok": bool(url), "url": url, "dur": dur, "who": who}
-        json.dump(prog, open(PROG_F, "w"))
-        print(("✅ " if url else "❌ ") + f"{key} {dur}s [{who}]", flush=True)
+        with lock:
+            prog[f"{pk}:{num}"] = {"ok": bool(url), "url": url, "dur": dur, "who": who}
+            json.dump(prog, open(PROG_F + ".tmp", "w"))
+            os.replace(PROG_F + ".tmp", PROG_F)   # 原子替换, 断电也不会留半个文件
+        print(("✅ " if url else "❌ ") + f"{pk}:{num} {dur}s [{who}]", flush=True)
+
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        list(ex.map(one, todo))
+
     done = sum(1 for v in prog.values() if v.get("ok"))
-    print(f"--- 清单 {len(todo)} 镜, 累计成功 {done} 镜 " + ("✅" if done >= len(todo) else "⚠️ 有缺"))
+    total = sum(len(SHOTS[k]) for k in keys)
+    print(f"--- 清单 {total} 镜, 累计成功 {done} 镜 " + ("✅ 无遗漏" if done >= total else f"⚠️ 还缺 {total-done}"))
+
+PROJECT = "sappho"
+SHOT_PREFIX = "sp"
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "plates"

@@ -60,6 +60,33 @@ AWS 现在注册时要你二选一(2025 年起的新机制):
 **Paid plan 不等于要花钱** —— 是按量付费, 不开服务就是零账单。
 Activate 额度批下来之后, 也是先抵扣额度再计费。
 
+**W2044 补充 —— 官方计费文档里的定论(比营销页那句硬得多):**
+
+> **"Free account plans are not eligible for other promotional credits and discounts."**
+> —— `docs.aws.amazon.com` · Choosing a plan
+
+**Activate credits 就是 promotional credits。所以 Free plan 是明文不合格, 不是推断。**
+同一页还有一条更凶的:
+
+> After your free account plan expires, **your account closes automatically**,
+> and you lose access to your resources and data.
+
+对照表也写得很清楚:
+
+| Free plan | Paid plan |
+|---|---|
+| Not eligible for other promotional credits and discounts | **Eligible for other promotional credits and discounts** |
+| Account closes when credits are depleted or when the plan duration ends | Account doesn't close when credits are depleted |
+
+**已经注册成 Free plan 怎么补救(官方三步):**
+
+1. 登录 Console
+2. 打开 `https://console.aws.amazon.com/billing/home?#/freetier/upgrade`
+3. 看完变更点, 点 **Upgrade account**
+
+当前是哪个计划, 在 Billing and Cost Management 首页能看到(会显示 free account plan 信息和额度余额)。
+
+
 ### 邮箱怎么分配(两个地址, 各有职责)
 
 | 用途 | 用哪个 | 为什么 |

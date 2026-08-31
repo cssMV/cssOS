@@ -1,10 +1,10 @@
 # KIE Claude 通道故障 —— 报障稿 (2026-08-31)
 
-**渠道(2026-08-31 复查后更正):**
+**渠道: ⭐ 微信(Jing 有 KIE 客服微信) —— 最快, 优先走这条。** 以下为备用:
 
 | 方式 | 地址 | KIE 自己的说法 |
 |---|---|---|
-| **邮件 ✅ 我们走这条** | **`support@kie.ai`** | "You may also email us at support@kie.ai, **but this is not the preferred or fastest option**" |
+| 邮件(备用) | **`support@kie.ai`** | "You may also email us at support@kie.ai, **but this is not the preferred or fastest option**" |
 | Discord / Telegram | `https://kie.ai/vip-support` | 他们标为 preferred, 授权后开专属私有频道 |
 
 支持时段: **UTC 21:00 – UTC 17:00(次日)**。
@@ -23,6 +23,36 @@
 
 **为什么这份证据够硬:** 余额充足 + 同一把 key 的 GPT 通道正常 + 三个 Claude 型号全挂
 → 问题在他们的 Claude 上游账号池, 不在我们这边。**堵死了「先去查你余额/你的 key」这条回复。**
+
+---
+
+## ⭐ 微信版(Jing 有 KIE 客服微信, 优先走这条)
+
+> KIE 你好，报个障：**Claude 通道已经挂了 10 天，所有 Claude 型号都不可用。**
+>
+> 端点：`POST https://api.kie.ai/claude/v1/messages`
+>
+> 三个型号同一时刻实测：
+> · `claude-fable-5` → `{"type":"error","error":{"type":"api_error","message":"Internal error, please try again later"}}`
+> · `claude-sonnet-5` → 同上
+> · `claude-opus-5` → `error code: 502`
+>
+> **流式调用下更隐蔽：HTTP 状态是 200，但 SSE 流里带 `{"type":"error"}`，消息是
+> `no_available_account`，且一个字都没返回。** 这会让客户端把失败误判成成功 ——
+> 建议这种情况返回非 2xx 状态码。我们就是因此白跑了 10 天才发现。
+>
+> **不是我们账户的问题：**
+> · 余额充足 —— `/api/v1/chat/credit` 返回 **219.36**
+> · **同一把 API key，GPT 通道正常** —— 今天 12:42 还成功走了 `gpt-5-6-sol`
+> · `Claude Fable 5` 就列在你们 Market 页面上，型号 ID 没写错
+>
+> 时间范围：我们日志里最早一次是 **8 月 21 日 20:58**，到 8 月 31 日仍然如此，
+> **14 天内出现 188 次 —— 每一次 Claude 调用都中招。**
+>
+> 想请教三个问题：
+> 1. Claude 上游账号池是不是空了或者宕了？大概什么时候能恢复？
+> 2. 我们账户上有没有什么设置，导致被排除在 Claude 池之外？
+> 3. `no_available_account` 能否改成返回非 2xx，而不是 200 + SSE error？
 
 ---
 

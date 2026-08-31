@@ -280,6 +280,28 @@ Carta / Brex 这类**服务商**面向全体客户, 档位就是 $5K。
 **不要为了 $5K 去买 Carta 的 LLC 付费档。** LLC 付费档是销售报价制(页面连价都不标),
 单人 100% 股权的 LLC 本来就没有股权表要管 —— 花钱买它来换 $5K 额度, 账是负的。
 
+### 先拿 $1,000 不会作废后面的 $5,000 —— 拿的是差额
+
+**这条决定了「要不要等 Carta」。** 两处官方说法互相印证:
+
+> **Carta 资格:** "Must not have previously received AWS Activate credits
+> **at equal or greater value**" —— $1,000 < $5,000, **仍然合格。**
+
+> **AWS FAQ:** "if you applied for more credits than you had before, but have
+> already claimed some portion of that total, your new award might only reflect
+> **the difference**. For instance, if you have $10K in credits and apply for $100K,
+> you could receive an additional $90K."
+
+**即: 先投 Founders 拿 $1,000, 之后 Carta 通了再补 $4,000, 终点一样是 $5,000。**
+
+那还等不等 Carta? **等一下, 但只等几分钟** ——
+Carta 注册是免费且不要卡的, LLC 那堵墙(certificate of incorporation)会在几分钟内现形。
+- **Carta 通** → 直接一次投 $5,000, 一个审核周期(7–10 工作日)搞定。
+- **Carta 不收 LLC** → 当场改投 Founders $1,000, 不再纠缠。
+
+**不建议现在就投 Founders 抢那 7 天** —— 申请提交后不可修改, 改档要取消申请 +
+解绑 AWS 账号 + 重新提交, 等于两个审核周期加一次解绑重绑。省下的时间还不够赔的。
+
 ### $200K 依然只有一条路
 
 要真的够到 $200K, 必须有**真投资方或加速器**把我们放进它的 portfolio 并给 Org ID。

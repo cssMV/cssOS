@@ -174,6 +174,40 @@ Carta / Brex 这类**服务商**面向全体客户, 档位就是 $5K。
 股权表本身没什么可管** —— 开它的唯一实际理由就是这 $5K。你要觉得不值这个麻烦,
 直接投 Founders 档拿 $1,000 也完全合理, 那条路今天就能走完。
 
+### ⚠️ 走之前必须知道的一块石头: Carta Launch 免费档可能不收 LLC
+
+**我们是 CSS Studio LLC。Carta 的免费档看起来是给 Corporation 设计的。**
+
+**支持「免费档不收 LLC」的证据(强):**
+
+| 证据 | 出处 |
+|---|---|
+| Corporation 价目页有 `Launch — Free — 25 名持股人 / $1M 以内 — "Sign up, it's free"` | `carta.com/plans/equity-management/` |
+| **LLC 价目页没有 Launch、没有免费档、连价格都不标**, 整页只有 "Schedule a call with sales" | `carta.com/plans/equity-management/llc/` |
+| 注册要 **"your certificate of incorporation"** —— **LLC 没有这个东西**, LLC 拿的是 Articles of Organization | Launch 页 |
+| 产品语言全是 **shares / stock transfers / ISO / 83(b)** —— 都是股份公司的东西; LLC 用的是 units | Launch 页 |
+
+**支持「可能收」的证据(弱但真实):**
+
+> **"Carta Launch is for startups with under 25 stakeholders and less than $1 million raised."**
+> —— Launch 页 FAQ「What companies are eligible?」**官方资格条款里一个字都没提实体类型。**
+
+**我无法从公开页面判定。** 两边都有真凭据, 硬下结论就是今天已经犯过两次的那个错。
+
+**最便宜的判定方式 = 直接去注册。** 免费、**不要信用卡**(官方原话:
+"no credit card is needed or required for as long as you're on the Launch platform"),
+几分钟就能试出来。**卡点会出现在「上传 certificate of incorporation」那一步** ——
+如果它不接受 Articles of Organization / LLC 运营协议, 当场就知道了, 不用往下猜。
+
+**如果 Carta 免费档确实不收 LLC, 两条退路:**
+
+1. **Brex** —— 同样 $5,000, 且企业银行/卡对 LLC 友好(我们有 EIN)。
+   代价: 要开企业账户; 公司卡据称有 $50K 现金余额门槛(未核实, 存款账户可能没有)。
+2. **直接投 AWS Founders 档拿 $1,000** —— 零依赖, 今天就能走完, 约 1,000 小时 A10G。
+
+**不要为了 $5K 去买 Carta 的 LLC 付费档。** LLC 付费档是销售报价制(页面连价都不标),
+单人 100% 股权的 LLC 本来就没有股权表要管 —— 花钱买它来换 $5K 额度, 账是负的。
+
 ### $200K 依然只有一条路
 
 要真的够到 $200K, 必须有**真投资方或加速器**把我们放进它的 portfolio 并给 Org ID。

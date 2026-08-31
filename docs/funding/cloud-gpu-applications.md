@@ -40,6 +40,33 @@ We spent the last quarter making the product worth showing rather than showing i
 
 ---
 
+## 一点五 · ⚠️ 投任何一家之前必须先修的东西: **网站上没有"我们是一家公司"的证据**
+
+NVIDIA 给的拒绝理由是「Your company needs to maintain a functional website」。
+我们的站是活的(HTTP 200 · 首字节 0.2s · 205KB · 无 JS 也有 8,344 字可见内容), 所以不是白屏。
+
+**实测下来问题在别处:**
+
+```
+/about    404      /legal    404
+/company  404      /terms    404
+/contact  404      /privacy  404
+/press    404
+首页: 没有 "CSS Studio LLC" · 没有地址 · 没有联系方式 · 没有版权行
+```
+
+**站上没有任何一页说明这家公司是谁。** 审核员打开 cssstudio.app, 看到一个自动播放的播放器 ——
+功能很酷, 但没有一处证据表明背后有一家注册公司。
+
+**这不只挡住 NVIDIA。** AWS / Google / Microsoft 的资格审核都做同一件事:
+点开你的网址, 确认这是一家真实公司。**带着现在这个站去投, 很可能拿到同一个结果。**
+
+**所以顺序是: 先补公司信息页 → 再投。** 需要的最少内容:
+法定名称 CSS Studio LLC · 注册地 Washington, D.C. · 联系邮箱 · 一句话业务描述 ·
+Terms / Privacy(App Store 本来也需要) · 页脚版权行。
+
+---
+
 ## 二 · AWS Activate
 
 **先提 Founders 层** —— 无需任何机构背书, 表最短。
@@ -85,9 +112,29 @@ third-party model inference, billed outside any cloud provider.
 
 ## 三 · NVIDIA Inception
 
-**这份最值得认真写**, 因为它: 不要股权 · 无门槛 · 无截止 · **官方承诺 2–4 周回复**。
-Jing 说 NVIDIA 一直没消息 —— 如果早就超过 4 周, 那**多半是申请卡住了而不是被拒**,
-所以这份既是新申请, 也是催办的依据。
+> ## ⛔ 2026-08-30 更正 —— 我上面那句话是错的, NVIDIA 这条现在走不通
+>
+> 我原写:「Jing 说 NVIDIA 一直没消息 —— 多半是申请卡住了而不是被拒。」**这是错的。**
+> 我当时凭"官方承诺 2–4 周"推断, 没有去查邮箱 —— 而答案一直躺在 `jing@cssstudio.app` 里。
+>
+> **事实(邮件原文):**
+> - **2026-06-09** NVIDIA Inception:「your organization isn't currently the right fit…
+>   **You'll be eligible to reapply after December 6, 2026.**」→ **六月九号就被拒了, 且有冷却期。**
+> - **2026-06-16** NVIDIA 给出具体理由:「Your company **also didn't meet the below:
+>   — Your company needs to maintain a functional website.**」
+> - **2026-06-23** 「We have forwarded this for further review.」→ **此后再无回音。**
+>   Jing 在 6/23、7/6、7/8、7/19 又发了四封跟进, **全部没有回复。**
+> - 申请页现在直接弹 **"Not Eligible to Apply"** —— 那就是这个冷却期, 不是 bug。
+>
+> **结论: NVIDIA 在 2026-12-06 之前投不了。** 第五封跟进大概率也不会有回音。
+> 下面这份材料留着 —— **12 月 6 日之后原样能用**, 但要先解决下面那个网站问题。
+>
+> **教训(记牢):** 我们等了两个多月的"没消息", 其实六月九号就有一封白纸黑字的拒信。
+> **能查的东西不要等 —— 也不要替它编一个乐观的解释。**
+
+---
+
+**这份 12 月 6 日之后再投**, 因为它: 不要股权 · 无门槛 · 无截止 · 官方承诺 2–4 周回复。
 
 ### Describe your AI/deep-learning use case
 

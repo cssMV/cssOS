@@ -5,6 +5,45 @@
 
 ---
 
+## 零点零 · ✅ 已提交(2026-08-31 00:52 ET)
+
+**AWS Activate Founders 申请已递交。页面回执: "We will get back to you in 5 to 7 business days."**
+(比官方指南写的 7-10 个工作日更快; 结果发到 `jing@cssstudio.app`。)
+
+**最终提交的答案(全部如实):**
+
+| 项 | 值 |
+|---|---|
+| Credits package | Founders tier(起 $1,000, 择优到 $5,000) |
+| Industry | Media & Entertainment |
+| 完成表单身份 | Business Interest |
+| Most recent funding round | **No Funding**(日期栏被系统禁用, 无需填) |
+| Latest valuation | **No Valuation** |
+| AWS spend % | **< 25%** |
+| Marketing annually | **< $250,000** |
+| Builder ID | `jing@cssstudio.app` |
+| AWS 根账号 | `admin@cssstudio.app` · Account linking successful ✅ |
+
+**过程中卡住并解决的两处(留给下次):**
+
+1. **账号被判「未完成注册」** —— AWS 把人导到 "Complete your account setup" 页,
+   提示语是「either not finished registering, **or your account is currently on free plan**」。
+   我们的账号是 Paid, 所以是前者。**真因: 注册流程的 step 5 of 5「Select a support plan」
+   从没做过**(建账号时中途离开)。补选 **Basic support — Free** 后即完成。
+   ⚠️ 那一屏右边推销 `AWS Business Support+ $29/月 · 前 60 天全额退款` ——
+   **是订阅**, 60 天后自动续费, 我们一个工单都不会开, 不要碰。
+2. **付款方式** —— 最初用信用卡, AWS 建议改 ACH; ACH 已链接且户名是 **CSS STUDIO LLC**
+   (与官网法人行一致, 对审核有利)。个人 Visa 已删 →
+   **目前 `Backup payment method: Disabled`, 只有 ACH 一条腿。ACH 退票会走欠费流程,
+   建议后补一张公司卡做 backup。**
+
+**批下来后的两件事:**
+- **把额度到期日记进日历**(Founders 档一般 1–2 年, 过期作废)
+- **别让它躺着** —— 目标用途是 GPU, $1,000 ≈ 1,000 小时 g5.xlarge(A10G 24GB),
+  把卡了很久的 SVS 真人声唱词从「等」推到「试」
+
+---
+
 ## 零 · 结论(2026-08-31 拍板): 走 **Founders $1,000**, Carta 放弃
 
 **Carta 走到第四屏放弃, 原因不是麻烦, 是【那条流程对 LLC 没有对应物】:**

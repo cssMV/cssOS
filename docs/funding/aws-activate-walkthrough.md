@@ -5,6 +5,29 @@
 
 ---
 
+## 零 · 结论(2026-08-31 拍板): 走 **Founders $1,000**, Carta 放弃
+
+**Carta 走到第四屏放弃, 原因不是麻烦, 是【那条流程对 LLC 没有对应物】:**
+
+| Carta 要求 | LLC 的现实 |
+|---|---|
+| Certificate of Incorporation | LLC 没有, 只有 Articles of Organization |
+| Share class / par value | LLC 没有股票, 只有 membership units; 无面值 |
+| **Board approval date** ——「a director signed a **Board Consent**」 | **单一成员 LLC 没有董事会、没有 director、没有 Board Consent 这份文件。这个日期在现实里不存在。** |
+
+前两项还能当作命名映射; **第三项问的是一份具体文件的签署日期**, 而 Carta 是 SEC 注册的
+过户代理机构, 这是公司的股权记录。**为了 $4,000 的差额去填一个不存在的董事会同意日期,
+不划算也不该做。** 连续两个字段无对应物 = 这条 flow 本来就不是为 LLC 设计的。
+
+**所以: 直接投 Founders 拿 $1,000(≈1,000 小时 A10G), 零依赖, 一张表。**
+W2045 那条规则仍然成立 —— **先拿 $1,000 不作废将来的更高额度, 重复申请拿的是差额。**
+将来若有真投资方/加速器给 Org ID, 再补差额即可。
+
+AWS 侧已就绪: 根账号 admin@cssstudio.app · **Paid plan** · ACH(CSS STUDIO LLC) ·
+账单地址 Washington DC —— 与官网法人行一致。
+
+---
+
 ## 一 · 先把金额说清楚 —— $200K 是别人的数字
 
 大标题写 "up to $200,000"。三档展开后:

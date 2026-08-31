@@ -100,6 +100,17 @@ export async function renderTemplateGift(
   //      work_type   → 'single' so the existing playback chain works
   //      structure_role = 'gift' so future UI can surface gifts apart
   //                       from regular user works
+  //
+  //    CSSOS_WAVE_2054 20260831 — 那个 "future UI" 现在到位了, 而且是【排除】用途:
+  //    status 保持 'published'(礼物是成品, 不是草稿 —— 标成 draft 会被 W546 的
+  //    半成品救援徽标打上"🚧 草稿 · 未完成 / 继续合成", 送出去的礼物看着像坏的),
+  //    改由公共列表按 structure_role='gift' 把它挡在外面:
+  //      · /api/works/market   (市场 / 搜索 / For You, 也是 TV/Vision/Watch 的货源)
+  //      · /cssapi/v1/mv       (others 队列)
+  //      · /api/works/by-creator/:id (Curator 主页连播)
+  //    礼物仍然按链接可开(/api/works/public/:id 不看 status 也不看结构角色), 仍然
+  //    出现在收件人信箱(/api/works/mine 的 giftQ)。改这三处以外新增公共列表时,
+  //    记得一并排除 gift。
   const workInsert = (await q.query(
     `INSERT INTO user_works (
        user_id, title, style, work_type, lyrics_preview,

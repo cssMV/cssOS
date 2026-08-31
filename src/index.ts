@@ -39881,6 +39881,10 @@ app.get("/cssapi/v1/mv", async (req, res) => {
               -- URLs and the toggle plays them sequentially.
               AND COALESCE((fm.meta->>'take_index')::int, 1) <> 2
                 AND w.structure_role <> 'take2'
+              -- CSSOS_WAVE_2054 20260831 — 礼物作品(structure_role='gift')不进公开流。
+              --   这条队列只看 mp.visibility, 连 status 都不看, 所以把礼物改成 draft
+              --   也挡不住它 —— 判据必须是"它是礼物"本身。
+                AND w.structure_role <> 'gift'
               ${cursorClause}
             ORDER BY w.created_at DESC, w.id DESC
             LIMIT $1`,
@@ -41084,6 +41088,9 @@ app.get("/api/works/by-creator/:id", async (req, res) => {
               COALESCE((SELECT t2.audio_url FROM work_language_tracks t2 WHERE t2.work_id = w.id AND t2.is_default = true AND t2.audio_url <> '' LIMIT 1), w.preview_audio_url) AS audio_track_1_url
          FROM user_works w LEFT JOIN users u ON u.id = w.user_id
         WHERE w.user_id = $1::uuid AND w.status IN ('ready','published')
+          -- CSSOS_WAVE_2054 20260831 — 礼物挂在 Curator 名下, 但它是送给某个人的,
+          --   不是 Curator 的公开作品 → 打开创作者主页连播时不带上礼物。
+          AND w.structure_role <> 'gift'
         ORDER BY w.created_at DESC LIMIT 500`, [uid]));
     const items = (r.rows || []).map((x: any) => ({
       id: x.id, title: x.title || "", cover_image: x.cover_image || "", civilization: x.civilization || "",
@@ -51272,6 +51279,17 @@ app.get("/api/works/market", async (req, res) => {
            AND NOT EXISTS (
                  SELECT 1 FROM system_gift_audit sga
                   WHERE sga.work_id = w.id AND sga.status IN ('pending', 'delivered'))
+           -- CSSOS_WAVE_2054 20260831 — Jing「注册欢迎曲不该进公开作品库」: 礼物作品
+           --   (structure_role='gift', 归 Curator 所有, 标题 "Welcome, <名字>")永久不进
+           --   市场/搜索/For-You。它是【送给某一个人】的东西, 不是平台内容。
+           --   为什么 W1291 那道闸不够: 它只挡"还没看过"的礼物(audit pending/delivered),
+           --   收件人一播就转 viewed → 礼物随即公开。实测 33 首礼物里 3 首已 viewed、
+           --   7 首根本没有 audit 行 → 10 首直接漏进了公开库。判据必须是"它是礼物",
+           --   不是"它有没有被看过"。
+           --   礼物照旧【按链接可开】(/api/works/public/:id 不看 status/结构角色)、
+           --   照旧出现在收件人信箱(/api/works/mine 的 giftQ 走 personalization_template_renders),
+           --   所以送达一点不受影响 —— 只是不进公共浏览。
+           AND w.structure_role <> 'gift'
          -- CSSOS_WAVE_425 20260525 — Jing「死媒体降权: 让活媒体作品优先推」: works
          -- whose primary media (final_mv / audio_track_1) lives on our own domain
          -- (cssstudio.app local or cdn.cssstudio.app R2) are guaranteed to play;
@@ -51469,6 +51487,8 @@ app.get("/api/works/market", async (req, res) => {
            --   标记 → 排除出市场/搜索/For-You, 用户绝不撞到死作品。可逆: 删标记即恢复。
            AND NOT EXISTS (SELECT 1 FROM work_assets wmd WHERE wmd.work_id = w.id AND wmd.asset_type = 'media_dead')
                  AND w.parent_work_id IS NULL
+                 -- CSSOS_WAVE_2054 20260831 — 与上面的列表查询同一判据: 礼物不算公开库存量。
+                 AND w.structure_role <> 'gift'
                  AND (
                    (u.role = 'admin' OR u.email LIKE '%@cssstudio.app' OR u.email = 'jingdudc@gmail.com')
                    OR COALESCE(listen_product.amount_cents, mp.current_listen_price_cents, 0) > 0

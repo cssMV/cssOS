@@ -9387,6 +9387,23 @@ html.cssos-app .site-intro { display: none !important; }
 .site-intro .sep { color: rgba(120, 200, 170, 0.45); font-size: 12px; user-select: none; }
 html[data-theme="light"] .site-intro a { color: #00a060; }
 html[data-theme="light"] .site-intro .sep { color: rgba(0, 120, 80, 0.4); }
+/* CSSOS_WAVE_2038 20260830 — Jing「加上」。首屏法人行。故意压到几乎看不见:
+   它的读者是审核员和爬虫(要法人名/属地/联系方式), 不是用户。用户要的是 logo 和口号,
+   所以字号 11px、对比压到 0.38, 不用品牌绿(绿=可点的东西, 这行不抢那个注意力)。
+   容器布局整个复用上面的 .site-intro, 这里只覆盖字。 */
+.site-legal { margin-top: 6px; gap: 3px 7px; }
+.site-legal, .site-legal a {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  color: rgba(190, 225, 210, 0.38);
+  text-decoration: none;
+}
+.site-legal a:hover { color: rgba(0, 245, 160, 0.75); text-decoration: underline; }
+.site-legal .sep { font-size: 11px; color: rgba(190, 225, 210, 0.22); }
+html[data-theme="light"] .site-legal, html[data-theme="light"] .site-legal a { color: rgba(0, 70, 50, 0.42); }
+html[data-theme="light"] .site-legal .sep { color: rgba(0, 70, 50, 0.25); }
+html[data-theme="light"] .site-legal a:hover { color: #00a060; }
 /* CSSOS_WAVE_897/899 20260617 — Jing「创作/入口/沉浸面板统一隐藏 Dock, 其余面板保留 Dock(含话筒)高度」。
  * 入口面板(MV 管线 #cssmv-panel / 高级设置 #settings-panel / 人物MV #person-mv-panel; MV 面板 #watch-panel
  * 已由 .cssos-watch-open 处理)打开时隐藏 Dock + dock 让位归零 → 表单/媒体贴边清爽。关闭(.hidden 回来)自动恢复。

@@ -61141,6 +61141,9 @@ app.get("/a/:id", async (req, res) => {
 
 let __cachedSitemap: { xml: string; at: number } | null = null;
 const SITEMAP_TTL_MS = 60 * 60 * 1000;
+/** CSSOS_WAVE_2038 — 静态页, 主列表和 catch 兜底共用一份, 免得只改了一处。 */
+const SITEMAP_STATIC_PAGES = ["/about.html", "/privacy.html", "/terms.html"] as const;
+
 app.get("/sitemap.xml", async (_req, res) => {
   res.type("application/xml; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=3600");
@@ -61155,6 +61158,12 @@ app.get("/sitemap.xml", async (_req, res) => {
       else urls.push({ loc });
     };
     urls.push({ loc: `${SHARE_BASE_URL}/` });
+    // CSSOS_WAVE_2038 20260830 — Jing「sitemap.xml 也补上 about/privacy/terms」。
+    // W2037 实测: sitemap 里 about/privacy/terms 一个都没有 —— 爬虫只能靠 About 面板里
+    // 那一条链接偶然发现它们。这三页正是审核员(NVIDIA/AWS/Apple)和搜索引擎要找的
+    // 法人身份 / 隐私 / 条款, 不该靠运气被发现。**下面 catch 兜底的那份 XML 里也有同样三条** ——
+    // DB 查询一抛异常整份 sitemap 就塌回只剩 "/", 静默把这三页丢掉, 正是最该兜住的情形。
+    for (const p of SITEMAP_STATIC_PAGES) urls.push({ loc: `${SHARE_BASE_URL}${p}` });
     if (DATABASE_URL) {
       const usersR = await withClient((c) =>
         c.query<{ username: string | null; id: string; updated_at: string | null }>(
@@ -61197,7 +61206,12 @@ app.get("/sitemap.xml", async (_req, res) => {
     return res.send(xml);
   } catch (err) {
     console.warn("[sitemap] failed:", (err as Error)?.message || err);
-    return res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${SHARE_BASE_URL}/</loc></url></urlset>`);
+    return res.send(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` +
+      `<url><loc>${SHARE_BASE_URL}/</loc></url>` +
+      SITEMAP_STATIC_PAGES.map((p) => `<url><loc>${escapeHtmlAttr(SHARE_BASE_URL + p)}</loc></url>`).join("") +
+      `</urlset>`,
+    );
   }
 });
 

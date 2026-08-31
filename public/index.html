@@ -125,7 +125,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20260826-back8ec" />
+    <link rel="stylesheet" href="style.css?v=20260830-legal" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
     <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
@@ -288,6 +288,19 @@
                About tab=Who/What/Mission, Contact tab=email/website/social,
                Legal=Business Model/Privacy/Terms/Data Flow), 故此处冗余的落地导航移除。
                原 W912 的 <nav class="site-intro"> 已并入 About 面板。 -->
+          <!-- CSSOS_WAVE_2038 20260830 — Jing「加上」。W1752 把 5 个链接搬进 About 面板是对的
+               (落地页要的是 logo + 口号, 不是目录), 那个决定不动。这里补的是另一件事:
+               **审核员和爬虫读首页 HTML 时, 找不到这家公司叫什么。**
+               实测 W2037: 首页 HTML 里 "CSS Studio LLC" 0 次 · "Washington" 0 次 · 无版权行。
+               NVIDIA / AWS / Google 的审核看的就是这三样(法人名 / 属地 / 联系方式)。
+               把 5 个链接放回来解决不了 —— 链接文字是 "About", 不是公司名。所以只加这一行。
+               复用 W912 留下的 .site-intro 容器布局(它的 markup 早搬走, CSS 还在, 不另造),
+               .site-legal 只改字号字色压到极低对比 —— 用户几乎看不见, 机器一读就有。
+               html.cssos-app .site-intro{display:none} 已存在 → 原生 App 内自动不显示, 正确。
+               全部是专有名词(法人名/地名/邮箱), 没有可翻译的散文, 故不设 i18n 键。 -->
+          <div class="site-intro site-legal">
+            <span>&copy; 2026 CSS Studio LLC</span><span class="sep">&middot;</span><span>Washington, DC</span><span class="sep">&middot;</span><a href="mailto:admin@cssstudio.app">admin@cssstudio.app</a>
+          </div>
         </div>
       </section>
 

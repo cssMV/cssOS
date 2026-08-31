@@ -61142,7 +61142,12 @@ app.get("/a/:id", async (req, res) => {
 let __cachedSitemap: { xml: string; at: number } | null = null;
 const SITEMAP_TTL_MS = 60 * 60 * 1000;
 /** CSSOS_WAVE_2038 — 静态页, 主列表和 catch 兜底共用一份, 免得只改了一处。 */
-const SITEMAP_STATIC_PAGES = ["/about.html", "/privacy.html", "/terms.html"] as const;
+const SITEMAP_STATIC_PAGES = [
+  "/about.html",
+  "/business.html", // W2039 Jing「加」—— 与其余三页同为 About 面板对外露出的独立页
+  "/privacy.html",
+  "/terms.html",
+] as const;
 
 app.get("/sitemap.xml", async (_req, res) => {
   res.type("application/xml; charset=utf-8");

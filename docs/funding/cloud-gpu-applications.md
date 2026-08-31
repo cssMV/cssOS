@@ -40,32 +40,31 @@ We spent the last quarter making the product worth showing rather than showing i
 
 ---
 
-## 一点五 · ⚠️ 投任何一家之前必须先修的东西: **网站上没有"我们是一家公司"的证据**
+## 一点五 · 网站这条 —— 我查错过一次, 这是更正后的结论
 
-NVIDIA 给的拒绝理由是「Your company needs to maintain a functional website」。
-我们的站是活的(HTTP 200 · 首字节 0.2s · 205KB · 无 JS 也有 8,344 字可见内容), 所以不是白屏。
+> **⛔ 2026-08-30 更正。** 我先写过「站上没有任何一页说明这家公司是谁」。**那是错的。**
+> 我只探测了 `/about`、`/company` 这些【无扩展名】路径, **从没试过 `/about.html`** ——
+> 用一个不完整的探测得出了一个否定全局的结论。
 
-**实测下来问题在别处:**
+**实测(线上):**
 
 ```
-/about    404      /legal    404
-/company  404      /terms    404
-/contact  404      /privacy  404
-/press    404
-首页: 没有 "CSS Studio LLC" · 没有地址 · 没有联系方式 · 没有版权行
+/about.html    HTTP 200 · 含 "CSS Studio LLC" · Washington · 联系邮箱   ✅
+首页            有一条 <a href="/about.html">, 可点可爬                  ✅
+about.html      链到 /privacy.html 和 /terms.html                        ✅
+sitemap.xml     不含 about / privacy / terms                             ⚠️ 小缺口
+/about /terms   无扩展名路径 404                                          ⚠️ 小缺口
 ```
 
-**站上没有任何一页说明这家公司是谁。** 审核员打开 cssstudio.app, 看到一个自动播放的播放器 ——
-功能很酷, 但没有一处证据表明背后有一家注册公司。
+**所以「functional website」这条 NVIDIA 在 6 月 16 日提的意见, 今天看基本已经不成立。**
 
-**这不只挡住 NVIDIA。** AWS / Google / Microsoft 的资格审核都做同一件事:
-点开你的网址, 确认这是一家真实公司。**带着现在这个站去投, 很可能拿到同一个结果。**
+**更合理的解释是 Jing 说的那个 ——** 6 月 9 日被拒时, 我们**还没上苹果商店**;
+审核员看到的是一个网站, 而不是一家有已发布产品的公司。
+**7 月 8 日全平台上架之后, 事实基础已经完全不同了。**
 
-**所以顺序是: 先补公司信息页 → 再投。** 需要的最少内容:
-法定名称 CSS Studio LLC · 注册地 Washington, D.C. · 联系邮箱 · 一句话业务描述 ·
-Terms / Privacy(App Store 本来也需要) · 页脚版权行。
-
----
+两个小缺口值得顺手补(不急, 不阻塞投递):
+1. `sitemap.xml` 加上 about / privacy / terms —— 让爬虫能主动发现, 不必靠首页那一条链
+2. `/about` `/terms` `/privacy` 做无扩展名跳转 —— 审核员手输网址时不会撞 404
 
 ## 二 · AWS Activate
 

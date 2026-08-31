@@ -246,6 +246,37 @@ Carta / Brex 这类**服务商**面向全体客户, 档位就是 $5K。
 股权表本身没什么可管** —— 开它的唯一实际理由就是这 $5K。你要觉得不值这个麻烦,
 直接投 Founders 档拿 $1,000 也完全合理, 那条路今天就能走完。
 
+### ✅ 已解决(2026-08-30 实测): Carta Launch **收了**我们这个 LLC
+
+**W2042 我把「免费档可能不收 LLC」标为风险。结果: 没成立。**
+Jing 用 `app.carta.com/launch/create-account/` 走完全程, 拿到
+"Welcome to Carta Launch — Check your email to activate your account"。
+**注册流程里没有出现 certificate of incorporation 的硬墙。**
+
+那份风险提示**仍然值得当时提出** —— 证据是真的(LLC 价目页无免费档、注册页要
+"certificate of incorporation"、产品语言全是 shares/stock)。**但证据强不等于结论成立,
+所以当时没有下结论, 而是给了最便宜的判定方式(直接注册, 免费不要卡)。那个处理是对的。**
+
+**表单里两个要如实填对的选项(已给 Jing):**
+
+| 问题 | 选 | 为什么 |
+|---|---|---|
+| Fundraising status | **I have never fundraised** | 属实; 且正对 AWS Activate 的 "not previously raised venture funding greater than a Series A" |
+| Do you need a 409A valuation? | **No** | 409A 是给员工发期权时定行权价用的。无员工、无期权池、无股票 → 用不上。选 "I'm not sure" 会被导向销售, 而 409A 是**付费 add-on** |
+
+**下一步(Carta FAQ 原文):**
+
+> Once your Carta account is **activated (set up and live)**, you'll receive a link
+> to apply for your AWS credits. Contact your Carta Account Manager or Carta Support
+> if you do not receive the code.
+
+**注册完 ≠ 有链接。** 要先点邮件里的激活链接、把公司信息和股权表建起来。
+等几天仍未收到 → 直接找 Account Manager 或提工单(FAQ 明确说了这条路)。
+
+---
+
+### (存档) 当时的风险评估 —— 证据与结论的分寸
+
 ### ⚠️ 走之前必须知道的一块石头: Carta Launch 免费档可能不收 LLC
 
 **我们是 CSS Studio LLC。Carta 的免费档看起来是给 Corporation 设计的。**

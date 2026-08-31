@@ -4728,7 +4728,17 @@ function persistBase64Cover(b64: string, userId: unknown): string {
 // WebP file on disk and returns its public `/uploads/fallbacks/...`
 // URL. Sharp is already loaded (used by the canonical image-optimize
 // pipeline) so adding another encode call is essentially free.
-const fallbackDir = path.join(PUBLIC_DIR, "uploads", "fallbacks");
+// CSSOS_WAVE_2046 20260830 — Jing「修坏封面」。**这里原来写在 PUBLIC_DIR 下**
+// (= /srv/cssos/current/public/uploads/fallbacks), 而 `current` 是随发布轮换的软链
+// (current -> releases/20260815_011845)。**写进去的文件下一次部署就没了** ——
+// 实测: 库里 65 个 /uploads/fallbacks/migrated-*.webp 全部 404, 目录已空。
+// 平台里本来就有一个「活得过部署」的目录: MV_FALLBACK_ARTIFACTS_DIR
+// (= /srv/cssos/artifacts/mv-fallback, 在 releases 之外, 实测 24,992 个文件都还在)。
+// **直接用它, 不另造** —— 顺带补上 R2 镜像, 符合「生成即落我们域名/R2」。
+// URL 前缀随之从 /uploads/fallbacks/ 变成 /artifacts/mv-fallback/;
+// 下游三处判断写的是 `startsWith("/uploads/") || startsWith("/artifacts/")`
+// (index.ts:7949 / 8353 / 25990), 两种都认, 所以这个前缀切换是安全的。
+const fallbackDir = MV_FALLBACK_ARTIFACTS_DIR;
 try { fs.mkdirSync(fallbackDir, { recursive: true }); } catch (_e) {}
 async function svgToWebpFallbackUrl(
   svg: string,
@@ -4749,8 +4759,10 @@ async function svgToWebpFallbackUrl(
       .webp({ quality: 82 })
       .toFile(diskPath);
     try { fs.chmodSync(diskPath, 0o644); } catch (_e) {}
+    // W2046: 镜像到 R2, 与同目录下其它产物一致(best-effort, 不阻塞返回)。
+    optimizeAndUploadAsync(diskPath, "artifacts/mv-fallback");
   }
-  return `/uploads/fallbacks/${fname}`;
+  return `/artifacts/mv-fallback/${fname}`;
 }
 
 // CSSOS_PHASE2_COVER_FALLBACK 20260507 — Jing

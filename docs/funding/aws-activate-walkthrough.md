@@ -116,19 +116,68 @@ $1,000 ÷ g5.xlarge (A10G 24GB, ~$1.006/hr) ≈ **1,000 小时 A10G**。
 
 ---
 
-## 五 · $200K 那条路的真实入口(下一步值得查的)
+## 五 · Carta / Brex 那条路 —— 已查清: 通向 $5,000, 不是 $200,000
 
-Portfolio 档要 Activate Provider 的 **Org ID**。官方页把这几家并列为 Provider:
+W2040 我把这条标为「未核实的线索」, Jing 要求查清。**查完了, 答案是明确的否。**
 
-> Andreessen Horowitz, **Brex**, **Carta**, Greylock Partners, Sequoia, Y Combinator
+### Carta —— 官方支持文档原文
 
-**Brex 和 Carta 不是 VC —— 是金融/股权管理服务, 门槛远低于 VC。**
-如果它们确实向自己的用户发 Org ID, 那就是一条**不需要融资也能够到 Portfolio 档**的路。
+> As an Activate Provider, Carta customers are eligible for AWS Activate credits to help
+> grow and scale their businesses. **All Carta free and paid customers are eligible for
+> the $5K tier when criteria is met.**
+>
+> Eligibility criteria for $5k:
+> · Founded within the past 10 years
+> · Must not have previously received AWS Activate credits at equal or greater value
+> · Must be associated with an Activate Provider (Carta)
+> · Must not have previously raised venture funding greater than a Series A
+>
+> **The $5k offering expires in 24 months.**
 
-⚠️ **这一条我尚未核实**, 只是从官方并列名单里读出的可能性。
-不要当结论用。下一步: 去 Carta / Brex 侧确认是否发 Activate Org ID、门槛是什么。
+—— `support.carta.com` AWS Credits FAQ(内容藏在分步指南里, 从页面内嵌 JSON 取出)
 
----
+**四条资格我们全过**(2026 年成立 · 没拿过 · 只要开 Carta 账号 · 从没融过资)。
+且 **Carta Launch 免费**(≤25 名持股人 + 累计融资 ≤$1M, 我们是单人 100% 股权, 远在门槛内)。
+
+### Brex —— 官方支持页原文
+
+> **All new Brex customers are eligible for $5,000 in AWS credits** depending on
+> Activate eligibility.
+
+—— `brex.com/support/brex-partner-perks`
+
+⚠️ 第三方博客(creditforstartups 等)写 Brex 给「up to $100,000」——
+**与 Brex 自己的支持页矛盾, 以官方为准。** 另外 Brex 开企业账户在美国还要 EIN,
+公司卡据称要 $50K 现金余额门槛, 比 Carta 重。
+
+### 结论: 我的猜想方向对, 数量级错
+
+**Provider 身份不等于 $200K。** 每家 Provider 自己定发多少:
+a16z / Sequoia / YC 这类**真投资方**给自己投的公司开到 $100K–$200K;
+Carta / Brex 这类**服务商**面向全体客户, 档位就是 $5K。
+
+所以这条路的真实收益是 **$1,000 → $5,000(5 倍), 不是 $1,000 → $200,000(200 倍)。**
+
+### 那还值不值得走?
+
+| | Founders 直投 | 经 Carta |
+|---|---|---|
+| 金额 | $1,000(择优才到 $5,000) | **$5,000 直接** |
+| 额外成本 | 无 | 开一个 Carta Launch 账号(免费), 录入公司/股权信息 |
+| 有效期 | 1–2 年 | 24 个月 |
+| 换算 GPU | ~1,000 小时 A10G | **~5,000 小时 A10G** |
+
+**多出来的 4,000 小时 A10G, 代价是开一个免费账号。** 我的判断是值得,
+但**开账号 + 录入股权信息是你的事, 我不建账号**。
+
+一个诚实的提醒: Carta 是给有股权结构的公司管股权表的。**单人 100% 股权的 LLC,
+股权表本身没什么可管** —— 开它的唯一实际理由就是这 $5K。你要觉得不值这个麻烦,
+直接投 Founders 档拿 $1,000 也完全合理, 那条路今天就能走完。
+
+### $200K 依然只有一条路
+
+要真的够到 $200K, 必须有**真投资方或加速器**把我们放进它的 portfolio 并给 Org ID。
+那回到了同一堵墙 —— 和 YC、和 Google AI 档是同一件事。**不是靠找服务商能绕过去的。**
 
 ## 六 · 需要 Jing 拍板 / 动手的两件事
 

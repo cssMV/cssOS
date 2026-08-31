@@ -26788,6 +26788,24 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
             break;
           }
           const spent = Date.now() - kieT0;
+          /* CSSOS_WAVE_2053 20260831 — Jing「收到 no_available_account 就立刻跳下一家、不重试」。
+           * 这是 KIE 端【账号池没有可用账号】, 不是网络抖动 —— 再试 3 次一模一样。
+           * 实测(生产日志): claude-fable-5 每次调用都跑满
+           *   died with no content ×2 → exhausted 3 attempts → 502: no_available_account
+           * 白赔约 3-4 秒才回退到 gpt-5-6-sol, 而且回退很安静, 从外面看不出来。
+           * 该通道自 2026-08-24 起一直如此(七天), 所以「三强 Claude 打前锋」七天没真生效过。
+           *
+           * ⚠️ 检查必须放在这里, 不能放在下面那个非-2xx 的 else 分支 ——
+           * **KIE 用 HTTP 200 把错误包在 SSE 流里**(就是上面注释里 W1802 那条教训),
+           * 所以 no_available_account 是从流事件读出来的, 永远走不到 else。
+           * 我第一版就放错了分支, 部署后实测仍跑满 3 次才发现。**两条路径都会先写
+           * kieStreamErr, 所以放在重试判断之前这一处, 就能同时覆盖。**
+           *
+           * 回退目标仍是 KIE 上的 GPT —— 不走出 KIE, 不违反「所有 API 只走 KIE」。 */
+          if (/no_available_account/i.test(kieStreamErr || "")) {
+            console.warn(`[llm-router] kie no_available_account — 上游无可用账号, 不重试(省 ${KIE_MAX_ATTEMPTS - attempt} 次), 直接让给下一家`);
+            break;
+          }
           if (attempt < KIE_MAX_ATTEMPTS && spent < KIE_RETRY_BUDGET_MS) {
             console.warn(`[llm-router] kie stream died with no content (attempt ${attempt}/${KIE_MAX_ATTEMPTS}, ${spent}ms spent) — retrying`);
             continue;

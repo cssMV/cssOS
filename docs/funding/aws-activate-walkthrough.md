@@ -36,6 +36,51 @@
 
 ## 三 · 七步字段清单
 
+### Step 0 — 注册 AWS 账号时必须选 **Paid plan**, 选错直接丧失资格
+
+**这是一个会静默取消资格的坑。**
+
+AWS 现在注册时要你二选一(2025 年起的新机制):
+
+| | Free plan | **Paid plan** |
+|---|---|---|
+| 送 | $100 额度(做任务再送 $100) | 无 |
+| 期限 | 6 个月或额度用完 | 无 |
+| 服务 | **受限** —— 不含 Savings Plans / Reserved Instances / 部分 Marketplace | **全部服务立即可用** |
+| 计费 | 不会产生费用 | 按量付费(**零用量 = 零账单**) |
+
+而 Activate 的资格行白纸黑字写着:
+
+> Eligibility for AWS Activate: Pre-series B, founded in the last 10 years,
+> **AWS Account on Paid Tier Plan**, and either new to Activate Credits...
+
+**选了 Free plan = 不满足资格。** 而且 Free plan 那 $100 和 Activate 是两回事,
+不要因为"先白拿 $100"去选它 —— 那 $100 会把 $1,000/$5,000 挡在门外。
+
+**Paid plan 不等于要花钱** —— 是按量付费, 不开服务就是零账单。
+Activate 额度批下来之后, 也是先抵扣额度再计费。
+
+### 邮箱怎么分配(两个地址, 各有职责)
+
+| 用途 | 用哪个 | 为什么 |
+|---|---|---|
+| **AWS 根账号** | **`admin@cssstudio.app`** | 根账号收账单和安全告警, 是**公司资产**不是个人资产。AWS 自己的建议就是用角色制/共享地址而非个人地址 —— 账号要活得比任何一个人久。admin@ 本来就是平台的运维信箱。 |
+| **Builder ID + Activate profile + 申请表** | **`jing@cssstudio.app`** | 批准/拒绝信落在这里, 而融资往来(YC、NVIDIA)本来就都在 jing@。 |
+
+**两个都是 `@cssstudio.app` —— AWS 校验的是【域名一致】, 不是【地址相同】,
+所以这样分是安全的。**(官方原话: "use your business email address
+**matching your startup's domain**")
+
+⚠️ AWS 指南建议 Builder ID 用**个人**邮箱, 理由是"换公司时 ID 跟着人走"。
+**这条对我们不适用 —— 公司是 Jing 自己的。** 用 jing@ 反而域名一致, 更利于审核。
+
+⚠️ 根账号建好**立刻开 MFA**。根账号权限无上限, 且它是唯一能恢复账号的入口。
+
+### 链接(已实测全部 HTTP 200)
+
+- 建 AWS 账号: `https://portal.aws.amazon.com/billing/signup`
+- 申请 Activate: `https://aws.amazon.com/startups/join?destination=/credits/apply`
+
 ### Step 1 — AWS Builder ID
 - **用个人邮箱**建 Builder ID(官方原话: 这个 ID 跨公司跟着人走)。
 - 建完要点确认邮件验证。

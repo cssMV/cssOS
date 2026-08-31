@@ -1,7 +1,25 @@
 # KIE Claude 通道故障 —— 报障稿 (2026-08-31)
 
-**渠道:** `https://kie.ai/vip-support` → 授权 Discord 或 Telegram → 自动开专属私有频道。
-(KIE 没有公开的支持邮箱; 官网只有这一条支持入口。)
+**渠道(2026-08-31 复查后更正):**
+
+| 方式 | 地址 | KIE 自己的说法 |
+|---|---|---|
+| **邮件 ✅ 我们走这条** | **`support@kie.ai`** | "You may also email us at support@kie.ai, **but this is not the preferred or fastest option**" |
+| Discord / Telegram | `https://kie.ai/vip-support` | 他们标为 preferred, 授权后开专属私有频道 |
+
+支持时段: **UTC 21:00 – UTC 17:00(次日)**。
+他们的法人实体(terms 页): NEXUSAI SERVICES LLC, 118 Krameria St, Denver CO 80220, US。
+
+> ⛔ **Jing 已定: 不授权 Discord / Telegram, 过去现在将来都不走。只发邮件。**
+> 慢一点可以接受, 换第三方账号绑定不接受。
+>
+> 我先前写「官网唯一入口是 vip-support」是错的 —— **只看了首页可见链接就下了结论**,
+> `support@kie.ai` 一直写在 `docs.kie.ai` 上。**探测不全, 却下了「唯一」这种全称判断。**
+> (顺带澄清一个真实区分, 免得日后误判: Discord/Telegram 是**客服窗口**, 不是 API 通道 ——
+> 走它不违反「调用 host 必须是 api.kie.ai」。但 Jing 的决定与铁律无关, 是不绑第三方账号, 照办。)
+
+**发件人建议:** `jing@cssstudio.app`(与 KIE 账户注册邮箱一致最好, 便于他们定位账户)。
+**主题:** `Claude endpoint returning no_available_account for 10 days — account credit is fine`
 
 **为什么这份证据够硬:** 余额充足 + 同一把 key 的 GPT 通道正常 + 三个 Claude 型号全挂
 → 问题在他们的 Claude 上游账号池, 不在我们这边。**堵死了「先去查你余额/你的 key」这条回复。**

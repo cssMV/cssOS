@@ -114,6 +114,40 @@
     } catch (_e) {}
   }
 
+  /* CSSOS_WAVE_2059 20260901 — Jing:「切歌时明明看见封面, 真正播放音乐时画面又消失。」
+   *
+   * 根因不是"没有图", 是**这套设计把黑屏当默认态**: 图片只有在【成功检测到视频失败】
+   * 之后才铺。而 #watch-video 的 z-index 是 2、#watch-svg 是 1 —— 一块放不出来的视频
+   * 仍然是不透明的黑, 死死压在图片上。于是只要判据没命中(特斯拉正是这一类),
+   * 用户面前就是黑框, 哪怕封面、定妆照一张不少地躺在下面。
+   *
+   * 而且有两处在主动擦掉地板:
+   *   · cssos:work-id-changed 里 clearCoverFloor() —— 这就是 Jing 看到的
+   *     "切歌闪一下封面然后黑掉": 切歌那一刻把地板擦了, 要等 poll 判定失败(≥4.5s)
+   *     才铺回来, 中间必黑; 判据不命中就永远黑。
+   *   · poll() 的 else 分支每 2.5s 擦一次。
+   *
+   * 修法不再是"补第五条检测判据"(W1989/W2002/W2002b 已经补了四次还在漏), 而是
+   * **把有图变成默认态**: 地板一直铺着, 视频正常播放时自然把它完全盖住(零代价),
+   * 播不出来时图已经在那儿了 —— 不需要任何检测。黑屏从此没有产生的路径。
+   *
+   * ensureCoverFloor 带重试: 切歌瞬间新作品的封面数据可能还没到, 所以在 0/300/900/2000ms
+   * 各试一次, 铺上就停。 */
+  var __floorTimers = [];
+  function ensureCoverFloor() {
+    __floorTimers.forEach(function (t) { try { clearTimeout(t); } catch (_e) {} });
+    __floorTimers = [];
+    [0, 300, 900, 2000].forEach(function (d) {
+      __floorTimers.push(setTimeout(function () {
+        try {
+          var ws = document.querySelector(".watch-screen");
+          if (ws && ws.getAttribute("data-cssos-cover-floor")) return;  // 已铺好
+          coverFloor();
+        } catch (_e) {}
+      }, d));
+    });
+  }
+
   function reveal(reason) {
     try {
       var ws = document.querySelector(".watch-screen");
@@ -160,7 +194,10 @@
       /* W1989b — 摘类的同时也要把我们写死的 inline 撤掉, 否则新一首的视频会
        * 被上一首留下的 opacity:0!important 永久按住 —— 那就是 W1975 那个坑的镜像。 */
       try { showVideoAgain(document.getElementById("watch-video")); } catch (_e) {}
+      /* W2059 — 擦掉【上一首】的地板后必须立刻铺【这一首】的, 不能留空窗。
+       * 原来这里只 clear 不 set, 那个空窗就是 Jing 看到的"闪一下封面然后黑掉"。 */
       try { clearCoverFloor(); } catch (_e) {}
+      try { ensureCoverFloor(); } catch (_e) {}
     }, { passive: true });
   } catch (_e) {}
 
@@ -255,13 +292,19 @@
          * 装在 poll 的自愈分支上, 无论谁挂的类都能兜住(与 W1975 同一个打法:
          * 闸门装在必经之路, 不去各个挂类的地方补)。 */
         try { if (!ws2.getAttribute("data-cssos-cover-floor")) coverFloor(); } catch (_e) {}
-      } else { showVideoAgain(v); clearCoverFloor(); }
+      } else {
+        showVideoAgain(v);
+        /* W2059 — 这里原来是 clearCoverFloor(): 只要当前没被判定为降级态, 每 2.5s
+         * 就把地板擦一次 —— 等于强制黑屏兜底。地板在视频【下面】, 视频正常播放时
+         * 完全盖住它, 留着零代价; 而它一旦播不出来, 图已经在了。故: 不擦, 只保证有。 */
+        try { if (!ws2.getAttribute("data-cssos-cover-floor")) coverFloor(); } catch (_e) {}
+      }
     } catch (_e) {}
   }
 
   // CSSOS_WAVE_924 — Jing「轻装上阵」: 1500ms→2500ms(省 ~40%)。poll 本就在面板 hidden 时秒退(几乎零成本),
   // 它只为"视频被拦/解码不出"兜底, 不需高频; 冷加载宽限仍是 4500ms, 体验不变。
-  function start() { wire(); setInterval(poll, 2500); }
+  function start() { wire(); ensureCoverFloor(); setInterval(poll, 2500); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 })();

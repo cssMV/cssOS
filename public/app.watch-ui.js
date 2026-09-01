@@ -5107,6 +5107,26 @@ function applyWatchQueueItemModule(item) {
       // 音轨的旧作品才让视频出声(烘焙音轨)。switchToTake(2) 仍走自己的手势路径。
       // (#256 的"永不静音视频"在引入独立音轨后就成了双声源, 这里纠正。)
       videoEl.muted = hasAudioElSrc;
+      /* CSSOS_WAVE_2060 20260901 — Jing 实车四张截图: 中间一条黑带(就是 <video> 本身),
+       * 上下露出封面。即【图片层是好的, JS 也在跑(情绪字幕/分享栏都渲染了), 只有视频那块是黑的】。
+       *
+       * 真因: 下面这套降级挂在 **play() 被拒绝** 上 —— 而特斯拉根本不拒绝。
+       * 它 play() 成功、解码正常、currentTime 正常推进, **只是不把画面合成到网页图层里**。
+       * 于是 JS 看到的一切都健康(不报错/不卡/readyState 正常), 用户眼前却是黑的,
+       * 那个 .catch 永远不触发。**降级不是写得不够, 是在等一个永远不会来的信号。**
+       * (这也解释了 app.video-slideshow-fallback.js 里补了四次判据仍然漏 ——
+       *  所有判据都在问"视频出没出问题", 而它没出问题, 它只是不显示。)
+       *
+       * 改成**按设备判定**, 不再检测失败: 认出特斯拉就直接进「音频 + 幻灯」,
+       * 正是 Jing 要的「阻止视频的同时, 播放音频+封面图/幻灯」。
+       * 复用现成的 isTeslaWatchEnvironmentModule() 与 activateVideoBlockedFallbackModule(),
+       * 不另造。视频仍然 play() —— 万一哪天特斯拉能正常合成, 用户听到的音轨不受影响。 */
+      try {
+        if (isTeslaWatchEnvironmentModule()) {
+          console.warn("[watch-queue] Tesla 环境 — 不等 play() 被拒, 直接进音频+幻灯降级");
+          activateVideoBlockedFallbackModule(item, videoEl);
+        }
+      } catch (_e) {}
       if (videoEl.play) {
         videoEl.play().catch((err) => {
           // CSSOS_PHASE2_VIDEO_FALLBACK 20260501 #249 — Jing
@@ -7422,8 +7442,24 @@ function activateVideoBlockedFallbackModule(item, videoEl) {
   }
   // mode === "slideshow"
   try {
+    /* CSSOS_WAVE_2060b — **必须挂上 watch-screen-audio-fallback 这个类**, 否则本次隐藏
+     * 会在 2.5 秒内被撤销: app.video-slideshow-fallback.js 的 poll 在【没有这个类】时
+     * 走 else 分支, 每轮执行 showVideoAgain(v) 把视频重新放出来 —— 黑带原样回来,
+     * 而且悄无声息。两个模块本来就共用这个类作契约(挂它的地方注释里列了四处),
+     * 这里补上第五处即可, 不另造机制。
+     * 挂上之后 poll 改走降级分支: 持续 hideVideoHard + 保证封面地板在, 正是我们要的。
+     * 切歌时 cssos:work-id-changed 会摘掉它(W1975), 下一首在特斯拉上会重新挂 —— 自洽。 */
+    try {
+      const wsEl = document.querySelector(".watch-screen");
+      if (wsEl) wsEl.classList.add("watch-screen-audio-fallback");
+    } catch (_e) {}
     if (videoEl) {
-      videoEl.style.opacity = "0";
+      /* W2060 — 原来只写 opacity。**opacity 挡不住**: 贴画面/旋转那条同步循环
+       * 每次都会把 opacity 重写回去(app.video-slideshow-fallback.js 的 W1989
+       * 注释已经踩过这个坑, 结论是【藏画面靠 visibility, 不靠 opacity】)。
+       * 两个都写 + important, 真正干活的是 visibility。 */
+      videoEl.style.setProperty("opacity", "0", "important");
+      videoEl.style.setProperty("visibility", "hidden", "important");
       videoEl.style.pointerEvents = "none";
     }
     // W354/W356 — feed the full persisted cover pool (cdn.cssstudio.app frames,

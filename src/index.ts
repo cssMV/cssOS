@@ -4336,7 +4336,7 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
       if (audioUrl && !isR2Url(audioUrl)) {
         try {
           const ab = await (await fetch(audioUrl)).arrayBuffer();
-          const u = await uploadBufferToR2(Buffer.from(ab), `artifacts/audio/${workId}/a1.mp3`, "audio/mpeg");
+          const u = await uploadAudioNeverOverwrite(Buffer.from(ab), workId);  // W2061 绝不覆盖旧版
           if (u) audioUrl = u;
         } catch (e) { console.warn("[create-single] audio rehost failed", (e as Error).message); }
       }
@@ -4621,6 +4621,47 @@ function publicArtifactsBase(): string {
   if (env) return env;
   return "https://cssstudio.app";
 }
+
+/* CSSOS_WAVE_2061 20260901 — Jing:「不要覆盖掉旧版本, 我偏爱旧版本…新旧版本同在。」
+ *
+ * 事故: 8/24 一次重生成(meta 里留下 {"source":"w1913_regen"})把
+ * 《唐伯虎三部曲·春风得意》和《唐伯虎·桃花三部曲·桃花仙》的音频**原地覆盖**在
+ * 同一个 key `artifacts/audio/<workId>/a1.mp3` 上。**旧音乐不可恢复**:
+ *   · R2 未开版本管理(ListObjectVersions 返回 501 NotImplemented)
+ *   · canonical_mv 是纯视频无音轨(平台「永不烧录·四轨分离」铁律的必然结果)
+ *   · creation_history / mv_pipeline_runs 里没有对应记录
+ *   · meta 里没存厂商任务号 → 无法回 Suno 重取
+ * 而 work_language_tracks 里那条 `orig-pre-epic` 本来就是为保住旧版留的,
+ * **可它指向同一个 key** —— 记录留住了, 字节没留住。
+ *
+ * 教训: 「保留旧版」不能只靠多写一行数据库记录, **必须让旧字节有自己的地址**。
+ * 这个 helper 保证: 目标 key 已存在就自动改写 a1-v2 / a1-v3 …, 绝不覆盖。
+ * (记忆里那条 CDN 铁律「同 key 覆盖不可靠, 要用新版本文件名」说的是同一件事,
+ *  当时只当成缓存问题, 没意识到它同时也是**数据销毁**问题。) */
+async function uploadAudioNeverOverwrite(
+  buf: Buffer,
+  workId: string,
+  contentType = "audio/mpeg",
+): Promise<string | null> {
+  const base = publicArtifactsBase();
+  const exists = async (key: string): Promise<boolean> => {
+    try {
+      const r = await fetch(`${base}/${key}`, { method: "HEAD" });
+      return r.ok;
+    } catch { return false; }   // 探不到就当不存在, 但下面仍从 v2 起找空位
+  };
+  let key = `artifacts/audio/${workId}/a1.mp3`;
+  if (await exists(key)) {
+    for (let n = 2; n <= 50; n++) {
+      const cand = `artifacts/audio/${workId}/a1-v${n}.mp3`;
+      if (!(await exists(cand))) { key = cand; break; }
+      if (n === 50) key = `artifacts/audio/${workId}/a1-v${Date.now()}.mp3`;
+    }
+    console.warn(`[audio-persist] ${workId} 已有音频, 改写新版本 key=${key}(旧版原样保留)`);
+  }
+  return await uploadBufferToR2(buf, key, contentType);
+}
+
 
 /**
  * Persist a base64 image to MV_FALLBACK_ARTIFACTS_DIR as WebP (no
@@ -33945,7 +33986,7 @@ app.post("/api/admin/lyrics/regenerate", express.json({ limit: "16kb" }), async 
         if (audioUrl && !isR2Url(audioUrl)) {
           try {
             const ab = await (await fetch(audioUrl)).arrayBuffer();
-            const u = await uploadBufferToR2(Buffer.from(ab), `artifacts/audio/${w.id}/a1.mp3`, "audio/mpeg");
+            const u = await uploadAudioNeverOverwrite(Buffer.from(ab), w.id);  // W2061 绝不覆盖旧版
             if (u) audioUrl = u;
           } catch (e) { console.warn("[regen-music] rehost failed", (e as Error).message); }
         }

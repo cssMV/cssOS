@@ -79,6 +79,29 @@
     box-shadow:0 8px 26px rgba(224,182,74,.22); }
   .gplay:active{ transform:scale(.98); }
   .gnote { color:#7a7358; font-size:11px; letter-spacing:.5px; margin-top:12px; }
+
+.join{max-width:640px;margin:56px auto 8px;padding:26px 22px;border:1px solid rgba(0,245,160,.28);
+      border-radius:14px;background:rgba(0,245,160,.04);text-align:center}
+.join h2{margin:0 0 10px;font-size:22px;letter-spacing:.02em}
+.jlead{margin:0 0 18px;font-size:14px;line-height:1.65;opacity:.82}
+.jform{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.jform input{flex:1 1 260px;max-width:340px;padding:11px 14px;font-size:15px;border-radius:10px;
+      border:1px solid rgba(0,245,160,.35);background:rgba(0,0,0,.28);color:inherit}
+.jform button{padding:11px 20px;font-size:15px;font-weight:600;border:0;border-radius:10px;cursor:pointer;
+      background:#00f5a0;color:#06231a}
+.jform button[disabled]{opacity:.55;cursor:default}
+.jmsg{min-height:22px;margin-top:12px;font-size:14px}
+.jmsg.ok{color:#00f5a0}.jmsg.bad{color:#ff9b9b}
+.jnote{margin-top:10px;font-size:12px;opacity:.5}
+
+.form{max-width:660px;margin:64px auto 0;padding:28px 22px;text-align:center;
+      border-top:1px solid rgba(0,245,160,.16);border-bottom:1px solid rgba(0,245,160,.16)}
+.form h2{margin:0 0 12px;font-size:20px;letter-spacing:.03em;opacity:.9}
+.flead{margin:0 0 18px;font-size:17px;line-height:1.6}
+.fspec{display:inline-block;padding:7px 16px;border:1px solid rgba(0,245,160,.4);border-radius:999px;
+       font-size:14px;font-weight:600;letter-spacing:.04em;color:#00f5a0}
+.fwhy{margin:16px 0 0;font-size:13.5px;line-height:1.6;opacity:.7}
+.jbridge{margin:0 0 14px;font-size:15px;line-height:1.6;opacity:.9}
 </style>
 </head>
 <body>
@@ -100,7 +123,29 @@
         <div class="gnote" data-i18n="te.game.note">Preview only — not yet playable. Coming to the Empire of Time universe.</div>
       </div>
     </div>
-    <div class="foot" data-i18n="te.intro.foot">CSS STUDIO · in-house 3D engine</div>
+    <!-- CSSOS_WAVE_2075 — 「形式即主题」。这是本片最值钱、却一直没说的事实:
+     一部【关于改写时间线】的电影, 让观众选哪条时间线成立 —— 多结局不是噱头, 是主题本身。
+     而且它顺带解释了为什么这部片子只可能出现在这个平台上(三个结局曾经等于三部电影)。 -->
+<div class="form" id="form">
+  <h2 data-i18n="te.form.title">The form is the story</h2>
+  <p class="flead" data-i18n="te.form.lead"></p>
+  <div class="fspec" data-i18n="te.form.spec"></div>
+  <p class="fwhy" data-i18n="te.form.why"></p>
+</div>
+<!-- CSSOS_WAVE_2074 20260904 — 众筹拍电影的【意向登记】。
+     律师过审前不收钱、不承诺回报, 只收邮箱。文案一律走 data-i18n, 不硬编码。 -->
+<div class="join" id="join">
+  <p class="jbridge" data-i18n="te.join.bridge"></p>
+  <h2 data-i18n="te.join.title">Be in the first fifty</h2>
+  <p class="jlead" data-i18n="te.join.lead"></p>
+  <form class="jform" id="jform" onsubmit="return joinSubmit(event)">
+    <input type="email" id="jmail" required autocomplete="email" data-i18n-placeholder="te.join.placeholder" placeholder="your@email.com" />
+    <button type="submit" id="jbtn" data-i18n="te.join.button">Keep me posted</button>
+  </form>
+  <div class="jmsg" id="jmsg" role="status" aria-live="polite"></div>
+  <div class="jnote" data-i18n="te.join.note"></div>
+</div>
+<div class="foot" data-i18n="te.intro.foot">CSS STUDIO · in-house 3D engine</div>
   </div>
 
   <!-- STORY / synopsis overlay -->
@@ -225,6 +270,36 @@
   function closeTrailers(){ document.getElementById('trailers').classList.remove('show'); }
   function openSyn(){ document.getElementById('synopsis').classList.add('show'); }
   function closeSyn(){ document.getElementById('synopsis').classList.remove('show'); }
+
+
+  // CSSOS_WAVE_2074 — 意向登记。只发邮箱与来源(?cssADS=), 不采集任何其它信息。
+  function joinSubmit(e){
+    e.preventDefault();
+    var mail = document.getElementById('jmail'), btn = document.getElementById('jbtn'),
+        msg = document.getElementById('jmsg');
+    var v = String(mail.value || '').trim();
+    var T = function(k, f){ try { return (I18N && I18N.t) ? I18N.t(k) : f; } catch (_e) { return f; } };
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)) {
+      msg.className = 'jmsg bad'; msg.textContent = T('te.join.bad', "That email doesn't look right."); return false;
+    }
+    btn.disabled = true;
+    var src = '';
+    try { src = new URLSearchParams(location.search).get('cssADS') || ''; } catch (_e) {}
+    fetch('/api/film-interest', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ film: 'empire-of-time', email: v, source: src })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok) {
+        msg.className = 'jmsg ok';
+        msg.textContent = d.already ? T('te.join.dupe', "You're already on the list.")
+                                    : T('te.join.done', "Noted — you'll be the first to hear.");
+        mail.value = '';
+      } else { msg.className = 'jmsg bad'; msg.textContent = T('te.join.err', 'Something went wrong.'); btn.disabled = false; }
+    }).catch(function () {
+      msg.className = 'jmsg bad'; msg.textContent = T('te.join.err', 'Something went wrong.'); btn.disabled = false;
+    });
+    return false;
+  }
 
   // Boot: pick locale → render English immediately → re-render once the generated locale resolves.
   var loc = pickLocale();

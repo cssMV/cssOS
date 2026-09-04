@@ -61240,6 +61240,40 @@ const SITEMAP_STATIC_PAGES = [
   "/terms.html",
 ] as const;
 
+/* CSSOS_WAVE_2074 20260904 — 众筹拍电影【意向登记】。**只收邮箱, 不收钱。**
+ *
+ * 律师过审前不能对外收钱, 也不能像在收钱 —— 所以这条路径**没有任何金额、订单、
+ * 承诺回报的字段**, 它做的唯一一件事是记下"谁想第一批参与"。
+ *
+ * 隐私(Jing 常驻规矩「只存必要字段」): 只写 影片 + 邮箱 + 来源 + 时间。
+ * **不存 IP、不存 User-Agent、不做指纹。** source 就是外链上的 ?cssADS= 值,
+ * 只用来看哪个平台带来的人。
+ *
+ * 重复提交返回 already:true 而不是报错 —— 用户再点一次是善意的, 不该看到红字。 */
+app.post("/api/film-interest", express.json({ limit: "2kb" }), async (req, res) => {
+  noStore(res);
+  try {
+    const b = (req.body || {}) as Record<string, unknown>;
+    const film = String(b.film || "").trim().slice(0, 64);
+    const email = String(b.email || "").trim().slice(0, 254);
+    const source = String(b.source || "").trim().slice(0, 64) || null;
+    if (!film || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) {
+      return res.status(400).json({ ok: false, code: "BAD_INPUT" });
+    }
+    const r = await withClient((c) => c.query(
+      `INSERT INTO film_interest_signups (film_slug, email, source)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (film_slug, lower(email)) DO NOTHING
+       RETURNING id`,
+      [film, email, source],
+    ));
+    return res.json({ ok: true, already: r.rowCount === 0 });
+  } catch (err) {
+    console.warn("[film-interest] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "SIGNUP_FAILED" });
+  }
+});
+
 app.get("/sitemap.xml", async (_req, res) => {
   res.type("application/xml; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=3600");

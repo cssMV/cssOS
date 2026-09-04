@@ -80,6 +80,33 @@ CONF = {
      "p3": grade("eq=saturation=0.96:contrast=1.04:brightness=0.01:gamma_b=1.04,"
                  "colorbalance=rs=-0.02:bs=0.06:rm=0.02:bm=0.04:rh=0.03:bh=0.02,"
                  "curves=all='0/0.04 0.5/0.53 1/0.98'")}),
+ # CSSOS_WAVE_2071 玛雅: 叙事轴就是【光】—— 冥界墨绿 → 近黑 → 破晓金。
+ # 三部一道色板会把这条轴抹平, 所以按部分开(与萨福同理, 与鲁米相反)。
+ # 进度键是 "p1#3" 形式(不是冒号), assemble() 里已按 KEYFMT 兼容。
+ "maya": dict(
+   shotlist="/tmp/maya-shotlist-timed.json",
+   progress="/srv/cssos/tmp/maya-shoot-progress.json",
+   work="/srv/cssos/tmp/maya-assemble",
+   keyfmt="{pk}#{num}",
+   audio={"p1": 217.11, "p2": 223.16, "p3": 240.85},
+   audio_url={
+     "p1": "https://cdn.cssstudio.app/artifacts/mv-songs/maya/maya-p1-take1-2931a62d6ad9f9a0.mp3",
+     "p2": "https://cdn.cssstudio.app/artifacts/mv-songs/maya/maya-p2-take1-73b86cb4a48f8099.mp3",
+     "p3": "https://cdn.cssstudio.app/artifacts/mv-songs/maya/maya-p3-take1-5c3a3ba75088713d.mp3"},
+   out={"p1": "maya-p1-xkik.mp4", "p2": "maya-p2-xibalba.mp4", "p3": "maya-p3-ixim.mp4"},
+   grade={
+     # 一 · 孕育: 冥界墨绿 + 骨白。压饱和推青绿, 但保住骨头和皮肤的暖 —— 不能全绿。
+     "p1": grade("eq=saturation=0.86:contrast=1.06:brightness=-0.02:gamma=0.97,"
+                 "colorbalance=rs=-0.06:gs=0.05:bs=0.02:rm=-0.04:gm=0.04:bm=0.01:rh=0.03:gh=0.01,"
+                 "curves=all='0/0.02 0.5/0.47 1/0.97'"),
+     # 二 · 下降: 近黑 + 火把橙。整体压暗提对比, 高光那一点火不许洗掉。
+     "p2": grade("eq=saturation=0.84:contrast=1.14:brightness=-0.07:gamma=0.90,"
+                 "colorbalance=rs=0.05:gs=-0.01:bs=-0.03:rm=0.03:bm=-0.05:rh=0.06:gh=0.03:bh=-0.04,"
+                 "curves=all='0/0 0.5/0.41 1/0.99'"),
+     # 三 · 重生: 破晓金 + 玉米黄 + 雨林翠。回暖回饱和, 亮部推金, 暗部留一点绿(玉米叶)。
+     "p3": grade("eq=saturation=1.04:contrast=1.02:brightness=0.03:gamma_r=1.05:gamma_g=1.02,"
+                 "colorbalance=rs=0.06:gs=0.04:bs=-0.06:rm=0.05:gm=0.03:bm=-0.05:rh=0.06:gh=0.04:bh=-0.03,"
+                 "curves=all='0/0.04 0.5/0.55 1/1'")}),
  "sappho": dict(
    shotlist="/tmp/sappho-shotlist.json",
    progress="/srv/cssos/tmp/sappho-shoot-progress.json",
@@ -112,7 +139,7 @@ def assemble(proj, pk):
     d = f"{c['work']}/{pk}"
     os.makedirs(d, exist_ok=True)
 
-    missing = [str(s[1]) for s in shots if not prog.get(f"{pk}:{s[1]}", {}).get("ok")]
+    missing = [str(s[1]) for s in shots if not prog.get(c.get("keyfmt","{pk}:{num}").format(pk=pk,num=s[1]), {}).get("ok")]
     if missing:
         sys.exit(f"{pk}: 还有 {len(missing)} 镜没拍成: {missing[:12]}")
 
@@ -126,7 +153,7 @@ def assemble(proj, pk):
         src = f"{d}/raw{num}.mp4"
         dst = f"{d}/cut{num}.mp4"
         if not os.path.exists(src) or os.path.getsize(src) < 4096:
-            sh(["curl", "-s", "-m", "300", "-o", src, prog[f"{pk}:{num}"]["url"]])
+            sh(["curl", "-s", "-m", "300", "-o", src, prog[c.get("keyfmt","{pk}:{num}").format(pk=pk,num=num)]["url"]])
         if not os.path.exists(dst) or os.path.getsize(dst) < 4096:
             # 素材若短于所需, 用末帧定格补足(tpad), 不加速不变形
             sh(["ffmpeg", "-nostdin", "-v", "error", "-i", src,

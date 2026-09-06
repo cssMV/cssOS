@@ -102,12 +102,55 @@
        font-size:14px;font-weight:600;letter-spacing:.04em;color:#00f5a0}
 .fwhy{margin:16px 0 0;font-size:13.5px;line-height:1.6;opacity:.7}
 .jbridge{margin:0 0 14px;font-size:15px;line-height:1.6;opacity:.9}
+
+.opening{max-width:1100px;margin:40px auto 8px;padding:0 16px;text-align:center}
+.obadge{display:inline-block;padding:4px 12px;margin-bottom:12px;border:1px solid rgba(0,245,160,.35);
+        border-radius:999px;font-size:11px;letter-spacing:.16em;color:#00f5a0}
+.opening h2{margin:0 0 10px;font-size:22px;letter-spacing:.02em}
+.olead{margin:0 auto 18px;max-width:720px;font-size:14px;line-height:1.7;opacity:.82}
+.ovid{width:100%;max-width:1100px;aspect-ratio:21/9;background:#000;border-radius:12px;
+      border:1px solid rgba(0,245,160,.22);box-shadow:0 0 38px rgba(0,245,160,.10)}
+.onote{margin-top:12px;font-size:12.5px;line-height:1.6;opacity:.55}
 </style>
+<!-- CSSOS_WAVE_2076 20260904 — 这一页原本【一个 og 标签都没有】。
+     发六平台时暴露: Facebook / LinkedIn 抓到的卡片只有标题没有图,
+     **Pinterest 直接 "No images found" 建不了 Pin**(它的抓取完全依赖页面上的可发现图片)。
+     不是 Pinterest 的毛病, 是我们缺这组标签 —— 三个平台一起受影响。 -->
+<meta property="og:type" content="video.movie" />
+<meta property="og:site_name" content="CSS Studio" />
+<meta property="og:title" content="EMPIRE OF TIME — the first feature whose ending you decide" />
+<meta property="og:description" content="Some empires are built on land. This one is built on time. 180+ minutes, multiple endings. A feature no longer needs an investor — it needs fifty viewers." />
+<meta property="og:url" content="https://cssstudio.app/timeempire-intro.html" />
+<meta property="og:image" content="https://cdn.cssstudio.app/artifacts/te-trailer/twinwar-poster.png" />
+<meta property="og:image:width" content="1024" />
+<meta property="og:image:height" content="1536" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="EMPIRE OF TIME — the first feature whose ending you decide" />
+<meta name="twitter:description" content="180+ minutes, multiple endings. A feature no longer needs an investor — it needs fifty viewers." />
+<meta name="twitter:image" content="https://cdn.cssstudio.app/artifacts/te-trailer/twinwar-poster.png" />
+<!-- Pinterest 的抓取器只认页面上【真实存在的 img 元素】, 不认 CSS 背景图 ——
+     所以除了 og:image 之外, 再放一张对读者不可见、但对抓取器可见的图。
+     不用 display:none(那样会被判定为隐藏内容而跳过), 用 1x1 定位到视口外。 -->
+<img src="https://cdn.cssstudio.app/artifacts/te-trailer/twinwar-poster.png" alt="Empire of Time poster" width="1024" height="1536"
+     style="position:absolute;left:-99999px;top:0;width:1px;height:1px;" />
 </head>
 <body>
   <div class="stage">
     <div class="title"><h1 data-i18n="te.intro.title">EMPIRE OF TIME</h1><div class="k" data-i18n="te.intro.kicker">AMERICAN EMPIRE · OPENING · CAST</div></div>
     <p class="lead" data-i18n="te.intro.lead">A near-future America. Immortal Martians have quietly tampered with humanity's timeline for centuries — in the name of "ending all pain." Only three can sense that time itself has been rewritten —</p>
+<!-- CSSOS_WAVE_2081 — 第 1 场成片放上众筹页。
+     众筹页上写一百句"我们能拍", 都不如让人点开看这 90 秒。
+     它同时证明两件事: 这部电影真的在拍 · 我们确实拍得出长镜头。
+     poster 用末帧(桌上那本书), 未播放时就已经把第 1 转折的钩子摆在那里。 -->
+    <div class="opening" id="opening">
+      <div class="obadge" data-i18n="te.open.badge">SHOT · SCENE 1</div>
+      <h2 data-i18n="te.open.title">The first 90 seconds already exist</h2>
+      <p class="olead" data-i18n="te.open.lead"></p>
+      <video class="ovid" controls playsinline preload="metadata"
+             poster="https://cdn.cssstudio.app/artifacts/te-s1/scene1-poster.jpg"
+             src="https://cdn.cssstudio.app/artifacts/mv/te-scene1-opening.mp4"></video>
+      <div class="onote" data-i18n="te.open.note"></div>
+    </div>
     <div class="cast" id="cast"></div>
     <button class="enter" onclick="openTrailers()" data-i18n="te.intro.enterFilm">ENTER THE FILM ▶</button>
     <button class="enter" style="background:#0c1f19;color:var(--mint);border:1px solid #1c4a3a;box-shadow:none;margin-top:14px" onclick="openSyn()" data-i18n="te.intro.readStory">READ THE STORY</button>

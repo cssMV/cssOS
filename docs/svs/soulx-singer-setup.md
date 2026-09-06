@@ -97,3 +97,21 @@ Sacred Harp 是形状音符谱,唱者先唱 fa-sol-la 再填词,出版常不印�
 4. 同曲跑 `--align word` 与 `syllable` 两版,听差异,定下默认
 5. 测 A10G 实际 RTF,算出每分钟人声的成本
 6. **用完 terminate**(stop 不停止计费)
+
+## 已从推理代码核实的事实 (W2085 · 读 `cli/inference.py` + `soulxsinger/utils/data_processor.py`)
+
+**在花 GPU 钱之前逐条验的,不是假设:**
+
+| 事实 | 出处 |
+|---|---|
+| **`f0` 是可选的** —— 不给就是 `None`,score 模式自己从音符推音高 | `meta.get("f0", "")` (data_processor:152) |
+| **`text` 字段不被解析器消费** —— 只吃 `duration`/`phoneme`/`note_pitch`/`note_type`。它是给人看的 | `merge_phoneme()` 只读这四个键 |
+| `duration` = **浮点秒**,空格分隔 | `[float(x) for x in meta["duration"].split()]` |
+| `note_pitch` = **整数 MIDI** | `[int(x) for x in ...]` |
+| **`note_type` 在 `phoneme == "<SP>"` 处会被强制成 1** | `int(x) if phoneme[i] != "<SP>" else 1` |
+| 相邻且完全相同的 `<SP>` 会被自动合并 | data_processor:50-51 |
+| `time` = **[起, 止] 毫秒**;**最后一段的 `time[1]` 决定输出缓冲总长**,各段按 `time[0]` 偏移写入同一条轨 | inference.py:89, 95-96 |
+
+**分段:仓库样例 `music.json` 是【单段 51 秒】。** 更长的单段没有先例。
+工具在超过 60 秒时会提醒,但**不擅自切段** —— 按哪里切是乐句判断(该在换气处),
+不是脚本该替人做的决定。真要切,每段自带 `time=[起,止]`,输出会按偏移拼回一条轨。

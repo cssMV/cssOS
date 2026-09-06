@@ -268,6 +268,11 @@ def main():
     }
     a.out.write_text(json.dumps([rec], ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"→ {a.out}  ({lens['text']} token, {total:.1f} 秒, align={a.align})")
+    # 仓库自带样例是【单段 51 秒】。更长的单段没有先例, 超了先提醒, 不擅自切段 ——
+    # metadata 是分段列表, 真要切也该按乐句切, 那是音乐判断, 不是脚本该替人做的。
+    if total > 60:
+        print(f"⚠ 单段 {total:.0f} 秒, 超过仓库样例的 51 秒。若渲染异常, "
+              f"按乐句拆成多段(每段自带 time=[起,止] 毫秒), 输出会按偏移拼回一条轨。")
     if warn:
         print(f"⚠ {warn}")
 

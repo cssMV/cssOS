@@ -4368,6 +4368,7 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
         try {
           const ab = await (await fetch(audioUrl)).arrayBuffer();
           const u = await uploadAudioNeverOverwrite(Buffer.from(ab), workId);  // W2061 绝不覆盖旧版
+          if (u) await registerMediaVersion({ workId, kind: "audio", url: u, lang });  // W2086 登记版本
           if (u) audioUrl = u;
         } catch (e) { console.warn("[create-single] audio rehost failed", (e as Error).message); }
       }
@@ -4383,7 +4384,7 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
           // W2086 —— 封面同样是「作品级媒体」, 写死 key 会让重新生成抹掉旧封面。
           // 与丢掉 17 首旧版音乐完全同一个 bug, 只是发生在画面这一轨。
           const cu = await uploadR2NeverOverwrite(Buffer.from(ib), `artifacts/cover/${workId}/cover.webp`, "image/webp");
-          if (cu) coverUrl = cu;
+          if (cu) { coverUrl = cu; await registerMediaVersion({ workId, kind: "cover", url: cu }); }  // W2086 登记版本
         }
       } catch (e) { console.warn("[create-single] cover failed", (e as Error).message); }
 
@@ -4678,6 +4679,49 @@ function publicArtifactsBase(): string {
  * 完全相同的 key** —— 入库了, 却是原地覆盖。所以凡是写「作品级」媒体的地方,
  * 都必须过这个函数, 而不是直接 uploadToR2/uploadBufferToR2。
  */
+/**
+ * 【W2086】登记一个媒体版本 —— 新版本 = 一条 INSERT, INSERT 删不掉任何东西。
+ *
+ * Jing:「歌词/字幕, 声线/音轨, 画面/视频的存储方式必须是数组, 不要用单一的值。」
+ * 单值字段结构性地只能装一个, 下次写入必然删掉上一个; 这张表让"只有一个"物理上装不下。
+ *
+ * 尽力而为: 登记失败绝不影响媒体本身已经落盘的事实, 只打日志。
+ * 数据库那条触发器会拒绝"同一声线的两个版本共用同一个 URL" —— 那正是 W2061 的病根。
+ */
+async function registerMediaVersion(opts: {
+  workId: string; kind: "audio" | "cover" | "video" | "subtitle" | "lyrics";
+  url: string; lang?: string | null; label?: string | null;
+  subtitleUrl?: string | null; durationSecs?: number | null; makeCurrent?: boolean;
+}): Promise<void> {
+  const { workId, kind, url } = opts;
+  if (!workId || !url) return;
+  const lang = opts.lang ?? null;
+  const makeCurrent = opts.makeCurrent !== false;
+  try {
+    await withClient(async (c) => {
+      if (makeCurrent) {
+        await c.query(
+          `UPDATE work_media_versions SET is_current=false
+            WHERE work_id=$1::uuid AND kind=$2 AND COALESCE(lang,'')=COALESCE($3,'') AND is_current`,
+          [workId, kind, lang]);
+      }
+      await c.query(
+        `INSERT INTO work_media_versions
+           (work_id, kind, lang, version_no, label, url, subtitle_url, duration_secs, is_current)
+         SELECT $1::uuid, $2, $3,
+                COALESCE((SELECT max(version_no) FROM work_media_versions
+                           WHERE work_id=$1::uuid AND kind=$2 AND COALESCE(lang,'')=COALESCE($3,'')), 0) + 1,
+                $4, $5, $6, $7, $8
+         ON CONFLICT DO NOTHING`,
+        [workId, kind, lang, opts.label ?? null, url,
+         opts.subtitleUrl ?? null, opts.durationSecs ?? null, makeCurrent]);
+    });
+  } catch (e) {
+    console.warn(`[media-version] 登记失败(不影响媒体本身) work=${workId} kind=${kind}:`,
+      (e as Error)?.message?.slice(0, 160));
+  }
+}
+
 async function uploadR2NeverOverwrite(
   buf: Buffer,
   key: string,
@@ -15258,6 +15302,43 @@ app.post("/api/admin/story/upsert", express.json({ limit: "512kb" }), async (req
 });
 
 /* CSSOS_WAVE_1710 — 圣诗画廊: 列出所有【已完成】的圣诗(一排排乐谱)。公开、只读。 */
+/* CSSOS_WAVE_2086 — 作品的媒体版本【数组】。
+ *
+ * Jing:「新旧版本允许同时存在, 同时保留, 让用户可以在多声线胶囊那里选择新旧版本,
+ *        而不是覆盖掉。」「用户播放旧版本就显示旧版本字幕, 新版本就显示新版本字幕。」
+ *
+ * 底层是「一版一行」的表(INSERT 删不掉任何东西), 这里拼成 json 数组给前端 ——
+ * 形态是 Jing 要的那个, 但物理上装不下"只有一个"。
+ * 每一版都带【自己的】url 和【自己的】subtitle_url: 选哪版就配哪版的字幕。
+ */
+app.get("/api/works/:id/versions", async (req, res) => {
+  noStore(res);
+  const id = String(req.params.id || "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: "bad_id" });
+  try {
+    const r = await withClient((c) => c.query<{
+      kind: string; lang: string | null; version_no: number; label: string | null;
+      url: string; subtitle_url: string | null; duration_secs: number | null;
+      is_current: boolean; created_at: string;
+    }>(
+      `SELECT kind, lang, version_no, label, url, subtitle_url, duration_secs, is_current, created_at
+         FROM work_media_versions WHERE work_id = $1::uuid
+        ORDER BY kind, COALESCE(lang,''), version_no`, [id]));
+    const versions: Record<string, unknown[]> = {};
+    for (const row of r.rows) {
+      (versions[row.kind] ||= []).push({
+        lang: row.lang, version: row.version_no,
+        label: row.label || (row.version_no === 1 ? null : `v${row.version_no}`),
+        url: row.url, subtitle_url: row.subtitle_url,
+        duration_secs: row.duration_secs, is_current: row.is_current, created_at: row.created_at,
+      });
+    }
+    return res.json({ ok: true, work_id: id, versions });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : "versions_failed" });
+  }
+});
+
 app.get("/api/hymns", async (_req, res) => {
   noStore(res);
   try {
@@ -34038,6 +34119,7 @@ app.post("/api/admin/lyrics/regenerate", express.json({ limit: "16kb" }), async 
           try {
             const ab = await (await fetch(audioUrl)).arrayBuffer();
             const u = await uploadAudioNeverOverwrite(Buffer.from(ab), w.id);  // W2061 绝不覆盖旧版
+            if (u) await registerMediaVersion({ workId: w.id, kind: "audio", url: u });  // W2086 登记版本
             if (u) audioUrl = u;
           } catch (e) { console.warn("[regen-music] rehost failed", (e as Error).message); }
         }

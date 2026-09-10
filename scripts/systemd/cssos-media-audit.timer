@@ -1,0 +1,10 @@
+[Unit]
+Description=cssOS media overwrite-risk audit — daily (W2086)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+[Unit]
+Description=cssOS media overwrite-risk audit (W2086)
+
+[Service]
+Type=oneshot
+User=jing
+ExecStart=/srv/cssos/bin/media-audit-run.sh

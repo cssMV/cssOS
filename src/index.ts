@@ -1717,6 +1717,7 @@ async function upsertSubtitleJson(
   take: 1 | 2,
   sections: SubSection[],
   volCurve?: { step_ms: number; values: number[] } | null,
+  audioUrl?: string | null,
 ): Promise<string | null> {
   if (!r2Enabled()) return null;
   const remotePath = `works/${workId}/subtitle-take${take}.json`;
@@ -1740,6 +1741,36 @@ async function upsertSubtitleJson(
         `UPDATE user_works SET ${col}=$2, updated_at=now() WHERE id=$1::uuid`,
         [workId, url],
       )).catch(() => {});
+    }
+
+    /* CSSOS_WAVE_2086 —— 版本级字幕快照。
+     *
+     * Jing:「用户播放旧版本就显示旧版本字幕, 新版本就显示新版本字幕。」
+     *
+     * 上面那份 `works/<id>/subtitle-take{n}.json` 是【按作品】存的: 同一语言重新对齐
+     * 会把上一版那条 languages[lang] 直接替换掉 —— 于是重生成音乐 + 跑一次 resubtitle,
+     * 旧版音乐对应的字幕就没了, 播旧版音乐配到的是新版字幕。
+     *
+     * 改法刻意做成【纯增量】: 上面的旧路径一个字节都不变(现有播放逻辑完全不受影响),
+     * 这里【额外】再落一份以音频版本为 key 的快照, 并登记到 work_language_tracks
+     * 里【那一行】的 subtitle_url 上 —— 版本自己的字幕挂在版本自己身上。
+     * 将来播放端按所选轨读 subtitle_url 即可, 读不到再回退旧路径。 */
+    const av = String(audioUrl || "").trim();
+    if (url && av) {
+      try {
+        const tag = crypto.createHash("sha1").update(av).digest("hex").slice(0, 10);
+        const snapKey = `works/${workId}/subtitle-take${take}--a${tag}.json`;
+        const snapUrl = await uploadBufferToR2(buf, snapKey, "application/json");
+        if (snapUrl) {
+          await withClient((c) => c.query(
+            `UPDATE work_language_tracks SET subtitle_url=$3
+              WHERE work_id=$1::uuid AND audio_url=$2`,
+            [workId, av, snapUrl],
+          ));
+        }
+      } catch (e) {
+        console.warn("[subtitle-version] 版本快照失败(不影响主字幕):", (e as Error)?.message);
+      }
     }
     return url;
   });
@@ -4349,7 +4380,9 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
         if (img && (img as any).ok && (img as any).image_url) coverUrl = String((img as any).image_url);
         if (coverUrl && !isR2Url(coverUrl)) {
           const ib = await (await fetch(coverUrl)).arrayBuffer();
-          const cu = await uploadBufferToR2(Buffer.from(ib), `artifacts/cover/${workId}/cover.webp`, "image/webp");
+          // W2086 —— 封面同样是「作品级媒体」, 写死 key 会让重新生成抹掉旧封面。
+          // 与丢掉 17 首旧版音乐完全同一个 bug, 只是发生在画面这一轨。
+          const cu = await uploadR2NeverOverwrite(Buffer.from(ib), `artifacts/cover/${workId}/cover.webp`, "image/webp");
           if (cu) coverUrl = cu;
         }
       } catch (e) { console.warn("[create-single] cover failed", (e as Error).message); }
@@ -4411,7 +4444,7 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
           }
           sections = sanitizeSubtitleSections(sections, lang);
           sections = derivePerTokenEmotion(sections);
-          await upsertSubtitleJson(workId, lang, 1, sections);
+          await upsertSubtitleJson(workId, lang, 1, sections, null, audioUrl);  // W2086 版本级字幕快照
           console.info("[create-single] subtitle ok", workId, lang, "(words=" + (tl?.length || 0) + ")");
         } catch (e) {
           console.warn("[create-single] subtitle failed (non-fatal)", (e as Error).message);
@@ -40507,7 +40540,9 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
        * 轨自己的, 否则按歌词字形判定 detectLyricLang), 这里直接用它。
        * 注: 语言【匹配】必须严格(W1961: 绝不拿别的语言顶替), 但那要求标签本身是真的 ——
        * 用占位符当标签, 等于让严格匹配对着一个假标签空转。 */
-      await upsertSubtitleJson(workId, alignLang, 1, sections, _volCurve);
+      // W2086 —— 传入 alignAudio: 字幕是照着【这一条音频】对齐出来的,
+      // 用它当版本键, 旧版音乐就能配回旧版字幕。
+      await upsertSubtitleJson(workId, alignLang, 1, sections, _volCurve, alignAudio);
       results.push({
         lang: alignLang, srcTrackLang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),

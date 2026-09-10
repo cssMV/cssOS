@@ -4638,28 +4638,46 @@ function publicArtifactsBase(): string {
  * 这个 helper 保证: 目标 key 已存在就自动改写 a1-v2 / a1-v3 …, 绝不覆盖。
  * (记忆里那条 CDN 铁律「同 key 覆盖不可靠, 要用新版本文件名」说的是同一件事,
  *  当时只当成缓存问题, 没意识到它同时也是**数据销毁**问题。) */
+/**
+ * 【W2086】任意 key 的「绝不覆盖」上传。目标已存在 → 在扩展名前插 `-v2/-v3…` 另存。
+ *
+ * W2061 丢掉三首三部曲首曲的旧版音乐, 根因不是没入库 R2, 而是**新版用了和旧版
+ * 完全相同的 key** —— 入库了, 却是原地覆盖。所以凡是写「作品级」媒体的地方,
+ * 都必须过这个函数, 而不是直接 uploadToR2/uploadBufferToR2。
+ */
+async function uploadR2NeverOverwrite(
+  buf: Buffer,
+  key: string,
+  contentType: string,
+): Promise<string | null> {
+  const base = publicArtifactsBase();
+  const exists = async (k: string): Promise<boolean> => {
+    try {
+      const r = await fetch(`${base}/${k}`, { method: "HEAD" });
+      return r.ok;
+    } catch { return false; }   // 探不到就当不存在, 但下面仍从 v2 起找空位
+  };
+  let finalKey = key;
+  if (await exists(key)) {
+    const dot = key.lastIndexOf(".");
+    const stem = dot > 0 ? key.slice(0, dot) : key;
+    const ext = dot > 0 ? key.slice(dot) : "";
+    for (let n = 2; n <= 50; n++) {
+      const cand = `${stem}-v${n}${ext}`;
+      if (!(await exists(cand))) { finalKey = cand; break; }
+      if (n === 50) finalKey = `${stem}-v${Date.now()}${ext}`;
+    }
+    console.warn(`[media-persist] ${key} 已存在, 改写新版本 key=${finalKey}(旧版原样保留)`);
+  }
+  return await uploadBufferToR2(buf, finalKey, contentType);
+}
+
 async function uploadAudioNeverOverwrite(
   buf: Buffer,
   workId: string,
   contentType = "audio/mpeg",
 ): Promise<string | null> {
-  const base = publicArtifactsBase();
-  const exists = async (key: string): Promise<boolean> => {
-    try {
-      const r = await fetch(`${base}/${key}`, { method: "HEAD" });
-      return r.ok;
-    } catch { return false; }   // 探不到就当不存在, 但下面仍从 v2 起找空位
-  };
-  let key = `artifacts/audio/${workId}/a1.mp3`;
-  if (await exists(key)) {
-    for (let n = 2; n <= 50; n++) {
-      const cand = `artifacts/audio/${workId}/a1-v${n}.mp3`;
-      if (!(await exists(cand))) { key = cand; break; }
-      if (n === 50) key = `artifacts/audio/${workId}/a1-v${Date.now()}.mp3`;
-    }
-    console.warn(`[audio-persist] ${workId} 已有音频, 改写新版本 key=${key}(旧版原样保留)`);
-  }
-  return await uploadBufferToR2(buf, key, contentType);
+  return await uploadR2NeverOverwrite(buf, `artifacts/audio/${workId}/a1.mp3`, contentType);
 }
 
 
@@ -41478,9 +41496,11 @@ app.post("/api/admin/extend-track/:workId", async (req, res) => {
     const dl = await fetch(extUrl, { headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36" } });
     if (!dl.ok) return res.status(502).json({ ok: false, code: "EXTEND_DOWNLOAD_FAILED", status: dl.status });
     fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
+    // W2086 —— 续写第二次不得覆盖第一次: 同一 (work, lang) 的 key 是写死的,
+    // 直接 uploadToR2 会把上一版续写连字节带记录一起抹掉(与 W2061 丢三首同一模式)。
     const r2key = `artifacts/audio/aud-${lang}-${workId.slice(0, 8)}-extend.mp3`;
     let newUrl: string | null = null;
-    try { newUrl = await uploadToR2(tmp, r2key, "audio/mpeg"); } catch (_e) {}
+    try { newUrl = await uploadR2NeverOverwrite(fs.readFileSync(tmp), r2key, "audio/mpeg"); } catch (_e) {}
     try { fs.unlinkSync(tmp); } catch { /* best-effort */ }
     if (!newUrl) return res.status(500).json({ ok: false, code: "EXTEND_R2_FAILED" });
     // 4) 更新轨: 新音频 + 时长 + 清 stem(待重新分离/对齐)

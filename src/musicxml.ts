@@ -20,6 +20,7 @@
  *   <tie type="start"> 与 <extend/>(melisma) → 把上一个音节的 end 延长到本音符结束
  */
 import sax, { type Tag as SaxTag } from "sax";
+import { expandRepeats } from "./musicxml-repeats.js";
 
 export type MxLine = { ts_ms: number | null; text: string };
 export type MxWord = { word: string; ts_ms: number; end_ms: number };
@@ -55,6 +56,13 @@ const DEFAULT_BPM = 120;
 
 /** MusicXML(未压缩 XML 文本)→ 歌词 + 逐字时间轴。 */
 export function parseMusicXml(xml: string): MusicXmlParse {
+  /* CSSOS_WAVE_2086 — Jing「原曲是唱多少遍的, 就唱多少遍」。
+   * 解析【之前】先把反复记号展开成实际演奏顺序, 解析逻辑本身一行不动。
+   * 这样音频 / 字幕 / MV 三条下游自动同步变长, 不会各算各的。 */
+  const rep = expandRepeats(xml);
+  const repeatNotes = rep.notes;
+  if (rep.expanded) xml = rep.xml;
+
   const parser = sax.parser(true, { trim: false, normalize: false });
 
   let title: string | null = null;
@@ -298,10 +306,13 @@ export function parseMusicXml(xml: string): MusicXmlParse {
     return { verse: v, text: lines.map((l) => l.text).join("\n"), lines, words };
   });
 
-  if (sawRepeat) {
-    /* 忠实渲染的诚实边界: 反复(以及 volta/DC/DS)需要完整的乐段展开器。v1 不展开,
-     * 渲染为【单遍】。这会让音频比实际演奏短 —— 必须让上游看见, 绝不悄悄忽略。 */
-    warnings.push("乐谱含反复记号(<repeat>) — v1 不展开乐段, 按【单遍】渲染, 时长会短于实际演奏");
+  if (repeatNotes.length) {
+    warnings.push(`已展开反复记号(W2086): ${repeatNotes[0]} —— 时长按实际演奏计`);
+  } else if (sawRepeat) {
+    /* 忠实渲染的诚实边界: 展开器没能吃下这份谱子的反复结构(例如 D.C./D.S./Coda,
+     * 或 forward/backward 不配对)。仍按【单遍】渲染, 会短于实际演奏 —— 必须让上游
+     * 看见, 绝不悄悄忽略。 */
+    warnings.push("乐谱含反复记号但未能展开(可能是 D.C./D.S./Coda 或记号不配对) — 按【单遍】渲染, 时长会短于实际演奏");
   }
   notes.sort((a, b) => a.ts_ms - b.ts_ms);
   return { ok: true, warnings, title, composer, tempo_bpm: bpm, divisions: firstDivisions, duration_ms: Math.round(maxMs), verses, notes };

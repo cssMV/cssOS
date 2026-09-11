@@ -4383,7 +4383,9 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
           const ib = await (await fetch(coverUrl)).arrayBuffer();
           // W2086 —— 封面同样是「作品级媒体」, 写死 key 会让重新生成抹掉旧封面。
           // 与丢掉 17 首旧版音乐完全同一个 bug, 只是发生在画面这一轨。
-          const cu = await uploadR2NeverOverwrite(Buffer.from(ib), `artifacts/cover/${workId}/cover.webp`, "image/webp");
+          // W2086 —— 封面也走内容哈希, 不用 <workId>/cover.webp 这种固定名
+          const _cb = Buffer.from(ib);
+          const cu = await uploadBufferToR2(_cb, contentHashKey(_cb, "artifacts/cover", "cov", "webp"), "image/webp");
           if (cu) { coverUrl = cu; await registerMediaVersion({ workId, kind: "cover", url: cu }); }  // W2086 登记版本
         }
       } catch (e) { console.warn("[create-single] cover failed", (e as Error).message); }
@@ -4722,6 +4724,19 @@ async function registerMediaVersion(opts: {
   }
 }
 
+/**
+ * 【W2086】内容哈希 key —— Jing 2026-09-11:「生成的任何内容、所有内容, 都必须使用
+ * 哈希命名, 跳过那个弱智的固定名字命名法, a1, a2…… 这种不重名都难。」
+ *
+ * 不同内容 → 不同 sha → 不同地址, 想覆盖也覆盖不了。
+ * 相同内容 → 相同 sha → 写回同一地址, 字节一样, 幂等。
+ * 沿用平台既有约定: sha1 前 24 位(见 rehost-audio 的 aud-<sha24>)。
+ */
+function contentHashKey(buf: Buffer, dir: string, prefix: string, ext: string): string {
+  const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
+  return `${dir}/${prefix}-${sha}.${ext}`;
+}
+
 async function uploadR2NeverOverwrite(
   buf: Buffer,
   key: string,
@@ -4749,12 +4764,28 @@ async function uploadR2NeverOverwrite(
   return await uploadBufferToR2(buf, finalKey, contentType);
 }
 
+/**
+ * 【W2086】作品音频落盘 —— **一律内容哈希命名**。
+ *
+ * Jing 2026-09-11:「以后都必须哈希命名, 避免重名被覆盖掉。」
+ *
+ * 为什么哈希命名是结构性安全, 而 `<workId>/a1.mp3` 不是:
+ *   · 不同内容 → 不同 sha → **不同地址**, 想覆盖也覆盖不了
+ *   · 相同内容 → 相同 sha → 写回同一地址, 字节一模一样, 幂等无副作用
+ *   而 `<workId>/a1.mp3` 是【写死的名字】: 同一作品重新生成必然落回同一地址,
+ *   于是「入库了, 却是原地覆盖」—— 2026-08-24 那批 17 首旧版音乐就是这样没的。
+ *
+ * 沿用平台既有约定 `aud-<sha1 前24位>.mp3`(见 rehost-audio, 不另造一套)。
+ */
 async function uploadAudioNeverOverwrite(
   buf: Buffer,
   workId: string,
   contentType = "audio/mpeg",
 ): Promise<string | null> {
-  return await uploadR2NeverOverwrite(buf, `artifacts/audio/${workId}/a1.mp3`, contentType);
+  const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
+  const key = `artifacts/audio/aud-${sha}.mp3`;
+  console.log(`[audio-persist] work=${workId} → ${key}(内容哈希, 结构上不可覆盖)`);
+  return await uploadBufferToR2(buf, key, contentType);
 }
 
 
@@ -40522,8 +40553,11 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
             let _vu: string | null = null, _iu: string | null = null;
             if (_sep.uploaded && _isU(_sep.vocals)) { _vu = _sep.vocals; _iu = _isU(_sep.instrumental) ? _sep.instrumental : null; }
             else {
-              try { _vu = await uploadToR2(_sep.vocals, `works/${workId}/stems/${_tag}-vocal.mp3`, "audio/mpeg"); } catch (_e) {}
-              try { _iu = await uploadToR2(_sep.instrumental, `works/${workId}/stems/${_tag}-instrumental.mp3`, "audio/mpeg"); } catch (_e) {}
+              // W2086 —— 分离出来的人声/伴奏同样走内容哈希, 重新分离不再覆盖上一次
+              try { const b = fs.readFileSync(_sep.vocals);
+                    _vu = await uploadBufferToR2(b, contentHashKey(b, "works/stems", "voc", "mp3"), "audio/mpeg"); } catch (_e) {}
+              try { const b = fs.readFileSync(_sep.instrumental);
+                    _iu = await uploadBufferToR2(b, contentHashKey(b, "works/stems", "ins", "mp3"), "audio/mpeg"); } catch (_e) {}
               if (_sep.job) await demucsCleanup(_sep.job);
             }
             if (_vu) {
@@ -41613,11 +41647,13 @@ app.post("/api/admin/extend-track/:workId", async (req, res) => {
     const dl = await fetch(extUrl, { headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36" } });
     if (!dl.ok) return res.status(502).json({ ok: false, code: "EXTEND_DOWNLOAD_FAILED", status: dl.status });
     fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
-    // W2086 —— 续写第二次不得覆盖第一次: 同一 (work, lang) 的 key 是写死的,
-    // 直接 uploadToR2 会把上一版续写连字节带记录一起抹掉(与 W2061 丢三首同一模式)。
-    const r2key = `artifacts/audio/aud-${lang}-${workId.slice(0, 8)}-extend.mp3`;
+    // W2086 —— 续写改用内容哈希: 原来 aud-<lang>-<work8>-extend.mp3 是写死的名字,
+    // 同一 (work, lang) 续写第二次必然原地覆盖第一次(与 W2061 丢 17 首同一模式)。
     let newUrl: string | null = null;
-    try { newUrl = await uploadR2NeverOverwrite(fs.readFileSync(tmp), r2key, "audio/mpeg"); } catch (_e) {}
+    try {
+      const b = fs.readFileSync(tmp);
+      newUrl = await uploadBufferToR2(b, contentHashKey(b, "artifacts/audio", "aud", "mp3"), "audio/mpeg");
+    } catch (_e) {}
     try { fs.unlinkSync(tmp); } catch { /* best-effort */ }
     if (!newUrl) return res.status(500).json({ ok: false, code: "EXTEND_R2_FAILED" });
     // 4) 更新轨: 新音频 + 时长 + 清 stem(待重新分离/对齐)
@@ -41662,8 +41698,11 @@ app.post("/api/admin/separate-stems/:workId", async (req, res) => {
         instrUrl = sep.instrumental; vocalUrl = sep.vocals;
       } else {
         // 旧路径(本服务在同机, 返回本地路径)→ 后端 uploadToR2。
-        try { instrUrl = await uploadToR2(sep.instrumental, `works/${workId}/stems/${tag}-instrumental.mp3`, "audio/mpeg"); } catch (_e) {}
-        try { vocalUrl = await uploadToR2(sep.vocals, `works/${workId}/stems/${tag}-vocal.mp3`, "audio/mpeg"); } catch (_e) {}
+        // W2086 —— 内容哈希, 重新分离不再覆盖上一次
+        try { const b = fs.readFileSync(sep.instrumental);
+              instrUrl = await uploadBufferToR2(b, contentHashKey(b, "works/stems", "ins", "mp3"), "audio/mpeg"); } catch (_e) {}
+        try { const b = fs.readFileSync(sep.vocals);
+              vocalUrl = await uploadBufferToR2(b, contentHashKey(b, "works/stems", "voc", "mp3"), "audio/mpeg"); } catch (_e) {}
         if (sep.job) await demucsCleanup(sep.job);
       }
       if (!instrUrl) { results.push({ lang: tr.lang, ok: false, reason: "upload_failed" }); continue; }

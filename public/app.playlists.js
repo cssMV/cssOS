@@ -235,6 +235,19 @@
     const have = new Set(list.items.map((it) => it.id));
     const loggedIn = !!(globalThis.authState && globalThis.authState.user);
     let anySuccess = false;
+    /* CSSOS_WAVE_2089 20260912 — Jing:「请设定置顶的《声声慢三部曲》为默认播放作品。」
+     *
+     * 为什么之前几轮(W1970e / W1984b)都没成: 那些修法【全都只在 market 这一段内部排序】,
+     * 而 For You 的拼装顺序是写死的两段 ——
+     *     ① 登录用户自己的作品(/api/works/mine)   ② 平台精选 feed(/api/works/market)
+     * 置顶只影响 ②。于是只要是登录用户, 队首永远是他自己最新的真视频作品, 置顶的那首
+     * 排在 ① 整段之后, 根本轮不到。改 market 内部的排序再多轮也没用。
+     *
+     * 修法: 记下 market 段【重排之前】的第一项 —— 服务端已按 COALESCE(pinned_at,
+     * admin_pinned_at) DESC 排好, 所以它就是平台置顶的那一首(接口没返回 pin 字段,
+     * 只能也【应该】认服务端顺序, 这正是「客户端不要重排服务端顺序」那条)。
+     * 最后把它提到整个队列的第 0 位, 排在自己的作品之前。 */
+    let _pinnedGroup = [];
     try {
       // 1 · 登录用户: 先放自己的作品 (最新→最旧)
       if (loggedIn) {
@@ -270,6 +283,17 @@
         if (p) {
           anySuccess = true;
           const mktFlat = flattenWorksTree(p?.data?.works || p?.works || []);
+          /* W2089 — 必须在下面任何 sort 之前取, 否则拿到的就不是服务端的置顶序了。
+           * 服务端按 COALESCE(pinned_at, admin_pinned_at) DESC 排, 所以 mktFlat[0] 就是
+           * 平台置顶的那一首(接口没返回 pin 字段, 只能也【应该】认服务端顺序)。
+           * 取【整组】而不是一个 id: 置顶的是三部曲时, 根节点不在播放列表里(容器无媒体),
+           * 只找根的话永远找不到。整组 = 根 + 同 root_work_id 的所有分集。 */
+          const _h = mktFlat[0];
+          if (_h && _h.id) {
+            const _hRoot = String(_h.root_work_id || _h.id || "");
+            _pinnedGroup = mktFlat.filter((w) => w && (String(w.id) === String(_h.id)
+              || String(w.root_work_id || "") === _hRoot));
+          }
           /* CSSOS_WAVE_1885 20260823 —— Jing:「为什么不是从最新到最旧播放?现在的播放顺序是什么?」
            *
            * 旧注释写着"market 已按服务端顺序(热门/最新), 不再二次排序" —— 这个假设是错的。
@@ -321,6 +345,29 @@
           pushUnique(list, have, mktFlat, null);
         }
       } catch (_e) {}
+      /* W2089 — 把置顶的那一【组】提到队首(排在"自己的作品"之前)。
+       *
+       * 两个实测到的坑, 少一个都不成:
+       *  ① 三部曲的【根节点不在列表里】—— 容器没有自己的媒体, normaliseItem 把它过滤了。
+       *     实测 ssmRootIndex = -1, 所以"按根 id 找位置再提升"一次都不会执行。
+       *     → 不能只找根, 要沿服务端顺序找到这一组里【真正能播的】那些。
+       *  ② 三部曲在队列里是【倒的】(怎一个愁字 → 旧时相识 → 寻寻觅觅)。
+       *     W1984b 的 sequence_index 正序只修了 market 段, 而登录用户这三集是从
+       *     "自己的作品"段进来的, 那段只按 tier + created_at 排 → 又倒回去了。
+       *     → 提升时按 sequence_index 正序重排这一组, 三部曲从第一部开始播。 */
+      if (_pinnedGroup.length) {
+        const _want = new Map();
+        _pinnedGroup.forEach((w) => { if (w && w.id) _want.set(String(w.id), Number(w.sequence_index || 0)); });
+        const _picked = [];
+        for (let i = list.items.length - 1; i >= 0; i--) {
+          const it = list.items[i];
+          if (it && _want.has(String(it.id))) _picked.push(list.items.splice(i, 1)[0]);
+        }
+        if (_picked.length) {
+          _picked.sort((a, b) => (_want.get(String(a.id)) || 0) - (_want.get(String(b.id)) || 0));
+          list.items.unshift(..._picked);
+        }
+      }
     } catch (_e) {}
     finally {
       // CSSOS_WAVE_390 — only mark exhausted when a source actually responded.

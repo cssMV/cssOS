@@ -349,11 +349,14 @@ async function persistWorkAssets(workId, assetPatch = {}) {
       // which persists to localStorage key `cssos_mvp_param_cover_count`
       // (1..8, default 1). 1 = single static cover; 8 ≈ 158 billion
       // slideshow permutations. We read THAT existing key — no new control.
-      let _poolCount = 1;
+      // CSSOS_WAVE_2087 20260912 — 默认 0: 不再生成专辑封面图, 让定妆照(mv_plate)升格成封面。
+      // 注意本处原本写死 default 1, 而步进器显示 3 —— 界面与实际行为长期不一致, 一并对齐。
+      let _poolCount = 0;
       try {
         const v = parseInt(localStorage.getItem("cssos_mvp_param_cover_count") || "", 10);
-        if (Number.isFinite(v) && v >= 1 && v <= 8) _poolCount = v;
+        if (Number.isFinite(v) && v >= 0 && v <= 8) _poolCount = v;
       } catch (_e) {}
+      if (_poolCount < 1) { return true; }   // W2087 — 0 张: 不请求封面池, 封面交给定妆照
       fetch(`/api/works/${encodeURIComponent(targetId)}/cover-pool`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

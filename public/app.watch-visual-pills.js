@@ -20,8 +20,9 @@
  *   真视频   video URL 存在                     → 🎬 + 清晰度(读到才标)
  *   混合视频 video URL 存在 且 幻灯帧 ≥ 1        → 🎞
  *   幻灯     幻灯帧 ≥ 1                          → 🖼 + N 张
- * N = min(可用帧数, cssos_mvp_param_cover_count[1..8, 默认3]) —— 与创作侧同一个 key,
- * 用户在引擎面板调过几张, 这里就标几张, 两处永远一致。
+ * N = min(可用帧数, cssos_mvp_param_cover_count[0..8]) —— 与创作侧同一个 key, 但 W2087 起
+ * 【两端语义不同】: 创作端 0 = 不生成专辑封面(交给定妆照), 播放端 0 = 不限张数。
+ * 用户调过几张(≥1), 这里仍然就标几张。
  *
  * ── 默认 / 记忆 ────────────────────────────────────────────────────────────
  * 没选过 → 用"最新生成的"= 该作品能给出的最高形态(真视频 > 混合 > 幻灯);
@@ -45,11 +46,21 @@
   function pref() { try { return localStorage.getItem(PREF_KEY) || ""; } catch (_e) { return ""; } }
   function setPref(v) { try { localStorage.setItem(PREF_KEY, v); } catch (_e) {} }
 
+  /* CSSOS_WAVE_2087 20260912 — 这个 key 现在在两端【语义不同】, 必须分开读。
+   *
+   * 创作端: "生成几张专辑封面图", 默认改成 0 —— 封面交给定妆照(mv_plate)。
+   * 播放端(这里): "幻灯最多标/放几张", 0 张是没有意义的(会变成「🖼 0 张」、slice 出空数组)。
+   *
+   * 所以这里把 0 读作【不限张数】→ 放开到上限 8, 有几帧就用几帧。
+   * (原写法 `Math.max(1, n || 3)` 靠 `0 || 3` 把 0 悄悄变成 3 才没炸 —— 那是巧合不是设计,
+   *  而且 3 是个凭空的上限。写成明确语义, 别再靠 falsy 兜底。) */
   function coverCount() {
     try {
-      var n = parseInt(localStorage.getItem(COVER_N_KEY) || "3", 10);
-      return Math.min(8, Math.max(1, n || 3));
-    } catch (_e) { return 3; }
+      var raw = localStorage.getItem(COVER_N_KEY);
+      var n = parseInt(raw == null ? "" : raw, 10);
+      if (!isFinite(n) || n <= 0) return 8;        // 0 / 未设置 = 不限
+      return Math.min(8, n);
+    } catch (_e) { return 8; }
   }
 
   /* CSSOS_WAVE_1882 20260823 — 修 W1880 的致命假设。

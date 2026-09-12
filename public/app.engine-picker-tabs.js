@@ -355,7 +355,13 @@
     var searchHtml = '<input class="cssmv-kie-search" type="search" placeholder="' + esc(tr("Search by name / vendor…", "按名称 / 厂商搜索…")) + '" />';
     var topRow;
     if (stageKey === "cover") {
-      var cc = 3; try { cc = Math.min(8, Math.max(1, parseInt(localStorage.getItem("cssos_mvp_param_cover_count") || "3", 10) || 3)); } catch (_e) {}
+      /* CSSOS_WAVE_2087 20260912 — Jing:「默认是生成真视频的, 只需要定妆照替代之前的封面图。
+       * 定妆照是即时根据 MV 的画面生成、并以此为基调生成整部 MV 的, 最接近 MV 画面。」
+       * 默认 3 → 0, 下限 1 → 0。
+       * 【为什么必须是 0 而不是 1】src/index.ts 里定妆照(mv_plate)升格成封面那条 UPDATE 带
+       * `WHERE cover_image = ''` —— 只要生成了专辑封面图, 哪怕只有 1 张, 也会占住位置,
+       * 定妆照就永远升不上来。生成封面这件事本身在挡住定妆照。 */
+      var cc = 0; try { cc = Math.min(8, Math.max(0, parseInt(localStorage.getItem("cssos_mvp_param_cover_count") || "0", 10) || 0)); } catch (_e) {}
       topRow = '<div class="cssmv-kie-toprow">' + searchHtml +
         '<div class="cssmv-cover-count" title="' + esc(tr("How many cover images to generate (max 8)", "生成几张封面图(最多 8)")) + '">' +
         '<button type="button" data-cc="-1">−</button>' +

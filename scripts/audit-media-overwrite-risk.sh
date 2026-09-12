@@ -15,32 +15,51 @@ PSQL=(env PGPASSWORD="${CSSOS_DB_PASS:-Au#20016}" psql -h 127.0.0.1 -U cssstudio
 BUCKET="${CSSOS_R2_BUCKET:-r2:cssos-artifacts}"
 alarm=0
 
-echo "══ A. 版本标记轨与他轨共用同一个 audio_url(旧版没有自己的地址)══"
-# 只看【版本标记轨】(lang 含 orig / pre / -v 等), 不把「多语言共用同一条伴奏」误报成风险 ——
-# 一首曲子配 15 种语言字幕、共用同一条音频, 那是正常的, 不是覆盖风险。
-a=$("${PSQL[@]}" -c "
-SELECT count(DISTINCT t.work_id)
-  FROM work_language_tracks t
+echo "══ A. 版本标记轨共用同一个 audio_url ══"
+#
+# 判据(2026-09-12 收紧, Jing 认可): 只有【共用非内容哈希地址】才算风险。
+#
+# 为什么: 内容哈希地址(aud-<sha24>.mp3)的文件【结构上不可能被覆盖】—— 不同内容
+# 必然落在不同地址。两条轨共用一个哈希地址, 只说明"世界上确实只有这一份字节",
+# 不代表将来会丢。把它报成红色, 等于让红灯每天都亮 —— 而【长期红灯 = 没人再看】,
+# 那才是真正危险的状态。
+#
+# 但是也【一个都不隐藏】: 下面把两类共用逐条打印出来, 只是不报警。
+HASH_RE='/[a-z]+-[0-9a-f]{24}\.[a-z0-9]+$'
+
+shared_sql() {   # $1 = 附加条件
+  echo "SELECT left(w.title,44), t.lang
+          FROM work_language_tracks t JOIN user_works w ON w.id=t.work_id
+         WHERE t.lang ~* '(orig|pre-|-v[0-9])'
+           AND EXISTS (SELECT 1 FROM work_language_tracks o
+                        WHERE o.work_id=t.work_id AND o.id<>t.id AND o.audio_url=t.audio_url)
+           AND $1
+         ORDER BY 1"
+}
+
+# ── 报警项: 共用【非哈希】地址 ──
+a=$("${PSQL[@]}" -c "SELECT count(*) FROM work_language_tracks t
  WHERE t.lang ~* '(orig|pre-|-v[0-9])'
+   AND t.audio_url !~ '$HASH_RE'
    AND EXISTS (SELECT 1 FROM work_language_tracks o
                 WHERE o.work_id=t.work_id AND o.id<>t.id AND o.audio_url=t.audio_url)" 2>/dev/null | tr -d ' ')
-echo "   版本标记轨与他轨共用地址的作品数: ${a:-?}"
+echo "   🔴 共用【非哈希】地址(真实风险): ${a:-?}"
 if [ "${a:-0}" -gt 0 ]; then
-  "${PSQL[@]}" -c "
-  SELECT left(w.title,44), t.lang
-    FROM work_language_tracks t JOIN user_works w ON w.id=t.work_id
-   WHERE t.lang ~* '(orig|pre-|-v[0-9])'
-     AND EXISTS (SELECT 1 FROM work_language_tracks o
-                  WHERE o.work_id=t.work_id AND o.id<>t.id AND o.audio_url=t.audio_url)
-   ORDER BY 1 LIMIT 40" 2>/dev/null | sed 's/^/   /'
+  "${PSQL[@]}" -c "$(shared_sql "t.audio_url !~ '$HASH_RE'")" 2>/dev/null | sed 's/^/      /'
   alarm=1
 fi
 
-# 参考项(不报警): 多语言共用同一条音频, 属正常
-ml=$("${PSQL[@]}" -c "
-SELECT count(*) FROM (SELECT audio_url FROM work_language_tracks
-  WHERE audio_url IS NOT NULL GROUP BY audio_url HAVING count(*)>1) x" 2>/dev/null | tr -d ' ')
-echo "   (参考·不报警) 多条轨共用同一地址的地址数: ${ml:-?} —— 多语言共用伴奏属正常"
+# ── 只报告, 不报警: 共用【哈希】地址 ──
+tomb=$("${PSQL[@]}" -c "SELECT count(*) FROM work_language_tracks t
+ WHERE t.lang ~* '(pre-)' AND t.audio_url ~ '$HASH_RE'
+   AND EXISTS (SELECT 1 FROM work_language_tracks o
+                WHERE o.work_id=t.work_id AND o.id<>t.id AND o.audio_url=t.audio_url)" 2>/dev/null | tr -d ' ')
+onev=$("${PSQL[@]}" -c "SELECT count(*) FROM work_language_tracks t
+ WHERE t.lang ~* '(orig|-v[0-9])' AND t.lang !~* 'pre-' AND t.audio_url ~ '$HASH_RE'
+   AND EXISTS (SELECT 1 FROM work_language_tracks o
+                WHERE o.work_id=t.work_id AND o.id<>t.id AND o.audio_url=t.audio_url)" 2>/dev/null | tr -d ' ')
+echo "   ⚰️ 已知历史损失(orig-pre-epic, 旧版已于 2026-08-24 被覆盖): ${tomb:-?}  —— 不报警, 木已成舟"
+echo "   ℹ️ 从来只有一个版本(orig 与语言轨指同一份字节): ${onev:-?}  —— 不报警, 本就正常"
 
 echo
 echo "══ B. 作品级音频用写死 key(重生成即覆盖)══"

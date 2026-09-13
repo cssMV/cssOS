@@ -26,7 +26,17 @@
     compose:   { icon: "🎚", label: "Compose", zh: "合成", kie: false },
   };
   function lbl(k) { var m = STAGE_META[k] || {}; return tr(m.label || k, m.zh || m.label || k); }
-  var ORDER = ["lyrics", "cover", "music", "video", "subtitles", "compose"];
+  /* CSSOS_WAVE_2092 20260913 — Jing: 六胶囊 → 四胶囊。
+   *
+   * 删【compose/合成】: 平台的四轨(歌词/音乐/画面/字幕)【永不烧录在一起】(「永不烧录·四轨分离」),
+   *   交付物是可重组的舞台, 不是一个合成好的视频文件 —— 所以「合成」这一阶段本就没有对应物。
+   * 删【cover/封面图】: 封面改用【定妆照】—— 它是即时按 MV 画面生成、并以此为基调拍完整部 MV 的,
+   *   最贴近成片; 而 W2087 已把封面生成默认数降为 0(生成专辑封面反而会占住 cover_image,
+   *   把定妆照挡在外面)。既然不再生成, 这颗胶囊就是个空壳。
+   *
+   * STAGE_META 里两条【保留不删】: 历史数据与其它模块仍会按 key 取标签, 删了会拿到空标签。
+   * 这里只把它们移出 ORDER —— ORDER 同时决定①胶囊显示与顺序 ②KIE 可用阶段筛选, 两处一起干净。 */
+  var ORDER = ["lyrics", "music", "video", "subtitles"];
 
   var kieCache = null, kiePending = null;
   function loadKie() {

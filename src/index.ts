@@ -1706,6 +1706,23 @@ async function upsertLyricsJson(
         [workId, url],
       )).catch(() => {});
     }
+
+    /* CSSOS_WAVE_2091 20260912 — 歌词版本快照。
+     *
+     * Jing:「生成文件名的代码也要生成哈希名, 以绝后患。」
+     * 但【这一份不能直接改成哈希命名】: works/<id>/lyrics.json 是【读出来→合并→写回】的
+     * 累积文档, 一份里装着所有语言。改成哈希名后每次写落新地址, 下次读旧地址读不到,
+     * 合并从空开始 → 把已有的其它语言全丢掉。那不是防覆盖, 是主动造成数据丢失。
+     *
+     * 所以用与字幕(W2086)同一套手法: 稳定 key 保留(合并要用), 【额外】按内容哈希
+     * 再落一份不可变快照。同内容 → 同 sha → 同地址, 幂等不重复存; 内容一变就是新地址,
+     * 旧快照原样留着, 结构上不可能被覆盖。 */
+    try {
+      const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
+      await uploadBufferToR2(buf, `works/${workId}/lyrics--${sha}.json`, "application/json");
+    } catch (e) {
+      console.warn("[lyrics-version] 快照失败(不影响主文档):", (e as Error)?.message?.slice(0, 140));
+    }
     return url;
   });
 }

@@ -40948,15 +40948,25 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
         [workId, origAudio || "", lyrics]);
     }
     await c.query(`UPDATE work_language_tracks SET is_default=false WHERE work_id=$1::uuid`, [workId]);
+    /* CSSOS_WAVE_2094 20260913 — Jing:「Suno 每份歌词出两首, 我们一直扔掉一首 —— 钱已经付了。」
+     *
+     * 漏点就在这两句: 上面 epicAlt 已经把第二首【下载并落到 R2 了】, 然后这个变量
+     * 再也没被用过 —— UPDATE 和 INSERT 都只写 audio_url。字节在 R2 上, 却没有任何
+     * 东西指向它, 等于白花钱、白占空间。实测: 全平台 1314 条音轨只有 56 条(4.3%)
+     * 存了 alt_audio_url, 而那 56 条来自 renderLanguageTrack(那条路径本来就是对的)。
+     *
+     * 注意【只在拿到第二首时才写】: 用 COALESCE 而不是无条件覆盖 —— 否则一次没返回
+     * 第二首的重生成, 会把上一次存好的第二首抹掉(又是同一个覆盖病)。 */
     const up = await c.query(
-      `UPDATE work_language_tracks SET audio_url=$3, duration_secs=$4, vocal_url=NULL, instrumental_url=NULL, stems_status=NULL, is_default=true, lyrics=$5
+      `UPDATE work_language_tracks SET audio_url=$3, duration_secs=$4, vocal_url=NULL, instrumental_url=NULL, stems_status=NULL, is_default=true, lyrics=$5,
+              alt_audio_url = COALESCE(NULLIF($6,''), alt_audio_url)
         WHERE work_id=$1::uuid AND lang=$2`,
-      [workId, lang, epicAudio, dur, lyrics]);
+      [workId, lang, epicAudio, dur, lyrics, epicAlt]);
     if (!up.rowCount) {
       await c.query(
-        `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, duration_secs, lyrics, is_default)
-         VALUES ($1::uuid,$2,0,$3,$4,$5,true)`,
-        [workId, lang, epicAudio, dur, lyrics]);
+        `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, duration_secs, lyrics, is_default, alt_audio_url)
+         VALUES ($1::uuid,$2,0,$3,$4,$5,true,NULLIF($6,''))`,
+        [workId, lang, epicAudio, dur, lyrics, epicAlt]);
     }
     await c.query(`UPDATE user_works SET preview_audio_url=$2, updated_at=now() WHERE id=$1::uuid`, [workId, epicAudio]);
   });
@@ -41460,8 +41470,24 @@ app.post("/api/admin/mv-plate", express.json({ limit: "16kb" }), async (req, res
     if (!buf || buf.byteLength < 4096) {
       return res.status(503).json({ ok: false, code: "PLATE_EMPTY", provider: img.provider || "" });
     }
+    /* CSSOS_WAVE_2096 20260913 — Jing:「很早以前就要求生成 webp, 为什么现在还在生成 png?
+     * webp 体积比 png 小很多。资产服务器再大也不能乱浪费空间。」
+     *
+     * 实测(R2): artifacts/mv-plates/ 下 45 张 PNG 共 102.5 MB —— 平均【每张 2.3 MB】。
+     * 同一张图转 webp q82 通常只剩 1/4 到 1/5。定妆照是这里最大的浪费源。
+     *
+     * 用平台已有的写法(index.ts:25064 同款 sharp().webp({quality:82})), 不另造一套。
+     * 转换失败时【保留原 PNG 落盘】—— 宁可胖一点, 也不能因为压缩失败就丢掉这张定妆照。
+     * sha 仍按【原始字节】算: 同一张图无论压不压缩都指向同一个内容身份, 重复生成仍然幂等。 */
     const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 16);
-    const url = await uploadBufferToR2(buf, `artifacts/mv-plates/${project}/${name}-${sha}.png`, "image/png");
+    let plateBuf: Buffer = buf, plateExt = "png", plateCt = "image/png";
+    try {
+      const w = await sharp(buf, { failOn: "none" }).webp({ quality: 82 }).toBuffer();
+      if (w && w.byteLength > 1024) { plateBuf = w; plateExt = "webp"; plateCt = "image/webp"; }
+    } catch (e) {
+      console.warn("[mv-plate] webp 转换失败, 保留 png:", (e as Error)?.message?.slice(0, 120));
+    }
+    const url = await uploadBufferToR2(plateBuf, `artifacts/mv-plates/${project}/${name}-${sha}.${plateExt}`, plateCt);
     if (!url) return res.status(503).json({ ok: false, code: "R2_UPLOAD_FAILED" });
     /* CSSOS_WAVE_2023 20260828 — 【锚图顺手挂到作品上】。
      *

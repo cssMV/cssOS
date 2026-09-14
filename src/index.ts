@@ -3643,7 +3643,16 @@ async function ensureCharacterAvatar(workId: string, characterName: string): Pro
       // ① 生成角色肖像(全身, 干净背景利于 3D 重建)。
       const portrait = await callImageGen({ prompt: `full-body character portrait of ${ch.name}, ${ch.role}, ${c.title} cinematic universe, neutral A-pose, front view, clean plain studio background, beautiful refined aesthetic, highly detailed`, size: "1024x1024" });
       let imgUrl = portrait.image_url || null;
-      if (!imgUrl && portrait.image_b64) imgUrl = await uploadBufferToR2(Buffer.from(portrait.image_b64, "base64"), `artifacts/ifilm-avatar/${hash}-src.png`, "image/png").catch(() => null);
+      if (!imgUrl && portrait.image_b64) {
+        // W2098 — 同上: 下游 TripoSR 实测吃 WebP。转换失败就回退原 PNG, 不因压缩失败丢图。
+        const _raw = Buffer.from(portrait.image_b64, "base64");
+        let _b: Buffer = _raw, _ext = "png", _ct = "image/png";
+        try {
+          const _w = await sharp(_raw, { failOn: "none" }).webp({ quality: 82 }).toBuffer();
+          if (_w && _w.byteLength > 1024) { _b = _w; _ext = "webp"; _ct = "image/webp"; }
+        } catch { /* 保留 png */ }
+        imgUrl = await uploadBufferToR2(_b, `artifacts/ifilm-avatar/${hash}-src.${_ext}`, _ct).catch(() => null);
+      }
       if (!imgUrl) { console.warn("[ifilm-avatar] no portrait"); return; }
       // ② image → 3D USDZ(平台通用原语 imageToUsdzBytes: 自家免费 TripoSR 主路 + 兜底)。
       const usdzBytes = await imageToUsdzBytes(imgUrl);
@@ -47911,9 +47920,13 @@ async function cropActorFaceSquare(imageUrl: string, fx: number | null, fy: numb
     const cy = ((fy != null && fy >= 0) ? fy : 0.32) * H;
     let left = Math.round(cx - side / 2), top = Math.round(cy - side / 2);
     left = Math.max(0, Math.min(W - side, left)); top = Math.max(0, Math.min(H - side, top));
-    const out = await img.extract({ left, top, width: side, height: side }).resize(768, 768).png().toBuffer();
-    const key = `artifacts/actor-3d/facecrop-${crypto.createHash("sha1").update(imageUrl + "|" + fx + "|" + fy).digest("hex").slice(0, 16)}.png`;
-    await uploadBufferToR2(out, key, "image/png");
+    /* CSSOS_WAVE_2098 20260914 — PNG → WebP。下游【实测过】才改, 不是想当然:
+     * 这张图最终喂给 atelier 的 TripoSR(http://10.128.0.5:7897/img2usdz)做 3D。
+     * 实测喂 WebP → HTTP 200, 产出 1.7MB 有效 USDZ; 喂 PNG 对照组同样成功。
+     * 即 3D 转换器不挑这两种格式, 可以安全换。 */
+    const out = await img.extract({ left, top, width: side, height: side }).resize(768, 768).webp({ quality: 82 }).toBuffer();
+    const key = `artifacts/actor-3d/facecrop-${crypto.createHash("sha1").update(imageUrl + "|" + fx + "|" + fy).digest("hex").slice(0, 16)}.webp`;
+    await uploadBufferToR2(out, key, "image/webp");
     return `https://cdn.cssstudio.app/${key}`;
   } catch { return imageUrl; }
 }

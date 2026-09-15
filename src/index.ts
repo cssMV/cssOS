@@ -4386,7 +4386,7 @@ app.post("/api/works/create-single", express.json({ limit: "8kb" }), async (req,
       const music = await callMusicGen({
         prompt: `${title} — ${style} — ${lyrics.slice(0, 300)}`,
         lyrics, title, language: lang, duration_secs: durationSecs,
-        prefer: ["suno"], sunoModel: "V5_5",
+        prefer: ["suno"], sunoModel: "V6",
       });
       let audioUrl = (music && music.ok && music.audio_url) ? String(music.audio_url) : "";
       // suno 返回临时 aiquickdraw URL → rehost 到 R2(永久)。
@@ -25898,7 +25898,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
           prompt: [part.title, part.style, lyr.slice(0, 300)].filter(Boolean).join(" — "),
           lyrics: lyr,
           duration_secs: _isLongForm ? 240 : 60,
-          sunoModel: "V5_5",
+          sunoModel: "V6",
           // CSSOS_WAVE_1457 多引擎: 用户选的音乐引擎(provider 偏好/模型); 空=router 默认(Suno)。
           ...(_eng.prefer.length ? { prefer: _eng.prefer } : {}),
           ...(Object.keys(_eng.prefer_model).length ? { prefer_model: _eng.prefer_model } : {}),
@@ -27785,7 +27785,7 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
               instrumental: wantInstrumental,
               // CSSOS — Jing「音乐只选 Suno 最新版, 全部升 V5」: 翻唱也用 V5(保留 vocalGender/
               // audioWeight 字段锁原旋律)。env SUNO_DEFAULT_MODEL / req.sunoModel 仍可覆盖回滚。
-              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5_5").trim() || "V5_5",
+              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V6").trim() || "V6",
               style: sunoStyle,
               title: String(req.title || "cssOS").slice(0, 80),
               audioWeight: 0.95,                    // CSSOS_WAVE_587 — 拉到 0.95, 尽量锁住原旋律/时值(0.8 时跑偏)
@@ -27802,7 +27802,16 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
                *   ⚠️ 按版本的单价 KIE 没有公开, 未能核实 V5_5 是否比 V5 贵; 而 estimateEngineCostCents
                *   的 music 档是【按类目定价、不区分 Suno 版本】的 —— 若 V5_5 更贵, 我们会少扣用户的钱。
                *   涨价或字符串不符时: `SUNO_DEFAULT_MODEL=V5` 秒回滚, 五处默认全部跟着回去。 */
-              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5_5").trim() || "V5_5",
+              /* CSSOS_WAVE_2104 20260914 — Jing「顺手把全平台的 Suno 默认版本升到 V6」。
+               * V5_5 → V6。KIE 上确实有 V6, 而且是【真调通过】的, 不只是探测:
+               *   探测(createTask 不计费): model=V6 → "Please enter callBackUrl"(型号过了校验)
+               *                            model=V6_0 → "model error"(该拼法不存在)
+               *   真生成: 《声声慢·寻寻觅觅》749 字歌词 → code 200 → SUCCESS → 2 首 348s/345s
+               * ⚠️ 只改 env 不够: 有三处是【显式传 sunoModel:"V5_5"】的, 而取值顺序是
+               *   req.sunoModel || env || 默认 —— 显式传的优先级最高, 会盖过环境变量。
+               *   所以六处写死的全部一起改, env 也同步改, 两边一致才是真升级。
+               * 回滚: SUNO_DEFAULT_MODEL=V5_5 只能救走 env 的那三处, 另三处要改回代码。 */
+              model: String(req.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V6").trim() || "V6",
               style: sunoStyle.slice(0, 200),
               // CSSOS_WAVE_830 — Suno V5/V5.5 raises the title cap to 100 chars (was 80).
               title: String(req.title || "cssOS").slice(0, 100),
@@ -34169,7 +34178,7 @@ app.post("/api/admin/lyrics/regenerate", express.json({ limit: "16kb" }), async 
         const music = await callMusicGen({
           prompt: `${w.title} — ${style} — ${best.text.slice(0, 300)}`,
           lyrics: best.text, title: w.title, language: lang,
-          duration_secs: est, prefer: ["suno"], sunoModel: "V5_5",
+          duration_secs: est, prefer: ["suno"], sunoModel: "V6",
         });
         let audioUrl = (music && music.ok && music.audio_url) ? String(music.audio_url) : "";
         if (audioUrl && !isR2Url(audioUrl)) {
@@ -40924,7 +40933,7 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
   const baseStyle = String(w.style || "").trim();
   const epicStyle = String(opts?.style || ("epic, thunderous climax, massive choir, soaring strings, cinematic, " + baseStyle)).slice(0, 200);
   // CSSOS — Jing「音乐只选 Suno 最新版, 全部升 V5」: Epic 重出长曲也默认 V5(opts.sunoModel 仍可覆盖)。
-  const sunoModel = String(opts?.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V5_5").trim() || "V5_5";
+  const sunoModel = String(opts?.sunoModel || process.env.SUNO_DEFAULT_MODEL || "V6").trim() || "V6";
   // 1) Suno 重谱(prefer suno, customMode 唱【原词】, 画音分层不烧录)。
   const music = await callMusicGen({
     prompt: String(w.title || "cssOS"),

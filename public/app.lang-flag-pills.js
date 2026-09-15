@@ -144,6 +144,9 @@
       "#watch-language-pill[data-expanded=\"take\"] .cssos-cell-visual,",
       "#watch-language-pill[data-expanded=\"take\"] .cssos-lang-guide,",
       "#watch-language-pill[data-expanded=\"take\"] .cssos-voice-guide,",
+      "#watch-language-pill[data-expanded=\"lang\"]   .cssos-take-guide,",
+      "#watch-language-pill[data-expanded=\"voice\"]  .cssos-take-guide,",
+      "#watch-language-pill[data-expanded=\"visual\"] .cssos-take-guide{display:none !important;}",
       "#watch-language-pill[data-expanded=\"take\"] .cssos-visual-guide,",
       "#watch-language-pill[data-expanded=\"take\"] .cssos-want-guide{display:none !important;}",
       "#watch-language-pill[data-expanded=\"lang\"]  .cssos-cell-voice,",
@@ -344,7 +347,7 @@
      * .cssos-cell-lang/-voice/-visual, 直接 querySelectorAll 会把它算成一个版本 →
      * 只有一个原始版本时头上会错标「· 2」。 */
     function nCells(cls) {
-      return bar.querySelectorAll("button." + cls + ":not(.cssos-lang-guide):not(.cssos-voice-guide):not(.cssos-visual-guide)").length;
+      return bar.querySelectorAll("button." + cls + ":not(.cssos-lang-guide):not(.cssos-voice-guide):not(.cssos-visual-guide):not(.cssos-take-guide)").length;
     }
     var nLang = Number(bar.dataset.nLang || 0) || nCells("cssos-cell-lang");
     var nVoice = Number(bar.dataset.nVoice || 0) || nCells("cssos-cell-voice");
@@ -513,7 +516,8 @@
         if (!cell) return;
         // W2088 — 三颗「➕」引导都不是版本 cell, 一律跳过(原列表漏了 visual-guide)。
         if (cell.classList.contains("cssos-lang-guide") || cell.classList.contains("cssos-voice-guide")
-            || cell.classList.contains("cssos-visual-guide") || cell.classList.contains("cssos-want-guide")) return;
+            || cell.classList.contains("cssos-visual-guide") || cell.classList.contains("cssos-take-guide")
+            || cell.classList.contains("cssos-want-guide")) return;
         _expanded = "none";
         var f = document.getElementById("cssos-lang-fold");
         if (f) applyState(f);
@@ -647,19 +651,35 @@
      *     非作者点它不会失败: 下面三个 onClick 本来就带 `else makeOwnMv()` 兜底,
      *     拿不到自己的 wid 就转去创作自己的 MV(= 旧「Want an MV like this」的去处)。
      *     也就是说去处没变, 变的是这颗胶囊不再假装这条轨只能看。 */
-    rm(".cssos-want-guide");   // 旧的共享「✨ Want an MV like this」退役
-    mkGuide("cssos-cell cssos-cell-lang", "cssos-lang-guide", "➕",
-      zh ? "添加更多语言" : "Add a language",
-      zh ? "为这首作品添加多一种语言" : "Add another language to this MV",
-      function () { var o = resolveOwn(); if (o.wid && o.isOwn && typeof globalThis.cssosOpenAddLanguageModal === "function") globalThis.cssosOpenAddLanguageModal(o.wid); else makeOwnMv(); });
-    mkGuide("cssos-cell cssos-cell-voice", "cssos-voice-guide", "🎤",
-      zh ? "添加更多声线" : "Add a voice",
-      zh ? "为这首作品添加多一种声线(旋律不变, 换声线重唱)" : "Add another voice (same melody, re-sung)",
-      function () { var o = resolveOwn(); if (o.wid && o.isOwn && typeof globalThis.cssosOpenAddVoiceModal === "function") globalThis.cssosOpenAddVoiceModal(o.wid); else makeOwnMv(); });
-    mkGuide("cssos-cell cssos-cell-visual", "cssos-visual-guide", "🎞",
-      zh ? "添加更多画面" : "Add a visual",
-      zh ? "为这首作品添加多一种画面(幻灯 / 混合 / 真视频)" : "Add another visual take (slides / hybrid / real video)",
-      function () { var o = resolveOwn(); if (o.wid && o.isOwn && typeof globalThis.cssosOpenAddVisualModal === "function") globalThis.cssosOpenAddVisualModal(o.wid); else makeOwnMv(); });
+    /* CSSOS_WAVE_2108 20260915 — Jing:「选中🌐多语言胶囊头, 轨道上显示的就是所有的语言,
+     * 作者本人显示「再添加一个」/ 非作者显示「Want one like this?」。🎤🎞♪ 以此类推。」
+     *
+     * 【修正 W2088】: 我当时把共享的「Want an MV like this」整个退役、一律显「➕」——
+     * 那是把身份区分一刀切掉了。Jing 要的是【按模式各一颗, 且按身份换文案】:
+     *   作者   → 「再添加一个X」, 去处是添加弹窗(加在【本作品】上)
+     *   非作者 → 「想要这样的?」, 去处是创作面板(做【自己的】)
+     * 两者去处本来就不同, 文案也应该不同 —— 统一成「➕」会让访客以为能改别人的作品。 */
+    var GUIDES = [
+      { key: "cssos-lang-guide",   cls: "cssos-cell cssos-cell-lang",   glyph: "➕",
+        ownTxt: [zh ? "再添加一个语言" : "Add a language", zh ? "为这首作品添加多一种语言" : "Add another language to this MV"],
+        fn: function (o) { if (o.wid && o.isOwn && typeof globalThis.cssosOpenAddLanguageModal === "function") globalThis.cssosOpenAddLanguageModal(o.wid); else makeOwnMv(); } },
+      { key: "cssos-voice-guide",  cls: "cssos-cell cssos-cell-voice",  glyph: "🎤",
+        ownTxt: [zh ? "再添加一个声线" : "Add a voice", zh ? "旋律不变, 换声线重唱" : "Add another voice (same melody, re-sung)"],
+        fn: function (o) { if (o.wid && o.isOwn && typeof globalThis.cssosOpenAddVoiceModal === "function") globalThis.cssosOpenAddVoiceModal(o.wid); else makeOwnMv(); } },
+      { key: "cssos-visual-guide", cls: "cssos-cell cssos-cell-visual", glyph: "🎞",
+        ownTxt: [zh ? "再添加一个画面" : "Add a visual", zh ? "幻灯 / 混合 / 真视频" : "Slides / hybrid / real video"],
+        fn: function (o) { if (o.wid && o.isOwn && typeof globalThis.cssosOpenAddVisualModal === "function") globalThis.cssosOpenAddVisualModal(o.wid); else makeOwnMv(); } },
+      { key: "cssos-take-guide",   cls: "cssos-cell cssos-cell-take",   glyph: "♪",
+        ownTxt: [zh ? "再添加一个版本" : "Add a take", zh ? "同一份歌词再唱一版" : "Another take of the same lyrics"],
+        fn: function (o) { if (o.wid && o.isOwn && typeof globalThis.cssosOpenAddTakeModal === "function") globalThis.cssosOpenAddTakeModal(o.wid); else makeOwnMv(); } },
+    ];
+    var VIS_TXT = [zh ? "想要这样的?" : "Want one like this?", zh ? "创作你自己的 MV" : "Create your own MV like this"];
+    rm(".cssos-want-guide");   // 旧的共享单颗引导已退役(改为按模式各一颗)
+    GUIDES.forEach(function (g) {
+      var t = own.isOwn ? g.ownTxt : VIS_TXT;
+      mkGuide(g.cls, g.key, own.isOwn ? g.glyph : "✨", t[0], t[1],
+        function () { g.fn(resolveOwn()); });
+    });
 
     paintModeSwitch(bar);
 

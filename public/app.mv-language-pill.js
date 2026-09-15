@@ -989,7 +989,7 @@
         }, false);
         bar.appendChild(b);
       });
-      bar.dataset.nTake = String(takes.length);   // ♪ 头读它显示 "· 2"
+      bar.dataset.nTake = String(takes.length);   // ♪ 头读它显示 "· 2"(引导胶囊由 lang-flag-pills 另行排除)
     })();
 
     // 双向计数存到 dataset, 由 app.lang-flag-pills.js 的 paintModeSwitch 读取上屏。

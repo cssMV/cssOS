@@ -958,6 +958,40 @@
       bar.appendChild(b);
     });
 
+    /* CSSOS_WAVE_2105 20260914 — ♪ 多版本 cell(Jing:「请开始在播放器里显示 ♪1/♪2 切换胶囊」)。
+     *
+     * Suno 每份歌词出两首, 我们长期只用一首。底层切换 switchToLanguage(track, take) 一直都在
+     * (take=2 读 alt_audio_url), 缺的只是一个能点的 UI —— 旧的 #watch-take-toggle 被 W437 删了,
+     * 因为它固定在 top:12px right:12px, 影院模式下和退出按钮打架。
+     * 这里把它并进【同一条胶囊轨】, 由 app.lang-flag-pills.js 的第四个模式头 ♪ 控制显隐:
+     * 不再有固定定位, 也就不会再撞。
+     *
+     * 只对【当前激活的那条轨】出 cell —— ♪1/♪2 是这一条轨的两个版本, 不是跨语言的概念。
+     * 没有第二首时只出 ♪1(不假装有), 头上的计数也就不显 "· 2"。 */
+    (function renderTakeCells() {
+      var cur = trackAt(_activeLang, _activeVoice)
+        || meaningful.find(function (t) { return t.lang === _activeLang; });
+      var takes = [];
+      if (cur && cur.status === "ready" && cur.audio_url) takes.push(1);
+      if (cur && cur.status === "ready" && cur.alt_audio_url) takes.push(2);
+      takes.forEach(function (tk) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "cssos-cell cssos-cell-take" + (_activeTake === tk ? " active" : "");
+        b.dataset.lang = cur.lang; b.dataset.voice = vof(cur); b.dataset.take = String(tk);
+        b.setAttribute("data-pill-key", "take-" + tk);
+        b.textContent = "♪" + tk;
+        b.title = tk === 1 ? tt("Take 1 (original)", "第一版(原版)") : tt("Take 2", "第二版");
+        b.addEventListener("click", function (e) {
+          e.stopPropagation();
+          switchToLanguage(cur, tk);
+          render(_lastTracks);
+        }, false);
+        bar.appendChild(b);
+      });
+      bar.dataset.nTake = String(takes.length);   // ♪ 头读它显示 "· 2"
+    })();
+
     // 双向计数存到 dataset, 由 app.lang-flag-pills.js 的 paintModeSwitch 读取上屏。
     var langsForVoice = distinctLangs.filter(function (l) { return !!trackAt(l, _activeVoice); }).length;
     var voicesForLang = distinctVoices.filter(function (v) { return !!trackAt(_activeLang, v); }).length;

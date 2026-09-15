@@ -131,7 +131,21 @@
       // 现在每个胶囊头各管各轨: [data-expanded=lang]→只显语言 cell, [voice]→只显声线 cell, 折叠→只剩模式胶囊。
       /* W1880 — 门控从两态扩到三态(lang / voice / visual)。每一条都要显式列出第三态,
        * 漏掉任何一条就会出现"画面 cell 混进语言轨"这类串显。 */
-      "#watch-language-pill:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]):not([data-expanded=\"visual\"]) .cssos-cell{display:none !important;}",
+      /* CSSOS_WAVE_2105 20260914 — Jing:「请开始在播放器里显示 ♪1/♪2 切换胶囊。」
+       * 第四个模式 take 并进【同一条轨】, 而不是把 W437 删掉的那颗旧 #watch-take-toggle 搬回来 ——
+       * 它当初被删正是因为固定在 top:12px right:12px, 在影院模式下和退出按钮打架(Jing 图2/图3 拍到的遮挡)。
+       * 并进统一轨既满足「恢复 ♪1/♪2」, 又不会再撞, 也符合胶囊宪法(所有切换器都是 pill-bar)。 */
+      "#watch-language-pill:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]):not([data-expanded=\"visual\"]):not([data-expanded=\"take\"]) .cssos-cell{display:none !important;}",
+      "#watch-language-pill[data-expanded=\"lang\"]   .cssos-cell-take,",
+      "#watch-language-pill[data-expanded=\"voice\"]  .cssos-cell-take,",
+      "#watch-language-pill[data-expanded=\"visual\"] .cssos-cell-take{display:none !important;}",
+      "#watch-language-pill[data-expanded=\"take\"] .cssos-cell-lang,",
+      "#watch-language-pill[data-expanded=\"take\"] .cssos-cell-voice,",
+      "#watch-language-pill[data-expanded=\"take\"] .cssos-cell-visual,",
+      "#watch-language-pill[data-expanded=\"take\"] .cssos-lang-guide,",
+      "#watch-language-pill[data-expanded=\"take\"] .cssos-voice-guide,",
+      "#watch-language-pill[data-expanded=\"take\"] .cssos-visual-guide,",
+      "#watch-language-pill[data-expanded=\"take\"] .cssos-want-guide{display:none !important;}",
       "#watch-language-pill[data-expanded=\"lang\"]  .cssos-cell-voice,",
       "#watch-language-pill[data-expanded=\"lang\"]  .cssos-cell-visual,",
       "#watch-language-pill[data-expanded=\"lang\"]  .cssos-visual-guide,",
@@ -271,7 +285,7 @@
     if (bar.querySelector(".cssos-mode-cap")) return; // 已在
     var caps = [];
     /* W1880 — 逆序 prepend, 最终顺序 = 多语言 | 多声线 | 多画面。 */
-    ["visual", "voice", "lang"].forEach(function (mode) { // prepend 逆序 → 最终顺序 lang, voice, visual
+    ["take", "visual", "voice", "lang"].forEach(function (mode) { // prepend 逆序 → 最终顺序 lang, voice, visual, take
       var b = document.createElement("button");
       b.type = "button";
       b.className = "cssos-mode-cap";
@@ -346,13 +360,20 @@
         var nVis = Number(bar.dataset.nVisual || 0) || nCells("cssos-cell-visual");
         ico.textContent = "🎞"; nm.textContent = zh ? "多画面" : "Visuals"; nn.textContent = nVis > 1 ? ("· " + nVis) : "";
       }
+      /* W2105 — ♪ 多版本头: 计数 = 当前作品这条语言轨真实拥有的 take 数(1 或 2)。
+       * 由 app.mv-language-pill.js 注入 cell 后写进 bar.dataset.nTake; 拿不到就按 DOM 数。 */
+      else if (mode === "take") {
+        var nTake = Number(bar.dataset.nTake || 0) || nCells("cssos-cell-take");
+        ico.textContent = "♪"; nm.textContent = zh ? "多版本" : "Takes"; nn.textContent = nTake > 1 ? ("· " + nTake) : "";
+      }
       else { ico.textContent = "🎤"; nm.textContent = zh ? "多声线" : "Voices"; nn.textContent = nVoice > 1 ? ("· " + nVoice) : ""; }
       b.classList.toggle("active", curMode() === mode);
       // CSSOS_WAVE_678f — 两个头【永远都显】: 未激活头是宪法凹咬编排的主角(咬向激活组), 不可隐藏。
       b.classList.remove("cssos-cap-hidden");
       // CSSOS_WAVE_587c — 短 title(长串原生 tooltip 浮在轨道上很乱, 见图2)。
       b.title = mode === "lang" ? (zh ? "多语言" : "Languages")
-        : mode === "visual" ? (zh ? "多画面" : "Visuals") : (zh ? "多声线" : "Voices");
+        : mode === "visual" ? (zh ? "多画面" : "Visuals")
+        : mode === "take" ? (zh ? "多版本(♪1/♪2)" : "Takes (♪1/♪2)") : (zh ? "多声线" : "Voices");
     });
   }
   // CSSOS_WAVE_678c 胶囊宪法 v2 — 统一凹咬模型(本条由 paintConcave 全权控制, 全局凹凸已跳过本 bar)。
@@ -368,7 +389,7 @@
     // 可见头(固定 lang,voice 序)。
     var heads = caps.filter(function (c) { return !c.classList.contains("cssos-cap-hidden"); });
     // W2088 — 三个模式一视同仁, visual 也能展开。
-    var expanded = (_expanded === "lang" || _expanded === "voice" || _expanded === "visual");
+    var expanded = (_expanded === "lang" || _expanded === "voice" || _expanded === "visual" || _expanded === "take");
     // 展开轨可见 cell = 本模式的版本 cell + 本模式那颗「➕」引导; 激活 cell 提到最前。
     var cells = [];
     if (expanded) {

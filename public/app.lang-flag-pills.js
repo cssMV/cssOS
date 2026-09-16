@@ -44,6 +44,7 @@
     auto: "🎙", feminine: "👩", masculine: "👨", childlike: "🧒", duet: "👫",
     androgynous: "🧑", polyphonic_choir: "🎶", raspy: "🔥", operatic: "🎭",
     whisper: "🌬", robotic: "🤖",
+    orig: "🕰", // CSSOS_WAVE_2114 — 覆盖事故前的旧版音乐(从烧录备份找回)
     jing: "🎙", // CSSOS_WAVE_587 — 创始人声线(RVC 真人声纹)
     jing_tenor: "🎤" // Jing 男高音版(同声纹 + 升调)
   };
@@ -51,12 +52,14 @@
     auto: "Original", feminine: "Feminine", masculine: "Masculine", childlike: "Childlike",
     duet: "Duet", androgynous: "Androgynous", polyphonic_choir: "Choir", raspy: "Raspy",
     operatic: "Operatic", whisper: "Whisper", robotic: "Robotic",
+    orig: "Earlier version",
     jing: "Jing's Voice", jing_tenor: "Jing (Tenor)"
   };
   var VOICE_NAME_ZH = {
     auto: "原声", feminine: "女声", masculine: "男声", childlike: "童声", duet: "二重唱",
     androgynous: "中性声", polyphonic_choir: "合唱", raspy: "沙哑", operatic: "美声",
     whisper: "气声", robotic: "电子声",
+    orig: "旧版",
     jing: "Jing 声线", jing_tenor: "Jing 男高音"
   };
   function voiceGlyph(v) { return VOICE_GLYPH[String(v || "auto").toLowerCase()] || "🎤"; }

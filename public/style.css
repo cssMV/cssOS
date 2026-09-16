@@ -9391,7 +9391,23 @@ html[data-theme="light"] .site-intro .sep { color: rgba(0, 120, 80, 0.4); }
    它的读者是审核员和爬虫(要法人名/属地/联系方式), 不是用户。用户要的是 logo 和口号,
    所以字号 11px、对比压到 0.38, 不用品牌绿(绿=可点的东西, 这行不抢那个注意力)。
    容器布局整个复用上面的 .site-intro, 这里只覆盖字。 */
-.site-legal { margin-top: 6px; gap: 3px 7px; }
+/* CSSOS_WAVE_2114 20260916 — Jing「把这行放到 Dock 下方, 即最屏幕下面的屏幕边缘」。
+   不为 Dock 底下那 13px 抬高 Dock —— Jing 明确说「Dock 会在 10 秒隐藏」, 不用担心重叠。
+   z-index 取 10019 = 比 Dock(10020)低一层: Dock 还在的那 10 秒里由 Dock 压在上面, 不打架。
+   pointer-events 整条关掉、只给 mailto 链接开 —— 贴在屏幕底边的常驻元素不能吃掉底部点击。
+   html.cssos-app .site-intro{display:none} 仍然生效 → 原生 App 内不显示(那里底边是 home indicator)。 */
+.site-legal {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: max(2px, env(safe-area-inset-bottom, 0px));
+  margin: 0;
+  padding: 2px 16px;
+  gap: 3px 7px;
+  z-index: 10019;
+  pointer-events: none;
+}
+.site-legal a { pointer-events: auto; }
 .site-legal, .site-legal a {
   font-size: 11px;
   font-weight: 400;

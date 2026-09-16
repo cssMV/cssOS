@@ -50,6 +50,7 @@
   const state = {
     active: "mine",
     mode: "loop_all", // default = list-loop so user never hits a dead end
+    take: 1,          // W2113 — 当前播到这首歌的第几个 take(1=♪1, 2=♪2); ♪1/♪2 是连胞胎
     lists: {
       "for-you": {
         id: "for-you",
@@ -527,8 +528,28 @@
    * step() 是所有切歌路径的【唯一收口】: 自动连播、上下滑、下一首按钮、随机、循环
    * 全部经过它。在这里广播 = 一处修好全部路径, 而不是给每个调用方各打一个补丁。
    * cssosBindToWorkId 内部自带"同一首就不重复广播"的判定, 重复调用是安全的。 */
+  /* CSSOS_WAVE_2113 20260916 — Jing 的播放顺序铁律:「每一首歌的 ♪1/♪2 是连胞胎, 不可分割。」
+   * 一部三部曲的完整播放列表是【6 首】: 一部♪1 → 一部♪2 → 二部♪1 → … → 三部♪2。
+   *
+   * 分部之间的顺序 W1187 早就做了(workGroupBounds 把推进锁在部段内, 播完整部才离开);
+   * 缺的是【每一部内部的两个 take】。队列这边决定"该放第几版", 播放器照 __cssosPendingTake 办。
+   *
+   * 闸门装在 step() —— 每次翻页必经的路。装在 setActive() 里等于没装, 这是 W1928
+   * 「切不动歌」那次用一整轮换来的结论, 不再犯第二次。 */
+  function hasTake2(item) {
+    if (!item) return false;
+    return !!String(item.audio_track_2_url || item.alt_audio_url || "").trim();
+  }
   function emitSwitch(item) {
     if (!item) return item;
+    /* W2113 —— 倒退收尾: step() 从 ♪1 往回时只设了标志, 真正翻到上一首之后才知道它有没有 ♪2。
+     * 在这里收口 —— 有 ♪2 就停在 ♪2(倒着听也要从这首的末尾听起), 没有就 ♪1。
+     * 不在 step() 里做, 是因为 step 有多条 return 路径, 逐条改必漏一条。 */
+    if (state.__wantPrevTake2) {
+      state.__wantPrevTake2 = false;
+      state.take = hasTake2(item) ? 2 : 1;
+    }
+    try { globalThis.__cssosPendingTake = state.take || 1; } catch (_e) {}
     try {
       if (typeof globalThis.cssosBindToWorkId === "function") {
         globalThis.cssosBindToWorkId(item.id || item.work_id || item, item);
@@ -541,6 +562,23 @@
     const list = state.lists[state.active];
     if (!list || list.items.length === 0) return null;
     const len = list.items.length;
+    /* W2113 —— ♪1/♪2 连胞胎闸门, 放在【所有模式判断之前】, 因为它对每种模式都成立。
+     *   前进: 停在 ♪1 且本首有 ♪2 → 原地换到 ♪2, index 不动;
+     *         停在 ♪2 → 归位 ♪1 并真正翻到下一首。
+     *   后退: 对称 —— 从 ♪1 往回 → 上一首的【♪2】(倒着听也要听全), 而不是上一首的 ♪1。
+     * loop_single(单曲循环)也走这里: 一首歌的循环 = ♪1→♪2→♪1→…, 它本来就是两首。 */
+    {
+      const cur = list.items[state.index] || null;
+      if (!state.take) state.take = 1;
+      if (direction > 0) {
+        if (state.take === 1 && hasTake2(cur)) { state.take = 2; return emitSwitch(cur); }
+        state.take = 1;                       // 听完 ♪2 → 归位, 继续往下翻
+      } else {
+        if (state.take === 2) { state.take = 1; return emitSwitch(cur); }
+        // 从 ♪1 往回: 先翻到上一首, 再把指针停在它的 ♪2(下面翻完由此处接手)
+        state.__wantPrevTake2 = true;
+      }
+    }
       /* CSSOS_WAVE_1928 20260824 — Jing:「播放问题一直不解决」实测根因之一。
        *
        * loop_single 是【分享单曲会话】的模式(点开分享链接只循环那一首), 由
@@ -625,6 +663,7 @@
       return state.lists[state.active] || null;
     },
     setActive(id) {
+      state.take = 1;   // W2113 — 换列表 / 直接点选 → 一律从 ♪1 听起, 不会半路从 ♪2 开始
       if (!state.lists[id]) return false;
       state.active = id;
       state.index = 0;
@@ -684,6 +723,7 @@
       return list.items[state.index] || null;
     },
     seekTo(id) {
+      state.take = 1;   // W2113 — 换列表 / 直接点选 → 一律从 ♪1 听起, 不会半路从 ♪2 开始
       const list = state.lists[state.active];
       if (!list) return false;
       const idx = list.items.findIndex((it) => String(it.id) === String(id));

@@ -974,6 +974,22 @@
       var takes = [];
       if (cur && cur.status === "ready" && cur.audio_url) takes.push(1);
       if (cur && cur.status === "ready" && cur.alt_audio_url) takes.push(2);
+
+      /* CSSOS_WAVE_2113 20260916 — 听队列的话: 队列(app.playlists.js)翻页时决定"该放第几版",
+       * 通过 globalThis.__cssosPendingTake 传过来; 这里【消费一次】并真正切到那一版。
+       *
+       * 为什么要"消费掉": render() 会被反复调用(轮询/重渲染), 不消费就会每次都强行拉回 ♪2,
+       * 用户手点 ♪1 立刻被弹回去 —— 那正是「切不动」的老毛病换个马甲。 */
+      try {
+        var _pt = Number(globalThis.__cssosPendingTake || 0);
+        if (_pt === 2 && cur && cur.status === "ready" && cur.alt_audio_url && _activeTake !== 2) {
+          globalThis.__cssosPendingTake = 0;
+          switchToLanguage(cur, 2);
+        } else if (_pt === 1 && _activeTake === 2 && cur && cur.status === "ready") {
+          globalThis.__cssosPendingTake = 0;
+          switchToLanguage(cur, 1);
+        }
+      } catch (_e) {}
       takes.forEach(function (tk) {
         var b = document.createElement("button");
         b.type = "button";

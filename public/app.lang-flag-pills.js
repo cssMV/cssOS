@@ -546,34 +546,60 @@
     }
 
     // ── cell 标签重排(语言 cell=国旗+语言名; 声线 cell=声线 glyph+声线名) ──
+    /* CSSOS_WAVE_2112 20260916 — Jing 定的四轨显示格式(「改进: 请使用小国旗+名字」):
+     *   🌐多语言 → 「国旗 + 语言名」   如 🇨🇳 中文
+     *   🎤多声线 → 「国旗 + 声线名」   国旗取该声线所属语言, 一眼看出是哪种语言的声线
+     *   🎞多画面 → 「🎞1 / 🎞2 / 🎞3」+ 分辨率(4K 等)
+     *   ♪多版本  → 「♪1 / ♪2」; 只有一个也显示 ♪1
+     *
+     * 【同时修掉一个我上一轮埋的 bug】原来这段只区分 isVoice, 其余【一律当语言 cell 处理】——
+     * 我加的 ♪ cell 带着 dataset.lang, 会被这里把「♪1」改写成国旗+语言名。
+     * 画面 cell 侥幸没坏, 只因为它是 enhance() 之后才注入、没赶上这轮重排 —— 那是时序运气,
+     * 不是设计。现在四类各走各的分支, 不再靠"谁先谁后"。 */
     var cells = bar.querySelectorAll("button.cssos-cell");
+    var visualSeq = 0;
     cells.forEach(function (p) {
+      if (/cssos-(lang|voice|visual|take|want)-guide/.test(p.className)) return;  // 引导胶囊文案归 GUIDES 管
       var lang = p.dataset.lang || "";
       var voice = p.dataset.voice || "auto";
-      var isVoice = p.classList.contains("cssos-cell-voice");
-      if (!p.getAttribute("data-pill-key")) {
-        p.setAttribute("data-pill-key", (isVoice ? "v-" : "l-") + lang + "-" + voice);
-      }
-      var glyph, label, tip;
-      if (isVoice) {
-        // CSSOS_WAVE_587 — 「原声(auto)」用作品真实声线名显示(如中文女声→「女声」); 未知才退回「原声」。
+      var isVoice  = p.classList.contains("cssos-cell-voice");
+      var isVisual = p.classList.contains("cssos-cell-visual");
+      var isTake   = p.classList.contains("cssos-cell-take");
+      var glyph, label, tip, extra = "";
+      if (isTake) {
+        var tk = p.dataset.take || "1";
+        glyph = "♪"; label = tk;
+        tip = (zh ? "第 " + tk + " 版" : "Take " + tk) + (tk === "1" ? (zh ? "(原版)" : " (original)") : "");
+      } else if (isVisual) {
+        visualSeq += 1;
+        glyph = "🎞"; label = String(visualSeq);
+        var sp0 = p.querySelector(".cssos-vspec");        // 分辨率/张数由 watch-visual-pills 注入, 原样保留
+        extra = sp0 ? sp0.textContent : "";
+        tip = (zh ? "画面 " : "Visual ") + visualSeq + (extra ? " " + extra : "");
+      } else if (isVoice) {
+        // CSSOS_WAVE_587 — 「原声(auto)」用作品真实声线名显示; 未知才退回「原声」。
         var ov = String(bar.dataset.originVoice || "").toLowerCase();
         var effVoice = (voice === "auto" && ov) ? ov : voice;
-        glyph = voiceGlyph(effVoice); label = voiceName(effVoice); tip = label + " · " + nameFor(lang);
+        glyph = flagFor(lang); label = voiceName(effVoice); tip = label + " · " + nameFor(lang);
+      } else {
+        glyph = flagFor(lang); label = nameFor(lang); tip = label;
       }
-      else { glyph = flagFor(lang); label = nameFor(lang); tip = label; }
-      // CSSOS_WAVE_678p — 二维交叉计数(Jing): 语言 cell 标【有几声线 N🎤】, 声线 cell 标【有几语言 N🌐】。
-      // 计数由 mv-language-pill 存进 dataset.xcount/xkind(重排不丢), 这里读出补一个 .cssos-xcount 小 span。仅 >1 显示。
-      var xc = parseInt(p.dataset.xcount || "0", 10) || 0;
+      if (!p.getAttribute("data-pill-key")) {
+        p.setAttribute("data-pill-key",
+          (isTake ? "t-" : isVisual ? "vs-" : isVoice ? "v-" : "l-") + lang + "-" + voice + "-" + label);
+      }
+      // 二维交叉计数: 语言 cell 标【有几声线 N🎤】, 声线 cell 标【有几语言 N🌐】。只对这两类。
+      var xc = (isTake || isVisual) ? 0 : (parseInt(p.dataset.xcount || "0", 10) || 0);
       var xglyph = p.dataset.xkind === "lang" ? "🌐" : "🎤";
       var xtxt = xc > 1 ? (xc + xglyph) : "";
-      var sig = glyph + "|" + label + "|" + xtxt;
+      var sig = glyph + "|" + label + "|" + xtxt + "|" + extra;
       if (p.dataset.cellSig !== sig) {
         p.dataset.cellSig = sig;
         p.innerHTML = "";
         var fs = document.createElement("span"); fs.className = "lang-flag"; fs.textContent = glyph;
         var ls = document.createElement("span"); ls.className = "lang-name"; ls.textContent = label;
         p.appendChild(fs); p.appendChild(ls);
+        if (extra) { var xp = document.createElement("span"); xp.className = "cssos-vspec"; xp.textContent = extra; p.appendChild(xp); }
         if (xtxt) { var xs = document.createElement("span"); xs.className = "cssos-xcount"; xs.textContent = xtxt; p.appendChild(xs); }
       }
       p.title = tip + (xc > 1 ? " · " + xtxt : "");

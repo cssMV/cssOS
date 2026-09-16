@@ -676,33 +676,37 @@ const CSSOS_INTERNAL_TOKEN = (
 ).trim();
 const RUST_MV_HOST = (process.env.RUST_MV_HOST || "127.0.0.1").trim();
 
-/* CSSOS_WAVE_1903 20260824 — Jing「铁律改版: 之前要求 2.39:1, 现在起改为 32:9。
- *   构图/输出都是 32:9。手机等竖屏设备自动顺时针旋转 90 度并适应屏幕。存为铁律。」
+/* CSSOS_WAVE_2115 20260916 — Jing「那请改变铁律: 21:9。」【画幅铁律从 32:9 改为 21:9】
  *
- * 一个必须记下的取舍(Jing 明确做的, 不是我推导的 —— 免得下次有人"优化"回去):
- *   32/9 = 3.556, 比 2.39 更宽。竖屏手机是 9:19.5 ≈ 0.46。
- *   32:9 转 90° 得 9:32 = 0.281 —— 比手机更窄, 转过来左右会留边;
- *   2.39:1 转 90° 得 1:2.39 = 0.418, 反而更贴合。
- *   也就是【2.39 转屏更贴, 32:9 更有超宽气势】。Jing 要气势, 贴屏交给播放端。
+ * 改的理由是实拍打脸: 32:9 没有任何一家厂商原生支持, 【最宽只给 21:9】。
+ *   于是每一镜生成完都要再做一次外扩(outpaint)才够 32:9 —— 多一道工序、多一层失真,
+ *   而且外扩出来的两边本来就不是模型"想画的"内容。Jing 的判断: 与其为一个厂商给不了的
+ *   数字硬加一道工序, 不如把铁律落在厂商的原生上限上。
  *
- * 尺寸取 2560×720: 2560/720 = 3.5556 = 32/9 精确, 两边可被 16 整除(编码器友好),
- *   像素量 1.84M 与原 1920×804(1.54M)同量级, 不额外烧钱。
+ * W1903 那条取舍随之作废(留档, 别照着它改回去):
+ *   当时 Jing 在【2.39 转屏更贴】与【32:9 更有超宽气势】之间选了气势。
+ *   21:9 = 2.333 转 90° 得 0.4286, 手机是 9:19.5 ≈ 0.46 —— 比 32:9 的 0.281 贴得多,
+ *   所以这次改动【顺带把竖屏留边也改小了】, 两头都好。
+ *
+ * 尺寸取 2520×1080: 2520/1080 = 2.3333 = 21/9 精确。这个值不是新造的 ——
+ *   ASPECT_SIZE_MAP 和前端 app.aspect-ratio.js 的 "21:9" 预设本来就是它, 直接复用。
  *
  * IRON RULE: NEVER output 16:9 or 9:16 (stretched).
- *   Desktop / landscape → Super-wide 32:9 (2560×720)
- *   Mobile  / portrait  → 播放端把 32:9 顺时针转 90° 贴屏(app.watch-face-crop.js W1902);
- *                         生成侧【不再另出竖版】—— 一次生成, 两端各自贴合。
+ *   Desktop / landscape → Widescreen Cinema 21:9 (2520×1080)
+ *   Mobile  / portrait  → 播放端把横片源顺时针转 90° 贴屏(app.watch-face-crop.js W1902);
+ *                         生成侧【不另出竖版】—— 一次生成, 两端各自贴合。旋转规则不变。
+ *   32:9 / 2.39:1 / anamorphic / superwide 全部保留为别名, 重映射到 21:9。
  *
  * All image/video/ffmpeg generation paths use these constants. */
 const CINEMA_LANDSCAPE = Object.freeze({
-  key:     "32:9",
-  w:       2560,
-  h:       720,               // 2560/720 = 3.5556 = 32/9 精确; 两边可被 16 整除
-  size:    "2560x720",        // passed to callImageGen
-  ffmpeg:  "2560:720",        // used in scale/pad ffmpeg filters
-  framing: "super-wide 32:9 cinematic composition, subject framed for ultra-panoramic scope, " +
+  key:     "21:9",
+  w:       2520,
+  h:       1080,              // 2520/1080 = 2.3333 = 21/9 精确; 厂商原生上限, 无需外扩
+  size:    "2520x1080",       // passed to callImageGen
+  ffmpeg:  "2520:1080",       // used in scale/pad ffmpeg filters
+  framing: "widescreen 21:9 cinematic composition, subject framed for panoramic cinema scope, " +
            "environment visible on both sides, horizontal letterbox bars absent, " +
-           "extreme widescreen aspect ratio, " +
+           "cinemascope widescreen aspect ratio, " +
            // CSSOS 20260701 — Jing「堵源头」: 人脸感知构图在源头就做,而非事后裁切。
            "if a person is the subject, keep the full head and face inside the frame with " +
            "comfortable headroom above the head, never crop the top of the head or half the face, " +
@@ -721,7 +725,7 @@ const CINEMA_LANDSCAPE = Object.freeze({
            "motivated directional lighting, deliberate restrained color palette, " +
            "atmospheric depth (haze, light shafts, weather), film-grade tonal contrast, " +
            "the composition of a poster or a gallery print rather than a snapshot",
-  label:   "Super-wide 32:9",
+  label:   "Widescreen Cinema 21:9",
 });
 const PHONE_FULLSCREEN = Object.freeze({
   key:     "9:19.5",
@@ -738,8 +742,10 @@ const PHONE_FULLSCREEN = Object.freeze({
 // "16:9" and "9:16" entries are kept for backward compat with older
 // clients but redirect to the correct cinema/phone sizes.
 const ASPECT_SIZE_MAP: Record<string, string> = {
-  /* W1903 — 32:9 是新铁律的正主; 2.39:1 / anamorphic 保留为别名并【重映射到 32:9】,
-   * 历史请求与老客户端因此不会突然拿到旧尺寸, 也不必逐个改调用方。 */
+  /* W2115 — 21:9 是现行铁律的正主(厂商原生上限)。32:9 / 2.39:1 / anamorphic / superwide
+   * 全部降为别名并【重映射到 21:9】, 历史请求与老客户端不会突然拿到不受支持的尺寸,
+   * 也不必逐个改调用方。这几个键【不要删】—— 库里和老端上还有它们。 */
+  "21:9": CINEMA_LANDSCAPE.size,
   "32:9": CINEMA_LANDSCAPE.size,
   "superwide": CINEMA_LANDSCAPE.size,
   "2.39:1": CINEMA_LANDSCAPE.size,
@@ -750,7 +756,6 @@ const ASPECT_SIZE_MAP: Record<string, string> = {
   "16:9":  CINEMA_LANDSCAPE.size,   // desktop legacy → cinema
   "9:16":  PHONE_FULLSCREEN.size,   // mobile legacy → device-fit
   "1:1":   "1080x1080",
-  "21:9":  "2520x1080",
   "4:5":   "1080x1350",
 };
 const RUST_MV_PORT = Number(process.env.RUST_MV_PORT || 8081);
@@ -5014,7 +5019,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
       // 竖图(高>宽)→ 设备贴合; 其余一切(含正方/16:9/超宽)→ 2.39 电影
       if (h > w * 1.05) return PHONE_FULLSCREEN.size;
     }
-    return CINEMA_LANDSCAPE.size; // 铁律默认: 超宽 2.39 电影
+    return CINEMA_LANDSCAPE.size; // 铁律默认: 21:9 宽银幕电影
   };
   const fallbackSize = coverSizeForRatio(ratio);
   const isPortraitCover = fallbackSize === PHONE_FULLSCREEN.size;

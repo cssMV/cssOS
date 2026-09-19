@@ -328,11 +328,27 @@
   })();
 
   // Full MV switch to a language track's audio (video stays).
-  // take: 1 = audio_url (default), 2 = alt_audio_url
+  /* CSSOS_WAVE_2116 第3步 20260919 — take 从「1 或 2」改成【第 N 版】, 无上限。
+   *
+   * 改前: take = (take===2 && track.alt_audio_url) ? 2 : 1;  ← 这行就是钉死的「2」之一。
+   *       它同时干了两件事: 钳范围 + 挑 URL, 而两件事都只认得两个格子。
+   * 改后: 两件事都交给 cssosTakes(唯一判据) —— 钳范围由 at() 做(越界自动钳回最后一版,
+   *       所以「♪3 没了」也绝不会静默无声), 挑 URL 由数组下标做。
+   *
+   * N=2 时 cssosTakes.at(track,2).url === track.alt_audio_url, 与改前逐字节相同。
+   * 兜底: 万一 app.takes.js 没加载(缓存/加载顺序出意外), 原样退回旧逻辑, 不留白屏。 */
   function switchToLanguage(track, take) {
     if (!track || track.status !== "ready") return;
-    take = (take === 2 && track.alt_audio_url) ? 2 : 1;
-    var url = take === 2 ? track.alt_audio_url : track.audio_url;
+    var url;
+    if (globalThis.cssosTakes && typeof globalThis.cssosTakes.at === "function") {
+      var _t = globalThis.cssosTakes.at(track, take);
+      if (!_t) return;
+      take = _t.take;
+      url = _t.url;
+    } else {
+      take = (take === 2 && track.alt_audio_url) ? 2 : 1;
+      url = take === 2 ? track.alt_audio_url : track.audio_url;
+    }
     if (!url) return;
     _activeLang = track.lang;
     _activeVoice = String(track.voice || "auto");
@@ -971,23 +987,50 @@
     (function renderTakeCells() {
       var cur = trackAt(_activeLang, _activeVoice)
         || meaningful.find(function (t) { return t.lang === _activeLang; });
-      var takes = [];
-      if (cur && cur.status === "ready" && cur.audio_url) takes.push(1);
-      if (cur && cur.status === "ready" && cur.alt_audio_url) takes.push(2);
+      /* W2116 第3步 — 版本列表来自唯一判据, 不再自己数到 2。
+       * 改前是两行 push(1) / push(2); 有第三版时它永远看不见。 */
+      var takeObjs = (cur && cur.status === "ready" && globalThis.cssosTakes)
+        ? globalThis.cssosTakes.of(cur) : [];
+      if (!takeObjs.length && cur && cur.status === "ready") {
+        // 兜底: app.takes.js 缺席时按老规矩拼, 行为与改前完全一致。
+        if (cur.audio_url) takeObjs.push({ take: 1, label: "\u266a1", url: cur.audio_url });
+        if (cur.alt_audio_url) takeObjs.push({ take: 2, label: "\u266a2", url: cur.alt_audio_url });
+      }
+      var takes = takeObjs.map(function (t) { return t.take; });
+
+      /* W2116 第3步 — 把【这首歌到底有几版】广播出去。
+       *
+       * 为什么必须广播: 队列(app.playlists.js)手里只有卡片字段, 卡片上只有
+       * audio_track_1_url / audio_track_2_url 两格 —— 它最多只能数到 2, 于是
+       * 一首有 ♪3 的歌会被队列在 ♪2 之后就翻页, ♪3 永远播不到。
+       *
+       * 不去 feed 里加一个【近似的】计数, 是因为近似会错在两头: 少算就漏版本,
+       * 多算就让播放器钳回最后一版重播一次(听感上是卡一下)。
+       * 正在播的这首, 播放器手里是【真数组】—— 让真源说话, 队列照抄。 */
+      try {
+        globalThis.__cssosTakeState = {
+          workId: _workId, take: _activeTake, count: takeObjs.length,
+        };
+      } catch (_e) {}
 
       /* CSSOS_WAVE_2113 20260916 — 听队列的话: 队列(app.playlists.js)翻页时决定"该放第几版",
        * 通过 globalThis.__cssosPendingTake 传过来; 这里【消费一次】并真正切到那一版。
        *
        * 为什么要"消费掉": render() 会被反复调用(轮询/重渲染), 不消费就会每次都强行拉回 ♪2,
        * 用户手点 ♪1 立刻被弹回去 —— 那正是「切不动」的老毛病换个马甲。 */
+      /* W2116 第3步 — 队列送来的「该放第几版」从 1|2 放开成任意 N。
+       * 判据: 这条轨真的有第 N 版(takeObjs 数得出来), 且当前不在那一版上。
+       * 仍然【消费一次】—— 不消费就会每次 render 强行拉回, 用户手点立刻被弹走。 */
       try {
-        var _pt = Number(globalThis.__cssosPendingTake || 0);
-        if (_pt === 2 && cur && cur.status === "ready" && cur.alt_audio_url && _activeTake !== 2) {
+        var _pt = Math.floor(Number(globalThis.__cssosPendingTake || 0));
+        // W2116 — -1 = 「最后一版」。倒着听时队列还不知道这首有几版(卡片只有两格),
+        // 就送这个哨兵过来, 由手里有真数组的播放器解析。
+        if (_pt === -1) _pt = takeObjs.length || 1;
+        if (_pt >= 1 && _pt <= takeObjs.length && _activeTake !== _pt && cur && cur.status === "ready") {
           globalThis.__cssosPendingTake = 0;
-          switchToLanguage(cur, 2);
-        } else if (_pt === 1 && _activeTake === 2 && cur && cur.status === "ready") {
-          globalThis.__cssosPendingTake = 0;
-          switchToLanguage(cur, 1);
+          switchToLanguage(cur, _pt);
+        } else if (_pt >= 1) {
+          globalThis.__cssosPendingTake = 0;   // 要的那一版不存在 → 丢掉, 别卡住下一次
         }
       } catch (_e) {}
       takes.forEach(function (tk) {
@@ -996,8 +1039,16 @@
         b.className = "cssos-cell cssos-cell-take" + (_activeTake === tk ? " active" : "");
         b.dataset.lang = cur.lang; b.dataset.voice = vof(cur); b.dataset.take = String(tk);
         b.setAttribute("data-pill-key", "take-" + tk);
-        b.textContent = "♪" + tk;
-        b.title = tk === 1 ? tt("Take 1 (original)", "第一版(原版)") : tt("Take 2", "第二版");
+        /* W2116 第3步 — 胶囊上显示 ♪N(W2112 定的四轨统一格式, 不破例);
+         * 版本自己的名字(版本表 label 列, 如「Suno V6 新版 #2」)存进 dataset,
+         * 由 app.lang-flag-pills.js 拼进 tooltip。两个模块各管一半, 不再互相重绘。 */
+        var _to = takeObjs[tk - 1] || {};
+        b.textContent = "\u266a" + tk;
+        if (_to.label && _to.label !== "\u266a" + tk) b.dataset.takeLabel = _to.label;
+        b.title = (tk === 1
+          ? tt("Take 1 (original)", "第一版(原版)")
+          : tt("Take " + tk, "第 " + tk + " 版"))
+          + (b.dataset.takeLabel ? " \u00b7 " + b.dataset.takeLabel : "");
         b.addEventListener("click", function (e) {
           e.stopPropagation();
           switchToLanguage(cur, tk);

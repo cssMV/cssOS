@@ -154,6 +154,10 @@
       lyrics_preview: raw.lyrics_preview || "",
       sibling_work_id: raw.sibling_work_id || null,
       take_index: raw.take_index || null,
+      /* W2116 — normaliseItem 是白名单式的(见下方 W1970g 注释): 没列进来的字段一律丢掉。
+       * feed 目前还不下发 takes, 先把位置占上 —— 将来一下发就自动生效, 不用回头再找这里。 */
+      takes: Array.isArray(raw.takes) ? raw.takes : null,
+      alt_audio_url: raw.alt_audio_url || null,
       root_work_id: raw.root_work_id || null,
       sequence_index: raw.sequence_index ?? 0,
       /* CSSOS_WAVE_1970g 20260826 — normaliseItem 是【白名单式】的: 没列进来的字段一律丢掉。
@@ -536,20 +540,43 @@
    *
    * 闸门装在 step() —— 每次翻页必经的路。装在 setActive() 里等于没装, 这是 W1928
    * 「切不动歌」那次用一整轮换来的结论, 不再犯第二次。 */
-  function hasTake2(item) {
-    if (!item) return false;
-    return !!String(item.audio_track_2_url || item.alt_audio_url || "").trim();
+  /* CSSOS_WAVE_2116 第3步 20260919 — 「这首有几版」不再由队列自己判。
+   *
+   * 改前 hasTake2() 只问一句「有没有 audio_track_2_url」—— 结构上只数得到 2。
+   * 改后问 cssosTakes(全平台唯一判据), 它返回几就是几。
+   * 连胞胎铁律(W2107)一个字没变, 只是「一对」放开成「一组」: 一组听完才准翻页。
+   *
+   * 兜底: app.takes.js 缺席 → 退回老判据(有 take2 就是 2, 否则 1), 行为与改前一致。 */
+  function takeCount(item) {
+    if (!item) return 1;
+    /* ① 真源优先: 正在播的这首, 播放器手里有从 language-tracks 拿到的【真数组】。
+     *    卡片字段只有两格, 永远数不到 ♪3 —— 所以只要 id 对得上, 一律以播放器为准。 */
+    try {
+      var st = globalThis.__cssosTakeState;
+      if (st && st.workId && String(st.workId) === String(item.id || item.work_id || "")
+          && Number(st.count) >= 1) return Number(st.count);
+    } catch (_e) {}
+    // ② 还没加载过这首 → 用卡片字段拼(最多 2, 但翻到它时播放器会纠正并回写)。
+    if (globalThis.cssosTakes && typeof globalThis.cssosTakes.count === "function") {
+      var n = globalThis.cssosTakes.count(item);
+      if (n >= 1) return n;
+    }
+    return String(item.audio_track_2_url || item.alt_audio_url || "").trim() ? 2 : 1;
   }
   function emitSwitch(item) {
     if (!item) return item;
     /* W2113 —— 倒退收尾: step() 从 ♪1 往回时只设了标志, 真正翻到上一首之后才知道它有没有 ♪2。
      * 在这里收口 —— 有 ♪2 就停在 ♪2(倒着听也要从这首的末尾听起), 没有就 ♪1。
      * 不在 step() 里做, 是因为 step 有多条 return 路径, 逐条改必漏一条。 */
+    var _wantLast = false;
     if (state.__wantPrevTake2) {
       state.__wantPrevTake2 = false;
-      state.take = hasTake2(item) ? 2 : 1;
+      // W2116 — 倒着听也要从这首的【末尾】听起。这首还没加载过时卡片只数得到 2,
+      // 所以送哨兵 -1 给播放器, 由它按真数组解析成「最后一版」。
+      state.take = takeCount(item);
+      _wantLast = true;
     }
-    try { globalThis.__cssosPendingTake = state.take || 1; } catch (_e) {}
+    try { globalThis.__cssosPendingTake = _wantLast ? -1 : (state.take || 1); } catch (_e) {}
     try {
       if (typeof globalThis.cssosBindToWorkId === "function") {
         globalThis.cssosBindToWorkId(item.id || item.work_id || item, item);
@@ -570,12 +597,23 @@
     {
       const cur = list.items[state.index] || null;
       if (!state.take) state.take = 1;
+      /* W2116 — 与播放器对齐。倒退进一首歌时队列送的是哨兵 -1, 真正落在第几版
+       * 只有播放器知道; 不对齐的话下一次前进会从错误的序号开始数。 */
+      try {
+        const _st = globalThis.__cssosTakeState;
+        if (_st && cur && String(_st.workId || "") === String(cur.id || "")
+            && Number(_st.take) >= 1) state.take = Number(_st.take);
+      } catch (_e) {}
+      /* W2116 第3步 — 闸门从「♪1↔♪2」放开成「♪1..♪N」。位置一个字没挪:
+       * 还在 step() 里、还在所有模式判断之前 —— W1928 用一整轮换来的那条结论不动。
+       * N=2 时这段与改前等价: take 1 → 2 → 归位翻页; 倒退 2 → 1 → 上一首末版。 */
+      const nTake = takeCount(cur);
       if (direction > 0) {
-        if (state.take === 1 && hasTake2(cur)) { state.take = 2; return emitSwitch(cur); }
-        state.take = 1;                       // 听完 ♪2 → 归位, 继续往下翻
+        if (state.take < nTake) { state.take += 1; return emitSwitch(cur); }
+        state.take = 1;                       // 听完最后一版 → 归位, 继续往下翻
       } else {
-        if (state.take === 2) { state.take = 1; return emitSwitch(cur); }
-        // 从 ♪1 往回: 先翻到上一首, 再把指针停在它的 ♪2(下面翻完由此处接手)
+        if (state.take > 1) { state.take -= 1; return emitSwitch(cur); }
+        // 从 ♪1 往回: 先翻到上一首, 再把指针停在它的【最后一版】(翻完由 emitSwitch 接手)
         state.__wantPrevTake2 = true;
       }
     }

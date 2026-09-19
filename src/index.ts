@@ -4001,6 +4001,241 @@ app.post("/api/works/:id/language-tracks", express.json({ limit: "4kb" }), async
   });
 });
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_2116 第2步「后端统一出口」20260919
+ *
+ * Jing:「默认是 ♪1/♪2, 如果有更多肯定可以 ♪1/♪2/♪3/♪4/♪5/♪6…♪10/♪20。」
+ *
+ * ── 为什么要一个出口 ────────────────────────────────────────────────────────
+ * 同一首歌的「第几版」现在散在三处, 各自都只装得下两个:
+ *   work_language_tracks.audio_url / alt_audio_url   ← 两列, 装不下第三首
+ *   work_assets.audio_track_1 / audio_track_2        ← 两个平格, 同上
+ *   work_media_versions                              ← 一版一行, 天生无上限
+ * 前端(播放器 / 队列 / 字幕)三处各自去猜「有没有第二首」, 于是「2」被硬编码了七遍。
+ * 这个函数把三处合成【一个有序数组】, 前端只认数组长度, 2 和 20 一视同仁。
+ *
+ * ── 为什么是「老字段为主, 版本表为扩展」而不是反过来 ────────────────────────
+ * 实测(20260919): 版本表里 kind='audio' 共 1307 行, 但【♪1/♪2 标签 0 行】——
+ * 第1步的双写挂在 /pipeline-assets 上, 只有 UI Create 出新作品才触发, 9-17 至今没触发过。
+ * 而真正在播的 ♪2 有 75 条, 其中 56 条【不在】版本表里。
+ * 所以: 先用轨自己的两列铺 ♪1/♪2, 再把版本表里【URL 还没出现过的】按 version_no 追加成 ♪3…
+ * 这样 N=2 时输出与改造前逐条一致(前端渲染必须帧同一), ♪3+ 只在真有时才冒出来。
+ *
+ * ── 键必须是 (lang, voice), 只用 lang 会串台 ───────────────────────────────
+ * 实测撞到的(Jerusalem f4c5e610…): 同一个作品有【5 条 lang='zh' 的轨】——
+ * voice = auto / jing / childlike / jing_tenor / orig, 各有各的 audio_url。
+ * 只用 lang 当键, 后一条把前一条盖掉 → 切到「童声」放出来是「原版」, 而且童声
+ * 自己的 alt_audio_url 整条消失。多声线胶囊和多版本胶囊是【两条轴】, 不能挤成一个键。
+ *
+ * lang 本身也不只是语言: 两张表都混着真语言(zh/en/la…)和伪键(orig-pre-epic / regen-v6)。
+ * 版本表【没有 voice 列】, 所以版本行只能按 lang 认领 —— 见下一段。
+ *
+ * ── 版本行里混着「别的声线的 ♪1」, 必须先剔掉 ─────────────────────────────
+ * 同一首 Jerusalem 的 zh 版本行有 4 条, 逐个比对 URL 后发现: 它们就是 jing /
+ * childlike / jing_tenor 那几条轨【自己的 audio_url】。把它们当成「原版轨的 ♪2..♪5」
+ * 挂上去, 屏幕上就会出现 5 个 ♪N, 点进去唱的却是别的声线 —— 把多声线伪装成多版本。
+ * 所以: 凡是【已经是某条轨的 audio_url / alt_audio_url】的版本行, 一律不算额外版本;
+ * 剩下的才追加, 而且只追加给这个 lang 的【默认轨】(版本表认不到 voice, 不该乱认领)。
+ *
+ * ── 认不到轨的版本行归【作品默认轨】, 不许让它在库里躺着没人能播 ─────────
+ * 实测: 版本表的 lang 被当成过「版本组标签」用, 比如 lang='regen-v6'(label
+ * 「Suno V6 新版 #1/#2」)—— 没有任何一条轨叫 regen-v6, 于是这 9 条行认领不到任何轨。
+ * 它们是唐伯虎三部曲 / 李清照声声慢三部曲的 Suno V6 重制版, 字节好好地在 R2 上,
+ * 【但平台上没有任何地方能播】。
+ *
+ * Jing:「凡是多出来的版本, 不要删, 而是放在胶囊轨道里, 让用户选择。」
+ * 躺在库里没人能播 ≈ 等于不存在。所以: lang 配不上任何轨的版本行, 一律挂到
+ * 【作品默认轨】的末尾 —— 这是平台上第一批真正的 ♪3/♪4。
+ *
+ * lang IS NULL 的版本行(第1步双写写的就是 null)同样归【全作品的默认轨】。
+ *
+ * ── 字幕跟版本走(第4步的数据面) ────────────────────────────────────────────
+ * 每一版带【自己的】subtitle_url。现存 1307 行全是 NULL, 所以这里给 null,
+ * 前端拿到 null 就回退到作品级 subtitle_take1/2_json_url —— 行为不变, 但通道已经通了。
+ * ───────────────────────────────────────────────────────────────────────── */
+type WorkTake = {
+  take: number;                  // 1-based, 就是 ♪N 的那个 N
+  label: string;                 // 给用户看的名字; 缺省 "♪N"
+  url: string;
+  duration_secs: number | null;
+  subtitle_url: string | null;   // 这一版自己的字幕; null = 回退作品级
+  source: "track" | "assets" | "versions";
+};
+
+/** 版本表里 lang IS NULL 的那一桶的键 —— 用不可能与真 lang 相撞的字面量, 不用空串。 */
+const TAKE_NULL_LANG = "__wmv_null_lang__";
+
+/** 归一化 URL 做去重键 —— 只比路径, 忽略签名/查询串, 否则同一个文件签两次会被当成两版。 */
+function takeDedupeKey(url: string): string {
+  const u = String(url || "").trim();
+  if (!u) return "";
+  const q = u.indexOf("?");
+  return (q >= 0 ? u.slice(0, q) : u).toLowerCase();
+}
+
+/**
+ * 【W2116】一个作品的全部音频版本, 按语言轨分组, 每组一个【有序数组】。
+ *
+ * 返回 Map<lang, WorkTake[]>; 无语言轨的作品(MV 管线创作)存在键 "" 下。
+ * 尽力而为: 任何一步查库失败都只打日志, 返回已经拿到的部分, 绝不让播放端拿不到音轨。
+ */
+async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
+  const out = new Map<string, WorkTake[]>();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return out;
+
+  type TrackRow = {
+    lang: string | null; voice: string | null; is_default: boolean | null;
+    audio_url: string | null; duration_secs: number | null;
+    alt_audio_url: string | null; alt_duration_secs: number | null;
+  };
+  type VerRow = {
+    lang: string | null; version_no: number; label: string | null;
+    url: string; subtitle_url: string | null; duration_secs: number | null;
+  };
+
+  let tracks: TrackRow[] = [];
+  let vers: VerRow[] = [];
+  let assets: { asset_type: string; url: string }[] = [];
+  try {
+    const r = await withClient((c) => c.query<TrackRow>(
+      `SELECT lang, voice, is_default, audio_url, duration_secs, alt_audio_url, alt_duration_secs
+         FROM work_language_tracks WHERE work_id = $1::uuid ORDER BY track_order ASC`, [workId]));
+    tracks = r.rows;
+  } catch (e) { console.warn("[takes] 读语言轨失败:", (e as Error)?.message?.slice(0, 120)); }
+  try {
+    const r = await withClient((c) => c.query<VerRow>(
+      `SELECT lang, version_no, label, url, subtitle_url, duration_secs
+         FROM work_media_versions
+        WHERE work_id = $1::uuid AND kind = 'audio' AND url IS NOT NULL AND url <> ''
+        ORDER BY COALESCE(lang,''), version_no ASC`, [workId]));
+    vers = r.rows;
+  } catch (e) { console.warn("[takes] 读版本表失败:", (e as Error)?.message?.slice(0, 120)); }
+  try {
+    const r = await withClient((c) => c.query<{ asset_type: string; url: string }>(
+      `SELECT asset_type, url FROM work_assets
+        WHERE work_id = $1::uuid AND asset_type IN ('audio_track_1','audio_track_2')`, [workId]));
+    assets = r.rows;
+  } catch (e) { console.warn("[takes] 读 work_assets 失败:", (e as Error)?.message?.slice(0, 120)); }
+
+  // 版本行按 lang 分桶(NULL 单独一桶, 留给默认轨)
+  const versByLang = new Map<string, VerRow[]>();
+  for (const v of vers) {
+    const k = v.lang ?? TAKE_NULL_LANG;
+    const bucket = versByLang.get(k);
+    if (bucket) bucket.push(v); else versByLang.set(k, [v]);
+  }
+
+  /* 哪些 URL 已经是【某条轨自己的】音频 —— 这些绝不算别人的额外版本。
+   * 这一步就是「多声线不许伪装成多版本」的闸门。 */
+  const ownedByAnyTrack = new Set<string>();
+  for (const t of tracks) {
+    for (const u of [t.audio_url, t.alt_audio_url]) {
+      const k = takeDedupeKey(String(u || ""));
+      if (k) ownedByAnyTrack.add(k);
+    }
+  }
+
+  /* 每个 lang 的【默认轨】—— 版本表没有 voice 列, 认不到具体声线,
+   * 所以额外版本只挂给这个 lang 的默认轨(is_default 优先, 否则 track_order 最小的那条)。 */
+  const defaultTrackOfLang = new Map<string, TrackRow>();
+  for (const t of tracks) {
+    const l = String(t.lang || "");
+    const cur = defaultTrackOfLang.get(l);
+    if (!cur || (t.is_default && !cur.is_default)) defaultTrackOfLang.set(l, t);
+  }
+  // 全作品默认轨(lang IS NULL 的版本行, 以及认不到轨的版本行, 都归它)
+  const workDefault = tracks.find((t) => t.is_default) ?? tracks[0] ?? null;
+
+  /* lang 配不上任何一条轨的版本桶 —— 无家可归, 归作品默认轨, 否则永远没人能播。 */
+  const trackLangs = new Set(tracks.map((t) => String(t.lang || "")));
+  const orphanVerLangs = [...versByLang.keys()].filter(
+    (k) => k !== TAKE_NULL_LANG && !trackLangs.has(k));
+
+  /** 键 = lang + voice。分隔符用 \u0001, 真 lang/voice 里不可能出现。 */
+  const takeKey = (lang: string | null | undefined, voice: string | null | undefined) =>
+    String(lang || "") + "\u0001" + String(voice || "auto");
+
+  const build = (
+    kind: WorkTake["source"],
+    seed: { url: string | null; dur: number | null }[],
+    verLangs: string[],
+    skipOwned: boolean,
+  ): WorkTake[] => {
+    const list: WorkTake[] = [];
+    const seen = new Set<string>();
+    const push = (url: string | null | undefined, dur: number | null,
+                  subUrl: string | null, label: string | null,
+                  source: WorkTake["source"]) => {
+      const u = String(url || "").trim();
+      if (!u) return;
+      const k = takeDedupeKey(u);
+      if (!k) return;
+      if (seen.has(k)) {
+        /* 同一个文件已经在列表里了(老字段先铺, 版本行后到)。不重复上架, 但如果
+         * 版本行带着【有意义的名字】而现存那条还是通用的 ♪N, 就把名字认回去 ——
+         * 用户在胶囊上读到的应该是「Suno V6 新版 #1」, 不是「♪2」。
+         * 实测: 李清照三部曲的 audio_track_2 就是版本表里的「Suno V6 新版 #1」。 */
+        const nl = String(label || "").trim();
+        if (nl) {
+          const hit = list.find((x) => takeDedupeKey(x.url) === k);
+          if (hit && hit.label === "\u266a" + hit.take) hit.label = nl;
+        }
+        return;
+      }
+      seen.add(k);
+      const take = list.length + 1;
+      list.push({
+        take,
+        label: String(label || "").trim() || ("\u266a" + take),
+        url: u,
+        duration_secs: dur ?? null,
+        subtitle_url: subUrl ?? null,
+        source,
+      });
+    };
+    // ① 老字段先铺 —— 保证 N=2 时顺序与改造前完全一致
+    for (const s of seed) push(s.url, s.dur, null, null, kind);
+    // ② 版本表补 ♪3… —— 本轨已有的 URL 跳过; 别的轨自己的音频也跳过(那是声线, 不是版本)
+    for (const vl of verLangs) {
+      for (const v of versByLang.get(vl) || []) {
+        const vk = takeDedupeKey(v.url);
+        /* 跳过的只能是【别的轨】的音频(那是声线, 不是本轨的版本)。
+         * 本轨自己已经铺过的同一个文件不跳 —— 让它走 push(), 好把版本行带的
+         * 名字认回去(否则「Suno V6 新版 #1」会一直显示成通用的 ♪2)。 */
+        if (skipOwned && !seen.has(vk) && ownedByAnyTrack.has(vk)) continue;
+        push(v.url, v.duration_secs, v.subtitle_url, v.label, "versions");
+      }
+    }
+    return list;
+  };
+
+  for (const t of tracks) {
+    const lang = String(t.lang || "");
+    /* 额外版本只挂给这个 lang 的默认轨 —— 其它声线只拿自己的两列。
+     * 否则「童声」那条轨会凭空多出几个 ♪N, 点进去唱的是别人。 */
+    const isLangDefault = defaultTrackOfLang.get(lang) === t;
+    const verLangs: string[] = isLangDefault ? [lang] : [];
+    if (t === workDefault) {
+      verLangs.push(TAKE_NULL_LANG);          // 第1步双写写的是 lang=null
+      verLangs.push(...orphanVerLangs);       // 认不到轨的(如 regen-v6)
+    }
+    out.set(takeKey(t.lang, t.voice), build("track", [
+      { url: t.audio_url, dur: t.duration_secs },
+      { url: t.alt_audio_url, dur: t.alt_duration_secs },
+    ], verLangs, true));
+  }
+
+  // 无语言轨的作品(MV 管线创作): 用 work_assets 的两个平格 + 全部版本行
+  if (!tracks.length) {
+    const a1 = assets.find((a) => a.asset_type === "audio_track_1")?.url || null;
+    const a2 = assets.find((a) => a.asset_type === "audio_track_2")?.url || null;
+    // 没有任何语言轨 → 不存在「别的声线」, 版本行全收; 键留空串供端点兜底查。
+    out.set("", build("assets", [{ url: a1, dur: null }, { url: a2, dur: null }],
+      [...versByLang.keys()], false));
+  }
+  return out;
+}
+
 // GET /api/works/:id/language-tracks — poll status for the 🌐 pill +
 // per-language progress on the lyrics/music pills.
 app.get("/api/works/:id/language-tracks", async (req, res) => {
@@ -4103,6 +4338,27 @@ app.get("/api/works/:id/language-tracks", async (req, res) => {
       }
     } catch (_e) { /* best-effort synth */ }
   }
+  /* CSSOS_WAVE_2116 第2步 — 每条轨挂上【自己的 takes 数组】。
+   *
+   * 老字段 audio_url / alt_audio_url 一个不动继续下发: 旧客户端(TV / Watch / Vision /
+   * 缓存里的老 JS)还在读它们, 抽掉就是把它们打哑。新字段是【增量】, 不是替换。
+   *
+   * N=2 时 takes = [{take:1,url:audio_url},{take:2,url:alt_audio_url}], 与前端原来
+   * 自己拼的那两条逐字段一致 —— 这是「帧同一」的前提。 */
+  try {
+    const takesByTrack = await loadWorkTakes(workId);
+    for (const t of outTracks as any[]) {
+      // 键必须带 voice —— 同一个 lang 可能有好几条声线, 只用 lang 会互相盖掉(实测 Jerusalem 5 条 zh)。
+      const key = String(t?.lang || "") + "\u0001" + String(t?.voice || "auto");
+      const list = takesByTrack.get(key) || takesByTrack.get("") || [];
+      t.takes = list;
+      t.n_takes = list.length;
+    }
+  } catch (e) {
+    // 出口挂了也绝不能让播放端拿不到音轨 —— 前端见 takes 缺失会回退老字段。
+    console.warn("[takes] 挂载失败(前端回退老字段):", (e as Error)?.message?.slice(0, 160));
+  }
+
   // CSSOS_WAVE_433 — cover-pool progress: how many slideshow frames are in vs the
   // target pool, so the watch UI can show "3/60 covers…" while they generate.
   let coverDone = 0;
@@ -7772,6 +8028,23 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
     });
     await upsertAsset(workId, "audio_track_1", audioUrl, { kind: "audio_track", take: 1, duration_secs: durationSecs });
     await upsertAsset(workId, "audio_track_2", altAudioUrl, { kind: "audio_track", take: 2, duration_secs: altDurationSecs });
+    /* CSSOS_WAVE_2116 第1步「双写」20260917 — Jing:「♪1/♪2 只是默认最少两首, 有更多肯定可以 ♪3…♪20。」
+     *
+     * 为什么在这里补: work_assets 只有 audio_track_1 / _2 两个平格, alt_audio_url 也只有一格 ——
+     * 结构上装不下第三首。work_media_versions 是【一版一行】的数组表, 天生无上限, 而且早就存在、
+     * 早就有数据, 只是【写 ♪2 的路径一次都没调过它】—— 所以 ♪2 从来没有以"一个版本"的身份入过账。
+     *
+     * 这一步【只写不读】: 读取侧一行不动, 线上行为零变化, 纯粹为后面几步攒数据。
+     * registerMediaVersion 是 best-effort(内部 try/catch + ON CONFLICT DO NOTHING),
+     * 登记失败只告警, 绝不影响媒体本身落库。 */
+    if (audioUrl) {
+      await registerMediaVersion({ workId, kind: "audio", url: audioUrl,
+        label: "♪1", durationSecs: durationSecs ?? null, makeCurrent: true });
+    }
+    if (altAudioUrl) {
+      await registerMediaVersion({ workId, kind: "audio", url: altAudioUrl,
+        label: "♪2", durationSecs: altDurationSecs ?? null, makeCurrent: false });
+    }
     await upsertAsset(workId, "subtitle_srt", subtitleSrtUrl, {});
 
     // CSSOS_WAVE_367 20260523 — Jing「卡片显示时长」: 卡片读的是 user_works.duration_secs
@@ -40993,6 +41266,17 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
     }
     await c.query(`UPDATE user_works SET preview_audio_url=$2, updated_at=now() WHERE id=$1::uuid`, [workId, epicAudio]);
   });
+  /* W2116 第1步 —— epic 重生成产出 ♪1(epicAudio)+ ♪2(epicAlt), 两首都登记成版本。
+   * 这条路径正是 W2061 丢 17 首旧版音乐的那条: 当时 epicAlt 下载了、落 R2 了, 却【没有任何地方
+   * 指向它】。现在它至少会在版本表里留下自己的一行 —— 有地址才捡得回来。 */
+  if (epicAudio) {
+    await registerMediaVersion({ workId, kind: "audio", url: epicAudio, lang,
+      label: "♪1", durationSecs: dur ?? null, makeCurrent: true });
+  }
+  if (epicAlt) {
+    await registerMediaVersion({ workId, kind: "audio", url: epicAlt, lang,
+      label: "♪2", makeCurrent: false });
+  }
   return { ok: true, workId, lang, provider: music.provider, sunoModel, style: epicStyle, audio_url: epicAudio, alt_audio_url: epicAlt, duration_s: dur };
 }
 app.post("/api/admin/epic-render/:workId", express.json({ limit: "16kb" }), async (req, res) => {
@@ -41727,6 +42011,9 @@ app.post("/api/admin/extend-track/:workId", async (req, res) => {
       `UPDATE work_language_tracks SET audio_url=$4, duration_secs=$5, vocal_url=NULL, instrumental_url=NULL, stems_status=NULL
         WHERE work_id=$1::uuid AND lang=$2 AND track_order=$3`,
       [workId, lang, tr.track_order, newUrl, Math.round(extDur || 240)]));
+    // W2116 第1步 —— 续写出来的是一份【新音频版本】, 一并登记(只写不读)。
+    await registerMediaVersion({ workId, kind: "audio", url: newUrl, lang,
+      label: "续写", durationSecs: Math.round(extDur || 240), makeCurrent: true });
     return res.json({ ok: true, workId, lang, taskId, audio_url: newUrl, duration_secs: Math.round(extDur || 240),
       next: "call /api/admin/separate-stems then /api/admin/resubtitle to finish stems + alignment" });
   } catch (err) {

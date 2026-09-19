@@ -431,10 +431,34 @@
   async function load(track, take, ownerWorkId) {
     if (!track) return;
     var lang = String(track.lang || "");
-    var takeN = (take === 2) ? 2 : 1;
-    var subUrl = takeN === 2
-      ? (track.subtitle_take2_json_url || track.subtitle_take1_json_url)
-      : track.subtitle_take1_json_url;
+    /* CSSOS_WAVE_2116 第4步「字幕跟版本走」20260919
+     *
+     * Jing:「用户播放旧版本就显示旧版本字幕, 新版本就显示新版本字幕。」
+     *
+     * 改前: takeN = (take===2)?2:1, 然后在 subtitle_take1/take2 两列里二选一 ——
+     *       这是钉死的「2」的第七处, 而且 ♪3 会被静默当成 ♪1, 唱的是第三版、
+     *       字幕是第一版, 对不上还不报错。
+     *
+     * 改后: 问 cssosTakes(全平台唯一判据)要【这一版自己的】字幕 URL。
+     *       它内部的回退顺序是: 版本表 subtitle_url → take2 列(N>=2) → take1 列。
+     *       所以 N=2 时取到的 URL 与改前【完全相同】, 屏幕上一个像素都不动;
+     *       ♪3+ 暂时回退到 take2 列(总比给第一版的字幕强), 等版本表写了
+     *       subtitle_url 就自动跟上 —— 通道已经通了, 不必再回来改这里。
+     *
+     * 兜底: app.takes.js 缺席 → 原样退回旧的两列二选一。 */
+    var takeN = Math.floor(Number(take) || 1);
+    if (!(takeN >= 1)) takeN = 1;
+    var subUrl;
+    if (globalThis.cssosTakes && typeof globalThis.cssosTakes.subtitleUrl === "function") {
+      subUrl = globalThis.cssosTakes.subtitleUrl(track, takeN);
+      var _t = globalThis.cssosTakes.at(track, takeN);
+      if (_t) takeN = _t.take;            // 越界被钳回时, 字幕跟着钳后的那一版走
+    } else {
+      takeN = (takeN === 2) ? 2 : 1;
+      subUrl = takeN === 2
+        ? (track.subtitle_take2_json_url || track.subtitle_take1_json_url)
+        : track.subtitle_take1_json_url;
+    }
 
     if (subUrl) {
       try {

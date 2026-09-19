@@ -572,7 +572,14 @@
       if (isTake) {
         var tk = p.dataset.take || "1";
         glyph = "♪"; label = tk;
-        tip = (zh ? "第 " + tk + " 版" : "Take " + tk) + (tk === "1" ? (zh ? "(原版)" : " (original)") : "");
+        /* W2116 —— 胶囊上【永远显示 ♪N】(W2112 定的四轨统一格式, 不因版本有名字而破例),
+         * 但版本自己的名字(如「Suno V6 新版 #2」, 来自 work_media_versions.label)
+         * 放进 tooltip。播放器把它存在 data-take-label 上, 这里读出来拼。
+         * 不这么分开, 两个模块就会为同一段文字来回重绘 —— 那是 W2112 已经踩过的坑。 */
+        var tkName = p.dataset.takeLabel || "";
+        tip = (zh ? "第 " + tk + " 版" : "Take " + tk)
+            + (tk === "1" ? (zh ? "(原版)" : " (original)") : "")
+            + (tkName && tkName !== "\u266a" + tk ? " · " + tkName : "");
       } else if (isVisual) {
         visualSeq += 1;
         glyph = "🎞"; label = String(visualSeq);

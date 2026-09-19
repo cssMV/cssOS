@@ -115,3 +115,87 @@ Sacred Harp 是形状音符谱,唱者先唱 fa-sol-la 再填词,出版常不印�
 **分段:仓库样例 `music.json` 是【单段 51 秒】。** 更长的单段没有先例。
 工具在超过 60 秒时会提醒,但**不擅自切段** —— 按哪里切是乐句判断(该在换气处),
 不是脚本该替人做的决定。真要切,每段自带 `time=[起,止]`,输出会按偏移拼回一条轨。
+
+---
+
+## RunPod 实机配方 (W2118 · 2026-09-19 · 真跑通,不是推演)
+
+**AWS 拒了之后换的路。19 天等不来的东西,在 RunPod 上一小时、约 $1 搞定。**
+
+### 一次性准备(已做完,不用再做)
+
+```
+Network Volume: svs-soulx · ID 4umwfoy7kg · 50 GB · US-IL-1 · $3.50/月
+```
+
+**必须先建网络盘再开 Pod。** 上一次没建,`/workspace` 是容器临时盘,
+停机时 RunPod 弹出「You do not have a volume configured. ALL DATA WILL BE LOST!」——
+差一步就把装好的环境和 2.8G 权重全丢了。网络盘停机不丢,$3.50/月买断这个风险。
+
+### 开 Pod(console.runpod.io/deploy)
+
+| 项 | 值 | 为什么 |
+|---|---|---|
+| Region | **选「Network volume」→ svs-soulx** | 选了盘,机房自动锁成 US-IL-1,不用自己猜哪个机房有货 |
+| GPU | **RTX 4090 $0.74/hr** | 该机房+该盘当时只有它有货;24G 显存,实际只用 2-3G,绰绰有余 |
+| 模板 | Runpod Pytorch 2.8.0 (`runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404`) | 自带 torch 2.8+cu128、ffmpeg、git |
+| Set overrides | 确认 **SSH terminal access 开** + **TCP 22 暴露**;`PUBLIC_KEY` 填公钥 | **公钥只在【创建时】注入。** 上次装完才去加 key,直连一直被拒 |
+
+开机后直连:`ssh root@<IP> -p <port> -i ~/.ssh/id_ed25519`(Connect → SSH over exposed TCP)。
+
+### 装机
+
+```bash
+scp scripts/svs-runpod-install.sh root@<IP>:/workspace/ -P <port>
+ssh root@<IP> -p <port> 'bash /workspace/svs-runpod-install.sh'     # 约 6 分钟
+```
+
+**第二次开机不用再跑** —— venv / 仓库 / 权重 / nltk_data 全在 `/workspace` 网络盘上,
+只要 `source /workspace/venv/bin/activate` 就能用。
+
+三个 requirements.txt 没写、但少了就跑不起来的:
+
+| 包 | 坑 |
+|---|---|
+| `huggingface_hub<1.0` | 顺手 `-U` 升到 1.32 → transformers 4.41.2 直接 `ImportError` 拒收 |
+| `pypinyin` | 中文 G2P 要用,requirements 里只有 `ToJyutping`,没有它 |
+| `cmudict` (独立包) | 脚本 `import cmudict`,**不是** nltk 那个;nltk 语料另外还要下 |
+
+torch 用容器自带的 2.8+cu128,**不要照 requirements 装 2.2.0** —— 既省 2.5G 盘,
+又避开 cu128 驱动与老 torch 的错配。实测 `torchaudio` 只是弹弃用警告,功能正常。
+
+### 实测数字 (RTX 4090, fp16)
+
+| | 音频长度 | 推理耗时 | RTF |
+|---|---|---|---|
+| 仓库自带样例 | 51.0 s | 7.9 s | **0.155** |
+| Jeannie 英文 | 15.8 s | 2.2 s | 0.137 |
+| 声声慢 普通话 | 17.6 s | 2.1 s | 0.122 |
+| 声声慢 粤语 | 17.6 s | 2.3 s | 0.131 |
+
+→ 一首 4 分钟的歌约 **31 秒 GPU**,按 $0.74/hr 算 **≈ $0.0064**。
+(A5000 上 RTF 0.24,4090 快约 1.7 倍而单价只贵一点,更划算。)
+
+### 三样验证(W2117 两个缺口的实机验收)
+
+谱子在 `docs/svs/ref/scores/`,**手写的,不是下载的** —— 就是为了精准打到那两处:
+
+| 用例 | 验什么 | 结果 |
+|---|---|---|
+| `jeannie-en.musicxml` | `<syllabic> begin/end` 把 `Jean-ie` 拼回整词再切音素 | `en_JH-IY1` / `en_N-IY0` ✅(CMUdict `JEANIE = JH IY1 N IY0`,辅音 N 按「最大音节首」归后一音节) |
+| `shengshengman.musicxml --language zh` | pypinyin TONE3 整音节 | 寻`zh_xun2` 觅`zh_mi4` 冷`zh_leng3` 清`zh_qing1` ✅ |
+| 同一份 `--language yue` | ToJyutping 整音节 | 寻`yue_cam4` 觅`yue_mik6` 冷`yue_laang5` 清`yue_cing1` ✅ |
+
+三份音素**全部命中 phone_set,零落空**;三份输出 MD5 互不相同(zh/yue 同谱不同音,证明语言开关真的生效)。
+
+### 参考音(prompt)现状
+
+仓库自带 `en_prompt` / `zh_prompt`,**没有 yue_prompt** —— 粤语这次借用了 `yue_target`,
+它本是目标不是参考,所以输出峰值顶到 0 dB。要正式用粤语,得单独准备一条参考音。
+
+**这也连着那条还没解决的商用前置:参考音必须是我们有权使用的人声,不能克隆真实歌手。**
+
+### 用完
+
+**停机即可,不要删 Pod。** 环境在网络盘上,停机只剩 $3.50/月的盘钱,
+下次开机 2 分钟就能用。(删 Pod 也不伤盘,但要重新配 SSH。)

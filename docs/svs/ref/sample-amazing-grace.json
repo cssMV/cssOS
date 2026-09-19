@@ -1,0 +1,15 @@
+[
+  {
+    "index": "take1",
+    "language": "English",
+    "time": [
+      0,
+      31324
+    ],
+    "duration": "1.33 0.67 1.33 0.33 0.33 1.33 0.67 1.33 0.67 1.33 0.67 1.33 0.33 0.33 1.33 0.33 0.33 1.33 0.33 0.33 1.33 0.33 0.33 1.33 0.33 0.33 1.33 0.33 0.33 1.33 0.67 1.33 0.33 0.33 1.33 0.67 1.33 2.00",
+    "text": "<SP> Amazing~1 Amazing~2 Amazing~3 grace how sweet the sound That saved a wretch like me I once was lost but now am found Was blind but now I see see see see see see see see see see",
+    "phoneme": "<SP> en_AH0 en_M-EY1 en_Z-IH0-NG en_G-R-EY1-S en_HH-AW1 en_S-W-IY1-T en_DH-AH0 en_S-AW1-N-D en_DH-AE1-T en_S-EY1-V-D en_AH0 en_R-EH1-CH en_L-AY1-K en_M-IY1 en_AY1 en_W-AH1-N-S en_W-AA1-Z en_L-AO1-S-T en_B-AH1-T en_N-AW1 en_AE1-M en_F-AW1-N-D en_W-AA1-Z en_B-L-AY1-N-D en_B-AH1-T en_N-AW1 en_AY1 en_S-IY1 en_S-IY1 en_S-IY1 en_S-IY1 en_S-IY1 en_S-IY1 en_S-IY1 en_S-IY1 en_S-IY1 en_S-IY1",
+    "note_pitch": "0 67 72 76 72 76 74 72 69 67 67 72 76 72 76 74 76 79 74 76 79 76 74 72 69 67 72 69 67 67 67 72 76 72 76 74 72 72",
+    "note_type": "1 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 3 3 3 3 3 3 3 3 3"
+  }
+]

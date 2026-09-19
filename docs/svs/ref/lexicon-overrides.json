@@ -1,0 +1,15 @@
+{
+  "_说明": "CMUdict 查不到、由人工补的发音。每条必须写明依据 —— 这里的每一个音素都是替歌手做的决定, 不能是拍脑袋。格式同 CMUdict: ARPAbet, 元音带重音位数字。元音个数 = 演唱时的音节数。",
+  "_用法": "svs-score-to-soulx.py 先查 CMUdict, 查不到再查这里; 两处都没有就拒绝输出。",
+
+  "o'er": {
+    "phones": ["OW1", "R"],
+    "syllables": 1,
+    "依据": "over 的诗体缩写。CMUdict: over = OW1-V-ER0(两音节)。唱作一个音节时中间的 V 脱落、元音合并, 押韵于 more/shore。CMUdict 未收此词, 本条为人工补。"
+  },
+  "e'er": {
+    "phones": ["EH1", "R"],
+    "syllables": 1,
+    "依据": "ever 的诗体缩写。由 CMUdict 自己的 ne'er = N-EH1-R 去掉首辅音 N 推得 —— 不是臆造, 是词典内部的同源证据。CMUdict 未单独收 e'er。"
+  }
+}

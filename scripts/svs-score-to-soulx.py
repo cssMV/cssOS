@@ -126,10 +126,142 @@ def word_units(word, cmu, align):
     return [(f"{word}~{i+1}", syl) for i, syl in enumerate(syls)]
 
 
-def build_from_score_lyrics(notes, cmu, language):
+HAN = re.compile(r"[\u4e00-\u9fff]")
+
+
+def cjk_phones(word, language):
+    """汉字 -> SoulX 音素。
+
+    实测 phone_set.json 的中文/粤语音素是【整音节带声调】, 不是声母+韵母:
+        zh_zhong1 ✅   zh_zh ❌   zh_ong1 ❌
+        yue_ngo5  ✅   yue_ng ❌  yue_o5  ❌
+    所以一个汉字 = 一个 token, 不需要像英文那样用 '-' 拼接。
+
+    工具选的是 SoulX 自己 requirements 里那两个的同类:
+        zh  -> pypinyin, TONE3 风格, 轻声记作 5(词表里确有 zh_bian5 这类)
+        yue -> ToJyutping(SoulX requirements 里就有它)
+    实测《声声慢》《唐伯虎》《李白》《苏东坡》真歌词共 52 字, 两种语言各 52/52 命中。
+
+    查不到就返回 None, 交给调用方拒绝 —— 不猜, 不拿近似音顶替。
+    """
+    if language == "zh":
+        try:
+            from pypinyin import lazy_pinyin, Style
+        except ImportError:
+            return None, "缺 pypinyin: pip install pypinyin"
+        out = lazy_pinyin(word, style=Style.TONE3, neutral_tone_with_five=True)
+        return [p for p in out if p], None
+    if language == "yue":
+        try:
+            import ToJyutping
+        except ImportError:
+            return None, "缺 ToJyutping: pip install ToJyutping"
+        pairs = ToJyutping.get_jyutping_list(word)
+        got = [j for _, j in pairs if j]
+        if len(got) != len(word):
+            return None, f"粤拼没给全: {word!r} {len(word)} 字只查到 {len(got)} 个"
+        return got, None
+    return None, f"不支持的语言: {language}"
+
+
+def load_lexicon_overrides(path):
+    """人工补音词表 —— CMUdict 查不到时的第二道查询。
+
+    为什么做成外部文件而不是代码里的常量: 这里的每一个音素都是【替歌手做的决定】,
+    必须可见、可审、可质疑。文件里每条都要写"依据"(o'er 由 over 推、e'er 由词典
+    自己的 ne'er 去掉 N 推), 而不是谁在代码里悄悄塞一行。
+    查不到就查不到, 照旧拒绝输出 —— 这张表只是让"已经想清楚的词"不必每次重想。
+    """
+    if not path or not Path(path).exists():
+        return {}
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    return {k.lower(): v["phones"] for k, v in raw.items()
+            if not k.startswith("_") and isinstance(v, dict) and v.get("phones")}
+
+
+def join_syllabic_words(notes):
+    """按 <syllabic> 把被谱子切开的音节拼回整词。
+
+    谱子存的是【音节】(va / por、Jean / nie), CMUdict 是【整词】词典 ——
+    逐个音节去查必然落空, 这正是 Jeannie 那次 'va' 查不到的原因。
+    <syllabic> 标签(single / begin / middle / end)恰恰记录了哪几个音节属于同一个词,
+    这个信息谱子自己给了, 不用猜。
+
+    返回 [(整词, [该词占据的 note 索引])], 休止和无词音符不入组。
+    """
+    groups, buf, idxs = [], [], []
+    for i, n in enumerate(notes):
+        if n["midi"] is None or not n.get("lyric") or n["tied_from"]:
+            continue
+        syl = (n.get("syllabic") or "single").lower()
+        if syl == "single":
+            groups.append((n["lyric"], [i]))
+        elif syl == "begin":
+            buf, idxs = [n["lyric"]], [i]
+        elif syl in ("middle", "end"):
+            if not buf:                       # end 没有配对的 begin —— 谱子标记坏了
+                groups.append((n["lyric"], [i]))
+                continue
+            buf.append(n["lyric"]); idxs.append(i)
+            if syl == "end":
+                groups.append(("".join(buf), list(idxs)))
+                buf, idxs = [], []
+    if buf:                                   # begin 之后没有 end
+        groups.append(("".join(buf), list(idxs)))
+    return groups
+
+
+def split_phones_by_syllable(phones, n_syl):
+    """把一个整词的音素按音节切开。
+
+    规则(最大音节首原则, English syllabification 的标准做法):
+      每个音节恰好一个元音核; 两个元音之间的辅音【归后一个音节】。
+      vapor  V-EY1-P-ER0  ->  [V-EY1] [P-ER0]
+      amazing AH0-M-EY1-Z-IH0-NG -> [AH0] [M-EY1] [Z-IH0-NG]
+
+    这条规则是替作曲家做的一个决定, 所以配了一道硬闸:
+    【词典元音数 ≠ 谱子音节数就直接拒绝】, 不硬凑。实测 vapor/jeannie/summer/
+    amazing/wretch/water 六个样本元音数与音节数全部一致 —— 不一致往往意味着
+    谱子的音节切分和词典的读法根本不是同一个词。
+    """
+    vi = [i for i, p in enumerate(phones) if VOWEL.match(p)]
+    if len(vi) != n_syl:
+        return None
+    if n_syl == 1:
+        return [list(phones)]
+    out, start = [], 0
+    for k in range(n_syl - 1):
+        # 本音节吃到【自己的元音】为止; 元音之后的辅音留给下一个音节
+        end = vi[k] + 1
+        out.append(list(phones[start:end]))
+        start = end
+    out.append(list(phones[start:]))
+    return out
+
+
+def build_from_score_lyrics(notes, cmu, language, overrides=None):
     """谱子自带 <lyric> —— 对齐信息就在谱子里, 不猜。"""
+    # W2117 —— 先按 <syllabic> 把音节拼回整词查词典, 再把音素分回各音节。
+    #   旧做法是拿 'va' 这种半截音节直接查 CMUdict, 必然落空(Jeannie 那次就卡在这里)。
+    #   note 索引 -> 该音符应得的音素列表; 拼不出或元音数对不上的词【不进表】,
+    #   下面照旧走"查不到就拒绝"的老路, 不会因为这层新逻辑而静默放过。
+    overrides = overrides or {}
+    syl_phones = {}
+    for word, idxs in join_syllabic_words(notes):
+        if len(idxs) < 2:
+            continue                       # single 音节照旧逐个查, 不绕这一层
+        key = re.sub(r"[^a-z']", "", word.lower())
+        prons = cmu.get(key) or ([overrides[key]] if key in overrides else None)
+        if not prons:
+            continue
+        parts = split_phones_by_syllable(prons[0], len(idxs))
+        if parts is None:
+            continue                       # 元音数 != 音节数 -> 不硬分, 留给下面报错
+        for i, ph in zip(idxs, parts):
+            syl_phones[i] = ph
+
     text, phoneme, pitch, ntype, dur = [], [], [], [], []
-    for n in notes:
+    for idx, n in enumerate(notes):
         if n["midi"] is None:
             text.append("<SP>"); phoneme.append("<SP>")
             pitch.append(0); ntype.append(1); dur.append(round(n["sec"], 3))
@@ -142,12 +274,27 @@ def build_from_score_lyrics(notes, cmu, language):
             phoneme.append(next(p for p in reversed(phoneme) if p != "<SP>"))
             pitch.append(n["midi"]); ntype.append(3); dur.append(round(n["sec"], 3))
             continue
-        key = re.sub(r"[^a-z']", "", w.lower())
-        prons = cmu.get(key)
-        if not prons:
-            return None, f"CMUdict 里没有这个音节: {w!r}(谱子按音节分词时常见, 需人工补音)"
+        if language in ("zh", "yue") or HAN.search(w):
+            # W2117 —— 中文/粤语走整音节 G2P, 【绝不走 CMUdict】。
+            #   旧代码只把 --language 当成前缀用, 查的始终是英文词典 ——
+            #   `--language zh` 会产出 zh_AH0-M-EY1 这种带中文前缀的英文音素,
+            #   而真正的中文音素长 zh_zhong1 这样。那道可选的 --phone-set 自检
+            #   是唯一能拦住它的东西, 忘了加就静默产出垃圾。
+            got, err = cjk_phones(w, language if language != "en" else "zh")
+            if not got:
+                return None, err or f"取不到 {w!r} 的{language}音素"
+            phones = got
+        elif idx in syl_phones:                    # W2117: 拼词成功, 用分好的那一份
+            phones = syl_phones[idx]
+        else:
+            key = re.sub(r"[^a-z']", "", w.lower())
+            prons = cmu.get(key) or ([overrides[key]] if key in overrides else None)
+            if not prons:
+                return None, (f"CMUdict 里没有这个音节: {w!r}"
+                              "(已按 <syllabic> 试过拼词; 仍查不到则需人工补音)")
+            phones = prons[0]
         text.append(w)
-        phoneme.append(f"{language}_" + "-".join(prons[0]))
+        phoneme.append(f"{language}_" + "-".join(phones))
         pitch.append(n["midi"]); ntype.append(2); dur.append(round(n["sec"], 3))
     return {"text": text, "phoneme": phoneme, "note_pitch": pitch,
             "note_type": ntype, "duration": dur}, None
@@ -159,7 +306,13 @@ def build(notes, lyric_words, cmu, align, language):
     # 先把每个词展开成【要占几个音符】的单元
     units = []
     for w in lyric_words:
-        u = word_units(w, cmu, align)
+        if language in ("zh", "yue") or HAN.search(w):
+            got, err = cjk_phones(w, language if language != "en" else "zh")
+            if not got:
+                return None, err or f"取不到 {w!r} 的{language}音素"
+            u = [[g] for g in got]          # 一字一音节, 每个音节一个 token
+        else:
+            u = word_units(w, cmu, align)
         if u is None:
             return None, f"CMUdict 里没有这个词: {w!r}"
         units.extend(u)
@@ -200,7 +353,10 @@ def main():
     ap.add_argument("--align", choices=["word", "syllable"], default="syllable")
     ap.add_argument("--bpm", type=float, default=90.0, help="谱子没写 tempo 时的默认速度")
     ap.add_argument("--index", default="take1")
-    ap.add_argument("--language", default="en", choices=["en", "zh"])
+    ap.add_argument("--language", default="en", choices=["en", "zh", "yue"])
+    ap.add_argument("--lexicon", type=Path,
+                    default=Path(__file__).resolve().parent.parent / "docs/svs/ref/lexicon-overrides.json",
+                    help="人工补音词表(CMUdict 查不到时的第二道查询)")
     ap.add_argument("--phone-set", type=Path,
                     help="SoulX phone_set.json; 给了就逐音素校验词表命中")
     a = ap.parse_args()
@@ -223,7 +379,10 @@ def main():
     has_score_lyrics = any(n.get("lyric") for n in notes)
     if has_score_lyrics and not a.lyrics:
         print("  谱子自带 <lyric>, 按谱对齐(不猜拖腔位置)")
-        seq, warn = build_from_score_lyrics(notes, cmu, a.language)
+        ovr = load_lexicon_overrides(a.lexicon)
+        if ovr:
+            print(f"  人工补音词表: {len(ovr)} 条({', '.join(sorted(ovr))})")
+        seq, warn = build_from_score_lyrics(notes, cmu, a.language, ovr)
     else:
         if not a.lyrics:
             sys.exit("这份谱子既没有 <lyric>, 也没给 --lyrics —— "
@@ -258,7 +417,7 @@ def main():
 
     rec = {
         "index": a.index,
-        "language": {"en": "English", "zh": "Mandarin"}[a.language],
+        "language": {"en": "English", "zh": "Mandarin", "yue": "Cantonese"}[a.language],
         "time": [0, int(total * 1000)],
         "duration":   " ".join(f"{d:.2f}" for d in seq["duration"]),
         "text":       " ".join(seq["text"]),

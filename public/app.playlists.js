@@ -575,6 +575,8 @@
       // 所以送哨兵 -1 给播放器, 由它按真数组解析成「最后一版」。
       state.take = takeCount(item);
       _wantLast = true;
+      // 下一次 step() 采纳一次播放器的回报(哨兵 -1 到底落在第几版, 只有它知道)
+      state.__awaitPlayerTake = true;
     }
     try { globalThis.__cssosPendingTake = _wantLast ? -1 : (state.take || 1); } catch (_e) {}
     try {
@@ -597,13 +599,24 @@
     {
       const cur = list.items[state.index] || null;
       if (!state.take) state.take = 1;
-      /* W2116 — 与播放器对齐。倒退进一首歌时队列送的是哨兵 -1, 真正落在第几版
-       * 只有播放器知道; 不对齐的话下一次前进会从错误的序号开始数。 */
-      try {
-        const _st = globalThis.__cssosTakeState;
-        if (_st && cur && String(_st.workId || "") === String(cur.id || "")
-            && Number(_st.take) >= 1) state.take = Number(_st.take);
-      } catch (_e) {}
+      /* W2116 — 与播放器对齐, 但【只在队列自己问过的时候】。
+       *
+       * 倒退进一首歌时队列送的是哨兵 -1, 真正落在第几版只有播放器知道, 所以要问一次。
+       * 但【不能每次都问】—— 实测(20260919)无条件信播放器会把队列钉死:
+       *   next() 连叫 5 次全部返回同一首 —— 播放器报 take=2(它那一版没真切过去),
+       *   队列每次被拉回 2 再 +1 到 3, 永远翻不过下一首。
+       * 这就是 W1928「切不动歌」的同一种死法, 只是换了个入口。
+       *
+       * 所以: 前进方向由【队列自己】单调推进, 播放器的回报只在哨兵那一次被采纳。
+       * 播放器真没跟上, 最坏是少听一版, 绝不会卡在一首歌上出不去。 */
+      if (state.__awaitPlayerTake) {
+        state.__awaitPlayerTake = false;
+        try {
+          const _st = globalThis.__cssosTakeState;
+          if (_st && cur && String(_st.workId || "") === String(cur.id || "")
+              && Number(_st.take) >= 1) state.take = Number(_st.take);
+        } catch (_e) {}
+      }
       /* W2116 第3步 — 闸门从「♪1↔♪2」放开成「♪1..♪N」。位置一个字没挪:
        * 还在 step() 里、还在所有模式判断之前 —— W1928 用一整轮换来的那条结论不动。
        * N=2 时这段与改前等价: take 1 → 2 → 归位翻页; 倒退 2 → 1 → 上一首末版。 */

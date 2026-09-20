@@ -10,12 +10,24 @@
 """
 import json, subprocess, sys
 
+# 清单必须【两类都覆盖】。
+#   第一版只查了「有语言轨」的作品, 于是【没有语言轨的作品(MV 管线创作)一个都没查】——
+#   而恰恰是那一类出了问题: 端点合成的伪轨 audio_url 取 preview_audio_url,
+#   而 loadWorkTakes 读的是 work_assets, 两者不一定相等。漏掉一整类 = 假通过。
 WORKS_SQL = """
-SELECT DISTINCT w.id::text
-  FROM user_works w
-  JOIN work_language_tracks lt ON lt.work_id = w.id
- WHERE lt.audio_url IS NOT NULL AND lt.audio_url <> ''
- ORDER BY 1 LIMIT 400;
+(SELECT DISTINCT w.id::text
+   FROM user_works w
+   JOIN work_language_tracks lt ON lt.work_id = w.id
+  WHERE lt.audio_url IS NOT NULL AND lt.audio_url <> ''
+  ORDER BY 1 LIMIT 300)
+UNION ALL
+(SELECT w.id::text
+   FROM user_works w
+  WHERE NOT EXISTS (SELECT 1 FROM work_language_tracks lt WHERE lt.work_id = w.id)
+    AND (w.preview_audio_url IS NOT NULL
+         OR EXISTS (SELECT 1 FROM work_assets a WHERE a.work_id=w.id
+                     AND a.asset_type IN ('audio_track_1','audio_track_2')))
+  ORDER BY 1 LIMIT 200);
 """
 
 EXPECT_EXTRA = [  # 应该长出 source=versions 的那几首(唐伯虎 3 + 李清照 3)
@@ -46,7 +58,7 @@ def main():
     raw = sh("ssh api-vm 'bash /tmp/pull.sh'")
 
     checked = 0
-    bad_identity, gained = [], {}
+    bad_identity, gained, surfaced = [], {}, []
     cur_id, buf = None, []
 
     def flush():
@@ -69,7 +81,16 @@ def main():
                     (t.get("lang"), t.get("voice"), len(takes), len(frm_ver)))
                 continue                      # 有额外版本的轨不适用「帧同一」
             got = [k["url"] for k in takes]
-            if got != legacy:
+            if got == legacy:
+                continue
+            # 两种「不一致」性质完全不同, 混在一起报就是误导:
+            #   ① 老字段是新数组的【前缀】= ♪1(以及 ♪2)原样没动, 末尾多出本来就存在
+            #      却从没露过面的版本 → 这是 W2116 要的效果, 不是回归。
+            #   ② 其它任何情况 = 用户点开听到的东西变了 → 真回归, 必须失败。
+            if got[:len(legacy)] == legacy and len(got) > len(legacy):
+                surfaced.append((cur_id, t.get("lang"), t.get("voice"),
+                                 len(legacy), len(got)))
+            else:
                 bad_identity.append((cur_id, t.get("lang"), t.get("voice"), legacy, got))
 
     for line in raw.splitlines():
@@ -88,7 +109,18 @@ def main():
         for b in bad_identity[:10]:
             print(f"     {b[0][:8]} lang={b[1]} voice={b[2]}\n       老 {b[3]}\n       新 {b[4]}")
     else:
-        print(f"  ✅ {checked} 个作品里, 所有【无额外版本】的轨 takes 与老字段逐条一致")
+        print(f"  ✅ {checked} 个作品里, 没有任何一条轨的【已有版本】被改动过"
+              f"(♪1/♪2 原样, 顺序原样)")
+
+    print(f"\n── A2. 本来就存在、但从前露不出来的版本 ──")
+    if not surfaced:
+        print("  (无)")
+    else:
+        print(f"  ℹ {len(surfaced)} 条轨在末尾多出了版本 —— ♪1 一个字节没动, 只是后面接上了")
+        for x in surfaced[:6]:
+            print(f"     {x[0][:8]} lang={x[1]} voice={x[2]}  {x[3]} 版 → {x[4]} 版")
+        if len(surfaced) > 6:
+            print(f"     …… 另外 {len(surfaced)-6} 条")
 
     print(f"\n── B. 多出来的版本真的冒出来了 ──")
     if not gained:

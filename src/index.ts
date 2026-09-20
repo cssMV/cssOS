@@ -4225,12 +4225,23 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
     ], verLangs, true));
   }
 
-  // 无语言轨的作品(MV 管线创作): 用 work_assets 的两个平格 + 全部版本行
+  /* 无语言轨的作品(MV 管线创作): 端点那边会合成一条伪轨, 它的 audio_url 取的是
+   * 【preview_audio_url 优先, 空了才回退 work_assets.audio_track_1】。
+   * 这里的 ♪1 必须与它【逐字节相同】, 否则用户点开听到的第一首就换人了 ——
+   * 实测全库 35 个这类作品里有 2 个 preview_audio_url ≠ audio_track_1, 正好会栽在这上面。
+   * 所以 seed 的第一位是 preview_audio_url; a1 若与它不同, 自然顺位成 ♪2。 */
   if (!tracks.length) {
+    let preview: string | null = null;
+    try {
+      const r = await withClient((c) => c.query<{ preview_audio_url: string | null; duration_secs: number | null }>(
+        `SELECT preview_audio_url, duration_secs FROM user_works WHERE id = $1::uuid LIMIT 1`, [workId]));
+      preview = String(r.rows[0]?.preview_audio_url || "").trim() || null;
+    } catch (e) { console.warn("[takes] 读 preview_audio_url 失败:", (e as Error)?.message?.slice(0, 120)); }
     const a1 = assets.find((a) => a.asset_type === "audio_track_1")?.url || null;
     const a2 = assets.find((a) => a.asset_type === "audio_track_2")?.url || null;
     // 没有任何语言轨 → 不存在「别的声线」, 版本行全收; 键留空串供端点兜底查。
-    out.set("", build("assets", [{ url: a1, dur: null }, { url: a2, dur: null }],
+    out.set("", build("assets",
+      [{ url: preview, dur: null }, { url: a1, dur: null }, { url: a2, dur: null }],
       [...versByLang.keys()], false));
   }
   return out;

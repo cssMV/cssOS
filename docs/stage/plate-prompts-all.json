@@ -1,0 +1,232 @@
+[
+ {
+  "stage_id": "hall-shang-bronze",
+  "zh": "青铜 · 神话时空",
+  "prompt": "An EMPTY Shang-dynasty ancestral shrine, no people. Massive cast-bronze ding and gu vessels with taotie masks, verdigris over black metal, a rack of bronze bells, rammed-earth floor, thick timber posts, jade discs laid on a low stone altar, oracle-bone plastrons scattered. A doorway giving onto a night sky with cold stars. The lower-centre of the frame is open uncluttered floor. MOOD: archaic and pre-history; the weight of ritual before writing settled; awe without menace. Palette: bronze verdigris, ember amber, cold jade grey."
+ },
+ {
+  "stage_id": "hall-dancheong",
+  "zh": "丹青 · 宫阙",
+  "prompt": "An EMPTY Joseon palace hall, no people. Dancheong-painted rafters in green, vermilion and cobalt geometric patterns, polished dark wood floor, paper-latticed doors half open onto a stone courtyard with a granite terrace and pine, a low lacquered table with a gayageum resting on it. The lower-centre of the frame is open uncluttered floor. MOOD: court formality with a scholar's restraint; cold clear autumn air. Palette: dancheong green and vermilion, cobalt, granite grey."
+ },
+ {
+  "stage_id": "hall-halflight",
+  "zh": "半明半暗 · 极夜",
+  "prompt": "An EMPTY Norse longhouse, no people. Heavy carved timber posts with interlace knotwork, a long cold hearth of blackened stones, hanging woven textiles, iron shields on the wall, a doorway open onto a snowbound fjord under a low polar half-light sky, frost on the threshold. The lower-centre of the frame is open uncluttered floor. MOOD: the long dark; endurance rather than battle; half-light, never firelit drama. Palette: ice blue-white, black timber, dull iron, frost."
+ },
+ {
+  "stage_id": "hall-sandstone",
+  "zh": "砂岩 · 长日",
+  "prompt": "An EMPTY Egyptian temple hypostyle hall, no people, NO statues of gods or pharaohs, NO painted human figures on the columns. Massive sandstone papyrus columns with carved plant capitals and deep incised hieroglyph bands, a shaft of daylight from a clerestory slot, sand drifted across the stone floor, an alabaster offering basin. The lower-centre of the frame is open uncluttered floor. MOOD: the long millennial day; geometry and sun; archaeology not fantasy. Palette: sandstone ochre, deep shadow, pale sky, alabaster."
+ },
+ {
+  "stage_id": "hall-ziggurat",
+  "zh": "泥砖 · 星台",
+  "prompt": "An EMPTY Mesopotamian temple terrace, no people. Mudbrick walls with recessed buttress niches, glazed blue brick banding, bitumen-sealed steps, clay cones set in patterns, a low altar of baked brick, an enormous night sky dense with stars over a flat plain and a distant ziggurat. The lower-centre of the frame is open uncluttered floor. MOOD: the first cities under the first star charts; earth and sky, nothing between. Palette: mud brown, glazed lapis blue, star white."
+ },
+ {
+  "stage_id": "hall-lapis",
+  "zh": "青金 · 拜火",
+  "prompt": "An EMPTY Persian fire temple chamber, no people, NO idols or figures. A stone fire-altar with a low steady flame under a domed chahar-taq, lapis and turquoise tilework in geometric stars, carved stone screens, a pool of still water, an arched opening onto a dusk mountain horizon. The lower-centre of the frame is open uncluttered floor. MOOD: purity and duality; the flame as the only figure in the room. Palette: lapis blue, turquoise, flame gold, stone grey."
+ },
+ {
+  "stage_id": "hall-muqarnas",
+  "zh": "钟乳拱 · 灯影",
+  "prompt": "An EMPTY Islamic palace hall, no people, NO figural imagery anywhere. Honeycomb muqarnas vaulting, deep zellij tile geometry, carved stucco arabesque and Kufic bands, a marble fountain with still water, pierced brass lanterns casting lace-like shadows, a horseshoe arch onto a courtyard of orange trees. The lower-centre of the frame is open uncluttered floor. MOOD: geometry as devotion; cool shade against a hot country. Palette: honey brass, zellij blue-green, cream stucco, shadow."
+ },
+ {
+  "stage_id": "hall-temple-lamp",
+  "zh": "庙灯 · 浓彩",
+  "prompt": "An EMPTY south Indian temple mandapa, no people, NO statues or carved figures of gods. Black granite pillars with lathe-turned mouldings, a polished stone floor worn smooth, rows of brass oil lamps burning low, thick garlands of marigold and jasmine hung between columns, camphor smoke, a dark inner doorway. The lower-centre of the frame is open uncluttered floor. MOOD: heat, smoke and devotion; the pillars and the lamps carry it, nothing else. Palette: marigold orange, granite black, brass, camphor white."
+ },
+ {
+  "stage_id": "hall-first-light",
+  "zh": "初光 · 旷远",
+  "prompt": "An EMPTY ancient Levantine sanctuary at dawn, no people, NO idols. Rough hewn limestone walls and a plain stone altar, a seven-branched bronze lampstand, woven wool hangings in indigo and scarlet, a doorway open onto a vast desert horizon at first light, dust in the air. The lower-centre of the frame is open uncluttered floor. MOOD: the first morning; vast quiet awe; austerity, nothing ornamental. Palette: limestone bone, indigo, scarlet thread, pale dawn."
+ },
+ {
+  "stage_id": "hall-mist-harp",
+  "zh": "雾 · 竖琴",
+  "prompt": "An EMPTY Celtic hall, no people. A dry-stone roundhouse interior with a conical thatched roof, a central hearth of grey ash, a carved wooden harp resting against a post, spiral La Tene motifs on a bronze shield, the doorway open onto a moor lost in mist, wet heather. The lower-centre of the frame is open uncluttered floor. MOOD: elegy and weather; Camelot in autumn, after everyone has gone. Palette: moss green, wet grey stone, bronze, mist white."
+ },
+ {
+  "stage_id": "hall-black-choir",
+  "zh": "黑木 · 合唱",
+  "prompt": "An EMPTY wooden Slavic church interior, no people, NO icons of saints, NO painted faces. Blackened log walls and a many-tiered shingle roof seen from within, plain beeswax candles on iron stands, embroidered linen cloths with red geometric patterns, narrow windows admitting cold northern light, a bare wooden floor. The lower-centre of the frame is open uncluttered floor. MOOD: brooding dread under a low sky; timber, wax and cold. Palette: black timber, beeswax gold, linen white, red thread."
+ },
+ {
+  "stage_id": "hall-chiaroscuro",
+  "zh": "明暗 · 画室",
+  "prompt": "An EMPTY Renaissance workshop, no people, NO statues or busts. A high north window with a single shaft of light, easels with blank primed panels, ground pigments in clay dishes, brushes and a mahlstick, anatomical sketches pinned to plaster, a wooden armature, dust motes in the beam. The lower-centre of the frame is open uncluttered floor. MOOD: the workshop of someone who measures everything; one window, one truth. Palette: raw sienna, lead white, deep umber shadow."
+ },
+ {
+  "stage_id": "hall-candlewax",
+  "zh": "烛蜡 · 长廊",
+  "prompt": "An EMPTY European gallery corridor, no people, NO portraits with faces. Panelled walls, a long run of tall windows with wavy glass on one side, a worn stone floor, iron candle sconces with heavy wax drips, a mahogany side table with a globe and a stack of folios, a distant doorway. The lower-centre of the frame is open uncluttered floor. MOOD: the long walk of a long century; wax, wood and cold glass. Palette: candle gold, mahogany, cold window grey."
+ },
+ {
+  "stage_id": "hall-atlantic",
+  "zh": "大西洋 · 黄昏",
+  "prompt": "An EMPTY Portuguese seafront room, no people. Blue-and-white azulejo tiled walls with geometric and ship motifs, a worn tile floor, an open shuttered window onto the Atlantic at dusk with a pale lighthouse, a wooden table with charts, a dividers and an astrolabe, a guitarra leaning in a corner. The lower-centre of the frame is open uncluttered floor. MOOD: saudade; the ocean's vastness seen from indoors; departure. Palette: azulejo blue, whitewash, dusk gold, sea grey."
+ },
+ {
+  "stage_id": "hall-obsidian",
+  "zh": "黑曜 · 羽饰",
+  "prompt": "An EMPTY Mesoamerican temple chamber, no people, NO carved deity figures or skull racks. Stepped stone walls with geometric fret patterns, polished obsidian mirrors set in niches, copal smoke from a stone brazier, quetzal-feather standards, a doorway onto a jungle-covered pyramid under heavy sky. The lower-centre of the frame is open uncluttered floor. MOOD: the weight of a calendar older than the invaders; solemn, never gruesome. Palette: obsidian black, jade green, turquoise, feather red."
+ },
+ {
+  "stage_id": "hall-neon-rain",
+  "zh": "霓虹 · 雨",
+  "prompt": "An EMPTY cyberpunk alley interior, no people. A rain-soaked concrete floor reflecting neon signage in Japanese and Chinese, tangled cable runs and vent stacks, a cracked holographic display flickering, steam from a grate, a roller shutter half open onto a rain-streaked megacity. The lower-centre of the frame is open uncluttered floor. MOOD: the city as weather; saturated and lonely, no crowd. Palette: neon cyan and magenta, wet black, sodium orange."
+ },
+ {
+  "stage_id": "hall-lab",
+  "zh": "实验室 · 冷光",
+  "prompt": "An EMPTY research laboratory, no people. Brushed steel benches, glass isolation panels, coiled cryogenic lines with frost, a wall of dark monitors showing faint waveform traces, recessed cold LED strips, a sealed door with a warning stripe. The lower-centre of the frame is open uncluttered floor. MOOD: clinical and unblinking; a room that does not care who is in it. Palette: cold white, steel grey, cyan trace light."
+ },
+ {
+  "stage_id": "hall-ashen",
+  "zh": "灰烬 · 王座",
+  "prompt": "An EMPTY dark-fantasy throne hall, no people, NO figures on the tapestries. A vast cracked stone floor covered in fine grey ash, blackened gothic ribs and shattered stained glass admitting weak light, burnt banners hanging in rags, an empty iron throne seen from the side, embers drifting. The lower-centre of the frame is open uncluttered floor. MOOD: after the ending; grandeur gone cold; the throne is empty and stays empty. Palette: ash grey, ember red, black iron, cold glass blue."
+ },
+ {
+  "stage_id": "hall-carnival",
+  "zh": "游艺 · 歪斜",
+  "prompt": "An EMPTY carnival tent interior at night, no people, NO clowns or figures. Faded red-and-white striped canvas, a crooked wooden stage, warped funhouse mirrors, strings of dim carnival bulbs, a broken carousel horse on its side, sawdust floor, rain on the canvas. The lower-centre of the frame is open uncluttered floor. MOOD: the fairground after everyone left; off-kilter, sad rather than scary. Palette: faded circus red, bulb amber, sawdust, wet canvas."
+ },
+ {
+  "stage_id": "hall-venetian",
+  "zh": "百叶 · 冷烟",
+  "prompt": "An EMPTY noir office, no people. Venetian blinds slicing hard bars of streetlight across a desk with a rotary telephone and a glass ashtray, cigarette smoke hanging in the beams, a frosted-glass door with reversed lettering, rain on the window, a hat stand. The lower-centre of the frame is open uncluttered floor. MOOD: the small hours; suspicion and cigarette smoke; monochrome discipline. Palette: blue-black shadow, sodium street amber, smoke grey."
+ },
+ {
+  "stage_id": "hall-yoruba",
+  "zh": "铜雕 · 靛蓝",
+  "prompt": "An EMPTY Yoruba palace veranda, no people, NO bronze heads or figural sculpture. Carved hardwood posts with deep geometric relief, adire indigo-dyed cloth hung in panels, a swept red-earth floor, brass bowls, a thatched roof edge, an open courtyard with a kola tree in strong sun. The lower-centre of the frame is open uncluttered floor. MOOD: indigo and brass under a hard sun; craft and lineage. Palette: indigo blue, brass gold, laterite red, deep shade."
+ },
+ {
+  "stage_id": "hall-goldweight",
+  "zh": "金衡 · 红土",
+  "prompt": "An EMPTY Ashanti courtyard, no people, NO figures. Adinkra-stamped mud walls in ochre and black, a swept red-earth floor, brass goldweights and scales on a carved wooden stool, kente cloth folded on a bench, a low thatched eave, hard midday light and deep shade. The lower-centre of the frame is open uncluttered floor. MOOD: weight, measure and proverb; ceremony without display. Palette: gold, ochre, laterite red, black stamp."
+ },
+ {
+  "stage_id": "hall-shield",
+  "zh": "牛皮盾 · 草原",
+  "prompt": "An EMPTY Zulu homestead interior, no people. A domed grass-woven dwelling seen from inside, its spiral framework of bent saplings, cowhide shields and long spears stacked against the wall, clay beer pots on a smoothed earth floor, a low opening onto a vast grassland at golden hour. The lower-centre of the frame is open uncluttered floor. MOOD: the open country pressing in; craft, cattle and horizon. Palette: hide tan, grass gold, clay red, deep green shadow."
+ },
+ {
+  "stage_id": "hall-coral-port",
+  "zh": "珊瑚石 · 季风",
+  "prompt": "An EMPTY Swahili coast room, no people. Coral-rag plastered walls, a carved Zanzibar door with brass studs standing open, woven palm mats, a rope bed, brass trays and a coffee pot, a shuttered window onto a monsoon sea with dhow sails. The lower-centre of the frame is open uncluttered floor. MOOD: the monsoon turning; trade winds and coral dust. Palette: coral white, brass, indian ocean turquoise, shade."
+ },
+ {
+  "stage_id": "hall-rock-church",
+  "zh": "凿岩 · 圣堂",
+  "prompt": "An EMPTY Ethiopian rock-hewn church, no people, NO painted saints or faces. A chamber carved entirely out of red volcanic rock, blocky hewn pillars and rough chisel marks, a cross-shaped window cut through the stone casting a cross of light on the floor, processional crosses and a drum resting against a wall. The lower-centre of the frame is open uncluttered floor. MOOD: hewn out of the mountain itself; devotion measured in stone removed. Palette: volcanic red, dust ochre, one shaft of white light."
+ },
+ {
+  "stage_id": "hall-afro-modern",
+  "zh": "当代非洲 · 烈色",
+  "prompt": "An EMPTY contemporary African studio, no people. Bold wax-print fabric panels in electric colour hung floor to ceiling, a polished concrete floor, mid-century wooden stools, a wall of louvred windows with hard tropical light, potted banana leaves, a record player and stacked vinyl. The lower-centre of the frame is open uncluttered floor. MOOD: now, not heritage; confident colour and modern space. Palette: electric wax-print colour, concrete grey, tropical light."
+ },
+ {
+  "stage_id": "hall-lagoon",
+  "zh": "礁湖 · 星辰导航",
+  "prompt": "An EMPTY Polynesian meeting house, no people, NO carved figures. Lashed timber rafters bound with sennit cordage in geometric patterns, pandanus mats, a hull-shaped ceiling, an open end onto a turquoise lagoon at dusk, an outrigger canoe drawn up on pale sand, a star compass of sticks and shells on a mat. The lower-centre of the frame is open uncluttered floor. MOOD: navigation by memory; the ocean as a known road. Palette: lagoon turquoise, pandanus straw, dusk violet, shell white."
+ },
+ {
+  "stage_id": "hall-greenstone",
+  "zh": "绿玉 · 雕纹",
+  "prompt": "An EMPTY Maori wharenui interior, no people, NO carved ancestor figures or faces. Deep red-ochre painted rafters with white kowhaiwhai scroll patterns, tukutuku woven lattice panels in black, white and red, a polished timber floor, a greenstone adze resting on a mat, the doorway open onto mist and tree ferns. The lower-centre of the frame is open uncluttered floor. MOOD: the house as a body that remembers; pattern instead of portrait. Palette: ochre red, black, white lattice, greenstone."
+ },
+ {
+  "stage_id": "hall-ochre",
+  "zh": "赭石 · 旱地",
+  "prompt": "An EMPTY rock shelter in arid country, no people, NO painted human or animal figures on the rock. A deep sandstone overhang with ochre and white hand-ground pigment stains, a cold ash circle, coolamon vessels, red earth floor, a vast plain of spinifex under an enormous sky at last light. The lower-centre of the frame is open uncluttered floor. MOOD: deep time; an unbroken sky over red country. Palette: ochre red, white pigment, spinifex gold, indigo sky."
+ },
+ {
+  "stage_id": "hall-angkor",
+  "zh": "砂岩塔 · 藤蔓",
+  "prompt": "An EMPTY Khmer temple gallery, no people, NO carved deity or apsara figures. Corbelled sandstone corridor with blind windows of turned balusters, strangler-fig roots gripping the stone, moss and lichen, a shaft of green forest light, fallen blocks, a pool of rainwater on the floor. The lower-centre of the frame is open uncluttered floor. MOOD: the forest reclaiming an empire; patient ruin, never spooky. Palette: sandstone grey-gold, forest green, moss, humid haze."
+ },
+ {
+  "stage_id": "hall-pagoda-dawn",
+  "zh": "塔林 · 晨雾",
+  "prompt": "An EMPTY Bagan temple interior at dawn, no people, NO Buddha images or statues. Vaulted brick arches, whitewash flaking from red brick, a worn stone floor, a wide arched opening onto a plain of hundreds of brick stupas rising out of morning mist, hot-air balloons far off, thin gold light. The lower-centre of the frame is open uncluttered floor. MOOD: the plain of a thousand towers waking; brick, mist and patience. Palette: brick red, mist white, gold dawn, deep arch shadow."
+ },
+ {
+  "stage_id": "hall-gold-lacquer",
+  "zh": "金漆 · 朱红",
+  "prompt": "An EMPTY Thai temple hall, no people, NO Buddha images or statues. Black-and-gold lacquered pillars with lai thai flame patterns, a red lacquered floor, mother-of-pearl inlaid doors standing open, glass mosaic tiles catching light, rows of unlit candles, an opening onto a tiered roof with naga finials. The lower-centre of the frame is open uncluttered floor. MOOD: gold on red on black; ceremony held in abeyance. Palette: gold leaf, vermilion, black lacquer, mosaic glint."
+ },
+ {
+  "stage_id": "hall-batik",
+  "zh": "蜡染 · 铜锣",
+  "prompt": "An EMPTY Javanese pendopo pavilion, no people, NO wayang puppets with faces. An open-sided pavilion with a soaring joglo roof on carved teak columns, a full gamelan set of bronze gongs and metallophones on carved stands, batik cloth draped over a rail, a polished stone floor, humid green garden beyond. The lower-centre of the frame is open uncluttered floor. MOOD: the moment before the gamelan starts; bronze waiting to be struck. Palette: bronze gong gold, indigo batik, teak brown, green damp."
+ },
+ {
+  "stage_id": "hall-songket",
+  "zh": "金线织 · 海港",
+  "prompt": "An EMPTY Malay timber house interior, no people. Raised plank floor and carved openwork ventilation panels, songket cloth with gold thread folded on a low bench, a brass betel set, shuttered windows thrown open onto a harbour with masts and palm, warm sea light. The lower-centre of the frame is open uncluttered floor. MOOD: the crossroads port; gold thread and sea air. Palette: songket gold, teak, sea haze blue, palm green."
+ },
+ {
+  "stage_id": "hall-capiz",
+  "zh": "贝壳窗 · 群岛",
+  "prompt": "An EMPTY Filipino bahay na bato interior, no people. Capiz shell sliding windows in wooden grids glowing with soft diffused light, a wide polished hardwood floor, carved balustrades, a rattan chair, an oil lamp, an open door onto a courtyard with heavy tropical rain. The lower-centre of the frame is open uncluttered floor. MOOD: the archipelago's light, filtered through shell; rain outside. Palette: capiz pearl, narra red-brown, rain grey, lamp gold."
+ },
+ {
+  "stage_id": "hall-steppe",
+  "zh": "草原 · 长风",
+  "prompt": "An EMPTY Mongolian ger interior, no people. An orange-painted lattice wall and radiating roof poles converging on a round crown opening to a huge sky, a cast-iron stove, felt rugs, a painted chest, a horsehead fiddle resting against the wall, the door flap open onto endless grassland. The lower-centre of the frame is open uncluttered floor. MOOD: the sky through the roof ring; wind, felt and distance. Palette: felt cream, painted orange, sky blue, grass gold."
+ },
+ {
+  "stage_id": "hall-thangka",
+  "zh": "唐卡 · 高原光",
+  "prompt": "An EMPTY Tibetan assembly hall, no people, NO thangka paintings of deities, NO statues, NO faces. Red-painted columns wrapped in patterned cloth, rows of butter lamps burning, long low cushions and folded maroon robes, stacked scripture bundles in cloth wrappers, a window admitting thin brilliant high-altitude light. The lower-centre of the frame is open uncluttered floor. MOOD: thin air and butter smoke; rooms built for chanting, momentarily empty. Palette: maroon red, butter gold, turquoise trim, white light."
+ },
+ {
+  "stage_id": "hall-lotus",
+  "zh": "莲座 · 金身",
+  "prompt": "An EMPTY Buddhist hall, no people, NO Buddha statue, NO deity images, NO faces. Tall red timber columns, a coffered ceiling with lotus medallions, a polished stone floor, an empty carved lotus pedestal, bronze incense burners with slow smoke, hanging silk banners, filtered daylight from high side windows. The lower-centre of the frame is open uncluttered floor. MOOD: the pedestal is empty on purpose; stillness without an object. Palette: lotus gold, cinnabar red, incense grey, stone."
+ },
+ {
+  "stage_id": "hall-mosaic-gold",
+  "zh": "金底 · 镶嵌",
+  "prompt": "An EMPTY Byzantine church interior, no people, NO icons, NO saints, NO faces in the mosaics. A gold tesserae ground covering the vault with only geometric and vine ornament, porphyry and green marble revetment, a marble floor in opus sectile, hanging bronze polykandela with oil lamps, light from a ring of dome windows. The lower-centre of the frame is open uncluttered floor. MOOD: the gold ground as a space rather than a picture; nothing depicted. Palette: tesserae gold, porphyry purple, verd antique green."
+ },
+ {
+  "stage_id": "hall-tyrian",
+  "zh": "推罗紫 · 航路",
+  "prompt": "An EMPTY Phoenician harbour warehouse, no people. Stone piers and cedar beams, amphorae stacked in rows, coils of rope, bolts of cloth dyed deep purple laid on a bench, murex shells in a basket, wide doors open onto a night harbour with a moored ship and a lighthouse fire. The lower-centre of the frame is open uncluttered floor. MOOD: the trade that carried the alphabet; cedar, salt and purple. Palette: tyrian purple, cedar brown, sea black, fire gold."
+ },
+ {
+  "stage_id": "hall-cusco",
+  "zh": "巨石 · 高地",
+  "prompt": "An EMPTY Inca hall, no people, NO carved figures. Colossal polygonal stone blocks fitted without mortar, trapezoidal niches and doorways, a thatched roof structure above, fine textiles in geometric tocapu patterns folded in a niche, an opening onto terraced mountains under a high thin sky. The lower-centre of the frame is open uncluttered floor. MOOD: stone cut to the millimetre by people who had no writing; altitude and precision. Palette: granite grey, textile scarlet and black, high blue sky."
+ },
+ {
+  "stage_id": "hall-baroque",
+  "zh": "巴洛克 · 重帷",
+  "prompt": "An EMPTY Baroque hall, no people, NO ceiling fresco with figures, NO statues. Twisted solomonic columns in dark marble, heavy crimson velvet drapery with gold fringe, a black-and-white marble floor, a massive silver candelabrum, deep shadow between columns, one high window throwing a diagonal shaft. The lower-centre of the frame is open uncluttered floor. MOOD: theatre in architecture; everything is a gesture, and nobody is on stage. Palette: crimson velvet, gold fringe, black marble, silver."
+ },
+ {
+  "stage_id": "hall-neoclassic",
+  "zh": "新古典 · 素白柱",
+  "prompt": "An EMPTY Neoclassical salon, no people, NO busts or statues. Fluted white pilasters and a restrained frieze of geometric meander, a pale grey-green wall, a polished parquet floor, a fortepiano with its lid closed, a marble mantel with a cased clock, tall sash windows with thin daylight. The lower-centre of the frame is open uncluttered floor. MOOD: reason and proportion; cool, measured, unemotional. Palette: chalk white, grey-green, pale gold, cold daylight."
+ },
+ {
+  "stage_id": "hall-nordic-modern",
+  "zh": "北欧现代 · 素木",
+  "prompt": "An EMPTY Nordic modern room, no people. Pale birch floor and wall panelling, a single long window wall onto snow-covered pines under flat grey light, a plain wooden bench, a ceramic vase, a wool throw, nothing else; extreme restraint. The lower-centre of the frame is open uncluttered floor. MOOD: light as the only luxury; emptiness chosen, not imposed. Palette: birch pale, snow white, grey sky, wool grey."
+ },
+ {
+  "stage_id": "hall-newworld",
+  "zh": "新大陆 · 钢与玻璃",
+  "prompt": "An EMPTY North American loft, no people. Black steel window frames in a full-height glass wall onto a city skyline at blue hour, exposed brick and riveted steel columns, a worn oak floor, a drafting table with rolled plans, a pendant lamp with a bare bulb. The lower-centre of the frame is open uncluttered floor. MOOD: room made of engineering and view; ambition with the lights still off. Palette: steel black, brick red, blue-hour glass, bulb amber."
+ },
+ {
+  "stage_id": "hall-void",
+  "zh": "虚空 · 星尘",
+  "prompt": "An EMPTY observation chamber in deep space, no people. A vast curved viewport filling the frame with a nebula and a dense starfield, a dark metal deck with faint inlaid guide lights, a plain railing, no instruments visible, the room lit almost entirely by the nebula itself. The lower-centre of the frame is open uncluttered floor. MOOD: scale beyond comprehension, calmly presented; no spacecraft drama. Palette: nebula violet and teal, star white, deck black."
+ }
+]

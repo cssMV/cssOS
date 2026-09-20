@@ -41,8 +41,9 @@
     /* 中华神话 —— 商周之前的神话时空。青铜火光 vs 冷玉月光, 两不相融。 */
     { match: ["中华神话", "中華神話", "Chinese Mythology"], rig: {
       id: "hall-shang-bronze", title_zh: "青铜 · 神话时空", title_en: "Bronze mythic hall",
-      key: "rgba(214,158,74,0.17)", left: "rgba(178,58,38,0.15)", right: "rgba(126,158,150,0.10)",
-      bg: ["#16110c", "#0c0806", "#050302"], floor: "rgba(214,158,74,0.055)" } },
+      key: "rgba(214,158,74,0.17)", left: "rgba(126,158,150,0.10)", right: "rgba(178,58,38,0.15)",
+      bg: ["#16110c", "#0c0806", "#050302"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-cacd74a1bec2e3ccdf7cac35.webp",
+      floor: "rgba(214,158,74,0.055)" } },
 
     /* 中华文明 —— 文人的厅: 墨、绢、宣纸。灯是烛与月, 不是火把。 */
     { match: ["中华文明", "中華文明", "中国古代", "先秦", "汉朝", "唐朝", "宋朝", "明朝", "清朝",
@@ -68,14 +69,16 @@
 
     { match: ["朝鲜古典", "朝鮮", "Joseon", "Korean"], rig: {
       id: "hall-dancheong", title_zh: "丹青 · 宫阙", title_en: "Dancheong hall",
-      key: "rgba(200,170,120,0.14)", left: "rgba(70,130,150,0.13)", right: "rgba(170,80,80,0.09)",
-      bg: ["#0f1113", "#090b0c", "#040506"], floor: "rgba(190,165,125,0.05)" } },
+      key: "rgba(200,170,120,0.14)", left: "rgba(170,80,80,0.09)", right: "rgba(70,130,150,0.13)",
+      bg: ["#0f1113", "#090b0c", "#040506"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-dc6482848fcb0543fa9a2a71.webp",
+      floor: "rgba(190,165,125,0.05)" } },
 
     /* 北欧神话 —— 半明半暗, 极夜。冰蓝为主, 没有暖色。 */
     { match: ["北欧神话", "北歐", "Norse", "Nordic"], rig: {
       id: "hall-halflight", title_zh: "半明半暗 · 极夜", title_en: "Half-light hall",
-      key: "rgba(170,200,220,0.12)", left: "rgba(60,90,120,0.16)", right: "rgba(40,50,62,0.11)",
-      bg: ["#0b1014", "#070b0e", "#030506"], floor: "rgba(150,180,200,0.045)" } },
+      key: "rgba(170,200,220,0.12)", left: "rgba(40,50,62,0.11)", right: "rgba(60,90,120,0.16)",
+      bg: ["#0b1014", "#070b0e", "#030506"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-e659c0d472a30f01eecac319.webp",
+      floor: "rgba(150,180,200,0.045)" } },
 
     { match: ["古希腊神话", "古希腊", "Greek"], rig: {
       id: "hall-marble", title_zh: "白石 · 日照", title_en: "Marble hall",
@@ -91,28 +94,33 @@
 
     { match: ["古埃及神话", "古埃及", "Egypt"], rig: {
       id: "hall-sandstone", title_zh: "砂岩 · 长日", title_en: "Sandstone hall",
-      key: "rgba(228,186,108,0.16)", left: "rgba(178,120,60,0.13)", right: "rgba(70,130,140,0.09)",
-      bg: ["#151109", "#0d0a06", "#050403"], floor: "rgba(226,186,110,0.055)" } },
+      key: "rgba(228,186,108,0.16)", left: "rgba(70,130,140,0.09)", right: "rgba(178,120,60,0.13)",
+      bg: ["#151109", "#0d0a06", "#050403"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-f2b00fd3e16b1a826e14ca4e.webp",
+      floor: "rgba(226,186,110,0.055)" } },
 
     { match: ["美索不达米亚", "Mesopotamia", "Sumer", "Babylon"], rig: {
       id: "hall-ziggurat", title_zh: "泥砖 · 星台", title_en: "Ziggurat hall",
       key: "rgba(206,170,110,0.14)", left: "rgba(150,90,60,0.13)", right: "rgba(90,110,150,0.10)",
-      bg: ["#131009", "#0b0906", "#040303"], floor: "rgba(200,168,112,0.05)" } },
+      bg: ["#131009", "#0b0906", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-90d68f3241328e111d0c4083.webp",
+      floor: "rgba(200,168,112,0.05)" } },
 
     { match: ["波斯文明", "波斯", "Persia", "Zoroastr"], rig: {
       id: "hall-lapis", title_zh: "青金 · 拜火", title_en: "Lapis fire hall",
       key: "rgba(226,170,80,0.15)", left: "rgba(50,80,170,0.14)", right: "rgba(180,70,60,0.09)",
-      bg: ["#0b0d16", "#07080e", "#030305"], floor: "rgba(220,170,88,0.05)" } },
+      bg: ["#0b0d16", "#07080e", "#030305"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-99cf37509465c6640c4d5810.webp",
+      floor: "rgba(220,170,88,0.05)" } },
 
     { match: ["阿拉伯文明", "阿拉伯", "Arab", "Islamic"], rig: {
       id: "hall-muqarnas", title_zh: "钟乳拱 · 灯影", title_en: "Muqarnas hall",
       key: "rgba(222,190,124,0.15)", left: "rgba(60,120,120,0.13)", right: "rgba(150,120,80,0.09)",
-      bg: ["#101109", "#0a0a06", "#040403"], floor: "rgba(216,186,124,0.05)" } },
+      bg: ["#101109", "#0a0a06", "#040403"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-5b00c0cac3b22e10590bdac0.webp",
+      floor: "rgba(216,186,124,0.05)" } },
 
     { match: ["印度教神话", "印度神话", "Hindu"], rig: {
       id: "hall-temple-lamp", title_zh: "庙灯 · 浓彩", title_en: "Temple lamp hall",
-      key: "rgba(232,164,72,0.17)", left: "rgba(180,50,90,0.14)", right: "rgba(70,140,120,0.10)",
-      bg: ["#150e0a", "#0d0806", "#050303"], floor: "rgba(230,166,76,0.055)" } },
+      key: "rgba(232,164,72,0.17)", left: "rgba(70,140,120,0.10)", right: "rgba(180,50,90,0.14)",
+      bg: ["#150e0a", "#0d0806", "#050303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-532433fc14460750791e6f8d.webp",
+      floor: "rgba(230,166,76,0.055)" } },
 
     { match: ["印度文明", "India"], rig: {
       id: "hall-sandal", title_zh: "檀香 · 静室", title_en: "Sandalwood hall",
@@ -123,22 +131,26 @@
     { match: ["希伯来文明", "希伯来", "Hebrew"], rig: {
       id: "hall-first-light", title_zh: "初光 · 旷远", title_en: "First light hall",
       key: "rgba(236,226,200,0.15)", left: "rgba(120,130,120,0.11)", right: "rgba(190,170,130,0.08)",
-      bg: ["#101110", "#0a0b0a", "#040404"], floor: "rgba(230,220,196,0.045)" } },
+      bg: ["#101110", "#0a0b0a", "#040404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-d3f376eee06fcb86d0034dfd.webp",
+      floor: "rgba(230,220,196,0.045)" } },
 
     { match: ["凯尔特文明", "凯尔特", "Celtic", "Welsh"], rig: {
       id: "hall-mist-harp", title_zh: "雾 · 竖琴", title_en: "Mist harp hall",
       key: "rgba(186,204,190,0.13)", left: "rgba(70,110,90,0.13)", right: "rgba(150,140,110,0.08)",
-      bg: ["#0c100d", "#070a08", "#030504"], floor: "rgba(180,200,186,0.045)" } },
+      bg: ["#0c100d", "#070a08", "#030504"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-3ef5c2da6d9a0da74d49b6cf.webp",
+      floor: "rgba(180,200,186,0.045)" } },
 
     { match: ["斯拉夫神话", "斯拉夫", "Slavic"], rig: {
       id: "hall-black-choir", title_zh: "黑木 · 合唱", title_en: "Black timber hall",
       key: "rgba(180,170,160,0.11)", left: "rgba(90,70,90,0.14)", right: "rgba(60,80,90,0.10)",
-      bg: ["#0d0c0e", "#080809", "#030304"], floor: "rgba(160,152,146,0.04)" } },
+      bg: ["#0d0c0e", "#080809", "#030304"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-7ca0d07315cbaa5301b09c9d.webp",
+      floor: "rgba(160,152,146,0.04)" } },
 
     { match: ["文艺复兴欧洲", "文艺复兴", "Renaissance"], rig: {
       id: "hall-chiaroscuro", title_zh: "明暗 · 画室", title_en: "Chiaroscuro hall",
       key: "rgba(224,186,120,0.16)", left: "rgba(130,60,50,0.12)", right: "rgba(90,100,110,0.08)",
-      bg: ["#120e0a", "#0b0806", "#040303"], floor: "rgba(218,182,122,0.05)" } },
+      bg: ["#120e0a", "#0b0806", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-a9d854d7b41f5ea1645972e2.webp",
+      floor: "rgba(218,182,122,0.05)" } },
 
     { match: ["启蒙欧洲", "启蒙", "Enlightenment", "Versailles"], rig: {
       id: "hall-gilded", title_zh: "镀金 · 将倾", title_en: "Gilded hall",
@@ -154,129 +166,157 @@
 
     { match: ["近代欧洲", "西方文明", "European", "Western"], rig: {
       id: "hall-candlewax", title_zh: "烛蜡 · 长廊", title_en: "Candlewax hall",
-      key: "rgba(222,190,138,0.14)", left: "rgba(100,80,110,0.12)", right: "rgba(120,110,90,0.08)",
-      bg: ["#110f0d", "#0a0908", "#040303"], floor: "rgba(216,186,138,0.05)" } },
+      key: "rgba(222,190,138,0.14)", left: "rgba(120,110,90,0.08)", right: "rgba(100,80,110,0.12)",
+      bg: ["#110f0d", "#0a0908", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-62199d078db273b38fb2877e.webp",
+      floor: "rgba(216,186,138,0.05)" } },
 
     { match: ["葡萄牙", "Portug", "巴西", "Brazil"], rig: {
       id: "hall-atlantic", title_zh: "大西洋 · 黄昏", title_en: "Atlantic dusk hall",
       key: "rgba(226,178,126,0.14)", left: "rgba(60,100,130,0.14)", right: "rgba(190,130,110,0.09)",
-      bg: ["#0d1013", "#08090c", "#030405"], floor: "rgba(214,176,132,0.05)" } },
+      bg: ["#0d1013", "#08090c", "#030405"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-d398a77f5530abab640e1e83.webp",
+      floor: "rgba(214,176,132,0.05)" } },
 
     { match: ["阿兹特克", "Aztec", "玛雅", "Maya", "安第斯", "Andean"], rig: {
       id: "hall-obsidian", title_zh: "黑曜 · 羽饰", title_en: "Obsidian hall",
-      key: "rgba(214,170,90,0.15)", left: "rgba(40,130,110,0.14)", right: "rgba(160,60,60,0.10)",
-      bg: ["#0c100e", "#070a09", "#030404"], floor: "rgba(206,166,94,0.05)" } },
+      key: "rgba(214,170,90,0.15)", left: "rgba(160,60,60,0.10)", right: "rgba(40,130,110,0.14)",
+      bg: ["#0c100e", "#070a09", "#030404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-9fd603a79c642517bdd43875.webp",
+      floor: "rgba(206,166,94,0.05)" } },
 
     /* ── 原创/架空系(演员表里真有这几类) ── */
     { match: ["Cyberpunk", "赛博"], rig: {
       id: "hall-neon-rain", title_zh: "霓虹 · 雨", title_en: "Neon rain hall",
-      key: "rgba(120,220,240,0.14)", left: "rgba(230,60,150,0.15)", right: "rgba(60,120,240,0.11)",
-      bg: ["#080c12", "#05080c", "#020305"], floor: "rgba(110,210,235,0.05)" } },
+      key: "rgba(120,220,240,0.14)", left: "rgba(60,120,240,0.11)", right: "rgba(230,60,150,0.15)",
+      bg: ["#080c12", "#05080c", "#020305"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-04f5c6a7a9803563b955fccf.webp",
+      floor: "rgba(110,210,235,0.05)" } },
     { match: ["Neo-Futurist", "未来"], rig: {
       id: "hall-lab", title_zh: "实验室 · 冷光", title_en: "Cold lab hall",
       key: "rgba(200,230,240,0.13)", left: "rgba(60,150,170,0.12)", right: "rgba(90,110,140,0.09)",
-      bg: ["#090d0f", "#06090a", "#020404"], floor: "rgba(190,224,236,0.045)" } },
+      bg: ["#090d0f", "#06090a", "#020404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-de64f900056efaf78dbe9c97.webp",
+      floor: "rgba(190,224,236,0.045)" } },
     { match: ["Dark Fantasy", "黑暗奇幻"], rig: {
       id: "hall-ashen", title_zh: "灰烬 · 王座", title_en: "Ashen hall",
       key: "rgba(190,170,150,0.12)", left: "rgba(150,50,40,0.14)", right: "rgba(70,60,80,0.10)",
-      bg: ["#100d0c", "#0a0807", "#040303"], floor: "rgba(180,160,142,0.045)" } },
+      bg: ["#100d0c", "#0a0807", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-9b4019b360eba6ea687b7a87.webp",
+      floor: "rgba(180,160,142,0.045)" } },
     { match: ["Dark Carnival", "马戏"], rig: {
       id: "hall-carnival", title_zh: "游艺 · 歪斜", title_en: "Carnival hall",
       key: "rgba(240,180,80,0.16)", left: "rgba(200,50,110,0.15)", right: "rgba(90,180,140,0.10)",
-      bg: ["#120a0e", "#0b0609", "#040204"], floor: "rgba(236,176,84,0.055)" } },
+      bg: ["#120a0e", "#0b0609", "#040204"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-638718fc9c55037f438aa9e7.webp",
+      floor: "rgba(236,176,84,0.055)" } },
     { match: ["Noir", "黑色电影"], rig: {
       id: "hall-venetian", title_zh: "百叶 · 冷烟", title_en: "Venetian blind hall",
       key: "rgba(216,214,206,0.13)", left: "rgba(70,90,110,0.13)", right: "rgba(40,45,55,0.10)",
-      bg: ["#0b0c0d", "#070808", "#030303"], floor: "rgba(200,200,194,0.04)" } },
+      bg: ["#0b0c0d", "#070808", "#030303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-702c7873b58f61ba34eb16c9.webp",
+      floor: "rgba(200,200,194,0.04)" } },
     /* ── 非洲 ── */
     { match: ["约鲁巴", "Yoruba"], rig: {
       id: "hall-yoruba", title_zh: "铜雕 · 靛蓝", title_en: "Bronze and indigo hall",
       key: "rgba(228,180,90,0.16)", left: "rgba(50,70,160,0.14)", right: "rgba(180,90,60,0.10)",
-      bg: ["#0d0f14", "#08090d", "#030305"], floor: "rgba(224,178,94,0.055)" } },
+      bg: ["#0d0f14", "#08090d", "#030305"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-42d832f310b2e005b659f1b2.webp",
+      floor: "rgba(224,178,94,0.055)" } },
     { match: ["阿散蒂", "Ashanti", "马里帝国", "Mali"], rig: {
       id: "hall-goldweight", title_zh: "金衡 · 红土", title_en: "Goldweight hall",
       key: "rgba(236,190,90,0.17)", left: "rgba(170,80,50,0.14)", right: "rgba(90,120,80,0.09)",
-      bg: ["#140f0a", "#0c0806", "#040303"], floor: "rgba(232,188,94,0.055)" } },
+      bg: ["#140f0a", "#0c0806", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-50a35bf359caa656e2302fb3.webp",
+      floor: "rgba(232,188,94,0.055)" } },
     { match: ["祖鲁", "Zulu"], rig: {
       id: "hall-shield", title_zh: "牛皮盾 · 草原", title_en: "Hide shield hall",
       key: "rgba(224,196,140,0.15)", left: "rgba(150,70,50,0.13)", right: "rgba(90,110,70,0.10)",
-      bg: ["#110f0b", "#0a0907", "#040403"], floor: "rgba(218,192,142,0.05)" } },
+      bg: ["#110f0b", "#0a0907", "#040403"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-fb5ed08ed51056a43623ab47.webp",
+      floor: "rgba(218,192,142,0.05)" } },
     { match: ["斯瓦希里", "Swahili"], rig: {
       id: "hall-coral-port", title_zh: "珊瑚石 · 季风", title_en: "Coral port hall",
       key: "rgba(230,208,164,0.15)", left: "rgba(50,120,140,0.14)", right: "rgba(190,140,90,0.09)",
-      bg: ["#0c1012", "#07090b", "#030405"], floor: "rgba(224,204,166,0.05)" } },
+      bg: ["#0c1012", "#07090b", "#030405"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-c906f8f07791f106bf45007a.webp",
+      floor: "rgba(224,204,166,0.05)" } },
     { match: ["埃塞俄比亚", "Ethiopia", "Axum"], rig: {
       id: "hall-rock-church", title_zh: "凿岩 · 圣堂", title_en: "Rock-hewn hall",
       key: "rgba(222,174,110,0.15)", left: "rgba(140,60,50,0.13)", right: "rgba(90,110,120,0.09)",
-      bg: ["#120e0b", "#0b0807", "#040303"], floor: "rgba(216,172,114,0.05)" } },
+      bg: ["#120e0b", "#0b0807", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-1f32828c2fe442967e520b7f.webp",
+      floor: "rgba(216,172,114,0.05)" } },
     { match: ["现代非洲", "非洲", "Africa"], rig: {
       id: "hall-afro-modern", title_zh: "当代非洲 · 烈色", title_en: "Modern Africa hall",
-      key: "rgba(240,190,80,0.17)", left: "rgba(200,60,90,0.15)", right: "rgba(60,160,140,0.11)",
-      bg: ["#0f0d0c", "#090808", "#030303"], floor: "rgba(236,188,86,0.055)" } },
+      key: "rgba(240,190,80,0.17)", left: "rgba(60,160,140,0.11)", right: "rgba(200,60,90,0.15)",
+      bg: ["#0f0d0c", "#090808", "#030303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-387166034b3f2c7423970613.webp",
+      floor: "rgba(236,188,86,0.055)" } },
 
     /* ── 大洋洲 ── */
     { match: ["波利尼西亚", "Polynesia"], rig: {
       id: "hall-lagoon", title_zh: "礁湖 · 星辰导航", title_en: "Lagoon hall",
-      key: "rgba(200,226,226,0.14)", left: "rgba(40,130,150,0.15)", right: "rgba(180,150,100,0.09)",
-      bg: ["#081013", "#05090c", "#020405"], floor: "rgba(190,220,222,0.05)" } },
+      key: "rgba(200,226,226,0.14)", left: "rgba(180,150,100,0.09)", right: "rgba(40,130,150,0.15)",
+      bg: ["#081013", "#05090c", "#020405"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-c5faa6464cc3b3d9276a8839.webp",
+      floor: "rgba(190,220,222,0.05)" } },
     { match: ["毛利", "Maori", "Māori"], rig: {
       id: "hall-greenstone", title_zh: "绿玉 · 雕纹", title_en: "Greenstone hall",
       key: "rgba(206,200,170,0.14)", left: "rgba(40,120,90,0.15)", right: "rgba(140,70,50,0.10)",
-      bg: ["#0a0f0c", "#060908", "#020404"], floor: "rgba(200,196,168,0.05)" } },
+      bg: ["#0a0f0c", "#060908", "#020404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-00646e064bc42afa801037cd.webp",
+      floor: "rgba(200,196,168,0.05)" } },
     { match: ["澳洲原住民", "澳大利亚原住民", "Aborigin"], rig: {
       id: "hall-ochre", title_zh: "赭石 · 旱地", title_en: "Ochre hall",
-      key: "rgba(234,178,100,0.16)", left: "rgba(170,80,50,0.14)", right: "rgba(110,90,70,0.09)",
-      bg: ["#130e09", "#0b0806", "#040303"], floor: "rgba(230,176,104,0.055)" } },
+      key: "rgba(234,178,100,0.16)", left: "rgba(110,90,70,0.09)", right: "rgba(170,80,50,0.14)",
+      bg: ["#130e09", "#0b0806", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-e7f24546a37cc00a1572fe3c.webp",
+      floor: "rgba(230,176,104,0.055)" } },
 
     /* ── 东南亚 ── */
     { match: ["高棉吴哥", "吴哥", "Khmer", "Angkor"], rig: {
       id: "hall-angkor", title_zh: "砂岩塔 · 藤蔓", title_en: "Angkor hall",
       key: "rgba(214,192,140,0.14)", left: "rgba(60,110,80,0.14)", right: "rgba(160,120,80,0.09)",
-      bg: ["#0c0f0b", "#070908", "#030404"], floor: "rgba(208,188,142,0.05)" } },
+      bg: ["#0c0f0b", "#070908", "#030404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-d021c3e375adbf0e61ef576a.webp",
+      floor: "rgba(208,188,142,0.05)" } },
     { match: ["缅甸蒲甘", "蒲甘", "缅甸", "Bagan", "Burm", "Myanmar"], rig: {
       id: "hall-pagoda-dawn", title_zh: "塔林 · 晨雾", title_en: "Pagoda dawn hall",
-      key: "rgba(236,196,130,0.16)", left: "rgba(180,110,70,0.13)", right: "rgba(150,160,170,0.09)",
-      bg: ["#120f0b", "#0b0807", "#040303"], floor: "rgba(232,194,134,0.055)" } },
+      key: "rgba(236,196,130,0.16)", left: "rgba(150,160,170,0.09)", right: "rgba(180,110,70,0.13)",
+      bg: ["#120f0b", "#0b0807", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-02cdca482ae0da398ce0e0f4.webp",
+      floor: "rgba(232,194,134,0.055)" } },
     { match: ["泰国", "暹罗", "Thai", "Siam"], rig: {
       id: "hall-gold-lacquer", title_zh: "金漆 · 朱红", title_en: "Gold lacquer hall",
       key: "rgba(240,198,96,0.17)", left: "rgba(190,60,60,0.14)", right: "rgba(80,140,120,0.09)",
-      bg: ["#130d0b", "#0b0707", "#040303"], floor: "rgba(236,196,100,0.055)" } },
+      bg: ["#130d0b", "#0b0707", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-72b5445636c4c15a47eebede.webp",
+      floor: "rgba(236,196,100,0.055)" } },
     { match: ["印尼爪哇", "爪哇", "Java", "Indonesia"], rig: {
       id: "hall-batik", title_zh: "蜡染 · 铜锣", title_en: "Batik gamelan hall",
-      key: "rgba(218,180,120,0.15)", left: "rgba(120,70,50,0.14)", right: "rgba(70,120,130,0.09)",
-      bg: ["#110e0c", "#0a0807", "#040303"], floor: "rgba(212,178,124,0.05)" } },
+      key: "rgba(218,180,120,0.15)", left: "rgba(70,120,130,0.09)", right: "rgba(120,70,50,0.14)",
+      bg: ["#110e0c", "#0a0807", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-b0d096274fc9a5e5518c51f1.webp",
+      floor: "rgba(212,178,124,0.05)" } },
     { match: ["马来", "Malay"], rig: {
       id: "hall-songket", title_zh: "金线织 · 海港", title_en: "Songket hall",
       key: "rgba(226,194,130,0.15)", left: "rgba(50,110,120,0.14)", right: "rgba(170,120,90,0.09)",
-      bg: ["#0c0f10", "#07090a", "#030404"], floor: "rgba(220,190,134,0.05)" } },
+      bg: ["#0c0f10", "#07090a", "#030404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-a8c8bee3421ce609e6811cd4.webp",
+      floor: "rgba(220,190,134,0.05)" } },
     { match: ["菲律宾", "Philippin"], rig: {
       id: "hall-capiz", title_zh: "贝壳窗 · 群岛", title_en: "Capiz shell hall",
-      key: "rgba(232,218,190,0.15)", left: "rgba(60,120,140,0.13)", right: "rgba(190,150,110,0.09)",
-      bg: ["#0c0f11", "#07090b", "#030405"], floor: "rgba(226,214,190,0.05)" } },
+      key: "rgba(232,218,190,0.15)", left: "rgba(190,150,110,0.09)", right: "rgba(60,120,140,0.13)",
+      bg: ["#0c0f11", "#07090b", "#030405"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-60a8a59b49040ed1b7af440e.webp",
+      floor: "rgba(226,214,190,0.05)" } },
 
     /* ── 内亚 / 高原 ── */
     { match: ["蒙古", "Mongol"], rig: {
       id: "hall-steppe", title_zh: "草原 · 长风", title_en: "Steppe hall",
       key: "rgba(216,206,178,0.14)", left: "rgba(70,100,130,0.14)", right: "rgba(160,120,70,0.09)",
-      bg: ["#0d0f11", "#08090b", "#030404"], floor: "rgba(210,202,178,0.05)" } },
+      bg: ["#0d0f11", "#08090b", "#030404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-5bfc9d41d604b34767a45514.webp",
+      floor: "rgba(210,202,178,0.05)" } },
     { match: ["藏文明", "西藏", "Tibet"], rig: {
       id: "hall-thangka", title_zh: "唐卡 · 高原光", title_en: "Thangka hall",
-      key: "rgba(238,206,120,0.17)", left: "rgba(170,50,60,0.14)", right: "rgba(50,110,150,0.11)",
-      bg: ["#110d0c", "#0a0708", "#040303"], floor: "rgba(234,204,124,0.055)" } },
+      key: "rgba(238,206,120,0.17)", left: "rgba(50,110,150,0.11)", right: "rgba(170,50,60,0.14)",
+      bg: ["#110d0c", "#0a0708", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-89517c0078215eee3e1e186d.webp",
+      floor: "rgba(234,204,124,0.055)" } },
     { match: ["中华佛教神话", "佛教神话", "佛教", "Buddhis"], rig: {
       id: "hall-lotus", title_zh: "莲座 · 金身", title_en: "Lotus hall",
-      key: "rgba(234,204,140,0.16)", left: "rgba(150,110,60,0.12)", right: "rgba(110,140,130,0.09)",
-      bg: ["#110f0b", "#0a0907", "#040403"], floor: "rgba(230,202,144,0.05)" } },
+      key: "rgba(234,204,140,0.16)", left: "rgba(110,140,130,0.09)", right: "rgba(150,110,60,0.12)",
+      bg: ["#110f0b", "#0a0907", "#040403"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-2e355e1e8e8ce15a51baa8ba.webp",
+      floor: "rgba(230,202,144,0.05)" } },
 
     /* ── 地中海 / 近东补漏 ── */
     { match: ["拜占庭", "Byzan"], rig: {
       id: "hall-mosaic-gold", title_zh: "金底 · 镶嵌", title_en: "Gold mosaic hall",
       key: "rgba(238,200,110,0.17)", left: "rgba(60,80,150,0.13)", right: "rgba(150,60,70,0.09)",
-      bg: ["#0f0d10", "#09080a", "#030304"], floor: "rgba(234,198,114,0.055)" } },
+      bg: ["#0f0d10", "#09080a", "#030304"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-bad42a0d74d962de705a45ed.webp",
+      floor: "rgba(234,198,114,0.055)" } },
     { match: ["腓尼基", "Phoenic"], rig: {
       id: "hall-tyrian", title_zh: "推罗紫 · 航路", title_en: "Tyrian purple hall",
       key: "rgba(214,186,140,0.14)", left: "rgba(110,50,120,0.14)", right: "rgba(50,110,130,0.10)",
-      bg: ["#0c0b10", "#07070a", "#030304"], floor: "rgba(208,182,142,0.05)" } },
+      bg: ["#0c0b10", "#07070a", "#030304"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-621531a99a1995c7edcfc4ca.webp",
+      floor: "rgba(208,182,142,0.05)" } },
     { match: ["苏美尔", "托勒密埃及", "埃及"], rig: {
       id: "hall-reed-clay", title_zh: "苇与泥 · 最早的字", title_en: "Reed and clay hall",
       key: "rgba(224,190,132,0.15)", left: "rgba(90,120,140,0.09)", right: "rgba(160,110,60,0.13)",
@@ -285,17 +325,20 @@
     { match: ["印加", "Inca"], rig: {
       id: "hall-cusco", title_zh: "巨石 · 高地", title_en: "Cusco stonework hall",
       key: "rgba(224,206,176,0.14)", left: "rgba(150,70,50,0.13)", right: "rgba(60,110,120,0.10)",
-      bg: ["#0e0f0e", "#08090a", "#030404"], floor: "rgba(218,202,176,0.05)" } },
+      bg: ["#0e0f0e", "#08090a", "#030404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-e7d15055015a53c639331d19.webp",
+      floor: "rgba(218,202,176,0.05)" } },
 
     /* ── 欧美补漏 ── */
     { match: ["巴洛克", "Baroque"], rig: {
       id: "hall-baroque", title_zh: "巴洛克 · 重帷", title_en: "Baroque hall",
-      key: "rgba(228,188,118,0.16)", left: "rgba(120,40,50,0.14)", right: "rgba(80,90,110,0.09)",
-      bg: ["#110d0b", "#0a0707", "#040303"], floor: "rgba(222,184,120,0.05)" } },
+      key: "rgba(228,188,118,0.16)", left: "rgba(80,90,110,0.09)", right: "rgba(120,40,50,0.14)",
+      bg: ["#110d0b", "#0a0707", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-6998085c118a8033ff44c3d0.webp",
+      floor: "rgba(222,184,120,0.05)" } },
     { match: ["古典主义欧洲", "古典主义", "Classical Europe"], rig: {
       id: "hall-neoclassic", title_zh: "新古典 · 素白柱", title_en: "Neoclassical hall",
       key: "rgba(234,228,210,0.15)", left: "rgba(100,120,140,0.11)", right: "rgba(190,170,130,0.08)",
-      bg: ["#101110", "#0a0b0a", "#040404"], floor: "rgba(228,222,206,0.045)" } },
+      bg: ["#101110", "#0a0b0a", "#040404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-6605e59f7a88579637bba444.webp",
+      floor: "rgba(228,222,206,0.045)" } },
     { match: ["浪漫主义", "Romantic"], rig: {
       id: "hall-romantic", title_zh: "浪漫派 · 风暴天", title_en: "Romantic storm hall",
       key: "rgba(220,196,150,0.14)", left: "rgba(160,90,70,0.10)", right: "rgba(70,80,120,0.15)",
@@ -304,16 +347,19 @@
     { match: ["现代北欧", "Scandinav"], rig: {
       id: "hall-nordic-modern", title_zh: "北欧现代 · 素木", title_en: "Nordic modern hall",
       key: "rgba(228,228,224,0.14)", left: "rgba(120,140,150,0.11)", right: "rgba(180,160,130,0.08)",
-      bg: ["#0e0f0f", "#090a0a", "#030404"], floor: "rgba(222,222,218,0.045)" } },
+      bg: ["#0e0f0f", "#090a0a", "#030404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-126bef81ea5fd021de3bd6bb.webp",
+      floor: "rgba(222,222,218,0.045)" } },
     { match: ["近现代北美", "北美", "America"], rig: {
       id: "hall-newworld", title_zh: "新大陆 · 钢与玻璃", title_en: "New world hall",
-      key: "rgba(224,222,214,0.14)", left: "rgba(70,110,150,0.13)", right: "rgba(170,140,100,0.09)",
-      bg: ["#0c0d0f", "#070809", "#030304"], floor: "rgba(218,216,210,0.045)" } },
+      key: "rgba(224,222,214,0.14)", left: "rgba(170,140,100,0.09)", right: "rgba(70,110,150,0.13)",
+      bg: ["#0c0d0f", "#070809", "#030304"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-6c78e4c0eb46b73a76d07c89.webp",
+      floor: "rgba(218,216,210,0.045)" } },
 
     { match: ["Cosmic", "宇宙"], rig: {
       id: "hall-void", title_zh: "虚空 · 星尘", title_en: "Void hall",
       key: "rgba(150,170,230,0.13)", left: "rgba(110,60,180,0.14)", right: "rgba(40,90,140,0.10)",
-      bg: ["#070811", "#04050a", "#010104"], floor: "rgba(140,160,220,0.045)" } },
+      bg: ["#070811", "#04050a", "#010104"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-dbaf1c7595c4073cfebfb9f2.webp",
+      floor: "rgba(140,160,220,0.045)" } },
 
     /* ── 笼统尾巴(必须在最后)──────────────────────────────────────────
      * 实测教训: 生产库里 343 位演员, 第一版有 110 位落回通用厅 —— 因为子串匹配
@@ -322,19 +368,23 @@
     { match: ["中华", "中国", "华夏"], rig: {
       id: "hall-ink-court", title_zh: "墨色 · 文人厅", title_en: "Ink scholar hall",
       key: "rgba(196,180,150,0.14)", left: "rgba(84,120,132,0.13)", right: "rgba(168,140,104,0.09)",
-      bg: ["#101211", "#0a0c0c", "#040606"], floor: "rgba(180,170,145,0.05)" } },
+      bg: ["#101211", "#0a0c0c", "#040606"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-d48deae01e29d83bc35fe17d.webp",
+      floor: "rgba(180,170,145,0.05)" } },
     { match: ["印度", "India"], rig: {
       id: "hall-sandal", title_zh: "檀香 · 静室", title_en: "Sandalwood hall",
       key: "rgba(226,190,130,0.14)", left: "rgba(170,110,70,0.12)", right: "rgba(110,140,120,0.09)",
-      bg: ["#12100b", "#0b0907", "#040403"], floor: "rgba(220,188,132,0.05)" } },
+      bg: ["#12100b", "#0b0907", "#040403"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-423806e030e88cd2c99f3927.webp",
+      floor: "rgba(220,188,132,0.05)" } },
     { match: ["日本", "Japan"], rig: {
       id: "hall-shoji", title_zh: "障子 · 素白厅", title_en: "Shoji hall",
       key: "rgba(228,220,198,0.13)", left: "rgba(120,140,130,0.10)", right: "rgba(190,150,120,0.08)",
-      bg: ["#12110e", "#0b0a08", "#040404"], floor: "rgba(210,200,178,0.045)" } },
+      bg: ["#12110e", "#0b0a08", "#040404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-5672e49a7e1b2a47439f4823.webp",
+      floor: "rgba(210,200,178,0.045)" } },
     { match: ["欧洲", "Europe", "西方", "Western"], rig: {
       id: "hall-candlewax", title_zh: "烛蜡 · 长廊", title_en: "Candlewax hall",
       key: "rgba(222,190,138,0.14)", left: "rgba(100,80,110,0.12)", right: "rgba(120,110,90,0.08)",
-      bg: ["#110f0d", "#0a0908", "#040303"], floor: "rgba(216,186,138,0.05)" } }
+      bg: ["#110f0d", "#0a0908", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-62199d078db273b38fb2877e.webp",
+      floor: "rgba(216,186,138,0.05)" } }
   ];
 
   /* 戏路只【调强弱】, 不换颜色 —— 颜色归文明, 气质归戏路。

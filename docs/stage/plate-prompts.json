@@ -1,0 +1,62 @@
+[
+  {
+    "stage_id": "hall-ink-court",
+    "zh": "墨色 · 文人厅",
+    "covers": "37 位 · 孔子/李白/李清照/秦始皇/屈原/西施",
+    "prompt": "An EMPTY classical Chinese hall, no people. Dark timber columns and a coffered beam ceiling, a low lacquered writing table with an inkstone, a brush rest and unrolled bamboo slips, hanging paper scrolls with ink-wash mountains, a latticed window opening onto bamboo in moonlight. Grey brick floor, a bronze incense burner with a thin thread of smoke. The lower-centre of the frame is open uncluttered floor. MOOD: ink, silk and paper; scholarly restraint and quiet authority; the dignity of a room that has held both poets and rulers. Muted ink black, bone white, faded celadon, aged timber brown."
+  },
+  {
+    "stage_id": "hall-chalkboard",
+    "zh": "书斋 · 长窗",
+    "covers": "32 位 · 爱因斯坦/莎士比亚/达尔文/贝多芬/但丁",
+    "prompt": "An EMPTY European study, no people. Floor-to-ceiling dark wood bookcases crammed with worn leather volumes, a heavy writing desk strewn with loose manuscript pages and a brass-and-green-glass lamp, a slate blackboard leaning against one wall, tall casement windows with wavy old glass showing an overcast sky. Worn parquet floor, a globe, stacked folios. The lower-centre of the frame is open uncluttered floor. MOOD: a room where a lifetime of thinking was done alone; ink, dust and paper, not a laboratory. Muted umber, oxblood leather, cold daylight grey, brass."
+  },
+  {
+    "stage_id": "hall-porphyry",
+    "zh": "斑岩 · 列柱",
+    "covers": "15 位 · 凯撒/西塞罗/马可·奥勒留",
+    "prompt": "An EMPTY Roman hall, no people and NO STATUES of any human or figure. Veined porphyry and marble columns, a polished geometric mosaic floor, a coffered ceiling, bronze oil lamps on tall stands, a far colonnade opening onto a hazy city. Bare stone benches. The lower-centre of the frame is open uncluttered floor. MOOD: the weight of the republic; civic stone rather than imperial spectacle; restrained archaeological accuracy, not sword-and-sandal fantasy. Deep oxblood porphyry, cream marble, verdigris bronze."
+  },
+  {
+    "stage_id": "hall-sandal",
+    "zh": "檀香 · 静室",
+    "covers": "14 位 · 甘地/阿克巴/沙贾汉",
+    "prompt": "An EMPTY Indian chamber, no people. Carved red sandstone jali screens casting lace-like patterns, a white marble floor with fine pietra dura inlay, slender arched openings onto a still water channel and a garden beyond, small oil lamps in wall niches, a plain woven mat and a low wooden seat. The lower-centre of the frame is open uncluttered floor. MOOD: stillness and discipline; a room equally at home to an ascetic and to an emperor; sandalwood smoke, no opulence for its own sake. Warm sandstone red, ivory marble, deep green shade."
+  },
+  {
+    "stage_id": "hall-foxfire",
+    "zh": "狐火 · 异界",
+    "covers": "6 位 · 玉藻前/天照大神",
+    "prompt": "An EMPTY Japanese shrine approach at night, no people and NO FOX, no animal of any kind. Moss-covered stone lanterns in two receding rows, a weathered vermilion torii half-swallowed by mist, towering cedar trunks, wet stone steps, paper shide streamers hanging still. Pale blue-green will-o'-the-wisp lights drifting between the trees. The lower-centre of the frame is open uncluttered stone path. MOOD: the uncanny before it has a name; Heian dread, quiet and beautiful, never monstrous. Cedar black-green, faded vermilion, pale jade fox-fire, lantern amber."
+  },
+  {
+    "stage_id": "hall-gilded",
+    "zh": "镀金 · 将倾",
+    "covers": "5 位 · 伏尔泰/康德/卢梭/玛丽·安托瓦内特",
+    "prompt": "An EMPTY 18th-century European salon, no people and no portraits of faces on the walls. Gilded boiserie panelling, tall mirrors facing each other into infinity, a crystal chandelier unlit, parquet de Versailles floor, silk-upholstered chairs pushed back from a round table scattered with pamphlets and a quill. Tall windows with heavy drawn-back curtains. The lower-centre of the frame is open uncluttered floor. MOOD: brilliant talk in a room that does not know it is ending; gilt with a faint tarnish. Old gold, dove grey, pale rose, candle amber."
+  },
+  {
+    "stage_id": "hall-romantic",
+    "zh": "浪漫派 · 风暴天",
+    "covers": "4 位 · 肖邦/雨果/歌德",
+    "prompt": "An EMPTY Romantic-era interior, no people. A tall casement window thrown open onto a storm-dark sky over distant hills, long curtains lifting in the wind, a grand piano's black silhouette with the lid raised, loose sheet music scattered on the floor, a guttering candelabrum, dark panelled walls. The lower-centre of the frame is open uncluttered floor. MOOD: the sublime pressing in from outside; solitude, weather and feeling; painterly, never melodramatic. Storm slate blue, candle gold, deep mahogany."
+  },
+  {
+    "stage_id": "hall-marble",
+    "zh": "白石 · 日照",
+    "covers": "20 位 · 苏格拉底/柏拉图/亚里士多德",
+    "prompt": "An EMPTY Greek stoa, no people and NO STATUES of any human or figure. A long colonnade of fluted marble columns, a worn stone floor, deep shadow under the roof and brilliant Mediterranean daylight beyond, olive trees and a dry hillside in the distance, a plain stone bench, a scattering of potsherds. The lower-centre of the frame is open uncluttered floor. MOOD: thinking done standing up, in public, in the open air; sun-bleached archaeological restraint. Bone-white marble, olive grey-green, hot pale sky."
+  },
+  {
+    "stage_id": "hall-reed-clay",
+    "zh": "苇与泥 · 最早的字",
+    "covers": "5 位 · 恩赫杜安娜/克利奥帕特拉七世",
+    "prompt": "An EMPTY Sumerian temple chamber, no people. Thick mudbrick walls with recessed niches, bundled-reed columns, clay tablets covered in cuneiform stacked on a low bench and scattered on the floor, a shallow alabaster basin, small clay oil lamps, a doorway giving onto a stepped ziggurat terrace under an enormous dusk sky. The lower-centre of the frame is open uncluttered floor. MOOD: the room where writing itself was young; earth, reed and starlight; archaeological, never fantasy. Mud brown, pale alabaster, reed gold, deep indigo sky."
+  },
+  {
+    "stage_id": "hall-shoji",
+    "zh": "障子 · 素白厅",
+    "covers": "9 位 · 德川家康/松尾芭蕉/葛饰北斋",
+    "prompt": "An EMPTY Japanese room, no people. Shoji paper screens glowing with soft diffused daylight, tatami mats, a tokonoma alcove holding a single hanging scroll and a plain ceramic vase with one branch, dark polished wood framing, a sliding door half open onto a raked gravel garden and a pine. The lower-centre of the frame is open uncluttered tatami. MOOD: emptiness as the subject; wabi restraint, absolutely nothing decorative beyond the alcove. Paper white, tatami straw green, sumi black, weathered cedar."
+  }
+]

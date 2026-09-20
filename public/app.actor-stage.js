@@ -49,19 +49,22 @@
               "Chinese Civilization", "Ancient China"], rig: {
       id: "hall-ink-court", title_zh: "墨色 · 文人厅", title_en: "Ink scholar hall",
       key: "rgba(196,180,150,0.14)", left: "rgba(84,120,132,0.13)", right: "rgba(168,140,104,0.09)",
-      bg: ["#101211", "#0a0c0c", "#040606"], floor: "rgba(180,170,145,0.05)" } },
+      bg: ["#101211", "#0a0c0c", "#040606"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-d48deae01e29d83bc35fe17d.webp",
+      floor: "rgba(180,170,145,0.05)" } },
 
     /* 日本神话 —— 狐火。青绿的鬼火 vs 提灯的橙。 */
     { match: ["日本神话", "日本神話", "Japanese Mythology"], rig: {
       id: "hall-foxfire", title_zh: "狐火 · 异界", title_en: "Fox-fire hall",
       key: "rgba(190,160,90,0.14)", left: "rgba(90,200,170,0.15)", right: "rgba(150,90,160,0.09)",
-      bg: ["#0a1310", "#060d0b", "#030706"], floor: "rgba(90,200,170,0.05)" } },
+      bg: ["#0a1310", "#060d0b", "#030706"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-e8c7ca7e488c98fedf026b7b.webp",
+      floor: "rgba(90,200,170,0.05)" } },
 
     /* 日本古典 —— 平安/室町的室内: 障子纸的漫射天光, 榻榻米。 */
     { match: ["日本古典", "日本文明", "Japanese Classical", "Heian"], rig: {
       id: "hall-shoji", title_zh: "障子 · 素白厅", title_en: "Shoji hall",
-      key: "rgba(228,220,198,0.13)", left: "rgba(120,140,130,0.10)", right: "rgba(190,150,120,0.08)",
-      bg: ["#12110e", "#0b0a08", "#040404"], floor: "rgba(210,200,178,0.045)" } },
+      key: "rgba(228,220,198,0.13)", left: "rgba(190,150,120,0.08)", right: "rgba(120,140,130,0.10)",
+      bg: ["#12110e", "#0b0a08", "#040404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-5672e49a7e1b2a47439f4823.webp",
+      floor: "rgba(210,200,178,0.045)" } },
 
     { match: ["朝鲜古典", "朝鮮", "Joseon", "Korean"], rig: {
       id: "hall-dancheong", title_zh: "丹青 · 宫阙", title_en: "Dancheong hall",
@@ -76,13 +79,15 @@
 
     { match: ["古希腊神话", "古希腊", "Greek"], rig: {
       id: "hall-marble", title_zh: "白石 · 日照", title_en: "Marble hall",
-      key: "rgba(232,222,196,0.15)", left: "rgba(96,140,160,0.12)", right: "rgba(206,160,96,0.09)",
-      bg: ["#12120f", "#0b0b09", "#040404"], floor: "rgba(224,214,188,0.05)" } },
+      key: "rgba(232,222,196,0.15)", left: "rgba(206,160,96,0.09)", right: "rgba(96,140,160,0.12)",
+      bg: ["#12120f", "#0b0b09", "#040404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-06ca412845dfe7eacab41531.webp",
+      floor: "rgba(224,214,188,0.05)" } },
 
     { match: ["古罗马文明", "古罗马", "Roman"], rig: {
       id: "hall-porphyry", title_zh: "斑岩 · 列柱", title_en: "Porphyry hall",
       key: "rgba(216,186,130,0.15)", left: "rgba(140,52,58,0.13)", right: "rgba(120,130,140,0.09)",
-      bg: ["#130f0e", "#0c0908", "#040303"], floor: "rgba(210,180,126,0.05)" } },
+      bg: ["#130f0e", "#0c0908", "#040303"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-4e0339262d9b1b8638c9626c.webp",
+      floor: "rgba(210,180,126,0.05)" } },
 
     { match: ["古埃及神话", "古埃及", "Egypt"], rig: {
       id: "hall-sandstone", title_zh: "砂岩 · 长日", title_en: "Sandstone hall",
@@ -111,8 +116,9 @@
 
     { match: ["印度文明", "India"], rig: {
       id: "hall-sandal", title_zh: "檀香 · 静室", title_en: "Sandalwood hall",
-      key: "rgba(226,190,130,0.14)", left: "rgba(170,110,70,0.12)", right: "rgba(110,140,120,0.09)",
-      bg: ["#12100b", "#0b0907", "#040403"], floor: "rgba(220,188,132,0.05)" } },
+      key: "rgba(226,190,130,0.14)", left: "rgba(110,140,120,0.09)", right: "rgba(170,110,70,0.12)",
+      bg: ["#12100b", "#0b0907", "#040403"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-423806e030e88cd2c99f3927.webp",
+      floor: "rgba(220,188,132,0.05)" } },
 
     { match: ["希伯来文明", "希伯来", "Hebrew"], rig: {
       id: "hall-first-light", title_zh: "初光 · 旷远", title_en: "First light hall",
@@ -137,12 +143,14 @@
     { match: ["启蒙欧洲", "启蒙", "Enlightenment", "Versailles"], rig: {
       id: "hall-gilded", title_zh: "镀金 · 将倾", title_en: "Gilded hall",
       key: "rgba(230,190,110,0.17)", left: "rgba(200,120,130,0.12)", right: "rgba(180,160,200,0.08)",
-      bg: ["#14100c", "#0d0a08", "#050403"], floor: "rgba(230,190,112,0.05)" } },
+      bg: ["#14100c", "#0d0a08", "#050403"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-12614b3c170f322508851014.webp",
+      floor: "rgba(230,190,112,0.05)" } },
 
     { match: ["近现代欧洲", "近现代科学", "Modern Science"], rig: {
       id: "hall-chalkboard", title_zh: "黑板 · 台灯", title_en: "Chalk and lamp hall",
       key: "rgba(216,206,182,0.13)", left: "rgba(80,110,130,0.12)", right: "rgba(170,150,110,0.08)",
-      bg: ["#0e100f", "#080a09", "#030404"], floor: "rgba(206,198,178,0.045)" } },
+      bg: ["#0e100f", "#080a09", "#030404"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-845b6c7ae0b1455c398cc179.webp",
+      floor: "rgba(206,198,178,0.045)" } },
 
     { match: ["近代欧洲", "西方文明", "European", "Western"], rig: {
       id: "hall-candlewax", title_zh: "烛蜡 · 长廊", title_en: "Candlewax hall",
@@ -271,8 +279,9 @@
       bg: ["#0c0b10", "#07070a", "#030304"], floor: "rgba(208,182,142,0.05)" } },
     { match: ["苏美尔", "托勒密埃及", "埃及"], rig: {
       id: "hall-reed-clay", title_zh: "苇与泥 · 最早的字", title_en: "Reed and clay hall",
-      key: "rgba(224,190,132,0.15)", left: "rgba(160,110,60,0.13)", right: "rgba(90,120,140,0.09)",
-      bg: ["#12100a", "#0b0907", "#040403"], floor: "rgba(218,186,134,0.05)" } },
+      key: "rgba(224,190,132,0.15)", left: "rgba(90,120,140,0.09)", right: "rgba(160,110,60,0.13)",
+      bg: ["#12100a", "#0b0907", "#040403"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-ec582742fd054d08f52b7dbe.webp",
+      floor: "rgba(218,186,134,0.05)" } },
     { match: ["印加", "Inca"], rig: {
       id: "hall-cusco", title_zh: "巨石 · 高地", title_en: "Cusco stonework hall",
       key: "rgba(224,206,176,0.14)", left: "rgba(150,70,50,0.13)", right: "rgba(60,110,120,0.10)",
@@ -289,8 +298,9 @@
       bg: ["#101110", "#0a0b0a", "#040404"], floor: "rgba(228,222,206,0.045)" } },
     { match: ["浪漫主义", "Romantic"], rig: {
       id: "hall-romantic", title_zh: "浪漫派 · 风暴天", title_en: "Romantic storm hall",
-      key: "rgba(220,196,150,0.14)", left: "rgba(70,80,120,0.15)", right: "rgba(160,90,70,0.10)",
-      bg: ["#0d0d10", "#08080a", "#030304"], floor: "rgba(214,192,152,0.05)" } },
+      key: "rgba(220,196,150,0.14)", left: "rgba(160,90,70,0.10)", right: "rgba(70,80,120,0.15)",
+      bg: ["#0d0d10", "#08080a", "#030304"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-f8f2b5e85f6b76709f58f52d.webp",
+      floor: "rgba(214,192,152,0.05)" } },
     { match: ["现代北欧", "Scandinav"], rig: {
       id: "hall-nordic-modern", title_zh: "北欧现代 · 素木", title_en: "Nordic modern hall",
       key: "rgba(228,228,224,0.14)", left: "rgba(120,140,150,0.11)", right: "rgba(180,160,130,0.08)",
@@ -357,7 +367,8 @@
        * 所以这里 left = 冷玉青白的月, right = 远处焚城的暗红。
        * 教训: 灯位只有对着真背幕才定得准, 凭稿子想是会反的。 */
       key: "rgba(214,158,74,0.17)", left: "rgba(126,158,150,0.10)", right: "rgba(178,58,38,0.16)",
-      bg: ["#16110c", "#0c0806", "#050302"], floor: "rgba(214,158,74,0.055)",
+      bg: ["#16110c", "#0c0806", "#050302"], plate: "https://cdn.cssstudio.app/artifacts/stage/stage-cb2b4bbc9b3d84953a6e92c5.webp",
+      floor: "rgba(214,158,74,0.055)",
       /* 第二层 · 背幕图(W2121, 3 credits 生成一次, 永久使用, 每多一个观众成本为零)。
        * 内容哈希命名, 已落我们自己的 R2。生成时的硬约束是【无人 + 平光】——
        * 方向光归上面那几盏 CSS 灯, 打在所有人身上, 这才是这间厅能借给别人的前提。 */

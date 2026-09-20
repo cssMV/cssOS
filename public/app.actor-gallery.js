@@ -373,8 +373,16 @@
       ".ag-f2f-ov{position:fixed;inset:0;z-index:2147483000;background:#050a08;display:flex;flex-direction:column;}" +
       ".ag-f2f-stage{position:relative;flex:1;overflow:hidden;background:#04100b;}" +
       // W1641 — 纯 CSS 抽象演播厅背景(零成本): 顶光 + 双侧色光 + 地面渐变 + 缓慢漂移。两人镜/推拉时从画面边缘透出, 像演员端坐演播厅。
-      ".ag-f2f-stage::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;background:radial-gradient(130% 90% at 50% -12%,rgba(0,245,160,.13),transparent 55%),radial-gradient(70% 60% at 18% 26%,rgba(70,130,220,.11),transparent 70%),radial-gradient(70% 60% at 84% 38%,rgba(180,70,170,.10),transparent 72%),linear-gradient(180deg,#0a1712,#05100c 55%,#020906);}" +
-      ".ag-f2f-stage::after{content:'';position:absolute;left:0;right:0;bottom:0;height:40%;z-index:0;pointer-events:none;background:linear-gradient(180deg,transparent,rgba(0,245,160,.045) 55%,rgba(0,0,0,.55));}" +
+      /* CSSOS_WAVE_2120 20260920 — Jing:「演播厅不应该是统一的风格, 而是根据数字演员的时代/风格设计不同的。」
+       *
+       * 灯位(百分比)是【舞台机械】, 所有人共用, 一个数都没动; 变的只是【灯色】。
+       * 每个 var() 的 fallback 都写成【今天那个一模一样的值】—— 所以 app.actor-stage.js
+       * 没加载、没命中、或者出任何错, 这里与改动前【逐字节相同】。面对面是 Jing 每天在看的
+       * 界面, 不接受「我以为没影响」。
+       *
+       * 这也是共享演播厅能成立的原因: 方向光在这一层、打在所有人身上, 换人不穿帮。 */
+      ".ag-f2f-stage::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;background:radial-gradient(130% 90% at 50% -12%,var(--hall-key,rgba(0,245,160,.13)),transparent 55%),radial-gradient(70% 60% at 18% 26%,var(--hall-left,rgba(70,130,220,.11)),transparent 70%),radial-gradient(70% 60% at 84% 38%,var(--hall-right,rgba(180,70,170,.10)),transparent 72%),linear-gradient(180deg,var(--hall-bg1,#0a1712),var(--hall-bg2,#05100c) 55%,var(--hall-bg3,#020906));}" +
+      ".ag-f2f-stage::after{content:'';position:absolute;left:0;right:0;bottom:0;height:40%;z-index:0;pointer-events:none;background:linear-gradient(180deg,transparent,var(--hall-floor,rgba(0,245,160,.045)) 55%,rgba(0,0,0,.55));}" +
       ".ag-f2f-actor,.ag-f2f-me{position:absolute;z-index:1;border-radius:16px;overflow:hidden;background:#111;box-shadow:0 8px 30px rgba(0,0,0,.6);transition:all .45s cubic-bezier(.4,0,.2,1);touch-action:none;will-change:transform;}" +
       // W1613 — 修"你大屏时妲己小窗被盖住": 当前小窗(PiP)永远置顶(两画面本是 position:absolute 无 z-index, 靠 DOM 顺序 → me 恒在上, 你大屏时压住妲己小窗)。
       ".ag-f2f-stage[data-speaker='actor'] .ag-f2f-me,.ag-f2f-stage[data-speaker='me'] .ag-f2f-actor{cursor:grab;z-index:6 !important;}" +
@@ -2738,6 +2746,15 @@
       '<button class="ag-f2f-x" aria-label="close">×</button>';
     document.body.appendChild(ov);
     var stage = ov.querySelector(".ag-f2f-stage"), actorTile = ov.querySelector(".ag-f2f-actor"), caption = ov.querySelector(".ag-f2f-caption");
+    /* W2120 — 把【这位演员的厅】挂到 stage 上(写 CSS 变量)。
+     * rig 由 civilization + archetypes 推出来, 与曲风/唱腔/语言同一条文明智能联动;
+     * act-legend-daji 这类单独做过美术方向的, 按 actor_id 直接命中。
+     * 模块缺席就什么也不做 —— CSS fallback 接手, 观感回到通用厅, 绝不白屏。 */
+    try {
+      if (typeof globalThis.cssosApplyStage === "function" && typeof globalThis.cssosStageForActor === "function") {
+        globalThis.cssosApplyStage(stage, globalThis.cssosStageForActor(a));
+      }
+    } catch (e) {}
     /* W1830 — 说话片默认暂停(opacity 变 1 但不播 = 一张定格), 所以跟着 .speaking 播/停。
      * 用 MutationObserver 而不是改那 6 处 add/remove("speaking") 的调用点: 那 6 处分散在
      * 有声/无声/失败三条回放路径里, 逐个去改迟早漏一处; 盯 class 只有一个入口, 漏不掉。

@@ -352,9 +352,39 @@
      *  模型「把史书的判词画成脸」; 同一条理由原样适用于她的厅。) */
     "act-legend-daji": {
       id: "hall-chaoge", title_zh: "朝歌 · 三千年众口", title_en: "Chaoge · three thousand years of hearsay",
-      key: "rgba(214,158,74,0.17)", left: "rgba(178,58,38,0.15)", right: "rgba(126,158,150,0.10)",
+      /* ⚠ 左右是【看着真图定的, 不是想当然】: 生成出来的背幕里, 焚城的门洞在画面【右侧】约 70%,
+       * 而我原先把暗红火光放在左边 —— 火会打在错误的一侧, 与背幕自相矛盾。
+       * 所以这里 left = 冷玉青白的月, right = 远处焚城的暗红。
+       * 教训: 灯位只有对着真背幕才定得准, 凭稿子想是会反的。 */
+      key: "rgba(214,158,74,0.17)", left: "rgba(126,158,150,0.10)", right: "rgba(178,58,38,0.16)",
       bg: ["#16110c", "#0c0806", "#050302"], floor: "rgba(214,158,74,0.055)",
-      skip_arch: true   // 已经按 tragic+enigma 调过了, 不要再乘一次
+      /* 第二层 · 背幕图(W2121, 3 credits 生成一次, 永久使用, 每多一个观众成本为零)。
+       * 内容哈希命名, 已落我们自己的 R2。生成时的硬约束是【无人 + 平光】——
+       * 方向光归上面那几盏 CSS 灯, 打在所有人身上, 这才是这间厅能借给别人的前提。 */
+      plate: "https://cdn.cssstudio.app/artifacts/stage/stage-cb2b4bbc9b3d84953a6e92c5.webp",
+      skip_arch: true,   // 已经按 tragic+enigma 调过了, 不要再乘一次
+
+      /* 第三层「三千年众口」—— 她这间厅独有的那一层, 也是三句 style_descriptor 里
+       * 最难画的一句。做法是【文字分层后退】: 越往后越密、越糊、越暗, 全部背光。
+       *
+       * 最前那一层只有五个字 ——「惟婦言是用」,《尚書·牧誓》, 现存最早的指控就只有这么多。
+       * 她身后那两层是后世一千年、两千五百年陆续加上去的酒池肉林与九尾。
+       * 所以这一层不是装饰, 它就是 persona 那句话本身:
+       *「最早的指控只说王听了她的话 —— 酒池肉林是一千年后加的, 九尾是两千五百年后加的。」
+       *
+       * 纯文字 + CSS blur, 零生成成本。层序从远到近(数组顺序 = 画的顺序)。 */
+      layers: [
+        { text: "妖妃 惑主 亡国 九尾 狐媚 祸水 炮烙 酒池 肉林 剖心 蛊惑 倾城\n" +
+                "妖妃 惑主 亡国 九尾 狐媚 祸水 炮烙 酒池 肉林 剖心 蛊惑 倾城\n" +
+                "妖妃 惑主 亡国 九尾 狐媚 祸水 炮烙 酒池 肉林 剖心 蛊惑 倾城",
+          size: 15, blur: 7, opacity: 0.26, scale: 1.5, spacing: 0.42, color: "#cbb894", top: "4%" },
+        { text: "酒池肉林 炮烙之刑 剖比干心\n妲己之言是從 九尾之狐 塗山之女",
+          size: 19, blur: 2.6, opacity: 0.2, scale: 1.14, spacing: 0.34, color: "#d8c5a2", top: "16%" },
+        { text: "昬棄厥肆祀弗答",
+          size: 25, blur: 0.6, opacity: 0.32, scale: 1, spacing: 0.3, color: "#e6d3ac", top: "31%" },
+        { text: "惟婦言是用", note: "《尚書 · 牧誓》",
+          size: 40, blur: 0, opacity: 0.9, scale: 1, spacing: 0.34, color: "#f5e3bc", top: "46%", glow: true }
+      ]
     }
   };
 
@@ -405,13 +435,88 @@
       left:  scaleAlpha(rig.left,  tone.side),
       right: scaleAlpha(rig.right, tone.side),
       bg:    rig.bg,
-      floor: scaleAlpha(rig.floor, tone.floor)
+      floor: scaleAlpha(rig.floor, tone.floor),
+      layers: rig.layers || null,     // 戏路只调光, 不动第三层
+      plate:  rig.plate  || null      // 背幕图跟着厅走
     };
   }
 
+  function esc(t) {
+    return String(t == null ? "" : t)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  /* 厅里那些【垫在灯光之下】的层, 统一挂在一个容器里, 好整体装卸。
+   *   .cssos-hall-plate  背幕图(第二层, 可选)
+   *   .cssos-hall-layer  文字/图形层(第三层, 可选) —— 妲己的「三千年众口」就是它
+   * z-index 0: 与 ::before / ::after 同级、在它们之后画, 仍在演员画面(z-index 1)之下。
+   * 全部 pointer-events:none —— 它们是布景, 不许挡住任何可点的东西。 */
+  var LAYER_HOST = "cssos-hall-layers";
+
+  function clearLayers(el) {
+    try {
+      var old = el.querySelector(":scope > ." + LAYER_HOST);
+      if (old) old.remove();
+    } catch (e) {
+      try { var n = el.firstElementChild; while (n) { var nx = n.nextElementSibling;
+        if (n.className === LAYER_HOST) n.remove(); n = nx; } } catch (e2) {}
+    }
+  }
+
+  function renderLayers(el, rig) {
+    clearLayers(el);
+    var hasPlate = rig && typeof rig.plate === "string" && rig.plate;
+    var hasLayers = rig && Array.isArray(rig.layers) && rig.layers.length;
+    if (!hasPlate && !hasLayers) return;
+
+    var host = document.createElement("div");
+    host.className = LAYER_HOST;
+    host.style.cssText = "position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden";
+
+    /* 背幕图垫在最底下。故意压暗 + 轻微去饱和: 它是【布景】不是【画面】,
+     * 抢了主角的眼睛就本末倒置; 而且 CSS 那几盏灯要能在它上面看得出来。 */
+    if (hasPlate) {
+      var plate = document.createElement("div");
+      plate.className = "cssos-hall-plate";
+      plate.style.cssText = "position:absolute;inset:0;background-size:cover;background-position:center;"
+        /* 这三个数是【对着真背幕肉眼调的, 不是拍脑袋】: .5/.62 那一档把编钟和饕餮纹
+         * 压得几乎看不见 —— 花了钱生成的东西被自己的滤镜吃掉了一半。
+         * .62/.78 这一档细节读得出来, 演员仍然清清楚楚站在前面。
+         * 换了新背幕要重调, 别照搬。 */
+        + "opacity:.62;filter:saturate(.82) brightness(.78);"
+        + "background-image:url('" + String(rig.plate).replace(/'/g, "%27") + "')";
+      host.appendChild(plate);
+    }
+
+    if (hasLayers) {
+      rig.layers.forEach(function (L) {
+        if (!L || !L.text) return;
+        var d = document.createElement("div");
+        d.className = "cssos-hall-layer";
+        var glow = L.glow ? ";text-shadow:0 0 34px rgba(214,158,74,.55),0 2px 2px rgba(0,0,0,.8)" : "";
+        d.style.cssText = "position:absolute;left:0;right:0;top:" + (L.top || "20%")
+          + ";display:flex;flex-direction:column;align-items:center;gap:10px;"
+          + "filter:blur(" + (Number(L.blur) || 0) + "px);opacity:" + (Number(L.opacity) || 0.25) + ";"
+          + "transform:scale(" + (Number(L.scale) || 1) + ")";
+        d.innerHTML =
+          '<div style="color:' + esc(L.color || "#e6d3ac") + ';font-size:' + (Number(L.size) || 16) + 'px;'
+          + 'letter-spacing:' + (Number(L.spacing) || 0.3) + 'em;line-height:2;text-align:center;'
+          + 'white-space:pre-line;font-family:\'Noto Serif SC\',Georgia,serif' + glow + '">' + esc(L.text) + '</div>'
+          + (L.note
+              ? '<div style="color:rgba(214,190,150,.6);font-size:11px;letter-spacing:.22em">' + esc(L.note) + '</div>'
+              : "");
+        host.appendChild(d);
+      });
+    }
+
+    // 插在最前面, 让后面的演员画面/字幕自然盖在上面
+    if (el.firstChild) el.insertBefore(host, el.firstChild); else el.appendChild(host);
+  }
+
   /**
-   * 把一间厅挂到某个 DOM 元素上(写 CSS 变量)。
-   * 传 null / 不传 rig 就把变量清掉 → CSS 的 fallback 生效 = 回到今天的通用厅。
+   * 把一间厅挂到某个 DOM 元素上(写 CSS 变量 + 垫层)。
+   * 传 null / 不传 rig 就全部清掉 → CSS 的 fallback 生效 = 回到今天的通用厅。
    */
   function cssosApplyStage(el, rig) {
     if (!el || !el.style) return;
@@ -419,8 +524,10 @@
       ["--hall-key", "--hall-left", "--hall-right", "--hall-bg1", "--hall-bg2", "--hall-bg3", "--hall-floor"]
         .forEach(function (k) { try { el.style.removeProperty(k); } catch (e) {} });
       try { el.removeAttribute("data-hall"); } catch (e) {}
+      clearLayers(el);
       return;
     }
+    try { renderLayers(el, rig); } catch (e) {}
     var bg = Array.isArray(rig.bg) ? rig.bg : BASE.bg;
     try {
       el.style.setProperty("--hall-key",   rig.key   || BASE.key);

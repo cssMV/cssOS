@@ -33,8 +33,13 @@ console.log("── 2. 妲己: 按 actor_id 命中专门设计的厅, 且不被�
 const daji = S({ actor_id: "act-legend-daji", civilization: "中华神话", archetypes: ["tragic", "enigma"] });
 eq("厅 id", daji.id, "hall-chaoge");
 eq("顶光=青铜火把琥珀", daji.key, "rgba(214,158,74,0.17)");
-eq("左侧=远处焚城暗红", daji.left, "rgba(178,58,38,0.15)");
-eq("右侧=冷玉青白的月", daji.right, "rgba(126,158,150,0.10)");
+/* 左右是看着【真背幕】定的, 不是照稿子想的: 生成出来的图里焚城门洞在画面右侧约 70%。
+ * 所以 left = 月, right = 火。改这两行时必须先去看那张 plate, 别凭记忆翻。 */
+eq("左侧=冷玉青白的月", daji.left, "rgba(126,158,150,0.10)");
+eq("右侧=远处焚城暗红", daji.right, "rgba(178,58,38,0.16)");
+eq("挂了背幕图且是我们自己的域名", /^https:\/\/cdn\.cssstudio\.app\/artifacts\/stage\//.test(daji.plate || ""), true);
+eq("第三层「三千年众口」四层都在", (daji.layers || []).length, 4);
+eq("最前一层是《牧誓》那五个字", (daji.layers || [])[3].text, "惟婦言是用");
 eq("不是通用厅", daji.key === TODAY.key, false);
 
 console.log("── 3. 同文明不同戏路 → 同色系、不同强弱(颜色归文明, 气质归戏路) ──");

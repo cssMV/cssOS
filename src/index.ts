@@ -41865,6 +41865,76 @@ app.post("/api/admin/regen-cover/:workId", express.json({ limit: "8kb" }), async
     return res.status(500).json({ ok: false, code: "REGEN_COVER_FAILED", detail: (e as Error)?.message || "" });
   }
 });
+/* CSSOS_WAVE_2121 20260920 — 演播厅背幕图(第二层)。
+ *
+ * Jing:「虚拟演播厅应该根据数字演员的时代/风格设计不同的。」
+ * 第一层(CSS 灯光, W2120)零成本已上线; 这里是可选的【第二层】: 一张 21:9 的背幕图,
+ * 垫在灯光之下。一位演员一次, 永久使用, 每多一个观众成本为零。
+ *
+ * 为什么值得专门开一个端点, 而不是随手调一次 /api/cssmv/thumbnail:
+ *   ① 那个端点【不落 R2】—— 它返回 data URL 或第三方链, 直接存库就违反
+ *      「生成即落我们域名/R2, 绝不把第三方临时 URL 存库」(李清照那批 366 条就是这么没的)。
+ *   ② 画幅必须是 CINEMA_LANDSCAPE.size —— 只有这个尺寸才会触发 callImageGen 入口
+ *      自动拼上构图与艺术指导那一段(W1964b 的闸门)。调用方自己拼画幅正是当初漏网的根因。
+ *   ③ 背幕图有两条【它特有的】硬约束, 写在这里比写在每个调用点可靠:
+ *      无人 + 平光。厅里画进人就再也借不给别人; 背幕自带硬光影, 换人必穿帮
+ *      (方向光归 CSS 那一层, 打在所有人身上, 这才是共享演播厅成立的前提)。
+ *
+ * 落盘走内容哈希 artifacts/stage/stage-<sha24>.webp —— 同内容同地址, 结构上覆盖不掉。
+ * 纯生成 + 落盘, 不写任何库表: 厅的定义在前端 app.actor-stage.js, 这里只负责把字节变出来。 */
+app.post("/api/admin/stage-plate", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+
+  const b: any = req.body || {};
+  const stageId = String(b.stage_id || "").trim();
+  const subject = String(b.prompt || "").trim();
+  if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(stageId)) return res.status(400).json({ ok: false, code: "BAD_STAGE_ID" });
+  if (subject.length < 40) return res.status(400).json({ ok: false, code: "PROMPT_TOO_SHORT" });
+
+  /* 背幕图的两条硬约束。即使调用方忘了写, 也在这里补上 ——
+   * 它们不是修辞, 是「这张图能不能借给别人用」的分界线。 */
+  const HARD = "EMPTY ROOM: absolutely no people, no figures, no faces, no silhouettes anywhere in frame. "
+    + "FLAT AMBIENT LIGHT ONLY: soft even fill, no strong directional key light, no hard shadows, no lens flare "
+    + "(directional light is added later as a separate layer and must not fight a baked-in one). "
+    + "No text, no watermark, no signature.";
+  const prompt = `${subject}. ${HARD}`.slice(0, 4800);
+
+  try {
+    const img = await callImageGen({
+      prompt,
+      size: CINEMA_LANDSCAPE.size,      // 触发 W1964b 闸门自动拼构图/艺术指导
+      output_format: "webp",
+    });
+    if (!img?.ok) return res.status(503).json({ ok: false, code: "IMAGE_UNAVAILABLE", detail: img?.error || "" });
+
+    let buf: Buffer | null = null;
+    if (img.image_b64) {
+      buf = Buffer.from(img.image_b64, "base64");
+    } else if (img.image_url) {
+      const r = await fetch(img.image_url, { signal: AbortSignal.timeout(60000) });
+      if (r.ok) buf = Buffer.from(await r.arrayBuffer());
+    }
+    if (!buf || buf.length < 4096) {
+      return res.status(502).json({ ok: false, code: "EMPTY_IMAGE", bytes: buf ? buf.length : 0 });
+    }
+
+    const key = contentHashKey(buf, "artifacts/stage", "stage", "webp");
+    const url = await uploadBufferToR2(buf, key, "image/webp");
+    if (!url) return res.status(502).json({ ok: false, code: "UPLOAD_FAILED" });
+
+    return res.json({
+      ok: true, stage_id: stageId, url, bytes: buf.length,
+      model: img.model || null, provider: img.provider || null,
+      size: CINEMA_LANDSCAPE.size,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "STAGE_PLATE_FAILED", detail: (e as Error)?.message || "" });
+  }
+});
+
 /* CSSOS_WAVE_1851 哨兵 — 「还有多少资产不在我们手上」一问即答。
  * 为什么需要它: 2026-08-22 那次普查是我手写 SQL 拼出来的, 下次没人记得怎么拼。
  * 铁律(生成即落 R2)必须有一个【随时可验的读数】, 否则它只是一句口号:

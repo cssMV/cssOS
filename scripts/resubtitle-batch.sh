@@ -14,25 +14,62 @@
 #
 # ③ 失败时打印服务器返回的**原始 body**, 不要自己编原因。
 #    (之前有一次因为没打印真错误, 差点把限流误判成内容审核, 险些重写整份剧本。)
+#
+# CSSOS_WAVE_2125 20260920 — 再加两条【库级】核对(接口说成功不等于字幕真写进去了):
+#
+# ④ **跑前先查库: 已经有字幕的直接跳过, 一个都不碰。**
+#    铁律是「已经完整的东西只准新起版本, 绝不覆盖」。这个端点本身【没有】这道闸,
+#    它拿到 id 就重做。所以闸门必须装在调用方 —— 清单哪怕只错一个 id,
+#    也可能把一首好字幕覆盖掉, 而那正是 W2061 丢掉 17 首音乐的同一种死法。
+#
+# ⑤ **跑完回库确认 subtitle_take1_json_url 真的有了。**
+#    ①说的"内层 results[].ok"只是接口的自述; 真正的判据是那一列非空。
+#    两者不一致时以库为准, 并在汇总里单列出来。
 set -u
 LIST="${1:?用法: $0 <list.tsv>}"
 LOG="${LOG:-/tmp/resub_run.log}"
 TOKEN=$(grep -o 'CSSOS_ADMIN_TOKEN=[^ ]*' /etc/cssos.env | head -1 | cut -d= -f2- | tr -d '"'"'"'')
+PGPASSWORD="${PGPASSWORD:-}"
+# 库级查询: 这首有没有字幕。查不动库就返回 "?" —— 宁可不知道, 也不要假装知道。
+has_sub() {
+  [ -n "$PGPASSWORD" ] || { echo "?"; return; }
+  psql -h 127.0.0.1 -U cssstudio -d cssstudio -At -c \
+    "SELECT CASE WHEN COALESCE(subtitle_take1_json_url,'')='' THEN 'no' ELSE 'yes' END
+       FROM user_works WHERE id='$1'::uuid" 2>/dev/null || echo "?"
+}
 : > "$LOG"
-ok=0; fail=0; n=0
+ok=0; fail=0; n=0; skipped=0; mismatch=0
 total=$(grep -c . "$LIST")
 while IFS=$'\t' read -r id title; do
   [ -z "${id:-}" ] && continue
   n=$((n+1))
+  # ④ 跑前闸门: 已有字幕 → 跳过, 绝不覆盖
+  pre=$(has_sub "$id")
+  if [ "$pre" = "yes" ]; then
+    echo "[$n/$total] SKIP 已有字幕, 不覆盖  $title" | tee -a "$LOG"; skipped=$((skipped+1)); continue
+  fi
   for attempt in 1 2 3; do
     body=$(curl -s -m 900 -X POST -H "x-admin-token: $TOKEN" \
       "http://127.0.0.1:3000/api/admin/resubtitle/$id" 2>&1)
     # ← ① 内层判据: results 里至少有一条 "ok":true 才算真成功
     if printf '%s' "$body" | grep -q '"results"' \
        && printf '%s' "$body" | sed 's/.*"results"//' | grep -q '"ok":true'; then
+      # ⑤ 接口说成功还不算 —— 回库看那一列是不是真的有了
+      post=$(has_sub "$id")
+      if [ "$post" = "no" ]; then
+        echo "[$n/$total] ⚠ 接口报成功但库里仍无字幕  $title" | tee -a "$LOG"
+        mismatch=$((mismatch+1)); fail=$((fail+1)); break
+      fi
       echo "[$n/$total] OK   $title" | tee -a "$LOG"; ok=$((ok+1)); break
     fi
     reason=$(printf '%s' "$body" | grep -oE '"reason":"[^"]*"' | head -1)
+    # CSSOS_WAVE_2125 — align_failed 是【确定性】失败(歌词与音频对不上), 不是限流也不是抖动。
+    # 重试 3 次 = 白等 90 秒再得到同一个答案。只对真·瞬时错误退避重试。
+    case "$reason" in
+      *align_failed*|*no_audio*|*no_lyrics*)
+        echo "[$n/$total] FAIL $title :: $reason (确定性失败, 不重试)" | tee -a "$LOG"
+        fail=$((fail+1)); break;;
+    esac
     if [ "$attempt" -lt 3 ]; then
       w=$((30 * (1 << (attempt-1))))
       echo "[$n/$total] retry$attempt in ${w}s  $title :: ${reason:-$(printf '%s' "$body" | head -c 200)}" | tee -a "$LOG"
@@ -45,5 +82,6 @@ while IFS=$'\t' read -r id title; do
   done
 done < "$LIST"
 # ← 汇总必须自曝: 清单 N / 实际 M, 对不上要看得见
-echo "=== 完成: 成功 $ok / 失败 $fail / 清单 $total ===" | tee -a "$LOG"
-[ $((ok+fail)) -eq "$total" ] || echo "⚠️ 处理数 $((ok+fail)) ≠ 清单 $total, 有漏" | tee -a "$LOG"
+echo "=== 完成: 成功 $ok / 失败 $fail / 跳过(已有字幕) $skipped / 清单 $total ===" | tee -a "$LOG"
+[ "$mismatch" -gt 0 ] && echo "⚠️ 其中 $mismatch 首【接口报成功但库里没有】—— 以库为准" | tee -a "$LOG"
+[ $((ok+fail+skipped)) -eq "$total" ] || echo "⚠️ 处理数 $((ok+fail+skipped)) ≠ 清单 $total, 有漏" | tee -a "$LOG"

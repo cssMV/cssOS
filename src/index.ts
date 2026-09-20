@@ -40722,14 +40722,47 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
     if (!trackRows.length) {
       const uw = await withClient((c) => c.query<{ preview_audio_url: string | null; preview_video_url: string | null }>(
         `SELECT preview_audio_url, preview_video_url FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
-      // 优先独立音频; 老作品(画音未分层)音频烧在视频里 → 用视频做 ASR 源(whisperX 服务 ffmpeg 抽音)。
+      /* 优先独立音频; 老作品(画音未分层)音频烧在视频里 → 用视频做 ASR 源(whisperX 服务 ffmpeg 抽音)。
+       *
+       * CSSOS_WAVE_2127 20260920 — 中间补上 work_assets.audio_track_1 这一环:
+       * 有些作品的音频【只存在 work_assets 里】(preview_audio_url 为空), 缺了这一环就会
+       * 直接跳到视频源去做 ASR —— 音频源永远优于视频源, 不该跳过。
+       *
+       * ⚠ 订正: 我起初以为 26 首模板 MV 卡的就是这一环, 那是【错的】——
+       *   它们有语言轨, 根本走不到这个兜底块。真正的缺口是【主路径没有绝对化相对 URL】,
+       *   修在上面那处。这条注释留着是因为这一环本身确实该有, 但别把它当成那次的病因。 */
+      const _assetAudio = await withClient((c) => c.query<{ url: string }>(
+        `SELECT url FROM work_assets
+          WHERE work_id=$1::uuid AND asset_type='audio_track_1' AND COALESCE(url,'')<>'' LIMIT 1`,
+        [workId]));
       let pau = String(uw.rows[0]?.preview_audio_url || "").trim()
+             || String(_assetAudio.rows[0]?.url || "").trim()
              || String(uw.rows[0]?.preview_video_url || "").trim();
       if (!pau) return res.status(404).json({ ok: false, code: "NO_AUDIO" });
       // 绝对化 /artifacts/… 相对路径(ASR/whisperX 服务需可 HTTP 拉取)。
       if (pau.startsWith("/")) pau = "https://cssstudio.app" + pau;
       trackRows = [{ lang: "orig", audio_url: pau, vocal_url: null, track_order: 0, lyrics: null, duration_secs: null }] as any;
     }
+    /* CSSOS_WAVE_2127 20260920 — 【主路径】也要把相对路径绝对化。
+     *
+     * 真实错误(服务器日志, 不是我猜的):
+     *   [emotional-subs] whisper align threw: Failed to parse URL from
+     *   /personalization-templates/welcome/en.v2/base.mp3
+     *
+     * 根因: 绝对化这一步【只写在下面那个"无轨兜底"分支里】, 而这些作品【是有语言轨的】,
+     * 轨里的 audio_url 就是相对路径, 于是根本没走进兜底块, 原样递给了 whisper。
+     * 26 首模板 MV(欢迎/生日/首订)一直做不出字幕, 卡的就是这一行缺失。
+     *
+     * 装在这里 = 所有来自 work_language_tracks 的轨【必经之门】, 一处覆盖全部,
+     * 而不是在每个用到 audio_url 的地方各补一次(那种补法必漏, 这次就是证据)。 */
+    const _abs = (u: string | null | undefined) => {
+      const v = String(u || "").trim();
+      return v.startsWith("/") ? "https://cssstudio.app" + v : v;
+    };
+    trackRows = trackRows.map((t: any) => ({
+      ...t, audio_url: _abs(t.audio_url), vocal_url: t.vocal_url ? _abs(t.vocal_url) : t.vocal_url,
+    })) as any;
+
     // CSSOS_WAVE_657 — 老作品多无 R2 lyrics.json, 歌词在 DB(轨.lyrics / lyrics_preview)。批量回填要兜底。
     const workRow = await withClient((c) => c.query<{ lyrics_preview: string | null; language: string | null }>(
       `SELECT lyrics_preview, language FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));

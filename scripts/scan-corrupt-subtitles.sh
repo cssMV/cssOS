@@ -13,6 +13,11 @@
 #   再猜成 tok.start/tok.end(报出"全库 1157 首字幕没有时间轴"的假警报)。
 #   两次都是【判据错了, 不是数据坏了】。改判据前先去读消费这个 JSON 的代码。
 #
+# ⚠ 第三次(同一天): 把行首的 `[` 也当成污染 —— 于是 `[Music...]` / `[Intro]` 这些
+#   【合法段落标记】全被报成脏的, 干净的新字幕照样判 BAD。方括号是我们自己的结构语法,
+#   只有 `{` `}` 才是 JSON 信封的痕迹。**判据宁可漏报, 不可把好的说成坏的** ——
+#   假阳性会让我去"修"本来就对的东西。
+#
 # 用法: scan-corrupt-subtitles.sh [输出清单路径]
 #   不带参数 = 扫全库; 带 --fixed-lyrics = 只扫 W2126 修过歌词的那批
 set -u
@@ -53,7 +58,7 @@ blob = chr(10).join(texts)
 hits = []
 if re.search(r"\"(lyrics?|sections?|lines|theme|mood)\"\s*:", blob): hits.append("JSON键")
 if "\\n" in blob or "\\t" in blob:                                    hits.append("字面转义")
-if re.search(r"(?m)^\s*[{}\[]", blob):                                hits.append("花括号")
+if re.search(r"(?m)^\s*[{}]", blob):                                   hits.append("花括号")
 health = "EMPTY" if tot == 0 else ("DEAD" if timed == 0 else "TIMED")
 print(("BAD:" + "+".join(hits) if hits else "OK") + "|" + health + "|" + str(tot))
 '

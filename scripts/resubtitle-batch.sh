@@ -25,8 +25,19 @@
 # ⑤ **跑完回库确认 subtitle_take1_json_url 真的有了。**
 #    ①说的"内层 results[].ok"只是接口的自述; 真正的判据是那一列非空。
 #    两者不一致时以库为准, 并在汇总里单列出来。
+# CSSOS_WAVE_2128 20260920 — 加【重做模式】, 因为闸门④本身挡不住一种真实需求:
+#
+# ⑥ 有时【必须】覆盖一首已有的字幕 —— 比如 W2128 那 129 首, 字幕里烤着 LLM 的
+#    JSON 信封, 逐字把 `"lyrics":` 唱上屏, 断行也全错, 手术修不好只能重做。
+#    但"需要重做"绝不等于"可以直接覆盖":字幕的 R2 key 是写死的固定名
+#    works/<id>/subtitle-take1.json, 重做就是原地覆盖, 而 R2 是 Unversioned。
+#
+#    所以 --redo 不是把闸门④拆掉, 是把它换成一道更严的:
+#    **旧字节必须先有自己的地址(w2128_subtitle_backup 里有登记), 否则照样拒绝。**
+#    光有"我要重做"的意图不够 —— W2061 丢掉 17 首音乐时, 意图也是好的。
 set -u
-LIST="${1:?用法: $0 <list.tsv>}"
+LIST="${1:?用法: $0 <list.tsv> [--redo]}"
+REDO="${2:-}"
 LOG="${LOG:-/tmp/resub_run.log}"
 TOKEN=$(grep -o 'CSSOS_ADMIN_TOKEN=[^ ]*' /etc/cssos.env | head -1 | cut -d= -f2- | tr -d '"'"'"'')
 PGPASSWORD="${PGPASSWORD:-}"
@@ -37,16 +48,31 @@ has_sub() {
     "SELECT CASE WHEN COALESCE(subtitle_take1_json_url,'')='' THEN 'no' ELSE 'yes' END
        FROM user_works WHERE id='$1'::uuid" 2>/dev/null || echo "?"
 }
+# 旧字节保住了没有? 查不动库一律返回 "no" —— 拿不准时必须偏向【不覆盖】。
+preserved() {
+  [ -n "$PGPASSWORD" ] || { echo "no"; return; }
+  psql -h 127.0.0.1 -U cssstudio -d cssstudio -At -c \
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM w2128_subtitle_backup
+       WHERE work_id='$1'::uuid AND old_bytes > 0) THEN 'yes' ELSE 'no' END" 2>/dev/null || echo "no"
+}
 : > "$LOG"
-ok=0; fail=0; n=0; skipped=0; mismatch=0
+ok=0; fail=0; n=0; skipped=0; mismatch=0; redone=0; refused=0
 total=$(grep -c . "$LIST")
+[ "$REDO" = "--redo" ] && echo "⚠ 重做模式: 只覆盖【旧字节已另存】的作品" | tee -a "$LOG"
 while IFS=$'\t' read -r id title; do
   [ -z "${id:-}" ] && continue
   n=$((n+1))
   # ④ 跑前闸门: 已有字幕 → 跳过, 绝不覆盖
   pre=$(has_sub "$id")
   if [ "$pre" = "yes" ]; then
-    echo "[$n/$total] SKIP 已有字幕, 不覆盖  $title" | tee -a "$LOG"; skipped=$((skipped+1)); continue
+    if [ "$REDO" != "--redo" ]; then
+      echo "[$n/$total] SKIP 已有字幕, 不覆盖  $title" | tee -a "$LOG"; skipped=$((skipped+1)); continue
+    fi
+    # ⑥ 重做模式仍要过"旧字节保住了吗"这一关
+    if [ "$(preserved "$id")" != "yes" ]; then
+      echo "[$n/$total] 拒绝重做(旧字节未另存)  $title" | tee -a "$LOG"; refused=$((refused+1)); continue
+    fi
+    redone=$((redone+1))
   fi
   for attempt in 1 2 3; do
     body=$(curl -s -m 900 -X POST -H "x-admin-token: $TOKEN" \
@@ -82,6 +108,7 @@ while IFS=$'\t' read -r id title; do
   done
 done < "$LIST"
 # ← 汇总必须自曝: 清单 N / 实际 M, 对不上要看得见
-echo "=== 完成: 成功 $ok / 失败 $fail / 跳过(已有字幕) $skipped / 清单 $total ===" | tee -a "$LOG"
+echo "=== 完成: 成功 $ok / 失败 $fail / 跳过(已有字幕) $skipped / 拒绝重做 $refused / 清单 $total ===" | tee -a "$LOG"
+[ "$redone"   -gt 0 ] && echo "   其中重做(覆盖旧字幕, 旧字节已另存) $redone 首" | tee -a "$LOG"
 [ "$mismatch" -gt 0 ] && echo "⚠️ 其中 $mismatch 首【接口报成功但库里没有】—— 以库为准" | tee -a "$LOG"
-[ $((ok+fail+skipped)) -eq "$total" ] || echo "⚠️ 处理数 $((ok+fail+skipped)) ≠ 清单 $total, 有漏" | tee -a "$LOG"
+[ $((ok+fail+skipped+refused)) -eq "$total" ] || echo "⚠️ 处理数 $((ok+fail+skipped+refused)) ≠ 清单 $total, 有漏" | tee -a "$LOG"

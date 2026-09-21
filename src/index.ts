@@ -2373,6 +2373,15 @@ async function renderLanguageTrack(opts: {
   // CSSOS_WAVE_585 — 多语言=同声线不同语言(一个人唱多语言)→ 加语言轨须沿用【原作声线】, 否则变成别人唱。
   // originVoice 仅作音乐引擎的声线提示, 不进 DB 轨键(语言轨的 voice 列仍是 'auto')。
   originVoice?: string;
+  /* CSSOS_WAVE_2130 20260921 — 【手写词】直唱, 不做 LLM 转译。
+   *
+   * 起因(《秦始皇》): 一位中国人物的歌唱的是英文, 违反文明智能联动。补中文轨时,
+   * 自动转译只会把那 7 节 16 行的英文直译过来 —— 既够不上【10 节 40 行】的完整度铁律,
+   * 也没有典故。京典模版要的中文词是【写】出来的, 不是【译】出来的。
+   *
+   * 传了就【原词直唱, 一个字不改】—— 与 epic-render 的 customMode 同一先例。
+   * 只在 admin 通道开放: 用户侧仍走转译, 免得有人绕过转译塞任意文本进生成管线。 */
+  lyricsOverride?: string;
 }): Promise<void> {
   const { workId, userId, lang, chargedCents } = opts;
   const voice = String(opts.voice || "auto").trim().toLowerCase() || "auto";
@@ -2432,7 +2441,11 @@ async function renderLanguageTrack(opts: {
     try {
       await setStatus("rendering");
       let reLyrics: string;
-      if (isVoiceVariant) {
+      const _handWritten = String(opts.lyricsOverride || "").trim();
+      if (_handWritten) {
+        await setProgress("music", 25);           // W2130 手写词: 跳过转译, 原词直唱
+        reLyrics = _handWritten;
+      } else if (isVoiceVariant) {
         await setProgress("music", 25);           // voice variant: reuse lyrics, straight to music
         reLyrics = opts.baseLyrics;               // 同歌词
       } else {
@@ -3886,7 +3899,9 @@ app.get("/api/works/my-latest-multipart", async (req, res) => {
 // POST /api/works/:id/language-tracks — add language tracks to an EXISTING
 // work. Body: { languages: string[] }  (codes, selection order; the work's
 // existing default counts as the free 1st, so EVERY new language is paid).
-app.post("/api/works/:id/language-tracks", express.json({ limit: "4kb" }), async (req, res) => {
+// W2130 — body 上限 4kb → 16kb: 新增的 admin 手写词(lyrics)要装得下一份京典模版
+// 十节歌词(中文 UTF-8 一字 3 字节, 长词轻松过 4kb)。原来的 body 只有 languages 数组, 4kb 够用。
+app.post("/api/works/:id/language-tracks", express.json({ limit: "16kb" }), async (req, res) => {
   // CSSOS_TIER_C_MULTILINGUAL — admin-token bypass for ops/testing (same
   // pattern as /api/admin/template-mv/generate). When a valid token is
   // present we skip session/tier/balance and act on behalf of the work
@@ -3986,6 +4001,11 @@ app.post("/api/works/:id/language-tracks", express.json({ limit: "4kb" }), async
   const fromLangHint = String(w.default_lang || req.body?.source_lang || "").trim().toLowerCase();
   // CSSOS_WAVE_585 — 多语言=同声线不同语言: 加语言轨沿用原作声线(w.voice_gender)作 originVoice 提示。
   const _originVoice = String(w.voice_gender || "").trim().toLowerCase();
+  /* CSSOS_WAVE_2130 — admin 可直接给这一轨【手写词】, 跳过 LLM 转译(原词直唱)。
+   * 只认 admin token: 用户侧仍必须走转译, 不给任意文本进生成管线的口子。
+   * 只在【单语言】提交时生效 —— 一份手写词只对应一种语言, 多语言同时传会张冠李戴。 */
+  const _lyricsOverride = (isAdminToken && fresh.length === 1)
+    ? String(req.body?.lyrics || "").trim() : "";
   for (const lang of fresh) {
     void renderLanguageTrack({
       workId, userId: String(user.id), lang, trackOrder: ++maxOrder,
@@ -3993,6 +4013,7 @@ app.post("/api/works/:id/language-tracks", express.json({ limit: "4kb" }), async
       baseStyle: String(w.style || ""), fromLangHint,
       chargedCents: quote.perCents, durationSecs: w.duration_secs,
       originVoice: _originVoice,
+      lyricsOverride: _lyricsOverride,
     });
   }
   return res.json({

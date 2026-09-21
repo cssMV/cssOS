@@ -40784,6 +40784,22 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       ...t, audio_url: _abs(t.audio_url), vocal_url: t.vocal_url ? _abs(t.vocal_url) : t.vocal_url,
     })) as any;
 
+    /* CSSOS_WAVE_2130 20260921 — ?lang=xx 只重做【指定这一条】语言轨的字幕。
+     *
+     * 为什么需要: 给一首【已经有字幕】的作品加语言轨(多语言胶囊的常规动作)之后,
+     * 要给新语言做字幕就只能整首重跑 —— 连带把旧语言那份【已经完整的】字幕一起重生成。
+     * 那是覆盖一份完整成品, 违反版本铁律(完整的只增版本, 不覆盖)。
+     * 《秦始皇》补中文轨时撞上的正是这一条: 英文字幕前一天刚修好, 不该再动它。
+     *
+     * 不给 lang 时行为完全不变(整首全语言), 老调用方不受影响。 */
+    const _onlyLang = String((req.query as any)?.lang || "").trim().toLowerCase();
+    if (_onlyLang) {
+      trackRows = trackRows.filter((t: any) => String(t.lang || "").toLowerCase() === _onlyLang) as any;
+      if (!trackRows.length) {
+        return res.status(404).json({ ok: false, code: "NO_SUCH_LANG_TRACK", lang: _onlyLang });
+      }
+    }
+
     // CSSOS_WAVE_657 — 老作品多无 R2 lyrics.json, 歌词在 DB(轨.lyrics / lyrics_preview)。批量回填要兜底。
     const workRow = await withClient((c) => c.query<{ lyrics_preview: string | null; language: string | null }>(
       `SELECT lyrics_preview, language FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));

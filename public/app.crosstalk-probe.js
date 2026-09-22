@@ -50,8 +50,16 @@
   /* W1785 第二层 — 先查登记表, 查不到才退回"从 URL 猜"。
    *
    * 为什么必须有登记表: 音频 URL 是 artifacts/audio/aud-<hash>.mp3, 里面【没有任何
-   * 能追溯归属的信息】(视频有: canon-<workId前缀>-…)。光靠解析 URL, 音频这条道
-   * 永远查不出它属于谁 —— 既无法运行时自检, 出问题也无法定位。
+   * 能追溯归属的信息】。光靠解析 URL, 音频这条道永远查不出它属于谁 ——
+   * 既无法运行时自检, 出问题也无法定位。
+   *
+   * ⚠ CSSOS_WAVE_2141 20260922 订正: 这里原本写着"(视频有: canon-<workId前缀>-…)",
+   *   意思是视频能自证、不用登记。【那是错的】—— 实测 0/673 个视频 URL 含 work uuid。
+   *   于是 video 这条道两层身份来源全失效, 被本探测器长期静默跳过:
+   *   数据上只有 7 次 video 掉队, 读起来像"很少串台", 真相是【基本没看见】。
+   *   video 的写入点已补登记(app.watch-ui.js setWatchVideoFromArtifact, W2141)。
+   *   教训与 audit-must-report-its-own-gaps 同一条: 探测器跳过一条道时必须让人知道,
+   *   否则"没有报警"会被当成"没有问题"。
    * 登记表记住"这个 url 是在哪个完整坐标下被挂上去的", 补上这块缺失的身份。 */
   function coordOf(channel, url) {
     if (!url) return null;

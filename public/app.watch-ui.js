@@ -11063,6 +11063,28 @@ function cssosBeginWatchVideoSwap() {
 }
 globalThis.cssosBeginWatchVideoSwap = cssosBeginWatchVideoSwap;
 
+/* CSSOS_WAVE_2141 20260922 — 把【视频】登记进资产坐标表, 让串台探测器看得见这条道。
+ *
+ * 查串台时发现: video 这条道【今天基本是瞎的】, 所谓"只有 7 次"不是很少, 是看不见 ——
+ *   ① 从 URL 认: 实测 0/673 个 ready/published 作品的视频 URL 含 work uuid
+ *      (现在长这样: artifacts/mv/maya-p1-xkik.mp4 · mv_1788268948228.mp4), 认不出归属;
+ *   ② 从登记表认: 全库 cssosRegisterAsset 只有 audio 被登记过, video 一处都没有。
+ * 两层都失效 → 探测器按"宁可漏报不误报"的设计【直接跳过这条道】, 于是从不报警。
+ *
+ * 这一行补的就是第二层。写法与音频那处(app.mv-language-pill.js)完全一致, 不另造:
+ * workId/gen 由登记表自己取当前权威, 调用方不传 —— 少一个传错的机会。
+ *
+ * ⚠ 必须登记【真正挂到元素上的那个 URL】。data: 视频会先转成 blob: 再挂,
+ * 而探测器读的是 video.currentSrc —— 登记原始 data: 串等于没登记。 */
+function __cssosRegisterWatchVideo(url) {
+  try {
+    if (!url) return;
+    if (typeof globalThis.cssosRegisterAsset === "function") {
+      globalThis.cssosRegisterAsset("video", url, {});
+    }
+  } catch (_e) { /* 登记失败绝不能影响播放 */ }
+}
+
 function setWatchVideoFromArtifact(uri, options = {}) {
   if (!watchVideo || !uri) return false;
   const isLocalFallback = uri === LOCAL_FALLBACK_MP4;
@@ -11078,6 +11100,7 @@ function setWatchVideoFromArtifact(uri, options = {}) {
     watchVideo.muted = false;
     watchVideo.playsInline = true;
     watchVideo.load?.();
+    __cssosRegisterWatchVideo(uri);              // W2141
     return true;
   }
   const [meta, data] = uri.split(",");
@@ -11099,6 +11122,7 @@ function setWatchVideoFromArtifact(uri, options = {}) {
     watchVideo.muted = false;
     watchVideo.playsInline = true;
     watchVideo.load?.();
+    __cssosRegisterWatchVideo(watchVideoUrl);    // W2141 — 登记 blob:, 不是原始 data:
     return true;
   } catch (_err) {
     return false;

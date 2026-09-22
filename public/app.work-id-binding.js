@@ -107,9 +107,16 @@
    *   这就是切语言最容易串台、也是历次补丁都堵不住的那道缝。
    *
    * 另一个硬伤: 音频 URL 自己不带身份。
-   *   视频是 artifacts/mv/canon-<workId前缀>-….mp4  → 看 URL 就能自证
    *   音频是 artifacts/audio/aud-<hash>.mp3          → 看不出属于谁
    *   所以运行时必须有一张表, 记住"这个 url 是在哪个坐标下被挂上去的"。
+   *
+   * ⚠ CSSOS_WAVE_2141 20260922 订正: 这里原本还写着
+   *   「视频是 artifacts/mv/canon-<workId前缀>-….mp4 → 看 URL 就能自证」。
+   *   【那句已经不成立】—— 实测 ready/published 作品里 0/673 个视频 URL 含 work uuid,
+   *   现在长这样: artifacts/mv/maya-p1-xkik.mp4 · mv_1788268948228.mp4。
+   *   正是这句假前提让"视频不用登记"显得合理, 结果串台探测器的 video 这条道
+   *   【两层身份来源全失效、长期静默跳过】—— 所谓"video 只串台 7 次"不是很少, 是看不见。
+   *   视频现在也必须登记(写入点: app.watch-ui.js setWatchVideoFromArtifact)。
    *
    * 用法(写入点):
    *     cssosRegisterAsset('audio', url, { lang:'zh', voice:'auto', take:1 });

@@ -505,16 +505,56 @@
 
   // CSSOS_WAVE_641 — 自触发: 不再仅依赖语言胶囊的 switchToLanguage(它可能因挂载/时机没跑)。
   // 切作品(cssos:work-id-changed)时, 主动拉该作品的轨道、取默认轨、加载情绪字幕。带日志便于诊断。
+  var _lfwGen = 0;          // W2138 — loadForWork 的代数: 连切多首时只让最新的那次赢
+  var _lfwRetry = {};       // W2138 — 每个作品的重试次数, 防抖动导致的永久空白
+
   async function loadForWork(workId) {
+    /* CSSOS_WAVE_2138 20260922 — 字幕这条道的【硬串台】根治。
+     *
+     * 原来的写法把身份放在 fetch 【之后】才认:
+     *     var r = await fetch(...);
+     *     if (!r.ok) { console.warn(...); return; }   // ← 失败直接走人
+     *     _offsetWorkId = workId;                      // ← 成功了才设
+     *
+     * 于是 fetch 一失败(或抛异常), _offsetWorkId 就【停在上一个作品】,
+     * 屏幕上那套旧 cue 原样留着, 而且【没有任何重试】—— 探测器报出来的
+     * `subtitle:<旧 id>` 就是这个。与音频权威 W2138 那个洞是同一个形状:
+     * 一次网络抖动 = 永久串台。
+     *
+     * 三条改动:
+     *   ① 身份【立刻】认下来, 并先把旧 cue 清掉 —— 宁可空白, 绝不拿上一首的字幕顶上
+     *      (这正是本引擎 :141 那条「严格匹配, 宁可空白绝不错配」的同一原则)。
+     *   ② 代数守卫: 连切多首时, 慢的那次回来也不许覆盖新的。
+     *      原来只有 load() 里有守卫, 而 loadForWork 自己没有 —— 两次切换比谁先 await 完, 后到的赢。
+     *   ③ fetch 失败 → 退避重试(最多 3 次)。不重试的话, 抖动一次这首就永远没字幕。 */
     try {
       if (!workId) return;
-      var r = await fetch("/api/works/" + encodeURIComponent(workId) + "/language-tracks");
-      if (!r.ok) { try { console.warn("[emo-sub] tracks fetch", r.status); } catch (_e) {} return; }
-      var j = await r.json();
-      // CSSOS_WAVE_994 — adopt this work's saved subtitle offset (ms→s) so the
-      // stored nudge is applied on load, and the slider edits the right work.
+      var myGen = ++_lfwGen;
+      // ① 先认身份 + 清屏(别等 fetch)
       _offsetWorkId = workId;
       _rawCues = null; _rawWords = null;
+      _pristineCues = null; _pristineWords = null;
+      try {
+        var _kc = globalThis.watchKaraokeTimelineCache;
+        if (_kc) { _kc.data = null; _kc.pending = true; _kc.workId = workId; }
+      } catch (_e) {}
+      var r;
+      try {
+        r = await fetch("/api/works/" + encodeURIComponent(workId) + "/language-tracks");
+      } catch (_netErr) { r = null; }
+      if (myGen !== _lfwGen) return;                       // ② 期间又切歌 → 让最新的赢
+      if (!r || !r.ok) {
+        try { console.warn("[emo-sub] tracks fetch 失败", r && r.status, "→ 保持空白并重试", String(workId).slice(0, 8)); } catch (_e) {}
+        // ③ 退避重试: 别让一次抖动把这首的字幕永久判死
+        var n = (_lfwRetry[workId] = (_lfwRetry[workId] || 0) + 1);
+        if (n <= 3) setTimeout(function () { if (_lfwGen === myGen) loadForWork(workId); }, 900 * n);
+        return;
+      }
+      _lfwRetry[workId] = 0;
+      var j = await r.json();
+      if (myGen !== _lfwGen) return;                       // ② json 解析也可能跨过一次切歌
+      // CSSOS_WAVE_994 — adopt this work's saved subtitle offset (ms→s) so the
+      // stored nudge is applied on load, and the slider edits the right work.
       try { clearUndoHistory(); } catch (_e) {}   // W1739 — 换作品 → 撤销历史归零
       _offsetSec = (Number(j && j.subtitle_offset_ms) || 0) / 1000;
       // W995 — adopt saved per-line offsets (keys are line indices, values ms).

@@ -454,7 +454,15 @@
     // Falls back to Whisper timeline automatically if subtitle JSON unavailable.
     try {
       if (typeof globalThis.cssosEmotionSubtitle?.load === "function") {
-        globalThis.cssosEmotionSubtitle.load(track, take);
+        /* CSSOS_WAVE_2138 20260922 — 把【当前作品 id】传进去, 把防串台守卫真正打开。
+         * 引擎 :476 的守卫是 `if (ownerWorkId && _offsetWorkId && ownerWorkId !== _offsetWorkId) return;`
+         * —— 不传 ownerWorkId 它就【整个失效】(原注释写的"守卫自动跳过"正是这个)。
+         * 后果: 这次 load 在 await 期间用户切了作品, 迟到的旧结果照样盖上去 = 串台。
+         * 传当前作品 id 不影响换语言: 同一作品内 ownerWorkId === _offsetWorkId, 守卫放行;
+         * 只有【跨作品的迟到结果】会被挡掉, 那正是要挡的。 */
+        var _ownWid = "";
+        try { _ownWid = String(globalThis.cssosCurrentWorkId && globalThis.cssosCurrentWorkId() || ""); } catch (_e) {}
+        globalThis.cssosEmotionSubtitle.load(track, take, _ownWid || undefined);
       } else if (globalThis.watchKaraokeTimelineCache && Array.isArray(track.timeline)) {
         // Fallback if engine not yet loaded
         globalThis.watchKaraokeTimelineCache.data = track.timeline;

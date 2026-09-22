@@ -1,8 +1,12 @@
 /* CSSOS_PHASE2_MV_PIPELINE_PANEL 20260418 —
  * Frontend for the browser-orchestrated MV pipeline. Calls:
- *   /api/mv/cover, /api/mv/lyrics, /api/mv/music, /api/mv/video,
- *   /api/mv/subtitles, /api/mv/compose, /api/mv/commit
+ *   /api/mv/lyrics, /api/mv/plate, /api/mv/music, /api/mv/video,
+ *   /api/mv/subtitles, /api/mv/commit
  * in sequence and renders progress + final cost breakdown.
+ *
+ * W2137 20260922 — 用户看见的是【4 步】: 歌词 / 音乐 / 视频 / 字幕。
+ *   · cover 不再出专辑封面, 改出【定妆照】(/api/mv/plate), 成为 video 的内部第一步
+ *   · compose 已删(「永不烧录·四轨分离」), 画面 = 一组定妆照 + 播放端实时放幻灯
  *
  * Design philosophy (from Jing, 2026-04-18):
  *   一切参数化 (everything parameterized)
@@ -253,6 +257,23 @@
   // while preserving their prior outputs in `state`.
   const STAGE_ORDER = STAGES.map(function (s) { return s.id; });
 
+  /* CSSOS_WAVE_2137 20260922 — Jing:「删掉 cover 和 compose 这两个步骤, 只需要 4 个步骤就够了。」
+   *
+   * 【为什么不是把它们从 STAGES 里删掉】—— 这是这一波最容易踩死的地方:
+   * 每个阶段开头都有一句 `if (STAGE_ORDER.indexOf("cover") < resumeStartIdx) return null;`。
+   * STAGE_ORDER 由 STAGES 派生, 一旦 "cover" 不在里面, indexOf 返回 -1,
+   * 而 -1 < 0 恒真 → 全新一次运行里【定妆照会被整个跳过】, 画面直接没了。
+   * 同理 4523 行那句 `resumeStartIdx <= STAGE_ORDER.indexOf("cover")` 也会失灵。
+   *
+   * 所以把【UI 胶囊】与【执行顺序】拆开:
+   *   · STAGES / STAGE_ORDER —— 执行与断点续跑用, 一个字不动(索引全部保持原样)
+   *   · UI_STAGES           —— 只管画胶囊, 4 颗
+   * cover 变成 video 的【内部第一步】(出定妆照), compose 的 DAG 节点已删除(永不烧录),
+   * 两者都不再是用户看得见的步骤。setStage() 对不在 DOM 里的 id 是安全的
+   * (querySelector 返回 null 后有 if 守卫), 所以执行侧照常 setStage("cover",…) 不会炸。 */
+  const HIDDEN_STAGES = { cover: 1, compose: 1 };
+  const UI_STAGES = STAGES.filter(function (s) { return !HIDDEN_STAGES[s.id]; });
+
   // CSSOS_WAVE_342 20260522 — Jing: 成功生成完毕后, 把创作输入清空(prompt/style/歌词
   // + 歌词采集来源 + creationState.lyrics), 等同手动按"清空". 防止下次创作沿用上一首
   // 的歌词(串歌词). 只在成功完成时调; 刷屏/中断不调 → 用户草稿仍保留. 不动运行态 state.*
@@ -312,6 +333,10 @@
     lyrics: "",
     title: "",               // P2-31: resolved track title (known after music stage)
     coverUrl: null,
+    // W2137 — 这一跑出的全部定妆照。compose 删掉之后, 画面的交付物就是这组图 +
+    // 播放端实时放幻灯, 所以它们必须随 pipeline-assets 落进 work_assets.slideshow_frame;
+    // 只留在内存里, 用户下次打开作品就是黑框。
+    plateUrls: [],
     audioUrl: null,
     audioUrlBackendOnly: null, // #144 — file:// audio URL split-state
     videoUrl: null,
@@ -998,7 +1023,8 @@
   }
 
   function markup() {
-    const stagesHtml = STAGES.map(function (s) {
+    // W2137 — 胶囊只画 4 颗(见 UI_STAGES 处的注释: 执行顺序不能跟着删)。
+    const stagesHtml = UI_STAGES.map(function (s) {
       return (
         '<div class="mvp-stage" data-stage="' + s.id + '">' +
           '<div class="mvp-stage-head">' +
@@ -2554,7 +2580,12 @@
         return null;
       }
       const done = Array.isArray(obj.completedStages) ? obj.completedStages : [];
-      if (done.indexOf("compose") >= 0) {
+      /* CSSOS_WAVE_2137 20260922 — 判"这一跑已经完成"的标志从 compose 改成 subtitles。
+       * compose 节点已删(永不烧录), 它永远不会再出现在 completedStages 里 ——
+       * 不改这一行, 断点续跑的存档就【永远不会被清掉】, 用户下次打开面板会被一份
+       * 早已跑完的存档一直勾着。subtitles 现在是管线的最后一步。
+       * 旧存档里若还留着 compose, 也一并认成完成(兼容改动前存下的那些)。 */
+      if (done.indexOf("subtitles") >= 0 || done.indexOf("compose") >= 0) {
         try { localStorage.removeItem(key); } catch (_e) {}
         return null;
       }
@@ -4864,28 +4895,45 @@
           if (state.prompt) parts.push(String(state.prompt));
           return parts.filter(Boolean).join(isZh ? "；" : "; ") || String(state.prompt || "");
         })();
+        /* CSSOS_WAVE_2137 20260922 — 出【定妆照】, 不再出专辑封面。
+         *
+         * Jing:「删掉 cover 和 compose 这两个步骤, 只需要 4 个步骤就够了。」
+         * 但 cover 阶段【不只是封面】—— 它产出的 state.coverUrl 正是
+         * /api/mv/video 的 prompt_image_url(本文件原注释:"Video depends on
+         * cover.image_url"), 也是幻灯的唯一图源。所以不是删掉这一步, 是【改接线】:
+         * 按 W2087 的本意把锚图换成定妆照 —— 「即时根据 MV 的画面生成、并以此为基调
+         * 生成整部 MV」, 它同时落进 work_assets.slideshow_frame, 播放端本就读这个。
+         *
+         * 带 work_id 是关键: 没有它, 这张图就只是个 URL, 既不进幻灯素材、
+         * 也不会在作品没封面时升格 —— 那正是 W2087 说的「定妆照永远升不上来」。 */
         const cover = await postJson(
-          "/api/mv/cover",
+          "/api/mv/plate",
           withEngine("cover", {
             prompt: _coverBase + coverSuffix + styleSuffix,
+            work_id: String(state.workId || globalThis.cssosCurrentWorkId && globalThis.cssosCurrentWorkId() || "") || undefined,
             ratio: state.outputSpec && state.outputSpec.runwayImageRatio
               ? state.outputSpec.runwayImageRatio
               : null
           })
         );
-        // TODO(wave 7b): lift variations into dispatchStageEvents("cover").
-        // CSSOS_MV_DAG_WAVE_2_7C_LITE_SKIP 20260507 — Jing
-        // Lite tier is image-only ken-burns over the primary cover; the 4
-        // variation calls feed the 5-image slideshow used by Hybrid +
-        // Cinematic. For Lite they're pure waste — skip them.
         try {
-          let _coverTierId = "";
-          try {
-            if (globalThis.cssmvTiers && typeof globalThis.cssmvTiers.currentTierId === "function") {
-              _coverTierId = String(globalThis.cssmvTiers.currentTierId() || "").toLowerCase();
-            }
-          } catch (_e) { /* ignore */ }
-          if (_coverTierId !== "lite") {
+          if (cover && cover.image_url) {
+            state.plateUrls = state.plateUrls || [];
+            if (state.plateUrls.indexOf(cover.image_url) === -1) state.plateUrls.push(cover.image_url);
+          }
+        } catch (_p0) {}
+        // TODO(wave 7b): lift variations into dispatchStageEvents("cover").
+        /* CSSOS_WAVE_2137 20260922 — 【lite 不再跳过变体】, 这条要反过来。
+         *
+         * 原因: 旧 lite 档的交付物是 compose 用 ffmpeg 把一张封面烧成 Ken-Burns 幻灯【视频文件】,
+         * 所以多出来的变体确实是浪费。但 compose 已按「永不烧录·四轨分离」删掉 ——
+         * 现在 lite 的画面 = 一组定妆照 + 播放端实时放幻灯。
+         * 若仍跳过变体, lite 用户拿到的就只有【一张静止图】, 比原来更差。
+         *
+         * 所以三档一视同仁: 都出 coverCount 张定妆照, 全部落 work_assets.slideshow_frame。
+         * 代价说清楚: lite 的出图数从 1 张升到 coverCount 张(默认 3), 但省掉了 compose 那一步。 */
+        try {
+          {
             // CSSOS_WAVE_622 — Jing「封面数控件 3→8 真正接到生成」: 之前变体数写死 4, 无视 state.coverCount。
             // 现在按用户设置的封面数(默认 3, max 8)生成: 主封面已出 1 张, 再出 coverCount-1 张变体 →
             // 总共正好 coverCount 张, 全部进幻灯帧池(cssmvAddCoverSlide)。变体后缀池扩到 8 个角度。
@@ -4907,9 +4955,11 @@
             } catch (_cs0) {}
             variationSuffixes.forEach(function (suffix) {
               postJson(
-                "/api/mv/cover",
+                "/api/mv/plate",
                 withEngine("cover", {
                   prompt: _coverBase + coverSuffix + styleSuffix + suffix,
+                  // W2137 — 变体也必须带 work_id, 否则它只是个 URL, 进不了幻灯素材池。
+                  work_id: String(state.workId || globalThis.cssosCurrentWorkId && globalThis.cssosCurrentWorkId() || "") || undefined,
                   ratio: state.outputSpec && state.outputSpec.runwayImageRatio
                     ? state.outputSpec.runwayImageRatio
                     : null
@@ -4920,6 +4970,10 @@
                   if (typeof globalThis.cssmvAddCoverSlide === "function") {
                     globalThis.cssmvAddCoverSlide(extra.image_url);
                   }
+                  try {
+                    state.plateUrls = state.plateUrls || [];
+                    if (state.plateUrls.indexOf(extra.image_url) === -1) state.plateUrls.push(extra.image_url);
+                  } catch (_p1) {}
                   _coverDone += 1;
                   try {
                     setStage("cover", "done", copy(
@@ -4930,9 +4984,9 @@
                 })
                 .catch(function (_err) { /* variation failures are non-fatal */ });
             });
-          } else {
-            console.info("[mv-pipeline][cover] Lite tier — skipping 4 variation calls");
           }
+          // W2137 — 原来这里有个 `else { lite 跳过变体 }` 分支, 已随上面那条 if 一并删掉:
+          // compose 没了之后, lite 的画面就是这组定妆照, 跳过变体等于只给用户一张静止图。
         } catch (_variationsErr) { /* non-blocking UX; swallow */ }
         return cover;
       }
@@ -7896,6 +7950,10 @@
         .stage("cover", ["lyrics"], { weight: 10 }, async () => {
           if (STAGE_ORDER.indexOf("cover") < resumeStartIdx) return null;
           setStage("cover", "running", "");
+          /* W2137 — 这一步已经不是用户看得见的胶囊了(它是 video 的内部第一步:
+           * 出定妆照, 全片以它为基调)。所以把"正在出定妆照"显示到 video 那颗胶囊上,
+           * 否则用户会看着 4 颗胶囊全灭、却等上十几秒不知道在干什么。 */
+          try { setStage("video", "running", copy("Shooting the key plate", "正在出定妆照")); } catch (_e0) {}
           // CSSOS_MV_DAG_WAVE_7A 20260508 — Jing
           // Pure helper + apply/dispatch skeleton. Order matches the legacy
           // imperative path byte-for-byte: state mutation → engine record →
@@ -8053,20 +8111,20 @@
           }
           return state.subtitlesSrt || null;
         })
-        .stage("compose", ["cover", "music", "video", "subs"], { weight: 10 }, async () => {
-          // CSSOS_MV_DAG_WAVE_7F 20260508 — pure helper. Helper returns an
-          // output envelope (or throws sentinel on hard fail). DAG owns
-          // setStage / recordEngine + kara_ready dispatch byte-for-byte.
-          const out = await runComposeStage(state);
-          if (!out) return null;
-          applyStageOutput(state, "compose", out);
-          if (out._resp) recordEngine("compose", out._resp);
-          dispatchStageEvents(state, "compose", out, { cached: false });
-          if (out.public_url) {
-            setStage("compose", "done", out.public_url, out.cost_cents);
-          }
-          return out.composed || null;
-        });
+        ;
+      /* CSSOS_WAVE_2137 20260922 — 【compose 节点已删除】。
+       *
+       * 平台铁律「永不烧录·四轨分离」: 歌词/音乐/画面/字幕四条线绝不合成一个文件,
+       * 交付物是可重组的舞台, 不是一个烧好的视频。compose 这一步本就没有对应物 ——
+       * W2092 早已按这条理由把它从引擎选择器里删掉, 只是这个面板漏改了。
+       *
+       * 删掉之后画面从哪来: 定妆照(见上面 runCoverStage 的注释)已经全部落进
+       * work_assets.slideshow_frame, 播放端本来就从那里读图放幻灯
+       * (fetchSlideshow / cssmvSetCoverSlides), 不需要任何播放端改动。
+       *
+       * runComposeStage() 函数【保留不删】: 旧作品的重新合成入口、以及断点续跑里
+       * 按 STAGE_ORDER 取索引的几处仍会引用到它的名字。这里只是不再把它接进 DAG。
+       * 已有作品的 mv_url 一个都不动(铁律: 不删不覆盖)。 */
       const _dagResult = await globalThis.cssmvDag.run(_pipelineDag, {
         ctx: { state: state },
         cache: _dagCoverCache,
@@ -8360,7 +8418,10 @@
             });
           }
         }
-        if (_wid && (state.mvUrl || state.audioUrl)) {
+        /* W2137 — 触发条件补上定妆照: compose 删掉后 state.mvUrl 恒为空,
+         * lite 档又没有 state.videoUrl, 只剩 audioUrl。万一音频那一步没落下
+         * (例如用户自带音频), 这些定妆照也必须有机会入库, 否则画面全丢。 */
+        if (_wid && (state.mvUrl || state.audioUrl || (state.plateUrls && state.plateUrls.length))) {
           postJson("/api/works/" + encodeURIComponent(_wid) + "/pipeline-assets", {
             final_mv_url: state.mvUrl || state.videoUrl || null,
             audio_url: state.audioUrl || state.audioUrlBackendOnly || null,
@@ -8371,8 +8432,10 @@
             aligned_lyrics: state.alignedLyrics || null,
             lyrics_full: state.lyrics || null,
             engine_meta: engineMeta,
+            // W2137 — 定妆照随资产一起落库(compose 没了, 画面就靠它们)
+            slideshow_frames: Array.isArray(state.plateUrls) ? state.plateUrls : [],
           }).then(function (r) {
-            try { console.info("%c[mv-pipeline][assets] pipeline-assets written", "color:#0a8", r && r.written); } catch (_e) {}
+            try { console.info("%c[mv-pipeline][assets] pipeline-assets written", "color:#0a8", r && r.written, "frames:", r && r.frames_added); } catch (_e) {}
           }).catch(function (e) {
             try { console.warn("[mv-pipeline][assets] attach failed (non-fatal)", e); } catch (_e2) {}
           });

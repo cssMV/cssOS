@@ -6535,6 +6535,140 @@ function detectWorkTypeFromText(text: string): string {
   return "single";
 }
 
+/* CSSOS_WAVE_2137 20260922 — 【定妆照】用户侧出图口 POST /api/mv/plate。
+ *
+ * Jing:「删掉 cover 和 compose 这两个步骤, 只需要 4 个步骤就够了。」
+ *
+ * 为什么不是简单地把 cover 那颗胶囊删掉: 面板里 cover 阶段【不只是封面】——
+ * 它产出的 state.coverUrl 正是 /api/mv/video 的 prompt_image_url(源码原注释:
+ * "Video depends on cover.image_url"), 也是 lite 档幻灯的唯一图源。
+ * 全文件 5 处 state.coverUrl 赋值里只有 1 处是生产者(cover 阶段), 删了画面就没了。
+ *
+ * 所以按 W2087 的本意改接线: 画面的锚图改成【定妆照】——「即时根据 MV 的画面生成、
+ * 并以此为基调生成整部 MV」。它在 W1985 里已有定义(/api/admin/mv-plate):
+ *「分镜片的第一步永远是先出一张定妆图当 image_url 锚, 全片引用它」。
+ *
+ * 这个端点 = 那条 admin 路的【用户侧版本】, 不另造引擎:
+ *   · 出图走 callImageGen @ CINEMA_LANDSCAPE —— 画幅/构图/艺术指导的闸门就装在它入口(W1964b)
+ *   · 落盘走 contentHashKey(内容哈希铁律, 想覆盖也覆盖不了)
+ *   · 计费复用 cover 那一档(mvStagePreflight / chargeMvStageActual), 不另立计价口
+ *   · 挂载沿用 W2023 的语义: 进 work_assets 当 slideshow_frame; 作品还没封面时顺带升格
+ *
+ * 为什么不直接改 /api/mv/cover: 它的"专辑封面"语义还有别的调用方(定价/重出封面/
+ * 选角锁脸各处), 改它会波及面板之外。这里只做面板要的那一件事。
+ *
+ * count>1 给 lite 档用: lite 本来就跳过 /api/mv/video, 交付物改成【一组定妆照 +
+ * 播放端实时放幻灯】, 而不是 compose 烧出来的一个视频文件 —— 这正是「永不烧录·四轨分离」。 */
+app.post("/api/mv/plate", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  const userId = (req.session as any)?.user_id;
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+
+  const body = (req.body && typeof req.body === "object") ? (req.body as Record<string, unknown>) : {};
+  const prompt = String(body.prompt || "").trim();
+  // W861「偷油鼠」同款: 空 prompt 绝不调付费图引擎 —— 没主题就没有可生成的画面。
+  if (!prompt) return res.status(400).json({ ok: false, error: "empty_prompt" });
+  const workId = String(body.work_id || "").trim();
+  const count = Math.max(1, Math.min(8, Number(body.count) || 1));
+
+  // 选角锁脸: 有演员就先走参考图条件生成(与 cover 同一条路), 失败再落常规出图。
+  const castIds = (Array.isArray(body.cast)
+    ? (body.cast as unknown[]).map((m) => String((m as any)?.actor_id || m || "").trim())
+    : [String(body.actor_id || "").trim()]).filter(Boolean).slice(0, 3);
+
+  const plates: string[] = [];
+  let provider = "", model = "", spentCents = 0;
+
+  for (let i = 0; i < count; i++) {
+    const pf = await mvStagePreflight(req, "cover");
+    if (!pf.ok) {
+      if (plates.length) break;                  // 已出几张就先交付, 别把整步判失败
+      return res.status(pf.status).json(pf.body);
+    }
+    let url = "";
+    if (castIds.length) {
+      const refs: string[] = [];
+      for (const id of castIds) {
+        const aref = await actorReferenceImage(id).catch(() => null);
+        if (aref?.ref) refs.push(aref.ref);
+      }
+      if (refs.length) {
+        const locked = await generateReferenceLockedCover(refs, prompt).catch(() => null);
+        if (locked) {
+          url = locked; provider = "nanobanana-ref"; model = "google/nano-banana";
+          try { await chargeMvStageActual(userId, "cover", 3, provider); spentCents += 3; } catch {}
+        }
+      }
+    }
+    if (!url) {
+      const img = await callImageGen({ prompt, size: CINEMA_LANDSCAPE.size });
+      if (!img?.ok) {
+        if (plates.length) break;
+        return res.status(503).json({ ok: false, error: "image_unavailable", detail: String(img?.error || ""), provider: img?.provider || "" });
+      }
+      provider = img.provider || provider; model = img.model || model;
+      const cents = estimateEngineCostCents("cover", img.provider);
+      try { await chargeMvStageActual(userId, "cover", cents, img.provider); spentCents += cents; } catch {}
+      let buf: Buffer | null = null;
+      if (img.image_b64) buf = Buffer.from(img.image_b64, "base64");
+      else if (img.image_url) {
+        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 90_000);
+        try { const r = await fetch(img.image_url, { signal: ctrl.signal, redirect: "follow" }); if (r.ok) buf = Buffer.from(await r.arrayBuffer()); }
+        finally { clearTimeout(to); }
+      }
+      if (!buf || buf.byteLength < 4096) {
+        if (plates.length) break;
+        return res.status(503).json({ ok: false, error: "plate_empty", provider: img.provider || "" });
+      }
+      /* W2096 同款: 一律转 webp(定妆照是 R2 上最大的浪费源, PNG 平均 2.3MB/张)。
+       * 转换失败保留原字节 —— 宁可胖一点, 也不能因为压缩失败就丢掉这张图。
+       * sha 按【转换后落盘的字节】算, 与 contentHashKey 的契约一致。 */
+      let outBuf: Buffer = buf, ext = "png", ct = "image/png";
+      try {
+        const w = await sharp(buf, { failOn: "none" }).webp({ quality: 82 }).toBuffer();
+        if (w && w.byteLength > 1024) { outBuf = w; ext = "webp"; ct = "image/webp"; }
+      } catch (e) {
+        console.warn("[mv-plate] webp 转换失败, 保留原图:", (e as Error)?.message?.slice(0, 120));
+      }
+      const up = await uploadBufferToR2(outBuf, contentHashKey(outBuf, "artifacts/mv-plates", "plate", ext), ct);
+      if (!up) {
+        if (plates.length) break;
+        return res.status(503).json({ ok: false, error: "r2_upload_failed" });
+      }
+      url = up;
+    }
+    plates.push(url);
+  }
+
+  /* W2023 挂载语义: 每张都进 slideshow_frame(幻灯素材, 可以有很多张);
+   * 作品还没封面时把第一张升格成封面 —— 【不覆盖已有封面】(版本铁律)。
+   * 挂载失败不影响出图本身, 但一定在响应里说清楚, 绝不静默。 */
+  let attached: string | null = null;
+  if (/^[0-9a-f-]{36}$/i.test(workId) && plates.length) {
+    try {
+      for (const u of plates) {
+        await withClient((c) => c.query(
+          `INSERT INTO work_assets (work_id, asset_type, url, meta)
+           VALUES ($1::uuid, 'slideshow_frame', $2, '{"derived_from":"mv_plate"}'::jsonb)`,
+          [workId, u]));
+      }
+      const r = await withClient((c) => c.query(
+        `UPDATE user_works SET cover_image = $2, preview_image_url = $2, updated_at = now()
+          WHERE id = $1::uuid AND COALESCE(NULLIF(cover_image,''), '') = ''
+          RETURNING id`, [workId, plates[0]]));
+      attached = r.rowCount ? "frame+cover" : "frame";
+    } catch (e) {
+      attached = "failed:" + String((e as Error)?.message || "").slice(0, 60);
+    }
+  }
+
+  return res.json({
+    ok: true, plates, image_url: plates[0] || "",
+    count: plates.length, requested: count,
+    provider, model, cost_cents: spentCents, attached,
+  });
+});
+
 /* Detect maximum allowed duration for a given work_type, in seconds. */
 function maxDurationSecsForWorkType(wt: string): number {
   const w = String(wt || "single").toLowerCase();
@@ -8076,6 +8210,45 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
       written.push(assetType);
     };
 
+    /* CSSOS_WAVE_2137 20260922 — 【定妆照落库】。
+     *
+     * compose 删掉之后, 画面的交付物就是这一组定妆照 + 播放端实时放幻灯
+     * (「永不烧录·四轨分离」), 所以它们必须真的进 work_assets ——
+     * 只留在前端内存里, 用户下次打开作品就是黑框。
+     *
+     * 为什么不能只靠 /api/mv/plate 自己挂: 那条路要 work_id, 而【全新一跑】时
+     * 作品还没建出来, 出图那一刻根本拿不到 id。commit 之后这一步才有 id, 所以补在这里。
+     * 幂等: slideshow_frame 被排除在那条部分唯一索引之外(一个作品要存很多张),
+     * 因此这里按 URL 先查重, 重复调用不会堆出一堆一样的帧。 */
+    const plateUrls = Array.isArray(b.slideshow_frames)
+      ? (b.slideshow_frames as unknown[]).map((u) => String(u || "").trim()).filter(Boolean).slice(0, 30)
+      : [];
+    let framesAdded = 0;
+    for (const u of plateUrls) {
+      try {
+        const dup = await withClient((c) => c.query(
+          `SELECT 1 FROM work_assets WHERE work_id=$1::uuid AND asset_type='slideshow_frame' AND url=$2 LIMIT 1`,
+          [workId, u]));
+        if (dup.rowCount) continue;
+        await withClient((c) => c.query(
+          `INSERT INTO work_assets (work_id, asset_type, url, meta)
+           VALUES ($1::uuid, 'slideshow_frame', $2, '{"derived_from":"mv_plate"}'::jsonb)`,
+          [workId, u]));
+        framesAdded += 1;
+      } catch (e) {
+        console.warn("[pipeline-assets] 定妆照入库失败:", (e as Error)?.message?.slice(0, 120));
+      }
+    }
+    // 作品还没有封面时, 第一张定妆照升格成封面 —— 【绝不覆盖已有封面】(版本铁律)。
+    if (plateUrls.length) {
+      try {
+        await withClient((c) => c.query(
+          `UPDATE user_works SET cover_image=$2, preview_image_url=$2, updated_at=now()
+            WHERE id=$1::uuid AND COALESCE(NULLIF(cover_image,''),'')=''`,
+          [workId, plateUrls[0]]));
+      } catch { /* 非致命 */ }
+    }
+
     await upsertAsset(workId, "final_mv", finalMvUrl, {
       kind: "third_party_pipeline",
       duration_secs: durationSecs,
@@ -8194,7 +8367,8 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
       }
     } catch (_sibErr) { /* sibling backfill best-effort */ }
 
-    return res.json({ ok: true, work_id: workId, written, take2 });
+    // W2137 — frames_added 必须回给调用方: 定妆照落没落库, 不能靠猜。
+    return res.json({ ok: true, work_id: workId, written, take2, frames_added: framesAdded });
   } catch (err) {
     console.warn("[works/pipeline-assets] failed:", (err as Error).message);
     return res.status(500).json({ ok: false, error: "attach_failed" });

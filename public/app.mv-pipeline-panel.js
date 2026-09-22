@@ -4928,17 +4928,23 @@
           }
         } catch (_p0) {}
         // TODO(wave 7b): lift variations into dispatchStageEvents("cover").
-        /* CSSOS_WAVE_2137 20260922 — 【lite 不再跳过变体】, 这条要反过来。
+        /* CSSOS_WAVE_2140 20260922 — Jing:「删掉 cover 之后, 以后如果是 lite 档的作品,
+         * 只生成一张封面图即可。」
          *
-         * 原因: 旧 lite 档的交付物是 compose 用 ffmpeg 把一张封面烧成 Ken-Burns 幻灯【视频文件】,
-         * 所以多出来的变体确实是浪费。但 compose 已按「永不烧录·四轨分离」删掉 ——
-         * 现在 lite 的画面 = 一组定妆照 + 播放端实时放幻灯。
-         * 若仍跳过变体, lite 用户拿到的就只有【一张静止图】, 比原来更差。
+         * 所以 lite 恢复【只出主定妆照那一张】, 不出变体。
+         * 我上一版(W2137)判断错了: 当时推理是"compose 删了, lite 再跳过变体就只剩一张静止图,
+         * 比原来更差", 于是让三档一视同仁各出 3 张。但那是我替 Jing 做的产品决定 ——
+         * lite 是 $1.61 的档位, 多出两张图是他的钱, 该由他定。他定了: 一张。
          *
-         * 所以三档一视同仁: 都出 coverCount 张定妆照, 全部落 work_assets.slideshow_frame。
-         * 代价说清楚: lite 的出图数从 1 张升到 coverCount 张(默认 3), 但省掉了 compose 那一步。 */
+         * 其余档位(hybrid / cinematic)维持 coverCount 张(默认 3), 不动。 */
         try {
-          {
+          var _coverTierId = "";
+          try {
+            if (globalThis.cssmvTiers && typeof globalThis.cssmvTiers.currentTierId === "function") {
+              _coverTierId = String(globalThis.cssmvTiers.currentTierId() || "").toLowerCase();
+            }
+          } catch (_e) { /* 取不到档位 → 按非 lite 处理, 宁可多一张也别让别的档少图 */ }
+          if (_coverTierId !== "lite") {
             // CSSOS_WAVE_622 — Jing「封面数控件 3→8 真正接到生成」: 之前变体数写死 4, 无视 state.coverCount。
             // 现在按用户设置的封面数(默认 3, max 8)生成: 主封面已出 1 张, 再出 coverCount-1 张变体 →
             // 总共正好 coverCount 张, 全部进幻灯帧池(cssmvAddCoverSlide)。变体后缀池扩到 8 个角度。
@@ -4989,9 +4995,10 @@
                 })
                 .catch(function (_err) { /* variation failures are non-fatal */ });
             });
+          } else {
+            // W2140 — lite 只要主定妆照那一张(Jing 定的), 不出变体。
+            try { console.info("[mv-pipeline][plate] lite 档 — 只出 1 张定妆照"); } catch (_e) {}
           }
-          // W2137 — 原来这里有个 `else { lite 跳过变体 }` 分支, 已随上面那条 if 一并删掉:
-          // compose 没了之后, lite 的画面就是这组定妆照, 跳过变体等于只给用户一张静止图。
         } catch (_variationsErr) { /* non-blocking UX; swallow */ }
         return cover;
       }

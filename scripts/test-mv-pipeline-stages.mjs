@@ -64,5 +64,22 @@ check("出图走 /api/mv/plate", /"\/api\/mv\/plate"/.test(src), true);
 check("不再调 /api/mv/cover", /"\/api\/mv\/cover"/.test(src), false);
 check("定妆照随 pipeline-assets 落库", /slideshow_frames:/.test(src), true);
 
+/* W2140 — 缓存链【两环都要 bump】。
+ *
+ * 这一波真栽了: 我 bump 了 app.panel-manifest.js 里【被指向的】面板 ?v=,
+ * 却忘了 index.html 里【指向清单的】那个 ?v= —— 清单自己也是一个独立 script。
+ * 浏览器于是按【旧清单】去取【旧面板】: 服务器上明明是 4 颗胶囊,
+ * Jing 屏幕上还是 6 颗, 而且我一度以为是代码没生效。
+ * 判据: 两处的版本串必须带同一个 wave 号(w####), 强制它们一起改。 */
+{
+  const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const man  = fs.readFileSync(new URL("../public/app.panel-manifest.js", import.meta.url), "utf8");
+  const htmlV = (html.match(/app\.panel-manifest\.js\?v=([^"']+)/) || [])[1] || "";
+  const panelV = (man.match(/app\.mv-pipeline-panel\.js\?v=([^"']+)/) || [])[1] || "";
+  const wave = (v) => (String(v).match(/w\d{4}/) || [])[0] || "";
+  check(`缓存链两环同 wave(清单自己也得 bump) html=${htmlV} panel=${panelV}`,
+    !!wave(htmlV) && wave(htmlV) === wave(panelV), true);
+}
+
 console.log(`\n通过 ${pass} / 失败 ${fail}`);
 process.exit(fail ? 1 : 0);

@@ -49,6 +49,49 @@
     return !!(p && (fs === p || p.contains(fs) || fs.contains(p)));
   }
 
+  /* CSSOS_WAVE_2139 20260922 — Jing:「MV/Watch 面板看媒体时, 左右方向键是快进/快退」。
+   *
+   * 只为【左右键】放宽闸门, 其余键(Space/J/L/↑↓/0-9/M/S)【仍然只在真全屏生效】。
+   * 为什么不整体放宽: 面板态下那些键各有主人 ——
+   *   ↑/↓ 是"上/下一首"(watch-ui __queueAdvanceKeyHandler)
+   *   字母键是全局面板快捷层(F/W/C/L/M/V/K/P/U/G/B/A/R/O/E)
+   * 整体放宽等于同时抢掉一排别人的键, 那不是 Jing 要的, 也必然出乱子。
+   * 常用动作占常用键, 但【只占被点名的那一个】。 */
+  /* CSSOS_WAVE_2139 20260922 — 快进必须【音视频一起 seek】。
+   *
+   * 平台是四轨分离: 视频永远静音, 声音走 <audio#watch-audio-preview>(W653 单一音频权威)。
+   * 而 getMedia() 优先返回 video —— 只动它, 用户【听到的歌一点没动】, 快进等于没按。
+   * 这是既有快进本身就有的毛病, 不是这次才有的; 顺手一起治。
+   *
+   * 主时钟取【真正在出声的那个】: audio 有可用时长就以它为准, 否则退回 video。
+   * 另一个元素跟着对齐, 免得音画分家。
+   * 导出到 globalThis, 让横滑手势复用同一套(别各写一份 seek)。 */
+  function seekBy(delta) {
+    var v = document.getElementById("watch-video");
+    var a = document.getElementById("watch-audio-preview");
+    var usable = function (el) {
+      return !!(el && (el.currentSrc || el.src) && isFinite(el.duration) && el.duration > 0);
+    };
+    var primary = usable(a) ? a : (usable(v) ? v : null);
+    if (!primary) return null;
+    var t = Math.max(0, Math.min(primary.duration - 0.1, (primary.currentTime || 0) + delta));
+    try { primary.currentTime = t; } catch (_e) { return null; }
+    var other = (primary === a) ? v : a;
+    if (usable(other)) {
+      try { other.currentTime = Math.max(0, Math.min(other.duration - 0.1, t)); } catch (_e2) {}
+    }
+    return t;
+  }
+  try { globalThis.cssosSeekBy = seekBy; } catch (_e) {}
+
+  function isWatchPanelVisible() {
+    var p = document.getElementById("watch-panel");
+    if (!p) return false;
+    if (p.hidden || p.classList.contains("hidden")) return false;
+    // offsetParent 为 null = 被 display:none 或祖先隐藏, 真的没在看
+    return !!(p.offsetParent || p.getClientRects().length);
+  }
+
   function flashHint(text) {
     var t = document.getElementById("cssos-mv-keys-hint");
     if (!t) {
@@ -86,12 +129,16 @@
   var __cssosMvKeysHandler = function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (isTypingTarget(e.target)) return;
-    if (!isWatchActive()) return;
-    var m = getMedia();
-    if (!m) return;
-
     var key = e.key;
     var k = key.toLowerCase();
+    // W2139 — 左右键在【面板可见】时就生效; 其余键维持"只在真全屏"。
+    var isSeekArrow = (key === "ArrowLeft" || key === "ArrowRight") && !e.shiftKey;
+    if (!isWatchActive() && !(isSeekArrow && isWatchPanelVisible())) return;
+    // Shift+←/→ 是【♪1/♪2 切换】(watch-ui), 不许抢; 上面的 !e.shiftKey 已排除。
+    // 波形编辑器开着时它自管方向键, 让位。
+    if (isSeekArrow && document.getElementById("cssos-wave-editor")) return;
+    var m = getMedia();
+    if (!m) return;
 
     // Space — play/pause
     if (key === " ") {
@@ -104,16 +151,18 @@
     if (k === "j" || k === "l") {
       e.preventDefault();
       var d = k === "j" ? -10 : 10;
-      m.currentTime = Math.max(0, Math.min((m.duration || 0) - 0.1, (m.currentTime || 0) + d));
-      flashHint((d > 0 ? "+10s · " : "-10s · ") + fmtTime(m.currentTime));
+      var nt2 = seekBy(d);                      // W2139 — 音视频一起 seek
+      if (nt2 == null) return;
+      flashHint((d > 0 ? "+10s · " : "-10s · ") + fmtTime(nt2));
       return;
     }
     // arrow seek
     if (key === "ArrowLeft" || key === "ArrowRight") {
       e.preventDefault();
       var dx = key === "ArrowLeft" ? -5 : 5;
-      m.currentTime = Math.max(0, Math.min((m.duration || 0) - 0.1, (m.currentTime || 0) + dx));
-      flashHint((dx > 0 ? "+5s · " : "-5s · ") + fmtTime(m.currentTime));
+      var nt = seekBy(dx);                      // W2139 — 音视频一起 seek
+      if (nt == null) return;
+      flashHint((dx > 0 ? "+5s · " : "-5s · ") + fmtTime(nt));
       return;
     }
     // arrow volume

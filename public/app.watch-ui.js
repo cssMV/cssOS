@@ -6074,6 +6074,24 @@ function wireWatchKaraokeLiveOnceModule(videoEl, audioEl) {
     const watchPanel = document.getElementById("watch-panel");
     if (!watchPanel || watchPanel.hidden) return;
     if (!cachedTimeline.length) return;
+    /* CSSOS_WAVE_2139 20260922 — Jing:「MV/Watch 面板看媒体时, 左右方向键是快进/快退」。
+     *
+     * 左右键原本被【字幕微调】独占 —— 只要 watch 面板可见且有逐字时间轴就生效,
+     * 而且是 capture 阶段 + preventDefault, 上面那行注释写得很清楚:
+     *   「nudge must capture Arrow keys BEFORE the player-seek handler」
+     * 正因如此, app.mv-keys.js 的 ±5s 快进只能被限死在【真·浏览器全屏】才敢开。
+     *
+     * 现在按 Jing 的要求把裸方向键让给快进, 微调改挂 Alt/Option:
+     *   ← →        快进/快退 ±5s(mv-keys, 常用动作占常用键)
+     *   Alt+← →    字幕微调 ±0.25s(本处, 高级动作退一格)
+     *   Alt+↑ ↓    字幕微调 ∓1.0s
+     *   Alt+0      微调归零(连带一起挪的 —— 它和上面四个是同一套动作, 留在裸 0 上会自相矛盾)
+     * 为什么是 Alt 而不是 Shift: Shift+←/→ 已被【♪1/♪2 切换】占用(同文件 __queueAdvanceKeyHandler),
+     * 再占就是三方抢同一个键。而 mv-keys 遇到 altKey 会直接 return, 两边天然不打架。
+     *
+     * ⚠ 裸 ↑/↓ 原本【同时】触发微调(capture)和上/下一首(bubble)—— preventDefault 挡不住冒泡。
+     *   改后裸 ↑/↓ 只剩"上/下一首"一件事, 语义反而干净了。 */
+    if (!ev.altKey) return;
     if (ev.key === "ArrowLeft")  { adjustNudge(-0.25); ev.preventDefault(); }
     else if (ev.key === "ArrowRight") { adjustNudge(+0.25); ev.preventDefault(); }
     else if (ev.key === "ArrowUp")    { adjustNudge(-1.0);  ev.preventDefault(); }
@@ -6798,9 +6816,11 @@ function wireWatchSwipeOnceModule() {
   }
   // Touch swipe.
   let tStartY = null;
+  let tStartX = null;          // W2139 — 横向也要跟踪了(原来只跟 Y)
   let tStartT = 0;
   frame.addEventListener("touchstart", (ev) => {
     tStartY = ev.touches?.[0]?.clientY ?? null;
+    tStartX = ev.touches?.[0]?.clientX ?? null;
     tStartT = Date.now();
   }, { passive: true });
   // CSSOS_PHASE2_NO_PULL_REFRESH 20260505 — Jing
@@ -6814,21 +6834,55 @@ function wireWatchSwipeOnceModule() {
   frame.addEventListener("touchmove", (ev) => {
     if (tStartY == null) return;
     const curY = ev.touches?.[0]?.clientY ?? tStartY;
+    const curX = ev.touches?.[0]?.clientX ?? (tStartX ?? 0);
     const dy = curY - tStartY;
-    if (Math.abs(dy) > 8) {
+    const dx = curX - (tStartX ?? curX);
+    // W2139 — 横向拖动也要 preventDefault: 否则移动端会把它当成页面横向滚动/返回手势,
+    // 手指还在拖、页面已经在动, 快进手势根本做不出来。
+    if (Math.abs(dy) > 8 || Math.abs(dx) > 8) {
       try { ev.preventDefault(); } catch (_e) {}
     }
   }, { passive: false });
   frame.addEventListener("touchend", (ev) => {
     if (tStartY == null) return;
     const endY = ev.changedTouches?.[0]?.clientY ?? tStartY;
+    const endX = ev.changedTouches?.[0]?.clientX ?? (tStartX ?? 0);
     const dy = endY - tStartY;
+    const dx = endX - (tStartX ?? endX);
     const dt = Date.now() - tStartT;
-    tStartY = null;
-    // Reject obvious taps (dt < 80ms or |dy| < 30px). Otherwise any
-    // intentional vertical gesture switches songs — direction = sign(dy)
-    // inverted so swipe-UP advances (TikTok feel: pull next song up).
-    if (dt < 80 || Math.abs(dy) < 30) return;
+    tStartY = null; tStartX = null;
+    if (dt < 80) return;                       // 明显是点击, 不是手势
+    /* CSSOS_WAVE_2139 20260922 — Jing:「MV/Watch 面板看媒体时, 左右滑动是快进/快退」。
+     *
+     * 这条手势【不是】把 W445「左右滑动切换面板」请回来 —— 那条已被 W2016 整模块停用,
+     * app.panel-swipe-nav.js 仍是 early-return, 面板宪法第 4 条仍然作废。
+     * 这里是在【媒体框自己身上】新加的播放控制, 范围只有这一个元素, 不会把面板划走。
+     *
+     * 判定必须"明显横向", 否则会吃掉竖滑切歌(TikTok 手势):
+     *   |dx| >= 40px 且 |dx| >= 1.5 * |dy|  → 快进/快退
+     *   其余按原样走竖向切歌
+     * 幅度取 ±10s, 与键盘 J/L 一致 —— 一次滑动比一次按键"重", 所以不是 ±5s。
+     * 真正 seek 走 cssosSeekBy(mv-keys 导出): 平台音视频分离, 只动一个会音画分家。 */
+    if (Math.abs(dx) >= 40 && Math.abs(dx) >= 1.5 * Math.abs(dy)) {
+      const delta = dx < 0 ? -10 : 10;         // 左滑=后退, 右滑=前进
+      let done = null;
+      try {
+        if (typeof globalThis.cssosSeekBy === "function") done = globalThis.cssosSeekBy(delta);
+      } catch (_e) {}
+      if (done == null) {
+        // 兜底: mv-keys 还没加载时也别让手势失灵(音频优先, 它才是出声的那个)
+        const a = document.getElementById("watch-audio-preview");
+        const v = document.getElementById("watch-video");
+        const m = (a && isFinite(a.duration) && a.duration > 0) ? a
+                : ((v && isFinite(v.duration) && v.duration > 0) ? v : null);
+        if (m) { try { m.currentTime = Math.max(0, Math.min(m.duration - 0.1, (m.currentTime || 0) + delta)); } catch (_e2) {} }
+      }
+      return;
+    }
+    // Reject obvious taps (|dy| < 30px). Otherwise any intentional vertical
+    // gesture switches songs — direction = sign(dy) inverted so swipe-UP
+    // advances (TikTok feel: pull next song up).
+    if (Math.abs(dy) < 30) return;
     advanceSong(dy < 0 ? +1 : -1);
   });
   // Wheel / trackpad — debounced: only one advance per gesture run.

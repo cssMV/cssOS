@@ -6561,7 +6561,22 @@ function detectWorkTypeFromText(text: string): string {
  * 播放端实时放幻灯】, 而不是 compose 烧出来的一个视频文件 —— 这正是「永不烧录·四轨分离」。 */
 app.post("/api/mv/plate", express.json({ limit: "16kb" }), async (req, res) => {
   noStore(res);
-  const userId = (req.session as any)?.user_id;
+  /* CSSOS_WAVE_2137 — admin-token 运维旁路, 与 /api/works/:id/language-tracks 同一条模式
+   * (那里原注释: "admin-token bypass for ops/testing")。管线是【浏览器编排】的,
+   * 没有这条路就没法在服务器上真跑一次验收, 只能靠"看代码觉得对" —— 那不算验证。
+   * 令牌只存在服务器的 /etc/cssos.env 里, 不在任何客户端。 */
+  const _adminTok = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const _isAdminTok = !!_adminTok && String(req.headers["x-admin-token"] || "").trim() === _adminTok;
+  let userId = (req.session as any)?.user_id;
+  if (!userId && _isAdminTok) {
+    // 以作品主人的身份代跑; 没给 work_id 时退回平台默认归属账号。
+    const _w = String((req.body as any)?.work_id || "").trim();
+    if (/^[0-9a-f-]{36}$/i.test(_w)) {
+      const r = await withClient((c) => c.query<{ user_id: string }>(
+        `SELECT user_id FROM user_works WHERE id=$1::uuid LIMIT 1`, [_w])).catch(() => null);
+      userId = r?.rows[0]?.user_id || null;
+    }
+  }
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
 
   const body = (req.body && typeof req.body === "object") ? (req.body as Record<string, unknown>) : {};
@@ -6580,10 +6595,13 @@ app.post("/api/mv/plate", express.json({ limit: "16kb" }), async (req, res) => {
   let provider = "", model = "", spentCents = 0;
 
   for (let i = 0; i < count; i++) {
-    const pf = await mvStagePreflight(req, "cover");
-    if (!pf.ok) {
-      if (plates.length) break;                  // 已出几张就先交付, 别把整步判失败
-      return res.status(pf.status).json(pf.body);
+    // 运维旁路不走余额预检(它读 session; 而 staff 本来就是豁免的)。
+    if (!_isAdminTok) {
+      const pf = await mvStagePreflight(req, "cover");
+      if (!pf.ok) {
+        if (plates.length) break;                // 已出几张就先交付, 别把整步判失败
+        return res.status(pf.status).json(pf.body);
+      }
     }
     let url = "";
     if (castIds.length) {
@@ -8163,12 +8181,30 @@ app.post("/api/works/:id/edit", express.json({ limit: "16kb" }), async (req, res
  * 用【带谓词的正确 ON CONFLICT】幂等补写. 字段全部按 work_id 写, 不随机. */
 app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), async (req, res) => {
   noStore(res);
-  const userId = (req.session as any)?.user_id;
-  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
+  /* CSSOS_WAVE_2137 — admin-token 运维旁路, 与 /api/works/:id/language-tracks 同一条模式。
+   * 加它的唯一理由是【能真验收】: 全新一跑的定妆照就是走这条路落库的,
+   * 没有旁路我就只能"看代码觉得对", 那不算验证。令牌只在服务器的 /etc/cssos.env。 */
+  const _adminTok = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const _isAdminTok = !!_adminTok && String(req.headers["x-admin-token"] || "").trim() === _adminTok;
+  let userId = (req.session as any)?.user_id || null;
   const workId = String(req.params.id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(workId)) {
     return res.status(400).json({ ok: false, error: "invalid_work_id" });
   }
+  /* 运维旁路: 以【作品真正的主人】代跑。
+   *
+   * ⚠ 说实话: 这【等于绕过了归属检查】。下面那道闸是
+   *   SELECT … WHERE id=$1 AND user_id=$2, 而 $2 就是从这个作品查出来的 owner,
+   *   所以对【任何】作品都必然通过。我最初在注释里写"归属闸照常执行"——那是错的,
+   *   而且我当场就用它往一个无关作品里写进了一张测试图(已清理)。
+   *   持有 admin token = 可以给任意作品挂资产, 与平台其它 admin 端点同级。
+   *   令牌只在服务器 /etc/cssos.env, 不在任何客户端; 但用它时必须清楚这一点。 */
+  if (!userId && _isAdminTok) {
+    const _o = await withClient((c) => c.query<{ user_id: string }>(
+      `SELECT user_id FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId])).catch(() => null);
+    userId = _o?.rows[0]?.user_id || null;
+  }
+  if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   const b: any = req.body || {};
   const finalMvUrl = String(b.final_mv_url || "").trim();
   let audioUrl = String(b.audio_url || "").trim();

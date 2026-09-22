@@ -51,7 +51,12 @@
    * 只改【展示】: 后端 CSSOS_MV_STAGE_ORDER 里的 compose 保留不动 —— 历史作品的
    * cost_breakdown / 通知主题 / 已存进度记录都带着这个键, 拔掉会让旧数据解析不上。
    * 用户看到的是 5 个胶囊, 库里的历史仍然完整。 */
-  const STAGES = ["lyrics", "cover", "music", "video", "subtitles"];
+  /* CSSOS_WAVE_2137 20260922 — cover 从展示清单删掉, 与 MV 面板一致(4 格)。
+   * Jing:「删掉 cover 和 compose 这两个步骤, 只需要 4 个步骤就够了。」
+   * 我上一轮只改了 MV 面板, 漏了这圈进度环 —— 于是面板显示 4 步、进度环却还在
+   * 报「Cover 56%」, 两处自相矛盾。定妆照的进度已由 watchBarKeyForStage 并进 video。
+   * 同 W1875 删 compose 的做法: 只改【展示】, 后端阶段顺序一个字不动。 */
+  const STAGES = ["lyrics", "music", "video", "subtitles"];
   // Watch panel border-radius. Matches style.css --radius (24px) on
   // desktop. CSSOS_WAVE_297 20260521 — Jing: 全屏 App 里进度环贴边(inset:0)
   // 走 MV 边框, 四角要顺着【设备屏幕圆角】走, 否则直角会被设备圆角裁掉. 现代

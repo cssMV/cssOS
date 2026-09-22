@@ -2513,7 +2513,12 @@
   // subtitles→video and compose→mv because the old Watch bars only had 5
   // slots; that's no longer the case.
   function watchBarKeyForStage(id) {
-    return id;
+    /* CSSOS_WAVE_2137 20260922 — cover 的进度并到 video 那一格。
+     * cover 已经不是用户看得见的步骤了(它是 video 的内部第一步: 出定妆照),
+     * 而 Watch 面板那圈进度环的格子清单也同步删成 4 个 —— 再把 cover 原样传过去,
+     * 它就会去点一个【不存在的格子】, 定妆照那十几秒的进度整段丢失。
+     * Jing 在截图里看到的「Cover 56%」就是这条没改干净的证据。 */
+    return id === "cover" ? "video" : id;
   }
 
   // CSSOS_MV_DAG_WAVE_2_7B_RESUME 20260507 — Jing

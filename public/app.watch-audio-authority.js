@@ -20,6 +20,22 @@
   var _enforcedInstrUrl = "";  // 伴奏(卡拉 OK)
   var _busy = false;
   var _seq = 0;
+  var _pendingWork = "";   // W2138 洞①: _busy 期间来的最新一首, 本次收尾后补跑
+
+  /* W2138 — 当前作品【确实】没有可播音频时, 把音频元素清干净。
+   * 为什么必须清而不是"不接管": 不接管 = 上一首继续响 = 串台。
+   * 宁可静音, 也绝不拿别人的歌顶上(与字幕那条「宁可空白, 绝不错配」同一原则)。 */
+  function clearAudioTo(workId, why) {
+    try {
+      var a = aEl();
+      if (a && (a.currentSrc || a.src)) {
+        try { a.pause(); } catch (e) {}
+        try { a.removeAttribute("src"); a.load(); } catch (e) {}
+      }
+      try { console.warn("[audio-authority] 清空音频(" + why + "):", String(workId).slice(0, 8)); } catch (e) {}
+    } catch (e) {}
+    _enforcedWork = workId; _enforcedUrl = ""; _enforcedOrigUrl = ""; _enforcedInstrUrl = "";
+  }
 
   // CSSOS_WAVE_672 ① — 卡拉 OK: 读用户 stem 偏好(与 overlays 同一 key)。
   function stemPref() { try { return localStorage.getItem("cssmv.stemPreference") === "instrumental" ? "instrumental" : "vocals"; } catch (e) { return "vocals"; } }
@@ -146,23 +162,48 @@
 
   async function enforce(rawId) {
     var workId = rootId(String(rawId || "").trim());
-    if (!isUuid(workId) || _busy) return;
+    if (!isUuid(workId)) return;
+    /* CSSOS_WAVE_2138 20260922 — 洞①: 原来是 `if (_busy) return;` —— 上一首还在 fetch 时,
+     * 新切过去的这一首【被直接丢弃, 而且不重试】。切得越快越容易丢(实测串台事件里
+     * gen=5/8/11 的都是连切多首)。1.5s 安全 tick 虽然能补一刀, 但那 1.5 秒里用户听到的
+     * 是上一首 —— 而且若这次 bail 又设了 _enforcedWork(见洞②), tick 就再也不会来。
+     * 改成【记下待办, 本次收尾时接着跑】, 最新的那一首一定会被执行。 */
+    if (_busy) { _pendingWork = workId; return; }
     _busy = true;
     var mySeq = ++_seq;
     try {
       var a = aEl(), v = vEl();
       if (!a) return;
       if (soundAllowed()) installUnmuteLock(a);   // 允许出声 → 锁死不被任何代码再静音
-      var tracks = null;
+      /* CSSOS_WAVE_2138 20260922 — 洞②(硬串台的真凶, 1366 次里最久的一类):
+       * 原来 fetch 失败和"这首真的没音频"【走同一条 bail】, 而那条 bail 会先把
+       * _enforcedWork 设成新作品再 return。后果是:
+       *   ① 音频元素还挂着【上一首】的 src, 继续响;
+       *   ② 1.5s 安全 tick 的判据是 `dom !== _enforcedWork` —— 已经相等了, 于是【永不重试】;
+       *   ③ 第二个判据 `!_enforcedUrl` 也直接 return。
+       * 一次网络抖动 = 永久串台。实测 Jing 那次 auth=3afae38d 而 audio=5f58b62e,
+       * 两个作品【都有可用音轨】, 所以命中的正是 fetch 失败这一支。
+       * 现在分开处理: 拿不到答案就【不落锁】, 让 tick 再来; 真没音频就【清空元素】——
+       * 静音是对的, 放着别人的歌不对。 */
+      var tracks = null, fetchOk = false;
       try {
         var resp = await fetch("/api/works/" + encodeURIComponent(workId) + "/language-tracks");
-        tracks = (await resp.json()).tracks;
-      } catch (e) { tracks = null; }
+        if (resp && resp.ok) { tracks = (await resp.json()).tracks; fetchOk = true; }
+      } catch (e) { fetchOk = false; }
       if (mySeq !== _seq) return; // 期间又切歌 → 放弃本次, 让最新的赢
       var sel = pickTrack(tracks, workId);
-      if (!sel) { _enforcedWork = workId; _enforcedUrl = ""; _enforcedOrigUrl = ""; _enforcedInstrUrl = ""; return; } // 无分离音频 → 不接管(留旧路径)
+      if (!fetchOk) {
+        // 没问到答案 → 绝不落锁(_enforcedWork 保持原样), 1.5s tick 会再来一次。
+        try { console.warn("[audio-authority] 轨列表没取到, 本次不落锁, 等 tick 重试:", workId.slice(0, 8)); } catch (_e) {}
+        return;
+      }
+      if (!sel) {
+        // 这首【确实】没有可播音频 → 必须把元素清掉。留着上一首 = 串台。
+        clearAudioTo(workId, "本作品无可播音频");
+        return;
+      }
       var orig = sel.take === 2 ? sel.track.alt_audio_url : sel.track.audio_url;
-      if (!orig) return;
+      if (!orig) { clearAudioTo(workId, "轨上没有 audio_url"); return; }
       var instr = String(sel.track.instrumental_url || "");
       // CSSOS_WAVE_672 ① — 给前端「Vocals/Instrumental」胶囊喂源(resolveStemUrls 读这俩全局)。
       try { globalThis.currentPreviewAudioOriginalUrl = orig; globalThis.currentPreviewAudioInstrumentalUrl = instr; } catch (e) {}
@@ -204,6 +245,11 @@
       });
     } finally {
       _busy = false;
+      // W2138 洞①: 把 _busy 期间挤进来的最新一首补跑掉, 否则它就永远丢了。
+      if (_pendingWork && _pendingWork !== _enforcedWork) {
+        var nxt = _pendingWork; _pendingWork = "";
+        setTimeout(function () { try { enforce(nxt); } catch (e) {} }, 0);
+      } else { _pendingWork = ""; }
     }
   }
 

@@ -17,7 +17,7 @@
     "system-mvs":    "app.system-mvs-panel.js?v=20260513-wave125",
     "notifications": "app.notifications-panel.js?v=20260429-no-runall-184",
     "user-admin":    "app.user-admin-panel.js?v=20260526-w463-skeleton-admin",
-    "mv-pipeline":   "app.mv-pipeline-panel.js?v=20260922-w2137-4chips",
+    "mv-pipeline":   "app.mv-pipeline-panel.js?v=20260922-w2137-4chips-b",
     // CSSOS_WAVE_533 — person-mv 已还原为 eager(见 index.html), 从懒加载清单移除。
     // CSSOS_WAVE_527 — mv-import (21KB): mv-pipeline 面板的"导入"子功能。它把触发按钮注入
     //   #mv-pipeline-panel 头部, 故随 mv-pipeline 一同按需加载(见下方 CSSOS_PANEL_DEPS)。

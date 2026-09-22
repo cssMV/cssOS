@@ -1419,16 +1419,41 @@ function buildSubtitleSections(
   sections.forEach((sec, si) =>
     sec.lines.forEach((line, li) => {
       if (!line.trim()) return;
-      // Use char-level if line contains CJK/Arabic, else word-level
-      const hasCjk = [...line].some(isCjkChar);
-      if (hasCjk) {
-        [...line].forEach((ch) => { if (ch.trim() && !isJunkUnit(ch)) units.push({ text: ch, sIdx: si, lIdx: li }); });
-      } else {
-        line.split(/\s+/).forEach((w) => {
-          const cleaned = stripMarkup(w);
-          if (cleaned && !isJunkUnit(cleaned)) units.push({ text: cleaned, sIdx: si, lIdx: li });
-        });
+      /* CSSOS_WAVE_2136 20260921 — 切分单位按【行内的字形段】分, 不再按【整行】分。
+       *
+       * 原来这里是 `const hasCjk = [...line].some(isCjkChar)` —— 整行只要有一个汉字,
+       * 【整行】就逐字切。而京典模版的咒语行本来就是【混排】的:
+       *     拉丁文：Tempus fugit, sed veritas manet
+       * 行里有「拉丁文」三个字 → 后面那句拉丁文被一个字母一个 token 地切开,
+       * 屏幕上显示成 `T e m p u s f u g i t s e d v e r i t a s m a n e t`。
+       * 而且单元数量暴涨后, 与 whisper 返回的【词】一一配对全部错位, 中文唱词整段配不上,
+       * 字幕最后只剩咒语 + 一堆 [Music...] —— 16 首「诞辰/忌辰纪念」都是这么坏的。
+       *
+       * W2017 修的是"按语言判"那一层, 这一层"按行判"的坑还在。京典模版要求
+       * civ 语言歌词 + 古老咒语混排, 所以【每一首京典作品都会重演】, 必须修在切分处。
+       *
+       * 改法: 沿行扫描, 按 isCjkChar 把行切成交替的【CJK 段】与【非 CJK 段】,
+       * CJK 段逐字、非 CJK 段逐词 —— W2017 定下的判据一字未改, 只是把它从"整行"
+       * 下放到"行内每一段"。纯中文行 / 纯拉丁行的结果与改动前完全相同。 */
+      const pushWord = (w: string) => {
+        const cleaned = stripMarkup(w);
+        if (cleaned && !isJunkUnit(cleaned)) units.push({ text: cleaned, sIdx: si, lIdx: li });
+      };
+      let buf = "";
+      const flushLatin = () => {
+        if (!buf.trim()) { buf = ""; return; }
+        buf.split(/\s+/).forEach(pushWord);
+        buf = "";
+      };
+      for (const ch of line) {
+        if (isCjkChar(ch)) {
+          flushLatin();
+          if (ch.trim() && !isJunkUnit(ch)) units.push({ text: ch, sIdx: si, lIdx: li });
+        } else {
+          buf += ch;
+        }
       }
+      flushLatin();
     }),
   );
 

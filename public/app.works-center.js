@@ -987,8 +987,11 @@ function injectWorksEpicButtons(container, worksArr) {
           const wr = await fetch("/api/works/" + encodeURIComponent(id) + "/language-tracks", { credentials: "include" });
           const wj = await wr.json().catch(() => null);
           const tracks = (wj && Array.isArray(wj.tracks)) ? wj.tracks : [];
-          // epic-render 完成的标志: 出现备份轨 'orig-pre-epic'(只有 Epic 重出会建)。
-          const done = tracks.some((t) => String(t && t.lang) === "orig-pre-epic");
+          // epic-render 完成的标志: 出现旧版备份轨(只有 Epic 重出会建)。
+          // W2145 起后端写 voice='pre-epic'; 老作品仍是 lang='orig-pre-epic' —— 两形都认,
+          // 否则这个轮询会对其中一半永远等不到「完成」, 熬到 8 分钟超时才收手。
+          const done = tracks.some((t) => String(t && t.voice) === "pre-epic" ||
+                                          String(t && t.lang) === "orig-pre-epic");
           if (done) {
             clearInterval(poll);
             if (toast) toast(loginCopy("Epic version ready!", "Epic 版已就绪!"), {});

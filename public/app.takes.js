@@ -105,6 +105,21 @@
    * 行为与改造前一致, 但通道已经通了: 以后版本表写了 subtitle_url, 这里自动跟上。
    */
   function takeSubtitleUrl(o, n) {
+    /* CSSOS_WAVE_2145 — 【已知的旧版本】没有自己的字幕时, 宁可空白, 绝不借别版的时间轴。
+     *
+     * 闸必须在这里, 不能放到下面 —— takesOf() 的 legacy 路径(本文件 :77)已经把
+     * 【作品级】的 subtitle_take1_json_url 塞进了 take.subtitle_url, 所以"版本自带"
+     * 那一行对这些轨【总是】成立, 闸放在它后面等于没放。这些轨在版本表里没有行,
+     * 走的正是 legacy 路径。
+     *
+     * 为什么只对 voice='pre-epic' 关: 作品级那两列装的是【当前那一版】的字幕。
+     * 对默认轨回退过去是对的; 对 epic 重出【之前】的那一版音频回退过去, 就是拿新版
+     * 的时间轴去对旧版的歌声 —— 字幕从头漂到尾, 比没有字幕更糟, 而且不会报错。
+     * W2145 之前它们的 lang 是 'orig-pre-epic', 匹配不上任何字幕条目, 所以一直是空白;
+     * 改成真语言后严格匹配【会】命中同语言条目, 这个回退才第一次变得危险。
+     *
+     * 它自己那一版对齐出来的字幕一旦写进轨的 subtitle_url, 下面第一行就正常返回。 */
+    if (String(o && o.voice || "") === "pre-epic") return s(o.subtitle_url);
     var t = takeAt(o, n);
     if (t && t.subtitle_url) return t.subtitle_url;
     if (!o) return "";
@@ -113,6 +128,7 @@
     if (i >= 2 && s(o.subtitle_take2_json_url)) return s(o.subtitle_take2_json_url);
     return s(o.subtitle_take1_json_url);
   }
+
 
   globalThis.cssosTakes = {
     of: takesOf, count: takeCount, at: takeAt, url: takeUrl, subtitleUrl: takeSubtitleUrl,

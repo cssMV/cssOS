@@ -11613,7 +11613,7 @@ app.post("/api/agent/work/:work_id/generate-video", async (req, res) => {
 /* CSSOS_WAVE_781 — Jing「一键 Epic 版」: 把作品重出【更猛的 Epic 编曲】(母语原词原样当词唱, 绝不改词)。
  * Suno 重谱(40-240s)+ 字幕对齐(~4min)总时长超 nginx 60s → 异步: 先扣费 + 立即返回 {status:"started"},
  * 后台跑 epic render → 内部触发 resubtitle 对齐新编曲 → 失败退款。前端轮询作品 preview_audio_url 变化。
- * 共用核心 cssosEpicRenderCore(admin 端点同款), 原音频自动备份为 'orig-pre-epic' 轨(不丢原作)。 */
+ * 共用核心 cssosEpicRenderCore(admin 端点同款), 原音频自动备份为 voice='pre-epic' 轨(不丢原作)。 */
 const __epicInFlight = new Set<string>();
 app.post("/api/agent/work/:work_id/epic-render", express.json({ limit: "8kb" }), async (req, res) => {
   const userId = (req.session as any)?.user_id;
@@ -41285,9 +41285,20 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
        * 轨自己的, 否则按歌词字形判定 detectLyricLang), 这里直接用它。
        * 注: 语言【匹配】必须严格(W1961: 绝不拿别的语言顶替), 但那要求标签本身是真的 ——
        * 用占位符当标签, 等于让严格匹配对着一个假标签空转。 */
-      // W2086 —— 传入 alignAudio: 字幕是照着【这一条音频】对齐出来的,
-      // 用它当版本键, 旧版音乐就能配回旧版字幕。
-      await upsertSubtitleJson(workId, alignLang, 1, sections, _volCurve, alignAudio);
+      /* W2086 —— 版本快照要有自己的键, 旧版音乐才能配回旧版字幕。
+       *
+       * ⚠ CSSOS_WAVE_2144 20260922 订正: 原来传的是 alignAudio, 那是【错的】。
+       *   alignAudio = _vocalForAlign || tr.audio_url —— 有人声分离轨时它是【人声轨 URL】。
+       *   而 upsertSubtitleJson 回写是 `UPDATE … WHERE work_id=$1 AND audio_url=$2`,
+       *   拿人声轨 URL 去匹配 audio_url【永远匹配不上】→ 快照文件生成了, 却挂不到轨上,
+       *   subtitle_url 始终为空, 「播旧版显示旧版字幕」这条铁律从来没真正生效过。
+       *
+       *   更阴的是: 本端点【自己会创建人声分离轨】。所以"这条轨事先没有 vocal_url"
+       *   并不能保证安全 —— 我就是查了运行【之前】的状态, 判断"不会咬到", 然后被咬了。
+       *
+       *   版本键的正确定义是【这条轨自己的音频身份】, 不是"我拿什么去对齐的"。
+       *   两者本来就该分开: 对齐可以用人声轨(更准), 身份必须用 audio_url。 */
+      await upsertSubtitleJson(workId, alignLang, 1, sections, _volCurve, tr.audio_url || alignAudio);
       results.push({
         lang: alignLang, srcTrackLang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),
@@ -41497,7 +41508,7 @@ async function demucsCleanup(job: string): Promise<void> {
 }
 /* CSSOS_WAVE_781 — Jing「《阴阳三部曲》付费 Suno 重出【更猛的 Epic 编曲】」。用【手写原词】customMode
  * 当词唱(绝不改词), style 推到史诗(可 body.style 覆盖, ≤200), 默认 V4_5PLUS(≤8min, 长曲不截断)。
- * Suno 重谱 → rehost R2 → 原音频备份为 'orig-pre-epic' 非默认轨(不丢原作)→ Epic 设默认轨(lang)+
+ * Suno 重谱 → rehost R2 → 原音频备份为 voice='pre-epic' 非默认轨(不丢原作)→ Epic 设默认轨(lang)+
  * preview_audio_url。随后调 /api/admin/resubtitle/<id>(不带 ?asr)把情绪字幕对齐新编曲。
  *   curl -X POST "$API/api/admin/epic-render/<workId>" -H "x-admin-token: $T" \
  *        -H 'content-type: application/json' -d '{"style":"epic ...","lang":"zh","sunoModel":"V4_5PLUS"}' */
@@ -41514,6 +41525,23 @@ async function probeAudioDurationSecs(url: string): Promise<number | null> {
   });
 }
 type EpicRenderResult = { ok: boolean; code?: string; detail?: string; workId: string; lang?: string; provider?: string; sunoModel?: string; style?: string; audio_url?: string; alt_audio_url?: string; duration_s?: number | null };
+/* CSSOS_WAVE_2145 — 「epic 之前的那一版」的身份标记, 从 lang 挪到 voice。
+ *
+ * 旧形 lang='orig-pre-epic'(W781 起)把【版本】塞进了【语言】那一格。代价是实打实的:
+ * 字幕引擎按轨的 lang 严格匹配字幕文件里的 languages[].lang(app.emotion-subtitle-engine.js:141),
+ * 'orig-pre-epic' 永远匹配不上任何真语言条目 —— 那条轨播放时【永远没有字幕】。
+ * 更贵的一次: W2143 给这些轨补字幕时, 某个更早的生成把 'orig-pre-epic' 当语言喂给了 LLM,
+ * 模型回了一整段「"orig-pre-epic" is not a real language」的拒绝文本, 被原样存进 lyrics 列。
+ *
+ * 新形: lang = 真语言(与 epic 轨同一门语言, 本来就是同一份词), voice = 'pre-epic'。
+ * 这正是唯一键 (work_id, lang, voice) 的用意 —— 语言归语言, 版本归声线,
+ * 于是它在多声线胶囊里自然成为一颗可选的「旧版」, 而不是一条哑轨。
+ *
+ * 读一律双认(迁移前后、老客户端都算数), 写只写新形。 */
+function preEpicSql(alias?: string) {
+  const p = alias ? alias + "." : "";
+  return `(${p}voice = 'pre-epic' OR ${p}lang = 'orig-pre-epic')`;
+}
 /* CSSOS_WAVE_781 — 共享核心: 给某作品做 Epic 重编曲(手写/现有原词原样当词唱, 绝不改词)。
  * admin 端点 + 用户钱包端点共用。不做计费/鉴权 —— 调用方负责。 */
 async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang?: string; sunoModel?: string }): Promise<EpicRenderResult> {
@@ -41552,12 +41580,13 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
   // 3-5) 备份原作 → 取消旧默认 → upsert Epic 默认轨 → preview_audio_url 指向 Epic。
   await withClient(async (c) => {
     // 备份原音频(无原音频则留空, audio_url='' 仅作 Epic 标记轨, resubtitle 会跳过空音频轨)。
-    const ex = await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND lang='orig-pre-epic' LIMIT 1`, [workId]);
+    const ex = await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND ${preEpicSql()} LIMIT 1`, [workId]);
     if (!ex.rowCount) {
+      // W2145: lang 写【真语言】(与 Epic 轨同一门 —— 本来就是同一份词), 版本身份归 voice。
       await c.query(
-        `INSERT INTO work_language_tracks (work_id, lang, track_order, audio_url, lyrics, is_default)
-         VALUES ($1::uuid,'orig-pre-epic',90,$2,$3,false)`,
-        [workId, origAudio || "", lyrics]);
+        `INSERT INTO work_language_tracks (work_id, lang, voice, track_order, audio_url, lyrics, is_default)
+         VALUES ($1::uuid,$4,'pre-epic',90,$2,$3,false)`,
+        [workId, origAudio || "", lyrics, lang]);
     }
     await c.query(`UPDATE work_language_tracks SET is_default=false WHERE work_id=$1::uuid`, [workId]);
     /* CSSOS_WAVE_2094 20260913 — Jing:「Suno 每份歌词出两首, 我们一直扔掉一首 —— 钱已经付了。」
@@ -41891,7 +41920,7 @@ app.post("/api/admin/regen-video/:workId", express.json({ limit: "8kb" }), async
   }
 });
 /* CSSOS_WAVE_788 — Jing「旗舰/Epic 徽章」: 公开只读端点, 供前端给作品卡/MV面板打 ⚜旗舰/⚡Epic 徽章 +
- * 渲染「⚜ 旗舰精选」墙入口。旗舰=admin_pinned_at; Epic=有 'orig-pre-epic' 备份轨。内存缓存 60s。 */
+ * 渲染「⚜ 旗舰精选」墙入口。旗舰=admin_pinned_at; Epic=有旧版备份轨(W2145 起 voice='pre-epic', 旧形 lang='orig-pre-epic' 仍认)。内存缓存 60s。 */
 type FlagshipRow = { id: string; title: string | null; cover_image: string | null; civilization: string | null; epic: boolean; audio_track_1_url: string | null; preview_video_url: string | null; duration_secs: number | null };
 function __mapFlagshipRow(x: FlagshipRow, level: "system" | "user") {
   return { id: x.id, title: x.title || "", cover: x.cover_image || "", civ: x.civilization || "", epic: !!x.epic, level,
@@ -41899,13 +41928,13 @@ function __mapFlagshipRow(x: FlagshipRow, level: "system" | "user") {
 }
 const __FLAGSHIP_COLS = `w.id, w.title, w.cover_image, w.civilization, w.preview_video_url, w.duration_secs,
               COALESCE((SELECT t2.audio_url FROM work_language_tracks t2 WHERE t2.work_id = w.id AND t2.is_default = true AND t2.audio_url <> '' LIMIT 1), w.preview_audio_url) AS audio_track_1_url,
-              EXISTS (SELECT 1 FROM work_language_tracks t WHERE t.work_id = w.id AND t.lang = 'orig-pre-epic') AS epic`;
+              EXISTS (SELECT 1 FROM work_language_tracks t WHERE t.work_id = w.id AND ${preEpicSql("t")}) AS epic`;
 let __flagshipSysCache: { at: number; items: any[] } | null = null;
 app.get("/api/works/flagships", async (req, res) => {
   noStore(res);
   try {
     // CSSOS_WAVE_799 — Jing「Epic 墙分用户级/系统级」: 系统级=admin 后台输出并置顶(admin_pinned_at), 所有人可见;
-    // 用户级=登录用户【自己】Epic 过(有 orig-pre-epic 轨)但未被 admin 置顶的作品, 只对本人可见。
+    // 用户级=登录用户【自己】Epic 过(有旧版备份轨)但未被 admin 置顶的作品, 只对本人可见。
     // 系统级全局缓存 60s; 用户级按 viewer 实时查(便宜, ≤50 条)。前端按 item.level 分区显示。
     if (!__flagshipSysCache || (Date.now() - __flagshipSysCache.at) >= 60_000) {
       const r = await withClient((c) => c.query<FlagshipRow>(
@@ -41923,7 +41952,7 @@ app.get("/api/works/flagships", async (req, res) => {
         `SELECT ${__FLAGSHIP_COLS}
            FROM user_works w
           WHERE w.user_id = $1::uuid AND w.admin_pinned_at IS NULL AND w.status IN ('ready','published')
-            AND EXISTS (SELECT 1 FROM work_language_tracks t3 WHERE t3.work_id = w.id AND t3.lang = 'orig-pre-epic')
+            AND EXISTS (SELECT 1 FROM work_language_tracks t3 WHERE t3.work_id = w.id AND ${preEpicSql("t3")})
           ORDER BY w.updated_at DESC LIMIT 50`, [viewer]));
       userItems = ur.rows.map((x) => __mapFlagshipRow(x, "user"));
     }

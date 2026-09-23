@@ -807,7 +807,23 @@
     // CSSOS_WAVE_583 20260531 — Jing「有操作必显多语言选择器, 哪怕只有 1 种语言 —— 引导加语言→平台收入」。
     // 此前 <2 语言时移除整条 bar; 现在【始终渲染】(至少母语 1 颗), app.lang-flag-pills.js 会给单语言追加
     // ➕加语言 / ✨做多语言 引导胶囊。仅当一首语言都没有(异常)才不渲染。
-    var meaningful = _lastTracks.filter(function (t) { return t && t.lang; });
+    /* CSSOS_WAVE_2147 — status='superseded' 的轨【不画格子】。
+     *
+     * 'superseded' 的意思是「这一版已经退场了, 但记录留着」(W2142 起用)。
+     * 光在库里翻这个 status 达不到「安静退场」—— 下面这行原本只要求 t.lang,
+     * 于是退场的轨照样进 distinctVoices, 画出一颗 disabled 的格子, 而 mkCell 的
+     * 非 ready 分支会给它挂 " ⚠" 和 tooltip「渲染中…」, 看上去像坏了或卡住了,
+     * 比不处理更糟。
+     *
+     * W2142 那 10 条侥幸没暴露, 是因为它们是【重复行】—— 与真轨同一个 (lang,voice),
+     * 被 distinctLangs/distinctVoices 的去重吃掉了。不重复的退场轨(比如 (zh,pre-epic)
+     * 这种独一份的)就会实打实多出一颗点不响的胶囊。
+     *
+     * 只排除 'superseded' 一种: pending/rendering/failed 仍要画(⋯/◌/⚠ 是真实状态,
+     * 用户需要看见)。不删任何数据, 翻回 'ready' 它立刻回来。 */
+    var meaningful = _lastTracks.filter(function (t) {
+      return t && t.lang && String(t.status || "") !== "superseded";
+    });
     if (meaningful.length < 1) {
       var bar0 = document.getElementById("watch-language-pill");
       if (bar0 && bar0.parentNode) bar0.parentNode.removeChild(bar0);

@@ -40964,10 +40964,23 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       // CSSOS_WAVE_691f — 同语言多轨【只取默认轨】(DISTINCT ON lang, 优先 is_default 再 track_order)。
       // 字幕 JSON 按 lang 索引, 多条同语言轨会【互相覆盖】(Jerusalem 有 4 条 zh → 短轨覆盖了 247s 默认轨
       // 的字幕 → 末段卡 116s、内容串台)。每语言只对齐 1 条(默认), 既正确又省 3 次对齐。
-      `SELECT DISTINCT ON (lang) lang, audio_url, vocal_url, track_order, lyrics
+      /* CSSOS_WAVE_2148 — 去重键改成 (lang, voice), 与表的唯一键、与 W2116
+       * 「键必须 (lang,voice) 否则多声线串台」同一套。
+       *
+       * 原来是 DISTINCT ON (lang): 每种语言只留一条(优先 is_default)。W2145 把
+       * 「epic 之前那一版」从 lang 挪到 voice 之后, 它和 epic 轨【同语言】,
+       * 于是被这一句整条吃掉 —— resubtitle 根本看不见它, ?voice= 过滤自然永远
+       * 404。同理, 平台上 voice='orig'/'childlike'/'jing' 那些多声线轨
+       * 【一直】就看不见, 只是此前没人去给它们做字幕所以没暴露。
+       *
+       * 注意 W691f 那条教训仍然成立且【没有被推翻】: 字幕 JSON 按 lang 索引,
+       * 多条同语言轨会互相覆盖(Jerusalem 4 条 zh 串台)。所以【默认行为一个字不变】——
+       * 不带 ?voice= 时下面仍然折叠成每语言一条(优先 is_default), 与原来逐行等价。
+       * 只有显式指定 ?voice= 时才放行那一条特定声线, 由调用方为「同语言多版本」负责。 */
+      `SELECT DISTINCT ON (lang, voice) lang, voice, audio_url, vocal_url, track_order, lyrics, is_default
          FROM work_language_tracks
         WHERE work_id=$1::uuid AND audio_url IS NOT NULL AND audio_url <> ''
-        ORDER BY lang, is_default DESC, track_order`,
+        ORDER BY lang, voice, is_default DESC, track_order`,
       [workId],
     ));
     // CSSOS_WAVE_765 — Jing「这首有歌声无生歌词, 请输出熟歌词+情绪字幕」。根因: 单轨 MV 作品
@@ -40997,7 +41010,7 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       if (!pau) return res.status(404).json({ ok: false, code: "NO_AUDIO" });
       // 绝对化 /artifacts/… 相对路径(ASR/whisperX 服务需可 HTTP 拉取)。
       if (pau.startsWith("/")) pau = "https://cssstudio.app" + pau;
-      trackRows = [{ lang: "orig", audio_url: pau, vocal_url: null, track_order: 0, lyrics: null, duration_secs: null }] as any;
+      trackRows = [{ lang: "orig", voice: "auto", audio_url: pau, vocal_url: null, track_order: 0, lyrics: null, duration_secs: null }] as any;
     }
     /* CSSOS_WAVE_2127 20260920 — 【主路径】也要把相对路径绝对化。
      *
@@ -41032,6 +41045,36 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       trackRows = trackRows.filter((t: any) => String(t.lang || "").toLowerCase() === _onlyLang) as any;
       if (!trackRows.length) {
         return res.status(404).json({ ok: false, code: "NO_SUCH_LANG_TRACK", lang: _onlyLang });
+      }
+    }
+    /* CSSOS_WAVE_2148 — ?voice=xx 再往下切一刀, 因为 ?lang= 已经不够用了。
+     *
+     * W2145 把「epic 之前那一版」从 lang 挪到了 voice, 于是同一首作品下
+     * (zh, auto) 与 (zh, pre-epic) 是【同一个 lang 的两条不同音频】。
+     * 只给 ?lang=zh 会把两条一起重做 —— 而 upsertSubtitleJson 是按语言合并进
+     * 作品级文件的, 两条同语言先后写入, 后写的把先写的顶掉, 等于拿一版的时间轴
+     * 覆盖另一版(正是版本铁律要防的事)。
+     *
+     * 不给 voice 时行为完全不变。 */
+    const _onlyVoice = String((req.query as any)?.voice || "").trim().toLowerCase();
+    if (!_onlyVoice) {
+      // 不指定声线 → 折叠成每语言一条(优先 is_default, 再 track_order),
+      // 与 W691f 的 DISTINCT ON (lang) 逐行等价。多声线要各做各的, 必须显式点名。
+      const byLang = new Map<string, any>();
+      for (const t of trackRows as any[]) {
+        const k = String(t.lang || "");
+        const cur = byLang.get(k);
+        if (!cur) { byLang.set(k, t); continue; }
+        const better = (t.is_default && !cur.is_default) ||
+          (!!t.is_default === !!cur.is_default && (t.track_order | 0) < (cur.track_order | 0));
+        if (better) byLang.set(k, t);
+      }
+      trackRows = Array.from(byLang.values()) as any;
+    }
+    if (_onlyVoice) {
+      trackRows = trackRows.filter((t: any) => String(t.voice || "auto").toLowerCase() === _onlyVoice) as any;
+      if (!trackRows.length) {
+        return res.status(404).json({ ok: false, code: "NO_SUCH_VOICE_TRACK", voice: _onlyVoice });
       }
     }
 

@@ -4910,12 +4910,25 @@
          * 生成整部 MV」, 它同时落进 work_assets.slideshow_frame, 播放端本就读这个。
          *
          * 带 work_id 是关键: 没有它, 这张图就只是个 URL, 既不进幻灯素材、
-         * 也不会在作品没封面时升格 —— 那正是 W2087 说的「定妆照永远升不上来」。 */
+         * 也不会在作品没封面时升格 —— 那正是 W2087 说的「定妆照永远升不上来」。
+         *
+         * CSSOS_WAVE_2161 20260924 —— 但【绝不能回落到"当前正在播的作品"】。
+         * 我 W2137 写的是 `state.workId || cssosCurrentWorkId()`, 而全新一次运行里
+         * state.workId 是空的(作品要到 commit 才建), 于是回落生效, 把这一首的定妆照
+         * 挂到了 Watch 面板里【正在播的那首】身上。
+         * 实测事故: 2026-09-22 16:56-16:58, 《鶴の恩返し》那次 lite 跑的 6 张白鹤定妆照
+         * 全部挂进了《李清照·声声慢三部曲·寻寻觅觅》(4b357bc9) —— 而鶴 那首连作品都没建成。
+         * Jing 截图看到的就是这个: 李清照的标题配着白鹤的画面。
+         *
+         * 这个回落本来就是多余的: 定妆照在 commit 之后会随 slideshow_frames 一起
+         * 归位到正确的新作品(本文件 :8436-8448)。运行中传 work_id 只对【续跑已有作品】
+         * 有意义 —— 那种情况下 state.workId 本来就有值。
+         * 所以只认 state.workId, 拿不到就不传, 宁可这一步不落库, 也绝不落到别人身上。 */
         const cover = await postJson(
           "/api/mv/plate",
           withEngine("cover", {
             prompt: _coverBase + coverSuffix + styleSuffix,
-            work_id: String(state.workId || globalThis.cssosCurrentWorkId && globalThis.cssosCurrentWorkId() || "") || undefined,
+            work_id: String(state.workId || "") || undefined,
             ratio: state.outputSpec && state.outputSpec.runwayImageRatio
               ? state.outputSpec.runwayImageRatio
               : null
@@ -4969,8 +4982,8 @@
                 "/api/mv/plate",
                 withEngine("cover", {
                   prompt: _coverBase + coverSuffix + styleSuffix + suffix,
-                  // W2137 — 变体也必须带 work_id, 否则它只是个 URL, 进不了幻灯素材池。
-                  work_id: String(state.workId || globalThis.cssosCurrentWorkId && globalThis.cssosCurrentWorkId() || "") || undefined,
+                  // W2137 — 变体也必须带 work_id; W2161 去掉"回落到正在播的作品"(见上方主调用点注释)。
+                  work_id: String(state.workId || "") || undefined,
                   ratio: state.outputSpec && state.outputSpec.runwayImageRatio
                     ? state.outputSpec.runwayImageRatio
                     : null

@@ -1806,6 +1806,73 @@ async fn commit_inner(
         .filter(|s| !s.trim().is_empty())
         .or_else(|| body.final_mv_url.as_deref().filter(|s| !s.trim().is_empty()));
 
+    // CSSOS_WAVE_2160 20260924 — 共用音频探针: 新建作品前, 查这份 audio_url 是不是
+    // 【已经属于另一个作品】。
+    //
+    // 由来: 2026-05~06 期间产生了 15 组 / 43 个作品, 各自有独立的 source_run_id、
+    // 各自的封面与视频、style 也各不相同, 音频字节却完全一样(各自字幕的 ASR 指纹
+    // 逐字节相同 —— ASR 对同一输入是确定性的, 所以输入必然相同)。
+    // 用户改了曲风、系统重跑、出了新封面新视频, 而音乐一秒没变。Michelangelo 六小时
+    // 里跑了 7 次, 曲风从「宗教诗曲」换到「Grand Orchestral」, 每次听到的都是同一首。
+    // 四个月没有人发现。
+    //
+    // 上面那道去重只认 (user_id, source_run_id) —— run_id 是新的它就放行, 从不问
+    // 这份音频是不是别人的。无论当年的成因是什么(mv_pipeline_runs 已被清理、
+    // credit_events 在那个窗口是空的、work_engines 表不存在, 我没能查实),
+    // 它最终都必须穿过这一行。所以探针装在这里。
+    //
+    // 为什么【只报不拦】: 走到 commit 时音乐/封面/视频都已经生成完、钱已经花了。
+    // 硬拒绝会把用户刚做完的东西整个丢掉, 而我无法证明不存在合法的共用场景。
+    // 报警把"四个月才发现"缩短到当天 —— 那才是这件事真正的伤害。
+    // 要不要升级成拦截, 由 Jing 定。
+    if let Some(aud) = body
+        .audio_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let owner: Option<(Uuid, String)> = sqlx::query_as(
+            "SELECT w.id, COALESCE(w.title,'') FROM user_works w \
+             WHERE w.preview_audio_url = $1 AND w.status <> 'deleted' \
+             ORDER BY w.created_at ASC LIMIT 1",
+        )
+        .bind(aud)
+        .fetch_optional(&app.pool)
+        .await
+        .map_err(sql_error)?;
+        if let Some((other_id, other_title)) = owner {
+            tracing::warn!(
+                target = "mv_pipeline_commit",
+                user_id = %user_id,
+                existing_work_id = %other_id,
+                audio_url = %aud,
+                "shared-audio on commit — this audio already belongs to another work"
+            );
+            // 落进 error_reports, 与平台既有巡检同一张表(Node 侧写法照抄, 见
+            // src/index.ts:65331)。fingerprint 按音频地址收敛, 同一份音频反复
+            // 共用只累加 count, 不刷屏。
+            let fp = format!("mv-commit-shared-audio:{}", aud);
+            let msg = format!(
+                "commit would create a new work with audio already owned by {} ({})",
+                other_id,
+                other_title.chars().take(40).collect::<String>()
+            );
+            let _ = sqlx::query(
+                "INSERT INTO error_reports (fingerprint, domain, message, code) \
+                 VALUES ($1,'media',$2,'SHARED_AUDIO_ON_COMMIT') \
+                 ON CONFLICT (fingerprint) DO UPDATE SET \
+                   count = error_reports.count + 1, last_seen = now(), \
+                   message = EXCLUDED.message, \
+                   status = CASE WHEN error_reports.status='fixed' THEN 'new' \
+                                 ELSE error_reports.status END",
+            )
+            .bind(&fp)
+            .bind(msg.chars().take(300).collect::<String>())
+            .execute(&app.pool)
+            .await;
+        }
+    }
+
     // Create the work row. `compute_cost_cents_estimate` already exists on the
     // table (migration 012) so we can stash the engine total there without a
     // new migration; the detailed breakdown goes on work_assets.meta.

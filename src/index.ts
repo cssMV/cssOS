@@ -16563,15 +16563,37 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
     // If we got here without returning, headers are sent — emit stub JSON
     // and end. Don't try to fall through to Rust upstream; that path opens
     // a fresh response.
-    const stubLine = (prompt || "a quiet moment in motion").replace(/\s+/g, " ").trim();
+    /* CSSOS_WAVE_2162 20260924 — stubLine 必须【短】。
+     *
+     * 原来是把整段 prompt 原样当一行, 再重复 6 次。prompt 短的时候没事, 可用户一旦
+     * 把【一整个故事】贴进提示词(这正是我们鼓励的用法), 它就变成:
+     *   2500 字 × 6 ≈ 15000 字 → 直接发给 Suno → 422 The length of lyrics cannot exceed 5000
+     * 实测事故: 2026-09-24 23:39《鶴の恩返し/白鹤报恩》, body_lyrics_len=15482, 连试两次全挂。
+     *
+     * 这个 stub 本来就只是【歌词引擎全轮扫空之后的占位】, 不是作品。取提示词的第一行、
+     * 砍到 80 字以内足够占位, 也永远不可能把上限撑爆。 */
+    /* CSSOS_WAVE_2163 20260924 — 歌词引擎全挂时【不许编造歌词】。
+     *
+     * Jing:「第一行是标题, 第二行起放在英文括号 [] 里的是说明/描述性文字, 不要当成歌词。
+     *        下面的音乐风格/歌词我留空, 就是让你写的。」—— 这是早就定下的规矩
+     *        (CLAUDE.md 京典模版第 7 条:「所有非歌词进方括号」)。
+     *
+     * 而这两处 stub 干的正好相反: 把【整段提示词】(标题 + 说明 + 用户贴进来的整个故事)
+     * 当歌词重复几遍返回, 还标着 ok:true。前端不看 placeholder 标志, 于是:
+     *   · 把它当成真歌词 → 拿用户的钱去 Suno 唱一遍
+     *   · 2026-09-24《鶴の恩返し/白鹤报恩》实测 15482 字 → suno 422, 连挂两次
+     *
+     * 编出来的歌词比没有更糟 —— 这与平台其它几处的原则一致(宁可空白, 绝不错配)。
+     * 所以改成【如实报错】: 前端会把它显示成阶段失败并给 Retry, 用户少花一次冤枉钱,
+     * 也知道到底哪一步断了。 */
+    console.warn("[mv-lyrics] 全轮扫空, 如实报错(不再编造歌词) prompt_len=%d", String(prompt || "").length);
     res.write(JSON.stringify({
-      ok: true,
-      task_id: `placeholder-${Date.now()}`,
-      lyrics: `[verse]\n${stubLine}\n${stubLine}\n\n[chorus]\n${stubLine}\n${stubLine}\n\n[verse]\n${stubLine}\n${stubLine}`,
-      derived_settings: { title: prompt.slice(0, 100) || "Untitled", music_style: style },
-      sections: null, shot_scripts: null,
-      model: "stub-lyrics-placeholder", engine: "placeholder",
-      cost_cents: 0, use_user_key: false, fallback: true, placeholder: true,
+      ok: false,
+      code: "LYRICS_ENGINES_EXHAUSTED",
+      error: "lyrics engines exhausted — no lyrics produced",
+      hint: "重试即可; 歌词引擎全部无返回时不再用提示词顶替",
+      task_id: `failed-${Date.now()}`,
+      cost_cents: 0,
     }));
     return res.end();
   }
@@ -16643,22 +16665,14 @@ app.post("/api/mv/lyrics", express.json({ limit: "32kb" }), async (req, res) => 
   console.warn(
     `[mv-lyrics] all providers failed, returning stub. upstream=${upstreamDetail.slice(0, 80)} fallback=${(llm?.error || llmErr || "no_provider").slice(0, 80)}`,
   );
-  return res.status(200).json({
-    ok: true,
-    task_id: `placeholder-${Date.now()}`,
-    lyrics: stubLyrics,
-    derived_settings: {
-      title: prompt.slice(0, 100) || "Untitled",
-      music_style: style,
-    },
-    sections: null,
-    shot_scripts: null,
-    model: "stub-lyrics-placeholder",
-    engine: "placeholder",
+  // W2163 — 同上: 不编造。原来这里返回 stubLyrics(提示词重复三段)且标 ok:true。
+  return res.status(502).json({
+    ok: false,
+    code: "LYRICS_ENGINES_EXHAUSTED",
+    error: "lyrics engines exhausted — no lyrics produced",
+    hint: "重试即可; 歌词引擎全部无返回时不再用提示词顶替",
+    task_id: `failed-${Date.now()}`,
     cost_cents: 0,
-    use_user_key: false,
-    fallback: true,
-    placeholder: true,
     upstream_error: upstreamDetail,
     fallback_error: llm?.error || llmErr || "no_provider_succeeded",
   });
@@ -16778,6 +16792,28 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
     });
   }
   // CSSOS_WAVE_452: pipeline_run_id for deferred billing.
+  /* CSSOS_WAVE_2162 20260924 — Suno 硬上限 5000 字, 超了必然 422。与其让它必然失败,
+   * 不如在我们这边按【段落边界】裁掉, 并大声记日志。
+   *
+   * 为什么是裁而不是报错: 到这一步用户已经等完了歌词阶段, 报错等于整条白跑;
+   * 而 Suno 对 >5000 的请求【百分之百拒绝】, 所以"裁"换来的是一首能听的歌,
+   * "不裁"换来的只有 422。裁点取最后一个段落标记([Verse]/[Chorus]/[间奏]…)之前,
+   * 宁可少一段完整的, 不要半句话。
+   *
+   * 这是【兜底】, 不是解决方案: 真正该修的是别把 15482 字送到这里来
+   * (本波已修 stub-lyrics 那个源头)。所以命中就 warn, 让它在日志里显形。 */
+  try {
+    const _LYR_MAX = 5000;
+    const _lyr = (body as any).lyrics;
+    if (typeof _lyr === "string" && _lyr.length > _LYR_MAX) {
+      const head = _lyr.slice(0, _LYR_MAX);
+      const cut = Math.max(head.lastIndexOf("\n["), head.lastIndexOf("\n\n"));
+      const trimmed = (cut > _LYR_MAX * 0.5 ? head.slice(0, cut) : head).trim();
+      console.warn("[mv-music] lyrics %d chars > Suno 上限 %d — 裁到 %d 再发 (源头请查 /api/mv/lyrics)",
+        _lyr.length, _LYR_MAX, trimmed.length);
+      (body as any).lyrics = trimmed;
+    }
+  } catch (_e) { /* 绝不因为这道闸门本身让生成失败 */ }
   const _musicPipelineRunId = String((body as any).pipeline_run_id || "").trim() || null;
   // CSSOS_WAVE_258 — 重试/续跑复用 (opt-in via reuse_ok); 默认 no-op. 否则记录结果.
   {

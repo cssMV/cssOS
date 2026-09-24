@@ -2619,11 +2619,20 @@
     // 进度条上却还占着 10% 的权重, 让用户等一个不会发生的东西。
     // 权重按原比例摊回其余五个, 重新合到 100 (6+11+33+44+6)。
     // (原 W158 的 6 胶囊版留档于此: lyrics5/cover10/music30/video40/subs5/compose10)
+    /* CSSOS_WAVE_2164 20260924 — 【4 个胶囊, 不是 5 个】。Jing 第三次指出 Cover 还在。
+     *
+     * 为什么 W2137 没治到这里: 那一波只改了面板的阶段行(UI_STAGES), 而这个
+     * 「Generating a new MV」覆盖层有它【自己一份写死的 STAGE_META】—— 两套表,
+     * 改一套另一套纹丝不动。(W2021 把 6 胶囊改 5 胶囊时踩的是同一个位置。)
+     *
+     * cover 阶段【仍然在跑】, 它出的是定妆照, 现在是 video 的内部第一步。所以它的
+     * 权重 11 全部并进 video(44→55), 而不是摊给其余四个 —— 摊开会让出定妆照的那十几秒
+     * 进度条原地不动, 那是假进度。下面的 onProgress 也把 pr.cover 折进 video 那一格。
+     * 权重仍合到 100: 6 + 33 + 55 + 6。 */
     const STAGE_META = [
       { id: "lyrics",    weight: 6,  icon: "✍️", label: "Lyrics" },
-      { id: "cover",     weight: 11, icon: "🖼️", label: "Cover" },
       { id: "music",     weight: 33, icon: "🎵", label: "Music" },
-      { id: "video",     weight: 44, icon: "🎬", label: "Video" },
+      { id: "video",     weight: 55, icon: "🎬", label: "Video" },
       { id: "subtitles", weight: 6,  icon: "💬", label: "Subtitles" }
     ];
     host.innerHTML =
@@ -2635,7 +2644,7 @@
     const stagesEl = host.querySelector("[data-mvp-progress-stages]");
     const fillEl = host.querySelector("[data-mvp-progress-fill]");
     const pctEl = host.querySelector("[data-mvp-progress-pct]");
-    let lastPcts = { lyrics: 0, cover: 0, music: 0, video: 0, subtitles: 0 };
+    let lastPcts = { lyrics: 0, music: 0, video: 0, subtitles: 0 };
     const _chipHues = {};
     const _hueFor = function (id) {
       if (_chipHues[id] == null) _chipHues[id] = Math.floor(Math.random() * 360);
@@ -2682,11 +2691,16 @@
         // CSSOS_WAVE_158 — subtitles is now its own capsule; compose
         // no longer absorbs it. kara is the legacy merged key.
         const composePct = (pr.compose != null) ? pr.compose : (pr.kara || 0);
+        /* W2164 — cover 不再占一格胶囊, 但它【仍在跑】(定妆照 = video 的内部第一步)。
+         * 折进 video 那一格: 定妆照占前 20%, 真视频占后 80%。不折的话出定妆照的那段
+         * 进度条原地不动 —— 假进度比多一格更糟。 */
+        var _coverPct = Number(pr.cover || 0);
+        var _videoPct = Number(pr.video || 0);
+        var _videoMerged = _videoPct > 0 ? (20 + _videoPct * 0.8) : (_coverPct * 0.2);
         lastPcts = {
           lyrics: Number(pr.lyrics || 0),
-          cover: Number(pr.cover || 0),
           music: Number(pr.music || 0),
-          video: Number(pr.video || 0),
+          video: Math.max(0, Math.min(100, _videoMerged)),
           subtitles: Number(pr.subtitles != null ? pr.subtitles : 0),
           compose: Number(composePct || 0),
         };

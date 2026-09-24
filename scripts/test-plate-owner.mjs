@@ -39,7 +39,10 @@ ok("lite 仍只出一张(W2140 的规则没被动)",
 const html = read("public/index.html"), man = read("public/app.panel-manifest.js");
 const a = (html.match(/app\.panel-manifest\.js\?v=([^"']+)/) || [])[1] || "";
 const b = (man.match(/app\.mv-pipeline-panel\.js\?v=([^"']+)/) || [])[1] || "";
-ok("缓存链两环都 bump 到 w2161", /w2161/.test(a) && /w2161/.test(b),
+// 判据是【两环同一个波号】, 不是某个具体波号 —— 写死 w2161 的话, 下一波一 bump
+// 这个测试就假失败(W2164 当场踩到)。要守的性质是"别只 bump 一环", 不是"永远停在 w2161"。
+const wave = (x) => (String(x).match(/w\d+/) || [])[0] || "";
+ok("缓存链两环同波号", wave(a) && wave(a) === wave(b),
    `manifest="${a}" panel="${b}" —— 只 bump 一环 = Safari 继续吃旧文件(W2140 的教训)`);
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} ${pass} 过 / ${fail} 败` + (CAL ? "  [校准: 期望有失败]" : ""));

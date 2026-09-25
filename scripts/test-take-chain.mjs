@@ -55,6 +55,25 @@ ok("右轨缺价格字段时会去拉作品公开信息", /if \(priceFieldsMissi
 ok("买断价先问拉回来的缓存(买断关闭 = Priceless)",
    /c\.buyoutEnabled === false\) return 0;/.test(rail));
 
+// ③e W2190 — 合成视频让位给每版封面(Jing 拍板)
+ok("只对合成命名让位, 真拍视频不碰",
+   /\/\(\?:canon\|epic\|film\)-\//.test(pill),
+   "canon-/epic-/film- 本来就是拿这几张定妆照烧出来的; 内容哈希 vid- 的真视频绝不能藏");
+ok("藏视频走平台那一份, 不自己写",
+   /__cssosFallbackHideVideo/.test(pill) && !/visibility[^\n]*hidden[^\n]*important/.test(pill),
+   "W1989 的结论: 藏画面靠 visibility 不靠 opacity, 另写一份必然写错");
+const fb = live(read("public/app.video-slideshow-fallback.js"));
+ok("接管这块屏时, 2.5s 巡检不再把视频还回去",
+   /else if \(takeCoverOwnsScreen\(\)\) \{/.test(fb),
+   "不给 owner 一个可问的真源, 藏好的视频 3 秒内必被还回去(实测)");
+ok("换歌时把接管登记摘掉",
+   /__cssosTakeCoverOwnsScreen = null;/.test(fb),
+   "不摘会漏到下一首 —— 上一首的登记把 Popol Wuj 的真视频也按住了");
+const slides = live(read("public/app.cover-slideshow.js"));
+ok("1.5s 兜底优先用【当前这一版】的封面",
+   /_currentCoverUrl\(\) \{[\s\S]{0,600}?__cssosActiveTakeCover/.test(slides),
+   "不优先就会在切版后 1.5s 内把作品封面盖回去(实测拍到过)");
+
 // ④ 不许再有第二套连播机制(重复造轮子)
 for (const f of ["public/app.watch-ui.js", "public/app.up-next-strip.js",
                  "public/app.watch-playback-watchdog.js"]) {

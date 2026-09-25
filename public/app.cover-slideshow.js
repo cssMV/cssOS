@@ -648,6 +648,22 @@
   // 不依赖任何单一 play 路径。可见时才跑(W1000 闸), 不可见不工作。
   function _currentCoverUrl() {
     var cands = [];
+    /* CSSOS_WAVE_2190 20260925 — 【当前这一版】的封面排在最前。
+     *
+     * 这个 1.5s 兜底本来只认作品级封面。合成视频让位之后(W2190)它立刻接管画面,
+     * 于是每次切版刚画上 ♪N 的定妆照, 1.5s 内就被它用作品封面盖回去 ——
+     * 实测: cssmvSetCoverSlides(♪2 的图) 之后同一拍就有 app.cover-slideshow.js:694
+     * 把 ♪1 的图写了回来。
+     *
+     * 这是"谁最后写谁赢"的竞争, 靠延时去抢是下一个坑。照 W2176 已经用过两次的办法:
+     * 给它一个可问的真源。带 workId 判断 —— 上一首的版本封面绝不能画到下一首身上。 */
+    try {
+      var _tc = globalThis.__cssosActiveTakeCover;
+      var _st = globalThis.__cssosTakeState;
+      if (_tc && _tc.url && (!_tc.workId || !_st || String(_st.workId || "") === String(_tc.workId))) {
+        cands.push(_tc.url);
+      }
+    } catch (_e) {}
     try { cands.push(globalThis.cssmvPipelineLastResult && globalThis.cssmvPipelineLastResult.coverUrl); } catch (_e) {}
     try { cands.push(globalThis.currentPreviewCoverUrl); } catch (_e) {}
     try { cands.push(globalThis.currentWatchPreviewWork && (globalThis.currentWatchPreviewWork.cover_image_url || globalThis.currentWatchPreviewWork.cover_image || globalThis.currentWatchPreviewWork.preview_image_url)); } catch (_e) {}

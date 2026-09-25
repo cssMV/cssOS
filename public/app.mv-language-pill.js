@@ -337,6 +337,49 @@
    *
    * N=2 时 cssosTakes.at(track,2).url === track.alt_audio_url, 与改前逐字节相同。
    * 兜底: 万一 app.takes.js 没加载(缓存/加载顺序出意外), 原样退回旧逻辑, 不留白屏。 */
+  /* CSSOS_WAVE_2190 20260925 — Jing 拍板:「合成视频让位给每版封面」。
+   *
+   * 实测(量 z-index): #watch-video z=2 压在 #watch-svg z=1 上面, 而视频是【作品级】的 ——
+   * 六个 ♪ 共用一个。所以每版封面一直画对了, 只是画在看不见的那一层。
+   * app.cover-slideshow.js:682 写明"视频在上、幻灯在下"是有意设计, 所以这不是 bug,
+   * 是要不要让位的产品决定。
+   *
+   * 【只让合成视频让位】: canon- / epic- / film- 本来就是拿这几张定妆照烧出来的
+   * (CLAUDE.md「永不烧录·四轨分离」), 让位等于回到原图, 内容一点没少, 而且封面幻灯
+   * 自带 Ken Burns 运动。认不出命名的(内容哈希 vid- 的真拍视频, 或任何没见过的)一律
+   * 【不碰】—— 宁可这一首看不出换图, 也绝不把真视频藏掉。
+   *
+   * 藏法必须走平台那一份 __cssosFallbackHideVideo:【靠 visibility 不靠 opacity】,
+   * 因为贴画面那个循环在不停把 opacity 写回去(W1989 用一整轮换来的结论)。
+   * 恢复不用这里管 —— 切歌收口 cssos:work-id-changed 已统一 showVideoAgain。
+   *
+   * 写成幂等的模块级函数, 是因为要在两处调用:
+   *   ① 切版时(switchToLanguage)
+   *   ② 初次渲染时 —— 否则会变成「♪1 放视频、♪2 起才是图」, 中途突变比不换更莫名其妙。
+   * 而 ② 那一刻 <video> 常常还没拿到 src, 判不出是不是合成视频; 所以靠 render 反复
+   * 调用来兜住 —— 幂等, 多调几次没有副作用。 */
+  function applyTakeVideoYield(cov) {
+    try {
+      var v = document.getElementById("watch-video");
+      if (!v) return;
+      var src = String(v.currentSrc || v.src || "");
+      var composed = /\/(?:canon|epic|film)-/.test(src);
+      if (cov && composed) {
+        /* 光自己藏不住: app.video-slideshow-fallback.js 是这层的 owner, 它的 2.5s 巡检
+         * 会在 3 秒内把视频还回去(实测)。所以先【登记接管】, 再藏 —— 那边读到登记就不还了。 */
+        try { globalThis.__cssosTakeCoverOwnsScreen = { workId: String(_workId || "") }; } catch (_re) {}
+        if (typeof globalThis.__cssosFallbackHideVideo === "function") {
+          globalThis.__cssosFallbackHideVideo(v);
+          try { if (!v.paused) v.pause(); } catch (_pe) {}
+        }
+      } else if (!cov) {
+        // 这一版没有自己的封面 → 没有可让位的理由, 交还这块屏并把视频还回去。
+        try { globalThis.__cssosTakeCoverOwnsScreen = null; } catch (_re) {}
+        if (typeof globalThis.__cssosFallbackShowVideo === "function") globalThis.__cssosFallbackShowVideo(v);
+      }
+    } catch (_e) { /* 让位失败绝不能挡住换歌 */ }
+  }
+
   function switchToLanguage(track, take) {
     if (!track || track.status !== "ready") return;
     var url;
@@ -416,6 +459,7 @@
             workId: String(_workId || ""), url: _cov || "", take: take, secs: _tkSecs,
           };
         } catch (_regErr) {}
+        applyTakeVideoYield(_cov);   // W2190 — 合成视频让位, 每版封面才看得见
         if (_cov) {
           globalThis.cssmvSetCoverSlides([_cov]);
           try { console.info("[take-cover][W2175] ♪%s → %s", take, String(_cov).slice(-34)); } catch (_lg) {}
@@ -1174,6 +1218,11 @@
       try {
         var _curTakeCov = (globalThis.cssosTakes && typeof globalThis.cssosTakes.coverUrl === "function")
           ? (globalThis.cssosTakes.coverUrl(cur, _activeTake) || "") : "";
+        /* W2190 — 让位必须在【每次渲染】都判一次, 不能塞进下面那个"只登记一次"的守卫里。
+         * 实测: 初次渲染那一刻 <video> 往往还没拿到 src, 判不出是不是合成视频 → 不让位;
+         * 而守卫之后就再也不跑了, 于是 ♪1 一直放着视频, 切到 ♪2 才突然变成图。
+         * 函数本身幂等, 每次渲染跑一遍没有副作用。 */
+        applyTakeVideoYield(_curTakeCov);
         var _prev = globalThis.__cssosActiveTakeCover;
         if (!_prev || _prev.workId !== String(_workId || "") || _prev.take !== _activeTake) {
           globalThis.__cssosActiveTakeCover = {   // W2187 — secs 同上, 刚打开时也要对

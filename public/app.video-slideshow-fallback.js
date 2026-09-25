@@ -69,6 +69,30 @@
     try { v.style.removeProperty("opacity"); v.style.removeProperty("visibility"); } catch (_e) {}
   }
   globalThis.__cssosFallbackShowVideo = showVideoAgain;
+  /* CSSOS_WAVE_2190 20260925 — 藏视频这一份也对外暴露。
+   * 每版封面(app.mv-language-pill.js)需要让【合成视频】让位, 藏法必须和这里一模一样:
+   * 上面那段注释是用一整轮换来的结论 ——【藏画面靠 visibility, 不靠 opacity】,
+   * 因为贴画面那个循环在不停把 opacity 写回去。另写一份必然只写 opacity, 当场失效。 */
+  globalThis.__cssosFallbackHideVideo = hideVideoHard;
+
+  /* CSSOS_WAVE_2190 20260925 — 「这块屏现在归每版封面」。
+   *
+   * 本模块是 #watch-video 可见性的 owner: 下面的 poll 每 2.5s 判一次, 不在降级态
+   * 就 showVideoAgain。所以别的模块单方面把视频藏起来【一定会在 2.5s 内被还回去】——
+   * 实测正是如此(给 style.setProperty 装探针拍到的: hideVideoHard 之后第 2.8s,
+   * poll → showVideoAgain 把它撤了)。
+   *
+   * 所以不去跟它抢, 而是照 W2176 的老办法【给它一个可问的真源】: 每版封面接管这块屏时
+   * 把作品 id 写进来, poll 与切歌收口读到就不还视频。带 workId 是为了换作品时自动失效,
+   * 上一首的接管绝不能按住下一首的视频。 */
+  function takeCoverOwnsScreen() {
+    try {
+      var o = globalThis.__cssosTakeCoverOwnsScreen;
+      if (!o || !o.workId) return false;
+      var st = globalThis.__cssosTakeState;
+      return !!st && String(st.workId || "") === String(o.workId);
+    } catch (_e) { return false; }
+  }
 
   /* CSSOS_WAVE_2002 20260827 — Jing:「还是显示黑框, 应该至少显示一个封面图。」
    *
@@ -199,6 +223,15 @@
       } catch (_e) {}
       /* W1989b — 摘类的同时也要把我们写死的 inline 撤掉, 否则新一首的视频会
        * 被上一首留下的 opacity:0!important 永久按住 —— 那就是 W1975 那个坑的镜像。 */
+      /* CSSOS_WAVE_2190b 20260925 — 换歌先把【每版封面接管这块屏】的登记摘掉。
+       *
+       * 不摘会漏到下一首: 实测放完《鶴の恩返し》♪6 翻到《Popol Wuj》, 它的视频
+       * (maya-p1-xkik.mp4, 根本不是合成命名)被上一首的登记按住不放 —— 因为这一刻
+       * __cssosTakeState 还停在上一首, workId 比对照样通过。
+       * 这正是本模块上面那句「换歌 = 新的一张白纸: 先摘干净, 该挂的那几处会在这一首
+       * 自己重新判定后再挂」——【登记也是要摘的东西之一】。
+       * 摘掉之后照常 showVideoAgain; 新这一首若也该让位, 胶囊下一次渲染会自己重新登记。 */
+      try { globalThis.__cssosTakeCoverOwnsScreen = null; } catch (_e) {}
       try { showVideoAgain(document.getElementById("watch-video")); } catch (_e) {}
       /* W2059 — 擦掉【上一首】的地板后必须立刻铺【这一首】的, 不能留空窗。
        * 原来这里只 clear 不 set, 那个空窗就是 Jing 看到的"闪一下封面然后黑掉"。 */
@@ -297,6 +330,10 @@
          * 没铺地板, 视频一藏就是黑。这正是 Jing 看到黑框的场景。
          * 装在 poll 的自愈分支上, 无论谁挂的类都能兜住(与 W1975 同一个打法:
          * 闸门装在必经之路, 不去各个挂类的地方补)。 */
+        try { if (!ws2.getAttribute("data-cssos-cover-floor")) coverFloor(); } catch (_e) {}
+      } else if (takeCoverOwnsScreen()) {
+        // W2190 — 这块屏已交给每版封面(合成视频让位), 不要把视频还回去。
+        hideVideoHard(v);
         try { if (!ws2.getAttribute("data-cssos-cover-floor")) coverFloor(); } catch (_e) {}
       } else {
         showVideoAgain(v);

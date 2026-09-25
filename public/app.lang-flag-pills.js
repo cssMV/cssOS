@@ -225,6 +225,17 @@
       "mask-image:radial-gradient(circle 20px at 20px 50%,transparent 19.5px,#000 20px) !important;}",
       "#watch-language-pill > button{height:40px !important;min-height:40px !important;max-height:40px !important;align-self:center !important;}",
       "#watch-language-pill::-webkit-scrollbar{display:none;}",
+      /* CSSOS_WAVE_2193 20260925 — Jing:「手动移动胶囊靠近轨道两头的时候, 自动吸附到两边,
+       * 即显示完整的胶囊, 而不是只显示一半。」
+       *
+       * 用浏览器原生 scroll-snap, 不自己写惯性/吸附逻辑 —— 自己写必然和触控板/触屏的
+       * 原生惯性打架(那是"谁最后写谁赢"的又一种)。
+       * proximity 而不是 mandatory: 只在【停在吸附点附近】时才吸, 中途滑动不粘手,
+       * 正对应 Jing 说的「靠近两头的时候」。
+       * align:start —— 每个胶囊都是吸附点, 于是左端永远是一个完整胶囊的起点;
+       * 滑到尽头时浏览器自己钳到 scrollWidth, 右端那个也就整个露出来。 */
+      "#watch-language-pill{scroll-snap-type:x proximity;scroll-behavior:smooth;}",
+      "#watch-language-pill>button{scroll-snap-align:start;}",
       // CSSOS_WAVE_587f — 根因: 全局 @media(pointer:coarse){.lang-name{display:none}} 在【触屏=App】上把所有
       // .lang-name 隐藏 → 胶囊只剩国旗/图标(中文「日本語」「多语言」都没了)。这里强制语言轨内的 .lang-name 常显。
       // CSSOS_WAVE_587g — 根因有二: 全局 .lang-name 基样式是【opacity:0 + translateY】(只在 .lang-card:hover 才显),
@@ -396,6 +407,83 @@
   // CSSOS_WAVE_678c 胶囊宪法 v2 — 统一凹咬模型(本条由 paintConcave 全权控制, 全局凹凸已跳过本 bar)。
   // 规则(Jing 定): 激活 cell 永远排最前(头保持 Languages|Voices 固定序); 被两激活夹住的未激活头=实心被抱;
   // 相邻两激活=合并实心(无分隔, 靠图标); 边缘未激活凹向相邻激活; 其余未激活 cell 一律向左凹(包左邻)。
+  /* CSSOS_WAVE_2193 20260925 — Jing:「让激活胶囊在左边第一个位置。」
+   *
+   * 做法是【滚动轨道】, 不是重排 DOM: 模式头(Settings/Fine-tune/Languages/Voices/
+   * Visuals/Takes)是一组固定的导航, 把某个 ♪ 插到它们前面会把导航拆散。
+   * 滚到激活胶囊贴左, 既满足「第一个位置」, 又不动任何人的位置关系。
+   *
+   * 减掉 margin-left 的负值: 激活胶囊常带 cc-left(margin-left:-20px, 向左咬住邻居),
+   * 直接按 offsetLeft 贴边会把那 20px 咬口连同邻居的一角一起顶出屏幕 ——
+   * 左端就又成了"半个胶囊"。要的是它【可见的左缘】贴轨道左缘。
+   *
+   * 只在【激活项或展开组真的变了】时滚一次: 每次重绘都滚会把用户手动滑到的位置
+   * 一直拽回来(那正是 Jing 说的"胶囊自己跑")。 */
+  /* CSSOS_WAVE_2193 20260925 — Jing:「让激活胶囊在左边第一个位置。」
+   *
+   * 做法是【滚动轨道】, 不是重排 DOM: 模式头(Settings/Fine-tune/Languages/Voices/
+   * Visuals/Takes)是一组固定的导航, 把某个 ♪ 插到它们前面会把导航拆散。
+   *
+   * W2193b — 第一版只在 paintConcave 里滚一次, 实测【没生效】: 重绘那一刻胶囊条常常
+   * 还在折叠态(#cssos-lang-fold display:none), 量出来的 offsetLeft/宽度全是 0,
+   * 于是滚到了 0; 等用户把它展开时 sig 没变、不再重绘, 机会就永远错过了。
+   * 所以改成【记一笔待办, 等量得到再滚】—— 量不到就不消费这笔待办, 由 ResizeObserver
+   * 在它真正有尺寸时补上。 */
+  function applyPendingPillScroll(bar) {
+    try {
+      var key = bar.__ccPendingKey;
+      if (!key) return false;
+      if (!bar.clientWidth) return false;                 // 折叠态, 量不了 → 等
+      /* 目标元素【记下来】, 不要在这里重新 querySelector。
+       * 实测踩过: querySelector('button.cssos-cell.active') 按 DOM 顺序抓到的是
+       * 【当前语言】那个格子(🇯🇵日本語)—— 它排在 take 格子前面, 而且在 take 模式下
+       * 被 CSS 藏着、宽度为 0, 于是这里永远判定"量不到"、待办永远不兑现。
+       * 一条轨里同时有好几个 active(模式头/语言/声线/♪), "第一个 active"根本不是
+       * 我们要滚到的那个。 */
+      var act = bar.__ccPendingEl;
+      if (!act || !act.isConnected || !act.offsetWidth) return false;
+      var ab = act.getBoundingClientRect(), bb = bar.getBoundingClientRect();
+      /* 加回 margin-left 的负值: 激活胶囊常带 cc-left(margin-left:-20px)——
+       * 它的边框盒比实际画面多出左边那 20px 的透明碗口。按边框盒贴边, 左端会露出
+       * 一个 20px 的空缺; 要贴的是它【可见的左缘】。 */
+      var ml = parseFloat(getComputedStyle(act).marginLeft) || 0;
+      bar.scrollLeft = Math.max(0, bar.scrollLeft + (ab.left - bb.left) + Math.max(0, -ml));
+      bar.__ccScrollKey = key;
+      bar.__ccPendingKey = "";
+      bar.__ccPendingEl = null;
+      return true;
+    } catch (_e) { return false; }
+  }
+
+  function scrollActiveToStart(bar, order, expandedGroup) {
+    try {
+      if (!bar || !order || !order.length) return;
+      var act = null;
+      for (var i = 0; i < order.length; i++) {
+        var p = order[i];
+        if (p.classList.contains("cssos-mode-cap")) continue;   // 模式头不算"选中的胶囊"
+        if (p.classList.contains("active")) { act = p; break; }
+      }
+      if (!act) return;
+      /* 键 = 展开的是哪一组 + 选中的是哪一个。
+       * 【不能】直接用 paintConcave 的那个 sig 当键 —— sig 里还含别的组的状态,
+       * 动了别的组也会让这里重滚一次, 把用户手动滑到的位置拽回去。 */
+      var key = String(expandedGroup || "") + "|" + (act.getAttribute("data-pill-key") || "");
+      if (bar.__ccScrollKey === key) return;   // 同一个激活项 → 不跟用户抢滚动位置
+      bar.__ccPendingKey = key;
+      bar.__ccPendingEl = act;
+      if (!applyPendingPillScroll(bar)) {
+        requestAnimationFrame(function () { applyPendingPillScroll(bar); });
+        if (!bar.__ccRO && typeof ResizeObserver === "function") {
+          try {
+            bar.__ccRO = new ResizeObserver(function () { applyPendingPillScroll(bar); });
+            bar.__ccRO.observe(bar);
+          } catch (_e) {}
+        }
+      }
+    } catch (_e) {}
+  }
+
   function paintConcave(bar) {
     if (!bar) return;
     var caps = [].slice.call(bar.querySelectorAll("button.cssos-mode-cap"));
@@ -465,6 +553,25 @@
     }
     // v2(展开): 逐胶囊。
     var iiHead = order.indexOf(inactiveHead);
+    /* CSSOS_WAVE_2194 20260925 — Jing:「请一并治那处 40px 双咬。」
+     *
+     * 不变式只有一条:【一条缝只许被咬一次】。
+     *   cc-right = margin-right:-20px, 向右伸 20 咬住右邻;
+     *   cc-left  = margin-left:-20px,  向左伸 20 咬住左邻。
+     * 两边都伸, 同一条缝就是 40px —— 实测 🌐Languages(激活头, cc-right)与
+     * 🎤Voices(cc-left)正是这样, 互相各咬 20, 叠成 40px 重叠。
+     *
+     * 本 forEach 是从左往右跑的, 轮到第 i 个时左邻的类【已经定了】, 所以可以直接问
+     * 「这条缝是不是已经从左边被咬过了」—— 比把分类逻辑再推导一遍可靠得多
+     * (那段分类挺精细, 重推一遍必然漏掉某一支)。
+     *
+     * 已经被咬过就降级成 cc-solid —— 这不是新造的状态, 正是本文件已有的「被抱者」语义:
+     * 实心满圆角、margin 清零, 让邻居咬到底。原来只用在"被两激活夹住"那一支。 */
+    function bitesRight(el) { return !!el && el.classList.contains("cssos-cc-right"); }
+    function addBite(p, cls, left) {
+      if (cls === "cssos-cc-left" && bitesRight(left)) { p.classList.add("cssos-cc-solid"); return; }
+      p.classList.add(cls);
+    }
     order.forEach(function (p, i) {
       var left = order[i - 1], right = order[i + 1];
       var la = isActive(left), ra = isActive(right), me = isActive(p);
@@ -473,17 +580,18 @@
         else if (ra) p.classList.add("cssos-cc-merge-l");          // 激活段左端 → 左圆右平
         else if (la) p.classList.add("cssos-cc-merge-r");          // 激活段右端 → 左平右圆
         else if (iiHead >= 0 && iiHead > i) p.classList.add("cssos-cc-right"); // 孤立激活, 未激活头在右 → 右凹抱它
-        else if (iiHead >= 0 && iiHead < i) p.classList.add("cssos-cc-left");  // 未激活头在左 → 左凹抱它
+        else if (iiHead >= 0 && iiHead < i) addBite(p, "cssos-cc-left", left);  // 未激活头在左 → 左凹抱它
         else p.classList.add("cssos-cc-solid");
       } else if (p === inactiveHead) {
         if (la && ra) p.classList.add("cssos-cc-solid");           // 被两激活夹住 → 实心被抱
         else if (ra) p.classList.add("cssos-cc-right");            // 右邻激活 → 右凹抱
-        else p.classList.add("cssos-cc-left");                     // 否则向左凹
+        else addBite(p, "cssos-cc-left", left);                    // 否则向左凹(左邻已右咬则降 solid)
       } else {
-        p.classList.add("cssos-cc-left");                          // 未激活 cell 一律向左凹(包左邻)
+        addBite(p, "cssos-cc-left", left);                         // 未激活 cell 一律向左凹(包左邻)
       }
     });
     setZ();
+    scrollActiveToStart(bar, order, _expanded);
   }
 
   function enhance() {

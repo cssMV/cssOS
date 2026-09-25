@@ -28,6 +28,26 @@ const wc  = read("public/app.works-center.js");
 const html = read("public/index.html");
 
 console.log("— 后端: 双认 helper —");
+
+/* 守【性质】不守某个具体波号: 这些文件后面还会被别的波次改, 钉死波号会在每次
+ * 正常 bump 之后变成假失败(今天连着假失败三次)。
+ *
+ * 真正要守的不变式是:【这个文件的内容变了, 它的 ?v= 就必须跟着变】——
+ * 内容没动时 ?v= 保持原样是完全正确的, 不该判失败(第一版改成"不等于上一版"
+ * 时就立刻在没改动的 app.takes.js 上又假失败了一次)。 */
+const gitShow = (rev, f) => { try { return execSync(`git show ${rev}:${f}`, { encoding: "utf8", maxBuffer: 1 << 28 }); } catch (e) { return null; } };
+const vOf = (file, html) => (String(html || "").match(new RegExp(file.replace(/[.]/g, "[.]") + "\\?v=([^\"']+)")) || [])[1] || "";
+function cacheKeyOk(file) {
+  const now = readFileSync("public/" + file, "utf8");
+  const prev = gitShow("HEAD~1", "public/" + file);
+  const vNow = vOf(file, readFileSync("public/index.html", "utf8"));
+  const vPrev = vOf(file, gitShow("HEAD~1", "public/index.html"));
+  if (prev == null) return { ok: !!vNow, why: `${file} 是新文件, ?v="${vNow}"` };
+  if (prev === now) return { ok: true, why: `${file} 内容未变, ?v="${vNow}" 保持原样是对的` };
+  return { ok: !!vNow && vNow !== vPrev,
+           why: `${file} 内容变了, ?v= 从 "${vPrev}" → "${vNow}"(必须变, 否则浏览器照旧拿旧文件)` };
+}
+
 ok("preEpicSql() 存在", /function preEpicSql\s*\(/.test(idx));
 const helper = (idx.match(/function preEpicSql[\s\S]{0,400}?\n}/) || [""])[0];
 ok("helper 同时认新形 voice='pre-epic'", /voice\s*=\s*'pre-epic'/.test(helper),
@@ -65,8 +85,7 @@ ok("works-center 仍认旧形", /String\(t && t\.lang\) === "orig-pre-epic"/.tes
 
 console.log("— 缓存链 —");
 const v = (html.match(/app\.works-center\.js\?v=([^"']+)/) || [])[1] || "";
-ok("works-center.js 的 ?v= 已 bump 到 w2145", /w2145/.test(v),
-   `现在是 "${v}" —— 独立 <script src?v=> 不 bump, 浏览器照旧拿旧文件(平台老坑)`);
+{ const r = cacheKeyOk("app.works-center.js"); ok("works-center.js 的 ?v= 随内容变更而 bump", r.ok, r.why); }
 
 console.log("— 字幕回退闸(跑真代码, 不是 grep) —");
 {
@@ -86,7 +105,7 @@ console.log("— 字幕回退闸(跑真代码, 不是 grep) —");
   ok("♪2 老路不变",
      T.subtitleUrl({ ...epic, alt_audio_url: "c.mp3", subtitle_take2_json_url: "T2.json" }, 2) === "T2.json");
   const tv = (html.match(/app\.takes\.js\?v=([^"']+)/) || [])[1] || "";
-  ok("app.takes.js 的 ?v= 已 bump", /w2145/.test(tv), `现在是 "${tv}"`);
+  { const r = cacheKeyOk("app.takes.js"); ok("app.takes.js 的 ?v= 随内容变更而 bump", r.ok, r.why); }
 }
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} ${pass} 过 / ${fail} 败` + (CAL ? "  [校准模式: 期望有失败]" : ""));

@@ -5060,11 +5060,29 @@
             // CSSOS_WAVE_622 — Jing「封面数控件 3→8 真正接到生成」: 之前变体数写死 4, 无视 state.coverCount。
             // 现在按用户设置的封面数(默认 3, max 8)生成: 主封面已出 1 张, 再出 coverCount-1 张变体 →
             // 总共正好 coverCount 张, 全部进幻灯帧池(cssmvAddCoverSlide)。变体后缀池扩到 8 个角度。
-            const _coverCount = Math.max(1, Math.min(8, Number(state.coverCount) || 3));
-            const variationSuffixesZh = ["，特写", "，广角", "，侧光", "，柔雾", "，逆光剪影", "，俯拍", "，黄金时刻", "，雨夜霓虹"];
-            const variationSuffixesEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze", ", backlit silhouette", ", high-angle shot", ", golden hour", ", rainy neon night"];
-            const variationSuffixes = ((globalThis.currentLocale === "zh") ? variationSuffixesZh : variationSuffixesEn)
-              .slice(0, Math.max(0, _coverCount - 1));
+            /* CSSOS_WAVE_2191 20260925 — Jing:「把 8 张上限改掉, 让封面数跟着 ♪ 数走。」
+             *
+             * 上限【不止是那个数字】: 变体后缀池本来正好 8 条, slice(0, n-1) 用完就没了。
+             * 只把 Math.min(8,…) 改大, ♪9 往后会共用同一条提示词 —— 生成出来长得一样,
+             * 正好毁掉「六张张张不同」那个效果。所以数字和池子必须一起改。
+             *
+             * 前 8 条【一个字不动】(W220.A 纪律: 没让改的不碰), 后面按
+             * 【取景 × 光线/时辰】两轴组合续上 —— 两轴相乘天然不重样, 也不用手写几十条。
+             * 仍留一个 64 的硬顶: 每张都是真花钱的图, 一次请求要几百张一定是哪里算错了,
+             * 而不是用户的真实意图(钱包刹车之外再加一道结构性的刹车)。 */
+            const _coverCount = Math.max(1, Math.min(64, Number(state.coverCount) || 3));
+            const _zh = (globalThis.currentLocale === "zh");
+            const _baseZh = ["，特写", "，广角", "，侧光", "，柔雾", "，逆光剪影", "，俯拍", "，黄金时刻", "，雨夜霓虹"];
+            const _baseEn = [", close-up framing", ", wide-angle composition", ", rim light", ", soft haze", ", backlit silhouette", ", high-angle shot", ", golden hour", ", rainy neon night"];
+            const _axis2Zh = ["", "，黎明", "，暮色", "，雪霁", "，薄暮流云", "，深夜静谧", "，晨雾", "，星夜"];
+            const _axis2En = ["", ", at dawn", ", at dusk", ", after snowfall", ", drifting clouds at twilight", ", deep-night stillness", ", morning mist", ", starlit night"];
+            const _base = _zh ? _baseZh : _baseEn;
+            const _axis2 = _zh ? _axis2Zh : _axis2En;
+            const _need = Math.max(0, _coverCount - 1);   // 主封面已出 1 张
+            const variationSuffixes = [];
+            for (let _i = 0; _i < _need; _i++) {
+              variationSuffixes.push(_base[_i % _base.length] + _axis2[Math.floor(_i / _base.length) % _axis2.length]);
+            }
             // CSSOS_WAVE_833 — show the live "封面 N/总数" count the user asked for
             // (primary cover already landed = 1, each variation bumps the tally).
             let _coverDone = 1;
@@ -8674,7 +8692,8 @@
         // CSSOS_WAVE_622 — 主作品也按 coverCount 持久化封面池(镜像 Take 2)→ "UI 改几张就生成几张"名副其实。
         // 后端 /cover-pool 生成 count 张并写进 slideshow_frame; 与 W619 的 60 帧池合并 → 海量变体。
         try {
-          var _mainPoolCount = Math.max(1, Math.min(8, Number(state.coverCount) || 3));
+          // W2191 — 封面池上限同样跟着 ♪ 数走(原来写死 8), 硬顶 64 见上。
+          var _mainPoolCount = Math.max(1, Math.min(64, Number(state.coverCount) || 3));
           if (_committedWid && _mainPoolCount > 1) {
             void postJson("/api/works/" + encodeURIComponent(_committedWid) + "/cover-pool", { count: _mainPoolCount }).catch(function () {});
           }

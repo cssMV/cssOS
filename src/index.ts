@@ -6612,7 +6612,17 @@ app.post("/api/mv/plate", express.json({ limit: "16kb" }), async (req, res) => {
   // W861「偷油鼠」同款: 空 prompt 绝不调付费图引擎 —— 没主题就没有可生成的画面。
   if (!prompt) return res.status(400).json({ ok: false, error: "empty_prompt" });
   const workId = String(body.work_id || "").trim();
-  const count = Math.max(1, Math.min(8, Number(body.count) || 1));
+  /* CSSOS_WAVE_2191 20260925 — Jing:「把 8 张上限改掉, 让封面数跟着 ♪ 数走。」
+   *
+   * 为什么服务端【不能】自己去查 take 数来定上限: 定妆照是在音乐【之前】出的 ——
+   * 这一刻作品往往还没建成、更没有 work_language_tracks, 查出来必然是 0,
+   * 于是新作品永远卡在旧的 8 张。所以张数由调用方给(前端按 max(take 数, 用户设定) 算),
+   * 这里只保留一个 64 的硬顶防失控。
+   *
+   * 真正的刹车不是这个数字, 是循环里【逐张】跑的 mvStagePreflight —— 余额不够当场停,
+   * 已出几张就先交付(见下面那个 break)。这与「钱包刹车是唯一边界」是一致的:
+   * 数字上限只挡住"哪里算错了"(一次要几百张), 挡不住也不该挡用户真想出的张数。 */
+  const count = Math.max(1, Math.min(64, Number(body.count) || 1));
 
   // 选角锁脸: 有演员就先走参考图条件生成(与 cover 同一条路), 失败再落常规出图。
   const castIds = (Array.isArray(body.cast)

@@ -67,10 +67,20 @@ const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
 const DEFAULT_TIMEOUT_SECS: u64 = 600;
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 60;
 // kie.ai REQUIRES `callBackUrl` in the submit body (returns 422 without).
-// We don't actually need callbacks — we poll — but we have to send one.
-// This URL doesn't need to exist; kie.ai just records the value for its
-// own logging. Pointing at our own (404) endpoint keeps it self-documenting.
-const DEFAULT_CALLBACK_URL: &str = "https://cssstudio.app/cssapi/v1/suno-callback";
+// We don't actually need callbacks — we poll record-info — but we have to send one.
+//
+// CSSOS_WAVE_2171 20260925 — 指向一个【真的存在并 200】的端点。
+//
+// 原来指向 /cssapi/v1/suno-callback, 注释说「这个 URL 不需要存在, 指向自己的 404
+// 反而自我说明」。实际后果是: nginx 把 /cssapi/v1/ 转给本服务(:8081), 而本服务
+// 没注册这条路由 → 每次生成我们都在【404 我们自己】, 日志里一串 404 Not Found
+// (2026-09-24 Jing 就是看着这些 404 问的)。厂商那边也在对一个失败地址反复投递。
+//
+// Node 侧早就有一个收纳口 /api/webhooks/kie-suno(CSSOS_WAVE_156): 它只记一行日志
+// 然后 200, 正是这个字段需要的东西。指过去即可 —— 不改任何行为, 只是不再自己 404,
+// 而且将来真要走回调驱动时线已经通着。
+// 运行期可用 SUNO_CALLBACK_URL 覆盖(生产已在 /etc/cssos.env 设好)。
+const DEFAULT_CALLBACK_URL: &str = "https://cssstudio.app/api/webhooks/kie-suno";
 
 #[derive(Debug, Clone)]
 pub struct SunoConfig {

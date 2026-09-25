@@ -103,7 +103,26 @@
   function listenCents(w) { return Number((w && (w.current_listen_price_cents || w.listen_price_cents || w.suggested_listen_price_cents)) || 69); }
   function viewCents(w) { return Number((w && (w.current_view_price_cents || w.view_price_cents)) || 99); }
   // CSSOS_WAVE_1167 — Jing 指令: 买断显示【系统建议价】, 不是 "买断" 字。current 优先, 否则 suggested, 兜底 599。
-  function buyoutCents(w) { return Number((w && (w.current_buyout_price_cents || w.suggested_buyout_price_cents || w.buyout_price_cents)) || 599); }
+  /* CSSOS_WAVE_2172 20260925 — 【显式的 0 必须活到判断那一步】。
+   *
+   * 原来是 `Number(cur || sug || legacy) || 599` —— 一串 ||, 于是 0 被当成"没填",
+   * 一路掉到兜底 599。可 0 的含义不是"没填", 是【不卖】。
+   *
+   * 后果: 下面 430-434 行 W1258 那条铁律(「买断 0/未设 = 无价之宝, 绝不是免费/0」)
+   * 从来没生效过 —— 它判的是 `_bc > 0`, 而 _bc 永远 ≥ 599, 永远走不进 Priceless 分支。
+   * 两条规矩打架, W1167 的兜底先执行, 就把 W1258 吃掉了。
+   * 实测: 《鶴の恩返し/白鹤报恩》买断已设 0 + buyout_enabled=false, 右轨仍显示 $5.99。
+   *
+   * 改法: 先认【显式信号】, 三个字段都真的缺席时才回到 W1167 的 599 兜底。
+   * 注意用 != null 而不是 ||, 这正是 0 被吃掉的原因。 */
+  function buyoutCents(w) {
+    if (!w) return 599;
+    if (w.buyout_enabled === false) return 0;            // 明确关掉买断 = 不卖
+    if (w.current_buyout_price_cents != null) return Number(w.current_buyout_price_cents) || 0;
+    if (w.suggested_buyout_price_cents != null) return Number(w.suggested_buyout_price_cents) || 0;
+    if (w.buyout_price_cents != null) return Number(w.buyout_price_cents) || 0;
+    return 599;                                           // 三个字段都缺席 → 保持 W1167 的兜底
+  }
 
   // CSSOS_WAVE_1163 — Jing 指令: 头像必须是【正在播放作品的作者】, 绝不回退登录用户。
   //   从当前作品取作者 id/名/头像; 作品没带头像就按 id 拉(缓存), 拉到再重渲染。

@@ -929,6 +929,29 @@ html[data-theme="light"] .dock {
   font-size: 15px;
 }
 
+/* CSSOS_WAVE_2198 20260925 — 窗口三键(— ⤢ ×)的【点击边界预告】。
+ *
+ * Jing 截图指出的「头顶头」里, 除模式头那条(W2197 已修), 还有 11 个面板的
+ * .panel-actions: 三颗 30×30、border-radius:9px 的圆角方块紧贴在一起, 而
+ * 胶囊宪法的中和规则把 .icon-btn 原有的四边 1px 边【全清成 0】(border:0 !important)
+ * —— 实测 borderLeft/Right 都是 0px、gap 0 —— 于是三颗之间【没有任何分界线】,
+ * 用户看不出一颗到哪儿结束、下一颗从哪儿开始。
+ *
+ * 宪法里「凸侧 1px 边」那条讲的正是这件事, 原话:
+ *   "The 1px convex-side border is a click-boundary preview: it tells the user
+ *    'this is one pill; cross this line and you'll hit the next one.'"
+ * 以及零激活轨的规矩: 每颗补右侧 1px, :last-child 除外(轨道自身右缘就是它的边界)。
+ *
+ * 【刻意不做凸嵌凹】(Jing 拍板): 凸嵌凹需要一个"岛", 而窗口三键里没有哪一颗该常亮 ——
+ * 按"默认激活第一个"去点亮, 等于每个面板的最小化键永远是绿色激活态, 看着像已最小化。
+ * 所以保留方块几何, 只补这一条分隔线。
+ *
+ * 用 !important 是因为要盖掉胶囊宪法的 border:0 !important; box-sizing 已是 border-box
+ * 且宽度写死 30px, 所以这 1px 不会把按钮撑大、不会推动布局。 */
+.panel-bar .panel-actions.cssmv-pill-bar > *:not(:last-child) {
+  border-right: 1px solid rgba(0, 245, 160, 0.30) !important;
+}
+
 /* W288 — toolbar-embedded pill groups: no extra margin, compact height.
  * Any [data-segmented] or .cssmv-pill-bar that sits inside a flex toolbar
  * row should not add 14px/22px vertical margin (the constitution default).

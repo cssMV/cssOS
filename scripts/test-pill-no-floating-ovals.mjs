@@ -55,5 +55,20 @@ for (let n = 2; n <= 8; n++) for (let ai = 0; ai < n; ai++) {
 ok("模拟 2~8 个头 × 任意激活位: 每个头都拿到类", allOk);
 ok("模拟 2~8 个头 × 任意激活位: 每条缝恰好咬一次(不双咬、不留缝)", noGap);
 
+/* W2198 — 窗口三键的点击边界预告(Jing 拍板: 保留方块几何, 只补 1px 分隔边) */
+const css = read("public/style.css");
+ok("窗口三键补了 1px 右分隔边",
+   /\.panel-bar \.panel-actions\.cssmv-pill-bar > \*:not\(:last-child\) \{[\s\S]{0,120}?border-right: 1px solid rgba\(0, 245, 160, 0\.30\) !important;/.test(css),
+   "胶囊宪法的中和规则把 .icon-btn 四边 1px 清成 0, 三颗方块之间没有任何分界线");
+ok("末位不补(轨道自身右缘就是它的边界)", /:not\(:last-child\)/.test(css));
+/* 这一条第一版我写成了 `… === false || true` —— 永远为真, 等于没测。
+ * 真要守的是【方块几何没被换成凸嵌凹】: 那条规则里不许出现 mask-image / 负 margin /
+ * 999px 圆角, 否则就是偷偷把窗口三键改成了胶囊。 */
+const paRule = (/\.panel-bar \.panel-actions\.cssmv-pill-bar > \*:not\(:last-child\) \{([\s\S]*?)\}/.exec(css) || [])[1] || "";
+ok("抠得出那条规则(判据本身没瞎)", !!paRule);
+ok("保留方块几何: 规则里没有 mask-image / 负 margin / 999px 圆角",
+   !!paRule && !/mask-image/.test(paRule) && !/margin[^:]*:\s*-/.test(paRule) && !/999px/.test(paRule),
+   "三颗里没有哪一颗该常亮 —— 点亮最小化键会看着像已最小化, 所以不做凸嵌凹");
+
 console.log(`\n${fail ? "❌" : "✅"} ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

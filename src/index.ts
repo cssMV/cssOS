@@ -8339,6 +8339,36 @@ app.post("/api/works/:id/pipeline-assets", express.json({ limit: "256kb" }), asy
       await registerMediaVersion({ workId, kind: "audio", url: altAudioUrl,
         label: "♪2", durationSecs: altDurationSecs ?? null, makeCurrent: false });
     }
+    /* CSSOS_WAVE_2179 20260925 — Jing:「以后每一个 take 都要有自己的一张封面图。」
+     *
+     * 接在这里是因为【数据本来就在手边】: 面板在 commit 之后把定妆照(slideshow_frames)
+     * 发到本端点, 上面几行又正好在把 ♪1/♪2 登记成 audio 版本。两者配对即可 ——
+     * 不新增端点、不加字段、不动生成侧。
+     *
+     * 配对规则: 第 N 张定妆照 ↔ 第 N 版音频。定妆照不够时【只配到够的那几版】,
+     * 剩下的版本没有自己的封面, 播放端会回退作品封面(cssosTakes.coverUrl 返回 ""),
+     * 绝不拿第 1 张顶替第 5 版 —— 那就成了"每版都一样", 等于没做。
+     *
+     * lite 档只出 1 张定妆照(W2140), 所以 lite 作品目前只有 ♪1 有自己的画面。
+     * 要让 lite 的每一版都有, 得让定妆照张数跟着 take 数走 —— 那是生成侧的事,
+     * 且直接关系到花多少钱, 由 Jing 定, 我不替他决定。 */
+    try {
+      const _plates = Array.isArray((b as any).slideshow_frames)
+        ? (b as any).slideshow_frames.map((x: any) => String(x || "").trim()).filter(Boolean)
+        : [];
+      if (_plates.length) {
+        const _audios = [audioUrl, altAudioUrl].filter(Boolean);
+        for (let i = 0; i < Math.min(_plates.length, _audios.length); i += 1) {
+          await registerMediaVersion({ workId, kind: "cover", url: _plates[i],
+            label: `♪${i + 1} 的画面`, makeCurrent: i === 0 });
+        }
+        console.log("[pipeline-assets][W2179] 为 %d 版音频各配了一张定妆照(共 %d 张可用)",
+          Math.min(_plates.length, _audios.length), _plates.length);
+      }
+    } catch (e) {
+      console.warn("[pipeline-assets][W2179] 配对版本封面失败(不影响媒体):",
+        (e as Error)?.message?.slice(0, 120));
+    }
     await upsertAsset(workId, "subtitle_srt", subtitleSrtUrl, {});
 
     // CSSOS_WAVE_367 20260523 — Jing「卡片显示时长」: 卡片读的是 user_works.duration_secs

@@ -44,7 +44,11 @@ ok("用 != null 而不是 ||(0 是有意义的值)", /!= null\)\s*\?\s*Number\(d
 
 const html = read("public/index.html");
 const v = (html.match(/app\.share-link-router\.js\?v=([^"']+)/) || [])[1] || "";
-ok("share-link-router 的 ?v= 已 bump", /w2173/.test(v), `现在是 "${v}"`);
+/* 判据守【性质】不守波号: 写死 w2173 的话, 下一波一 bump 就假失败
+ * (test-plate-owner 刚踩过同一个坑)。要守的是"不再是修复前那个值"。 */
+ok("share-link-router 的 ?v= 已不是修复前那个",
+   !!v && v !== "20260525-w424-tieredcta",
+   `现在是 "${v}" —— 独立 script 不 bump, 浏览器照旧拿旧文件`);
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} ${pass} 过 / ${fail} 败` + (CAL ? "  [校准: 期望有失败]" : ""));
 process.exit(CAL ? 0 : (fail ? 1 : 0));

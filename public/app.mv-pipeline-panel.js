@@ -5034,7 +5034,29 @@
               _coverTierId = String(globalThis.cssmvTiers.currentTierId() || "").toLowerCase();
             }
           } catch (_e) { /* 取不到档位 → 按非 lite 处理, 宁可多一张也别让别的档少图 */ }
-          if (_coverTierId !== "lite") {
+          /* CSSOS_WAVE_2181 20260925 — Jing 选 C:「所有档位都按 take 数出满」。
+           *
+           * 起因: 每个 take 要有自己的一张画面(W2179 已把"第 N 张定妆照 ↔ 第 N 版音频"
+           * 的配对接上), 但 lite 只出 1 张(W2140), 于是 lite 作品只有 ♪1 有专属画面。
+           * Jing 定: 所有档位都出满。
+           *
+           * 「take 数」= Suno 一份歌词出几首。现在固定 2(♪1/♪2), 但 W2116 之后
+           * ♪N 已经无上限 —— 所以这里【不写死 2】, 按已知的 take 数算, 拿不到才退回 2。
+           * 取 max(take 数, 用户设的封面数): 用户把封面数调到 5 就仍是 5,
+           * 不能因为"只有 2 版"把他要的图砍掉。
+           *
+           * 这一改让 lite 从 1 张变 2 张 —— 是 Jing 花钱, 他明确选了 C。 */
+          var _takeCount = 2;
+          try {
+            var _tkn = Number(globalThis.__cssosExpectedTakeCount || 0);
+            if (_tkn >= 1) _takeCount = _tkn;
+          } catch (_tkErr) {}
+          if (_coverTierId === "lite") {
+            state.coverCount = Math.max(_takeCount, Number(state.coverCount) || 1);
+          } else {
+            state.coverCount = Math.max(_takeCount, Number(state.coverCount) || 3);
+          }
+          if (true) {
             // CSSOS_WAVE_622 — Jing「封面数控件 3→8 真正接到生成」: 之前变体数写死 4, 无视 state.coverCount。
             // 现在按用户设置的封面数(默认 3, max 8)生成: 主封面已出 1 张, 再出 coverCount-1 张变体 →
             // 总共正好 coverCount 张, 全部进幻灯帧池(cssmvAddCoverSlide)。变体后缀池扩到 8 个角度。

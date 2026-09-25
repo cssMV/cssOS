@@ -91,8 +91,28 @@
     /* W1905 — meta 行不再回落 style: style 现在是下面那行说明文字, 两处都放就重复了。 */
     var typ = String(w._root_work_type || w.work_type || "").trim();
     if (typ) metaBits.push(typ);
-    var dur = fmtDur(w.duration_secs || w.duration);
-    if (dur) metaBits.push(dur);
+    /* CSSOS_WAVE_2180 20260925 — Jing:「标注播放的是哪个 ♪?♪1 还是 ♪2?别忘记时长」。
+     *
+     * 之前这行只有作品时长, 看不出在播第几版。6 个 take 时长 4:47~5:26 各不相同,
+     * 光写一个作品时长, 切到 ♪5 时那个数字就是错的。
+     *
+     * 当前版本号由胶囊在切 take 时登记(__cssosActiveTakeCover.take, W2176 那份真源),
+     * 带 workId 判断 —— 上一首的版本号绝不能标到下一首头上。
+     * 时长优先取【这一版自己的】; 取不到才回落作品时长。
+     * 一个版本都认不出来(单版作品/刚打开还没切过)就【不标 ♪N】—— 不写我们不知道的事。 */
+    var _takeNo = 0, _takeSecs = 0;
+    try {
+      var _tc = globalThis.__cssosActiveTakeCover;
+      var _wid = String(w.id || w.work_id || "").trim();
+      if (_tc && _tc.take && (!_tc.workId || !_wid || _tc.workId === _wid)) _takeNo = Number(_tc.take) || 0;
+      if (_takeNo && globalThis.cssosTakes && typeof globalThis.cssosTakes.at === "function") {
+        var _t = globalThis.cssosTakes.at(w, _takeNo);
+        if (_t && _t.duration_secs) _takeSecs = Number(_t.duration_secs) || 0;
+      }
+    } catch (_tkErr) {}
+    var dur = fmtDur(_takeSecs || w.duration_secs || w.duration);
+    if (_takeNo) metaBits.push("\u266a" + _takeNo + (dur ? " " + dur : ""));
+    else if (dur) metaBits.push(dur);
     /* CSSOS_WAVE_1905 20260824 — Jing:「传统标题之下的说明文字就应该是这个: style」
      *
      * 原来这行优先取 summary / description / lyrics_preview。取到歌词时会出两个毛病:

@@ -33,8 +33,15 @@ for (const [i, c] of plateCalls.entries()) {
 ok("commit 之后仍把定妆照归位(slideshow_frames 没被误删)",
    /slideshow_frames:\s*Array\.isArray\(state\.plateUrls\)/.test(live),
    "去掉运行中的 work_id 后, 这条是定妆照唯一的归位通道");
-ok("lite 仍只出一张(W2140 的规则没被动)",
-   /_coverTierId !== "lite"/.test(live));
+/* W2181 — Jing 改了规则(选 C:所有档位按 take 数出满), 所以这条判据跟着改。
+ * 旧判据盯的是 `_coverTierId !== "lite"`(W2140「lite 只出一张」), 那条规矩已被他取消。
+ * 判据必须跟着【现行规则】走, 不能因为"测试绿着好看"就留着守一条已经作废的规矩 ——
+ * 那样它守的是过去, 而且下一个人会以为 lite 还是一张。 */
+ok("定妆照张数按 take 数出满(所有档位)",
+   /state\.coverCount = Math\.max\(_takeCount/.test(live),
+   "Jing 选 C: lite 也要每版一张");
+ok("用户把封面数调更高时不被砍掉",
+   /Math\.max\(_takeCount, Number\(state\.coverCount\)/.test(live));
 
 const html = read("public/index.html"), man = read("public/app.panel-manifest.js");
 const a = (html.match(/app\.panel-manifest\.js\?v=([^"']+)/) || [])[1] || "";

@@ -49,6 +49,21 @@ ok("多 active 轨: 改前会把 3 个 active 自己也算进去",
 ok("多 active 轨: 改后一个 active 都不再被算进去",
    multi.newHit.filter((i) => [2, 6, 7, 11].includes(i)).length === 0);
 
+/* 文档与实现不许再各说各话: CLAUDE.md 那段写着「copy verbatim when adding any new
+ * pill bar」—— 它要是还留着旧写法, 下一条胶囊条照抄一遍就把这个 bug 种回去。 */
+const doc = read("CLAUDE.md");   // 必须走 read(), 直接 readFileSync 会绕开 CALIBRATE → 判据永远通过
+ok("CLAUDE.md 的「active 右侧」已带 :not(.active)",
+   /\[data-pill-bar\] > \[data-pill-key\]\.active ~ \[data-pill-key\]:not\(\.active\) \{/.test(doc),
+   "文档是给人照抄的, 留旧写法等于把 bug 种进下一条胶囊条");
+ok("CLAUDE.md 的「active 左侧」已带 :not(.active)",
+   /\[data-pill-bar\] > \[data-pill-key\]:not\(\.active\):has\(~ \[data-pill-key\]\.active\) \{/.test(doc));
+ok("CLAUDE.md 里没有残留的旧选择器",
+   !/\[data-pill-key\]\.active ~ \[data-pill-key\] \{/.test(doc)
+   && !/\[data-pill-key\]:has\(~ \[data-pill-key\]\.active\) \{/.test(doc));
+ok("CLAUDE.md 写明左侧实现走 .cssos-pill-pre / markPre, 不是 :has()",
+   /cssos-pill-pre/.test(doc) && /markPre/.test(doc),
+   "只照文档改 CSS 会漏掉左侧那一半");
+
 const v = (readFileSync("public/index.html", "utf8").match(/app\.pill-bar\.js\?v=([^"']+)/) || [])[1] || "";
 const vPrev = (() => { try { return (execSync("git show HEAD~1:public/index.html", { encoding: "utf8", maxBuffer: 1 << 28 })
   .match(/app\.pill-bar\.js\?v=([^"']+)/) || [])[1] || ""; } catch (e) { return ""; } })();

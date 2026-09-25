@@ -803,8 +803,8 @@ EVOLUTION OF MISTAKES (kept for context):
     -webkit-mask-image: none !important;
     mask-image: none !important;
   }
-  /* ALL inactives RIGHT of active — 凹 left, 凸 right (~ not +) */
-  [data-pill-bar] > [data-pill-key].active ~ [data-pill-key] {
+  /* ALL inactives RIGHT of active — 凹 left, 凸 right (~ not +, :not(.active) 必须有) */
+  [data-pill-bar] > [data-pill-key].active ~ [data-pill-key]:not(.active) {
     border-radius: 0 999px 999px 0 !important;
     margin-left: -20px !important;
     width: calc(100% + 20px) !important;
@@ -814,8 +814,8 @@ EVOLUTION OF MISTAKES (kept for context):
     -webkit-mask-image: radial-gradient(circle 20px at 0px 50%, transparent 19.5px, #000 20px) !important;
     mask-image:         radial-gradient(circle 20px at 0px 50%, transparent 19.5px, #000 20px) !important;
   }
-  /* ALL inactives LEFT of active — 凸 left, 凹 right (~ not +) */
-  [data-pill-bar] > [data-pill-key]:has(~ [data-pill-key].active) {
+  /* ALL inactives LEFT of active — 凸 left, 凹 right (~ not +, :not(.active) 必须有) */
+  [data-pill-bar] > [data-pill-key]:not(.active):has(~ [data-pill-key].active) {
     border-radius: 999px 0 0 999px !important;
     margin-right: -20px !important;
     width: calc(100% + 20px) !important;
@@ -836,6 +836,20 @@ EVOLUTION OF MISTAKES (kept for context):
     cumulative drift in flex/grid layout.
   - `~` (general sibling) is **mandatory** — `+` (adjacent only) breaks
     凹凸镶嵌 between non-adjacent inactive pills. This was the W466 lesson.
+  - **`:not(.active)` 同样是强制的 —— 这是 W2192 的教训。**
+    这两条规则的原话是「ALL **inactive** pills concave toward active」,
+    可选择器原来没把 active 自己排除掉。**一条轨只有一个 active 时两种写法完全等价**
+    (后面的兄弟本来就都不是 active), 所以这个缺陷藏了很久。
+    出事的是【一条轨里有多个 active】的情况 —— `#watch-language-pill` 正是这样:
+    模式头(Languages/Voices/Visuals/Takes)+ 当前语言 + 当前声线 + 当前 ♪,
+    四个 active 共处一条轨(各组轮流显示, 这是设计)。于是排在后面的那几个 active
+    也匹配上「active 右边」, 各自吃到 `margin-left:-20px` + `padding-left:36px`
+    → 整个胶囊左移压住左邻居、自己的标签被推到右边, 屏幕上看起来就是
+    **同一个胶囊印了两遍**(一半是被压住的邻居, 一半是移过去的自己)。
+  - **左侧那条在实现里不是 `:has()`。** `app.pill-bar.js` 的 `ensureStyle` 防崩策略
+    会把含 `:has()` 的整条规则剥掉(WebKit 崩溃), 所以真正生效的是 JS 打的
+    `.cssos-pill-pre` 类(见 `markPre()`)。**照这份文档改左侧时, 必须同时改 `markPre()`
+    —— 只改 CSS 会漏掉一半**(W2192 就差点这样漏掉)。
 
   **Dock-specific extra (text labels inside pills):**
   Wrap label text in `<span>` — the rule `[data-pill-key] > span { font-size: 11px }`

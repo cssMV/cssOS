@@ -1429,6 +1429,7 @@
       }
     } finally {
       state.running = false;
+      state._startedAt = 0; // W2169 — 本次结束, 闸门放开
       if (runBtn) { runBtn.disabled = false; runBtn.textContent = _origLabel; }
     }
   }
@@ -3618,6 +3619,36 @@
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
     const options = opts || {};
+    /* CSSOS_WAVE_2169 20260924 — 并发闸提到【最前面】。
+     *
+     * 原来唯一的闸是上面那句 `if (state.running) return`, 可 state.running 要到
+     * 本函数第 ~940 行才置 true, 中间还隔着一次 await(低余额弹窗)。于是两次进入
+     * 都能穿过去, 各自跑一遍歌词阶段 —— 各花一次 LLM 的钱。
+     *
+     * 实测(服务器日志, 不是推测): 同一秒里两条 [mv-lyrics][SRC], 一条带标题行一条不带;
+     * 23:39:19 与 23:52:17 各一对。其中扫空的那条触发了当时「拿提示词当歌词」的兜底,
+     * 把 15482 字送进 Suno → 422。
+     *
+     * 【第二个调用方是谁, 我没查出来】: #mvp-run 只绑一次(ensurePanel 有 if(panel) return),
+     * mv-lite.js 没被加载。所以闸装在必经之处, 并把重复触发连栈 warn 出来 ——
+     * 下次它再来, 日志里直接有调用栈, 不用再猜。
+     *
+     * 用时间窗而不是布尔标志: 入口到 state.running=true 之间有十几处提前 return
+     * (标题校验、余额取消…), 布尔标志漏清一处就把「开始」按钮永久卡死。
+     * 时间窗会自己过期, 最坏等几秒, 绝不会把人锁在外面。
+     * 低余额弹窗后的自我重入带 _bypassTierPrompt, 直接放行。 */
+    if (!options._bypassTierPrompt) {
+      const _now = Date.now();
+      const _prev = Number(state._startedAt || 0);
+      if (_prev && (_now - _prev) < 8000) {
+        try {
+          console.warn("[mv-pipeline][W2169] %dms 内重复触发 runAll —— 已拦下。调用栈:",
+            _now - _prev, new Error("duplicate runAll").stack);
+        } catch (_e) {}
+        return;
+      }
+      state._startedAt = _now;
+    }
     // CSSOS_PHASE2_TITLE_VALIDATION 20260430 #207b — Jing
     // (a) Title is REQUIRED for cssOS (Suno itself treats it as optional;
     //     we mandate it because a missing or generic title degrades Suno's
@@ -4220,6 +4251,7 @@
           const picked = await requestLowBalancePrompt(needsPrompt);
           if (!picked.picked) {
             // User cancelled / dismissed — abort the run quietly.
+            state._startedAt = 0; // W2169 — 主动取消 → 立刻放开闸门, 不让用户干等
             return;
           }
           // Re-enter runAll with the (possibly updated) tier selection.
@@ -8301,6 +8333,7 @@
       }
     } finally {
       state.running = false;
+      state._startedAt = 0; // W2169 — 本次结束, 闸门放开
       try { showMvOverallProgress(false); } catch (_e) {}
       // CSSOS_WAVE_834b — NO blanket clear here. SUCCESS already clears inputs
       // at the compose-done path (clearCreationInputsAfterSuccessModule @~7279/

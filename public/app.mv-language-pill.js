@@ -1108,11 +1108,27 @@
         /* CSSOS_WAVE_2177 20260925 — Jing:「胶囊每个 take 之后标注 ♪ 音乐时长」。
          * 时长本来就在 take 对象里(duration_secs), 之前只进了 tooltip。
          * 拿不到时长就只显示 ♪N —— 绝不显示 0:00 或 --:--, 那是在说一个我们并不知道的事。 */
+        /* CSSOS_WAVE_2184 20260925 — 时长走【.cssos-vspec 附加位】, 不写 textContent。
+         *
+         * 第一版我直接写 b.textContent = "♪N 5:07", 线上纹丝不动 —— 因为
+         * app.lang-flag-pills.js 是格子的【单一 owner】: 它 p.innerHTML="" 后重建
+         * ♪ + N 两个 span, 我写的文本当场被清掉(:608)。
+         * 跟它抢着写就是"谁最后写谁赢"的竞争, 而那正是今晚 W2176 查了半天的那类坑。
+         *
+         * 它本来就有现成机制: .cssos-vspec 附加位 —— 画面胶囊的分辨率就是别的模块注入、
+         * 由它【原样保留】的(:586-587 注释写着"由 watch-visual-pills 注入, 原样保留")。
+         * 所以按它的规矩来, 时长注进这个位, 并在那边把 take 也纳入保留范围。 */
         var _secs = Math.floor(Number(_to.duration_secs || 0));
         var _dur = (_secs > 0)
           ? (Math.floor(_secs / 60) + ":" + ("0" + (_secs % 60)).slice(-2))
           : "";
-        b.textContent = "\u266a" + tk + (_dur ? " " + _dur : "");
+        b.textContent = "\u266a" + tk;
+        if (_dur) {
+          var _sp = document.createElement("span");
+          _sp.className = "cssos-vspec";
+          _sp.textContent = _dur;
+          b.appendChild(_sp);
+        }
         if (_to.label && _to.label !== "\u266a" + tk) b.dataset.takeLabel = _to.label;
         b.title = (tk === 1
           ? tt("Take 1 (original)", "第一版(原版)")
@@ -1125,6 +1141,26 @@
         }, false);
         bar.appendChild(b);
       });
+      /* CSSOS_WAVE_2183 20260925 — 刚打开时也要认得出在播第几版。
+       *
+       * W2176 那份真源(__cssosActiveTakeCover)只在【切换】时登记, 于是页面刚打开、
+       * 用户还没点过任何 ♪ 时它是空的 —— 左下角卡片就标不出 ♪N(实测: 明明在播 ♪1,
+       * 卡片只写 "single · ♪ 5:07")。可默认播的就是 ♪1, 这是我们知道的事。
+       *
+       * 这里【只登记身份, 不动画面】: 封面沿用作品封面/已有幻灯, 不在渲染时抢着改图
+       * (抢图正是 W2176 查了半天的那类竞争)。所以 url 取当前版自己的封面, 有就带上,
+       * 没有就留空 —— 卡片只需要 take 号和时长。 */
+      try {
+        var _curTakeCov = (globalThis.cssosTakes && typeof globalThis.cssosTakes.coverUrl === "function")
+          ? (globalThis.cssosTakes.coverUrl(cur, _activeTake) || "") : "";
+        var _prev = globalThis.__cssosActiveTakeCover;
+        if (!_prev || _prev.workId !== String(_workId || "") || _prev.take !== _activeTake) {
+          globalThis.__cssosActiveTakeCover = {
+            workId: String(_workId || ""), url: _curTakeCov, take: _activeTake,
+          };
+          try { if (typeof globalThis.cssosRefreshWatchCaption === "function") globalThis.cssosRefreshWatchCaption(); } catch (_rc) {}
+        }
+      } catch (_regErr) {}
       bar.dataset.nTake = String(takes.length);   // ♪ 头读它显示 "· 2"(引导胶囊由 lang-flag-pills 另行排除)
     })();
 

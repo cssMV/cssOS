@@ -70,6 +70,10 @@
   }
 
   // ── 标题摘要 ──
+  /* CSSOS_WAVE_2183 20260925 — 给外面一个刷新入口。
+   * 胶囊在认出"当前是第几版"之后需要让这张卡重画一次, 但本模块原来不对外暴露任何东西,
+   * 调用方只能干等下一次自发渲染。暴露的是【重画】, 不是内部状态 —— 卡片仍然只读全局,
+   * 不接受外部塞数据(那会开一条能写脏数据的口子)。 */
   function renderCaption() {
     var h = host(); if (!h) return;
     var cap = document.getElementById("cssos-watch-caption");
@@ -110,9 +114,15 @@
         if (_t && _t.duration_secs) _takeSecs = Number(_t.duration_secs) || 0;
       }
     } catch (_tkErr) {}
-    var dur = fmtDur(_takeSecs || w.duration_secs || w.duration);
-    if (_takeNo) metaBits.push("\u266a" + _takeNo + (dur ? " " + dur : ""));
-    else if (dur) metaBits.push(dur);
+    /* fmtDur 自带 "♪ " 前缀(本文件 :32) —— 认出版本号时【不能再加一个】,
+     * 否则成了 "♪1 ♪ 5:07"(实测就是这样)。有版本号时那个 ♪ 归版本号,
+     * 时长只留数字;认不出版本时保持原样, 一个字都不动。 */
+    var _rawSecs = Number(_takeSecs || w.duration_secs || w.duration) || 0;
+    var dur = fmtDur(_rawSecs);
+    if (_takeNo) {
+      var _bare = dur ? dur.replace(/^\u266a\s*/, "") : "";
+      metaBits.push("\u266a" + _takeNo + (_bare ? " " + _bare : ""));
+    } else if (dur) metaBits.push(dur);
     /* CSSOS_WAVE_1905 20260824 — Jing:「传统标题之下的说明文字就应该是这个: style」
      *
      * 原来这行优先取 summary / description / lyrics_preview。取到歌词时会出两个毛病:
@@ -127,6 +137,8 @@
       (metaBits.length ? '<div class="cwc-meta">' + esc(metaBits.join(" · ")) + "</div>" : "") +
       (summary ? '<div class="cwc-sum">' + esc(summary.slice(0, 96)) + "</div>" : "");
   }
+
+  try { globalThis.cssosRefreshWatchCaption = renderCaption; } catch (_e) {}   // W2183
 
   // ── 弹幕(评论) ──
   var _danmuCache = {};   // workId → [{name, body}]

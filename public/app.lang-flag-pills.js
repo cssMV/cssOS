@@ -576,6 +576,11 @@
          * 但版本自己的名字(如「Suno V6 新版 #2」, 来自 work_media_versions.label)
          * 放进 tooltip。播放器把它存在 data-take-label 上, 这里读出来拼。
          * 不这么分开, 两个模块就会为同一段文字来回重绘 —— 那是 W2112 已经踩过的坑。 */
+        /* CSSOS_WAVE_2184 20260925 — take 格子的附加位(时长)与 visual 同样【原样保留】。
+         * 时长由 app.mv-language-pill.js 注入 .cssos-vspec; 本模块是格子的单一 owner,
+         * 不保留就会在下一次重绘时把它清掉(我第一版正是这么被清掉的)。 */
+        var _tsp = p.querySelector(".cssos-vspec");
+        if (_tsp) extra = _tsp.textContent;
         var tkName = p.dataset.takeLabel || "";
         tip = (zh ? "第 " + tk + " 版" : "Take " + tk)
             + (tk === "1" ? (zh ? "(原版)" : " (original)") : "")

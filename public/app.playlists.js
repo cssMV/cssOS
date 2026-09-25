@@ -774,8 +774,23 @@
       return list.items[state.index] || null;
     },
     seekTo(id) {
-      state.take = 1;   // W2113 — 换列表 / 直接点选 → 一律从 ♪1 听起, 不会半路从 ♪2 开始
+      /* CSSOS_WAVE_2186 20260925 — Jing:「必须先播放完该首歌所有的 take, 才能切歌到另一首歌。」
+       *
+       * 原来这里无条件 state.take = 1, 而这正是「永远回到 ♪1」的根。链路:
+       *   媒体放完 → step() 按 W2113/W2116 把 take 推到 ♪2 → emitSwitch 送出 pendingTake=2
+       *   → 消费方用 openMarketWorkPreview 打开这首 → 它又调 seekTo(同一个 id)
+       *   → 这一行把 take 清回 1 → 送出 pendingTake=1 → 播放器被拽回 ♪1。
+       * 每次结束都在 ♪1↔♪2 之间打转, 看上去就是「连播根本没发生」。
+       *
+       * W2113 那条规矩保留, 但限定在它真正说的那件事上: 【换到另一首】才从 ♪1 听起。
+       * 落到【当前这首】的 seekTo 是一次重新绑定(连播收口、分享落地、重开面板),
+       * 不是「直接点选」, 不能把队列刚选好的那一版抹掉。 */
       const list = state.lists[state.active];
+      try {
+        const _curItem = list && list.items[state.index];
+        const _same = _curItem && String(_curItem.id) === String(id);
+        if (!_same) state.take = 1;
+      } catch (_e) { state.take = 1; }
       if (!list) return false;
       const idx = list.items.findIndex((it) => String(it.id) === String(id));
       if (idx >= 0) {

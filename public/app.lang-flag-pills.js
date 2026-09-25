@@ -172,6 +172,12 @@
       // 非作者的统一 guide(cssos-want-guide, 不带 lang/voice 类)在任一展开模式都显一颗(去重双 Want an MV)。
       "#watch-language-pill:not([data-expanded=\"lang\"]):not([data-expanded=\"voice\"]) .cssos-want-guide{display:none !important;}",
       "#watch-language-pill .cssos-cell-visual .cssos-vspec{opacity:0.72;font-weight:700;margin-left:3px;font-size:0.86em;}",
+      /* CSSOS_WAVE_2185 20260925 — take 格子的附加位也要间距, 而且要【更宽】。
+       * Jing:「没有空格的话, 会让人误会成第 6 首歌 5:04 以为是 65:04」——
+       * 版本号和时长都是数字, 贴在一起会被读成一个数, 这不是美观问题, 是【读错】。
+       * 上面那条只写给 .cssos-cell-visual, take 格子吃不到, 所以渲染成 "♪65:04"。
+       * 给 6px(visual 那边是 3px, 但它前面还有个 "·" 分隔; take 这边没有, 要靠间距本身)。 */
+      "#watch-language-pill .cssos-cell-take .cssos-vspec{opacity:0.78;font-weight:600;margin-left:6px;font-size:0.86em;}",
       // cell 紧接着模式胶囊向右展开(transform-origin 左 = 从🎤胶囊处长出); 仅 transform/opacity(合规)。
       "#watch-language-pill{transform-origin:left center;}",
       "#cssos-lang-fold[data-expanded=\"lang\"] #watch-language-pill,",

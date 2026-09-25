@@ -33,7 +33,13 @@ for (const st of ["pending", "rendering", "failed"]) {
      "把进行中/失败也藏掉 = 用户看不见自己的轨在跑");
 }
 const v = (read("public/index.html").match(/app\.mv-language-pill\.js\?v=([^"']+)/) || [])[1] || "";
-ok("胶囊文件 ?v= 已 bump", /w2147/.test(v), `现在是 "${v}" —— 独立 script 不 bump 就吃旧缓存`);
+/* 守【性质】而不是守某个具体波号: 这个文件后面还会被别的波次改, 钉死 "w2147"
+ * 会在每一次正常 bump 之后变成假失败(今天就假失败过一次)。
+ * 真正要守的是「?v= 已经不是改前那一版」—— 独立 script 不 bump 就吃旧缓存。 */
+const vBefore = (execSync("git show HEAD~1:public/index.html", { encoding: "utf8", maxBuffer: 1 << 28 })
+  .match(/app\.mv-language-pill\.js\?v=([^"']+)/) || [])[1] || "";
+ok("胶囊文件 ?v= 已 bump(不等于上一版)", !!v && v !== vBefore,
+   `现在是 "${v}", 上一版是 "${vBefore}" —— 独立 script 不 bump 就吃旧缓存`);
 
 console.log(`\n${fail === 0 ? "✅" : "❌"} ${pass} 过 / ${fail} 败` + (CAL ? "  [校准: 期望有失败]" : ""));
 process.exit(CAL ? 0 : (fail ? 1 : 0));

@@ -108,10 +108,20 @@
     try {
       var _tc = globalThis.__cssosActiveTakeCover;
       var _wid = String(w.id || w.work_id || "").trim();
-      if (_tc && _tc.take && (!_tc.workId || !_wid || _tc.workId === _wid)) _takeNo = Number(_tc.take) || 0;
-      if (_takeNo && globalThis.cssosTakes && typeof globalThis.cssosTakes.at === "function") {
-        var _t = globalThis.cssosTakes.at(w, _takeNo);
-        if (_t && _t.duration_secs) _takeSecs = Number(_t.duration_secs) || 0;
+      if (_tc && _tc.take && (!_tc.workId || !_wid || _tc.workId === _wid)) {
+        _takeNo = Number(_tc.take) || 0;
+        /* CSSOS_WAVE_2187 20260925 — 时长跟着版本走。
+         * 改前这里是 cssosTakes.at(w, N) —— w 是【作品】, 而 take 挂在【轨】上,
+         * 查不到就回落作品时长: 切到 ♪2 时号码变了、时长还停在 ♪1 的 5:07(Jing 实测)。
+         * 现在由胶囊(手里有真的 track)在登记身份时一并带过来, 这里只读不猜。 */
+        _takeSecs = Math.floor(Number(_tc.secs || 0)) || 0;
+      }
+      if (_takeNo && !_takeSecs && globalThis.cssosTakes && typeof globalThis.cssosTakes.at === "function") {
+        // 兜底: 万一登记方是旧版本(没带 secs), 仍按老路试一次。
+        try {
+          var _t = globalThis.cssosTakes.at(w, _takeNo);
+          if (_t && _t.duration_secs) _takeSecs = Number(_t.duration_secs) || 0;
+        } catch (_e2) {}
       }
     } catch (_tkErr) {}
     /* fmtDur 自带 "♪ " 前缀(本文件 :32) —— 认出版本号时【不能再加一个】,

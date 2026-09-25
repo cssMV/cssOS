@@ -394,9 +394,27 @@
          * 问不到才回退作品封面。带 workId 是为了换作品时不串 —— 上一首的版本封面
          * 绝不能画到下一首身上(今晚 W2161 刚栽过同类)。 */
         try {
-          globalThis.__cssosActiveTakeCover = _cov
-            ? { workId: String(_workId || ""), url: _cov, take: take }
-            : null;
+          /* CSSOS_WAVE_2187 20260925 — Jing:「标题下方显示 ♪2 了, 但时长还是 ♪1 的 5:07」。
+           *
+           * 根因: 左下角卡片(app.watch-cinema-caption.js)拿到版本号后, 自己去
+           * cssosTakes.at(w, N) 找时长 —— 但它手里的 w 是【作品】, take 挂在【轨】上,
+           * 于是永远取不到, 回落成作品时长。版本号跟着切、时长不跟, 正是这个差。
+           *
+           * 不让卡片去猜: 知道答案的是这里(takeObjs 就在手上)。身份真源顺手带上 secs,
+           * 卡片直接读 —— 少一次跨对象查找, 也就少一个会取错的地方。
+           *
+           * 另: 原来没有封面时登记 null, 连【在播第几版】都一起丢了。改成 url:"" 照常登记,
+           * 与 W2183 初次登记的写法一致; 取封面的两处本来就要处理空 url。 */
+          var _tkSecs = 0;
+          try {
+            if (globalThis.cssosTakes && typeof globalThis.cssosTakes.at === "function") {
+              var _tkObj = globalThis.cssosTakes.at(track, take);
+              if (_tkObj) _tkSecs = Math.floor(Number(_tkObj.duration_secs || 0)) || 0;
+            }
+          } catch (_secErr) {}
+          globalThis.__cssosActiveTakeCover = {
+            workId: String(_workId || ""), url: _cov || "", take: take, secs: _tkSecs,
+          };
         } catch (_regErr) {}
         if (_cov) {
           globalThis.cssmvSetCoverSlides([_cov]);
@@ -1126,7 +1144,7 @@
         if (_dur) {
           var _sp = document.createElement("span");
           _sp.className = "cssos-vspec";
-          _sp.textContent = _dur;
+          _sp.textContent = "\u00a0" + _dur;   // W2185 — 不间断空格: 没有它 "♪6 5:04" 会被读成 "♪65:04"
           b.appendChild(_sp);
         }
         if (_to.label && _to.label !== "\u266a" + tk) b.dataset.takeLabel = _to.label;
@@ -1155,8 +1173,9 @@
           ? (globalThis.cssosTakes.coverUrl(cur, _activeTake) || "") : "";
         var _prev = globalThis.__cssosActiveTakeCover;
         if (!_prev || _prev.workId !== String(_workId || "") || _prev.take !== _activeTake) {
-          globalThis.__cssosActiveTakeCover = {
+          globalThis.__cssosActiveTakeCover = {   // W2187 — secs 同上, 刚打开时也要对
             workId: String(_workId || ""), url: _curTakeCov, take: _activeTake,
+            secs: Math.floor(Number((takeObjs[_activeTake - 1] || {}).duration_secs || 0)) || 0,
           };
           try { if (typeof globalThis.cssosRefreshWatchCaption === "function") globalThis.cssosRefreshWatchCaption(); } catch (_rc) {}
         }

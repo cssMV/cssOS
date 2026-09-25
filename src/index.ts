@@ -41381,7 +41381,22 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       let _vocalForAlign = (tr.vocal_url && String(tr.vocal_url).trim()) ? String(tr.vocal_url) : "";
       if (!_vocalForAlign && tr.audio_url) {
         try {
-          const _tag = `${tr.lang}-${tr.track_order}`;
+          /* CSSOS_WAVE_2182 20260925 — 人声 stem 的路径必须带【这份音频自己的身份】。
+           *
+           * 原来是 `${tr.lang}-${tr.track_order}` —— 同一条轨的所有版本(♪1..♪N)
+           * lang 和 track_order 完全相同, 于是六版共用一个路径 works/<id>/stems/ja-0,
+           * 第 2~6 版【直接复用了 ♪1 分离出来的人声】, 等于拿 ♪1 的声音去给别的音频对时间轴。
+           *
+           * 实测代价(差点被我当成功报上去):《鶴の恩返し》六版音频 287~326 秒、跨度 39 秒,
+           * 对出来的末句时间【全是 278.61 秒, 精确到 0.01 秒相同】—— 物理上不可能。
+           * md5 各不相同(vol_curve 等字段有差), 唯独最要紧的时间轴是同一份。
+           *
+           * 这与 W2144 是同一族错误:【拿什么去对齐】和【这是谁的音频】被混成一件事。
+           * 身份的定义只能是 audio_url 本身。加音频指纹后, 音频不同必然路径不同,
+           * 结构上不可能再复用错人的声音; 音频相同则路径相同, 仍然幂等不重复分离。 */
+          const _audSig = crypto.createHash("sha1")
+            .update(String(tr.audio_url || "")).digest("hex").slice(0, 10);
+          const _tag = `${tr.lang}-${tr.track_order}-${_audSig}`;
           const _sep = await separateStemsViaService(tr.audio_url, `works/${workId}/stems/${_tag}`);
           if (_sep) {
             const _isU = (v: string) => /^https?:\/\//i.test(v);

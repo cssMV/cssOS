@@ -349,13 +349,14 @@
     // 现在: 只对【模块尚未就绪】做等待重试(不调用任何东西); 一旦就绪, setActive + 开面板
     // 【只执行一次】并立即 opened=true 收手, 永不重复开。保留 App 慢加载的就绪等待价值,
     // 去掉危险的重复打开。
+    function _al(m,x){try{(globalThis.__autoplayLog=globalThis.__autoplayLog||[]).push(m+(x===undefined?"":" "+x));console.info("%c[autoplay-default]%c "+m,"color:#0a0;font-weight:bold","",x===undefined?"":x);}catch(e){}}
     var tries = 0;
     var MAX_TRIES = 30; // 30 × 400ms ≈ 12s 就绪等待窗口
     function attempt() {
-      if (opened && !opts.force) return;
-      if (userClosedThisSession() && !opts.force) return; // 用户本会话已退出影院
-      if (hasBlockingDeepLink()) return;                  // 深链优先
-      if (watchPanelIsOpen()) { opened = true; return; }  // 已经开着 → 收手
+      if (opened && !opts.force) { _al("已开过, 收手"); return; }
+      if (userClosedThisSession() && !opts.force) { _al("本会话已退出影院, 不自动进"); return; }
+      if (hasBlockingDeepLink()) { _al("深链优先, 让位"); return; }
+      if (watchPanelIsOpen()) { opened = true; _al("面板已经开着 → 收手(默认曲目不由我决定)"); return; }
       // 模块还没就绪 → 仅【等待】重试, 不调用任何打开逻辑。
       if (typeof globalThis.openWatchPreviewFlowModule !== "function"
           || !(globalThis.cssosPlaylists && globalThis.cssosPlaylists.setActive)) {
@@ -366,7 +367,18 @@
       // 就绪 → 收手标记先置位(防止任何并发再次进入), 然后只开一次。
       opened = true;
       try { globalThis.cssosPlaylists.setActive("for-you"); } catch (_e) {}
-      setTimeout(function () {
+      /* CSSOS_WAVE_2195b 20260925 — 等列表【真的有内容】再决定, 不要固定 120ms。
+       *
+       * 实测就栽在这 120ms: setActive("for-you") 之后列表还要去拉 /api/works/mine
+       * 与 /api/works/market, 120ms 内几乎不可能回来 —— 于是下面读到的 _items 是空的,
+       * _first 为 null, 直接落到兜底 preferLatestOwned → 起播的还是"最新自有作品"。
+       * 这就是我改对了判据却毫无效果的原因: 判据根本没拿到东西可判。
+       *
+       * 改成有上限的轮询(200ms × 30 ≈ 6s): 拿到首位就按判据开; 一直拿不到(离线/接口挂)
+       * 就走原来的兜底, 行为与改前一致 —— 绝不因为等不到就把用户晾在空屏上。 */
+      var _pickTries = 0;
+      var _pickMax = 30;
+      function _pickAndOpen() {
         /* CSSOS_WAVE_1974 20260826 — Jing:「用户进入平台默认播放真视频。」
          *
          * 列表排序(W1970)已经把真视频 MV 排到第一, 但【起播的不是列表第一首】——
@@ -376,12 +388,53 @@
          * 改法: 列表首位若是真视频 MV, 先 seekTo 到它再开面板 —— 让"默认播放"真的落在
          * 真视频上。首位不是真视频时, 一个字不改, 保持 preferLatestOwned 原行为
          * (登录创作者进来先看到自己最新的作品, 那条是对的, 不该被这次改动波及)。 */
+        /* CSSOS_WAVE_2195d 20260925 — 每轮都把列表钉回 for-you 再读。
+         *
+         * 原来只在进 setTimeout【之前】setActive("for-you") 一次, 然后一路读 getActive()。
+         * 实测(诊断日志): 读到的其实是 "mine" —— 别的模块在这中间把活动列表切走了。
+         * 而 "mine" 段【不走 W2089 的置顶提升】(那段只在 for-you 的 populate 里),
+         * 它的首位永远是"用户最新自有作品"→ 于是默认播放永远是李清照, 与置顶无关。
+         *
+         * 闸门的本意从头到尾就是「For You 的首位」, 所以按名字读, 不要读"当前活动的那个"。 */
         var _first = null;
         try {
+          globalThis.cssosPlaylists.setActive("for-you");
           var _items = (globalThis.cssosPlaylists.getActive() || {}).items || [];
           _first = _items[0] || null;
         } catch (_e) {}
-        var _firstIsReal = !!(_first && _first.is_real_video_mv === true);
+        /* CSSOS_WAVE_2195c 20260925 — 等列表【拼完】, 不是"有任何首位就算数"。
+         *
+         * 实测(诊断日志拍到的): 第一版轮询在拿到首位的那一刻就停了, 而那一刻首位是
+         * 《李清照·寻寻觅觅》—— 因为 For You 是【分两段拼】的:
+         *   ① /api/works/mine(登录用户自己的作品, 最新在前) 先到
+         *   ② /api/works/market(平台精选) 后到, W2089 这时才把置顶那首提到第 0 位
+         * 半成品阶段的首位是①的第一条, 不是置顶那首。judging 在那一刻等于判了个空。
+         *
+         * 所以判据改成【list.loading 落下来】—— 那是 populate() 拼完两段才置 false 的
+         * 唯一信号(app.playlists.js:383)。拼完后再读首位, 才是 W2089 说的那首。 */
+        var _lst = null;
+        try { _lst = globalThis.cssosPlaylists.getActive() || null; } catch (_e) {}
+        var _stillLoading = !!(_lst && _lst.loading);
+        if ((_stillLoading || !_first) && _pickTries < _pickMax) {
+          _pickTries++; setTimeout(_pickAndOpen, 200); return;
+        }
+        _al("列表拼完 [" + ((_lst && _lst.id) || "?") + "], 首位 =", _first ? String(_first.title || "").slice(0, 28) : "(始终取不到)");
+        /* CSSOS_WAVE_2195 20260925 — Jing:「设置《白鹤报恩》作为用户进入平台默认播放曲目,
+         * 取代之前的《李清照·声声慢》。」
+         *
+         * 库里【已经是对的】: 白鹤报恩 2026-09-25 置顶, 排在李清照(09-10)之前, 队列首位
+         * 也确实是它。挡住它的是这里原来那句 is_real_video_mv === true ——
+         * 白鹤的 MV 是合成的 canon-(四轨分离下由定妆照合出来的), 这个字段是 false,
+         * 于是闸门不放行, 回落到 preferLatestOwned → 起播的是李清照。
+         *
+         * 为什么去掉这个条件是【接着 W2089 做完】而不是新政策:
+         * W2089 已经定下「置顶那首 = 默认播放作品」, 并且专门把它提到队列第 0 位、
+         * 排在登录用户自己的作品之前。真视频那个判据(W1974)当时与它【重合】——
+         * 李清照既置顶又是真视频, 分不出谁在起作用。现在两者第一次分开, 按 W2089 的
+         * 明文: 认置顶, 不认视频类型。
+         *
+         * 换默认曲目从此【只改库里的置顶时间】, 不再需要动代码。 */
+        var _openPinnedFirst = !!_first;   // 名字跟着判据走: 现在认的是【置顶首位】, 不再是真视频
         /* CSSOS_WAVE_1984c 20260826 — W1974 的 seekTo 只【移动播放列表指针】, 没把作品
          *   装进面板。实测冷启动结果是最坏的那种:
          *     画面 = 寻寻觅觅真视频   音频/标题/workId = François-Marie Arouet
@@ -396,14 +449,16 @@
          *   修法: 首位是真视频时, 直接走【点卡片播放走的同一条路】openMarketWorkPreview() ——
          *   它一次性把 targetWork 的音频/画面/标题/playlist 全部对齐到同一个作品,
          *   不再让"指针"和"面板"两头各走各的。首位不是真视频时一个字不改, 保持原行为。 */
-        if (_firstIsReal && typeof globalThis.openMarketWorkPreview === "function") {
+        if (_openPinnedFirst && typeof globalThis.openMarketWorkPreview === "function") {
           try {
+            _al("按置顶首位开 →", String(_first.title || "").slice(0, 28));
             globalThis.openMarketWorkPreview(
               Object.assign({}, _first, { __cssosOpenedFrom: "for-you" }),
             );
             return;
           } catch (_e) {}
         }
+        _al("回落 preferLatestOwned(= 最新自有作品)");
         try {
           globalThis.openWatchPreviewFlowModule({
             preferredTab: "mv",
@@ -411,7 +466,8 @@
             preferLatestOwned: true,
           });
         } catch (_e) {}
-      }, 120);
+      }
+      setTimeout(_pickAndOpen, 120);
     }
     setTimeout(attempt, 120);
   };

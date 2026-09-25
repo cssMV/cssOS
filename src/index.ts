@@ -52603,9 +52603,18 @@ app.get("/api/works/market", async (req, res) => {
            --   做得出整片真视频, 它就该是用户进来看到的第一样东西。
            --   判据用显式标记 is_real_video_mv, 不猜: 库里很多作品都有 preview_video_url,
            --   但那是 5 秒短片垫在整首歌下面(画音分层), 不是真视频 MV。
-           (CASE WHEN w.is_real_video_mv THEN 0 ELSE 1 END) ASC,
+           -- CSSOS_WAVE_2195 20260925 — Jing:「设置《白鹤报恩》作为用户进入平台默认播放曲目,
+           --   取代之前的《李清照·声声慢》。」拍板: 【置顶压过真视频】。
+           --   与 W1970 的取舍换了个方向。理由: 置顶是 Jing 亲手指定的编辑动作(上限 12 首),
+           --   真视频只是【类别偏好】。他明确点名某一首当默认时, 那一首就该在最前 ——
+           --   否则"默认曲目"实际由 is_real_video_mv 这个布尔值决定, 置顶形同虚设
+           --   (实测: 白鹤 09-25 置顶、李清照 09-10, 但李清照是真视频 → 它一直排第一,
+           --    前端怎么改都追不上, 因为根子在这三行的先后)。
+           --   W1970 的真视频优先【没有作废】, 只是降到置顶之后 —— 未置顶的那一大片仍旧真视频最先。
+           --   以后换默认曲目【只改置顶时间, 不动代码】。
            (CASE WHEN w.admin_pinned_at IS NOT NULL THEN 0 ELSE 1 END) ASC,
            w.admin_pinned_at DESC NULLS LAST,
+           (CASE WHEN w.is_real_video_mv THEN 0 ELSE 1 END) ASC,
            -- CSSOS_WAVE_1287 — Jing「唐伯虎三部曲等新作不进 For You」根因: 这些作品媒体存在
            --   w.preview_audio_url / preview_video_url 列上(非 work_assets 表), 旧 CASE 只查 fm/a1/a2
            --   资产 → 误判'死媒体'降到底档 → 超 3 天宽限被埋出 feed 限额。音频本可播(serializer 兜底

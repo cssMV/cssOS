@@ -4295,10 +4295,41 @@
         );
         state.lyrics = "";
         if (taLyrics) taLyrics.value = "";
+        /* CSSOS_WAVE_2168 20260924 — 风格框也得清, 但【只清确认是残留的那一种】。
+         *
+         * Jing 2026-09-24:《鶴の恩返し/白鹤报恩》他在提示词里写明「音乐风格请使用日本雅乐」,
+         * 而实际发给 Suno 的 style 是 `ambient shoegaze` —— 上一首残留在风格框里的。
+         * 歌出来了, 但不是他要的那种歌, 而且是事后看日志才发现的。
+         *
+         * 为什么 W212 当年只清歌词没清风格: 歌词是【上一步的产物】, 清掉没有歧义;
+         * 风格是【用户可能刚为这一首填好的】, 一律清会把他的意图抹掉。
+         *
+         * 判据: 只有当 ①换了新活(promptChanged) 且 ②风格框内容与【上一次运行用过的】
+         * 一模一样 —— 即从那以后没人动过它 —— 才判定是残留并清掉。
+         * 用户自己改过的风格, 哪怕只改一个字, 都原样保留。 */
+        try {
+          var _lastStyle = String(state._lastPipelineStyle || "").trim();
+          var _elStyle = panel.querySelector("#mvp-style");
+          var _curStyle = String((_elStyle && _elStyle.value) || "").trim();
+          if (promptChanged && _curStyle && _lastStyle && _curStyle === _lastStyle) {
+            console.info("%c[mv-pipeline][W2168] 换了新活且风格框未被改动 → 清掉上一首的残留风格: %s",
+              "color:#a40;font-weight:bold", _curStyle.slice(0, 60));
+            state.style = "";
+            if (_elStyle) {
+              _elStyle.value = "";
+              try { _elStyle.dispatchEvent(new Event("input", { bubbles: true })); } catch (_evErr) {}
+            }
+          }
+        } catch (_styErr) { /* 绝不因为这道清理让运行失败 */ }
       }
       // Always remember current prompt so the NEXT runAll can detect
       // whether the user has changed jobs.
       state._lastPipelinePrompt = currentPromptTrim;
+      // W2168 — 同样记住这一次用的风格, 下一次才分得清「残留」和「用户新填的」。
+      try {
+        var _elStyle2 = panel.querySelector("#mvp-style");
+        state._lastPipelineStyle = String((_elStyle2 && _elStyle2.value) || "").trim();
+      } catch (_sErr) {}
       // Wipe ALL downstream output fields regardless of lyrics source.
       state.title = state.userTitle || "";   // W1081 — 保留用户手输标题(最高优先)
       state.sections = null;

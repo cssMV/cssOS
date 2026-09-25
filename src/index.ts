@@ -16866,6 +16866,40 @@ app.post("/api/mv/music", express.json({ limit: "32kb" }), async (req, res) => {
       if (tier && tier.ok) { await chargeMvStageActual(userId, "music", __musicCostCents, tier?.provider, _musicPipelineRunId); }
       recordEngineCall(tier?.provider || "music-router", Date.now() - __musicT0, __musicCostCents, !!(tier && tier.ok));
       if (tier && tier.ok) {
+        /* CSSOS_WAVE_2166 20260924 — 【生成即落 R2】, 在返回给前端之前。
+         *
+         * 这是平台铁律(「绝不把第三方临时 URL 存库 —— 李清照教训」), 但音乐这条路
+         * 一直没接: Suno 经 KIE 返回的是 tempfile.aiquickdraw.com 的【临时地址】,
+         * 原样发给前端、原样进 commit、原样入库, 过期就永久没了。
+         *
+         * 2026-09-24 实测代价:《鶴の恩返し/白鹤报恩》三次运行 6 首音频全部只存在于
+         * 临时地址上, 一首都没落 R2(rclone 实测 artifacts/audio/ 近 25 分钟 0 新增),
+         * 钱花了、歌生成了, 差点当垃圾丢掉。事后靠 KIE 的 record-info 逐个 task 捞回来。
+         *
+         * 落盘走平台既有的 persistRemoteAudioToStable() —— 内容哈希 aud-<sha24>.mp3,
+         * 同内容同地址、幂等, 结构上不可能互相覆盖。失败则保留原 URL(至少这一次还能播),
+         * 但会 warn 出来, 不静默。♪2 同样要落 —— 我们为两首都付过钱。 */
+        if (tier.audio_url) {
+          const _t0 = Date.now();
+          try {
+            const _stable = await persistRemoteAudioToStable(String(tier.audio_url));
+            if (_stable && _stable !== tier.audio_url) {
+              console.log("[mv-music][W2166] ♪1 落盘 R2 %dms → %s", Date.now() - _t0, _stable.slice(-46));
+              tier.audio_url = _stable;
+            } else if (_stable === tier.audio_url) {
+              console.warn("[mv-music][W2166] ♪1 落盘未生效, 仍是外链: %s", String(tier.audio_url).slice(0, 70));
+            }
+          } catch (e) { console.warn("[mv-music][W2166] ♪1 落盘抛错:", (e as Error)?.message?.slice(0, 120)); }
+        }
+        if (tier.alt_audio_url) {
+          try {
+            const _stable2 = await persistRemoteAudioToStable(String(tier.alt_audio_url));
+            if (_stable2 && _stable2 !== tier.alt_audio_url) {
+              console.log("[mv-music][W2166] ♪2 落盘 R2 → %s", _stable2.slice(-46));
+              tier.alt_audio_url = _stable2;
+            } else { console.warn("[mv-music][W2166] ♪2 落盘未生效, 仍是外链"); }
+          } catch (e) { console.warn("[mv-music][W2166] ♪2 落盘抛错:", (e as Error)?.message?.slice(0, 120)); }
+        }
         const audioUrl = tier.audio_url
           ? tier.audio_url
           : (tier.audio_b64 ? `data:audio/mpeg;base64,${tier.audio_b64}` : "");

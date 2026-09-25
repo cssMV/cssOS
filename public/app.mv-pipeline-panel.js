@@ -8191,6 +8191,59 @@
           || _dagResult.failed.music || _dagResult.failed.subs;
         if (_firstErr) throw _firstErr;
       }
+
+      /* CSSOS_WAVE_2166 20260924 — 收尾。整段原本埋在 runComposeStage 里
+       * (saveAsWork / cssmv:run-finish / 清空输入 / 自动播放全在那儿),
+       * W2137 把 compose 从 DAG 删掉之后就没人做了。三个症状同一个根:
+       *   · 作品不入库(commit 从未被调用)
+       *   · 音频留在第三方临时地址(落盘在 commit 之后)
+       *   · 进度覆盖层不退场, 还要用户点播放
+       * 现在接在 DAG 成功之后 —— subtitles 是新的最后一步。
+       * Jing:「生成完毕, 中间这块内容就应该退出, 显示封面图, 播放音乐(不要让用户点击)」 */
+      try {
+        const _mvId = String(state.runId || "").trim();
+        const _haveDeliverable = !!(state.audioUrl || state.audioUrlBackendOnly
+          || state.videoUrl || (state.plateUrls && state.plateUrls.length));
+        if (_mvId && _haveDeliverable) {
+          const _res = await saveAsWork(_mvId);
+          if (_res && _res.work_id) {
+            console.info("%c[mv-pipeline][W2166] 已入库 work_id=%s", "color:#0a0;font-weight:bold", _res.work_id);
+            try {
+              globalThis.dispatchEvent(new CustomEvent("cssmv:run-finish", {
+                detail: { work_id: _res.work_id, mv_id: _mvId }
+              }));
+            } catch (_dispErr) {}
+            // 只在【确实入库】之后才清创作输入 —— 没入库就清, 等于把用户的词也弄丢了。
+            try { clearCreationInputsAfterSuccessModule(); } catch (_clrErr) {}
+          } else {
+            console.error("[mv-pipeline][W2166] commit 没拿到 work_id — 不清输入, 音频仍在 state");
+          }
+        }
+        // 覆盖层退场
+        try { showMvOverallProgress(false); } catch (_ovErr) {}
+        // 自动播放音乐 —— 不让用户点
+        try {
+          const _a = document.getElementById("watch-audio-preview");
+          const _src = state.audioUrl || "";
+          if (_a && _src) {
+            if (_a.src !== _src) _a.src = _src;
+            const _pr = _a.play();
+            if (_pr && typeof _pr.catch === "function") {
+              _pr.catch(function () {
+                // Safari 在长时间异步之后会判定用户手势已过期 —— 退回平台既有的
+                // 音乐播放通道, 它自己带静音重试/解除静音的那套。
+                try {
+                  if (typeof globalThis.fallbackWatchPlaybackToMusicModule === "function") {
+                    globalThis.fallbackWatchPlaybackToMusicModule("");
+                  }
+                } catch (_fbErr) {}
+              });
+            }
+          }
+        } catch (_playErr) {}
+      } catch (_finErr) {
+        console.error("[mv-pipeline][W2166] 收尾抛错:", _finErr);
+      }
     } catch (err) {
       console.error("[mv-pipeline] failed", err);
       const failingStage = findRunningStage() || "cover";
@@ -8339,7 +8392,17 @@
   // focus / block the autoplay handoff. Failure still surfaces via toast +
   // a console.error so we keep visibility without hijacking the run.
   async function saveAsWork(mvId) {
-    if (!state.mvUrl) return null;
+    /* CSSOS_WAVE_2166 20260924 — 闸门从 mvUrl 改成【有没有可交付的东西】。
+     *
+     * 原来是 `if (!state.mvUrl) return null;` —— mvUrl 是 compose 阶段的产物。
+     * W2137 把 compose 从 DAG 删掉(永不烧录)之后, mvUrl 永远是 null,
+     * 这一行就让 commit 【从此再没发生过】: 屏幕上 100%, 库里 0 行, 音频留在
+     * 第三方临时地址上。2026-09-24《鶴の恩返し》三次运行 6 首全部如此。
+     *
+     * 按平台「四轨分离」的定义, 交付物是【可重组的舞台】—— 音频就是成品,
+     * 不需要先烧成一个视频文件才算数。所以有音频(或视频/定妆照)就该入库。 */
+    if (!state.mvUrl && !state.audioUrl && !state.audioUrlBackendOnly
+        && !state.videoUrl && !(state.plateUrls && state.plateUrls.length)) return null;
     const targetMvId = mvId || "";
     if (targetMvId && state.committedMvId === targetMvId) {
       console.info(

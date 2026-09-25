@@ -60,6 +60,12 @@ ok("CLAUDE.md 的「active 左侧」已带 :not(.active)",
 ok("CLAUDE.md 里没有残留的旧选择器",
    !/\[data-pill-key\]\.active ~ \[data-pill-key\] \{/.test(doc)
    && !/\[data-pill-key\]:has\(~ \[data-pill-key\]\.active\) \{/.test(doc));
+ok("W220.A 冻结区那三行旁边有 W2192 注脚(别让人照着旧写法抄)",
+   /`\.active ~ \*`[\s\S]{0,400}?注脚 · W2192/.test(doc),
+   "那段散文描述按字面写就是漏掉 :not(.active) 的写法");
+ok("注脚原文三行一个字未改(冻结区只加注脚不改正文)",
+   /- `\.active ~ \*` → all siblings AFTER active → right-rounded/.test(doc)
+   && /- `\*:has\(~ \.active\)` → all siblings BEFORE active → left-rounded/.test(doc));
 ok("CLAUDE.md 写明左侧实现走 .cssos-pill-pre / markPre, 不是 :has()",
    /cssos-pill-pre/.test(doc) && /markPre/.test(doc),
    "只照文档改 CSS 会漏掉左侧那一半");

@@ -748,6 +748,21 @@ Implementation: CSS sibling combinators + `:has()`.
 - `*:has(~ .active)` → all siblings BEFORE active → left-rounded
 - `.active` → `border-radius: 999px !important` (full pill)
 
+> **注脚 · W2192(2026-09-25)——上面这三行【只在一条轨恰好有一个 active 时成立】。**
+>
+> 原文一个字未改(这里是 W220.A 冻结区, 描述的是 Mode 1/2 的旧回退写法)。
+> 补这条注脚只是为了别让人照着这三行去写新的胶囊条。
+>
+> 「all siblings AFTER active」这句话按字面写成 `.active ~ *`, 会把**排在后面的
+> 另一个 active 也算进去**。一条轨只有一个 active 时两者完全等价, 所以这个缺陷
+> 藏了很久; 一旦一条轨里有多个 active(`#watch-language-pill` 正是如此: 模式头 +
+> 当前语言 + 当前声线 + 当前 ♪, 四组共轨、轮流显示), 后面那几个 active 就会被当成
+> 「未激活」而左移 20px 压住邻居 —— 屏幕上看起来是**同一个胶囊印了两遍**。
+>
+> **要写新胶囊条, 一律照下面 v28 那段带 `:not(.active)` 的 CSS, 不要照这三行。**
+> 本节描述的 `.creation-tabs` / `.seed-script-tabs` / `.msrc-tabbar` /
+> `.palette-presets` 都是单 active 轨, 不受影响, **故不改它们**。
+
 Fallback for `:has()`-less browsers: `:first-child` outer-left and
 `:last-child` outer-right, middles flat. Works for the common 2-3
 tab case; degraded but acceptable on older Safari < 15.4.

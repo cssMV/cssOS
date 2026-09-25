@@ -205,8 +205,22 @@
         "-webkit-mask-image:none !important;mask-image:none !important;",
       "}",
 
-      /* ── 活跃右侧所有 (~ 通用兄弟) — 左平右圆，凹向左，每对相邻咬合 ── */
-      "[data-pill-bar]>[data-pill-key].active~[data-pill-key]{",
+      /* ── 活跃右侧所有 (~ 通用兄弟) — 左平右圆，凹向左，每对相邻咬合 ──
+       *
+       * CSSOS_WAVE_2192 20260925 — :not(.active) 是【按本条宪法自己的原话】补的:
+       * 「ALL inactive pills concave toward active」—— 要凹的是【未激活】的,
+       * 可选择器原来没把 active 排除掉。
+       *
+       * 一条轨只有一个 active 时这两种写法完全等价(后面的兄弟本来就都不是 active),
+       * 所以平台上现有的每一条胶囊条渲染【一个像素都不变】。
+       *
+       * 出事的是【一条轨里有多个 active】的情况 —— #watch-language-pill 正是这样:
+       * 模式头(Languages/Voices/Visuals/Takes)+ 当前语言 + 当前声线 + 当前 ♪
+       * 四个 active 共处一条轨(各组轮流显示, 这是设计)。于是排在后面的那个 active
+       * 被当成「active 右边的未激活胶囊」, 吃到 margin-left:-20px + padding-left:36px,
+       * 整个胶囊左移压在邻居上、标签被推到右边 —— 屏幕上看起来就是 "♪4 · 4:50" 印了两遍
+       * (一半是被压住的邻居, 一半是移过去的自己)。Jing 截图里那个"胶囊套胶囊"就是它。 */
+      "[data-pill-bar]>[data-pill-key].active~[data-pill-key]:not(.active){",
         "border-radius:0 999px 999px 0 !important;",
         "margin-left:-20px !important;",
         "width:calc(100% + 20px) !important;",
@@ -467,7 +481,12 @@
     function markPre() {
       var ai = -1;
       for (var i = 0; i < children.length; i++) { if (children[i].classList.contains("active")) { ai = i; break; } }
-      for (var j = 0; j < children.length; j++) { children[j].classList.toggle("cssos-pill-pre", ai >= 0 && j < ai); }
+      /* W2192 — active 自己永远不算「active 左边的未激活胶囊」。同上: 单 active 轨完全等价,
+       * 只在多 active 轨(如 #watch-language-pill 的四组共轨)上才有区别。 */
+      for (var j = 0; j < children.length; j++) {
+        children[j].classList.toggle("cssos-pill-pre",
+          ai >= 0 && j < ai && !children[j].classList.contains("active"));
+      }
     }
 
     /* Active management */

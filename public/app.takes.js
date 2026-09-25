@@ -46,7 +46,7 @@
     var raw = Array.isArray(o.takes) ? o.takes : null;
     var list = [];
     var seen = Object.create(null);
-    function push(url, dur, subUrl, label, source) {
+    function push(url, dur, subUrl, label, source, coverUrl) {
       var u = s(url);
       if (!u) return;
       var k = key(u);
@@ -59,13 +59,16 @@
         url: u,
         duration_secs: (dur == null ? null : Number(dur)) || null,
         subtitle_url: s(subUrl) || null,
+        /* CSSOS_WAVE_2175 20260925 — 这一版自己的封面。null = 回退作品封面。
+         * 老字段那条路(legacy)没有版本号, 也就没有对应封面 —— 保持 null, 行为不变。 */
+        cover_url: s(coverUrl) || null,
         source: source || "legacy",
       });
     }
     if (raw && raw.length) {
       for (var i = 0; i < raw.length; i++) {
         var t = raw[i] || {};
-        push(t.url, t.duration_secs, t.subtitle_url, t.label, t.source || "server");
+        push(t.url, t.duration_secs, t.subtitle_url, t.label, t.source || "server", t.cover_url);
       }
       if (list.length) return list;
     }
@@ -98,6 +101,9 @@
 
   /** 第 n 版的音频 URL(越界同样钳回)。拿不到返回 ""。 */
   function takeUrl(o, n) { var t = takeAt(o, n); return t ? t.url : ""; }
+
+  /** 第 n 版【自己的】封面。没有就返回 "" —— 调用方回退作品封面。 */
+  function takeCoverUrl(o, n) { var t = takeAt(o, n); return (t && t.cover_url) ? t.cover_url : ""; }
 
   /**
    * 第 n 版【自己的】字幕 URL。
@@ -132,6 +138,7 @@
 
   globalThis.cssosTakes = {
     of: takesOf, count: takeCount, at: takeAt, url: takeUrl, subtitleUrl: takeSubtitleUrl,
+    coverUrl: takeCoverUrl,   // W2175
   };
   // 短别名, 调用点读起来干净。
   globalThis.cssosTakesOf = takesOf;

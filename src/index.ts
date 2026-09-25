@@ -4105,6 +4105,11 @@ type WorkTake = {
   url: string;
   duration_secs: number | null;
   subtitle_url: string | null;   // 这一版自己的字幕; null = 回退作品级
+  /* CSSOS_WAVE_2175 20260925 — Jing:「切到 ♪3 就换成第 3 张画面」。
+   * 这一版自己的封面; null = 回退作品封面。素材来自 work_media_versions 里
+   * 【已经存在】的 kind='cover' 行(全库 2088 行), 按 (lang, version_no) 与音频版本对齐 ——
+   * 不新增列、不另造表。 */
+  cover_url: string | null;
   source: "track" | "assets" | "versions";
 };
 
@@ -4138,9 +4143,12 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
     lang: string | null; version_no: number; label: string | null;
     url: string; subtitle_url: string | null; duration_secs: number | null;
   };
+  // W2175 — 每一版自己的封面(kind='cover'), 按 (lang, version_no) 与音频版本对齐。
+  type CovRow = { lang: string | null; version_no: number; url: string };
 
   let tracks: TrackRow[] = [];
   let vers: VerRow[] = [];
+  const coverByVer = new Map<string, string>();   // W2175: `${lang}|${version_no}` → url
   let assets: { asset_type: string; url: string }[] = [];
   try {
     const r = await withClient((c) => c.query<TrackRow>(
@@ -4155,6 +4163,17 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
         WHERE work_id = $1::uuid AND kind = 'audio' AND url IS NOT NULL AND url <> ''
         ORDER BY COALESCE(lang,''), version_no ASC`, [workId]));
     vers = r.rows;
+  } catch (e) { console.warn("[takes] 读音频版本失败:", (e as Error)?.message?.slice(0, 120)); }
+  try {
+    // W2175 — 取每一版的封面。失败不影响取版本本身(封面只是锦上添花, 拿不到就回退作品封面)。
+    const rc = await withClient((c) => c.query<CovRow>(
+      `SELECT lang, version_no, url
+         FROM work_media_versions
+        WHERE work_id = $1::uuid AND kind = 'cover' AND url IS NOT NULL AND url <> ''`, [workId]));
+    for (const c of rc.rows) coverByVer.set(`${String(c.lang || "")}|${c.version_no}`, c.url);
+  } catch (e) { console.warn("[takes] 读版本封面失败:", (e as Error)?.message?.slice(0, 120)); }
+  try {
+    const _noop = 0; void _noop;
   } catch (e) { console.warn("[takes] 读版本表失败:", (e as Error)?.message?.slice(0, 120)); }
   try {
     const r = await withClient((c) => c.query<{ asset_type: string; url: string }>(
@@ -4211,7 +4230,7 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
     const seen = new Set<string>();
     const push = (url: string | null | undefined, dur: number | null,
                   subUrl: string | null, label: string | null,
-                  source: WorkTake["source"]) => {
+                  source: WorkTake["source"], coverUrl?: string | null) => {
       const u = String(url || "").trim();
       if (!u) return;
       const k = takeDedupeKey(u);
@@ -4222,10 +4241,13 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
          * 用户在胶囊上读到的应该是「Suno V6 新版 #1」, 不是「♪2」。
          * 实测: 李清照三部曲的 audio_track_2 就是版本表里的「Suno V6 新版 #1」。 */
         const nl = String(label || "").trim();
-        if (nl) {
-          const hit = list.find((x) => takeDedupeKey(x.url) === k);
-          if (hit && hit.label === "\u266a" + hit.take) hit.label = nl;
-        }
+        const hit = list.find((x) => takeDedupeKey(x.url) === k);
+        if (nl && hit && hit.label === "\u266a" + hit.take) hit.label = nl;
+        /* CSSOS_WAVE_2175 — 封面同理要【认回去】。
+         * ♪1/♪2 是老字段先铺的(seed), 版本行到这里被判为重复直接 return,
+         * 于是它们自己那一版的封面永远挂不上 —— 实测 ♪1/♪2 cover=无、♪3-♪6 才有。
+         * 名字已经有这套"重复时补认"的逻辑了, 封面走同一条。 */
+        if (hit && !hit.cover_url && coverUrl) hit.cover_url = coverUrl;
         return;
       }
       seen.add(k);
@@ -4236,6 +4258,7 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
         url: u,
         duration_secs: dur ?? null,
         subtitle_url: subUrl ?? null,
+        cover_url: coverUrl ?? null,     // W2175
         source,
       });
     };
@@ -4249,7 +4272,8 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
          * 本轨自己已经铺过的同一个文件不跳 —— 让它走 push(), 好把版本行带的
          * 名字认回去(否则「Suno V6 新版 #1」会一直显示成通用的 ♪2)。 */
         if (skipOwned && !seen.has(vk) && ownedByAnyTrack.has(vk)) continue;
-        push(v.url, v.duration_secs, v.subtitle_url, v.label, "versions");
+        push(v.url, v.duration_secs, v.subtitle_url, v.label, "versions",
+             coverByVer.get(`${String(v.lang || "")}|${v.version_no}`) || null);   // W2175
       }
     }
     return list;
@@ -52003,6 +52027,19 @@ app.get("/api/works/public/:id", async (req, res) => {
         work_type: normalized.work_type,
         lyrics_preview: normalized.lyrics_preview,
         owner_name: normalized.owner_name || null,
+        /* CSSOS_WAVE_2173 20260925 — 买断价与 buyout_enabled 往外返。
+         *
+         * 这三个字段 SQL 早就查了(本端点 :51823-51825), 但只有 listen 被返出去,
+         * 买断那两个在映射这一步被丢掉。于是分享深链打开的作品, 右轨拿不到买断信息,
+         * 退回平台兜底 $5.99 —— 而《鶴の恩返し/白鹤报恩》库里明明是 0 + buyout_enabled=false
+         * (无价之宝)。Jing 看到的就是这个。
+         *
+         * owner_user_id 一并返: 右轨判断「自己的作品不能买卖」要用它,
+         * 拿不到就只能退回邮箱比对, 匿名访客那条路走不通。 */
+        current_buyout_price_cents: (normalized as any).current_buyout_price_cents != null
+          ? Number((normalized as any).current_buyout_price_cents) : null,
+        buyout_enabled: (normalized as any).buyout_enabled === true,
+        owner_user_id: (row as any).owner_user_id || (row as any).user_id || null,
         duration_secs: normalized.duration_secs || null,
         /* CSSOS_WAVE_1931 — 播放端要的真源字段, 之前 SQL 查了却没往外返:
          *  · subtitle_take*_json_url → 情绪字幕轨(不给就永远空白, 实测 cues=0 的真因)

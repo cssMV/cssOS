@@ -51,6 +51,21 @@
       lyrics_preview: data.lyrics_preview || "",
       owner_name: data.owner_name || "",
       duration_secs: data.duration_secs || null,
+      /* CSSOS_WAVE_2173 20260925 — 价格与归属必须一起带过来。
+       *
+       * 这个 shaper 决定了【分享深链打开的作品】长什么样, 而它原来一个价格字段都不带。
+       * 于是右轨(app.watch-social-rail.js)拿到一个没有价格的作品对象, 三个价全退回
+       * 平台兜底: 🎧¢69 / 🎞️¢99 / 💎$5.99 —— 而库里是 66 / 0 / buyout_enabled=false。
+       * Jing 说「买断还是 5.99」, 病根在这里, 不在定价本身。
+       *
+       * 字段名要用右轨读的那套(current_*), 后端公开接口给的是 listen_price_cents,
+       * 两头名字不一样 —— 这正是它一路被漏掉的原因。 */
+      current_listen_price_cents: (data.listen_price_cents != null)
+        ? Number(data.listen_price_cents) : null,
+      current_buyout_price_cents: (data.current_buyout_price_cents != null)
+        ? Number(data.current_buyout_price_cents) : null,
+      buyout_enabled: data.buyout_enabled === true,
+      owner_user_id: data.owner_user_id || null,
       cover_image: data.cover_image || null,
       preview_image_url: data.preview_image_url || null,
       preview_video_url: data.preview_video_url || null,
@@ -85,6 +100,29 @@
     try {
       globalThis.__cssosShareLinkWorkId = String(work.id || work.work_id || "");
     } catch (_e) {}
+    /* CSSOS_WAVE_2174 20260925 — 把作品【交给平台既有的两个入口】, 否则它只存在于本文件里。
+     *
+     * 这个函数原来只喂了 cssmvPipelineLastResult 和 mv-pipeline 面板 state, 从不设
+     * currentWatchPreviewWork、也从不调 cssosBindToWorkId。后果实测:
+     *   · cssosCurrentWorkId() 返回 ""     —— 全平台「当前作品是谁」的权威答案是空的
+     *   · 右轨 currentWork() 三个来源全空 → 三个价退回兜底 🎧¢69 / 🎞️¢99 / 💎$5.99,
+     *     而库里是 66 / 0 / buyout_enabled=false。Jing 说「买断还是 5.99」, 病根在这儿。
+     * 音频照样播、标题照样对, 所以这个洞一直没被看见 —— 缺的是【身份】, 不是媒体。
+     *
+     * 两个都是平台既有入口, 不另造:
+     *   cssosBindToWorkId  —— 身份 + 资产归属闸(换歌时 flush + 代次++, W1785)
+     *   currentWatchPreviewWork —— 右轨/评论/打赏读的那份作品对象
+     * 先绑身份再挂对象, 与 W2138「身份先认, 再取资产」同一条原则。
+     *
+     * 注意必须写 globalThis.*: currentWatchPreviewWork 在 app.work-sync.js 里是顶层 let,
+     * 经典脚本的顶层 let 在全局【词法】环境里, 不挂 globalThis; 而右轨读的正是
+     * globalThis.currentWatchPreviewWork。两边不是同一个绑定 —— 只写裸标识符等于没写。 */
+    try {
+      if (typeof globalThis.cssosBindToWorkId === "function") {
+        globalThis.cssosBindToWorkId(work);
+      }
+    } catch (_bindErr) { /* 绑定失败不该挡住播放 */ }
+    try { globalThis.currentWatchPreviewWork = work; } catch (_pubErr) {}
     var mvUrl = String(work.final_mv_url || work.preview_video_url || "").trim();
     var title = String(work.title || "").trim();
     var coverUrl = String(work.cover_image || work.preview_image_url || "").trim();

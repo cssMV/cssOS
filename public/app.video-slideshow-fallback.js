@@ -158,6 +158,12 @@
     try { hideVideoHard(document.getElementById("watch-video")); } catch (_e) {}
     try {
       var covers = curCoverList();
+      /* CSSOS_WAVE_2176 20260925 — 当前这一版有自己的封面时, 以它为准。
+       * 否则切 take 之后这里会用作品的幻灯列表把它盖回去(探针实测的第二个覆盖方)。 */
+      try {
+        var _tc = globalThis.__cssosActiveTakeCover;
+        if (_tc && _tc.url) covers = [_tc.url];
+      } catch (_tcErr) {}
       if (covers.length && typeof globalThis.cssmvSetCoverSlides === "function") globalThis.cssmvSetCoverSlides(covers);
       /* 音频必须继续 —— Jing:「即阻止播放视频, 降级幻灯 + 音频。」
        * reveal() 只加一个 CSS 类(把视频压到 opacity:0.1), 不碰音轨; 这里再补一脚,

@@ -366,6 +366,44 @@
         });
       }
     } catch (_e) {}
+    /* CSSOS_WAVE_2175 20260925 — Jing:「切到 ♪3 就换成第 3 张画面」。
+     *
+     * 每一版自己的封面来自 work_media_versions 的 kind='cover' 行, 按
+     * (lang, version_no) 与音频版本对齐 —— 那张表全库已有 2088 行 cover,
+     * 所以这里【不新增列、不另造表】, 只是把本来就存在的对应关系接到播放端。
+     *
+     * 换画面用平台现成的 cssmvSetCoverSlides(app.cover-slideshow.js 的公开 API),
+     * 不自己去动 DOM/背景图 —— 幻灯、裁切、光芒环都挂在那条路上, 绕开它就得重造一遍。
+     *
+     * 这一版【没有】自己的封面时什么都不做: 保持作品封面/原有幻灯不动。
+     * 绝不清空 —— 空画面比"还是上一版那张"糟得多。 */
+    try {
+      if (globalThis.cssosTakes && typeof globalThis.cssosTakes.coverUrl === "function"
+          && typeof globalThis.cssmvSetCoverSlides === "function") {
+        var _cov = globalThis.cssosTakes.coverUrl(track, take);
+        /* CSSOS_WAVE_2176 20260925 — 光自己画不够, 必须【登记成真源】。
+         *
+         * 实测(给 cssmvSetCoverSlides 装探针拍到的调用序列): 切 take 后 41ms,
+         * 另外两处把封面改回了作品默认图 ——
+         *   app.watch-ui.js prePaintLatestWorkOnPanelOpenModule(经 canplay → ensureWatchCentered)
+         *   app.video-slideshow-fallback.js reveal()
+         * 它们画的都是【作品的】封面, 因为它们根本不知道"现在选的是哪一版"。
+         * 这是"谁最后写谁赢"的竞争, 靠加延时去抢是下一个坑。
+         *
+         * 所以给它们一个可问的真源: 带 workId 的当前版封面。两边取封面时先问这里,
+         * 问不到才回退作品封面。带 workId 是为了换作品时不串 —— 上一首的版本封面
+         * 绝不能画到下一首身上(今晚 W2161 刚栽过同类)。 */
+        try {
+          globalThis.__cssosActiveTakeCover = _cov
+            ? { workId: String(_workId || ""), url: _cov, take: take }
+            : null;
+        } catch (_regErr) {}
+        if (_cov) {
+          globalThis.cssmvSetCoverSlides([_cov]);
+          try { console.info("[take-cover][W2175] ♪%s → %s", take, String(_cov).slice(-34)); } catch (_lg) {}
+        }
+      }
+    } catch (_covErr) { /* 换封面失败绝不能挡住换歌 */ }
     // CSSOS_WAVE_587 — 记住选择(本作品 + 全局上次), 下次播放自动恢复。
     try {
       var _p = JSON.stringify({ lang: _activeLang, voice: _activeVoice });

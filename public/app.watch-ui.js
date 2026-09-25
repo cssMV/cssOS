@@ -4711,7 +4711,21 @@ function prePaintLatestWorkOnPanelOpenModule() {
     }
 
     // --- pre-paint single stable cover (kills flashing) ---
-    const cover = String(
+    /* CSSOS_WAVE_2176 20260925 — 先问【当前这一版】的封面。
+     *
+     * 这个函数是为"面板打开时先垫一张图, 免得闪黑"设计的, 但它也被 canplay →
+     * ensureWatchCentered 这条路带起来 —— 切 take 换了音频就会触发。于是它用
+     * 作品默认封面把刚设好的"这一版的封面"覆盖掉(实测切歌后 41ms)。
+     * 它画的永远是【作品的】封面, 因为它不知道现在选的是哪一版。
+     *
+     * 判 workId 是必须的: 上一首的版本封面绝不能画到下一首身上。 */
+    let cover = "";
+    try {
+      const _tc = globalThis.__cssosActiveTakeCover;
+      const _wid = String(w.id || w.work_id || "").trim();
+      if (_tc && _tc.url && (!_tc.workId || !_wid || _tc.workId === _wid)) cover = String(_tc.url).trim();
+    } catch (_tcErr) {}
+    if (!cover) cover = String(
       w.cover_image || w.preview_image_url || w.cover_url ||
       w.cover_slides?.[0] || ""
     ).trim();

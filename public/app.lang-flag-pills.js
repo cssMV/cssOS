@@ -539,14 +539,31 @@
       if (p.classList.contains("cssos-mode-cap")) return p === activeHead;
       return p.classList.contains("active");
     }
+    function bitesRight(el) { return !!el && el.classList.contains("cssos-cc-right"); }
+    function addBite(p, cls, left) {
+      if (cls === "cssos-cc-left" && bitesRight(left)) { p.classList.add("cssos-cc-solid"); return; }
+      p.classList.add(cls);
+    }
     if (!expanded) {
-      // v1(只有头): 未激活头凹向激活头。
-      order.forEach(function (p) {
+      /* v1(只有头): 未激活头凹向激活头。
+       *
+       * CSSOS_WAVE_2197 20260925 — Jing 截图:「头顶头的胶囊」。
+       * 这一段是当年只有【语言 / 声线】两个模式时写的, 所以它只认 activeHead 与
+       * inactiveHead 两个。W2088 加了 Visuals、之后又加了 Takes —— 这两个新头在折叠态
+       * 【一个 cc 类都拿不到】, 于是保留默认的 border-radius:999px + margin-right:6px,
+       * 变成各自独立的整椭圆、彼此留缝 = 宪法点名的「飘椭圆 / 凸顶凸」回归。
+       * 实测: Visuals 与 Takes 的 cc 为空, 缝 0px / 6px; 其余四个都是 -20px 咬合。
+       *
+       * 修法不是新写几何, 而是【把本来就有的那条规则用到所有头上】——
+       * 宪法原话:「ALL inactive pills concave toward active」, 本来就不是"只有一个"。
+       * 激活左边的头 → cc-right(凹向右, 抱右邻); 激活右边的头 → cc-left(凹向左)。
+       * 走 addBite 保证【一条缝只许被咬一次】(W2194 那条不变式)。 */
+      var _ai = order.indexOf(activeHead);
+      order.forEach(function (p, i) {
         if (p === activeHead) { p.classList.add("cssos-cc-solid"); return; }
-        if (p === inactiveHead) {
-          var ai = order.indexOf(activeHead), ii = order.indexOf(p);
-          p.classList.add(ii > ai ? "cssos-cc-left" : "cssos-cc-right");
-        }
+        if (_ai < 0) return;                       // 没有激活头 → 维持原样, 不擅自造一个
+        if (i > _ai) addBite(p, "cssos-cc-left", order[i - 1]);
+        else p.classList.add("cssos-cc-right");
       });
       setZ();
       return;
@@ -567,11 +584,6 @@
      *
      * 已经被咬过就降级成 cc-solid —— 这不是新造的状态, 正是本文件已有的「被抱者」语义:
      * 实心满圆角、margin 清零, 让邻居咬到底。原来只用在"被两激活夹住"那一支。 */
-    function bitesRight(el) { return !!el && el.classList.contains("cssos-cc-right"); }
-    function addBite(p, cls, left) {
-      if (cls === "cssos-cc-left" && bitesRight(left)) { p.classList.add("cssos-cc-solid"); return; }
-      p.classList.add(cls);
-    }
     order.forEach(function (p, i) {
       var left = order[i - 1], right = order[i + 1];
       var la = isActive(left), ra = isActive(right), me = isActive(p);

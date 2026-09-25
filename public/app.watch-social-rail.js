@@ -100,7 +100,52 @@
     try { var p = globalThis.currentWatchPreviewWork; if (p) { id = String(p.id || p.work_id || "").trim(); if (id) return id; } } catch (_e) {}
     return "";
   }
-  function listenCents(w) { return Number((w && (w.current_listen_price_cents || w.listen_price_cents || w.suggested_listen_price_cents)) || 69); }
+  /* CSSOS_WAVE_2189 20260925 — Jing:「从分享链接进去应该显示正确的 ¢66 / ¢99 / Priceless。」
+   *
+   * 实测: 同一首《鶴の恩返し》, 分享链接进去显示 ¢66 / Priceless(对), 从 feed 卡片进去
+   * 显示 ¢69 / $5.99(错)。原因不是逻辑错, 是【卡片上根本没有价格字段】——
+   * feed 列表项一共 28 个键, 价格一个都不带 → listenCents / buyoutCents 落到各自的
+   * 兜底默认值 69 / 599。分享链接那条路会拉 /api/works/public/:id, 所以它是对的。
+   *
+   * 补法照抄本文件已有的 fetchAuthor 那套(「作品数据没带 → 按 id 拉一次 → schedule() 重渲染」),
+   * 不新造机制、不改后端: 缺字段时拉一次作品公开信息, 拿到再重画。
+   * 占位对象防重复拉; 拉失败就保持原来的兜底, 不会比现在更糟。 */
+  var _priceCache = {};   // workId → {listen, buyout, buyoutEnabled}
+  function priceFieldsMissing(w) {
+    if (!w) return true;
+    return w.current_listen_price_cents == null && w.listen_price_cents == null
+        && w.suggested_listen_price_cents == null && w.current_buyout_price_cents == null
+        && w.suggested_buyout_price_cents == null && w.buyout_price_cents == null
+        && w.buyout_enabled == null;
+  }
+  function fetchPrices(id) {
+    if (!id || _priceCache[id]) return;
+    _priceCache[id] = {};   // 占位防重复拉
+    try {
+      fetch("/api/works/public/" + encodeURIComponent(id), { credentials: "include" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var d = j && (j.data || j.work || j); if (!d) return;
+          var lis = (d.current_listen_price_cents != null) ? d.current_listen_price_cents : d.listen_price_cents;
+          _priceCache[id] = {
+            listen: (lis == null) ? null : Number(lis),
+            buyout: (d.current_buyout_price_cents == null) ? null : Number(d.current_buyout_price_cents),
+            buyoutEnabled: (d.buyout_enabled == null) ? null : !!d.buyout_enabled,
+          };
+          schedule();   // 拿到价 → 重渲染
+        }).catch(function () {});
+    } catch (_e) {}
+  }
+  function cachedPrice() { try { return _priceCache[robustWorkId()] || null; } catch (_e) { return null; } }
+
+  function listenCents(w) {
+    if (w && w.current_listen_price_cents == null && w.listen_price_cents == null
+        && w.suggested_listen_price_cents == null) {
+      var c = cachedPrice();
+      if (c && c.listen != null) return Number(c.listen) || 0;
+    }
+    return Number((w && (w.current_listen_price_cents || w.listen_price_cents || w.suggested_listen_price_cents)) || 69);
+  }
   function viewCents(w) { return Number((w && (w.current_view_price_cents || w.view_price_cents)) || 99); }
   // CSSOS_WAVE_1167 — Jing 指令: 买断显示【系统建议价】, 不是 "买断" 字。current 优先, 否则 suggested, 兜底 599。
   /* CSSOS_WAVE_2172 20260925 — 【显式的 0 必须活到判断那一步】。
@@ -117,6 +162,13 @@
    * 注意用 != null 而不是 ||, 这正是 0 被吃掉的原因。 */
   function buyoutCents(w) {
     if (!w) return 599;
+    // W2189 — 卡片没带价格字段时, 先问拉回来的缓存(见 fetchPrices)。
+    if (w.buyout_enabled == null && w.current_buyout_price_cents == null
+        && w.suggested_buyout_price_cents == null && w.buyout_price_cents == null) {
+      var c = cachedPrice();
+      if (c && c.buyoutEnabled === false) return 0;      // 0 + 关闭 = 无价之宝 Priceless
+      if (c && c.buyout != null) return Number(c.buyout) || 0;
+    }
     if (w.buyout_enabled === false) return 0;            // 明确关掉买断 = 不卖
     if (w.current_buyout_price_cents != null) return Number(w.current_buyout_price_cents) || 0;
     if (w.suggested_buyout_price_cents != null) return Number(w.suggested_buyout_price_cents) || 0;
@@ -360,6 +412,7 @@
     // CSSOS_WAVE_1163 — Jing 指令: 头像=【正在播放作品的作者】, 不是登录用户(之前 watch-ui 自我兜底=人人显示自己头像, 错)。
     var au = currentAuthor();
     if (au.id && !au.avatar) fetchAuthor(au.id);   // 作品没带头像 → 按作者 id 拉
+    if (priceFieldsMissing(w)) fetchPrices(id0);  // W2189 — 卡片没带价格 → 按作品 id 拉一次
     var avatarUrl = au.avatar;
     var nameForInitial = String(au.name || "CSS Studio").trim();   // W1268 — 绝不用作品标题当作者名(诬无作者)
     if (avatarUrl) { var im = document.createElement("img"); im.src = avatarUrl; im.alt = ""; av.appendChild(im); }

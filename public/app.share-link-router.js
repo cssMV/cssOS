@@ -634,6 +634,19 @@
       };
       var maybeNudge = function () {
         if (nudgeShown) return;
+        /* CSSOS_WAVE_2189 20260925 — Jing:「要改成【最后一版放完才弹】。」
+         *
+         * 这张卡原来在【♪1 放完】时就弹出来盖住画面。W220C 写它的时候一首歌只有一版,
+         * "放完"就是放完; 现在一首歌有 ♪1..♪N, ♪1 结束只是这首歌的六分之一。
+         * 按播放顺序铁律(W2107)「♪1..♪N 是连胞胎, 要连着播完」, 这首歌的"放完"
+         * 就是【最后一版放完】—— 卡自然也要等到那一刻。
+         *
+         * 判据用播放器广播的真源 __cssosTakeState(手里有真数组); 拿不到版本信息
+         * (单版作品 / 还没加载好)就按老规矩弹, 一个字不改。 */
+        try {
+          var _ts = globalThis.__cssosTakeState;
+          if (_ts && Number(_ts.count) > 1 && (Number(_ts.take) || 1) < Number(_ts.count)) return;
+        } catch (_tkErr) {}
         var u = globalThis.authState && globalThis.authState.user;
         var tier = String(
           (u && (u.tier || u.access_tier || u.membership_tier)) || "guest"

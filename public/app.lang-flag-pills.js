@@ -177,7 +177,12 @@
        * 版本号和时长都是数字, 贴在一起会被读成一个数, 这不是美观问题, 是【读错】。
        * 上面那条只写给 .cssos-cell-visual, take 格子吃不到, 所以渲染成 "♪65:04"。
        * 给 6px(visual 那边是 3px, 但它前面还有个 "·" 分隔; take 这边没有, 要靠间距本身)。 */
-      "#watch-language-pill .cssos-cell-take .cssos-vspec{opacity:0.78;font-weight:600;margin-left:6px;font-size:0.86em;}",
+      "#watch-language-pill .cssos-cell-take .cssos-vspec{opacity:0.78;font-weight:600;margin-left:5px;font-size:0.86em;}",
+      /* CSSOS_WAVE_2189 20260925 — Jing:「♪ 和版本号之间不要有空格」。
+       * 那 5px 来自 .lang-name 的 margin-left —— 它是给【旗帜 + 语言名】准备的
+       * (🇯🇵 日本語 中间本来就该有气口)。♪ 和数字是一个整体("♪2"), 不该被拆开。
+       * 只收 take 格子这一处, 语言/声线/画面格子的间距一个字不动。 */
+      "#watch-language-pill .cssos-cell-take .lang-name{margin-left:0 !important;}",
       // cell 紧接着模式胶囊向右展开(transform-origin 左 = 从🎤胶囊处长出); 仅 transform/opacity(合规)。
       "#watch-language-pill{transform-origin:left center;}",
       "#cssos-lang-fold[data-expanded=\"lang\"] #watch-language-pill,",

@@ -1144,7 +1144,10 @@
         if (_dur) {
           var _sp = document.createElement("span");
           _sp.className = "cssos-vspec";
-          _sp.textContent = "\u00a0" + _dur;   // W2185 — 不间断空格: 没有它 "♪6 5:04" 会被读成 "♪65:04"
+          /* CSSOS_WAVE_2189 20260925 — Jing:「版本号和时长之间用中间圆点隔开」。
+           * 圆点比空格更挡得住误读("♪65:04"), 而且与平台别处的 " · " 分隔一致。
+           * 前后用不间断空格包住 —— 普通空格会在换行/收窄时被折断。 */
+          _sp.textContent = "\u00b7\u00a0" + _dur;
           b.appendChild(_sp);
         }
         if (_to.label && _to.label !== "\u266a" + tk) b.dataset.takeLabel = _to.label;

@@ -36,9 +36,24 @@ ok("卡片时长读真源的 secs, 不再拿作品对象去查 take",
    /_takeSecs = Math\.floor\(Number\(_tc\.secs/.test(cap),
    "cssosTakes.at(w, N) 里 w 是作品、take 挂在轨上, 永远取不到");
 
-// ③ 胶囊里 ♪N 与时长之间必须有不会被压掉的空格
-ok("♪N 与时长之间有不间断空格", /_sp\.textContent = "\\u00a0" \+ _dur;/.test(pill),
-   '没有它 "♪6 5:04" 会被读成 "♪65:04"');
+// ③b W2189 — 胶囊文字: ♪ 紧贴版本号, 版本号与时长用中间圆点隔开
+const flag = read("public/app.lang-flag-pills.js");
+ok("take 格子里 ♪ 与版本号之间不留间距",
+   /\.cssos-cell-take \.lang-name\{margin-left:0 !important;\}/.test(flag),
+   "那 5px 来自 .lang-name 的 margin-left(给旗帜+语言名准备的), ♪2 不该被拆开");
+ok("版本号与时长用中间圆点", /_sp\.textContent = "\\u00b7\\u00a0" \+ _dur;/.test(pill));
+
+// ③c W2189 — 转化卡等到最后一版放完才弹
+const share = live(read("public/app.share-link-router.js"));
+ok("转化卡在还有未播的 ♪ 时不弹",
+   /maybeNudge = function \(\) \{[\s\S]{0,400}?__cssosTakeState[\s\S]{0,200}?< Number\(_ts\.count\)\) return;/.test(share),
+   "♪1 结束只是这首歌的六分之一, 那时弹卡等于中途盖屏");
+
+// ③d W2189 — 卡片没带价格字段时按作品 id 拉一次(feed 路进去显示 ¢69/$5.99 的根因)
+const rail = live(read("public/app.watch-social-rail.js"));
+ok("右轨缺价格字段时会去拉作品公开信息", /if \(priceFieldsMissing\(w\)\) fetchPrices\(id0\);/.test(rail));
+ok("买断价先问拉回来的缓存(买断关闭 = Priceless)",
+   /c\.buyoutEnabled === false\) return 0;/.test(rail));
 
 // ④ 不许再有第二套连播机制(重复造轮子)
 for (const f of ["public/app.watch-ui.js", "public/app.up-next-strip.js",

@@ -1105,7 +1105,14 @@
          * 版本自己的名字(版本表 label 列, 如「Suno V6 新版 #2」)存进 dataset,
          * 由 app.lang-flag-pills.js 拼进 tooltip。两个模块各管一半, 不再互相重绘。 */
         var _to = takeObjs[tk - 1] || {};
-        b.textContent = "\u266a" + tk;
+        /* CSSOS_WAVE_2177 20260925 — Jing:「胶囊每个 take 之后标注 ♪ 音乐时长」。
+         * 时长本来就在 take 对象里(duration_secs), 之前只进了 tooltip。
+         * 拿不到时长就只显示 ♪N —— 绝不显示 0:00 或 --:--, 那是在说一个我们并不知道的事。 */
+        var _secs = Math.floor(Number(_to.duration_secs || 0));
+        var _dur = (_secs > 0)
+          ? (Math.floor(_secs / 60) + ":" + ("0" + (_secs % 60)).slice(-2))
+          : "";
+        b.textContent = "\u266a" + tk + (_dur ? " " + _dur : "");
         if (_to.label && _to.label !== "\u266a" + tk) b.dataset.takeLabel = _to.label;
         b.title = (tk === 1
           ? tt("Take 1 (original)", "第一版(原版)")

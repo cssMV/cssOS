@@ -4248,6 +4248,10 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
          * 于是它们自己那一版的封面永远挂不上 —— 实测 ♪1/♪2 cover=无、♪3-♪6 才有。
          * 名字已经有这套"重复时补认"的逻辑了, 封面走同一条。 */
         if (hit && !hit.cover_url && coverUrl) hit.cover_url = coverUrl;
+        /* W2178 — 字幕同理。上一轮我只补了封面, 漏了字幕:
+         * ♪1 的字幕明明写进了版本行, 接口却报"无" —— 因为 ♪1 走的是老字段那条路,
+         * 版本行到这里被判重复直接 return。同一个坑, 补两次才补全。 */
+        if (hit && !hit.subtitle_url && subUrl) hit.subtitle_url = subUrl;
         return;
       }
       seen.add(k);
@@ -41212,7 +41216,42 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       //   取代旧 computeVolumeCurve(逐 token librosa, 整首常 >25s 超时 → 长歌一直算不出曲线的真因)。
       _volCurve = await computeVolumeCurveViaFfmpeg(_au);
     } catch { _volCurve = null; }
+    /* CSSOS_WAVE_2178 20260925 — ?take=N 给【某一版】单独做字幕。
+     *
+     * 为什么需要: 一份字幕对不上其余几版。《鶴の恩返し/白鹤报恩》6 个 take 是 6 份
+     * 不同的音频(4:47 ~ 5:26), 时长差 39 秒 —— 用 ♪1 的时间轴配 ♪6, 从头漂到尾。
+     * 这与 W2145/W2148「每一版要有自己那一版的字幕」是同一条。
+     *
+     * 做法: 把这一轮的对齐目标换成该版音频, 生成的快照写回 work_media_versions.subtitle_url
+     * 的那一行 —— 播放端 cssosTakes.subtitleUrl() 第一句读的正是它(app.takes.js)。
+     * 不给 take 时行为完全不变。 */
+    const _onlyTake = Math.floor(Number((req.query as any)?.take || 0));
+    let _takeRow: { id: number; url: string } | null = null;
+    if (_onlyTake >= 1) {
+      try {
+        const rv = await withClient((c) => c.query<{ id: number; url: string; lang: string | null }>(
+          `SELECT id, url, lang FROM work_media_versions
+            WHERE work_id=$1::uuid AND kind='audio' AND version_no=$2
+            ORDER BY COALESCE(lang,'') LIMIT 1`, [workId, _onlyTake]));
+        if (!rv.rowCount) {
+          return res.status(404).json({ ok: false, code: "NO_SUCH_TAKE", take: _onlyTake });
+        }
+        const _r0 = rv.rows[0];
+        if (!_r0 || !String(_r0.url || "").trim()) {
+          return res.status(404).json({ ok: false, code: "NO_SUCH_TAKE", take: _onlyTake });
+        }
+        _takeRow = { id: _r0.id, url: String(_r0.url) };
+      } catch (e) {
+        return res.status(500).json({ ok: false, code: "TAKE_LOOKUP_FAILED", error: (e as Error)?.message || "" });
+      }
+    }
     for (const tr of trackRows) {
+      if (_takeRow) {
+        // 换成这一版自己的音频。人声轨清空 —— 那是【上一版】分离出来的, 拿它对齐这一版
+        // 就是拿别人的声音找这一首的字, 正是 W2144 踩过的那种错配。
+        (tr as any).audio_url = _takeRow.url;
+        (tr as any).vocal_url = null;
+      }
       const langEntry = lyricsDoc?.languages?.find((l) => l.lang === tr.lang);
       // 歌词来源兜底链: R2 lyrics.json(本轨语言) → DB 轨.lyrics → work.lyrics_preview。
       let reLyrics = "";
@@ -41436,6 +41475,21 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
        *   版本键的正确定义是【这条轨自己的音频身份】, 不是"我拿什么去对齐的"。
        *   两者本来就该分开: 对齐可以用人声轨(更准), 身份必须用 audio_url。 */
       await upsertSubtitleJson(workId, alignLang, 1, sections, _volCurve, tr.audio_url || alignAudio);
+      /* W2178 — 把这一版的快照挂回它自己那一行。
+       * upsertSubtitleJson 的快照键是 sha1(audio_url)[:10], 而上面已经把 audio_url
+       * 换成了这一版的地址, 所以这里拼出来的就是刚写的那份。 */
+      if (_takeRow) {
+        try {
+          const _snapKey = `works/${workId}/subtitle-take1--a${
+            crypto.createHash("sha1").update(String(tr.audio_url || "")).digest("hex").slice(0, 10)}.json`;
+          const _snapUrl = `https://cdn.cssstudio.app/${_snapKey}`;
+          await withClient((c) => c.query(
+            `UPDATE work_media_versions SET subtitle_url=$2 WHERE id=$1`, [_takeRow!.id, _snapUrl]));
+          console.log("[resubtitle][W2178] ♪%d 字幕 → %s", _onlyTake, _snapUrl.slice(-40));
+        } catch (e) {
+          console.warn("[resubtitle][W2178] 写回版本行失败:", (e as Error)?.message?.slice(0, 120));
+        }
+      }
       results.push({
         lang: alignLang, srcTrackLang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),

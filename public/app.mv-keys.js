@@ -126,9 +126,32 @@
   }
 
   // W1766 — handler body unchanged; attached via the unified hub below.
+  /* CSSOS_WAVE_2202 20260926 — Jing:「左右方向键快退/快进, 上次提过, 但很没有实现。」
+   *
+   * 实测下来功能【是通的】: 焦点在页面/胶囊上按 → 音频 60→65、视频同步, 顶部还会闪
+   * "+5s · 1:05"(100% 不透明)。唯一会"按了没反应"的是【焦点停在搜索框里】——
+   * 搜索框就在 MV 面板顶上, 点过一次焦点就一直在那儿, 而 isTypingTarget 会让位给
+   * 文字光标。让位本身是对的(不能把正在打字的人的左右键抢走), 错在【空框也让位】:
+   * 框里一个字都没有时, 左右键对它毫无意义, 对用户却是死键。
+   *
+   * 所以只放宽这一档: 看着 MV + 输入框是空的 + 没有选中文本 → 左右键归快进。
+   * 只要框里有内容(哪怕一个字), 立刻还给文字光标, 打字体验一个字不变。 */
+  function isEmptyTextField(el) {
+    try {
+      if (!el) return false;
+      var tag = String(el.tagName || "").toLowerCase();
+      if (tag !== "input" && tag !== "textarea") return false;
+      if (String(el.value || "").length > 0) return false;      // 有内容 → 归文字光标
+      if (el.selectionStart !== el.selectionEnd) return false;   // 有选区 → 同上
+      return true;
+    } catch (_e) { return false; }
+  }
+
   var __cssosMvKeysHandler = function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (isTypingTarget(e.target)) return;
+    var _seekArrowEarly = (e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.shiftKey;
+    if (isTypingTarget(e.target)
+        && !(_seekArrowEarly && isEmptyTextField(e.target) && isWatchPanelVisible())) return;
     var key = e.key;
     var k = key.toLowerCase();
     // W2139 — 左右键在【面板可见】时就生效; 其余键维持"只在真全屏"。

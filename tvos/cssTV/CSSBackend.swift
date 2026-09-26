@@ -258,12 +258,26 @@ enum CSSBackend {
 
     // MARK: - W1364 多语言/多声线
     /// 一条可播的语言×声线轨(只取 ready 且有音频的)。
+    /// CSSOS_WAVE_2219 — 一条轨里的一个 ♪N。字幕/封面按版本走(W2175: 切到 ♪3 换第 3 张画面),
+    /// 为 null 时回退作品级 —— 与桌面端同一套语义, 不另造。
+    struct CSSTake: Identifiable {
+        let take: Int             // 1-based, 就是 ♪N 的 N
+        let label: String         // 给用户看的名字; 缺省 "♪N"
+        let url: String
+        let durationSecs: Double?
+        let subtitleURL: String?
+        let coverURL: String?
+        var id: Int { take }
+    }
+
     struct CSSLangTrack: Identifiable {
         let lang: String          // orig / zh / ja / en …
         let voice: String         // auto / 具体声线
         let audioURL: String
         let subtitleURL: String?
         let isDefault: Bool
+        /// W2219 — 这条轨的全部 ♪N(后端已按 take 升序给)。空数组 = 后端没给, 回退 audioURL 单版。
+        var takes: [CSSTake] = []
         var id: String { "\(lang)|\(voice)" }
         /// 胶囊显示名(母语锁定时给🔒)。i18n: 英文/语言原生缩写。
         var label: String {
@@ -289,6 +303,16 @@ enum CSSBackend {
         struct T: Codable {
             let lang: String?; let voice: String?; let status: String?
             let is_default: Bool?; let audio_url: String?; let subtitle_take1_json_url: String?
+            // CSSOS_WAVE_2219 20260926 — ♪N。后端 /api/works/:id/language-tracks 从
+            // W2116 起就【每条轨都挂 takes 数组】了(src/index.ts: loadWorkTakes),
+            // 注释里还点名说"TV / Watch / Vision 仍在读老字段 audio_url, 所以老字段一个不动"。
+            // TV 一直没解它 —— 于是一首歌只认 ♪1, 放完就跳下一首。这里把它解出来。
+            let takes: [TK]?
+            let n_takes: Int?
+            struct TK: Codable {
+                let take: Int?; let label: String?; let url: String?
+                let duration_secs: Double?; let subtitle_url: String?; let cover_url: String?
+            }
         }
     }
 
@@ -301,9 +325,18 @@ enum CSSBackend {
         return ts.compactMap { t in
             guard let lang = t.lang, let audio = t.audio_url, !audio.isEmpty,
                   (t.status ?? "ready") == "ready" else { return nil }
+            // W2219 — 把 takes 解成结构; 没有 url 的条目丢掉(后端出口挂了也不能让播放端拿不到轨)。
+            let tks: [CSSTake] = (t.takes ?? []).compactMap { k in
+                guard let u = k.url, !u.isEmpty else { return nil }
+                let n = k.take ?? 0
+                return CSSTake(take: n, label: (k.label?.isEmpty == false ? k.label! : "\u{266A}\(n)"),
+                               url: u, durationSecs: k.duration_secs,
+                               subtitleURL: k.subtitle_url, coverURL: k.cover_url)
+            }.sorted { $0.take < $1.take }
             return CSSLangTrack(lang: lang, voice: t.voice ?? "auto", audioURL: audio,
                                 subtitleURL: t.subtitle_take1_json_url,
-                                isDefault: t.is_default ?? false)
+                                isDefault: t.is_default ?? false,
+                                takes: tks)
         }
     }
 

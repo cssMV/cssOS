@@ -60,11 +60,22 @@ struct PlayerView: View {
     @State private var videoEnded = false                      // W1344 — 短视频播完 → 转封面/幻灯
     // W1364 — 多语言/多声线: 影院右下语言胶囊, 热切音频+字幕, 母语默认锁定。
     @State private var langTracks: [CSSBackend.CSSLangTrack] = []
+    /// CSSOS_WAVE_2219 20260926 — Jing:「cssTV 仍然只把《白鹤报恩》当成一首单曲只播放 take 1
+    /// 就跳到下一首歌, 应该播放完毕一首歌所有的 takes, 才能切换到下一首歌。」
+    /// 当前播到第几个 ♪(0-based)。换分部 / 换语言轨都归 0。
+    @State private var takeIndex: Int = 0
     @State private var selectedTrackId: String?
     @Environment(\.dismiss) private var dismiss
 
     // W1329 — 连播队列(多部=各 part; 单曲=自己一首)+ 当前 part。
     private var parts: [CSSWork] { work.playbackParts }
+    /// W2219 — 当前选中语言轨的 ♪N 列表。后端没给(老作品 / 出口挂了)→ 空数组 = 按单版处理,
+    /// 行为与本波之前完全一致, 不会把任何作品打哑。
+    private var currentTakes: [CSSBackend.CSSTake] {
+        guard let sel = selectedTrackId,
+              let tr = langTracks.first(where: { $0.id == sel }) else { return [] }
+        return tr.takes
+    }
     private var currentPart: CSSWork { parts[min(partIndex, max(parts.count - 1, 0))] }
 
     var body: some View {
@@ -178,6 +189,15 @@ struct PlayerView: View {
                                             .foregroundStyle(.white)
                                             .padding(.horizontal, 10).padding(.vertical, 3)
                                             .background(Capsule().fill(Color.green.opacity(0.85)))
+                                    }
+                                    // W2219 — ♪N 徽章: 照分部徽章同一套样式(不另造), 只在真有多版时出现。
+                                    //   没有它的话, 修好了连播用户也看不出来自己在听第几版。
+                                    if currentTakes.count > 1 {
+                                        Text("\u{266A}\(min(takeIndex, currentTakes.count - 1) + 1) / \(currentTakes.count)")
+                                            .font(.system(size: 22, weight: .heavy))
+                                            .foregroundStyle(.black)
+                                            .padding(.horizontal, 10).padding(.vertical, 3)
+                                            .background(Capsule().fill(Color(red: 0.0, green: 0.96, blue: 0.63)))
                                     }
                                 }
                             }
@@ -308,6 +328,7 @@ struct PlayerView: View {
         audioPlayer?.pause(); audioPlayer = nil
         subtitle = nil
         videoEnded = false   // W1344 — 新枝丫: 重置
+        takeIndex = 0        // W2219 — 新枝丫: ♪ 从头数起
         partIndex = idx
         let part = parts[min(idx, max(parts.count - 1, 0))]
 
@@ -393,21 +414,10 @@ struct PlayerView: View {
     private func switchTrack(_ track: CSSBackend.CSSLangTrack) {
         guard track.id != selectedTrackId, let aurl = URL(string: track.audioURL) else { return }
         selectedTrackId = track.id
-        // 拆旧音频观察者(视频与会话保留)。
-        if let o = clockObserver { audioPlayer?.removeTimeObserver(o); clockObserver = nil }
-        if let e = endObserver { NotificationCenter.default.removeObserver(e); endObserver = nil }
-        audioPlayer?.pause(); audioPlayer = nil
-        let p = AVPlayer(url: aurl)
-        audioPlayer = p
-        if let item = p.currentItem { meter.attach(to: item) }
-        let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
-        clockObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { t in
-            syncVideoToAudio(t.seconds)
-        }
-        if let item = p.currentItem {
-            endObserver = NotificationCenter.default.addObserver(
-                forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in onAudioEnded() }
-        }
+        // W2219 — 换了语言/声线就是换了一条轨, ♪ 从头数起(每条轨有自己的 ♪N)。
+        takeIndex = 0
+        // 挂载逻辑与 playTake 共用一份(W2219 提出的 attachAudio), 不再在这里各写一遍。
+        attachAudio(aurl)
         // 视频回 0 与新音轨对齐(短视频会重新铺满)。
         videoEnded = false
         videoPlayer?.seek(to: .zero)
@@ -419,7 +429,10 @@ struct PlayerView: View {
             let s = await CSSBackend.fetchSubtitle(jsonURL: subURL, lang: lang)
             await MainActor.run { if selectedTrackId == track.id { subtitle = s } }
         }
-        p.play()
+        // W2219 — 原来这里是 `p.play()`(p = 本函数里自己建的那个 AVPlayer)。挂载逻辑提进
+        // attachAudio 之后 p 已不在本作用域, 改用 audioPlayer —— 它就是 attachAudio 刚挂上的
+        // 同一个实例, 语义不变。(真编译抓到的; swiftc -parse 没报。)
+        audioPlayer?.play()
         videoPlayer?.play()
     }
 
@@ -452,13 +465,70 @@ struct PlayerView: View {
     }
 
     private func onAudioEnded() {
-        // W1329 — 多部连播: 还有下一枝丫 → 接着播。
-        // W1523 — 本作品所有枝丫播完 → 接【队列下一个作品】(到尾绕回第一个), 循环整栏, 绝不自动退出;
-        //   只有用户按 Menu 键才退出(tvOS 自动 dismiss)。单个作品 = 队列长度 1 → 循环重播它自己。
-        if partIndex + 1 < parts.count {
+        /* CSSOS_WAVE_2219 20260926 — 推进顺序多了【最里面的一层】: ♪N。
+         *
+         *   ♪1 → ♪2 → … → ♪N  →  下一分部  →  队列下一首
+         *
+         * 这一层此前根本不存在, 所以《白鹤报恩》放完 ♪1 就跳下一首 —— 后端从 W2116 起
+         * 每条轨都带 takes, 只是 TV 没解(见 CSSBackend.swift 的 LangTracksFull.T.takes)。
+         *
+         * 宪法依据(W2107 播放顺序铁律):「每一首歌的 ♪1/♪2 是连胞胎, 不可分割; 三部曲也是
+         * 一个整体, 必须 1,2,3 这样连播。」两层绑定都在这一个函数里, 顺序不能颠倒 ——
+         * 先走完 ♪, 再走分部, 最后才翻页到下一首。
+         *
+         * W1329/W1523 原有两层一字未动。 */
+        if takeIndex + 1 < currentTakes.count {
+            playTake(takeIndex + 1)
+        } else if partIndex + 1 < parts.count {
             loadPart(partIndex + 1)
         } else {
             playQueueItem(queueIndex + 1)
+        }
+    }
+
+    /* W2219 — 切到本轨的第 k 个 ♪。只换音频(主时钟)与字幕, 视频画面不动 ——
+     * 与 switchTrack 同一套「画音分层」规矩, 所以两边共用下面的 attachAudio,
+     * 不各写一份挂载逻辑(两份迟早会走样)。 */
+    private func playTake(_ k: Int) {
+        let list = currentTakes
+        guard k >= 0, k < list.count, let aurl = URL(string: list[k].url) else { return }
+        takeIndex = k
+        attachAudio(aurl)
+        videoEnded = false
+        videoPlayer?.seek(to: .zero)
+        audioPlayer?.play()
+        videoPlayer?.play()
+        // 这一版有自己的字幕就用自己的, 没有则保持作品级(W2175 同语义)。
+        if let su = list[k].subtitleURL, !su.isEmpty {
+            let lang = langTracks.first(where: { $0.id == selectedTrackId })?.lang ?? "orig"
+            subtitle = nil
+            Task {
+                let sd = await CSSBackend.fetchSubtitle(jsonURL: su, lang: lang)
+                await MainActor.run { if takeIndex == k { subtitle = sd } }
+            }
+        }
+        withAnimation { showTitle = true }   // 让观众看见换了 ♪
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            withAnimation(.easeOut(duration: 0.6)) { showTitle = false }
+        }
+    }
+
+    /* W2219 — 挂一条音频轨(拆旧观察者 → 建 player → 接 meter/时钟/结束观察者)。
+     * 从 switchTrack 里原样提出来的同一段, 现在 playTake 也用它。 */
+    private func attachAudio(_ aurl: URL) {
+        if let o = clockObserver { audioPlayer?.removeTimeObserver(o); clockObserver = nil }
+        if let e = endObserver { NotificationCenter.default.removeObserver(e); endObserver = nil }
+        audioPlayer?.pause(); audioPlayer = nil
+        let p = AVPlayer(url: aurl)
+        audioPlayer = p
+        if let item = p.currentItem { meter.attach(to: item) }
+        let interval = CMTime(seconds: 0.2, preferredTimescale: 600)
+        clockObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { t in
+            syncVideoToAudio(t.seconds)
+        }
+        if let item = p.currentItem {
+            endObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in onAudioEnded() }
         }
     }
 

@@ -76,5 +76,49 @@ for (const exp of HEADS) {
 }
 ok("模拟: 四个头各展开一次, 激活头都紧邻它的激活子胶囊", adjacentAll);
 
+/* ⑥ W2200b/c/d — 滚动: 目标是双激活胶囊的【起点】, 且写完要回读核对 */
+ok("滚动目标不再跳过模式头",
+   !/if \(p\.classList\.contains\("cssos-mode-cap"\)\) continue;\s*\/\/ 模式头不算/.test(live),
+   "W2199 之后头就是激活岛, 按子胶囊贴左会把头顶出屏幕");
+ok("优先用上游算好的 activeHead, 不扫 .active",
+   /if \(activeHeadEl && order\.indexOf\(activeHeadEl\) >= 0\) act = activeHeadEl;/.test(live),
+   '扫类会踩时序 —— 实测 key 记成过 "take|m-lang"(展开 take, 目标却是 Languages 头)');
+ok("scrollActiveToStart 收到 activeHead",
+   /scrollActiveToStart\(bar, order, _expanded, expanded \? activeHead : null\);/.test(live));
+ok("滚完回读核对, 没落位就下一帧再来",
+   /Math\.abs\(_after\) > 2 && _tries < 6/.test(live) && /return false;/.test(live),
+   "写一次就收工 = 落错了也不回头(实测差过 476px, 胶囊后半截被切)");
+ok("换目标时重试计数归零", /bar\.__ccScrollFix = 0;\s*\/\/ 新目标/.test(live));
+
+/* ⑦ W2201 — 岛左边的一律凹向右(抱岛), 且凸侧 1px 分界线不靠 hover */
+ok("v2 通用分支: 在岛左边 → cc-right",
+   /if \(_aiV2 >= 0 && i < _aiV2\) p\.classList\.add\("cssos-cc-right"\);/.test(live),
+   "原来一律 cc-left —— W2200 把头挪到岛左边之后, 它们就背对着岛、彼此头顶头");
+ok("inactiveHead 分支也认岛的左右", 
+   (live.match(/_aiV2 >= 0 && i < _aiV2/g) || []).length >= 2,
+   "Languages 走的是 inactiveHead 专用分支, 只补通用分支会漏掉它");
+ok("v2 里算了岛的下标", /var _aiV2 = order\.indexOf\(activeHead\);/.test(live));
+ok("cc-right 有左侧(凸侧)1px 分界线",
+   /cssos-cc-right\{[^"]*border-left:1px solid rgba\(0,245,160,0\.30\)/.test(live),
+   "宪法: 凸侧 1px 边 = 点击边界预告, 不该只在 hover 时才出现");
+ok("cc-left 有右侧(凸侧)1px 分界线",
+   /cssos-cc-left\{[^"]*border-right:1px solid rgba\(0,245,160,0\.30\)/.test(live));
+
+/* 模拟: 岛在任意位置时, 左边全 cc-right、右边全 cc-left, 每条缝恰好咬一次 */
+const EXT2 = { right: { r: 20, l: 0 }, left: { r: 0, l: 20 }, island: { r: 0, l: 0 } };
+let sideOk = true, biteOk = true;
+for (let n = 3; n <= 10; n++) for (let ai = 0; ai < n; ai++) {
+  const cls = [];
+  for (let i = 0; i < n; i++) cls.push(i === ai ? "island" : (i < ai ? "right" : "left"));
+  for (let i = 0; i < ai; i++) if (cls[i] !== "right") sideOk = false;
+  for (let i = ai + 1; i < n; i++) if (cls[i] !== "left") sideOk = false;
+  for (let i = 1; i < n; i++) {
+    const bite = EXT2[cls[i - 1]].r + EXT2[cls[i]].l;
+    if (bite !== 20) biteOk = false;   // 不双咬、不留缝
+  }
+}
+ok("模拟 3~10 个胶囊 × 任意岛位: 左侧全凹右、右侧全凹左", sideOk);
+ok("模拟 3~10 个胶囊 × 任意岛位: 每条缝恰好咬一次 20px", biteOk);
+
 console.log(`\n${fail ? "❌" : "✅"} ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

@@ -263,10 +263,10 @@
       "#watch-language-pill .cssos-mode-cap.cssos-cap-hidden{display:none !important;}",
       // cc-right: 右边缘碗口, 实体向右延伸 20px 嵌进右邻(= 旧 pill-laft 网格配方: width:calc(100%+20)+负margin)。
       // 【网格布局里, 单负 margin 不产生重叠, 必须配 width:calc 让胶囊实体延伸, 碗口才能咬住邻居】(图: 没咬紧的真凶)。
-      "#watch-language-pill > button.cssos-cc-right{border-radius:999px 0 0 999px !important;width:calc(100% + 20px) !important;margin-right:-20px !important;margin-left:0 !important;padding-right:46px !important;",
+      "#watch-language-pill > button.cssos-cc-right{border-radius:999px 0 0 999px !important;width:calc(100% + 20px) !important;margin-right:-20px !important;margin-left:0 !important;padding-right:46px !important;border-left:1px solid rgba(0,245,160,0.30) !important;",
       "-webkit-mask-image:radial-gradient(circle 20px at 100% 50%,transparent 19.5px,#000 20px) !important;mask-image:radial-gradient(circle 20px at 100% 50%,transparent 19.5px,#000 20px) !important;}",
       // cc-left: 左边缘碗口, 实体向左延伸 20px 嵌进左邻(镜像)。padding-left 必须 >碗口半径(20) + 重叠(20), 否则图标落进碗口透明区被吃(图)。
-      "#watch-language-pill > button.cssos-cc-left{border-radius:0 999px 999px 0 !important;width:calc(100% + 20px) !important;margin-left:-20px !important;margin-right:0 !important;padding-left:46px !important;",
+      "#watch-language-pill > button.cssos-cc-left{border-radius:0 999px 999px 0 !important;width:calc(100% + 20px) !important;margin-left:-20px !important;margin-right:0 !important;padding-left:46px !important;border-right:1px solid rgba(0,245,160,0.30) !important;",
       "-webkit-mask-image:radial-gradient(circle 20px at 0 50%,transparent 19.5px,#000 20px) !important;mask-image:radial-gradient(circle 20px at 0 50%,transparent 19.5px,#000 20px) !important;}",
       // cc-solid: 被抱者(被两激活夹住的未激活头)= 实心满圆角无碗口, margin 清零让邻居咬到底。
       "#watch-language-pill > button.cssos-cc-solid{-webkit-mask-image:none !important;mask-image:none !important;border-radius:999px !important;margin:0 !important;}",
@@ -459,6 +459,24 @@
        * 一个 20px 的空缺; 要贴的是它【可见的左缘】。 */
       var ml = parseFloat(getComputedStyle(act).marginLeft) || 0;
       bar.scrollLeft = Math.max(0, bar.scrollLeft + (ab.left - bb.left) + Math.max(0, -ml));
+      /* CSSOS_WAVE_2200d 20260925 — 写完【回读核对】, 不对就再来一次。
+       *
+       * 原来写一次就把 key 记下收工, 落错了也不回头 —— 实测目标已经记对
+       * (take|m-take), 位置却还差 476px, 于是双激活胶囊的后半截被右边缘切掉。
+       * 原因是这一刻布局还会再动(W2200 刚重排过 order、scroll-snap 也会再吸一下),
+       * 一次写入不保证落位。
+       *
+       * 所以按【结果】收工, 不按【动作】收工: 回读偏差 >2px 就在下一帧再滚一次,
+       * 最多 6 次(约 100ms), 既能追上迟到的布局, 也不会和用户的手动滑动长期较劲。 */
+      var _after = act.getBoundingClientRect().left - bar.getBoundingClientRect().left
+                   - Math.max(0, -ml);
+      var _tries = Number(bar.__ccScrollFix || 0);
+      if (Math.abs(_after) > 2 && _tries < 6) {
+        bar.__ccScrollFix = _tries + 1;
+        requestAnimationFrame(function () { applyPendingPillScroll(bar); });
+        return false;                      // 还没落位 → 不消费待办
+      }
+      bar.__ccScrollFix = 0;
       bar.__ccScrollKey = key;
       bar.__ccPendingKey = "";
       bar.__ccPendingEl = null;
@@ -466,14 +484,32 @@
     } catch (_e) { return false; }
   }
 
-  function scrollActiveToStart(bar, order, expandedGroup) {
+  function scrollActiveToStart(bar, order, expandedGroup, activeHeadEl) {
     try {
       if (!bar || !order || !order.length) return;
+      /* CSSOS_WAVE_2200b 20260925 — 滚动目标 = 【双激活胶囊的起点】, 不是那个子胶囊。
+       *
+       * 这一行原来明确跳过模式头(「模式头不算"选中的胶囊"」)—— 那在 W2199 之前是对的:
+       * 那时头不是激活岛。W2199/W2200 之后, 展开的头才是激活头, 而且就紧贴在它的激活子
+       * 前面, 两个合成一条连续胶囊。再按"子胶囊"贴左, 就把头顶出屏幕 ——
+       * 实测: scrollLeft=781 时 ♪Takes·6 在 x=-62(屏外), 用户只看到半条胶囊。
+       *
+       * 改成取 order 里【第一个激活元素】: 头激活就取头(capsule 起点), 没有激活头
+       * (折叠态 / 该组没有激活子)就退回原来的子胶囊逻辑, 行为不变。 */
+      /* CSSOS_WAVE_2200c 20260925 — 目标直接用【已经算好的 activeHead】, 不要去扫 ".active"。
+       *
+       * 扫类会踩时序: paintModeSwitch 负责把 .active 从旧头挪到新头, 而 paintConcave
+       * 这边可能先跑 —— 实测 __ccScrollKey 记成了 "take|m-lang": 展开的明明是 take,
+       * 滚动目标却是 Languages 头, 因为那一刻它身上的 .active 还没被摘掉。
+       * activeHead 是本函数上游按 _expanded 算出来的, 不依赖任何类何时更新。
+       * 拿不到(折叠态)才退回扫 .active 的老办法。 */
       var act = null;
-      for (var i = 0; i < order.length; i++) {
-        var p = order[i];
-        if (p.classList.contains("cssos-mode-cap")) continue;   // 模式头不算"选中的胶囊"
-        if (p.classList.contains("active")) { act = p; break; }
+      if (activeHeadEl && order.indexOf(activeHeadEl) >= 0) act = activeHeadEl;
+      if (!act) {
+        for (var i = 0; i < order.length; i++) {
+          var p = order[i];
+          if (p.classList.contains("active")) { act = p; break; }
+        }
       }
       if (!act) return;
       /* 键 = 展开的是哪一组 + 选中的是哪一个。
@@ -483,6 +519,7 @@
       if (bar.__ccScrollKey === key) return;   // 同一个激活项 → 不跟用户抢滚动位置
       bar.__ccPendingKey = key;
       bar.__ccPendingEl = act;
+      bar.__ccScrollFix = 0;   // 新目标 → 重试计数归零
       if (!applyPendingPillScroll(bar)) {
         requestAnimationFrame(function () { applyPendingPillScroll(bar); });
         if (!bar.__ccRO && typeof ResizeObserver === "function") {
@@ -609,6 +646,7 @@
     }
     // v2(展开): 逐胶囊。
     var iiHead = order.indexOf(inactiveHead);
+    var _aiV2 = order.indexOf(activeHead);   // W2201 — 激活岛在哪, 决定左右两侧凹的方向
     /* CSSOS_WAVE_2194 20260925 — Jing:「请一并治那处 40px 双咬。」
      *
      * 不变式只有一条:【一条缝只许被咬一次】。
@@ -636,13 +674,28 @@
       } else if (p === inactiveHead) {
         if (la && ra) p.classList.add("cssos-cc-solid");           // 被两激活夹住 → 实心被抱
         else if (ra) p.classList.add("cssos-cc-right");            // 右邻激活 → 右凹抱
+        /* W2201 — 不相邻也要认【在岛的哪一侧】。
+         * 这条分支原来只看"右邻是不是激活", 不是就一律向左凹 —— 于是展开 Takes 时
+         * 🌐Languages(在岛左边、但右邻是 Voices 不是激活)拿到 cc-left, 背对着岛,
+         * 和右边的 Voices 头顶头。与上面那个 else 同一条规则: 在岛左边就凹向右。 */
+        else if (_aiV2 >= 0 && i < _aiV2) p.classList.add("cssos-cc-right");
         else addBite(p, "cssos-cc-left", left);                    // 否则向左凹(左邻已右咬则降 solid)
       } else {
-        addBite(p, "cssos-cc-left", left);                         // 未激活 cell 一律向左凹(包左邻)
+        /* CSSOS_WAVE_2201 20260925 — Jing:「既然现在是 Takes·6 和子胶囊组成的双激活胶囊,
+         * 那么左侧的胶囊应该往右抱激活胶囊才对, 而不是头顶头。」
+         *
+         * 这个 else 原来【一律 cc-left】—— 那在"子胶囊永远排在所有头右边"的年代是对的,
+         * 因为那时不激活的东西全在激活岛右侧。W2200 把展开的头挪到头组末尾之后,
+         * 另外三个头就落在激活岛【左边】了, 再一律 cc-left 就成了背对着岛、彼此头顶头。
+         *
+         * 按宪法原话办: 激活【右边】的凹向左, 激活【左边】的凹向右 —— 与上面 v1
+         * (W2197)那段是同一条规则, 这里只是把它补齐。 */
+        if (_aiV2 >= 0 && i < _aiV2) p.classList.add("cssos-cc-right");
+        else addBite(p, "cssos-cc-left", left);
       }
     });
     setZ();
-    scrollActiveToStart(bar, order, _expanded);
+    scrollActiveToStart(bar, order, _expanded, expanded ? activeHead : null);
   }
 
   function enhance() {

@@ -43,11 +43,17 @@
         'style="position:absolute;right:10px;top:50%;transform:translateY(-50%);border:0;background:transparent;' +
         'color:#bff5e0;font-size:20px;line-height:1;cursor:pointer;padding:4px 8px;opacity:.75;">×</button>';
     host.appendChild(bar);
-    var x = document.getElementById("cssos-appstore-ribbon-x");
-    if (x) x.addEventListener("click", function () {
+    /* CSSOS_WAVE_2214 20260926 — Jing:「只要点中横幅即可关闭, 不一定非得点击关闭按钮。」
+     * 影院态里这条横幅横在顶栏上, 要用户去瞄准右边那个 28px 的 × 才关得掉, 太苛刻。
+     * 改成整条都是关闭热区。× 保留(它是可见的关闭线索), 但不再是唯一入口 ——
+     * 它落在 bar 内部, 点它照样冒泡到这里, 所以不用单独再绑一份逻辑。
+     * 关闭语义不变: 仍是 W1596 的 sessionStorage(只在本次会话内不再出现)。 */
+    function dismiss() {
       try { sessionStorage.setItem(KEY, "1"); } catch (_e) {}
       try { bar.remove(); } catch (_e2) {}
-    });
+    }
+    bar.style.cursor = "pointer";
+    bar.addEventListener("click", dismiss);
   }
   // W1765 — 真全屏也要显示这条公告(Jing)。真全屏用 element.requestFullscreen()
   //   只渲染那个全屏元素的子树, body 层的 position:fixed 横幅落在子树外 → 不显示

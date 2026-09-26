@@ -30,51 +30,45 @@ ok("showBar 无条件露出", /function showBar\(force\) \{\s*\n\s*box\.style\.t
 // ② 顶边 16px 仍归 seek —— 框让位, 不是又被收起
 const band = (ui.match(/_BP = (\d+)/) || [])[1];
 ok("影院态四边 seek 的带宽读得到", !!band);
-const shift = (wcss.match(/#watch-panel\.maximized #watch-search-box \{\s*top: calc\(env\(safe-area-inset-top, 0px\) \+ (\d+)px\) !important;/) || [])[1];
-ok("影院态给搜索框设了下移量", !!shift);
-ok(`下移量(${shift}px)大于 seek 带宽(${band}px)`, Number(shift) > Number(band),
-   "小于等于就等于没让位, 顶边 seek 又会被输入框吃掉");
 
 // ③ 让位必须真盖得过 JS 写的内联 top
 ok("基准 top 确实是内联写的(所以必须 !important)",
    /top:calc\(env\(safe-area-inset-top,0px\) \+ 4px\)/.test(ws));
-ok("让位规则带 !important", /#watch-panel\.maximized #watch-search-box \{[\s\S]*?!important;/.test(wcss));
 ok("选择器特指度高过 html.cssos-app 那条(两端都生效)",
    /#watch-panel\.maximized #watch-search-box/.test(wcss)
    && /html\.cssos-app #watch-search-box/.test(read("public/style.css")),
    "style.css:7064 那条也是 !important, 靠多一个 id 赢");
 ok("规则写在 style.watch.css(它在 style.css 之后加载)", /#watch-panel\.maximized #watch-search-box/.test(wcss));
 
-// ③.5 W2212 — App Store 横幅同样让开那条带(顶边中间那一段原本被它吃掉)
-const rib = (wcss.match(/body:has\(#watch-panel\.maximized\) #cssos-appstore-ribbon \{\s*top: calc\((\d+)px \+ env\(safe-area-inset-top\)\) !important;/) || [])[1];
-ok("影院态给 App Store 横幅也设了下移量", !!rib);
-ok(`横幅下移量(${rib}px)大于 seek 带宽(${band}px)`, Number(rib) > Number(band),
-   "顶边中间那一段本来就是被它吃掉的, 让位不够等于没让");
-ok("横幅基准 top 确实是内联 12px(所以必须 !important)",
-   /top:calc\(12px \+ env\(safe-area-inset-top\)\)/.test(strip(read("public/app.appstore-ribbon.js"))));
-ok("用 body:has(#watch-panel.maximized), 不是当祖先选择器",
-   /body:has\(#watch-panel\.maximized\) #cssos-appstore-ribbon/.test(wcss),
-   "横幅是 fixed 挂在 body 上的, 不是面板后代; 真全屏时才被移进面板子树, 两种情况 body 都包含它");
-ok("没拿 body.cssos-panel-max 当判据(那是假判据)",
-   !/cssos-panel-max[^\n]*appstore-ribbon/.test(wcss)
-   && !/appstore-ribbon[^\n]*cssos-panel-max/.test(wcss),
-   "别的面板最大化时它也为真, 而那些状态没有边框 seek");
-ok("落地页那条 12px 没动",
+// ③.5 W2214 — Jing:「三个控件对齐到 Flagship 那一行」+「回滚横幅那条」
+const rib = /body:has\(#watch-panel\.maximized\) #cssos-appstore-ribbon/.test(wcss);
+ok("W2212(横幅下移)已回滚, 样式表里不留残条", !rib,
+   "Jing 明确要求回滚; 回滚就是纯撤销, 不能留半条");
+ok("横幅 top 回到内联的 12px, 一个字没改",
    /top:calc\(12px \+ env\(safe-area-inset-top\)\)/.test(strip(read("public/app.appstore-ribbon.js"))));
 
-// ③.6 W2213 — 空闲 toast 不再吃点击(它是顶边最后一个挡点击的东西, 而且看不见)
-const css = read("public/style.css");
-const toastRule = (css.match(/\n\.toast \{[\s\S]*?\n\}/) || [""])[0];
-ok("取得到 .toast 基础规则", toastRule.length > 80);
-ok(".toast 空闲态不吃点击", /pointer-events: none;/.test(toastRule),
-   "它 opacity:0 但仍 hit-test, 固定吃掉 16px 带里 x≈646-793 那一段");
-ok(".toast.show 没把 pointer-events 开回来",
-   !/\.toast\.show \{[^}]*pointer-events/.test(css),
-   "全库没有挂在 toast 上的点击处理器, 两个状态都该是 none");
-ok("竖屏那份也没重置 pointer-events",
-   !/@media \(max-width: 480px\)[\s\S]*?\.toast \{[^}]*pointer-events: auto/.test(css));
-ok("全平台只有这一个 .toast 节点(所以无条件 none 是安全的)",
-   (read("public/index.html").match(/class="toast"/g) || []).length === 1);
+const centerDecl = (wcss.match(/#watch-panel\.maximized \{\s*\n\s*--cssos-mv-toprow-center: (\d+)px;/) || [])[1];
+ok("影院态顶栏有【唯一的行锚】", !!centerDecl);
+ok("行锚 30px 落在 Flagship(top:10, h:20 → 10..30)那一行",
+   Number(centerDecl) === 30,
+   "Flagship 的定位是 app.flagship-badges.js:35 的 top:10px");
+ok("返回 ‹ 与三点 ⋯ 都从行锚算(两个 40px 圆, 各减 20)",
+   /#watch-panel\.maximized #cssos-watch-backbtn,\s*\n#watch-panel\.maximized #watch-exit-cinema \{\s*\n\s*top: calc\(var\(--cssos-mv-toprow-center\) - 20px\) !important;/.test(wcss));
+ok("搜索框也从同一个行锚算(42px 高, 减 21 → 中心对齐)",
+   /#watch-panel\.maximized #watch-search-box \{\s*\n\s*top: calc\(var\(--cssos-mv-toprow-center\) - 21px\) !important;/.test(wcss),
+   "高度不同就不能简单设同一个 top —— 同 top 看起来仍然不齐");
+ok("三条都【不带】safe-area/notch-clear(Flagship 也不带)",
+   !/--cssos-mv-toprow-center[\s\S]{0,420}?(safe-area-inset-top|cssos-notch-clear)/.test(wcss),
+   "带了就会在刘海机上又被推到 Flagship 下面 —— 那正是 Jing 截图里的毛病");
+
+// 横幅: 点哪都能关
+const ribJs = strip(read("public/app.appstore-ribbon.js"));
+ok("整条横幅都是关闭热区", /bar\.addEventListener\("click", dismiss\);/.test(ribJs),
+   "Jing:「只要点中横幅即可关闭, 不一定非得点击关闭按钮」");
+ok("关闭语义没变(仍是 sessionStorage, 只管本次会话)",
+   /function dismiss\(\) \{[\s\S]{0,160}?sessionStorage\.setItem\(KEY, "1"\)/.test(ribJs));
+ok("× 还在(可见的关闭线索)", /id="cssos-appstore-ribbon-x"/.test(ribJs));
+ok("有 cursor:pointer 提示可点", /bar\.style\.cursor = "pointer";/.test(ribJs));
 
 // ④ 没碰被锁死的媒体框绿光(W1983)
 ok("媒体框绿光那段一个字符未动",
@@ -89,7 +83,7 @@ ok("summon 仍清 CHROME 的 display:none", /cssosWatchChromeWake\(\)/.test(ws))
 
 // ⑥ 缓存键
 const headHtml = execSync("git show HEAD:public/index.html", { encoding: "utf8", maxBuffer: 1 << 28 });
-for (const f of ["public/app.watch-search.js", "public/style.watch.css", "public/style.css"]) {
+for (const f of ["public/app.watch-search.js", "public/style.watch.css", "public/style.css", "public/app.appstore-ribbon.js"]) {
   const base = f.split("/").pop(), esc = base.replace(/\./g, "\\.");
   const v = (html.match(new RegExp(esc + "\\?v=([^\"]+)")) || [])[1];
   const hv = (headHtml.match(new RegExp(esc + "\\?v=([^\"]+)")) || [])[1];

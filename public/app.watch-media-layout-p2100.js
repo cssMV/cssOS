@@ -2585,6 +2585,15 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
       el.classList.add("is-active");
     }
 
+    /* CSSOS_WAVE_2217 20260926 — 对外暴露"清掉状态条"。
+     * 背景: 状态文案一旦被搬进 #watch-status-info, 就【没有任何东西会把它收回去】——
+     * 下面 maybeRedirect 里那句注释写着「Subtitle was cleared — also clear status if it
+     * was showing」, 但那一支只 return, 并没有清。于是绿带亮起来就一直赖在画面上。
+     * 本波不动那个全局行为(会波及生成中的状态显示), 只把清除能力暴露出来, 由真正该负责的
+     * 那一处(app.watch-ui.js 的 syncWatchSubtitleForWaitingMediaModule, 画面已就绪分支)
+     * 显式调用。复用它自己的 setStatus, 不另写一份清除逻辑。 */
+    globalThis.cssosClearWatchStatusInfo = function () { try { setStatus(""); } catch (_e) {} };
+
     let redirecting = false;
     function maybeRedirect() {
       if (redirecting) return;

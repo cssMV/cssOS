@@ -1055,9 +1055,31 @@ function syncWatchSubtitleForWaitingMediaModule() {
     safeSetWatchSubtitleModule(loginCopy("KaraOKe MV · Rendering subtitle MV now"));
     return;
   }
-  safeSetWatchSubtitleModule(hasWatchArtworkReadyModule()
-    ? loginCopy("KaraOKe MV · Writing the first line now")
-    : loginCopy("KaraOKe MV · Painting the cover now"));
+  /* CSSOS_WAVE_2217 20260926 — Jing:「KaraOKe MV · Writing the first line now 这句提示
+   * 是很早期的提示, 后来我们已经改为【没有歌声只有纯音乐的时候用随机音符表示】, 不再是
+   * 文字提示。但这个文字提示还是偶尔出现, 请查找删掉, 保留现在的状态。」
+   *
+   * 为什么它【偶尔】出现: 上面 safeSetWatchSubtitleModule 在
+   * cssosKaraokeOwnsSubtitle() 为真时直接 return —— 也就是说, 只要有歌声在咬字, 这句
+   * 根本写不进去。它冒出来的唯一场合, 恰恰就是【没有歌声】的那一刻(最常见的入口是
+   * app.watch-audio.js:114: currentWatchAudioSourceKind === "none" 且字幕为空时回调本函数)。
+   * 而那一刻按现在的规矩应该是【随机音符】的地盘 —— 音符由情绪字幕引擎的 [Music...] cue
+   * 生成(app.emotion-subtitle-engine.js 的 _isMusicLine 分支, W745/W1109), 情绪字幕则是
+   * 小 emoji 从四方飘进。所以这里正确的做法是【什么都不写】, 把这一行让出来, 而不是
+   * 再补一句别的文案。
+   *
+   * 「Painting the cover now」留着: 它是【连封面都还没有】时的真·生成状态, 不是本条要删的
+   * 那一句, 也不是"没有歌声"这一幕(那时画面本身就是空的, 没有音符可显)。 */
+  if (hasWatchArtworkReadyModule()) {
+    safeSetWatchSubtitleModule("");
+    // 光不写还不够: 这类状态文案会被 app.watch-media-layout-p2100.js 的 status-split
+    // 搬进 #watch-status-info(截图里那条绿带就是它), 而那边【没有任何东西会把它收回去】。
+    // 不清的话, 这句在本次会话里出现过一次就一直挂在画面上 —— 正是 Jing 说的"偶尔出现"
+    // 之后赖着不走。
+    try { globalThis.cssosClearWatchStatusInfo?.(); } catch (_e) {}
+    return;
+  }
+  safeSetWatchSubtitleModule(loginCopy("KaraOKe MV · Painting the cover now"));
 }
 
 function setWatchPlaybackUiSuppressedModule(suppressed) {

@@ -222,6 +222,7 @@ private struct ActorDetailView: View {
     @ObservedObject var auth: CSSAuth          // W1578 — 传给导演台(主演创作)
     @Environment(\.dismiss) private var dismiss
     @State private var creating = false        // W1578 — 打开导演台(该演员主演)
+    @State private var asking = false          // W2220 —《问道》与该演员第一人称对话
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
     var body: some View {
@@ -264,6 +265,14 @@ private struct ActorDetailView: View {
                                 .font(.system(size: 24, weight: .heavy))
                         }
                         .buttonStyle(.borderedProminent).tint(brandGreen)
+                        // CSSOS_WAVE_2220 —《问道》: 与该演员第一人称对话(母语古/现代 · 逐字流式 · 朗读)。
+                        //   桌面端它就紧贴在封面下方, 是演员专页的主体; 这里放在「主演创作」旁边,
+                        //   因为 TV 的详情页只有这一排动作。
+                        Button { asking = true } label: {
+                            Label("Ask \(actor.displayName)", systemImage: "bubble.left.and.text.bubble.right.fill")
+                                .font(.system(size: 24, weight: .heavy))
+                        }
+                        .buttonStyle(.bordered).tint(brandGreen)
                         Button("Close") { dismiss() }
                             .font(.system(size: 24, weight: .semibold))
                             .buttonStyle(.bordered).tint(.white.opacity(0.6))
@@ -278,6 +287,10 @@ private struct ActorDetailView: View {
         // W1578 — 照搬桌面端: 点「主演创作」→ 开【选角面板】(该演员=主角, 按其文明荐反派), 而非通用导演台。
         .fullScreenCover(isPresented: $creating) {
             ActorCastPanel(seed: actor, auth: auth)
+        }
+        // W2220 —《问道》屏。
+        .fullScreenCover(isPresented: $asking) {
+            ActorAskView(actor: actor)
         }
     }
 }

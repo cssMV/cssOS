@@ -450,3 +450,105 @@ enum CSSBackend {
         var resolved: CSSWork? { work ?? data?.work }
     }
 }
+
+// MARK: - CSSOS_WAVE_2220 《问道》 — 与数字演员第一人称对话(tvOS 原生)
+/*
+ * 契约照搬桌面端 app.actor-gallery.js 的 wireWendao, 一个字段都不改:
+ *
+ *   POST /api/actors/:id/ask      Accept: text/event-stream
+ *     body { mode, uiLocale, messages:[{role,content}], summary, want_summary }
+ *     mode: "native" = 母语古风 / "modern" = 现代 + UI 语言
+ *   SSE 帧(每帧 "data: {...}\n\n"):
+ *     { delta: "…" }   逐块追加 —— 平台视觉签名一「流流流」就是它
+ *     { reset: true }  上游静默/失败, 四级兜底链重来 → 把已显示的全部清掉重新流
+ *     { error: "…" }   失败
+ *     { done: true, full, emotion, summary, lang, name, billing }
+ *
+ *   POST /api/actors/:id/say  { text, emotion } → { data: { voice_url, tokens, billing } }
+ *     或 { code: "RATE_LIMIT" } —— 每小时成本闸命中, 桌面端的做法是【关掉自动朗读】并提示一次。
+ *
+ * 为什么不自己造一套精简协议: 抄一份就是造一份。这条流后端有四级引擎兜底 + reset 语义,
+ * 自拟协议等于把那些兜底全丢掉(W1828 记过一次「回复 0 字节」的账)。
+ */
+extension CSSBackend {
+
+    struct AskMessage: Codable { let role: String; let content: String }
+
+    /// 一次问道。逐块回调在主线程上;调用方只管把 delta 追加到屏幕上。
+    /// - onReset: 必须把【已经显示的全部内容】清空重来 —— 不是"再来一段"。
+    @MainActor
+    static func askStream(actorId: String,
+                          mode: String,
+                          uiLocale: String,
+                          messages: [AskMessage],
+                          summary: String,
+                          wantSummary: Bool,
+                          onDelta: @escaping (String) -> Void,
+                          onReset: @escaping () -> Void,
+                          onDone: @escaping (_ full: String, _ emotion: String, _ summary: String) -> Void,
+                          onError: @escaping (String) -> Void) async {
+        guard let url = URL(string: "\(baseURL)/api/actors/\(actorId)/ask") else { onError("bad_url"); return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        // W2220 — 实测首块要等 43-53s(问道走的是慢档 LLM)。90s 太紧: 一次慢一点就被
+        // 客户端自己掐断, 用户看到的是"失败", 其实答案正在路上。
+        req.timeoutInterval = 120
+        let body: [String: Any] = [
+            "mode": mode, "uiLocale": uiLocale,
+            "messages": messages.map { ["role": $0.role, "content": $0.content] },
+            "summary": summary, "want_summary": wantSummary,
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+            if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
+                onError("http_\(http.statusCode)"); return
+            }
+            var sawDone = false
+            // SSE: 一帧一行 "data: {...}"。URLSession.bytes.lines 已按行切好, 空行即帧边界。
+            for try await line in bytes.lines {
+                guard line.hasPrefix("data:") else { continue }
+                let js = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                guard !js.isEmpty, let d = js.data(using: .utf8),
+                      let ev = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+                if let delta = ev["delta"] as? String, !delta.isEmpty { onDelta(delta); continue }
+                if (ev["reset"] as? Bool) == true { onReset(); continue }
+                if let err = ev["error"] as? String { onError(err); return }
+                if (ev["done"] as? Bool) == true {
+                    sawDone = true
+                    onDone(String(describing: ev["full"] as? String ?? ""),
+                           (ev["emotion"] as? String) ?? "",
+                           (ev["summary"] as? String) ?? "")
+                    return
+                }
+            }
+            // 流断了却没见 done —— 后端明写「绝不发空 done」, 所以走到这里就是真断了。
+            if !sawDone { onError("stream_ended") }
+        } catch {
+            onError(String(describing: error).prefix(120).description)
+        }
+    }
+
+    struct SayResult { let voiceURL: String?; let rateLimited: Bool }
+
+    /// 朗读一段回复。RATE_LIMIT = 每小时成本闸命中(桌面端据此关掉自动朗读)。
+    static func say(actorId: String, text: String, emotion: String) async -> SayResult {
+        guard let url = URL(string: "\(baseURL)/api/actors/\(actorId)/say") else { return SayResult(voiceURL: nil, rateLimited: false) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 60
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text, "emotion": emotion])
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return SayResult(voiceURL: nil, rateLimited: false)
+        }
+        if (j["code"] as? String) == "RATE_LIMIT" { return SayResult(voiceURL: nil, rateLimited: true) }
+        let d = j["data"] as? [String: Any]
+        let u = d?["voice_url"] as? String
+        return SayResult(voiceURL: (u?.isEmpty == false) ? u : nil, rateLimited: false)
+    }
+}

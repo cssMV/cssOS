@@ -45,6 +45,23 @@ ok("选择器特指度高过 html.cssos-app 那条(两端都生效)",
    "style.css:7064 那条也是 !important, 靠多一个 id 赢");
 ok("规则写在 style.watch.css(它在 style.css 之后加载)", /#watch-panel\.maximized #watch-search-box/.test(wcss));
 
+// ③.5 W2212 — App Store 横幅同样让开那条带(顶边中间那一段原本被它吃掉)
+const rib = (wcss.match(/body:has\(#watch-panel\.maximized\) #cssos-appstore-ribbon \{\s*top: calc\((\d+)px \+ env\(safe-area-inset-top\)\) !important;/) || [])[1];
+ok("影院态给 App Store 横幅也设了下移量", !!rib);
+ok(`横幅下移量(${rib}px)大于 seek 带宽(${band}px)`, Number(rib) > Number(band),
+   "顶边中间那一段本来就是被它吃掉的, 让位不够等于没让");
+ok("横幅基准 top 确实是内联 12px(所以必须 !important)",
+   /top:calc\(12px \+ env\(safe-area-inset-top\)\)/.test(strip(read("public/app.appstore-ribbon.js"))));
+ok("用 body:has(#watch-panel.maximized), 不是当祖先选择器",
+   /body:has\(#watch-panel\.maximized\) #cssos-appstore-ribbon/.test(wcss),
+   "横幅是 fixed 挂在 body 上的, 不是面板后代; 真全屏时才被移进面板子树, 两种情况 body 都包含它");
+ok("没拿 body.cssos-panel-max 当判据(那是假判据)",
+   !/cssos-panel-max[^\n]*appstore-ribbon/.test(wcss)
+   && !/appstore-ribbon[^\n]*cssos-panel-max/.test(wcss),
+   "别的面板最大化时它也为真, 而那些状态没有边框 seek");
+ok("落地页那条 12px 没动",
+   /top:calc\(12px \+ env\(safe-area-inset-top\)\)/.test(strip(read("public/app.appstore-ribbon.js"))));
+
 // ④ 没碰被锁死的媒体框绿光(W1983)
 ok("媒体框绿光那段一个字符未动",
    /\.watch-screen::after \{[\s\S]*?0 0 14px rgba\(0, 245, 160, 0\.34\)[\s\S]*?0 0 38px rgba\(0, 245, 160, 0\.22\)[\s\S]*?0 0 78px rgba\(11, 247, 255, 0\.12\)[\s\S]*?inset 0 0 22px rgba\(0, 245, 160, 0\.13\)/.test(wcss),

@@ -2,7 +2,6 @@
   const panelVoiceKeyMap = {
     h: { action: "logo", i18nKey: "brand.name", fallback: "Logo" },
     f: { action: "foryou", i18nKey: "panel.foryou", fallback: "For You" },
-    l: { action: "lyrics", i18nKey: "panel.lyrics", fallback: "Lyrics Engine" },
     m: { action: "music", i18nKey: "panel.music", fallback: "Music Engine" },
     v: { action: "video", i18nKey: "panel.video", fallback: "Video Engine" },
     w: { action: "watch", i18nKey: "panel.watch", fallback: "Watch" },
@@ -26,7 +25,6 @@
   const panelShortcutMap = {
     h: { action: "logo", panelId: "logo-panel", panel: () => globalThis.logoPanel, label: () => loginCopy("Logo panel") },
     f: { action: "foryou", panelId: "foryou-panel", panel: () => globalThis.foryouPanel, label: () => loginCopy("For You panel") },
-    l: { action: "lyrics", panelId: "lyrics-panel", panel: () => globalThis.lyricsPanel, label: () => loginCopy("Lyrics panel") },
     m: { action: "music", panelId: "music-panel", panel: () => globalThis.musicPanel, label: () => loginCopy("Music panel") },
     v: { action: "video", panelId: "video-panel", panel: () => globalThis.videoPanel, label: () => loginCopy("Video panel") },
     w: { action: "watch", panelId: "watch-panel", panel: () => globalThis.watchPanel, label: () => loginCopy("Watch panel") },
@@ -50,7 +48,6 @@
   const panelSelectorMap = {
     h: "#logo-panel",
     f: "#foryou-panel",
-    l: "#lyrics-panel",
     m: "#music-panel",
     v: "#video-panel",
     w: "#watch-panel",

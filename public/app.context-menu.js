@@ -309,7 +309,6 @@
     const mapping = {
       foryou: global.foryouPanel,
       cssmv: global.cssmvPanel,
-      lyrics: global.lyricsPanel,
       music: global.musicPanel,
       video: global.videoPanel,
       watch: global.watchPanel,
@@ -336,7 +335,6 @@
     const mapping = {
       "foryou-panel": "foryou",
       "cssmv-panel": "cssmv",
-      "lyrics-panel": "lyrics",
       "music-panel": "music",
       "video-panel": "video",
       "watch-panel": "watch",

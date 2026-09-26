@@ -184,7 +184,6 @@ html[data-theme="light"] .cssmv-dock-order-admin-default {
     "mic": "logo-panel",
     "foryou": "foryou-panel",
     "cssmv": "cssmv-panel",
-    "lyrics": "lyrics-panel",
     "music": "music-panel",
     "video": "video-panel",
     "watch": "watch-panel",

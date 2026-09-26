@@ -427,7 +427,7 @@ const DOCK_DEFAULT_ORDER = [
   "mv-pipeline",
   "settings",    // 高级设置 — 提到前5
   "works",
-  "lyrics",
+  // W2209 — 歌词引擎面板已删(Jing:「废弃…请彻底删掉」), Dock 不再排它。
   "music",
   "video",
   "watch",
@@ -5397,7 +5397,6 @@ function panelDefaultsApiKey(panelOrId) {
     "dock-panel": "dock",
     "foryou-panel": "foryou",
     "watch-panel": "watch",
-    "lyrics-panel": "lyrics",
     "music-panel": "music",
     "video-panel": "video",
     "about-panel": "about",
@@ -5419,7 +5418,6 @@ function panelElementByDefaultKey(panelKey) {
     logo: logoPanel,
     foryou: foryouPanel,
     watch: watchPanel,
-    lyrics: lyricsPanel,
     music: musicPanel,
     video: videoPanel,
     about: aboutPanel,
@@ -6720,7 +6718,6 @@ const dockByPanel = {
   "watch-panel": "watch",
   "notifications-panel": "notifications",
   "cssmv-panel": "cssmv",
-  "lyrics-panel": "lyrics",
   "music-panel": "music",
   "video-panel": "video",
   "settings-panel": "settings",
@@ -31619,11 +31616,7 @@ function buildBuiltinDockActionMap() {
     dblclick: () => ensureWatchCentered(),
     longpress: () => openPanelSettings(cssmvPanel)
   },
-  lyrics: {
-    click: () => openPanel(lyricsPanel),
-    dblclick: refreshEngines,
-    longpress: () => openPanelSettings(lyricsPanel)
-  },
+  // W2209 — 歌词引擎面板已删, Dock 动作一并摘掉(留着会点出一个不存在的面板)。
   music: {
     click: () => openPanel(musicPanel),
     dblclick: cycleMusicStyle,

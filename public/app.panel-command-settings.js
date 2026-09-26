@@ -12,11 +12,6 @@
       fallbackShortcut: "f",
       fallbackVoice: "open for you panel"
     },
-    "lyrics-panel": {
-      behaviorKey: "lyrics",
-      fallbackShortcut: "l",
-      fallbackVoice: "open lyrics panel"
-    },
     "music-panel": {
       behaviorKey: "music",
       fallbackShortcut: "m",

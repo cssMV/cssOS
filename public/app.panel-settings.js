@@ -12,7 +12,11 @@ function buildPanelSettingsContext(panel) {
     isLogoPanel: panel === logoPanel,
     isForyouPanel: panel === foryouPanel,
     isWatchPanel: panel === watchPanel,
-    isLyricsPanel: panel === lyricsPanel,
+    // W2209 — 歌词引擎面板已删, lyricsPanel 恒为 null。这里【不能】再写
+    // `panel === lyricsPanel` —— panel 也为 null 时 null === null 是 true,
+    // 会把别的场合误判成歌词面板。键保留(消费方 app.panel-settings-markup.js:491
+    // 等按名解构), 值钉死 false。
+    isLyricsPanel: false,
     isMusicPanel: panel === musicPanel,
     isVideoPanel: panel === videoPanel,
     isAboutPanel: panel === aboutPanel,

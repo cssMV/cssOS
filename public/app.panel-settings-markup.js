@@ -458,7 +458,6 @@ function buildPanelSettingsMarkupBridge({
         <select data-setting="watch-default-tab">
           <option value="mv">MV</option>
           <option value="music">${t("watch.tab.music")}</option>
-          <option value="lyrics">Lyrics</option>
         </select>
       </label>
       <label>

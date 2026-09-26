@@ -2147,10 +2147,14 @@ function revealEnginePanelModule(engine) {
   if (!showGenerationFlow && currentSurfaceMode !== "showcase") {
     return;
   }
+  /* CSSOS_WAVE_2209 20260926 — Jing:「为什么总是久不久就弹出这个废弃的歌词引擎面板?」
+   * 就是这里: 每次开跑, kickoff 到歌词阶段就 revealEnginePanelModule("lyrics") 把它
+   * openPanel + focusPanel 弹到最前。面板已删, 这里显式早退 ——
+   * 【不靠 lyricsPanel 恰好是 null 然后走下面那句 `if (!panel) return;`】:
+   * 那是"碰巧不崩", 不是"写明了不弹", 哪天有人把 id 还回来它就又冒出来了。 */
+  if (engine === "lyrics") return;
   const panel =
-    engine === "lyrics"
-      ? lyricsPanel
-      : engine === "music"
+    engine === "music"
         ? musicPanel
         : engine === "video"
           ? videoPanel
@@ -2208,7 +2212,6 @@ function poeticEngineTitleModule(engine) {
 
 function syncPoeticEngineLabelsModule() {
   const mapping = {
-    lyrics: "#lyrics-panel .panel-title",
     music: "#music-panel .panel-title",
     video: "#video-panel .panel-title",
     kara: "#kara-progress-shell .engine-progress-title"
@@ -12539,7 +12542,8 @@ function openWatchMusicPlaybackSurfaceModule({ clearLimit = false, autoplay = fa
 }
 
 function openCreationShowcasePanelsModule(options = {}) {
-  [foryouPanel, lyricsPanel, musicPanel, videoPanel, watchPanel]
+  // W2209 — 歌词引擎面板已删, 不再参与 showcase 批量开窗。
+  [foryouPanel, musicPanel, videoPanel, watchPanel]
     .filter(Boolean)
     .forEach((panel) => openPanel(panel, { focus: false, layout: false }));
   if (options.focusTop !== false && watchPanel) {
@@ -12566,7 +12570,6 @@ function openCreationShowcasePanelsModule(options = {}) {
 function openMinimalCreationResultSurfaceModule(options = {}) {
   const hiddenPanels = [
     foryouPanel,
-    lyricsPanel,
     musicPanel,
     videoPanel,
     cssmvPanel,

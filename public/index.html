@@ -1129,30 +1129,32 @@
         <div class="resize-handle"></div>
       </section>
 
-      <section class="panel flow hidden" id="lyrics-panel">
-        <div class="panel-bar">
-          <div class="panel-icon">📝</div>
-          <div class="panel-title" data-i18n="panel.lyrics">Lyrics Engine</div>
-          <div class="panel-actions cssmv-pill-bar">
-            <button class="icon-btn" aria-label="settings">⚙</button>
-            <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="maximize">⤢</button>
-            <button class="icon-btn" aria-label="close">×</button>
-          </div>
+      <!-- CSSOS_WAVE_2209 20260926 — Jing:「为什么总是久不久就弹出这个废弃的歌词引擎面板?
+           请彻底删掉吧。」—— 面板(窗口壳: 标题栏/三键/resize-handle/.panel.flow)【已删】。
+           它是生成流程一开始被 revealEnginePanelModule("lyrics") 弹出来的, 那正是"久不久
+           自己冒出来"的来源; 入口(Dock 项 / l 快捷键 / 右键菜单 / 面板设置下拉 / 滑动切换)
+           也一并摘掉, 见同波各文件。
+
+           但【里面的东西一个都不能删】—— 它不是装饰, 是生成流程真在用的数据面:
+             #lyrics      — 歌词齐没齐的判据(isWatchLyricsReadyModule, watch-ui:919)、
+                            进度看门狗按它的字数算百分比(watch-ui:2377)、
+                            seed 回灌的判据(watch-ui:12806)、
+                            以及 creation-flow:172 最后的兜底歌词源。
+             #lyrics-progress / -shell / -detail — 引擎进度条的写入目标(app.js:76/77/84)
+             #lyrics-grid  — engine grid(app.js:112)
+             #lyric-flow   — 流流流打字机(app.js:191, 平台视觉签名 1)
+           删了它们不会报错(到处都是 ?.), 而是【静默改行为】: 看门狗永远读到 0 字、
+           "歌词齐了没"永远是否。所以原样留在这个 hidden 容器里, 只是永远不显示。 -->
+      <div id="lyrics-engine-surface" hidden aria-hidden="true" style="display:none">
+        <div class="engine-progress-shell" id="lyrics-progress-shell" data-engine-progress="lyrics" hidden>
+          <div class="engine-progress-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
+          <div class="engine-progress-bar"><span id="lyrics-progress"></span></div>
+          <div class="engine-progress-detail" id="lyrics-progress-detail"></div>
         </div>
-        <div class="panel-body">
-          <div class="engine-progress-shell" id="lyrics-progress-shell" data-engine-progress="lyrics" hidden>
-            <div class="engine-progress-title" data-i18n="status.lyricsEngine">Lyrics Engine</div>
-            <div class="engine-progress-bar"><span id="lyrics-progress"></span></div>
-            <div class="engine-progress-detail" id="lyrics-progress-detail"></div>
-          </div>
-          <div class="panel-label" data-i18n="label.sceneMap">Scene Map · Flowing Typewriter</div>
-          <div class="engine-grid" id="lyrics-grid"></div>
-          <pre class="lyrics engine-lyrics" id="lyrics"></pre>
-          <div class="lyric-flow" id="lyric-flow"></div>
-        </div>
-        <div class="resize-handle"></div>
-      </section>
+        <div class="engine-grid" id="lyrics-grid"></div>
+        <pre class="lyrics engine-lyrics" id="lyrics"></pre>
+        <div class="lyric-flow" id="lyric-flow"></div>
+      </div>
 
       <section class="panel flow hidden" id="music-panel">
         <div class="panel-bar">
@@ -2337,10 +2339,10 @@
     <script src="app.creation-duration.js?v=20260426-membership-preset-guard-136"></script>
     <script src="app.creation-accessors.js?v=20260423-p2-86-lang-auto-empty-1"></script>
     <script src="app.watch-audio-polling.js?v=20260504-stop-404-poll"></script>
-    <script src="app.panel-command-settings.js?v=20260712-i18n"></script>
+    <script src="app.panel-command-settings.js?v=20260926-w2209-kill-lyrics-panel"></script>
     <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
     <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
-    <script src="app.context-menu.js?v=20260602-w587p-myvoice"></script>
+    <script src="app.context-menu.js?v=20260926-w2209-kill-lyrics-panel"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
     <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
@@ -2387,7 +2389,7 @@
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.emotion-subtitle-engine.js?v=20260922-w2138-subct"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
-    <script src="app.js?v=20260925-w2196-foryou-short"></script>
+    <script src="app.js?v=20260926-w2209-kill-lyrics-panel"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
@@ -2433,7 +2435,7 @@
     <script src="app.emotion-fx-panel.js?v=20260720-w1765-tune-tooltip-t"></script>
     <script src="app.subtitle-tune.js?v=20260618-w995"></script>
     <script src="app.subtitle-wave-editor.js?v=20260720-w1766-tune-hub"></script>
-    <script src="app.watch-ui.js?v=20260926-w2204b-borderonlyseek"></script>
+    <script src="app.watch-ui.js?v=20260926-w2209-kill-lyrics-panel"></script>
     <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
     <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
     <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
@@ -2543,8 +2545,8 @@
     <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-dashboard-bindings.js?v=20260712-i18n"></script>
     <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-settings.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-layout.js?v=20260823-w1877-mvonly"></script>
+    <script src="app.panel-settings.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.panel-layout.js?v=20260926-w2209-kill-lyrics-panel"></script>
     <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
     <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
@@ -2637,7 +2639,7 @@
     <!-- CSSMV_PANEL_DOCK_ORDER 20260425 #116 — Jing: light-theme paint
          for .panel-settings + per-panel dock-order option (admin sets
          default, regular users override their own). -->
-    <script src="app.panel-dock-order.js?v=20260425-p2-116-dock-order-1"></script>
+    <script src="app.panel-dock-order.js?v=20260926-w2209-kill-lyrics-panel"></script>
     <!-- CSSMV_CONSOLE_NOISE 20260425 #118 — Jing: silence cover-webp
          404 noise + transient endpoint NetworkError rejections; load
          early so it catches everything from boot. -->
@@ -2660,7 +2662,7 @@
     <script src="app.panel-shell-actions.js?v=20260823-w1874-exitfs"></script>
     <script src="app.panel-drag.js?v=20260505c-end"></script>
     <script src="app.panel-focus.js?v=20260530-w506-revert"></script>
-    <script src="app.i18n-hierarchy-defaults.js?v=20260505c-end"></script>
+    <script src="app.i18n-hierarchy-defaults.js?v=20260926-w2209-kill-lyrics-panel"></script>
     <script src="app.theme-quick-toggle.js?v=20260527-w461-pill-bar"></script>
     <script src="app.delivery-copy.js?v=20260505c-end"></script>
     <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
@@ -2674,8 +2676,8 @@
     <script src="app.run-auth.js?v=20260525-w360b-civ-payload"></script>
     <script src="app.logo-panel-actions.js?v=20260505c-end"></script>
     <script src="app.panel-stack.js?v=20260505c-end"></script>
-    <script src="app.panel-shortcuts.js?v=20260720-w1766-hub"></script>
-    <script src="app.panel-settings-markup.js?v=20260527-w479-autoentersetting"></script>
+    <script src="app.panel-shortcuts.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.panel-settings-markup.js?v=20260926-w2209-kill-lyrics-panel"></script>
     <script src="app.panel-settings-runtime.js?v=20260527-w479-autoentersetting"></script>
     <script src="app.panel-settings-behavior-bindings.js?v=20260525-w431-settingsfix"></script>
     <script src="app.panel-settings-tail.js?v=20260505c-end"></script>
@@ -2711,7 +2713,7 @@
          the dynamic Person-MV injector has a chance to run first. -->
     <script src="app.dock-priority-order.js?v=20260711-w1733b" defer></script>
     <!-- CSSOS_WAVE_445 20260526 — horizontal swipe cycles main panels -->
-    <script src="app.panel-swipe-nav.js?v=20260828-w2016-off" defer></script>
+    <script src="app.panel-swipe-nav.js?v=20260926-w2209-kill-lyrics-panel" defer></script>
     <!-- CSSOS_WAVE_463 20260528 — Panel Constitution execution layer
          Articles 5 (swipe-up=close), 6 (titlebar-swipe-down=minimize),
          8 (5-panel LRU limit). Deferred so app.js globals are ready. -->

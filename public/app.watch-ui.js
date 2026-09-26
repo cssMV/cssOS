@@ -10013,6 +10013,25 @@ async function handleWatchPlaybackSurfaceClick(ev) {
       }
     }
   } catch (_e) { /* fail-open: 任何异常都按原逻辑走 */ }
+  /* CSSOS_WAVE_2204b 20260926 — 点【边框】只 seek, 不切播放/暂停。
+   *
+   * 边框 seek 由 app.watch-media-layout-p2100.js 负责(CSSOS_PHASE2_BORDER_SEEK,
+   * 它那边写着 "Border click EITHER way: don't toggle play/pause")。可那条规矩
+   * 只管住了它自己 —— 本处理器绑在同一个 .watch-screen 上, 以前也照样暂停,
+   * 只是 W2204 之前暂停根本不生效, 所以没人看得出来。现在暂停真生效了,
+   * 点边框就变成【又跳又停】—— 这是我这一波引入的回归, 在这里堵掉。
+   *
+   * 判据与那边逐字同一条: 距任意一边 ≤16px 就算边框。提前 return, 连 350ms 锁
+   * 都不占, 好让 media-layout 那个处理器照常完成 seek。 */
+  try {
+    const _bs = ev && ev.currentTarget && ev.currentTarget.getBoundingClientRect
+      ? ev.currentTarget.getBoundingClientRect() : null;
+    if (_bs && ev.clientX != null) {
+      const _bx = ev.clientX - _bs.left, _by = ev.clientY - _bs.top, _BP = 16;
+      if (_by <= _BP || _by >= _bs.height - _BP || _bx <= _BP || _bx >= _bs.width - _BP) return;
+    }
+  } catch (_e) { /* 量不出来就按原逻辑走 */ }
+
   // CSSOS_WAVE_302 20260521 — Jing: "除了用户暂停, 所有操作不打断播放". .watch-screen
   // 上绑了两个点击处理器(本函数 + media-layout 的 frame-toggle), 裸面板的一次轻触
   // 会被双触发 → 暂停后立刻又恢复, "暂停"形同失效. 用一个 ~350ms 的共享单次切换锁:
@@ -10055,11 +10074,19 @@ async function handleWatchPlaybackSurfaceClick(ev) {
     syncWatchMusicStateModule();
     return;
   }
+  /* CSSOS_WAVE_2204 20260926 — "有东西在播"只认【在出画面的】视频。
+   * W2190(合成视频给每版封面让位)之后视频被 visibility:hidden 藏起来但仍在播,
+   * 实测 videoPlaying 恒真 → 每次点击都走暂停分支 → 停了也回不来。
+   * 一条藏起来的视频不该替用户回答"我正在看"。 */
   const videoPlaying = !!(
     watchVideo &&
     !watchVideo.paused &&
     !watchVideo.ended &&
-    String(watchVideo.currentSrc || watchVideo.src || "").trim()
+    String(watchVideo.currentSrc || watchVideo.src || "").trim() &&
+    (function () {
+      try { return getComputedStyle(watchVideo).visibility !== "hidden"; }
+      catch (_e) { return true; }
+    })()
   );
   const audioPlaying = !!(
     watchAudioPreview &&
@@ -10068,10 +10095,33 @@ async function handleWatchPlaybackSurfaceClick(ev) {
     String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()
   );
   if (videoPlaying || audioPlaying) {
+    // W2204 — 立 W1676 契约, 否则 index.html 那两处救活逻辑会立刻把它播回来。
+    try { globalThis.cssosAudioIntentPaused = true; } catch (_e) {}
     pulseWatchOverlayFeedbackModule("pause");
     void playWatchOverlayFeedbackToneModule("pause");
     watchVideo?.pause?.();
     watchAudioPreview?.pause?.();
+    syncWatchMusicStateModule();
+    return;
+  }
+  /* CSSOS_WAVE_2204 20260926 — 被用户按停之后, 再点一下就是【继续播】。
+   * 不加这一段, 暂停后的点击会一路掉进下面的生成分支, 用户被按停在那儿出不来。
+   * 判据就是 W1676 契约本身: 它为真 = 这次暂停是用户按的 → 下一次点击语义是"继续"。
+   * 四轨分离: 声音走 <audio>; 视频是纯画面必须静音, 且只碰【在出画面的】那条。 */
+  if (globalThis.cssosAudioIntentPaused) {
+    try { globalThis.cssosAudioIntentPaused = false; } catch (_e) {}
+    try {
+      if (watchAudioPreview && String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()) {
+        watchAudioPreview.muted = false;
+        watchAudioPreview.play?.().catch(() => {});
+      }
+      if (watchVideo && String(watchVideo.currentSrc || watchVideo.src || "").trim()
+          && getComputedStyle(watchVideo).visibility !== "hidden") {
+        watchVideo.muted = true;
+        watchVideo.play?.().catch(() => {});
+      }
+    } catch (_e) {}
+    pulseWatchOverlayFeedbackModule("play");
     syncWatchMusicStateModule();
     return;
   }

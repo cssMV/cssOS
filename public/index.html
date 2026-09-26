@@ -2433,7 +2433,7 @@
     <script src="app.emotion-fx-panel.js?v=20260720-w1765-tune-tooltip-t"></script>
     <script src="app.subtitle-tune.js?v=20260618-w995"></script>
     <script src="app.subtitle-wave-editor.js?v=20260720-w1766-tune-hub"></script>
-    <script src="app.watch-ui.js?v=20260925-w2188-nodupgate"></script>
+    <script src="app.watch-ui.js?v=20260926-w2204b-borderonlyseek"></script>
     <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
     <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
     <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
@@ -3072,6 +3072,12 @@
           // the single existing one.
 
           function forceUnmuteAndPlay() {
+            /* CSSOS_WAVE_2204 20260926 — 用户主动按停时闭嘴(W1676 契约)。
+             * 这个函数挂在用户手势上(解锁声音)。而【点屏幕暂停】本身就是一次手势,
+             * 于是它在暂停之前就先把音频播了一遍 —— 运行时实测一次点击的三步:
+             *   1 PLAY  forceUnmuteAndPlay   2 PAUSE 点击处理器   3 PLAY W374 看门狗
+             * 三步走完还在播, 用户看着就是"点了没反应"。 */
+            try { if (globalThis.cssosAudioIntentPaused) return; } catch (_e) {}
             // CSSOS_WAVE_407 20260524 — Jing「断断续续」根治: 简化为【一次性】解锁声音
             // + 起播, 不再在每个 canplay/loadeddata 上反复重设 .muted(那是周期性静音的
             // 元凶之一)。静音状态归 watch-ui(W406)管: 它已把视频静音、把 <audio> 设为
@@ -3114,6 +3120,12 @@
               function resume() {
                 try {
                   if (!watchOpen()) return;
+                  /* CSSOS_WAVE_2204 20260926 — 同上: 这是 W374 自动续播看门狗, 监听 pause
+                   * 事件后 120ms 无条件 play()。它分不清【用户按的暂停】和【缓冲/iOS 暂停】。
+                   * 全站扫了一遍"救活"逻辑, 真正会跟用户对抗的只有两处, 都在本文件:
+                   * 这里 + 上面的 forceUnmuteAndPlay。app.watch-audio-authority.js 与
+                   * app.watch-playback-watchdog.js 早就问过这个契约, 所以它们不参与。 */
+                  if (globalThis.cssosAudioIntentPaused) return;
                   if (el.ended) return;
                   if (!String(el.currentSrc || el.src || "").trim()) return;
                   var now = Date.now();

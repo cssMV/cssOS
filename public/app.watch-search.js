@@ -455,6 +455,56 @@
     }
     // W2206 — 显式调用视为【主动唤出】, 影院态也放行(被动触发仍被拦)。
     globalThis.cssosWatchSearchShow = function () { return showBar(true); };
+
+    /* CSSOS_WAVE_2207 20260925 — Jing:「请配一个 / 快捷键。」
+     *
+     * 背景: W2206 把这个搜索框在影院态收起来了(它压着顶边, 挡住 W2205 的边框 seek),
+     * 于是影院态里就没法搜作品了。
+     *
+     * 关键事实 —— 「/」这个键【已经被占了】, 但占它的是【另一个搜索】:
+     *   app.global-search.js 的 /  → /api/person-mv/search   查【人物 / 人物MV / 评论】
+     *   本文件这个搜索框          → /api/works/market?q=     查【作品库】
+     * 两者不是同一个东西, 所以「/ 已经有了」并不等于影院态的作品搜索回来了。
+     *
+     * 取舍: 只在【影院态】把 / 接到这个作品搜索上 —— 那正是唯一丢了它的状态,
+     * 而且此刻用户眼前就是一部作品, 要搜的多半也是作品。其它任何状态下 / 原样归
+     * 全局搜索, 一个字符都不动。
+     *
+     * 为什么必须 capture + stopPropagation: app.global-search.js 把它的 / 挂在
+     * document 的【冒泡】阶段。document 捕获跑在它前面, 在捕获里 stopPropagation
+     * 事件就到不了 target、也回不到那个冒泡监听 —— 否则两个搜索会同时弹出来。
+     * 走中枢(app.shortcuts-registry.js)注册, 不另挂一个裸监听; 中枢没加载才回退。 */
+    function cinemaSlashKey(e) {
+      if (!e || e.key !== "/") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      var wp = null;
+      try { wp = document.getElementById("watch-panel"); } catch (_e) {}
+      // 非影院态: 一个字都不动, 让给全局搜索。
+      if (!wp || !wp.classList.contains("maximized")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      showBar(true);
+      try { input.focus(); input.select(); } catch (_e2) {}
+    }
+    try {
+      if (globalThis.cssosShortcuts && typeof globalThis.cssosShortcuts.register === "function") {
+        globalThis.cssosShortcuts.register({
+          id: "watch-search-slash-cinema",
+          owned: true,
+          handler: cinemaSlashKey,
+          target: "document",
+          phase: "capture",
+          keys: ["/"],
+          label: "Search works (cinema)"
+        });
+      } else {
+        document.addEventListener("keydown", cinemaSlashKey, true);
+      }
+    } catch (_e3) {
+      try { document.addEventListener("keydown", cinemaSlashKey, true); } catch (_e4) {}
+    }
     var panel = document.getElementById("watch-panel");
     if (panel) {
       ["pointerdown", "pointermove", "touchstart", "touchmove", "wheel", "keydown"].forEach(function (ev) {

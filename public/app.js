@@ -427,9 +427,8 @@ const DOCK_DEFAULT_ORDER = [
   "mv-pipeline",
   "settings",    // 高级设置 — 提到前5
   "works",
-  // W2209 — 歌词引擎面板已删(Jing:「废弃…请彻底删掉」), Dock 不再排它。
-  "music",
-  "video",
+  // W2209/W2210 — 歌词/音乐/视频三个老引擎面板已删(Jing:「废弃…请彻底删掉」「请一起删掉」),
+  // Dock 不再排它们。
   "watch",
   "notifications",
   "about",
@@ -5397,8 +5396,6 @@ function panelDefaultsApiKey(panelOrId) {
     "dock-panel": "dock",
     "foryou-panel": "foryou",
     "watch-panel": "watch",
-    "music-panel": "music",
-    "video-panel": "video",
     "about-panel": "about",
     "api-panel": "api",
     "delivery-reports-panel": "delivery_reports",
@@ -5418,8 +5415,6 @@ function panelElementByDefaultKey(panelKey) {
     logo: logoPanel,
     foryou: foryouPanel,
     watch: watchPanel,
-    music: musicPanel,
-    video: videoPanel,
     about: aboutPanel,
     api: apiPanel,
     delivery_reports: deliveryReportsPanel,
@@ -6718,8 +6713,6 @@ const dockByPanel = {
   "watch-panel": "watch",
   "notifications-panel": "notifications",
   "cssmv-panel": "cssmv",
-  "music-panel": "music",
-  "video-panel": "video",
   "settings-panel": "settings",
   "language-panel": "language",
   "login-panel": "login",
@@ -31617,16 +31610,6 @@ function buildBuiltinDockActionMap() {
     longpress: () => openPanelSettings(cssmvPanel)
   },
   // W2209 — 歌词引擎面板已删, Dock 动作一并摘掉(留着会点出一个不存在的面板)。
-  music: {
-    click: () => openPanel(musicPanel),
-    dblclick: cycleMusicStyle,
-    longpress: () => openPanelSettings(musicPanel)
-  },
-  video: {
-    click: () => openPanel(videoPanel),
-    dblclick: shuffleStoryboard,
-    longpress: () => openPanelSettings(videoPanel)
-  },
   watch: {
     click: () => ensureWatchCentered(),
     dblclick: () => ensureWatchCentered(),

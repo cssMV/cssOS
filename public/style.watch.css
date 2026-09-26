@@ -2384,3 +2384,23 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
   z-index: 2;
 }
 .watch-screen[data-mv-ring="1"]::after { display: block; }
+
+/* CSSOS_WAVE_2211 20260926 — Jing:「请恢复影院态的搜索框。」
+ *
+ * 恢复本身在 app.watch-search.js(撤掉 W2206 那段影院态拦截)。这里解决恢复带来的
+ * 那个冲突: W2205 给了影院态【四条边都能 seek】, 判据是距边 16px 的带
+ * (app.watch-ui.js: _BP = 16); 而这个搜索框内联 top 是 4px、高 42px, 正好盖住
+ * 顶边那 16px —— elementFromPoint 命中 INPUT, 点下去只是聚焦输入框, 顶边 seek 失效。
+ * W2206 当初的解法是【把框收起来】, 这次 Jing 要框, 所以改成【框让位】:
+ * 影院态把它整体下移到 20px(> 16px 带), 框照常在、照常能点, 顶边仍归 seek。
+ *
+ * 为什么必须 !important + 这个选择器: 基准 top 是 JS 写的内联样式
+ * (app.watch-search.js:194), 样式表里的 !important 才盖得过内联; 而
+ * html.cssos-app 那条(style.css:7064)也是 !important, 靠 #watch-panel + .maximized
+ * 多出的一个 id 在特指度上胜出, 两端(web / 原生 App)都生效。
+ *
+ * 注: 本文件末尾那段媒体框绿色光芒(W1983 已锁)一个字符未动 —— 这里只加了一条
+ * 针对 #watch-search-box 的新规则, 不涉及 .watch-screen / .watch-frame。 */
+#watch-panel.maximized #watch-search-box {
+  top: calc(env(safe-area-inset-top, 0px) + 20px) !important;
+}

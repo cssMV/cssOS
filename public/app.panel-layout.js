@@ -390,8 +390,6 @@ function layoutShowcaseGridModule(visible) {
 function layoutShowcasePanelsModule() {
   const order = [
     foryouPanel,
-    musicPanel,
-    videoPanel,
     watchPanel,
     cssmvPanel,
     settingsPanel

@@ -2152,13 +2152,10 @@ function revealEnginePanelModule(engine) {
    * openPanel + focusPanel 弹到最前。面板已删, 这里显式早退 ——
    * 【不靠 lyricsPanel 恰好是 null 然后走下面那句 `if (!panel) return;`】:
    * 那是"碰巧不崩", 不是"写明了不弹", 哪天有人把 id 还回来它就又冒出来了。 */
-  if (engine === "lyrics") return;
-  const panel =
-    engine === "music"
-        ? musicPanel
-        : engine === "video"
-          ? videoPanel
-          : watchPanel;
+  /* W2210 — Jing:「请一起删掉。」音乐/视频两个引擎面板同样已删, 一并早退。
+   * 剩下只有 kara(走 watch 预览壳)和其它值(落到 watchPanel)。 */
+  if (engine === "lyrics" || engine === "music" || engine === "video") return;
+  const panel = watchPanel;
   if (!panel) return;
   if (!enginePanelRevealState[engine]) {
     enginePanelRevealState[engine] = true;
@@ -2212,8 +2209,6 @@ function poeticEngineTitleModule(engine) {
 
 function syncPoeticEngineLabelsModule() {
   const mapping = {
-    music: "#music-panel .panel-title",
-    video: "#video-panel .panel-title",
     kara: "#kara-progress-shell .engine-progress-title"
   };
   Object.entries(mapping).forEach(([engine, selector]) => {
@@ -12543,7 +12538,8 @@ function openWatchMusicPlaybackSurfaceModule({ clearLimit = false, autoplay = fa
 
 function openCreationShowcasePanelsModule(options = {}) {
   // W2209 — 歌词引擎面板已删, 不再参与 showcase 批量开窗。
-  [foryouPanel, musicPanel, videoPanel, watchPanel]
+  // W2210 — 音乐/视频引擎面板已删, 不再参与 showcase 批量开窗(只剩 For You + Watch)。
+  [foryouPanel, watchPanel]
     .filter(Boolean)
     .forEach((panel) => openPanel(panel, { focus: false, layout: false }));
   if (options.focusTop !== false && watchPanel) {
@@ -12570,8 +12566,6 @@ function openCreationShowcasePanelsModule(options = {}) {
 function openMinimalCreationResultSurfaceModule(options = {}) {
   const hiddenPanels = [
     foryouPanel,
-    musicPanel,
-    videoPanel,
     cssmvPanel,
   ].filter(Boolean);
   hiddenPanels.forEach((panel) => {

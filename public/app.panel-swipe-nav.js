@@ -83,8 +83,6 @@
       "watch-panel":        "watch",
       "foryou-panel":       "foryou",
       "cssmv-panel":        "cssmv",
-      "music-panel":        "music",
-      "video-panel":        "video",
       "mv-pipeline-panel":  "mv-pipeline",
       "works-panel":        "works",
       "person-mv-panel":    "person-mv",

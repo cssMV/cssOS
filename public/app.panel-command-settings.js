@@ -12,16 +12,6 @@
       fallbackShortcut: "f",
       fallbackVoice: "open for you panel"
     },
-    "music-panel": {
-      behaviorKey: "music",
-      fallbackShortcut: "m",
-      fallbackVoice: "open music panel"
-    },
-    "video-panel": {
-      behaviorKey: "video",
-      fallbackShortcut: "v",
-      fallbackVoice: "open video panel"
-    },
     "watch-panel": {
       behaviorKey: "watch",
       fallbackShortcut: "w",

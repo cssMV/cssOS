@@ -131,7 +131,7 @@
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
          规则)此前【从未被任何页面加载】→ 字幕词无颜色规则、继承父淡绿白 = Jing 的"还绿"; 随机色/稳定/
          中央爆/[Music...] 一整轮 CSS 全部失效。在 style.css 之后加载它, 让 watch 面板按设计生效。 -->
-    <link rel="stylesheet" href="style.watch.css?v=20260826-w1983" />
+    <link rel="stylesheet" href="style.watch.css?v=20260926-w2211-search-clears-seek-band" />
     <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
 
     <!-- CSSOS_WAVE_1836 — Meta Pixel 补装到主应用页。
@@ -1156,18 +1156,17 @@
         <div class="lyric-flow" id="lyric-flow"></div>
       </div>
 
-      <section class="panel flow hidden" id="music-panel">
-        <div class="panel-bar">
-          <div class="panel-icon">🎼</div>
-          <div class="panel-title" data-i18n="panel.music">Music Engine</div>
-          <div class="panel-actions cssmv-pill-bar">
-            <button class="icon-btn" aria-label="settings">⚙</button>
-            <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="maximize">⤢</button>
-            <button class="icon-btn" aria-label="close">×</button>
-          </div>
-        </div>
-        <div class="panel-body">
+      <!-- CSSOS_WAVE_2210 20260926 — Jing:「请一起删掉。」(承 W2209 的歌词引擎面板)
+           音乐引擎面板(窗口壳)【已删】—— 它和歌词面板走的是同一个
+           revealEnginePanelModule / showcase 批量开窗, 所以会在生成时一起冒出来。
+
+           里面的东西照旧【一个不删】, 生成流程真在写它们:
+             #music-progress / -shell / -detail  引擎进度(app.js)
+             #music-style / #voice-style         曲风 / 声线回填
+             #music-tags · #music-runtime-board · #music-track-list · #mix-grid
+             #waveform                           波形(vol_curve 同源)
+           删了不报错(到处 ?.), 只会静默少一块回填目标。原样放在永不显示的容器里。 -->
+      <div id="music-engine-surface" hidden aria-hidden="true" style="display:none">
           <div class="engine-progress-shell" id="music-progress-shell" data-engine-progress="music" hidden>
             <div class="engine-progress-title" data-i18n="status.audioEngine">Audio Engine</div>
             <div class="engine-progress-bar"><span id="music-progress"></span></div>
@@ -1224,22 +1223,12 @@
             </div>
           </div>
           <div class="mix-grid" id="mix-grid"></div>
-        </div>
-        <div class="resize-handle"></div>
-      </section>
+      </div>
 
-      <section class="panel flow hidden" id="video-panel">
-        <div class="panel-bar">
-          <div class="panel-icon">📽</div>
-          <div class="panel-title" data-i18n="panel.video">Video Engine</div>
-          <div class="panel-actions cssmv-pill-bar">
-            <button class="icon-btn" aria-label="settings">⚙</button>
-            <button class="icon-btn" aria-label="minimize">—</button>
-            <button class="icon-btn" aria-label="maximize">⤢</button>
-            <button class="icon-btn" aria-label="close">×</button>
-          </div>
-        </div>
-        <div class="panel-body">
+      <!-- CSSOS_WAVE_2210 20260926 — 同上: 视频引擎面板(窗口壳)已删, 数据面保留:
+             #video-progress / -shell / -detail · #video-tags · #video-runtime-board
+             #storyboard · #camera-list · #video-script -->
+      <div id="video-engine-surface" hidden aria-hidden="true" style="display:none">
           <div class="engine-progress-shell" id="video-progress-shell" data-engine-progress="video" hidden>
             <div class="engine-progress-title" data-i18n="status.videoEngine">Video Engine</div>
             <div class="engine-progress-bar"><span id="video-progress"></span></div>
@@ -1260,9 +1249,7 @@
           <div class="video-script" id="video-script" data-i18n="label.videoScript">
             Auto script loaded · 3 scenes ready
           </div>
-        </div>
-        <div class="resize-handle"></div>
-      </section>
+      </div>
 
       <section class="panel flow hidden" id="settings-panel">
         <div class="panel-bar">
@@ -2339,10 +2326,10 @@
     <script src="app.creation-duration.js?v=20260426-membership-preset-guard-136"></script>
     <script src="app.creation-accessors.js?v=20260423-p2-86-lang-auto-empty-1"></script>
     <script src="app.watch-audio-polling.js?v=20260504-stop-404-poll"></script>
-    <script src="app.panel-command-settings.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.panel-command-settings.js?v=20260926-w2210-kill-engine-panels"></script>
     <script src="app.panel-behavior-core.js?v=20260418-engines-selector-2"></script>
     <script src="app.action-permissions.js?v=20260412-ui-recovery-9"></script>
-    <script src="app.context-menu.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.context-menu.js?v=20260926-w2210-kill-engine-panels"></script>
     <script src="app.delivery-report-bridges.js?v=20260412-ui-recovery-5"></script>
     <script src="app.civilization-bank.js?v=20260418-p2-41-civbank-1"></script>
     <!-- CSSOS_PHASE_A_SHARE_LINK 20260506 — Jing
@@ -2359,7 +2346,7 @@
     <script src="app.mv-language-pill.js?v=20260925-w2199-activehead"></script>
     <script src="app.up-next-strip.js?v=20260925-w2188-nodupgate"></script>
     <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
-    <script src="app.watch-search.js?v=20260926-w2208-wake"></script>
+    <script src="app.watch-search.js?v=20260926-w2211-restore-cinema-search"></script>
     <!-- CSSOS_WAVE_294 — 可复用苹果风浮层搜索: 自动接管 [data-search-float="swipe"]
          的搜索壳(Works Center 等), 下滑显示/上滑隐藏. -->
     <script src="app.floating-search.js?v=20260521-w294-floatsearch"></script>
@@ -2389,7 +2376,7 @@
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.emotion-subtitle-engine.js?v=20260922-w2138-subct"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
-    <script src="app.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.js?v=20260926-w2210-kill-engine-panels"></script>
     <!-- CSSOS_MV_FLOW_RESTORE 20260505 — block moved further down
          (just before app.boot.js) so app.cssmv-governance.js's top-level
          renderDeliveryDigestSummaryModule() call sees the function defined
@@ -2435,7 +2422,7 @@
     <script src="app.emotion-fx-panel.js?v=20260720-w1765-tune-tooltip-t"></script>
     <script src="app.subtitle-tune.js?v=20260618-w995"></script>
     <script src="app.subtitle-wave-editor.js?v=20260720-w1766-tune-hub"></script>
-    <script src="app.watch-ui.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.watch-ui.js?v=20260926-w2210-kill-engine-panels"></script>
     <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
     <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
     <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
@@ -2545,8 +2532,8 @@
     <script src="app.artifact-downloads.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-dashboard-bindings.js?v=20260712-i18n"></script>
     <script src="app.panel-search.js?v=20260325-live-unfreeze-2"></script>
-    <script src="app.panel-settings.js?v=20260926-w2209-kill-lyrics-panel"></script>
-    <script src="app.panel-layout.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.panel-settings.js?v=20260926-w2210-kill-engine-panels"></script>
+    <script src="app.panel-layout.js?v=20260926-w2210-kill-engine-panels"></script>
     <script src="app.dock-settings.js?v=20260325-live-unfreeze-2"></script>
     <script src="app.delivery-ops-bridges.js?v=20260326-delivery-ops-bridges-split-1"></script>
     <script src="app.delivery-ops-panel.js?v=20260325-live-unfreeze-2"></script>
@@ -2639,7 +2626,7 @@
     <!-- CSSMV_PANEL_DOCK_ORDER 20260425 #116 — Jing: light-theme paint
          for .panel-settings + per-panel dock-order option (admin sets
          default, regular users override their own). -->
-    <script src="app.panel-dock-order.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.panel-dock-order.js?v=20260926-w2210-kill-engine-panels"></script>
     <!-- CSSMV_CONSOLE_NOISE 20260425 #118 — Jing: silence cover-webp
          404 noise + transient endpoint NetworkError rejections; load
          early so it catches everything from boot. -->
@@ -2662,7 +2649,7 @@
     <script src="app.panel-shell-actions.js?v=20260823-w1874-exitfs"></script>
     <script src="app.panel-drag.js?v=20260505c-end"></script>
     <script src="app.panel-focus.js?v=20260530-w506-revert"></script>
-    <script src="app.i18n-hierarchy-defaults.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.i18n-hierarchy-defaults.js?v=20260926-w2210-kill-engine-panels"></script>
     <script src="app.theme-quick-toggle.js?v=20260527-w461-pill-bar"></script>
     <script src="app.delivery-copy.js?v=20260505c-end"></script>
     <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
@@ -2676,8 +2663,8 @@
     <script src="app.run-auth.js?v=20260525-w360b-civ-payload"></script>
     <script src="app.logo-panel-actions.js?v=20260505c-end"></script>
     <script src="app.panel-stack.js?v=20260505c-end"></script>
-    <script src="app.panel-shortcuts.js?v=20260926-w2209-kill-lyrics-panel"></script>
-    <script src="app.panel-settings-markup.js?v=20260926-w2209-kill-lyrics-panel"></script>
+    <script src="app.panel-shortcuts.js?v=20260926-w2210-kill-engine-panels"></script>
+    <script src="app.panel-settings-markup.js?v=20260926-w2210-kill-engine-panels"></script>
     <script src="app.panel-settings-runtime.js?v=20260527-w479-autoentersetting"></script>
     <script src="app.panel-settings-behavior-bindings.js?v=20260525-w431-settingsfix"></script>
     <script src="app.panel-settings-tail.js?v=20260505c-end"></script>
@@ -2713,7 +2700,7 @@
          the dynamic Person-MV injector has a chance to run first. -->
     <script src="app.dock-priority-order.js?v=20260711-w1733b" defer></script>
     <!-- CSSOS_WAVE_445 20260526 — horizontal swipe cycles main panels -->
-    <script src="app.panel-swipe-nav.js?v=20260926-w2209-kill-lyrics-panel" defer></script>
+    <script src="app.panel-swipe-nav.js?v=20260926-w2210-kill-engine-panels" defer></script>
     <!-- CSSOS_WAVE_463 20260528 — Panel Constitution execution layer
          Articles 5 (swipe-up=close), 6 (titlebar-swipe-down=minimize),
          8 (5-panel LRU limit). Deferred so app.js globals are ready. -->

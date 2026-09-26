@@ -413,31 +413,19 @@
     }
     var IDLE_HIDE_MS = 10000;
     var hideTimer = null;
-    /* CSSOS_WAVE_2206 20260926 — Jing:「把搜索框在影院态收起来。」
+    /* CSSOS_WAVE_2211 20260926 — Jing:「请恢复影院态的搜索框。」
+     * W2206 那段【影院态一律按回收起位】的拦截整段撤掉 —— 影院态重新跟非影院态
+     * 一样, 鼠标一动/滚轮/按键就把它唤出来。
      *
-     * 为什么要收: W2205 之后影院态四条边都归【边框 seek】, 可这个搜索框正压在顶边上 ——
-     * 实测 elementFromPoint 在顶边命中的是 INPUT, 点下去是聚焦输入框, 不是跳转。
-     * 而它是被 panel 上的 pointermove/wheel/keydown 唤出来的 —— 影院态里鼠标一动就露,
-     * 等于顶边常年被占。
+     * W2206 当初收它是因为它压着顶边, 挡住 W2205 的四边 seek(elementFromPoint 在
+     * 顶边命中的是 INPUT, 点下去只是聚焦输入框)。恢复它不能把那条又撞坏, 所以
+     * 改成【让位】而不是【收起】: 影院态把框整体下移到 16px 边框带以下
+     * (style.watch.css 的 #watch-panel.maximized #watch-search-box)。
+     * 框照常在、照常能点, 顶边那 16px 仍然归 seek。
      *
-     * 判据用 #watch-panel.maximized, 与 W2205 同一个 ——【不用】本文件已有的
-     * inCinema()(它读 body.cssos-cinema-mode), 因为媒体框宪法明写过那个类常年挂着,
-     * 拿它判状态得到的结论是假的。
-     *
-     * 已经露出来时进入影院态也要收回去, 所以这里不是单纯 return, 而是先按回收起位。
-     * 留 force 旁路: globalThis.cssosWatchSearchShow() 仍能主动唤出(将来若加快捷键/
-     * Dock 入口), 只是"鼠标动一下"这种被动触发不再唤它。 */
+     * force 旁路保留: / 键(W2207)与右轨 🔍(W2208)走 summon(), 它们还要负责清掉
+     * CHROME 空闲系统的 display:none —— 那一半跟本波无关, 不动。 */
     function showBar(force) {
-      if (!force) {
-        try {
-          var _wp = document.getElementById("watch-panel");
-          if (_wp && _wp.classList.contains("maximized")) {
-            box.style.transform = "translateY(-140%)";
-            box.style.opacity = "0";
-            return;
-          }
-        } catch (_e) {}
-      }
       box.style.transform = "translateY(0)";
       box.style.opacity = "1";
       // 影院模式: 显隐由统一系统(display:none)接管, 这里不自行计时淡隐.

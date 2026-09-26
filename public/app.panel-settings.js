@@ -17,8 +17,9 @@ function buildPanelSettingsContext(panel) {
     // 会把别的场合误判成歌词面板。键保留(消费方 app.panel-settings-markup.js:491
     // 等按名解构), 值钉死 false。
     isLyricsPanel: false,
-    isMusicPanel: panel === musicPanel,
-    isVideoPanel: panel === videoPanel,
+    // W2210 — 同上: musicPanel / videoPanel 现在也恒为 null, 不能再写 ===。
+    isMusicPanel: false,
+    isVideoPanel: false,
     isAboutPanel: panel === aboutPanel,
     isApiPanel: panel === apiPanel,
     isDeliveryReportsPanel: panel === deliveryReportsPanel,

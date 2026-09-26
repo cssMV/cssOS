@@ -9318,6 +9318,18 @@ html.cssos-pill-cascade #dock[data-pill-bar] > [data-pill-key]:has(~ [data-pill-
   opacity: 0;
   transition: opacity 0.4s ease, transform 0.4s ease;
   z-index: 3;
+  /* CSSOS_WAVE_2213 20260926 — Jing:「请修复。」
+   * 这个元素是 index.html 里的【常驻】节点(不是用时才建), 空闲时只有 opacity:0 ——
+   * 看不见, 但照样吃点击。它 fixed 在 top:30px(实测 translateY(-20px) 后 y≈10),
+   * 正好压在影院态四边 seek 的 16px 带上(app.watch-ui.js: _BP = 16), 固定吃掉
+   * x≈646–793 那一段 —— W2211/W2212 把搜索框和 App Store 横幅都让开之后, 它是
+   * 顶边最后一个挡点击的东西, 而且【看不见】, 最难查。
+   *
+   * 两个状态都不可点, 所以无条件 none, 不给 .toast.show 再开回来: 全平台只有这一个
+   * .toast 节点(index.html:2224), 用法从头到尾只有【写文字 → 加 .show → 2.2s 后去掉】
+   * (app.js:7280-7282), 全库没有任何挂在它上面的点击处理器 —— 它是纯被动提示。
+   * 竖屏那份(下面 @media 里)只改位置/字号/层级, 不重置 pointer-events, 自然一并生效。 */
+  pointer-events: none;
   /* CSSOS_WAVE_117_TOAST_MOBILE 20260513 — never cover panel titles */
   max-width: min(86vw, 480px);
   text-align: center;

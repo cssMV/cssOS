@@ -62,6 +62,20 @@ ok("没拿 body.cssos-panel-max 当判据(那是假判据)",
 ok("落地页那条 12px 没动",
    /top:calc\(12px \+ env\(safe-area-inset-top\)\)/.test(strip(read("public/app.appstore-ribbon.js"))));
 
+// ③.6 W2213 — 空闲 toast 不再吃点击(它是顶边最后一个挡点击的东西, 而且看不见)
+const css = read("public/style.css");
+const toastRule = (css.match(/\n\.toast \{[\s\S]*?\n\}/) || [""])[0];
+ok("取得到 .toast 基础规则", toastRule.length > 80);
+ok(".toast 空闲态不吃点击", /pointer-events: none;/.test(toastRule),
+   "它 opacity:0 但仍 hit-test, 固定吃掉 16px 带里 x≈646-793 那一段");
+ok(".toast.show 没把 pointer-events 开回来",
+   !/\.toast\.show \{[^}]*pointer-events/.test(css),
+   "全库没有挂在 toast 上的点击处理器, 两个状态都该是 none");
+ok("竖屏那份也没重置 pointer-events",
+   !/@media \(max-width: 480px\)[\s\S]*?\.toast \{[^}]*pointer-events: auto/.test(css));
+ok("全平台只有这一个 .toast 节点(所以无条件 none 是安全的)",
+   (read("public/index.html").match(/class="toast"/g) || []).length === 1);
+
 // ④ 没碰被锁死的媒体框绿光(W1983)
 ok("媒体框绿光那段一个字符未动",
    /\.watch-screen::after \{[\s\S]*?0 0 14px rgba\(0, 245, 160, 0\.34\)[\s\S]*?0 0 38px rgba\(0, 245, 160, 0\.22\)[\s\S]*?0 0 78px rgba\(11, 247, 255, 0\.12\)[\s\S]*?inset 0 0 22px rgba\(0, 245, 160, 0\.13\)/.test(wcss),
@@ -75,7 +89,7 @@ ok("summon 仍清 CHROME 的 display:none", /cssosWatchChromeWake\(\)/.test(ws))
 
 // ⑥ 缓存键
 const headHtml = execSync("git show HEAD:public/index.html", { encoding: "utf8", maxBuffer: 1 << 28 });
-for (const f of ["public/app.watch-search.js", "public/style.watch.css"]) {
+for (const f of ["public/app.watch-search.js", "public/style.watch.css", "public/style.css"]) {
   const base = f.split("/").pop(), esc = base.replace(/\./g, "\\.");
   const v = (html.match(new RegExp(esc + "\\?v=([^\"]+)")) || [])[1];
   const hv = (headHtml.match(new RegExp(esc + "\\?v=([^\"]+)")) || [])[1];

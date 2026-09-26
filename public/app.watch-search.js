@@ -453,8 +453,22 @@
       clearTimeout(hideTimer);
       hideTimer = setTimeout(hideBar, IDLE_HIDE_MS);
     }
-    // W2206 — 显式调用视为【主动唤出】, 影院态也放行(被动触发仍被拦)。
-    globalThis.cssosWatchSearchShow = function () { return showBar(true); };
+    /* W2206 — 显式调用视为【主动唤出】, 影院态也放行(被动触发仍被拦)。
+     * W2208 — 唤出 = 露出 + 把光标送进框。两个入口(/ 键、右轨 🔍)共用这一个 summon,
+     * 不各写一份 —— 两份"唤出"迟早会走样(其中一个忘了聚焦, 用户得再点一下)。 */
+    function summon() {
+      /* 影院态这个框被【两个】系统藏着, 两个都得清, 少一个就是 0×0 点不到:
+       *   ① index.html 的 CHROME 空闲系统 → display:none !important(走它自己的 wake,
+       *      不自己写 style.display —— 它用 hidden[] 记着原值, 绕过去会把账搞乱);
+       *   ② W2206 的影院态收起       → transform/opacity(showBar(true) 清)。
+       * 真人操作时 ① 本来会被 window 捕获的 pointerdown/keydown 顺带唤醒, 但那是
+       * "碰巧有人替我做了" —— 唤出这件事必须自己做全, 不然哪天那条监听一动就静默失效。 */
+      try { if (typeof globalThis.cssosWatchChromeWake === "function") globalThis.cssosWatchChromeWake(); } catch (_e0) {}
+      showBar(true);
+      try { input.focus(); input.select(); } catch (_e) {}
+      return true;
+    }
+    globalThis.cssosWatchSearchShow = summon;
 
     /* CSSOS_WAVE_2207 20260925 — Jing:「请配一个 / 快捷键。」
      *
@@ -485,8 +499,7 @@
       if (!wp || !wp.classList.contains("maximized")) return;
       e.preventDefault();
       e.stopPropagation();
-      showBar(true);
-      try { input.focus(); input.select(); } catch (_e2) {}
+      summon();
     }
     try {
       if (globalThis.cssosShortcuts && typeof globalThis.cssosShortcuts.register === "function") {

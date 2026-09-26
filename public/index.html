@@ -2357,7 +2357,7 @@
     <script src="app.mv-language-pill.js?v=20260925-w2199-activehead"></script>
     <script src="app.up-next-strip.js?v=20260925-w2188-nodupgate"></script>
     <!-- CSSOS_WAVE_286 — App 端 watch 顶部纯搜索框(异步检索+无限滚动+点击进队列). -->
-    <script src="app.watch-search.js?v=20260925-w2207-slashkey"></script>
+    <script src="app.watch-search.js?v=20260926-w2208-wake"></script>
     <!-- CSSOS_WAVE_294 — 可复用苹果风浮层搜索: 自动接管 [data-search-float="swipe"]
          的搜索壳(Works Center 等), 下滑显示/上滑隐藏. -->
     <script src="app.floating-search.js?v=20260521-w294-floatsearch"></script>
@@ -2463,7 +2463,7 @@
     <script src="app.watch-price-strip.js?v=20260602-w588f-icons"></script>
     <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
          只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
-    <script src="app.watch-social-rail.js?v=20260925-w2189-fetchprice"></script>
+    <script src="app.watch-social-rail.js?v=20260926-w2208-searchentry"></script>
     <!-- CSSOS_WAVE_1119 — 右轨配套: 左下标题摘要(标题·进度·@作者·时长·摘要)+ 弹幕(评论左下窄道弹入上飘)。
          纯叠加层, 不碰 emotion-fx/字幕/bottom-stack。 -->
     <script src="app.watch-cinema-caption.js?v=20260925-w2187-takedur"></script>
@@ -3016,6 +3016,14 @@
           ["pointermove","pointerdown","wheel","keydown","touchstart"].forEach(function (ev) {
             window.addEventListener(ev, wake, { capture: true, passive: true });
           });
+          /* CSSOS_WAVE_2208 20260926 — 对外暴露 wake, 给【主动唤出搜索框】的入口用
+           * (/ 键 W2207、右轨 🔍 W2208)。
+           * 为什么非接这个不可: 影院态里这套 CHROME 系统给 #watch-search-box 打的是
+           * display:none !important, 而 app.watch-search.js 的 showBar() 只改
+           * transform/opacity —— 清不掉 display, 框永远是 0×0, 连 focus() 都落不进去。
+           * 不在外面自己写 style.display = "" 是因为这里用 hidden[] 记着每个元素的原值,
+           * 绕过去改会把这份账搞乱(下一轮 hideChrome 会因 dataset 标记而跳过它)。 */
+          globalThis.cssosWatchChromeWake = wake;
           /* CSSOS_WAVE_392 20260524 — Jing「多首歌同时播放, 一片交响乐」根治:
            * 单一可闻音源裁判。#watch-audio-preview 是【有声那条】(canonical 音轨),
            * #watch-video 是【画面】。之前 forceUnmuteAndPlay 把【两条都 unmute 并

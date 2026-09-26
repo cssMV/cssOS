@@ -58,8 +58,15 @@ ok("中枢缺席时回退到裸捕获监听",
    /document\.addEventListener\("keydown", cinemaSlashKey, true\);/.test(ws));
 
 // ⑤ 唤出后要能直接打字
-ok("唤出用 force 旁路(影院态被动触发是被拦的)", /showBar\(true\);/.test(fn));
-ok("并把焦点送进输入框", /input\.focus\(\)/.test(fn));
+ok("唤出走统一的 summon()(/ 键与右轨 🔍 共用一份)", /summon\(\);/.test(fn));
+const summonFn = (ws.match(/function summon\(\) \{[\s\S]*?\n    \}/) || [""])[0];
+ok("能取到 summon 函数体", summonFn.length > 60);
+ok("summon 三件事都做: 唤醒 CHROME(清 display:none)+ force 露出 + 送焦点",
+   /cssosWatchChromeWake\(\)/.test(summonFn) && /showBar\(true\);/.test(summonFn)
+   && /input\.focus\(\)/.test(summonFn),
+   "影院态框被两个系统藏着, 少清一个就是 0×0 点不到");
+ok("cssosWatchSearchShow 就是 summon(右轨点了也会聚焦)",
+   /globalThis\.cssosWatchSearchShow = summon;/.test(ws));
 
 // ⑥ 缓存键必须跟着内容变(不变 = 浏览器拿旧字节, 改了等于没改)
 const m = html.match(/app\.watch-search\.js\?v=([^"]+)/);

@@ -1,4 +1,4 @@
-/* W2216 — 给【影院态顶栏与贴边宪法】这一条配的校验。
+/* W2216/W2218 — 给【影院态顶栏与贴边宪法】与【无歌声时的字幕宪法】配的校验。
  *
  * 为什么要给一篇文档写测试: W1960 的教训是我在注释里写了「与原版逐字一致」而其实不是,
  * 后面十几轮排查全部信错了前提。宪法一旦和代码脱节, 比没有宪法更糟 —— 下一个人会
@@ -90,6 +90,51 @@ for (const t of ["scripts/test-uniform-edge-10px.mjs",
   ok(`宪法点名的回归存在: ${t.split("/").pop()}`, existsSync(t));
   ok(`宪法里写了它`, sec.includes(t.split("/").pop()));
 }
+
+// ═══ 第二条宪法:无歌声时的字幕(W2217 定稿 · W2218 入宪)═══════════════════
+const j = doc.indexOf("## 🔒 无歌声时的字幕宪法");
+ok("【无歌声时的字幕宪法】在 CLAUDE.md 里", j !== -1, "Jing:「也入宪吧, 别再回来」");
+const sec2 = j === -1 ? "" : doc.slice(j);
+const emo = read("public/app.emotion-subtitle-engine.js");
+const fx  = read("public/app.emotion-fx.js");
+const ui2 = read("public/app.watch-ui.js");
+const lay = read("public/app.watch-media-layout-p2100.js");
+
+// 宪法引的每一个代码事实
+ok("音符字形表属实", emo.includes('_noteGlyphs = ["♪", "♫", "♬", "♩", "🎵", "🎶"]'));
+ok("一簇 3–6 个属实", emo.includes("_ncount = Math.min(6, Math.max(3,"));
+ok("四方向 0上1右2下3左 属实", fx.includes("// 0上 1右 2下 3左"));
+ok("密度跟音量走的公式属实", fx.includes("nn = 1 + Math.round(vol * 6);"));
+ok("cssosMusicGapPulse 属实", fx.includes("globalThis.cssosMusicGapPulse = function"));
+ok("karaoke 守卫属实(这是'为什么偶尔出现'的全部解释)", ui2.includes("cssosKaraokeOwnsSubtitle()"));
+ok("audio kind === none 那个入口属实",
+   read("public/app.watch-audio.js").includes('currentWatchAudioSourceKind === "none"'));
+ok("maybeRedirect 那一支确实只 return(绿带没人收)",
+   /\/\/ Subtitle was cleared — also clear status if it was showing\.\s*\n\s*return;/.test(lay),
+   "宪法第三节整段建立在这个事实上");
+ok("清除入口 cssosClearWatchStatusInfo 属实", lay.includes("globalThis.cssosClearWatchStatusInfo = function"));
+
+// 那句必须仍然不被产出
+ok("那句仍未被任何地方产出",
+   !ui2.includes('loginCopy("KaraOKe MV · Writing the first line now")'),
+   "宪法明写【删掉且不得回来】");
+ok("画面已就绪时仍然写空", /if \(hasWatchArtworkReadyModule\(\)\) \{\s*\n\s*safeSetWatchSubtitleModule\(""\);/.test(ui2));
+
+// 宪法说留着的, 必须真的留着
+for (const s of ["Painting the cover now", "Composing music now",
+                 "Rendering video now", "Rendering subtitle MV now"])
+  ok(`宪法说留着的确实还在: ${s}`, ui2.includes(s));
+ok("兜底检测名单那条还在", lay.includes("/Writing the first line/i,"));
+
+// 红线与回归指路
+ok("红线写了【不许在没有歌声那一刻写任何文字提示】",
+   /不许在【没有歌声】那一刻写任何文字提示/.test(sec2));
+ok("红线给了新增文案时的自查方法",
+   /cssosKaraokeOwnsSubtitle\(\)`? ?为假时被写进/.test(sec2),
+   "少了这句, 下一个人还会再加一条新的状态文案来抢这一行");
+ok("红线要求改音符/emoji 先拿 Jing 的 yes", /没有 yes 就不动/.test(sec2));
+ok("宪法点名的回归存在", existsSync("scripts/test-no-first-line-hint.mjs"));
+ok("宪法里写了它", sec2.includes("test-no-first-line-hint.mjs"));
 
 console.log(`\n${fail ? "❌" : "✅"} ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

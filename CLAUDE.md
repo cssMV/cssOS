@@ -1245,3 +1245,69 @@ Jing 反复截图、反复解释、直到发火。**代价不在代码,在他的
 `scripts/test-cinema-search-restored.mjs`(顶栏行锚 + 横幅点哪都能关 + toast 不吃点击)·
 `scripts/test-lyrics-panel-removed.mjs`(三个面板删干净 + 数据面没丢)。
 三份都带 `CALIBRATE=1` 校准(读 git HEAD 必须失败),改动前先跑一遍。
+
+---
+
+## 🔒 无歌声时的字幕宪法 · 音符 + 四方飘入 emoji —— 【W2217 定稿 · 不得再回来】
+
+**Jing 2026-09-26:「后来我们已经改为没有歌声只有纯音乐的时候使用随机音符表示了,
+不再是文字提示。这个文字提示还是偶尔出现,请查找这句提示词,删掉,保留现在的状态。」
+「也入宪吧,别再回来。」**
+
+### 一、没有歌声的那一刻,这一行归谁
+
+| 层 | 显示什么 | 真源 |
+|---|---|---|
+| 传统字幕 | **一簇随机音符** `♪ ♫ ♬ ♩ 🎵 🎶`(3–6 个,不同字形 + 6 情绪色循环 + 随机错位起点) | `app.emotion-subtitle-engine.js` 的 `[Music...]` cue(`_isMusicLine` 分支,W745 / W1109) |
+| 情绪字幕 | **小 emoji 从四条边向内飘进**(`0上 1右 2下 3左`,密度跟音量走 `nn = 1 + round(vol*6)`) | `app.emotion-fx.js` 的 `cssosMusicGapPulse`(W721 #6) |
+
+**不是文字提示。** 这一行在没有歌声时**已经有主**,任何"等待中/生成中"的文案都不许来抢。
+
+### 二、为什么那句提示是「偶尔」出现 —— 它其实精确得很
+
+`safeSetWatchSubtitleModule` 在 `cssosKaraokeOwnsSubtitle()` 为真时**直接 return**。
+也就是说:**只要有歌声在咬字,状态文案根本写不进去。**
+它能冒出来的唯一场合,恰恰就是【没有歌声】的那一刻
+(最常见入口:`app.watch-audio.js` 里 `currentWatchAudioSourceKind === "none"` 且字幕为空时
+回调 `syncWatchSubtitleForWaitingMediaModule`)。
+
+**所以它不是随机的 —— 它是精确地只在音符该接手的时候抢了那一行。**
+正确做法是**什么都不写**,把这一行让出来;**不是再补一句别的文案。**
+
+### 三、光不写还不够:绿带没人收
+
+状态文案会被 `app.watch-media-layout-p2100.js` 的 **status-split** 搬进
+`#watch-status-info`(画面上那条绿带)。那边 `maybeRedirect` 的注释写着
+「*Subtitle was cleared — also clear status if it was showing*」,**但那一支只 `return`,并没有清。**
+于是它在一次会话里出现过一次,就**一直挂在画面上**。
+
+清除走 `globalThis.cssosClearWatchStatusInfo()`(W2217 暴露,复用 status-split 自己的
+`setStatus`)。**不要另写一份清除逻辑,也不要去改 `maybeRedirect` 那个全局分支** ——
+改它会波及生成中的状态显示。
+
+### 四、留着的 · 删掉的
+
+**留着(真·生成状态,与本条无关):**
+`KaraOKe MV · Painting the cover now`(连封面都还没有时)·`Composing music now`·
+`Rendering video now`·`Rendering subtitle MV now`,以及 status-split 检测名单里的
+`/Writing the first line/i`(兜底:万一旧缓存里还有人产出它,至少不落进 `#watch-subtitle`)。
+
+**删掉且不得回来:** `KaraOKe MV · Writing the first line now`。
+
+### 红线
+
+1. **不许把这句加回来,也不许在【没有歌声】那一刻写任何文字提示。**
+2. **新增任何"等待中 / 生成中"文案前,先问一句:它会不会落在【没有歌声】的那一刻?**
+   会 → 就不该写文字,让给音符。判断方法:看它会不会在
+   `cssosKaraokeOwnsSubtitle()` 为假时被写进 `#watch-subtitle`。
+3. 随机音符(`_noteGlyphs` / `[Music...]` cue)与四方飘入 emoji(`cssosMusicGapPulse`)
+   **任何改动都必须先拿到 Jing 明确的「yes」**,格式:
+   「我打算改 <哪一项> 的 <什么>,原因 <一句话>。是否同意?(yes/no)」**没有 yes 就不动。**
+4. 会波及它们的改动同样受限 —— 动 `safeSetWatchSubtitleModule` 的 karaoke 守卫、
+   动 status-split、动 `syncWatchSubtitleForWaitingMediaModule` 的分支。
+   发现会波及,**先停下来问**。
+
+### 回归
+
+`scripts/test-no-first-line-hint.mjs` —— 两头都判:这句必须不再被产出;
+音符与四方飘入 emoji 那条路必须原样还在。带 `CALIBRATE=1` 校准(读 git HEAD 必须失败)。

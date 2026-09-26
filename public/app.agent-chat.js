@@ -79,7 +79,10 @@
            * (W1892)也救不了, 因为压它的根本不是那份坐标。
            * 修法: 定位四件套全部 !important —— 样式表的 !important 压得过普通内联。
            * 位置 = Dock 正上方: Dock 自身 bottom(max(13px, safe+8px)) + Dock 高 54px + 8px 间隙。 */
-          "#cssos-agent-fab{position:fixed !important;right:14px !important;left:auto !important;bottom:calc(max(13px, env(safe-area-inset-bottom,5px) + 8px) + 62px) !important;top:auto !important;width:46px;height:46px;border-radius:50%;" +
+          // CSSOS_WAVE_2215 20260926 — Jing:「统一规则, 都靠边 10px」: right 14 → 10;
+          // 底部那个地板 13 → 10 与 Dock 同步。它是【叠在 Dock 之上】的 +62px,
+          // 不是自己贴边, 所以只跟地板走, 62 的层距不动。
+          "#cssos-agent-fab{position:fixed !important;right:10px !important;left:auto !important;bottom:calc(max(10px, env(safe-area-inset-bottom,5px) + 8px) + 62px) !important;top:auto !important;width:46px;height:46px;border-radius:50%;" +
         "background:radial-gradient(circle at 30% 26%,rgba(0,245,160,0.92) 0%,rgba(0,184,122,0.62) 34%,rgba(6,20,15,0) 62%)," +
         "radial-gradient(circle at 74% 80%,rgba(0,140,95,0.5) 0%,rgba(2,10,7,0) 58%)," +
         "linear-gradient(148deg,#07130e 0%,#0d1a14 46%,#020806 100%);" +

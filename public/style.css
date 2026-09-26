@@ -7066,7 +7066,9 @@ html.cssos-app #watch-search-box {
 }
 html.cssos-app #watch-exit-cinema {
   top: calc(var(--cssos-notch-clear) + 2px) !important;
-  right: 12px !important; /* CSSOS_WAVE_326 — 与左上角头像 left:12 对称 */
+  /* W2215 20260926 — Jing:「统一规则, 都靠边 10px」: 原 12px(W326 为与头像 left:12 对称)。
+   * 现在左右两侧的锚都是 10 —— 返回键 left:10、Flagship left:10, 对称关系不变。 */
+  right: 10px !important;
 }
 /* CSSOS_WAVE_328 — Jing: 搜索框【始终居中、保持长】, 两侧只留头像/关闭键的空间即可
  * (不必很短). 桌面: 居中, 宽 = min(760px, 100% - 120px)(两侧各 ~60px 余量). */
@@ -8374,7 +8376,9 @@ html[data-panel-transparent="true"] .logo-panel {
 #dock {
   position: fixed !important;
   left: 50% !important;
-  bottom: max(13px, calc(env(safe-area-inset-bottom, 5px) + 8px)) !important;
+  /* W2215 20260926 — Jing:「统一规则, 都靠边 10px」: 地板 13px → 10px。
+   * safe-area 那一项原样保留 —— 它管的是刘海/home 条, 不是"贴边多少"。 */
+  bottom: max(10px, calc(env(safe-area-inset-bottom, 5px) + 8px)) !important;
   transform: translateX(-50%) !important;
   z-index: 10020 !important;
   pointer-events: auto;
@@ -8419,12 +8423,12 @@ body.cssos-agent-open .dock {
 }
 
 .dock[data-dock-position="left"] {
-  left: 24px;
+  left: 10px;  /* W2215 — 统一 10px(原 24px) */
   right: auto;
   top: 50%;
   bottom: auto;
   max-width: none;
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - 20px); /* W2215 — 跟着 10px 边距走(原 48 = 24×2) */
   flex-direction: column;
   transform: translateY(-50%) scale(var(--dock-scale));
   border-radius: 28px;
@@ -8432,18 +8436,18 @@ body.cssos-agent-open .dock {
 
 .dock[data-dock-position="right"] {
   left: auto;
-  right: 24px;
+  right: 10px; /* W2215 — 统一 10px(原 24px) */
   top: 50%;
   bottom: auto;
   max-width: none;
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - 20px); /* W2215 — 跟着 10px 边距走(原 48 = 24×2) */
   flex-direction: column;
   transform: translateY(-50%) scale(var(--dock-scale));
   border-radius: 28px;
 }
 
 .dock[data-dock-position="top"] {
-  top: 24px;
+  top: 10px;   /* W2215 — 统一 10px(原 24px) */
   bottom: auto;
   transform: translateX(-50%) scale(var(--dock-scale));
 }

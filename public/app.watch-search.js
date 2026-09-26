@@ -262,7 +262,11 @@
       exitBtn.style.cssText = [
         // CSSOS_WAVE_326 — ✕ 放进媒体框右上角, 与左上角头像(left:12 top:12)对称.
         // (改为 append 到 .watch-screen; App 全屏帧=满屏, 由 style.css 让位刘海.)
-        "position:absolute", "top:12px", "right:12px",
+        // CSSOS_WAVE_2215 20260926 — Jing:「统一规则, 都靠边 10px」: right 12 → 10。
+        // top 不在这里管 —— W2214 的顶栏行锚(style.watch.css 的
+        // --cssos-mv-toprow-center)在影院态用 !important 盖掉它; 这里的 12px
+        // 只是非影院态的兜底, 留着不动。
+        "position:absolute", "top:12px", "right:10px",
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",

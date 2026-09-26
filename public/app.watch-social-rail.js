@@ -244,7 +244,11 @@
       //   离开影院(主界面/市场)body 去掉 .cssos-watch-on → 全局 FAB 恢复显示。原全局无条件隐藏=外面也没了。
       "body.cssos-watch-on #cssos-agent-fab{display:none !important;}" +
       // 右轨现含 AI(7 项), bottom 下移到 20px, 让 🤖 落在右下角(旧 FAB 位置), 全轨用统一 9px 间距。
-      "#cssos-watch-social-rail{position:absolute;right:14px;bottom:20px;" +
+      // CSSOS_WAVE_2215 20260926 — Jing:「我倾向于统一规则, 都靠边 10px。」
+      // 原 right:14 / bottom:20。轨内那个 AI ＋(#cssos-rail-ai)是本轨的子节点,
+      // 自动跟着走 —— 但用户拖过它之后 applyRailAiPos 会写死 left/top(W1776),
+      // 那是用户自己的位置, 本波【不覆盖】(导演铁律: 用户干预 > 系统默认)。
+      "#cssos-watch-social-rail{position:absolute;right:10px;bottom:10px;" +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
       "#cssos-watch-social-rail>*{pointer-events:auto;}" +
       ".csr-item{display:flex;flex-direction:column;align-items:center;gap:1px;background:transparent;border:0;padding:0;cursor:pointer;}" +
@@ -286,7 +290,8 @@
       // CSSOS_WAVE_1254 — 返回键跟刘海(和搜索框/右上⋯同行): top 改 notch-aware, 不再写死 12px 跑到上面。
       // CSSOS_WAVE_1265 — Jing「返回按钮太贴边, 要和右上 ⋯/关闭 一样留间距」。原 top:safe+2(桌面 safe=0 → 2px 贴顶)
       //   改 top:safe+14、left:14, 与右上按钮(top≈12/14)对称, 不再死贴左上角。
-      "#cssos-watch-backbtn{position:absolute;left:14px;top:calc(env(safe-area-inset-top, 0px) + 14px);z-index:31;width:40px;height:40px;border-radius:50%;" +
+      // W2215 — 原 left:14px。顶边那一行已在 W2214 对齐到 10px, 左边距一并归 10。
+      "#cssos-watch-backbtn{position:absolute;left:10px;top:calc(env(safe-area-inset-top, 0px) + 14px);z-index:31;width:40px;height:40px;border-radius:50%;" +
       "background:rgba(20,16,12,0.55);border:0.5px solid rgba(255,255,255,0.18);color:#fff;font-size:22px;line-height:1;" +
       "display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;}" +
       "#cssos-watch-backbtn:active{transform:scale(0.92);}";

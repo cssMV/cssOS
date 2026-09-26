@@ -413,7 +413,31 @@
     }
     var IDLE_HIDE_MS = 10000;
     var hideTimer = null;
-    function showBar() {
+    /* CSSOS_WAVE_2206 20260926 — Jing:「把搜索框在影院态收起来。」
+     *
+     * 为什么要收: W2205 之后影院态四条边都归【边框 seek】, 可这个搜索框正压在顶边上 ——
+     * 实测 elementFromPoint 在顶边命中的是 INPUT, 点下去是聚焦输入框, 不是跳转。
+     * 而它是被 panel 上的 pointermove/wheel/keydown 唤出来的 —— 影院态里鼠标一动就露,
+     * 等于顶边常年被占。
+     *
+     * 判据用 #watch-panel.maximized, 与 W2205 同一个 ——【不用】本文件已有的
+     * inCinema()(它读 body.cssos-cinema-mode), 因为媒体框宪法明写过那个类常年挂着,
+     * 拿它判状态得到的结论是假的。
+     *
+     * 已经露出来时进入影院态也要收回去, 所以这里不是单纯 return, 而是先按回收起位。
+     * 留 force 旁路: globalThis.cssosWatchSearchShow() 仍能主动唤出(将来若加快捷键/
+     * Dock 入口), 只是"鼠标动一下"这种被动触发不再唤它。 */
+    function showBar(force) {
+      if (!force) {
+        try {
+          var _wp = document.getElementById("watch-panel");
+          if (_wp && _wp.classList.contains("maximized")) {
+            box.style.transform = "translateY(-140%)";
+            box.style.opacity = "0";
+            return;
+          }
+        } catch (_e) {}
+      }
       box.style.transform = "translateY(0)";
       box.style.opacity = "1";
       // 影院模式: 显隐由统一系统(display:none)接管, 这里不自行计时淡隐.
@@ -429,7 +453,8 @@
       clearTimeout(hideTimer);
       hideTimer = setTimeout(hideBar, IDLE_HIDE_MS);
     }
-    globalThis.cssosWatchSearchShow = showBar;
+    // W2206 — 显式调用视为【主动唤出】, 影院态也放行(被动触发仍被拦)。
+    globalThis.cssosWatchSearchShow = function () { return showBar(true); };
     var panel = document.getElementById("watch-panel");
     if (panel) {
       ["pointerdown", "pointermove", "touchstart", "touchmove", "wheel", "keydown"].forEach(function (ev) {

@@ -1561,13 +1561,28 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
        * intentional UI operation and the media keeps playing. */
       const t = e.target;
       const v = document.getElementById("watch-video");
+      /* CSSOS_WAVE_2205b 20260926 — 画面层也算【裸媒体面】。
+       *
+       * W2205 把影院态的缩放边让开之后, 实测四条边命中的是:
+       *   顶/底 → DIV.watch-screen(本来就在名单里)
+       *   左/右 → IMG.watch-svg —— 画面层, 不在名单里 → 被当成"可交互 UI"跳过,
+       *           于是左右两条边点了没反应。
+       * 这一层在 W2190(合成视频给每版封面让位)之后就是用户看到的那张画面本身。
+       *
+       * 补的都是【纯画面层】, 没有任何交互语义:
+       *   .watch-svg        定妆照 / 幻灯 / 封面
+       *   .watch-music-art  纯音乐态的封面图
+       * 下面那道 closest("button,a,input,…") 防御一个字没动 —— 画面上若盖着按钮,
+       * 仍由它拦住, 不会误触。 */
       const isBareSurface =
         t === screen ||
         t === v ||
         (t && t.classList && (
           t.classList.contains("watch-screen") ||
           t.classList.contains("watch-video") ||
-          t.classList.contains("watch-frame")
+          t.classList.contains("watch-frame") ||
+          t.classList.contains("watch-svg") ||
+          t.classList.contains("watch-music-art")
         ));
       if (!isBareSurface) {
         // Click landed on something interactive in the frame — let it

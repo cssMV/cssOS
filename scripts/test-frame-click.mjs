@@ -57,5 +57,35 @@ ok("边框 seek 仍按最近边映射(上下用 x, 左右用 y)",
 ok("边框点击不切播放/暂停(media-layout 侧原规矩仍在)",
    /Border click EITHER way: don't toggle play\/pause/.test(ml));
 
+/* ⑤ W2205/W2206 — 影院态四条边都给 seek, 窗口态保留缩放 */
+const css = read("public/style.css");
+ok("影院态(maximized)让开缩放边",
+   /#watch-panel\.maximized > \.panel-resize-edge,[\s\S]{0,120}?pointer-events: none;/.test(css),
+   "实测: 上/左/右三条边命中的都是 .panel-resize-edge, 只有底边能 seek");
+ok("只收 #watch-panel 一家, 别的面板不受影响",
+   /#watch-panel\.maximized > \.panel-resize-edge/.test(css) && !/^\s*\.panel-resize-edge\s*\{[^}]*pointer-events:\s*none/m.test(css));
+/* 只看活代码: 第一版这条判据匹配到了【我自己写的注释】(那句"不用 body.cssos-cinema-mode"),
+ * 于是报了个假失败。本会话已经栽过同一个坑(W2187 那次"活代码里不再有…"也是这么办的)。 */
+const cssLive = css.replace(/\/\*[\s\S]*?\*\//g, "");
+ok("判据用 .maximized, 不用 body.cssos-cinema-mode",
+   !/body\.cssos-cinema-mode[^{]*\.panel-resize-edge/.test(cssLive)
+   && /#watch-panel\.maximized > \.panel-resize-edge/.test(cssLive),
+   "媒体框宪法: 那个类常年挂着, 拿它判状态得到的结论是假的");
+ok("画面层(watch-svg / watch-music-art)算裸媒体面",
+   /t\.classList\.contains\("watch-svg"\)[\s\S]{0,80}?watch-music-art/.test(ml),
+   "让开缩放边后左/右两条边命中的是 IMG.watch-svg, 不补就还是点不动");
+ok("按钮防御没被动过(画面上盖着按钮仍不误触)",
+   /closest\("button,a,input,select,textarea,\[role='button'\],\[contenteditable\]"\)/.test(ml));
+
+const se = read("public/app.watch-search.js");
+ok("影院态不被动唤出搜索框",
+   /function showBar\(force\)[\s\S]{0,420}?classList\.contains\("maximized"\)[\s\S]{0,160}?return;/.test(se),
+   "它挂在 panel 的 pointermove/wheel/keydown 上 —— 影院态鼠标一动就盖住顶边");
+ok("已露出时进影院态会收回去(不是单纯 return)",
+   /classList\.contains\("maximized"\)\) \{[\s\S]{0,200}?translateY\(-140%\)/.test(se));
+ok("留了主动唤出的旁路",
+   /cssosWatchSearchShow = function \(\) \{ return showBar\(true\); \}/.test(se),
+   "将来加快捷键/Dock 入口时还能唤它, 只是鼠标动一下不再唤");
+
 console.log(`\n${fail ? "❌" : "✅"} ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

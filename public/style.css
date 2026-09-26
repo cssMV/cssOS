@@ -8249,6 +8249,26 @@ html[data-theme="light"] .watch-engine-percent {
   background: transparent;
   pointer-events: auto;
 }
+/* CSSOS_WAVE_2205 20260926 — Jing:「影院态四条边都给 seek, 窗口态保留缩放。」
+ *
+ * 媒体框边框有两个功能重叠在同一圈像素上:
+ *   · 边框 seek(CSSOS_PHASE2_BORDER_SEEK, 距边 16px 内点击 = 跳到该处)
+ *   · 面板八向缩放(面板宪法第 1 条)
+ * 实测 elementFromPoint: 上/左/右三条边命中的都是 .panel-resize-edge, 只有底边
+ * 是裸的 .watch-screen —— 所以"点边框任何地方"实际只有四分之一能用。
+ *
+ * 更要命的是: app.panel-shell-actions.js 的缩放逻辑遇到最大化面板会调 restorePanel()
+ * —— 用户想在影院态 seek, 结果把自己拖出了影院态。
+ *
+ * 判据用 .maximized: 它由最大化/还原显式设置, 恰好就是"缩放没有意义"的那个状态。
+ * 【不用】body.cssos-cinema-mode 或 is-cssmv-fullscreen —— 媒体框宪法明写过那两个
+ * 常年挂着, 拿它们判状态得到的结论是假的。
+ * 只收 #watch-panel 一家: 边框 seek 本来就只有它有, 别的面板一个像素不动。 */
+#watch-panel.maximized > .panel-resize-edge,
+#watch-panel.maximized > .panel-resize-corner {
+  pointer-events: none;
+}
+
 /* Edges hug the inside of the panel border. .panel has `overflow:hidden`,
  * so negative offsets would be clipped; everything is tucked inside. */
 .panel-resize-edge.n { top: 0;    left: 14px;   right: 14px;  height: 8px;  cursor: n-resize; }

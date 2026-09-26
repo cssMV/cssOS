@@ -1109,6 +1109,20 @@
      * 只对【当前激活的那条轨】出 cell —— ♪1/♪2 是这一条轨的两个版本, 不是跨语言的概念。
      * 没有第二首时只出 ♪1(不假装有), 头上的计数也就不显 "· 2"。 */
     (function renderTakeCells() {
+      /* CSSOS_WAVE_2199 20260925 — Jing 截图: 激活的 ♪1 印了两遍。
+       *
+       * 实测(现场数 DOM): take-1..take-6 每个键都有【两个】元素, 同 lang/voice ——
+       * 两份都在轨上, 激活那一对还被 merge-l/merge-r 合成一条连续胶囊, 于是标签看着印两遍。
+       *
+       * render() 开头有 bar.innerHTML="" , 单次渲染不该重复; 我按正常路径(点模式头、
+       * 点子胶囊、来回切作品)都复现不出来 —— 那次多半是我自己在那个长期页面里折腾出来的。
+       * 但【复现不出来不等于不会发生】, 而且这类累积一旦发生就一直在。
+       * 所以不赌概率, 改成结构上不可能重复: 建之前先把轨上同类旧格子清干净。
+       * 幂等、零副作用 —— 正常情况下这里一个都删不到。 */
+      try {
+        [].slice.call(bar.querySelectorAll("button.cssos-cell-take[data-take]"))
+          .forEach(function (old) { if (old && old.parentNode) old.parentNode.removeChild(old); });
+      } catch (_dedupErr) {}
       var cur = trackAt(_activeLang, _activeVoice)
         || meaningful.find(function (t) { return t.lang === _activeLang; });
       /* W2116 第3步 — 版本列表来自唯一判据, 不再自己数到 2。

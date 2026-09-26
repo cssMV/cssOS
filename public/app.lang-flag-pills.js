@@ -395,7 +395,18 @@
         ico.textContent = "♪"; nm.textContent = zh ? "多版本" : "Takes"; nn.textContent = nTake > 1 ? ("· " + nTake) : "";
       }
       else { ico.textContent = "🎤"; nm.textContent = zh ? "多声线" : "Voices"; nn.textContent = nVoice > 1 ? ("· " + nVoice) : ""; }
-      b.classList.toggle("active", curMode() === mode);
+      /* CSSOS_WAVE_2199 20260925 — 绿色(.active)与凹咬身份(activeHead)必须是【同一条规则】。
+       *
+       * 原来这里用 curMode(), 而它只在 lang / voice 之间取值 —— 展开 Takes 时它照样判
+       * Languages 为 active, 于是轨道上显示的是 Takes 的子胶囊、绿色却在 Languages 身上。
+       * 这正是 Jing 指出的逻辑不自洽。
+       *
+       * 上面 paintConcave 的 activeHead 已改成【展开的那个头】, 这里必须同步 ——
+       * 只改一处会更怪: 凹咬把 Takes 当岛、绿色却画在 Languages 上, 两套身份互相打架。
+       * 折叠态(_expanded 为空)维持原来的 curMode() 语义, 一个字不动。 */
+      var _isExp = (_expanded === "lang" || _expanded === "voice"
+                 || _expanded === "visual" || _expanded === "take");
+      b.classList.toggle("active", _isExp ? (_expanded === mode) : (curMode() === mode));
       // CSSOS_WAVE_678f — 两个头【永远都显】: 未激活头是宪法凹咬编排的主角(咬向激活组), 不可隐藏。
       b.classList.remove("cssos-cap-hidden");
       // CSSOS_WAVE_587c — 短 title(长串原生 tooltip 浮在轨道上很乱, 见图2)。
@@ -489,8 +500,22 @@
     var caps = [].slice.call(bar.querySelectorAll("button.cssos-mode-cap"));
     var langCap = null, voiceCap = null;
     caps.forEach(function (c) { if (c.dataset.mode === "lang") langCap = c; else if (c.dataset.mode === "voice") voiceCap = c; });
-    var activeHead = curMode() === "lang" ? langCap : voiceCap;
-    var inactiveHead = curMode() === "lang" ? voiceCap : langCap;
+    /* CSSOS_WAVE_2199 20260925 — Jing:「当胶囊头 Takes·6 被选中的时候(轨道上现在显示的
+     * 就是 Takes·6 的子胶囊), Languages 胶囊就不应该还处于绿色被选中激活状态。」
+     *
+     * 他这条逻辑是对的, 而且可以归成一句: 【哪个头展开着, 哪个头就是激活头】——
+     * 轨道上显示谁的子胶囊, 绿色就该在谁身上。
+     *
+     * 原来这一行只在 lang / voice 之间二选一(curMode() 只有这两个值), 是当年只有两个
+     * 模式时写的; W2088 加了 visual、之后又加了 take 之后, 展开 Takes 时 activeHead
+     * 仍被算成 Languages —— 于是 Languages 一直绿着, 而真正展开的 Takes 是灰的。
+     * 这与 W2197 是同一类"老代码没跟上新胶囊", 只是那次漏的是分类, 这次漏的是身份。
+     *
+     * 展开态: 激活头 = 展开的那个头。折叠态: 维持原来的 curMode() 语义, 一个字不动。 */
+    var expandedCap = null;
+    caps.forEach(function (c) { if (_expanded && c.dataset.mode === _expanded) expandedCap = c; });
+    var activeHead = expandedCap || (curMode() === "lang" ? langCap : voiceCap);
+    var inactiveHead = (activeHead === langCap) ? voiceCap : langCap;
     // 可见头(固定 lang,voice 序)。
     var heads = caps.filter(function (c) { return !c.classList.contains("cssos-cap-hidden"); });
     // W2088 — 三个模式一视同仁, visual 也能展开。

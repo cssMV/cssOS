@@ -58,5 +58,23 @@ ok("模拟: 激活头紧挨激活子 → merge-l + merge-r(合成一条)",
 ok("模拟: 激活头没有相邻激活子 → solid(不会错误合并)",
    merge([false, true, false, false])[1] === "solid");
 
+/* ⑤ W2200 — 展开的那个头挪到头组末尾, 紧贴它的子胶囊(否则合不成双激活胶囊) */
+ok("展开态把激活头移到 heads 末尾",
+   /if \(expanded && activeHead && heads\.indexOf\(activeHead\) >= 0\) \{[\s\S]{0,160}?heads\.filter\([\s\S]{0,80}?\.concat\(\[activeHead\]\);/.test(live),
+   "头组固定序 lang,voice,visual,take —— 只有 take 恰好挨着子胶囊, 其余三个合不成一条");
+ok("折叠态不挪(没有'展开的头'时头组保持固定序)", /if \(expanded && activeHead/.test(live));
+ok("只动视觉次序, 不动 DOM(写的是 style.order)",
+   /order\.forEach\(function \(p, i\) \{ p\.style\.order = String\(i\); \}\);/.test(live));
+
+/* 模拟: 四个头 × 每个被展开一次, 激活头都必须紧邻它的子胶囊 */
+const HEADS = ["lang", "voice", "visual", "take"];
+let adjacentAll = true;
+for (const exp of HEADS) {
+  const heads = HEADS.filter((h) => h !== exp).concat([exp]);
+  const order = heads.concat(["cell-active", "cell-2"]);
+  if (order[order.indexOf(exp) + 1] !== "cell-active") adjacentAll = false;
+}
+ok("模拟: 四个头各展开一次, 激活头都紧邻它的激活子胶囊", adjacentAll);
+
 console.log(`\n${fail ? "❌" : "✅"} ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

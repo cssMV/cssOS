@@ -529,6 +529,20 @@
         return (a.classList.contains("active") ? 0 : 1) - (b.classList.contains("active") ? 0 : 1);
       });
     }
+    /* CSSOS_WAVE_2200 20260925 — Jing:「请把展开的那个头挪到头组末尾, 紧贴他的子胶囊。」
+     *
+     * 为什么要挪: W2199 之后【展开的那个头】才是激活头, 它应当和自己那一个激活的子胶囊
+     * 合成一条连续的双激活胶囊(merge-l + merge-r)。可合并的前提是【相邻】——
+     * 头组顺序固定为 lang, voice, visual, take, 子胶囊排在四个头之后, 于是只有 take
+     * (恰好是最后一个头)能贴上; 展开 Languages 时, 🌐 与 🇯🇵日本語 中间隔着三个头,
+     * 两个都绿却合不成一条。规则对四个头必须一视同仁。
+     *
+     * 只动【视觉次序】: 下面 order.forEach 写的是 CSS order, DOM 位置一个都不动
+     * (每轮先把 style.order 清空再按 order 数组重写, 见上面 all.forEach)。
+     * 折叠态不挪 —— 那时没有"展开的头", 头组保持固定的 lang, voice, visual, take 序。 */
+    if (expanded && activeHead && heads.indexOf(activeHead) >= 0) {
+      heads = heads.filter(function (h) { return h !== activeHead; }).concat([activeHead]);
+    }
     var order = heads.concat(cells);
     // CSSOS_WAVE_678n — 幂等护栏(根治"整条轨道抖动"): 算出当前状态签名, 与上次相同就【直接返回, 不写任何
     // style/class】→ 任何反复调用(applyState/observer/其它)都不再触发重排 → 不抖。仅状态真变时才重绘一次。

@@ -1150,3 +1150,98 @@ Jing 屏幕上纹丝不动,只能一次次截图问「你当我眼瞎吗」。
 这件事本身极简单 —— 一个留、一个删,两行 CSS。被我做成六轮返工 + 一整晚,
 Jing 反复截图、反复解释、直到发火。**代价不在代码,在他的时间和情绪。**
 先 grep 一次只要十秒。
+
+---
+
+## 🔒 影院态顶栏与贴边宪法 —— 【W2214/W2215 定稿 · 已锁 · 不得再动】
+
+**Jing 2026-09-26:「请把今天的这种状态保持，最好入宪，不要再动。今天的状态，
+现在的状态，我觉得是完美了。不要再动了。」**
+
+### 一、顶栏一行(返回 ‹ / 搜索框 / 三点 ⋯)
+
+三者**中心对齐在同一行**,行锚是**唯一真源**:
+
+```css
+/* public/style.watch.css 末尾 —— 以下为【逐字照抄】, 改这里先改文件再同步本段 */
+#watch-panel.maximized {
+  --cssos-mv-toprow-center: 30px;
+}
+#watch-panel.maximized #cssos-watch-backbtn,
+#watch-panel.maximized #watch-exit-cinema {
+  top: calc(var(--cssos-mv-toprow-center) - 20px) !important;   /* 两个都是 40px 圆 */
+}
+#watch-panel.maximized #watch-search-box {
+  top: calc(var(--cssos-mv-toprow-center) - 21px) !important;   /* 42px 高 */
+}
+```
+
+| 不可动的性质 | 定稿值 | 为什么 |
+|---|---|---|
+| **一个行锚,三个控件全从它算** | `--cssos-mv-toprow-center: 30px` | 改之前这三个挂在**四个不同的锚**上(`top:10` / `safe+14` / `notch-clear+2` / `safe+4`),中心 y 是 20/32/34/41。Jing 截图里那一幅「一高一低」就是它。 |
+| **减各自半高对齐【中心】** | 圆 −20 / 框 −21 | 高度不同,**设同一个 `top` 看起来仍然不齐**。 |
+| **不带 `safe-area` / `notch-clear`** | 纯 px | Flagship 也不带。带了就在刘海机上被 `max(safe, 50px)` 推到 Flagship 下面 —— **那正是要修的毛病本身**。 |
+| **30px = Flagship(10..30)的下沿** | 行 9..51 与它顶边齐平并重叠 | Jing:「和左上角的 flagship 重叠的高度」「和旗舰标志一样高」。 |
+| **`#cssos-mv-flagship-badge` 的 `top:10px`** | 不许改 | 行锚是**照着它**定的。动它 = 动整行。 |
+
+### 二、贴边一律 10px
+
+凡贴屏幕边的悬浮 chrome,边距**一律 10px**(改前是 12/13/14/20/24 **五种**值):
+
+`#cssos-watch-social-rail`(右侧栏)· `#cssos-rail-ai`(跟随右侧栏)·
+`#cssos-agent-fab`(AI 全局)· `#dock`(四边)· `#cssos-watch-backbtn` ·
+`#watch-exit-cinema` · `#cssos-mv-flagship-badge`
+
+**三样不跟着变 —— 它们不是「贴边」:**
+
+1. `env(safe-area-inset-*)` / `--cssos-notch-clear` 那一项**原样保留**(只把地板数字降到 10)。
+   它管刘海与 home 条,不是边距。
+2. AI FAB 叠在 Dock 之上的 **`+62px` 层距**不动 —— 它站在 Dock 头上,不是自己贴边。
+3. **用户拖过的 AI ＋ 位置仍归用户**(`applyRailAiPos`, W1776)—— 导演铁律:用户干预 > 系统默认。
+
+**坑:一个贴边值可能写在两个地方。** `#watch-exit-cinema` 的 `right` 同时存在于
+`app.watch-search.js` 的 **JS 内联**(网页端生效,没有 `!important` 压它)和 `style.css` 的
+**`html.cssos-app` 覆盖**(App 端生效)。只改一处 → 另一端实测仍是旧值(W2215 第一版就这么漏了)。
+**改完必须两端各量一次。**
+
+搜索框的 `left/right: 60px` **不是**贴边值,不要改成 10 —— 它 = `10 边距 + 40 按钮 + 10 间隙`,
+正好给返回键和三点让位。
+
+### 三、两件【刻意保留】的事 —— 不是待修的 bug
+
+**Jing 明确说过「不,请保留现状」。谁把它们当 bug 去修,就是违宪。**
+
+1. **顶栏那一行压住顶边 seek 带的 10–16px 那一段。**
+   W2205 给了影院态四边 seek(判据 `_BP = 16`),顶栏这一行落在 9..51,于是 10–16 归了顶栏。
+   这是 Jing 在【三件对齐 Flagship】与【顶边整条可 seek】之间**做过的选择**。
+   0–10px 仍归 seek,左右下三条边完整。
+2. **影院态搜索框仍受 10s 空闲淡出**(index.html 的 CHROME 系统 + W296/W849 既有行为)。
+   鼠标一动就回来;`/` 键(W2207)与右轨 🔍(W2208)可随时强制唤出。
+
+### 四、今天这一轮的其余定稿(一并锁)
+
+- **三个老引擎面板已删**(歌词 W2209 / 音乐·视频 W2210):删的是**窗口壳与一切打开入口**;
+  `#lyrics` `#lyric-flow` `#*-progress*` `#waveform` `#storyboard` 等**数据面原样留在
+  `#*-engine-surface`(hidden)里** —— 它们是生成流程真在读写的东西,删了不报错,只会**静默改行为**。
+- **`.toast` 无条件 `pointer-events: none`**(W2213)。它是常驻节点、空闲时 `opacity:0`
+  却照样吃点击,曾固定吃掉顶边带一段。**看不见却挡点击,最难查。**
+- **App Store 横幅整条都是关闭热区**(W2214),× 保留作可见线索。横幅 `top` 回到 12px
+  (W2212 已按 Jing 要求回滚,纯撤销)。
+
+### 红线
+
+1. **本条任何改动都必须先拿到 Jing 明确的「yes」。** 格式:
+   「我打算改 <哪一项> 的 <什么>,原因 <一句话>。是否同意?(yes/no)」**没有 yes 就不动。**
+2. 不接受「顺手」「保持一致」「看着不对」「重构时捎带」「优化一下」。
+   **尤其不接受把第三节那两件当 bug 顺手"修好"。**
+3. **会波及它的改动同样受限** —— 动 `_BP` 的值、动 CHROME 空闲系统、动
+   `.watch-screen`/`.watch-frame` 的定位、给这些控件新叠 `!important` 覆盖块。
+   发现会波及,**先停下来问**。
+4. 改边距**只改各自的真源**,不要新叠覆盖规则 —— 同一个值两个地方写,下一个人必定改错那一个。
+
+### 回归
+
+`scripts/test-uniform-edge-10px.mjs`(贴边 10px + 三样不跟着变)·
+`scripts/test-cinema-search-restored.mjs`(顶栏行锚 + 横幅点哪都能关 + toast 不吃点击)·
+`scripts/test-lyrics-panel-removed.mjs`(三个面板删干净 + 数据面没丢)。
+三份都带 `CALIBRATE=1` 校准(读 git HEAD 必须失败),改动前先跑一遍。

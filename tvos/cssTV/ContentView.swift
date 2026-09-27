@@ -103,6 +103,11 @@ struct ContentView: View {
     @State private var playQueue: [CSSWork] = []
     @State private var playStart: Int = 0
     @State private var showPlayer = false
+    /* CSSOS_WAVE_2231 20260927 — 顶排「More Info」落点(csstv://info/<id>)。
+     * 用 item: 而不是 isPresented: —— 深链带着 id 进来, 两者必须原子, 分成
+     * 「先设 id、再翻开关」会在开关翻起来那一帧读到上一首的 id。 */
+    @State private var infoRef: InfoRef?
+    struct InfoRef: Identifiable { let id: String }
     // CSSOS_WAVE_1523 — Jing「侧栏滚过 hero 后隐藏」: 追踪滚动偏移, 滚过 hero 就藏侧栏(不挡下方栏目), 回滚再显。
     @State private var sidebarVisible = true
     // W1550 — 彻底修复进场焦点闪烁: 冷启动头 0.6s 侧栏【不可聚焦】, 让 hero 首帧起就独占默认焦点,
@@ -257,15 +262,33 @@ struct ContentView: View {
          *     hydrate(它本来就会 hydrate, W1523)。不等 feed = 不让用户盯着首页干等。 */
         .onOpenURL { url in
             guard url.scheme?.lowercased() == "csstv" else { return }
-            // csstv://work/<id> —— host=work, 末段=id
+            /* csstv://work/<id> —— 顶排 Play(直接开播)
+             * csstv://info/<id> —— 顶排 More Info(只看描述, 不播)   [W2231]
+             * 两条深链【必须分流】。上一版 TopShelf 把 playAction 与 displayAction 赋了
+             * 同一个 action, 所以两个按钮做同一件事 —— Jing 一眼就看出来了。 */
             let parts = url.pathComponents.filter { $0 != "/" }
-            guard (url.host?.lowercased() == "work"), let wid = parts.last, !wid.isEmpty else { return }
-            if let hit = allWorks.first(where: { $0.id == wid }) {
-                choose(hit, in: allWorks)
-            } else {
-                playQueue = [CSSWork(id: wid)]
-                playStart = 0
-                showPlayer = true
+            let host = url.host?.lowercased() ?? ""
+            guard let wid = parts.last, !wid.isEmpty else { return }
+            switch host {
+            case "info":
+                infoRef = InfoRef(id: wid)
+            case "work":
+                if let hit = allWorks.first(where: { $0.id == wid }) {
+                    choose(hit, in: allWorks)
+                } else {
+                    playQueue = [CSSWork(id: wid)]
+                    playStart = 0
+                    showPlayer = true
+                }
+            default:
+                return
+            }
+        }
+        // W2231 — 顶排 More Info: 作品简介屏(描述性文字), 看完可以直接 Play。
+        .fullScreenCover(item: $infoRef) { ref in
+            WorkInfoView(workId: ref.id,
+                         known: allWorks.first(where: { $0.id == ref.id })) { w in
+                choose(w, in: allWorks.contains(where: { $0.id == w.id }) ? allWorks : [w])
             }
         }
         .fullScreenCover(isPresented: $showLogin) {

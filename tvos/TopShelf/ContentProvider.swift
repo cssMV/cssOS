@@ -68,10 +68,40 @@ final class ContentProvider: TVTopShelfContentProvider {
             let item = TVTopShelfCarouselItem(identifier: e.id)
             item.title = e.title
             item.setImageURL(fileURL, for: [.screenScale1x, .screenScale2x])
-            if let deep = URL(string: "csstv://work/\(e.id)") {
-                let action = TVTopShelfAction(url: deep)
-                item.displayAction = action
-                item.playAction = action     // 选中/播放都落到同一首
+
+            /* CSSOS_WAVE_2231 20260927 — 标题下面那几行终于有东西了。
+             * Jing:「苹果 TV 显示的是标题和概述说明描述文字, 我们是否也可以那样?」
+             * .details 样式本来就留好了这几格(summary / genre / duration / creationDate /
+             * namedAttributes), 我们之前只填了 title, 所以看着比苹果自家的秃一截 ——
+             * 从来不是样式的问题。 */
+            item.summary = e.summary.isEmpty ? nil : e.summary
+            item.genre = e.genre.isEmpty ? nil : e.genre
+            if e.duration > 0 { item.duration = e.duration }
+            if let d = e.created { item.creationDate = d }
+            var attrs: [TVTopShelfNamedAttribute] = []
+            if !e.owner.isEmpty { attrs.append(TVTopShelfNamedAttribute(name: "Creator", values: [e.owner])) }
+            if !e.langs.isEmpty { attrs.append(TVTopShelfNamedAttribute(name: "Languages", values: e.langs)) }
+            item.namedAttributes = attrs      // 上限 4 条(SDK 规定), 这里最多 2 条
+
+            /* W2231 — Play 与 More Info 必须是【两件事】。
+             *
+             * Jing:「现在点 play 和 More Info 功能一样, 都是播放媒体, 我希望是 More Info
+             *        区域显示描述性文字。」—— 确实一样, 因为上一版这两个属性被赋了
+             *        【同一个 action 对象】(原注释还写着"选中/播放都落到同一首", 那正是毛病)。
+             *
+             * SDK 头文件把话说得很清楚:
+             *   playAction    —— 用户要【播】这一项
+             *   displayAction —— "the action performed when the user wants to see more
+             *                     information about an item"
+             * 所以分成两条深链, App 侧按 host 分流(ContentView.onOpenURL):
+             *   csstv://work/<id> → 直接开播
+             *   csstv://info/<id> → 开作品简介屏(封面 + 曲风 + 作者 + 概述 + 歌词), 不播
+             */
+            if let play = URL(string: "csstv://work/\(e.id)") {
+                item.playAction = TVTopShelfAction(url: play)
+            }
+            if let info = URL(string: "csstv://info/\(e.id)") {
+                item.displayAction = TVTopShelfAction(url: info)
             }
             items.append(item)
         }
@@ -103,7 +133,23 @@ final class ContentProvider: TVTopShelfContentProvider {
         catch { tslog.error("heartbeat 写入失败: \(String(describing: error), privacy: .public)") }
     }
 
-    private struct Entry { let id: String; let title: String; let file: String }
+    /* W2231 — created_at 是 ISO8601 带小数秒("2026-09-25T00:21:09.893Z")。
+     * 不带 .withFractionalSeconds 会【整条解析失败返回 nil】—— 不是少了毫秒精度,
+     * 是一个日期都拿不到。静默失败, 顶排上表现为"发布日期那格永远空着"。 */
+    private static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private struct Entry {
+        let id: String; let title: String; let file: String
+        // W2231 — 描述四件套(App 侧写进清单; 扩展零网络直接用)。
+        var summary = ""; var genre = ""; var owner = ""
+        var langs: [String] = []
+        var duration: TimeInterval = 0
+        var created: Date?
+    }
 
     /// 零网络读 App 写进 App Group 的清单。
     private func readCache() -> [Entry] {
@@ -112,7 +158,14 @@ final class ContentProvider: TVTopShelfContentProvider {
               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { return [] }
         return arr.compactMap { d in
             guard let id = d["id"], let file = d["file"], !id.isEmpty, !file.isEmpty else { return nil }
-            return Entry(id: id, title: d["title"] ?? "cssTV", file: file)
+            var e = Entry(id: id, title: d["title"] ?? "cssTV", file: file)
+            e.summary = d["summary"] ?? ""
+            e.genre = d["genre"] ?? ""
+            e.owner = d["owner"] ?? ""
+            e.langs = (d["langs"] ?? "").split(separator: ",").map { String($0).uppercased() }
+            e.duration = Double(d["duration"] ?? "") ?? 0
+            if let c = d["created"], !c.isEmpty { e.created = Self.iso.date(from: c) }
+            return e
         }
     }
 }

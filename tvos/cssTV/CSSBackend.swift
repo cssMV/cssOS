@@ -81,6 +81,18 @@ enum CSSBackend {
             }
             var d: [String: String] = ["id": w.id, "title": w.title ?? "cssTV", "file": dest.path]
             if let v = w.bestVideo, !v.isEmpty { d["video"] = v }
+            /* CSSOS_WAVE_2231 20260927 — 清单里补上【描述三件套】。
+             * Jing:「苹果 TV 显示的是标题和概述说明描述文字, 我们是否也可以那样?」
+             * 顶排 .details 样式本来就有 summary / genre / duration / creationDate 四个位,
+             * 我们一直只填了 title —— 所以底下一直是空的。不是苹果不给, 是我们没给。
+             * 扩展进程【没有网络】, 这些字必须和封面一样【现在就写进清单】, 那边零网络直接用。 */
+            let sm = w.summaryText
+            if !sm.isEmpty { d["summary"] = sm }
+            if let st = w.style, !st.isEmpty { d["genre"] = st }
+            if let du = w.durationSecs, du > 0 { d["duration"] = String(du) }
+            if let ca = w.createdAt, !ca.isEmpty { d["created"] = ca }
+            if let on = w.ownerName, !on.isEmpty { d["owner"] = on }
+            if let ls = w.availableLangs, !ls.isEmpty { d["langs"] = ls.joined(separator: ",") }
             items.append(d)
         }
         // 清掉本轮没用到的旧图。
@@ -534,6 +546,27 @@ enum CSSBackend {
         struct DataField: Codable { let works: [CSSWork]? }
         var resolved: [CSSWork]? { works ?? data?.works }
     }
+    /* CSSOS_WAVE_2231 20260927 — 拉单首作品的【完整行】(简介屏用)。
+     *
+     * 与 hydrate 的区别不是风格问题, 是【会不会拉】的问题: hydrate 第一句就是
+     *   guard work.videoURL == nil || work.audioURL == nil
+     * —— 媒体地址齐了就【直接原样返回, 一次网络都不发】。那对它的用途(补播放地址)是对的,
+     * 对简介屏是致命的: 顶排卡片的媒体地址本来就是齐的, 于是 style / lyrics_preview /
+     * owner_name 一个都补不回来, 简介屏永远空着。所以这里另起一个【无条件拉全行】的口子。
+     */
+    static func fetchWorkDetail(id: String) async -> CSSWork? {
+        guard !id.isEmpty, let url = URL(string: "\(baseURL)/api/works/\(id)") else { return nil }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let decoder = JSONDecoder()
+            if let env = try? decoder.decode(WorkEnvelope.self, from: data), let w = env.resolved { return w }
+            if let w = try? decoder.decode(CSSWork.self, from: data) { return w }
+        } catch {
+            print("[CSSBackend] fetchWorkDetail failed:", error)
+        }
+        return nil
+    }
+
     private struct WorkEnvelope: Codable {
         let work: CSSWork?
         let data: DataField?

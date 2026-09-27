@@ -67,6 +67,22 @@ struct PlayerView: View {
     @State private var selectedTrackId: String?
     @Environment(\.dismiss) private var dismiss
 
+    /* CSSOS_WAVE_2231 20260927 — 胶囊改成【按确认键才浮现】。
+     *
+     * Jing:「按确认键, 浮现显示胶囊。」
+     *
+     * 【顺带修掉一个方向键打架】: 胶囊常驻时它里面的 Button 是可聚焦的, 和整块舞台
+     * (.focusable + .onMoveCommand 的 ←/→ 快退快进)抢同一组方向键 —— 焦点落在哪边,
+     * 另一边的方向键就全废。藏起来之后两者【在时间上错开】, 各自都完整:
+     *   胶囊没浮现 → 焦点在舞台 → ←/→ 快退快进, ↑/↓ 切枝(原行为, 一个字没改)
+     *   胶囊浮现   → 焦点在胶囊 → ←/→ 在各语言/声线之间走, 确认键切轨并收起
+     * 收起后焦点【必须显式还给舞台】, 否则 SwiftUI 会把焦点甩到别处, 方向键当场失灵。 */
+    @State private var showPills = false
+    @FocusState private var stageFocused: Bool
+    @FocusState private var focusedPill: String?
+    /// 浮现后 8 秒无操作自动收起 —— 电视上任何常驻浮层都是在挡画面。
+    @State private var pillHideToken = 0
+
     // W1329 — 连播队列(多部=各 part; 单曲=自己一首)+ 当前 part。
     private var parts: [CSSWork] { work.playbackParts }
     /// W2219 — 当前选中语言轨的 ♪N 列表。后端没给(老作品 / 出口挂了)→ 空数组 = 按单版处理,
@@ -98,15 +114,19 @@ struct PlayerView: View {
                 .clipped()
                 .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
-                // CSSOS 20260701 — Jing「照搬桌面播放器绿光, 别乱猜」。桌面 .panel-active:
-                //   border rgba(0,245,160,0.55) + box-shadow 0 0 28px rgba(0,245,160,0.45)。
-                //   细边 + 单层 28px 柔光, 自然不刺眼。与彩虹边框进度条分层共存。
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.55), lineWidth: 1.5)
-                    .frame(width: geo.size.width, height: boxH)
-                    .shadow(color: Color(red: 0.0, green: 0.96, blue: 0.63).opacity(0.45), radius: 28)
-                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                    .allowsHitTesting(false)
+                /* CSSOS_WAVE_2231 20260927 — 取消静态绿色描边。
+                 *
+                 * Jing:「请取消媒体播放器的绿色边框, 让进度条来描绘就好了。」
+                 *
+                 * 原来这里是一圈【常亮】的 1.5px 绿边 + 28px 柔光(W1348 之前抄的桌面
+                 * .panel-active)。它和下面那条【边框进度条】画在同一条线上 —— 两条描边
+                 * 叠在一起, 进度走到哪里看不出来, 因为底下那圈本来就是满的。
+                 * 现在这条线【只归进度条】: 亮到哪里 = 播到哪里, 边框本身就是进度。
+                 *
+                 * 【这不是 W1983 媒体框宪法那一圈】。那一条管的是网页端
+                 * public/style.watch.css 的 .watch-screen::after(散发绿色光芒, 已锁),
+                 * 与本文件无关, 一个字都没动。别把这两处混成一件事。
+                 */
 
                 // W1348 — 取消静态绿光; 改为【边框进度条】(一字照搬桌面 app.watch-stage-bars.js):
                 //   沿 2.39 画框四周走一圈的描边, 长度 = 音频主时钟 currentTime/duration, 颜色 6 段流动 + 柔光。
@@ -215,7 +235,7 @@ struct PlayerView: View {
 
             // W1370 — 多语言/多声线: 胶囊宪法(像 hero 那样的两头圆胶囊), ≥2 条可播轨才显示。
             //   位置铁律: 放在 2.39 视频框【下边缘之下】那条黑边的【中线】, 既不压画框、又不进电视过扫描区。
-            if langTracks.count >= 2 {
+            if showPills && langTracks.count >= 2 {
                 GeometryReader { geo in
                     let halfPill: CGFloat = 25                                  // 胶囊半高(≈50/2)
                     let boxBottom = geo.size.height / 2 + (geo.size.width / 2.39) / 2   // 视频框下边缘 y
@@ -249,6 +269,7 @@ struct PlayerView: View {
                 }
                 .ignoresSafeArea()
                 .allowsHitTesting(true)
+                .transition(.opacity)
             }
 
             // W1553 — 删掉左下角的「选枝胶囊(square.stack 1 2 3)」: 与标题栏里的「1 / 3」徽章重复。
@@ -259,6 +280,7 @@ struct PlayerView: View {
         // W1526 — Jing「播放时遥控器上下左右要有动作」: 让全屏播放器接管方向键。
         //   ←/→ 快退/快进 10s; ↑ 上一枝丫/作品(播>3s 先回本枝开头); ↓ 下一枝丫/作品。Menu 键退出。
         .focusable(true)
+        .focused($stageFocused)
         .onMoveCommand { dir in
             switch dir {
             case .left:  seekBy(-10)
@@ -267,6 +289,44 @@ struct PlayerView: View {
             case .down:  gotoNext()
             @unknown default: break
             }
+        }
+        /* W2231 — tvOS 上, 焦点视图收到【确认键(Select)】就是一次 tap。
+         * 只有 ≥2 条轨才值得浮现: 一条轨的胶囊没得选, 弹出来只是挡画面。 */
+        .onTapGesture { if langTracks.count >= 2 { togglePills() } }
+        .animation(.easeOut(duration: 0.22), value: showPills)
+    }
+
+    // MARK: - W2231 胶囊浮现 / 收起
+
+    private func togglePills() {
+        if showPills { hidePills() } else { revealPills() }
+    }
+
+    private func revealPills() {
+        showPills = true
+        /* 焦点【必须晚一拍再给】: 这一帧胶囊按钮还没进入渲染树, 此刻写 focusedPill
+         * 等于写给一个不存在的视图, 静默失效 —— 表现就是"浮现了但方向键动不了"。 */
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            if showPills { focusedPill = selectedTrackId }
+        }
+        schedulePillHide()
+    }
+
+    private func hidePills() {
+        pillHideToken &+= 1        // 作废在途的自动收起, 免得它把刚浮现的又关掉
+        showPills = false
+        focusedPill = nil
+        // 焦点还给舞台, 否则 ←/→ ↑/↓ 全部失灵(SwiftUI 不会自己还)。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { stageFocused = true }
+    }
+
+    /// 8 秒无操作自动收起。token 比对 = 每次操作都把上一个计时作废(去抖)。
+    private func schedulePillHide() {
+        pillHideToken &+= 1
+        let mine = pillHideToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+            guard mine == pillHideToken, showPills else { return }
+            hidePills()
         }
     }
 
@@ -393,7 +453,7 @@ struct PlayerView: View {
         let on = side == .none
         let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
         let capR: CGFloat = 25
-        Button { switchTrack(tr) } label: {
+        Button { switchTrack(tr); hidePills() } label: {
             HStack(spacing: 6) {
                 if tr.isDefault { Image(systemName: "lock.fill").font(.system(size: 13, weight: .bold)) }
                 Text(tr.label).font(.system(size: 22, weight: on ? .bold : .medium))
@@ -407,6 +467,8 @@ struct PlayerView: View {
             .shadow(color: .black.opacity(0.5), radius: 4)
         }
         .buttonStyle(.plain)
+        .focused($focusedPill, equals: tr.id)          // W2231 — 浮现时把焦点落到当前轨
+        .onChange(of: focusedPill) { _, _ in schedulePillHide() }   // 动一下就重新计时
     }
 
     // W1364 — 切换语言×声线: 只换音频(主时钟)+ 字幕, 视频画面不动(画音分层铁律)。

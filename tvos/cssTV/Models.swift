@@ -83,6 +83,18 @@ struct CSSWork: Codable, Identifiable {
     var coverFocalY: Double?
     /// 时长(秒)。
     var durationSecs: Double?
+    /* CSSOS_WAVE_2231 20260927 — 顶排要显示【标题 + 概述描述】(Jing:「苹果 TV 显示的是
+     * 标题和概述说明描述文字, 我们是否也可以那样?」)。以前这三列一直没解出来, 于是顶排
+     * 只有一个标题, 下面空着 —— 不是显示不了, 是我们【根本没把描述取回来】。
+     * 后端 /api/works/market 这三列本来就在返回里, 白放着。 */
+    /// 曲风(后端 style)。顶排的 genre 一行, 也是描述屏的副标题。
+    var style: String?
+    /// 歌词开头若干行(后端 lyrics_preview)。顶排/描述屏的概述正文取自它。
+    var lyricsPreview: String?
+    /// 作者显示名(后端 owner_name)。
+    var ownerName: String?
+    /// 已有语言轨(后端 available_langs)。
+    var availableLangs: [String]?
     /// 作品类型(single/opera/film/series/triptych…)。CSSOS_WAVE_1227 首页分轨用。
     var workType: String?
     /// 创建时间(ISO8601 串)。W1281 — For You 严格从新到旧排序用(字典序=时间序)。
@@ -111,6 +123,10 @@ struct CSSWork: Codable, Identifiable {
         case coverFocalX = "cover_focal_x"
         case coverFocalY = "cover_focal_y"
         case durationSecs = "duration_secs"
+        case style
+        case lyricsPreview = "lyrics_preview"
+        case ownerName = "owner_name"
+        case availableLangs = "available_langs"
         case workType = "work_type"
         case createdAt = "created_at"
         case children
@@ -142,6 +158,31 @@ struct CSSWork: Codable, Identifiable {
         let c = listenPriceCents ?? 0
         guard c > 0 else { return "" }
         return "¥" + String(format: "%.2f", Double(c) / 100).replacingOccurrences(of: ".00", with: "")
+    }
+
+    /* W2231 — 概述正文。歌词原文直接拿来当描述是不行的:
+     *   ① 京典模版的歌词里【每一节都带方括号小节标题】([Verse 1: …] / [Chorus] / [间奏]),
+     *      那是给 Suno 的编曲指令, 不是给人看的文案 —— 原样丢进顶排就是一堆方括号。
+     *   ② 歌词是【一行一短句】, 连成一段会糊成一团, 要用分隔符断开。
+     * 所以这里滤掉方括号行与空行, 取开头几句, 用「 / 」连起来。 */
+    var summaryText: String {
+        let lines = (lyricsPreview ?? "")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { l in
+                guard !l.isEmpty else { return false }
+                // 方括号小节标题(半角 [ 与全角 【 都有)
+                if l.hasPrefix("[") || l.hasPrefix("【") { return false }
+                return true
+            }
+        guard !lines.isEmpty else { return style ?? "" }
+        var out = ""
+        for l in lines.prefix(6) {
+            let next = out.isEmpty ? l : out + " / " + l
+            if next.count > 200 { break }
+            out = next
+        }
+        return out.isEmpty ? String(lines[0].prefix(200)) : out
     }
 
     var durationLabel: String {

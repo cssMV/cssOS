@@ -82,6 +82,10 @@ struct PlayerView: View {
     @FocusState private var focusedPill: String?
     /// 浮现后 8 秒无操作自动收起 —— 电视上任何常驻浮层都是在挡画面。
     @State private var pillHideToken = 0
+    /// W2243 — 当前展开的模式头。顺序与命名照电脑端那一组固定导航。
+    @State private var pillMode = "lang"
+    /// W2243 — 确认键去抖时间戳(tap / longPress 两条路共用)。
+    @State private var lastPillToggle: Date = .distantPast
 
     // W1329 — 连播队列(多部=各 part; 单曲=自己一首)+ 当前 part。
     private var parts: [CSSWork] { work.playbackParts }
@@ -233,39 +237,60 @@ struct PlayerView: View {
                 .allowsHitTesting(false)
             }
 
-            // W1370 — 多语言/多声线: 胶囊宪法(像 hero 那样的两头圆胶囊), ≥2 条可播轨才显示。
-            //   位置铁律: 放在 2.39 视频框【下边缘之下】那条黑边的【中线】, 既不压画框、又不进电视过扫描区。
-            if showPills && langTracks.count >= 2 {
+            /* CSSOS_WAVE_2243 20260927 — 确认键浮现【多胶囊条】(照电脑端那一条)。
+             *
+             * Jing:「我试了, 还没有显示, 应该像电脑端显示的多胶囊。」
+             *
+             * 【上一版为什么一按没反应】不是手势没接住, 是我自己加的闸门挡死了:
+             *     .onTapGesture { if langTracks.count >= 2 { togglePills() } }
+             * 《白鹤报恩》只有【一条】语言轨(ja) → count==1 → 按了什么也不发生。
+             * 那个 `>= 2` 是从旧的"只放语言胶囊"时代留下的判据 —— 现在这条轨上还有
+             * 声线 / ♪N / 画面, 一条语言轨的作品照样该能调, 闸门本身就是错的。
+             *
+             * 【模式头照搬电脑端那六个】(public/app.lang-flag-pills.js 的原话:
+             *  "模式头(Settings/Fine-tune/Languages/Voices/Visuals/Takes)是一组固定的导航"),
+             * 不自己另起一套顺序或命名。
+             *
+             * 位置仍守原铁律: 放在 2.39 画框【下边缘之下】那条黑边里, 不压画面、不进过扫描区。
+             */
+            if showPills {
+                /* 版式照电脑端那一条: 【压在画面底部的半透明轨】, 不是塞进 2.39 的黑边。
+                 * 第一版我按黑边算坐标, 结果面板中心落到 1027、132 高跨到 1093 —— 屏幕只有 1080,
+                 * 下半截被切掉(实测截图里"日本語"那行只露出上沿)。根因是我写的
+                 *     max(boxBottom + 20, min(boxBottom + 24, maxTop))
+                 * 外层的 max 把过扫描上限 maxTop 直接盖掉了 —— 写了限位却没生效, 比没写更糟。
+                 * 现在不算坐标了: 贴底 + 固定留白, 没有能算错的东西。 */
+                /* 位置: 【紧贴 2.39 媒体框的下沿】。
+                 *
+                 * Jing:「取消 10px 靠边规则, 因这不是电脑端, 这是 TV 端, 改为紧贴媒体框下方。」
+                 * 这其实是回到 W1370 原本那条位置铁律 —— 胶囊放在画框下边缘之下那条黑边里,
+                 * 既不压画面, 又跟着画面走。10px 贴边是网页端的规则, 那里没有"画框下边缘"这回事。
+                 *
+                 * 【必须 ignoresSafeArea 才量得准】: 不穿过安全区, geo.size.height 会少掉
+                 * tvOS 那 ~60pt 过扫描留白, 算出来的画框下沿就整体偏上。
+                 * 用"上面垫一个 Spacer"来定位, 不用 .position —— 后者要先知道自己的高度,
+                 * 而这条 bar 的高度随模式行有无而变, 猜高度正是上一版落错位的原因。 */
                 GeometryReader { geo in
-                    let halfPill: CGFloat = 25                                  // 胶囊半高(≈50/2)
-                    let boxBottom = geo.size.height / 2 + (geo.size.width / 2.39) / 2   // 视频框下边缘 y
-                    let bandMid = boxBottom + (geo.size.height - boxBottom) / 2 // 下方黑边中线
-                    let maxY = geo.size.height - 60 - halfPill                  // 离屏底 ≥60(过扫描)
-                    let minY = boxBottom + 28 + halfPill                        // 离画框 ≥28
-                    let y = max(minY, min(bandMid, maxY))
-                    let si = langTracks.firstIndex(where: { $0.id == selectedTrackId }) ?? 0
-                    HStack {
-                        Spacer()
-                        HStack(spacing: 14) {
-                            Image(systemName: "globe").font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.65))
-                            // W1371 — 凹凸镶嵌(胶囊宪法): 选中=凸(两头圆), 左邻凹右、右邻凹左, 都朝选中咬合; 负间距重叠。
-                            HStack(spacing: -25) {   // -capR 咬合
-                                ForEach(Array(langTracks.enumerated()), id: \.element.id) { pair in
-                                    let j = pair.offset
-                                    let side: ConcavePill.Side = j == si ? .none : (j < si ? .right : .left)
-                                    langCapsule(pair.element, side: side)
-                                        .zIndex(j == si ? 100 : Double(langTracks.count - abs(j - si)))
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 18).padding(.vertical, 8)
-                        .background(Capsule().fill(.black.opacity(0.42)))      // 胶囊轨道底(像 hero 轨道)
+                  let boxBottom = geo.size.height / 2 + (geo.size.width / 2.39) / 2
+                  VStack(spacing: 0) {
+                    // CSSPillBar 自带约 7pt 透明上边 —— 抵掉它, 让【看得见的胶囊】贴住画框下沿。
+                    Spacer().frame(height: max(0, boxBottom - 7))
+                    VStack(spacing: 12) {
+                        CSSPillBar(items: pillModes, selected: Binding(
+                            get: { pillMode },
+                            set: { m in pillMode = m; schedulePillHide() }
+                        ), hug: true, autofocus: true, onChange: { _ in schedulePillHide() })
+                        /* 【不要给它 .fixedSize】—— CSSPillBar 内部是 GeometryReader,
+                         * GeometryReader 没有固有宽度, .fixedSize(horizontal:) 会把它压成 0。
+                         * 实测就是这么塌的: 屏幕上只剩选项行那枚"日本語", 模式行变成它上面一条细缝。 */
                         .focusSection()
-                        .padding(.trailing, 56)
+
+                        pillModeRow                                 // 当前模式下的可选项
+                            .focusSection()
                     }
-                    .frame(width: geo.size.width)
-                    .position(x: geo.size.width / 2, y: y)
+                    Spacer(minLength: 0)
+                  }
+                  .frame(width: geo.size.width, height: geo.size.height)
                 }
                 .ignoresSafeArea()
                 .allowsHitTesting(true)
@@ -292,13 +317,34 @@ struct PlayerView: View {
         }
         /* W2231 — tvOS 上, 焦点视图收到【确认键(Select)】就是一次 tap。
          * 只有 ≥2 条轨才值得浮现: 一条轨的胶囊没得选, 弹出来只是挡画面。 */
-        .onTapGesture { if langTracks.count >= 2 { togglePills() } }
+        /* W2243 — 确认键【两条路都接】。
+         *
+         * 我按不了遥控器(devicectl/simctl 都没有发送遥控器按键的能力), 所以无法自证
+         * .onTapGesture 在 tvOS 这个焦点视图上到底接不接得住 Select。
+         * 与其赌一条, 不如两条都接: onTapGesture 是文档里的正路, onLongPressGesture
+         * 把极短的按下也算一次 —— 哪条通都能开。
+         *
+         * 【但两条同时通就各触发一次 → toggle 两回 → 又变回原样, 表现恰好也是"按了没反应"】。
+         * 所以 togglePills 里加了 350ms 去抖: 同一次按键无论触发几条路径, 只算一次。
+         * 这一条不是保险, 是【必须的】—— 少了它, "两条都接"反而比只接一条更糟。
+         *
+         * 顺带去掉 `langTracks.count >= 2` 那个闸门: 它是"只放语言胶囊"时代的判据,
+         * 而单语言作品照样有声线 / ♪N 可调 ——《白鹤报恩》正是被它挡死的。 */
+        .onTapGesture { togglePills() }
+        .onLongPressGesture(minimumDuration: 0.01) { togglePills() }
+        /* W2244 —「除非退出」: 胶囊开着时 Menu 先收胶囊(焦点回舞台, ←/→ 恢复快进),
+         * 再按一次才退出播放器。没有这一条, 用户想把胶囊关掉就只能等 10 秒自动收。 */
+        .onExitCommand { if showPills { hidePills() } else { dismiss() } }
         .animation(.easeOut(duration: 0.22), value: showPills)
     }
 
     // MARK: - W2231 胶囊浮现 / 收起
 
     private func togglePills() {
+        // 同一次按键可能从 tap / longPress 两条路各来一次 —— 350ms 内只认头一次。
+        let now = Date()
+        guard now.timeIntervalSince(lastPillToggle) > 0.35 else { return }
+        lastPillToggle = now
         if showPills { hidePills() } else { revealPills() }
     }
 
@@ -306,9 +352,12 @@ struct PlayerView: View {
         showPills = true
         /* 焦点【必须晚一拍再给】: 这一帧胶囊按钮还没进入渲染树, 此刻写 focusedPill
          * 等于写给一个不存在的视图, 静默失效 —— 表现就是"浮现了但方向键动不了"。 */
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-            if showPills { focusedPill = selectedTrackId }
-        }
+        /* W2244 — 焦点交给【模式行】(CSSPillBar autofocus), 不再自己去点选项行。
+         *
+         * 原来这里写 focusedPill = selectedTrackId —— 那是【选项行】的 id。
+         * 而单语言作品的选项行根本不渲染(W2243b), 于是焦点落在一个不存在的视图上、
+         * 静默失效, 焦点留在舞台 → ←/→ 继续快进, 正是 Jing 说的"方向键还在媒体框上"。
+         * 模式行是永远都在的那一行, 焦点该落在它身上。 */
         schedulePillHide()
     }
 
@@ -320,11 +369,12 @@ struct PlayerView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { stageFocused = true }
     }
 
-    /// 8 秒无操作自动收起。token 比对 = 每次操作都把上一个计时作废(去抖)。
+    /// 无操作自动收起。token 比对 = 每次操作都把上一个计时作废(去抖)。
+    /// 10 秒是平台默认闲置时长(Jing:「没有刻意要求的, 默认都是 10 秒」), 不要自己另定。
     private func schedulePillHide() {
         pillHideToken &+= 1
         let mine = pillHideToken
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
             guard mine == pillHideToken, showPills else { return }
             hidePills()
         }
@@ -446,17 +496,135 @@ struct PlayerView: View {
         }
     }
 
+    // MARK: - W2243 多胶囊条
+
+    /* 模式头 —— 顺序与命名照电脑端那一组固定导航, 不自己另起。
+     * 【只列 TV 端真接得上料的】: Languages / Voices / Takes 背后都有实数据,
+     * 按下去真的会换轨换版本。Settings / Fine-tune / Visuals 在 TV 端【还没有控件】——
+     * 与其摆两枚按下去什么也不发生的胶囊(那比不摆更糟, 用户会以为坏了), 不如先不摆,
+     * 等它们在 TV 上真有东西可调时再加回来。这一条我会明确告诉 Jing, 不当作"做完了"。 */
+    private var pillModes: [CSSPillItem] {
+        [
+            CSSPillItem(id: "settings", label: "Settings",  icon: "gearshape"),
+            CSSPillItem(id: "tune",     label: "Fine-tune", icon: "slider.horizontal.3"),
+            CSSPillItem(id: "lang",     label: "Languages", icon: "globe"),
+            CSSPillItem(id: "voice",    label: "Voices",    icon: "waveform"),
+            CSSPillItem(id: "visual",   label: "Visuals",   icon: "photo.on.rectangle"),
+            CSSPillItem(id: "take",     label: "Takes",     icon: "music.note.list"),
+        ]
+    }
+
+    /// 当前语言下的全部声线(多声线胶囊的料)。
+    private var voicesOfCurrentLang: [CSSBackend.CSSLangTrack] {
+        let l = langTracks.first(where: { $0.id == selectedTrackId })?.lang
+            ?? langTracks.first?.lang ?? ""
+        return langTracks.filter { $0.lang == l }
+    }
+
+    /// 当前语言(按 lang 去重, 每种语言取默认/第一条轨代表)。
+    private var languageHeads: [CSSBackend.CSSLangTrack] {
+        var seen = Set<String>(); var out: [CSSBackend.CSSLangTrack] = []
+        for t in langTracks where !seen.contains(t.lang) {
+            seen.insert(t.lang)
+            out.append(langTracks.first(where: { $0.lang == t.lang && $0.isDefault }) ?? t)
+        }
+        return out
+    }
+
+    /// 选中模式下那一行可选项。凹凸镶嵌照旧走 ConcavePill —— 不另造一套胶囊样式。
+    @ViewBuilder
+    private var pillModeRow: some View {
+        /* CSSOS_WAVE_2243b — 【只有真的有得选才出这一行】。
+         *
+         * Jing:「删掉旧版(日本语)。」—— 他看到的那枚孤零零的"日本語"其实是新版的选项行,
+         * 但《白鹤报恩》只有一种语言, 那一枚按下去也是它自己, 摆着纯属噪音, 还把胶囊条撑高一截。
+         * 只有一个选项 = 没有选择 = 不该占一行。Takes 有 ♪1–♪6, 那一行才是真的多胶囊。 */
+        switch pillMode {
+        case "voice":
+            if voicesOfCurrentLang.count > 1 { trackRow(voicesOfCurrentLang, labelFor: { $0.voiceLabel }) }
+        case "take":
+            if currentTakes.count > 1 { takeRow }
+        case "settings", "tune", "visual":
+            /* 【实话实说】这三格在 TV 端还没有控件 —— 桌面上它们各自连着一整套面板
+             * (设置 / 情绪字幕微调 / 多画面切换), 那些不是一行胶囊能搬过来的。
+             * 与其摆几枚按下去什么也不发生的胶囊(那比不摆更糟: 用户会以为坏了),
+             * 不如把话说清楚。哪一格 Jing 要先做, 我就先做哪一格。 */
+            pillNote("Not on TV yet — available on cssstudio.app")
+        default:
+            if languageHeads.count > 1 { trackRow(languageHeads, labelFor: { $0.label }) }
+        }
+    }
+
+    @ViewBuilder
+    private func pillNote(_ t: String) -> some View {
+        Text(t)
+            .font(.system(size: 20))
+            .foregroundStyle(.white.opacity(0.45))
+            .frame(height: 50)
+    }
+
+    @ViewBuilder
+    private func trackRow(_ list: [CSSBackend.CSSLangTrack],
+                          labelFor: @escaping (CSSBackend.CSSLangTrack) -> String) -> some View {
+        let si = list.firstIndex(where: { $0.id == selectedTrackId }) ?? 0
+        HStack(spacing: -25) {                      // -capR 咬合(胶囊宪法)
+            ForEach(Array(list.enumerated()), id: \.element.id) { pair in
+                let j = pair.offset
+                let side: ConcavePill.Side = j == si ? .none : (j < si ? .right : .left)
+                langCapsule(pair.element, side: side, title: labelFor(pair.element))
+                    .zIndex(j == si ? 100 : Double(list.count - abs(j - si)))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var takeRow: some View {
+        let si = min(takeIndex, max(currentTakes.count - 1, 0))
+        HStack(spacing: -25) {
+            ForEach(Array(currentTakes.enumerated()), id: \.offset) { pair in
+                let j = pair.offset
+                let side: ConcavePill.Side = j == si ? .none : (j < si ? .right : .left)
+                takeCapsule(pair.element, index: j, side: side)
+                    .zIndex(j == si ? 100 : Double(currentTakes.count - abs(j - si)))
+            }
+        }
+    }
+
+    /// 一枚 ♪N 胶囊。名字用后端给的 label(多声线胶囊里要认得出哪版是哪版), 没有才回落 ♪N。
+    @ViewBuilder
+    private func takeCapsule(_ tk: CSSBackend.CSSTake, index: Int, side: ConcavePill.Side) -> some View {
+        let on = side == .none
+        let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
+        let capR: CGFloat = 25
+        Button { playTake(index); hidePills() } label: {
+            Text(tk.label.isEmpty ? "\u{266A}\(index + 1)" : tk.label)
+                .font(.system(size: 22, weight: on ? .bold : .medium))
+                .lineLimit(1)
+                .padding(.leading, side == .left ? capR + 10 : 18)
+                .padding(.trailing, side == .right ? capR + 10 : 18)
+                .frame(height: 50)
+                .foregroundStyle(on ? Color.black : Color.white.opacity(0.92))
+                .background(ConcavePill(side: side).fill(on ? brandGreen : Color.white.opacity(0.16)))
+                .overlay(ConcavePill(side: side).stroke(on ? Color.clear : Color.white.opacity(0.22), lineWidth: 1))
+                .shadow(color: .black.opacity(0.5), radius: 4)
+        }
+        .buttonStyle(.plain)
+        .focused($focusedPill, equals: "take-\(index)")
+        .onChange(of: focusedPill) { _, _ in schedulePillHide() }
+    }
+
     // W1371 — 单个语言胶囊(胶囊宪法·凹凸镶嵌): 用 ConcavePill 与 hero 同款。
     //   side=.none 凸(选中, 两头圆), .left/.right 朝选中那侧凹; 凹侧内边距加大让字不被咬。
     @ViewBuilder
-    private func langCapsule(_ tr: CSSBackend.CSSLangTrack, side: ConcavePill.Side) -> some View {
+    private func langCapsule(_ tr: CSSBackend.CSSLangTrack, side: ConcavePill.Side,
+                             title: String? = nil) -> some View {
         let on = side == .none
         let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
         let capR: CGFloat = 25
         Button { switchTrack(tr); hidePills() } label: {
             HStack(spacing: 6) {
                 if tr.isDefault { Image(systemName: "lock.fill").font(.system(size: 13, weight: .bold)) }
-                Text(tr.label).font(.system(size: 22, weight: on ? .bold : .medium))
+                Text(title ?? tr.label).font(.system(size: 22, weight: on ? .bold : .medium)).lineLimit(1)
             }
             .padding(.leading, side == .left ? capR + 10 : 18)
             .padding(.trailing, side == .right ? capR + 10 : 18)

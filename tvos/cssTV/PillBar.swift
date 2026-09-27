@@ -18,6 +18,22 @@ struct CSSPillBar: View {
     @Binding var selected: String
     var locked: Bool = false                 // 锁定态: 只展示不可切换(导演台从某栏进入时锁戏路)
     var mono: Bool = false                   // 单色品牌绿(宪法 mono 选项)
+    /* CSSOS_WAVE_2243c — hug: 按【内容宽】排, 胶囊彼此咬紧; 不铺满可用宽度。
+     *
+     * Jing:「多胶囊之间间隔太大, 应该咬紧。」默认那条(equalWidth)给每枚
+     * maxWidth:.infinity 均分整条轨 —— 标签短的胶囊被撑得很宽, 看着就是"间隔太大"。
+     * 桌面端那条一直是按内容宽咬紧的, 这里补回同一个观感。
+     * 【默认仍是 false】—— 导演台/问道/试戏那几条已经在用均宽版, 不要改它们的现状。 */
+    var hug: Bool = false
+    /* CSSOS_WAVE_2244 — autofocus: 出现时把焦点【主动落到当前选中那枚】。
+     *
+     * Jing:「当多胶囊显示的时候, 焦点应该移动到多胶囊上, 这时候左右方向键应该是在多胶囊上工作,
+     *        暂时不在媒体框上, 除非退出。」
+     * 这条 bar 的焦点是它自己的 @FocusState, 外面设不进去 —— 播放器那边原来把焦点给的是
+     * 【选项行】的胶囊, 而单语言作品的选项行根本不渲染, 焦点就落在一个不存在的视图上,
+     * 结果留在舞台, ←/→ 继续在快进。所以这个口子是必需的, 不是锦上添花。
+     * 【默认 false】—— 别的调用方(导演台/问道/试戏)的焦点行为一律不动。 */
+    var autofocus: Bool = false
     var onChange: (String) -> Void = { _ in }
 
     @FocusState private var focused: String?
@@ -29,6 +45,26 @@ struct CSSPillBar: View {
     private var activeIndex: Int { items.firstIndex { $0.id == selected } ?? 0 }
 
     var body: some View {
+        content
+            .onAppear {
+                guard autofocus else { return }
+                /* 晚一拍再给: 这一帧胶囊按钮还没进渲染树, 此刻写 focused 等于写给一个
+                 * 不存在的视图, 静默失效 —— 表现就是"浮现了但方向键动不了"。 */
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { focused = selected }
+            }
+    }
+
+    @ViewBuilder private var content: some View {
+        if hug {
+            /* 按内容宽 —— 没有 GeometryReader, 于是这条 bar 有【固有宽度】,
+             * 父级可以直接抱着它收成一条刚好的轨(播放器那条多胶囊要的就是这个)。 */
+            row(equalWidth: false).frame(height: h + 14)
+        } else {
+            equalWidthBody
+        }
+    }
+
+    private var equalWidthBody: some View {
         // W1578(修正) — 撤掉底轨(它把第一条踩烂了)。只留: 装得下→均宽; 太多→横滑。干净、无外框。
         GeometryReader { geo in
             let fits = estimatedWidth() <= geo.size.width

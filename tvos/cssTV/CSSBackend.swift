@@ -425,6 +425,14 @@ enum CSSBackend {
         /// W2219 — 这条轨的全部 ♪N(后端已按 take 升序给)。空数组 = 后端没给, 回退 audioURL 单版。
         var takes: [CSSTake] = []
         var id: String { "\(lang)|\(voice)" }
+        /* CSSOS_WAVE_2243 — 多声线胶囊上显示的名字。
+         * 'auto' 是"这条语言的默认声线", 直接把 auto 摆给用户看没有意义 ——
+         * 用户要认的是"哪一版是哪一版"(多声线胶囊的定义就是让人分得出)。 */
+        var voiceLabel: String {
+            let v = voice.trimmingCharacters(in: .whitespaces)
+            if v.isEmpty || v.lowercased() == "auto" { return isDefault ? "Default" : "Voice" }
+            return v.replacingOccurrences(of: "-", with: " ").capitalized
+        }
         /// 胶囊显示名(母语锁定时给🔒)。i18n: 英文/语言原生缩写。
         var label: String {
             let base: String

@@ -1193,6 +1193,24 @@ async function transcreateLyrics(
     "(3) Use idioms, metaphors and cultural references that feel native to " + langName + " speakers. " +
     "(4) It must RHYME and SCAN so it can be SUNG naturally. (5) Keep the section structure (Verse/Chorus/etc.) and " +
     "roughly the same line count per section, but adjust wording freely for natural, beautiful " + langName + ". " +
+    /* CSSOS_WAVE_2238 20260927 — 第 6、7 条是【实际事故】补上的, 不是锦上添花。
+     *
+     * 《Welcome, CSS Studio》的日/韩两轨(已上架, 是新用户看到的第一首歌)出过这样的成品:
+     *     韩语轨: 어디선가 alguien이 한동안 기다려   ← "Someone" 变成了【西班牙语】alguien
+     *             첫 걸음 전에 already 노래가 시작    ← "Already" 原样留着
+     *     日语轨: これがあなたのスタジオ now —        ← "now" 原样留着
+     *             あなたの名はキミのスタジオ           ← 品牌名 CSS Studio 被【翻译】成"你的工作室"
+     *
+     * 上面 (1)~(5) 说的全是"要像母语诗人那样写", 却【从没说过"一个源语言的词都不许留"】,
+     * 也【从没说过品牌名不许翻】。模型于是两头都犯: 漏词、改名。
+     * 这两条各自对着一个真实成品的缺陷, 少一条就会再出一次。 */
+    "(6) EVERY word of the output must be in " + langName + ". Not one word of the source language — or of any " +
+    "third language — may survive. This is the single most common failure mode: source words such as " +
+    "\"now\", \"already\", \"someone\" leaking through, or being swapped for a word from an unrelated language. " +
+    "Re-read your own output before answering and replace anything that is not " + langName + ". " +
+    "(7) Proper names and brand names (a product, a studio, a person) are the ONLY exception: keep them EXACTLY as " +
+    "written in the source, in their original script — never translate them, never localize them, never replace them " +
+    "with a common noun. " +
     "Output ONLY the finished " + langName + " lyrics — no notes, no translations, no language labels, no romanization.";
   // CSSOS_WAVE_433 — premium models only (cheap models translate literally / break non-Latin scripts).
   const result = await callLlm({

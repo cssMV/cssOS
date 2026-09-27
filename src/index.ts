@@ -4130,6 +4130,108 @@ function takeDedupeKey(url: string): string {
  * 返回 Map<lang, WorkTake[]>; 无语言轨的作品(MV 管线创作)存在键 "" 下。
  * 尽力而为: 任何一步查库失败都只打日志, 返回已经拿到的部分, 绝不让播放端拿不到音轨。
  */
+/**
+ * 【W2232】一页作品的【全部 take 时长总和】—— 市场卡片标时长用。
+ *
+ * Jing 2026-09-27:「标注市场的时候/地方, 应该像三部曲那样, 标注所有 take 的时长总和,
+ *                   而不只是第一个 take 的时长而已。」
+ *
+ * 为什么卡片一直只有第一个 take: `user_works.duration_secs` 这一列从 W367 起就【只写 ♪1】
+ * (见 upsert 音轨那里的 `UPDATE user_works SET duration_secs = $1`, $1 就是 take1)。
+ * 而三部曲的 root 之所以是对的, 是因为它的 duration_secs 是【建库时按各部求和写进去的】。
+ * 所以这不是显示层的 bug, 是那一列的语义本来就只有一个 take。
+ *
+ * 为什么不在 SQL 里直接 SUM: take 的去重是【按 URL】的(`takeDedupeKey`), 而且有一条硬规矩
+ * ——「多声线不许伪装成多版本」: 版本表里混着别的声线自己的 ♪1, 必须剔掉。这套判据的真源是
+ * `loadWorkTakes`。在 SQL 里照抄一遍就是造第二份真源, 两边迟早分叉。这里的做法是:
+ * 【查库一次拿全页的原料, 判据仍然走同一套 JS 逻辑】。
+ *
+ * 一页最多 1000 个作品 → 2 条查询, 不是 N+1。
+ * 尽力而为: 任何一步失败都返回空 Map, 卡片回落到原来的 duration_secs, 绝不让市场开天窗。
+ */
+async function loadTakeTotalDurations(workIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const ids = [...new Set(workIds.filter((x) => /^[0-9a-f-]{36}$/i.test(String(x || ""))))];
+  if (!ids.length) return out;
+
+  type TRow = {
+    work_id: string; lang: string | null; voice: string | null; is_default: boolean | null;
+    audio_url: string | null; duration_secs: number | null;
+    alt_audio_url: string | null; alt_duration_secs: number | null;
+  };
+  type VRow = { work_id: string; lang: string | null; url: string; duration_secs: number | null };
+
+  let tracks: TRow[] = [];
+  let vers: VRow[] = [];
+  try {
+    const r = await withClient((c) => c.query<TRow>(
+      `SELECT work_id, lang, voice, is_default, audio_url, duration_secs, alt_audio_url, alt_duration_secs
+         FROM work_language_tracks WHERE work_id = ANY($1::uuid[]) ORDER BY work_id, track_order ASC`, [ids]));
+    tracks = r.rows;
+  } catch (e) { console.warn("[take-total] 读语言轨失败:", (e as Error)?.message?.slice(0, 120)); return out; }
+  try {
+    const r = await withClient((c) => c.query<VRow>(
+      `SELECT work_id, lang, url, duration_secs
+         FROM work_media_versions
+        WHERE work_id = ANY($1::uuid[]) AND kind = 'audio' AND url IS NOT NULL AND url <> ''
+        ORDER BY work_id, COALESCE(lang,''), version_no ASC`, [ids]));
+    vers = r.rows;
+  } catch (e) { console.warn("[take-total] 读音频版本失败:", (e as Error)?.message?.slice(0, 120)); }
+
+  const tracksBy = new Map<string, TRow[]>();
+  for (const t of tracks) {
+    const b = tracksBy.get(t.work_id); if (b) b.push(t); else tracksBy.set(t.work_id, [t]);
+  }
+  const versBy = new Map<string, VRow[]>();
+  for (const v of vers) {
+    const b = versBy.get(v.work_id); if (b) b.push(v); else versBy.set(v.work_id, [v]);
+  }
+
+  for (const [wid, ts] of tracksBy) {
+    /* 卡片标的是【用户点下去会听到的那一串】。按 W2107 播放顺序铁律, 那是
+     * 【当前这一条轨的 ♪1→♪2→…】, 不是把所有语言都加一遍 —— 所以只算默认轨。 */
+    const workDefault = ts.find((t) => t.is_default) ?? ts[0];
+    if (!workDefault) continue;
+
+    // 与 loadWorkTakes 同一套: 哪些 URL 是【某条轨自己的】音频(= 声线, 不是版本)
+    const ownedByAnyTrack = new Set<string>();
+    for (const t of ts) for (const u of [t.audio_url, t.alt_audio_url]) {
+      const k = takeDedupeKey(String(u || "")); if (k) ownedByAnyTrack.add(k);
+    }
+    const trackLangs = new Set(ts.map((t) => String(t.lang || "")));
+    const myLang = String(workDefault.lang || "");
+    // 额外版本挂给默认轨: 本 lang + lang=null + 认不到轨的孤儿 lang
+    const vl = versBy.get(wid) || [];
+    const orphanLangs = new Set(
+      vl.map((v) => v.lang ?? TAKE_NULL_LANG)
+        .filter((k) => k !== TAKE_NULL_LANG && !trackLangs.has(k)));
+
+    const seen = new Set<string>();
+    let total = 0;
+    const push = (url: string | null, dur: number | null) => {
+      const k = takeDedupeKey(String(url || ""));
+      if (!k || seen.has(k)) return;      // 同一个文件不重复计时
+      seen.add(k);
+      const d = Number(dur || 0);
+      if (d > 0) total += d;
+    };
+    // ① 老字段先铺(♪1 / ♪2)
+    push(workDefault.audio_url, workDefault.duration_secs);
+    push(workDefault.alt_audio_url, workDefault.alt_duration_secs);
+    // ② 版本表补 ♪3…, 别的轨自己的音频跳过
+    for (const v of vl) {
+      const k = v.lang ?? TAKE_NULL_LANG;
+      const mine = k === myLang || k === TAKE_NULL_LANG || orphanLangs.has(k);
+      if (!mine) continue;
+      const dk = takeDedupeKey(v.url);
+      if (!seen.has(dk) && ownedByAnyTrack.has(dk)) continue;   // 那是别的声线
+      push(v.url, v.duration_secs);
+    }
+    if (total > 0) out.set(wid, Math.round(total));
+  }
+  return out;
+}
+
 async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
   const out = new Map<string, WorkTake[]>();
   if (!/^[0-9a-f-]{36}$/i.test(workId)) return out;
@@ -40283,6 +40385,49 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
   return childRes.rows;
 }
 
+/**
+ * 【W2232】把「所有 take 时长总和」写回市场树的 duration_secs。
+ * 叶子(单曲 / 各部)取自己的 take 总和; 多部作品的 root 取各部之和 —— 与三部曲现有观感一致。
+ * 拿不到就原样不动(回落到 user_works.duration_secs), 绝不把已有的时长抹成空。
+ */
+async function applyTakeTotalDurationToTree(tree: any[]): Promise<any[]> {
+  try {
+    const ids: string[] = [];
+    const walk = (n: any) => {
+      if (!n || typeof n !== "object") return;
+      if (n.id) ids.push(String(n.id));
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    };
+    tree.forEach(walk);
+    const totals = await loadTakeTotalDurations(ids);
+    if (!totals.size) return tree;
+    const apply = (n: any): number => {
+      if (!n || typeof n !== "object") return 0;
+      const kids = Array.isArray(n.children) ? n.children : [];
+      let kidSum = 0;
+      for (const k of kids) kidSum += apply(k);
+      const own = totals.get(String(n.id || "")) || 0;
+      // 有子部就用【子部之和】(三部曲的既有语义), 没有就用自己的 take 总和。
+      const pick = kids.length && kidSum > 0 ? kidSum : own;
+      /* 【只准变大, 不准变小】。本次改动的前提就是"卡片只算了第一个 take, 少算了" ——
+       * 那么算出来【比原来还小】在定义上就是我们漏算了, 不是作品真的变短了。
+       *
+       * 实测确有这种作品, 而且根因是【库里自相矛盾】: 同一个音频文件在两条轨上被记成
+       * 两个时长(如 Nikola Tesla 那首, aud-0069 在默认轨记 194s、在 pre-epic 轨记 353s),
+       * 作品级的 353 来自后者。这种情况下照默认轨取值会让屏幕上的时长【缩短】——
+       * 用户看到的是"时长莫名其妙变短了", 比没修还糟。
+       * 数据打架要单独治(voice 里塞版本标记那摊事), 显示层先守住不倒退。 */
+      const prev = Number(n.duration_secs || 0) || 0;
+      if (pick > prev) n.duration_secs = pick;
+      return Number(n.duration_secs || 0) || 0;
+    };
+    tree.forEach(apply);
+  } catch (e) {
+    console.warn("[take-total] 写回市场树失败:", (e as Error)?.message?.slice(0, 140));
+  }
+  return tree;
+}
+
 async function fillMarketStructuredChildren(tree: any[], roots: WorkTreeRow[]) {
   if (!Array.isArray(tree) || !tree.length) return tree;
   const rootLookup = new Map<string, WorkTreeRow>();
@@ -52743,6 +52888,11 @@ app.get("/api/works/market", async (req, res) => {
       tree = buildWorkTree([...q.rows, ...childRows]);
     }
     tree = await fillMarketStructuredChildren(tree, q.rows);
+    /* CSSOS_WAVE_2232 20260927 — 卡片时长 = 【所有 take 时长总和】。
+     * Jing:「应该像三部曲那样, 标注所有 take 的时长总和, 而不只是第一个 take 的时长而已。」
+     * 多部作品的 root 顺带按【改过之后的各部】重新求和 —— 各部涨了 root 不跟着涨, 就自相矛盾了。
+     * 只动市场这一处的展示值; 定价 / 时长闸门读的仍是 user_works.duration_secs, 不受影响。 */
+    tree = await applyTakeTotalDurationToTree(tree);
     if (debugTree) {
       const westworldNode = tree.find(
         (row) => String(row?.id || "").trim() === westworldRootId,

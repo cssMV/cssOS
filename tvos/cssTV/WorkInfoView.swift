@@ -22,14 +22,29 @@ struct WorkInfoView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var work: CSSWork?
     @State private var loading = true
-    private enum InfoFocus: Hashable { case cover, play, lyrics }
+    private enum InfoFocus: Hashable { case cover, play, lyrics(Int) }
     @FocusState private var focus: InfoFocus?
-    private var lyricsFocused: Bool { focus == .lyrics }
-
     /// 歌词全文(只在它确实比概述更长时才另起一段, 否则等于把同一段话说两遍)。
     private func lyricsBody(_ w: CSSWork) -> String {
         let lp = w.displayLyrics
         return lp.count > w.summaryText.count ? lp : ""
+    }
+
+    /// W2234b — 把歌词切成【若干可聚焦段】。按空行切(歌词本来分节), 太碎的合并。
+    private func lyricChunks(_ w: CSSWork) -> [String] {
+        let body = lyricsBody(w)
+        guard !body.isEmpty else { return [] }
+        var out: [String] = []
+        var cur = ""
+        for block in body.components(separatedBy: "\n\n") {
+            let b = block.trimmingCharacters(in: .whitespacesAndNewlines)
+            if b.isEmpty { continue }
+            // 一段少于 4 行就先攒着 —— 一行一段的话用户要按几十下才到底。
+            cur = cur.isEmpty ? b : cur + "\n\n" + b
+            if cur.components(separatedBy: "\n").count >= 4 { out.append(cur); cur = "" }
+        }
+        if !cur.isEmpty { out.append(cur) }
+        return out
     }
 
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
@@ -102,23 +117,22 @@ struct WorkInfoView: View {
                      *
                      * 修法就是把长文本身变成一个可聚焦项, 聚焦时给一点提示(左侧绿条 + 提亮),
                      * 这样 ↑/↓ 就能把它滚起来。 */
-                    if !lyricsBody(w).isEmpty {
+                    /* CSSOS_WAVE_2234b 20260927 — 必须拆成【多段】, 一整段滚不到底。
+                     *
+                     * Jing:「可以往下移动了, 可是还是无法移动到底部, 还有有些底部内容被遮住。」
+                     *
+                     * 上一版把整段歌词做成【一个】可聚焦项: 焦点引擎的工作是"把当前这一项
+                     * 滚进视野", 而这一项本身比屏幕还高 —— 它滚到顶就到头了, 再往下【没有
+                     * 下一个落点】, 于是卡在半途, 下半段永远露不出来。
+                     * 拆成若干段之后, ↓ 是在段与段之间走, 每走一段就往下滚一屏, 一路能到底。
+                     *
+                     * 按空行切(歌词本来就是分节的), 太碎的段落合并, 免得按几十下才到底。 */
+                    let chunks = lyricChunks(w)
+                    if !chunks.isEmpty {
                         Divider().overlay(Color.white.opacity(0.18))
-                        Text(lyricsBody(w))
-                            .font(.system(size: 24))
-                            .foregroundStyle(.white.opacity(lyricsFocused ? 0.92 : 0.62))
-                            .lineSpacing(8)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.leading, 16)
-                            .overlay(alignment: .leading) {
-                                // 聚焦提示: 没有它, 用户不知道这一段"按下去能滚"。
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(brandGreen.opacity(lyricsFocused ? 0.9 : 0.0))
-                                    .frame(width: 4)
-                            }
-                            .focusable(true)
-                            .focused($focus, equals: .lyrics)
-                            .animation(.easeOut(duration: 0.18), value: lyricsFocused)
+                        ForEach(Array(chunks.enumerated()), id: \.offset) { pair in
+                            lyricChunkView(pair.element, index: pair.offset)
+                        }
                     }
 
                     /* 歌词全文。summaryText 只是开头几句(顶排那一格放不下更多),
@@ -126,12 +140,15 @@ struct WorkInfoView: View {
 
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 60)
+                /* W2234b — 底部留一屏余量。tvOS 焦点滚动是"把当前项滚进视野"就停,
+                 * 最后一段若正好贴着内容底边, 它下面没有可滚的空间, 看着就是【被遮住】。
+                 * 留白不是美观问题, 是【让最后一段也能滚到舒服的位置】。 */
+                .padding(.bottom, 320)
             }
-            .scrollClipDisabled(false)
         }
         .padding(.horizontal, 90)
-        .padding(.vertical, 70)
+        .padding(.top, 60)
+        .padding(.bottom, 20)     // W2234b — 底部别再夹, 可滚区尽量高
     }
 
     /* CSSOS_WAVE_2232 20260927 — 封面【可点即播】。
@@ -188,6 +205,28 @@ struct WorkInfoView: View {
                 ForEach(langs, id: \.self) { l in chip(l, icon: "globe") }
             }
         }
+    }
+
+    /// W2234b — 一段歌词 = 一个焦点落点。聚焦时左侧出绿条 + 提亮(不给提示用户不知道能按)。
+    @ViewBuilder
+    private func lyricChunkView(_ text: String, index: Int) -> some View {
+        let on = focus == .lyrics(index)
+        Text(text)
+            .font(.system(size: 24))
+            .foregroundStyle(.white.opacity(on ? 0.95 : 0.6))
+            .lineSpacing(8)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 16)
+            .padding(.vertical, 6)
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(brandGreen.opacity(on ? 0.9 : 0.0))
+                    .frame(width: 4)
+            }
+            .focusable(true)
+            .focused($focus, equals: .lyrics(index))
+            .animation(.easeOut(duration: 0.18), value: on)
     }
 
     private func chip(_ text: String, icon: String) -> some View {

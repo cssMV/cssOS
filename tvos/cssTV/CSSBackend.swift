@@ -31,8 +31,30 @@ enum CSSBackend {
         guard let ud = UserDefaults(suiteName: appGroupID),
               let container = FileManager.default
                 .containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else { return }
-        let dir = container.appendingPathComponent("topshelf", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        /* CSSOS_WAVE_2224 20260927 — 路径必须在 Library/Caches 之下, 不能直接挂容器根目录。
+         * tvOS 不允许 App 往 App Group 容器【根目录】写 —— 真机实测:
+         *   NSCocoaErrorDomain 513 "You don't have permission to save the file "topshelf""
+         *   / NSPOSIXErrorDomain 1 "Operation not permitted"
+         * 苹果对 Apple TV 的本地持久存储有硬限制, 容器里可写的只有 Library/Caches
+         * (拉回来的真机容器里也确实只有 Library/Preferences 与 Library/Caches 两处)。
+         *
+         * 【模拟器完全没有这条限制, 一路绿灯】—— 所以这个洞只有真机会暴露出来。
+         *
+         * Caches 可能被系统回收, 这里是可以接受的: App 每次拉完 feed 都会重写一遍,
+         * 而且苹果本来就是让 tvOS 把这类可再生数据放 Caches。 */
+        let dir = container
+            .appendingPathComponent("Library/Caches", isDirectory: true)
+            .appendingPathComponent("topshelf", isDirectory: true)
+        /* CSSOS_WAVE_2224 20260927 — 这一段原来通篇 try?, 把每个错误都吞了。
+         * 结果真机上出现了一个【本来不可能】的组合: 清单写成了 10 条, 而 topshelf 目录
+         * 根本不存在 —— 因为 createDirectory 失败被吞、data.write 失败也被吞, 条目照样 append。
+         * 排查时一点线索都没有。凡是"失败了还继续往下走"的地方, 必须把失败说出来。 */
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            print("[topshelf] 建目录失败 \(dir.path): \(error)")
+            return
+        }
 
         var items: [[String: String]] = []
         var keep = Set<String>()
@@ -43,8 +65,18 @@ enum CSSBackend {
             keep.insert(name)
             let dest = dir.appendingPathComponent(name)
             if !FileManager.default.fileExists(atPath: dest.path) {
-                guard let (data, _) = try? await URLSession.shared.data(from: curl), !data.isEmpty else { continue }
-                try? data.write(to: dest, options: .atomic)
+                guard let (data, _) = try? await URLSession.shared.data(from: curl), !data.isEmpty else {
+                    print("[topshelf] 下载失败 \(cover)")
+                    continue
+                }
+                do { try data.write(to: dest, options: .atomic) }
+                catch { print("[topshelf] 落盘失败 \(dest.path): \(error)"); continue }
+            }
+            /* 清单里【只准出现真的存在的文件】。原来写失败也照样 append, 扩展拿到的就是
+             * 一条死路径 —— 顶排那边只会静静地什么都不显示, 查不出所以然。 */
+            guard FileManager.default.fileExists(atPath: dest.path) else {
+                print("[topshelf] 落盘后文件仍不存在, 跳过: \(dest.path)")
+                continue
             }
             var d: [String: String] = ["id": w.id, "title": w.title ?? "cssTV", "file": dest.path]
             if let v = w.bestVideo, !v.isEmpty { d["video"] = v }
@@ -59,6 +91,7 @@ enum CSSBackend {
         if let data = try? JSONSerialization.data(withJSONObject: items) {
             ud.set(data, forKey: "topshelf_items")
         }
+        print("[topshelf] 写入完成: 清单 \(items.count) 条, 目录 \(dir.path)")
     }
 
     /// 稳定哈希(Swift 的 hashValue 每次进程启动都变种子, 不能用来当文件名)。

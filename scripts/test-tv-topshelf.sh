@@ -46,7 +46,18 @@ grep -q 'URL(fileURLWithPath: e.file)' <<<"$EXT" && F=1 || F=0
 ok "扩展用本地 file:// 图" "$F" "扩展进程没有网络, 远程 URL 在这里渲染不出来"
 grep -q 'containerURL(forSecurityApplicationGroupIdentifier: appGroupID)' <<<"$CB" && G=1 || G=0
 ok "App 侧把封面下进 App Group 共享【文件容器】" "$G"
-grep -q 'try? data.write(to: dest, options: .atomic)' <<<"$CB" && H=1 || H=0
+# W2224 真机教训: tvOS 不许往 App Group 容器【根目录】写(513 / EPERM "Operation not permitted"),
+# 只有 Library/Caches 可写。模拟器完全没这条限制 —— 所以首版在模拟器全绿, 真机上一张图都没落。
+grep -q 'appendingPathComponent("Library/Caches", isDirectory: true)' <<<"$CB" && G2=1 || G2=0
+ok "缓存目录在 Library/Caches 之下(不是容器根目录)" "$G2" \
+   "tvOS 真机: 往容器根目录写 = NSCocoaErrorDomain 513 / EPERM; 这条只有真机暴露得出来"
+grep -q 'print("\[topshelf\] 建目录失败' <<<"$CB" && G3=1 || G3=0
+ok "建目录/落盘失败会把错误打出来(不再 try? 吞掉)" "$G3" \
+   "原来通篇 try?, 于是出现了'清单 10 条但目录不存在'这种查不出所以然的组合"
+grep -q 'guard FileManager.default.fileExists(atPath: dest.path) else' <<<"$CB" && G4=1 || G4=0
+ok "清单只收【真的存在】的文件" "$G4" \
+   "写失败还 append = 扩展拿到死路径, 顶排静静地什么都不显示"
+grep -q 'try data.write(to: dest, options: .atomic)' <<<"$CB" && H=1 || H=0
 ok "真的落盘成文件(不是只存 URL)" "$H"
 grep -q 'for f in old where f.hasPrefix("ts-") && !keep.contains(f)' <<<"$CB" && I=1 || I=0
 ok "每轮清掉没用到的旧图" "$I" "顶排就 10 张, 不清理迟早堆成垃圾场"

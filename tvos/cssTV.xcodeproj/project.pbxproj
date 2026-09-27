@@ -427,6 +427,7 @@
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = TopShelf/cssTVTopShelf.entitlements;
+				OTHER_LDFLAGS = "-e _NSExtensionMain";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = QBG9PRVBYZ;
@@ -457,6 +458,7 @@
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = TopShelf/cssTVTopShelf.entitlements;
+				OTHER_LDFLAGS = "-e _NSExtensionMain";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = QBG9PRVBYZ;

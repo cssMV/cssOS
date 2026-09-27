@@ -68,7 +68,8 @@ struct WorkInfoView: View {
 
                     /* 歌词全文。summaryText 只是开头几句(顶排那一格放不下更多),
                      * 但用户既然专门点了 More Info, 就该看到全部, 不是再给一次摘要。 */
-                    if let lp = w.lyricsPreview, !lp.isEmpty, lp.count > w.summaryText.count {
+                    let lp = w.displayLyrics
+                    if !lp.isEmpty, lp.count > w.summaryText.count {
                         Divider().overlay(Color.white.opacity(0.18))
                         Text(lp)
                             .font(.system(size: 24))
@@ -117,7 +118,8 @@ struct WorkInfoView: View {
     private func metaRow(_ w: CSSWork) -> some View {
         let langs = (w.availableLangs ?? []).map { $0.uppercased() }
         VStack(alignment: .leading, spacing: 12) {
-            if let st = w.style, !st.isEmpty {
+            let st = w.displayStyle
+            if !st.isEmpty {
                 Text(st)
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(brandGreen)

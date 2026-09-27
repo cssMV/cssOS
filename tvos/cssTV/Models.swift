@@ -165,8 +165,28 @@ struct CSSWork: Codable, Identifiable {
      *      那是给 Suno 的编曲指令, 不是给人看的文案 —— 原样丢进顶排就是一堆方括号。
      *   ② 歌词是【一行一短句】, 连成一段会糊成一团, 要用分隔符断开。
      * 所以这里滤掉方括号行与空行, 取开头几句, 用「 / 」连起来。 */
+    /* W2231b — 曲风 / 概述都必须能【落到子作品】去取。
+     *
+     * 实测(2026-09-27, 顶排前 12 条): 只有【单曲】的根行带 lyrics_preview,
+     * 三部曲 / 歌剧 / 短剧的根行是【空的】—— 词和曲风都在各 part 身上。
+     * 10 条顶排里 8 条是多部作品, 也就是说不落子的话【八成的描述都是空白】。
+     * 这个洞我第一版就埋进去了, 发之前实地查了一遍才发现 —— 只看单曲那一条是查不出来的。 */
+    private var firstPartWithText: CSSWork? {
+        children?.first(where: { !($0.lyricsPreview ?? "").isEmpty })
+    }
+    /// 顶排 genre / 简介屏副标题用的曲风。根行没有就取第一部的。
+    var displayStyle: String {
+        if let st = style, !st.isEmpty { return st }
+        return children?.compactMap({ $0.style }).first(where: { !$0.isEmpty }) ?? ""
+    }
+    /// 顶排 / 简介屏真正显示的那段词(根行没有就取第一部的)。
+    var displayLyrics: String {
+        let own = lyricsPreview ?? ""
+        return own.isEmpty ? (firstPartWithText?.lyricsPreview ?? "") : own
+    }
+
     var summaryText: String {
-        let lines = (lyricsPreview ?? "")
+        let lines = displayLyrics
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { l in
@@ -175,7 +195,7 @@ struct CSSWork: Codable, Identifiable {
                 if l.hasPrefix("[") || l.hasPrefix("【") { return false }
                 return true
             }
-        guard !lines.isEmpty else { return style ?? "" }
+        guard !lines.isEmpty else { return displayStyle }
         var out = ""
         for l in lines.prefix(6) {
             let next = out.isEmpty ? l : out + " / " + l

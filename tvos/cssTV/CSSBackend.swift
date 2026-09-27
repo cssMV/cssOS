@@ -88,7 +88,9 @@ enum CSSBackend {
              * 扩展进程【没有网络】, 这些字必须和封面一样【现在就写进清单】, 那边零网络直接用。 */
             let sm = w.summaryText
             if !sm.isEmpty { d["summary"] = sm }
-            if let st = w.style, !st.isEmpty { d["genre"] = st }
+            // W2231b — 落子: 三部曲根行的 style 是空的, 曲风在各 part 身上。
+            let gn = w.displayStyle
+            if !gn.isEmpty { d["genre"] = gn }
             if let du = w.durationSecs, du > 0 { d["duration"] = String(du) }
             if let ca = w.createdAt, !ca.isEmpty { d["created"] = ca }
             if let on = w.ownerName, !on.isEmpty { d["owner"] = on }

@@ -42608,6 +42608,133 @@ app.post("/api/admin/regen-cover/:workId", express.json({ limit: "8kb" }), async
     return res.status(500).json({ ok: false, code: "REGEN_COVER_FAILED", detail: (e as Error)?.message || "" });
   }
 });
+/* ─────────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_2239 20260927 — 【重唱一条已存在的语言轨】(admin)
+ *
+ * Jing:「重做日语轨。」
+ *
+ * 【为什么非新开一个端点不可】平台原来【没有这个动作】:
+ *   · POST /api/works/:id/language-tracks —— 只处理【新增】语言(fresh 里不含已存在的轨),
+ *     对 ja 这种已经在的轨, 循环体一次都不进, 什么也不会发生;
+ *   · /api/admin/lyrics/regenerate 只重写词, /api/admin/regen-video、regen-cover 各管一层,
+ *     唯独【音频】没有重来一次的口子。
+ * 于是"歌词修好了但歌还在唱旧词"这件事, 在原有接口里无解。
+ *
+ * 【它为什么不会毁掉旧版】三步都是加法, 没有一步是覆盖:
+ *   ① 先把【现在的】audio_url / alt_audio_url 登记成版本(registerMediaVersion), 让旧字节
+ *      在胶囊里有自己的格子和名字 —— W2086 的教训原话:「保留旧版不能只靠多写一行记录,
+ *      必须让旧字节有自己的地址」, 这里旧字节本来就有自己的 URL, 缺的只是那条记录。
+ *   ② 生成新音频, 落盘走 persistRemoteAudioToStable(内容哈希命名, 想覆盖也覆盖不了)。
+ *   ③ 新版登记成版本并置为 current, 然后才把 work_language_tracks 的指针指过去。
+ *      【移动的是指针, 不是字节】—— 旧 URL 一个字节没动, 用户在多版本胶囊里仍然选得到。
+ *
+ * 本次触发的实例:《Welcome, CSS Studio》日语轨。转写实测它唱的是
+ *   「あなたの名は【君のスタジオ】」(品牌名被译掉)、「これがあなたのスタジオ【now】」(唱出英文)、
+ *   还有两段「memememememememe」乱码 —— 而它是日本用户打开平台听到的第一首歌。
+ */
+app.post("/api/admin/regen-track-audio/:workId", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const workId = String(req.params.workId || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
+  const lang = String((req.body as any)?.lang || "").trim().toLowerCase();
+  const voice = String((req.body as any)?.voice || "auto").trim().toLowerCase();
+  if (!lang) return res.status(400).json({ ok: false, code: "LANG_REQUIRED" });
+  const oldLabel = String((req.body as any)?.old_label || "").trim() || "旧版";
+  const newLabel = String((req.body as any)?.new_label || "").trim() || "重唱版";
+  try {
+    const wr = await withClient((c) => c.query<{
+      title: string | null; style: string | null; duration_secs: number | null;
+    }>(`SELECT title, style, duration_secs FROM user_works WHERE id=$1::uuid LIMIT 1`, [workId]));
+    const w = wr.rows[0];
+    if (!w) return res.status(404).json({ ok: false, code: "WORK_NOT_FOUND" });
+
+    const tr = await withClient((c) => c.query<{
+      lyrics: string | null; audio_url: string | null; duration_secs: number | null;
+      alt_audio_url: string | null; alt_duration_secs: number | null;
+    }>(`SELECT lyrics, audio_url, duration_secs, alt_audio_url, alt_duration_secs
+          FROM work_language_tracks WHERE work_id=$1::uuid AND lang=$2 AND COALESCE(voice,'auto')=$3 LIMIT 1`,
+        [workId, lang, voice]));
+    const t = tr.rows[0];
+    if (!t) return res.status(404).json({ ok: false, code: "TRACK_NOT_FOUND" });
+
+    const lyrics = String((req.body as any)?.lyrics || t.lyrics || "").trim();
+    if (!lyrics) return res.status(400).json({ ok: false, code: "NO_LYRICS" });
+
+    /* ① 旧字节先立碑 —— 生成之前做, 不是之后。万一后面哪一步炸了, 旧版的格子已经在了。 */
+    const markOld = async (url: string | null, label: string, dur: number | null) => {
+      if (!url) return;
+      await registerMediaVersion({ workId, kind: "audio", lang, url, label,
+        durationSecs: dur, makeCurrent: false });
+      /* registerMediaVersion 是 ON CONFLICT DO NOTHING —— 这条旧音频【多半早就有一行了】,
+       * 于是 INSERT 什么也没做, 名字自然也没挂上。实测正是如此: 旧版在胶囊里显示成通用的
+       * 「♪3」, 而保住旧版的全部意义就是让人认得出哪一版是哪一版。
+       * 不覆盖字节是对的, 但【补一个本来就空着的名字】不是覆盖 —— 只在 label 为空时补。 */
+      /* 这张表【没有 updated_at 列】—— 第一版写了, 直接 42703。
+       * 而且当时还套了个空的 .catch(), 于是报错被吞成"什么也没发生", 名字照旧是空的。
+       * 失败要说出来: 名字补不上不影响媒体, 但得让日志留痕, 别再变成一次静默失败。 */
+      try {
+        await withClient((c) => c.query(
+          `UPDATE work_media_versions SET label=$4
+            WHERE work_id=$1::uuid AND kind='audio' AND COALESCE(lang,'')=COALESCE($2,'')
+              AND url=$3 AND COALESCE(label,'')=''`,
+          [workId, lang, url, label]));
+      } catch (e) {
+        console.warn("[regen-track-audio] 补旧版名字失败(不影响媒体):",
+          (e as Error)?.message?.slice(0, 140));
+      }
+    };
+    await markOld(t.audio_url, oldLabel, t.duration_secs ?? null);
+    await markOld(t.alt_audio_url, oldLabel + " ♪2", t.alt_duration_secs ?? null);
+
+    /* ② 生成。走平台同一条 callMusicGen, 不另起炉灶。 */
+    const music = await callMusicGen({
+      prompt: [w.title, w.style].filter(Boolean).join(" — "),
+      lyrics, title: String(w.title || ""), language: lang,
+      duration_secs: Number(w.duration_secs) > 1 ? Number(w.duration_secs) : 200,
+    } as MusicGenRequest);
+    if (!music || !music.ok || !music.audio_url) {
+      return res.status(503).json({ ok: false, code: "MUSIC_GEN_FAILED",
+        detail: String((music as any)?.error || "").slice(0, 200) });
+    }
+
+    /* ③ 落盘到我们自己的域名(内容哈希命名), 再登记 + 指针指过去。
+     *    Suno 那个 aiquickdraw 临时链几天就 404, 不落盘等于没生成(W414 的教训)。 */
+    let primary = String(music.audio_url || "");
+    let alt = String((music as any).alt_audio_url || "").trim() || null;
+    try {
+      if (primary) primary = await persistRemoteAudioToStable(primary);
+      if (alt) alt = await persistRemoteAudioToStable(alt);
+    } catch (e) {
+      console.warn("[regen-track-audio] 落盘失败, 保留临时链:", (e as Error)?.message?.slice(0, 120));
+    }
+    const dur = Number((music as any).duration_s) > 1 ? Math.round(Number((music as any).duration_s)) : null;
+    const altDur = Number((music as any).alt_duration_s) > 1 ? Math.round(Number((music as any).alt_duration_s)) : null;
+
+    await registerMediaVersion({ workId, kind: "audio", lang, url: primary,
+      label: newLabel, durationSecs: dur, makeCurrent: true });
+    if (alt) {
+      await registerMediaVersion({ workId, kind: "audio", lang, url: alt,
+        label: newLabel + " ♪2", durationSecs: altDur, makeCurrent: false });
+    }
+    await withClient((c) => c.query(
+      `UPDATE work_language_tracks
+          SET audio_url=$4, duration_secs=$5, alt_audio_url=$6, alt_duration_secs=$7,
+              lyrics=$8, status='ready', updated_at=now()
+        WHERE work_id=$1::uuid AND lang=$2 AND COALESCE(voice,'auto')=$3`,
+      [workId, lang, voice, primary, dur, alt, altDur, lyrics]));
+
+    return res.json({ ok: true, workId, lang, voice,
+      old_audio_url: t.audio_url, new_audio_url: primary, alt_audio_url: alt,
+      duration_secs: dur, provider: (music as any).provider || null });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "REGEN_TRACK_AUDIO_FAILED",
+      detail: (e as Error)?.message || "" });
+  }
+});
+
 /* CSSOS_WAVE_2121 20260920 — 演播厅背幕图(第二层)。
  *
  * Jing:「虚拟演播厅应该根据数字演员的时代/风格设计不同的。」

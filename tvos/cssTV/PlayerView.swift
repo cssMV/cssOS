@@ -304,7 +304,18 @@ struct PlayerView: View {
         .onDisappear(perform: stop)
         // W1526 — Jing「播放时遥控器上下左右要有动作」: 让全屏播放器接管方向键。
         //   ←/→ 快退/快进 10s; ↑ 上一枝丫/作品(播>3s 先回本枝开头); ↓ 下一枝丫/作品。Menu 键退出。
-        .focusable(true)
+        /* CSSOS_WAVE_2244b — 胶囊开着时【舞台不可聚焦】。
+         *
+         * Jing:「←/→ 在六枚胶囊之间走…还没实现, 还是快进快退。」
+         *
+         * 上一版我给 CSSPillBar 加了 autofocus(把焦点"请求"过去)—— 不够。
+         * 绑定本来就在(PillBar 里有 .focused($focused, equals:)), 问题是【舞台仍然可聚焦
+         * 并且正握着焦点】, 焦点引擎不一定让位; 于是 ←/→ 继续被舞台的 onMoveCommand 吃掉。
+         *
+         * 把舞台在胶囊展开期间设为不可聚焦, 焦点【只剩胶囊可去】—— 这是结构性的,
+         * 不依赖"请求焦点能不能成功"。收起时 focusable 回来, hidePills() 再把焦点按回舞台。
+         * (这和 W2241 是同一个教训: 能用结构堵死的, 别用"请求 + 祈祷"。) */
+        .focusable(!showPills)
         .focused($stageFocused)
         .onMoveCommand { dir in
             switch dir {

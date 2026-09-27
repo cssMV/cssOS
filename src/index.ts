@@ -42663,6 +42663,29 @@ app.post("/api/admin/regen-track-audio/:workId", express.json({ limit: "16kb" })
     const lyrics = String((req.body as any)?.lyrics || t.lyrics || "").trim();
     if (!lyrics) return res.status(400).json({ ok: false, code: "NO_LYRICS" });
 
+    /* CSSOS_WAVE_2240 — 只对齐、不重唱。
+     *
+     * 第一版这个端点【漏了逐字对齐这一步】(renderLanguageTrack 里是有的)。后果很隐蔽:
+     * 重唱之后 work_language_tracks 换了新音频, 而 voice_meta.timeline 还是【按旧音频对出来的】
+     * —— 实测日语轨就成了「62 秒的歌, 配 144 秒的时间轴」, 情绪字幕整条错位。
+     * 音频没问题、歌词没问题、屏幕上却对不上, 正是最难查的那一类。
+     *
+     * 补救不该再花一次钱: 这个分支跳过生成, 只拿【当前音频】重对一次时间轴。 */
+    if ((req.body as any)?.align_only === true) {
+      if (!t.audio_url) return res.status(400).json({ ok: false, code: "NO_AUDIO_TO_ALIGN" });
+      let tl: any[] | undefined;
+      try { tl = await alignWordsViaWhisper(t.audio_url, lang, lyrics); }
+      catch (e) { return res.status(503).json({ ok: false, code: "ALIGN_FAILED", detail: (e as Error)?.message || "" }); }
+      if (!Array.isArray(tl) || !tl.length) return res.status(503).json({ ok: false, code: "ALIGN_EMPTY" });
+      await withClient((c) => c.query(
+        `UPDATE work_language_tracks
+            SET voice_meta = COALESCE(voice_meta::jsonb, '{}'::jsonb) || jsonb_build_object('timeline', $4::jsonb),
+                updated_at = now()
+          WHERE work_id=$1::uuid AND lang=$2 AND COALESCE(voice,'auto')=$3`,
+        [workId, lang, voice, JSON.stringify(tl)]));
+      return res.json({ ok: true, workId, lang, voice, aligned: tl.length, audio_url: t.audio_url });
+    }
+
     /* ① 旧字节先立碑 —— 生成之前做, 不是之后。万一后面哪一步炸了, 旧版的格子已经在了。 */
     const markOld = async (url: string | null, label: string, dur: number | null) => {
       if (!url) return;
@@ -42710,6 +42733,12 @@ app.post("/api/admin/regen-track-audio/:workId", express.json({ limit: "16kb" })
     } catch (e) {
       console.warn("[regen-track-audio] 落盘失败, 保留临时链:", (e as Error)?.message?.slice(0, 120));
     }
+    /* W2240 — 新音频必须【重对时间轴】, 否则情绪字幕还按上一版的节奏走(见上面 align_only 的注释)。
+     * 对齐失败不阻断: 音频本身是好的, 字幕差一次可以用 align_only 单独补。 */
+    let newTimeline: any[] | undefined;
+    try { newTimeline = await alignWordsViaWhisper(primary, lang, lyrics); }
+    catch (e) { console.warn("[regen-track-audio] 对齐失败(音频仍入库):", (e as Error)?.message?.slice(0, 140)); }
+
     const dur = Number((music as any).duration_s) > 1 ? Math.round(Number((music as any).duration_s)) : null;
     const altDur = Number((music as any).alt_duration_s) > 1 ? Math.round(Number((music as any).alt_duration_s)) : null;
 
@@ -42722,9 +42751,13 @@ app.post("/api/admin/regen-track-audio/:workId", express.json({ limit: "16kb" })
     await withClient((c) => c.query(
       `UPDATE work_language_tracks
           SET audio_url=$4, duration_secs=$5, alt_audio_url=$6, alt_duration_secs=$7,
-              lyrics=$8, status='ready', updated_at=now()
+              lyrics=$8, status='ready',
+              voice_meta = COALESCE(voice_meta::jsonb, '{}'::jsonb)
+                           || jsonb_build_object('timeline', $9::jsonb),
+              updated_at=now()
         WHERE work_id=$1::uuid AND lang=$2 AND COALESCE(voice,'auto')=$3`,
-      [workId, lang, voice, primary, dur, alt, altDur, lyrics]));
+      [workId, lang, voice, primary, dur, alt, altDur, lyrics,
+       Array.isArray(newTimeline) ? JSON.stringify(newTimeline) : null]));
 
     return res.json({ ok: true, workId, lang, voice,
       old_audio_url: t.audio_url, new_audio_url: primary, alt_audio_url: alt,

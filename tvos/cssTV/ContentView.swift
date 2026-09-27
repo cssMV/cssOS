@@ -251,6 +251,21 @@ struct ContentView: View {
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .fullScreenCover(isPresented: $showPlayer) {
             PlayerView(queue: playQueue, startIndex: playStart)
+                /* CSSOS_WAVE_2233b 20260927 — 这一行是「无标题·无法播放」的真正修复。
+                 *
+                 * PlayerView 的 `@State work` 是在 init 里【用构造参数种下】的, 而 @State
+                 * 【只认第一次】。实测日志(冷启动深链):
+                 *     [deeplink] 已设 playQueue=1 title=鶴の恩返し/白鹤报恩 showPlayer=true
+                 *     [PlayerView.init] queue=0 …… title=【空队列】      ← SwiftUI 先用空队列建了一次
+                 *     [PlayerView.init] queue=1 …… title=鶴の恩返し       ← 后面都对, 但已经晚了
+                 * 于是 work 永远停在那个空作品上: 标题 nil → 显示 "Untitled",
+                 * 没有任何可播地址 → 转圈转到底。退一步再进之所以好使, 是因为弹窗被销毁重建,
+                 * 视图拿到了【新身份】, @State 才重新种。
+                 *
+                 * .id 随队列变化 = 队列一换就是新身份 = @State 必定重新种。
+                 * 不用把整处改成 fullScreenCover(item:) —— 那要连 choose() 和别的入口一起动,
+                 * 凌晨改大面积不划算; 身份这一刀正好切在病根上。 */
+                .id("\(playQueue.first?.id ?? "none")#\(playQueue.count)#\(playStart)")
         }
         /* CSSOS_WAVE_2222 20260927 — 顶排横幅的深链: csstv://work/<id> → 直接开那一首。
          * 不这么做的话, 顶排选中只能把 App 拉起来、落在首页, 用户还得自己再找一遍 ——

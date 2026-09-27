@@ -297,54 +297,52 @@ struct PlayerView: View {
                 .transition(.opacity)
             }
 
+            /* W2244c — 方向键层。【只在胶囊收起时存在】, 展开时整层消失, 方向键归胶囊。
+             * 放在 ZStack 最后 = 盖在画面之上, 但它是透明的、也不挡胶囊(胶囊在它之后渲染?
+             * 不 —— 胶囊在它【之前】, 所以这里用 allowsHitTesting 只收键不挡点)。 */
+            if !showPills {
+                Color.black.opacity(0.0001)
+                    .focusable(true)
+                    .focused($stageFocused)
+                    .onMoveCommand { dir in
+                        switch dir {
+                        case .left:  seekBy(-10)
+                        case .right: seekBy(10)
+                        case .up:    gotoPrev()
+                        case .down:  gotoNext()
+                        @unknown default: break
+                        }
+                    }
+                    /* 确认键两条路都接 —— 我按不了遥控器, 无法自证 onTapGesture 在 tvOS
+                     * 这个焦点视图上接不接得住 Select。两条同时通会各触发一次、互相抵消
+                     * (表现恰好也是"按了没反应"), 所以 togglePills 里有 350ms 去抖。 */
+                    .onTapGesture { togglePills() }
+                    .onLongPressGesture(minimumDuration: 0.01) { togglePills() }
+                    .ignoresSafeArea()
+            }
+
             // W1553 — 删掉左下角的「选枝胶囊(square.stack 1 2 3)」: 与标题栏里的「1 / 3」徽章重复。
             //   只保留标题栏的 1/3(见上, 与时长同排)。切枝仍靠 ↑↓ 遥控(见下 onMoveCommand)。
         }
         .onAppear(perform: start)
         .onDisappear(perform: stop)
-        // W1526 — Jing「播放时遥控器上下左右要有动作」: 让全屏播放器接管方向键。
-        //   ←/→ 快退/快进 10s; ↑ 上一枝丫/作品(播>3s 先回本枝开头); ↓ 下一枝丫/作品。Menu 键退出。
-        /* CSSOS_WAVE_2244b — 胶囊开着时【舞台不可聚焦】。
+        /* CSSOS_WAVE_2244c — 方向键的归属【按状态切换整个修饰器, 不是加条件】。
          *
-         * Jing:「←/→ 在六枚胶囊之间走…还没实现, 还是快进快退。」
+         * 探针实测(前两版都猜错, 这次量的):
+         *     [probe] showPills → true  stageFocused=true
+         *     [probe] PillBar autofocus 写入 focused=lang
+         *     [probe] PillBar 焦点落到 lang        ← 焦点【本来就已经在胶囊上了】
+         * 所以焦点从来不是问题。真凶是 `.onMoveCommand` 挂在【根 ZStack】上 ——
+         * 它是胶囊条的祖先, 方向键在整棵子树上都被它先截走, 焦点引擎根本没机会
+         * 在胶囊之间移动。`.focusable(false)` 治不了它: onMoveCommand 不看焦点在不在自己身上。
+         * 在闭包里 `guard !showPills else { return }` 也不行 —— 闭包跑过就算消费掉了。
          *
-         * 上一版我给 CSSPillBar 加了 autofocus(把焦点"请求"过去)—— 不够。
-         * 绑定本来就在(PillBar 里有 .focused($focused, equals:)), 问题是【舞台仍然可聚焦
-         * 并且正握着焦点】, 焦点引擎不一定让位; 于是 ←/→ 继续被舞台的 onMoveCommand 吃掉。
+         * 只能让这个修饰器在胶囊展开时【根本不存在】: 把 focusable / onMoveCommand /
+         * 确认键手势整体搬到一层【只在胶囊收起时才渲染】的透明层上。
+         * 胶囊一展开, 这一层连同它的 onMoveCommand 一起从视图树里消失, 方向键自然归胶囊。
          *
-         * 把舞台在胶囊展开期间设为不可聚焦, 焦点【只剩胶囊可去】—— 这是结构性的,
-         * 不依赖"请求焦点能不能成功"。收起时 focusable 回来, hidePills() 再把焦点按回舞台。
-         * (这和 W2241 是同一个教训: 能用结构堵死的, 别用"请求 + 祈祷"。) */
-        .focusable(!showPills)
-        .focused($stageFocused)
-        .onMoveCommand { dir in
-            switch dir {
-            case .left:  seekBy(-10)
-            case .right: seekBy(10)
-            case .up:    gotoPrev()
-            case .down:  gotoNext()
-            @unknown default: break
-            }
-        }
-        /* W2231 — tvOS 上, 焦点视图收到【确认键(Select)】就是一次 tap。
-         * 只有 ≥2 条轨才值得浮现: 一条轨的胶囊没得选, 弹出来只是挡画面。 */
-        /* W2243 — 确认键【两条路都接】。
-         *
-         * 我按不了遥控器(devicectl/simctl 都没有发送遥控器按键的能力), 所以无法自证
-         * .onTapGesture 在 tvOS 这个焦点视图上到底接不接得住 Select。
-         * 与其赌一条, 不如两条都接: onTapGesture 是文档里的正路, onLongPressGesture
-         * 把极短的按下也算一次 —— 哪条通都能开。
-         *
-         * 【但两条同时通就各触发一次 → toggle 两回 → 又变回原样, 表现恰好也是"按了没反应"】。
-         * 所以 togglePills 里加了 350ms 去抖: 同一次按键无论触发几条路径, 只算一次。
-         * 这一条不是保险, 是【必须的】—— 少了它, "两条都接"反而比只接一条更糟。
-         *
-         * 顺带去掉 `langTracks.count >= 2` 那个闸门: 它是"只放语言胶囊"时代的判据,
-         * 而单语言作品照样有声线 / ♪N 可调 ——《白鹤报恩》正是被它挡死的。 */
-        .onTapGesture { togglePills() }
-        .onLongPressGesture(minimumDuration: 0.01) { togglePills() }
-        /* W2244 —「除非退出」: 胶囊开着时 Menu 先收胶囊(焦点回舞台, ←/→ 恢复快进),
-         * 再按一次才退出播放器。没有这一条, 用户想把胶囊关掉就只能等 10 秒自动收。 */
+         * (教训: 前两次都是"改一个属性 + 祈祷"; 这次先打点量出焦点其实早就对了,
+         *  才找到真凶在修饰器的作用域上。量一次胜过猜三次。) */
         .onExitCommand { if showPills { hidePills() } else { dismiss() } }
         .animation(.easeOut(duration: 0.22), value: showPills)
     }

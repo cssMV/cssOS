@@ -184,7 +184,7 @@ struct WorkInfoView: View {
                     .background(Capsule().fill(.black.opacity(0.55)))
                     .padding(16)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .mediaFrameGlow(focused: focus == .cover)    // W2242 — 平台特色的散发绿光
         }
         .buttonStyle(.plain)
         .focused($focus, equals: .cover)
@@ -268,5 +268,65 @@ struct WorkInfoView: View {
             // 一进来焦点就在 Play 上 —— 打开简介屏最常见的下一步就是"播"。
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .play }
         }
+    }
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_2242 20260927 — 媒体框「散发绿色光芒」搬上 tvOS。
+ *
+ * Jing:「More Info 进去后显示的封面图, 请使用图3 的散发绿色光芒的边框风格,
+ *        那是我们平台的特色风格。」
+ *
+ * 【参数不是我捏的, 是从 W1983 那份定稿里逐字取的】(public/style.watch.css 末尾):
+ *     box-shadow: 0 0 14px rgba(0,245,160,.34),
+ *                 0 0 38px rgba(0,245,160,.22),
+ *                 0 0 78px rgba(11,247,255,.12),
+ *                 inset 0 0 22px rgba(0,245,160,.13);
+ *     border-radius: 0;  background: none;
+ * 那条宪法的五条性质这里一条不少:
+ *   ① 没有实心绿带 —— 一条 stroke 都不画(W1983 的原话: "太绿"的唯一来源就是那条实边)
+ *   ② 只有辉光 —— 向外三层 + 向内一层
+ *   ③ 直角 —— 原来是 cornerRadius:18, 现在是 Rectangle。Jing 反复说过不要圆角
+ *   ④ 贴画面矩形 —— 贴 640×360 的封面本身, 不贴卡片外框
+ *   ⑤ 只在该出现的地方出现
+ *
+ * 【CSS blur → SwiftUI radius 要折半】: CSS 的 blur-radius B 对应高斯 σ=B/2,
+ * 而 SwiftUI .shadow(radius:) 吃的就是那个 σ 量级。直接把 14/38/78 填进去会糊成一团 ——
+ * 所以是 7 / 19 / 39。这一步不折算, 观感就不是"同一圈光"。
+ *
+ * 【这不是改 W1983】那条宪法管的是网页端 .watch-screen::after, 一个字节都没动;
+ * 这里是把同一套观感【搬到 tvOS】。要改网页那圈, 仍然必须先拿 Jing 的 yes。
+ */
+private struct MediaFrameGlow: ViewModifier {
+    var focused: Bool
+    private let g = Color(red: 0.0, green: 0.96, blue: 0.63)     // rgb(0,245,160)
+    private let c = Color(red: 0.043, green: 0.969, blue: 1.0)   // rgb(11,247,255)
+
+    func body(content: Content) -> some View {
+        content
+            // 直角 —— 先切成矩形, 内辉光才贴得住边
+            .clipShape(Rectangle())
+            // ④ 向内 22px 绿(inset): 用一圈模糊的描边再裁掉外溢, 就是内辉光
+            .overlay(
+                Rectangle()
+                    .strokeBorder(g.opacity(0.13), lineWidth: 11)
+                    .blur(radius: 11)
+                    .clipShape(Rectangle())
+                    .allowsHitTesting(false)
+            )
+            // ①②③ 向外三层 —— 顺序照 CSS, 由近及远
+            .shadow(color: g.opacity(focused ? 0.46 : 0.34), radius: 7)
+            .shadow(color: g.opacity(focused ? 0.30 : 0.22), radius: 19)
+            .shadow(color: c.opacity(focused ? 0.18 : 0.12), radius: 39)
+            .animation(.easeInOut(duration: 0.28), value: focused)
+    }
+}
+
+extension View {
+    /// W2242 — 平台特色的「散发绿色光芒」媒体框(参数取自 W1983 定稿)。
+    /// focused 只把三层光整体提亮一档, 【不加任何描边】—— 加了就违反第 ① 条。
+    func mediaFrameGlow(focused: Bool = false) -> some View {
+        modifier(MediaFrameGlow(focused: focused))
     }
 }

@@ -100,9 +100,27 @@ struct ContentView: View {
     private var category: HomeCategory { pickedCategory ?? .all }
     @State private var loading = true
     // CSSOS_WAVE_1523 — Jing「循环列表播放」: 记住【整栏队列】+ 起始下标 → 播放器循环整栏。
-    @State private var playQueue: [CSSWork] = []
-    @State private var playStart: Int = 0
-    @State private var showPlayer = false
+    /* CSSOS_WAVE_2241 20260927 — 播放器改成 fullScreenCover(item:) 驱动。
+     *
+     * Jing:「每次播放第一首歌, 都显示这个无标题, 必须回退, 重新播放才行。」——【第三次报同一件事】。
+     *
+     * 上一轮(W2233b)我加了 .id(...) 想换掉视图身份。那是【治得不彻底的办法】:
+     * SwiftUI 的 sheet / fullScreenCover 把内容托管在自己的 presentation host 里,
+     * 内容上的 .id 不保证能换掉宿主身份 —— 所以 PlayerView 那个"先被空队列种死的 @State"
+     * 依然可能活着。我当时为了"凌晨不动大面积"选了 .id, 这个取舍是错的:
+     * 真机上按遥控器照样复现, 而我用 simctl openurl 走同一条 choose() 却过了 —— 
+     * 【验证方式和用户的操作不等价, 于是得到了一个假绿灯】。
+     *
+     * 正解是让队列【跟着 presentation 一起传进去】: item 非空才 present, 内容闭包直接拿
+     * r.queue / r.start, 根本没有"present 了但队列还没到"的中间态 —— 结构上不可能再出现空队列。
+     * ContentView 里 createRef / ifilmRef / infoRef 本来就是这个写法, 这不是新发明, 是回到既有模式。
+     */
+    struct PlayRef: Identifiable {
+        let id: String          // 每次播放都不同 → presentation 必是新身份
+        let queue: [CSSWork]
+        let start: Int
+    }
+    @State private var playRef: PlayRef?
     /* CSSOS_WAVE_2231 20260927 — 顶排「More Info」落点(csstv://info/<id>)。
      * 用 item: 而不是 isPresented: —— 深链带着 id 进来, 两者必须原子, 分成
      * 「先设 id、再翻开关」会在开关翻起来那一帧读到上一首的 id。 */
@@ -139,9 +157,8 @@ struct ContentView: View {
         }
         let lst = list.filter { !$0.isCreateCard && !$0.isComingSoon }   // 滤掉创作尾卡 + 占位卡(纯欣赏)
         let q = lst.isEmpty ? [w] : lst
-        playQueue = q
-        playStart = q.firstIndex(where: { $0.id == w.id }) ?? 0
-        showPlayer = true
+        let si = q.firstIndex(where: { $0.id == w.id }) ?? 0
+        playRef = PlayRef(id: "\(w.id)#\(si)#\(Date().timeIntervalSince1970)", queue: q, start: si)
     }
 
     /// 当前分类下的作品。
@@ -249,23 +266,20 @@ struct ContentView: View {
             }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-        .fullScreenCover(isPresented: $showPlayer) {
-            PlayerView(queue: playQueue, startIndex: playStart)
-                /* CSSOS_WAVE_2233b 20260927 — 这一行是「无标题·无法播放」的真正修复。
-                 *
-                 * PlayerView 的 `@State work` 是在 init 里【用构造参数种下】的, 而 @State
-                 * 【只认第一次】。实测日志(冷启动深链):
-                 *     [deeplink] 已设 playQueue=1 title=鶴の恩返し/白鹤报恩 showPlayer=true
-                 *     [PlayerView.init] queue=0 …… title=【空队列】      ← SwiftUI 先用空队列建了一次
-                 *     [PlayerView.init] queue=1 …… title=鶴の恩返し       ← 后面都对, 但已经晚了
-                 * 于是 work 永远停在那个空作品上: 标题 nil → 显示 "Untitled",
-                 * 没有任何可播地址 → 转圈转到底。退一步再进之所以好使, 是因为弹窗被销毁重建,
-                 * 视图拿到了【新身份】, @State 才重新种。
-                 *
-                 * .id 随队列变化 = 队列一换就是新身份 = @State 必定重新种。
-                 * 不用把整处改成 fullScreenCover(item:) —— 那要连 choose() 和别的入口一起动,
-                 * 凌晨改大面积不划算; 身份这一刀正好切在病根上。 */
-                .id("\(playQueue.first?.id ?? "none")#\(playQueue.count)#\(playStart)")
+        /* W2241 — 队列【跟着 presentation 一起进来】。
+         *
+         * 病根(W2233b 查清但没治彻底): PlayerView 的 `@State work` 是在 init 里用构造参数种下的,
+         * 而 @State 只认第一次。实测日志:
+         *     [PlayerView.init] queue=0 …… title=【空队列】   ← SwiftUI 先用空队列建了一次
+         *     [PlayerView.init] queue=1 …… title=鶴の恩返し    ← 后面都对, 但已经晚了
+         * 于是 work 永远停在那个空作品上 → 标题 nil 显示 "Untitled"。
+         * 退一步再进好使, 是因为弹窗销毁重建、拿到了新身份。
+         *
+         * 上一版用 .id(...) 想换身份 —— 不够: sheet/fullScreenCover 的内容托管在自己的
+         * presentation host 里, 内容上的 .id 不保证换得掉宿主。
+         * item: 则根本没有"已 present 但队列还没到"的中间态, 结构上装不下空队列。 */
+        .fullScreenCover(item: $playRef) { ref in
+            PlayerView(queue: ref.queue, startIndex: ref.start)
         }
         /* CSSOS_WAVE_2222 20260927 — 顶排横幅的深链: csstv://work/<id> → 直接开那一首。
          * 不这么做的话, 顶排选中只能把 App 拉起来、落在首页, 用户还得自己再找一遍 ——
@@ -306,9 +320,8 @@ struct ContentView: View {
                     Task {
                         let w = await CSSBackend.fetchWorkById(wid)
                         await MainActor.run {
-                            playQueue = [w ?? CSSWork(id: wid)]
-                            playStart = 0
-                            showPlayer = true
+                            playRef = PlayRef(id: "\(wid)#deeplink#\(Date().timeIntervalSince1970)",
+                                              queue: [w ?? CSSWork(id: wid)], start: 0)
                         }
                     }
                 }

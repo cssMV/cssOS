@@ -24,11 +24,9 @@ struct WorkInfoView: View {
     @State private var loading = true
     private enum InfoFocus: Hashable { case cover, play, lyrics(Int) }
     @FocusState private var focus: InfoFocus?
-    /// 歌词全文(只在它确实比概述更长时才另起一段, 否则等于把同一段话说两遍)。
-    private func lyricsBody(_ w: CSSWork) -> String {
-        let lp = w.displayLyrics
-        return lp.count > w.summaryText.count ? lp : ""
-    }
+    /// 生歌词全文, 原样(带 [Verse 1: …] 这类小节标题)。
+    /// W2235: 不再和概述比长度 —— 概述已从本屏去掉, 这里就是这屏唯一的歌词来源。
+    private func lyricsBody(_ w: CSSWork) -> String { w.displayLyrics }
 
     /// W2234b — 把歌词切成【若干可聚焦段】。按空行切(歌词本来分节), 太碎的合并。
     private func lyricChunks(_ w: CSSWork) -> [String] {
@@ -39,6 +37,12 @@ struct WorkInfoView: View {
         for block in body.components(separatedBy: "\n\n") {
             let b = block.trimmingCharacters(in: .whitespacesAndNewlines)
             if b.isEmpty { continue }
+            // W2235 — [Verse 1: …] 这类小节标题常常自成一段。让它跟着【下面那节】走,
+            // 否则会出现"一整屏只有一个标题"的落点, 按一下滚一下, 很蠢。
+            if b.hasPrefix("[") && b.hasSuffix("]") && !b.contains("\n") {
+                cur = cur.isEmpty ? b : cur + "\n\n" + b
+                continue
+            }
             // 一段少于 4 行就先攒着 —— 一行一段的话用户要按几十下才到底。
             cur = cur.isEmpty ? b : cur + "\n\n" + b
             if cur.components(separatedBy: "\n").count >= 4 { out.append(cur); cur = "" }
@@ -96,13 +100,18 @@ struct WorkInfoView: View {
                             .font(.system(size: 26, weight: .semibold))
                     }
 
-                    if !w.summaryText.isEmpty {
-                        Text(w.summaryText)
-                            .font(.system(size: 28))
-                            .foregroundStyle(.white.opacity(0.88))
-                            .lineSpacing(9)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    /* CSSOS_WAVE_2235 20260927 — 这屏只显示【生歌词】, 不再另起一段"概述"。
+                     *
+                     * Jing:「显示的歌词, 是否可以显示"生歌词"版本, 不要显示"熟歌词"版本,
+                     *        因为"生歌词"版本有那些标签, 如 [Verse 1 小标题]。」
+                     *
+                     * 原来这里排着 summaryText —— 它就是【同一段歌词的前几行, 把方括号标签剥掉】。
+                     * 也就是说这屏上半截是熟歌词、下半截是生歌词, 同一首词印了两遍, 上面那遍还缺标签。
+                     * 既然要生歌词, 这段概述在本屏纯属重复, 直接去掉, 整屏从第一行起就是原样。
+                     *
+                     * summaryText 本身【保留】—— 顶排那一格是苹果的「summary」概述位, 一段话的篇幅,
+                     * 方括号放进去会显得像坏掉。两处的用途本来就不同, 不要顺手把它也删了。
+                     */
 
                     /* CSSOS_WAVE_2234 20260927 — 文字区必须能滚。
                      *

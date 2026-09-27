@@ -599,7 +599,11 @@ struct PlayerView: View {
              * (设置 / 情绪字幕微调 / 多画面切换), 那些不是一行胶囊能搬过来的。
              * 与其摆几枚按下去什么也不发生的胶囊(那比不摆更糟: 用户会以为坏了),
              * 不如把话说清楚。哪一格 Jing 要先做, 我就先做哪一格。 */
-            if pillRowOpen { pillNote("Not on TV yet — available on cssstudio.app") }
+            /* CSSOS_WAVE_2249 — 文案去掉网址。
+             * 原文是 "Not on TV yet — available on cssstudio.app" —— 它在【引导用户离开 App 去网站】。
+             * 虽然不涉及购买, 但正在送审, 审核员看到这种指向站外的句子容易多想, 而这句话的
+             * 全部作用只是"这一格 TV 上还没有" —— 网址并不增加任何信息。去掉, 风险归零。 */
+            if pillRowOpen { pillNote("Not available on TV") }
         default:
             if pillRowOpen && languagePillItems.count > 1 {
                 itemPillBar(languagePillItems, selected: selectedTrackId ?? "") { id in

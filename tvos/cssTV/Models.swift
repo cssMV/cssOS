@@ -68,6 +68,26 @@ enum CSSFx {
     }
 }
 
+/* CSSOS_WAVE_2250 — 数字字段的"两种形状都认"包装。
+ *
+ * 后端同一个字段在不同行里可能是数字也可能是字符串(visual_frames 实测就是字符串)。
+ * Swift 的数组解码是全有或全无 —— 一个元素抛错, 整包作废, 而调用方只会看到"没数据",
+ * 根本不知道是解码炸了。这个包装让形状不一致【降级成单个字段为 nil】, 不再拖垮整包。 */
+struct LooseInt: Codable {
+    let value: Int?
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let i = try? c.decode(Int.self) { value = i }
+        else if let s = try? c.decode(String.self) { value = Int(s.trimmingCharacters(in: .whitespaces)) }
+        else if let d = try? c.decode(Double.self) { value = Int(d) }
+        else { value = nil }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        if let v = value { try c.encode(v) } else { try c.encodeNil() }
+    }
+}
+
 /// 一首作品(MV)。字段映射 cssOS 后端 work 行(只取大屏影院需要的)。
 struct CSSWork: Codable, Identifiable {
     let id: String
@@ -95,6 +115,23 @@ struct CSSWork: Codable, Identifiable {
     var ownerName: String?
     /// 已有语言轨(后端 available_langs)。
     var availableLangs: [String]?
+    /* CSSOS_WAVE_2250 20260927 — 多画面胶囊(Visuals)上 TV 所需的三件。
+     *
+     * 【判据必须来自后端 visual_kind, 绝不用"有没有 mp4"来猜】——
+     * 桌面端 app.watch-visual-pills.js 的原话: 平台的 mp4 很多是【我们自己用封面拼出来的
+     * 幻灯片视频】, 按"有 mp4 = 真视频"来标, 屏幕上就是在撒谎。
+     * (实测 2026-09-27 全库 244 条: slides 192 / video 49 / hybrid 3, 其中 139 条
+     *  既有 mp4 又有幻灯帧 —— 正是最容易被"有 mp4"这条错判据标错的那一批。) */
+    var visualKind: String?          // "video" / "hybrid" / "slides"
+    /* ⚠ visual_frames 后端发的是【字符串】("6"), 不是数字 —— 实测 48/90 条是 str。
+     * 我第一版直接声明 Int? , 于是那 48 条各自抛错 → Swift 的数组解码是【全有或全无】→
+     * 【整个 feed 解码失败】→ fetchFeed 一路掉到 [flagship] 兜底。
+     * 症状极隐蔽: 首页还有东西(那一首旗舰), 顶排清单从 10 条变成 1 条, Visuals 读不到帧数。
+     * 要不是顶排日志打了"清单 1 条", 这个洞能一直带到线上。
+     * 教训: 【字段类型要看真实响应, 不要照着语义猜】; 而且解码要能兜住两种形状。 */
+    var visualFramesRaw: LooseInt?
+    var visualFrames: Int? { visualFramesRaw?.value }
+    var coverSlides: [String]?       // 幻灯帧 URL
     /// 作品类型(single/opera/film/series/triptych…)。CSSOS_WAVE_1227 首页分轨用。
     var workType: String?
     /// 创建时间(ISO8601 串)。W1281 — For You 严格从新到旧排序用(字典序=时间序)。
@@ -127,6 +164,9 @@ struct CSSWork: Codable, Identifiable {
         case lyricsPreview = "lyrics_preview"
         case ownerName = "owner_name"
         case availableLangs = "available_langs"
+        case visualKind = "visual_kind"
+        case visualFramesRaw = "visual_frames"
+        case coverSlides = "cover_slides"
         case workType = "work_type"
         case createdAt = "created_at"
         case children
@@ -200,6 +240,15 @@ struct CSSWork: Codable, Identifiable {
     var displayLyrics: String {
         let own = lyricsPreview ?? ""
         return own.isEmpty ? (firstPartWithText?.lyricsPreview ?? "") : own
+    }
+
+    /* W2250 — 幻灯帧列表。照桌面 slideList(): 没有 cover_slides 就退回单张封面,
+     * 保证"幻灯"这一形态永远有东西可放, 不会切过去变黑屏。 */
+    var slideFrames: [String] {
+        let a = (coverSlides ?? []).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        if !a.isEmpty { return a }
+        if let c = coverURL, !c.isEmpty { return [c] }
+        return []
     }
 
     var summaryText: String {

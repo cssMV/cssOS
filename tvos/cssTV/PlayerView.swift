@@ -91,6 +91,13 @@ struct PlayerView: View {
      * 模式头因此是个【开关】: 按别的头 = 换模式并展开; 按【当前这个头】= 收起 / 再展开。
      * CSSPillBar 的按钮无论值变没变都会回调, 所以"按了同一个头"这件事接得住。 */
     @State private var pillRowOpen = true
+    /* CSSOS_WAVE_2250 — 多画面胶囊。key: "video" / "hybrid" / "slides"。
+     * 记忆走 UserDefaults, 与桌面 localStorage "cssos.visual.mode" 同一条规矩:
+     * 没选过 → 用该作品能给出的【最高形态】; 选过一次 → 之后每首都优先用它, 该作品没有才回落。
+     * (导演自动流默认法: 不选不填→系统推荐; 用户干预→系统让位。) */
+    @State private var visualMode: String = ""
+    @State private var videoPixelHeight: Int = 0     // 解码器给的真值, 0 = 还没读到 → 不标清晰度
+    private static let visualPrefKey = "cssos.visual.mode"
     /// W2243 — 确认键去抖时间戳(tap / longPress 两条路共用)。
     @State private var lastPillToggle: Date = .distantPast
 
@@ -112,11 +119,23 @@ struct PlayerView: View {
             // W1319 — 强制 2.39 宽银幕框(满宽 × 宽/2.39, 垂直居中, 上下电影黑边); 内容 fill 裁满。
             GeometryReader { geo in
                 let boxH = geo.size.width / 2.39
-                Group {
+                /* CSSOS_WAVE_2250 — 画面层按【多画面胶囊】选中的形态渲染。
+                 * 语义照桌面 applyForm():
+                 *   video  = 只有视频, 幻灯层撤掉
+                 *   hybrid = 视频照放, 幻灯层【垫在底下】—— 视频有空档/放不出时画面不塌成黑屏
+                 *   slides = 有渲染好的 mp4 就用它(那条 mp4 本身就是幻灯), 没有才实时放封面帧
+                 * 【音频一概不动】—— 四轨分离铁律: 换画面不该影响声音, 换的只是这一层。 */
+                ZStack {
+                    let mode = chosenVisual
+                    if mode != "video" {
+                        SlideshowLayer(frames: currentPart.slideFrames,
+                                       alignment: currentPart.coverAlignment)
+                    }
                     // W1344 — 短视频播完即转封面/幻灯(videoEnded), 不再循环铺满。
                     if let vp = videoPlayer, !videoEnded {
                         VideoSurface(player: vp)
-                    } else if let cover = currentPart.coverURL, let url = URL(string: cover) {
+                    } else if mode == "video", let cover = currentPart.coverURL, let url = URL(string: cover) {
+                        // 真视频形态下没有幻灯垫底 —— 视频不在时至少给封面, 别露黑屏。
                         AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.black }
                     }
                 }
@@ -491,6 +510,7 @@ struct PlayerView: View {
             p.isMuted = (part.bestAudio != nil)
             p.actionAtItemEnd = .none
             videoPlayer = p
+            readVideoResolution()      // W2250 — 清晰度只信解码器, 起播后读一次
             // W1470 — 无独立音轨(叙事): 没有音频主时钟, 改用【视频结束】驱动连播/退出。
             if part.bestAudio == nil, let item = p.currentItem {
                 endObserver = NotificationCenter.default.addObserver(
@@ -556,6 +576,85 @@ struct PlayerView: View {
         ]
     }
 
+    // MARK: - W2250 多画面(Visuals)
+
+    struct VisualForm: Identifiable {
+        let key: String          // video / hybrid / slides
+        let label: String
+        let spec: String         // 清晰度 或 "N img"
+        let icon: String
+        var id: String { key }
+    }
+
+    /* 当前作品【真实可用】的画面形态。判据来自后端 visual_kind —— 绝不用"有没有 mp4"猜
+     * (桌面原话: 平台很多 mp4 是我们自己用封面拼的幻灯片视频, 按有 mp4 标真视频就是在撒谎)。
+     * 后端没给 kind 一律按幻灯处理: 宁可少标, 绝不错标。 */
+    private var visualForms: [VisualForm] {
+        let w = currentPart
+        let kind = (w.visualKind ?? "").lowercased()
+        let slides = w.slideFrames
+        let n = max(w.visualFrames ?? slides.count, 1)
+        let res = resolutionLabel
+        switch kind {
+        case "video":
+            return [VisualForm(key: "video", label: "Real video", spec: res, icon: "film")]
+        case "hybrid":
+            return [VisualForm(key: "hybrid", label: "Hybrid video", spec: res, icon: "film.stack"),
+                    VisualForm(key: "slides", label: "Slideshow", spec: "\(n) img", icon: "photo.on.rectangle")]
+        default:
+            return [VisualForm(key: "slides", label: "Slideshow", spec: "\(n) img", icon: "photo.on.rectangle")]
+        }
+    }
+
+    /* 清晰度【只信解码器】。后端的 frame_width/height 实测大面积为空, 拿不到。
+     * 竖屏作品按【短边】算, 否则 1080x1920 会被误标成 4K。读不到就返回空 → 不标。 */
+    private var resolutionLabel: String {
+        let h = videoPixelHeight
+        guard h > 0 else { return "" }
+        if h >= 4320 { return "8K" }
+        if h >= 2160 { return "4K" }
+        if h >= 1440 { return "1440P" }
+        if h >= 1080 { return "1080P" }
+        if h >= 720  { return "720P" }
+        if h >= 480  { return "480P" }
+        return "\(h)P"
+    }
+
+    /// 选中哪一种: 用户选过的优先, 否则最高形态(列表第一个 = 最新生成的那一层)。
+    private var chosenVisual: String {
+        let list = visualForms
+        if !visualMode.isEmpty, list.contains(where: { $0.key == visualMode }) { return visualMode }
+        let pref = UserDefaults.standard.string(forKey: Self.visualPrefKey) ?? ""
+        if !pref.isEmpty, list.contains(where: { $0.key == pref }) { return pref }
+        return list.first?.key ?? ""
+    }
+
+    private var visualPillItems: [CSSPillItem] {
+        visualForms.map {
+            CSSPillItem(id: $0.key,
+                        label: $0.spec.isEmpty ? $0.label : "\($0.label) · \($0.spec)",
+                        icon: $0.icon)
+        }
+    }
+
+    private func pickVisual(_ key: String) {
+        visualMode = key
+        UserDefaults.standard.set(key, forKey: Self.visualPrefKey)   // 跨作品记住
+        schedulePillHide()
+    }
+
+    /* 读解码器的真实像素高。AVPlayer 的轨道要异步载, 所以在起播后调一次。
+     * 拿不到就保持 0 —— 对应"不标清晰度", 而不是标一个猜的值。 */
+    private func readVideoResolution() {
+        guard let item = videoPlayer?.currentItem else { videoPixelHeight = 0; return }
+        Task {
+            guard let track = try? await item.asset.loadTracks(withMediaType: .video).first,
+                  let size = try? await track.load(.naturalSize) else { return }
+            let h = Int(min(abs(size.width), abs(size.height)).rounded())
+            await MainActor.run { videoPixelHeight = h }
+        }
+    }
+
     /// 当前语言下的全部声线(多声线胶囊的料)。
     private var voicesOfCurrentLang: [CSSBackend.CSSLangTrack] {
         let l = langTracks.first(where: { $0.id == selectedTrackId })?.lang
@@ -594,7 +693,13 @@ struct PlayerView: View {
                     if let k = Int(id.replacingOccurrences(of: "take-", with: "")) { playTake(k); hidePills() }
                 }
             }
-        case "settings", "tune", "visual":
+        case "visual":
+            /* 【这一行即使只有一枚也显示】—— 与 Languages/Voices 不同, 这枚胶囊本身带信息
+             * (是幻灯还是真视频、几张 / 什么清晰度), 不只是"可选项"。桌面端也是这样。 */
+            if pillRowOpen && !visualPillItems.isEmpty {
+                itemPillBar(visualPillItems, selected: chosenVisual) { key in pickVisual(key) }
+            }
+        case "settings", "tune":
             /* 【实话实说】这三格在 TV 端还没有控件 —— 桌面上它们各自连着一整套面板
              * (设置 / 情绪字幕微调 / 多画面切换), 那些不是一行胶囊能搬过来的。
              * 与其摆几枚按下去什么也不发生的胶囊(那比不摆更糟: 用户会以为坏了),
@@ -1140,5 +1245,48 @@ struct EmotionSubtitleOverlay: View {
         default:
             return .white
         }
+    }
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * CSSOS_WAVE_2250 20260927 — 幻灯层(多画面胶囊的「幻灯」形态)。
+ *
+ * 为什么 TV 上非要有这一层: 桌面端切到「幻灯」时, 若作品没有渲染好的 mp4, 由幻灯模块
+ * 实时把封面帧放出来。TV 端原来只会显示【一张】封面 —— 切过去等于看一张静图,
+ * 那不是幻灯, 是"没实现"。
+ *
+ * 【不驱动音频, 也不被音频驱动】—— 四轨分离: 这一层只管画面自己的节奏。
+ * 用 TimelineView 而不是 Timer: 页面不可见时 TimelineView 自动停, 不会在后台空转烧电。
+ */
+private struct SlideshowLayer: View {
+    let frames: [String]
+    var alignment: Alignment = .top
+    /// 每帧停留秒数。6 秒是大屏上"看得清又不拖沓"的常见值; 帧少时不必更快。
+    private let dwell: Double = 6
+
+    var body: some View {
+        if frames.isEmpty {
+            Color.black
+        } else if frames.count == 1 {
+            frame(frames[0])
+        } else {
+            TimelineView(.periodic(from: .now, by: dwell)) { ctx in
+                let i = Int(ctx.date.timeIntervalSince1970 / dwell) % frames.count
+                frame(frames[i])
+                    .id(i)                                   // 换帧 = 新身份 → 过渡真的会跑
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.8), value: i)
+            }
+        }
+    }
+
+    @ViewBuilder private func frame(_ u: String) -> some View {
+        if let url = URL(string: u) {
+            ZStack(alignment: alignment) {
+                AsyncImage(url: url) { img in img.resizable().scaledToFill() }
+                placeholder: { Color.black }
+            }
+        } else { Color.black }
     }
 }

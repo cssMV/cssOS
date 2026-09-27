@@ -9,17 +9,63 @@ enum CSSBackend {
     // W1575 — App Group 共享容器: app 主体(网络正常)把 Top Shelf 精选写进来, 扩展【直接读、零网络】。
     static let appGroupID = "group.CSSStudio.cssTV"
     /// 把前 10 个精选(id/title/cover/video)写进共享容器, 供 Top Shelf 扩展读取(绕开扩展进程网络限制)。
+    /* CSSOS_WAVE_2222 20260927 — Jing:「顶排 App 上方会出现横幅广告…其实一直都还没有实现。」
+     *
+     * 【为什么以前没实现】三处各缺一块, 缺一块就全盘不成立:
+     *   ① 扩展的 entitlements 是【空的】—— 没有 App Group 权限, 读也读不到(已补)。
+     *   ② 扩展里写死了三张随包的《时间帝国》JPG, 根本没去读这份缓存(已改)。
+     *   ③ 这份缓存只存了封面【URL】, 而扩展进程【没有网络】(本文件原注释自己写着
+     *      「扩展直接读、零网络」)—— 给 URL 等于没给。
+     *
+     * ③ 才是真正的活: 封面必须【下成文件】放进 App Group 的共享【文件容器】,
+     * 扩展拿到的是本地 file:// 路径, 零网络也能渲染。UserDefaults 只存清单(路径 + 标题 + id)。
+     *
+     * 顺带: 每次只保留本轮用到的图, 旧图删掉 —— 顶排就 10 张, 不清理迟早堆成垃圾场。
+     */
     static func writeTopShelfCache(_ works: [CSSWork]) {
-        guard let ud = UserDefaults(suiteName: appGroupID) else { return }
-        let items: [[String: String]] = works.prefix(10).compactMap { w in
-            guard let cover = w.coverURL, !cover.isEmpty else { return nil }
-            var d: [String: String] = ["id": w.id, "title": w.title ?? "cssTV", "cover": cover]
+        Task.detached(priority: .utility) { await writeTopShelfCacheAsync(works) }
+    }
+
+    /// 真正干活的那一半(下载要时间, 绝不能卡住首页)。
+    static func writeTopShelfCacheAsync(_ works: [CSSWork]) async {
+        guard let ud = UserDefaults(suiteName: appGroupID),
+              let container = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else { return }
+        let dir = container.appendingPathComponent("topshelf", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        var items: [[String: String]] = []
+        var keep = Set<String>()
+        for w in works.prefix(10) {
+            guard let cover = w.coverURL, !cover.isEmpty, let curl = URL(string: cover) else { continue }
+            // 文件名用封面 URL 的哈希 —— 同一张图不重复下载, 不同图必不同名。
+            let name = "ts-\(stableHash(cover)).img"
+            keep.insert(name)
+            let dest = dir.appendingPathComponent(name)
+            if !FileManager.default.fileExists(atPath: dest.path) {
+                guard let (data, _) = try? await URLSession.shared.data(from: curl), !data.isEmpty else { continue }
+                try? data.write(to: dest, options: .atomic)
+            }
+            var d: [String: String] = ["id": w.id, "title": w.title ?? "cssTV", "file": dest.path]
             if let v = w.bestVideo, !v.isEmpty { d["video"] = v }
-            return d
+            items.append(d)
+        }
+        // 清掉本轮没用到的旧图。
+        if let old = try? FileManager.default.contentsOfDirectory(atPath: dir.path) {
+            for f in old where f.hasPrefix("ts-") && !keep.contains(f) {
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent(f))
+            }
         }
         if let data = try? JSONSerialization.data(withJSONObject: items) {
             ud.set(data, forKey: "topshelf_items")
         }
+    }
+
+    /// 稳定哈希(Swift 的 hashValue 每次进程启动都变种子, 不能用来当文件名)。
+    private static func stableHash(_ s: String) -> String {
+        var h: UInt64 = 5381
+        for b in s.utf8 { h = (h &* 33) &+ UInt64(b) }
+        return String(h, radix: 36)
     }
 
     // MARK: - 开箱即播的旗舰样本(与 visionOS 骨架同一首《混沌の海》, 真实可播放地址)。

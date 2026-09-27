@@ -2,5 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- CSSOS_WAVE_2222 20260927 — 这份原来是【空的】。
+	     App 侧 writeTopShelfCache 一直在往 App Group 写缓存, 但扩展没有这条权限,
+	     读也读不到 —— 这是「顶排横幅一直没真正实现」的根因之一(另一条是扩展里写死了三张随包图)。
+	     两个 target 必须是同一个 group, 否则容器不互通。 -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.CSSStudio.cssTV</string>
+	</array>
 </dict>
 </plist>

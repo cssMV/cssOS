@@ -46,5 +46,6 @@ No App Transport Security changes needed — all media URLs are `https`.
 1. ✅ **音频主时钟同步**（W1229）— audio periodic observer drives video; `audio.ended` 切歌; short video loops.
 2. ⏳ **逐字情绪字幕** on the big screen — fetch subtitle JSON, render per-word emotion bursts in SwiftUI by `audioPlayer.currentTime`.
 3. ⏳ **Sign in** (device-code / QR) + **聆听/观赏** entitlement, mirroring iOS commerce + staff rules.
-4. ✅ **For-You rails**（W1227）— For You / Fresh / by work_type. TODO: by civilization / festival, Top Shelf.
+4. ✅ **For-You rails**（W1227）— For You / Fresh / by work_type. TODO: by civilization / festival.
+5. ✅ **Top Shelf**（W2222）— 顶排横幅接平台真内容: App 把前 10 个作品的封面下成文件写进 App Group 共享容器, 扩展零网络读清单渲染 carousel, 每项带 `csstv://work/<id>` 深链直达那一首。（此前是三张随包的《时间帝国》JPG, 与平台内容无关。）
 5. ⏳ App Store: separate bundle, screenshots, submit.

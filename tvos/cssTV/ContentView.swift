@@ -247,6 +247,27 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $showPlayer) {
             PlayerView(queue: playQueue, startIndex: playStart)
         }
+        /* CSSOS_WAVE_2222 20260927 — 顶排横幅的深链: csstv://work/<id> → 直接开那一首。
+         * 不这么做的话, 顶排选中只能把 App 拉起来、落在首页, 用户还得自己再找一遍 ——
+         * 那就不算"选中顶排就看到并能进去"。
+         *
+         * feed 可能还没回来(冷启动点顶排最常见), 所以分两种情况:
+         *   · feed 已有这一首 → 走 choose(), 与平常点卡片完全同一条路(队列/循环整栏一致);
+         *   · feed 还没回来  → 用 id 造一条最小 CSSWork 直接进播放器, 由 PlayerView 自己
+         *     hydrate(它本来就会 hydrate, W1523)。不等 feed = 不让用户盯着首页干等。 */
+        .onOpenURL { url in
+            guard url.scheme?.lowercased() == "csstv" else { return }
+            // csstv://work/<id> —— host=work, 末段=id
+            let parts = url.pathComponents.filter { $0 != "/" }
+            guard (url.host?.lowercased() == "work"), let wid = parts.last, !wid.isEmpty else { return }
+            if let hit = allWorks.first(where: { $0.id == wid }) {
+                choose(hit, in: allWorks)
+            } else {
+                playQueue = [CSSWork(id: wid)]
+                playStart = 0
+                showPlayer = true
+            }
+        }
         .fullScreenCover(isPresented: $showLogin) {
             LoginView(auth: auth)
         }

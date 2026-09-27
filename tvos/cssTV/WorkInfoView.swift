@@ -172,9 +172,17 @@ struct WorkInfoView: View {
     // MARK: - 取
 
     private func load() async {
-        // 顶排深链进来时手上只有一个 id —— 必须自己去拉, 否则本屏永远是空的。
+        /* 顶排深链进来时手上只有一个 id —— 必须自己去拉, 否则本屏永远是空的。
+         * W2233: 先要市场行(它带 children —— 三部曲的词和曲风都在各部身上, 没有 children
+         * 就落不到子作品去取, 简介屏会缺一大半), 详情端点兜底。 */
         let base = known ?? CSSWork(id: workId)
-        let full = await CSSBackend.fetchWorkDetail(id: workId) ?? base
+        var full = await CSSBackend.fetchWorkById(workId) ?? base
+        if full.displayLyrics.isEmpty || full.displayStyle.isEmpty,
+           let d = await CSSBackend.fetchWorkDetail(id: workId) {
+            full.style = full.style ?? d.style
+            full.lyricsPreview = full.lyricsPreview ?? d.lyricsPreview
+            full.ownerName = full.ownerName ?? d.ownerName
+        }
         await MainActor.run {
             work = full.title == nil ? base : full
             loading = false

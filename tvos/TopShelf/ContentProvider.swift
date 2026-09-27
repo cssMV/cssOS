@@ -83,6 +83,15 @@ final class ContentProvider: TVTopShelfContentProvider {
             if !e.langs.isEmpty { attrs.append(TVTopShelfNamedAttribute(name: "Languages", values: e.langs)) }
             item.namedAttributes = attrs      // 上限 4 条(SDK 规定), 这里最多 2 条
 
+            /* CSSOS_WAVE_2233 20260927 — 像苹果那样: 先封面, 停留片刻后接着放真视频。
+             * SDK 原话:「If provided this video is played after the image or cinemagraph
+             * when the user rests on the item.」—— 正是 Jing 描述的那个观感, 我们只要给 URL。
+             * 轮播有时限、片子放不完就切走, 那是系统的节奏, 不用我们管。
+             * 没有真视频的作品这里是 nil → 老实停在封面图上(Jing 明确要的行为)。 */
+            if !e.previewVideo.isEmpty, let pv = URL(string: e.previewVideo) {
+                item.previewVideoURL = pv
+            }
+
             /* W2231 — Play 与 More Info 必须是【两件事】。
              *
              * Jing:「现在点 play 和 More Info 功能一样, 都是播放媒体, 我希望是 More Info
@@ -145,7 +154,7 @@ final class ContentProvider: TVTopShelfContentProvider {
     private struct Entry {
         let id: String; let title: String; let file: String
         // W2231 — 描述四件套(App 侧写进清单; 扩展零网络直接用)。
-        var summary = ""; var genre = ""; var owner = ""
+        var summary = ""; var genre = ""; var owner = ""; var previewVideo = ""
         var langs: [String] = []
         var duration: TimeInterval = 0
         var created: Date?
@@ -162,6 +171,7 @@ final class ContentProvider: TVTopShelfContentProvider {
             e.summary = d["summary"] ?? ""
             e.genre = d["genre"] ?? ""
             e.owner = d["owner"] ?? ""
+            e.previewVideo = d["preview_video"] ?? ""
             e.langs = (d["langs"] ?? "").split(separator: ",").map { String($0).uppercased() }
             e.duration = Double(d["duration"] ?? "") ?? 0
             if let c = d["created"], !c.isEmpty { e.created = Self.iso.date(from: c) }

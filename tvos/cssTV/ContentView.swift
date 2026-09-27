@@ -276,9 +276,26 @@ struct ContentView: View {
                 if let hit = allWorks.first(where: { $0.id == wid }) {
                     choose(hit, in: allWorks)
                 } else {
-                    playQueue = [CSSWork(id: wid)]
-                    playStart = 0
-                    showPlayer = true
+                    /* CSSOS_WAVE_2233 20260927 — 冷启动深链(顶排 Play)必须【先把作品取全再开播放器】。
+                     *
+                     * Jing:「每次进入, 播放的时候, 不管是哪一首, 总是显示无标题, 无法播放,
+                     *        必须退后一步, 重新播放才可以。」
+                     *
+                     * 原来这里直接塞一个【裸 id 的空作品】进队列就开播: 没有标题(显示 Untitled)、
+                     * 没有任何可播地址。指望播放器里的 hydrate 去补 —— 而 hydrate 当时解析不出东西
+                     * (信封形状对不上, 见 CSSBackend.WorkEnvelope 的 W2233 注释), 于是永远补不回来。
+                     * 退回首页再播之所以好使, 是因为那时 feed 已经加载, 走的是字段齐全的市场行。
+                     *
+                     * 现在: 先取市场行(带音轨/子部/时长), 取到了再开播放器 —— 一次就能播。
+                     * 万一取不到(网络断/作品已下架), 仍按老路开, 至少不比以前差。 */
+                    Task {
+                        let w = await CSSBackend.fetchWorkById(wid)
+                        await MainActor.run {
+                            playQueue = [w ?? CSSWork(id: wid)]
+                            playStart = 0
+                            showPlayer = true
+                        }
+                    }
                 }
             default:
                 return

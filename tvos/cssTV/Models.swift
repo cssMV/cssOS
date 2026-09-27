@@ -179,6 +179,23 @@ struct CSSWork: Codable, Identifiable {
         if let st = style, !st.isEmpty { return st }
         return children?.compactMap({ $0.style }).first(where: { !$0.isEmpty }) ?? ""
     }
+    /* CSSOS_WAVE_2233 20260927 — 顶排轮播的【真视频】。
+     *
+     * Jing:「苹果轮播的是首先封面图/静态页面, 随后就是动态的真视频…
+     *        没有真视频, 那就老实显示封面图; 如果有真视频…也像苹果的顶排一样播放真视频。」
+     *
+     * 两条判据缺一不可:
+     *   ① 必须是【真视频】(is_real_video_mv)。《白鹤报恩》有一个 canon-*.mp4, 但那是
+     *      幻灯渲染出来的片子(visual_kind='slides', is_real_video_mv=false) —— 它动起来
+     *      就是几张静图在推拉, 当"真视频"放上去反而露怯。按 Jing 的话: 老实显示封面。
+     *   ② 三部曲的根行【标记为真视频, 但 mp4 在各部身上】(实测 6 个三部曲根行 mp4 全空)。
+     *      只看根行 = 六个三部曲一个都放不出视频。和曲风/歌词同一个落子模式。 */
+    var displayPreviewVideo: String? {
+        guard isRealVideoMV == true else { return nil }
+        if let v = bestVideo, !v.isEmpty { return v }
+        return children?.compactMap({ $0.bestVideo }).first(where: { !$0.isEmpty })
+    }
+
     /// 顶排 / 简介屏真正显示的那段词(根行没有就取第一部的)。
     var displayLyrics: String {
         let own = lyricsPreview ?? ""

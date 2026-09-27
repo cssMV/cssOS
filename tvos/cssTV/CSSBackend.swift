@@ -81,6 +81,12 @@ enum CSSBackend {
             }
             var d: [String: String] = ["id": w.id, "title": w.title ?? "cssTV", "file": dest.path]
             if let v = w.bestVideo, !v.isEmpty { d["video"] = v }
+            /* W2233 — 顶排轮播的真视频(苹果顶排: 先图, 停留片刻后接着放片)。
+             * 只有【真视频】才给; 幻灯渲染的 mp4 不给 —— 见 displayPreviewVideo 的判据。
+             * 这里给的是【远程 URL】: 播放由系统做, 不是扩展进程自己拉
+             * (所以不受"扩展没有网络"的限制, 和封面必须落地成文件不是一回事)。
+             * 也不落盘: 10 个视频几十上百 MB 塞进 tvOS 的 Caches, 换不来什么好处。 */
+            if let pv = w.displayPreviewVideo, !pv.isEmpty { d["preview_video"] = pv }
             /* CSSOS_WAVE_2231 20260927 — 清单里补上【描述三件套】。
              * Jing:「苹果 TV 显示的是标题和概述说明描述文字, 我们是否也可以那样?」
              * 顶排 .details 样式本来就有 summary / genre / duration / creationDate 四个位,
@@ -294,23 +300,58 @@ enum CSSBackend {
 
     /// 拉单首作品的可播放地址(市场卡片常不带 final_mv_url → 用此端点补全)。失败则原样返回。
     static func hydrate(_ work: CSSWork) async -> CSSWork {
-        guard work.videoURL == nil || work.audioURL == nil,
-              let url = URL(string: "\(baseURL)/api/works/\(work.id)") else { return work }
+        // 已经有画面【和】声音 = 能播, 不必发网络。
+        if work.bestVideo != nil, work.bestAudio != nil { return work }
+        guard !work.id.isEmpty else { return work }
+
+        /* CSSOS_WAVE_2233 20260927 — 补全【先问市场行】。
+         *
+         * 作品详情端点(302 → /api/works/public/<id>)实测【不返回 audio_track_1_url,
+         * 也不返回 final_mv_url】, 只有 preview_video_url 和封面。拿它去补一个空作品,
+         * 补完照样没有音轨 —— 还是播不了。
+         * 市场行才是最全的一份: 音轨 / 子部 children / 时长 / 曲风全在
+         * (实测 /api/works/market?q=<id> 按 ID 命中, W770 起就支持)。
+         * 所以顺序是: 市场行优先, 详情端点兜底。 */
+        if let m = await fetchWorkById(work.id),
+           m.bestAudio != nil || m.bestVideo != nil || (m.children?.isEmpty == false) {
+            var merged = m
+            // 调用方手上若已有更好的字段(如首页那行的封面), 不要被覆盖掉。
+            merged.title = merged.title ?? work.title
+            merged.coverURL = merged.coverURL ?? work.coverURL
+            return merged
+        }
+        if let d = await fetchWorkDetail(id: work.id) {
+            var merged = work
+            merged.title = merged.title ?? d.title
+            merged.videoURL = merged.videoURL ?? d.videoURL
+            merged.audioURL = merged.audioURL ?? d.audioURL
+            merged.previewVideo = merged.previewVideo ?? d.previewVideo
+            merged.previewAudio = merged.previewAudio ?? d.previewAudio
+            merged.coverURL = merged.coverURL ?? d.coverURL
+            merged.durationSecs = merged.durationSecs ?? d.durationSecs
+            merged.style = merged.style ?? d.style
+            merged.lyricsPreview = merged.lyricsPreview ?? d.lyricsPreview
+            merged.ownerName = merged.ownerName ?? d.ownerName
+            return merged
+        }
+        return work
+    }
+
+    /* CSSOS_WAVE_2233 — 按 ID 取【市场行】(最全的一份)。
+     * 深链(顶排 Play / csstv://)冷启动时 allWorks 还是空的, 只能靠它把作品补齐。 */
+    static func fetchWorkById(_ id: String) async -> CSSWork? {
+        guard !id.isEmpty,
+              let enc = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(baseURL)/api/works/market?q=\(enc)&limit=1") else { return nil }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             let decoder = JSONDecoder()
-            if let env = try? decoder.decode(WorkEnvelope.self, from: data), let w = env.resolved {
-                var merged = work
-                merged.videoURL = merged.videoURL ?? w.videoURL
-                merged.audioURL = merged.audioURL ?? w.audioURL
-                merged.coverURL = merged.coverURL ?? w.coverURL
-                merged.durationSecs = merged.durationSecs ?? w.durationSecs
-                return merged
-            }
+            if let env = try? decoder.decode(FeedEnvelope.self, from: data),
+               let hit = env.resolved?.first(where: { $0.id == id }) ?? env.resolved?.first { return hit }
         } catch {
-            print("[CSSBackend] hydrate failed:", error)
+            print("[CSSBackend] fetchWorkById failed:", error)
         }
-        return work
+        return nil
     }
 
     // MARK: - W1247 逐字情绪字幕
@@ -569,11 +610,32 @@ enum CSSBackend {
         return nil
     }
 
-    private struct WorkEnvelope: Codable {
-        let work: CSSWork?
-        let data: DataField?
-        struct DataField: Codable { let work: CSSWork? }
-        var resolved: CSSWork? { work ?? data?.work }
+    /* CSSOS_WAVE_2233 20260927 — 这份信封原来【永远解析不出东西】。
+     *
+     * Jing:「cssTV 每次进入, 播放的时候, 不管是哪一首, 总是显示无标题, 无法播放,
+     *        必须退后一步, 重新播放才可以。」
+     *
+     * 实测线上: GET /api/works/<id> 会 302 到 /api/works/public/<id>,
+     * 返回的是 { ok, data: {...作品字段直接摊在这里...} } ——
+     * 既不是 { work }, 也不是 { data: { work } }。旧的 resolved 只认那两种, 所以恒为 nil。
+     *
+     * 后果链: 顶排 Play(csstv://work/<id>) 冷启动时 allWorks 还空着 → 队列里只有
+     * 一个【裸 id 的空作品】→ hydrate 解析失败, 什么都补不回来 → 标题 nil 显示
+     * "Untitled"、没有任何可播地址 → "无法播放"。退回首页(feed 已加载)再播走的是
+     * 市场行, 字段齐全 → 正常。这就是"必须退后一步"的全部原因。
+     *
+     * 三种形状都认: { work } / { data: { work } } / { data: 作品本身 }。 */
+    private struct WorkEnvelope: Decodable {
+        let resolved: CSSWork?
+        private enum K: String, CodingKey { case work, data }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: K.self)
+            if let w = try? c.decode(CSSWork.self, forKey: .work) { resolved = w; return }
+            if let nested = try? c.nestedContainer(keyedBy: K.self, forKey: .data),
+               let w = try? nested.decode(CSSWork.self, forKey: .work) { resolved = w; return }
+            if let w = try? c.decode(CSSWork.self, forKey: .data) { resolved = w; return }
+            resolved = nil
+        }
     }
 }
 

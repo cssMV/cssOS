@@ -79,11 +79,13 @@ struct PlayerView: View {
      * 收起后焦点【必须显式还给舞台】, 否则 SwiftUI 会把焦点甩到别处, 方向键当场失灵。 */
     @State private var showPills = false
     @FocusState private var stageFocused: Bool
-    @FocusState private var focusedPill: String?
     /// 浮现后 8 秒无操作自动收起 —— 电视上任何常驻浮层都是在挡画面。
     @State private var pillHideToken = 0
     /// W2243 — 当前展开的模式头。顺序与命名照电脑端那一组固定导航。
     @State private var pillMode = "lang"
+    /// W2247 — 用户是否主动点过模式头。只有点过之后, 焦点才自动下到第二行;
+    /// 刚浮现那一下焦点该留在模式行。
+    @State private var pillModeTouched = false
     /// W2243 — 确认键去抖时间戳(tap / longPress 两条路共用)。
     @State private var lastPillToggle: Date = .distantPast
 
@@ -278,8 +280,9 @@ struct PlayerView: View {
                     VStack(spacing: 12) {
                         CSSPillBar(items: pillModes, selected: Binding(
                             get: { pillMode },
-                            set: { m in pillMode = m; schedulePillHide() }
-                        ), hug: true, autofocus: true, onChange: { _ in schedulePillHide() })
+                            set: { m in pillMode = m; pillModeTouched = true; schedulePillHide() }
+                        ), hug: true, autofocus: !pillModeTouched,
+                           onChange: { _ in pillModeTouched = true; schedulePillHide() })
                         /* 【不要给它 .fixedSize】—— CSSPillBar 内部是 GeometryReader,
                          * GeometryReader 没有固有宽度, .fixedSize(horizontal:) 会把它压成 0。
                          * 实测就是这么塌的: 屏幕上只剩选项行那枚"日本語", 模式行变成它上面一条细缝。 */
@@ -313,11 +316,24 @@ struct PlayerView: View {
                         @unknown default: break
                         }
                     }
-                    /* 确认键两条路都接 —— 我按不了遥控器, 无法自证 onTapGesture 在 tvOS
-                     * 这个焦点视图上接不接得住 Select。两条同时通会各触发一次、互相抵消
-                     * (表现恰好也是"按了没反应"), 所以 togglePills 里有 350ms 去抖。 */
-                    .onTapGesture { togglePills() }
-                    .onLongPressGesture(minimumDuration: 0.01) { togglePills() }
+                    /* CSSOS_WAVE_2246 — 确认键【只负责打开, 永远不负责关闭】。
+                     *
+                     * Jing:「还不大灵敏, 一般要按几次才显示多胶囊, 应该按一次就要显示。
+                     *        用户不会知道需要按几次的, 用户只知道按一次而已。」
+                     *
+                     * 是我那个"两条路都接"的设计在反噬: tap 与 longPress 若相隔【超过 350ms】
+                     * (按下触发一个、松手触发另一个), 去抖拦不住 → toggle 两次 = 开了又关,
+                     * 看起来就是"按了没反应", 于是用户得再按一次。
+                     * 把去抖调长只是掩盖, 而且会压掉真正的连按。
+                     *
+                     * 真正的修法是让这个动作【幂等】: 按确认键 = 打开。开了再触发一次还是开着,
+                     * 双触发就此无害。关闭交给 Menu 键和 10 秒自动收起 —— 而且这一层
+                     * 在胶囊展开时根本不渲染(W2244c), 确认键那时归胶囊, 不会打架。
+                     *
+                     * 教训: "为了保险接两条路"本身制造了新的失败模式。保险要做成【幂等】,
+                     * 不能做成【互相抵消】。 */
+                    .onTapGesture { revealPills() }
+                    .onLongPressGesture(minimumDuration: 0.01) { revealPills() }
                     .ignoresSafeArea()
             }
 
@@ -358,6 +374,8 @@ struct PlayerView: View {
     }
 
     private func revealPills() {
+        // 幂等: 已经开着就只把自动收起的计时重置, 不做任何切换(见上面 W2246 的注释)。
+        if showPills { schedulePillHide(); return }
         showPills = true
         /* 焦点【必须晚一拍再给】: 这一帧胶囊按钮还没进入渲染树, 此刻写 focusedPill
          * 等于写给一个不存在的视图, 静默失效 —— 表现就是"浮现了但方向键动不了"。 */
@@ -371,9 +389,9 @@ struct PlayerView: View {
     }
 
     private func hidePills() {
+        pillModeTouched = false     // W2247 — 下次浮现, 焦点重新从模式行开始
         pillHideToken &+= 1        // 作废在途的自动收起, 免得它把刚浮现的又关掉
         showPills = false
-        focusedPill = nil
         // 焦点还给舞台, 否则 ←/→ ↑/↓ 全部失灵(SwiftUI 不会自己还)。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { stageFocused = true }
     }
@@ -540,7 +558,7 @@ struct PlayerView: View {
         return out
     }
 
-    /// 选中模式下那一行可选项。凹凸镶嵌照旧走 ConcavePill —— 不另造一套胶囊样式。
+    /// 选中模式下那一行可选项。与模式行【同一个 CSSPillBar】, 不另造一套胶囊样式。
     @ViewBuilder
     private var pillModeRow: some View {
         /* CSSOS_WAVE_2243b — 【只有真的有得选才出这一行】。
@@ -550,9 +568,17 @@ struct PlayerView: View {
          * 只有一个选项 = 没有选择 = 不该占一行。Takes 有 ♪1–♪6, 那一行才是真的多胶囊。 */
         switch pillMode {
         case "voice":
-            if voicesOfCurrentLang.count > 1 { trackRow(voicesOfCurrentLang, labelFor: { $0.voiceLabel }) }
+            if voicePillItems.count > 1 {
+                itemPillBar(voicePillItems, selected: selectedTrackId ?? "") { id in
+                    if let t = voicesOfCurrentLang.first(where: { $0.id == id }) { switchTrack(t); hidePills() }
+                }
+            }
         case "take":
-            if currentTakes.count > 1 { takeRow }
+            if takePillItems.count > 1 {
+                itemPillBar(takePillItems, selected: "take-\(min(takeIndex, max(currentTakes.count - 1, 0)))") { id in
+                    if let k = Int(id.replacingOccurrences(of: "take-", with: "")) { playTake(k); hidePills() }
+                }
+            }
         case "settings", "tune", "visual":
             /* 【实话实说】这三格在 TV 端还没有控件 —— 桌面上它们各自连着一整套面板
              * (设置 / 情绪字幕微调 / 多画面切换), 那些不是一行胶囊能搬过来的。
@@ -560,7 +586,11 @@ struct PlayerView: View {
              * 不如把话说清楚。哪一格 Jing 要先做, 我就先做哪一格。 */
             pillNote("Not on TV yet — available on cssstudio.app")
         default:
-            if languageHeads.count > 1 { trackRow(languageHeads, labelFor: { $0.label }) }
+            if languagePillItems.count > 1 {
+                itemPillBar(languagePillItems, selected: selectedTrackId ?? "") { id in
+                    if let t = languageHeads.first(where: { $0.id == id }) { switchTrack(t); hidePills() }
+                }
+            }
         }
     }
 
@@ -572,80 +602,51 @@ struct PlayerView: View {
             .frame(height: 50)
     }
 
-    @ViewBuilder
-    private func trackRow(_ list: [CSSBackend.CSSLangTrack],
-                          labelFor: @escaping (CSSBackend.CSSLangTrack) -> String) -> some View {
-        let si = list.firstIndex(where: { $0.id == selectedTrackId }) ?? 0
-        HStack(spacing: -25) {                      // -capR 咬合(胶囊宪法)
-            ForEach(Array(list.enumerated()), id: \.element.id) { pair in
-                let j = pair.offset
-                let side: ConcavePill.Side = j == si ? .none : (j < si ? .right : .left)
-                langCapsule(pair.element, side: side, title: labelFor(pair.element))
-                    .zIndex(j == si ? 100 : Double(list.count - abs(j - si)))
-            }
+    /* CSSOS_WAVE_2245 — 选项行【直接用 CSSPillBar】, 不再手写一套。
+     *
+     * Jing:「切换前的那个白色胶囊, 类似电脑端的 hover, 太大了, 大过了常规的胶囊尺寸,
+     *        而且按照电脑端, 这个 hover 应该是随机色的。」
+     *
+     * 病根是我违反了「不许重复造轮子」: 模式行用的是 CSSPillBar(自定义 FlatButtonStyle,
+     * 压掉了系统焦点样式, 并按 CSSOS_PILL_HUES 给每枚自己的色相), 而 ♪ 这一行是我
+     * 【另外手写的一套】, 用了 .buttonStyle(.plain) —— tvOS 于是把【系统默认焦点效果】
+     * 套上来: 白底 + 整枚放大, 比常规胶囊大一圈, 而且没有随机色。
+     * 两行本该是同一个东西, 却有两份实现, 差异必然从这种地方漏出来。
+     *
+     * 改成同一个组件之后, 焦点观感、尺寸、随机色、凸嵌凹咬合全部自动一致 —— 不用我再对齐一遍。
+     */
+    private var languagePillItems: [CSSPillItem] {
+        languageHeads.map { CSSPillItem(id: $0.id, label: $0.label, icon: "globe") }
+    }
+    private var voicePillItems: [CSSPillItem] {
+        voicesOfCurrentLang.map { CSSPillItem(id: $0.id, label: $0.voiceLabel, icon: "waveform") }
+    }
+    private var takePillItems: [CSSPillItem] {
+        currentTakes.enumerated().map { (i, tk) in
+            CSSPillItem(id: "take-\(i)",
+                        label: tk.label.isEmpty ? "\u{266A}\(i + 1)" : tk.label,
+                        icon: "music.note")
         }
     }
 
+    /* CSSOS_WAVE_2247 — 选中模式后, 焦点自动下到第二行。
+     *
+     * Jing:「选中 take 之后, 焦点应该自动移动到第二行的子胶囊。」
+     *
+     * 两个细节, 少一个就不对:
+     *  ① autofocus 只在【用户主动点了模式头】之后才开 —— 刚浮现那一下焦点该在模式行
+     *     (不然多语言作品一展开就直接跳到第二行, 用户还没选模式呢)。用 pillModeTouched 区分。
+     *  ② 必须带 .id(pillMode): CSSPillBar 的 autofocus 挂在 onAppear 上, 而模式之间切换时
+     *     这一行的视图身份不变 → onAppear 不会再触发 → 从 Takes 换到 Voices 时焦点就不动了。
+     *     给它一个随模式变化的身份, 每换一次模式就是一次全新出现。 */
     @ViewBuilder
-    private var takeRow: some View {
-        let si = min(takeIndex, max(currentTakes.count - 1, 0))
-        HStack(spacing: -25) {
-            ForEach(Array(currentTakes.enumerated()), id: \.offset) { pair in
-                let j = pair.offset
-                let side: ConcavePill.Side = j == si ? .none : (j < si ? .right : .left)
-                takeCapsule(pair.element, index: j, side: side)
-                    .zIndex(j == si ? 100 : Double(currentTakes.count - abs(j - si)))
-            }
-        }
-    }
-
-    /// 一枚 ♪N 胶囊。名字用后端给的 label(多声线胶囊里要认得出哪版是哪版), 没有才回落 ♪N。
-    @ViewBuilder
-    private func takeCapsule(_ tk: CSSBackend.CSSTake, index: Int, side: ConcavePill.Side) -> some View {
-        let on = side == .none
-        let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
-        let capR: CGFloat = 25
-        Button { playTake(index); hidePills() } label: {
-            Text(tk.label.isEmpty ? "\u{266A}\(index + 1)" : tk.label)
-                .font(.system(size: 22, weight: on ? .bold : .medium))
-                .lineLimit(1)
-                .padding(.leading, side == .left ? capR + 10 : 18)
-                .padding(.trailing, side == .right ? capR + 10 : 18)
-                .frame(height: 50)
-                .foregroundStyle(on ? Color.black : Color.white.opacity(0.92))
-                .background(ConcavePill(side: side).fill(on ? brandGreen : Color.white.opacity(0.16)))
-                .overlay(ConcavePill(side: side).stroke(on ? Color.clear : Color.white.opacity(0.22), lineWidth: 1))
-                .shadow(color: .black.opacity(0.5), radius: 4)
-        }
-        .buttonStyle(.plain)
-        .focused($focusedPill, equals: "take-\(index)")
-        .onChange(of: focusedPill) { _, _ in schedulePillHide() }
-    }
-
-    // W1371 — 单个语言胶囊(胶囊宪法·凹凸镶嵌): 用 ConcavePill 与 hero 同款。
-    //   side=.none 凸(选中, 两头圆), .left/.right 朝选中那侧凹; 凹侧内边距加大让字不被咬。
-    @ViewBuilder
-    private func langCapsule(_ tr: CSSBackend.CSSLangTrack, side: ConcavePill.Side,
-                             title: String? = nil) -> some View {
-        let on = side == .none
-        let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
-        let capR: CGFloat = 25
-        Button { switchTrack(tr); hidePills() } label: {
-            HStack(spacing: 6) {
-                if tr.isDefault { Image(systemName: "lock.fill").font(.system(size: 13, weight: .bold)) }
-                Text(title ?? tr.label).font(.system(size: 22, weight: on ? .bold : .medium)).lineLimit(1)
-            }
-            .padding(.leading, side == .left ? capR + 10 : 18)
-            .padding(.trailing, side == .right ? capR + 10 : 18)
-            .frame(height: 50)
-            .foregroundStyle(on ? Color.black : Color.white.opacity(0.92))
-            .background(ConcavePill(side: side).fill(on ? brandGreen : Color.white.opacity(0.16)))
-            .overlay(ConcavePill(side: side).stroke(on ? Color.clear : Color.white.opacity(0.22), lineWidth: 1))
-            .shadow(color: .black.opacity(0.5), radius: 4)
-        }
-        .buttonStyle(.plain)
-        .focused($focusedPill, equals: tr.id)          // W2231 — 浮现时把焦点落到当前轨
-        .onChange(of: focusedPill) { _, _ in schedulePillHide() }   // 动一下就重新计时
+    private func itemPillBar(_ items: [CSSPillItem], selected: String,
+                             onPick: @escaping (String) -> Void) -> some View {
+        CSSPillBar(items: items, selected: Binding(
+            get: { selected },
+            set: { v in onPick(v) }
+        ), hug: true, autofocus: pillModeTouched, onChange: { _ in schedulePillHide() })
+        .id(pillMode)
     }
 
     // W1364 — 切换语言×声线: 只换音频(主时钟)+ 字幕, 视频画面不动(画音分层铁律)。

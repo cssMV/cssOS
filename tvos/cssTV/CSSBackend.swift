@@ -552,3 +552,75 @@ extension CSSBackend {
         return SayResult(voiceURL: (u?.isEmpty == false) ? u : nil, rateLimited: false)
     }
 }
+
+// MARK: - CSSOS_WAVE_2221 三段试戏(自我介绍 / 正派 / 反派)
+/*
+ * 契约: GET /api/actors/:id/showcase
+ *   → { ok, data: { showcase: { lang, voice_gender, generated_at,
+ *                               clips: { intro|hero|villain: {text, text_en, voice_url, subtitle{tokens[]}} } } } }
+ *
+ * 【与直觉不同的一点, 写在这里免得以后有人按错的前提改】——
+ * 这三段【不是视频】。实测抽查 12 位演员: 已生成试戏的 5 位共 15 段,
+ * 有 voice_url 的 15 段, 有 video_url 的【0 段】。
+ * 桌面端注释也写着「不再每点必烧对口型视频(omnihuman 不稳/贵): 视频=已生成缓存才播」。
+ * 所以试戏屏的主体是【母语配音 + 逐字卡拉OK字幕 + 英文译文】, 视频只是将来有了就用的分支。
+ *
+ * subtitle.tokens 的字段与平台情绪字幕【完全同形】(char / t_start / t_end 毫秒 /
+ * emotion / emotion_intensity), 所以直接复用 CSSSubToken, 不另造一套 ——
+ * 字幕 JSON 的字段名不许猜, 这是查出来的。
+ */
+extension CSSBackend {
+
+    struct CSSClip {
+        let key: String              // intro / hero / villain
+        let text: String             // 母语台词
+        let textEn: String           // 英文译文
+        let voiceURL: String
+        let videoURL: String?        // 目前全库为空; 有了就地放, 不用改别处
+        let tokens: [CSSSubToken]
+    }
+    struct CSSShowcase {
+        let lang: String             // 母语码(如 de)
+        let voiceGender: String
+        let clips: [CSSClip]         // 按 intro → hero → villain 排好
+    }
+
+    private struct ShowcaseEnvelope: Codable {
+        let ok: Bool?
+        let data: D?
+        struct D: Codable { let showcase: S? }
+        struct S: Codable {
+            let lang: String?; let voice_gender: String?
+            let clips: [String: C]?
+            struct C: Codable {
+                let text: String?; let text_en: String?
+                let voice_url: String?; let video_url: String?
+                let subtitle: Sub?
+                struct Sub: Codable { let tokens: [CSSSubToken]? }
+            }
+        }
+    }
+
+    /// 拉某演员的三段试戏。没生成过 → nil(调用方显示"尚未试戏")。
+    static func fetchShowcase(actorId: String) async -> CSSShowcase? {
+        guard let url = URL(string: "\(baseURL)/api/actors/\(actorId)/showcase") else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 60
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let env = try? JSONDecoder().decode(ShowcaseEnvelope.self, from: data),
+              let s = env.data?.showcase, let raw = s.clips, !raw.isEmpty else { return nil }
+        // 顺序固定 intro → hero → villain(桌面端按钮顺序), 而不是字典的随机序。
+        let order = ["intro", "hero", "villain"]
+        let clips: [CSSClip] = order.compactMap { k in
+            guard let c = raw[k], let v = c.voice_url, !v.isEmpty else { return nil }
+            return CSSClip(key: k,
+                           text: c.text ?? "",
+                           textEn: c.text_en ?? "",
+                           voiceURL: v,
+                           videoURL: (c.video_url?.isEmpty == false) ? c.video_url : nil,
+                           tokens: c.subtitle?.tokens ?? [])
+        }
+        guard !clips.isEmpty else { return nil }
+        return CSSShowcase(lang: s.lang ?? "", voiceGender: s.voice_gender ?? "", clips: clips)
+    }
+}

@@ -223,6 +223,7 @@ private struct ActorDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var creating = false        // W1578 — 打开导演台(该演员主演)
     @State private var asking = false          // W2220 —《问道》与该演员第一人称对话
+    @State private var auditioning = false     // W2221 — 三段试戏(自我介绍/正派/反派)
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
     var body: some View {
@@ -273,6 +274,12 @@ private struct ActorDetailView: View {
                                 .font(.system(size: 24, weight: .heavy))
                         }
                         .buttonStyle(.bordered).tint(brandGreen)
+                        // CSSOS_WAVE_2221 — 三段试戏: 母语配音 + 逐字字幕 + 英文译文。
+                        Button { auditioning = true } label: {
+                            Label("Audition", systemImage: "theatermasks.fill")
+                                .font(.system(size: 24, weight: .heavy))
+                        }
+                        .buttonStyle(.bordered).tint(brandGreen)
                         Button("Close") { dismiss() }
                             .font(.system(size: 24, weight: .semibold))
                             .buttonStyle(.bordered).tint(.white.opacity(0.6))
@@ -291,6 +298,10 @@ private struct ActorDetailView: View {
         // W2220 —《问道》屏。
         .fullScreenCover(isPresented: $asking) {
             ActorAskView(actor: actor)
+        }
+        // W2221 — 三段试戏屏。
+        .fullScreenCover(isPresented: $auditioning) {
+            ActorShowcaseView(actor: actor)
         }
     }
 }

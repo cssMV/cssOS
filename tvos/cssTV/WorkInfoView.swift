@@ -22,8 +22,15 @@ struct WorkInfoView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var work: CSSWork?
     @State private var loading = true
-    private enum InfoFocus: Hashable { case cover, play }
+    private enum InfoFocus: Hashable { case cover, play, lyrics }
     @FocusState private var focus: InfoFocus?
+    private var lyricsFocused: Bool { focus == .lyrics }
+
+    /// 歌词全文(只在它确实比概述更长时才另起一段, 否则等于把同一段话说两遍)。
+    private func lyricsBody(_ w: CSSWork) -> String {
+        let lp = w.displayLyrics
+        return lp.count > w.summaryText.count ? lp : ""
+    }
 
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
@@ -82,22 +89,46 @@ struct WorkInfoView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    /* 歌词全文。summaryText 只是开头几句(顶排那一格放不下更多),
-                     * 但用户既然专门点了 More Info, 就该看到全部, 不是再给一次摘要。 */
-                    let lp = w.displayLyrics
-                    if !lp.isEmpty, lp.count > w.summaryText.count {
+                    /* CSSOS_WAVE_2234 20260927 — 文字区必须能滚。
+                     *
+                     * Jing:「More Info 进去之后, 应该设为可以上下滚动, 否则无法看完整个内容。」
+                     *
+                     * 本来就是 ScrollView —— 但在 tvOS 上【ScrollView 自己不响应方向键】:
+                     * 焦点引擎只在【可聚焦的子项之间】移动, 顺带把它们滚进视野。纯 Text 不可聚焦,
+                     * 于是整段长文既进不去焦点、也就永远滚不动 —— 看着像滚动条坏了, 其实是
+                     * 这一段根本不在焦点系统里。
+                     * (这也是为什么上一版把 Play 按钮放在歌词之后 = 永远够不着: 按钮倒是可聚焦,
+                     *  但要先"穿过"一段不可聚焦的长文才能到, 焦点引擎不会那样跳。)
+                     *
+                     * 修法就是把长文本身变成一个可聚焦项, 聚焦时给一点提示(左侧绿条 + 提亮),
+                     * 这样 ↑/↓ 就能把它滚起来。 */
+                    if !lyricsBody(w).isEmpty {
                         Divider().overlay(Color.white.opacity(0.18))
-                        Text(lp)
+                        Text(lyricsBody(w))
                             .font(.system(size: 24))
-                            .foregroundStyle(.white.opacity(0.62))
+                            .foregroundStyle(.white.opacity(lyricsFocused ? 0.92 : 0.62))
                             .lineSpacing(8)
                             .fixedSize(horizontal: false, vertical: true)
+                            .padding(.leading, 16)
+                            .overlay(alignment: .leading) {
+                                // 聚焦提示: 没有它, 用户不知道这一段"按下去能滚"。
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(brandGreen.opacity(lyricsFocused ? 0.9 : 0.0))
+                                    .frame(width: 4)
+                            }
+                            .focusable(true)
+                            .focused($focus, equals: .lyrics)
+                            .animation(.easeOut(duration: 0.18), value: lyricsFocused)
                     }
+
+                    /* 歌词全文。summaryText 只是开头几句(顶排那一格放不下更多),
+                     * 但用户既然专门点了 More Info, 就该看到全部, 不是再给一次摘要。 */
 
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 40)
+                .padding(.bottom, 60)
             }
+            .scrollClipDisabled(false)
         }
         .padding(.horizontal, 90)
         .padding(.vertical, 70)

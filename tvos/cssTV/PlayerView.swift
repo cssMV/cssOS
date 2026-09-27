@@ -86,6 +86,11 @@ struct PlayerView: View {
     /// W2247 — 用户是否主动点过模式头。只有点过之后, 焦点才自动下到第二行;
     /// 刚浮现那一下焦点该留在模式行。
     @State private var pillModeTouched = false
+    /* CSSOS_WAVE_2248 — 子胶囊行是否展开。
+     * Jing:「再次在 take(胶囊头)上按一下, 应该收起子胶囊。」
+     * 模式头因此是个【开关】: 按别的头 = 换模式并展开; 按【当前这个头】= 收起 / 再展开。
+     * CSSPillBar 的按钮无论值变没变都会回调, 所以"按了同一个头"这件事接得住。 */
+    @State private var pillRowOpen = true
     /// W2243 — 确认键去抖时间戳(tap / longPress 两条路共用)。
     @State private var lastPillToggle: Date = .distantPast
 
@@ -280,9 +285,18 @@ struct PlayerView: View {
                     VStack(spacing: 12) {
                         CSSPillBar(items: pillModes, selected: Binding(
                             get: { pillMode },
-                            set: { m in pillMode = m; pillModeTouched = true; schedulePillHide() }
+                            set: { m in
+                                if m == pillMode {
+                                    // 按的是【当前这个头】→ 收起 / 再展开子胶囊行
+                                    pillRowOpen.toggle()
+                                    pillModeTouched = pillRowOpen
+                                } else {
+                                    pillMode = m; pillRowOpen = true; pillModeTouched = true
+                                }
+                                schedulePillHide()
+                            }
                         ), hug: true, autofocus: !pillModeTouched,
-                           onChange: { _ in pillModeTouched = true; schedulePillHide() })
+                           onChange: { _ in schedulePillHide() })
                         /* 【不要给它 .fixedSize】—— CSSPillBar 内部是 GeometryReader,
                          * GeometryReader 没有固有宽度, .fixedSize(horizontal:) 会把它压成 0。
                          * 实测就是这么塌的: 屏幕上只剩选项行那枚"日本語", 模式行变成它上面一条细缝。 */
@@ -390,6 +404,7 @@ struct PlayerView: View {
 
     private func hidePills() {
         pillModeTouched = false     // W2247 — 下次浮现, 焦点重新从模式行开始
+        pillRowOpen = true          // W2248 — 收起整条后复位, 下次展开子胶囊行仍然是开的
         pillHideToken &+= 1        // 作废在途的自动收起, 免得它把刚浮现的又关掉
         showPills = false
         // 焦点还给舞台, 否则 ←/→ ↑/↓ 全部失灵(SwiftUI 不会自己还)。
@@ -568,13 +583,13 @@ struct PlayerView: View {
          * 只有一个选项 = 没有选择 = 不该占一行。Takes 有 ♪1–♪6, 那一行才是真的多胶囊。 */
         switch pillMode {
         case "voice":
-            if voicePillItems.count > 1 {
+            if pillRowOpen && voicePillItems.count > 1 {
                 itemPillBar(voicePillItems, selected: selectedTrackId ?? "") { id in
                     if let t = voicesOfCurrentLang.first(where: { $0.id == id }) { switchTrack(t); hidePills() }
                 }
             }
         case "take":
-            if takePillItems.count > 1 {
+            if pillRowOpen && takePillItems.count > 1 {
                 itemPillBar(takePillItems, selected: "take-\(min(takeIndex, max(currentTakes.count - 1, 0)))") { id in
                     if let k = Int(id.replacingOccurrences(of: "take-", with: "")) { playTake(k); hidePills() }
                 }
@@ -584,9 +599,9 @@ struct PlayerView: View {
              * (设置 / 情绪字幕微调 / 多画面切换), 那些不是一行胶囊能搬过来的。
              * 与其摆几枚按下去什么也不发生的胶囊(那比不摆更糟: 用户会以为坏了),
              * 不如把话说清楚。哪一格 Jing 要先做, 我就先做哪一格。 */
-            pillNote("Not on TV yet — available on cssstudio.app")
+            if pillRowOpen { pillNote("Not on TV yet — available on cssstudio.app") }
         default:
-            if languagePillItems.count > 1 {
+            if pillRowOpen && languagePillItems.count > 1 {
                 itemPillBar(languagePillItems, selected: selectedTrackId ?? "") { id in
                     if let t = languageHeads.first(where: { $0.id == id }) { switchTrack(t); hidePills() }
                 }

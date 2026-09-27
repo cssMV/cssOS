@@ -33,7 +33,11 @@ ok "工程确实指向那份 entitlements" "$B"
 grep -q 'ud.data(forKey: "topshelf_items")' <<<"$EXT" && C=1 || C=0
 ok "扩展读 App Group 里的真清单" "$C"
 grep -q 'ts-gambit' <<<"$EXT" && D=0 || D=1
-ok "写死的三张《时间帝国》图已删" "$D" "那三张跟平台内容无关, 正是"没实现"的样子"
+ok "代码里不再引用写死的三张图" "$D" "那三张跟平台内容无关, 正是"没实现"的样子"
+# 文件本身也要没: 代码不引用但文件还在 = 上架包里仍带着"假实现"的遗骸(585KB 死重量)。
+# 首版 ipa 打出来时它们确实还在包里 —— 代码删了不等于包里没了, 必须拆包看。
+[ -f tvos/TopShelf/ts-gambit.jpg ] && D2=0 || D2=1
+ok "三张图的文件也删了(不在打包目录里)" "$D2"
 grep -q 'guard !entries.isEmpty else { return nil }' <<<"$EXT" && E=1 || E=0
 ok "拿不到清单就不显示, 不回落假图" "$E" "宁可空着, 也不要再拿三张图冒充已实现"
 

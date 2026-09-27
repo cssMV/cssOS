@@ -2,6 +2,7 @@
 // 只读公开接口, 无需鉴权。真机/模拟器都可直连。
 
 import Foundation
+import TVServices   // W2226 — topShelfContentDidChange()
 
 enum CSSBackend {
     /// 线上后端。
@@ -92,6 +93,17 @@ enum CSSBackend {
             ud.set(data, forKey: "topshelf_items")
         }
         print("[topshelf] 写入完成: 清单 \(items.count) 条, 目录 \(dir.path)")
+        /* CSSOS_WAVE_2226 20260927 — 写完必须【通知系统重新拉一次】。
+         *
+         * 这是整件事缺的第四块, 也是最隐蔽的一块: tvOS 会把 Top Shelf 的内容【缓存起来】,
+         * 不会因为我们悄悄改了 App Group 里的文件就去重新问扩展。不通知的话, 顶排会
+         * 一直显示上一次拿到的东西 —— 真机上的表现就是【还在放帝国时间那三张图, 而那三张
+         * 早就不在包里了】(build 20 实测 0 张)。看着像"新版本没装上去", 其实是系统缓存。
+         *
+         * topShelfContentDidChange() 是类方法, App 侧调用即可(不需要持有扩展实例)。
+         * 放在 ud.set 之后 —— 通知必须晚于数据落定, 早一步系统会拉到旧清单。 */
+        TVTopShelfContentProvider.topShelfContentDidChange()
+        print("[topshelf] 已通知系统刷新顶排")
     }
 
     /// 稳定哈希(Swift 的 hashValue 每次进程启动都变种子, 不能用来当文件名)。

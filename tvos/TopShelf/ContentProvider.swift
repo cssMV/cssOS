@@ -26,9 +26,38 @@ private let appGroupID = "group.CSSStudio.cssTV"
 
 final class ContentProvider: TVTopShelfContentProvider {
 
-    override func loadTopShelfContent() async -> (any TVTopShelfContent)? {
+    /* CSSOS_WAVE_2227 20260927 — 改成【completion-handler 形式】。
+     *
+     * 原来重写的是 async 变体 `loadTopShelfContent() async -> (any TVTopShelfContent)?`。
+     * 而 SDK 头文件里真正的方法是:
+     *     - (void)loadTopShelfContentWithCompletionHandler:(void (^)(id<TVTopShelfContent>))h;
+     * 系统是按这个【ObjC 选择器】来调的。实测证据: 扩展被 launchd 拉起(pid 可见)、
+     * 6 毫秒后终止、我们的代码【一行日志都没有】、心跳文件也从没出现 —— 方法压根没被调到。
+     *
+     * 而头文件里这句正好对上我们看到的现象:
+     *   "If the completion handler is not called in a timely manner or is called with
+     *    empty content the system will display the static image instead."
+     * 没被调到 → 没人调 completion → 系统显示【静态图】(资源目录里那张城市+时钟,
+     * 就是 Jing 说的"旧的帝国时间图"——它从来不是扩展给的, 也不是缓存)。
+     *
+     * 日志级别一并从 .info 提到 .error: .info 默认【不落盘】, log show 不加 --info 根本看不到,
+     * 这一轮我因此白查了一回。
+     */
+    override func loadTopShelfContent(completionHandler: @escaping ((any TVTopShelfContent)?) -> Void) {
+        completionHandler(buildContent())
+    }
+
+    /// 真正干活的那一段(同步、极快: 只读 UserDefaults + 查文件存在)。
+    private func buildContent() -> (any TVTopShelfContent)? {
         let entries = readCache()
-        tslog.info("loadTopShelfContent: \(entries.count) entries from app group")
+        tslog.error("loadTopShelfContent: \(entries.count) entries from app group")
+        /* CSSOS_WAVE_2226 20260927 — 心跳。扩展是系统【按需拉起】的进程, 平时不在进程列表里,
+         * 也没法挂控制台 —— 出了问题一点证据都没有(这一轮就卡在"到底跑没跑"上)。
+         * 让它把每次调用的结果写一行到 App Group, 用 devicectl 拉回来看。
+         * 上架前会删(与最初那版 heartbeat 同样的用意, 但写进【可写的】Caches)。 */
+        heartbeat(stage: "CALLED", entries: entries.count, existing: entries.filter {
+            FileManager.default.fileExists(atPath: $0.file)
+        }.count)
         guard !entries.isEmpty else { return nil }   // 没内容就不显示, 不拿假图顶上
 
         var items: [TVTopShelfCarouselItem] = []
@@ -46,9 +75,32 @@ final class ContentProvider: TVTopShelfContentProvider {
             }
             items.append(item)
         }
+        heartbeat(stage: "BUILT", entries: entries.count, existing: items.count)
         guard !items.isEmpty else { return nil }
-        tslog.info("returning CAROUSEL with \(items.count) items")
+        tslog.error("returning CAROUSEL with \(items.count) items")
         return TVTopShelfCarouselContent(style: .details, items: items)
+    }
+
+    /* W2226(修正)— 心跳【不能写 App Group】。
+     *
+     * 第一版把心跳也写进 App Group, 结果拿不到心跳时我无法判断是
+     *   (a) 扩展根本没被系统叫起, 还是
+     *   (b) 扩展跑了, 但连 App Group 都够不着(那心跳自然也写不出来)。
+     * 两种情况的现象一模一样 —— 而它们要修的东西完全不同。
+     * 所以心跳改写【扩展自己的容器】(不需要 App Group), 并把「App Group 够不够得着」
+     * 当成一个字段记下来。这样一条心跳就能把两种情况分开。
+     * 而且不再用 try? —— 写不出去要说出来。 */
+    private func heartbeat(stage: String, entries: Int, existing: Int) {
+        let groupOK = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) != nil
+        let defaultsOK = UserDefaults(suiteName: appGroupID) != nil
+        let line = #"{"stage":"\#(stage)","entries":\#(entries),"existing":\#(existing),"groupContainer":\#(groupOK),"groupDefaults":\#(defaultsOK),"epoch":\#(Date().timeIntervalSince1970)}"#
+        tslog.error("heartbeat \(line, privacy: .public)")
+        guard let own = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            tslog.error("heartbeat: 扩展自己的 caches 目录都拿不到")
+            return
+        }
+        do { try line.write(to: own.appendingPathComponent("topshelf-heartbeat.json"), atomically: true, encoding: .utf8) }
+        catch { tslog.error("heartbeat 写入失败: \(String(describing: error), privacy: .public)") }
     }
 
     private struct Entry { let id: String; let title: String; let file: String }

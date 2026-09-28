@@ -62,9 +62,9 @@ struct WorkInfoView: View {
                 content(w)
             } else {
                 VStack(spacing: 20) {
-                    Text("This work is no longer available.")
+                    Text(tr("This work is no longer available."))
                         .font(.system(size: 30)).foregroundStyle(.white.opacity(0.6))
-                    Button("Close") { dismiss() }.font(.system(size: 24, weight: .semibold))
+                    Button(tr("Close")) { dismiss() }.font(.system(size: 24, weight: .semibold))
                 }
             }
         }
@@ -91,12 +91,12 @@ struct WorkInfoView: View {
                      * 电视上"要往下滚才能找到播放"这件事本身就是设计错误。 */
                     HStack(spacing: 22) {
                         Button { play(w) } label: {
-                            Label("Play", systemImage: "play.fill")
+                            Label(tr("Play"), systemImage: "play.fill")
                                 .font(.system(size: 26, weight: .bold))
                                 .padding(.horizontal, 12)
                         }
                         .focused($focus, equals: .play)
-                        Button("Close") { dismiss() }
+                        Button(tr("Close")) { dismiss() }
                             .font(.system(size: 26, weight: .semibold))
                     }
 
@@ -177,7 +177,7 @@ struct WorkInfoView: View {
             .clipped()
             .overlay(alignment: .bottomLeading) {
                 // 明示"这张图是可以按的" —— 没有这个提示, 可点也等于没有。
-                Label("Play", systemImage: "play.circle.fill")
+                Label(tr("Play"), systemImage: "play.circle.fill")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14).padding(.vertical, 8)

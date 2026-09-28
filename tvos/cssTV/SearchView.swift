@@ -47,7 +47,7 @@ struct SearchView: View {
                 HStack(spacing: 16) {
                     Image(systemName: "magnifyingglass").font(.system(size: 30, weight: .semibold))
                         .foregroundStyle(brandGreen)
-                    TextField("Search cssTV — hold 🎙 to speak", text: $query)
+                    TextField(tr("Search cssTV — hold 🎙 to speak"), text: $query)
                         .textFieldStyle(.plain)
                         .font(.system(size: 30, weight: .semibold))
                         .focused($fieldFocused)
@@ -59,16 +59,16 @@ struct SearchView: View {
 
                 if query.trimmingCharacters(in: .whitespaces).isEmpty {
                     Spacer()
-                    Text("Type or speak to find a work").font(.system(size: 26))
+                    Text(tr("Type or speak to find a work")).font(.system(size: 26))
                         .foregroundStyle(.white.opacity(0.5))
                     Spacer()
                 } else if results.isEmpty {
                     Spacer()
                     if searching {
                         ProgressView().scaleEffect(1.4)
-                        Text("Searching…").font(.system(size: 24)).foregroundStyle(.white.opacity(0.5)).padding(.top, 8)
+                        Text(tr("Searching…")).font(.system(size: 24)).foregroundStyle(.white.opacity(0.5)).padding(.top, 8)
                     } else {
-                        Text("No works match “\(query)”").font(.system(size: 26))
+                        Text(tr("No works match “{q}”", ["q": query])).font(.system(size: 26))
                             .foregroundStyle(.white.opacity(0.5))
                     }
                     Spacer()

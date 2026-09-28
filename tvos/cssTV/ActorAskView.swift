@@ -52,10 +52,10 @@ struct ActorAskView: View {
     private var pillItems: [CSSPillItem] {
         [
             CSSPillItem(id: "native", label: nativeLabel, icon: "scroll"),
-            CSSPillItem(id: "modern", label: "Modern", icon: "globe"),
+            CSSPillItem(id: "modern", label: tr("Modern"), icon: "globe"),
             CSSPillItem(id: "mute", label: autoVoice ? "Voice on" : "Muted",
                         icon: autoVoice ? "speaker.wave.2.fill" : "speaker.slash.fill"),
-            CSSPillItem(id: "reset", label: "Restart", icon: "arrow.counterclockwise"),
+            CSSPillItem(id: "reset", label: tr("Restart"), icon: "arrow.counterclockwise"),
         ]
     }
     /// 母语档的标签跟着演员走(传奇 = 他的文明母语古风; 原创 = 本色)。
@@ -111,12 +111,12 @@ struct ActorAskView: View {
 
     private var header: some View {
         HStack(spacing: 16) {
-            Label("Ask", systemImage: "bubble.left.and.text.bubble.right.fill")
+            Label(tr("Ask"), systemImage: "bubble.left.and.text.bubble.right.fill")
                 .font(.system(size: 40, weight: .heavy)).foregroundStyle(brandGreen)
             Text(actor.displayName)
                 .font(.system(size: 30, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
             Spacer()
-            Button("Close") { stopVoice(); dismiss() }
+            Button(tr("Close")) { stopVoice(); dismiss() }
                 .font(.system(size: 22, weight: .semibold))
                 .buttonStyle(.bordered).tint(.white.opacity(0.6))
         }
@@ -165,7 +165,7 @@ struct ActorAskView: View {
     private var composer: some View {
         HStack(spacing: 16) {
             // tvOS: 聚焦即弹屏幕键盘/听写 —— 与数字演员目录的搜索框同一个做法。
-            TextField("Ask something…", text: $draft)
+            TextField(tr("Ask something…"), text: $draft)
                 .textFieldStyle(.plain).font(.system(size: 24))
                 .focused($inputFocused)
                 .onSubmit { send() }

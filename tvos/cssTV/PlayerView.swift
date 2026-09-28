@@ -567,12 +567,12 @@ struct PlayerView: View {
      * 等它们在 TV 上真有东西可调时再加回来。这一条我会明确告诉 Jing, 不当作"做完了"。 */
     private var pillModes: [CSSPillItem] {
         [
-            CSSPillItem(id: "settings", label: "Settings",  icon: "gearshape"),
-            CSSPillItem(id: "tune",     label: "Fine-tune", icon: "slider.horizontal.3"),
-            CSSPillItem(id: "lang",     label: "Languages", icon: "globe"),
-            CSSPillItem(id: "voice",    label: "Voices",    icon: "waveform"),
-            CSSPillItem(id: "visual",   label: "Visuals",   icon: "photo.on.rectangle"),
-            CSSPillItem(id: "take",     label: "Takes",     icon: "music.note.list"),
+            CSSPillItem(id: "settings", label: tr("Settings"),  icon: "gearshape"),
+            CSSPillItem(id: "tune",     label: tr("Fine-tune"), icon: "slider.horizontal.3"),
+            CSSPillItem(id: "lang",     label: tr("Languages"), icon: "globe"),
+            CSSPillItem(id: "voice",    label: tr("Voices"),    icon: "waveform"),
+            CSSPillItem(id: "visual",   label: tr("Visuals"),   icon: "photo.on.rectangle"),
+            CSSPillItem(id: "take",     label: tr("Takes"),     icon: "music.note.list"),
         ]
     }
 
@@ -597,12 +597,12 @@ struct PlayerView: View {
         let res = resolutionLabel
         switch kind {
         case "video":
-            return [VisualForm(key: "video", label: "Real video", spec: res, icon: "film")]
+            return [VisualForm(key: "video", label: tr("Real video"), spec: res, icon: "film")]
         case "hybrid":
-            return [VisualForm(key: "hybrid", label: "Hybrid video", spec: res, icon: "film.stack"),
-                    VisualForm(key: "slides", label: "Slideshow", spec: "\(n) img", icon: "photo.on.rectangle")]
+            return [VisualForm(key: "hybrid", label: tr("Hybrid video"), spec: res, icon: "film.stack"),
+                    VisualForm(key: "slides", label: tr("Slideshow"), spec: "\(n) img", icon: "photo.on.rectangle")]
         default:
-            return [VisualForm(key: "slides", label: "Slideshow", spec: "\(n) img", icon: "photo.on.rectangle")]
+            return [VisualForm(key: "slides", label: tr("Slideshow"), spec: "\(n) img", icon: "photo.on.rectangle")]
         }
     }
 

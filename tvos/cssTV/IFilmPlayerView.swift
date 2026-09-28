@@ -74,15 +74,15 @@ struct IFilmPlayerView: View {
             Spacer()
             Text(title).font(.system(size: 58, weight: .heavy)).foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-            Text("多线程互动电影 · 你就是导演。方向键微影响剧情,Play 继续,Menu 退出。")
+            Text(tr("A multithreaded interactive film — you are the director. Arrows nudge the story, Play continues, Menu exits."))
                 .font(.system(size: 24)).foregroundStyle(.white.opacity(0.8))
                 .multilineTextAlignment(.center).frame(maxWidth: 980)
             Button { advance(gaze: nil) } label: {
-                Label("开拍  ▶", systemImage: "film.stack")
+                Label(tr("Start  ▶"), systemImage: "film.stack")
                     .font(.system(size: 30, weight: .bold)).padding(.vertical, 16).padding(.horizontal, 48)
             }
             .buttonStyle(.card)
-            Button("Close") { teardown(); dismiss() }
+            Button(tr("Close")) { teardown(); dismiss() }
                 .font(.system(size: 20)).buttonStyle(.plain).foregroundStyle(.white.opacity(0.55))
             Spacer().frame(height: 60)
         }
@@ -93,7 +93,7 @@ struct IFilmPlayerView: View {
         VStack {
             Spacer()
             ProgressView().scaleEffect(1.6).tint(brandGreen)
-            Text("导演正在写这一拍 · 边出边播…").font(.system(size: 24, weight: .medium))
+            Text(tr("The director is writing this shot — streaming as it comes…")).font(.system(size: 24, weight: .medium))
                 .foregroundStyle(brandGreen).padding(.top, 18)
             Spacer().frame(height: 80)
         }
@@ -107,7 +107,7 @@ struct IFilmPlayerView: View {
             }
             Text(line).font(.system(size: 34, weight: .semibold)).foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.9), radius: 4).frame(maxWidth: 1200, alignment: .leading)
-            Text("←/→ 影响剧情    ▶ 继续    Menu 退出")
+            Text(tr("←/→ steer the story    ▶ Continue    Menu Exit"))
                 .font(.system(size: 18)).foregroundStyle(.white.opacity(0.55)).padding(.top, 8)
         }
         .padding(.horizontal, 80).padding(.bottom, 70).frame(maxWidth: .infinity, alignment: .leading)
@@ -116,17 +116,17 @@ struct IFilmPlayerView: View {
     private var endedOverlay: some View {
         VStack(spacing: 26) {
             Spacer()
-            Text("结局").font(.system(size: 26, weight: .bold)).foregroundStyle(.white.opacity(0.7))
+            Text(tr("Ending")).font(.system(size: 26, weight: .bold)).foregroundStyle(.white.opacity(0.7))
             Text(endingLabel.isEmpty ? "THE END" : endingLabel)
                 .font(.system(size: 52, weight: .heavy)).foregroundStyle(brandGreen)
                 .multilineTextAlignment(.center)
             HStack(spacing: 24) {
                 Button { restart() } label: {
-                    Label("重看", systemImage: "arrow.counterclockwise").font(.system(size: 26, weight: .bold))
+                    Label(tr("Watch again"), systemImage: "arrow.counterclockwise").font(.system(size: 26, weight: .bold))
                         .padding(.vertical, 14).padding(.horizontal, 40)
                 }.buttonStyle(.card)
                 Button { teardown(); dismiss() } label: {
-                    Label("退出", systemImage: "xmark").font(.system(size: 26, weight: .bold))
+                    Label(tr("Exit"), systemImage: "xmark").font(.system(size: 26, weight: .bold))
                         .padding(.vertical, 14).padding(.horizontal, 40)
                 }.buttonStyle(.card)
             }
@@ -143,7 +143,7 @@ struct IFilmPlayerView: View {
         Task {
             let next = await CSSBackend.ifilmNext(id: ifilmId, session: session, gaze: gaze)
             guard let n = next, let beat = n.beat else {
-                await MainActor.run { line = "(导演暂歇 —— 按 ▶ 再试一次)"; phase = .playing }
+                await MainActor.run { line = tr("(The director is pausing — press ▶ to try again)"); phase = .playing }
                 return
             }
             // 视频备料: ready 直接播; 否则轮询到 ready(seedance 分钟级); 超时则无画面只有声音+字幕。

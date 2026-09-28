@@ -76,7 +76,7 @@ struct DigitalActorsView: View {
                         ProgressView().scaleEffect(1.5).tint(brandGreen)
                             .frame(maxWidth: .infinity, minHeight: 400)
                     } else if filtered.isEmpty {
-                        Text("No actors match these filters")
+                        Text(tr("No actors match these filters"))
                             .font(.system(size: 26, weight: .medium))
                             .foregroundStyle(.white.opacity(0.6))
                             .frame(maxWidth: .infinity, minHeight: 400)
@@ -101,13 +101,13 @@ struct DigitalActorsView: View {
 
     private var header: some View {
         HStack(spacing: 20) {
-            Label("Digital Actors", systemImage: "theatermasks.fill")
+            Label(tr("Digital Actors"), systemImage: "theatermasks.fill")
                 .font(.system(size: 46, weight: .heavy))
                 .foregroundStyle(brandGreen)
             // 搜索(名字/文明/人设)。tvOS: 聚焦即弹听写/屏幕键盘。
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
-                TextField("Search actors…", text: $search)
+                TextField(tr("Search actors…"), text: $search)
                     .textFieldStyle(.plain).font(.system(size: 22))
                     .focused($searchFocused)
                     .onSubmit { Task { await reload() } }
@@ -117,7 +117,7 @@ struct DigitalActorsView: View {
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(brandGreen.opacity(searchFocused ? 0.9 : 0.25), lineWidth: 2))
             .frame(maxWidth: 520)
             Spacer()
-            Button("Close") { dismiss() }
+            Button(tr("Close")) { dismiss() }
                 .font(.system(size: 22, weight: .semibold))
                 .buttonStyle(.bordered).tint(.white.opacity(0.6))
         }
@@ -262,7 +262,7 @@ private struct ActorDetailView: View {
                     HStack(spacing: 20) {
                         // W1578 — 照搬桌面端: 主动作 = 选该演员主演, 创作一支 MV。
                         Button { creating = true } label: {
-                            Label("Create an MV starring \(actor.displayName)", systemImage: "wand.and.stars")
+                            Label(tr("Create an MV starring {name}", ["name": actor.displayName]), systemImage: "wand.and.stars")
                                 .font(.system(size: 24, weight: .heavy))
                         }
                         .buttonStyle(.borderedProminent).tint(brandGreen)
@@ -270,17 +270,17 @@ private struct ActorDetailView: View {
                         //   桌面端它就紧贴在封面下方, 是演员专页的主体; 这里放在「主演创作」旁边,
                         //   因为 TV 的详情页只有这一排动作。
                         Button { asking = true } label: {
-                            Label("Ask \(actor.displayName)", systemImage: "bubble.left.and.text.bubble.right.fill")
+                            Label(tr("Ask {name}", ["name": actor.displayName]), systemImage: "bubble.left.and.text.bubble.right.fill")
                                 .font(.system(size: 24, weight: .heavy))
                         }
                         .buttonStyle(.bordered).tint(brandGreen)
                         // CSSOS_WAVE_2221 — 三段试戏: 母语配音 + 逐字字幕 + 英文译文。
                         Button { auditioning = true } label: {
-                            Label("Audition", systemImage: "theatermasks.fill")
+                            Label(tr("Audition"), systemImage: "theatermasks.fill")
                                 .font(.system(size: 24, weight: .heavy))
                         }
                         .buttonStyle(.bordered).tint(brandGreen)
-                        Button("Close") { dismiss() }
+                        Button(tr("Close")) { dismiss() }
                             .font(.system(size: 24, weight: .semibold))
                             .buttonStyle(.bordered).tint(.white.opacity(0.6))
                     }
@@ -330,24 +330,24 @@ private struct ActorCastPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
                     HStack {
-                        Label("Casting", systemImage: "theatermasks.fill")
+                        Label(tr("Casting"), systemImage: "theatermasks.fill")
                             .font(.system(size: 40, weight: .heavy)).foregroundStyle(brandGreen)
                         Spacer()
-                        Button("Close") { dismiss() }
+                        Button(tr("Close")) { dismiss() }
                             .font(.system(size: 22, weight: .semibold)).buttonStyle(.bordered).tint(.white.opacity(0.6))
                     }
                     CSSPillBar(items: fmts.map { CSSPillItem(id: $0.id, label: $0.name, icon: nil) },
                                selected: Binding(get: { format }, set: { format = $0; Task { await loadCast() } }))
-                    slotView(title: "⭐ Lead", actor: seed, locked: true, pool: [])
+                    slotView(title: tr("⭐ Lead"), actor: seed, locked: true, pool: [])
                     if loading {
                         ProgressView().tint(brandGreen).frame(maxWidth: .infinity, minHeight: 200)
                     } else {
-                        slotView(title: "😈 Villain", actor: antagonist, locked: false, pool: antagPool, onPick: { antagonist = $0 })
-                        slotView(title: "🎭 Support", actor: support, locked: false, pool: supportPool, onPick: { support = $0 })
+                        slotView(title: tr("😈 Villain"), actor: antagonist, locked: false, pool: antagPool, onPick: { antagonist = $0 })
+                        slotView(title: tr("🎭 Support"), actor: support, locked: false, pool: supportPool, onPick: { support = $0 })
                         // 群演: 系统自动生成(照桌面端默认 auto, 免费)。
                         HStack(spacing: 14) {
-                            Text("👥 Extras").font(.system(size: 24, weight: .bold)).foregroundStyle(.white)
-                            Text("Auto-generated · free").font(.system(size: 18)).foregroundStyle(brandGreen)
+                            Text(tr("👥 Extras")).font(.system(size: 24, weight: .bold)).foregroundStyle(.white)
+                            Text(tr("Auto-generated · free")).font(.system(size: 18)).foregroundStyle(brandGreen)
                             Spacer()
                         }.padding(20).background(RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.05)))
                     }
@@ -372,7 +372,7 @@ private struct ActorCastPanel: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(actor?.displayName ?? "Recommending…").font(.system(size: 26, weight: .heavy)).foregroundStyle(.white)
                     if let civ = actor?.civilization, !civ.isEmpty { Text(civ).font(.system(size: 18)).foregroundStyle(brandGreen) }
-                    if locked { Text("Your pick").font(.system(size: 16)).foregroundStyle(.white.opacity(0.5)) }
+                    if locked { Text(tr("Your pick")).font(.system(size: 16)).foregroundStyle(.white.opacity(0.5)) }
                 }
                 Spacer()
             }

@@ -42,9 +42,9 @@ struct ActorShowcaseView: View {
     private var pillItems: [CSSPillItem] {
         clips.map { c in
             switch c.key {
-            case "hero":    return CSSPillItem(id: "hero", label: "Hero", icon: "face.smiling")
-            case "villain": return CSSPillItem(id: "villain", label: "Villain", icon: "flame.fill")
-            default:        return CSSPillItem(id: "intro", label: "Intro", icon: "play.fill")
+            case "hero":    return CSSPillItem(id: "hero", label: tr("Hero"), icon: "face.smiling")
+            case "villain": return CSSPillItem(id: "villain", label: tr("Villain"), icon: "flame.fill")
+            default:        return CSSPillItem(id: "intro", label: tr("Intro"), icon: "play.fill")
             }
         }
     }
@@ -60,7 +60,7 @@ struct ActorShowcaseView: View {
                         ProgressView().tint(brandGreen).scaleEffect(1.4)
                             .frame(maxWidth: .infinity, minHeight: 260)
                     } else if clips.isEmpty {
-                        Text("\(actor.displayName) hasn't recorded an audition yet.")
+                        Text(tr("{name} hasn't recorded an audition yet.", ["name": actor.displayName]))
                             .font(.system(size: 24)).foregroundStyle(.white.opacity(0.55))
                             .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
                     } else {
@@ -106,7 +106,7 @@ struct ActorShowcaseView: View {
 
     private var header: some View {
         HStack(spacing: 16) {
-            Label("Audition", systemImage: "theatermasks.fill")
+            Label(tr("Audition"), systemImage: "theatermasks.fill")
                 .font(.system(size: 40, weight: .heavy)).foregroundStyle(brandGreen)
             Text(actor.displayName)
                 .font(.system(size: 28, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
@@ -117,7 +117,7 @@ struct ActorShowcaseView: View {
                     .background(Capsule().fill(brandGreen))
             }
             Spacer()
-            Button("Close") { stop(); dismiss() }
+            Button(tr("Close")) { stop(); dismiss() }
                 .font(.system(size: 22, weight: .semibold))
                 .buttonStyle(.bordered).tint(.white.opacity(0.6))
         }

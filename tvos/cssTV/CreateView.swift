@@ -52,8 +52,8 @@ struct CreateView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("🎬 Direct a work").font(.system(size: 52, weight: .heavy)).foregroundStyle(.white)
-                        Text("Pick a format — the system casts the actors and writes the rest. Change anything, or just let it roll.")
+                        Text(tr("🎬 Direct a work")).font(.system(size: 52, weight: .heavy)).foregroundStyle(.white)
+                        Text(tr("Pick a format — the system casts the actors and writes the rest. Change anything, or just let it roll."))
                             .font(.system(size: 22)).foregroundStyle(.white.opacity(0.75))
                     }
 
@@ -85,7 +85,7 @@ struct CreateView: View {
                                 .font(.system(size: 28, weight: .bold)).padding(.vertical, 16).padding(.horizontal, 44)
                         }.buttonStyle(.card).disabled(casting)
                         Spacer()
-                        Button("Close") { dismiss() }
+                        Button(tr("Close")) { dismiss() }
                             .font(.system(size: 20)).buttonStyle(.plain).foregroundStyle(.white.opacity(0.6))
                     }
                     if !status.isEmpty {
@@ -133,7 +133,7 @@ struct CreateView: View {
 
     private var castSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("🎭 Cast (system-recommended, swap freely)")
+            Text(tr("🎭 Cast (system-recommended, swap freely)"))
                 .font(.system(size: 20, weight: .bold)).foregroundStyle(brandGreen)
             ForEach(castSlots) { slot in
                 let picked = chosen[slot.role]

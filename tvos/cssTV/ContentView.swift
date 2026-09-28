@@ -25,7 +25,7 @@ enum HomeCategory: String, CaseIterable, Identifiable {
     case all, mv, trilogy, opera, shortplay, series, film
     var id: String { rawValue }
     /// LocalizedStringKey: SwiftUI Text 自动按 .strings 本地化, 英文默认, 绝不中文硬编码。
-    var title: LocalizedStringKey {
+    var title: String {
         switch self {
         case .all: return "Home"
         case .mv: return "MV"
@@ -137,6 +137,10 @@ struct ContentView: View {
     // W1557 — hero↔侧栏【确定性跨越】: bump 即用 @FocusState 直接把焦点钉到对面(硬过 resetFocus 启发式)。
     @State private var sidebarFocusTick = 0
     @StateObject private var auth = CSSAuth()           // W1249 登录
+    /* CSSOS_WAVE_2251 — i18n。body 里读一下 i18n.revision, 字典异步到货时这棵树自动重建。
+     * 故意【不用 .id(revision)】: .id 是整棵拆了重建, tvOS 上焦点会被甩飞(冷启动那 0.6s
+     * 侧栏抢焦的老毛病就是这么来的)。读 @Published 只触发 body 重算, 视图身份不变, 焦点留在原处。*/
+    @ObservedObject private var i18n = I18n.shared
     @State private var showLogin = false
     @State private var showSearch = false               // W1277 搜索
     @State private var createRef: CreateRef? = nil       // W1564 — 导演台(item 携带锁定戏路, 原子呈现, 避免 isPresented 读到过期 seed)
@@ -184,7 +188,8 @@ struct ContentView: View {
     private let sidebarCollapsedW: CGFloat = 130
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        _ = i18n.revision                // W2251 — 订阅点: 字典换新 → 本 body 重算 → 全屏译文刷新
+        return ZStack(alignment: .topLeading) {
             Color.clear.ignoresSafeArea()   // W1307 — tvOS 无 systemBackground 常量; 透明=直接显示苹果系统窗口背景色本身
 
             ScrollView {
@@ -192,7 +197,7 @@ struct ContentView: View {
                     if loading {
                         ProgressView().scaleEffect(1.6).frame(maxWidth: .infinity, minHeight: 500)
                     } else if featured.isEmpty && rails.isEmpty {
-                        Text("Nothing here yet")
+                        Text(tr("Nothing here yet"))
                             .font(.system(size: 28, weight: .medium))
                             .foregroundStyle(.white.opacity(0.6))
                             .frame(maxWidth: .infinity, minHeight: 500)
@@ -359,8 +364,12 @@ struct ContentView: View {
         }
         // W1365 — TV 全免费: 删去付费门 alert(原引导站外 cssstudio.app 购买 = App Store 3.1.1 雷)。
         .task {
+            // W2251 — i18n 字典与作品列表并行拉。字典走盘上缓存起步, 这一趟只是更新;
+            //   拉不到就还是盘上那份/英文, 不阻塞首屏。
+            async let dict: Void = I18n.shared.refresh()
             await auth.restore()
             allWorks = await CSSBackend.fetchFeed()
+            await dict
             CSSBackend.writeTopShelfCache(allWorks)   // W1575 — 写共享容器, 供 Top Shelf 扩展直接读(零网络)
             loading = false
         }
@@ -549,18 +558,18 @@ struct CategorySidebar: View {
 
             // W1561 — Jing 侧栏新序: logo / Home / 收藏 / 导演入口 / 数字演员 / 搜索 / (其余分类)。
             //   Home 与 收藏 之间不再留 HBO 空行。
-            row(icon: HomeCategory.all.icon, label: HomeCategory.all.title, item: .category(.all), active: selected == .all) {
+            row(icon: HomeCategory.all.icon, label: tr(HomeCategory.all.title), item: .category(.all), active: selected == .all) {
                 selected = .all
             }
-            row(icon: "heart.fill", label: "Favorites", item: .favorites) { }
+            row(icon: "heart.fill", label: tr("Favorites"), item: .favorites) { }
             // W1556 — 导演入口(原 Create 升级): 选戏路 + 开拍。按住 🎙 说「CSS, …」。
-            row(icon: "megaphone.fill", label: "Direct", item: .create) { onCreate() }
+            row(icon: "megaphone.fill", label: tr("Direct"), item: .create) { onCreate() }
             // W1560 — 数字演员入口(套用桌面端目录)。图标用双人像, 与 Opera 的戏剧面具区分。
-            row(icon: "person.2.fill", label: "Actors", item: .actors) { onActors() }
-            row(icon: "magnifyingglass", label: "Search", item: .search) { onSearch() }
+            row(icon: "person.2.fill", label: tr("Actors"), item: .actors) { onActors() }
+            row(icon: "magnifyingglass", label: tr("Search"), item: .search) { onSearch() }
 
             ForEach(HomeCategory.allCases.filter { $0 != .all }) { cat in
-                row(icon: cat.icon, label: cat.title, item: .category(cat), active: selected == cat) {
+                row(icon: cat.icon, label: tr(cat.title), item: .category(cat), active: selected == cat) {
                     selected = cat
                 }
                 // W1552 — 删掉侧栏的 prefersDefaultFocus(Home): 它在挂载时与 hero 争默认焦点, 慢设备(4K)上
@@ -589,7 +598,7 @@ struct CategorySidebar: View {
         }
     }
 
-    private func row(icon: String, label: LocalizedStringKey, item: SidebarItem,
+    private func row(icon: String, label: String, item: SidebarItem,
                      active: Bool = false, action: @escaping () -> Void) -> some View {
         let hot = active || focus == item     // 选中或聚焦
         return Button(action: action) {
@@ -1057,11 +1066,11 @@ struct FeaturedHero: View {
                 if ["shortplay", "short-play", "drama", "series", "film", "movie"]
                     .contains((current.workType ?? "").lowercased()) {
                     VStack(alignment: .trailing, spacing: 6) {
-                        Text("预告 · TRAILER").font(.system(size: 22, weight: .heavy))
+                        Text(tr("TRAILER")).font(.system(size: 22, weight: .heavy))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 16).padding(.vertical, 7)
                             .background(Capsule().fill(Color.red.opacity(0.88)))
-                        Text("正片 Coming soon").font(.system(size: 16, weight: .semibold))
+                        Text(tr("Full feature coming soon")).font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     .padding(44)
@@ -1187,7 +1196,7 @@ struct RailRow: View {
         //   与 hero 标题/Play/胶囊对齐; 卡片右侧可横滑出框。
         VStack(alignment: .leading, spacing: 14) {
             // W1274 — 栏目标题带图标。W1523 — 本栏激活时标题变品牌绿加粗。
-            Label(rail.title, systemImage: rail.icon)
+            Label(tr(rail.title), systemImage: rail.icon)
                 .font(.system(size: 30, weight: railActive ? .heavy : .bold))
                 .foregroundStyle(railActive ? brandGreen : .white.opacity(0.95))
                 .cssBlackEdge()   // W1359 — 透明底偏亮(像白天)时白字仍可读
@@ -1246,7 +1255,7 @@ struct WorkCard: View {
                                      bigEmojiSize: 88, bigPeriod: 0, smallSize: 18, smallSpread: 135,
                                      smallN: 16)   // W1576 — 聚焦(滑到)才爆一次; 失焦即停+释放
                         .allowsHitTesting(false)
-                    Label("Create", systemImage: "wand.and.stars")
+                    Label(tr("Create"), systemImage: "wand.and.stars")
                         .font(.system(size: 22, weight: .heavy)).foregroundStyle(brandGreen)
                         .shadow(color: .black.opacity(0.6), radius: 4)
                         .offset(y: 54)
@@ -1291,9 +1300,10 @@ struct WorkCard: View {
             .shadow(color: focused ? brandGreen.opacity(0.75) : .clear, radius: focused ? 22 : 0)
 
             // W1526 — Jing「标题/时长别那么靠边, 有些被截断」: 加左右内衬 + 尾部截断留 padding, 不贴边。
-            Text(work.isCreateCard ? work.createTitle
-                 : work.isComingSoon ? (work.title ?? "Coming soon")
-                 : (work.title ?? "Untitled"))
+            // 只有【创作尾卡 / 占位卡】的标题是 UI 文案; 真作品的 title 是【内容】, 绝不翻译。
+            Text(work.isCreateCard ? tr(work.createTitle)
+                 : work.isComingSoon ? tr(work.title ?? "Coming soon")
+                 : (work.title ?? tr("Untitled")))
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(work.isCreateCard ? brandGreen
                                  : work.isComingSoon ? .white.opacity(0.5)
@@ -1335,13 +1345,13 @@ struct LoginView: View {
             Color.black.ignoresSafeArea()
             VStack(spacing: 26) {
                 Image("MirrorFull").resizable().scaledToFit().frame(width: 120, height: 120)
-                Text("Sign in to cssTV")
+                Text(tr("Sign in to cssTV"))
                     .font(.system(size: 46, weight: .heavy)).foregroundStyle(.white)
-                Text("On your phone or computer, open")
+                Text(tr("On your phone or computer, open"))
                     .font(.system(size: 24)).foregroundStyle(.white.opacity(0.8))
                 Text("cssstudio.app/tv")
                     .font(.system(size: 38, weight: .bold)).foregroundStyle(brandGreen)
-                Text("and enter this code:")
+                Text(tr("and enter this code:"))
                     .font(.system(size: 24)).foregroundStyle(.white.opacity(0.8))
                 if let code = auth.deviceUserCode {
                     Text(code)
@@ -1352,7 +1362,7 @@ struct LoginView: View {
                 } else {
                     ProgressView().scaleEffect(1.6).padding(.vertical, 30)
                 }
-                Button("Cancel") { auth.cancelLogin(); dismiss() }
+                Button(tr("Cancel")) { auth.cancelLogin(); dismiss() }
                     .padding(.top, 18)
             }
             .padding(60)

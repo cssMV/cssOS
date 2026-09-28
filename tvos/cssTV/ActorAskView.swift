@@ -272,10 +272,8 @@ struct ActorAskView: View {
         }
     }
 
-    /// UI 语言码(modern 档用)。tvOS 取系统首选语言, 与桌面 uiLocale() 同义。
-    private func uiLocale() -> String {
-        String((Locale.preferredLanguages.first ?? "en").prefix(12))
-    }
+    /// UI 语言码(modern 档用)。W2252 — 统一到 I18n.rawPreferred, 不再各取各的。
+    private func uiLocale() -> String { I18n.rawPreferred }
 
     // MARK: - 朗读
 

@@ -543,6 +543,13 @@ struct CategorySidebar: View {
             } label: {
                 HStack(spacing: 12) {
                     LogoAvatarBadge(loggedIn: auth.isSignedIn, avatarURL: auth.user?.avatar, burstTick: avatarTick)
+                        /* W2252 — Jing:「logo 向左移动一点, 与左侧栏在同一条线上」「应该中心线对齐」。
+                         * 判据是【量出来的】, 不是推出来的: 1920×1080 截图里 logo 亮斑中轴 x=144.0,
+                         * 行图标中轴 x=119.5 → 差 24.5。补满 24.5 即两条中心线重合。
+                         * (别照 112 宽 vs .frame(width:34) 去推 (56-17)=39 —— 那是假设两者左沿齐平
+                         *  才成立, 实际不齐, 推出来的数比真差值大了 15。量, 不要推。)
+                         * 用 offset 不用 padding: offset 不参与布局, 展开态那行文字不会跟着被拖走。*/
+                        .offset(x: -24.5)
                     if expanded {
                         Text(auth.isSignedIn ? (auth.user?.name ?? auth.user?.email ?? tr("Account")) : tr("Sign in"))
                             .font(.system(size: 19, weight: .semibold))
@@ -582,7 +589,12 @@ struct CategorySidebar: View {
             }
             Spacer()
         }
-        .padding(.top, 60)   // W1312 — 苹果 tvOS 标准安全区顶部 60(Jing: 96→60)
+        /* W2252 — Jing:「左侧栏整体再往上一点点, 不要让最后一个图标掉在框框外」。
+         * 实测: 末项图标 y 799..822, 绿框底边 y=802 → 跨出 20。上移 24 后末项 775..798, 整个进框。
+         * 代价说清楚: 60 是 tvOS 标准安全区顶部(W1312), 36 已进安全区内 24。本机(4K)实测不裁,
+         * 但老电视开 overscan 有可能啃到 logo 顶。若真机上看到被裁, 改走"压行距"那条路
+         * (spacing 6→4 + logo .padding(.bottom,10)→0 也能省出 26), 顶边就能留在 60。*/
+        .padding(.top, 36)
         .padding(.horizontal, expanded ? 24 : 18)
         .frame(width: expanded ? 360 : 130)   // W1277 — 加宽, 让 Short Drama 等长标签放得下(略压卡片可接受)
         .frame(maxHeight: .infinity)

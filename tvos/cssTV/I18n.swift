@@ -41,10 +41,16 @@ final class I18n: ObservableObject {
 
     // MARK: - 设备语言
 
+    /// 设备首选语言的【原始码】(如 "zh-Hans-CN")。发给后端/LLM 时用这个 ——
+    /// 那边要的是完整 BCP-47, 不是我们为了查缓存文件名而归一过的码。
+    /// W2252: ActorAskView 原来自己又取了一遍 Locale.preferredLanguages, 两处各归一各的;
+    /// 统一到这里, 下面的 deviceLocale() 也从它出发, 保证永远同源。
+    static let rawPreferred: String = String((Locale.preferredLanguages.first ?? "en").prefix(12))
+
     /// tvOS 的 "zh-Hans-CN" / "ja-JP" / "en-US" → 平台码 "zh" / "ja" / ""。
     /// 服务端 i18nLocalePathSafe 会小写化, 所以 "zh-Hant" 落到 zh-hant.json —— 与 web 同一份。
     static func deviceLocale() -> String {
-        let raw = Locale.preferredLanguages.first ?? "en"
+        let raw = rawPreferred
         let lower = raw.lowercased()
         if lower.hasPrefix("en") { return "" }                  // 英文就是源, 不需要字典
         if lower.hasPrefix("zh") {

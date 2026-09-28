@@ -240,6 +240,7 @@ private struct ActorDetailView: View {
     @State private var creating = false        // W1578 — 打开导演台(该演员主演)
     @State private var asking = false          // W2220 —《问道》与该演员第一人称对话
     @State private var auditioning = false     // W2221 — 三段试戏(自我介绍/正派/反派)
+    @State private var codexing = false        // W2253 — 典故(生平/参演/同文明演员)
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
     var body: some View {
@@ -291,6 +292,14 @@ private struct ActorDetailView: View {
                         }
                         .buttonStyle(.bordered).tint(brandGreen)
                         // CSSOS_WAVE_2221 — 三段试戏: 母语配音 + 逐字字幕 + 英文译文。
+                        /* CSSOS_WAVE_2253 — 典故: 生平长文 + 参演作品 + 同文明演员。
+                         * 桌面早有, TV 零引用; 而这屏原本只显示 文明/persona/曲风/价格 四个字段,
+                         * 后端 codex 里那段完整生平一直没地方显示。 */
+                        Button { codexing = true } label: {
+                            Label(tr("Codex"), systemImage: "book.closed.fill")
+                                .font(.system(size: 24, weight: .heavy))
+                        }
+                        .buttonStyle(.bordered).tint(brandGreen)
                         Button { auditioning = true } label: {
                             Label(tr("Audition"), systemImage: "theatermasks.fill")
                                 .font(.system(size: 24, weight: .heavy))
@@ -319,6 +328,7 @@ private struct ActorDetailView: View {
         .fullScreenCover(isPresented: $auditioning) {
             ActorShowcaseView(actor: actor)
         }
+        .fullScreenCover(isPresented: $codexing) { ActorCodexView(actor: actor) }
     }
 }
 

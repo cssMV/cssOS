@@ -424,3 +424,52 @@ struct CSSSubToken: Codable, Identifiable {
         case volume; case pitchHz = "pitch_hz"; case emotion; case emotionIntensity = "emotion_intensity"
     }
 }
+
+// MARK: - CSSOS_WAVE_2253 演员典故(GET /api/actors/:id/codex)
+//   桌面端早有这一屏, TV 零引用 —— 而它恰恰是【最适合电视】的内容形态:
+//   靠在沙发上读一位文明人物的生平, 大屏大字, 不需要打字。
+
+struct CSSActorCodex: Decodable {
+    var actor: CSSActorFull?
+    var mvs: [CSSCodexMV]?
+    var related_actors: [CSSActor]?
+    var counts: CSSCodexCounts?
+}
+
+struct CSSCodexCounts: Decodable {
+    var appearances: Int?
+    var comments: Int?
+    var shares: Int?
+    var casts: Int?
+}
+
+/// codex 里的 actor 是整行 digital_actors, 比列表用的 CSSActor 多出生平等字段。
+struct CSSActorFull: Decodable {
+    var actor_id: String?
+    var name_zh: String?
+    var name_en: String?
+    var name_native: String?
+    var civilization: String?
+    var persona: String?
+    var bio: String?
+    var voice_style: String?
+    var style_descriptor: String?
+    var gender: String?
+    var age_range: String?
+    var origin_type: String?
+    var cover_image: String?
+    var tags: [String]?
+    var displayName: String {
+        (name_en?.isEmpty == false ? name_en : nil) ?? name_zh ?? name_native ?? ""
+    }
+}
+
+struct CSSCodexMV: Decodable, Identifiable {
+    var work_id: String?
+    var title: String?
+    var cover_url: String?
+    var role_name: String?
+    var work_type: String?
+    var duration_secs: LooseInt?
+    var id: String { work_id ?? UUID().uuidString }
+}

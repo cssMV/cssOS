@@ -819,4 +819,17 @@ extension CSSBackend {
         guard !clips.isEmpty else { return nil }
         return CSSShowcase(lang: s.lang ?? "", voiceGender: s.voice_gender ?? "", clips: clips)
     }
+    // MARK: - CSSOS_WAVE_2253 演员典故
+    /// GET /api/actors/:id/codex → { data: { actor, mvs, related_actors, counts } }
+    /// 拉不到一律返回 nil, 由界面退回"只有列表那点字段"的旧详情 —— 不留空屏。
+    static func fetchActorCodex(_ actorId: String) async -> CSSActorCodex? {
+        guard let enc = actorId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/api/actors/\(enc)/codex") else { return nil }
+        var req = URLRequest(url: url); req.timeoutInterval = 20
+        guard let (d, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        struct Env: Decodable { let data: CSSActorCodex? }
+        return (try? JSONDecoder().decode(Env.self, from: d))?.data
+    }
+
 }

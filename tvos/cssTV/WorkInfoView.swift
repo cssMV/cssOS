@@ -35,27 +35,10 @@ struct WorkInfoView: View {
     private func lyricsBody(_ w: CSSWork) -> String { w.displayLyrics }
 
     /// W2234b — 把歌词切成【若干可聚焦段】。按空行切(歌词本来分节), 太碎的合并。
-    private func lyricChunks(_ w: CSSWork) -> [String] {
-        let body = lyricsBody(w)
-        guard !body.isEmpty else { return [] }
-        var out: [String] = []
-        var cur = ""
-        for block in body.components(separatedBy: "\n\n") {
-            let b = block.trimmingCharacters(in: .whitespacesAndNewlines)
-            if b.isEmpty { continue }
-            // W2235 — [Verse 1: …] 这类小节标题常常自成一段。让它跟着【下面那节】走,
-            // 否则会出现"一整屏只有一个标题"的落点, 按一下滚一下, 很蠢。
-            if b.hasPrefix("[") && b.hasSuffix("]") && !b.contains("\n") {
-                cur = cur.isEmpty ? b : cur + "\n\n" + b
-                continue
-            }
-            // 一段少于 4 行就先攒着 —— 一行一段的话用户要按几十下才到底。
-            cur = cur.isEmpty ? b : cur + "\n\n" + b
-            if cur.components(separatedBy: "\n").count >= 4 { out.append(cur); cur = "" }
-        }
-        if !cur.isEmpty { out.append(cur) }
-        return out
-    }
+    /* W2253 — 切段逻辑搬到 ProseChunks 共用(演员典故那屏要用同一套)。
+     * 只搬【纯函数】, 本屏的渲染与焦点一个字没动 —— W2234/W2234b/W2235 是一次次试出来的,
+     * 不在这一波的改动范围里。 */
+    private func lyricChunks(_ w: CSSWork) -> [String] { ProseChunks.split(lyricsBody(w)) }
 
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 

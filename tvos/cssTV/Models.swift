@@ -354,10 +354,12 @@ struct CSSActor: Codable, Identifiable {
     var origin_type: String?        // synthetic | civilization | real_person
     var archetypes: [String]?
 
-    var displayName: String { (name_en?.isEmpty == false ? name_en : nil) ?? name_zh ?? "Actor" }
+    /* W2251 — 兜底名会上屏, 要翻。标 @MainActor 是因为 tr() 在主线程;
+     * 这两个属性本来就只在 View 里读, 不产生传染。*/
+    @MainActor var displayName: String { (name_en?.isEmpty == false ? name_en : nil) ?? name_zh ?? tr("Actor") }
     var isLegend: Bool { (origin_type ?? "") == "civilization" }
-    var priceLabel: String {
-        guard let c = cast_price_cents, c > 0 else { return "Free" }
+    @MainActor var priceLabel: String {
+        guard let c = cast_price_cents, c > 0 else { return tr("Free") }
         return "💎 ¢" + String(c)
     }
     var coverAlignment: Alignment {

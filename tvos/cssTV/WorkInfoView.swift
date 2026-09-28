@@ -13,6 +13,12 @@
 import SwiftUI
 
 struct WorkInfoView: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     let workId: String
     /// 已知的作品(从首页点进来时有); 顶排深链进来时为 nil → 本屏自己去拉。
     let known: CSSWork?
@@ -79,7 +85,7 @@ struct WorkInfoView: View {
             cover(w)
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text(w.title ?? "Untitled")
+                    Text(w.title ?? tr("Untitled"))
                         .font(.system(size: 52, weight: .heavy))
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)

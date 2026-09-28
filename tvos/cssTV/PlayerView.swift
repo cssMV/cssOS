@@ -32,6 +32,12 @@ struct VideoSurface: UIViewRepresentable {
 }
 
 struct PlayerView: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     // CSSOS_WAVE_1523 — Jing「循环列表播放」: 播放器接收【整个栏目队列】+ 起始下标。
     //   播完当前作品的所有枝丫 → 自动接队列下一个(到尾绕回第一个), 无限循环, 只有 Menu 键退出。
     //   无论从 hero/For You/任何栏目的哪个作品进, 都循环那一整栏。
@@ -222,7 +228,7 @@ struct PlayerView: View {
                         // 标题 + 时长 + 1/3, 贴视频框内下缘(离黑边 36)。
                         HStack {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(currentPart.title ?? "Untitled")
+                                Text(currentPart.title ?? tr("Untitled"))
                                     .font(.system(size: 44, weight: .bold))
                                     .foregroundStyle(.white)
                                     .shadow(color: .black.opacity(0.7), radius: 4)
@@ -600,9 +606,9 @@ struct PlayerView: View {
             return [VisualForm(key: "video", label: tr("Real video"), spec: res, icon: "film")]
         case "hybrid":
             return [VisualForm(key: "hybrid", label: tr("Hybrid video"), spec: res, icon: "film.stack"),
-                    VisualForm(key: "slides", label: tr("Slideshow"), spec: "\(n) img", icon: "photo.on.rectangle")]
+                    VisualForm(key: "slides", label: tr("Slideshow"), spec: tr("{n} img", ["n": "\(n)"]), icon: "photo.on.rectangle")]
         default:
-            return [VisualForm(key: "slides", label: tr("Slideshow"), spec: "\(n) img", icon: "photo.on.rectangle")]
+            return [VisualForm(key: "slides", label: tr("Slideshow"), spec: tr("{n} img", ["n": "\(n)"]), icon: "photo.on.rectangle")]
         }
     }
 
@@ -708,7 +714,7 @@ struct PlayerView: View {
              * 原文是 "Not on TV yet — available on cssstudio.app" —— 它在【引导用户离开 App 去网站】。
              * 虽然不涉及购买, 但正在送审, 审核员看到这种指向站外的句子容易多想, 而这句话的
              * 全部作用只是"这一格 TV 上还没有" —— 网址并不增加任何信息。去掉, 风险归零。 */
-            if pillRowOpen { pillNote("Not available on TV") }
+            if pillRowOpen { pillNote(tr("Not available on TV")) }
         default:
             if pillRowOpen && languagePillItems.count > 1 {
                 itemPillBar(languagePillItems, selected: selectedTrackId ?? "") { id in

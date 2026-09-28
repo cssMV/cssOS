@@ -6,6 +6,12 @@
 import SwiftUI
 
 struct DigitalActorsView: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     @ObservedObject var auth: CSSAuth          // W1578 — 详情页「主演创作」需要传给导演台
     @Environment(\.dismiss) private var dismiss
     @State private var actors: [CSSActor] = []
@@ -21,31 +27,35 @@ struct DigitalActorsView: View {
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
     // 顶部来源/属性筛选(桌面端同款)。
-    private let originFilters: [(key: String, label: String, icon: String)] = [
-        ("all",     "All",      "sparkles"),
-        ("original","Original", "wand.and.stars"),
-        ("legends", "Legends",  "building.columns.fill"),
-        ("premium", "Premium",  "diamond.fill"),
-        ("female",  "Female",   "person.fill"),
-        ("male",    "Male",     "person.fill"),
-        ("neutral", "Neutral",  "person.fill"),
-        ("mine",    "Mine",     "person.crop.rectangle.stack.fill"),
-    ]
+    /* W2251 — 改成【计算属性】: tr() 是 @MainActor, 存储属性的初始化器在非隔离
+     * 上下文里求值, 调不了它。计算属性在 View 的 body 里求值, 天然在主线程。*/
+    private var originFilters: [(key: String, label: String, icon: String)] { [
+        ("all",     tr("All"),      "sparkles"),
+        ("original",tr("Original"), "wand.and.stars"),
+        ("legends", tr("Legends"),  "building.columns.fill"),
+        ("premium", tr("Premium"),  "diamond.fill"),
+        ("female",  tr("Female"),   "person.fill"),
+        ("male",    tr("Male"),     "person.fill"),
+        ("neutral", tr("Neutral"),  "person.fill"),
+        ("mine",    tr("Mine"),     "person.crop.rectangle.stack.fill"),
+    ] }
     // 戏路(archetype)。
-    private let roles: [(key: String, label: String, icon: String)] = [
-        ("",        "All roles", "person.3.fill"),
-        ("hero",    "Hero",      "shield.lefthalf.filled"),
-        ("villain", "Villain",   "flame.fill"),
-        ("antihero","Anti-hero", "theatermask.and.paintbrush.fill"),
-        ("ruler",   "Ruler",     "crown.fill"),
-        ("action",  "Action",    "figure.run"),
-        ("sage",    "Sage",      "book.fill"),
-        ("charmer", "Charmer",   "heart.fill"),
-        ("tragic",  "Tragic",    "cloud.rain.fill"),
-        ("comic",   "Comic",     "face.smiling.inverse"),
-        ("enigma",  "Enigma",    "questionmark.circle.fill"),
-        ("youth",   "Youth",     "leaf.fill"),
-    ]
+    /* W2251 — 改成【计算属性】: tr() 是 @MainActor, 存储属性的初始化器在非隔离
+     * 上下文里求值, 调不了它。计算属性在 View 的 body 里求值, 天然在主线程。*/
+    private var roles: [(key: String, label: String, icon: String)] { [
+        ("",        tr("All roles"), "person.3.fill"),
+        ("hero",    tr("Hero"),      "shield.lefthalf.filled"),
+        ("villain", tr("Villain"),   "flame.fill"),
+        ("antihero",tr("Anti-hero"), "theatermask.and.paintbrush.fill"),
+        ("ruler",   tr("Ruler"),     "crown.fill"),
+        ("action",  tr("Action"),    "figure.run"),
+        ("sage",    tr("Sage"),      "book.fill"),
+        ("charmer", tr("Charmer"),   "heart.fill"),
+        ("tragic",  tr("Tragic"),    "cloud.rain.fill"),
+        ("comic",   tr("Comic"),     "face.smiling.inverse"),
+        ("enigma",  tr("Enigma"),    "questionmark.circle.fill"),
+        ("youth",   tr("Youth"),     "leaf.fill"),
+    ] }
 
     // 当前来源筛选高亮键。
     private var activeOriginKey: String {
@@ -218,6 +228,12 @@ private struct ActorCard: View {
 
 // W1578 — 演员详情(点击卡片进入): 大肖像 + 名 + 文明 + 完整人设 + 风格 + 价格。Menu/返回关闭。
 private struct ActorDetailView: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     let actor: CSSActor
     @ObservedObject var auth: CSSAuth          // W1578 — 传给导演台(主演创作)
     @Environment(\.dismiss) private var dismiss
@@ -308,6 +324,12 @@ private struct ActorDetailView: View {
 
 // W1578 — 照搬桌面端 openCastPanel: 选中演员=主角槽(带图/名/文明), 按其文明智能联动荐反派(可换) → 定角并生成(带 cast 锁脸)。
 private struct ActorCastPanel: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     let seed: CSSActor
     @ObservedObject var auth: CSSAuth
     @Environment(\.dismiss) private var dismiss
@@ -322,7 +344,7 @@ private struct ActorCastPanel: View {
     @State private var generating = false
     @State private var status = ""
 
-    private let fmts: [(id: String, name: String)] = [("single", "MV"), ("triptych", "Triptych"), ("opera", "Opera")]
+    private let fmts: [(id: String, name: String)] = [("single", tr("MV")), ("triptych", tr("Triptych")), ("opera", tr("Opera"))]
 
     var body: some View {
         ZStack {
@@ -352,7 +374,7 @@ private struct ActorCastPanel: View {
                         }.padding(20).background(RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.05)))
                     }
                     Button { generate() } label: {
-                        Label(generating ? "Rolling…" : "Cast & generate  🎬", systemImage: "film.stack")
+                        Label(generating ? tr("Rolling…") : tr("Cast & generate  🎬"), systemImage: "film.stack")
                             .font(.system(size: 28, weight: .heavy)).frame(maxWidth: .infinity)
                     }.buttonStyle(.card).disabled(generating)
                     if !status.isEmpty { Text(status).font(.system(size: 20)).foregroundStyle(brandGreen) }
@@ -370,7 +392,7 @@ private struct ActorCastPanel: View {
             HStack(spacing: 20) {
                 actorThumb(actor, size: 120)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(actor?.displayName ?? "Recommending…").font(.system(size: 26, weight: .heavy)).foregroundStyle(.white)
+                    Text(actor?.displayName ?? tr("Recommending…")).font(.system(size: 26, weight: .heavy)).foregroundStyle(.white)
                     if let civ = actor?.civilization, !civ.isEmpty { Text(civ).font(.system(size: 18)).foregroundStyle(brandGreen) }
                     if locked { Text(tr("Your pick")).font(.system(size: 16)).foregroundStyle(.white.opacity(0.5)) }
                 }
@@ -422,7 +444,7 @@ private struct ActorCastPanel: View {
     }
 
     private func generate() {
-        guard auth.isSignedIn else { status = "Please sign in first (top-left ✨) to create."; return }
+        guard auth.isSignedIn else { status = tr("Please sign in first (top-left ✨) to create."); return }
         var cast: [[String: String]] = [["actor_id": seed.actor_id, "role": "protagonist"]]
         var costars: [String] = []
         var prompt = "Create an MV starring the digital actor \"\(seed.displayName)\"."
@@ -437,12 +459,12 @@ private struct ActorCastPanel: View {
         default: break
         }
         if let civ = seed.civilization, !civ.isEmpty { prompt += " Civilization: \(civ)." }
-        generating = true; status = "✨ Casting locked — generating…"
+        generating = true; status = tr("✨ Casting locked — generating…")
         Task {
             let r = await CSSBackend.castMV(prompt: prompt, cast: cast)
             await MainActor.run {
                 generating = false
-                status = r.ok ? "✨ Generating — your work appears in For You when ready." : "Couldn't start it just now. Please try again."
+                status = r.ok ? tr("✨ Generating — your work appears in For You when ready.") : tr("Couldn't start it just now. Please try again.")
             }
         }
     }

@@ -188,8 +188,7 @@ struct ContentView: View {
     private let sidebarCollapsedW: CGFloat = 130
 
     var body: some View {
-        _ = i18n.revision                // W2251 — 订阅点: 字典换新 → 本 body 重算 → 全屏译文刷新
-        return ZStack(alignment: .topLeading) {
+        ZStack(alignment: .topLeading) {
             Color.clear.ignoresSafeArea()   // W1307 — tvOS 无 systemBackground 常量; 透明=直接显示苹果系统窗口背景色本身
 
             ScrollView {
@@ -513,6 +512,12 @@ struct CreateRef: Identifiable { let id = UUID(); let format: String }
 /// W1232 / W1235 — 左侧分类侧栏(HBO 左导航), 可折叠/展开:
 ///   收起 = 只显图标(窄); 焦点进入侧栏任一项 = 展开显图标+标签(宽)。标签全英文(i18n)。
 struct CategorySidebar: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     @Binding var selected: HomeCategory?       // W1260 — nil = 不高亮(Home 不默认)
     @ObservedObject var auth: CSSAuth          // W1249 登录态
     var onLoginTap: () -> Void
@@ -539,7 +544,7 @@ struct CategorySidebar: View {
                 HStack(spacing: 12) {
                     LogoAvatarBadge(loggedIn: auth.isSignedIn, avatarURL: auth.user?.avatar, burstTick: avatarTick)
                     if expanded {
-                        Text(auth.isSignedIn ? (auth.user?.name ?? auth.user?.email ?? "Account") : "Sign in")
+                        Text(auth.isSignedIn ? (auth.user?.name ?? auth.user?.email ?? tr("Account")) : tr("Sign in"))
                             .font(.system(size: 19, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.85))
                             .lineLimit(1)
@@ -780,6 +785,12 @@ struct SpinningImage: UIViewRepresentable {
 /// 2.39 大幅背景 + 渐变压暗 + 标题/▶Play/♪时长 + 圆点。方向键 ←→ 手动切, 6s 自动轮播。
 /// ▶Play 按钮为焦点目标: Select 即播当前; 在其上 ←→ 切精选, ↓ 进下面 rails。
 struct FeaturedHero: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     let works: [CSSWork]
     var focusNS: Namespace.ID                         // W1278 — 第一个胶囊 = 焦点域默认目标(侧栏右键跳来)
     var sidebarNS: Namespace.ID                       // W1283 — 往左跳回侧栏用
@@ -813,7 +824,7 @@ struct FeaturedHero: View {
         var parts: [String] = []
         if current.isMultiPart {
             let n = current.children?.count ?? 0
-            parts.append(n > 0 ? "\(current.typeBadge) · \(n) parts" : current.typeBadge)
+            parts.append(n > 0 ? tr("{badge} · {n} parts", ["badge": tr(current.typeBadge), "n": "\(n)"]) : tr(current.typeBadge))
         }
         if !current.durationLabel.isEmpty { parts.append(current.durationLabel) }
         return parts.joined(separator: "   ·   ")
@@ -942,7 +953,7 @@ struct FeaturedHero: View {
                                      smallSize: 14, smallSpread: 95, smallN: 8, leftBias: true)   // W1314 — 反向左爆, 与右甩对冲
                         .frame(width: 120, height: 80).allowsHitTesting(false)
                 )
-            Text(works[i].isCreateCard ? "✨ Create" : (works[i].title ?? "Untitled"))
+            Text(works[i].isCreateCard ? tr("✨ Create") : (works[i].title ?? tr("Untitled")))
                 .font(.system(size: 16, weight: active ? .bold : .medium))
                 .lineLimit(1)
         }
@@ -972,7 +983,7 @@ struct FeaturedHero: View {
         // W1246 — Jing: 标题/Play/胶囊全部【水平居中】, 彻底不与左侧侧栏打架。
         VStack(alignment: .center, spacing: 14) {
             Spacer()
-            Text(current.isCreateCard ? "Want an MV like this?" : (current.title ?? "Untitled"))
+            Text(current.isCreateCard ? tr("Want an MV like this?") : (current.title ?? tr("Untitled")))
                 .font(.system(size: 54, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(2)
@@ -990,7 +1001,7 @@ struct FeaturedHero: View {
             }
             HStack(spacing: 24) {
                 Button { onSelect(current) } label: {
-                    Label(current.isCreateCard ? "Create ✨" : "Play",
+                    Label(current.isCreateCard ? tr("Create ✨") : tr("Play"),
                           systemImage: current.isCreateCard ? "wand.and.stars" : "play.fill")
                         .font(.system(size: 24, weight: .bold))
                         .padding(.vertical, 14).padding(.horizontal, 30)
@@ -1182,6 +1193,12 @@ struct ConcavePill: Shape {
 
 /// CSSOS_WAVE_1227 — 一行 rail: 标题 + 横向滚动卡片(tvOS 焦点引擎天然处理左右选中)。
 struct RailRow: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     let rail: CSSRail
     let onSelect: (CSSWork) -> Void
     var onFocused: () -> Void = {}   // W1555 — 本栏任一卡获焦 → 通知宿主"焦点在下方栏目"(藏侧栏)
@@ -1219,6 +1236,12 @@ struct RailRow: View {
 }
 
 struct WorkCard: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     let work: CSSWork
     // CSSOS_WAVE_1523 — Jing「栏目激活跟随」: 聚焦哪张卡 → 它即"激活态"(品牌绿边框+绿光晕+标题绿),
     //   和 hero 激活胶囊同一套绿语言。Select 即播。@Environment(\.isFocused) 读本卡(=Button)是否聚焦。
@@ -1283,7 +1306,7 @@ struct WorkCard: View {
 
                 // W1326 — 右上类型徽章(多部才显)。
                 if work.isMultiPart {
-                    Text(work.typeBadge)
+                    Text(tr(work.typeBadge))
                         .font(.system(size: 16, weight: .heavy))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12).padding(.vertical, 5)
@@ -1322,7 +1345,7 @@ struct WorkCard: View {
             }
             // W1526 — next-up 多部卡: 底行点名【即将播的那一枝】(照 [[next_up_multipart_card_design]])。
             if work.isMultiPart, let first = work.children?.first(where: { ($0.audioURL ?? $0.previewAudio) != nil }) ?? work.children?.first {
-                Text("▶ " + (first.title ?? "Pt 1"))
+                Text("▶ " + (first.title ?? tr("Pt 1")))
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(brandGreen.opacity(0.85))
                     .lineLimit(1)
@@ -1336,6 +1359,12 @@ struct WorkCard: View {
 
 /// W1249 — 登录页(设备码流): 显示 cssstudio.app/tv + 6 位码, 后台轮询, 授权后自动关闭。
 struct LoginView: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     @ObservedObject var auth: CSSAuth
     @Environment(\.dismiss) private var dismiss
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)

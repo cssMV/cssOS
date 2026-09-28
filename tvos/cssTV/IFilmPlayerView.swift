@@ -12,6 +12,12 @@ import AVFoundation
 import UIKit
 
 struct IFilmPlayerView: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     let ifilmId: String
     var title: String = "《时间帝国》 / Empire of Time"
 
@@ -117,7 +123,7 @@ struct IFilmPlayerView: View {
         VStack(spacing: 26) {
             Spacer()
             Text(tr("Ending")).font(.system(size: 26, weight: .bold)).foregroundStyle(.white.opacity(0.7))
-            Text(endingLabel.isEmpty ? "THE END" : endingLabel)
+            Text(endingLabel.isEmpty ? tr("THE END") : endingLabel)
                 .font(.system(size: 52, weight: .heavy)).foregroundStyle(brandGreen)
                 .multilineTextAlignment(.center)
             HStack(spacing: 24) {
@@ -157,7 +163,7 @@ struct IFilmPlayerView: View {
                 speaker = beat.speaker ?? ""
                 if let v = vurl, let u = URL(string: v) { startVideo(u) }
                 if let vo = n.voice_url, let uu = URL(string: vo) { startVoice(uu) }
-                if n.converged == true { endingLabel = n.ending_label ?? "THE END"; phase = .ended }
+                if n.converged == true { endingLabel = n.ending_label ?? tr("THE END"); phase = .ended }
                 else { phase = .playing }
             }
         }

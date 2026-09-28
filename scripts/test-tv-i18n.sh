@@ -9,14 +9,19 @@
 #   ③ 每条 tr("字面量") 都在 uiStrings 清单里   ④ 字典拿不到时回退英文(不留空白)
 set -uo pipefail
 cd "$(dirname "$0")/.."
+ROOT=$(pwd)
 PASS=0; FAIL=0
 ok(){ echo "  ✅ $1"; PASS=$((PASS+1)); }
 no(){ echo "  ❌ $1"; FAIL=$((FAIL+1)); }
 
 SRC=$(mktemp -d); trap 'rm -rf "$SRC"' EXIT
 if [ "${CALIBRATE:-0}" = "1" ]; then
-  echo "== CALIBRATE: 读 git HEAD 的旧源码, 期望【全红】 =="
-  git archive HEAD tvos/cssTV 2>/dev/null | tar -x -C "$SRC" || { echo "取 HEAD 失败"; exit 2; }
+  # 基准必须是【本波改动之前】那一版, 不能用 HEAD —— 本波一提交, HEAD 就含 I18n.swift 了,
+  # 再拿 HEAD 校准等于拿新码校新码, 校出来是假的(第一次就这么翻车)。
+  BASE=$(git log --diff-filter=A --format=%H -- tvos/cssTV/I18n.swift | tail -1)
+  BASE=${BASE:+$BASE^}; BASE=${BASE:-HEAD}
+  echo "== CALIBRATE: 读 $BASE (i18n 之前那一版), 期望【全红】 =="
+  git archive "$BASE" tvos/cssTV 2>/dev/null | tar -x -C "$SRC" || { echo "取 $BASE 失败"; exit 2; }
   D="$SRC/tvos/cssTV"
 else
   D="tvos/cssTV"
@@ -37,26 +42,11 @@ ZPY
 echo "== ① 用户可见字面量必须包 tr() =="
 # 裸字面量 = Text("…")/Button("…")/Label("…")/TextField("…") 里直接跟引号的。
 # 白名单: 纯 emoji / 单个符号 / URL / SF Symbol 名 —— 这些翻译了反而坏。
-# 判据也用 python: 去掉 \(插值) 和 \u{…} 转义后【还剩字母】的才算文案。
-# 纯数字/纯符号/emoji/URL 翻译了反而坏, 不该算漏。
-BARECHK="$SRC/barecheck.py"
-cat > "$BARECHK" <<'BPY'
-import re, sys, pathlib
-SKIP = {"cssstudio.app/tv"}
-hits = []
-for f in sorted(pathlib.Path(sys.argv[1]).glob("*.swift")):
-    if f.name == "I18n.swift": continue
-    for m in re.finditer(r'(Text|Button|Label|TextField|SecureField)\(\s*"([^"]*)"', f.read_text()):
-        body = m.group(2)
-        if body in SKIP: continue
-        stripped = re.sub(r'\\\([^)]*\)', '', body)          # 去掉 \(插值)
-        stripped = re.sub(r'\\u\{[0-9A-Fa-f]+\}', '', stripped)  # 去掉 \u{…}
-        if not re.search(r'[A-Za-z\u4e00-\u9fff]', stripped):  # 没字母/汉字 = 不是文案
-            continue
-        hits.append(f"{f.name}: {body[:70]}")
-print("\n".join(sorted(set(hits))))
-BPY
-BARE=$(python3 "$BARECHK" "$D")
+# 判据 ① 交给 scripts/tv-i18n-scan.py。
+# 【为什么不内联】第一版内联判据只认「紧跟在 Text( 后面的字面量」, 三元表达式、
+# 计算属性、status 变量全漏 —— 实测漏了近一半(85 → 158), 而它照样报绿。
+# 现在反过来: 所有含字母的串都当嫌疑, 结构化排除后剩下的必须显式登记。
+BARE=$(python3 "$ROOT/scripts/tv-i18n-scan.py" "$D" 2>&1 | grep -vE '^$|未包 tr')
 if [ -z "$BARE" ]; then ok "没有裸字面量"
 else no "还有 $(echo "$BARE" | wc -l | tr -d ' ') 条没包 tr():"; echo "$BARE" | sed 's/^/       /' | head -12; fi
 

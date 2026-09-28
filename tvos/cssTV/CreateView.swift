@@ -6,6 +6,12 @@
 import SwiftUI
 
 struct CreateView: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     var seedPrompt: String = ""
     @ObservedObject var auth: CSSAuth
     var defaultFormat: String = ""            // W1565 — 从某栏尾卡进入时【默认预选】的戏路(""=不预选); 仍可自由改
@@ -29,19 +35,21 @@ struct CreateView: View {
 
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
     // W1561 — 全戏路开放(原 shortplay/series/film 的"敬请期待"锁移除): 每栏都能创作该类型。
-    private let fmts: [(id: String, name: String, icon: String)] = [
-        ("single", "MV", "music.note"), ("triptych", "Triptych", "books.vertical.fill"),
-        ("opera", "Opera", "theatermasks.fill"), ("shortplay", "Short Drama", "film.fill"),
-        ("series", "Series", "tv.fill"), ("film", "Movie", "film.stack.fill"),
-    ]
+    /* W2251 — 同上: tr() 是 @MainActor, 必须是计算属性。*/
+    private var fmts: [(id: String, name: String, icon: String)] { [
+        ("single", tr("MV"), "music.note"), ("triptych", tr("Triptych"), "books.vertical.fill"),
+        ("opera", tr("Opera"), "theatermasks.fill"), ("shortplay", tr("Short Drama"), "film.fill"),
+        ("series", tr("Series"), "tv.fill"), ("film", tr("Movie"), "film.stack.fill"),
+    ] }
     // 文明胶囊(文明智能联动)。System = 系统自拟世界(空串)。
-    private let civs: [(id: String, name: String, icon: String)] = [
-        ("", "System", "globe"), ("Chinese", "Chinese", "globe.asia.australia.fill"),
-        ("Japanese", "Japanese", "globe.asia.australia.fill"), ("Greek", "Greek", "building.columns.fill"),
-        ("Egyptian", "Egyptian", "triangle.fill"), ("Indian", "Indian", "globe.asia.australia.fill"),
-        ("Roman", "Roman", "building.columns.fill"), ("Norse", "Norse", "snowflake"),
-        ("Persian", "Persian", "flame.fill"), ("Renaissance Europe", "Renaissance", "paintpalette.fill"),
-    ]
+    /* W2251 — 同上: tr() 是 @MainActor, 必须是计算属性。*/
+    private var civs: [(id: String, name: String, icon: String)] { [
+        ("", tr("System"), "globe"), ("Chinese", tr("Chinese"), "globe.asia.australia.fill"),
+        ("Japanese", tr("Japanese"), "globe.asia.australia.fill"), ("Greek", tr("Greek"), "building.columns.fill"),
+        ("Egyptian", tr("Egyptian"), "triangle.fill"), ("Indian", tr("Indian"), "globe.asia.australia.fill"),
+        ("Roman", tr("Roman"), "building.columns.fill"), ("Norse", tr("Norse"), "snowflake"),
+        ("Persian", tr("Persian"), "flame.fill"), ("Renaissance Europe", tr("Renaissance"), "paintpalette.fill"),
+    ] }
 
     var body: some View {
         ZStack {
@@ -57,21 +65,21 @@ struct CreateView: View {
                             .font(.system(size: 22)).foregroundStyle(.white.opacity(0.75))
                     }
 
-                    pillGroup("🎬 Format") { formatBar }
-                    pillGroup("🌍 Civilization (blank = system)") { civBar }
+                    pillGroup(tr("🎬 Format")) { formatBar }
+                    pillGroup(tr("🌍 Civilization (blank = system)")) { civBar }
 
                     // 标题 + ✨起草。
                     HStack(spacing: 14) {
-                        field("Title — blank = system names it", text: $title, field: .title)
+                        field(tr("Title — blank = system names it"), text: $title, field: .title)
                         Button { draft() } label: {
-                            Label(drafting ? "Drafting…" : "Draft", systemImage: "sparkles")
+                            Label(drafting ? tr("Drafting…") : tr("Draft"), systemImage: "sparkles")
                                 .font(.system(size: 22, weight: .bold)).padding(.vertical, 16).padding(.horizontal, 26)
                         }.buttonStyle(.card).disabled(drafting)
                     }
                     // 故事梗概。
-                    field("Story synopsis (≤2000 chars) — blank = system writes it", text: $synopsis, field: .synopsis, minHeight: 150)
+                    field(tr("Story synopsis (≤2000 chars) — blank = system writes it"), text: $synopsis, field: .synopsis, minHeight: 150)
                     // 风格。
-                    field("Style / vibe — blank = auto", text: $style, field: .style)
+                    field(tr("Style / vibe — blank = auto"), text: $style, field: .style)
 
                     // 系统荐角(可换角)。
                     if !castSlots.isEmpty {
@@ -81,7 +89,7 @@ struct CreateView: View {
                     // Action ▶
                     HStack {
                         Button { cast() } label: {
-                            Label(casting ? "Rolling…" : "Action  ▶", systemImage: "film.stack")
+                            Label(casting ? tr("Rolling…") : tr("Action  ▶"), systemImage: "film.stack")
                                 .font(.system(size: 28, weight: .bold)).padding(.vertical, 16).padding(.horizontal, 44)
                         }.buttonStyle(.card).disabled(casting)
                         Spacer()
@@ -204,7 +212,7 @@ struct CreateView: View {
     }
 
     private func draft() {
-        guard auth.isSignedIn else { status = "Sign in (top-left ✨) to let the system draft."; return }
+        guard auth.isSignedIn else { status = tr("Sign in (top-left ✨) to let the system draft."); return }
         drafting = true; status = ""
         Task {
             let d = await CSSBackend.directorDraft(title: title, civ: civ)
@@ -213,14 +221,14 @@ struct CreateView: View {
                 if let d = d, let syn = d.synopsis, !syn.isEmpty {
                     if let t = d.title, !t.isEmpty { title = t }
                     synopsis = syn
-                    status = "✨ Draft ready — edit it, or hit Action."
-                } else { status = "Couldn't draft just now. Try again, or write your own." }
+                    status = tr("✨ Draft ready — edit it, or hit Action.")
+                } else { status = tr("Couldn't draft just now. Try again, or write your own.") }
             }
         }
     }
 
     private func cast() {
-        guard auth.isSignedIn else { status = "Please sign in first (the ✨ badge, top-left) to create."; return }
+        guard auth.isSignedIn else { status = tr("Please sign in first (the ✨ badge, top-left) to create."); return }
         // 结构化字段 → 意念串。全空则交系统全自动(导演自动流)。
         var parts: [String] = []
         if !title.trimmingCharacters(in: .whitespaces).isEmpty { parts.append(title) }
@@ -247,15 +255,15 @@ struct CreateView: View {
             guard let aid = chosen[slot.role], !aid.isEmpty else { return nil }
             return ["actor_id": aid, "role": slot.role]
         }
-        casting = true; status = "✨ Sending your direction to the magic mirror…"
+        casting = true; status = tr("✨ Sending your direction to the magic mirror…")
         Task {
             let result = await CSSBackend.castMV(prompt: full, cast: castPayload)
             await MainActor.run {
                 casting = false
                 if result.intent == "ifilm", let fid = result.ifilmId, !fid.isEmpty { dismiss(); onIFilm(fid); return }
                 status = result.ok
-                    ? "✨ Direction received! Your work is generating — it'll appear in For You when ready."
-                    : "Couldn't start it just now. Please try again."
+                    ? tr("✨ Direction received! Your work is generating — it'll appear in For You when ready.")
+                    : tr("Couldn't start it just now. Please try again.")
             }
         }
     }

@@ -20,6 +20,12 @@ import SwiftUI
 import AVFoundation
 
 struct ActorAskView: View {
+    /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
+     * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
+     * 每个用 tr() 的 View 都要有这一行: 字典是异步到货的, 父 body 重算时子视图
+     * 属性没变 → SwiftUI 跳过子 body → 那一屏永远停在英文(W2251 实测栽过)。
+     * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
+    @ObservedObject var i18n = I18n.shared
     let actor: CSSActor
     @Environment(\.dismiss) private var dismiss
 
@@ -53,15 +59,15 @@ struct ActorAskView: View {
         [
             CSSPillItem(id: "native", label: nativeLabel, icon: "scroll"),
             CSSPillItem(id: "modern", label: tr("Modern"), icon: "globe"),
-            CSSPillItem(id: "mute", label: autoVoice ? "Voice on" : "Muted",
+            CSSPillItem(id: "mute", label: autoVoice ? tr("Voice on") : tr("Muted"),
                         icon: autoVoice ? "speaker.wave.2.fill" : "speaker.slash.fill"),
             CSSPillItem(id: "reset", label: tr("Restart"), icon: "arrow.counterclockwise"),
         ]
     }
     /// 母语档的标签跟着演员走(传奇 = 他的文明母语古风; 原创 = 本色)。
     private var nativeLabel: String {
-        if actor.isLegend, let c = actor.civilization, !c.isEmpty { return "Native · \(c)" }
-        return "Native"
+        if actor.isLegend, let c = actor.civilization, !c.isEmpty { return tr("Native · {c}", ["c": c]) }
+        return tr("Native")
     }
 
     var body: some View {
@@ -158,8 +164,8 @@ struct ActorAskView: View {
     }
 
     private var openingHint: String {
-        "Speak to \(actor.displayName) in their own words. "
-        + "Press the text field and use the Siri Remote to dictate your question."
+        tr("Speak to {name} in their own words. ", ["name": actor.displayName])
+        + tr("Press the text field and use the Siri Remote to dictate your question.")
     }
 
     private var composer: some View {
@@ -260,7 +266,7 @@ struct ActorAskView: View {
                     turns[idx].streaming = false
                     if turns[idx].answer.isEmpty { turns.remove(at: idx) }
                     busy = false
-                    note = "Couldn't reach \(actor.displayName) just now. Please try again. (\(e))"
+                    note = tr("Couldn't reach {name} just now. Please try again. ({e})", ["name": actor.displayName, "e": "\(e)"])
                 }
             )
         }
@@ -280,7 +286,7 @@ struct ActorAskView: View {
                 if r.rateLimited {
                     // 成本闸命中 → 关自动朗读 + 一次性提示(桌面端同样的降级)。
                     autoVoice = false
-                    note = "Voice paused (hourly limit reached). Text is always free."
+                    note = tr("Voice paused (hourly limit reached). Text is always free.")
                     return
                 }
                 guard let u = r.voiceURL, let url = URL(string: u) else { return }

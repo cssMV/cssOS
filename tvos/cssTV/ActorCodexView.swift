@@ -89,9 +89,13 @@ struct ActorCodexView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let c = codex?.counts {
+                /* W2253 — 用「标签 · 数字」而不是「{n} appearances」。
+                 * 英文单复数只是最表层的问题(实测显示成 "1 shares"); 真正的坑是俄语/阿拉伯语
+                 * 等有 3~6 种复数形式, 一个 {n} 占位符根本表达不了, 而我们的翻译链是
+                 * 整句 key→整句译文, 没有复数规则这一层。改成名词标签配数字, 各语言都成立。 */
                 let stats: [String] = [
-                    (c.appearances ?? 0) > 0 ? tr("{n} appearances", ["n": "\(c.appearances!)"]) : nil,
-                    (c.shares ?? 0) > 0 ? tr("{n} shares", ["n": "\(c.shares!)"]) : nil,
+                    (c.appearances ?? 0) > 0 ? "\(tr("Appearances")) · \(c.appearances!)" : nil,
+                    (c.shares ?? 0) > 0 ? "\(tr("Shares")) · \(c.shares!)" : nil,
                 ].compactMap { $0 }
                 if !stats.isEmpty {
                     Text(stats.joined(separator: "  ·  "))

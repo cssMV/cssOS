@@ -14,6 +14,7 @@ struct ActorCodexView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var codex: CSSActorCodex?
+    @State private var stage: CSSStageRig?      // W2254 — 这位演员的演播厅
     @State private var loading = true
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
@@ -21,8 +22,10 @@ struct ActorCodexView: View {
     @FocusState private var focus: Focus?
 
     var body: some View {
+        /* W2254 — 背幕走 .background 而不是 ZStack 兄弟。
+         * 实测教训: 作为兄弟时它的 .ignoresSafeArea() 会把【整个 ZStack】的安全区一起吃掉,
+         * 内容整体左移、右侧文字被屏幕裁掉。.background 不参与布局, 只铺在后面。 */
         ZStack {
-            Color.black.ignoresSafeArea()
             HStack(alignment: .top, spacing: 56) {
                 portrait
                 ScrollView {
@@ -38,11 +41,23 @@ struct ActorCodexView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                /* W2254 — 文字区垫一层遮罩。背幕是【布景】, 读字是【正事】——
+                 * 桌面那套背幕只用在视频舞台上, 从没有长文压在它上面; 搬到这屏必须补这一层,
+                 * 否则 10 英尺外读不清(实测妲己那张朝歌背幕上的正文几乎糊掉)。 */
+                .background(
+                    LinearGradient(colors: [.black.opacity(0.62), .black.opacity(0.42)],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .blur(radius: 30).padding(-40).ignoresSafeArea(edges: .bottom)
+                )
             }
             .padding(.horizontal, 70).padding(.top, 54)
         }
+        .background(ActorStageBackdrop(rig: stage).ignoresSafeArea())
         .task {
+            // 厅和典故并行拉 —— 厅只是七个数值, 先到先画, 不等长文。
+            async let st = CSSBackend.fetchActorStage(actor.id)
             codex = await CSSBackend.fetchActorCodex(actor.id)
+            stage = await st
             loading = false
             // 焦点先落在关闭键上 —— 不放在长文里, 否则一进来就滚走了。
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { focus = .close }
@@ -57,6 +72,10 @@ struct ActorCodexView: View {
             // 大屏上一堆 4K 原图直解会把解码器吃爆(W1562 的教训)。
             CSSPosterImage(urlString: full?.cover_image ?? actor.cover_image,
                            targetSize: CGSize(width: 440, height: 560))
+                .frame(width: 440, height: 560).clipped()
+            // W2254 — 会动的演员。没有循环片就什么都不渲染, 原样露出上面的静态肖像。
+            ActorLoopVideo(idleURL: full?.f2f_idle_url ?? actor.f2f_idle_url,
+                           talkURL: full?.f2f_talk_url ?? actor.f2f_talk_url)
                 .frame(width: 440, height: 560).clipped()
         }
         .clipShape(RoundedRectangle(cornerRadius: 18))
@@ -78,6 +97,7 @@ struct ActorCodexView: View {
                 full?.civilization ?? actor.civilization,
                 full?.age_range,
                 full?.voice_style ?? actor.style_descriptor,
+                stage?.title_en,          // W2254 — 厅名(「黑板 · 台灯」这类), 它本身就是叙事
             ].compactMap { $0?.isEmpty == false ? $0 : nil }
             if !bits.isEmpty {
                 Text(bits.joined(separator: "  ·  "))

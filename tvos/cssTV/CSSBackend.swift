@@ -832,4 +832,16 @@ extension CSSBackend {
         return (try? JSONDecoder().decode(Env.self, from: d))?.data
     }
 
+    // MARK: - CSSOS_WAVE_2254 演播厅
+    /// GET /api/actors/:id/stage → { data: { stage } }。拿不到返回 nil, 界面退回纯黑底。
+    static func fetchActorStage(_ actorId: String) async -> CSSStageRig? {
+        guard let enc = actorId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/api/actors/\(enc)/stage") else { return nil }
+        var req = URLRequest(url: url); req.timeoutInterval = 15
+        guard let (d, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        struct Env: Decodable { struct D: Decodable { let stage: CSSStageRig? }; let data: D? }
+        return (try? JSONDecoder().decode(Env.self, from: d))?.data?.stage
+    }
+
 }

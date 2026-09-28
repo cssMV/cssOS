@@ -241,17 +241,21 @@ private struct ActorDetailView: View {
     @State private var asking = false          // W2220 —《问道》与该演员第一人称对话
     @State private var auditioning = false     // W2221 — 三段试戏(自我介绍/正派/反派)
     @State private var codexing = false        // W2253 — 典故(生平/参演/同文明演员)
+    @State private var stage: CSSStageRig?     // W2254 — 这位演员的演播厅
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
             HStack(alignment: .top, spacing: 60) {
                 ZStack(alignment: actor.coverAlignment) {
                     if let c = actor.cover_image, let url = URL(string: c) {
                         AsyncImage(url: url) { img in img.resizable().scaledToFill() }
                         placeholder: { Color.white.opacity(0.08) }
                     } else { Color.white.opacity(0.08) }
+                    /* W2254 — 会动的演员。全库 200 位只有 4 位有循环片, 没有就什么都不渲染,
+                     * 原样露出下面的静态肖像 —— 绝不留黑框。 */
+                    ActorLoopVideo(idleURL: actor.f2f_idle_url, talkURL: actor.f2f_talk_url)
+                        .frame(width: 460, height: 620).clipped()
                 }
                 .frame(width: 460, height: 620)
                 .clipShape(RoundedRectangle(cornerRadius: 24))
@@ -329,6 +333,10 @@ private struct ActorDetailView: View {
             ActorShowcaseView(actor: actor)
         }
         .fullScreenCover(isPresented: $codexing) { ActorCodexView(actor: actor) }
+        /* W2254 — 背幕走 .background 不走 ZStack 兄弟: 作为兄弟时它的 .ignoresSafeArea()
+         * 会把整个 ZStack 的安全区一起吃掉, 内容左移、右侧被屏幕裁(典故屏实测栽过)。 */
+        .background(ActorStageBackdrop(rig: stage).ignoresSafeArea())
+        .task { stage = await CSSBackend.fetchActorStage(actor.id) }
     }
 }
 

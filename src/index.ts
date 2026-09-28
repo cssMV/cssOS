@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
+import vm from "node:vm";
 import { spawn } from "node:child_process";
 import multer from "multer";
 import { parseMusicXml } from "./musicxml";
@@ -49847,6 +49848,60 @@ app.get("/api/actors/:id/codex", async (req, res) => {
     return res.status(500).json({ ok: false, code: "CODEX_FAILED" });
   }
 });
+/* CSSOS_WAVE_2254 20260928 — 演员的【演播厅】(rig)对外输出。
+ *
+ * Jing:「数字演员移植第二波(会动的演员 + 演播厅背幕)请接着做。」cssTV 要画同一间厅,
+ * 但那张表在前端 public/app.actor-stage.js 里(60 间文明厅 + 戏路调性 + 按 actor_id 的专厅),
+ * 每一条都带美术考据 —— 妲己那间的左右灯位注释写着「看着真图定的, 不是想当然」,
+ * 抄错一侧, 火就打在与背幕相反的方向。
+ *
+ * 所以【不抄表】: 这个端点把那个文件本身当数据源, 在 Node 的 vm 里跑一遍再调它的
+ * cssosStageForActor()。文件是自洽 IIFE, 只往 globalThis 挂函数, 顶层不碰 DOM
+ * (document 只出现在 renderLayers 这类函数体内, 我们不调它) —— 实测可跑。
+ * 这样桌面那份仍是唯一真源, 改一处全端跟着变, 不会有第二张会漂移的表。
+ */
+let _stageCtx: Record<string, unknown> | null = null;
+let _stageMtime = 0;
+function stageRigFor(actor: { actor_id?: string; civilization?: string | null; archetypes?: unknown }): unknown {
+  const file = path.join(__dirname, "..", "public", "app.actor-stage.js");
+  let st: fs.Stats;
+  try { st = fs.statSync(file); } catch { return null; }
+  // 文件变了就重新求值 —— 部署换了美术方向, 不必重启进程。
+  if (!_stageCtx || st.mtimeMs !== _stageMtime) {
+    try {
+      const ctx: Record<string, unknown> = { console };
+      ctx.globalThis = ctx;
+      vm.createContext(ctx);
+      vm.runInContext(fs.readFileSync(file, "utf8"), ctx, { timeout: 3000 });
+      _stageCtx = ctx; _stageMtime = st.mtimeMs;
+    } catch (err) {
+      console.warn("[stage] eval app.actor-stage.js failed:", (err as Error)?.message);
+      return null;
+    }
+  }
+  const fn = (_stageCtx as Record<string, unknown>).cssosStageForActor;
+  if (typeof fn !== "function") return null;
+  try { return (fn as (a: unknown) => unknown)(actor); } catch { return null; }
+}
+
+app.get("/api/actors/:id/stage", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ ok: false, code: "INVALID_ID" });
+    const r = await withClient((c) => c.query(
+      `SELECT actor_id, civilization, archetypes FROM digital_actors WHERE actor_id = $1 LIMIT 1`, [id]));
+    const a = r.rows[0];
+    if (!a) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
+    const rig = stageRigFor(a as { actor_id?: string; civilization?: string | null; archetypes?: unknown });
+    if (!rig) return res.status(503).json({ ok: false, code: "STAGE_UNAVAILABLE" });
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.json({ ok: true, data: { stage: rig } });
+  } catch (err) {
+    console.warn("[stage] failed:", (err as Error)?.message || err);
+    return res.status(500).json({ ok: false, code: "STAGE_FAILED" });
+  }
+});
+
 
 // 分享计数自增(用户点分享即 +1)。不需登录。
 app.post("/api/actors/:id/share", async (req, res) => {

@@ -353,6 +353,10 @@ struct CSSActor: Codable, Identifiable {
     var curation_tier: String?      // S/A/B
     var origin_type: String?        // synthetic | civilization | real_person
     var archetypes: [String]?
+    /* W2254 — 两态循环片(待机/说话)。全库 200 位演员目前只有 4 位有,
+     * 所以取不到是常态, 界面必须原样回落静态肖像, 不能留黑框。 */
+    var f2f_idle_url: String?
+    var f2f_talk_url: String?
 
     /* W2251 — 兜底名会上屏, 要翻。标 @MainActor 是因为 tr() 在主线程;
      * 这两个属性本来就只在 View 里读, 不产生传染。*/
@@ -459,6 +463,10 @@ struct CSSActorFull: Decodable {
     var origin_type: String?
     var cover_image: String?
     var tags: [String]?
+    // W2254 — codex 是 SELECT *, 本来就带这两条; 补进来让典故屏自己也能放循环片,
+    // 不必依赖调用方传进来的那份 CSSActor 是否完整。
+    var f2f_idle_url: String?
+    var f2f_talk_url: String?
     var displayName: String {
         (name_en?.isEmpty == false ? name_en : nil) ?? name_zh ?? name_native ?? ""
     }
@@ -472,4 +480,21 @@ struct CSSCodexMV: Decodable, Identifiable {
     var work_type: String?
     var duration_secs: LooseInt?
     var id: String { work_id ?? UUID().uuidString }
+}
+
+// MARK: - CSSOS_WAVE_2254 演播厅(GET /api/actors/:id/stage)
+//   rig 只是七个数值(顶光/左灯/右灯 + 三段背景 + 地面) + 可选背幕图。
+//   表在 public/app.actor-stage.js(60 间文明厅), 后端把那个文件当数据源跑 ——
+//   TV 这边【不存表】, 免得两份数值漂移(妲己那间的左右灯位是照着真背幕定的, 抄错就穿帮)。
+
+struct CSSStageRig: Decodable {
+    var id: String?
+    var title_zh: String?
+    var title_en: String?
+    var key: String?          // 顶光
+    var left: String?         // 左灯
+    var right: String?        // 右灯
+    var bg: [String]?         // 三段背景
+    var floor: String?        // 地面
+    var plate: String?        // 背幕图(可选)
 }

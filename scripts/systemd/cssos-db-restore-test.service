@@ -1,0 +1,30 @@
+# CSSOS_WAVE_2256 20261029 — 等数据库真就绪再跑。
+#
+# 事故: 2026-10-17 账单账户被关 → GCP 停机。10-29 恢复后这两个服务【双双 failed】:
+#   pg_dump: connection to server at "127.0.0.1", port 5432 failed:
+#            server closed the connection unexpectedly
+# 它们在开机后 1~4 分钟被 timer 拉起, 而 127.0.0.1:5432 是 cloud-sql-proxy 提供的,
+# 那时它还没把到 Cloud SQL 的连接建起来。原单元只写了 After=network-online.target ——
+# 网络通 ≠ 数据库通。
+#
+# 后果不是"少跑一次": 备份是【按 timer 跑】的, 失败了没人重试, 于是
+# 10-17 到 10-29 整整十二天没有一份逻辑备份 —— 而这正是最需要备份的十二天。
+# (同一个竞态还让 App 自己的开机表结构自愈被静默跳过, 见 src/index.ts 那段注释。)
+#
+# 两道保险:
+#   1. After/Wants 声明依赖 cloud-sql-proxy.service —— 排在它后面启动
+#   2. ExecStartPre 真去【连一下】: 代理 active 不代表连得上(它是懒连接),
+#      所以判据必须是 pg_isready 成功, 不是"服务 active"。最多等 5 分钟。
+[Unit]
+Description=cssOS 备份还原演练 (W2119) —— 没还原过的备份不算备份
+After=network-online.target cloud-sql-proxy.service
+Wants=network-online.target cloud-sql-proxy.service
+
+[Service]
+Type=oneshot
+# 等数据库真能连上(最多 60×5s=5min)。等不到就明确失败, 不静默跳过。
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do pg_isready -h 127.0.0.1 -p 5432 -q && exit 0; sleep 5; done; echo "[cssos-db-restore-test] 数据库 5 分钟仍未就绪, 放弃本次"; exit 1'
+ExecStart=/usr/local/bin/db-restore-test.sh
+# 失败要看得见: journalctl -u cssos-db-restore-test
+StandardOutput=journal
+StandardError=journal

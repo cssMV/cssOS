@@ -37468,6 +37468,12 @@ async function ensurePremiumColumns(): Promise<void> {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_id UUID;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_at TIMESTAMPTZ;
+      /* CSSOS_WAVE_2255 — 「人工下架」标记。镜像 migrations/127_manual_takedown.sql,
+       * 放这里是因为本仓没有独立迁移运行器: 表结构靠开机这一段自愈, migrations/*.sql 是存档。
+       * 非空 = 人主动下的架, foryou-reconcile 必须跳过(否则下架活不过 10 分钟)。 */
+      ALTER TABLE work_market_profiles ADD COLUMN IF NOT EXISTS manual_takedown_at TIMESTAMPTZ;
+      CREATE INDEX IF NOT EXISTS idx_wmp_manual_takedown
+        ON work_market_profiles(manual_takedown_at) WHERE manual_takedown_at IS NOT NULL;
       CREATE TABLE IF NOT EXISTS subscription_events (
         id BIGSERIAL PRIMARY KEY,
         user_id UUID NOT NULL,
@@ -65977,11 +65983,17 @@ async function reconcileForYouVisibilityOnce(): Promise<void> {
   try {
     await withClient(async (client) => {
       const flip = await client.query(
+        /* CSSOS_WAVE_2255 — 跳过【人工下架】。
+         * 这条自愈治的是「Rust 管线写完把档案设成 private → 进不了为你创作」,
+         * 但它原来分不清两种 private: 管线忘了翻的该翻, 人主动下架的不该碰。
+         * 实测后果: 2026-09-28 下架的作品, 十二天后一重启就自己回到市场上 ——
+         * 等于平台上「下架」这个能力并不存在, 任何下架活不过 10 分钟。 */
         `UPDATE work_market_profiles mp
             SET visibility='public', updated_at=now()
            FROM user_works w
           WHERE mp.work_id = w.id
             AND mp.visibility='private'
+            AND mp.manual_takedown_at IS NULL
             AND w.status IN ('ready','published')`,
       );
       const seed = await client.query(

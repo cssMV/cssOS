@@ -55,6 +55,11 @@ def is_structural_non_ui(code, m, lit):
     if re.search(r'(print|fatalError|assertionFailure|NSLog)\s*\(', pre):  return "日志/断言"
     # SF Symbol / 资源名 / 键名 / URL
     if re.search(r'(systemImage|image|symbol|forKey|Key|key|named|withExtension|font):\s*$', pre): return "符号/键名"
+    # 技术属性赋值: 二维码纠错级别这类, 是参数不是文案。
+    # (判据抓到 f.correctionLevel = "M" 时我没把它当误报塞进白名单 ——
+    #  "M" 太通用, 全局放行会漏掉真文案; 按【属性名】排除才精确。)
+    if re.search(r'\.(correctionLevel|videoGravity|contentMode|scaleMode|httpMethod|mediaType)\s*=\s*$', pre):
+        return "技术属性"
     if lit.startswith(("http", "csstv://", "com.", "CSSStudio", "[")):     return "URL/包名/日志前缀"
     if re.search(r'\\\(CSSBackend\.baseURL\)', lit):                        return "URL"
     # 比较 / 分支 / 集合查表 —— 这些位置上的字符串是【键】不是文案

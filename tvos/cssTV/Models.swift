@@ -498,3 +498,16 @@ struct CSSStageRig: Decodable {
     var floor: String?        // 地面
     var plate: String?        // 背幕图(可选)
 }
+
+// MARK: - CSSOS_WAVE_2257 演员评论(只读)
+//   TV 上【只读不写】: 遥控器打字是酷刑, 写评论留在手机/电脑端。
+struct CSSActorComment: Decodable, Identifiable {
+    var id: String?
+    var author_name: String?
+    var body: String?
+    var created_at: String?
+    var parent_id: String?
+    var pinned: Bool?
+    var region: String?
+    var displayId: String { id ?? UUID().uuidString }
+}

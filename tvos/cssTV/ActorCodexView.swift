@@ -15,10 +15,11 @@ struct ActorCodexView: View {
 
     @State private var codex: CSSActorCodex?
     @State private var stage: CSSStageRig?      // W2254 — 这位演员的演播厅
+    @State private var comments: [CSSActorComment] = []   // W2257 — 评论(只读)
     @State private var loading = true
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
-    private enum Focus: Hashable { case close, bio(Int), mv(Int), related(Int) }
+    private enum Focus: Hashable { case close, bio(Int), mv(Int), related(Int), comment(Int) }
     @FocusState private var focus: Focus?
 
     var body: some View {
@@ -35,6 +36,7 @@ struct ActorCodexView: View {
                         bioSection
                         mvSection
                         relatedSection
+                        commentSection
                         // 底部留一屏余量: tvOS 焦点滚动是"把当前项滚进视野"就停,
                         // 最后一段贴着内容底边时下面没有可滚空间, 看着就是【被遮住】(W2234b)。
                         Color.clear.frame(height: 340)
@@ -56,8 +58,10 @@ struct ActorCodexView: View {
         .task {
             // 厅和典故并行拉 —— 厅只是七个数值, 先到先画, 不等长文。
             async let st = CSSBackend.fetchActorStage(actor.id)
+            async let cm = CSSBackend.fetchActorComments(actor.id)
             codex = await CSSBackend.fetchActorCodex(actor.id)
             stage = await st
+            comments = await cm
             loading = false
             // 焦点先落在关闭键上 —— 不放在长文里, 否则一进来就滚走了。
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { focus = .close }
@@ -185,6 +189,34 @@ struct ActorCodexView: View {
                              value: Focus.related(pair.offset))
                     }
                 }.padding(.vertical, 8)
+            }
+        }
+    }
+
+    /* W2257 — 评论【只读】。TV 上不做写入: 遥控器打字是酷刑, 写评论留在手机/电脑端。
+     * 每条做成可聚焦项(复用 ProseChunkText), 否则 tvOS 的 ScrollView 滚不到它们 —— 
+     * 焦点引擎只在可聚焦子项之间走, 这是 W2234 在 More Info 上试出来的。 */
+    @ViewBuilder private var commentSection: some View {
+        if !comments.isEmpty {
+            Divider().overlay(.white.opacity(0.18))
+            Text(tr("What people are saying"))
+                .font(.system(size: 30, weight: .bold)).foregroundStyle(.white)
+            ForEach(Array(comments.enumerated()), id: \.offset) { pair in
+                let c = pair.element
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 10) {
+                        // 作者名与正文都是【用户内容】, 一律不翻译。
+                        Text(c.author_name ?? tr("Someone"))
+                            .font(.system(size: 20, weight: .bold)).foregroundStyle(brandGreen)
+                        if c.pinned == true {
+                            Text(tr("Pinned")).font(.system(size: 16))
+                                .foregroundStyle(.black).padding(.horizontal, 10).padding(.vertical, 2)
+                                .background(Capsule().fill(brandGreen))
+                        }
+                    }
+                    ProseChunkText(text: c.body ?? "", focus: $focus,
+                                   value: Focus.comment(pair.offset), size: 22)
+                }
             }
         }
     }

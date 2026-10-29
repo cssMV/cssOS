@@ -242,6 +242,7 @@ private struct ActorDetailView: View {
     @State private var auditioning = false     // W2221 — 三段试戏(自我介绍/正派/反派)
     @State private var codexing = false        // W2253 — 典故(生平/参演/同文明演员)
     @State private var stage: CSSStageRig?     // W2254 — 这位演员的演播厅
+    @State private var sharing = false         // W2257 — 分享(二维码)
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
     var body: some View {
@@ -304,6 +305,13 @@ private struct ActorDetailView: View {
                                 .font(.system(size: 24, weight: .heavy))
                         }
                         .buttonStyle(.bordered).tint(brandGreen)
+                        /* W2257 — 分享: 出二维码让手机扫走。电视上没有剪贴板可用的去处,
+                         * 也没法发消息 —— 扫码是唯一能把链接带离客厅的办法。 */
+                        Button { sharing = true } label: {
+                            Label(tr("Share"), systemImage: "qrcode")
+                                .font(.system(size: 24, weight: .heavy))
+                        }
+                        .buttonStyle(.bordered).tint(brandGreen)
                         Button { auditioning = true } label: {
                             Label(tr("Audition"), systemImage: "theatermasks.fill")
                                 .font(.system(size: 24, weight: .heavy))
@@ -333,6 +341,7 @@ private struct ActorDetailView: View {
             ActorShowcaseView(actor: actor)
         }
         .fullScreenCover(isPresented: $codexing) { ActorCodexView(actor: actor) }
+        .fullScreenCover(isPresented: $sharing) { ActorShareView(actor: actor) }
         /* W2254 — 背幕走 .background 不走 ZStack 兄弟: 作为兄弟时它的 .ignoresSafeArea()
          * 会把整个 ZStack 的安全区一起吃掉, 内容左移、右侧被屏幕裁(典故屏实测栽过)。 */
         .background(ActorStageBackdrop(rig: stage).ignoresSafeArea())

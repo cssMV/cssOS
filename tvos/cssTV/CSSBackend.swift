@@ -844,4 +844,30 @@ extension CSSBackend {
         return (try? JSONDecoder().decode(Env.self, from: d))?.data?.stage
     }
 
+    // MARK: - CSSOS_WAVE_2257 评论(只读) + 分享
+    /// GET /api/actors/:id/comments → { comments: [...] }。拿不到返回空数组, 界面不渲染这一栏。
+    static func fetchActorComments(_ actorId: String) async -> [CSSActorComment] {
+        guard let enc = actorId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/api/actors/\(enc)/comments") else { return [] }
+        var req = URLRequest(url: url); req.timeoutInterval = 15
+        guard let (d, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        struct Env: Decodable { let comments: [CSSActorComment]? }
+        return (try? JSONDecoder().decode(Env.self, from: d))?.comments ?? []
+    }
+
+    /// 分享深链。**必须带 ?cssADS=** —— 平台铁律: 对外发的链接一律带来源参数, 绝不发裸 URL
+    /// (既为归因, 也为跳过落地页那道「要不要看 MV」的问询门)。
+    static func actorShareURL(_ actorId: String) -> String {
+        "\(baseURL)/?actor=\(actorId)&cssADS=csstv-share"
+    }
+
+    /// POST /api/actors/:id/share —— 只是计数 ping, 失败无所谓(不该因为统计失败就不让人分享)。
+    static func pingActorShare(_ actorId: String) async {
+        guard let enc = actorId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/api/actors/\(enc)/share") else { return }
+        var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 10
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
 }

@@ -32098,7 +32098,13 @@ const DOCK_KEEP_FOR_NONADMIN = new Set([
   //      Messaging and Chat = YES,审核员会进 App 找私信在哪。不在这个名单里
   //      = 对审核员(非 admin 账号)永远 display:none = 找不到 = 拒审。
   //   漏加这一行,新 Dock 项对所有普通用户静默消失且【无任何报错】。
-  "messages"
+  "messages",
+  /* CSSOS_WAVE_2258 20261029 — 通知必须对普通用户可见。与上面 W983/W1795 同一个失败模式,
+   * 而且这一条更要命: 面板自己写着「Background completions · watch reminders · recovery alerts」,
+   * 后端有 user_notifications 按用户存 —— 【生成完成通知】正是创作者最需要的那一条,
+   * 结果普通用户永远收不到(对非 admin 恒 display:none, 且无任何报错)。
+   * W983 与 W1795 都是因为漏加这一行被苹果拒过/险些拒过, 这是第三次。 */
+  "notifications"
 ]);
 function applyAdminDockGateModule() {
   try {

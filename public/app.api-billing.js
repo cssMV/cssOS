@@ -454,6 +454,26 @@ function estimateCreationEconomics() {
 async function consumeBillableActionModule(actionKey, options = {}) {
   const normalized = String(actionKey || "").trim().toLowerCase();
   if (!normalized) return false;
+  /* CSSOS_WAVE_2259 20261029 — 下「没登录」这个结论之前, 先确认【确实查过了】。
+   *
+   * Jing:「我在 MV Pipeline 和高级设置面板都无法正常生成, 最后是在 AI 助理的输入框生成的。」
+   * 他是 admin、登录着, 却吃到 "Sign in first to use billable creation actions."
+   * (线上 error_reports 有这条, 最近一次就在他试的那天)。
+   *
+   * 根因: authState.user 只在 /api/me 落地后才被赋值, 而它的 null 有两种含义 ——
+   * 【真没登录】和【还没查到】。这道闸只认前一种, 于是启动后立刻点生成(面板入口比
+   * AI 助理快得多)就被判成游客。AI 助理那条路之所以能成, 只是因为它通常被点得更晚。
+   *
+   * 这正是串台那次总结的铁律:【把「没到」和「我没查到」分开】。
+   * 等一下那个承诺即可; 4 秒封顶, 免得 /api/me 真的挂了就永远卡住。 */
+  if (!authState.user && globalThis.cssosAuthResolved) {
+    try {
+      await Promise.race([
+        globalThis.cssosAuthResolved,
+        new Promise((r) => setTimeout(r, 4000)),
+      ]);
+    } catch (_e) { /* 等不到就按原样往下判, 不比以前更差 */ }
+  }
   if (!authState.user) {
     openLoginForCreation(loginCopy("Sign in first to use billable creation actions."));
     return false;

@@ -585,6 +585,23 @@ function bindDemoForm(wrap) {
   });
 }
 
+/* CSSOS_WAVE_2259 20261029 — 认证就绪信号。
+ *
+ * Jing:「我在 MV Pipeline 和高级设置面板都无法正常生成, 最后是在 AI 助理的输入框生成的。」
+ * 线上 error_reports 里对应的那条: "Sign in first to use billable creation actions."
+ * —— 他是 admin、登录着, 却被告知先登录。
+ *
+ * 根因: authState.user 的 null 有【两种含义】, 而计费闸只认一种 ——
+ *   · 真没登录
+ *   · /api/me 还没回来(或失败了) ← 启动后立刻点生成, 撞的就是这个
+ * 这正是串台那次总结的铁律:【把「没到」和「我没查到」分开】。
+ *
+ * 这里给出一个「查过一次了」的承诺(成功/失败都算查过), 让下结论的人可以先等它。 */
+let __cssosAuthResolve = null;
+if (!globalThis.cssosAuthResolved) {
+  globalThis.cssosAuthResolved = new Promise((resolve) => { __cssosAuthResolve = resolve; });
+}
+
 async function fetchMeModule() {
   try {
     const previousUserId = String(authState.user?.id || "").trim();
@@ -678,6 +695,10 @@ async function fetchMeModule() {
     maybeOpenSubscriptionOnboardingModule(previousUserId);
   } catch (_err) {
     // ignore
+  } finally {
+    // W2259 — 成功/失败/提前 return 都算「查过了」。放 finally 里是因为
+    // 上面有 `if (!res.ok) return;` 这类提前返回, 挂在末尾会漏掉。
+    try { __cssosAuthResolve?.(); __cssosAuthResolve = null; } catch (_e) {}
   }
 }
 

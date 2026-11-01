@@ -42278,12 +42278,23 @@ app.post("/api/admin/mv-shot", express.json({ limit: "16kb" }), async (req, res)
     if (img) vreq.image_url = img;
     /* CSSOS_WAVE_1968 20260826 — 允许按镜指定型号, 用于同题材同 prompt 的【多型号横评】。
      * 起因: KIE 价目表实测 —— 同一家族差 5–12 倍
-     *   seedance-2      41 credits/秒   (我们一直在用的)
+     *   seedance-2      41 credits/秒   (我们一直在用的, 默认)
      *   seedance-2 fast 24.8
      *   seedance-2-mini  8.2
-     *   seedance-1.5-pro 3.5 (无音频 720p)
+     *   ~~seedance-1.5-pro 3.5~~  ❌ 已退役, 不要再用 (W2261, 2026-10-29)
+     *
+     * W2261 — Jing:「kie 公告 1.5-pro 已经被官方弃用。」实测 createTask 核对(不计费):
+     *   bytedance/seedance-2        → 200 ✅
+     *   bytedance/seedance-2-fast   → 200 ✅
+     *   bytedance/seedance-2-mini   → 200 ✅
+     *   bytedance/seedance-1.5-pro  → **410 "Seedance 1.5 Pro has been retired
+     *                                  upstream and is no longer available on Kie.ai"**
+     * 留着这一行而不是删掉, 是因为【3.5 credits/秒 比其它档便宜 2.3~12 倍】——
+     * 不写明它已死, 下一个人(包括我自己)看到这个价必然去用它, 然后撞 410。
+     * 存亡只能问 createTask: 目录 ID 与调用 ID 不是同一套, 看目录会误判。
+     *
      * 便宜的档能不能用, 只能实拍对比 —— 尤其是 image_url 锁脸和多镜头一致这两个硬能力,
-     * KIE 只确认了 2-fast 与标准版一致, mini / 1.5-pro 未确认。
+     * KIE 只确认了 2-fast 与标准版一致, **mini 仍未确认**(1.5-pro 已无从确认)。
      * 复用平台既有的 prefer_model 机制(resolveEngineModel 第一顺位), 不新造开关。 */
     const model = String(b.model || "").trim();
     if (model) (vreq as unknown as { prefer_model?: Record<string, string> }).prefer_model = { seedance: model };
@@ -42494,6 +42505,72 @@ app.post("/api/admin/mv-song", express.json({ limit: "64kb" }), async (req, res)
     return res.json({ ok: true, project, slug, title, takes, failed, provider: m.provider || "", model: (m as { model?: string }).model || "", ms: Date.now() - t0 });
   } catch (e) {
     return res.status(500).json({ ok: false, code: "MV_SONG_FAILED", detail: (e as Error)?.message || "", ms: Date.now() - t0 });
+  }
+});
+
+/* CSSOS_WAVE_2263 20261031 — 独立「京典歌词」出词口(不挂任何 work, 不写一个字进库)。
+ *
+ * 为什么需要它: mv-shot(镜) / mv-song(曲) / mv-plate(图) 这一家「只生成、不挂作品」的口
+ * 缺了歌词那一个。现有两条路都走不通:
+ *   · /api/mv/lyrics          要登录会话, 命令行拿不到;
+ *   · /api/admin/lyrics/regenerate  会【覆盖】user_works.lyrics_preview ——
+ *     那条口是治「歌词不完整」的(不完整允许覆盖), 不是用来给完整作品新起一版的。
+ *     按版本铁律, 已经完整的只准新起版本, 绝不覆盖。
+ *
+ * 不另造提示词: 直接走 buildJingdianSystemPrompt / buildJingdianUserPrompt ——
+ * 京典模版八特征(十节结构 / 小节标题 / civ 曲风 / civ 唱腔 / civ 语言 / 典故 /
+ * 非歌词进方括号 / 曲风必须英文)和文明智能联动的真源都在那里, 手搓一份等于造第二套。
+ *
+ * 不达标不返回: 沿用 assessLyricsCompleteness 的 10 节 / 40 行闸门, 最多重试两次,
+ * 仍不达标就如实报 still_incomplete —— 让调用方决定, 不拿半成品冒充成品。 */
+app.post("/api/admin/mv-lyrics", express.json({ limit: "16kb" }), async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const b = (req.body || {}) as Record<string, unknown>;
+  const title = String(b.title || "").trim();
+  if (!title) return res.status(400).json({ ok: false, code: "TITLE_REQUIRED" });
+  const lang = String(b.language || "en").trim() || "en";
+  const style = String(b.style || "").trim();
+  const civ = String(b.civilization || "").trim();
+  const theme = String(b.prompt || b.theme || "").trim() || title;
+  const nudgeIn = String(b.directives || "").trim();
+  const t0 = Date.now();
+  try {
+    let best: { text: string; check: ReturnType<typeof assessLyricsCompleteness> } | null = null;
+    let bestLines = -1;
+    const tries: Array<{ sections: number; lines: number; ok: boolean }> = [];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const nudge = [nudgeIn, attempt === 0 ? "" :
+        "上一次输出不足 10 节 / 40 行, 属于废歌词。这一次必须写满完整十节, 每节 4 行正文(有咒语则 5 行), 全篇 40-50 行。",
+      ].filter(Boolean).join(" ");
+      const r = await callLlm({
+        messages: [
+          { role: "system", content: buildJingdianSystemPrompt(lang, "single", "", civ, true, nudge) },
+          { role: "user", content: buildJingdianUserPrompt(lang, style, theme, "single", "", civ, "", true, nudge) },
+        ],
+        max_tokens: __lyricsMaxTokensFor("single", ""),
+        temperature: 0.8,
+        prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
+      });
+      if (!r || !r.ok || !r.content?.trim()) continue;
+      const text = normalizeLyricsToJingdian(r.content.trim(), "single" as LyricsWorkType, "");
+      const check = assessLyricsCompleteness(text, "single", "");
+      tries.push({ sections: check.sections, lines: check.lines, ok: check.ok });
+      if (check.lines > bestLines) { bestLines = check.lines; best = { text, check }; }
+      if (check.ok) break;
+    }
+    if (!best) return res.status(503).json({ ok: false, code: "NO_OUTPUT", ms: Date.now() - t0 });
+    return res.json({
+      ok: best.check.ok,
+      code: best.check.ok ? undefined : "STILL_INCOMPLETE",
+      title, language: lang, civilization: civ || null,
+      sections: best.check.sections, lines: best.check.lines,
+      lyrics: best.text, attempts: tries, ms: Date.now() - t0,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: "MV_LYRICS_FAILED", detail: (e as Error)?.message || "", ms: Date.now() - t0 });
   }
 });
 

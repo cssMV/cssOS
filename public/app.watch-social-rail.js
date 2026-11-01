@@ -515,33 +515,17 @@
       onClick: function (b) { dispatch("buyout", b); }
     }));
 
-    /* 6.5 🔍 搜索作品 — CSSOS_WAVE_2208 20260926 — Jing:「请加上 Dock 入口。」
+    /* 6.5 ~~🔍 搜索作品(W2208)~~ —— 【已删 · CSSOS_WAVE_2264 20261101】
      *
-     * 【没有做成 Dock 项, 原因两条, 都是实测出来的】:
-     *   ① 打开 watch/MV 面板就 html.cssos-watch-open → `#dock{display:none!important}`
-     *      (W846, Jing 自己定的「看 MV 时不显示 Dock」)。影院态 Dock 根本不在屏幕上。
-     *   ② 这个搜索框是 #watch-panel 的子节点 —— 面板关着时它本来就没法用。
-     *   两条合起来: Dock 项在【任何一个状态】都点不到, 做出来就是个死入口。
+     * Jing:「播放器右侧栏等=右下角的搜索按钮, 请删除掉。」
      *
-     * 右轨(.csr-item)是影院态实测【还看得见、还能点】的那一组控件, 所以入口放这儿,
-     * 并且复用 mkItem —— 不另造一个按钮样式(平台已有的风格绝不另造)。
+     * 唤出搜索框的入口【并没有消失】, 只是不再占右轨一格:
+     *   · `/` 键(W2207)—— Watch 面板可见时随时唤出
+     *   · 顶栏那个 #watch-search-box 本身(影院态 10s 空闲淡出, 鼠标一动就回来)
+     * 两者走的仍是 app.watch-search.js 里同一个 summon(), 一个字没动。
      *
-     * 放在 AI ＋ 前面(= 普通项的最后一个): 右轨是 position:absolute; bottom:20px 向上长的,
-     * 越靠前的项越先被顶出屏幕。放末尾 = 矮屏也还在。
-     *
-     * 不带 data-social-gated: 搜索是"看", 不是"发/再分发", 不在 <13 社交禁用范围内。 */
-    rail.appendChild(mkItem("🔍", "", {
-      aria: copy("Search works", "搜索作品"), title: copy("Search works", "搜索作品"),
-      onClick: function () {
-        try {
-          // 主入口: MV 面板顶边那个作品搜索框(/api/works/market)。
-          if (typeof globalThis.cssosWatchSearchShow === "function") { globalThis.cssosWatchSearchShow(); return; }
-          // 兜底: 它没起来时退回全局搜索(查人物/评论, 不是同一个东西, 但总比点了没反应强)。
-          if (typeof globalThis.cssosOpenGlobalSearch === "function") { globalThis.cssosOpenGlobalSearch(); return; }
-          if (typeof globalThis.showToast === "function") globalThis.showToast(copy("Search unavailable.", "搜索暂不可用。"));
-        } catch (_e) {}
-      }
-    }));
+     * 别因为「W2208 说要加 Dock 入口」就把它加回来 —— 那一条已被 Jing 当面取消。
+     * 回归: scripts/test-rail-search-entry.mjs(现在钉的是「必须不在」)。 */
 
     // 7. AI 助理 — CSSOS_WAVE_1128 — Jing 指令: 收回右轨底部(用右轨统一间距),
     //   隐藏旧 #cssos-agent-fab(避免"太靠近"+重复)。点击 = 打开常驻 AI 助理。

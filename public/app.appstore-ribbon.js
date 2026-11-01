@@ -5,6 +5,20 @@
 //   清空, 下次再进平台横幅重新出现。故意不做永久 dismiss。
 (function () {
   "use strict";
+  /* CSSOS_WAVE_2264 20261101 — Jing:「请暂停这条横幅, 取消显示即可, 以后还会用到的。
+   *   也许是不同的内容, 关闭不显示即可, 不要删除掉代码。」
+   *
+   * 所以这里【只加一个开关】, 整个模块一行不删: 要再用时把 ENABLED 改回 true 即可
+   * (换内容就改下面那句 lc(...) 的英文原文, 中文第二参按平台铁律是死参, 走 tr())。
+   *
+   * 为什么关在最前面而不是在 mount() 里 early-return: 停用就不该留任何副作用 ——
+   * 下面还挂着 fullscreenchange 监听(W1765 为了真全屏搬运横幅), 横幅不存在时它虽是
+   * no-op, 但没必要在每次进出全屏时都跑一遍。
+   *
+   * 停用的是【显示】, 不是关闭逻辑: W1596 的 sessionStorage 语义、W2214 的
+   * 「点哪都能关」原样留着, 开回来就还是那个行为。 */
+  var ENABLED = false;
+  if (!ENABLED) return;
   var KEY = "cssos_appstore_ribbon_dismissed_session";
   function lc(en, zh) {
     try { return (typeof globalThis.loginCopy === "function") ? globalThis.loginCopy(en, zh) : en; }

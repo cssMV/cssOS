@@ -2436,7 +2436,7 @@
     <!-- CSSOS_WAVE_250 20260520 — Jing: TikTok 式进主界面自动播放 +
          上下滑切换. 须在 app.watch-ui.js / app.playlists.js 之后加载. -->
     <script src="app.autoplay-feed.js?v=20260925-w2195g-pinforyou"></script>
-    <script src="app.appstore-ribbon.js?v=20260926-w2214-tap-anywhere-dismiss"></script>
+    <script src="app.appstore-ribbon.js?v=20261101-w2264-ribbon-paused"></script>
     <script src="app.mobile-app-cta.js?v=20260708-w1603-cta-abovedock"></script>
     <script src="app.appstore-panel.js?v=20260708-w1633-apps"></script>
     <script src="app.wallet-panel.js?v=20260825-w1956"></script>
@@ -2452,7 +2452,7 @@
     <script src="app.watch-price-strip.js?v=20260602-w588f-icons"></script>
     <!-- CSSOS_WAVE_1118 — 影院右轨(TikTok 位)重启: 纯叠加层(评论/聆听/观赏/打赏/买断/AI + 计数),
          只藏价格条/AI FAB/旧头像, 绝不碰 emotion-fx / 字幕行 / 多语言(上次"只显两字"的元凶不再). -->
-    <script src="app.watch-social-rail.js?v=20260926-w2215-uniform-10px-edge"></script>
+    <script src="app.watch-social-rail.js?v=20261101-w2264-rail-search-removed"></script>
     <!-- CSSOS_WAVE_1119 — 右轨配套: 左下标题摘要(标题·进度·@作者·时长·摘要)+ 弹幕(评论左下窄道弹入上飘)。
          纯叠加层, 不碰 emotion-fx/字幕/bottom-stack。 -->
     <script src="app.watch-cinema-caption.js?v=20260925-w2187-takedur"></script>
@@ -3006,7 +3006,8 @@
             window.addEventListener(ev, wake, { capture: true, passive: true });
           });
           /* CSSOS_WAVE_2208 20260926 — 对外暴露 wake, 给【主动唤出搜索框】的入口用
-           * (/ 键 W2207、右轨 🔍 W2208)。
+           * (/ 键 W2207; 右轨 🔍 那个入口已于 W2264 按 Jing 要求删除, 这里保持不变 ——
+           *  它暴露的是 wake 本身, 有几个入口在用不影响)。
            * 为什么非接这个不可: 影院态里这套 CHROME 系统给 #watch-search-box 打的是
            * display:none !important, 而 app.watch-search.js 的 showBar() 只改
            * transform/opacity —— 清不掉 display, 框永远是 0×0, 连 focus() 都落不进去。

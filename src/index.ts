@@ -41393,6 +41393,29 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
     // W2030 — 作品行声明的语言, 供下面 alignLang 在【同文字】时优先采信。
     const declaredWorkLang = String(workRow.rows[0]?.language || "");
     const lyricsDoc = (await downloadJsonFromR2(`works/${workId}/lyrics.json`)) as LyricsJson | null;
+
+    /* CSSOS_WAVE_2263 — ?lyrics_url=<纯文本歌词的地址>: 这一版唱的是哪份词, 由调用方指明。
+     * 只接受我们自己域名下的地址 —— 别让一个查询参数变成把任意外站内容拉进对齐管线的口子。
+     * 拉不到就【整个请求失败】, 不静默退回旧词: 那正是要防的「时间对了字不对」。 */
+    let _overrideLyrics = "";
+    {
+      const lu = String((req.query as any)?.lyrics_url || "").trim();
+      if (lu) {
+        if (!/^https:\/\/(cdn\.)?cssstudio\.app\//i.test(lu)) {
+          return res.status(400).json({ ok: false, code: "LYRICS_URL_NOT_OURS", hint: "只接受 cssstudio.app / cdn.cssstudio.app 下的地址" });
+        }
+        try {
+          const r = await fetch(lu, { redirect: "follow" });
+          if (!r.ok) return res.status(502).json({ ok: false, code: "LYRICS_URL_FETCH_FAILED", status: r.status });
+          _overrideLyrics = (await r.text()).trim();
+        } catch (e) {
+          return res.status(502).json({ ok: false, code: "LYRICS_URL_FETCH_FAILED", detail: (e as Error)?.message || "" });
+        }
+        if (_overrideLyrics.length < 100) {
+          return res.status(400).json({ ok: false, code: "LYRICS_URL_TOO_SHORT", bytes: _overrideLyrics.length });
+        }
+      }
+    }
     const results: Array<Record<string, unknown>> = [];
     // 文本判定真实对齐语言(老轨 lang 常是 'orig'/'auto'/空)。Hangul→ko, 假名→ja, 汉→zh, 否则 en。
     /* CSSOS_WAVE_2006 20260827 — 只认韩/日/中三种文字, 其余【一律回落 en】。
@@ -41463,9 +41486,22 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         (tr as any).vocal_url = null;
       }
       const langEntry = lyricsDoc?.languages?.find((l) => l.lang === tr.lang);
-      // 歌词来源兜底链: R2 lyrics.json(本轨语言) → DB 轨.lyrics → work.lyrics_preview。
+      /* 歌词来源兜底链: [W2263 ?lyrics_url=] → R2 lyrics.json(本轨语言) → DB 轨.lyrics → work.lyrics_preview。
+       *
+       * CSSOS_WAVE_2263 20261031 — ?lyrics_url= 给【唱的是另一份词】的那一版用。
+       *
+       * 为什么需要: 这条端点原本假设「一个作品只有一份词」, 三条兜底全指向同一份。
+       * 但新起一版歌词 + 新起一版曲之后, ♪3/♪4 唱的根本不是 lyrics_preview 里那份 ——
+       * 强制对齐会把【旧词】按【新曲】的时间轴摆上去: 时间对了, 字不对。
+       * 实测: 换 lyrics_preview 没用, 因为 R2 的 works/<id>/lyrics.json 排在它前面。
+       *
+       * 为什么是显式参数而不是继续猜: 哪一版音频配哪一版歌词, 库里【没有这个关联】
+       * (work_media_versions 没有 audio↔lyrics 的连线)。与其让端点去猜, 不如让调用方说明白。
+       * 不传就一个字不变 —— 现有所有调用行为完全不受影响。 */
       let reLyrics = "";
-      if (langEntry && Array.isArray(langEntry.sections) && langEntry.sections.length) {
+      if (_overrideLyrics) {
+        reLyrics = _overrideLyrics;
+      } else if (langEntry && Array.isArray(langEntry.sections) && langEntry.sections.length) {
         reLyrics = langEntry.sections.map((s) => `[${s.tag}]\n${(s.lines || []).join("\n")}`).join("\n");
       } else if (String(tr.lyrics || "").trim()) {
         reLyrics = String(tr.lyrics);

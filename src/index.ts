@@ -41459,30 +41459,109 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
      * 的那一行 —— 播放端 cssosTakes.subtitleUrl() 第一句读的正是它(app.takes.js)。
      * 不给 take 时行为完全不变。 */
     const _onlyTake = Math.floor(Number((req.query as any)?.take || 0));
-    let _takeRow: { id: number; url: string } | null = null;
+    /* ⚠ CSSOS_WAVE_2267 20261104 订正 —— 这一句原来【不看语言】。
+     *
+     * 原写法是 `WHERE work_id=$1 AND kind='audio' AND version_no=$2 ORDER BY lang LIMIT 1`,
+     * 而且在轨循环【外面】解析一次, 全部轨共用。可它要选的东西(哪一版音频)
+     * 本来就依赖于【当前是哪条轨】—— 放在循环外, 它不可能选对。
+     *
+     * 实测(Chase the Stars 86a49ef7…): version_no=2 底下有四行 ja/ko/orig-pre-epic/zh,
+     * 'ja' 字母序第一 → ?lang=en&take=2 会拿【英文歌词】去对【日文音频】,
+     * 再把这份乱字幕 UPDATE 到【日文那一行】上 —— 日文 ♪2 本来是好的, 一跑就毁。
+     * 全库 80 个「作品+版本号」组合在同一个 version_no 下有多种语言, 全部暴露在这个坑里。
+     * 至今没咬过人, 只因为 ?take= 到现在只在单语言作品上跑过(18 行)。
+     *
+     * 改法: 一次取全这个 version_no 下的所有行, 到轨循环【里面】按本轨语言挑。
+     * 挑不中就【这条轨跳过并在结果里说明】, 绣不"顺手拿第一行" —— 宁可不做, 不做错。 */
+    type _VerRow = { id: number; url: string; lang: string | null; version_no: number };
+    let _allVerRows: _VerRow[] = [];   // 本作品全部音频版本行
+    let _takeRows: _VerRow[] = [];     // 其中 version_no = N 的那几行
     if (_onlyTake >= 1) {
       try {
-        const rv = await withClient((c) => c.query<{ id: number; url: string; lang: string | null }>(
-          `SELECT id, url, lang FROM work_media_versions
-            WHERE work_id=$1::uuid AND kind='audio' AND version_no=$2
-            ORDER BY COALESCE(lang,'') LIMIT 1`, [workId, _onlyTake]));
-        if (!rv.rowCount) {
+        const rv = await withClient((c) => c.query<_VerRow>(
+          `SELECT id, url, lang, version_no FROM work_media_versions
+            WHERE work_id=$1::uuid AND kind='audio' AND COALESCE(url,'') <> ''
+            ORDER BY version_no, id`, [workId]));
+        _allVerRows = rv.rows;
+        _takeRows = _allVerRows.filter((r) => Number(r.version_no) === _onlyTake);
+        /* 存不存在这一版: 版本表有 version_no=N 的行, 或者【任一条轨自己的两列】
+         * 铺得出 ♪N —— 两者都没有, 才是真的没有。 */
+        const _seedHasN = trackRows.some((t: any) => {
+          const ks: string[] = [];
+          for (const u of [t?.audio_url, t?.alt_audio_url]) {
+            const k = takeDedupeKey(String(u || ""));
+            if (k && !ks.includes(k)) ks.push(k);
+          }
+          return ks.length >= _onlyTake;
+        });
+        if (!_takeRows.length && !_seedHasN) {
           return res.status(404).json({ ok: false, code: "NO_SUCH_TAKE", take: _onlyTake });
         }
-        const _r0 = rv.rows[0];
-        if (!_r0 || !String(_r0.url || "").trim()) {
-          return res.status(404).json({ ok: false, code: "NO_SUCH_TAKE", take: _onlyTake });
-        }
-        _takeRow = { id: _r0.id, url: String(_r0.url) };
       } catch (e) {
         return res.status(500).json({ ok: false, code: "TAKE_LOOKUP_FAILED", error: (e as Error)?.message || "" });
       }
     }
+    const _isPreEpic = (voice: string, lang: string): boolean =>
+      voice === "pre-epic" || lang.includes("pre-epic");
+    /* 这条轨的 ♪N 是哪一个文件 —— 真源是【轨自己的两列】, 不是版本表的 lang 标签。
+     *
+     * 平台别处就是这么认的: seedTakes(本文件 :4389) 和 app.takes.js 都是
+     * 【老字段先铺 ♪1/♪2, 版本表只补 ♪3+, 按 URL 去重】。按 URL 认的好处是
+     * 标签错了也不影响 —— 实测 Chase the Stars 的版本行(703/5783)还写着 zh,
+     * 而它们装的正是 en 轨那两个文件。按标签挑就挑不中, 按 URL 挑就是准的。
+     *
+     * 返回两样东西, 它们本来就是两件事:
+     *   url —— 这一轮要对齐的音频(有 seed 就一定求得出)
+     *   row —— 字幕要挂回哪一行版本(没有对应行就是 null, 调用点会在结果里说明)
+     *
+     * ♪3+ 只存在于版本表, 那时才退回按 lang 认领(voice='pre-epic' 的轨认
+     * 'orig-pre-epic' 那一行 —— 版本表没有 voice 列, 那些行是把版本身份写在 lang 里的),
+     * 同号下有多种语言就【拒绕猜】。这一支保持改动前的 version_no == N 假设,
+     * 因为已跑过的那 18 行(《鶴の恩返し》6 个 take)正是这条路, 不动它。 */
+    const _pickTake = (t: any): { url: string; row: _VerRow | null } | null => {
+      if (_onlyTake < 1) return null;
+      const seed: string[] = [];
+      for (const u of [t?.audio_url, t?.alt_audio_url]) {
+        const su = String(u || "").trim();
+        const k = takeDedupeKey(su);
+        if (k && !seed.some((x) => takeDedupeKey(x) === k)) seed.push(su);
+      }
+      if (_onlyTake <= seed.length) {
+        const url = String(seed[_onlyTake - 1] || "");
+        if (!url) return null;
+        const k = takeDedupeKey(url);
+        return { url, row: _allVerRows.find((r) => takeDedupeKey(String(r.url || "")) === k) || null };
+      }
+      const voice = String(t?.voice || "").trim().toLowerCase();
+      const tl = String(t?.lang || "").trim().toLowerCase();
+      const pre = _isPreEpic(voice, tl);
+      const want = pre ? "orig-pre-epic" : tl;
+      const hits = _takeRows.filter((r) => {
+        const rl = String(r.lang || "").trim().toLowerCase();
+        if (_isPreEpic("", rl) !== pre) return false;   // 身份必须同类: 普通轨不得拿 pre-epic 那一版
+        return want ? rl === want : true;
+      });
+      const only = hits.length === 1 ? hits[0] : null;
+      if (only) return { url: String(only.url), row: only };
+      return null;
+    };
     for (const tr of trackRows) {
-      if (_takeRow) {
+      let _takeRow: _VerRow | null = null;
+      if (_onlyTake >= 1) {
+        const picked = _pickTake(tr);
+        if (!picked) {
+          /* 没挑中就说没挑中 —— 别让调用方从 ok:true 里自己猜「做没做」。 */
+          results.push({
+            lang: tr.lang, srcTrackLang: tr.lang, voice: (tr as any).voice || null, ok: false,
+            code: "TAKE_NO_MATCH_FOR_TRACK", take: _onlyTake,
+            candidates: _takeRows.map((r) => String(r.lang || "")),
+          });
+          continue;
+        }
+        _takeRow = picked.row;
         // 换成这一版自己的音频。人声轨清空 —— 那是【上一版】分离出来的, 拿它对齐这一版
         // 就是拿别人的声音找这一首的字, 正是 W2144 踩过的那种错配。
-        (tr as any).audio_url = _takeRow.url;
+        (tr as any).audio_url = picked.url;
         (tr as any).vocal_url = null;
       }
       const langEntry = lyricsDoc?.languages?.find((l) => l.lang === tr.lang);
@@ -41750,9 +41829,16 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         } catch (e) {
           console.warn("[resubtitle][W2178] 写回版本行失败:", (e as Error)?.message?.slice(0, 120));
         }
+      } else if (_onlyTake >= 1) {
+        /* W2267 —— 对齐做了, 但这个文件在版本表里没有对应行, 字幕无处可挂。
+         * 不要默默过去 —— 调用方会以为挂上了。 */
+        console.warn("[resubtitle][W2267] ♪%d 无版本行可挂: %s", _onlyTake,
+                     String(tr.audio_url || "").slice(-40));
       }
       results.push({
         lang: alignLang, srcTrackLang: tr.lang, ok: true, words: tl.length, adlibSections: adlibCount,
+        take: _onlyTake >= 1 ? _onlyTake : undefined,
+        takeRowId: _onlyTake >= 1 ? (_takeRow ? _takeRow.id : null) : undefined,
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),
         dtw: dtwMerged,   // W776 — true = forced-align 失败后走了【写词+ASR时间戳】兜底
         even: forceEven,  // W789 — true = 稀缺语言均匀分布合成时间线

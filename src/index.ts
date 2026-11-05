@@ -4144,6 +4144,36 @@ function takeDedupeKey(url: string): string {
 }
 
 /**
+ * 实测一个远端音频有多长(秒)。拿不到就 null —— 绝不猜。
+ *
+ * 为什么需要: 版本行的 duration_secs 全库有 159 条是空的, 而 injectMusicGaps() 靠它
+ * 决定尾奏补到哪里。空着不是"少一段尾奏"那么轻 —— 换音频时若沿用上一版的时长,
+ * 补出来的尾奏会长出几分钟(W2267 的 ♪2 就多出 207 秒幽灵尾奏)。
+ *
+ * 注: `src/index.ts` 语言轨生成那里(约 :2553)另有一份同样的内联写法, 是 Suno 偶尔
+ * 不给时长时的兜底。那一处【故意没动】—— 它不在本轮改动范围内, 要合并是它自己的一波。
+ */
+async function probeRemoteDurationSecs(url: string): Promise<number | null> {
+  const u = String(url || "").trim();
+  if (!u) return null;
+  return await new Promise<number | null>((resolve) => {
+    try {
+      const ff = spawn("ffprobe", [
+        "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", u,
+      ]);
+      let out = "";
+      ff.stdout.on("data", (b) => { out += b.toString(); });
+      ff.on("error", () => resolve(null));
+      ff.on("close", () => {
+        const n = Math.round(parseFloat(out.trim()));
+        resolve(Number.isFinite(n) && n > 0 ? n : null);
+      });
+    } catch { resolve(null); }
+  });
+}
+
+/**
  * 【W2116】一个作品的全部音频版本, 按语言轨分组, 每组一个【有序数组】。
  *
  * 返回 Map<lang, WorkTake[]>; 无语言轨的作品(MV 管线创作)存在键 "" 下。
@@ -41480,8 +41510,8 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
      * 改法: 一次取全这个 version_no 下的所有行, 到轨循环【里面】按本轨语言挑。
      * 挑不中就【这条轨跳过并在结果里说明】, 绣不"顺手拿第一行" —— 宁可不做, 不做错。 */
     type _VerRow = { id: number; url: string; lang: string | null; version_no: number; duration_secs: number | null };
-    let _allVerRows: _VerRow[] = [];   // 本作品全部音频版本行
-    let _takeRows: _VerRow[] = [];     // 其中 version_no = N 的那几行
+    let _allVerRows: _VerRow[] = [];        // 本作品全部音频版本行(只用来「按 URL 找回挂字幕的那一行」)
+    let _takesByKey = new Map<string, WorkTake[]>();   // lang\u0001voice → 该轨的 ♪ 数组
     if (_onlyTake >= 1) {
       try {
         const rv = await withClient((c) => c.query<_VerRow>(
@@ -41489,72 +41519,69 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
             WHERE work_id=$1::uuid AND kind='audio' AND COALESCE(url,'') <> ''
             ORDER BY version_no, id`, [workId]));
         _allVerRows = rv.rows;
-        _takeRows = _allVerRows.filter((r) => Number(r.version_no) === _onlyTake);
-        /* 存不存在这一版: 版本表有 version_no=N 的行, 或者【任一条轨自己的两列】
-         * 铺得出 ♪N —— 两者都没有, 才是真的没有。 */
-        const _seedHasN = trackRows.some((t: any) => {
-          const ks: string[] = [];
-          for (const u of [t?.audio_url, t?.alt_audio_url]) {
-            const k = takeDedupeKey(String(u || ""));
-            if (k && !ks.includes(k)) ks.push(k);
-          }
-          return ks.length >= _onlyTake;
-        });
-        if (!_takeRows.length && !_seedHasN) {
-          return res.status(404).json({ ok: false, code: "NO_SUCH_TAKE", take: _onlyTake });
-        }
+        /* ⚠ CSSOS_WAVE_2268 20261105 —— ♪N 到底是哪一版, 不在这里判, 一律问
+         * loadWorkTakes()。它是平台拼 ♪N 的【唯一真源】, 前端 app.takes.js 读的
+         * 也是它的产物。详见下面 _pickTake 上面那段。 */
+        _takesByKey = await loadWorkTakes(workId);
       } catch (e) {
         return res.status(500).json({ ok: false, code: "TAKE_LOOKUP_FAILED", error: (e as Error)?.message || "" });
       }
+      /* 存不存在这一版: 任意一条轨的 ♪ 数组长到 N 就算有。 */
+      if (![..._takesByKey.values()].some((v) => (v?.length || 0) >= _onlyTake)) {
+        return res.status(404).json({ ok: false, code: "NO_SUCH_TAKE", take: _onlyTake,
+          have: [..._takesByKey.entries()].map(([k, v]) => `${k.replace("\u0001", "/")}:${v?.length || 0}`) });
+      }
     }
-    const _isPreEpic = (voice: string, lang: string): boolean =>
-      voice === "pre-epic" || lang.includes("pre-epic");
-    /* 这条轨的 ♪N 是哪一个文件 —— 真源是【轨自己的两列】, 不是版本表的 lang 标签。
+    /* 这条轨的 ♪N 是哪一个文件 —— 【问 loadWorkTakes(), 不在这里自己拼】。
      *
-     * 平台别处就是这么认的: seedTakes(本文件 :4389) 和 app.takes.js 都是
-     * 【老字段先铺 ♪1/♪2, 版本表只补 ♪3+, 按 URL 去重】。按 URL 认的好处是
-     * 标签错了也不影响 —— 实测 Chase the Stars 的版本行(703/5783)还写着 zh,
-     * 而它们装的正是 en 轨那两个文件。按标签挑就挑不中, 按 URL 挑就是准的。
+     * W2267 把原来「按 version_no 排字母序拿第一行」改成了「轨自己两列按 URL 认,
+     * ♪3+ 再按 lang 认领」。前半截是对的, 后半截仍然错, 而且错得【静默】:
      *
-     * 返回两样东西, 它们本来就是两件事:
-     *   url —— 这一轮要对齐的音频(有 seed 就一定求得出)
-     *   row —— 字幕要挂回哪一行版本(没有对应行就是 null, 调用点会在结果里说明)
+     * 实测 W2086 那批(花落花开 0889ef5f…): ♪2 不在轨自己两列里, 是 seedTakes 把
+     * 【孤儿版本行】(lang='regen-v6' —— 没有任何一条轨叫这个名字)挂到作品默认轨
+     * 末尾凑出来的; 而这些行的 lang 是 regen-v6 / orig-pre-epic / zh 互相重叠、
+     * 指向同一批 URL。按 lang 认 'zh' 会认到 row 5693, 它的 url 正是
+     * 【♪1 自己那个文件】—— 于是 ?voice=orig&take=2 拿 ♪1 的音频当 ♪2 对齐,
+     * 再把结果写回 ♪2 那一行。不报错、不超时, 字幕"看着也挺齐"。最难发现的那种错。
      *
-     * ♪3+ 只存在于版本表, 那时才退回按 lang 认领(voice='pre-epic' 的轨认
-     * 'orig-pre-epic' 那一行 —— 版本表没有 voice 列, 那些行是把版本身份写在 lang 里的),
-     * 同号下有多种语言就【拒绕猜】。这一支保持改动前的 version_no == N 假设,
-     * 因为已跑过的那 18 行(《鶴の恩返し》6 个 take)正是这条路, 不动它。 */
+     * 为什么不在这儿照抄 seedTakes 的次序: 那就是造第二份真源, 两边迟早分叉。
+     * `loadWorkTakes()` 一个函数里装着四条规矩 —— 老字段先铺 ♪1/♪2、版本表只补 ♪3+、
+     * 按 URL 去重、孤儿行归作品默认轨, 外加「多声线不许伪装成多版本」那道闸门。
+     * 抄一份就是造一份(W1960 的教训), 所以直接用它。
+     *
+     * 返回三样, 它们本来就是三件事:
+     *   url —— 这一轮要对齐的音频
+     *   dur —— 这一版多长(injectMusicGaps 补尾奏要用; 拿不到由调用点去 ffprobe 实测)
+     *   row —— 字幕要挂回哪一行版本(没有对应行就是 null, 调用点会在结果里说明) */
+
+    /** 这条轨在 loadWorkTakes 产物里的键。必须与那边的 takeKey() 同构, 分隔符一致。 */
+    const _takeBucket = (t: any): WorkTake[] => {
+      const hit = _takesByKey.get(String(t?.lang || "") + "\u0001" + String(t?.voice || "auto"));
+      if (hit) return hit;
+      /* 无语言轨的作品: 端点上面合成了一条伪轨(lang='orig'), 而 loadWorkTakes 把
+       * 这类作品存在键 "" 下。只有在【真的一条轨都没有】时才回退过去 ——
+       * 否则一条认不到键的真轨会张冠李戴拿到别人的 ♪。 */
+      return (_takesByKey.has("") ? _takesByKey.get("") : null) || [];
+    };
+
     const _pickTake = (t: any): { url: string; dur: number | null; row: _VerRow | null } | null => {
       if (_onlyTake < 1) return null;
-      const seed: Array<{ url: string; dur: number | null }> = [];
-      for (const [u, d] of [[t?.audio_url, t?.duration_secs], [t?.alt_audio_url, t?.alt_duration_secs]] as const) {
-        const su = String(u || "").trim();
-        const k = takeDedupeKey(su);
-        if (k && !seed.some((x) => takeDedupeKey(x.url) === k)) {
-          seed.push({ url: su, dur: (d == null ? null : Number(d)) || null });
-        }
+      const hit = _takeBucket(t)[_onlyTake - 1];
+      const url = String(hit?.url || "").trim();
+      if (!url) return null;
+      const k = takeDedupeKey(url);
+      const row = _allVerRows.find((r) => takeDedupeKey(String(r.url || "")) === k) || null;
+      /* 时长: 先用这一版自己带的; 空了拿【同一个 URL】的任一条版本行补 ——
+       * 花落花开的 aud-3211 同时挂在 regen-v6 / orig-pre-epic / zh 三行上,
+       * 只有 regen-v6 那行写了 265s。两处都空, 调用点去 ffprobe 实测,
+       * 绝不把 null 交给 injectMusicGaps(那会整段尾奏凭空消失)。 */
+      let dur = (hit?.duration_secs == null ? null : Number(hit.duration_secs)) || null;
+      if (!dur) {
+        const wd = _allVerRows.find((r) =>
+          takeDedupeKey(String(r.url || "")) === k && Number(r.duration_secs) > 0);
+        dur = wd ? Number(wd.duration_secs) : null;
       }
-      if (_onlyTake <= seed.length) {
-        const hit0 = seed[_onlyTake - 1];
-        const url = String(hit0?.url || "");
-        if (!url) return null;
-        const k = takeDedupeKey(url);
-        const row = _allVerRows.find((r) => takeDedupeKey(String(r.url || "")) === k) || null;
-        /* 时长以轨自己那两列为准, 空了再用版本行的。 */
-        return { url, dur: hit0?.dur ?? (row ? (row.duration_secs ?? null) : null), row };
-      }
-      const voice = String(t?.voice || "").trim().toLowerCase();
-      const tl = String(t?.lang || "").trim().toLowerCase();
-      const pre = _isPreEpic(voice, tl);
-      const want = pre ? "orig-pre-epic" : tl;
-      const hits = _takeRows.filter((r) => {
-        const rl = String(r.lang || "").trim().toLowerCase();
-        if (_isPreEpic("", rl) !== pre) return false;   // 身份必须同类: 普通轨不得拿 pre-epic 那一版
-        return want ? rl === want : true;
-      });
-      const only = hits.length === 1 ? hits[0] : null;
-      if (only) return { url: String(only.url), dur: only.duration_secs ?? null, row: only };
-      return null;
+      return { url, dur, row };
     };
     for (const tr of trackRows) {
       let _takeRow: _VerRow | null = null;
@@ -41565,7 +41592,9 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
           results.push({
             lang: tr.lang, srcTrackLang: tr.lang, voice: (tr as any).voice || null, ok: false,
             code: "TAKE_NO_MATCH_FOR_TRACK", take: _onlyTake,
-            candidates: _takeRows.map((r) => String(r.lang || "")),
+            /* 报【这条轨真实的 ♪ 数组】, 不报一串 lang 标签 —— 调用方要知道的是
+             * 「这条轨到底有几版、分别是哪个文件」, 而不是版本表怎么贴标签的。 */
+            have: _takeBucket(tr).map((x, i) => `\u266a${i + 1}=${String(x.url || "").slice(-28)}`),
           });
           continue;
         }
@@ -41586,7 +41615,23 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
          * 音量包络同理: 它在轨循环外用【第一条轨的 audio_url】算了一次,
          * 也就是 ♪1 的包络。[Music...] 的 emoji 密度跟着它走 —— 不重算就是拿
          * ♪1 的响度配 ♪2 的画面。 */
-        if (picked.dur && picked.dur > 0) (tr as any).duration_secs = picked.dur;
+        let _pdur = picked.dur;
+        if (!(_pdur && _pdur > 0)) {
+          /* W2268 —— 库里没写这一版多长(全库 159 条版本行 duration_secs 为空),
+           * 那就【实测】。绝不沿用上一版的时长(那正是上面那段 207 秒幽灵尾奏的成因),
+           * 也不留 null 给 injectMusicGaps(尾奏会整段消失)。 */
+          _pdur = await probeRemoteDurationSecs(picked.url);
+          if (_pdur) console.info("[resubtitle][W2268] \u266a%d 时长库里为空, ffprobe 实测 %ds", _onlyTake, _pdur);
+        }
+        if (_pdur && _pdur > 0) (tr as any).duration_secs = _pdur;
+        else {
+          /* 实测也拿不到 —— 宁可不做, 不做错。补出来的尾奏会是上一版的长度。 */
+          results.push({
+            lang: tr.lang, srcTrackLang: tr.lang, voice: (tr as any).voice || null, ok: false,
+            code: "TAKE_DURATION_UNKNOWN", take: _onlyTake, url: picked.url.slice(-40),
+          });
+          continue;
+        }
         try {
           const _vc2 = await computeVolumeCurveViaFfmpeg(picked.url);
           if (_vc2 && Array.isArray(_vc2.values) && _vc2.values.length) _volCurve = _vc2;

@@ -41266,7 +41266,7 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
   // 稀缺语言(yo/zap/haw…)的兜底字幕方案。词=原词、时间=均匀估算(非真 onset, 但全语言可用)。
   const forceEven = String((req.query as any)?.even || (req.body as any)?.even || "").trim() === "1";
   try {
-    const tracks = await withClient((c) => c.query<{ lang: string; audio_url: string; vocal_url: string | null; track_order: number; lyrics: string | null; duration_secs: number | null }>(
+    const tracks = await withClient((c) => c.query<{ lang: string; audio_url: string; alt_audio_url: string | null; vocal_url: string | null; track_order: number; lyrics: string | null; duration_secs: number | null; alt_duration_secs: number | null }>(
       // CSSOS_WAVE_674 ② onset 精度: 也取人声 stem(vocal_url), 强制对齐改在【纯人声】上做 —— 没鼓点/伴奏
       // 干扰 → 咬字起音更准。无 stem 则回退全混。
       // CSSOS_WAVE_691f — 同语言多轨【只取默认轨】(DISTINCT ON lang, 优先 is_default 再 track_order)。
@@ -41285,7 +41285,11 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
        * 多条同语言轨会互相覆盖(Jerusalem 4 条 zh 串台)。所以【默认行为一个字不变】——
        * 不带 ?voice= 时下面仍然折叠成每语言一条(优先 is_default), 与原来逐行等价。
        * 只有显式指定 ?voice= 时才放行那一条特定声线, 由调用方为「同语言多版本」负责。 */
-      `SELECT DISTINCT ON (lang, voice) lang, voice, audio_url, vocal_url, track_order, lyrics, is_default
+      /* W2267 —— alt_audio_url 必须取: ?take=2 认的就是这一列。
+       * 不取它, ♪2 那个文件在这个端点眼里根本不存在 —— seed 只有 1 条,
+       * take=2 落到 ♪3+ 那一支按 lang 挑, 当然挑不中。两个 duration 只用于报告。 */
+      `SELECT DISTINCT ON (lang, voice) lang, voice, audio_url, alt_audio_url, vocal_url,
+              track_order, lyrics, is_default, duration_secs, alt_duration_secs
          FROM work_language_tracks
         WHERE work_id=$1::uuid AND audio_url IS NOT NULL AND audio_url <> ''
         ORDER BY lang, voice, is_default DESC, track_order`,
@@ -41318,7 +41322,7 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       if (!pau) return res.status(404).json({ ok: false, code: "NO_AUDIO" });
       // 绝对化 /artifacts/… 相对路径(ASR/whisperX 服务需可 HTTP 拉取)。
       if (pau.startsWith("/")) pau = "https://cssstudio.app" + pau;
-      trackRows = [{ lang: "orig", voice: "auto", audio_url: pau, vocal_url: null, track_order: 0, lyrics: null, duration_secs: null }] as any;
+      trackRows = [{ lang: "orig", voice: "auto", audio_url: pau, alt_audio_url: null, vocal_url: null, track_order: 0, lyrics: null, duration_secs: null, alt_duration_secs: null }] as any;
     }
     /* CSSOS_WAVE_2127 20260920 — 【主路径】也要把相对路径绝对化。
      *
@@ -41338,6 +41342,8 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
     };
     trackRows = trackRows.map((t: any) => ({
       ...t, audio_url: _abs(t.audio_url), vocal_url: t.vocal_url ? _abs(t.vocal_url) : t.vocal_url,
+      // W2267 — ?take=2 认的就是这一列, 同样要过这扇「必经之门」做绝对化
+      alt_audio_url: t.alt_audio_url ? _abs(t.alt_audio_url) : t.alt_audio_url,
     })) as any;
 
     /* CSSOS_WAVE_2130 20260921 — ?lang=xx 只重做【指定这一条】语言轨的字幕。

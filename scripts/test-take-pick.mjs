@@ -130,7 +130,24 @@ console.log("\n【5】拒绝猜 —— 挑不中必须返回 null, 不许退回�
   t("普通轨不得认领 pre-epic 那一版", r(2, normGhost[0], normGhost, onlyPre), null);
 }
 
+/* ── 【6】判据不能只测纯函数 ────────────────────────────────────────────────
+ * 上面 1-5 全过了, 线上照样失败: resubtitle 那条 SELECT 【没取 alt_audio_url】,
+ * 于是 ♪2 那个文件在端点眼里根本不存在 —— seed 只有 1 条, take=2 落到 ♪3+ 那一支
+ * 按 lang 挑, 当然挑不中。纯函数测试拿的是【完整的轨对象】, 这个漏它永远看不见。
+ * 所以这里直接判那条 SQL 的文本。 */
+console.log("\n【6】resubtitle 的 SELECT 必须把 ♪2 那一列取出来");
+{
+  const i = src.indexOf("SELECT DISTINCT ON (lang, voice)");
+  const q = i < 0 ? "" : src.slice(i, src.indexOf("`", i));
+  t("取了 alt_audio_url", /alt_audio_url/.test(q), true);
+  t("map() 里也绝对化了 alt_audio_url",
+    /alt_audio_url:\s*t\.alt_audio_url\s*\?\s*_abs\(t\.alt_audio_url\)/.test(src), true);
+}
+
 console.log("");
+if (CAL) {
+  if (fail) { console.log(`CALIBRATE 判据命中 —— 对着 git HEAD 跑有 ${fail} 项不过, 说明判据真的在判东西。`); process.exit(0); }
+  console.log("CALIBRATE 却全过了 —— 判据没判到东西, 这份测试不可信。"); process.exit(1);
+}
 if (fail) { console.log(`FAIL —— ${fail} 项不过`); process.exit(1); }
-if (CAL) { console.log("CALIBRATE 却全过了 —— 判据没判到东西, 这份测试不可信。"); process.exit(1); }
 console.log("PASS —— 全部通过");

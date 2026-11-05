@@ -4341,6 +4341,26 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
     if (bucket) bucket.push(v); else versByLang.set(k, [v]);
   }
 
+  /* CSSOS_WAVE_2269 —— 版本行自带的字幕, 按【URL】索引。
+   *
+   * 为什么不能只靠 W2178 那个「重复时补认」: 那一支只在【迭代到该 lang 桶】时才跑,
+   * 而非默认声线的 verLangs 是空的(「多声线不许伪装成多版本」那道闸门), 于是它
+   * 自己两列铺出来的 ♪ 永远 subtitle_url=null —— 即便版本表里明明有那个文件的字幕。
+   *
+   * 实测(花落花开 0889ef5f…): pre-epic 轨的 ♪2 与 auto 轨的 ♪2 是【同一个文件】
+   * aud-3211, 版本行 5678 装着它的字幕; auto 轨(非 lang 默认)和 pre-epic 轨都
+   * 认不到它。字幕属于【那段音频】, 不属于版本表把它填进了哪个 lang 桶 ——
+   * 这与 W2267/W2268「版本身份是 URL 不是 lang」是同一条。
+   *
+   * 同一个 URL 多行都写了字幕时取第一条(ORDER BY lang, version_no), 不猜; 同一段音频
+   * 本来就只该有一份时间轴, 出现第二份是数据问题, 不在这里掩盖。 */
+  const subByUrl = new Map<string, string>();
+  for (const v of vers) {
+    const k = takeDedupeKey(String(v.url || ""));
+    const su = String(v.subtitle_url || "").trim();
+    if (k && su && !subByUrl.has(k)) subByUrl.set(k, su);
+  }
+
   /* 哪些 URL 已经是【某条轨自己的】音频 —— 这些绝不算别人的额外版本。
    * 这一步就是「多声线不许伪装成多版本」的闸门。 */
   const ownedByAnyTrack = new Set<string>();
@@ -4418,7 +4438,8 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
       });
     };
     // ① 老字段先铺 —— 保证 N=2 时顺序与改造前完全一致
-    for (const s of seed) push(s.url, s.dur, null, null, kind);
+    //    W2269: 字幕按 URL 带上(这个文件在版本表里有字幕就用它), 不等后面的 lang 桶迭代
+    for (const s of seed) push(s.url, s.dur, subByUrl.get(takeDedupeKey(String(s.url || ""))) || null, null, kind);
     // ② 版本表补 ♪3… —— 本轨已有的 URL 跳过; 别的轨自己的音频也跳过(那是声线, 不是版本)
     for (const vl of verLangs) {
       for (const v of versByLang.get(vl) || []) {

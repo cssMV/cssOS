@@ -124,8 +124,27 @@
      * W2145 之前它们的 lang 是 'orig-pre-epic', 匹配不上任何字幕条目, 所以一直是空白;
      * 改成真语言后严格匹配【会】命中同语言条目, 这个回退才第一次变得危险。
      *
-     * 它自己那一版对齐出来的字幕一旦写进轨的 subtitle_url, 下面第一行就正常返回。 */
-    if (String(o && o.voice || "") === "pre-epic") return s(o.subtitle_url);
+     * 它自己那一版对齐出来的字幕一旦写进轨的 subtitle_url, 下面第一行就正常返回。
+     *
+     * ── CSSOS_WAVE_2269 20261105 收窄 ─────────────────────────────────────
+     * 上面那条「整条短路到轨的 subtitle_url」把 ♪2 也一起短路了, 而那一列是【单值】,
+     * 装不下两版 —— 于是 pre-epic 的 ♪2 必然拿到 ♪1 的时间轴。实测 Chase the Stars:
+     * ♪1 是 50s 的音频、♪2 是 43s, 同一份 49.6s 的时间轴配过去, 整首渐漂。
+     * 「宁可空白, 绝不错配」本来就该把它判成空白, 不是判成 ♪1。
+     *
+     * 收窄的判据是【这份 takes 是谁给的】:
+     *   · 服务端下发了 takes → take.subtitle_url 只可能来自【版本行】
+     *     (loadWorkTakes 从不把作品级那两列塞进去), 所以它是这一版自己的, 可以用。
+     *   · 没有 takes 的对象(卡片 / 队列 item)→ 走的是本文件下面 legacy 那条路,
+     *     那里塞进去的【就是作品级 take1/take2】。对 epic 重出【之前】的那一版用它,
+     *     就是拿新版时间轴配旧版歌声 —— 正是 W2145 要堵的那件事, 所以仍然整条短路。
+     * 两种情况下, 轨自己的 subtitle_url 都只认 ♪1(它代表的就是 ♪1)。 */
+    if (String(o && o.voice || "") === "pre-epic") {
+      if (!(Array.isArray(o.takes) && o.takes.length)) return s(o.subtitle_url);
+      var tp = takeAt(o, n);
+      if (tp && tp.subtitle_url) return tp.subtitle_url;
+      return (tp && tp.take === 1) ? s(o.subtitle_url) : "";
+    }
     var t = takeAt(o, n);
     if (t && t.subtitle_url) return t.subtitle_url;
     if (!o) return "";

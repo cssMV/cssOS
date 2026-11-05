@@ -41583,6 +41583,30 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       }
       return { url, dur, row };
     };
+    /* CSSOS_WAVE_2268 —— ?dry=1: 只报「这一趟会拿哪个文件对齐、字幕会挂回哪一行」,
+     * 一个字节都不写。
+     *
+     * 为什么要有它: 这个端点一跑就【覆盖】字幕, 而 W2268 的 bug 恰恰是「挑错文件但
+     * 不报错」—— 要先证明挑对了才敢跑, 可原来没有任何办法在不写入的前提下看一眼。
+     * 于是只能拿真作品试, 试完才发现挑错, 而旧字幕已经没了。W2086 那 17 首
+     * 就是这么丢的: 没有一个「先看看」的入口, 每次确认都要先破坏一次。 */
+    if (String((req.query as any)?.dry || "") === "1") {
+      return res.json({
+        ok: true, dry: true, workId, take: _onlyTake || null,
+        tracks: trackRows.map((t: any) => {
+          const picked = _onlyTake >= 1 ? _pickTake(t) : null;
+          return {
+            lang: t.lang, voice: t.voice || "auto",
+            takes: _onlyTake >= 1 ? _takeBucket(t).map((x, i) =>
+              `\u266a${i + 1}=${String(x.url || "").slice(-28)}(${x.duration_secs ?? "?"}s)`) : undefined,
+            would_align: picked ? String(picked.url).slice(-28) : (_onlyTake >= 1 ? null : "♪1(轨自己的 audio_url)"),
+            would_use_duration: picked ? picked.dur : (t.duration_secs ?? null),
+            would_write_version_row: picked ? (picked.row ? picked.row.id : null) : undefined,
+            skip_reason: _onlyTake >= 1 && !picked ? "TAKE_NO_MATCH_FOR_TRACK" : undefined,
+          };
+        }),
+      });
+    }
     for (const tr of trackRows) {
       let _takeRow: _VerRow | null = null;
       if (_onlyTake >= 1) {

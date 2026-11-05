@@ -225,6 +225,19 @@ t("时长为空时 ffprobe 实测",    /_pdur = await probeRemoteDurationSecs\(p
 t("实测也拿不到就不做(不沿用上一版)", /TAKE_DURATION_UNKNOWN/.test(src), true);
 t("不再按 lang 认领版本行",     /_takeRows/.test(src), false);
 
+/* ── 【11】必须有「先看看」的入口 ─────────────────────────────────────────
+ * 这个端点一跑就覆盖字幕, 而 W2268 的 bug 正是「挑错文件但不报错」——
+ * 没有 dry 入口, 每次确认都得先破坏一次(W2086 那 17 首就是这么丢的)。 */
+console.log("\n【11】?dry=1 必须存在, 且在任何写入之前就 return");
+{
+  const i = src.indexOf('req.query as any)?.dry');
+  t("端点认 ?dry=1", i > 0, true);
+  const loop = src.indexOf("for (const tr of trackRows) {\n      let _takeRow");
+  t("dry 的 return 在轨循环之前", i > 0 && loop > 0 && i < loop, true);
+  t("dry 报出整条 ♪ 数组", /takes: _onlyTake >= 1 \? _takeBucket\(t\)/.test(src), true);
+  t("dry 报出会写回哪一行", /would_write_version_row/.test(src), true);
+}
+
 console.log("");
 if (CAL) {
   if (fail) { console.log(`CALIBRATE 判据命中 —— 对着 git HEAD 跑有 ${fail} 项不过, 说明判据真的在判东西。`); process.exit(0); }

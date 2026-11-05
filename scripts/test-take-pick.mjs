@@ -32,7 +32,7 @@ if (!dedupeSrc) throw new Error("抽取 takeDedupeKey 失败");
 
 const preSrc  = slice("const _isPreEpic = (voice: string, lang: string): boolean =>",
                       "voice === \"pre-epic\" || lang.includes(\"pre-epic\");", "_isPreEpic");
-const pickSrc = slice("const _pickTake = (t: any): { url: string; row: _VerRow | null } | null => {",
+const pickSrc = slice("const _pickTake = (t: any)",
                       "\n      return null;\n    };", "_pickTake");
 
 if (!preSrc || !pickSrc) {
@@ -46,9 +46,11 @@ if (!preSrc || !pickSrc) {
 const toJs = (t) => t
   .replace(/function takeDedupeKey\(url: string\): string/, "function takeDedupeKey(url)")
   .replace(/\(voice: string, lang: string\): boolean/, "(voice, lang)")
-  .replace(/\(t: any\): \{ url: string; row: _VerRow \| null \} \| null/, "(t)")
-  .replace(/const seed: string\[\] = \[\]/, "const seed = []")
-  .replace(/ as Error/g, "");
+  .replace(/\(t: any\):[^=]*=>/, "(t) =>")
+  .replace(/const seed: [^=]*= \[\]/, "const seed = []")
+  .replace(/ as Error/g, "")
+  .replace(/\] as const\)/g, "])")
+  .replace(/Array<\{ url: string; dur: number \| null \}> = \[\]/, "[]");
 
 const factory = new Function("_onlyTake", "_allVerRows", "_takeRows", `
   ${toJs(dedupeSrc)}
@@ -60,7 +62,7 @@ const factory = new Function("_onlyTake", "_allVerRows", "_takeRows", `
 /* ── 真实数据: Chase the Stars 86a49ef7… (2026-11-04 实测) ──────────────── */
 const U = (h) => `https://cdn.cssstudio.app/artifacts/audio/aud-${h}.mp3`;
 const TRACKS = [
-  { id: 1547, lang: "en", voice: "auto",     audio_url: U("bf1a9907ca0d73b14dddcc93"), alt_audio_url: U("cceba7334945f246901b3af3") },
+  { id: 1547, lang: "en", voice: "auto",     audio_url: U("bf1a9907ca0d73b14dddcc93"), alt_audio_url: U("cceba7334945f246901b3af3"), duration_secs: 421, alt_duration_secs: 223 },
   { id: 1548, lang: "ja", voice: "auto",     audio_url: U("623f6750479be1cfac6cdc04"), alt_audio_url: U("2f83c82fbddd2e4c748c289a") },
   { id: 1549, lang: "ko", voice: "auto",     audio_url: U("2b9d750cc6b75f365cd8d303"), alt_audio_url: U("39ad2b40ac8a61bb49f7b7c6") },
   { id: 1614, lang: "en", voice: "pre-epic", audio_url: U("89e1a165bf54bba8de24a519"), alt_audio_url: U("8e4aebcf7651cd30103e9f9b") },
@@ -88,6 +90,10 @@ const t = (name, got, want) => {
 const r = (take, track, tracks, vers) => {
   const p = pickFor(take, tracks, vers)(track);
   return p ? { url: p.url.slice(-28), row: p.row ? p.row.id : null } : null;
+};
+const rd = (take, track, tracks, vers) => {
+  const p = pickFor(take, tracks, vers)(track);
+  return p ? p.dur : null;
 };
 
 console.log("\n【1】多语言同号 —— 每条轨必须拿到自己那一版, 不许串到别人身上");
@@ -135,6 +141,17 @@ console.log("\n【5】拒绝猜 —— 挑不中必须返回 null, 不许退回�
  * 于是 ♪2 那个文件在端点眼里根本不存在 —— seed 只有 1 条, take=2 落到 ♪3+ 那一支
  * 按 lang 挑, 当然挑不中。纯函数测试拿的是【完整的轨对象】, 这个漏它永远看不见。
  * 所以这里直接判那条 SQL 的文本。 */
+/* ── 【7】换音频必须连时长一起换 ──────────────────────────────────────────
+ * injectMusicGaps(sections, tr.duration_secs) 会在最后一句唱词之后补一段尾奏
+ * [Music...], 长到 duration-0.25。只换 audio_url 不换 duration_secs, ♪2(223s)
+ * 的字幕里就多出 207 秒幽灵尾奏 —— 唱词本身是对的, 所以接口返回的 lastEnd_s
+ * (whisper 词级时间轴)完全看不出来, 实测就是这么漏过去的。 */
+console.log("\n【7】换音频必须连时长一起换(否则尾奏按错版本的时长量)");
+t("♪1 时长 = 421", rd(1, TRACKS[0]), 421);
+t("♪2 时长 = 223", rd(2, TRACKS[0]), 223);
+t("换音频时赋值了 duration_secs", /picked\.dur\s*&&\s*picked\.dur\s*>\s*0\)\s*\(tr as any\)\.duration_secs/.test(src), true);
+t("换音频时重算了音量包络", /computeVolumeCurveViaFfmpeg\(picked\.url\)/.test(src), true);
+
 console.log("\n【6】resubtitle 的 SELECT 必须把 ♪2 那一列取出来");
 {
   const i = src.indexOf("SELECT DISTINCT ON (lang, voice)");

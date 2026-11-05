@@ -41479,13 +41479,13 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
      *
      * 改法: 一次取全这个 version_no 下的所有行, 到轨循环【里面】按本轨语言挑。
      * 挑不中就【这条轨跳过并在结果里说明】, 绣不"顺手拿第一行" —— 宁可不做, 不做错。 */
-    type _VerRow = { id: number; url: string; lang: string | null; version_no: number };
+    type _VerRow = { id: number; url: string; lang: string | null; version_no: number; duration_secs: number | null };
     let _allVerRows: _VerRow[] = [];   // 本作品全部音频版本行
     let _takeRows: _VerRow[] = [];     // 其中 version_no = N 的那几行
     if (_onlyTake >= 1) {
       try {
         const rv = await withClient((c) => c.query<_VerRow>(
-          `SELECT id, url, lang, version_no FROM work_media_versions
+          `SELECT id, url, lang, version_no, duration_secs FROM work_media_versions
             WHERE work_id=$1::uuid AND kind='audio' AND COALESCE(url,'') <> ''
             ORDER BY version_no, id`, [workId]));
         _allVerRows = rv.rows;
@@ -41524,19 +41524,24 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
      * 'orig-pre-epic' 那一行 —— 版本表没有 voice 列, 那些行是把版本身份写在 lang 里的),
      * 同号下有多种语言就【拒绕猜】。这一支保持改动前的 version_no == N 假设,
      * 因为已跑过的那 18 行(《鶴の恩返し》6 个 take)正是这条路, 不动它。 */
-    const _pickTake = (t: any): { url: string; row: _VerRow | null } | null => {
+    const _pickTake = (t: any): { url: string; dur: number | null; row: _VerRow | null } | null => {
       if (_onlyTake < 1) return null;
-      const seed: string[] = [];
-      for (const u of [t?.audio_url, t?.alt_audio_url]) {
+      const seed: Array<{ url: string; dur: number | null }> = [];
+      for (const [u, d] of [[t?.audio_url, t?.duration_secs], [t?.alt_audio_url, t?.alt_duration_secs]] as const) {
         const su = String(u || "").trim();
         const k = takeDedupeKey(su);
-        if (k && !seed.some((x) => takeDedupeKey(x) === k)) seed.push(su);
+        if (k && !seed.some((x) => takeDedupeKey(x.url) === k)) {
+          seed.push({ url: su, dur: (d == null ? null : Number(d)) || null });
+        }
       }
       if (_onlyTake <= seed.length) {
-        const url = String(seed[_onlyTake - 1] || "");
+        const hit0 = seed[_onlyTake - 1];
+        const url = String(hit0?.url || "");
         if (!url) return null;
         const k = takeDedupeKey(url);
-        return { url, row: _allVerRows.find((r) => takeDedupeKey(String(r.url || "")) === k) || null };
+        const row = _allVerRows.find((r) => takeDedupeKey(String(r.url || "")) === k) || null;
+        /* 时长以轨自己那两列为准, 空了再用版本行的。 */
+        return { url, dur: hit0?.dur ?? (row ? (row.duration_secs ?? null) : null), row };
       }
       const voice = String(t?.voice || "").trim().toLowerCase();
       const tl = String(t?.lang || "").trim().toLowerCase();
@@ -41548,7 +41553,7 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         return want ? rl === want : true;
       });
       const only = hits.length === 1 ? hits[0] : null;
-      if (only) return { url: String(only.url), row: only };
+      if (only) return { url: String(only.url), dur: only.duration_secs ?? null, row: only };
       return null;
     };
     for (const tr of trackRows) {
@@ -41569,6 +41574,23 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         // 就是拿别人的声音找这一首的字, 正是 W2144 踩过的那种错配。
         (tr as any).audio_url = picked.url;
         (tr as any).vocal_url = null;
+        /* ⚠ W2267 —— 换音频就必须【连时长一起换】。
+         *
+         * 实测踩到的: 只换 audio_url, 留下 duration_secs 还是 ♪1 的 421s ——
+         * injectMusicGaps(sections, tr.duration_secs) 会给最后一句唱词之后补一段
+         * 尾奏 [Music...], 长到 duration-0.25 = 420.75s。于是 ♪2(223s) 的字幕里
+         * 多出【207 秒幻灵尾奏】: 唱词本身对(到 214s), 但文件末尾到 420.75s,
+         * 任何按「末尾时间」判的巡检都会报错, 而接口返回的 lastEnd_s
+         * 只是 whisper 词级时间轴(214.2s), 根本看不出这个问题。
+         *
+         * 音量包络同理: 它在轨循环外用【第一条轨的 audio_url】算了一次,
+         * 也就是 ♪1 的包络。[Music...] 的 emoji 密度跟着它走 —— 不重算就是拿
+         * ♪1 的响度配 ♪2 的画面。 */
+        if (picked.dur && picked.dur > 0) (tr as any).duration_secs = picked.dur;
+        try {
+          const _vc2 = await computeVolumeCurveViaFfmpeg(picked.url);
+          if (_vc2 && Array.isArray(_vc2.values) && _vc2.values.length) _volCurve = _vc2;
+        } catch { /* 算不出就沿用原来那条, 不至于没曲线 */ }
       }
       const langEntry = lyricsDoc?.languages?.find((l) => l.lang === tr.lang);
       /* 歌词来源兜底链: [W2263 ?lyrics_url=] → R2 lyrics.json(本轨语言) → DB 轨.lyrics → work.lyrics_preview。

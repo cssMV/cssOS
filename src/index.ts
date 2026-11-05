@@ -41707,10 +41707,19 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
             }
             if (_vu) {
               _vocalForAlign = _vu;
-              await withClient((c) => c.query(
-                `UPDATE work_language_tracks SET vocal_url=$4, instrumental_url=COALESCE($5,instrumental_url), stems_status='ready' WHERE work_id=$1::uuid AND lang=$2 AND track_order=$3`,
-                [workId, tr.lang, tr.track_order, _vu, _iu],
-              )).catch(() => {});
+              /* W2267 —— 带了 ?take= 就【不往轨上写】。
+               *
+               * vocal_url 这一列代表的是轨自己那一版(♪1)的人声。这一轮分离
+               * 出来的是 ♪N 的人声, 写进去就是把别的版本的声音挂到 ♪1 名下 ——
+               * 下一次【不带 ?take= 】的对齐会直接用它, 拿 ♪N 的人声去找 ♪1 的字,
+               * 正是 W2144 那种错配, 而且不报错。
+               * 本轮用它对齐是对的(在内存里), 落库是错的。两件事分开。 */
+              if (_onlyTake < 1) {
+                await withClient((c) => c.query(
+                  `UPDATE work_language_tracks SET vocal_url=$4, instrumental_url=COALESCE($5,instrumental_url), stems_status='ready' WHERE work_id=$1::uuid AND lang=$2 AND track_order=$3`,
+                  [workId, tr.lang, tr.track_order, _vu, _iu],
+                )).catch(() => {});
+              }
             }
           }
         } catch (_e) { /* 分离失败 → 回退全混 */ }

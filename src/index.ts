@@ -4381,6 +4381,22 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
     if (k && su && !subByUrl.has(k)) subByUrl.set(k, su);
   }
 
+  /* W2272 —— 时长也按【URL】索引, 理由与上面那段 subByUrl 逐字相同。
+   *
+   * 下面 push() 里那条「重复时补认时长」只在【迭代到该 lang 桶】时才跑, 而非默认声线的
+   * verLangs 是空的(「多声线不许伪装成多版本」那道闸门)—— 于是它自己两列铺出来的 ♪
+   * 永远拿不到时长, 即便版本表里明明有那个文件的时长。
+   *
+   * 实测(唐伯虎三部曲 三首): 每首的 zh/auto 与 zh/pre-epic 两条轨的 ♪2 都是这样,
+   * 共 6 处 —— 回填完 159 条版本行之后, 全库就只剩这 6 处「判不了」, 根因全在这里。
+   * 时长属于【那段音频】, 不属于版本表把它填进了哪个 lang 桶。 */
+  const durByUrl = new Map<string, number>();
+  for (const v of vers) {
+    const k = takeDedupeKey(String(v.url || ""));
+    const d = Number(v.duration_secs);
+    if (k && Number.isFinite(d) && d > 0 && !durByUrl.has(k)) durByUrl.set(k, d);
+  }
+
   /* 哪些 URL 已经是【某条轨自己的】音频 —— 这些绝不算别人的额外版本。
    * 这一步就是「多声线不许伪装成多版本」的闸门。 */
   const ownedByAnyTrack = new Set<string>();
@@ -4467,7 +4483,12 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
     };
     // ① 老字段先铺 —— 保证 N=2 时顺序与改造前完全一致
     //    W2269: 字幕按 URL 带上(这个文件在版本表里有字幕就用它), 不等后面的 lang 桶迭代
-    for (const s of seed) push(s.url, s.dur, subByUrl.get(takeDedupeKey(String(s.url || ""))) || null, null, kind);
+    for (const s of seed) {
+      const sk = takeDedupeKey(String(s.url || ""));
+      // W2272: 轨自己那一列优先; 它空着才用版本表里【同一个文件】的时长。不猜, 不借别的 ♪。
+      const sd = Number(s.dur) > 0 ? s.dur : (durByUrl.get(sk) ?? null);
+      push(s.url, sd, subByUrl.get(sk) || null, null, kind);
+    }
     // ② 版本表补 ♪3… —— 本轨已有的 URL 跳过; 别的轨自己的音频也跳过(那是声线, 不是版本)
     for (const vl of verLangs) {
       for (const v of versByLang.get(vl) || []) {
@@ -5306,6 +5327,39 @@ async function registerMediaVersion(opts: {
   } catch (e) {
     console.warn(`[media-version] 登记失败(不影响媒体本身) work=${workId} kind=${kind}:`,
       (e as Error)?.message?.slice(0, 160));
+  }
+
+  /* W2272 —— 音频版本行【必须带着自己的时长落地】, 没传就当场实测。
+   *
+   * 为什么闸门装在这里而不是在调用点补三次: 实测 10 个写音频版本的调用点里有 3 个
+   * 不传时长(:4956 单曲创作、:35084 歌词重写后重跑音乐、:42361 epic 的 ♪2),
+   * 于是全库 159 条版本行 duration_secs 是空的。在调用点各补一次, 下一个新增的
+   * 调用点照样会漏 —— 这个洞会一直新长出来。装在【每条音频版本行必经的这一处】,
+   * 结构上就补不漏。(与 W2061 把「绝不覆盖」装进 uploadR2NeverOverwrite 同一个思路。)
+   *
+   * 为什么不拿手边的数去填: :42361 那里手边只有 ♪1 的 `dur` —— 把它贴到 ♪2 上
+   * 正是 W2267 那个 207 秒幽灵尾奏的做法。请求时传给引擎的 `duration_secs` 同样
+   * 不算: 那是【要求】, 不是【结果】。只认实测。
+   *
+   * 时长为空不报错、不降级, 只是让巡检的「唱词超出音频」「幽灵尾奏」两项判不了 ——
+   * 看不见的漏判比看得见的错更难发现, 所以宁可多一次 ffprobe。
+   *
+   * 三条自保: 只在 kind='audio' 且没传时长时跑; 跑在 INSERT【之后】(绝不让一次探测
+   * 失败连带丢掉这一行); `AND duration_secs IS NULL` 只填空格子, 量到的数再准也不覆盖
+   * 已有的值。 */
+  if (kind === "audio" && !(Number(opts.durationSecs) > 0)) {
+    try {
+      const probed = await probeRemoteDurationSecs(url);
+      if (probed && probed > 0) {
+        await withClient((c) => c.query(
+          `UPDATE work_media_versions SET duration_secs = $3
+            WHERE work_id = $1::uuid AND kind = 'audio' AND url = $2 AND duration_secs IS NULL`,
+          [workId, url, Math.round(probed)]));
+      }
+    } catch (e) {
+      console.warn(`[media-version] 实测时长失败(行已登记, 只是时长仍为空) work=${workId}:`,
+        (e as Error)?.message?.slice(0, 160));
+    }
   }
 }
 

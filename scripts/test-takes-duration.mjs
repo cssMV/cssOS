@@ -48,13 +48,28 @@ function slice(from, to) {
   return src.slice(i, j + to.length);
 }
 
+/* 有些函数的结尾长得很普通(`\n}`), 直接拿它当锚点会在半路命中。
+ * 这个版本先走到函数体里一个【独一无二的标记】, 再从那儿往后找结尾。 */
+function sliceVia(from, via, to) {
+  const i = src.indexOf(from);
+  if (i < 0) return null;
+  const v = src.indexOf(via, i);
+  if (v < 0 || v - i > MAX_SPAN) return null;
+  const j = src.indexOf(to, v);
+  if (j < 0 || j - v > 2000) return null;
+  return src.slice(i, j + to.length);
+}
+
 const typeSrc  = slice("type WorkTake = {", "\n};");
 const nullSrc  = slice("const TAKE_NULL_LANG =", "\n");
 const dedupSrc = slice("function takeDedupeKey(url: string): string {", "\n}\n");
 const loadSrc  = slice("async function loadWorkTakes(workId: string)", "\n  return out;\n}\n");
+const regSrc   = sliceVia("async function registerMediaVersion(opts: {",
+                          "[media-version] 实测时长失败", "\n    }\n  }\n}");
 
 for (const [name, v] of [["WorkTake", typeSrc], ["TAKE_NULL_LANG", nullSrc],
-                         ["takeDedupeKey", dedupSrc], ["loadWorkTakes", loadSrc]]) {
+                         ["takeDedupeKey", dedupSrc], ["loadWorkTakes", loadSrc],
+                         ["registerMediaVersion(带实测时长的闸门)", regSrc]]) {
   if (!v) {
     console.log(`${CAL ? "CALIBRATE 判据命中" : "FAIL"}: 抽不到 ${name}`);
     process.exit(CAL ? 0 : 1);
@@ -67,10 +82,16 @@ const tsFile = path.join(dir, "extract.ts");
 fs.writeFileSync(tsFile, `
 export let FIXTURE: any = {};
 export function setFixture(f: any) { FIXTURE = f; }
+async function probeRemoteDurationSecs(_u: string): Promise<number | null> {
+  FIXTURE.probed = (FIXTURE.probed || 0) + 1;
+  return FIXTURE.probe ?? null;
+}
 async function withClient(fn: any): Promise<any> {
   return await fn({
-    query: async (sql: string, _params: any[]) => {
+    query: async (sql: string, params: any[]) => {
       const s = String(sql);
+      (FIXTURE.log = FIXTURE.log || []).push({ sql: s.replace(/\\s+/g, " ").trim(), params });
+      if (/^(insert|update)/i.test(s)) return { rows: [], rowCount: 0 };
       if (s.includes("FROM work_language_tracks")) return { rows: FIXTURE.tracks || [] };
       if (s.includes("FROM work_media_versions") && s.includes("'cover'")) return { rows: FIXTURE.covers || [] };
       if (s.includes("FROM work_media_versions")) return { rows: FIXTURE.vers || [] };
@@ -84,6 +105,7 @@ ${typeSrc}
 ${nullSrc}
 ${dedupSrc}
 export ${loadSrc}
+export ${regSrc}
 `);
 const jsFile = path.join(dir, "extract.js");
 /* tsc 对这个片段必然报类型错(withClient 是桩、标注引用的类型没全抽过来),
@@ -145,6 +167,24 @@ eq("♪1 补成 333, ♪2 保持 222", await durs({
   vers: [{ lang: "zh", version_no: 1, label: null, url: U("seed01"), subtitle_url: null, duration_secs: 333 }],
 }), [333, 222]);
 
+console.log("── ⑤' 非默认声线的轨: 版本行按【URL】认时长(实测 唐伯虎三部曲 6 处) ──");
+/* verLangs 对非默认声线是空的, 所以「重复时补认」那一支根本不跑 ——
+ * 必须像 W2269 的字幕一样按 URL 索引。只改重复分支就会漏掉这 6 处。 */
+eq("pre-epic 轨的 ♪2 拿到 265s", await (async () => {
+  mod.setFixture({
+    tracks: [
+      { lang: "zh", voice: "orig", is_default: true,
+        audio_url: U("hlhk-a1"), duration_secs: 342, alt_audio_url: U("hlhk-a2"), alt_duration_secs: 276 },
+      { lang: "zh", voice: "pre-epic", is_default: false,
+        audio_url: U("hlhk-pre1"), duration_secs: 353, alt_audio_url: U("hlhk-shared2"), alt_duration_secs: null },
+    ],
+    vers: [{ lang: "regen-v6", version_no: 1, label: null, url: U("hlhk-shared2"),
+             subtitle_url: null, duration_secs: 265 }],
+  });
+  const m = await mod.loadWorkTakes(WID);
+  return (m.get("zh\u0001pre-epic") || []).map((t) => t.duration_secs);
+})(), [353, 265]);
+
 console.log("── ⑤ 轨的列已有时长 → 版本行不许覆盖它 ──");
 eq("♪1 保持 210(不被 999 盖掉)", await durs({
   tracks: [{ lang: "zh", voice: "auto", is_default: true,
@@ -152,6 +192,33 @@ eq("♪1 保持 210(不被 999 盖掉)", await durs({
              alt_audio_url: null, alt_duration_secs: null }],
   vers: [{ lang: "zh", version_no: 1, label: null, url: U("seed01"), subtitle_url: null, duration_secs: 999 }],
 }), [210]);
+
+/* ── 写入侧: 音频版本行必须带着自己的时长落地 ───────────────────────────
+ * 实测 10 个写音频版本的调用点里有 3 个不传时长(:4956 / :35084 / :42361 的 ♪2),
+ * 于是全库 159 条版本行的 duration_secs 是空的。闸门装在 registerMediaVersion
+ * 这一处(每条音频版本行必经), 而不是在调用点补三次 —— 补调用点, 下一个新增的
+ * 调用点照样会漏。 */
+const reg = async (opts, probe) => {
+  mod.setFixture({ probe: probe ?? null });
+  await mod.registerMediaVersion(opts);
+  const f = mod.FIXTURE;
+  const upd = (f.log || []).filter((q) => /^update work_media_versions set duration_secs/i.test(q.sql));
+  return { probed: f.probed || 0, wrote: upd.length, val: upd[0]?.params?.[2] ?? null,
+           onlyNull: upd.length ? /duration_secs IS NULL/.test(upd[0].sql) : null };
+};
+const A = { workId: "303372a5-7bb3-4567-af06-ece3b6d8d097", kind: "audio", url: U("x1") };
+
+console.log("── ⑥ 音频没传时长 → 当场实测并写回 ──");
+eq("量到 240 → 写 240", await reg(A, 240), { probed: 1, wrote: 1, val: 240, onlyNull: true });
+
+console.log("── ⑦ 已经传了时长 → 不实测、不多写一条 UPDATE ──");
+eq("不探测", await reg({ ...A, durationSecs: 311 }, 240), { probed: 0, wrote: 0, val: null, onlyNull: null });
+
+console.log("── ⑧ 量不到 → 保持为空, 绝不猜 ──");
+eq("探了但不写", await reg(A, null), { probed: 1, wrote: 0, val: null, onlyNull: null });
+
+console.log("── ⑨ 非音频(封面)→ 这道闸门不该碰它 ──");
+eq("不探测", await reg({ ...A, kind: "cover" }, 240), { probed: 0, wrote: 0, val: null, onlyNull: null });
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${pass} 过 / ${fail} 挂`);

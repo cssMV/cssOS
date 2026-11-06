@@ -4443,6 +4443,14 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
          * ♪1 的字幕明明写进了版本行, 接口却报"无" —— 因为 ♪1 走的是老字段那条路,
          * 版本行到这里被判重复直接 return。同一个坑, 补两次才补全。 */
         if (hit && !hit.subtitle_url && subUrl) hit.subtitle_url = subUrl;
+        /* W2272 — 时长同理。这是【同一个坑的第三次】: 封面补过(W2175)、字幕补过
+         * (W2178), 时长漏着。♪1/♪2 走老字段那条路先铺, 版本行到这里被判重复就
+         * return —— 于是版本行明明有 duration_secs, 接口下发的那颗 ♪ 仍是 null。
+         *
+         * 时长为 null 不会报错、不会降级: 胶囊上不显示长度, 巡检的「唱词超出音频」
+         * 和「幽灵尾奏」两项【根本判不了】(W2270 实测 70 处判不了)。看不见的漏判
+         * 比看得见的错更难发现。 */
+        if (hit && !(Number(hit.duration_secs) > 0) && Number(dur) > 0) hit.duration_secs = Number(dur);
         return;
       }
       seen.add(k);
@@ -4498,16 +4506,29 @@ async function loadWorkTakes(workId: string): Promise<Map<string, WorkTake[]>> {
    * 所以 seed 的第一位是 preview_audio_url; a1 若与它不同, 自然顺位成 ♪2。 */
   if (!tracks.length) {
     let preview: string | null = null;
+    /* W2272 — 这一列本来就查出来了, 却被原地丢掉。
+     * `user_works.duration_secs` 的语义是【只有 ♪1】(W367 起那句
+     * `UPDATE user_works SET duration_secs = $1` 写的就是 take1, 见 W2232 的复盘),
+     * 所以它只能给第一颗 ♪ 用, 不能顺手摊给后面的版本 —— 那会把 ♪1 的长度
+     * 贴到 ♪2 身上, 正是 W2267 那个 207 秒幽灵尾奏的成因。
+     * 实测: 全库 64 个无语言轨又有版本行的作品里, 61 个这一列有值。 */
+    let workDur: number | null = null;
     try {
       const r = await withClient((c) => c.query<{ preview_audio_url: string | null; duration_secs: number | null }>(
         `SELECT preview_audio_url, duration_secs FROM user_works WHERE id = $1::uuid LIMIT 1`, [workId]));
       preview = String(r.rows[0]?.preview_audio_url || "").trim() || null;
+      const _d = Number(r.rows[0]?.duration_secs);
+      workDur = Number.isFinite(_d) && _d > 0 ? _d : null;
     } catch (e) { console.warn("[takes] 读 preview_audio_url 失败:", (e as Error)?.message?.slice(0, 120)); }
     const a1 = assets.find((a) => a.asset_type === "audio_track_1")?.url || null;
     const a2 = assets.find((a) => a.asset_type === "audio_track_2")?.url || null;
     // 没有任何语言轨 → 不存在「别的声线」, 版本行全收; 键留空串供端点兜底查。
+    /* W2272 — workDur 只给【真正排在第一位的那个 URL】。preview 有值时 ♪1 就是它;
+     * preview 空了才由 a1 顺位成 ♪1。a1 与 preview 不同时 a1 是 ♪2, 绝不给它 workDur。 */
     out.set("", build("assets",
-      [{ url: preview, dur: null }, { url: a1, dur: null }, { url: a2, dur: null }],
+      [{ url: preview, dur: preview ? workDur : null },
+       { url: a1, dur: preview ? null : workDur },
+       { url: a2, dur: null }],
       [...versByLang.keys()], false));
   }
   return out;

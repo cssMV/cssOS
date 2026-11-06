@@ -111,14 +111,18 @@ def fake_even(entry):
     return None
 
 # ── 自检: 先在已知答案上校准判据, 再去判全库 ──────────────────────────────
+# --json 必须【只出 JSON】, 否则没法进管线。所有人读的输出一律走 stderr。
+# (第一次全库跑就是被自检那十行打在 stdout 上, json.load 直接崩在第 1 个字符。)
+say = (lambda *a: print(*a, file=sys.stderr)) if JSONOUT else print
+
 def self_test():
-    print("── 判据自检(合成样本, 不碰库)")
+    say("── 判据自检(合成样本, 不碰库)")
     bad = 0
     def chk(name, got, want):
         nonlocal bad
         good = got == want
         if not good: bad += 1
-        print(f"  {'✓' if good else '✗'} {name}" + ("" if good else f" — 得到 {got!r}, 期望 {want!r}"))
+        say(f"  {'✓' if good else '✗'} {name}" + ("" if good else f" — 得到 {got!r}, 期望 {want!r}"))
     mk = lambda spans: {"sections": [{"lines": [
         {"text": f"第{i}句", "t_start": int(s * 1000), "t_end": int(e * 1000)}
         for i, (s, e) in enumerate(spans, 1)]}]}
@@ -137,13 +141,13 @@ def self_test():
     T2 = {"voice": "auto", "subtitle_take1_json_url": "W1", "takes": [{"subtitle_url": "V1"}, {}]}
     chk("普通轨 ♪2 没有自己的 → 回退作品级(所以才会借用)", sub_url(T2, 2)[0], "W1")
     chk("普通轨 ♪1 用版本自带", sub_url(T2, 1)[0], "V1")
-    print(f"  {'✗ 判据自己有 ' + str(bad) + ' 项不对 —— 先修判据' if bad else '✓ 判据在已知答案上全对'}")
+    say(f"  {'✗ 判据自己有 ' + str(bad) + ' 项不对 —— 先修判据' if bad else '✓ 判据在已知答案上全对'}")
     return 1 if bad else 0
 
 if "--self-test" in sys.argv:
     sys.exit(self_test())
 if self_test():
-    print("判据自检没过 —— 不拿一个坏判据去判全库"); sys.exit(2)
+    say("判据自检没过 —— 不拿一个坏判据去判全库"); sys.exit(2)
 print()
 
 # ── 清单: 哪些作品可能有 ♪2+ ────────────────────────────────────────────
@@ -152,7 +156,7 @@ if ONE:
 else:
     DB = os.environ.get("DATABASE_URL")
     if not DB:
-        print("没有 DATABASE_URL —— 这份要在 api-vm 上跑: set -a; . /etc/cssos.env; set +a"); sys.exit(2)
+        say("没有 DATABASE_URL —— 这份要在 api-vm 上跑: set -a; . /etc/cssos.env; set +a"); sys.exit(2)
     # 默认清单 = 【可能有 ♪2+】的作品(有 alt_audio_url 或 ≥2 条音频版本行)。
     #
     # ⚠ 这个清单对「借用 / 假均匀 / 超出」是完整的(没有 ♪2 就不可能借), 但对
@@ -178,7 +182,7 @@ else:
     ids = [(r[0], r[1]) for r in csv.reader(io.StringIO(out.stdout)) if len(r) >= 2]
     if LIMIT: ids = ids[:LIMIT]
 SCOPE = "全部有音频的作品(--all)" if ALLW else "有 alt_audio_url 或 ≥2 条音频版本行"
-print(f"清单 {len(ids)} 个作品({SCOPE}){'  · --deep 会下载字幕文件' if DEEP else '  · 只判地址, 不下载字幕(加 --deep 多判三项)'}")
+say(f"清单 {len(ids)} 个作品({SCOPE}){'  · --deep 会下载字幕文件' if DEEP else '  · 只判地址, 不下载字幕(加 --deep 多判三项)'}")
 
 # ── 判 ──────────────────────────────────────────────────────────────────
 findings = []     # (类, 作品, 标题, 轨, ♪, 说明)

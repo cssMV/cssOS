@@ -1784,8 +1784,22 @@ async function upsertSubtitleJson(
   sections: SubSection[],
   volCurve?: { step_ms: number; values: number[] } | null,
   audioUrl?: string | null,
+  /* CSSOS_WAVE_2270 20261105 — snapshotOnly: 只落【这一版自己的】快照, 不碰作品级那一槽。
+   *
+   * 为什么必须有这个开关: 本函数名义上按 take 分槽(take1.json / take2.json), 但
+   * ♪N 的对齐【一律以槽位 1 调用】—— ♪N 的身份靠 audioUrl 的快照键区分, 不靠槽位。
+   * 于是跑一次 ♪2 会把 `works/<id>/subtitle-take1.json` 整个读-改-写掉, 而那一份
+   * 正是【♪1 在读的东西】。实测三首(花落花开/桃花仙/春风得意)的 orig ♪1 与 auto ♪1
+   * 全都解析到它 —— 不加这个开关, 「给 ♪2 补字幕」这一个动作会当场删掉 6 条 ♪1 的字幕。
+   *
+   * 「覆盖, 就是删掉。」作品级那一槽是 ♪1 的地址, 单值字段装不下两版 —— 这与 W2269
+   * 是同一条教训, 只不过那次是前端借用, 这次是后端原地改写。 */
+  opts?: { snapshotOnly?: boolean },
 ): Promise<string | null> {
   if (!r2Enabled()) return null;
+  const snapshotOnly = !!opts?.snapshotOnly;
+  /* 只落快照却没有音频身份 → 这份字幕没有任何地址可挂, 写了等于扔。宁可不写。 */
+  if (snapshotOnly && !String(audioUrl || "").trim()) return null;
   const remotePath = `works/${workId}/subtitle-take${take}.json`;
   return withJsonMutex(`subtitle:${workId}:take${take}`, async () => {
     let doc = (await downloadJsonFromR2(remotePath)) as SubtitleJson | null;
@@ -1800,7 +1814,9 @@ async function upsertSubtitleJson(
     doc.languages.push({ lang, analyzed_at: new Date().toISOString(), sections });
     doc.updated_at = new Date().toISOString();
     const buf = Buffer.from(JSON.stringify(doc), "utf-8");
-    const url = await uploadBufferToR2(buf, remotePath, "application/json");
+    /* W2270 —— snapshotOnly 时【一个字节都不写】作品级那一份, 也不动 user_works 那两列。
+     * 上面仍然把它读进来做底(别的语言那几条、顶层 vol_curve 要跟着快照走), 只是不回写。 */
+    const url = snapshotOnly ? null : await uploadBufferToR2(buf, remotePath, "application/json");
     if (url) {
       const col = take === 1 ? "subtitle_take1_json_url" : "subtitle_take2_json_url";
       await withClient((c) => c.query(
@@ -1822,12 +1838,14 @@ async function upsertSubtitleJson(
      * 里【那一行】的 subtitle_url 上 —— 版本自己的字幕挂在版本自己身上。
      * 将来播放端按所选轨读 subtitle_url 即可, 读不到再回退旧路径。 */
     const av = String(audioUrl || "").trim();
-    if (url && av) {
+    let snapWritten: string | null = null;
+    if (av && (url || snapshotOnly)) {   // W2270 — 只落快照时没有 url, 照样要写
       try {
         const tag = crypto.createHash("sha1").update(av).digest("hex").slice(0, 10);
         const snapKey = `works/${workId}/subtitle-take${take}--a${tag}.json`;
         const snapUrl = await uploadBufferToR2(buf, snapKey, "application/json");
         if (snapUrl) {
+          snapWritten = snapUrl;
           await withClient((c) => c.query(
             `UPDATE work_language_tracks SET subtitle_url=$3
               WHERE work_id=$1::uuid AND audio_url=$2`,
@@ -1838,7 +1856,9 @@ async function upsertSubtitleJson(
         console.warn("[subtitle-version] 版本快照失败(不影响主字幕):", (e as Error)?.message);
       }
     }
-    return url;
+    /* W2270 — 只落快照时, 返回快照地址(调用方要据此判断「到底写成了没有」)。
+     * 返回 url(此时必为 null)会让调用方以为失败。 */
+    return snapshotOnly ? snapWritten : url;
   });
 }
 
@@ -41644,6 +41664,20 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
           continue;
         }
         _takeRow = picked.row;
+        /* W2270 —— ♪2+ 没有版本行可挂, 就【不要做】。
+         *
+         * 这份快照唯一的挂点是版本行的 subtitle_url(轨那一列的回写是
+         * `WHERE audio_url=$2`, 而 ♪2 的地址只存在 alt_audio_url, 永远匹配不上)。
+         * 没有挂点 = 对齐做了也没人读得到; 而在 W2270 之前这一支还会顺手把
+         * 作品级 take1.json 改写掉 —— 等于【白做一趟, 删掉 ♪1 的字幕】。
+         * 原来这里只在最后 console.warn 一句(W2267), 太轻了。 */
+        if (_onlyTake >= 2 && !_takeRow) {
+          results.push({
+            lang: tr.lang, srcTrackLang: tr.lang, voice: (tr as any).voice || null, ok: false,
+            code: "TAKE_NO_VERSION_ROW", take: _onlyTake, url: picked.url.slice(-40),
+          });
+          continue;
+        }
         // 换成这一版自己的音频。人声轨清空 —— 那是【上一版】分离出来的, 拿它对齐这一版
         // 就是拿别人的声音找这一首的字, 正是 W2144 踩过的那种错配。
         (tr as any).audio_url = picked.url;
@@ -41941,7 +41975,26 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
        *
        *   版本键的正确定义是【这条轨自己的音频身份】, 不是"我拿什么去对齐的"。
        *   两者本来就该分开: 对齐可以用人声轨(更准), 身份必须用 audio_url。 */
-      await upsertSubtitleJson(workId, alignLang, 1, sections, _volCurve, tr.audio_url || alignAudio);
+      /* CSSOS_WAVE_2270 20261105 — ♪2+ 只落自己那份快照, 绝不碰作品级 take1.json。
+       *
+       * 这里传的槽位恒为 1 不是笔误: ♪N 的身份由 audioUrl 的快照键决定, 与槽位无关
+       * (见 upsertSubtitleJson 的 W2270 注释)。但「槽位恒为 1」的代价是跑 ♪2 会把
+       * ♪1 在读的那份文件读-改-写掉 —— 实测这三首的 orig ♪1 / auto ♪1 全在读它。
+       * 所以 ♪2+ 必须只写快照。 */
+      const _snapOnly = _onlyTake >= 2;
+      const _written = await upsertSubtitleJson(
+        workId, alignLang, 1, sections, _volCurve, tr.audio_url || alignAudio,
+        { snapshotOnly: _snapOnly });
+      if (_snapOnly && !_written) {
+        /* 快照没落成 → 下面那句 UPDATE 会把版本行指向一个【不存在的文件】。
+         * 宁可报错, 不要制造一个指向空气的 subtitle_url。 */
+        results.push({
+          lang: alignLang, srcTrackLang: tr.lang, voice: (tr as any).voice || null, ok: false,
+          code: "SNAPSHOT_WRITE_FAILED", take: _onlyTake,
+          url: String(tr.audio_url || "").slice(-40),
+        });
+        continue;
+      }
       /* W2178 — 把这一版的快照挂回它自己那一行。
        * upsertSubtitleJson 的快照键是 sha1(audio_url)[:10], 而上面已经把 audio_url
        * 换成了这一版的地址, 所以这里拼出来的就是刚写的那份。 */

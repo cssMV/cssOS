@@ -52,6 +52,7 @@ from concurrent.futures import ThreadPoolExecutor
 API  = os.environ.get("CSSOS_API", "https://cssstudio.app")
 UA   = {"User-Agent": "Mozilla/5.0 (Macintosh) cssos-audit"}   # CDN 拒默认 python UA(403)
 DEEP = "--deep" in sys.argv
+ALLW = "--all"  in sys.argv
 JSONOUT = "--json" in sys.argv
 ONE  = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--work=")), None)
 LIMIT = int(next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--limit=")), "0") or 0)
@@ -152,6 +153,12 @@ else:
     DB = os.environ.get("DATABASE_URL")
     if not DB:
         print("没有 DATABASE_URL —— 这份要在 api-vm 上跑: set -a; . /etc/cssos.env; set +a"); sys.exit(2)
+    # 默认清单 = 【可能有 ♪2+】的作品(有 alt_audio_url 或 ≥2 条音频版本行)。
+    #
+    # ⚠ 这个清单对「借用 / 假均匀 / 超出」是完整的(没有 ♪2 就不可能借), 但对
+    # 「♪1 没字幕 / 文件无该语言」【不完整】—— 只有 ♪1 的作品根本不在清单里。
+    # 第一版就是这么报的: 26 处 BLANK_1 听起来像全库, 其实只是那 102 个作品里的。
+    # 这正是「校验器必须报自己的漏」要防的事, 所以 --all 必须存在, 汇总必须说清。
     q = """COPY (
       select w.id, coalesce(w.title,'')
         from user_works w
@@ -160,10 +167,18 @@ else:
           or (select count(*) from work_media_versions v
                where v.work_id=w.id and v.kind='audio' and coalesce(v.url,'') <> '') >= 2
        order by w.created_at desc) TO STDOUT WITH (FORMAT csv)"""
+    if ALLW:
+        q = """COPY (
+          select w.id, coalesce(w.title,'')
+            from user_works w
+           where exists (select 1 from work_language_tracks t where t.work_id=w.id)
+              or coalesce(w.preview_audio_url,'') <> ''
+           order by w.created_at desc) TO STDOUT WITH (FORMAT csv)"""
     out = subprocess.run(["psql", DB, "-X", "-q", "-c", q], capture_output=True, text=True)
     ids = [(r[0], r[1]) for r in csv.reader(io.StringIO(out.stdout)) if len(r) >= 2]
     if LIMIT: ids = ids[:LIMIT]
-print(f"清单 {len(ids)} 个作品(有 alt_audio_url 或 ≥2 条音频版本行){'  · --deep 会下载字幕文件' if DEEP else '  · 只判地址, 不下载字幕(加 --deep 多判三项)'}")
+SCOPE = "全部有音频的作品(--all)" if ALLW else "有 alt_audio_url 或 ≥2 条音频版本行"
+print(f"清单 {len(ids)} 个作品({SCOPE}){'  · --deep 会下载字幕文件' if DEEP else '  · 只判地址, 不下载字幕(加 --deep 多判三项)'}")
 
 # ── 判 ──────────────────────────────────────────────────────────────────
 findings = []     # (类, 作品, 标题, 轨, ♪, 说明)
@@ -191,7 +206,7 @@ def do(item):
                 rs.append(("BORROWED", wid, title, who, f"♪{i}",
                            f"和 ♪1 同一份文件 …{u[-30:]} —— 两版长度不同必然渐漂"))
                 continue
-            if not DEEP: continue
+            if not DEEP: stat["ok_url"] += 1; continue
             doc = get(u)
             if "__err" in doc:
                 rs.append(("FETCH_FAIL", wid, title, who, f"♪{i}", f"字幕取不到: {doc['__err']}")); continue
@@ -245,6 +260,13 @@ else:
           + (f" ——【少判了 {len(ids)-judged_works} 个, 见上面 FETCH_FAIL】" if judged_works < len(ids) else ""))
     print(f"判出问题 {sum(by[k] for k in ERR)} 处"
           f" · 判不了 {by['DUR_UNKNOWN']+by['FETCH_FAIL']} 处(不是「对」)"
-          f" · 对上 {stat['ok']} 处" + ("" if DEEP else " ·【没加 --deep: 超出/假均匀/语言缺失这三项根本没判】"))
+          + (f" · 对上 {stat['ok']} 处"
+             if DEEP else
+             f" · 地址这一层对上 {stat['ok_url']} 处"
+             " ·【没加 --deep: 超出/假均匀/语言缺失这三项根本没判】"))
+    if not ALLW:
+        print("⚠ 清单只含【可能有 ♪2+】的作品 —— 借用/假均匀/超出 这几类是完整的"
+              "(没有 ♪2 就不可能借), 但【♪1 没字幕 / 文件无该语言】在清单之外的作品里"
+              "根本没判过。要全库看这两类, 加 --all。")
     print(f"♪N 空白 {stat['blank_n_ok']} 处 —— 不算问题(W2269: 宁可空白, 绝不错配)")
 sys.exit(1 if sum(by[k] for k in ERR) else 0)

@@ -22,17 +22,29 @@
 #   3 判据抄平台只抄一半 = 造了一份新的(段落标记要认 `[` 和全角 `【` `〔` 三种)。
 #
 # 用法(在 api-vm 上跑):
-#   bash w2277-add-mother-tongue-track.sh <workId> <lang> [--sing-preview]
+#   bash w2277-add-mother-tongue-track.sh <workId> <lang> [--sing-preview | --lyrics-file <path>]
 #
 #   --sing-preview = A 类专用: 不转译, 把 lyrics_preview 原词直唱(W2130 lyricsOverride)。
 #     只给【母语词已经写好、只是从没被唱过】的作品用 —— 再找 LLM 写一遍是浪费, 且有改写风险。
 #     首例 Athena: 唱出来的词与原希腊词【逐字节一致】(3311/3311)。
+#
+#   --lyrics-file <path> = 手写词直唱。走同一个 lyricsOverride 字段, 只是词来自文件而不是库。
+#     为什么需要它: 源词不到 40 行的作品【转译救不了】—— transcreateLyrics 的第 (5) 条
+#     明写「roughly the same line count per section」, 它不会造行。31 首短源 en 实测
+#     节数 9 / 行数 39 这类失败就是这个原因, 不是提示词没写清楚, 是规则不允许。
+#     这些只能按京典模版手写母语词(首例: Shakespeare b8ed83de, 10 节 50 行)。
+#     先量后发: 行数 / 节数 / 括号外有没有源语言, 够不上就不许进管线(别花钱买半成品)。
 set -euo pipefail
-set -a; . /etc/cssos.env 2>/dev/null; set +a
+# ⚠ source 必须容错: /etc/cssos.env 第 77 行是个孤零零的 `=`(空名空值), bash 会报
+#   `=: command not found` → 返回 127 → set -e 当场把脚本打死, 而且【一个字都不打印】。
+#   实测症状: 批量 24 首在 2 秒内全部 FAILED, 日志里没有任何原因。
+#   生产配置不由这个脚本去改(要改得先问 Jing), 所以这里自己扛住。
+set -a; . /etc/cssos.env 2>/dev/null || true; set +a
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 wid="${1:?用法: $0 <workId> <lang> [--sing-preview]}"
 lang="${2:?缺 lang}"
 sing="${3:-}"
+lyrfile="${4:-}"
 
 [ -n "${CSSOS_ADMIN_TOKEN:-}" ] || { echo "FAIL: 没有 CSSOS_ADMIN_TOKEN"; exit 1; }
 
@@ -46,9 +58,48 @@ if [ "$sing" = "--sing-preview" ]; then
   [ "$n" -ge 40 ] || { echo "FAIL: lyrics_preview 只有 $n 个非空行 (<40) —— 够不上完整度铁律, 别唱"; exit 1; }
   echo "原词直唱: $n 个非空行"
   body=$(psql "$DATABASE_URL" -X -q -t -A -c "select json_build_object('languages',json_build_array('$lang'),'source_lang','zh','lyrics',coalesce(lyrics_preview,''))::text from user_works where id='$wid'::uuid")
+elif [ "$sing" = "--lyrics-file" ]; then
+  [ -s "${lyrfile:-}" ] || { echo "FAIL: --lyrics-file 要跟一个非空文件"; exit 1; }
+  # 进管线前先量 —— 不合格就不花钱。判据与 w2277-check-track-lyrics.py 同源:
+  # 段落标记只认行首方括号, 词行 = 非方括号行, 源语言 = 括号外的汉字。
+  python3 -I - "$lyrfile" <<'PYGATE' || exit 1
+import re, sys
+t = open(sys.argv[1]).read()
+lines = [l.strip() for l in t.split("\n") if l.strip()]
+secs = [l for l in lines if re.match(r"^\[(Verse|Chorus|Bridge|Outro|Intro)\b", l)]
+body = [l for l in lines if not l.startswith("[")]
+han  = sum(1 for l in body for ch in l if "\u4e00" <= ch <= "\u9fff")
+bad = []
+if len(secs) < 10: bad.append(f"节数 {len(secs)} < 10")
+if len(body) < 40: bad.append(f"词行 {len(body)} < 40")
+if han: bad.append(f"括号外有 {han} 个汉字 —— 源语言漏在唱词里")
+print(f"手写词: {len(secs)} 节 · {len(body)} 词行 · 括号外汉字 {han}")
+for b in bad: print("  FAIL:", b)
+sys.exit(1 if bad else 0)
+PYGATE
+  body=$(python3 -I -c 'import json,sys; print(json.dumps({"languages":[sys.argv[1]],"source_lang":"zh","lyrics":open(sys.argv[2]).read()}))' "$lang" "$lyrfile")
 fi
 
-echo "=== ${wid:0:8} $title → $lang ${sing:+[原词直唱]}"
+echo "=== ${wid:0:8} $title → $lang ${sing:+[$sing]}"
+
+# ── W2278 闸门: 源词是不是这个作品自己的词? ────────────────────────────
+#    只有【要拿 lyrics_preview 当源】的两条路需要判 —— 默认转译 和 --sing-preview。
+#    --lyrics-file 自带手写词, 根本不读这一列, 跳过。
+#    为什么必须在 POST 之前判: 这条路取词是 default track lyrics → lyrics_preview,
+#    而这批作品 lt.lyrics 几乎全空, 真正被转译的就是 lyrics_preview;
+#    2026-05-10 那批累加污染有 78 首, 其中 10 首就在 W2277 这 170 首里。
+#    不判就会花钱做出「挂着 Einstein 名字的英文兰亭曲」。
+#    退出码 2 = 判不了, 同样不许继续 —— 【取不到】和【没有】不是一回事。
+if [ "$sing" != "--lyrics-file" ]; then
+  set +e
+  python3 -I "$HERE/w2278-check-work-lyric-clean.py" "$wid"; gate=$?
+  set -e
+  case "$gate" in
+    0) ;;
+    1) echo "FAIL: 源词不干净, 不生成(见上面 BLOCK) —— 这一首要手写母语词走 --lyrics-file"; exit 1;;
+    *) echo "FAIL: 源词判不了(rc=$gate), 不生成 —— 不许把【判不了】当通过"; exit 1;;
+  esac
+fi
 
 # ── 先落备份, 再动手(W2086: 入库 R2 ≠ 保住旧版; 而「不备份就动手」是那 17 首的起点)──
 #    核对器拿【R2 上这份改前原件】当基准 —— 不是拿库里的当前值比当前值(那是同义反复)。

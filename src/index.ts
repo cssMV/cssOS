@@ -27946,8 +27946,42 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
          *   ① 最多 3 次;
          *   ② 整个 kie 分支有总时间预算, 超了立刻让给下一家 —— 绝不让用户为重试无限等。
          * 鉴权/额度类错误不重试(重试也不会变好), 直接下一家。 */
-        const KIE_MAX_ATTEMPTS = 3;
-        const KIE_RETRY_BUDGET_MS = 45_000;
+        /* CSSOS_WAVE_2277 20261108 — Jing「先修重试预算，根治」。
+         *
+         * ── 病 ────────────────────────────────────────────────────────────────
+         * 上面那段「两道闸」是照着【8-11 秒的廉价失败】设计的: 3 次 × 10s = 30s < 45s 预算,
+         * 所以预算从来没真正绑住过任何东西。而 2026-11 这个通道的失败形态【变了】——
+         * 不再是 7-11 秒断流, 而是【挂住 ~70 秒】。于是两道闸同时失效:
+         *   次数闸没用(一次就 70s), 预算闸拦不住(它只在两次尝试【之间】查)。
+         * 生产实测: `kie retry budget 45000ms spent (110525ms) — falling through`
+         * —— 预算写 45s, 实际花 110.5s。一条语言轨有两步 LLM(转译 + 情绪标注),
+         * 于是每首歌白等 ~3.7 分钟; 164 首放量 ≈ 10 小时纯等待。
+         *
+         * 根因一句话: **预算只约束"要不要再来一次", 从不约束"正在飞的这一次"**。
+         * 单次 fetch 的超时来自 makeTimeoutFetch(= 歌词链的 120s), 预算无权打断它。
+         *
+         * ── 为什么不能把 45s 直接做成硬超时 ──────────────────────────────────
+         * 会把【正在正常产字的慢流】掐断 —— 1400 token 的希腊文/天城文确实慢(实测成功均 34s,
+         * 长的会更久)。而且本分支里【有部分文本 + 有错误】会被整段丢弃(见循环后那句
+         * `if (kieStreamErr || !kieText) continue`), 掐一次就等于白烧一次成功的生成。
+         *
+         * ── 修: 闸门装在【首字节】上, 不是装在总时长上 ──────────────────────
+         * 日志里的症状精确得多: `stream died with no content` —— 一个 delta 都没有。
+         * 所以判据是【这段时间里有没有产出任何内容】:
+         *   · 预算内一个字都没来  → 主动 abort, 让给下一家。预算第一次真的生效。
+         *   · 已经在产字          → 这个闸不动它, 仍由 tHard(单次调用超时)兜底。
+         * 两个计时器挂在同一个 controller 上, 刻意不用 AbortSignal.any ——
+         * 少依赖一个 Node 版本相关的 API, 行为一眼可读。
+         *
+         * 每次尝试的闸限是【剩余预算】而不是整份预算, 所以三次尝试的【总和】≤ 预算 ——
+         * 这才是"预算"两个字本来的意思。
+         *
+         * KIE_RETRY_BUDGET_MS 改成可用 env 覆盖: 批量跑的时候可以压到几秒,
+         * 不用为此再发一次版(平台惯例, 同 SUNO_DEFAULT_MODEL / MV_LANG_TRACK_CONCURRENCY)。
+         * 默认仍是 45s, 不改既有行为。 */
+        const KIE_MAX_ATTEMPTS = Math.max(1, Number(process.env.KIE_MAX_ATTEMPTS || 3));
+        const KIE_RETRY_BUDGET_MS = Math.max(1_000, Number(process.env.KIE_RETRY_BUDGET_MS || 45_000));
+        const KIE_PER_CALL_TIMEOUT_MS = req.timeout_ms || LLM_ROUTER_TIMEOUT_MS;
         const kieT0 = Date.now();
         let kieText = "";
         let kieStreamErr = "";
@@ -27956,10 +27990,37 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
         let resp!: Response;
         for (let attempt = 1; attempt <= KIE_MAX_ATTEMPTS; attempt++) {
           kieText = ""; kieStreamErr = "";
+          /* W2277 —— 预算在【开打之前】先查一次。原来只在打完之后查, 所以最后一次
+           * 尝试总是免费超支: 剩 1ms 预算也照样再发一个可能挂 70 秒的请求。 */
+          const kieLeft = KIE_RETRY_BUDGET_MS - (Date.now() - kieT0);
+          if (kieLeft <= 0) {
+            console.warn(`[llm-router] kie retry budget ${KIE_RETRY_BUDGET_MS}ms exhausted before attempt ${attempt} — falling through`);
+            kieStreamErr = kieStreamErr || "kie_retry_budget_exhausted";
+            // 与下面 catch 里同一个道理: 循环外要读 resp.ok/resp.status, 不能是 undefined。
+            // 理论上第 1 轮进不到这里(预算下限 1000ms), 但「理论上到不了」正是崩的那一类。
+            if (!resp) resp = new Response(null, { status: 504, statusText: "kie_budget_exhausted" });
+            break;
+          }
+          /* W2277 —— 首字节闸: 剩余预算内一个字都没来就主动掐掉这一次。
+           * 已经在产字就不动它(慢流是正常的), 由 tHard 按单次调用超时兜底。 */
+          const kieAc = new AbortController();
+          let kieGotContent = false;
+          let kieAbortReason = "";
+          const tStall = setTimeout(() => {
+            if (!kieGotContent) { kieAbortReason = `kie_no_content_in_${kieLeft}ms`; kieAc.abort(); }
+          }, kieLeft);
+          const tHard = setTimeout(() => {
+            kieAbortReason = kieAbortReason || `kie_per_call_timeout_${KIE_PER_CALL_TIMEOUT_MS}ms`;
+            kieAc.abort();
+          }, KIE_PER_CALL_TIMEOUT_MS);
+          try {
           resp = await fetch(cfg.url, {
             method: "POST",
             headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
             body: JSON.stringify(body),
+            /* 显式传 signal → makeTimeoutFetch 原样放行(它只在没有 signal 时才加自己的),
+             * 所以单次调用的硬超时由上面的 tHard 接管, 没有丢掉这层兜底。 */
+            signal: kieAc.signal,
           });
           upstream = resp;
           /* 把 SSE 聚合回一整段。三种失败都要抓住, 缺一种就会把"没内容"当成功:
@@ -27985,11 +28046,17 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
                   let ev: any; try { ev = JSON.parse(js); } catch { continue; }
                   if (ev?.type === "error") { kieStreamErr = String(ev?.error?.message || "kie_stream_error"); break; }
                   const dt = ev?.delta?.text;
-                  if (ev?.type === "content_block_delta" && typeof dt === "string") kieText += dt;
+                  if (ev?.type === "content_block_delta" && typeof dt === "string") {
+                    kieText += dt;
+                    /* W2277 —— 首字节到了: 解除首字节闸, 这条流接下来慢也让它跑完。
+                     * 判据刻意是【真的产出了内容】, 不是【message_start 到了】——
+                     * 失败形态恰恰是 message_start 正常、一个 delta 都没有(见上面那段注释)。 */
+                    kieGotContent = true;
+                  }
                 }
                 if (kieStreamErr) break;
               }
-            } catch (e) { kieStreamErr = String((e as Error)?.message || e); }
+            } catch (e) { kieStreamErr = kieAbortReason || String((e as Error)?.message || e); }
           } else {
             // 非 2xx 或无 body → 按老路读一次 JSON 拿错误详情
             json = await resp.json().catch(() => null);
@@ -28028,6 +28095,20 @@ async function callLlm(req: LlmRequest): Promise<LlmResponse> {
           if (attempt >= KIE_MAX_ATTEMPTS) console.warn(`[llm-router] kie exhausted ${KIE_MAX_ATTEMPTS} attempts in ${spent}ms — falling through`);
           else console.warn(`[llm-router] kie retry budget ${KIE_RETRY_BUDGET_MS}ms spent (${spent}ms) — falling through`);
           break;
+          } catch (e) {
+            /* W2277 —— abort 会让 fetch 直接抛(不是返回一个 Response)。
+             * 原来 fetch 抛出去是冒到更外层的, 现在既然我们自己会 abort, 就得在这里收住,
+             * 否则一次主动掐断会变成整条 callLlm 异常, 连降级到下一家的机会都没有。
+             * 转成 kieStreamErr 后, 走的是和「流断了」完全同一条判断。 */
+            kieStreamErr = kieAbortReason || String((e as Error)?.message || e);
+            console.warn(`[llm-router] kie attempt ${attempt}/${KIE_MAX_ATTEMPTS} aborted after ${Date.now() - kieT0}ms: ${kieStreamErr.slice(0, 120)}`);
+            /* resp 可能还没被赋值(fetch 自己抛的)。循环外有 `resp.ok` / `resp.status`,
+             * 拿 undefined 读属性会当场 TypeError —— 那就不是"降级"而是"崩"。
+             * 补一个说实话的 504, 让下游统一逻辑照常走。 */
+            if (!resp) resp = new Response(null, { status: 504, statusText: "kie_aborted" });
+          } finally {
+            clearTimeout(tStall); clearTimeout(tHard);
+          }
         }
         upstream = resp;   // 循环外再赋一次: TS 的确定赋值分析不进 for, 少了这行下面 return 处会报未赋值
         if (kieStreamErr || !kieText) {

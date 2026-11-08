@@ -4023,9 +4023,44 @@ app.post("/api/works/:id/language-tracks", express.json({ limit: "16kb" }), asyn
   }
   // Sanitize requested languages.
   const supported = mvSupportedLanguageCodes();
-  const existing = await withClient((c) => c.query<{ lang: string; track_order: number }>(
-    `SELECT lang, track_order FROM work_language_tracks WHERE work_id=$1::uuid`, [workId]));
-  const have = new Set(existing.rows.map((r) => r.lang));
+  /* CSSOS_WAVE_2277 20261108 — Jing「先从根上修去重, 让 failed 的轨能重试」。
+   *
+   * 改之前: 去重只看【这个语言有没有行】, 不看状态 → 一条 failed 的轨会【永久堵住】这个语言,
+   * 除了删那一行没有别的路。实测撞上: 甘地的 hi 轨 suno_poll_timeout 之后, 再 POST 一次
+   * 只会拿到 NO_NEW_LANGUAGES。「生成失败就再也不能生成」显然不是我们要的。
+   *
+   * ⚠ 但【不能照字面只放开 status='failed'】—— 全库 22 条 failed 里有 20 条是【带着音频的】,
+   * 其中 19 条是 voice='pre-epic' 的版本行: 它们抱着 epic 之前那一版的 audio_url(W2145 把版本
+   * 身份从 lang 挪到 voice, 全部意义就是保住这些旧版), 状态写成 failed 只是因为 2026-09-23
+   * 那一批撞上 Suno 402 欠费。里面还有《举杯邀月》《春风得意》《桃花仙》—— W2086 那场
+   * 「17 首旧版音乐被覆盖」的幸存者。
+   *
+   * 放开它们 = 下一次重试把 audio_url 指向新音频 = 旧版从胶囊里消失。
+   * 字节还在 R2(内容哈希命名, 不会被删), 但【没人能选到它】—— 而「覆盖, 就是删掉」。
+   * 这正是 W2061/W2086 丢掉 19 首歌的同一个机制, 不能第三次踩。
+   *
+   * 所以判据是【有没有东西可丢】, 不是【状态叫什么】:
+   *   failed 且 audio_url/alt_audio_url 都空  → 真空失败, 什么也丢不了 → 放行重试
+   *   failed 但带着音频                      → 它是旧版的碑, 照旧堵住
+   * 现在全库正好 2 条属于前者(Jerusalem 的 ja 敏感词、甘地的 hi 超时)。
+   *
+   * pending/rendering 仍然堵住 —— 一条正在跑的轨再来一次就是双倍烧钱。
+   * superseded 也仍然堵住 —— 它是 W2142 刻意退场的行, 不在这次指令范围内。
+   *
+   * 重试会走 INSERT ... ON CONFLICT DO NOTHING(行已存在 → 什么也不插), 然后
+   * renderLanguageTrack 的 setStatus("rendering") 按 (work_id,lang,voice) 把这一行翻过来复用。
+   * 扣费没有重复: 失败那次【本来就没扣】(renderLanguageTrack 的 "no debit on failure"),
+   * 所以重试这次的扣费是第一次也是唯一一次。
+   */
+  const existing = await withClient((c) => c.query<{
+    lang: string; track_order: number; status: string | null;
+    audio_url: string | null; alt_audio_url: string | null;
+  }>(
+    `SELECT lang, track_order, status, audio_url, alt_audio_url
+       FROM work_language_tracks WHERE work_id=$1::uuid`, [workId]));
+  const isRetryableFailure = (r: { status: string | null; audio_url: string | null; alt_audio_url: string | null }) =>
+    String(r.status || "") === "failed" && !r.audio_url && !r.alt_audio_url;
+  const have = new Set(existing.rows.filter((r) => !isRetryableFailure(r)).map((r) => r.lang));
   let maxOrder = existing.rows.reduce((m, r) => Math.max(m, r.track_order), 0);
   const seen = new Set<string>();
   const fresh: string[] = [];

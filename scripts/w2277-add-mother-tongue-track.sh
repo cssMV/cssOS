@@ -101,6 +101,24 @@ if [ "$sing" != "--lyrics-file" ]; then
   esac
 fi
 
+# ── W2280 闸门: 段落标签在方括号里吗? ──────────────────────────────────
+#    引擎只认【方括号里】的指令, 括号外一律当唱词。裸的 `Chorus` 要么被唱出来
+#    (实测 2 首真唱了 "Music"), 要么被管线某处静默丢掉(实测 23 首)——
+#    后一种更阴: 那份 prompt 里的段落结构【根本没传进去】, 而屏幕上看不出来。
+#    两条路都要判, 判的对象不同:
+#      默认 / --sing-preview → 判库里的 lyrics_preview(它就是要被转译/直唱的那份)
+#      --lyrics-file         → 判那份手写词文件本身
+if [ "$sing" = "--lyrics-file" ]; then
+  set +e; python3 -I "$HERE/w2280-check-lyric-labels.py" --file "$lyrfile"; lab=$?; set -e
+else
+  set +e; python3 -I "$HERE/w2280-check-lyric-labels.py" "$wid"; lab=$?; set -e
+fi
+case "$lab" in
+  0) ;;
+  1) echo "FAIL: 段落标签没在方括号里, 不生成(见上面 BLOCK)"; exit 1;;
+  *) echo "FAIL: 段落标签判不了(rc=$lab), 不生成 —— 不许把【判不了】当通过"; exit 1;;
+esac
+
 # ── 先落备份, 再动手(W2086: 入库 R2 ≠ 保住旧版; 而「不备份就动手」是那 17 首的起点)──
 #    核对器拿【R2 上这份改前原件】当基准 —— 不是拿库里的当前值比当前值(那是同义反复)。
 #    备份不成就不许生成: 没有基准的「核对通过」毫无意义。

@@ -147,20 +147,50 @@ print(json.dumps({"voices":[sys.argv[2]],"lyrics":open(sys.argv[1],encoding="utf
   echo "   POST $resp"
   case "$resp" in *'"ok":true'*) ;; *) echo "   FAIL POST 没成"; echo "$wid	$lyr	POST 失败: $resp" >>"$FAILED"; fail_n=$((fail_n+1)); continue;; esac
 
-  # 5 等它就绪
+  # 5 等它就绪 —— 【光等 status=ready 是不够的】。
+  #   renderLanguageTrack 里字幕生成是 fire-and-forget 的 async IIFE,
+  #   它在 status='ready' 与 audio_url 落库【之后】才跑完。只等 ready 就去做快照,
+  #   拿到的还是旧版那一份 —— 实测这样挂错过一次(轨 1783/1784, 已用
+  #   w2281-dogwalker-fix-new-snapshot.sh 改正)。
+  #   所以再加一个判据, 而且是【直接比字节】, 不猜引擎怎么渲染我的词:
+  #     作品级 subtitle-take1.json 与【旧版快照那份】不同 → 新版字幕写进去了。
+  #     外加下限 en 条目 ≥ 40 行(手写词 50 行正文), 防着拿到半成品。
+  oldsnap=$(q "SELECT coalesce(subtitle_url,'') FROM work_language_tracks WHERE id=$oid;")
+  oldf=/tmp/w2281/dogwalker/$wid--oldsnap.json
+  if [ -n "$oldsnap" ]; then curl -s -o "$oldf" "$oldsnap" >/dev/null 2>&1 || : ; fi
+  st=""; subok=0
   for i in $(seq 1 90); do
     st=$(q "SELECT status||'|'||coalesce(audio_url,'')||'|'||coalesce(alt_audio_url,'')||'|'||id
               FROM work_language_tracks WHERE work_id='$wid'::uuid AND lang='$lang' AND voice='$VOICE';")
-    case "$st" in ready\|http*) break;; esac
+    case "$st" in
+      ready\|http*)
+        curf=/tmp/w2281/dogwalker/$wid--cur.json
+        if [ "$(curl -s -o "$curf" -w '%{http_code}' -A "Mozilla/5.0 (Macintosh) cssos-audit" \
+              "https://cdn.cssstudio.app/works/$wid/subtitle-take1.json?cb=$(date +%s)-$RANDOM")" = "200" ] \
+           && [ -s "$curf" ] && { [ ! -s "$oldf" ] || ! cmp -s "$curf" "$oldf"; }; then
+          nl=$(python3 -I -c '
+import json,sys
+j=json.load(open(sys.argv[1])); lg=sys.argv[2].lower()
+hit=[L for L in (j.get("languages") or []) if str(L.get("lang","")).lower().startswith(lg)]
+print(sum(len(s.get("lines") or []) for s in (hit[0].get("sections") or [])) if hit else 0)
+' "$curf" "$lang" 2>/dev/null || echo 0)
+          if [ "${nl:-0}" -ge 40 ]; then echo "   新版字幕已写进作品级($nl 行)"; subok=1; break; fi
+        fi
+        ;;
+      failed\|*) break;;
+    esac
     sleep 20
   done
   case "$st" in
     ready\|http*) ;;
     *) echo "   FAIL 新版没就绪: $st"; echo "$wid	$lyr	新版没就绪: $st" >>"$FAILED"; fail_n=$((fail_n+1)); continue;;
   esac
-  nau=$(printf '%s' "$st" | cut -d'|' -f2); nid=$(printf '%s' "$st" | cut -d'|' -f4)
-  echo "   新版轨 id=$nid  音频 …${nau: -28}"
-
+  if [ "$subok" != "1" ]; then
+    echo "   FAIL 音频就绪了但新版字幕一直没写进作品级 —— 这是【我没等到】, 不是【它失败了】;"
+    echo "        不做快照(拿旧版那份当新版的就是 W2267 那个错)。音频与旧版字幕都在, 稍后可用"
+    echo "        w2281-dogwalker-fix-new-snapshot.sh 补挂。"
+    echo "$wid	$lyr	新版字幕没等到(音频已成)" >>"$FAILED"; fail_n=$((fail_n+1)); continue
+  fi
   # 6 再给【新版】挂它自己的字幕
   if ! snap_for_track "$wid" "$nid" "$nau" new "$lang"; then
     echo "   FAIL 新版字幕没挂上(旧版已保住, 不回滚)"; echo "$wid	$lyr	新版字幕没挂上" >>"$FAILED"; fail_n=$((fail_n+1)); continue

@@ -44,7 +44,8 @@ def norm_lines(s):
 
 ok, bad = [], []
 for wid, lang, lyrfile in plan:
-    path = os.path.join(LYRDIR, lyrfile)
+    # 清单第三列可能是文件名, 也可能已经是绝对路径(dogwalker-pairs.tsv 就是后者)
+    path = lyrfile if os.path.isabs(lyrfile) else os.path.join(LYRDIR, lyrfile)
     if not os.path.exists(path):
         bad.append((wid[:8], lyrfile, ["发出去的词文件现在找不到了, 无法比对 —— 判不了就是不过"])); continue
     sent = open(path, encoding="utf-8").read()

@@ -42,6 +42,7 @@ R2 永不覆盖: 键 = sha1(音频URL)[:10], 已存在就先 cmp —— 字节�
 import hashlib, json, os, re, subprocess, sys, urllib.request
 
 APPLY = "--apply" in sys.argv
+VERIFY = "--verify" in sys.argv
 CAL = "--calibrate" in sys.argv
 LIMIT = int((next((a for a in sys.argv if a.startswith("--limit=")), "--limit=0")).split("=")[1])
 CUR = "/srv/cssos/current"
@@ -182,6 +183,57 @@ if CAL:
     print("校准通过(五个方向都对, 含时长那一维) —— 可以上全库")
     sys.exit(0)
 
+# ── --verify: 把【已经挂上值】的逐条验一遍 ────────────────────────────────
+#    判据三条, 任一不过就报出来:
+#      · 挂的地址必须等于 sha1(这条轨自己的 audio_url)[:10] 算出来的那个键
+#        —— 不等于就说明它挂的是【别人的音频】那一版的字幕
+#      · 这个地址取得下来(HTTP 200)
+#      · 取下来的内容里有这条轨那个语言的条目
+if VERIFY:
+    rows = psql("""
+    SELECT lt.id||'|'||lt.work_id::text||'|'||lt.lang||'|'||lt.audio_url||'|'||lt.subtitle_url
+      FROM work_language_tracks lt
+     WHERE coalesce(lt.subtitle_url,'') <> '' AND coalesce(lt.audio_url,'') <> ''
+     ORDER BY lt.id;
+    """)
+    items = []
+    for ln in rows.strip().split("\n"):
+        if not ln.strip(): continue
+        p = ln.split("|", 4)
+        if len(p) < 5: continue
+        items.append(p)
+    print(f"要验 {len(items)} 条（有 subtitle_url 且有音频的轨）\n")
+    v_ok = v_bad = 0
+    why_cnt = {}
+    for tid, wid, lang, au, su in items:
+        want = f"{CDN}/works/{wid}/subtitle-take1--a{hashlib.sha1(au.encode()).hexdigest()[:10]}.json"
+        prob = []
+        if su != want:
+            prob.append("挂的地址不是按【自己这条音频】算出来的键")
+        b = fetch(su, tries=2)
+        if b is None:
+            prob.append("取不到(HTTP 非 200)")
+        else:
+            try:
+                j = json.loads(b)
+                if not [L for L in (j.get("languages") or [])
+                        if str(L.get("lang", "")).lower() == lang.lower()]:
+                    prob.append(f"内容里没有 {lang} 条目")
+            except Exception:
+                prob.append("内容不是合法 JSON")
+        if prob:
+            v_bad += 1
+            for x in prob: why_cnt[x] = why_cnt.get(x, 0) + 1
+            print(f"  FAIL 轨{tid} {wid[:8]} {lang}: {', '.join(prob)}")
+        else:
+            v_ok += 1
+    print(f"\n验收汇总: 要验 {len(items)} · 过 {v_ok} · 不过 {v_bad}")
+    if why_cnt:
+        print("不过的原因分布: " + ", ".join(f"{k} {v}" for k, v in sorted(why_cnt.items(), key=lambda x: -x[1])))
+    if v_ok + v_bad != len(items):
+        sys.exit("FAIL: 过+不过 ≠ 要验 —— 自己的账对不上")
+    sys.exit(1 if v_bad else 0)
+
 # ── 取回填清单 ────────────────────────────────────────────────────────────
 rows = psql("""
 SELECT lt.id||'|'||lt.work_id::text||'|'||lt.lang||'|'||lt.voice||'|'||lt.audio_url
@@ -262,15 +314,20 @@ for i, r in enumerate(plan, 1):
             print(f"  {pre}  推完回读不一致/取不到 —— 不挂库")
             bad_n += 1; bump(reasons, "推完回读不一致"); continue
 
+    # ⚠ 这里【不要】拿 psql 打印的 "UPDATE 1" 当判据 —— `-q` 是 quiet, 它把命令标签
+    #   整个吞掉, stdout 永远是空的。第一版就是这么写的: 638 行其实都写进去了,
+    #   脚本却逐行报「这一行在我读它之后变了」, 然后跳过回读 —— 写对了, 却一条都没验。
+    #   「判据取不到」被我当成了「判据不满足」, 这两件事混在一起比写错更难查。
+    #   唯一可信的判据是【回读】。
     up = subprocess.run(
-        ["psql", DB, "-X", "-q", "-c",
+        ["psql", DB, "-X", "-c",
          "UPDATE work_language_tracks SET subtitle_url=$$" + url + "$$, updated_at=now() "
          f"WHERE id={r['tid']} AND coalesce(subtitle_url,'')='' "
          "AND audio_url=$$" + r["au"] + "$$"],
         capture_output=True, text=True)
-    if up.returncode or "UPDATE 1" not in up.stdout:
-        print(f"  {pre}  UPDATE 没影响到 1 行({up.stdout.strip() or up.stderr[:120]}) —— 这一行在我读它之后变了")
-        bad_n += 1; bump(reasons, "UPDATE 不是 1 行"); continue
+    if up.returncode:
+        print(f"  {pre}  UPDATE 报错: {up.stderr[:160]}")
+        bad_n += 1; bump(reasons, "UPDATE 报错"); continue
     chk = psql(f"SELECT coalesce(subtitle_url,'') FROM work_language_tracks WHERE id={r['tid']};").strip()
     if chk != url:
         print(f"  {pre}  回读库里是 '{chk[:60]}' —— 对不上")

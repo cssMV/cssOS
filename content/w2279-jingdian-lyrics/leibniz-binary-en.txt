@@ -1,0 +1,83 @@
+[Style: German Baroque with mechanical percussion, harpsichord and chamber organ over a clockwork tick, two-voice canon, Hanover workshop acoustics, precise and bright, allegretto]
+[Vocal: baritone lead with a two-part canon echoing him a beat late, Bach-cantata diction, no vibrato]
+[Language: English. One Latin motto in the Chorus, one line of Old High German counting-charm in the Bridge.]
+
+[Verse 1: The Stepped Reckoner, 1673]
+It is unworthy of excellent men to lose
+whole hours like slaves in the labour of a sum.
+So I built brass: a drum with stepped grooves,
+a carry that moves over when it should come,
+and all four operations in one box.
+
+[Verse 2: London Laughs Politely]
+I showed it to the Royal Society
+and it jammed on the carry, as it would
+for thirty years and every clockmaker.
+One machine, one craftsman, and no good
+way to cut a gear true. It was right on paper.
+
+[Chorus 1: Omnibus Ex Nihilo]
+Omnibus ex nihilo ducendis sufficit unum —
+to draw all things from nothing, one suffices.
+Nothing and one. Write zero, and write one,
+and every number in the world arises.
+I asked them for a medal. They said no.
+
+[Verse 3: Nothing and One]
+Two marks, and I can write the whole of count:
+the empty and the full, the night and day,
+creation out of nothing in an amount
+a child could check. Then double it away
+and the places carry upward, two by two.
+
+[Verse 4: Father Bouvet's Letter from Peking]
+A Jesuit sent me a diagram of lines,
+broken and whole, in sixty-four arrangements,
+drawn by a Chinese sage four thousand years
+before me — and it was my own invention.
+I wept over a page I had not written.
+
+[Chorus 2: Omnibus Ex Nihilo]
+Omnibus ex nihilo ducendis sufficit unum —
+to draw all things from nothing, one suffices.
+Nothing and one. Write zero, and write one,
+and every number in the world arises.
+I asked them for a medal. They said no.
+
+[Bridge: Gang Uz, Nesso]
+[Old High German counting-charm, Pro Nessia, ninth-century manuscript]
+Gang uz, nesso, mit niun nessinchlinon,
+uz fonna marge in deo adra.
+Go out, worm, with your nine little worms,
+out from the marrow into the vein —
+the oldest German charm I know is counting.
+
+[Chorus 3: Omnibus Ex Nihilo]
+Omnibus ex nihilo ducendis sufficit unum —
+to draw all things from nothing, one suffices.
+Nothing and one. Write zero, and write one,
+and every number in the world arises.
+I asked them for a medal. They said no.
+
+[Chorus 4: A Machine That Reasons]
+If we had the characters, I said, we could
+settle a dispute the way we settle sums:
+sit down, take up the pen, and say, let us
+calculate — and one of us would be wrong
+and both of us would know it in an hour.
+
+[Outro: Three Centuries Late]
+The brass machine sat broken in a loft
+in Goettingen until the nineteen-hundreds.
+The two marks went into a different box
+with no gears in it at all, and they moved,
+and everything you are holding runs on them.
+
+[References — not sung]
+[Leibniz's stepped reckoner and the stepped drum — https://en.wikipedia.org/wiki/Stepped_reckoner]
+[Explication de l'Arithmetique Binaire, 1703 — https://en.wikipedia.org/wiki/Binary_number]
+[Omnibus ex nihilo ducendis sufficit unum, Leibniz's proposed medal for binary — https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz]
+[Joachim Bouvet and the Fuxi hexagram diagram sent from Peking, 1701 — https://en.wikipedia.org/wiki/Joachim_Bouvet]
+[I Ching and Leibniz's binary interpretation — https://en.wikipedia.org/wiki/I_Ching]
+[Pro Nessia, Old High German worm charm — https://en.wikipedia.org/wiki/Old_High_German_literature]
+[Calculus ratiocinator, the reasoning machine — https://en.wikipedia.org/wiki/Calculus_ratiocinator]

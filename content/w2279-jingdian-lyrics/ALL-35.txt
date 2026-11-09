@@ -1,0 +1,3139 @@
+# W2279 —— 35 首手写京典模版词
+
+每一首对应库里一个作品, 一份词只用一次(35 份词 / 35 个作品)。
+`[...]` 里的一切都不唱: Style / Vocal / Language / 小节标题 / 咒语出处 / 典故链接。
+
+
+==============================================================================
+## 1. shakespeare-bankside-en.txt
+作品 8aee5eed-a7da-4341-a38e-b766bb512400   语言 en
+==============================================================================
+
+[Style: Elizabethan consort music, lute and viol, madrigal counterpoint, slow ground bass, Renaissance chamber strings, candlelit and sombre, adagio]
+[Vocal: countertenor lead over male consort chorus, English cathedral polyphony, close madrigal harmony, little vibrato]
+[Language: English — Early Modern English register. One line of Old English incantation in the Bridge.]
+
+[Verse 1: Moonlight on the Bankside]
+Moonlight is poured on the old playhouse floor,
+the Thames goes black beneath the Bankside stair.
+A thousand groundlings gone, and gone their roar —
+only the wind rehearses in the air.
+Speak, and the empty galleries will hear.
+
+[Verse 2: A Voice in the Dark Corner]
+In the dark corner someone hums a line
+he never wrote down, never meant to keep.
+Old April crowds the heart like watered wine;
+the dream of spring lies shallow in his sleep.
+We are such stuff as dreams are made on — sleep.
+
+[Chorus 1: Not Marble]
+Not marble, nor the gilded monuments —
+ink is the harder stone, the longer year.
+Each word you set is hung among the firmaments,
+each line you leave is lit, and still burns here.
+Shakespeare, your soul of verse is standing clear.
+
+[Verse 3: Fortune's Wheel]
+Fortune turns out her wheel and will not stay;
+she lifts the crown and lets the crown go down.
+Like as the waves make toward the pebbled bay,
+so come our minutes, breaking on the town.
+The tide takes playhouse, poet, prince and clown.
+
+[Verse 4: The Fire of 1613]
+A cannon fired in Henry caught the thatch;
+the Globe went up in one bright hour of June.
+They raised it twice. No fire could keep the latch
+on what was spoken there by afternoon.
+Timber may fall. The speaking does not swoon.
+
+[Chorus 2: Not Marble]
+Not marble, nor the gilded monuments —
+ink is the harder stone, the longer year.
+Each word you set is hung among the firmaments,
+each line you leave is lit, and still burns here.
+Shakespeare, your soul of verse is standing clear.
+
+[Bridge: Erce, Mother of Earth — the oldest charm in our tongue]
+[Old English incantation, Aecerbot field charm, 11th-century manuscript]
+Erce, Erce, Erce, eorthan modor —
+hal wes thu, folde, fira modor.
+Older than sonnets, older than the stage,
+this was the English that we whispered first,
+and all your lines are grafted on that root.
+
+[Chorus 3: Not Marble]
+Not marble, nor the gilded monuments —
+ink is the harder stone, the longer year.
+Each word you set is hung among the firmaments,
+each line you leave is lit, and still burns here.
+Shakespeare, your soul of verse is standing clear.
+
+[Chorus 4: Not of an Age]
+Heminges and Condell gathered up the leaves,
+and Jonson wrote: not of an age — for all time.
+Two friends, one folio; the century believes
+because two players would not let it climb
+into the dark unprinted. Keep the rhyme.
+
+[Outro: Holy Trinity, Stratford]
+At the end of the night, one old lament again.
+Curst be he that moves my bones, you said,
+and no man has. The chancel holds the stone.
+Sleep, Warwickshire. The words have gone from home
+and walk in every language but your own.
+
+[References — not sung]
+[Sonnet 55, "Not marble, nor the gilded monuments" — https://en.wikipedia.org/wiki/Sonnet_55]
+[Sonnet 60, "Like as the waves make towards the pebbled shore" — https://en.wikipedia.org/wiki/Sonnet_60]
+[The Tempest IV.i, "We are such stuff as dreams are made on" — https://en.wikipedia.org/wiki/The_Tempest]
+[Globe Theatre fire, 29 June 1613, during Henry VIII — https://en.wikipedia.org/wiki/Globe_Theatre]
+[First Folio, 1623, edited by John Heminges and Henry Condell — https://en.wikipedia.org/wiki/First_Folio]
+[Ben Jonson, "He was not of an age, but for all time" — https://en.wikipedia.org/wiki/Ben_Jonson]
+[Shakespeare's epitaph, Holy Trinity Church, Stratford-upon-Avon — https://en.wikipedia.org/wiki/Shakespeare%27s_funerary_monument]
+[Aecerbot, Old English metrical charm — https://en.wikipedia.org/wiki/%C3%86cerbot]
+[Rota Fortunae, Fortune's wheel — https://en.wikipedia.org/wiki/Rota_Fortunae]
+
+==============================================================================
+## 2. shakespeare-stage-en.txt
+作品 71652034-0072-424d-9d1c-475e0fdd2bad   语言 en
+==============================================================================
+
+[Style: Elizabethan broadside ballad, viol consort and recorder, pastoral Renaissance strings, slow 6/8 pavane, moonlit and valedictory, largo]
+[Vocal: solo tenor with a small mixed consort answering, English madrigal tuning, plain and unornamented]
+[Language: English — Early Modern register. One line of Old English incantation in the Bridge.]
+
+[Verse 1: Under a Quiet Sky]
+Under a quiet sky the stars come out
+above the Avon and the sleeping mill.
+I call, and softly, to a dream far out —
+a boy who walked to London and stood still
+at the one door that let a nobody in.
+
+[Verse 2: Walking Alone by Moonlight]
+Walking alone by moonlight down the lane,
+a thousand thoughts go touching at the past:
+the glover's bench, the schoolroom and the cane,
+the names of men whose names I made to last.
+I touch the shadow. Shadows do not hold.
+
+[Chorus 1: All the World's a Stage]
+All the world's a stage, and all the men
+and women merely players — so you wrote.
+One ancient air, ten thousand years again;
+we mourn the glory as we mourn the smoke.
+Exits and entrances. And then the dark.
+
+[Verse 3: Seven Ages]
+First the mewling infant, then the boy,
+the lover sighing like a furnace, then
+the soldier swearing at a borrowed joy,
+the justice with his capon and his pen,
+and last, sans teeth, sans eyes, sans everything.
+
+[Verse 4: The Years Go Like a Shuttle]
+The years go like a shuttle through the loom;
+the river carries off what it is lent.
+I look up at the whole lit span of room
+and count the fires that will not be re-lit.
+Golden lads and girls all must come to dust.
+
+[Chorus 2: All the World's a Stage]
+All the world's a stage, and all the men
+and women merely players — so you wrote.
+One ancient air, ten thousand years again;
+we mourn the glory as we mourn the smoke.
+Exits and entrances. And then the dark.
+
+[Bridge: Hlude Waeran Hy — against a sudden stitch]
+[Old English incantation, Wid Faerstice, Lacnunga manuscript, tenth century]
+Hlude waeran hy, la, hlude,
+tha hy ofer thone hlaew ridan.
+Older than the stage and older than the rhyme,
+this was the English that we whispered first
+when something none could see took us in the side.
+
+[Chorus 3: All the World's a Stage]
+All the world's a stage, and all the men
+and women merely players — so you wrote.
+One ancient air, ten thousand years again;
+we mourn the glory as we mourn the smoke.
+Exits and entrances. And then the dark.
+
+[Chorus 4: The Melody Like Wind]
+A melody goes through me like a wind
+across a field I will not cross again.
+There is a road back home I cannot find;
+the way is a country with no living men.
+Our revels now are ended. Let them end.
+
+[Outro: Calling Softly Still]
+Under a quiet sky the stars come out.
+I call, and softly, and the dream is wide —
+the memory has no end, and no last word,
+only the players coming on and off
+and someone in the dark who knows the lines.
+
+[References — not sung]
+[As You Like It II.vii, "All the world's a stage" and the seven ages — https://en.wikipedia.org/wiki/All_the_world%27s_a_stage]
+[Cymbeline IV.ii, "Golden lads and girls all must, as chimney-sweepers, come to dust" — https://en.wikipedia.org/wiki/Cymbeline]
+[The Tempest IV.i, "Our revels now are ended" — https://en.wikipedia.org/wiki/The_Tempest]
+[Wid Faerstice, Old English metrical charm, Lacnunga — https://en.wikipedia.org/wiki/Wi%C3%B0_f%C3%A6rstice]
+[John Shakespeare, glover of Stratford — https://en.wikipedia.org/wiki/John_Shakespeare]
+[King Edward VI School, Stratford-upon-Avon — https://en.wikipedia.org/wiki/King_Edward_VI_School,_Stratford-upon-Avon]
+
+==============================================================================
+## 3. shakespeare-hamlet-en.txt
+作品 472bc848-6852-432d-8f23-e59dd5eca42a   语言 en
+==============================================================================
+
+[Style: Elizabethan tragic consort, low viols and a single sackbut, Dorian mode, bell tolling under the choruses, graveyard stillness breaking into storm, lento]
+[Vocal: dark tenor lead with a low male chorus answering as the Ghost, spoken-close on the verses, no ornament]
+[Language: English — Early Modern register. One line of Old English incantation in the Bridge.]
+
+[Verse 1: Hamnet, August 1596]
+A boy of eleven buried in the nave,
+and the father two days' ride away, on tour.
+Judith lived. Her twin went in the grave.
+No letter. Nothing written. Not a word
+for four years, and then a prince with his name.
+
+[Verse 2: The Ghost on the Battlement]
+They say he played the Ghost himself, at night,
+in the cold scene before the drums begin —
+a father walking, armoured, out of sight,
+who tells his son the murder and goes in.
+Remember me. He wrote that for himself.
+
+[Chorus 1: To Be, or Not to Be]
+To be, or not to be — that is the question:
+whether to bear the arrows of the time
+or take arms up against a sea of troubles.
+The undiscovered country has no rhyme.
+Thus conscience makes us cowards. And we stay.
+
+[Verse 3: Wittenberg]
+He sent the prince to a university
+he never saw, to read a book of doubt.
+A student with a skull and a theory
+and thirty lines to get his father out.
+He reasons for four acts. Then it is spring.
+
+[Verse 4: Alas, Poor Yorick]
+A gravedigger throws up a jester's head
+and the prince holds it and begins to speak
+of lips he kissed. Where be your gibes now, said
+the man who made a living making jokes
+for people who were going in the ground.
+
+[Chorus 2: To Be, or Not to Be]
+To be, or not to be — that is the question:
+whether to bear the arrows of the time
+or take arms up against a sea of troubles.
+The undiscovered country has no rhyme.
+Thus conscience makes us cowards. And we stay.
+
+[Bridge: Ic Me On Thisse Gyrde Beluce]
+[Old English incantation, the Journey Charm, eleventh-century manuscript]
+Ic me on thisse gyrde beluce
+and on Godes helde bebeode.
+I lock myself inside this rod, and give
+myself into God's keeping — that was English
+before the stage, and it was for the road.
+
+[Chorus 3: To Be, or Not to Be]
+To be, or not to be — that is the question:
+whether to bear the arrows of the time
+or take arms up against a sea of troubles.
+The undiscovered country has no rhyme.
+Thus conscience makes us cowards. And we stay.
+
+[Chorus 4: The Rest Is Silence]
+Eight bodies on the boards and nobody left
+to tell it but a soldier and a friend.
+Horatio, report me and my cause,
+and let the rest of it be silence. End.
+The drum goes out. They carry him like a soldier.
+
+[Outro: Stratford, the Chancel]
+John Shakespeare went under in sixteen-one;
+the son was in the city, writing Hamlet.
+A glover and a player and a ghost,
+three men, one grief, one costume, and one armour.
+Good night, sweet prince. The flights of angels now.
+
+[References — not sung]
+[Hamnet Shakespeare, buried 11 August 1596 — https://en.wikipedia.org/wiki/Hamnet_Shakespeare]
+[Shakespeare reputedly played the Ghost in Hamlet — https://en.wikipedia.org/wiki/Hamlet]
+[Hamlet III.i, "To be, or not to be" — https://en.wikipedia.org/wiki/To_be,_or_not_to_be]
+[Hamlet V.i, the gravediggers and Yorick — https://en.wikipedia.org/wiki/Hamlet]
+[Old English Journey Charm, Sith Galdor — https://en.wikipedia.org/wiki/Journey_Charm]
+[Death of John Shakespeare, September 1601 — https://en.wikipedia.org/wiki/John_Shakespeare]
+[Hamlet V.ii, "the rest is silence" and "good night, sweet prince" — https://en.wikipedia.org/wiki/Hamlet]
+
+==============================================================================
+## 4. shakespeare-sonnets-en.txt
+作品 ce4e4c0b-62a4-4657-be2c-7a41311081db   语言 en
+==============================================================================
+
+[Style: Elizabethan lute song, solo lute and bass viol, John Dowland melancholy, intimate chamber air, one voice and one instrument, very slow]
+[Vocal: solo countertenor, close-miked and unaccompanied in places, English air-song diction, almost no vibrato]
+[Language: English — Early Modern register. One line of Old English incantation in the Bridge.]
+
+[Verse 1: Mr W.H.]
+A quarto nobody asked him to print,
+Thomas Thorpe, sixteen hundred and nine.
+To the only begetter of these sonnets,
+Mister W.H. — and not a further line.
+Four hundred years of men guessing a name.
+
+[Verse 2: One Hundred and Twenty-Six]
+The first long hundred go to a young man:
+be married, have a child, outlive the glass.
+Then stop insisting, then begin to plan
+how ink outlasts a body. Then, at last,
+the tenderness that nobody explains.
+
+[Chorus 1: Shall I Compare Thee]
+Shall I compare thee to a summer's day?
+Thou art more lovely and more temperate.
+Rough winds do shake the darling buds of May,
+and summer's lease hath all too short a date —
+so long as men can breathe, this gives thee life.
+
+[Verse 3: My Mistress' Eyes]
+And then a woman, and the tone goes hard:
+my mistress' eyes are nothing like the sun,
+her breath reeks, and her hair is black as wire,
+and I love her, and I will say so. Done.
+No goddess. Nobody had written that.
+
+[Verse 4: Th'Expense of Spirit]
+Th'expense of spirit in a waste of shame
+is lust in action — and before, a liar,
+and after, hated. He put his own name
+through that one, and he knew. Past reason, dear,
+hunted, and had, and hated. Then again.
+
+[Chorus 2: Shall I Compare Thee]
+Shall I compare thee to a summer's day?
+Thou art more lovely and more temperate.
+Rough winds do shake the darling buds of May,
+and summer's lease hath all too short a date —
+so long as men can breathe, this gives thee life.
+
+[Bridge: Sitte Ge, Sigewif]
+[Old English incantation, the Charm for a Swarm of Bees, tenth century]
+Sitte ge, sigewif, sigath to eorthan,
+naefre ge wilde to wuda fleogan.
+Settle, you victory-women, sink to earth,
+never fly wild into the wood again.
+A charm to keep the sweetness in the hive.
+
+[Chorus 3: Shall I Compare Thee]
+Shall I compare thee to a summer's day?
+Thou art more lovely and more temperate.
+Rough winds do shake the darling buds of May,
+and summer's lease hath all too short a date —
+so long as men can breathe, this gives thee life.
+
+[Chorus 4: Not Mine Own Fears]
+The years go past like water through a mill
+and nothing of the flesh of it survives.
+Not mine own fears, nor the prophetic soul
+of the wide world dreaming on things to come —
+can tell me how long any of this stays.
+
+[Outro: In Black Ink]
+One hundred fifty-four, and then no more.
+He never spoke about them. Not a note,
+no dedication of his own, no door
+left open on the question. Only this:
+in black ink still my love may still shine bright.
+
+[References — not sung]
+[Shake-speares Sonnets, Thomas Thorpe, 1609, and the dedication to Mr W.H. — https://en.wikipedia.org/wiki/Shakespeare%27s_sonnets]
+[The Fair Youth sequence, sonnets 1 to 126 — https://en.wikipedia.org/wiki/Fair_Youth]
+[Sonnet 18, "Shall I compare thee to a summer's day" — https://en.wikipedia.org/wiki/Sonnet_18]
+[Sonnet 130, "My mistress' eyes are nothing like the sun" — https://en.wikipedia.org/wiki/Sonnet_130]
+[Sonnet 129, "Th'expense of spirit in a waste of shame" — https://en.wikipedia.org/wiki/Sonnet_129]
+[Sonnet 107, "Not mine own fears, nor the prophetic soul" — https://en.wikipedia.org/wiki/Sonnet_107]
+[Sonnet 65, "in black ink my love may still shine bright" — https://en.wikipedia.org/wiki/Sonnet_65]
+[Old English Charm for a Swarm of Bees — https://en.wikipedia.org/wiki/Anglo-Saxon_metrical_charms]
+
+==============================================================================
+## 5. shakespeare-macbeth-en.txt
+作品 363df566-62b5-4fdb-81db-85b7ee43e4cc   语言 en
+==============================================================================
+
+[Style: Jacobean tragic orchestra, low strings and timpani with a shawm wailing over them, Aeolian mode, witch-chant rhythm in the choruses, dark and driving, allegro agitato]
+[Vocal: baritone lead with three high female voices answering as the weird sisters, chanted and metallic, no vibrato]
+[Language: English — Early Modern register. One line of Old English incantation in the Bridge.]
+
+[Verse 1: A Scottish King on the English Throne]
+A king came down from Scotland with a book
+he wrote himself on demons and their law,
+and the Gunpowder men had just been took
+and quartered at the Palace Yard. He saw
+witches in everything. So we wrote witches.
+
+[Verse 2: Upon the Heath]
+Three women on a blasted heath with news
+a soldier wanted badly, badly told:
+all hail, that shalt be king. And then he chews
+on it for twenty lines and he is sold.
+They never lied to him. They only named it.
+
+[Chorus 1: Tomorrow, and Tomorrow]
+Tomorrow, and tomorrow, and tomorrow,
+creeps in this petty pace from day to day
+to the last syllable of recorded time;
+and all our yesterdays have lit the way
+to dusty death. Out, out, brief candle. Out.
+
+[Verse 3: Out, Damned Spot]
+A woman walking in her sleep with light,
+rubbing a hand that has been clean for weeks.
+Who would have thought the old man had so much
+blood in him. All the perfumes of Arabia
+will not sweeten this little hand. Go, wash.
+
+[Verse 4: Birnam Wood]
+No man of woman born — and then a man
+cut from his mother sideways, in the dark.
+The wood will never move — and then it can,
+because an army carries branches. Mark
+how every promise kept him and still killed him.
+
+[Chorus 2: Tomorrow, and Tomorrow]
+Tomorrow, and tomorrow, and tomorrow,
+creeps in this petty pace from day to day
+to the last syllable of recorded time;
+and all our yesterdays have lit the way
+to dusty death. Out, out, brief candle. Out.
+
+[Bridge: Her Com Ingangan]
+[Old English incantation, Wid Dweorh, against a fever-spirit, tenth century]
+Her com ingangan in spidenwiht,
+haefde him his haman on handa.
+Here came a creeping spider-thing inside,
+carrying his harness in his hand.
+That was the English nightmare. We only staged it.
+
+[Chorus 3: Tomorrow, and Tomorrow]
+Tomorrow, and tomorrow, and tomorrow,
+creeps in this petty pace from day to day
+to the last syllable of recorded time;
+and all our yesterdays have lit the way
+to dusty death. Out, out, brief candle. Out.
+
+[Chorus 4: The Porter at the Gate]
+And in the middle of it, someone knocks,
+and a drunk porter comes to let them in
+and makes three jokes about the gate of hell.
+That is the whole machine: a laugh, a sin,
+a door, a man with a lantern, and the murder.
+
+[Outro: The Shortest of the Tragedies]
+Two thousand lines, the shortest of the four,
+and not one scene in it you can forget.
+They say the players will not speak its name
+inside a theatre. Call it the Scottish play.
+The candle's out. Walk home. Say nothing more.
+
+[References — not sung]
+[James I, Daemonologie, 1597, and the royal interest in witchcraft — https://en.wikipedia.org/wiki/Daemonologie]
+[Gunpowder Plot, 1605, and the executions of 1606 — https://en.wikipedia.org/wiki/Gunpowder_Plot]
+[Macbeth V.v, "Tomorrow, and tomorrow, and tomorrow" — https://en.wikipedia.org/wiki/Macbeth]
+[Macbeth V.i, Lady Macbeth's sleepwalking scene — https://en.wikipedia.org/wiki/Lady_Macbeth]
+[Macbeth, the prophecies of Birnam Wood and "no man of woman born" — https://en.wikipedia.org/wiki/Macbeth]
+[Macbeth II.iii, the Porter scene — https://en.wikipedia.org/wiki/Macbeth]
+[Wid Dweorh, Old English metrical charm — https://en.wikipedia.org/wiki/Anglo-Saxon_metrical_charms]
+[The Scottish play superstition — https://en.wikipedia.org/wiki/The_Scottish_Play]
+
+==============================================================================
+## 6. shakespeare-agincourt-en.txt
+作品 4dc47b14-c6a0-41b2-b5a4-340b026a9776   语言 en
+==============================================================================
+
+[Style: English Renaissance martial, natural trumpets and side drums with viol consort, Mixolydian mode, processional building to a full brass chorale, allegro marziale]
+[Vocal: heroic tenor lead with a male soldiers chorus answering in unison, declamatory, open-throat]
+[Language: English — Early Modern register. One line of Old English battle-verse in the Bridge.]
+
+[Verse 1: A Muse of Fire]
+O for a Muse of fire that would ascend
+the brightest heaven of invention —
+a kingdom for a stage, princes to act,
+and monarchs to behold the swelling scene.
+We have a wooden circle and some flags.
+
+[Verse 2: This Wooden O]
+Can this cockpit hold the fields of France?
+Or may we cram within this wooden O
+the very casques that did affright the air
+at Agincourt? Then let us, and suppose
+one man a thousand. Piece out our faults with thought.
+
+[Chorus 1: We Few, We Happy Few]
+We few, we happy few, we band of brothers;
+for he today that sheds his blood with me
+shall be my brother. Be he ne'er so vile,
+this day shall gentle his condition. See —
+the colours going up. And hold the line.
+
+[Verse 3: Saint Crispin's Day]
+The twenty-fifth of October, fourteen fifteen,
+in the ploughed mud and rain at Maisoncelle:
+six thousand English, archers in the rain,
+and thirty thousand horse in a narrow field
+that would not let a knight turn round and live.
+
+[Verse 4: Falstaff Dies Offstage]
+The fat man does not come. A woman says
+the king has killed his heart, and that is all.
+Three plays of laughter finished in a phrase
+by a hostess in a doorway. Then the wall
+of France. No comedy survives a crown.
+
+[Chorus 2: We Few, We Happy Few]
+We few, we happy few, we band of brothers;
+for he today that sheds his blood with me
+shall be my brother. Be he ne'er so vile,
+this day shall gentle his condition. See —
+the colours going up. And hold the line.
+
+[Bridge: Her Aethelstan Cyning]
+[Oldest English battle-verse, The Battle of Brunanburh, Anglo-Saxon Chronicle, 937]
+Her Aethelstan cyning, eorla dryhten,
+geslogon aet saecce sweorda ecgum.
+Here Athelstan the king, lord of earls,
+struck in the battle with the edges of swords.
+We were singing war in English long before.
+
+[Chorus 3: We Few, We Happy Few]
+We few, we happy few, we band of brothers;
+for he today that sheds his blood with me
+shall be my brother. Be he ne'er so vile,
+this day shall gentle his condition. See —
+the colours going up. And hold the line.
+
+[Chorus 4: The King Walks the Camp]
+At night he borrows a cloak and walks the lines
+and argues with his own men about the cause,
+and loses the argument, and says nothing,
+and goes aside and asks what a king is.
+Upon the king. Let us our lives lay on.
+
+[Outro: The Chorus Bows]
+Thus far with rough and all-unable pen
+our bending author hath pursued the story.
+Small time, but in that small most greatly lived
+this star of England. Now the glory goes
+and France is lost again. Admit the Chorus out.
+
+[References — not sung]
+[Henry V, Prologue, "O for a Muse of fire" and "this wooden O" — https://en.wikipedia.org/wiki/Henry_V_(play)]
+[Henry V IV.iii, the St Crispin's Day speech — https://en.wikipedia.org/wiki/St_Crispin%27s_Day_Speech]
+[Battle of Agincourt, 25 October 1415 — https://en.wikipedia.org/wiki/Battle_of_Agincourt]
+[The death of Falstaff reported in Henry V II.iii — https://en.wikipedia.org/wiki/Falstaff]
+[Henry V IV.i, the king in disguise and "upon the king" — https://en.wikipedia.org/wiki/Henry_V_(play)]
+[The Battle of Brunanburh, Old English poem of 937 — https://en.wikipedia.org/wiki/Battle_of_Brunanburh_(poem)]
+[The Globe Theatre, opened 1599, Henry V's first season — https://en.wikipedia.org/wiki/Globe_Theatre]
+
+==============================================================================
+## 7. shakespeare-prospero-en.txt
+作品 05a2455e-b075-4a56-a4e6-74031b0f8510   语言 en
+==============================================================================
+
+[Style: Late Jacobean masque, consort of recorders and a chamber organ with a solo lute, Blackfriars indoor acoustics, serene and dissolving, adagio, ending unaccompanied]
+[Vocal: aging baritone lead, spoken-close and unhurried, a thin high choir fading behind him, no ornament]
+[Language: English — Early Modern register. One line of Old English banishing charm in the Bridge.]
+
+[Verse 1: Blackfriars, 1611]
+A roofed hall now, and candles, and a price
+that keeps the groundlings out and brings the court.
+Music between the acts. A quieter voice
+will carry here. The writing can be short
+and strange, and nobody will call for blood.
+
+[Verse 2: The Island]
+An old man on an island with a book,
+a daughter who has never seen a man,
+a spirit he has promised twice to free
+and keeps for one more errand, one more plan.
+Twelve years of exile managed like a stage.
+
+[Chorus 1: Now My Charms Are All O'erthrown]
+Now my charms are all o'erthrown,
+and what strength I have's mine own,
+which is most faint. Release me from my bands
+with the help of your good hands.
+Let your indulgence set me free.
+
+[Verse 3: Break My Staff]
+I'll break my staff, bury it fathoms deep,
+and deeper than did ever plummet sound
+I'll drown my book. The thing that let me keep
+the weather and the dead men off the ground —
+I put it in the sea. On purpose. Done.
+
+[Verse 4: Two Noble Kinsmen]
+And then a younger man came in to write
+the last two with me: Fletcher, and his hand
+is plain in every other scene. All right.
+I took the credit and I took the stand
+of a man who has somewhere else to be.
+
+[Chorus 2: Now My Charms Are All O'erthrown]
+Now my charms are all o'erthrown,
+and what strength I have's mine own,
+which is most faint. Release me from my bands
+with the help of your good hands.
+Let your indulgence set me free.
+
+[Bridge: Wenne, Wenne, Wenchichenne]
+[Old English banishing charm, Wid Wennum, against a growth, eleventh century]
+Wenne, wenne, wenchichenne,
+her ne scealt thu timbrien, ne nenne tun habban.
+Wen, wen, little wen, you shall not build
+here, nor have any homestead here at all.
+The oldest English word for: go. Be gone.
+
+[Chorus 3: Now My Charms Are All O'erthrown]
+Now my charms are all o'erthrown,
+and what strength I have's mine own,
+which is most faint. Release me from my bands
+with the help of your good hands.
+Let your indulgence set me free.
+
+[Chorus 4: New Place]
+He bought the second-largest house in town
+with ten rooms and a barn and a mulberry,
+and sued a man for forty shillings, and sat down,
+and went to law about a hedge, and married
+his daughter off, and wrote almost nothing.
+
+[Outro: The Second-Best Bed]
+A will in March, three signatures, a shake
+in every one of them, and one bequest
+inserted between lines: unto my wife
+the second-best bed, with the furniture.
+The twenty-third of April. Let him rest.
+
+[References — not sung]
+[Blackfriars Theatre, the King's Men indoor playhouse from 1608 — https://en.wikipedia.org/wiki/Blackfriars_Theatre]
+[The Tempest, around 1611 — https://en.wikipedia.org/wiki/The_Tempest]
+[The Tempest, Epilogue, "Now my charms are all o'erthrown" — https://en.wikipedia.org/wiki/The_Tempest]
+[The Tempest V.i, "I'll break my staff" and "drown my book" — https://en.wikipedia.org/wiki/The_Tempest]
+[The Two Noble Kinsmen and Henry VIII, written with John Fletcher — https://en.wikipedia.org/wiki/The_Two_Noble_Kinsmen]
+[Wid Wennum, Old English charm against a wen — https://en.wikipedia.org/wiki/Anglo-Saxon_metrical_charms]
+[New Place, Stratford-upon-Avon — https://en.wikipedia.org/wiki/Shakespeare%27s_New_Place]
+[Shakespeare's will and the second-best bed — https://en.wikipedia.org/wiki/Shakespeare%27s_will]
+
+==============================================================================
+## 8. leibniz-calculus-en.txt
+作品 017eda8e-cbf4-42b1-8292-5cbeed67e4a0   语言 en
+==============================================================================
+
+[Style: German high Baroque, chamber organ and strings, fugal counterpoint, walking bass, Lutheran chorale cadence, measured and luminous, andante maestoso]
+[Vocal: baritone lead with a small four-part chorale answering, Bach-passion declamation, little vibrato]
+[Language: English. One line of Old High German incantation in the Bridge, one Latin motto in the Chorus.]
+
+[Verse 1: Under the Silent Sky]
+Under the silent sky the stars stand thick
+above the Leine and the ducal gate.
+A clerk with too much work and one small trick
+of notation sits and will not go to bed:
+the night is long, and infinite, and short.
+
+[Verse 2: Wandering the Ocean of Knowledge]
+I wander in an ocean made of books —
+law, mining, China, history, mathematics —
+and hope burns in me like a lamp that looks
+for one true alphabet beneath the statics,
+one script in which all thinking could be done.
+
+[Chorus 1: Calculemus]
+Oh, the bright glory of the calculus:
+the door of logic and of truth swings wide.
+Nothing at all is ever without cause — thus
+let us not argue, friend. Let us decide.
+Calculemus. Let us calculate.
+
+[Verse 3: Geometry and Living Force]
+I turn the mystery of the world around:
+geometry and living force entwined,
+the curve made out of straight things finely ground,
+the tangent and the quadrature combined,
+and the long S I drew to mean a sum.
+
+[Verse 4: The Quarrel with the Englishman]
+Newton had it first and would not say;
+I had it after and I wrote it best.
+The Royal Society gave him the day,
+and both of us were right, and both were pressed.
+History kept the notation. Keep the sign.
+
+[Chorus 2: Calculemus]
+Oh, the bright glory of the calculus:
+the door of logic and of truth swings wide.
+Nothing at all is ever without cause — thus
+let us not argue, friend. Let us decide.
+Calculemus. Let us calculate.
+
+[Bridge: Ben Zi Bena — bone to bone]
+[Old High German incantation, the Second Merseburg Charm, tenth-century manuscript]
+Ben zi bena, bluot zi bluoda,
+lid zi geliden, sose gelimida sin.
+Bone to bone and blood to blood, and so
+all things that are are jointed and agreed:
+no single thing can move but all consent.
+
+[Chorus 3: Calculemus]
+Oh, the bright glory of the calculus:
+the door of logic and of truth swings wide.
+Nothing at all is ever without cause — thus
+let us not argue, friend. Let us decide.
+Calculemus. Let us calculate.
+
+[Chorus 4: Nothing Without Reason]
+In the long river of time, thought is a flame
+that nothing drowns and nothing quite puts out;
+it lights the corners of a coming age
+that will not know your wig, your gout, your doubt.
+All things are joined. And cause walks close behind.
+
+[Outro: Hanover, Winter Rain]
+They buried you with almost nobody there —
+one clerk, one priest, one carriage, one cold rain.
+Thank you, Leibniz. Everything you were
+is in the mark that every schoolchild writes.
+You lit all of this, and then you went out.
+
+[References — not sung]
+[Calculemus and the characteristica universalis — https://en.wikipedia.org/wiki/Characteristica_universalis]
+[Principle of sufficient reason, nihil est sine ratione — https://en.wikipedia.org/wiki/Principle_of_sufficient_reason]
+[Leibniz's notation, the integral sign and dx — https://en.wikipedia.org/wiki/Leibniz%27s_notation]
+[Leibniz-Newton calculus controversy — https://en.wikipedia.org/wiki/Leibniz%E2%80%93Newton_calculus_controversy]
+[Vis viva, living force — https://en.wikipedia.org/wiki/Vis_viva]
+[Merseburg charms, Old High German — https://en.wikipedia.org/wiki/Merseburg_charms]
+[Leibniz's funeral at the Neustaedter Hof- und Stadtkirche, Hanover — https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz]
+
+==============================================================================
+## 9. leibniz-monads-en.txt
+作品 c76e4fe5-9cae-41ce-9d25-994dbf909593   语言 en
+==============================================================================
+
+[Style: German Baroque, harpsichord and viola da gamba, slow chaconne over a ground bass, chapel reverberation, contemplative, adagio]
+[Vocal: tenor lead, single voice with sparse chorale echo, oratorio recitative, restrained]
+[Language: English. One line of archaic Latin incantation in the Bridge.]
+
+[Verse 1: A Preface Under Stars]
+Under the quiet sky my thinking drifts
+along beside the slow stars, and won't land.
+The mind goes out from me in little rifts
+and comes back holding almost nothing. And
+the almost-nothing is the whole of it.
+
+[Verse 2: The Nature of All Things]
+I think upon the nature of all things:
+what substance is, what makes a thing one thing.
+The mystery of space and time, which brings
+its own best answer only by withdrawing.
+There is no empty room. There is no when.
+
+[Chorus 1: Truth Like Scattered Stars]
+Oh, truth is scattered out like glittering stars;
+the seeking heart has never once stood still.
+Cum Deus calculat, fit mundus — thus:
+when God computes, and bends his thought to will,
+a world comes out. We live inside the sum.
+
+[Verse 3: The Monads Have No Windows]
+The monads have no windows, none at all;
+each one a little mirror of the whole.
+Nothing comes in. Nothing goes through the wall.
+And yet they are in concert, soul with soul,
+because the score was written all at once.
+
+[Verse 4: The Best of All Possible Worlds]
+Of all the worlds that could have been let stand,
+this one was chosen — not the kindest one,
+the richest in its reasons, best in hand.
+They laughed at me in Paris. Voltaire won
+the century. The argument remains.
+
+[Chorus 2: Truth Like Scattered Stars]
+Oh, truth is scattered out like glittering stars;
+the seeking heart has never once stood still.
+Cum Deus calculat, fit mundus — thus:
+when God computes, and bends his thought to will,
+a world comes out. We live inside the sum.
+
+[Bridge: Enos Lases Iuvate]
+[Archaic Latin incantation, the Carmen Arvale, oldest surviving Latin verse]
+Enos Lases iuvate, enos Lases iuvate,
+neve lue rue, Marmar, sins incurrere in pleoris.
+Older than the schools, older than the proofs,
+this was the Latin back when Latin prayed,
+and all my demonstrations lean on it.
+
+[Chorus 3: Truth Like Scattered Stars]
+Oh, truth is scattered out like glittering stars;
+the seeking heart has never once stood still.
+Cum Deus calculat, fit mundus — thus:
+when God computes, and bends his thought to will,
+a world comes out. We live inside the sum.
+
+[Chorus 4: The Lighthouse of Philosophy]
+The lighthouse of philosophy still turns
+across an ocean nobody has crossed.
+The sparks go up. Each separate spark burns
+exactly once, and none of it is lost:
+the sum of all of them is called a world.
+
+[Outro: Let My Thought Be a River]
+Let all my thinking run the way a river runs,
+through wisdom's open country, loud and wide,
+past Hanover, past Leipzig, past the sons
+of men who never heard my name, and die
+still holding, without knowing, what I signed.
+
+[References — not sung]
+[Monadology, 1714, the monads have no windows — https://en.wikipedia.org/wiki/Monadology]
+[Pre-established harmony — https://en.wikipedia.org/wiki/Pre-established_harmony]
+[Best of all possible worlds, and Voltaire's Candide — https://en.wikipedia.org/wiki/Best_of_all_possible_worlds]
+[Cum Deus calculat et cogitationem exercet, fit mundus — https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz]
+[Carmen Arvale, the hymn of the Arval Brethren — https://en.wikipedia.org/wiki/Carmen_Arvale]
+[Theodicy, 1710 — https://en.wikipedia.org/wiki/Theodicy_(book)]
+
+==============================================================================
+## 10. leibniz-binary-en.txt
+作品 7b930b95-f034-4059-962a-ce6233029a6a   语言 en
+==============================================================================
+
+[Style: German Baroque with mechanical percussion, harpsichord and chamber organ over a clockwork tick, two-voice canon, Hanover workshop acoustics, precise and bright, allegretto]
+[Vocal: baritone lead with a two-part canon echoing him a beat late, Bach-cantata diction, no vibrato]
+[Language: English. One Latin motto in the Chorus, one line of Old High German counting-charm in the Bridge.]
+
+[Verse 1: The Stepped Reckoner, 1673]
+It is unworthy of excellent men to lose
+whole hours like slaves in the labour of a sum.
+So I built brass: a drum with stepped grooves,
+a carry that moves over when it should come,
+and all four operations in one box.
+
+[Verse 2: London Laughs Politely]
+I showed it to the Royal Society
+and it jammed on the carry, as it would
+for thirty years and every clockmaker.
+One machine, one craftsman, and no good
+way to cut a gear true. It was right on paper.
+
+[Chorus 1: Omnibus Ex Nihilo]
+Omnibus ex nihilo ducendis sufficit unum —
+to draw all things from nothing, one suffices.
+Nothing and one. Write zero, and write one,
+and every number in the world arises.
+I asked them for a medal. They said no.
+
+[Verse 3: Nothing and One]
+Two marks, and I can write the whole of count:
+the empty and the full, the night and day,
+creation out of nothing in an amount
+a child could check. Then double it away
+and the places carry upward, two by two.
+
+[Verse 4: Father Bouvet's Letter from Peking]
+A Jesuit sent me a diagram of lines,
+broken and whole, in sixty-four arrangements,
+drawn by a Chinese sage four thousand years
+before me — and it was my own invention.
+I wept over a page I had not written.
+
+[Chorus 2: Omnibus Ex Nihilo]
+Omnibus ex nihilo ducendis sufficit unum —
+to draw all things from nothing, one suffices.
+Nothing and one. Write zero, and write one,
+and every number in the world arises.
+I asked them for a medal. They said no.
+
+[Bridge: Gang Uz, Nesso]
+[Old High German counting-charm, Pro Nessia, ninth-century manuscript]
+Gang uz, nesso, mit niun nessinchlinon,
+uz fonna marge in deo adra.
+Go out, worm, with your nine little worms,
+out from the marrow into the vein —
+the oldest German charm I know is counting.
+
+[Chorus 3: Omnibus Ex Nihilo]
+Omnibus ex nihilo ducendis sufficit unum —
+to draw all things from nothing, one suffices.
+Nothing and one. Write zero, and write one,
+and every number in the world arises.
+I asked them for a medal. They said no.
+
+[Chorus 4: A Machine That Reasons]
+If we had the characters, I said, we could
+settle a dispute the way we settle sums:
+sit down, take up the pen, and say, let us
+calculate — and one of us would be wrong
+and both of us would know it in an hour.
+
+[Outro: Three Centuries Late]
+The brass machine sat broken in a loft
+in Goettingen until the nineteen-hundreds.
+The two marks went into a different box
+with no gears in it at all, and they moved,
+and everything you are holding runs on them.
+
+[References — not sung]
+[Leibniz's stepped reckoner and the stepped drum — https://en.wikipedia.org/wiki/Stepped_reckoner]
+[Explication de l'Arithmetique Binaire, 1703 — https://en.wikipedia.org/wiki/Binary_number]
+[Omnibus ex nihilo ducendis sufficit unum, Leibniz's proposed medal for binary — https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz]
+[Joachim Bouvet and the Fuxi hexagram diagram sent from Peking, 1701 — https://en.wikipedia.org/wiki/Joachim_Bouvet]
+[I Ching and Leibniz's binary interpretation — https://en.wikipedia.org/wiki/I_Ching]
+[Pro Nessia, Old High German worm charm — https://en.wikipedia.org/wiki/Old_High_German_literature]
+[Calculus ratiocinator, the reasoning machine — https://en.wikipedia.org/wiki/Calculus_ratiocinator]
+
+==============================================================================
+## 11. leibniz-library-en.txt
+作品 2d6a4332-0857-4a75-95ac-f1fa72dfce7b   语言 en
+==============================================================================
+
+[Style: German Baroque, chamber organ and muted strings in a long slow passacaglia, library acoustics, paper and dust, patient and unresolved, adagio]
+[Vocal: tenor lead, quiet and archival, a distant choir on the choruses only, straight tone]
+[Language: English. One Latin motto in the Chorus, one line of the oldest German heroic verse in the Bridge.]
+
+[Verse 1: Librarian, Wolfenbuettel and Hanover]
+Forty years a librarian to a duke
+who wanted a family history written out.
+I catalogued, invented the subject book,
+proposed a shelf-mark system nobody took,
+and read my way through everything they had.
+
+[Verse 2: The House of Brunswick, Unfinished]
+The Guelph history: I went to Austria,
+to Rome, to Modena, read charters, copied seals,
+and got the family back to the ninth century,
+and never finished it. Three volumes. Reels
+of notes. The duke outlived his patience first.
+
+[Chorus 1: Theoria cum Praxi]
+Theoria cum praxi — theory with practice.
+I gave the Berlin Society that line
+and asked for mills and mines and insurance maths
+beside the pure geometry. Combine
+them, or the academy is a drawing room.
+
+[Verse 3: Sixteen Thousand Letters]
+Eleven hundred correspondents, and I wrote
+to every one of them, in four languages:
+to Peking about hexagrams, to Rome
+about the churches, to a dozen sages
+about a tooth, a mine, a pump, a proof.
+
+[Verse 4: Two Hundred Thousand Sheets]
+What I left behind is in a vault in Hanover:
+two hundred thousand pages, mostly loose,
+half of it in a shorthand of my own,
+and the best of my philosophy still unused
+because I filed it and then wrote the next.
+
+[Chorus 2: Theoria cum Praxi]
+Theoria cum praxi — theory with practice.
+I gave the Berlin Society that line
+and asked for mills and mines and insurance maths
+beside the pure geometry. Combine
+them, or the academy is a drawing room.
+
+[Bridge: Ik Gihorta Dat Seggen]
+[Oldest German heroic verse, the Hildebrandslied, ninth-century manuscript]
+Ik gihorta dat seggen, dat sih urhettun
+aenon muotin, Hiltibrant enti Hadubrant.
+I heard it told that two men met alone,
+a father and a son, as enemies —
+and the poem breaks off. It has no ending either.
+
+[Chorus 3: Theoria cum Praxi]
+Theoria cum praxi — theory with practice.
+I gave the Berlin Society that line
+and asked for mills and mines and insurance maths
+beside the pure geometry. Combine
+them, or the academy is a drawing room.
+
+[Chorus 4: The Universal Library]
+I wanted one encyclopedia for everyone,
+all the sciences reduced to one notation,
+an academy in Dresden, Vienna, Petersburg,
+one church again, one script, one federation —
+I proposed all of it. I got the shelving.
+
+[Outro: Unread for Two Hundred Years]
+They buried me as if I were a thief
+and the archive sat unopened, box on box.
+The Monadology came out after my death.
+The rest of it is still being transcribed.
+Read me slowly. I filed it all for you.
+
+[References — not sung]
+[Leibniz as librarian at Wolfenbuettel and Hanover — https://en.wikipedia.org/wiki/Herzog_August_Library]
+[The unfinished history of the House of Brunswick — https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz]
+[Theoria cum praxi, the motto of the Berlin Academy, founded 1700 — https://en.wikipedia.org/wiki/Prussian_Academy_of_Sciences]
+[The Leibniz correspondence, about 16,000 letters to 1,100 people — https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz]
+[Leibniz-Nachlass, UNESCO Memory of the World — https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz]
+[Hildebrandslied, oldest surviving German heroic poem, breaks off unfinished — https://en.wikipedia.org/wiki/Hildebrandslied]
+
+==============================================================================
+## 12. leibniz-theodicy-en.txt
+作品 972d22f2-f4f8-40c8-aa36-7a5238d42b0d   语言 en
+==============================================================================
+
+[Style: German Baroque sacred, full chamber organ with low strings and a single oboe, Lutheran chorale harmonisation, church acoustics, argumentative then resigned, andante grave]
+[Vocal: bass lead with a four-part chorale answering, oratorio declamation, straight tone]
+[Language: English. One Latin principle in the Chorus, one line of Old High German charm in the Bridge.]
+
+[Verse 1: Why Is There Anything Wrong]
+A queen in Berlin asked me the old question:
+if He is good and able, why the plague?
+I wrote four hundred pages in French for her
+and gave the thing a name nobody had —
+theodicy. The trial of God. His case.
+
+[Verse 2: The Only Book I Published]
+Everything else I wrote stayed in a drawer
+or went out in a letter to one man.
+This one I printed: seventeen hundred ten,
+in Amsterdam, in French, so it would scan
+for a court and not a faculty of theology.
+
+[Chorus 1: Nihil Est Sine Ratione]
+Nihil est sine ratione — nothing is
+without a reason, nothing stands alone.
+Not the stone falling, not the suffering,
+not the one arrangement of the world we own.
+Ask why, and there is always an answer. Ask.
+
+[Verse 3: Clarke Writes for Newton, 1715]
+A chaplain in London answering for Newton:
+space is a thing, he says, a stage God built,
+absolute, empty, there before the motion.
+I said: then show me which half of it tilts.
+If the whole of it slid left, who could tell?
+
+[Verse 4: Two Things Exactly Alike]
+There are no two leaves in the garden the same.
+Put two identical things in the world, and God
+had no reason to put this one in that place —
+and He does nothing without reason. So the odd
+consequence is: identicals are one.
+
+[Chorus 2: Nihil Est Sine Ratione]
+Nihil est sine ratione — nothing is
+without a reason, nothing stands alone.
+Not the stone falling, not the suffering,
+not the one arrangement of the world we own.
+Ask why, and there is always an answer. Ask.
+
+[Bridge: Man Gieng After Wege]
+[Old High German charm, Ad Equum Errehet, for a lamed horse, tenth century]
+Man gieng after wege, zoh sin ros in handoz,
+do gisagita imo sin ros umbi sin fuoz.
+A man went down the road and led his horse
+by hand, and the horse told him of its foot.
+Older than the quarrel. Still a limp.
+
+[Chorus 3: Nihil Est Sine Ratione]
+Nihil est sine ratione — nothing is
+without a reason, nothing stands alone.
+Not the stone falling, not the suffering,
+not the one arrangement of the world we own.
+Ask why, and there is always an answer. Ask.
+
+[Chorus 4: Five Letters, and Then Silence]
+Five letters each, and then November came
+and I was dead, and Clarke had the last word,
+and printed both sides with his own name
+on the cover, and the English all concurred.
+Two hundred years. Then Mach. Then Einstein. Then me.
+
+[Outro: Hanover, 14 November 1716]
+No delegation from the academy I founded,
+no word from London, no word from Berlin.
+A secretary and a priest, and the ground
+too hard that week, and the register thin.
+Nothing is without reason. Even this.
+
+[References — not sung]
+[Theodicy, 1710, written for Sophia Charlotte of Hanover — https://en.wikipedia.org/wiki/Theodicy_(book)]
+[The word theodicee, coined by Leibniz — https://en.wikipedia.org/wiki/Theodicy]
+[Principle of sufficient reason — https://en.wikipedia.org/wiki/Principle_of_sufficient_reason]
+[Leibniz-Clarke correspondence, 1715 to 1716, on absolute space and time — https://en.wikipedia.org/wiki/Leibniz%E2%80%93Clarke_correspondence]
+[Identity of indiscernibles — https://en.wikipedia.org/wiki/Identity_of_indiscernibles]
+[Ad Equum Errehet, Old High German horse charm — https://en.wikipedia.org/wiki/Old_High_German_literature]
+[Leibniz's death and burial, 14 November 1716 — https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz]
+
+==============================================================================
+## 13. marx-unite-en.txt
+作品 1e25fd49-9e04-4676-82ca-840f87af8e53   语言 en
+==============================================================================
+
+[Style: European symphonic march, massed orchestra and anvil percussion, minor-key brass chorale, workers unison chorus, rising and implacable, allegro risoluto]
+[Vocal: bass-baritone lead answered by a large unison crowd chorus, open-throat, no ornament]
+[Language: English. One line of Old High German incantation in the Bridge, one line of the German original in the Chorus.]
+
+[Verse 1: Night Without an Edge]
+In night without an edge the starlight shows
+the shape of chimneys over Manchester.
+My heart is set on where the morning goes.
+The reading room is cold. The ledger's worse.
+Somewhere a child is up and at the loom.
+
+[Verse 2: The Voice of Labour]
+The voice of labour carries to the sky
+from Lancashire, Silesia, and the Rhine.
+No longer will they bend, no longer lie
+beneath a right that was not theirs to sign.
+A spectre is haunting Europe. Let it walk.
+
+[Chorus 1: Workers of All Countries]
+Unite, and you are not alone again —
+Proletarier aller Länder, vereinigt euch!
+Working men of all countries, join your hands:
+the future of the world is in your reach,
+and nothing to lose but chains. So lose the chains.
+
+[Verse 3: The Weight of History]
+The weight of history is hope's own load;
+we carry it uphill and do not stop.
+For freedom, stubborn, up a broken road,
+past every bayonet set at the top.
+Men make their history — but not as they please.
+
+[Verse 4: Thesis Eleven]
+The philosophers have only read the world
+in various ways. The point is to transform it.
+I wrote that in a notebook, underlined,
+and Engels found it years after I had gone.
+Eleven theses. The eleventh is the one.
+
+[Chorus 2: Workers of All Countries]
+Unite, and you are not alone again —
+Proletarier aller Länder, vereinigt euch!
+Working men of all countries, join your hands:
+the future of the world is in your reach,
+and nothing to lose but chains. So lose the chains.
+
+[Bridge: Insprinc Haptbandun]
+[Old High German incantation, the First Merseburg Charm, tenth-century manuscript]
+Insprinc haptbandun, inuar uigandun —
+leap out of the fetters, go out from the foes.
+Older than the Manifesto, older than
+the very word for class, this was our German:
+a charm for getting captive men from irons.
+
+[Chorus 3: Workers of All Countries]
+Unite, and you are not alone again —
+Proletarier aller Länder, vereinigt euch!
+Working men of all countries, join your hands:
+the future of the world is in your reach,
+and nothing to lose but chains. So lose the chains.
+
+[Chorus 4: Out of the Rubble]
+Out of the rubble, risen hand in hand,
+tomorrow is a thing that gets composed.
+Highgate is quiet. Only eleven stand
+around the grave, and then the gate is closed,
+and the ground trembles, and the light comes up.
+
+[Outro: A New Movement]
+The ground is trembling and the light breaks wide;
+we are setting down a new movement now.
+Not a prophecy. A score. A tide
+that any century can learn to row.
+Unite. The rest of it is arithmetic.
+
+[References — not sung]
+[The Communist Manifesto, 1848, closing line — https://en.wikipedia.org/wiki/The_Communist_Manifesto]
+[Theses on Feuerbach, Thesis XI — https://en.wikipedia.org/wiki/Theses_on_Feuerbach]
+[The Eighteenth Brumaire, "Men make their own history, but they do not make it as they please" — https://en.wikipedia.org/wiki/The_Eighteenth_Brumaire_of_Louis_Bonaparte]
+[The Reading Room of the British Museum — https://en.wikipedia.org/wiki/British_Museum_Reading_Room]
+[Marx's grave, Highgate Cemetery; eleven mourners attended — https://en.wikipedia.org/wiki/Grave_of_Karl_Marx]
+[Merseburg charms, Old High German — https://en.wikipedia.org/wiki/Merseburg_charms]
+[Silesian weavers' uprising, 1844 — https://en.wikipedia.org/wiki/Weavers_uprising]
+
+==============================================================================
+## 14. marx-kapital-en.txt
+作品 9b6e777e-7b77-4bba-a135-a432f7dc873e   语言 en
+==============================================================================
+
+[Style: European symphonic, low strings and bassoon over a slow ostinato, industrial loom percussion, minor key with no resolution, bleak and relentless, andante pesante]
+[Vocal: bass lead, close and exhausted, a low male chorus entering only on the choruses, no ornament]
+[Language: English. One line of the German original in the Chorus, one line of Old High German in the Bridge.]
+
+[Verse 1: Dean Street, Soho]
+Two rooms above a tailor's, 1850,
+six of us, and the landlady at the door.
+Three of the children went before they were three:
+Guido, Franziska, little Edgar. More
+than I will write about. Jenny washed the sheets.
+
+[Verse 2: The Reading Room, Seat G7]
+Nine in the morning until seven at night
+under the dome, every day for years.
+Blue books, factory inspectors, the Poor Law,
+the cotton returns, the testimony of the mills,
+the exact hours worked by a child of nine.
+
+[Chorus 1: Dead Labour]
+Das Kapital ist verstorbene Arbeit —
+capital is dead labour which, vampire-like,
+lives only by sucking living labour,
+and lives the more, the more of it it drinks.
+Measure the day. The day is where it feeds.
+
+[Verse 3: The Commodity]
+Begin with the smallest thing: a single coat.
+It has a use, and then it has a price,
+and the price pretends to be a property
+of cloth, as if the cloth had set it. Twice
+removed from the woman who sewed the sleeve.
+
+[Verse 4: Engels Paid for It]
+Twenty years in a Manchester cotton office
+he hated, sending money every month
+to a man writing a book against the mill
+that paid for both of them. The joke was his.
+He said it first, and never once complained.
+
+[Chorus 2: Dead Labour]
+Das Kapital ist verstorbene Arbeit —
+capital is dead labour which, vampire-like,
+lives only by sucking living labour,
+and lives the more, the more of it it drinks.
+Measure the day. The day is where it feeds.
+
+[Bridge: Unsar Trohtin Hat Farsalt]
+[Old High German church song, the Petruslied, around 850, oldest German hymn]
+Unsar trohtin hat farsalt sancte Petre giwalt,
+daz er mag ginerian ze imo dingenten man.
+Our Lord has handed over power to Peter.
+The oldest German song is about who holds it,
+and who may be let in, and on whose word.
+
+[Chorus 3: Dead Labour]
+Das Kapital ist verstorbene Arbeit —
+capital is dead labour which, vampire-like,
+lives only by sucking living labour,
+and lives the more, the more of it it drinks.
+Measure the day. The day is where it feeds.
+
+[Chorus 4: Volume One, 1867]
+A thousand copies. It sold slowly. One review.
+Eighteen years of work and a German printer
+and the second volume never came out — I knew
+the shape of it and could not get the winter
+out of my lungs. Engels finished it for me.
+
+[Outro: Maitland Park Road, 14 March 1883]
+Jenny died first, and then our daughter Jenny,
+and then I had no reason left to argue.
+He found me in the armchair in the afternoon.
+Eleven people came. The ground was soft.
+Measure the day. Somebody still is measuring.
+
+[References — not sung]
+[28 Dean Street, Soho, and the deaths of three Marx children — https://en.wikipedia.org/wiki/Karl_Marx]
+[The British Museum Reading Room — https://en.wikipedia.org/wiki/British_Museum_Reading_Room]
+[Das Kapital, Volume I, 1867, chapter 10 on the working day — https://en.wikipedia.org/wiki/Das_Kapital]
+[Commodity fetishism — https://en.wikipedia.org/wiki/Commodity_fetishism]
+[Friedrich Engels at Ermen and Engels, Manchester — https://en.wikipedia.org/wiki/Friedrich_Engels]
+[Petruslied, the oldest surviving German church song — https://en.wikipedia.org/wiki/Petruslied]
+[Marx's death at 41 Maitland Park Road, 14 March 1883 — https://en.wikipedia.org/wiki/Karl_Marx]
+
+==============================================================================
+## 15. marx-exile-en.txt
+作品 c0f78bc9-9ce3-422b-81eb-5e266324b496   语言 en
+==============================================================================
+
+[Style: European orchestral, restless strings with accordion and a distant brass band, minor key modulating through four keys without settling, migratory and unresolved, moderato]
+[Vocal: baritone lead, travelling and plain, a scattered chorus answering from different distances, no ornament]
+[Language: English. One line of the German original in the Chorus, one line of Old High German charm in the Bridge.]
+
+[Verse 1: Cologne, 1843 — the Paper Is Shut]
+I edited a paper for fifteen months
+and said what I thought about the censors twice.
+They shut it in March. I had a wife to keep,
+a doctorate no university would take,
+and a country that had written down my name.
+
+[Verse 2: Paris, Brussels, Cologne, London]
+Paris expelled me in forty-five. Brussels
+until the barricades. Then Cologne again
+for one more paper and one more tribunal —
+acquitted by a jury of merchants, then
+expelled for good. I landed. I never left.
+
+[Chorus 1: The Workers Have No Country]
+Die Arbeiter haben kein Vaterland —
+the workers have no country of their own.
+No passport, no renaturalisation,
+no government that answers to the sound
+of a man who writes. So be at home in all of it.
+
+[Verse 3: Stateless for Thirty-Four Years]
+Prussia would not take me back; Britain
+would not make me British; I applied
+in 1874 and they refused
+on the grounds that I had not been loyal. I died
+a citizen of nowhere, in a chair.
+
+[Verse 4: The International, 1864]
+Saint Martin's Hall, a meeting of the trades,
+and they asked a German nobody to draft
+the address. I wrote it mild, on purpose, for
+the English unions — then put the shaft
+in the last paragraph, where they would sign it.
+
+[Chorus 2: The Workers Have No Country]
+Die Arbeiter haben kein Vaterland —
+the workers have no country of their own.
+No passport, no renaturalisation,
+no government that answers to the sound
+of a man who writes. So be at home in all of it.
+
+[Bridge: Christ Uuart Gaboran Er Uuolf Ode Diob]
+[Old High German charm, the Vienna Dog Blessing, tenth century]
+Christ uuart gaboran er uuolf ode diob,
+do uuas sancte Marti Christas hirti.
+Christ was born before the wolf or thief;
+Saint Martin was his shepherd. The oldest German
+charm I know is for keeping a flock alive.
+
+[Chorus 3: The Workers Have No Country]
+Die Arbeiter haben kein Vaterland —
+the workers have no country of their own.
+No passport, no renaturalisation,
+no government that answers to the sound
+of a man who writes. So be at home in all of it.
+
+[Chorus 4: Paris, May 1871]
+Seventy-two days, and then the week of blood,
+and twenty thousand shot against the walls.
+I wrote it up in two months while the mud
+was fresh and they were still reading the rolls.
+The whole world learned my name from that pamphlet.
+
+[Outro: Highgate, the Soft Ground]
+From the rubble, hand in hand — I wrote that too,
+and did not live to see one brick of it.
+A stateless man, a borrowed plot, a few
+umbrellas, and a speech that Engels writ.
+Tomorrow gets composed. Somebody write it.
+
+[References — not sung]
+[Rheinische Zeitung, suppressed March 1843 — https://en.wikipedia.org/wiki/Rheinische_Zeitung]
+[Neue Rheinische Zeitung and the Cologne trial, 1849 — https://en.wikipedia.org/wiki/Neue_Rheinische_Zeitung]
+[The Communist Manifesto, "the workers have no country" — https://en.wikipedia.org/wiki/The_Communist_Manifesto]
+[Marx's statelessness and the refused British naturalisation, 1874 — https://en.wikipedia.org/wiki/Karl_Marx]
+[International Workingmen's Association, founded at St Martin's Hall, 28 September 1864 — https://en.wikipedia.org/wiki/International_Workingmen%27s_Association]
+[The Paris Commune and The Civil War in France, 1871 — https://en.wikipedia.org/wiki/Paris_Commune]
+[Wiener Hundesegen, Old High German dog blessing — https://en.wikipedia.org/wiki/Old_High_German_literature]
+
+==============================================================================
+## 16. einstein-en.txt
+作品 1ca682d9-cb93-4a91-92d6-e6e9d88c5038   语言 en
+==============================================================================
+
+[Style: Modern classical chamber, solo violin over muted strings and piano, slow passacaglia, Central European and interior, contemplative, adagio sostenuto]
+[Vocal: baritone lead, close and conversational, small wordless choir on the choruses, almost no vibrato]
+[Language: English. One line of the German original in the Chorus, one line of ancient Hebrew blessing in the Bridge.]
+
+[Verse 1: The Patent Clerk, Bern, 1905]
+Third class, Bern, a desk of other men's machines,
+a stack of claims for better railway clocks.
+Between two stamps I set two clocks between
+two moving trains, and found the thing unlocks:
+there is no now that everybody shares.
+
+[Verse 2: The Violin in the Evening]
+At night I take the violin and play
+Mozart until the argument comes clear.
+The bow does what the algebra won't say.
+Elsa shuts the door. The notes stay here.
+I think in music, and I check in math.
+
+[Chorus 1: Subtle Is the Lord]
+Raffiniert ist der Herrgott, aber boshaft ist er nicht —
+subtle is the Lord, but He is not malicious.
+He will not cheat you; He will hide the trick
+one layer deeper than you thought was his.
+And God, I still believe, does not play dice.
+
+[Verse 3: Eclipse, 29 May 1919]
+They photographed the sun gone black at noon
+from Principe and Sobral, and the stars
+had moved — a hair, an arcsecond, a spoon
+of sky bent round the mass. The morning papers
+had my name in them by Christmas. I was tired.
+
+[Verse 4: The Letter, 2 August 1939]
+I signed a letter I would not sign twice.
+Szilard wrote it. I put my name below.
+A single page, and then the whole world's price.
+I was a pacifist with one hand slow.
+The equation was never the mistake.
+
+[Chorus 2: Subtle Is the Lord]
+Raffiniert ist der Herrgott, aber boshaft ist er nicht —
+subtle is the Lord, but He is not malicious.
+He will not cheat you; He will hide the trick
+one layer deeper than you thought was his.
+And God, I still believe, does not play dice.
+
+[Bridge: Yevarechecha — the oldest written blessing in our tongue]
+[Ancient Hebrew incantation, the Priestly Blessing, Ketef Hinnom silver scrolls, seventh century BC]
+Yevarechecha Adonai ve-yishmerecha,
+ya'er Adonai panav eleycha vi-chuneka.
+Older than the physics, older than the law,
+this was the oldest writing of my people:
+may the face turn toward you. May it shine.
+
+[Chorus 3: Subtle Is the Lord]
+Raffiniert ist der Herrgott, aber boshaft ist er nicht —
+subtle is the Lord, but He is not malicious.
+He will not cheat you; He will hide the trick
+one layer deeper than you thought was his.
+And God, I still believe, does not play dice.
+
+[Chorus 4: I Want to Know His Thoughts]
+I want to know the thoughts of God, I said;
+the rest is detail. That was not a boast.
+It was a working method, and it led
+through thirty quiet years and almost lost
+me everything. The field is still not joined.
+
+[Outro: Princeton, April 1955]
+I will go when I want to go. It is tasteless
+to prolong a life artificially.
+I have done my share. Burn what is left, and place
+no stone, no name, no road, no plaque for me —
+the ashes went into a river. Let them go.
+
+[References — not sung]
+[Annus mirabilis papers, 1905, Bern patent office — https://en.wikipedia.org/wiki/Annus_mirabilis_papers]
+[Raffiniert ist der Herrgott, Princeton, 1921 — https://en.wikipedia.org/wiki/Albert_Einstein]
+[Bohr-Einstein debates, "God does not play dice" — https://en.wikipedia.org/wiki/Bohr%E2%80%93Einstein_debates]
+[Eddington experiment, solar eclipse of 29 May 1919 — https://en.wikipedia.org/wiki/Eddington_experiment]
+[Einstein-Szilard letter, 2 August 1939 — https://en.wikipedia.org/wiki/Einstein%E2%80%93Szil%C3%A1rd_letter]
+[Priestly Blessing; Ketef Hinnom scrolls, oldest known biblical text — https://en.wikipedia.org/wiki/Ketef_Hinnom_scrolls]
+[Einstein's last words and the scattering of his ashes, 18 April 1955 — https://en.wikipedia.org/wiki/Albert_Einstein]
+
+==============================================================================
+## 17. einstein-relativity-en.txt
+作品 f74b4341-1e62-4311-af18-74bb6f349a2d   语言 en
+==============================================================================
+
+[Style: Modern classical chamber, solo violin over slowly rotating strings, a single timpani heartbeat, wide and weightless, building to one luminous resolution, adagio]
+[Vocal: baritone lead, close and unhurried, a wordless choir opening in the last chorus, no vibrato]
+[Language: English. One line of the German original in the Chorus, one line of ancient Hebrew in the Bridge.]
+
+[Verse 1: Bern, 1907 — A Man Falling]
+Still at the patent desk, still writing claims,
+and the thought arrived while I was in the chair:
+a man in free fall does not feel his weight.
+There is no gravity for him. It is not there.
+Everything after that was eight years' work.
+
+[Verse 2: Grossmann, Zurich, 1912]
+Marcel, you must help me or I shall go mad.
+I needed geometry I did not have —
+Riemann, Ricci, the tensor, the curved frame.
+He put the books in front of me. The math
+was ninety years old and waiting on a shelf.
+
+[Chorus 1: The Happiest Thought]
+Der glücklichste Gedanke meines Lebens —
+the happiest thought I ever had, and short:
+that falling and floating are the same thing,
+and therefore gravity is not a force
+but the shape of the room. Mass bends the room.
+
+[Verse 3: The Wrong Theory for Three Years]
+The Entwurf was wrong and I defended it
+through 1914, published, argued, taught,
+and Mercury came out at eighteen seconds
+when the sky says forty-three. I had thought
+it close enough. It was not close enough.
+
+[Verse 4: November 1915 — Four Papers in Four Weeks]
+I threw it out and started from the covariance
+and sent the Academy a paper every Thursday.
+On the eighteenth the perihelion came out right —
+forty-three arcseconds, from nothing, no fit —
+and I had palpitations for three days.
+
+[Chorus 2: The Happiest Thought]
+Der glücklichste Gedanke meines Lebens —
+the happiest thought I ever had, and short:
+that falling and floating are the same thing,
+and therefore gravity is not a force
+but the shape of the room. Mass bends the room.
+
+[Bridge: Shema Yisrael]
+[Ancient Hebrew incantation, the Shema, Deuteronomy 6:4]
+Shema Yisrael Adonai Eloheinu
+Adonai echad. Hear, Israel: the Lord is one.
+One. Older than the field equations, older
+than every unity I tried to prove —
+my people said it first, and said it short.
+
+[Chorus 3: The Happiest Thought]
+Der glücklichste Gedanke meines Lebens —
+the happiest thought I ever had, and short:
+that falling and floating are the same thing,
+and therefore gravity is not a force
+but the shape of the room. Mass bends the room.
+
+[Chorus 4: Hilbert, Five Days Earlier]
+Hilbert in Goettingen had the action too
+and dated his submission before mine.
+We were two weeks from a priority war
+and he withdrew the claim and signed the line:
+the physics was mine. The mathematics his.
+
+[Outro: Ten Equations]
+Ten coupled equations, nonlinear, and nobody
+had solved one when I published. Then Schwarzschild
+solved it in a trench in Russia, in the winter,
+and sent it to me, and was dead by June.
+The room still bends. I never saw it bend.
+
+[References — not sung]
+[The equivalence principle and "the happiest thought of my life", Bern 1907 — https://en.wikipedia.org/wiki/Equivalence_principle]
+[Marcel Grossmann and the Entwurf theory, 1913 — https://en.wikipedia.org/wiki/Marcel_Grossmann]
+[The November 1915 papers to the Prussian Academy — https://en.wikipedia.org/wiki/History_of_general_relativity]
+[Perihelion precession of Mercury, 43 arcseconds per century — https://en.wikipedia.org/wiki/Tests_of_general_relativity]
+[Einstein-Hilbert priority dispute, November 1915 — https://en.wikipedia.org/wiki/Relativity_priority_dispute]
+[Shema Yisrael, Deuteronomy 6:4 — https://en.wikipedia.org/wiki/Shema_Yisrael]
+[Karl Schwarzschild, the first exact solution, and his death in 1916 — https://en.wikipedia.org/wiki/Karl_Schwarzschild]
+
+==============================================================================
+## 18. einstein-exile-en.txt
+作品 34cbfbb4-bc05-4a3d-a613-4a7b74cb3279   语言 en
+==============================================================================
+
+[Style: Modern classical, solo cello with low strings and a distant upright piano, Central European emigre melancholy opening into American brass, wide and displaced, andante]
+[Vocal: baritone lead, weary and level, a mixed choir answering from far off, no ornament]
+[Language: English. One line of the German original in the Chorus, one line of ancient Hebrew in the Bridge.]
+
+[Verse 1: Pasadena, January 1933]
+I was in California when the thing happened
+and I did not go home. I said so to the press
+on the boat: as long as I have any choice,
+only a country with civil liberty, tolerance
+and equality before the law. Not that one.
+
+[Verse 2: The Raid, the Bounty, the Books]
+They searched the cottage at Caputh for weapons
+and found a bread knife. They took the sailboat.
+The bank account, the papers, and the house.
+Twenty thousand marks on my head, a photograph
+in a magazine captioned: not yet hanged.
+
+[Chorus 1: Mir Fehlt Die Begabung]
+Es fehlt mir die natürliche Begabung —
+I lack both the natural aptitude
+and the experience to deal with people.
+I am deeply moved, and saddened, and ashamed
+that I cannot accept. Find a better man.
+
+[Verse 3: Princeton, October 1933]
+They offered three thousand dollars. I asked
+whether I could live on less. I could not
+do the arithmetic of an American year.
+A small house on Mercer Street, a boat,
+a sweater, and no socks. Forty years of work left.
+
+[Verse 4: The Affidavits]
+I signed and signed: for cousins, for strangers,
+for a violinist, for a chemist, for a child.
+Every signature was a visa, and the quota
+was a wall with a slot in it. I filed
+hundreds. It was the most useful thing I did.
+
+[Chorus 2: Mir Fehlt Die Begabung]
+Es fehlt mir die natürliche Begabung —
+I lack both the natural aptitude
+and the experience to deal with people.
+I am deeply moved, and saddened, and ashamed
+that I cannot accept. Find a better man.
+
+[Bridge: Ashira La-Adonai]
+[Ancient Hebrew verse, the Song of the Sea, Exodus 15, oldest Hebrew poetry]
+Ashira la-Adonai ki gaoh gaah,
+sus ve-rochvo ramah va-yam.
+I will sing, for He has triumphed; horse
+and rider He has thrown into the sea.
+The oldest song my people have is a crossing.
+
+[Chorus 3: Mir Fehlt Die Begabung]
+Es fehlt mir die natürliche Begabung —
+I lack both the natural aptitude
+and the experience to deal with people.
+I am deeply moved, and saddened, and ashamed
+that I cannot accept. Find a better man.
+
+[Chorus 4: Lincoln University, 1946]
+I went to a Black college in Pennsylvania
+and said it plainly: racism is a disease
+of white people, and I do not intend
+to be quiet about it. Nobody filmed me.
+The papers that week were busy with the bomb.
+
+[Outro: Mercer Street, 18 April 1955]
+The aorta went. They offered me the surgery
+and I said no: it is tasteless to prolong
+a life artificially. I have done my share.
+A page of calculation on the table, wrong,
+unfinished, and the river took the rest.
+
+[References — not sung]
+[Einstein's departure from Germany, January to March 1933 — https://en.wikipedia.org/wiki/Albert_Einstein]
+[The raid on the Caputh summer house, 1933 — https://en.wikipedia.org/wiki/Albert_Einstein]
+[Einstein's refusal of the presidency of Israel, November 1952 — https://en.wikipedia.org/wiki/Albert_Einstein]
+[Institute for Advanced Study, Princeton, from October 1933 — https://en.wikipedia.org/wiki/Institute_for_Advanced_Study]
+[Einstein's refugee affidavits — https://en.wikipedia.org/wiki/Albert_Einstein]
+[Song of the Sea, Exodus 15 — https://en.wikipedia.org/wiki/Song_of_the_Sea]
+[Einstein's 1946 visit to Lincoln University — https://en.wikipedia.org/wiki/Lincoln_University_(Pennsylvania)]
+[Einstein's death, 18 April 1955, abdominal aortic aneurysm — https://en.wikipedia.org/wiki/Albert_Einstein]
+
+==============================================================================
+## 19. einstein-quantum-en.txt
+作品 08ec3505-9a42-44f2-9b61-107cf5f4a6de   语言 en
+==============================================================================
+
+[Style: Modern classical, prepared piano and detuned strings in restless dialogue, two motifs arguing and never agreeing, cold chamber acoustics, unresolved ending, allegretto inquieto]
+[Vocal: baritone lead answered by a second solo voice as Bohr, conversational and argumentative, no ornament]
+[Language: English. One line of the German original in the Chorus, one line of ancient Hebrew in the Bridge.]
+
+[Verse 1: Solvay, Brussels, 1927]
+Twenty-nine of us in a photograph
+and seventeen would take the prize in time.
+Every morning I would bring a case
+at breakfast; every evening Niels would climb
+out of it by dinner. Five days of that.
+
+[Verse 2: The Photon Box, 1930]
+I built him a box with a clock and a shutter
+and weighed the light that left it, and I said:
+now you have the time and the energy together,
+and your uncertainty is dead.
+He did not sleep. By morning he had my own gravity.
+
+[Chorus 1: Spukhafte Fernwirkung]
+Spukhafte Fernwirkung — spooky action
+at a distance, acting through no field.
+Physics should describe a real world
+in space and time. I will not let it yield
+to a theory that only tells me what I'll see.
+
+[Verse 3: EPR, 1935]
+Podolsky wrote it up and I disliked the paper.
+Two particles that part, and measuring one
+tells you the other instantly, however far.
+Either the world is not there till it is seen,
+or the theory is incomplete. I said: incomplete.
+
+[Verse 4: Thirty Years, Nothing Published That Held]
+The unified field. Every few years a paper
+and every few years a retraction after.
+Kaluza, Klein, bivectors, five dimensions, teleparallel —
+I have become, in the eyes of my colleagues,
+an obstinate heretic. They were kind about it.
+
+[Chorus 2: Spukhafte Fernwirkung]
+Spukhafte Fernwirkung — spooky action
+at a distance, acting through no field.
+Physics should describe a real world
+in space and time. I will not let it yield
+to a theory that only tells me what I'll see.
+
+[Bridge: Ha-Shamayim Mesaprim]
+[Ancient Hebrew verse, Psalm 19, in the Hebrew numbering verse 2]
+Ha-shamayim mesaprim kevod El,
+u-maaseh yadav maggid ha-rakia.
+The heavens tell the glory, and the sky
+declares the work of hands. My people looked up
+and assumed there was something to be read.
+
+[Chorus 3: Spukhafte Fernwirkung]
+Spukhafte Fernwirkung — spooky action
+at a distance, acting through no field.
+Physics should describe a real world
+in space and time. I will not let it yield
+to a theory that only tells me what I'll see.
+
+[Chorus 4: Bohr Was Right About the Measurements]
+He was right about every measurement
+and I was asking a different question: is there
+a world when nobody is in the room?
+Bell wrote it down as something you could test
+nine years after I died. The answer was: spooky.
+
+[Outro: The Last Letter to Besso]
+Michele went in March and I wrote his family:
+he has preceded me a little in leaving
+this strange world. For us believing physicists
+the distinction between past, present and future
+has only the meaning of a stubborn illusion.
+
+[References — not sung]
+[Fifth Solvay Conference, October 1927 — https://en.wikipedia.org/wiki/Solvay_Conference]
+[The photon box thought experiment, Solvay 1930 — https://en.wikipedia.org/wiki/Bohr%E2%80%93Einstein_debates]
+[Letter to Max Born, 3 March 1947, "spukhafte Fernwirkung" — https://en.wikipedia.org/wiki/Quantum_entanglement]
+[Einstein-Podolsky-Rosen paradox, 1935 — https://en.wikipedia.org/wiki/Einstein%E2%80%93Podolsky%E2%80%93Rosen_paradox]
+[Einstein's unified field theory attempts — https://en.wikipedia.org/wiki/Classical_unified_field_theories]
+[Psalm 19 — https://en.wikipedia.org/wiki/Psalm_19]
+[Bell's theorem, 1964 — https://en.wikipedia.org/wiki/Bell%27s_theorem]
+[Letter to the Besso family, 21 March 1955 — https://en.wikipedia.org/wiki/Michele_Besso]
+
+==============================================================================
+## 20. curie-en.txt
+作品 8a187865-c457-428f-ad6a-8e0e8d90082e   语言 en
+==============================================================================
+
+[Style: Modern classical chamber, solo piano with restrained strings, Polish folk cadence under a French salon surface, sparse and unsentimental, andante tranquillo]
+[Vocal: mezzo-soprano lead, plain and level, a small female choir answering in unison, no ornament]
+[Language: English. One line of the French original in the Chorus, one line of the oldest Polish hymn in the Bridge.]
+
+[Verse 1: The Flying University, Warsaw]
+A rented room, a different room each week,
+because the Tsar would not let women learn.
+We read in Polish. We were taught to speak
+in a language they had ruled it best to burn.
+That was the first laboratory I had.
+
+[Verse 2: The Shed on Rue Lhomond]
+A shed with a cracked roof and a dirt floor,
+eight tonnes of pitchblende stirred with an iron rod.
+Four years of boiling ore to get one more
+decigram of something nobody had.
+At night the bottles glowed. We went to look.
+
+[Chorus 1: Nothing Is to Be Feared]
+Rien dans la vie n'est a craindre, mon ami,
+quand on le comprend: nothing in this life
+is to be feared, it is to be understood.
+Not the dark, not the dose, not the knife.
+Understand it. Then it is not fear.
+
+[Verse 3: Polonium, 1898]
+I named the first one for a country gone,
+erased from every map in Europe then.
+Poland was not a state. I put it on
+the periodic table. It is there again.
+Radium came after. Both of them were ours.
+
+[Verse 4: Rue Dauphine, 19 April 1906]
+A wet street and a horse and a dray's wheel,
+and Pierre went under it, and that was all.
+They offered me his chair. I said I will
+take it, and I took it, and the hall
+was full of men who had not wanted me.
+
+[Chorus 2: Nothing Is to Be Feared]
+Rien dans la vie n'est a craindre, mon ami,
+quand on le comprend: nothing in this life
+is to be feared, it is to be understood.
+Not the dark, not the dose, not the knife.
+Understand it. Then it is not fear.
+
+[Bridge: Bogurodzica — the oldest hymn in our tongue]
+[Oldest Polish incantation-hymn, the Bogurodzica, sung by the knights at Grunwald]
+Bogurodzica dziewica, Bogiem slawiena Maryja,
+u twego Syna Gospodzina matko zwolena, Maryja.
+Older than the partitions, older than
+the language they forbade us in the schools:
+the knights sang this. I was taught it as a child.
+
+[Chorus 3: Nothing Is to Be Feared]
+Rien dans la vie n'est a craindre, mon ami,
+quand on le comprend: nothing in this life
+is to be feared, it is to be understood.
+Not the dark, not the dose, not the knife.
+Understand it. Then it is not fear.
+
+[Chorus 4: The Little Curies, 1914]
+I took the radium to the front in vans
+and taught two hundred women how to read
+a shadow of a bullet in the hands
+of a boy from Lille. That was the only creed
+I ever had: the thing is to be used.
+
+[Outro: Sancellemoz, 4 July 1934]
+The notebooks are still warm. They always will be —
+they keep them in a lead box in Paris.
+My blood gave out. The marrow would not fill.
+I had two Nobels and a cough, and this:
+no one is afraid of what they understand.
+
+[References — not sung]
+[Flying University, Warsaw — https://en.wikipedia.org/wiki/Flying_University]
+[The shed at 12 rue Lhomond, the School of Physics and Chemistry — https://en.wikipedia.org/wiki/Marie_Curie]
+[Discovery of polonium and radium, 1898 — https://en.wikipedia.org/wiki/Polonium]
+[Death of Pierre Curie, 19 April 1906 — https://en.wikipedia.org/wiki/Pierre_Curie]
+[Petites Curies, mobile radiography units of the First World War — https://en.wikipedia.org/wiki/Marie_Curie]
+[Bogurodzica, oldest Polish religious hymn — https://en.wikipedia.org/wiki/Bogurodzica]
+[Marie Curie's death from aplastic anaemia, Sancellemoz, 4 July 1934 — https://en.wikipedia.org/wiki/Marie_Curie]
+
+==============================================================================
+## 21. curie-pantheon-en.txt
+作品 75021606-6d0a-4096-9654-ef3c89d2606c   语言 en
+==============================================================================
+
+[Style: Modern classical, solo piano with a string quartet entering late, Polish mazurka rhythm buried under a French funeral march, restrained and gathering, andante]
+[Vocal: mezzo-soprano lead, level and unsentimental, a small female choir in unison on the choruses, no ornament]
+[Language: English. One line of her own French in the Chorus, one line of the oldest written Polish in the Bridge.]
+
+[Verse 1: The Academy Votes, January 1911]
+They put me up for the Academy of Sciences
+and I lost by two votes to a man named Branly.
+The debate was whether a woman could be elected
+and whether a Pole was French. They settled it plainly:
+she is a foreigner, and she is a woman. No.
+
+[Verse 2: November 1911 — the Letters in the Paper]
+Then a newspaper printed private letters
+between me and a married former student
+of my husband's, and a crowd came to the house
+and my daughters went out the back. Prudent
+men advised me to decline the second prize.
+
+[Chorus 1: What Remains to Be Done]
+On ne remarque jamais ce qui a été fait;
+on ne peut voir que ce qui reste à faire —
+one never notices what has been done,
+one only sees what still remains. So there:
+I went to Stockholm. I collected it myself.
+
+[Verse 3: The Second Nobel, 10 December 1911]
+Chemistry, this time, and in my own name,
+for isolating radium as a metal.
+No one else has two in two sciences.
+I stood up in the hall and read the lecture
+and said nothing at all about the papers.
+
+[Verse 4: Irene, and the Vans]
+My daughter was seventeen at the front with me
+reading plates in a tent at Hoogstade.
+In 1935 she took the prize in chemistry
+and I had been a year in the ground.
+Eve wrote the book. Irene did the work.
+
+[Chorus 2: What Remains to Be Done]
+On ne remarque jamais ce qui a été fait;
+on ne peut voir que ce qui reste à faire —
+one never notices what has been done,
+one only sees what still remains. So there:
+I went to Stockholm. I collected it myself.
+
+[Bridge: Day, Ut Ia Pobrusa]
+[The oldest written sentence in Polish, the Book of Henrykow, 1270]
+Day, ut ia pobrusa, a ti poziwai —
+let me grind a while, and you take rest.
+A man said that to his wife at the millstone.
+It is the first Polish anyone wrote down,
+and I stirred eight tonnes of ore with an iron rod.
+
+[Chorus 3: What Remains to Be Done]
+On ne remarque jamais ce qui a été fait;
+on ne peut voir que ce qui reste à faire —
+one never notices what has been done,
+one only sees what still remains. So there:
+I went to Stockholm. I collected it myself.
+
+[Chorus 4: Never Patented]
+We never patented the isolation process.
+Pierre said it would be contrary to the spirit
+of science, and I agreed, and so the radium
+industry grew up in Belgium and we hired it
+by the gram at a price we could not pay.
+
+[Outro: The Pantheon, 20 April 1995]
+Sixty-one years later they moved us both
+under the dome, the fourth and fifth beneath it,
+and I was the first woman put there on her merit
+and not as somebody's wife. Lead-lined, both coffins.
+The notebooks stay in the box. Still counting down.
+
+[References — not sung]
+[Marie Curie's rejection by the French Academy of Sciences, January 1911 — https://en.wikipedia.org/wiki/Marie_Curie]
+[The Langevin affair and the press campaign of November 1911 — https://en.wikipedia.org/wiki/Paul_Langevin]
+[The 1911 Nobel Prize in Chemistry — https://en.wikipedia.org/wiki/Marie_Curie]
+[Irene Joliot-Curie, Nobel Prize in Chemistry 1935 — https://en.wikipedia.org/wiki/Ir%C3%A8ne_Joliot-Curie]
+[Eve Curie, Madame Curie, 1937 — https://en.wikipedia.org/wiki/%C3%88ve_Curie]
+[Book of Henrykow, the oldest sentence written in Polish — https://en.wikipedia.org/wiki/Book_of_Henryk%C3%B3w]
+[The Curies' decision not to patent the radium isolation process — https://en.wikipedia.org/wiki/Marie_Curie]
+[Transfer of the Curies to the Pantheon, 20 April 1995 — https://en.wikipedia.org/wiki/Panth%C3%A9on]
+
+==============================================================================
+## 22. aquinas-en.txt
+作品 0e4a53d6-02e5-4d4e-b1f4-5fca413c4312   语言 en
+==============================================================================
+
+[Style: Medieval Latin sacred music, Gregorian chant opening into two-part organum, male schola with organ drone, Dominican plainsong, stone-vault reverberation, very slow]
+[Vocal: male schola cantorum in unison, Latin-rite diction, straight tone, no vibrato, one solo cantor on the verses]
+[Language: English. One line of his own Latin hymn in the Chorus, one archaic Latin charm in the Bridge.]
+
+[Verse 1: Monte Cassino, Age Five]
+They gave me to the abbey when I was five,
+a count's ninth son, an oblate on the hill.
+I learned the hours before I learned to ride.
+In that old school each book was like a star,
+and every star was fixed, and I was not.
+
+[Verse 2: Cologne, Under Albert]
+At Naples I put on the black and white
+and my own brothers held me for a year.
+In Cologne the philosopher's voice was like
+thunder across the lecture hall, and clear:
+this ox, he said, will bellow for the world.
+
+[Chorus 1: Pange Lingua]
+Pange, lingua, gloriosi corporis mysterium —
+sing, tongue, the mystery of the glorious body.
+The psalms come back along the ear and run;
+truth leaps along the fingers of the godly.
+Faith and reason walking. Neither blind.
+
+[Verse 3: The Chair at Paris, 1256]
+The light of Paris on the rue du Fouarre,
+the halls on straw, the students on the floor.
+Two chairs for the Dominicans, and the war
+with the secular masters at the door.
+In the sea of truth I will swim free.
+
+[Verse 4: The Objections Come First]
+I always set the strongest case against me
+at the head of every question, word for word,
+so fairly that the heretics could sign it.
+Then I answered. That was the whole method:
+never beat an argument you softened.
+
+[Chorus 2: Pange Lingua]
+Pange, lingua, gloriosi corporis mysterium —
+sing, tongue, the mystery of the glorious body.
+The psalms come back along the ear and run;
+truth leaps along the fingers of the godly.
+Faith and reason walking. Neither blind.
+
+[Bridge: Huat Hanat Huat]
+[Archaic Latin incantation, Cato, De Agri Cultura 160, the oldest recorded Latin charm]
+Huat hanat huat, ista pista sista,
+damiabo damnaustra — a charm to set a limb.
+Older than the Church, older than the schools,
+this was the Latin when the Latin whispered.
+It is the same tongue. I only turned it up.
+
+[Chorus 3: Pange Lingua]
+Pange, lingua, gloriosi corporis mysterium —
+sing, tongue, the mystery of the glorious body.
+The psalms come back along the ear and run;
+truth leaps along the fingers of the godly.
+Faith and reason walking. Neither blind.
+
+[Chorus 4: All of It Is Straw]
+Naples, the sixth of December, seventy-three:
+something at Mass, and I would write no more.
+Omnia quae scripsi videntur mihi paleae —
+all I have written seems like straw to me.
+Reginald begged. I said: I cannot. Stop.
+
+[Outro: Fossanova, 7 March 1274]
+A mule, a doorpost, and a Cistercian bed
+on the road to Lyon that I did not finish.
+They asked for a commentary on the Song
+and I gave them one, and then the voice went thin.
+In the old school I was weaving. Let it stand.
+
+[References — not sung]
+[Thomas Aquinas, oblate at Monte Cassino; the family's year of confinement — https://en.wikipedia.org/wiki/Thomas_Aquinas]
+[Albertus Magnus, "this dumb ox will fill the world with his bellowing" — https://en.wikipedia.org/wiki/Albertus_Magnus]
+[Pange lingua gloriosi corporis mysterium, written for Corpus Christi, 1264 — https://en.wikipedia.org/wiki/Pange_Lingua_Gloriosi_Corporis_Mysterium]
+[Regent master at the University of Paris, 1256; the mendicant controversy — https://en.wikipedia.org/wiki/University_of_Paris]
+[Summa Theologiae and the quaestio method, objections stated first — https://en.wikipedia.org/wiki/Summa_Theologica]
+[Cato the Elder, De Agri Cultura 160, Latin charm for a dislocation — https://en.wikipedia.org/wiki/De_agri_cultura]
+[The vision of 6 December 1273 and "omnia quae scripsi videntur mihi paleae" — https://en.wikipedia.org/wiki/Thomas_Aquinas]
+[Death at Fossanova Abbey, 7 March 1274 — https://en.wikipedia.org/wiki/Fossanova_Abbey]
+
+==============================================================================
+## 23. aquinas-fiveways-en.txt
+作品 2be44e69-d8d3-4e00-a849-6479298b8659   语言 en
+==============================================================================
+
+[Style: Medieval Latin sacred, male schola in plainchant over a sustained organ pedal, Dominican office of readings, five rising phrases per chorus, austere and cumulative, very slow]
+[Vocal: male schola in unison with one solo cantor, Latin-rite diction, straight tone, no vibrato]
+[Language: English. One Latin principle of his own in the Chorus, one archaic Latin prayer-formula in the Bridge.]
+
+[Verse 1: Question Two, Article Three]
+Whether God exists. I put the question third
+in the second question of the first part,
+and gave two objections first, in their own words:
+there is evil in the world, and nature's art
+needs no one else. Then: on the contrary.
+
+[Verse 2: The First Way]
+Whatever moves is moved by something else,
+and that by something else, and so on back.
+It cannot go back forever, or the shelf
+has nothing holding it, and the whole stack
+falls. Therefore a first mover, moved by none.
+
+[Chorus 1: Gratia Non Tollit Naturam]
+Gratia non tollit naturam, sed perficit —
+grace does not destroy nature, it completes it.
+That is the whole of me in seven words:
+reason is not the enemy, it fits.
+Faith and reason walking. Neither blind.
+
+[Verse 3: The Other Four]
+Cause, and the chain of causes. Then the fact
+that things need not have been, and yet there is something.
+Then degrees: a hotter and a hottest. Then
+the arrow of an arrow-less thing flying
+somewhere. Five ways. Not proofs. Five open doors.
+
+[Verse 4: Siger of Brabant, and the Lamp]
+The Averroists said the world had no beginning
+and that one intellect thinks in all of us.
+I fought them — and I fought the men who banned them,
+because they wanted Aristotle burned
+and I had just spent twenty years translating him.
+
+[Chorus 2: Gratia Non Tollit Naturam]
+Gratia non tollit naturam, sed perficit —
+grace does not destroy nature, it completes it.
+That is the whole of me in seven words:
+reason is not the enemy, it fits.
+Faith and reason walking. Neither blind.
+
+[Bridge: Mars Pater, Te Precor]
+[Archaic Latin prayer-formula, Cato, De Agri Cultura 141, the oldest Roman state prayer]
+Mars pater, te precor quaesoque uti sies
+volens propitius mihi domo familiaeque nostrae.
+Father Mars, I pray and I beseech you.
+That is the oldest Latin asking anything,
+and I asked in the same tongue, of someone else.
+
+[Chorus 3: Gratia Non Tollit Naturam]
+Gratia non tollit naturam, sed perficit —
+grace does not destroy nature, it completes it.
+That is the whole of me in seven words:
+reason is not the enemy, it fits.
+Faith and reason walking. Neither blind.
+
+[Chorus 4: Paris, 7 March 1277]
+Three years after I died, the Bishop of Paris
+condemned two hundred nineteen propositions
+and some of them were mine. The Dominicans
+appealed for fifty years against that list.
+It was lifted in thirteen twenty-five. Then the halo.
+
+[Outro: Doctor Angelicus]
+Canonised in twenty-three, Doctor of the Church
+in fifteen sixty-seven, and in eighteen seventy-nine
+the Pope said: teach him everywhere. The straw
+I said it all was turned into a spine
+for eight hundred years of argument. Fine. Argue.
+
+[References — not sung]
+[Summa Theologiae I, question 2, article 3, the Five Ways — https://en.wikipedia.org/wiki/Five_Ways_(Aquinas)]
+[Argument from motion, the unmoved mover — https://en.wikipedia.org/wiki/Unmoved_mover]
+[Gratia non tollit naturam sed perficit, Summa Theologiae I.1.8 — https://en.wikipedia.org/wiki/Thomas_Aquinas]
+[Siger of Brabant and Latin Averroism — https://en.wikipedia.org/wiki/Siger_of_Brabant]
+[Condemnations of 1210 to 1277 at Paris — https://en.wikipedia.org/wiki/Condemnations_of_1210%E2%80%931277]
+[Cato the Elder, De Agri Cultura 141, the lustration prayer to Mars — https://en.wikipedia.org/wiki/De_agri_cultura]
+[Canonisation in 1323; Doctor of the Church in 1567; Aeterni Patris, 1879 — https://en.wikipedia.org/wiki/Thomas_Aquinas]
+
+==============================================================================
+## 24. gandhi-hi.txt
+作品 380de7c5-f5a0-45ae-9bc5-8d295171e331   语言 hi
+==============================================================================
+
+[Style: North Indian folk bhajan, harmonium and tabla with ektara drone, village kirtan call and response, barefoot and unhurried, slow 8-beat keherwa]
+[Vocal: warm male lead in a middle register answered by a mixed village chorus, plain devotional diction, no filmi ornament]
+[Language: Hindi (Devanagari). One line of ancient Sanskrit mantra in the Bridge.]
+
+[Verse 1: चंपारण की मिट्टी]
+नील के खेतों में पसीना बहता था,
+किसान की पीठ पर कोड़े का निशान।
+मैंने जूते उतारे, धोती पहनी,
+और उनके बीच बैठकर सुनी बात।
+सत्य ही मेरा एकमात्र हथियार है।
+
+[Verse 2: पीटरमैरिट्सबर्ग का ठंडा स्टेशन]
+एक रात, एक डिब्बा, एक सूना प्लेटफ़ॉर्म,
+टिकट मेरे हाथ में, और मैं बाहर खड़ा।
+उस रात मैंने डर को विदा कह दिया —
+भारत का रास्ता उसी ठंड से शुरू हुआ।
+अन्याय से लड़ो, पर मनुष्य से प्रेम करो।
+
+[Chorus 1: रघुपति राघव राजा राम]
+रघुपति राघव राजा राम,
+पतित पावन सीताराम।
+ईश्वर अल्लाह तेरो नाम,
+सब को सन्मति दे भगवान।
+अहिंसा परमो धर्मः — यही मेरा मार्ग है।
+
+[Verse 3: दांडी, बारह मार्च उन्नीस सौ तीस]
+अठहत्तर साथी, चार सौ किलोमीटर,
+और समुद्र के किनारे मुट्ठी भर नमक।
+एक चुटकी नमक से साम्राज्य काँपा —
+क्योंकि कानून तोड़ा, पर किसी को चोट नहीं दी।
+नमक समुद्र का है, और समुद्र हमारा है।
+
+[Verse 4: चरखा]
+हर शाम मैं सूत कातता हूँ, धीरे धीरे,
+एक धागा, एक सुर, एक लंबी साँस।
+मैनचेस्टर का कपड़ा हमने लौटा दिया,
+और अपने ही हाथ से अपना वस्त्र बुना।
+स्वराज कपड़े की तरह बुना जाता है।
+
+[Chorus 2: रघुपति राघव राजा राम]
+रघुपति राघव राजा राम,
+पतित पावन सीताराम।
+ईश्वर अल्लाह तेरो नाम,
+सब को सन्मति दे भगवान।
+अहिंसा परमो धर्मः — यही मेरा मार्ग है।
+
+[Bridge: गायत्री मंत्र — हमारी भाषा का सबसे प्राचीन मंत्र]
+[प्राचीन संस्कृत मंत्र, ऋग्वेद 3.62.10]
+ॐ भूर्भुवः स्वः तत्सवितुर्वरेण्यं,
+भर्गो देवस्य धीमहि धियो यो नः प्रचोदयात्।
+उपनिषदों से पुराना, राज्यों से पुराना —
+यही वह प्रार्थना है जो हमने सबसे पहले कही:
+हमारी बुद्धि को प्रेरित करो। इतना ही।
+
+[Chorus 3: रघुपति राघव राजा राम]
+रघुपति राघव राजा राम,
+पतित पावन सीताराम।
+ईश्वर अल्लाह तेरो नाम,
+सब को सन्मति दे भगवान।
+अहिंसा परमो धर्मः — यही मेरा मार्ग है।
+
+[Chorus 4: विभाजन की रात]
+पंद्रह अगस्त को दिल्ली में दीप जले,
+और मैं कलकत्ता में उपवास पर बैठा था।
+अपनी जीत के दिन मैं अकेला था —
+जो आज़ादी खून से आई, वह अधूरी है।
+मैंने जश्न नहीं मनाया। मैंने चरखा चलाया।
+
+[Outro: तीस जनवरी उन्नीस सौ अड़तालीस, बिड़ला भवन]
+शाम की प्रार्थना सभा, पाँच बजकर सत्रह मिनट,
+तीन गोलियाँ, और एक दुबला आदमी गिर गया।
+हे राम — कहते हैं यही अंतिम शब्द था।
+मेरी राख नदियों में बह गई, नाम कहीं नहीं।
+सत्य बचा रहा। बाक़ी सब मिट्टी है।
+
+[References — not sung]
+[Champaran Satyagraha, 1917 — https://en.wikipedia.org/wiki/Champaran_Satyagraha]
+[Pietermaritzburg railway station, 7 June 1893 — https://en.wikipedia.org/wiki/Mohandas_Karamchand_Gandhi]
+[Raghupati Raghava Raja Ram, Gandhi's bhajan — https://en.wikipedia.org/wiki/Raghupati_Raghav_Raja_Ram]
+[Salt March, 12 March to 6 April 1930 — https://en.wikipedia.org/wiki/Salt_March]
+[Charkha, khadi and the swadeshi movement — https://en.wikipedia.org/wiki/Khadi]
+[Gayatri Mantra, Rigveda 3.62.10 — https://en.wikipedia.org/wiki/Gayatri_Mantra]
+[Gandhi's fast in Calcutta during Independence, August 1947 — https://en.wikipedia.org/wiki/Mohandas_Karamchand_Gandhi]
+[Assassination of Mahatma Gandhi, 30 January 1948, Birla House — https://en.wikipedia.org/wiki/Assassination_of_Mahatma_Gandhi]
+
+==============================================================================
+## 25. gandhi-satyagraha-hi.txt
+作品 e5074892-8288-4e1e-b0f9-6bf885553953   语言 hi
+==============================================================================
+
+[Style: North Indian folk march, dholak and harmonium with a sarangi lament, prison-yard unison singing, bare and resolute, slow building to a marching tempo]
+[Vocal: male lead in a plain middle register answered by a large unison crowd, satyagrahi chanting, no filmi ornament]
+[Language: Hindi (Devanagari). One line of ancient Sanskrit from the Upanishads in the Bridge.]
+
+[Verse 1: जोहानसबर्ग, सितंबर 1906]
+एम्पायर थिएटर में तीन हज़ार लोग,
+और एक कानून जो हमें उँगलियों से गिनता था।
+मैंने कहा: हम झुकेंगे नहीं, और मारेंगे भी नहीं।
+उस दिन इस चीज़ का नाम ही नहीं था —
+बाद में हमने उसे सत्याग्रह कहा।
+
+[Verse 2: टॉल्स्टॉय फ़ार्म]
+ग्यारह सौ एकड़, और हम अपने हाथ से रोटी बनाते,
+चप्पल सीते, खेत जोतते, बच्चों को पढ़ाते।
+हिंदू, मुसलमान, पारसी, ईसाई — एक रसोई।
+मैंने वहाँ सीखा कि आंदोलन घर से शुरू होता है।
+जो तुम दुनिया में चाहते हो, पहले उसे जियो।
+
+[Chorus 1: करो या मरो]
+करो या मरो — यही मेरा आख़िरी वचन है।
+सत्याग्रह कमज़ोरों का हथियार नहीं,
+वह सबसे मज़बूत आदमी का रास्ता है।
+मारो मत, पर झुको भी मत, एक इंच भी नहीं।
+सत्य के सिवा मेरे पास कुछ नहीं है।
+
+[Verse 3: नेटाल की खदान यात्रा, 1913]
+दो हज़ार मज़दूर, और हम सीमा पार चल पड़े,
+बिना हथियार, बिना परमिट, बिना डर।
+उन्होंने हमें जेल में डाला, खदान को जेल बनाया,
+और फिर क़ानून बदल दिया। हम जीत गए —
+किसी के सिर पर एक भी लाठी चलाए बिना।
+
+[Verse 4: अहमदाबाद की अदालत, मार्च 1922]
+न्यायाधीश ब्रूमफ़ील्ड ने पूछा: क्या कहना है?
+मैंने कहा: मैं सबसे कड़ी सज़ा माँगने आया हूँ।
+राजद्रोह मेरा अपराध है और मुझे उस पर गर्व है।
+छह साल सुनाए गए। मैंने धन्यवाद कहा।
+यरवदा में मैंने गीता और चरखा रखा।
+
+[Chorus 2: करो या मरो]
+करो या मरो — यही मेरा आख़िरी वचन है।
+सत्याग्रह कमज़ोरों का हथियार नहीं,
+वह सबसे मज़बूत आदमी का रास्ता है।
+मारो मत, पर झुको भी मत, एक इंच भी नहीं।
+सत्य के सिवा मेरे पास कुछ नहीं है।
+
+[Bridge: असतो मा सद्गमय — हमारी भाषा का सबसे प्राचीन वचन]
+[प्राचीन संस्कृत मंत्र, बृहदारण्यक उपनिषद् 1.3.28]
+असतो मा सद्गमय, तमसो मा ज्योतिर्गमय,
+मृत्योर्मा अमृतं गमय।
+असत्य से सत्य की ओर, अंधकार से प्रकाश की ओर —
+यही प्रार्थना हमने हज़ारों साल पहले की थी,
+और सत्याग्रह उसी एक पंक्ति का नाम है।
+
+[Chorus 3: करो या मरो]
+करो या मरो — यही मेरा आख़िरी वचन है।
+सत्याग्रह कमज़ोरों का हथियार नहीं,
+वह सबसे मज़बूत आदमी का रास्ता है।
+मारो मत, पर झुको भी मत, एक इंच भी नहीं।
+सत्य के सिवा मेरे पास कुछ नहीं है।
+
+[Chorus 4: भारत छोड़ो, अगस्त 1942]
+गोवालिया टैंक मैदान, आठ अगस्त की रात,
+और सुबह होने से पहले हम सब गिरफ़्तार।
+आगा खाँ महल में इक्कीस महीने —
+वहीं कस्तूरबा मेरी गोद में चली गई।
+बयालीस साल साथ। आख़िरी दिन जेल में।
+
+[Outro: चरखे की आवाज़]
+मेरे पास कोई सेना नहीं थी, कोई ख़ज़ाना नहीं,
+कोई पद नहीं, कोई वर्दी नहीं, कोई हथियार नहीं।
+सिर्फ़ एक चरखा, एक धोती, और एक वचन।
+साम्राज्य चला गया। चरखा अब भी घूमता है।
+सत्य बचा रहा। बाक़ी सब मिट्टी है।
+
+[References — not sung]
+[Empire Theatre meeting, Johannesburg, 11 September 1906, the birth of satyagraha — https://en.wikipedia.org/wiki/Satyagraha]
+[Tolstoy Farm, 1910 to 1913 — https://en.wikipedia.org/wiki/Tolstoy_Farm]
+[The 1913 Natal miners' march and the Indian Relief Act of 1914 — https://en.wikipedia.org/wiki/Mohandas_Karamchand_Gandhi]
+[The Great Trial of 1922, Ahmedabad, before Judge Broomfield — https://en.wikipedia.org/wiki/Mohandas_Karamchand_Gandhi]
+[Yerawada Central Jail — https://en.wikipedia.org/wiki/Yerwada_Central_Jail]
+[Brihadaranyaka Upanishad 1.3.28, the Pavamana Mantra — https://en.wikipedia.org/wiki/Pavamana_Mantra]
+[Quit India Movement, 8 August 1942, Gowalia Tank Maidan, "Do or Die" — https://en.wikipedia.org/wiki/Quit_India_Movement]
+[Kasturba Gandhi's death at the Aga Khan Palace, 22 February 1944 — https://en.wikipedia.org/wiki/Kasturba_Gandhi]
+
+==============================================================================
+## 26. dante-en.txt
+作品 7a2973f7-70a4-4210-b496-c3be5f8666f3   语言 en
+==============================================================================
+
+[Style: Italian sacred polyphony, Gregorian chant opening into Renaissance choir, pipe organ and low strings, cathedral reverberation, grave and ascending, largo]
+[Vocal: tenor cantor answered by a full mixed choir, Latin-rite diction, straight tone]
+[Language: English. One line of the Italian original in the Chorus, one line of the oldest Italian in the Bridge.]
+
+[Verse 1: Midway]
+Midway along the road our life is set
+I woke inside a wood without a path.
+The night was that one night you don't forget;
+the slope was there, the lion and the wrath,
+and someone came who said: another way.
+
+[Verse 2: The Gate]
+Through me the way into the grieving town,
+through me the way into eternal pain.
+It says that on the lintel, going down.
+Abandon every hope, you who remain.
+I read it. And I went in anyway.
+
+[Chorus 1: The Love That Moves the Sun]
+L'amor che move il sole e l'altre stelle —
+the love that moves the sun and the other stars.
+Nine heavens turning, and the one who tells
+the turning what to do is all there was.
+And from there we came out to see the stars.
+
+[Verse 3: Exile, 1302]
+They sentenced me in absence, burned my name,
+and gave my house in Florence to a friend
+of Corso Donati. I never came
+back up the Arno. Every road would bend
+to someone else's stairs, and someone's bread.
+
+[Verse 4: Beatrice on the Terrace]
+A girl in Florence, crimson, nine years old;
+and then the bridge, the greeting, and the death.
+I put her at the top of Paradise and told
+the whole of Christendom to hold its breath.
+She looked at me and did not say my name.
+
+[Chorus 2: The Love That Moves the Sun]
+L'amor che move il sole e l'altre stelle —
+the love that moves the sun and the other stars.
+Nine heavens turning, and the one who tells
+the turning what to do is all there was.
+And from there we came out to see the stars.
+
+[Bridge: Se Pareba Boves — the oldest line in our tongue]
+[Oldest Italian incantation-riddle, the Veronese Riddle, eighth or ninth century]
+Se pareba boves, alba pratalia araba,
+albo versorio teneba, negro semen seminaba.
+He drove the oxen, ploughed the white fields white,
+he held the white plough and he sowed black seed:
+that was a man writing. That was already us.
+
+[Chorus 3: The Love That Moves the Sun]
+L'amor che move il sole e l'altre stelle —
+the love that moves the sun and the other stars.
+Nine heavens turning, and the one who tells
+the turning what to do is all there was.
+And from there we came out to see the stars.
+
+[Chorus 4: In the Vernacular]
+I wrote it in the language of the street,
+not Latin, not the clerks', not for the schools —
+in Tuscan, so a woman in her seat
+by the fire could follow it. They called it rude.
+It is the language now. It was a bet.
+
+[Outro: Ravenna]
+They would not give you back your city, ever;
+Ravenna took the bones and kept them hid
+in a wall when Florence sent for them. Forever
+the city that condemned you wants the lid.
+Sleep. The stars are the last word in each book.
+
+[References — not sung]
+[Inferno I.1, "Nel mezzo del cammin di nostra vita" — https://en.wikipedia.org/wiki/Inferno_(Dante)]
+[Inferno III, the gate of Hell, "Lasciate ogne speranza, voi ch'intrate" — https://en.wikipedia.org/wiki/Inferno_(Dante)]
+[Paradiso XXXIII, final line, "l'amor che move il sole e l'altre stelle" — https://en.wikipedia.org/wiki/Paradiso_(Dante)]
+[Dante's exile from Florence, 1302 — https://en.wikipedia.org/wiki/Dante_Alighieri]
+[Beatrice Portinari — https://en.wikipedia.org/wiki/Beatrice_Portinari]
+[De vulgari eloquentia, the defence of the vernacular — https://en.wikipedia.org/wiki/De_vulgari_eloquentia]
+[Veronese Riddle, Indovinello veronese — https://en.wikipedia.org/wiki/Veronese_Riddle]
+[Dante's tomb, Ravenna, and the dispute over the bones — https://en.wikipedia.org/wiki/Tomb_of_Dante]
+
+==============================================================================
+## 27. napoleon-en.txt
+作品 524bab57-967b-4803-b31d-ef3fe8a25ed5   语言 en
+==============================================================================
+
+[Style: French classical orchestra, military march in a minor key, snare and massed brass, tragic grandeur collapsing into a slow funeral tread, allegro then largo]
+[Vocal: dramatic baritone lead with a male soldiers chorus answering, declamatory, open and bitter]
+[Language: English. One line of the French original in the Chorus, one line of the oldest French in the Bridge.]
+
+[Verse 1: A Still Night Sky]
+Under a still night sky the small stars show
+above the old wall and the empty square.
+The great king rode out everywhere, and so
+the glory and the pride went off like air.
+I look at the wall and think of everything.
+
+[Verse 2: Toulon to Austerlitz]
+A Corsican lieutenant with a map,
+a battery of guns laid low and true.
+Then Austerlitz, and the sun through the gap,
+and forty centuries looking down at you.
+Soldiers, the pyramids are watching. March.
+
+[Chorus 1: One Step from the Sublime]
+Napoleon — the dream a horseman had,
+the colours flying, the unyielding year.
+Du sublime au ridicule il n'y a qu'un pas:
+one step from the sublime to the absurd.
+I took the step. I took it with the world.
+
+[Verse 3: Moscow, the Cold, the Betrayal]
+Cloud over everything, the drums like thunder.
+Moscow was ash before we got inside.
+Betrayal grew in the heart, and the long plunder
+ran backwards down the Berezina tide.
+Six hundred thousand out. Some tens came home.
+
+[Verse 4: Waterloo, 18 June 1815]
+The hour of the last battle, fate on fate;
+Grouchy did not come, and Bluecher did.
+The Guard went up the ridge, and it was late,
+and history came back and shook the lid.
+The Guard dies and does not surrender. Then it died.
+
+[Chorus 2: One Step from the Sublime]
+Napoleon — the dream a horseman had,
+the colours flying, the unyielding year.
+Du sublime au ridicule il n'y a qu'un pas:
+one step from the sublime to the absurd.
+I took the step. I took it with the world.
+
+[Bridge: Pro Deo Amur — the oldest oath in our tongue]
+[Oldest French, the Oaths of Strasbourg, 14 February 842]
+Pro Deo amur et pro christian poblo
+et nostro commun salvament, d'ist di in avant.
+For the love of God and for the Christian people:
+two brothers swore it, and they broke it after.
+That was already French. So was the breaking.
+
+[Chorus 3: One Step from the Sublime]
+Napoleon — the dream a horseman had,
+the colours flying, the unyielding year.
+Du sublime au ridicule il n'y a qu'un pas:
+one step from the sublime to the absurd.
+I took the step. I took it with the world.
+
+[Chorus 4: The Code Outlasts the Cannon]
+At the edge of despair I called out loud
+for the soul of some hero to answer me.
+Nothing answered. What answered was the crowd
+of clerks who kept the Code, the lycee,
+the metre and the bank. Those did not fall.
+
+[Outro: Longwood, Saint Helena]
+Under a still night sky the small stars show
+above a wet house on a rock at sea.
+The echo of all history goes low
+and stays cut into something under me.
+Two thousand miles of ocean. And the damp.
+
+[References — not sung]
+[Siege of Toulon, 1793 — https://en.wikipedia.org/wiki/Siege_of_Toulon]
+[Battle of Austerlitz, 2 December 1805, the sun of Austerlitz — https://en.wikipedia.org/wiki/Battle_of_Austerlitz]
+[Battle of the Pyramids, "forty centuries look down upon you" — https://en.wikipedia.org/wiki/Battle_of_the_Pyramids]
+[French invasion of Russia, 1812, and the Berezina — https://en.wikipedia.org/wiki/French_invasion_of_Russia]
+[Battle of Waterloo, 18 June 1815 — https://en.wikipedia.org/wiki/Battle_of_Waterloo]
+[Pierre Cambronne, "La Garde meurt et ne se rend pas" — https://en.wikipedia.org/wiki/Pierre_Cambronne]
+[Du sublime au ridicule il n'y a qu'un pas — https://en.wikipedia.org/wiki/Napoleon]
+[Oaths of Strasbourg, oldest surviving Old French text — https://en.wikipedia.org/wiki/Oaths_of_Strasbourg]
+[Napoleonic Code — https://en.wikipedia.org/wiki/Napoleonic_Code]
+[Longwood House, Saint Helena — https://en.wikipedia.org/wiki/Longwood_House]
+
+==============================================================================
+## 28. descartes-en.txt
+作品 18fc4522-1114-4faa-af3c-8edfb0516836   语言 en
+==============================================================================
+
+[Style: French Baroque chamber, viol consort and theorbo, slow sarabande, candlelit cabinet acoustics, measured and sceptical, andante]
+[Vocal: tenor lead, intimate and spoken-close, a sparse choir entering only on the chorus, little vibrato]
+[Language: English. One line of Latin and one of French in the Chorus, one line of the oldest French poem in the Bridge.]
+
+[Verse 1: Neuburg, 10 November 1619]
+Deep thinking goes through the dark like water goes.
+Winter quarters, a stove-heated room,
+one soldier with no battle and no clothes
+to speak of, and a whole day in the gloom:
+I had nothing to do but doubt everything.
+
+[Verse 2: The Three Dreams]
+In the dream at Neuburg I was blown by wind
+against a chapel wall, and could not stand.
+Then thunder, sparks. Then a dictionary, and
+a book of poems opened in my hand
+at a line that asked: which road of life is mine?
+
+[Chorus 1: Cogito]
+Dubito, ergo cogito, ergo sum —
+je pense, donc je suis. The soul's own voice
+goes up and carries to the sky and comes
+back down as the one thing left me by the choice
+to throw out everything. Wisdom's light. And this.
+
+[Verse 3: The Fly on the Ceiling]
+A fly in the corner of a plastered room:
+how do I say exactly where it sits?
+Two walls, a floor, three numbers, and you come
+to any point in all the world that fits.
+The beauty of the math is in the stars.
+
+[Verse 4: Larvatus Prodeo]
+I come forward masked — I wrote that as a boy
+in a notebook nobody was meant to read.
+I held the Galileo book with joy
+and locked my own away. I would not bleed
+for a proposition. I would live and write.
+
+[Chorus 2: Cogito]
+Dubito, ergo cogito, ergo sum —
+je pense, donc je suis. The soul's own voice
+goes up and carries to the sky and comes
+back down as the one thing left me by the choice
+to throw out everything. Wisdom's light. And this.
+
+[Bridge: Buona Pulcella Fut Eulalia]
+[Oldest French poem, the Sequence of Saint Eulalia, around 881]
+Buona pulcella fut Eulalia,
+bel auret corps, bellezour anima.
+A good girl was Eulalia; fair was her body,
+fairer her soul — that was already French,
+the first of us to sing and not translate.
+
+[Chorus 3: Cogito]
+Dubito, ergo cogito, ergo sum —
+je pense, donc je suis. The soul's own voice
+goes up and carries to the sky and comes
+back down as the one thing left me by the choice
+to throw out everything. Wisdom's light. And this.
+
+[Chorus 4: Wandering the Universe]
+I wander in the universe and ask
+what lies ahead; the road has no last mile.
+Truth is waiting and in no great rush.
+The questions are not finished. All the while
+the method is the only thing I own.
+
+[Outro: Stockholm, 11 February 1650]
+A queen who wanted lessons at five in the morning,
+a Swedish winter, and a lung that filled.
+When the dream broke there was a scent of thinking
+left in the room, and a long argument stilled.
+They took the skull to Paris. Not the rest.
+
+[References — not sung]
+[The night of 10 November 1619 at Neuburg an der Donau and the three dreams — https://en.wikipedia.org/wiki/Ren%C3%A9_Descartes]
+[Discourse on the Method, 1637, "je pense, donc je suis" — https://en.wikipedia.org/wiki/Discourse_on_the_Method]
+[Cogito, ergo sum — https://en.wikipedia.org/wiki/Cogito,_ergo_sum]
+[Cartesian coordinate system and La Geometrie, 1637 — https://en.wikipedia.org/wiki/Cartesian_coordinate_system]
+[Larvatus prodeo, from the early Cogitationes privatae — https://en.wikipedia.org/wiki/Ren%C3%A9_Descartes]
+[Sequence of Saint Eulalia, oldest surviving French literary text — https://en.wikipedia.org/wiki/Sequence_of_Saint_Eulalia]
+[Queen Christina of Sweden and Descartes's death in Stockholm, 11 February 1650 — https://en.wikipedia.org/wiki/Christina,_Queen_of_Sweden]
+
+==============================================================================
+## 29. beethoven-en.txt
+作品 ce866f0b-bbec-45db-8675-d1d2ecd39f7f   语言 en
+==============================================================================
+
+[Style: Viennese classical symphonic, full orchestra with timpani and massed choir, minor-key sturm und drang opening into a blazing D major chorale, heroic and granitic, allegro con brio]
+[Vocal: bass-baritone soloist with a large four-part chorus, operatic and open, German-choral diction]
+[Language: English. One line of the German original from the Ninth in the Chorus, one line of Old High German in the Bridge.]
+
+[Verse 1: Hearing in a Silent World]
+In a world gone silent I still heard the music —
+that was the thing you brought us and still bring.
+A heartbeat under every rise and fall of it
+and nothing in my ears but the one ringing.
+Musica movet animum. Let it move.
+
+[Verse 2: Heiligenstadt, 6 October 1802]
+I wrote a letter to my brothers once
+and never sent it: how I nearly went,
+how art alone held back my own two hands.
+Six weeks in a village, and the long descent.
+Sunt lacrimae rerum. There are tears in things.
+
+[Chorus 1: Freude]
+Freude, schöner Götterfunken, Tochter aus Elysium —
+joy, bright spark of the gods, Elysium's daughter.
+Beethoven, Beethoven, we are still coming,
+your music is the melody we are after:
+in a world gone silent we still hear the music.
+
+[Verse 3: The Torn Page, 1804]
+I wrote his name across the Eroica's head
+and when they told me he had crowned himself
+I tore the title page right through and said
+he is no better than the rest. The shelf
+still holds the copy with the hole in it.
+
+[Verse 4: Four Notes]
+Three short, one long. Not fate knocking at a door —
+that was my secretary, and he lied.
+It is a motif, and it will not let you go,
+and I built four movements on it and I tried
+to make the dark give up and it gave up.
+
+[Chorus 2: Freude]
+Freude, schöner Götterfunken, Tochter aus Elysium —
+joy, bright spark of the gods, Elysium's daughter.
+Beethoven, Beethoven, we are still coming,
+your music is the melody we are after:
+in a world gone silent we still hear the music.
+
+[Bridge: Dat Ero Ni Uuas Noh Ufhimil]
+[Old High German incantation, the Wessobrunn Prayer, around 790]
+Dat gafregin ih mit firahim firiuuizzo meista,
+dat ero ni uuas noh ufhimil.
+I learned among men the greatest of wonders:
+that there was no earth yet, and no heaven above.
+Out of that nothing, sound. Then everything.
+
+[Chorus 3: Freude]
+Freude, schöner Götterfunken, Tochter aus Elysium —
+joy, bright spark of the gods, Elysium's daughter.
+Beethoven, Beethoven, we are still coming,
+your music is the melody we are after:
+in a world gone silent we still hear the music.
+
+[Chorus 4: 7 May 1824]
+I stood with my back to the hall and beat the time
+against an orchestra I could not hear.
+Caroline Unger took my arm and turned me round
+to a house on its feet, and the hats in the air.
+Muss es sein? Es muss sein. It must be.
+
+[Outro: Vienna, 26 March 1827]
+A thunderclap over the Schwarzspanierhaus,
+one fist, they said, and then the room was still.
+Twenty thousand in the street. Schubert held
+a torch. Time flies, but the number stands.
+Fiat lux. And it was always light.
+
+[References — not sung]
+[Heiligenstadt Testament, 6 October 1802 — https://en.wikipedia.org/wiki/Heiligenstadt_Testament]
+[Symphony No. 3 Eroica and the erased dedication to Napoleon — https://en.wikipedia.org/wiki/Symphony_No._3_(Beethoven)]
+[Symphony No. 5 and the "fate knocking" anecdote of Anton Schindler — https://en.wikipedia.org/wiki/Symphony_No._5_(Beethoven)]
+[Symphony No. 9 and Schiller's An die Freude — https://en.wikipedia.org/wiki/Symphony_No._9_(Beethoven)]
+[Premiere of 7 May 1824, Kaerntnertortheater; Caroline Unger turned Beethoven to the audience — https://en.wikipedia.org/wiki/Symphony_No._9_(Beethoven)]
+[String Quartet No. 16, Op. 135, "Muss es sein? Es muss sein!" — https://en.wikipedia.org/wiki/String_Quartet_No._16_(Beethoven)]
+[Wessobrunn Prayer, Old High German — https://en.wikipedia.org/wiki/Wessobrunn_Prayer]
+[Beethoven's death, 26 March 1827, and his funeral — https://en.wikipedia.org/wiki/Ludwig_van_Beethoven]
+
+==============================================================================
+## 30. newton-en.txt
+作品 ed012119-af12-4829-afc0-71186188629a   语言 en
+==============================================================================
+
+[Style: English Baroque orchestra, solemn and processional, strings with trumpets and chamber organ, Purcell funeral-march gravity opening into a bright major close, largo maestoso]
+[Vocal: bass-baritone lead with a cathedral choir answering, English Restoration diction, straight tone]
+[Language: English. One Latin motto in the Chorus, one line of Old English incantation in the Bridge.]
+
+[Verse 1: Woolsthorpe, Plague Years]
+In the huge dark of space, who hears a call?
+A boy sent home from Cambridge by the plague
+sits in his mother's orchard by the wall
+and in two years invents the coming age.
+He tells nobody. He puts it in a drawer.
+
+[Verse 2: The Apple, and the Causes]
+He thought it quietly; the past went by like smoke,
+and the law of cause came clear inside his head.
+Away from all the quarrels, he awoke
+the unknown gently, and it was not dread —
+why should an apple always fall straight down?
+
+[Chorus 1: Hypotheses Non Fingo]
+Oh, Newton, lighthouse standing in the void,
+you used your light to show the dark its road.
+Hypotheses non fingo — I feign none.
+I give the law and not the reason. Hold
+to nature's rules. You are the hymn of reason.
+
+[Verse 3: Principia, 1687]
+Halley paid for it out of his own purse
+because the Royal Society had spent
+its money on a book about the fish.
+Three books, one law, the whole firmament
+set out in geometry, and signed.
+
+[Verse 4: Shoulders of Giants]
+If I have seen further than other men,
+it is by standing on the shoulders of giants —
+I wrote that to a man I would then burn
+through thirty years of patient, filed defiance.
+Hooke was short. I never let it go.
+
+[Chorus 2: Hypotheses Non Fingo]
+Oh, Newton, lighthouse standing in the void,
+you used your light to show the dark its road.
+Hypotheses non fingo — I feign none.
+I give the law and not the reason. Hold
+to nature's rules. You are the hymn of reason.
+
+[Bridge: Gemyne Thu, Mucgwyrt]
+[Old English incantation, the Nine Herbs Charm, Lacnunga, tenth century]
+Gemyne thu, mucgwyrt, hwaet thu ameldodest,
+hwaet thu renadest aet Regenmelde.
+Remember, mugwort, what you made known,
+what you arranged at the great proclamation —
+I kept a furnace too, and spoke to leaves.
+
+[Chorus 3: Hypotheses Non Fingo]
+Oh, Newton, lighthouse standing in the void,
+you used your light to show the dark its road.
+Hypotheses non fingo — I feign none.
+I give the law and not the reason. Hold
+to nature's rules. You are the hymn of reason.
+
+[Chorus 4: A Boy on the Shore]
+I do not know how I appear to the world;
+to myself I have been a boy on a beach
+finding a smoother pebble, a prettier shell,
+while the whole great ocean of truth lay undiscovered
+in front of me. Time is a river. Go.
+
+[Outro: Westminster, 1727]
+Under the stars I will remember the pursuit,
+and follow Newton toward the coming light.
+Nature and nature's laws lay hid in night;
+God said, Let Newton be — and all was light.
+They put him with the kings. He was a king.
+
+[References — not sung]
+[Newton's annus mirabilis at Woolsthorpe Manor, 1665 to 1666 — https://en.wikipedia.org/wiki/Isaac_Newton]
+[The apple, as recorded by William Stukeley — https://en.wikipedia.org/wiki/Isaac_Newton%27s_apple_tree]
+[Hypotheses non fingo, from the General Scholium of the Principia — https://en.wikipedia.org/wiki/Hypotheses_non_fingo]
+[Philosophiae Naturalis Principia Mathematica, 1687, financed by Edmond Halley — https://en.wikipedia.org/wiki/Philosophi%C3%A6_Naturalis_Principia_Mathematica]
+[Letter to Robert Hooke, 1675, "on the shoulders of giants" — https://en.wikipedia.org/wiki/Standing_on_the_shoulders_of_giants]
+[Nine Herbs Charm, Old English — https://en.wikipedia.org/wiki/Nine_Herbs_Charm]
+[Newton's own "boy on the sea-shore" remark — https://en.wikipedia.org/wiki/Isaac_Newton]
+[Alexander Pope's epitaph, "God said, Let Newton be! and all was light" — https://en.wikipedia.org/wiki/Isaac_Newton]
+
+==============================================================================
+## 31. vangogh-en.txt
+作品 6427629f-6b08-4e57-9ba0-fc69bed411f0   语言 en
+==============================================================================
+
+[Style: Cinematic score, solo cello and piano over slow swelling strings, Dutch folk fiddle in the bridge, nocturnal and surging, building from pianissimo to full orchestra, andante]
+[Vocal: baritone lead, close and cracked, a wordless mixed choir rising on the choruses, no ornament]
+[Language: English. One line of his own French in the Chorus, one line of the oldest Dutch in the Bridge.]
+
+[Verse 1: Weak Light, Low Sky]
+A weak light flickering, almost nothing there,
+and the dark sky hanging low over the field.
+Nuenen, winter, a potato-eater's chair,
+five faces and one lamp. Nothing to yield.
+I painted them brown because they were brown.
+
+[Verse 2: The Yellow House, Arles, 1888]
+Beneath the stars I sat and thought and thought,
+and on the canvas everything was storming:
+fifteen sunflowers in a jar I bought
+for a man who was coming in the morning.
+I put a bed in every room. He stayed nine weeks.
+
+[Chorus 1: The Shining Dots]
+Les points lumineux du firmament — why should
+the shining dots of heaven be less near
+than the black dots on the map of France?
+I wander in the colours. The fire is here.
+A train for the one, and death for the other. Go.
+
+[Verse 3: Every Brushstroke Says It]
+Every brushstroke is a sentence, and it says
+the same thing in a hundred different ways.
+A lonely shouting goes out through the days
+and nobody writes back except my brother.
+Eight hundred letters. Theo kept them all.
+
+[Verse 4: Saint-Remy, June 1889]
+A barred window, a cypress, and a sky
+that would not stay still long enough to sit.
+Eleven stars, a moon, a village lying
+asleep under a church I made up for it.
+I was in an asylum. I was never calmer.
+
+[Chorus 2: The Shining Dots]
+Les points lumineux du firmament — why should
+the shining dots of heaven be less near
+than the black dots on the map of France?
+I wander in the colours. The fire is here.
+A train for the one, and death for the other. Go.
+
+[Bridge: Hebban Olla Vogala]
+[Oldest Dutch sentence, written about 1100 in a Rochester manuscript]
+Hebban olla vogala nestas hagunnan
+hinase hic enda thu — wat unbidan we nu?
+All the birds have begun their nests, except
+for me and you. So what are we waiting for?
+That was already Dutch. It was already this.
+
+[Chorus 3: The Shining Dots]
+Les points lumineux du firmament — why should
+the shining dots of heaven be less near
+than the black dots on the map of France?
+I wander in the colours. The fire is here.
+A train for the one, and death for the other. Go.
+
+[Chorus 4: Auvers, July 1890]
+Seventy days, seventy canvases, a field,
+a crow, a path that goes three ways and stops.
+Time stands completely still, and will not yield,
+and the dream inside the painting comes back up.
+Doctor Gachet was sadder than I was.
+
+[Outro: Melting into Morning]
+A weak light flickering, and then the slow
+dissolving of it into the first grey.
+La tristesse durera toujours, I said —
+the sadness is going to last. Theo died
+six months after me. They lie side by side.
+
+[References — not sung]
+[The Potato Eaters, Nuenen, 1885 — https://en.wikipedia.org/wiki/The_Potato_Eaters]
+[The Yellow House, Arles, and Gauguin's nine weeks — https://en.wikipedia.org/wiki/The_Yellow_House]
+[Sunflowers series, Arles, 1888 — https://en.wikipedia.org/wiki/Sunflowers_(Van_Gogh_series)]
+[Letter 638 to Theo on the shining dots of the firmament — https://en.wikipedia.org/wiki/Vincent_van_Gogh%27s_letters]
+[The Starry Night, Saint-Remy-de-Provence, June 1889 — https://en.wikipedia.org/wiki/The_Starry_Night]
+[Hebban olla vogala, oldest known Dutch sentence — https://en.wikipedia.org/wiki/Hebban_olla_vogala]
+[Wheatfield with Crows, Auvers-sur-Oise, July 1890 — https://en.wikipedia.org/wiki/Wheatfield_with_Crows]
+[Van Gogh's last words as reported by Theo; the graves at Auvers — https://en.wikipedia.org/wiki/Vincent_van_Gogh]
+
+==============================================================================
+## 32. albertus-en.txt
+作品 8f715cc6-fd4c-4fd9-ac3d-5e7f0f0d04c9   语言 en
+==============================================================================
+
+[Style: High medieval classical, pipe organ and bowed vielle with male chant underneath, Cologne cathedral acoustics, patient and observational, slow triple time]
+[Vocal: baritone lead with a small male schola answering, Latin-rite diction, straight tone]
+[Language: English. One Latin motto of his own in the Chorus, one line of Old High German charm in the Bridge.]
+
+[Verse 1: Under the Stars, Lauingen]
+Under the stars I speak, and speak it low;
+the moonlight falls, the night is mild and wide.
+I was a Swabian boy who liked to know
+the names of things, and went outside to find
+whether the book was right about the moth.
+
+[Verse 2: Padua, and the Black and White]
+In Padua the Dominicans took me in
+against my family's wish, and gave me time.
+A shadow of longing circles in the mind;
+whenever something calls, it calls by name.
+I answered, and I walked to Cologne on foot.
+
+[Chorus 1: Experimentum Solum]
+Experimentum solum certificat in talibus —
+experiment alone makes sure of such things.
+Not Aristotle, not the gloss, not us:
+the hawk you watch, the plant that actually springs.
+Like moonlight on the dark — go out and look.
+
+[Verse 3: De Animalibus]
+I opened fish, I counted out the legs
+of insects, I drew the crow's nest in the rain.
+I said the earth is round and gave my reasons.
+I said whales are not fish, and said again.
+Twenty-one volumes. Mostly: I went and saw.
+
+[Verse 4: The Ox from Naples]
+A heavy silent boy sat at the back
+and the others called him dumb, and I said no —
+this ox will bellow for the world. I packed
+him off to Paris with my letters. So
+he wrote the Summa. I had taught him to look.
+
+[Chorus 2: Experimentum Solum]
+Experimentum solum certificat in talibus —
+experiment alone makes sure of such things.
+Not Aristotle, not the gloss, not us:
+the hawk you watch, the plant that actually springs.
+Like moonlight on the dark — go out and look.
+
+[Bridge: Kirst, Imbi Ist Hucze]
+[Old High German incantation, the Lorsch Bee Blessing, tenth century]
+Kirst, imbi ist hucze! Nu fluc du, vihu minaz,
+hera, fridu frono in godes munt heim zi comonne gisunt.
+Christ, the swarm is out — now fly, my cattle, home.
+Older than my books, this was already German:
+a charm to call the bees back to the hive.
+
+[Chorus 3: Experimentum Solum]
+Experimentum solum certificat in talibus —
+experiment alone makes sure of such things.
+Not Aristotle, not the gloss, not us:
+the hawk you watch, the plant that actually springs.
+Like moonlight on the dark — go out and look.
+
+[Chorus 4: Doctor Universalis]
+They made me bishop and I begged to stop;
+two years, and then I walked back to the school.
+A shooting star goes over, and I drop
+whatever I was holding, as a rule.
+I only ever wanted one more year of looking.
+
+[Outro: Cologne, 15 November 1280]
+Under the stars I speak, and speak it low;
+the moonlight falls, and I am old and done.
+They say I lost my memory at the end
+and sat in the lecture hall with nothing in my hand.
+Let the patron of the sciences be that man.
+
+[References — not sung]
+[Albertus Magnus, born at Lauingen in Swabia — https://en.wikipedia.org/wiki/Albertus_Magnus]
+[Experimentum solum certificat in talibus, De Vegetabilibus — https://en.wikipedia.org/wiki/Albertus_Magnus]
+[De Animalibus, twenty-six books of direct observation — https://en.wikipedia.org/wiki/De_animalibus]
+[Albert's teaching of Thomas Aquinas at Cologne, and the "dumb ox" — https://en.wikipedia.org/wiki/Thomas_Aquinas]
+[Bishop of Regensburg, 1260 to 1262 — https://en.wikipedia.org/wiki/Albertus_Magnus]
+[Lorsch Bee Blessing, Old High German — https://en.wikipedia.org/wiki/Lorsch_Bee_Blessing]
+[Canonised 1931; patron saint of natural scientists — https://en.wikipedia.org/wiki/Albertus_Magnus]
+
+==============================================================================
+## 33. tesla-en.txt
+作品 2788f959-3db9-4564-abe4-b0bf7aaf8c09   语言 en
+==============================================================================
+
+[Style: Modern electronic, analogue synthesizer arpeggios over high-frequency sine drones, Tesla-coil crackle percussion, Serbian folk modal in the bridge, cold and ascending, driving mid-tempo]
+[Vocal: tenor lead, processed and clear with a wide reverb tail, a synthetic choir answering, no vibrato]
+[Language: English. One verbatim line of his own in the Chorus, one line of Old Church Slavonic in the Bridge.]
+
+[Verse 1: Smiljan, and the Light in the Dark]
+A glimmer in the darkness, and it held:
+a cat's back in the winter throwing sparks,
+and a boy in a Serbian priest's house, spellbound,
+asking his father what the fire was.
+Is nature a cat? And who, then, strokes her back?
+
+[Verse 2: Budapest City Park, February 1882]
+Walking with Szigeti at the end of the day
+I quoted Faust aloud and stopped mid-line:
+the field was rotating. There was no delay,
+no commutator, no brush, no spark. The design
+came whole. I drew it in the dust with a stick.
+
+[Chorus 1: The Future Is Mine]
+Tesla — you opened up the door ahead,
+the radio waves go dancing in the sky.
+Let the present be theirs; I do not mind.
+The present is theirs; the future, for which
+I really worked, is mine. It always was.
+
+[Verse 3: The War of the Currents]
+Edison paid me nothing and I left.
+Direct current cannot cross a county line;
+alternating current crosses a continent.
+Niagara, eighteen ninety-five: the turbines turn
+and Buffalo lights up. That argument is closed.
+
+[Verse 4: Colorado Springs, 1899]
+I built a coil and made lightning indoors,
+one hundred thirty feet of it, and the town
+went dark because I burned the generator out.
+The thunder was heard fifteen miles down.
+And I heard something else. I think I did.
+
+[Chorus 2: The Future Is Mine]
+Tesla — you opened up the door ahead,
+the radio waves go dancing in the sky.
+Let the present be theirs; I do not mind.
+The present is theirs; the future, for which
+I really worked, is mine. It always was.
+
+[Bridge: Iskoni Be Slovo]
+[Old Church Slavonic, Cyril and Methodius, ninth century, the oldest Slavic verse]
+Iskoni be slovo, i slovo be u Boga,
+i Bog be slovo. Vsa tem bysha.
+In the beginning was the word, and the word
+was with God. Older than every wire,
+my people wrote that first. I only sent it.
+
+[Chorus 3: The Future Is Mine]
+Tesla — you opened up the door ahead,
+the radio waves go dancing in the sky.
+Let the present be theirs; I do not mind.
+The present is theirs; the future, for which
+I really worked, is mine. It always was.
+
+[Chorus 4: Wardenclyffe]
+A tower on Long Island, and a shaft
+driven a hundred feet into the ground,
+to put the power through the earth itself
+and charge the whole of it, and ask for nothing.
+Morgan asked: where do I put the meter? Then he stopped.
+
+[Outro: Hotel New Yorker, Room 3327]
+Current running through my hands, and then
+no hands, no coil, no tower, and no debt paid.
+Eighty-six, alone, and the one friend
+a white pigeon that came to the window ledge.
+In the flashing light, go on. Keep going on.
+
+[References — not sung]
+[Tesla's childhood in Smiljan and the cat's static spark — https://en.wikipedia.org/wiki/Nikola_Tesla]
+[The rotating magnetic field, Budapest City Park, February 1882 — https://en.wikipedia.org/wiki/Rotating_magnetic_field]
+[War of the Currents — https://en.wikipedia.org/wiki/War_of_the_currents]
+[Adams Power Plant, Niagara Falls, 1895 — https://en.wikipedia.org/wiki/Edward_Dean_Adams_Power_Plant]
+[Colorado Springs Experiments, 1899, and the magnifying transmitter — https://en.wikipedia.org/wiki/Colorado_Springs_Notes,_1899-1900]
+[Old Church Slavonic translation of the Gospel of John by Cyril and Methodius — https://en.wikipedia.org/wiki/Old_Church_Slavonic]
+[Wardenclyffe Tower and J. P. Morgan's withdrawal — https://en.wikipedia.org/wiki/Wardenclyffe_Tower]
+[Tesla's last years at the Hotel New Yorker; the white pigeon — https://en.wikipedia.org/wiki/Nikola_Tesla]
+
+==============================================================================
+## 34. ptolemy-el.txt
+作品 7ca4076b-0386-4c76-8c48-09f9f2b267b1   语言 el
+==============================================================================
+
+[Style: Hellenistic orchestral, lyre and aulos over low strings and frame drum, Alexandrian processional, Mediterranean modal, broad and ceremonial, maestoso]
+[Vocal: baritone lead with a male chorus answering, Greek chant placement, open vowels, straight tone]
+[Language: Greek. One verbatim Homeric line in the Chorus, one ancient Greek incantation in the Bridge.]
+
+[Verse 1: Ο σωματοφύλακας]
+Στην Πέλλα ήμουν παιδί μαζί με τον Αλέξανδρο,
+ένας Μακεδόνας, γιος του Λάγου, τίποτα άλλο.
+Κρατούσα την ασπίδα του στα Γαυγάμηλα,
+και στην Ινδία σήκωσα το σώμα του ψηλά.
+Ο στρατός προχωρούσε. Εγώ κοιτούσα τον χάρτη.
+
+[Verse 2: Η νεκρική πομπή]
+Όταν πέθανε, άρπαξα τη χρυσή άμαξα
+στη Δαμασκό και την έστρεψα προς τον νότο.
+Στη Μέμφιδα πρώτα, μετά στην Αλεξάνδρεια:
+όποιος κρατά το σώμα, κρατά και το όνομα.
+Αυτό δεν ήταν ευσέβεια. Ήταν πολιτική.
+
+[Chorus 1: Ἄνδρα μοι ἔννεπε]
+Ἄνδρα μοι ἔννεπε, μοῦσα, πολύτροπον —
+τον άνδρα τον πολύτροπο, Μούσα, πες μου.
+Έφτιαξα στη θάλασσα ένα σπίτι για τις Μούσες,
+το Μουσεῖον, και μέσα του όλα τα βιβλία.
+Σωτήρα με είπαν οι Ρόδιοι. Το κράτησα.
+
+[Verse 3: Η Βιβλιοθήκη]
+Ο Δημήτριος ο Φαληρεύς μου έφερε το σχέδιο:
+κάθε πλοίο που δένει, αφήνει το βιβλίο του.
+Αντιγράφουμε, κρατάμε το αρχικό, δίνουμε το αντίγραφο.
+Μισό εκατομμύριο κύλινδροι στα ράφια της πόλης.
+Δεν κατέκτησα τη γη. Αντέγραψα τη γνώση.
+
+[Verse 4: Οι Διάδοχοι]
+Σαράντα χρόνια πόλεμος με τους συντρόφους μου:
+Αντίγονος, Σέλευκος, Κάσσανδρος, Λυσίμαχος.
+Η αυτοκρατορία κόπηκε σε τέσσερα κομμάτια
+κι εγώ πήρα το μόνο με ποτάμι και σιτάρι.
+Η Αίγυπτος κρατάει τριακόσια χρόνια. Αρκεί.
+
+[Chorus 2: Ἄνδρα μοι ἔννεπε]
+Ἄνδρα μοι ἔννεπε, μοῦσα, πολύτροπον —
+τον άνδρα τον πολύτροπο, Μούσα, πες μου.
+Έφτιαξα στη θάλασσα ένα σπίτι για τις Μούσες,
+το Μουσεῖον, και μέσα του όλα τα βιβλία.
+Σωτήρα με είπαν οι Ρόδιοι. Το κράτησα.
+
+[Bridge: Ἄσκι κατάσκι — το αρχαιότερο ξόρκι της γλώσσας μας]
+[Αρχαίο ελληνικό ξόρκι, τα Ἐφέσια γράμματα, τέταρτος αιώνας π.Χ.]
+Ἄσκι κατάσκι λίξ τετράξ δαμναμενεύς αἴσιον —
+λέξεις χωρίς νόημα, δύναμη χωρίς εξήγηση.
+Πιο παλιές από τη βιβλιοθήκη, πιο παλιές από τη λογική:
+έτσι μιλούσαμε όταν φοβόμασταν το σκοτάδι.
+Και όλα τα βιβλία μου στέκονται πάνω σε αυτό.
+
+[Chorus 3: Ἄνδρα μοι ἔννεπε]
+Ἄνδρα μοι ἔννεπε, μοῦσα, πολύτροπον —
+τον άνδρα τον πολύτροπο, Μούσα, πες μου.
+Έφτιαξα στη θάλασσα ένα σπίτι για τις Μούσες,
+το Μουσεῖον, και μέσα του όλα τα βιβλία.
+Σωτήρα με είπαν οι Ρόδιοι. Το κράτησα.
+
+[Chorus 4: Ο Φάρος]
+Στο νησί της Φάρου αρχίσαμε τον πύργο,
+φως για τα πλοία που δεν βλέπουν ακτή.
+Ο γιος μου τον τελείωσε. Εγώ έβαλα την πέτρα.
+Αιώνες μετά, το φως είναι ακόμη όνομα.
+Αλεξάνδρεια: δύο λιμάνια και μία γλώσσα.
+
+[Outro: 282 π.Χ.]
+Έγραψα κι ένα βιβλίο για τις εκστρατείες του,
+απλό, χωρίς ψέματα, κι ο Αρριανός το πίστεψε.
+Πέθανα γέρος στο κρεβάτι μου, μόνος από τους Διαδόχους.
+Στη νύχτα της Αλεξάνδρειας ακούγεται παλιό τραγούδι.
+Το σώμα έφυγε. Η βιβλιοθήκη έμεινε. Μετά κάηκε.
+
+[References — not sung]
+[Ptolemy I Soter, son of Lagus, bodyguard of Alexander — https://en.wikipedia.org/wiki/Ptolemy_I_Soter]
+[The hijacking of Alexander's funeral cortege to Memphis and Alexandria — https://en.wikipedia.org/wiki/Tomb_of_Alexander_the_Great]
+[Odyssey 1.1, "Andra moi ennepe, mousa, polytropon" — https://en.wikipedia.org/wiki/Odyssey]
+[Mouseion and the Library of Alexandria; Demetrius of Phalerum — https://en.wikipedia.org/wiki/Library_of_Alexandria]
+[The title Soter after the siege of Rhodes, 305 to 304 BC — https://en.wikipedia.org/wiki/Siege_of_Rhodes_(305%E2%80%93304_BC)]
+[Wars of the Diadochi — https://en.wikipedia.org/wiki/Wars_of_the_Diadochi]
+[Ephesia Grammata, the oldest attested Greek magical formula — https://en.wikipedia.org/wiki/Ephesia_Grammata]
+[Lighthouse of Alexandria, begun under Ptolemy I — https://en.wikipedia.org/wiki/Lighthouse_of_Alexandria]
+[Ptolemy's history of Alexander's campaigns, a principal source for Arrian — https://en.wikipedia.org/wiki/Arrian]
+
+==============================================================================
+## 35. plato-el.txt
+作品 b6148346-49b7-4acd-b36f-2557f053d3c6   语言 el
+==============================================================================
+
+[Style: Classical Greek chamber, solo lyra and bowed strings over a meditative drone, Athenian modal, spacious and still, adagio]
+[Vocal: tenor lead, soft and inward, a small male chorus humming beneath, straight tone, no ornament]
+[Language: Greek. One verbatim ancient inscription in the Chorus, one ancient Greek cult hymn in the Bridge.]
+
+[Verse 1: Η δίκη, 399 π.Χ.]
+Ήμουν είκοσι οκτώ όταν τον δίκασαν,
+πεντακόσιοι Αθηναίοι και μια ψηφοφορία.
+Είδα τον δάσκαλό μου να πίνει το κώνειο
+και να λέει στους φίλους του να μην κλαίνε.
+Από εκείνη τη μέρα δεν εμπιστεύτηκα το πλήθος.
+
+[Verse 2: Η Ακαδημία]
+Στο άλσος του Ακαδήμου, έξω από τα τείχη,
+αγόρασα ένα κτήμα και άνοιξα μια πόρτα.
+Χωρίς δίδακτρα, χωρίς ρητορική, χωρίς αμοιβή:
+μόνο γεωμετρία, διάλογος, και σιωπή.
+Εννιακόσια χρόνια κράτησε. Καμιά πόλη δεν κράτησε τόσο.
+
+[Chorus 1: Ἀγεωμέτρητος μηδεὶς εἰσίτω]
+Ἀγεωμέτρητος μηδεὶς εἰσίτω —
+κανένας αγεωμέτρητος να μην μπει εδώ.
+Πάνω από την πόρτα, χαραγμένο στην πέτρα:
+πρώτα το σχήμα, μετά η αλήθεια, μετά ο λόγος.
+Ὁ θεὸς ἀεὶ γεωμετρεῖ. Πάντα γεωμετρεί.
+
+[Verse 3: Το σπήλαιο]
+Δεμένοι άνθρωποι, μια φωτιά, κι ένας τοίχος,
+και σκιές που τις λένε κόσμο όλη τους τη ζωή.
+Ένας λύνεται, ανεβαίνει, καίγονται τα μάτια του.
+Γυρίζει πίσω να τους πει — και τον σκοτώνουν.
+Αυτό δεν ήταν παραβολή. Ήταν η βιογραφία του.
+
+[Verse 4: Συρακούσες]
+Τρεις φορές πήγα στη Σικελία με μια ιδέα:
+ότι ο τύραννος μπορεί να γίνει φιλόσοφος.
+Με πούλησαν για σκλάβο την πρώτη φορά,
+και τις άλλες δύο έφυγα με άδεια χέρια.
+Η πολιτεία μένει στο χαρτί. Εκεί είναι ασφαλής.
+
+[Chorus 2: Ἀγεωμέτρητος μηδεὶς εἰσίτω]
+Ἀγεωμέτρητος μηδεὶς εἰσίτω —
+κανένας αγεωμέτρητος να μην μπει εδώ.
+Πάνω από την πόρτα, χαραγμένο στην πέτρα:
+πρώτα το σχήμα, μετά η αλήθεια, μετά ο λόγος.
+Ὁ θεὸς ἀεὶ γεωμετρεῖ. Πάντα γεωμετρεί.
+
+[Bridge: Ἰὼ μέγιστε κοῦρε — ο αρχαιότερος ύμνος της γλώσσας μας]
+[Αρχαίος ελληνικός ύμνος, ο Ύμνος των Κουρήτων, Παλαίκαστρο Κρήτης]
+Ἰὼ μέγιστε κοῦρε, χαῖρέ μοι, Κρόνειε,
+παγκρατὲς γάνος, βέβακες δαιμόνων ἁγώμενος.
+Πιο παλιός από την Ακαδημία, πιο παλιός από τον Σωκράτη:
+έτσι καλούσαμε το φως πριν μάθουμε να αποδεικνύουμε.
+Κι η διαλεκτική μου στέκεται πάνω σε αυτόν τον ύμνο.
+
+[Chorus 3: Ἀγεωμέτρητος μηδεὶς εἰσίτω]
+Ἀγεωμέτρητος μηδεὶς εἰσίτω —
+κανένας αγεωμέτρητος να μην μπει εδώ.
+Πάνω από την πόρτα, χαραγμένο στην πέτρα:
+πρώτα το σχήμα, μετά η αλήθεια, μετά ο λόγος.
+Ὁ θεὸς ἀεὶ γεωμετρεῖ. Πάντα γεωμετρεί.
+
+[Chorus 4: Τίμαιος]
+Ο δημιουργός κοίταξε το αιώνιο υπόδειγμα
+κι έφτιαξε τον χρόνο ως εικόνα της αιωνιότητας.
+Πέντε σώματα, τέσσερα στοιχεία, μία ψυχή του κόσμου.
+Είναι μύθος, το ξέρω, και το είπα μέσα στο βιβλίο.
+Αλλά ο μύθος που μετριέται, κάτι κρατάει.
+
+[Outro: 348 π.Χ., Αθήνα]
+Πέθανα ήσυχα, γέροντας, με το καλάμι στο χέρι.
+Ο Αριστοτέλης είχε μείνει είκοσι χρόνια μαζί μου
+και μετά έφυγε και με αντέκρουσε σχεδόν σε όλα.
+Έτσι πρέπει. Η Ακαδημία δεν ήταν ναός.
+Στη νύχτα της Αθήνας το παλιό τραγούδι συνεχίζει.
+
+[References — not sung]
+[Trial of Socrates, 399 BC — https://en.wikipedia.org/wiki/Trial_of_Socrates]
+[Plato's Academy, founded in the grove of Akademos — https://en.wikipedia.org/wiki/Platonic_Academy]
+[The inscription "let no one ignorant of geometry enter" — https://en.wikipedia.org/wiki/Platonic_Academy]
+[Ho theos aei geometrei, attributed by Plutarch — https://en.wikipedia.org/wiki/Plato]
+[Allegory of the cave, Republic VII — https://en.wikipedia.org/wiki/Allegory_of_the_cave]
+[Plato's three voyages to Syracuse; Dion and Dionysius — https://en.wikipedia.org/wiki/Plato]
+[Hymn of the Kouretes, Palaikastro, Crete — https://en.wikipedia.org/wiki/Palaikastro_Hymn]
+[Timaeus, the demiurge and time as an image of eternity — https://en.wikipedia.org/wiki/Timaeus_(dialogue)]

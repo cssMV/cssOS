@@ -59,18 +59,29 @@ n=sum(len(s.get("lines") or []) for s in (hit[0].get("sections") or []))
 print(f"   作品级 {lg} 字幕 {n} 行")
 ' "$src" "$lg" || return 1
   key="works/$wid/subtitle-take1--a$tag.json"
+  url="https://cdn.cssstudio.app/$key"
   if [ "$APPLY" = "0" ]; then echo "   [干跑] 会写 $key 并挂到轨 $tid"; return 0; fi
-  # 永不覆盖: 这个键已经有东西就停手(它只可能是别人的快照)
-  if [ "$(curl -s -o /dev/null -w '%{http_code}' "https://cdn.cssstudio.app/$key")" = "200" ]; then
-    echo "   FAIL $key 已经存在 —— 不覆盖, 停手"; return 1
+  # 永不覆盖 —— 但「同样的字节写回同一个地址」是幂等, 不是覆盖(内容哈希命名的同一条道理)。
+  # 所以键已存在时先把它拉下来逐字节比: 一样就接受, 不一样就停手。
+  if [ "$(curl -s -o /tmp/w2281/dogwalker/.exists -w '%{http_code}' "$url")" = "200" ]; then
+    if cmp -s /tmp/w2281/dogwalker/.exists "$src"; then
+      echo "   $key 已存在且字节完全相同 —— 幂等, 接受"
+    else
+      echo "   FAIL $key 已存在且字节不同 —— 不覆盖, 停手"; return 1
+    fi
+  else
+    # r2putkey.mjs 打的是 JSON {"ok":true,"key":…,"bytes":…}, 不是 URL ——
+    # 公网地址要自己按 cdn.cssstudio.app/<key> 拼(全库 53 条既有 subtitle_url 都是这个形状)。
+    local put
+    put=$( cd "$CUR" && node r2putkey.mjs "$src" "$key" "application/json" 2>/dev/null | tail -1 )
+    case "$put" in *'"ok":true'*) ;; *) echo "   FAIL 推 R2 失败: $put"; return 1;; esac
+    # 推完必须回读 —— 「打印了 ok」不等于「CDN 上取得到」
+    [ "$(curl -s -o /dev/null -w '%{http_code}' "$url")" = "200" ] || { echo "   FAIL 推完 CDN 取不到 $url"; return 1; }
   fi
-  url=$( cd "$CUR" && node r2putkey.mjs "$src" "$key" "application/json" 2>/dev/null | tail -1 )
-  case "$url" in https://*) ;; *) echo "   FAIL 推 R2 没拿到地址: $url"; return 1;; esac
   q "UPDATE work_language_tracks SET subtitle_url='$url', updated_at=now()
       WHERE id=$tid AND coalesce(subtitle_url,'')='';" >/dev/null || { echo "   FAIL UPDATE 失败"; return 1; }
   local back; back=$(q "SELECT coalesce(subtitle_url,'') FROM work_language_tracks WHERE id=$tid;")
   [ "$back" = "$url" ] || { echo "   FAIL 回读不一致: 库里是 '$back'"; return 1; }
-  [ "$(curl -s -o /dev/null -w '%{http_code}' "$url")" = "200" ] || { echo "   FAIL 回读 URL 不是 200"; return 1; }
   echo "   OK 轨 $tid 的 subtitle_url 已挂 ($who) $key"
 }
 

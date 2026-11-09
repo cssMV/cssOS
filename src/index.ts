@@ -2589,7 +2589,26 @@ async function renderLanguageTrack(opts: {
       } as MusicGenRequest);
       if (!music || !music.ok || !music.audio_url) {
         const detail = String((music as any)?.error || "");
-        if (/429|throttl|rate|insufficient|concurren/i.test(detail) && attempt < MV_LANG_TRACK_MAX_RETRIES) {
+        /* CSSOS_WAVE_2286 20261109 ——【余额不足不是限流, 一次都不许重试】。
+         *
+         * 原判据 /429|throttl|rate|insufficient|concurren/ 里那个 "insufficient" 正好命中
+         * KIE 余额耗尽时的原话「Credits **insufficient** : Your current balance isn't enough…」,
+         * 于是每一首作品都连发 5 次【注定被拒】的调用(退避 2/4/8/16s —— 实测 journald 里
+         * 19:47:50/:52/:56/48:04/:21, 与此一秒不差)。
+         *
+         * 限流与余额是两类完全相反的错:
+         *   · 限流 / 并发挤 → 等一会儿【真的会好】, 该退避重试。
+         *   · 余额耗尽     → 等多久都不会好, 重试只是把同一面墙撞五遍。
+         * 后者唯一正确的动作是【停手, 并在日志里喊出来让人去充值】。
+         *
+         * 所以: 先单独认出余额错(认 W2286 在 router 里打的前缀, 也认厂商原话兜底),
+         * 认出就直接判死 + console.error; 重试判据里【删掉裸 "insufficient"】——
+         * 在这条路径上这个词只会是余额, 不会是别的。 */
+        const _creditsOut = /suno_credits_exhausted|credits?\s*insufficient|insufficient\s*credits?|balance\s*is\s*too\s*low|balance\s*isn.?t\s*enough|余额不足|额度不足/i.test(detail);
+        if (_creditsOut) {
+          console.error(`[mv-lang] ⛔ 余额不足, 停手不重试 —— ${workId}/${lang}/${voice}: ${detail.slice(0, 180)}`);
+        }
+        if (!_creditsOut && /429|throttl|rate|concurren/i.test(detail) && attempt < MV_LANG_TRACK_MAX_RETRIES) {
           attempt++;
           mvLangRelease();
           await _mvLangSleep(Math.min(16000, 2000 * 2 ** (attempt - 1)));
@@ -28985,16 +29004,45 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
               body: JSON.stringify(sunoBody),
             });
           const genJson: any = await gen.json().catch(() => null);
-          if (!gen.ok || !genJson) {
-            lastErr = `suno_generate_${gen.status}: ${JSON.stringify(genJson || {}).slice(0, 160)}`;
-            if (isCreditsError(gen.status, JSON.stringify(genJson || {}))) console.warn("[music-router] suno credits/quota, falling through");
-            else console.warn(`[music-router] suno generate ${gen.status}: ${lastErr.slice(0, 160)}`);
+          /* CSSOS_WAVE_2286 20261109 —— 【KIE 的真实状态在响应体的 code 里, HTTP 一律 200】。
+           *
+           * 实测 2026-11-09 余额耗尽时 generate 的真响应(直接 curl 打出来的, 不是推断):
+           *   HTTP 200   {"code":402,"msg":"Credits insufficient : Your current balance
+           *               isn't enough to run this request. Please top up to continue.","data":null}
+           *
+           * 原来这里只看 `gen.ok`(200 → 真, 放行), 又把 `gen.status`(=200)喂给
+           * isCreditsError —— 它只认 402/400/403, 所以【永远为假】。于是余额耗尽一路滑到
+           * 下面 `!taskId` 那条分支, 而那条分支只设 lastErr 就 continue, **一行日志都不记**。
+           * 屏幕上什么都没有, 作品只是默默 failed。
+           *
+           * 代价: W2285 那一批第 77 首起连续 17 首全败, 每首还连发 5 次注定被拒的调用,
+           * journald 里只留下 5 行 [KIE-SPEND] 和零行原因 —— 查了两个钟头才查到根上。
+           *
+           * 规矩: 判据一律取【体里的 code, 取不到才退回 HTTP 状态】。
+           * HTTP 200 在 KIE 这里不代表成功, 下次见到别再当成功。 */
+          const kieCode = Number(genJson?.code ?? gen.status);
+          const kieMsg = String(genJson?.msg || genJson?.message || "");
+          if (!gen.ok || !genJson || (Number.isFinite(kieCode) && kieCode !== 200)) {
+            lastErr = `suno_generate_${kieCode}: ${JSON.stringify(genJson || {}).slice(0, 160)}`;
+            if (isCreditsError(kieCode, `${kieMsg} ${JSON.stringify(genJson || {})}`)) {
+              // 这个前缀是给上层 renderLanguageTrack 的【不要重试】信号, 别改名。
+              lastErr = `suno_credits_exhausted_${kieCode}: ${kieMsg.slice(0, 140)}`;
+              console.error("[music-router] ⛔ KIE 余额不足 ——【这不是限流, 再等再试也不会成】"
+                + ` code=${kieCode} ${kieMsg.slice(0, 160)}`);
+            } else console.warn(`[music-router] suno generate ${kieCode}: ${lastErr.slice(0, 160)}`);
             continue;
           }
           taskId = String(genJson?.data?.taskId || genJson?.data?.task_id || genJson?.taskId || "").trim();
-          if (!taskId) { lastErr = `suno_no_task_id: ${JSON.stringify(genJson).slice(0, 160)}`; continue; }
+          if (!taskId) {
+            lastErr = `suno_no_task_id: ${JSON.stringify(genJson).slice(0, 160)}`;
+            // W2286 —— 这条原来是静默的。静默分支 = 出事时屏幕上什么都没有。
+            console.warn(`[music-router] suno 回了 ${kieCode} 但没有 taskId: ${lastErr.slice(0, 160)}`);
+            continue;
+          }
         } catch (netErr) {
           lastErr = `suno_generate_net_${(netErr as Error)?.message || netErr}`;
+          // W2286 —— 这条原来也是静默的。
+          console.warn(`[music-router] suno generate 网络层抛错: ${lastErr.slice(0, 160)}`);
           continue;
         }
         /* Poll record-info。Suno V4 每个 task 返回两条轨, 全收下, 后面挑有对齐时间轴的那条。

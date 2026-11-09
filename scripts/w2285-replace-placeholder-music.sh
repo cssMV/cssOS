@@ -98,6 +98,36 @@ restore() {   # $1=track_id —— 任何一步出错都把这一行原样还原
   echo "   已还原: $back"
 }
 
+# ── W2286 余额闸门 ──────────────────────────────────────────────────────────
+# 为什么必须有: 2026-11-09 这一批跑到第 77 首时 KIE 余额归零, 之后【19 首连续全败】,
+# 每首还连发 5 次注定被拒的调用, 而且 journald 里一行原因都没有(见 src/index.ts W2286)。
+# 代码侧已经修成「余额错不重试 + 喊出来」, 但更该省的是【根本不要开跑】——
+# 余额见底时这个脚本能做的唯一正确的事就是停下来叫人充值, 不是把 125 首逐个撞一遍墙。
+#
+# 判据取【响应体的 code / data】, 不看 HTTP 状态 —— KIE 一律回 200(这正是 W2286 的坑)。
+# 取不到余额时【不许当成有钱】: 这是「判不了」, 不是「够」。
+KIE_FLOOR=${KIE_FLOOR:-3}          # 低于这个数就不开跑(一首约 2 个 credit)
+kie_credit() {
+  local key json code
+  key=$(grep -m1 '^KIE_API_KEY=' /etc/cssos.env | cut -d= -f2- | tr -d '"'"'"'')
+  [ -n "$key" ] || { echo "NOKEY"; return; }
+  json=$(curl -s -m 20 -H "Authorization: Bearer $key" https://api.kie.ai/api/v1/chat/credit)
+  code=$(printf '%s' "$json" | sed -n 's/.*"code":[[:space:]]*\([0-9-]*\).*/\1/p')
+  [ "$code" = "200" ] || { echo "ERR:$(printf '%s' "$json" | head -c 100)"; return; }
+  printf '%s' "$json" | sed -n 's/.*"data":[[:space:]]*\(-\?[0-9.]*\).*/\1/p'
+}
+credit_gate() {                     # 返回 0 = 可以继续
+  local c; c=$(kie_credit)
+  case "$c" in
+    ''|NOKEY|ERR:*) echo "⛔ 余额查不到($c)——【这是判不了, 不是够】, 停手"; return 1;;
+  esac
+  if awk -v c="$c" -v f="$KIE_FLOOR" 'BEGIN{exit !(c+0 < f+0)}'; then
+    echo "⛔ KIE 余额 $c < 下限 $KIE_FLOOR —— 停手, 请先充值(只在 KIE 一处充)"; return 1
+  fi
+  echo "   KIE 余额 $c  (下限 $KIE_FLOOR)"; return 0
+}
+credit_gate || exit 2
+
 while IFS=$'\t' read -r wid lang; do
   wid="$(printf '%s' "${wid:-}" | tr -d '[:space:]')"
   lang="$(printf '%s' "${lang:-}" | tr -d '[:space:]')"
@@ -204,6 +234,15 @@ PYGATE
   body=$(python3 -I -c '
 import json,sys
 print(json.dumps({"languages":[sys.argv[2]],"lyrics":open(sys.argv[1],encoding="utf-8").read()}))' "$lyr" "$lang")
+  # W2286 —— 每一次【花钱之前】都再查一次余额。一次免费查询 ~0.2s, 换掉的是
+  #   「余额中途见底, 后面每一首都白撞一遍墙」。上一批正是这样连败 19 首。
+  if ! credit_gate; then
+    echo "   余额中途见底 —— 本批就停在这里, 剩下的一首都不动(还原本首)"
+    restore "$tid"
+    echo "$wid	$lang	余额见底, 未尝试" >>"$FAILED"; fail_n=$((fail_n+1))
+    echo "⛔ 批次提前结束: KIE 余额不足。充值后原清单可直接重跑 —— 已做成的会被「不是占位音」那一关跳过。"
+    break
+  fi
   resp=$(curl -s -m 120 -X POST "http://127.0.0.1:3000/api/works/$wid/language-tracks" \
     -H 'content-type: application/json' -H "x-admin-token: $CSSOS_ADMIN_TOKEN" \
     -d "$body")

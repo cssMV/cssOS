@@ -82,3 +82,59 @@ python3 -I scripts/w2279-check-handwritten-lyrics.py content/w2279-jingdian-lyri
 
 京典模版第 ③ ⑧ 条要求曲风必须英文。手写词里的 `[Style: …]` 已经是英文,
 但库里这一列照样会一起喂进去。**改库里的 style 不在这一波的指令范围内, 没改。**
+
+---
+
+# W2281 追加 —— 那 12 首串台作品的母语新版本
+
+Jing 2026-11-08:「那 12 首也手写母语词新起版本。」
+
+| | 首数 | 母语 | 走哪条路 |
+|---|---|---|---|
+| **Su Wu**(苏武) | 10 | **zh** | `POST /api/works/:id/language-tracks`(zh 是 fresh 语言, 新增一行轨, en 那条不动) |
+| **Dog walker** | 2 | en | **声线轨路由** `POST /api/works/:id/voice-tracks` —— 见下 |
+
+它们的 `lyrics_preview` 是一首 **Jerusalem 赞美诗**(18 个作品逐字节共用同一份词,
+最早是 `1b2586c3` Jerusalem 2026-05-03)。10 首标 `civ=中华文明` 的《苏武》唱的是它。
+
+**10 首苏武各写一份, 一份都不复用** —— 持节出塞 · 引刀自刺 · 卫律劝降 · 啮雪咽旃 ·
+北海牧羝 · 杖汉节牧羊 · 李陵劝降 · 雁足传书 · 须发尽白归汉 · 麒麟阁与苏武庙。
+古咒十首全不同: 伊耆氏《蜡辞》· 《弹歌》· 《诗经·无衣》· 甲骨卜辞 · 《楚辞·招魂》·
+《左传》盟辞「有如白水」· 《九歌·国殇》· 《周易》乾卦 · 《诗经·采薇》· 《九歌·东君》。
+
+## 为什么 Dog walker 要动后端
+
+同语言「新起版本」在平台上**原来没有任何路径**:
+
+- 语言轨那一路要求语言是 **fresh** 的 —— Dog walker 已有 `en/auto` → `NO_NEW_LANGUAGES`
+- 声线轨那一路能新增一行, 但**只会 reuse `baseLyrics`**(也就是那份脏词)
+
+于是一首词脏的作品**只能覆盖、不能新起**, 正好与版本铁律相反。
+W2281 给声线轨路由补上 `lyrics` 字段(admin-only, 与 W2130 同字段同闸),
+`renderLanguageTrack` 里 `lyricsOverride` 的优先级本来就高于 voice-variant 的「沿用原词」,
+所以传了就生效。body 上限一并从 4kb 提到 16kb —— 一份十节五十行的京典词 JSON 编码约 3.4kb,
+4kb 会在边界上被 express 直接拒掉。
+
+## 一个会让人判断失误的事实:`[Style: …]` 到不了引擎
+
+`renderLanguageTrack` 在发给音乐引擎之前**把所有方括号内容剥掉**
+(`src/index.ts` 的 `cleanLyrics`, 注释写着「否则 Suno 会把结构标记当歌词唱出来」):
+
+```ts
+lyrics: cleanLyrics,                                        // 方括号全剥
+prompt: [opts.baseTitle, opts.baseStyle, voicePromptHint]   // ← 曲风的唯一通道
+```
+
+→ **手写词里的 `[Style: …]` / `[Vocal: …]` 根本到不了引擎。曲风只有 `user_works.style` 一个通道。**
+所以那一列脏不是观感问题, 是真的会出错的曲风。
+
+实测 47 首里 7 首的 style 是中文:
+
+| 作品 | style | 判断 |
+|---|---|---|
+| Leibniz `7b930b95` | `古琴` | ❌ 内容就错 —— **已从 p2 清单里暂挂, 没有生成** |
+| Marx `9b6e777e` | `空灵古风 / 笛箫 / 留白` | ❌ 内容就错 —— **已暂挂** |
+| Descartes `18fc4522` | `巴洛克` | 语种违反第 ⑧ 条, 但语义对(= Baroque)。p1 里已经生成了 |
+| Su Wu ×4 | `古筝` | 语种违反第 ⑧ 条, 但语义**正确**(中华文明 + 中文词), 照跑 |
+
+暂挂的两首清单在 `/tmp/w2279/manifest-p2.held`。**改库里 style 这一列不在指令范围内, 没改。**

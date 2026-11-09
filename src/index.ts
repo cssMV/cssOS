@@ -5163,7 +5163,9 @@ const CSSOS_SUPPORTED_VOICES = new Set([
   "jing",       // CSSOS_WAVE_587 — 创始人 Jing 真人声纹(RVC), 供平台免费使用
   "jing_tenor", // 同声纹 + 整体升调 = Jing 男高音版
 ]);
-app.post("/api/works/:id/voice-tracks", express.json({ limit: "4kb" }), async (req, res) => {
+// W2281 — body 上限从 4kb 提到 16kb, 与语言轨那一路一致: 现在这条路也收手写词,
+// 一份十节五十行的京典词 JSON 编码后约 3.4kb, 4kb 会在边界上被 express 直接拒掉。
+app.post("/api/works/:id/voice-tracks", express.json({ limit: "16kb" }), async (req, res) => {
   const adminTokenExpected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
   const isAdminToken = !!adminTokenExpected && String(req.headers["x-admin-token"] || "").trim() === adminTokenExpected;
   let user: any = null;
@@ -5239,12 +5241,26 @@ app.post("/api/works/:id/voice-tracks", express.json({ limit: "4kb" }), async (r
        ON CONFLICT (work_id, lang, voice) DO NOTHING`,
       [workId, baseLang, voice, order, quote.perCents]));
   }
+  /* CSSOS_WAVE_2281 20261108 — admin 可给这一条声线轨【手写词】, 与语言轨那一路
+   * (W2130 `lyricsOverride`)同一个字段、同一道 admin 闸, 行为也一样: 传了就原词直唱。
+   *
+   * 为什么必须补这一口: 「新起版本」在【同语言】下原来没有任何路径 ——
+   * 语言轨那一路要求语言是 fresh 的(已有 en 就 NO_NEW_LANGUAGES), 而声线轨这一路
+   * 虽然能新增一行, 却只会 reuse baseLyrics。于是一首作品的词若是脏的(W2278 那类
+   * 串台: Dog walker 的词其实是一首 Jerusalem 赞美诗), 平台就【只能覆盖、不能新起】,
+   * 正好与版本铁律相反。补上之后: 同语言、新声线、手写词 = 胶囊里多一格, 旧的一格不动。
+   *
+   * renderLanguageTrack 里 lyricsOverride 的优先级高于 isVoiceVariant 的「沿用原词」
+   * (src/index.ts 的 `_handWritten` 分支在最前), 所以传了就生效, 不必另加判断。 */
+  const _voiceLyricsOverride = isAdminToken && fresh.length === 1
+    ? String(req.body?.lyrics || "").trim() : "";
   for (const voice of fresh) {
     void renderLanguageTrack({
       workId, userId: String(user.id), lang: baseLang, trackOrder: ++maxOrder,
       baseLyrics, baseTitle: String(w.title || ""), baseStyle: String(w.style || ""),
       fromLangHint: baseLang, // fromLangHint===lang → renderLanguageTrack 判定为 voice variant(不重写歌词)
       chargedCents: quote.perCents, durationSecs: w.duration_secs, voice,
+      lyricsOverride: _voiceLyricsOverride,
     });
   }
   return res.json({

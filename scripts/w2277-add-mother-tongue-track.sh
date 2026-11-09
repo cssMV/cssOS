@@ -62,9 +62,10 @@ elif [ "$sing" = "--lyrics-file" ]; then
   [ -s "${lyrfile:-}" ] || { echo "FAIL: --lyrics-file 要跟一个非空文件"; exit 1; }
   # 进管线前先量 —— 不合格就不花钱。判据与 w2277-check-track-lyrics.py 同源:
   # 段落标记只认行首方括号, 词行 = 非方括号行, 源语言 = 括号外的汉字。
-  python3 -I - "$lyrfile" <<'PYGATE' || exit 1
+  python3 -I - "$lyrfile" "$lang" <<'PYGATE' || exit 1
 import re, sys
 t = open(sys.argv[1]).read()
+tgt = (sys.argv[2] if len(sys.argv) > 2 else "").strip().lower()
 lines = [l.strip() for l in t.split("\n") if l.strip()]
 secs = [l for l in lines if re.match(r"^\[(Verse|Chorus|Bridge|Outro|Intro)\b", l)]
 body = [l for l in lines if not l.startswith("[")]
@@ -72,8 +73,13 @@ han  = sum(1 for l in body for ch in l if "\u4e00" <= ch <= "\u9fff")
 bad = []
 if len(secs) < 10: bad.append(f"节数 {len(secs)} < 10")
 if len(body) < 40: bad.append(f"词行 {len(body)} < 40")
-if han: bad.append(f"括号外有 {han} 个汉字 —— 源语言漏在唱词里")
-print(f"手写词: {len(secs)} 节 · {len(body)} 词行 · 括号外汉字 {han}")
+# 汉字算不算「源语言漏出来」, 取决于【目标语言】——
+# 目标是 zh/ja 时汉字【就是正文】, 一律拒绝会把中文母语轨整个挡死(W2281 的坑)。
+if tgt in ("zh", "ja"):
+    if han < 50: bad.append(f"目标是 {tgt} 但括号外只有 {han} 个汉字 —— 正文不像这个语言")
+elif han:
+    bad.append(f"括号外有 {han} 个汉字 —— 源语言漏在唱词里")
+print(f"手写词(目标 {tgt or '?'}): {len(secs)} 节 · {len(body)} 词行 · 括号外汉字 {han}")
 for b in bad: print("  FAIL:", b)
 sys.exit(1 if bad else 0)
 PYGATE

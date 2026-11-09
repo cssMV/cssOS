@@ -1846,11 +1846,27 @@ async function upsertSubtitleJson(
         const snapUrl = await uploadBufferToR2(buf, snapKey, "application/json");
         if (snapUrl) {
           snapWritten = snapUrl;
+          /* 挂点一: 轨那一行。
+           * 匹配【只认 audio_url】是故意的, 不是漏写 alt_audio_url ——
+           * 一行只有一个 subtitle_url 列, 而这一行的 audio_url 是 ♪1。
+           * 若把 alt_audio_url 也算进去, 跑一次 ♪2 就会把 ♪1 的 subtitle_url
+           * 改成 ♪2 的快照 = 播 ♪1 配 ♪2 的时间轴。所以 ♪2 在这里匹配 0 行是对的。 */
           await withClient((c) => c.query(
             `UPDATE work_language_tracks SET subtitle_url=$3
               WHERE work_id=$1::uuid AND audio_url=$2`,
             [workId, av, snapUrl],
           ));
+          /* 挂点二(W2282 补): 版本行。♪2 以及一切不是某条轨 audio_url 的音频,
+           * 唯一的挂点是 work_media_versions.subtitle_url(resubtitle 也是写这里, 见 W2270)。
+           * 没有这一步, ♪2 的快照文件写出去就是个孤儿: 地址算得出来, 谁也不去读。
+           * 带 coalesce(subtitle_url,'')='' 守卫 —— 版本行上已经有字幕就不动它,
+           * 那多半是 resubtitle 按真音频重做过的, 比这里顺手生成的更可信。 */
+          await withClient((c) => c.query(
+            `UPDATE work_media_versions SET subtitle_url=$3
+              WHERE work_id=$1::uuid AND kind='audio' AND url=$2
+                AND coalesce(subtitle_url,'')=''`,
+            [workId, av, snapUrl],
+          )).catch(() => {});
         }
       } catch (e) {
         console.warn("[subtitle-version] 版本快照失败(不影响主字幕):", (e as Error)?.message);
@@ -2493,7 +2509,28 @@ async function renderLanguageTrack(opts: {
     coverSrc = String(_src.rows[0]?.audio_url || "").trim();
     if (!originGender) originGender = String(_src.rows[0]?.voice_gender || "").trim().toLowerCase();
   } catch { /* no source → fall back to generate */ }
+  /* CSSOS_WAVE_2284 20261109 —— 【mv-fallback 里的音频不许当 cover 源】。
+   *
+   * 由来: 贝多芬 ce866f0b 连续两次 suno_poll_timeout(各 15 分钟), 查到它的「原曲」
+   * (is_default ready 轨)是 `artifacts/mv-fallback/audio-951ef80d-….mp3`, 只有 60 秒。
+   * 46 次生成全走 upload-cover(Cover 模式 = 拿原曲保旋律), 于是它被要求
+   * 【拿一段 60 秒的占位音去覆盖一份十节五十行的词】。
+   * 同一批 45 首里只有它一首是这种源, 也只有它一首失败。
+   *
+   * 为什么这个路径可以整类排除, 而不是只给贝多芬开后门:
+   * `artifacts/mv-fallback/` 本来是【封面】的兜底目录(见 publicArtifactsBase 那几处),
+   * 一个 audio-*.mp3 躺在里面, 本身就说明它是兜底路径写出来的占位物, 不是音乐管线的产物。
+   * 实测全库 125 条 mv-fallback 音频, 时长只有两种: 30 秒 47 条、60 秒 78 条,
+   * 全部建于 2026-06-04 同一批 —— 【没有一条是真音乐】。
+   * 「保留原曲旋律」对一段占位音没有任何意义, 它只会让 Cover 任务在厂商那边卡死。
+   *
+   * 排除之后它自然回落到 generate(按词+style 从头生成)—— 那正是这些作品
+   * 本来就该走的路: 它们还没有真正的原曲。
+   *
+   * ⚠ 另有 125 首作品的「原版」就是这种 30/60 秒占位音(贝多芬只是其中一首), 那是
+   * 另一件事, 已单独报给 Jing, 不在这里顺手动。 */
   const coverOk = /^https?:\/\//i.test(coverSrc) && !/\.(mp4|webm|mov|mkv)(\?|$)/i.test(coverSrc)
+    && !/\/artifacts\/mv-fallback\//i.test(coverSrc)   // W2284 占位音不是原曲
     && Number(opts.durationSecs || 0) <= 480; // upload-cover 上限 8 分钟
   const coverGender: "m" | "f" | undefined =
     voiceForHint === "masculine" ? "m"
@@ -2678,7 +2715,26 @@ async function renderLanguageTrack(opts: {
           }
           take1Sections = sanitizeSubtitleSections(take1Sections, lang); // #45 剔除非歌词 token
           take1Sections = derivePerTokenEmotion(take1Sections); // #44 逐字情绪强度
-          await upsertSubtitleJson(workId, lang, 1, take1Sections);
+          /* CSSOS_WAVE_2282 20261109 —— 第 6 个参数 primaryUrl 是【这一版自己的字幕】的全部前提。
+           *
+           * 漏了它整整三个月: upsertSubtitleJson 里那段 W2086 版本级快照
+           * (落 works/<id>/subtitle-take1--a<sha1(audio)[:10]>.json 并回写
+           * work_language_tracks.subtitle_url)【只在 audioUrl 非空时才跑】。
+           * create-single 那条路(本文件 ~5091)一直传着, 生成语言轨这条路从来没传过
+           * —— 于是那段代码对它等于不存在, 实测 1410 条轨只有 53 条有自己的 subtitle_url
+           * (本文件 ~4173 的注释自己写着「现存 1307 行全是 NULL」, 说的就是这件事)。
+           *
+           * 后果只在【同一语言两个版本】时发作, 所以藏得久: 作品级 subtitle-take1.json
+           * 按语言分条, 这里的 upsert 会把 languages[lang] 整条替换掉; 两条轨 subtitle_url
+           * 都空 → 播放端只能回退作品级那一份 → 旧版歌声配新版时间轴。
+           * 不同语言(旧 en / 新 zh)天然安全, 那是两条互不相干的条目 —— 这就是 2026-11-09
+           * 苏武十首没事、Dog walker 两首当场中招的原因。
+           *
+           * 这里传 primaryUrl 而不是 music.audio_url: 上面 setStatus('ready') 写进
+           * work_language_tracks.audio_url 的正是 primaryUrl(已转存到我们域名的那个),
+           * 而快照的回写是 `WHERE audio_url=$2` 的精确匹配 —— 传厂商临时链接会匹配 0 行,
+           * 文件照样写出去、却挂不到任何地方, 比不写更难查。 */
+          await upsertSubtitleJson(workId, lang, 1, take1Sections, null, primaryUrl || null);
 
           // 5. Take 2 — run separate Whisper + audio analysis on alt audio URL.
           //    Falls back to take1 sections if no alt audio or analysis fails.
@@ -2702,7 +2758,12 @@ async function renderLanguageTrack(opts: {
             }
             take2Sections = sanitizeSubtitleSections(take2Sections, lang); // #45 剔除非歌词 token
             take2Sections = derivePerTokenEmotion(take2Sections); // #44 逐字情绪强度
-            await upsertSubtitleJson(workId, lang, 2, take2Sections);
+            /* W2282 —— ♪2 的身份是 altUrl, 不是 primaryUrl。
+             * 快照键 = sha1(传进来的那条 URL), 传错就等于把 ♪2 的字幕写到 ♪1 的地址上。
+             * 轨那一行只有一个 subtitle_url 列, 而该行的 audio_url 是 ♪1 ——
+             * 所以 ♪2 这一次的回写【按设计匹配不到轨】(见 upsertSubtitleJson 里的说明),
+             * 它挂在版本行上。 */
+            await upsertSubtitleJson(workId, lang, 2, take2Sections, null, altUrl || null);
           }
         } catch (_jsonErr) {
           console.warn("[wave440/441] JSON generation failed for", workId, lang, _jsonErr);
@@ -28951,6 +29012,8 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
         type SunoTrack = { audioUrl: string; audioId: string; durationS: number };
         let tracks: SunoTrack[] = [];
         const deadline = Date.now() + Number(process.env.SUNO_POLL_TIMEOUT_MS || 900_000);
+        /* W2283 —— 拿到第一首之后给第二首的宽限截止; null = 还没拿到第一首。 */
+        let secondGraceUntil: number | null = null;
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 5000));
           let info: any = null;
@@ -28973,7 +29036,47 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
                 }))
                 .filter((t: SunoTrack) => t.audioUrl);
             }
-            if (tracks.length) break;
+            /* CSSOS_WAVE_2283 20261109 —— 【FIRST_SUCCESS 不许直接收摊】。
+             *
+             * Jing:「这一条还在持续丢钱。」
+             *
+             * `FIRST_SUCCESS` 的字面意思就是【两首里第一首好了】。原来这里只要
+             * tracks.length 非零就 break, 于是撞上 FIRST_SUCCESS 的那一次就只拿到一首,
+             * 下面 `tracks.find(tk => tk.audioId !== chosen.audioId)` 必然是 undefined,
+             * alt_audio_url 永远为 null —— ♪2 当场丢掉。
+             *
+             * 这是个【竞态】, 所以它藏了很久: 轮询正好撞上 SUCCESS 就有 ♪2, 撞上
+             * FIRST_SUCCESS 就没有。实测 2026-11-09: ready 的轨里只有 128/1294(语言轨)、
+             * 16/36(声线轨)有 ♪2; 同一天同一份代码, 24 首全有、Dog walker 两首全没有。
+             *
+             * 代价是真金白银: Suno 一次调用【两首都算钱】(W2094), 丢掉 ♪2 等于付两首拿一首;
+             * 而且 W2107 规定 ♪1/♪2 是连胞胎必须连着播完 —— 只有一首, 那条铁律根本无从成立。
+             * 丢了也补不回来: Suno 的临时链接几天后 404, 库里又没有存厂商任务号的列。
+             *
+             * 改法: 拿到第一首【不立刻收】, 再给一段宽限继续轮第二首。
+             *   · 宽限是【上限不是目标】—— 第二首通常紧随其后, 正常几十秒就齐了;
+             *     给多了一分钱不多花, 给少了就是白烧一首。同 W1849 把 240s 调到 900s 的同一个判断。
+             *   · 两首齐了立刻走, 不等满宽限。
+             *   · 宽限用尽仍只有一首 → 带着一首走(有总比没有好), 但在日志里说清
+             *     【是我没等到第二首】, 不是【只生成了一首】—— 这两件事混在一起就永远查不出来。
+             *   · 整体仍受 deadline 约束: 宽限不能把总等待拖过 SUNO_POLL_TIMEOUT_MS。
+             * 可用 SUNO_SECOND_TAKE_GRACE_MS 覆盖(0 = 退回旧行为)。 */
+            if (tracks.length >= 2) break;
+            if (tracks.length === 1) {
+              if (secondGraceUntil === null) {
+                secondGraceUntil = Math.min(
+                  Date.now() + Number(process.env.SUNO_SECOND_TAKE_GRACE_MS ?? 240_000),
+                  deadline,
+                );
+                console.info("[music-router] 第一首已就绪, 再等第二首(♪2)",
+                  `taskId=${taskId}`, `宽限到 ${new Date(secondGraceUntil).toISOString()}`);
+              }
+              if (Date.now() >= secondGraceUntil) {
+                console.warn("[music-router] 宽限用尽, 只带回 ♪1 —— 【是我没等到 ♪2】,"
+                  + " 不是只生成了一首; Suno 一次两首都已计费", `taskId=${taskId}`);
+                break;
+              }
+            }
           }
           if (status === "FAILED" || status === "ERROR" || status === "SENSITIVE_WORD_ERROR") {
             lastErr = `suno_task_${status}`;
@@ -28981,6 +29084,9 @@ async function callMusicGen(req: MusicGenRequest): Promise<MusicGenResponse> {
           }
         }
         if (!tracks.length) { lastErr = lastErr || "suno_poll_timeout"; continue; }
+        if (tracks.length >= 2) {
+          console.info("[music-router] 两首都收到了(♪1 + ♪2)", `taskId=${taskId}`);
+        }
 
         // Fetch the timestamped lyric timeline. kie.ai aligns Chinese
         // at LINE granularity (each entry is a whole lyric line), and

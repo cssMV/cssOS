@@ -2680,6 +2680,45 @@ async function renderLanguageTrack(opts: {
         }),
       });
 
+      /* CSSOS_WAVE_2287 20261109 —— 【语言轨从来没登记过版本行】。
+       *
+       * 这是和 W2282 漏传 audioUrl 同一类的漏: 不是写错了, 是【这条路上什么都没发生,
+       * 而没有任何东西会告诉你】。全库 10 个写音频的调用点里, 偏偏最常走的这一条
+       * (renderLanguageTrack —— 每条语言轨/声线轨都走它)一次都没调 registerMediaVersion。
+       * 实测后果: 贝多芬 2026-11-09 那条 293s 真音轨入库了、能播、字幕也挂上了,
+       * 但 work_media_versions 里查不到它 —— 胶囊轨道上这一版等于不存在。
+       *
+       * 为什么必须有版本行, 而不是「轨里有 audio_url 就够了」:
+       *   · 版本胶囊(多语言/多声线/多画面)读的是这张表 —— 没有行 = 用户选不到这一版。
+       *   · W2272 的时长闸门装在 registerMediaVersion 里 —— 不调它, 版本行的 duration_secs
+       *     也就无从实测, 连带巡检的 OVERRUN / OUTRO_OVER 两项判不了。
+       *   · W2282 给版本行补 subtitle_url 的那条 UPDATE 认 `url` —— 没有行, 补无处可补。
+       *
+       * 装在这里(setStatus("ready") 之后)而不是在各处补: 这是每条语言轨【成功时的必经之处】。
+       * 在调用点各补一次, 下一个新增的调用点照样会漏 —— 与 W2272 把时长闸门装进
+       * registerMediaVersion、W2061 把「绝不覆盖」装进 uploadR2NeverOverwrite 同一个思路。
+       *
+       * 三点与既有约定一致(照 :42697 epic 与 :43492 regen-track-audio 抄, 不自己发明):
+       *   · ♪1 makeCurrent:true / ♪2 makeCurrent:false —— 否则 ♪2 会把 ♪1 的 is_current 抢走。
+       *   · label 带上声线, 让用户在胶囊里认得出哪一版是哪一版(版本铁律的原话要求)。
+       *   · subtitle_url 这里【故意不传】: 字幕是下面那个 fire-and-forget 里才生成的,
+       *     由 upsertSubtitleJson 的 W2282 分支按 url 回填。此刻传什么都只能是旧的。 */
+      try {
+        const _vl = voice && voice !== "auto" ? `${voice} ` : "";
+        if (primaryUrl) {
+          await registerMediaVersion({ workId, kind: "audio", lang, url: primaryUrl,
+            label: `${_vl}♪1`, durationSecs: durSecs ?? null, makeCurrent: true });
+        }
+        if (altUrl) {
+          await registerMediaVersion({ workId, kind: "audio", lang, url: altUrl,
+            label: `${_vl}♪2`, durationSecs: altDur ?? null, makeCurrent: false });
+        }
+      } catch (e) {
+        // 登记失败不该把一条已经能播的轨拖下水 —— 但必须留痕, 别再变成一次静默失败。
+        console.warn(`[mv-lang] 版本行登记失败(音轨本身已入库) ${workId}/${lang}/${voice}:`,
+          (e as Error)?.message?.slice(0, 160));
+      }
+
       // CSSOS_WAVE_440/441 20260525 — Generate lyrics.json + subtitle JSON files.
       // Fire-and-forget; runs after is_default assignment below.
       void (async () => {

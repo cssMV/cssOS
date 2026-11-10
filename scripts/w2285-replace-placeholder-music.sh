@@ -36,6 +36,11 @@ set -a; . /etc/cssos.env; set +a
 : "${CSSOS_ADMIN_TOKEN:?没有 CSSOS_ADMIN_TOKEN}"
 
 q() { psql "$DATABASE_URL" -X -q -t -A -c "$1"; }
+# W2290: 写操作专用 —— q() 不看返回码(读取时那样是对的), 但一条写 SQL 在 `set -e`
+# 下失败会打断整批(实测 1 个重复键换 72 首不跑)。qx() 返回码可判, 调用点自己决定,
+# 真错误落进 $QXERR 而不是消失(静默分支正是 W2286 的病根)。
+QXERR=/tmp/w2285.qxerr
+qx() { psql "$DATABASE_URL" -X -q -v ON_ERROR_STOP=1 -c "$1" >/dev/null 2>>"$QXERR"; }
 
 # ── --make-manifest: 现查现生成清单, 顺带标出歌词够不够 10 节 40 行 ──────────
 if [ "${1:-}" = "--make-manifest" ]; then
@@ -57,7 +62,7 @@ MINDUR="${MINDUR:-120}"      # 成品时长下限: 低于它就是歌词短了�
 # (例如先导那首被转译改写了词), 用 SRC_LIKE 指到它自己的 URL 上, 而不是给脚本加后门。
 SRC_LIKE="${SRC_LIKE:-%/artifacts/mv-fallback/%}"
 FAILED=/tmp/w2285.failed
-mkdir -p /tmp/w2285; : > "$FAILED"
+mkdir -p /tmp/w2285; : > "$FAILED"; : > "$QXERR"
 
 # 备份表(只增不改)
 psql "$DATABASE_URL" -X -q <<'PSQL' >/dev/null
@@ -298,31 +303,70 @@ PYSAME
     echo "$wid	$lang	验收不过:$bad" >>"$FAILED"; fail_n=$((fail_n+1)); continue
   fi
 
-  # ── 8 新音乐也登记成版本行(renderLanguageTrack 这条路不登记, 已报给 Jing)──
-  # 顺序必须是【先清旧 current, 再插新的】—— 反过来会撞 is_current 的唯一索引,
-  # 而 ON CONFLICT DO NOTHING 会把它静静吞掉: 先导那一首就是这样, 新音乐一行也没登记上,
-  # 脚本却照样打了 OK(因为 q() 不看返回)。registerMediaVersion 本来就是这个顺序。
-  q "UPDATE work_media_versions SET is_current=false
-      WHERE work_id='$wid'::uuid AND kind='audio' AND is_current;" >/dev/null
-  q "INSERT INTO work_media_versions
-       (work_id, kind, lang, version_no, label, url, subtitle_url, duration_secs, is_current)
-     SELECT '$wid'::uuid,'audio','$lang',
-            COALESCE((SELECT max(version_no) FROM work_media_versions
-                       WHERE work_id='$wid'::uuid AND kind='audio'
-                         AND COALESCE(lang,'')=COALESCE('$lang','')),0)+1,
-            'W2285 真音乐','$nau',
-            (SELECT subtitle_url FROM work_language_tracks WHERE id=$tid),$ndur,true
-     ON CONFLICT DO NOTHING;" >/dev/null
+  # ── 8 新音乐的版本行 ───────────────────────────────────────────────────
+  # 【W2290 改写 —— 原来这里是一条无条件 INSERT, 它在 2026-11-10 把整个批次打断了】
+  #
+  # 当天早些时候 W2287 给 renderLanguageTrack 补上了 registerMediaVersion ——
+  # 也就是说【♪1/♪2 的版本行现在由 Node 那一侧自己登记, 各带自己的 subtitle_url】。
+  # 于是这里那条 INSERT 变成了【重复登记同一个 URL】, 而 wmv_reject_shared_url_trg
+  # 是 BEFORE INSERT 触发器: 它在 ON CONFLICT 之前就 RAISE, ON CONFLICT DO NOTHING
+  # 吞不掉, psql 返回非零, 上面那句 `set -e` 当场把整批打断。
+  # 实测后果: 秦始皇(第 1 首)音乐做好了, 批次 rc=1 停住, 剩下 72 首一首没跑。
+  #
+  # 两个教训, 都记在这里:
+  #   · 改了「谁负责登记」的闸门, 必须回头复核【所有假定它不存在的调用点】。
+  #     那一行的原注释写着「renderLanguageTrack 这条路不登记」—— 当天已经不成立了。
+  #   · `set -e` 下的一条写 SQL = 整批的单点故障。1 个重复键换 72 首不跑。
+  #     所以验收之后的写操作一律改走 qx()(看返回码, 只判这一首, 不连坐)。
+  #
+  # 现在的做法: 先看版本行有没有, 【没有才插】; 清旧 current 也挪进真要插的那一支 ——
+  # 原来是无条件先清, 插入一失败就留下「一行 current 都没有」的作品(秦始皇正是这样)。
+  set +e
+  hasnew=$(q "SELECT count(*) FROM work_media_versions
+               WHERE work_id='$wid'::uuid AND kind='audio' AND url='$nau';")
+  vrc=0
+  if [ "${hasnew:-0}" -ge 1 ]; then
+    echo "   版本行已由 renderLanguageTrack 登记(W2287) —— 这里只校正 current 与时长"
+    qx "UPDATE work_media_versions SET is_current=false
+         WHERE work_id='$wid'::uuid AND kind='audio' AND is_current AND url<>'$nau';" || vrc=1
+    qx "UPDATE work_media_versions SET is_current=true
+         WHERE work_id='$wid'::uuid AND kind='audio' AND url='$nau';" || vrc=1
+    qx "UPDATE work_media_versions SET duration_secs=$ndur
+         WHERE work_id='$wid'::uuid AND kind='audio' AND url='$nau'
+           AND duration_secs IS NULL;" || vrc=1
+  else
+    qx "UPDATE work_media_versions SET is_current=false
+         WHERE work_id='$wid'::uuid AND kind='audio' AND is_current;" || vrc=1
+    qx "INSERT INTO work_media_versions
+         (work_id, kind, lang, version_no, label, url, subtitle_url, duration_secs, is_current)
+       SELECT '$wid'::uuid,'audio','$lang',
+              COALESCE((SELECT max(version_no) FROM work_media_versions
+                         WHERE work_id='$wid'::uuid AND kind='audio'
+                           AND COALESCE(lang,'')=COALESCE('$lang','')),0)+1,
+              'W2285 真音乐','$nau',
+              (SELECT subtitle_url FROM work_language_tracks WHERE id=$tid),$ndur,true
+       ON CONFLICT DO NOTHING;" || vrc=1
+  fi
   vn=$(q "SELECT count(*) FROM work_media_versions
            WHERE work_id='$wid'::uuid AND kind='audio' AND url='$nau';")
+  cn=$(q "SELECT count(*) FROM work_media_versions
+           WHERE work_id='$wid'::uuid AND kind='audio' AND url='$nau' AND is_current;")
+  set -e
+  if [ "$vrc" != "0" ] || [ "${cn:-0}" -lt 1 ]; then
+    echo "   ⚠ 版本行写入报错(vrc=$vrc)或新音乐没成为 current(cn=${cn:-0}) —— 音乐本身没问题"
+    echo "$wid	$lang	版本行 vrc=$vrc current=${cn:-0} (详见 $QXERR)" >>"$FAILED"
+    fail_n=$((fail_n+1)); continue
+  fi
   if [ "${vn:-0}" -lt 1 ]; then
     echo "   ⚠ 新音乐没登记成版本行 —— 音乐本身没问题, 但它不会出现在版本胶囊里"
     echo "$wid	$lang	新音乐未登记版本行" >>"$FAILED"; fail_n=$((fail_n+1)); continue
   fi
 
   # ── 9 作品那两列指向新音乐(旧值在备份里) ───────────────────────────────
-  q "UPDATE user_works SET preview_audio_url='$nau', duration_secs=$ndur, updated_at=now()
-      WHERE id='$wid'::uuid AND preview_audio_url='$oau';" >/dev/null
+  set +e
+  qx "UPDATE user_works SET preview_audio_url='$nau', duration_secs=$ndur, updated_at=now()
+       WHERE id='$wid'::uuid AND preview_audio_url='$oau';" || true
+  set -e
   pv=$(q "SELECT coalesce(preview_audio_url,'') FROM user_works WHERE id='$wid'::uuid;")
   if [ "$pv" != "$nau" ]; then
     echo "   ⚠ preview_audio_url 回读是 '…${pv: -30}' 不是新音频 —— 轨已是真音乐, 但首页仍播旧的"
@@ -338,9 +382,11 @@ PYSAME
     sleep 15
   done
   if [ "$sub" != "(空)" ]; then
-    q "UPDATE work_media_versions SET subtitle_url='$sub'
-        WHERE work_id='$wid'::uuid AND kind='audio' AND url='$nau'
-          AND coalesce(subtitle_url,'')='';" >/dev/null
+    set +e
+    qx "UPDATE work_media_versions SET subtitle_url='$sub'
+         WHERE work_id='$wid'::uuid AND kind='audio' AND url='$nau'
+           AND coalesce(subtitle_url,'')='';" || true
+    set -e
     echo "   OK 真音乐就位 ♪1 ${ndur}s ♪2 ${naltd:-0}s · 原词重合 ${same}% · 自己的字幕已挂 · 占位音留在版本行"
   else
     echo "   OK 真音乐就位 ♪1 ${ndur}s ♪2 ${naltd:-0}s · 原词重合 ${same}% · 占位音留在版本行"

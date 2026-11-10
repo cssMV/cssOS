@@ -38,6 +38,17 @@ TOK=$(grep -m1 '^CSSOS_ADMIN_TOKEN=' /etc/cssos.env | cut -d= -f2- | tr -d '"')
 [ -n "$TOK" ] || { echo "FAIL 没有 CSSOS_ADMIN_TOKEN —— 判不了, 停手"; exit 2; }
 API=http://127.0.0.1:3000
 CUR=$(readlink -f /srv/cssos/current)
+
+# r2putkey.mjs 要 R2 的四个环境变量, 它自己不读 /etc/cssos.env。
+# 首版没给, 于是它抛 S3 错误、stdout 空; 而我那句又带着 `2>/dev/null`,
+# 把真错误整个吞掉, 只剩一句没有信息量的「FAIL 推 R2:」—— 和我今天刚修的
+# W2286 静默分支是同一个毛病, 这次犯在自己脚本里。不吞错, 并把变量喂给它。
+set -a
+eval "$(grep -E '^(R2_ACCOUNT_ID|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|R2_BUCKET)=' /etc/cssos.env)"
+set +a
+for v in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+  eval "[ -n \"\${$v:-}\" ]" || { echo "FAIL /etc/cssos.env 里没有 $v —— 判不了, 停手"; exit 2; }
+done
 TMP=/tmp/w2289; mkdir -p "$TMP"
 q() { psql "$DB" -X -q -t -A -c "$1"; }
 
@@ -70,6 +81,14 @@ for pre in $WORKS; do
   echo "   orig 音频 …${au_orig: -26}"
 
   # ── A: auto 那个音频真做一次对齐(只写快照)────────────────────────────
+  # 可重跑: auto 已经挂上【自己的】快照(不是作品级那一份)就跳过 ——
+  # 重跑一次对齐不花钱, 但白等几分钟, 而且没有任何收益。
+  sub_auto=$(q "SELECT coalesce(subtitle_url,'') FROM work_language_tracks WHERE work_id='$wid'::uuid AND lang='zh' AND voice='auto';")
+  tag_auto=$(printf '%s' "$au_auto" | sha1sum | cut -c1-10)
+  want_auto="https://cdn.cssstudio.app/works/$wid/subtitle-take1--a$tag_auto.json"
+  if [ "$sub_auto" = "$want_auto" ]; then
+    echo "   [A] auto 已挂自己的快照, 跳过对齐 …${want_auto: -26}"
+  else
   echo "   [A] 对齐 auto 的音频 (voice=auto take=1 snap=1)"
   if [ "$APPLY" = "1" ]; then
     r=$(curl -s -m 1200 -X POST "$API/api/admin/resubtitle/$wid?lang=zh&voice=auto&take=1&snap=1" \
@@ -80,6 +99,7 @@ for pre in $WORKS; do
   fi
   echo "       ${r:0:260}"
   case "$r" in *'"ok":true'*) ;; *) echo "   FAIL A 没成 —— 停这一首"; fail_n=$((fail_n+1)); continue;; esac
+  fi
 
   # ── B: orig 那份【复制】成自己的快照(不重做)──────────────────────────
   tag=$(printf '%s' "$au_orig" | sha1sum | cut -c1-10)
@@ -93,8 +113,12 @@ for pre in $WORKS; do
       echo "       FAIL 已存在但字节不同 —— 不覆盖, 停这一首"; fail_n=$((fail_n+1)); continue
     fi
   elif [ "$APPLY" = "1" ]; then
-    put=$( cd "$CUR" && node r2putkey.mjs "$TMP/$pre.before.json" "$key" "application/json" 2>/dev/null | tail -1 )
-    case "$put" in *'"ok":true'*) ;; *) echo "       FAIL 推 R2: $put"; fail_n=$((fail_n+1)); continue;; esac
+    put=$( cd "$CUR" && node r2putkey.mjs "$TMP/$pre.before.json" "$key" "application/json" 2>&1 )
+    case "$put" in
+      *'"ok":true'*) ;;
+      *) echo "       FAIL 推 R2:"; printf '%s\n' "$put" | tail -4 | sed 's/^/           /'
+         fail_n=$((fail_n+1)); continue;;
+    esac
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$url")" = "200" ] || { echo "       FAIL 推完 CDN 取不到"; fail_n=$((fail_n+1)); continue; }
     echo "       已复制(字节与作品级一致)"
   else

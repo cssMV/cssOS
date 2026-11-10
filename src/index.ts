@@ -42381,7 +42381,23 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
        * (见 upsertSubtitleJson 的 W2270 注释)。但「槽位恒为 1」的代价是跑 ♪2 会把
        * ♪1 在读的那份文件读-改-写掉 —— 实测这三首的 orig ♪1 / auto ♪1 全在读它。
        * 所以 ♪2+ 必须只写快照。 */
-      const _snapOnly = _onlyTake >= 2;
+      /* CSSOS_WAVE_2289 20261109 —— ?snap=1 强制【只写快照】, 哪怕是 ♪1。
+       *
+       * 为什么非得有这个开关: 同一个 lang 下有多条轨时(W2145 之后 (zh,auto) 与
+       * (zh,pre-epic) 就是同语言两条不同音频), 想单独重做其中一条的 ♪1 是【做不到】的 ——
+       * _snapOnly 只在 take>=2 时为真, 所以 ?voice=auto&take=1 会连作品级 take1.json
+       * 一起重写, 而作品级那一份正是另一条轨(orig)在读的、Jing 明确说要保留的旧情绪字幕
+       * (「不要再重新制作字幕，旧版的情绪字幕很好。请保留。」)。
+       *
+       * 于是这三首就卡住了: 要么不修, 要么修一条毁一条。实测 2026-11-09:
+       *   桃花仙 5e048ee6 / 举杯邀月 96174092 / 春风得意 f10f71c5
+       *   每首 3 条 zh 轨、只有 2 个不同音频(pre-epic 与 auto 共用一个),
+       *   orig 的 subtitle_url 指着【作品级】那一份, 另两条为空 → 三条解析到同一份字幕,
+       *   而它是按 orig 的 197-208s 对齐的, auto 的音频是 328-514s。错配正在发生。
+       *
+       * ?snap=1 让「只给这一版落自己的快照、作品级一个字节不碰」变成可表达的操作。
+       * 不给 snap 时行为完全不变。 */
+      const _snapOnly = _onlyTake >= 2 || String((req.query as any)?.snap || "").trim() === "1";
       const _written = await upsertSubtitleJson(
         workId, alignLang, 1, sections, _volCurve, tr.audio_url || alignAudio,
         { snapshotOnly: _snapOnly });

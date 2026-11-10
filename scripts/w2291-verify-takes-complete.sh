@@ -10,7 +10,8 @@
 #   a 字幕键 = sha1(它自己那段音频)[:10] —— 非空不够, 必须指向自己
 #     (还原窗口里字幕可能按占位音的 URL 落了键, 见 W2290)
 #   b 字幕真能取到(HTTP 200)且是合法 JSON
-#   c 字幕最后一个字的结束 ≤ 实测时长 + 3s —— 越界就是对到别的音频上去了
+#   c 【这门语言那一条】的最后一个字结束 ≤ 实测时长 + 3s —— 越界就是没对上这段音频
+#     一份字幕文件可以装多种语言, 所以只能看本轨那一条; 整份取 max 会指错人(W2293)
 #   d ♪1 与 ♪2 必须是两份不同的字幕文件 —— 同一份 = 又回到共用(W2289)
 #   e 实测时长与库里的数一致(±3s), 且库里的数不能是空的
 #     (时长为空会让 OVERRUN / OUTRO_OVER 巡检静默漏判, 见 take-duration-must-be-measured)
@@ -33,20 +34,32 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 bad=0; checked=0
 [ "$CAL" = "1" ] && echo "⚠ CALIBRATE=1 —— 期望的字幕键被故意改错, 下面 a✗ 必须全中"
 
+# subend <本地 json> <这条轨的 lang>
+#
+# ⚠ 必须【只看这门语言那一条】。首版是把整份文件里所有 t_end 取 max ——
+# 一份字幕文件可以装多种语言(实测 Ἀθηνᾶ 那份装了 de/en/fr/ko/ja 五种),
+# 于是我判 ja♪2 时读到的是【德文】那条的 313.9s, 点名了一个其实准到 -0.2s 的版本,
+# 同时把真正越界的 de/en/ko 全漏掉。判据的粒度比数据粗一层, 就会这样指错人。
+# 语言取不到就报 "?" (判不了), 绝不退回整份取 max —— 那正是出错的那条路。
 subend() {
   python3 -I -c '
 import json,sys
-def walk(o,out):
-    if isinstance(o,dict):
-        for k,v in o.items():
-            if k in ("t_end","end_ms") and isinstance(v,(int,float)): out.append(float(v))
-            else: walk(v,out)
-    elif isinstance(o,list):
-        for v in o: walk(v,out)
+want=(sys.argv[2] or "").strip().lower()
 try: d=json.load(open(sys.argv[1],encoding="utf-8"))
 except Exception: print("?"); sys.exit(0)
-e=[]; walk(d,e)
-print(f"{max(e)/1000:.0f}" if e else "?")' "$1"
+L=d.get("languages")
+if not isinstance(L,list): print("?"); sys.exit(0)
+hit=[x for x in L if str(x.get("lang","")).strip().lower()==want]
+if not hit and len(L)==1 and not want: hit=L   # 单语言且没给 lang: 只此一种, 不算猜
+if not hit: print("?"); sys.exit(0)
+e=[]
+for lg in hit:
+    for s in (lg.get("sections") or []):
+        for ln in (s.get("lines") or []):
+            for t in (ln.get("tokens") or []):
+                v=t.get("t_end")
+                if isinstance(v,(int,float)): e.append(float(v))
+print(f"{max(e)/1000:.0f}" if e else "?")' "$1" "${2:-}"
 }
 
 for pre in "$@"; do
@@ -77,7 +90,7 @@ for pre in "$@"; do
       else
         python3 -I -c 'import json,sys; json.load(open(sys.argv[1],encoding="utf-8"))' "$T/$tk.json" \
           2>/dev/null || f="$f b✗(不是合法 JSON)"
-        se=$(subend "$T/$tk.json")
+        se=$(subend "$T/$tk.json" "$lang")
         if [ "$se" = "?" ]; then f="$f c?(字幕里一个时间戳都没有 —— 判不了)"
         elif [ "$d" != "?" ] && [ "$se" -gt $(( d + 3 )) ]; then f="$f c✗(字幕末 ${se}s > 音频 ${d}s)"; fi
       fi

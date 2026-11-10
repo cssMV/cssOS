@@ -278,6 +278,29 @@ print(json.dumps({"languages":[sys.argv[2]],"lyrics":open(sys.argv[1],encoding="
   bad=""
   case "$nau" in https://cdn.cssstudio.app/*) ;; *) bad="$bad 新音频不在我们域名";; esac
   case "$nau" in *mv-fallback*) bad="$bad 新音频还是 mv-fallback 占位物";; esac
+  # 【W2290】ndur 是 0 / 空 时, 绝不许直接判「成品短」—— 那是把【量不到】当成【没有】。
+  # 实测(鲁米 2207fb38, 2026-11-10): 轨的 duration_secs 读出来是 0, 而同一刻版本行里
+  # W2272 那个 ffprobe 已经量到 ♪1=234s、♪2=290s —— 一首真做好的歌被按 0s 判死、
+  # 还原成 60s 占位音, 12 credit 花了, 东西扔了。Suno 有时就是不回 ♪1 的时长。
+  # 所以先去量: 版本行里同 URL 的实测值 → 还不行就当场 ffprobe; 量到就回填轨那一列。
+  if [ "${ndur:-0}" -le 0 ]; then
+    mdur=$(q "SELECT coalesce(max(duration_secs),0) FROM work_media_versions
+               WHERE work_id='$wid'::uuid AND kind='audio' AND url='$nau';")
+    if [ "${mdur:-0}" -le 0 ]; then
+      mdur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$nau" 2>/dev/null \
+             | awk '{printf "%d", $1+0.5}')
+    fi
+    if [ "${mdur:-0}" -gt 0 ]; then
+      echo "   轨的时长列是空的, 实测得 ${mdur}s —— 按实测判(【量不到】不是【短】)"
+      ndur="$mdur"
+      set +e
+      qx "UPDATE work_language_tracks SET duration_secs=$ndur
+           WHERE id=$tid AND coalesce(duration_secs,0)<=0;" || true
+      set -e
+    else
+      echo "   ⚠ 轨的时长列是空的, 版本行与 ffprobe 都量不到 —— 这是【判不了】"
+    fi
+  fi
   [ "${ndur:-0}" -ge "$MINDUR" ] || bad="$bad 成品只有 ${ndur}s < ${MINDUR}s(歌词短了的免费探针)"
   # 唱的还是原词吗 —— 这一条专防转译偷偷跑(先导就是这么被改掉 52 行的)
   set +e

@@ -42012,8 +42012,20 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       if (/[\u0E00-\u0E7F]/.test(t)) return "th";                  // 泰文
       return "en";
     };
+    /* ⚠ realLangCodes 自 W2297(2026-11-11)起是【刻意不被引用】的, 留着只为留档。
+     * 它曾被当成「这个标签可不可信」的判据, 而它只装得下 17 个码 ——
+     * 于是 gd/nah/yo/akk/la/haw/mi/qu/zu/xh/vi/am… 这些真语言被当成占位符,
+     * 歌词被 detectLyricLang 重猜成 en, 字幕条写错语言(详见 W2297 那段)。
+     * 重新把它接到任何「这是不是真语言」的判断上, 就是把那个 bug 装回去。
+     * 要问「是不是占位符」, 用下面的 LANG_CODE_PLACEHOLDERS。 */
     const realLangCodes = new Set(["zh", "en", "ja", "ko", "es", "fr", "de", "it", "pt", "ru",
                                    "fa", "el", "he", "hi", "th", "ar", "tr"]);
+    void realLangCodes;   // 刻意不用 —— 见上
+    /* W2297 — 语言位上的【占位符】: 这些不是语言, 遇到它们才该回落字形检测。
+     * 'orig' / 'auto' 是生成管线写的默认值; 'pre-epic' / 'orig-pre-epic' 是版本标记
+     * (W2145: 版本身份塞在 lang 里的历史遗留)。其余一律当真语言采信。 */
+    const LANG_CODE_PLACEHOLDERS = new Set(["", "orig", "auto", "und", "unknown", "default",
+                                            "pre-epic", "orig-pre-epic"]);
     // CSSOS_WAVE_724 — 整曲音量包络: 算一次(用第一条轨的音频), 全语言共用(器乐相同)。给 [Music...] emoji。
     let _volCurve: { step_ms: number; values: number[]; norm?: number } | null = null;
     try {
@@ -42302,7 +42314,31 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
        * 而作品行的 language 是【人(或文明联动)明确定下来的】, 比猜测更权威。
        * 所以: 只要声明语言与检测语言【属于同一种文字】, 就采信声明的那个。
        * 不同文字才说明声明是错的(例如声明 zh 却是一篇希腊文), 那时仍以字形为准。 */
-      const _detected = realLangCodes.has(String(tr.lang)) ? String(tr.lang) : detectLyricLang(reLyrics);
+      /* ⚠ CSSOS_WAVE_2297 20261111 订正 —— 这一句原来问的是【是不是那 17 种语言之一】,
+       * 应该问的是【是不是占位符】。两个问题在 2026-11-11 之前一直被当成同一个。
+       *
+       * 原文: realLangCodes.has(tr.lang) ? tr.lang : detectLyricLang(reLyrics)
+       * realLangCodes 只有 17 个码。于是 gd / nah / yo / akk / yua / non / la / quc /
+       * haw / mi / qu / zap / zu / xh / man / am / vi 这些【真语言】全部落进 else,
+       * 被 detectLyricLang 重新猜一遍。而 detectLyricLang 只认字形 ——
+       * 拉丁字母一律 return "en"(埃塞俄比亚字母连分支都没有, 也回 en)。
+       * 结果: 轨是 gd, 字幕条却写成 en。播放端按轨那门语言去查, 查到的还是那条旧的坏字幕,
+       * 新做的那条挂在 en 下面没人读 —— 白做一遍, 还在文件里多出一条假语言。
+       * W2296 实测: Cú Chulainn(gd)新条 en 206.6s ✔ 而 gd 仍停在 51.6s;
+       *            Ṣàngó(yo)、Huitzilopochtli(nah) 同形。全库 34 条轨 / 21 个作品。
+       *
+       * 为什么改成黑名单才对: 对 gd/yo/la 这些, detectLyricLang 的信息量是【零】——
+       * 它分不开拉丁字母底下的任何一种语言。轨上那个标签哪怕可疑, 也严格优于一个
+       * 必然回 "en" 的猜测。白名单想挡的从来只是 orig / auto / pre-epic 这类占位符
+       * (见下面 W2145 那段注释), 那就直接按占位符来问。
+       *
+       * 不动的: 占位符仍旧回落字形检测; W2030 的同文字采信声明语言(下面 alignLang)原样保留;
+       * 标签本身撒谎(轨写 zh 实为日语)是另一条线 —— 旧的白名单对那种情况同样是无条件采信,
+       * 所以这次改动既没有引入也没有加重它。 */
+      const _trackLangRaw = String(tr.lang || "").trim().toLowerCase();
+      const _isLangPlaceholder = LANG_CODE_PLACEHOLDERS.has(_trackLangRaw)
+        || !/^[a-z]{2,3}(-[a-z0-9]{2,8})*$/.test(_trackLangRaw);
+      const _detected = !_isLangPlaceholder ? _trackLangRaw : detectLyricLang(reLyrics);
       const SCRIPT_FAMILY: Record<string, string> = {
         sa: "deva", hi: "deva", mr: "deva", ne: "deva",
         ar: "arab", fa: "arab", ur: "arab", ps: "arab",
@@ -42457,10 +42493,32 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       /* W2295 终检 —— 这是落盘前最后一次机会。上面 mergeAudioEnrichment 会整体换掉时间戳、
        * injectMusicGaps 会补尾奏段, 所以词级夹过【不等于】写进文件的这份是干净的。
        * 夹完让「文件里没有一个字结束在音频之后」成为可验的硬不变量。 */
+      /* ⚠ CSSOS_WAVE_2297 20261111 订正 —— 这个终检原来拿的是 `tr.duration_secs`, 那是【库里存的数】,
+       * 不是量出来的数。这一句自己就是个剪刀, 喂错数字就剪掉真唱出来的词。
+       *
+       * 实测被它剪坏的:《李白·饮者三部曲·举杯邀月》♪1 ——
+       *   轨 zh/auto 的音频 aud-ba6f6974 真长 383.6s(ffmpeg 解码), 但
+       *   · mp3 头里写的是 514.37s(谎报 +131s)
+       *   · 库里 duration_secs 存的是 202(那其实是【另一个文件】aud-e8b03a07 的时长)
+       *   于是终检按 202s 去夹一份 383.6s 的歌 → 177 个 token 砍掉 99 个, 字幕停在 202.0s,
+       *   后面 180 秒真唱出来的词全丢。比它要修的「越界」更坏。
+       *
+       * 三条都踩了:
+       *   1. 存的数可能是【另一个文件】的(本例 202)
+       *   2. ♪2 若回落到这一列, 拿到的是【♪1 的时长】—— 正是 W2267 那条「绝不拿♪1的时长顶♪2」
+       *   3. mp3 头本身会撒谎(本例 514, gd♪2 那个文件头写 277.49 实为 240.00)
+       *
+       * 正解: 用【这一轮真去对齐的那段音频】量出来的时长, 也就是 W2295 词级夹用的同一个数
+       * (_clampInfo.audio_s = probeRemoteDurationSecs(alignAudio), 按 take 切过的)。
+       * 两级夹用同一个尺子, 否则词级夹完是对的、终检又按另一个数剪一刀。
+       * 量不到就【不夹】—— 判不了时放过, 远好过按一个错数字剪。 */
       try {
-        const _sc = clampSectionsToAudioMs(sections, tr.duration_secs);
+        const _measured = (typeof _clampInfo.audio_s === "number" && _clampInfo.audio_s > 0)
+          ? _clampInfo.audio_s : null;
+        const _sc = clampSectionsToAudioMs(sections, _measured);
         sections = _sc.sections;
         _secClamp = { dropped: _sc.dropped, clipped: _sc.clipped };
+        if (_measured == null) console.info("[align-clamp] 终检: 量不到这段音频的时长 —— 不夹(宁可放过, 不按错数字剪)");
       } catch (_e) { /* 终检本身不该让整条流程失败 */ }
       /* CSSOS_WAVE_1965 20260825 — 写【真语言】, 不再把占位符原样写进字幕 JSON。
        *

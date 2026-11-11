@@ -73,9 +73,15 @@ while IFS=$'\t' read -r wid lang voice take kind title; do
     printf '%s\t%s\t%s\t%s\t取不到音频\n' "$wid" "$lang" "$voice" "$take" >>"$BADL"
     unk=$((unk+1)); continue
   fi
-  dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$au" 2>/dev/null | awk '{printf "%d", $1+0.5}')
+  # ⚠ W2297: 不能信 mp3 头。实测 aud-ba6f6974 头里写 514.37s, 真解码只有 383.60s(谎报 +131s);
+  #   aud-bf91fc3b 头写 277.49s, 真解码 240.00s。format=duration / stream=duration 读的都是那个头,
+  #   两个都被骗。真尺子只有【整段解码一遍】: ffmpeg -f null 最后那个 time= 就是播放器会经历的长度。
+  #   拿头去判, 就会像 W2296 那样把越界读成"音频 514s 很宽裕 ✅"而放过。
+  dur=$(ffmpeg -nostdin -hide_banner -i "$au" -f null - 2>&1 \
+        | grep -o 'time=[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\.[0-9]*' | tail -1 \
+        | sed 's/time=//' | awk -F: '{printf "%d", ($1*3600+$2*60+$3)+0.5}')
   if [ -z "${dur:-}" ] || [ "${dur:-0}" -le 0 ]; then
-    echo "        ⚠ ffprobe 量不到这段音频 —— 判不了, 不动(clamp 也会因此不夹)"
+    echo "        ⚠ 解码量不到这段音频 —— 判不了, 不动(clamp 也会因此不夹)"
     printf '%s\t%s\t%s\t%s\t时长量不到\n' "$wid" "$lang" "$voice" "$take" >>"$BADL"
     unk=$((unk+1)); continue
   fi
@@ -106,6 +112,13 @@ while IFS=$'\t' read -r wid lang voice take kind title; do
     continue
   fi
   cl=$(printf '%s' "$out" | grep -o '"clamp":{[^}]*}' | head -1)
+  # ⚠ W2297: 接口写进文件的那条【语言标签】必须自己报出来, 不能假定就是我们请求的那个。
+  #   W2296 实测: 请求 lang=gd, 接口把条目写成了 en(gd 不在旧的 realLangCodes 白名单里,
+  #   歌词被字形检测重猜成 en)。而原来这里是拿 $lang 去文件里查时间轴 ——
+  #   查到的是那条【没被动过的旧 gd 条目】, 于是 "51.6s ≤ 207s ✅" 假通过, 真正写进去的
+  #   en 206.6s 从没被看过一眼。判据和被判的东西必须对齐在【同一条】上。
+  wlang=$(printf '%s' "$out" | grep -o '"lang":"[^"]*"' | head -1 | cut -d'"' -f4)
+  [ -n "${wlang:-}" ] || wlang="$lang"
 
   # 验: 键 + 取得到 + 本语言末尾在界内
   vs=$(q "SELECT coalesce(subtitle_url,'') FROM work_media_versions
@@ -122,9 +135,17 @@ while IFS=$'\t' read -r wid lang voice take kind title; do
     code=$(curl -s -A "$UA" -o "$T/new.json" -w '%{http_code}' -m 60 "$vs" || echo 000)
     if [ "$code" != 200 ]; then bad="字幕 HTTP $code(判不了)"
     else
-      end=$(python3 -I "$PL" "$T/new.json" "$lang" 2>/dev/null || echo "?")
-      if [ "$end" = "?" ]; then bad="取不到本语言的时间轴(判不了)"
-      elif [ "$(python3 -c "print(1 if $end > $dur + 3 else 0)")" = 1 ]; then bad="仍越界 ${end}s > ${dur}s"; fi
+      end=$(python3 -I "$PL" "$T/new.json" "$wlang" 2>/dev/null || echo "?")
+      if [ "$end" = "?" ]; then bad="取不到 $wlang 的时间轴(判不了)"
+      elif [ "$(python3 -c "print(1 if $end > $dur + 3 else 0)")" = 1 ]; then bad="仍越界 ${end}s > ${dur}s"
+      else
+        # 写对了时间, 还得写对【语言】: 轨是真语言时, 条目的 lang 必须就是它,
+        # 否则播放端按轨那门语言去查, 读到的还是旧的坏字幕 —— 等于白做(W2297)。
+        case "$lang" in
+          orig|auto|und|unknown|default|pre-epic|orig-pre-epic) ;;   # 占位符: 接口算出真语言才对
+          *) [ "$wlang" = "$lang" ] || bad="语言写错: 写成 $wlang, 轨是 $lang —— 播放端读不到" ;;
+        esac
+      fi
     fi
   fi
 

@@ -35,14 +35,38 @@ PL="$HERE/w2296-perlang-end.py"
 [ -f "$PL" ] || { echo "FAIL 少了 $PL —— 判不了, 停手"; exit 2; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 WLDIR="$T/wl"; mkdir -p "$WLDIR"
-LOG=/tmp/w2296-done.tsv; BADL=/tmp/w2296-bad.tsv
+_tag=$(basename "${1:-manifest}" .tsv)
+LOG=/tmp/${_tag}-done.tsv; BADL=/tmp/${_tag}-bad.tsv
 : > "$LOG"; : > "$BADL"
-q() { psql "$DATABASE_URL" -X -q -t -A -c "$1"; }
+# ⚠ W2297 —— q() 必须把【查询失败】和【查到的是空】分开。
+#   两者长得一样时, 一次 Cloud SQL 瞬断就被读成 154 句「这一行没有音频地址, 判不了」,
+#   整批一分钟一处地空转穿了清单(实测: 清单 171, 做成 16, 判不了 154)。
+#   这正是「【没到】与【我没查到】必须分成两种输出」那条铁律 —— 我把它用在接口轮询上,
+#   却没用在自己这层 psql 封装上。
+#   失败回 __QERR__(调用方必须自己判), 并先重试三次: 瞬断常常下一秒就好。
+q() {
+  local sql="$1" out rc i
+  for i in 1 2 3; do
+    out=$(PGCONNECT_TIMEOUT=10 psql "$DATABASE_URL" -X -q -t -A -v ON_ERROR_STOP=1 -c "$sql" 2>/dev/null); rc=$?
+    if [ "$rc" -eq 0 ]; then printf '%s' "$out"; return 0; fi
+    sleep $((i * 3))
+  done
+  printf '__QERR__'; return 1
+}
+# 查库失败 = 什么都验不了, 连目标都挑不出来 —— 累计 3 次就硬停, 绝不空转
+dbfail() {
+  echo "        ‼ 查库失败(重试 3 次仍不通) —— 这不是「没有数据」, 是我查不到"
+  printf '%s\t%s\t%s\t%s\t查库失败\n' "$1" "$2" "$3" "$4" >>"$BADL"
+  dberr=$((dberr + 1)); unk=$((unk + 1))
+}
 
 # 这首作品级字幕的 sha256: 第一次见它就记下来, 之后每次比对
 worklevel_sha() {
   local wid=$1 f="$WLDIR/$wid.sha" u
   u=$(q "SELECT coalesce(subtitle_take1_json_url,'') FROM user_works WHERE id='$wid'::uuid;")
+  # W2297: 查库失败绝不能悄悄变成「(无)」—— 那会让作品级字幕的基线指纹是假的,
+  #   动手后再比一次就必然"看起来变了"而误报硬停(或反过来漏掉真的变动)。
+  [ "$u" = "__QERR__" ] && { printf '__QERR__'; return; }
   [ -n "$u" ] || { printf '(无)'; return; }
   local tmpf="$T/wl.json" code
   code=$(curl -s -A "$UA" -o "$tmpf" -w '%{http_code}' -m 60 "$u" || echo 000)
@@ -52,7 +76,7 @@ worklevel_sha() {
 
 plan=$(grep -c . "$MAN" || true)
 echo "清单 $plan 处 · 涉及 $(cut -f1 "$MAN" | sort -u | grep -c .) 个作品 · APPLY=$APPLY"
-n=0; okn=0; failn=0; unk=0; skipn=0; streak=0
+n=0; okn=0; failn=0; unk=0; skipn=0; streak=0; dberr=0; unkstreak=0
 
 while IFS=$'\t' read -r wid lang voice take kind title; do
   [ -n "${wid:-}" ] || continue
@@ -63,16 +87,29 @@ while IFS=$'\t' read -r wid lang voice take kind title; do
   if [ "$take" = 1 ]; then col=audio_url; else col=alt_audio_url; fi
   au=$(q "SELECT coalesce($col,'') FROM work_language_tracks
            WHERE work_id='$wid'::uuid AND lang='$lang' AND coalesce(voice,'auto')='$voice' LIMIT 1;")
+  if [ "$au" = "__QERR__" ]; then
+    dbfail "$wid" "$lang" "$voice" "$take"
+    [ "$dberr" -ge 3 ] && { echo "!!! 查库连续失败 —— 硬停, 不空转"; break; }
+    continue
+  fi
   if [ -z "$au" ]; then
     # ♪3/♪4 不在轨那两列上, 走版本行(按 url 配, 不按 lang 配 —— W2145)
     au=$(q "SELECT url FROM work_media_versions WHERE work_id='$wid'::uuid AND kind='audio'
              ORDER BY id OFFSET $((take-1)) LIMIT 1;")
+    if [ "$au" = "__QERR__" ]; then
+      dbfail "$wid" "$lang" "$voice" "$take"
+      [ "$dberr" -ge 3 ] && { echo "!!! 查库连续失败 —— 硬停, 不空转"; break; }
+      continue
+    fi
   fi
   if [ -z "$au" ]; then
     echo "        ⚠ 取不到这一版的音频地址 —— 判不了, 不动"
     printf '%s\t%s\t%s\t%s\t取不到音频\n' "$wid" "$lang" "$voice" "$take" >>"$BADL"
-    unk=$((unk+1)); continue
+    unk=$((unk+1)); unkstreak=$((unkstreak+1))
+    [ "$unkstreak" -ge 10 ] && { echo "!!! 连续 10 处都「判不了」—— 不是这些作品都没音频, 是环境坏了。硬停"; break; }
+    continue
   fi
+  unkstreak=0
   # ⚠ W2297: 不能信 mp3 头。实测 aud-ba6f6974 头里写 514.37s, 真解码只有 383.60s(谎报 +131s);
   #   aud-bf91fc3b 头写 277.49s, 真解码 240.00s。format=duration / stream=duration 读的都是那个头,
   #   两个都被骗。真尺子只有【整段解码一遍】: ffmpeg -f null 最后那个 time= 就是播放器会经历的长度。
@@ -123,6 +160,11 @@ while IFS=$'\t' read -r wid lang voice take kind title; do
   # 验: 键 + 取得到 + 本语言末尾在界内
   vs=$(q "SELECT coalesce(subtitle_url,'') FROM work_media_versions
            WHERE work_id='$wid'::uuid AND kind='audio' AND url='$au' LIMIT 1;")
+  if [ "$vs" = "__QERR__" ]; then
+    dbfail "$wid" "$lang" "$voice" "$take"
+    [ "$dberr" -ge 3 ] && { echo "!!! 查库连续失败 —— 硬停, 不空转"; break; }
+    continue
+  fi
   k=$(printf '%s' "$au" | sha1sum | cut -c1-10)
   bad=""
   case "$vs" in
@@ -151,6 +193,13 @@ while IFS=$'\t' read -r wid lang voice take kind title; do
 
   # 作品级那份必须纹丝不动
   after=$(worklevel_sha "$wid")
+  # W2297: 任一侧查不到 = 我判不了, 不是「字节变了」。把它当变动会误报硬停;
+  #   当没变则会漏掉真变动。两个方向都错, 所以必须单独一支。
+  if [ "$before" = "__QERR__" ] || [ "$after" = "__QERR__" ]; then
+    echo "        ‼ 作品级字幕的指纹查不到 —— 判不了, 立刻停手(不拿不确定的状态继续写)"
+    printf '%s\t%s\t%s\t%s\t作品级指纹判不了\n' "$wid" "$lang" "$voice" "$take" >>"$BADL"
+    unk=$((unk+1)); break
+  fi
   if [ "$after" != "$before" ]; then
     echo "        ‼ 作品级字幕的字节变了! ${before:0:16} → ${after:0:16} —— 硬停"
     printf '%s\t%s\t%s\t%s\t作品级被改动\n' "$wid" "$lang" "$voice" "$take" >>"$BADL"

@@ -8181,18 +8181,115 @@ async function alignViaMmsService(
   }
 }
 
+/* W2295 终检 —— 落盘前再夹一次【建好的 sections】(毫秒)。
+ * 为什么词级夹过还要再夹: 词级之后还有两道会改时间戳的工序 ——
+ * enrichTimelineViaAudioAnalysis/mergeAudioEnrichment 会【整体换掉】t_start/t_end
+ * (注释写着"音频分析比 whisper 准 → update"), injectMusicGaps 会补尾奏段。
+ * 词级夹干净了, 不等于写进文件的那份也干净。这道终检让「文件里没有一个字结束在音频之后」
+ * 成为一条可验的硬不变量, 而不是一句推断。
+ * 空的行/段直接丢掉 —— 留一个没有字的行会在播放端渲染成一条空字幕。 */
+function clampSectionsToAudioMs<T extends { lines: Array<{ tokens: Array<any> }> }>(
+  sections: T[], durSec: number | null | undefined,
+): { sections: T[]; dropped: number; clipped: number } {
+  if (!Array.isArray(sections) || !sections.length) return { sections, dropped: 0, clipped: 0 };
+  if (!(durSec && durSec > 0)) return { sections, dropped: 0, clipped: 0 };   // 判不了 → 不夹
+  const limMs = durSec * 1000;
+  let dropped = 0, clipped = 0;
+  const out: T[] = [];
+  for (const sec of sections) {
+    const lines: any[] = [];
+    for (const ln of (sec.lines || [])) {
+      const toks: any[] = [];
+      for (const tk of (ln.tokens || [])) {
+        const st = Number(tk.t_start) || 0;
+        if (st >= limMs - 50) { dropped++; continue; }
+        const en = Number(tk.t_end) || 0;
+        if (en > limMs) { toks.push({ ...tk, t_end: Math.round(limMs) }); clipped++; continue; }
+        toks.push(tk);
+      }
+      if (toks.length) lines.push({ ...ln, tokens: toks });
+    }
+    if (lines.length) out.push({ ...sec, lines } as T);
+  }
+  if (dropped || clipped) {
+    console.warn("[align-clamp] 落盘前终检: 丢 %d 字 / 收边 %d 字 (音频 %ss)", dropped, clipped, String(durSec));
+  }
+  return { sections: out, dropped, clipped };
+}
+
+/* CSSOS_WAVE_2295 20261111 — 【对齐结果必须落在音频之内】。Jing 明确 yes:「加 clamp 吧」。
+ *
+ * 起因(《Ἀθηνᾶ》): 写下的歌词 306 词, 但 Suno 只唱了删节版 —— 自由 ASR 实测只听到 185 词、
+ * 末尾 226.9s, 音频一共 240.0s(真解码计帧: 10001×1152÷48000)。强制对齐被喂进全部 306 词,
+ * whisperX 就按节奏把【没唱的那 121 词】一路铺到音频之外, 时间轴跑到 283.0s。
+ * 五条语言轨 10 个版本里有 7 个这样, 最多的德文越界 74s。
+ *
+ * 为什么必须在这里收: 这件事【不报错、不降级、不空白】。它产出一份看起来完全正常的字幕,
+ * 只是整段偏移 —— 歌早唱完了字还在滚, 只有人眼能发现。而三个对齐器
+ * (whisperX → MMS-FA → OpenAI)原先一个都没有把结果夹回音频长度。
+ * 装在这个函数里, 一处覆盖全部 11 个调用点(含生成管线的 take1/take2 —— 全库大部分
+ * 字幕出自那里), 而且时长是从【正在被对齐的那个文件】量的, 不依赖调用方传对数。
+ *
+ * 为什么是【截断】而不是【压缩】: 没唱的词压到最后几秒, 屏幕上就是一串没人在唱的字飞过去;
+ * 截掉它们, 留下的每个字都还在它原来对的位置上。Jing 认了这个取舍(删节掉的词会丢)。
+ *
+ * 量不到时长 = 【判不了】→ 原样返回, 不猜。宁可不夹, 不夹错。 */
+function clampTimelineToAudio(
+  tl: LyricTimelineEntry[],
+  durSec: number | null,
+  info?: { audio_s?: number | null; was_end_s?: number; dropped?: number; clipped?: number; of?: number },
+): LyricTimelineEntry[] {
+  const n = Array.isArray(tl) ? tl.length : 0;
+  if (info) { info.of = n; info.dropped = 0; info.clipped = 0; info.audio_s = durSec ?? null; }
+  if (!n) return tl;
+  const wasEnd = Math.max(...tl.map((e) => Number(e.end_s) || 0));
+  if (info) info.was_end_s = Math.round(wasEnd * 100) / 100;
+  if (!(durSec && durSec > 0)) {
+    if (wasEnd > 0) console.warn("[align-clamp] 时长量不到 —— 判不了, 不夹(末尾 %ss)", wasEnd.toFixed(1));
+    return tl;
+  }
+  // 容差 0.25s: 对齐器常把最后一个字压在文件末尾, 差几十毫秒不算越界, 不值得动它。
+  const lim = durSec + 0.25;
+  if (wasEnd <= lim) return tl;
+  const out: LyricTimelineEntry[] = [];
+  let dropped = 0, clipped = 0;
+  for (const e of tl) {
+    const st = Number(e.start_s) || 0;
+    if (st >= durSec - 0.05) { dropped++; continue; }      // 整个字都在音频之外 —— 它没被唱出来
+    const en = Number(e.end_s) || 0;
+    if (en > durSec) { out.push({ ...e, end_s: durSec }); clipped++; continue; }  // 跨边界 —— 收到末尾
+    out.push(e);
+  }
+  if (info) { info.dropped = dropped; info.clipped = clipped; }
+  console.warn(
+    "[align-clamp] 时间轴末尾 %ss 超出音频 %ss —— 丢掉没唱的 %d/%d 字, 收边 %d 字",
+    wasEnd.toFixed(1), String(durSec), dropped, n, clipped,
+  );
+  return out;
+}
+
 async function alignWordsViaWhisper(
   audioUrl: string,
   language?: string,
   refText?: string,
+  /* W2295 — 可选出参: 夹掉了多少。调用方传 {} 就能把它报给用户/巡检,
+   * 不传则行为与原来完全一致(其余 10 个调用点一个字没改)。 */
+  clampInfo?: { audio_s?: number | null; was_end_s?: number; dropped?: number; clipped?: number; of?: number },
 ): Promise<LyricTimelineEntry[] | undefined> {
   if (!audioUrl || /^(data|file):/i.test(audioUrl)) return undefined;
+  /* W2295 — 三个对齐器哪一个出的结果, 都要先夹回音频长度再交出去。
+   * 只在真有时间轴时才去量时长(量一次 ffprobe, 对齐本身要 40s+, 这点开销可以忽略)。 */
+  let _dur: number | null | undefined;
+  const _clamp = async (tlIn: LyricTimelineEntry[]): Promise<LyricTimelineEntry[]> => {
+    if (_dur === undefined) _dur = await probeRemoteDurationSecs(audioUrl);
+    return clampTimelineToAudio(tlIn, _dur, clampInfo);
+  };
   // CSSOS_WAVE_648/B — 优先自建 whisperX(根治路径, refText→强制对齐已知歌词); 未配置/失败回退 OpenAI。
   const viaX = await alignViaWhisperXService(audioUrl, language, refText);
-  if (viaX && viaX.length) return viaX;
+  if (viaX && viaX.length) return await _clamp(viaX);
   // CSSOS_WAVE_1271 — whisperX 给不出(长尾语种无 wav2vec2 对齐模型) → MMS-FA 强制对齐兜底(1100+语种单模型)。
   const viaMms = await alignViaMmsService(audioUrl, language, refText);
-  if (viaMms && viaMms.length) return viaMms;
+  if (viaMms && viaMms.length) return await _clamp(viaMms);
   if (!(process.env.OPENAI_API_KEY || "").trim()) return undefined;
   let tmp = "";
   try {
@@ -8218,7 +8315,7 @@ async function alignWordsViaWhisper(
         unit: "word" as const,
       }))
       .filter((e) => e.text && e.end_s > e.start_s);
-    return timeline.length ? timeline : undefined;
+    return timeline.length ? await _clamp(timeline) : undefined;
   } catch (err) {
     console.warn("[emotional-subs] whisper align threw:", err instanceof Error ? err.message : err);
     return undefined;
@@ -42279,6 +42376,10 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       // CSSOS_WAVE_674 ② / 1267 — 强制对齐落在【人声 stem】上(onset 更准); 分离不成才回退全混。
       const alignAudio = _vocalForAlign || tr.audio_url;
       // W735 — 熟歌词模式已有实唱时间线 → 直接复用(省一次 Whisper); 否则正常强制对齐书面词。
+      /* W2295 — 夹掉了多少, 要让调用方看见: 丢字多 = 这份词和这段音频本来就不匹配,
+       * 那是另一个要人判的问题, 不该只留在日志里。 */
+      const _clampInfo: { audio_s?: number | null; was_end_s?: number; dropped?: number; clipped?: number; of?: number } = {};
+      let _secClamp = { dropped: 0, clipped: 0 };
       let tl: Array<{ word: string; start: number; end: number }>;
       if (forceEven) {
         // W789 — 稀缺语言兜底: 书面词在整曲时长上均匀分布。CJK 按字、其余按空白词切。
@@ -42294,7 +42395,8 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         tl = _units.map((w, i) => ({ word: w, start: +(_lead + i * _per).toFixed(2), end: +(_lead + (i + 1) * _per - _per * 0.12).toFixed(2) }))
           .filter((w) => w.word && w.end > w.start);
       } else {
-        const aligned = asrPrebuiltTl ? asrPrebuiltTl : await alignWordsViaWhisper(alignAudio, alignLang, reLyrics);
+        const aligned = asrPrebuiltTl ? asrPrebuiltTl
+          : await alignWordsViaWhisper(alignAudio, alignLang, reLyrics, _clampInfo);  // W2295 出参
         tl = (Array.isArray(aligned) ? aligned : [])
           .map((w: any) => ({
             word: String(w?.text ?? w?.word ?? "").trim(),
@@ -42352,6 +42454,14 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         } catch (_e) { /* SER 失败 → 回退分位 */ }
       }
       sections = derivePerTokenEmotion(sections); // #44 逐字情绪强度(SER 优先, 否则分位)
+      /* W2295 终检 —— 这是落盘前最后一次机会。上面 mergeAudioEnrichment 会整体换掉时间戳、
+       * injectMusicGaps 会补尾奏段, 所以词级夹过【不等于】写进文件的这份是干净的。
+       * 夹完让「文件里没有一个字结束在音频之后」成为可验的硬不变量。 */
+      try {
+        const _sc = clampSectionsToAudioMs(sections, tr.duration_secs);
+        sections = _sc.sections;
+        _secClamp = { dropped: _sc.dropped, clipped: _sc.clipped };
+      } catch (_e) { /* 终检本身不该让整条流程失败 */ }
       /* CSSOS_WAVE_1965 20260825 — 写【真语言】, 不再把占位符原样写进字幕 JSON。
        *
        * 单轨 MV 作品(work_language_tracks 里没有行, 音频挂在 user_works.preview_audio_url)
@@ -42438,6 +42548,17 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         enriched: !!enriched, lastEnd_s: Number(tl[tl.length - 1]?.end || 0),
         dtw: dtwMerged,   // W776 — true = forced-align 失败后走了【写词+ASR时间戳】兜底
         even: forceEven,  // W789 — true = 稀缺语言均匀分布合成时间线
+        /* W2295 — 夹掉了多少。dropped 大 = 这份词和这段音频本来就不匹配(写了 306 词只唱了
+         * 185 词那种), 那是要人判的另一件事, 不能只留在日志里自生自灭。 */
+        clamp: {
+          audio_s: _clampInfo.audio_s ?? null,
+          was_end_s: _clampInfo.was_end_s ?? null,
+          words_total: _clampInfo.of ?? null,
+          words_dropped: _clampInfo.dropped ?? 0,
+          words_clipped: _clampInfo.clipped ?? 0,
+          final_dropped: _secClamp.dropped,
+          final_clipped: _secClamp.clipped,
+        },
       });
     }
     return res.json({ ok: true, workId, results });

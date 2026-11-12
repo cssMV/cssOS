@@ -1377,12 +1377,57 @@ function foldMultilineBracketBlocks(text: string): string {
   return out.join("\n");
 }
 
+// CSSOS_W2303 — 【转义方括号】是和 W2302 跨行块完全不同的另一个 bug, 折叠治不了它。
+//
+// 症状(实测《Whispers of the Dragon Reborn》a45dfee6 / bb78409f): 整首歌的跨行块是 0 个,
+// 可分镜 Prompt 和配器清单照样被唱出来。因为它的方括号是【被 markdown 转义的】:
+//
+//     \[Video Prompt: Aerial shot of Two Rivers under twilight fog…]   ← 行首是 `\` 不是 `[`
+//     *\[Instrumentation: Whispering flute, dulcimer tremolos…]*       ← 外面还裹着【1 个】星号
+//
+// 两条现有判据都接不住:
+//   · `^\s*[\[【〔]` 要求【行首就是方括号】, 这里行首是反斜杠 → 漏;
+//   · W695 的 `\*{2,3}[^*\n]+\*{2,3}$` 要求【2–3 个】星号, 这里只有 1 个 → 漏。
+//   (`**\[Spoken whispers…]**` 和 `### \[Style of Music]` 反而没漏 —— 它们恰好撞上了
+//    W695 的 2 星号分支和 `#{1,6}\s` 分支。**同一份歌词里有的漏有的不漏**, 所以难发现。)
+//
+// 修法的唯一约束, 来自同一首歌里这一行:
+//     *“Al’Thor… he walks again…*                                      ← 单星号包着【真歌词】
+// 单个星号既包说明也包歌词, **所以绝不能按星号判**。只能按:
+//     剥掉外层强调 + 解掉 `\[` 转义之后, 底下【是不是方括号】。
+// 不是方括号的行(真歌词)原样放回, 一个字不动 —— 这条规则只可能把【本来就是方括号的行】
+// 认回来, 不可能把歌词判成标记。
+function unescapeBracketMarkup(text: string): string {
+  return text.split("\n").map((raw) => {
+    if (!/\\[\[【〔]/.test(raw)) return raw;          // 没有被转义的方括号 → 一个字不动
+    const lead = raw.match(/^\s*/)?.[0] ?? "";
+    let s = raw.trim();
+    // 剥 markdown 标题前缀(`### \[Chorus 2: …]`)。不剥的话这行会走 W695 的 `#{1,6}\s` 分支,
+    // 虽然同样当 tag(不会被唱), 但 tag 名里留着反斜杠 → `[\[Chorus 2: …]]`。纯粹是干净问题。
+    s = s.replace(/^#{1,6}\s+/, "");
+    // 剥一层整行强调(*…* / **…** / ***…*** / _…_ …), 只剥【首尾成对】的那一层
+    const emph = s.match(/^(\*{1,3}|_{1,3})([\s\S]*)\1$/);
+    if (emph) s = (emph[2] ?? "").trim();
+    s = s.replace(/\\([\[\]【】〔〕])/g, "$1");        // \[ → [ , \] → ]
+    // 底下不是方括号 → 这行跟方括号无关(或只是行内提到), 原样放回
+    return /^[\[【〔]/.test(s) ? lead + s : raw;
+  }).join("\n");
+}
+
+// 歌词进入任何「这行是标记还是歌词」的判断之前, 统一走这一道:
+// 先解转义(W2303), 再折叠跨行块(W2302)。顺序不能反 —— 折叠靠 `^\s*[\[【〔]` 找块的开头,
+// 转义没解掉的话, 一个跨行的 `\[Scene Description:` 它根本认不出来。
+// 两步都幂等, 重复调用无副作用。
+function normalizeLyricMarkupForParsing(text: string): string {
+  return foldMultilineBracketBlocks(unescapeBracketMarkup(text));
+}
+
 function parseLyricsToSections(text: string): LyricsSection[] {
   const sections: LyricsSection[] = [];
   let tag = "";
   let lines: string[] = [];
   // W2302: 先折叠跨行方括号块 —— 不折叠的话它的第二行起会被当成歌词。
-  for (const raw of foldMultilineBracketBlocks(text).split("\n")) {
+  for (const raw of normalizeLyricMarkupForParsing(text).split("\n")) {
     // 段落标记: ASCII [..] 或全角 【..】/〔..〕(含 LLM 常见的不配对收尾如 【..」/【..』)。
     // 开括号仅限段落型 [ 【 〔 — 不含 「『( 等 prose/引用括号, 避免误把真歌词行当标记。
     const m = raw.match(/^\s*[\[【〔]([^\]】〕」』\n]*)[\]】〕」』]?/);
@@ -2613,7 +2658,7 @@ async function renderLanguageTrack(opts: {
       //     折叠后 units 少了而时间线还按含说明的文本算 → units[i] ↔ wt[i] 配对**错位**
       //     (正是 W2017 注释里那个「多出来的单元走兜底 +300ms 往后排」的坑)。
       // 所以 refText 和字幕行必须来自【同一份】折叠后的文本。折叠是幂等的。
-      reLyrics = foldMultilineBracketBlocks(reLyrics);
+      reLyrics = normalizeLyricMarkupForParsing(reLyrics);
       // CSSOS_WAVE_587 — strip 段落标记(【主歌一 Verse 1】/[Chorus]…)再发给引擎。
       // 否则 Suno 会把结构标记当歌词唱出来(男声轨实测出现 "ither/Har" 英文碎片 + 词被篡改)。
       const cleanLyrics = String(reLyrics || "")
@@ -42325,7 +42370,7 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
       // 所以它既躲过了这个 filter, 又会成为 alignWordsViaWhisper 的 refText 和
       // forceEven 路径 _body 的一部分 —— 舞台说明于是被当歌词算时间(实测 253 秒)。
       // 折叠后整块成了一行 `[…]`, 两条路径的 `/^\s*[\[【〔]/` 过滤才真正剔得掉它。
-      reLyrics = foldMultilineBracketBlocks(reLyrics);
+      reLyrics = normalizeLyricMarkupForParsing(reLyrics);
       // CSSOS_WAVE_735 20260613 — Jing「熟歌词优先」: 无书面歌词 → 在(人声 stem 优先)音频上跑
       // 【自由 ASR】(alignWordsViaWhisper 不给 refText = whisper 自由转写), 把【实际唱出来的词】当
       // 歌词(熟歌词), 按时间缝分行拼成文本 + 直接复用其词级时间线(省一次对齐), 并回填 lyrics_preview。

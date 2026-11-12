@@ -28,6 +28,10 @@ const js = src.slice(from, to)
   .replace("const stripTokenMarkup = (s: string) =>", "const stripTokenMarkup = (s) =>")
   .replace("function isJunkSubtitleToken(s: string): boolean {", "function isJunkSubtitleToken(s) {")
   .replace("function parseLyricsToSections(text: string): LyricsSection[] {", "function parseLyricsToSections(text) {")
+  .replace("function foldMultilineBracketBlocks(text: string): string {", "function foldMultilineBracketBlocks(text) {")
+  .replace("function unescapeBracketMarkup(text: string): string {", "function unescapeBracketMarkup(text) {")
+  .replace("function normalizeLyricMarkupForParsing(text: string): string {", "function normalizeLyricMarkupForParsing(text) {")
+  .replace("const out: string[] = [];", "const out = [];")
   .replace("const sections: LyricsSection[] = [];", "const sections = [];")
   .replace("let lines: string[] = [];", "let lines = [];");
 

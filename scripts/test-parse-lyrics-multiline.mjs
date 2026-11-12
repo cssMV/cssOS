@@ -35,16 +35,18 @@ let js = src.slice(from, to)
   .replace("function isJunkSubtitleToken(s: string): boolean {", "function isJunkSubtitleToken(s) {")
   .replace("function parseLyricsToSections(text: string): LyricsSection[] {", "function parseLyricsToSections(text) {")
   .replace("function foldMultilineBracketBlocks(text: string): string {", "function foldMultilineBracketBlocks(text) {")
+  .replace("function unescapeBracketMarkup(text: string): string {", "function unescapeBracketMarkup(text) {")
+  .replace("function normalizeLyricMarkupForParsing(text: string): string {", "function normalizeLyricMarkupForParsing(text) {")
   .replace("const sections: LyricsSection[] = [];", "const sections = [];")
   .replace("let lines: string[] = [];", "let lines = [];")
   .replace("const out: string[] = [];", "const out = [];");
 
 if (CAL) {
   // 旁路折叠 = 回到修复前的行为。基线固定在【代码语义】上, 不在 git 位置上。
-  const CALL = 'for (const raw of foldMultilineBracketBlocks(text).split("\\n")) {';
+  const CALL = 'for (const raw of normalizeLyricMarkupForParsing(text).split("\\n")) {';
   const BARE = 'for (const raw of text.split("\\n")) {';
   if (!js.includes(CALL)) {
-    console.error("校准模式找不到折叠那一行调用 —— 真源结构变了, 先去看它, 不要猜。");
+    console.error("校准模式找不到 normalize 那一行调用 —— 真源结构变了, 先去看它, 不要猜。");
     process.exit(2);
   }
   js = js.replace(CALL, BARE);
@@ -52,7 +54,8 @@ if (CAL) {
 
 const mod = await import("data:text/javascript," + encodeURIComponent(
   js + "\nexport { parseLyricsToSections };\n"
-     + "export const __fold = typeof foldMultilineBracketBlocks === 'function' ? foldMultilineBracketBlocks : null;\n"));
+     + "export const __fold = typeof foldMultilineBracketBlocks === 'function' ? foldMultilineBracketBlocks : null;\n"
+     + "export const __unesc = typeof unescapeBracketMarkup === 'function' ? unescapeBracketMarkup : null;\n"));
 const parse = mod.parseLyricsToSections;
 // 校准模式用 identity 代替折叠, 而不是 null —— 这样用例条数两种模式一致(都是 11 条),
 // 第 8 组在校准模式下自然失败(没折叠就会漏), 「对照」和「幂等」两条仍跑得到。
@@ -61,6 +64,7 @@ const parse = mod.parseLyricsToSections;
 //   那两行 `reLyrics = foldMultilineBracketBlocks(reLyrics)` 的接线 —— 它们埋在
 //   两个大 handler 里, 抽不出来单测。那两行只有线上实跑能验(见 W2302 的提交说明)。
 const fold = CAL ? ((t) => t) : mod.__fold;
+const unesc = CAL ? ((t) => t) : mod.__unesc;
 
 const bodyOf = (secs) => secs.flatMap((s) => s.lines);
 const flat = (secs) => bodyOf(secs).join("\n");
@@ -205,6 +209,56 @@ Hybrid of traditional Heike biwa narrative chanting. Tempo: 56 BPM, solemn.]
   if (fold) {
     check("折叠是幂等的", fold(fold(GION)) === fold(GION), "折叠两次结果不同");
   }
+}
+
+// ── 第 9 组 · W2303 转义方括号 ──────────────────────────────────────────────
+// 取自真歌词《Whispers of the Dragon Reborn》(a45dfee6)。这一组的要害不是
+// 「把说明认出来」, 而是【不要误伤同一首歌里那行单星号包着的真歌词】。
+const DRAGON = [
+  "### \\[Style of Music]",
+  "",
+  "### \\[Verse 1: Echoes on the Wind]",
+  "",
+  "*\\[Instrumentation: Whispering flute, dulcimer tremolos, low synth pads]*",
+  "**\\[Spoken whispers in the Old Tongue:]**",
+  "*\u201CAl\u2019Thor\u2026 he walks again\u2026*",
+  "*The Dragon breathes\u2026 in silence still.\u201D*",
+  "",
+  "**\\[English:]**",
+  "In the breeze that touches no leaf,",
+  "In the hush that follows thunder,",
+  "",
+  "\\[Video Prompt: Aerial shot of Two Rivers under twilight fog; a heron-marked sword rests on the wall.]",
+].join("\n");
+{
+  const body = flat(parse(DRAGON));
+  // ① 两类【现在会漏】的转义方括号, 修完必须都不在歌词里
+  check("W2303 单星号包的转义方括号(配器)不进歌词", !body.includes("Instrumentation"),
+    `泄漏: ${body.split("\n").filter((l) => l.includes("Instrumentation")).join(" | ")}`);
+  check("W2303 裸转义方括号(分镜 Prompt)不进歌词", !body.includes("Video Prompt"),
+    `泄漏: ${body.split("\n").filter((l) => l.includes("Video Prompt")).join(" | ")}`);
+  // ② 最要紧的一条: 单星号包的【真歌词】必须原样还在
+  check("W2303 单星号包的真歌词仍是歌词(不被误伤)",
+    body.includes("Al\u2019Thor") && body.includes("The Dragon breathes"),
+    "把 *\u201CAl\u2019Thor\u2026* 这行误判成标记了 —— 这正是修法不能按星号判的原因");
+  check("W2303 普通歌词行不受影响",
+    body.includes("In the breeze that touches no leaf,") && body.includes("In the hush that follows thunder,"),
+    "正常歌词行丢了");
+  // ③ 对齐侧(refText / _body)同样要干净 —— 只修 parse 不够, W2302 已经栽过一次
+  if (unesc && fold) {
+    // 复刻对齐侧那两条过滤(src/index.ts 的 refText / forceEven `_body`): 丢掉以方括号开头的行
+    const dropBr = (t) => t.split("\n").filter((l) => !/^\s*[\[【〔]/.test(l)).join(" ").trim();
+    const ref = dropBr(fold(unesc(DRAGON)));
+    const leak = ["Instrumentation", "Video Prompt"].filter((k) => ref.includes(k));
+    check("W2303 对齐侧 refText 也不含转义说明", leak.length === 0, `泄漏: ${leak.join(" | ")}`);
+    check("W2303 解转义是幂等的", unesc(unesc(DRAGON)) === unesc(DRAGON), "解两次结果不同");
+  }
+  // ④ 已知仍会漏的第三类 —— 写成【显式期望】, 将来修好了这条会失败, 提醒更新文档
+  const PROSE = ["### \\[Style of Music]", "",
+    "**A dark, mysterious blend of Celtic folk.** Inspired by *Dead Can Dance*."].join("\n");
+  check("(已知未修)部分加粗的散文说明仍会进歌词 —— 第三类, 不是转义括号",
+    flat(parse(PROSE)).includes("Inspired by"),
+    "它不漏了? 说明第三类也被捎带修了 —— 去更新 CLAUDE.md / 记忆, 别让文档停在旧结论");
 }
 
 console.log("");

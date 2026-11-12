@@ -1325,11 +1325,64 @@ function isJunkSubtitleToken(s: string): boolean {
   return false;
 }
 
+// CSSOS_W2302 — 跨【多行】的方括号块必须先折叠成一行, 否则第二行起全部变成歌词。
+//
+// 症状(实测《祇園精舎の鐘の声》): 歌词里写
+//     [Scene Description:
+//     The stage opens in dim gold and shadow. …
+//     Lighting moves between warm temple gold and the cold steel gleam of war.]
+// 下面的主循环逐行判, 开括号那一条的收尾 `[\]】〕」』]?` 带 `?` = 可有可无,
+// 于是 `[Scene Description:` 照样被收成 tag; 紧接着的行不以 `[` 开头 →
+// 落进 `lines.push(raw)` = 成了歌词。那段舞台说明被对齐引擎唱了 **253 秒**。
+// 同一首歌还赔上了曲风描述、配器清单、灯光说明。
+//
+// 歌词格式本身是对的 —— 京典模版要求「所有非歌词进方括号」, 作者照办了,
+// 只是说明/曲风/配器天然要跨多行。**错在解析器, 不在歌词。**
+//
+// 为什么折叠, 而不是在主循环里加「我在块里」的状态: 主循环已有 5 个分支
+// (方括号 / markdown 段落头 / 纯 markup / markdown 标题 / 歌词), 加状态意味着
+// 这 5 个分支每一个都要先问一句「现在在块里吗」—— 5 处都要改, 漏一处就复发。
+// 折叠之后主循环**一个字不用改**: 它看到的就是一个普通的单行 [标记],
+// 而单行标记的内容本来就不入歌词。
+//
+// 判据是**形状**(以 [ 开头、同一行里没有闭合), 不是关键词 ——
+// `Prompt:` / `Lead:` / `Style of Music` 这类词永远列不全(W2301 的教训)。
+//
+// 两条保守回退, 免得一个漏写的 `]` 把整首歌吞掉:
+//   · 块超过 MAX 行还没闭合 → 不折叠, 保持原行为
+//   · 中途遇到下一个开括号行 → 说明上一个块没闭合, 不折叠
+const MULTILINE_BRACKET_MAX_LINES = 20;
+function foldMultilineBracketBlocks(text: string): string {
+  const src = text.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < src.length; ) {
+    const raw = src[i] ?? "";
+    const opensBlock = /^\s*[\[【〔]/.test(raw) && !/[\]】〕」』]/.test(raw);
+    if (opensBlock) {
+      let close = -1;
+      for (let j = i + 1; j < src.length && j - i <= MULTILINE_BRACKET_MAX_LINES; j++) {
+        const nxt = src[j] ?? "";
+        if (/^\s*[\[【〔]/.test(nxt)) break; // 上一个块没闭合, 下一个标记已经来了
+        if (/[\]】〕」』]/.test(nxt)) { close = j; break; }
+      }
+      if (close > i) {
+        out.push(src.slice(i, close + 1).map((l) => l.trim()).join(" "));
+        i = close + 1;
+        continue;
+      }
+    }
+    out.push(raw);
+    i++;
+  }
+  return out.join("\n");
+}
+
 function parseLyricsToSections(text: string): LyricsSection[] {
   const sections: LyricsSection[] = [];
   let tag = "";
   let lines: string[] = [];
-  for (const raw of text.split("\n")) {
+  // W2302: 先折叠跨行方括号块 —— 不折叠的话它的第二行起会被当成歌词。
+  for (const raw of foldMultilineBracketBlocks(text).split("\n")) {
     // 段落标记: ASCII [..] 或全角 【..】/〔..〕(含 LLM 常见的不配对收尾如 【..」/【..』)。
     // 开括号仅限段落型 [ 【 〔 — 不含 「『( 等 prose/引用括号, 避免误把真歌词行当标记。
     const m = raw.match(/^\s*[\[【〔]([^\]】〕」』\n]*)[\]】〕」』]?/);

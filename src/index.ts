@@ -2607,6 +2607,13 @@ async function renderLanguageTrack(opts: {
         reLyrics = await transcreateLyrics(opts.baseLyrics, opts.fromLangHint, lang);
         await setProgress("music", 25);
       }
+      // W2302 — 跨行方括号块先折叠成一行。只改 parseLyricsToSections【不够】:
+      //   · buildSubtitleSections 经它, 字幕行是好的 ✅
+      //   · 但 alignWordsViaWhisper 的 refText 吃的是 reLyrics【全文】(含说明),
+      //     折叠后 units 少了而时间线还按含说明的文本算 → units[i] ↔ wt[i] 配对**错位**
+      //     (正是 W2017 注释里那个「多出来的单元走兜底 +300ms 往后排」的坑)。
+      // 所以 refText 和字幕行必须来自【同一份】折叠后的文本。折叠是幂等的。
+      reLyrics = foldMultilineBracketBlocks(reLyrics);
       // CSSOS_WAVE_587 — strip 段落标记(【主歌一 Verse 1】/[Chorus]…)再发给引擎。
       // 否则 Suno 会把结构标记当歌词唱出来(男声轨实测出现 "ither/Har" 英文碎片 + 词被篡改)。
       const cleanLyrics = String(reLyrics || "")
@@ -42313,6 +42320,12 @@ app.post("/api/admin/resubtitle/:workId", async (req, res) => {
         if (!/[\p{L}\p{N}]/u.test(t)) return false;            // 无任何字母/数字(含 CJK)= 纯符号分隔 ⸻/---/=== → 丢
         return true;                                            // 注: 用 \p{L} 而非 \w, 否则会误删中文/日文歌词行
       }).join("\n");
+      // W2302 — 跨行方括号块折叠成一行。必须在这里(清洗之后、喂给对齐之前)再做一次:
+      // 上面那个 filter 只保留「整行就是 [tag]」的行, 跨行块的【第二行起不以 [ 开头】,
+      // 所以它既躲过了这个 filter, 又会成为 alignWordsViaWhisper 的 refText 和
+      // forceEven 路径 _body 的一部分 —— 舞台说明于是被当歌词算时间(实测 253 秒)。
+      // 折叠后整块成了一行 `[…]`, 两条路径的 `/^\s*[\[【〔]/` 过滤才真正剔得掉它。
+      reLyrics = foldMultilineBracketBlocks(reLyrics);
       // CSSOS_WAVE_735 20260613 — Jing「熟歌词优先」: 无书面歌词 → 在(人声 stem 优先)音频上跑
       // 【自由 ASR】(alignWordsViaWhisper 不给 refText = whisper 自由转写), 把【实际唱出来的词】当
       // 歌词(熟歌词), 按时间缝分行拼成文本 + 直接复用其词级时间线(省一次对齐), 并回填 lyrics_preview。

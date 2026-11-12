@@ -3,7 +3,7 @@
 # R2 没开版本管理 —— 同 key 写入就是永久删除。所以顺序不能颠倒(W2086 的 17 首就是这么丢的)。
 set -u
 WID="${1:?workId}"
-D=/tmp/w2299
+D=${D:-/tmp/w2299}
 set -a; . /etc/cssos.env; set +a
 CUR=$(readlink -f /srv/cssos/current)
 UA='Mozilla/5.0 (Macintosh) cssos-audit'

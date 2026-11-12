@@ -4,31 +4,24 @@
 // 从 src/index.ts 现场抽函数体跑(平台既有做法, 同 test-takes-duration.mjs)——
 // 不复制一份会过期的副本, 所以它永远跟着真源走。
 //
-// CALIBRATE=1 时改抽 `git show HEAD:src/index.ts`, 那一版【必须有用例失败】。
+// CALIBRATE=1 读【同一份真源】, 但把折叠那一步旁路掉 —— 核心用例【必须失败】。
 // 两头都验(W2298 第 7 条): 只验「修后通过」分不清「测试有效」和「测试恒通过」。
+//
+// ⚠ 为什么不用 `git show HEAD:src/index.ts` 当基线: 我第一版就是那样写的, 结果
+//    修复一提交, HEAD 自己就带上了折叠, 校准当场失效(它报「HEAD 也通过了」)。
+//    **基线不能跟着 git 走。** 旁路真源里那一行调用, 基线就永远是「修复前的行为」。
 //
 // 用法:  node scripts/test-parse-lyrics-multiline.mjs
 //        CALIBRATE=1 node scripts/test-parse-lyrics-multiline.mjs
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, "..");
 const CAL = process.env.CALIBRATE === "1";
 
-let src;
-if (CAL) {
-  try {
-    src = execFileSync("git", ["show", "HEAD:src/index.ts"], { cwd: repo, encoding: "utf8", maxBuffer: 64 << 20 });
-  } catch (e) {
-    console.error("校准模式取不到 HEAD:src/index.ts —— " + e.message);
-    process.exit(2);
-  }
-} else {
-  src = fs.readFileSync(path.join(repo, "src", "index.ts"), "utf8");
-}
+const src = fs.readFileSync(path.join(repo, "src", "index.ts"), "utf8");
 
 const from = src.indexOf("const SECTION_KEYWORD_RE");
 const to = src.indexOf("// ── LLM emotion annotation");
@@ -37,7 +30,7 @@ if (from < 0 || to < 0 || to <= from) {
   process.exit(2); // 2 = 判不了, 不是通过
 }
 
-const js = src.slice(from, to)
+let js = src.slice(from, to)
   .replace("const stripTokenMarkup = (s: string) =>", "const stripTokenMarkup = (s) =>")
   .replace("function isJunkSubtitleToken(s: string): boolean {", "function isJunkSubtitleToken(s) {")
   .replace("function parseLyricsToSections(text: string): LyricsSection[] {", "function parseLyricsToSections(text) {")
@@ -46,8 +39,28 @@ const js = src.slice(from, to)
   .replace("let lines: string[] = [];", "let lines = [];")
   .replace("const out: string[] = [];", "const out = [];");
 
-const mod = await import("data:text/javascript," + encodeURIComponent(js + "\nexport { parseLyricsToSections };\n"));
+if (CAL) {
+  // 旁路折叠 = 回到修复前的行为。基线固定在【代码语义】上, 不在 git 位置上。
+  const CALL = 'for (const raw of foldMultilineBracketBlocks(text).split("\\n")) {';
+  const BARE = 'for (const raw of text.split("\\n")) {';
+  if (!js.includes(CALL)) {
+    console.error("校准模式找不到折叠那一行调用 —— 真源结构变了, 先去看它, 不要猜。");
+    process.exit(2);
+  }
+  js = js.replace(CALL, BARE);
+}
+
+const mod = await import("data:text/javascript," + encodeURIComponent(
+  js + "\nexport { parseLyricsToSections };\n"
+     + "export const __fold = typeof foldMultilineBracketBlocks === 'function' ? foldMultilineBracketBlocks : null;\n"));
 const parse = mod.parseLyricsToSections;
+// 校准模式用 identity 代替折叠, 而不是 null —— 这样用例条数两种模式一致(都是 11 条),
+// 第 8 组在校准模式下自然失败(没折叠就会漏), 「对照」和「幂等」两条仍跑得到。
+//
+// ⚠ 诚实说明: 第 8 组校准到的是【折叠这一步】, 校准不到 resubtitle / 生成管线里
+//   那两行 `reLyrics = foldMultilineBracketBlocks(reLyrics)` 的接线 —— 它们埋在
+//   两个大 handler 里, 抽不出来单测。那两行只有线上实跑能验(见 W2302 的提交说明)。
+const fold = CAL ? ((t) => t) : mod.__fold;
 
 const bodyOf = (secs) => secs.flatMap((s) => s.lines);
 const flat = (secs) => bodyOf(secs).join("\n");
@@ -164,16 +177,46 @@ Hybrid of traditional Heike biwa narrative chanting. Tempo: 56 BPM, solemn.]
     `它不再被丢弃了 —— 如果这是故意修的, 请更新这条用例。得到 ${JSON.stringify(body)}`);
 }
 
+// ── 8. 对齐侧: 折叠之后, 「以 [ 开头的行」过滤才真剔得掉说明 ────────────────
+// 为什么这条单独存在: 只修 parseLyricsToSections【不够】。
+//   · buildSubtitleSections 经它 → 字幕行是好的
+//   · 但 alignWordsViaWhisper 的 refText 吃 reLyrics【全文】, forceEven 路径的
+//     _body 也是 `reLyrics.split("\n").filter(l => !/^\s*[\[【〔]/.test(l))` ——
+//     跨行块的第二行起【不以 [ 开头】, 两条路径都剔不掉它, 于是说明被当歌词算时间。
+// 下面这个过滤表达式就是 src/index.ts 里那两处用的判据(判据简单, 复制它可接受;
+// 被测的 fold 仍是从真源抽的)。
+{
+  const DROP_BRACKET_LINES = (t) =>
+    t.split("\n").filter((l) => !/^\s*[\[【〔]/.test(l)).join(" ").trim();
+  if (!fold) {
+    check("折叠后 refText/_body 不含说明(对齐侧)", false,
+      "抽不到 foldMultilineBracketBlocks —— 真源里没有它");
+  } else {
+    const body = DROP_BRACKET_LINES(fold(GION));
+    const leaked = ["The stage opens", "Lighting moves", "Hybrid of traditional",
+                    "Lead: Heike biwa", "Ambient: Faint wind"].filter((s) => body.includes(s));
+    check("折叠后 refText/_body 不含说明(对齐侧)", leaked.length === 0,
+      `泄漏 ${leaked.length} 处: ${leaked.join(" | ")}`);
+    // 同时: 不折叠的话必须是漏的 —— 证明这条用例测的就是折叠
+    const raw = DROP_BRACKET_LINES(GION);
+    check("(对照)不折叠时 refText 确实会漏进说明", raw.includes("The stage opens"),
+      "不折叠也不漏? 那这条用例测不到东西");
+  }
+  if (fold) {
+    check("折叠是幂等的", fold(fold(GION)) === fold(GION), "折叠两次结果不同");
+  }
+}
+
 console.log("");
-console.log(`${CAL ? "【校准模式 · 读 git HEAD】" : "【当前工作区】"} 通过 ${pass} · 失败 ${fail} · 共 ${pass + fail}`);
+console.log(`${CAL ? "【校准模式 · 旁路折叠】" : "【当前工作区】"} 通过 ${pass} · 失败 ${fail} · 共 ${pass + fail}`);
 
 if (CAL) {
   const core = results.find((r) => r.name.startsWith("跨行方括号块的说明不进歌词"));
   if (core && core.ok) {
-    console.log("❌ 校准没过: HEAD 那一版【也通过了】核心用例 —— 说明这个测试没在测本次改动。");
+    console.log("❌ 校准没过: 旁路折叠之后【核心用例也通过了】—— 这个测试没在测折叠。");
     process.exit(1);
   }
-  console.log("✅ 校准通过: HEAD 那一版在核心用例上失败, 本次改动确实是它修的。");
+  console.log("✅ 校准通过: 旁路折叠后核心用例失败, 说明它测的就是折叠这一步。");
   process.exit(0);
 }
 process.exit(fail === 0 ? 0 : 1);

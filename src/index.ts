@@ -8292,7 +8292,22 @@ async function alignViaMmsService(
  * (注释写着"音频分析比 whisper 准 → update"), injectMusicGaps 会补尾奏段。
  * 词级夹干净了, 不等于写进文件的那份也干净。这道终检让「文件里没有一个字结束在音频之后」
  * 成为一条可验的硬不变量, 而不是一句推断。
- * 空的行/段直接丢掉 —— 留一个没有字的行会在播放端渲染成一条空字幕。 */
+ * 空的行/段直接丢掉 —— 留一个没有字的行会在播放端渲染成一条空字幕。
+ *
+ * ⚠ CSSOS_WAVE_2306 20261112 订正 —— 这道终检原来【只裁 tk.t_end】。
+ *
+ * 行和段自己的 t_start/t_end 原样留着(`{...ln, tokens: toks}` 只换了 tokens),
+ * 于是它声称的那条硬不变量对【引擎唯一直接读行级时间的那种行】根本不成立:
+ * `[Music...]` 器乐段。app.emotion-subtitle-engine.js 的 _isMusicLine 分支读的是
+ * `line.t_end`(_me), 一个 token 都不看 —— 裁了 token 等于没裁。
+ *
+ * 实测(Jerusalem f4c5e610): injectMusicGaps 按 duration_secs=422 补了尾奏,
+ * 行级 t_end=421750; 这道终检把那一个 token 收到 259000(真音频 258.6s), 行级
+ * 原封不动。播放端于是从 234.5s 起显示那簇音符, 一直挂到 421.75s —— 歌早放完了,
+ * 音符赖着不走。vi ♪2 同形(302 → 301750, 真音频 219.8s)。两条都在线上。
+ *
+ * 裁法与 token 那一条【逐字同构】: 超过 limMs 就收到 limMs, 不另立规矩。
+ * 行/段的 t_start 同样要收 —— 一个 t_start 在音频之外的段会把整段推到曲终之后。 */
 function clampSectionsToAudioMs<T extends { lines: Array<{ tokens: Array<any> }> }>(
   sections: T[], durSec: number | null | undefined,
 ): { sections: T[]; dropped: number; clipped: number } {
@@ -8300,6 +8315,13 @@ function clampSectionsToAudioMs<T extends { lines: Array<{ tokens: Array<any> }>
   if (!(durSec && durSec > 0)) return { sections, dropped: 0, clipped: 0 };   // 判不了 → 不夹
   const limMs = durSec * 1000;
   let dropped = 0, clipped = 0;
+  /* W2306 — 把一个【毫秒时间字段】收回音频之内。只在它是有限数且真的超界时才动,
+   * 字段缺失/非数一律原样放回(宁可不夹, 不夹错 —— 与上面 durSec 量不到时同一条)。 */
+  const _clampMs = (v: any): { v: any; hit: boolean } => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= limMs) return { v, hit: false };
+    return { v: Math.round(limMs), hit: true };
+  };
   const out: T[] = [];
   for (const sec of sections) {
     const lines: any[] = [];
@@ -8312,12 +8334,22 @@ function clampSectionsToAudioMs<T extends { lines: Array<{ tokens: Array<any> }>
         if (en > limMs) { toks.push({ ...tk, t_end: Math.round(limMs) }); clipped++; continue; }
         toks.push(tk);
       }
-      if (toks.length) lines.push({ ...ln, tokens: toks });
+      if (!toks.length) continue;
+      /* W2306 — 行自己那两个字段也要收。这正是 [Music...] 尾奏漏掉的那一刀。 */
+      const _ls = _clampMs((ln as any).t_start);
+      const _le = _clampMs((ln as any).t_end);
+      if (_ls.hit || _le.hit) clipped++;
+      lines.push({ ...ln, t_start: _ls.v, t_end: _le.v, tokens: toks });
     }
-    if (lines.length) out.push({ ...sec, lines } as T);
+    if (!lines.length) continue;
+    /* W2306 — 段自己那两个字段同理。 */
+    const _ss = _clampMs((sec as any).t_start);
+    const _se = _clampMs((sec as any).t_end);
+    if (_ss.hit || _se.hit) clipped++;
+    out.push({ ...sec, t_start: _ss.v, t_end: _se.v, lines } as T);
   }
   if (dropped || clipped) {
-    console.warn("[align-clamp] 落盘前终检: 丢 %d 字 / 收边 %d 字 (音频 %ss)", dropped, clipped, String(durSec));
+    console.warn("[align-clamp] 落盘前终检: 丢 %d 字 / 收边 %d 处 (音频 %ss)", dropped, clipped, String(durSec));
   }
   return { sections: out, dropped, clipped };
 }

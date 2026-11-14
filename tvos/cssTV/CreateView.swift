@@ -261,9 +261,28 @@ struct CreateView: View {
             await MainActor.run {
                 casting = false
                 if result.intent == "ifilm", let fid = result.ifilmId, !fid.isEmpty { dismiss(); onIFilm(fid); return }
-                status = result.ok
-                    ? tr("✨ Direction received! Your work is generating — it'll appear in For You when ready.")
-                    : tr("Couldn't start it just now. Please try again.")
+                if result.ok {
+                    status = tr("✨ Direction received! Your work is generating — it'll appear in For You when ready.")
+                    return
+                }
+                /* W2310 — 说出【为什么】, 不要只说「请重试」。
+                 * Jing 看到的「请重试」把一个可定位的故障(客户端 60s 超时)说成了
+                 * 「系统无法生成」。无信息的失败文案本身就是缺陷。 */
+                switch result.failure {
+                case .timedOut:
+                    status = tr("The magic mirror is taking longer than usual — it may still be working. Check For You in a few minutes.")
+                case .unauthorized:
+                    status = tr("Your session expired. Sign in again with the ✨ badge, top-left.")
+                /* 占位符必须是 {code} / {msg}, 不能字符串插值 —— 插出来的整句不是固定 key,
+                 * 翻译缓存永远对不上(I18n.swift:317 写明了这条)。 */
+                case .serverRefused(let code):
+                    status = tr("The server turned it down (code {code}). Nothing was charged.",
+                                ["code": String(code)])
+                case .transport(let msg):
+                    status = tr("Couldn't reach the server: {msg}", ["msg": msg])
+                case .none:
+                    status = tr("Couldn't start it just now. Please try again.")
+                }
             }
         }
     }

@@ -475,6 +475,25 @@ struct PlayerView: View {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
         playQueueItem(queueIndex)   // W1523 — hydrate 起始作品并起播; 播完自动接队列下一个(循环)
+        /* CSSOS_WAVE_2310 — 一进播放器就把焦点交给舞台层, 否则确认键要按好几次才出胶囊。
+         *
+         * Jing:「cssTV 端, 总是需要按好几次确认键, 才能调出"多语言/多字幕/多画面/多音轨"胶囊,
+         *        能不能改进一下, 按确认键一次就可以调出?」
+         *
+         * 根因【不在去抖、也不在幂等】—— W2246 已经把 revealPills() 做成幂等的了, 那一轮
+         * 修的是"开了又关"。这次剩下的是另一半: `stageFocused` 从头到尾【只在 hidePills()
+         * 里被写过 true】, 进播放器时没有任何人给那层透明层焦点。
+         * 而 tvOS 的 .onTapGesture / .onLongPressGesture 是【焦点驱动】的 —— 视图没拿到焦点,
+         * 确认键根本不会走到闭包里。于是头几次按键被焦点引擎用来"把焦点挪过来",
+         * 挪到了才开始生效。表现就是"要按好几次", 且时快时慢(取决于焦点当时落在哪)。
+         *
+         * 这也解释了为什么【第二次之后就正常】: hidePills() 那句 stageFocused = true
+         * 把焦点还回来了, 所以只有"刚进播放器的第一次"难按 —— 和 Jing 说的"总是"吻合
+         * (每开一部作品就是一次全新的第一次)。
+         *
+         * 晚一拍再给: 这一帧透明层还没进渲染树, 此刻写 @FocusState 等于写给一个不存在的
+         * 视图, 静默失效 —— 与 revealPills() 里那条注释同一个坑。 */
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { stageFocused = true }
     }
 
     // CSSOS_WAVE_1523 — 播放队列中第 qi 个作品(下标自动绕回, 实现"循环整栏")。
@@ -1087,8 +1106,9 @@ struct EmotionSubtitleOverlay: View {
     // W1251/W1335 — 中央逐字爆: 字爆出→停留到行尾→整行一起淡出; 背景emoji/烟花是爆瞬间的一次性效果。
     private func burstGroup(_ tok: CSSSubToken, t: Double, size: CGSize) -> some View {
         let p: Double = (t - tok.startSec) / burstDur            // 字心烟花相位(一次性)
-        let cp: Double = min(1.0, (t - tok.startSec) / 1.1)      // 弹入相位(1.1s 收)
-        let burstOp: Double = cp < 0.15 ? cp / 0.15 : max(0, 1 - (cp - 0.15) / 0.85)  // 背景emoji瞬时
+        // W2310 — 原来这里还有 cp / burstOp 两个量, 专门给【背景 emoji 的瞬时淡出】用。
+        // 背景 emoji 现在跟字同寿(走 charOp), 这两个量没有别的用处, 一并删掉, 免得留个
+        // 看起来还在管事、其实没人读的相位(下一个人会以为背景 emoji 仍是瞬时的)。
         // W1335 — 字本身: 弹入(0.4s)→停留到行尾→整行淡出。
         let lineEnd = lineEndFor(tok)
         let charOp: Double
@@ -1110,12 +1130,31 @@ struct EmotionSubtitleOverlay: View {
         let col: Color = randomColor(abs(tok.id.hashValue))   // W1321 — 逐字随机色(照桌面端, 不再行级情绪色)
         let emoji: String = pickEmoji(tok)
         return ZStack {
-            // W1336 — 背景大emoji + 烟花【只在爆瞬间(p<1)渲染】, 爆完即移出视图树(不留 0 透明度占内存)。
-            if p < 1.0 {
+            /* CSSOS_WAVE_2310 — 背景大 emoji 与爆大字是【同一个单位】: 一起生、一起停留到行尾、
+             * 一起淡出。照桌面端来(Jing:「请参照桌面端的情绪字幕」)。
+             *
+             * 桌面端的结构是硬证据, 不是我的解读: cssosEmotionCenterBurst 把 emoji 背景与大字
+             * 前景放进【同一个 grp】做兄弟节点, 注释写明「组合容器: emoji 背景 + 大字前景,
+             * 共用同一缩放/淡出节奏」(app.emotion-fx.js:227), 而每字背景那一段更是直说
+             * 「比字大、半透明、【随字驻留(不消失)】, 衬在字后」(同文件 :469)。
+             * grp 整体被压进 _lineStage.els, 整句淡出时才一起移除。
+             *
+             * 原来这里 emoji 挂的是 burst 相位 p<1(= burstDur 2.4s), 而字挂的是 charOp
+             * (停留到 lineEnd 再整行淡出, W1335)。两条寿命不同 → 2.4s 后屏幕上只剩字、
+             * 背景没了, 正是 Jing 看到的「缺少字幕爆出来时的背景 emoji」。
+             *
+             * W1336 当初把它做成瞬时是为了【省内存】(爆完即移出视图树)。那个顾虑仍然成立,
+             * 所以这里不是改成常驻, 而是改成【跟字同寿】: charOp 归零时它同样从视图树消失,
+             * 多出来的存活视图上限 = 当前行的字数(activeBurstTokens 本来就只收这一行), 不会累积。 */
+            if charOp > 0.01 {
                 Text(emoji)
                     .font(.system(size: bgSize))
-                    .opacity(burstOp * 0.30)
+                    .opacity(charOp * 0.30)
                     .scaleEffect(scale)
+            }
+            // 字心烟花【仍是一次性的】: 桌面端 _fireworkAt 同样是爆入→扩散→淡出, 不驻留。
+            // 爆完即移出视图树(W1336 的省内存考虑, 这一半不动)。
+            if p < 1.0 {
                 firework(p: p, seed: abs(tok.id.hashValue), maxDist: 220)   // 18 粒子, 爆完即清
             }
             // 爆大字: 停留到行尾, 整行一起淡出(停留阶段视图树里只剩这一个字)。

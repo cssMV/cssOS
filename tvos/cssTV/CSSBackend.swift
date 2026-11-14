@@ -195,6 +195,11 @@ enum CSSBackend {
     static func directorDraft(title: String, civ: String) async -> DirectorDraft? {
         guard let url = URL(string: "\(baseURL)/api/director/synopsis") else { return nil }
         var req = URLRequest(url: url); req.httpMethod = "POST"
+        /* CSSOS_WAVE_2310 — 必须显式给够时间。URLSession 默认只有 60s, 而这一趟后端要过一趟 LLM:
+         * 线上实测 llm-router 的第一棒(KIE 上的 claude)【每次都挂死 45s 才回落到 gpt】,
+         * 剩给真正生成的时间不到 15s → 客户端先超时 → catch → 返回 nil → 屏幕上只剩
+         * 「请重试」, 而服务端其实还在正常干活。ifilmNext 早就是 300s, 这几个却漏了。 */
+        req.timeoutInterval = 180
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["title": title, "civilization": civ])
         do {
@@ -214,6 +219,7 @@ enum CSSBackend {
     static func castRecommend(format: String, civ: String, needed: [[String: String]] = []) async -> [CastSlot] {
         guard let url = URL(string: "\(baseURL)/api/cast/recommend") else { return [] }
         var req = URLRequest(url: url); req.httpMethod = "POST"
+        req.timeoutInterval = 120   // W2310 — 同上: 荐角也过 LLM, 60s 默认不够
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // W1578 — 照搬桌面端: 明确告知每个待荐槽的 role+alignment(反派=evil, 配角=neutral), 否则后端返回通用池、反派荐成庄子。
         var body: [String: Any] = ["format": format, "civilization": civ]
@@ -509,11 +515,26 @@ enum CSSBackend {
 
     // W1259 — 创作台: 把提示词发给后端 AI 助理(开始创作)。返回是否成功送达。
     /// W1548 — 创作意念 → agent。返回 { ok, intent }。intent=="ifilm" → 打开互动电影播放屏(Slice 3)。
-    struct CastResult { let ok: Bool; let intent: String?; let ifilmId: String?; let reply: String? }
+    /* CSSOS_WAVE_2310 — 失败时必须带【为什么】。
+     *
+     * Jing:「每一个生成作品的地方都提示, 请重试。就是系统无法生成。」—— 屏幕上只有
+     * 「请重试」, 于是看起来像"系统坏了", 而真因在客户端 60s 默认超时上, 服务端其实还在干活。
+     * 「请重试」这种无信息的文案把一个可定位的故障变成了一个不可定位的故障, 这本身是缺陷。
+     * 所以 failure 分三类, 文案也分三类: 超时 / 没登录 / 服务端拒绝。 */
+    enum CastFailure { case none, timedOut, unauthorized, serverRefused(Int), transport(String) }
+    struct CastResult {
+        let ok: Bool; let intent: String?; let ifilmId: String?; let reply: String?
+        var failure: CastFailure = .none
+    }
     static func castMV(prompt: String, cast: [[String: String]] = []) async -> CastResult {
-        guard let url = URL(string: "\(baseURL)/api/agent/chat") else { return CastResult(ok: false, intent: nil, ifilmId: nil, reply: nil) }
+        guard let url = URL(string: "\(baseURL)/api/agent/chat") else {
+            return CastResult(ok: false, intent: nil, ifilmId: nil, reply: nil, failure: .transport("bad url"))
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
+        /* W2310 — 300s, 与 ifilmNext 一致。这一趟是【起一部作品】: 后端要过 LLM 定戏路/写梗概/
+         * 排角色再落库。60s 默认根本不够 —— 线上 llm-router 的第一棒每次先挂死 45s。 */
+        req.timeoutInterval = 300
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // W1578 — 从数字演员选角进来时带上 cast → 后端 create_work 封面锁脸(演员本人形象)。空则不影响。
         var payload: [String: Any] = ["message": prompt, "source": "csstv"]
@@ -521,14 +542,21 @@ enum CSSBackend {
         req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
-            let ok = (resp as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let ok = (200...299).contains(code)
             let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if !ok { print("[CSSBackend] castMV HTTP \(code):", String(data: data.prefix(300), encoding: .utf8) ?? "") }
             return CastResult(ok: ok,
                               intent: j?["intent"] as? String,
                               ifilmId: j?["ifilm_id"] as? String,
-                              reply: j?["reply"] as? String)
-        } catch { print("[CSSBackend] castMV failed:", error) }
-        return CastResult(ok: false, intent: nil, ifilmId: nil, reply: nil)
+                              reply: j?["reply"] as? String,
+                              failure: ok ? .none : (code == 401 || code == 403 ? .unauthorized : .serverRefused(code)))
+        } catch {
+            print("[CSSBackend] castMV failed:", error)
+            let timedOut = (error as NSError).code == NSURLErrorTimedOut
+            return CastResult(ok: false, intent: nil, ifilmId: nil, reply: nil,
+                              failure: timedOut ? .timedOut : .transport((error as NSError).localizedDescription))
+        }
     }
 
     // MARK: - W1549 Slice 3 — 互动多线程电影(ifilm)客户端

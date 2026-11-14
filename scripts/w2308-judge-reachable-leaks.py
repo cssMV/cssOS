@@ -147,3 +147,11 @@ print("\n汇总: 清单 %d 作品 · 可达泄漏涉及 %d 个作品 · 惰性 %
       % (len(NEED), len(wl_live), len(inert), len(unknown)))
 print("可达泄漏的作品: %s" % ", ".join(w[:8] for w in wl_live))
 print("VERDICT: W2308-reachable 结束(可达泄漏作品 %d / 判不了 %d)" % (len(wl_live), len(unknown)))
+
+# 可选: 把判出来的【可达泄漏】原样落一份 JSON, 给下一步(重做字幕)当输入。
+# 只是把上面已经打印的 live/inert/unknown 原样写出, 不参与任何判定。
+_dump = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("W2308_JSON", "")
+if _dump:
+    json.dump({"live": live, "inert": inert, "unknown": unknown}, open(_dump, "w", encoding="utf-8"),
+              ensure_ascii=False, indent=1)
+    print("已写 %s" % _dump)

@@ -10078,6 +10078,9 @@ const KIE_CLAUDE_MODEL = (process.env.KIE_CLAUDE_MODEL || "claude-opus-5-5").tri
 const KIE_CLAUDE_UTILITY_MODEL = (process.env.KIE_CLAUDE_UTILITY_MODEL || "claude-sonnet-5").trim();
 const AGENT_MODEL = (process.env.AGENT_MODEL || KIE_CLAUDE_MODEL).trim();
 const AGENT_FALLBACK_MODEL = (process.env.AGENT_FALLBACK_MODEL || "claude-haiku-4-5").trim();
+/* W2313 — 工具调用的第二顺位(KIE 的 codex/responses 通道)。Claude 的 tools 修好之前,
+ * 实际干活的就是它。留成 env 可覆盖, 省得下次换型号还要改代码 + 发版。 */
+const AGENT_FALLBACK_TOOL_MODEL = (process.env.AGENT_FALLBACK_TOOL_MODEL || "gpt-5-6-sol").trim();
 const AGENT_MAX_TURNS = 8;
 const AGENT_TURNS_PER_USER_PER_HOUR = 60;
 
@@ -10113,6 +10116,131 @@ type KieToolTurn = {
   stop_reason: string;
   usage: { input_tokens: number; output_tokens: number };
 };
+
+/* CSSOS_WAVE_2313 20261114 — 回退链改成 Claude → GPT(codex) → Gemini。
+ *
+ * W2312 上线一小时后 Jing 又撞失败。查日志: 回退确实生效了(Claude 失败 → 转 Gemini,
+ * 第一轮还成功了), 但第二轮挂在 500。一开始我以为是自己适配器的 tool_result 格式有问题 ——
+ * 【不是】。把当时成功过的那个 payload 原样重打 3 次, 全 500; 连最小的「say OK」
+ * (完全不带 tools)也 500 —— **Gemini 整条通道在那一小时里挂了**, 余额 682 一分没少。
+ * 差一点就去"修"一个没坏的东西。教训: 重测那个【已知成功过的样本】比读自己的代码快得多。
+ *
+ * 当下三条通道的真实状态(实测):
+ *     Claude /claude/v1/messages    纯文本 ✅   带 tools ❌
+ *     Gemini /gemini-3.1-pro/...    纯文本 ❌   带 tools ❌   ← 整条挂
+ *     GPT    /codex/v1/responses    纯文本 ✅   带 tools ✅   ← 只剩它
+ *
+ * 所以把 GPT 提到第二顺位 —— 这同时【把引擎铁律的顺序扶回来了】(Claude→OpenAI→Google),
+ * W2312 那句"暂时弯了顺序"到此作废。Gemini 退为第三顺位, 它回来了还能接着用。
+ *
+ * 这一轮三种形状【都先验过才写代码】(W2312 正是漏了这步才返工):
+ *   ① user → function_call(create_work)                      ✅
+ *   ② 重放 function_call + function_call_output → 下一个工具   ✅
+ *   ③ 历史里的纯文本 assistant 消息                            ✅
+ *
+ * Responses API 与 Messages API 的三处不同, 写的时候最容易栽:
+ *   · tools 是【扁平】的 {type,name,description,parameters}, 不是嵌在 function 里;
+ *   · 系统提示走顶层 instructions, 不进 input;
+ *   · output[] 里混着 reasoning 项, 必须跳过, 否则会被当成一个空块塞进历史。
+ * 另: stream:false 可用(KIE 默认回 SSE), 所以不必啃 SSE。
+ */
+async function kieCodexToolTurn(opts: {
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  tools: any[];
+  messages: { role: string; content: any }[];
+  maxTokens: number;
+}): Promise<KieToolTurn> {
+  const { apiKey, model, systemPrompt, tools, messages } = opts;
+
+  // ── 进: Anthropic messages → Responses input[] ─────────────────────────────
+  const input: any[] = [];
+  for (const m of messages) {
+    const c = m.content;
+    if (typeof c === "string") {
+      input.push(m.role === "assistant"
+        ? { role: "assistant", content: [{ type: "output_text", text: c }] }
+        : { role: "user", content: [{ type: "input_text", text: c }] });
+      continue;
+    }
+    const blocks: any[] = Array.isArray(c) ? c : [];
+    if (m.role === "assistant") {
+      let text = "";
+      for (const b of blocks) if (b?.type === "text") text += b.text || "";
+      if (text) input.push({ role: "assistant", content: [{ type: "output_text", text }] });
+      /* function_call 是【顶层 item】, 不挂在某条 assistant 消息里面。
+       * call_id 必须原样回放 —— 它就是下面 function_call_output 的配对键。 */
+      for (const b of blocks) {
+        if (b?.type !== "tool_use") continue;
+        input.push({ type: "function_call", call_id: String(b.id || ""),
+          name: String(b.name || ""), arguments: JSON.stringify(b.input ?? {}) });
+      }
+      continue;
+    }
+    for (const b of blocks) {
+      if (b?.type !== "tool_result") continue;
+      input.push({ type: "function_call_output", call_id: String(b.tool_use_id || ""),
+        output: typeof b.content === "string" ? b.content : JSON.stringify(b.content ?? "") });
+    }
+    const parts: any[] = [];
+    for (const b of blocks) {
+      if (b?.type === "text" && b.text) parts.push({ type: "input_text", text: String(b.text) });
+      else if (b?.type === "image") {
+        const s = b.source || {};
+        const url = s.type === "url" ? String(s.url || "")
+          : (s.data ? `data:${String(s.media_type || "image/png")};base64,${String(s.data)}` : "");
+        if (url) parts.push({ type: "input_image", image_url: url });
+      }
+    }
+    if (parts.length) input.push({ role: "user", content: parts });
+  }
+
+  /* tools 是扁平的 —— 与 Gemini 那条(嵌在 function 里)不同, 照抄会 422。 */
+  const rTools = (tools || []).map((t: any) => ({
+    type: "function", name: t.name, description: t.description,
+    parameters: t.input_schema || { type: "object", properties: {} },
+  }));
+
+  const r = await fetch("https://api.kie.ai/codex/v1/responses", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+    /* instructions 必须显式给 —— 不给的话这条通道会用它自己的「You are Codex, a coding agent」
+     * 人格(见 memory「所有 API 只走 KIE」那条)。 */
+    body: JSON.stringify({ model, stream: false, instructions: systemPrompt, tools: rTools, input }),
+  });
+  const j: any = await r.json().catch(() => null);
+  const code = (j && typeof j.code === "number") ? j.code : (r.ok ? 200 : r.status);
+  if (!j || (typeof code === "number" && code >= 400) || !Array.isArray(j.output)) {
+    throw new Error(`${code || r.status} ${j?.msg || j?.error?.message || "kie_codex_tool_turn_failed"}`);
+  }
+
+  // ── 出: Responses output[] → Anthropic 形状 ────────────────────────────────
+  const content: any[] = [];
+  for (const o of j.output) {
+    if (o?.type === "message") {
+      const text = (Array.isArray(o.content) ? o.content : [])
+        .map((p: any) => String(p?.text || "")).join("");
+      if (text) content.push({ type: "text", text });
+    } else if (o?.type === "function_call") {
+      let parsed: any = {};
+      try { parsed = JSON.parse(o.arguments || "{}"); } catch { parsed = {}; }
+      /* id 用 call_id 而不是 o.id —— 循环会把它当 tool_use_id 回echo,
+       * 而 function_call_output 的配对键正是 call_id。用错了第二轮必然配不上。 */
+      content.push({ type: "tool_use", id: String(o.call_id || o.id || ""),
+        name: String(o.name || ""), input: parsed });
+    }
+    /* o.type === "reasoning" 等其它项: 跳过。 */
+  }
+  if (!content.length) content.push({ type: "text", text: "" });
+  const hasTools = content.some((b) => b.type === "tool_use");
+  return {
+    content,
+    stop_reason: hasTools ? "tool_use" : (j.status === "incomplete" ? "max_tokens" : "end_turn"),
+    usage: { input_tokens: Number(j.usage?.input_tokens || 0),
+             output_tokens: Number(j.usage?.output_tokens || 0) },
+  };
+}
 
 /** Anthropic 形状的一轮对话 → Gemini(OpenAI 兼容)→ 再转回 Anthropic 形状。 */
 async function kieGeminiToolTurn(opts: {
@@ -12179,14 +12307,31 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
           }
         }
         if (!resp) {
-          /* 这一行必须留着: 它是「Claude 的 tools 还没修好」的唯一现场证据。
-           * 哪天日志里不再出现它, 就说明 KIE 修好了、回退已经自动停用。 */
-          console.warn(`[agent][W2312] Claude 工具通道不可用${claudeErr ? `(${claudeErr})` : ""} → 本次改走 Gemini`);
-          try { console.warn(`[KIE-SPEND] agent-chat=gemini-3-pro(W2312 fallback) at=${new Date().toISOString()} user=${userId}`); } catch { /* no-op */ }
-          resp = await kieGeminiToolTurn({
-            apiKey, systemPrompt, tools: AGENT_TOOLS, maxTokens: 2048,
-            messages: messages.map((m) => ({ role: m.role, content: m.content })),
-          });
+          /* W2313 — 回退链 GPT(codex) → Gemini。顺序即引擎铁律 Claude→OpenAI→Google。
+           * 每一棒失败都要在日志里留一行: 否则"创作起不来"又会变成一个没有现场的故障,
+           * 像 W2312 之前那样连「哪一棒死了」都看不出来。 */
+          console.warn(`[agent][W2312] Claude 工具通道不可用${claudeErr ? `(${claudeErr})` : ""} → 转下一棒`);
+          const relay: { name: string; run: () => Promise<KieToolTurn> }[] = [
+            { name: AGENT_FALLBACK_TOOL_MODEL, run: () => kieCodexToolTurn({
+                apiKey, model: AGENT_FALLBACK_TOOL_MODEL, systemPrompt, tools: AGENT_TOOLS, maxTokens: 2048,
+                messages: messages.map((m) => ({ role: m.role, content: m.content })) }) },
+            { name: "gemini-3-pro", run: () => kieGeminiToolTurn({
+                apiKey, systemPrompt, tools: AGENT_TOOLS, maxTokens: 2048,
+                messages: messages.map((m) => ({ role: m.role, content: m.content })) }) },
+          ];
+          let lastErr = claudeErr;
+          for (const leg of relay) {
+            try {
+              console.warn(`[KIE-SPEND] agent-chat=${leg.name}(W2313 fallback) at=${new Date().toISOString()} user=${userId}`);
+              resp = await leg.run();
+              break;
+            } catch (eLeg) {
+              lastErr = (eLeg as Error)?.message || String(eLeg);
+              console.warn(`[agent][W2313] ${leg.name} 这一棒也失败: ${lastErr}`);
+              resp = null;
+            }
+          }
+          if (!resp) throw new Error(`all_tool_channels_down: ${lastErr}`);
         }
       } else {
         resp = await client.messages.create({

@@ -10049,7 +10049,31 @@ app.get("/api/account/fingerprint-optin", async (req, res) => {
  * 不需要改代码、不需要重新部署。硬编码值只是 env 缺失时的兜底。
  * 判别法(KIE 宕机时依然有效): 未上架的型号返回 "The page does not exist",
  * 已上架的返回 "Server exception" —— 见 LLM_PROVIDER_DEFAULTS.kie 注释。 */
-const KIE_CLAUDE_MODEL = (process.env.KIE_CLAUDE_MODEL || "claude-fable-5").trim();
+/* CSSOS_WAVE_2311 20261114 — 第一棒从 claude-fable-5 换成 claude-opus-5-5(Jing 明确选 A)。
+ *
+ * claude-fable-5 在 KIE 上【已经只挂不回】: 同一个端点、同一把 key, 实测
+ *   claude-fable-5    流打开了, 一个字节都不发, 挂到超时(60s 全空)
+ *   claude-fable-5-2  500 "The page does not exist"(没上架)
+ *   claude-opus-5-5   正常, 11~14s 出首个事件
+ *   claude-sonnet-5-5 正常(KIE_CLAUDE_UTILITY_MODEL 那个, 不用动)
+ *
+ * 它是最坏的那种故障: 【不报错, 只是不回】。路由分不清「慢」和「死」, 于是把 45s 重试
+ * 预算整个烧光才回落。生产日志连续 12 小时同一个形状, 一次完整 LLM 调用要 57s:
+ *     03:42:04 claude 起 → 03:42:49 aborted after 45002ms → 03:43:01 served by kie_gpt
+ * 后果有两层, 第二层更要紧:
+ *   ① 全平台每次 LLM 调用白等 45s(cssTV 的 60s 默认超时就是这么被撞死的, 见 W2310);
+ *   ② Claude 这一棒【实际上从来没有交付过】—— 全是 gpt-5-6-sol 在干活,
+ *      「三强最新版打前锋」这条引擎铁律事实上已经空转很久了。
+ *
+ * 为什么改这一个值就够(与 SUNO_DEFAULT_MODEL 那次不同, 这次是查过的):
+ * 全部路径都汇到这个常量 —— AGENT_MODEL 兜它、shortplay 的 llmPreferModel 传它、
+ * LLM_PROVIDER_DEFAULTS.kie 的 model 是它、CAPABLE_TEXT_MODELS 的 kie/anthropic 两项都是它。
+ * 没有第二处硬写的 Claude 型号。
+ *
+ * ⚠ 真正生效的是 /etc/cssos.env 里的 KIE_CLAUDE_MODEL(它本来就设着 claude-fable-5),
+ * 所以那边同时改了, 并且备份了原文件。只改这里不重启、或只改 env 不改这里, 都会留下
+ * 两处不一致的隐患 —— 下一个人按代码读会读错。 */
+const KIE_CLAUDE_MODEL = (process.env.KIE_CLAUDE_MODEL || "claude-opus-5-5").trim();
 /* 工具类调用(内容审核/歌词识别/JSON 抽取/图像分析)刻意走 sonnet 档控成本, 单独一个旋钮。 */
 const KIE_CLAUDE_UTILITY_MODEL = (process.env.KIE_CLAUDE_UTILITY_MODEL || "claude-sonnet-5").trim();
 const AGENT_MODEL = (process.env.AGENT_MODEL || KIE_CLAUDE_MODEL).trim();

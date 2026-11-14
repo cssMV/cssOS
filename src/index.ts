@@ -10081,6 +10081,140 @@ const AGENT_FALLBACK_MODEL = (process.env.AGENT_FALLBACK_MODEL || "claude-haiku-
 const AGENT_MAX_TURNS = 8;
 const AGENT_TURNS_PER_USER_PER_HOUR = 60;
 
+/* CSSOS_WAVE_2312 20261114 — AI 助理【工具调用】的 Gemini 回退。
+ *
+ * Jing:「cssTV 显示无法生成作品」。根因不在 cssTV, 也不在模型 ID ——
+ * **KIE 的 Claude 通道已经确定性地拒绝一切带 tools 的请求**:
+ *     opus-5-5   + tools  → {"type":"error","message":"Internal error…"}   实测 0/6
+ *     opus-5-5   无 tools → 正常                                           实测 6/6
+ *     sonnet-5-5 + tools  → 同样 Internal error
+ *     fable-5    + tools  → 502   ← 换型号之前那个也一样, 所以这不是 W2311 换出来的
+ * 流式与非流式结果相同。重试永远救不了(0/6 是确定性的, 不是偶发)。
+ *
+ * 而助理【全靠 tools 去调 create_work】, 所以网页端与 cssTV 的创作入口一起哑了。
+ *
+ * KIE 上三条通道的工具能力实测:
+ *     Claude  /claude/v1/messages              ❌ 500
+ *     GPT     /gpt-5-2/v1/chat/completions     ❌ 不报错但【无视工具】, 用文字说找不到那个工具
+ *     GPT     /codex/v1/responses              ✅ 能用, 但 SSE 流式 + Responses 格式
+ *     Gemini  /gemini-3.1-pro/v1/chat/completions ✅ 干净地回 tool_calls, OpenAI 格式
+ * 选 Gemini: 一个适配器就够, GPT 那条要额外啃 SSE + Responses, 大一圈也险一圈。
+ * **这暂时弯了「三强顺序 Claude→GPT→Gemini」那条引擎铁律** —— 是 KIE 断了 Claude 的手,
+ * 不是我们改了偏好。等 KIE 修好, 回退不再触发, 顺序自动回到 Claude, 不用改代码。
+ *
+ * 设计上只有一条原则: **agent 的循环一行都不动。**
+ * 适配器在进出口两头转格式, 对外仍然返回 Anthropic 形状的
+ * { content: [{type:"text"|"tool_use"}], stop_reason, usage } ——
+ * 循环里读 resp.content / resp.stop_reason / resp.usage 的那几处全都不用知道这件事。
+ * (若让循环去分辨"这轮是谁答的", 就等于把一个供应商故障扩散成全局的形状判断。)
+ */
+type KieToolTurn = {
+  content: any[];
+  stop_reason: string;
+  usage: { input_tokens: number; output_tokens: number };
+};
+
+/** Anthropic 形状的一轮对话 → Gemini(OpenAI 兼容)→ 再转回 Anthropic 形状。 */
+async function kieGeminiToolTurn(opts: {
+  apiKey: string;
+  systemPrompt: string;
+  tools: any[];
+  messages: { role: string; content: any }[];
+  maxTokens: number;
+}): Promise<KieToolTurn> {
+  const { apiKey, systemPrompt, tools, messages, maxTokens } = opts;
+
+  // ── 进: Anthropic messages → OpenAI messages ───────────────────────────────
+  const oa: any[] = [{ role: "system", content: systemPrompt }];
+  for (const m of messages) {
+    const c = m.content;
+    if (typeof c === "string") { oa.push({ role: m.role, content: c }); continue; }
+    const blocks: any[] = Array.isArray(c) ? c : [];
+    if (m.role === "assistant") {
+      let text = "";
+      const calls: any[] = [];
+      for (const b of blocks) {
+        if (b?.type === "text") text += b.text || "";
+        else if (b?.type === "tool_use") {
+          calls.push({ id: String(b.id || ""), type: "function",
+            function: { name: String(b.name || ""), arguments: JSON.stringify(b.input ?? {}) } });
+        }
+      }
+      const msg: any = { role: "assistant", content: text };
+      if (calls.length) msg.tool_calls = calls;
+      oa.push(msg);
+      continue;
+    }
+    /* user 这一侧可能同时装着三种块: tool_result / text / image。
+     * tool_result 必须紧跟在那条带 tool_calls 的 assistant 之后, 且各自成一条 role:"tool" ——
+     * 顺序靠按 messages 原序遍历保证, 不要重排。 */
+    for (const b of blocks) {
+      if (b?.type !== "tool_result") continue;
+      oa.push({ role: "tool", tool_call_id: String(b.tool_use_id || ""),
+        content: typeof b.content === "string" ? b.content : JSON.stringify(b.content ?? "") });
+    }
+    /* 图片必须转, 不能丢 —— 助理支持粘贴图片(W167), 丢了就是"回退之后图片静默消失"。
+     * Anthropic 的 {type:"image",source:{base64|url}} → OpenAI 的 {type:"image_url"}。 */
+    const parts: any[] = [];
+    for (const b of blocks) {
+      if (b?.type === "text" && b.text) parts.push({ type: "text", text: String(b.text) });
+      else if (b?.type === "image") {
+        const s = b.source || {};
+        const url = s.type === "url" ? String(s.url || "")
+          : (s.data ? `data:${String(s.media_type || "image/png")};base64,${String(s.data)}` : "");
+        if (url) parts.push({ type: "image_url", image_url: { url } });
+      }
+    }
+    if (parts.length) {
+      oa.push({ role: "user", content: parts.every((p) => p.type === "text")
+        ? parts.map((p) => p.text).join("\n") : parts });
+    }
+  }
+
+  // ── 工具: Anthropic {name,description,input_schema} → OpenAI function ──────
+  const oaTools = (tools || []).map((t: any) => ({
+    type: "function",
+    function: { name: t.name, description: t.description,
+      parameters: t.input_schema || { type: "object", properties: {} } },
+  }));
+
+  const r = await fetch("https://api.kie.ai/gemini-3.1-pro/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: "gemini-3-pro", max_tokens: maxTokens, messages: oa, tools: oaTools }),
+  });
+  const j: any = await r.json().catch(() => null);
+  /* KIE 一律回 HTTP 200, 真状态在体里的 code(见 memory「KIE 状态在体里的 code」)——
+   * 所以 r.ok 不能单独当判据。 */
+  const code = (j && typeof j.code === "number") ? j.code : (r.ok ? 200 : r.status);
+  if (!j || (typeof code === "number" && code >= 400) || !Array.isArray(j.choices)) {
+    throw new Error(`${code || r.status} ${j?.msg || j?.error?.message || "kie_gemini_tool_turn_failed"}`);
+  }
+
+  // ── 出: OpenAI → Anthropic 形状 ────────────────────────────────────────────
+  const msg = j.choices[0]?.message || {};
+  const content: any[] = [];
+  if (msg.content) content.push({ type: "text", text: String(msg.content) });
+  for (const tc of (Array.isArray(msg.tool_calls) ? msg.tool_calls : [])) {
+    let input: any = {};
+    try { input = JSON.parse(tc?.function?.arguments || "{}"); } catch { input = {}; }
+    content.push({ type: "tool_use",
+      id: String(tc?.id || `call_${Math.random().toString(36).slice(2, 14)}`),
+      name: String(tc?.function?.name || ""), input });
+  }
+  /* 空 content 不能原样抛给循环: 它会被 push 进 messages 当成一条空 assistant,
+   * 下一轮再转回去就是一条非法消息。给一个空文本块兜住。 */
+  if (!content.length) content.push({ type: "text", text: "" });
+  const hasTools = content.some((b) => b.type === "tool_use");
+  return {
+    content,
+    stop_reason: hasTools ? "tool_use"
+      : (j.choices[0]?.finish_reason === "length" ? "max_tokens" : "end_turn"),
+    usage: { input_tokens: Number(j.usage?.prompt_tokens || 0),
+             output_tokens: Number(j.usage?.completion_tokens || 0) },
+  };
+}
+
 type AgentMessage = {
   role: "user" | "assistant";
   content: any; // string OR Anthropic content blocks (text / tool_use / tool_result)
@@ -12000,6 +12134,7 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let stopReason = "";
+  let geminiTurn = false;   // W2312 — 本次请求内的粘滞位: Claude 工具通道失败过就不再重试
   const systemPrompt = buildAgentSystemPrompt(uiLocale);
 
   try {
@@ -12010,23 +12145,48 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
       // 仍带 tools(KIE 是 Anthropic Messages 忠实代理, 支持工具)。响应同 Anthropic 格式, 后续循环不变。
       let resp: any;
       if (_useKie) {
-        // CSSOS_WAVE_886 — 审计 AI 助理(KIE Claude, 付费)每一轮调用。
-        try { console.warn(`[KIE-SPEND] agent-chat=${agentModel} at=${new Date().toISOString()} user=${userId}`); } catch { /* no-op */ }
-        const kr = await fetch("https://api.kie.ai/claude/v1/messages", {
-          method: "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: agentModel,
-            max_tokens: 2048,
-            system: systemPrompt,
-            tools: AGENT_TOOLS,
+        /* CSSOS_WAVE_2312 — 先按原样试 Claude; 失败再转 Gemini(见 kieGeminiToolTurn 上方那段)。
+         * 顺序故意不颠倒: KIE 哪天把 Claude 的 tools 修好, 这里自动就回到 Claude,
+         * 不用改任何代码、也不用记得去改。
+         * geminiTurn 是【本次请求内】的粘滞位: Claude 一旦失败, 这一轮对话剩下的回合
+         * 不必每轮再撞一次(一次 ~1s, 最多 8 轮 = 白等 8 秒)。下一个请求仍会重新试 Claude。 */
+        let claudeErr = "";
+        if (!geminiTurn) {
+          // CSSOS_WAVE_886 — 审计 AI 助理(KIE Claude, 付费)每一轮调用。
+          try { console.warn(`[KIE-SPEND] agent-chat=${agentModel} at=${new Date().toISOString()} user=${userId}`); } catch { /* no-op */ }
+          try {
+            const kr = await fetch("https://api.kie.ai/claude/v1/messages", {
+              method: "POST",
+              headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+              body: JSON.stringify({
+                model: agentModel,
+                max_tokens: 2048,
+                system: systemPrompt,
+                tools: AGENT_TOOLS,
+                messages: messages.map((m) => ({ role: m.role, content: m.content })),
+              }),
+            });
+            const jr = await kr.json().catch(() => null);
+            const kc = (jr && typeof jr.code === "number") ? jr.code : (kr.ok ? 200 : kr.status);
+            if (!kr.ok || (typeof kc === "number" && kc >= 400) || !jr) {
+              throw new Error(`${kc || kr.status} ${jr?.msg || jr?.error?.message || "kie_agent_blocked"}`);
+            }
+            resp = jr;
+          } catch (eClaude) {
+            claudeErr = (eClaude as Error)?.message || String(eClaude);
+            resp = null;
+            geminiTurn = true;
+          }
+        }
+        if (!resp) {
+          /* 这一行必须留着: 它是「Claude 的 tools 还没修好」的唯一现场证据。
+           * 哪天日志里不再出现它, 就说明 KIE 修好了、回退已经自动停用。 */
+          console.warn(`[agent][W2312] Claude 工具通道不可用${claudeErr ? `(${claudeErr})` : ""} → 本次改走 Gemini`);
+          try { console.warn(`[KIE-SPEND] agent-chat=gemini-3-pro(W2312 fallback) at=${new Date().toISOString()} user=${userId}`); } catch { /* no-op */ }
+          resp = await kieGeminiToolTurn({
+            apiKey, systemPrompt, tools: AGENT_TOOLS, maxTokens: 2048,
             messages: messages.map((m) => ({ role: m.role, content: m.content })),
-          }),
-        });
-        resp = await kr.json().catch(() => null);
-        const kc = (resp && typeof resp.code === "number") ? resp.code : (kr.ok ? 200 : kr.status);
-        if (!kr.ok || (typeof kc === "number" && kc >= 400) || !resp) {
-          throw new Error(`${kc || kr.status} ${resp?.msg || resp?.error?.message || "kie_agent_blocked"}`);
+          });
         }
       } else {
         resp = await client.messages.create({

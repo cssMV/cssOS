@@ -10084,6 +10084,60 @@ const AGENT_FALLBACK_TOOL_MODEL = (process.env.AGENT_FALLBACK_TOOL_MODEL || "gpt
 const AGENT_MAX_TURNS = 8;
 const AGENT_TURNS_PER_USER_PER_HOUR = 60;
 
+/* CSSOS_WAVE_2318 20261115 — 【作品生下来就要能播】。
+ *
+ * Jing:「现在生成了 3 首《九尾问天》单曲, 但都无法播放, 请修复这三首,
+ *        并请从源头修复, 让下一次一旦生成完整的作品就播放。」
+ *
+ * 实测那三首: 有封面、有词, preview_audio_url / preview_video_url 全空, 一条语言轨也没有。
+ * 根因是分工: create_work 按设计【只出歌词+封面】, 音乐是后续一步 —— 网页端是作品卡上
+ * 那个「生成音乐」按钮, 而电视上没有那个按钮, 于是作品永远停在"有词有封面、听不了"。
+ *
+ * 为什么修在【服务端】而不是只修 cssTV(W2315 客户端那条照样留着, 两者不冲突):
+ *   · 客户端那条要等用户装新版 App; 服务端这条【当场生效】, 旧版 App 创作出来的作品也能播;
+ *   · "一个作品算不算生成完了"本来就该由服务端定义, 不该各端各自补一刀。
+ *
+ * 为什么是 cssosEpicRenderCore 而不是 /api/agent/work/:id/generate-audio:
+ * 那条旧按钮有两处与平台铁律冲突 —— ① 不落 R2(直接存 Suno 的临时地址, 24h 后失效,
+ * 正是「李清照教训」要禁的事)② 不传歌词、只给 60s, Suno 不唱写好的词 → 没有逐字
+ * 时间轴也就没有情绪字幕。EpicRenderCore 这条是全的: custom 模式唱原词 · 落 R2 ·
+ * ♪1/♪2 两首都收 · 实测时长 · 建语言轨 · 登记版本 · 回写 preview_audio_url。
+ *
+ * 传 style = 作品自己的风格: 不传的话它会强加 "epic, thunderous climax, massive choir",
+ * 把一首中国古风压成史诗合唱 —— 那是「重编曲」的本意, 不是「第一次出曲」该做的事。
+ *
+ * 后台跑, 不阻塞回复: 作曲是分钟级, 让 /api/agent/chat 干等等于必定超时。
+ * 作品 id 已经在 work_cards 里回给客户端了, 客户端(或 For You)照着它等音频出现即可。 */
+async function cssosEnsureWorkAudioInBackground(workCards: any[], userId: string): Promise<void> {
+  for (const card of (Array.isArray(workCards) ? workCards : [])) {
+    const workId = String(card?.work_id || "").trim();
+    if (!/^[0-9a-f-]{36}$/i.test(workId)) continue;
+    if (card?.audio_url) continue;                     // 已经有音频就别重做(也别重花钱)
+    const lang = String(card?.language || "").trim() || "zh";
+    const style = String(card?.style || "").trim();
+    void (async () => {
+      try {
+        console.warn(`[W2318] 作品 ${workId.slice(0, 8)} 没有音频 → 后台作曲(lang=${lang})`);
+        const r = await cssosEpicRenderCore(workId, { lang, ...(style ? { style } : {}) });
+        if (!r?.ok) { console.warn(`[W2318] ${workId.slice(0, 8)} 作曲失败:`, (r as any)?.code || "?"); return; }
+        console.warn(`[W2318] ${workId.slice(0, 8)} 作曲完成 → 情绪字幕对齐`);
+        /* 字幕紧跟其后: 没有它, 作品能响但没有情绪字幕 —— 那是平台的招牌之一(W2217),
+         * 不该让它变成"再等一个按钮"。失败不影响音频可播, 所以只 warn 不抛。 */
+        const base = `http://127.0.0.1:${PORT}`;
+        const tok = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+        if (tok) {
+          await fetch(`${base}/api/admin/resubtitle/${workId}`, {
+            method: "POST", headers: { "x-admin-token": tok },
+          }).then((x) => { if (!x.ok) console.warn("[W2318] resubtitle non-200:", x.status); })
+            .catch((e) => console.warn("[W2318] resubtitle failed:", (e as Error)?.message));
+        }
+      } catch (e) {
+        console.warn(`[W2318] ${workId.slice(0, 8)} 后台作曲抛错:`, (e as Error)?.message);
+      }
+    })();
+  }
+}
+
 /* CSSOS_WAVE_2312 20261114 — AI 助理【工具调用】的 Gemini 回退。
  *
  * Jing:「cssTV 显示无法生成作品」。根因不在 cssTV, 也不在模型 ID ——
@@ -12572,6 +12626,18 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
     if (tc && tc.multipart_cinema && !multipart_cinema) {
       multipart_cinema = tc.multipart_cinema;
     }
+  }
+
+  /* CSSOS_WAVE_2318 — 作品生下来就要能播。
+   *
+   * 只给【没有浏览器管线的客户端】补这一刀: 网页端拿到 seed/work_cards 之后有自己的
+   * MV 管线(cssmvRunPipeline)接着跑音乐/视频, 这里再补一次就是重复作曲、重复花钱。
+   * 判据与 W2314 的 serverSideOnly 同一个 —— 没有管线的客户端, 服务端把活干完。
+   *
+   * 放在 res.json 【之前】起协程、不 await: 作曲是分钟级, 等它等于必定超时;
+   * 而 work_cards 已经在这个回复里了, 客户端照着作品 id 等音频出现即可。 */
+  if (source === "csstv" && work_cards.length) {
+    void cssosEnsureWorkAudioInBackground(work_cards, userId);
   }
 
   return res.json({
@@ -43401,8 +43467,20 @@ async function cssosEpicRenderCore(workId: string, opts?: { style?: string; lang
   const origAudio = String(w.preview_audio_url || "").trim();
   // 3-5) 备份原作 → 取消旧默认 → upsert Epic 默认轨 → preview_audio_url 指向 Epic。
   await withClient(async (c) => {
-    // 备份原音频(无原音频则留空, audio_url='' 仅作 Epic 标记轨, resubtitle 会跳过空音频轨)。
-    const ex = await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND ${preEpicSql()} LIMIT 1`, [workId]);
+    /* 备份原音频。
+     *
+     * CSSOS_WAVE_2317 20261115 — 【没有原音频就不要"备份"】。
+     *
+     * 原来无条件插一条 pre-epic 轨, 没有原音频时 audio_url 写成 ''。那在
+     * 「这首本来就有一版、现在重编曲」的场景下说得通(留个占位), 但这条核心现在也被
+     * 【第一次出曲】复用(cssTV 创作完接着作曲, W2318)—— 对一个刚出生、从来没有过
+     * 音频的作品来说, "备份"的是空气:
+     *   · 多声线胶囊里会凭空多出一条没有音频的「旧版」, 用户点进去是哑的;
+     *   · 空 audio_url 的轨正是 [[placeholder-lang-mutes-subtitles]] 那一族的来源。
+     * 备份一个不存在的东西, 本身就是错的。有原音频时行为一个字节不变。 */
+    const ex = origAudio
+      ? await c.query(`SELECT 1 FROM work_language_tracks WHERE work_id=$1::uuid AND ${preEpicSql()} LIMIT 1`, [workId])
+      : { rowCount: 1 };   // 没有原音频 → 当作"已存在", 跳过这次插入
     if (!ex.rowCount) {
       // W2145: lang 写【真语言】(与 Epic 轨同一门 —— 本来就是同一份词), 版本身份归 voice。
       await c.query(

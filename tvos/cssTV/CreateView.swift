@@ -28,6 +28,10 @@ struct CreateView: View {
     @State private var synopsis = ""
     @State private var style = ""
     @State private var status = ""
+    /* W2321 — 生成进度条(两个创作入口共用同一组阶段, 见 cssGenStages)。
+     * genStage: -1 未开始 / 0 创作中 / 1 作曲中 / 2 就绪开播。 */
+    @State private var genStages: [CSSGenStage] = []
+    @State private var genStage = -1
     @State private var casting = false
     @State private var drafting = false
     @State private var castSlots: [CSSBackend.CastSlot] = []
@@ -98,7 +102,12 @@ struct CreateView: View {
                         Button(tr("Close")) { dismiss() }
                             .font(.system(size: 20)).buttonStyle(.plain).foregroundStyle(.white.opacity(0.6))
                     }
-                    if !status.isEmpty {
+                    /* W2321 — 生成中显示【分阶段进度】, 不再是一行会被覆盖掉的 status。
+                     * 单行 status 的毛病是看不到"已经走完几步" —— 用户还是得猜。 */
+                    if genStage >= 0 && !genStages.isEmpty {
+                        CSSGenProgress(stages: genStages, current: genStage, failedMessage: status)
+                            .padding(.top, 6)
+                    } else if !status.isEmpty {
                         Text(status).font(.system(size: 21, weight: .medium)).foregroundStyle(brandGreen)
                     }
                 }
@@ -234,12 +243,11 @@ struct CreateView: View {
     private func composeThenPlay(_ cards: [CSSBackend.CastWorkCard]) {
         guard let card = cards.first else { return }
         let name = card.title.isEmpty ? tr("your new work") : card.title
-        /* W2320 — 多部作品要把【共几部】说出来: 三部曲要作 3 首, 等待是单曲的三倍。
-         * 不说清楚, 用户会以为卡住了 —— 那又回到"猜"。 */
-        status = cards.count > 1
-            ? tr("🎼 Composing {n} parts for “{title}” — all of them must be ready before it plays…",
-                 ["n": String(cards.count), "title": name])
-            : tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
+        /* W2321 — 阶段②。这时才知道【真实部数】(后端返回几张卡就是几部),
+         * 用它重建阶段表 —— 之前按戏路猜的那次可能不准。 */
+        status = ""
+        genStages = cssGenStages(partCount: cards.count, title: name)
+        genStage = 1
         Task {
             /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
              * 就地放弃 = 用户又回到猜, 那正是 Jing 要消灭的状态。 */
@@ -248,6 +256,8 @@ struct CreateView: View {
             }
             await MainActor.run {
                 switch outcome {
+                /* W2321 — 失败【停在当前阶段】并把原因写进 status; 进度条会把这一行画成 ✕,
+                 * 前面已完成的阶段仍然打勾 —— 用户一眼看到"走到哪一步断的"。 */
                 case .needsTopUp:
                     status = tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
                     return
@@ -257,7 +267,9 @@ struct CreateView: View {
                 case .ready:
                     break
                 }
-                status = tr("▶ Ready — opening “{title}”…", ["title": name])
+                // W2321 — 阶段③: 就绪开播。
+                status = ""
+                genStage = 2
                 /* W2320 — 多部作品要打开【根】, 不是第一部。
                  * 根是容器(没有自己的音频), 播放器拿到它才会按 children 1→2→3 连播;
                  * 打开第一部的话, 用户只会听到三部曲的三分之一。 */
@@ -295,7 +307,11 @@ struct CreateView: View {
             guard let aid = chosen[slot.role], !aid.isEmpty else { return nil }
             return ["actor_id": aid, "role": slot.role]
         }
-        casting = true; status = tr("✨ Sending your direction to the magic mirror…")
+        casting = true; status = ""
+        /* W2321 — 阶段①。部数这时还不知道(后端定), 先按戏路猜: 三部曲 3, 其余 1;
+         * 拿到 work_cards 后会用【真实部数】重建一次, 以真实为准。 */
+        genStages = cssGenStages(partCount: format == "triptych" ? 3 : 1, title: title)
+        genStage = 0
         Task {
             let result = await CSSBackend.castMV(prompt: full, cast: castPayload)
             await MainActor.run {

@@ -379,6 +379,9 @@ private struct ActorCastPanel: View {
     @State private var supportPool: [CSSActor] = []
     @State private var loading = true
     @State private var generating = false
+    /* W2321 — 生成进度条(与导演台共用同一组阶段, 见 cssGenStages)。 */
+    @State private var genStages: [CSSGenStage] = []
+    @State private var genStage = -1
     @State private var status = ""
 
     private let fmts: [(id: String, name: String)] = [("single", tr("MV")), ("triptych", tr("Triptych")), ("opera", tr("Opera"))]
@@ -414,7 +417,12 @@ private struct ActorCastPanel: View {
                         Label(generating ? tr("Rolling…") : tr("Cast & generate  🎬"), systemImage: "film.stack")
                             .font(.system(size: 28, weight: .heavy)).frame(maxWidth: .infinity)
                     }.buttonStyle(.card).disabled(generating)
-                    if !status.isEmpty { Text(status).font(.system(size: 20)).foregroundStyle(brandGreen) }
+                    // W2321 — 同导演台: 生成中显示分阶段进度, status 退为失败/补充说明。
+                    if genStage >= 0 && !genStages.isEmpty {
+                        CSSGenProgress(stages: genStages, current: genStage, failedMessage: status)
+                    } else if !status.isEmpty {
+                        Text(status).font(.system(size: 20)).foregroundStyle(brandGreen)
+                    }
                 }
                 .padding(60)
             }
@@ -489,12 +497,11 @@ private struct ActorCastPanel: View {
     private func playCreatedWork(_ cards: [CSSBackend.CastWorkCard]) {
         guard let card = cards.first else { return }
         let name = card.title.isEmpty ? tr("your new work") : card.title
-        /* W2320 — 多部作品要把【共几部】说出来: 三部曲要作 3 首, 等待是单曲的三倍。
-         * 不说清楚, 用户会以为卡住了 —— 那又回到"猜"。 */
-        status = cards.count > 1
-            ? tr("🎼 Composing {n} parts for “{title}” — all of them must be ready before it plays…",
-                 ["n": String(cards.count), "title": name])
-            : tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
+        /* W2321 — 阶段②。这时才知道【真实部数】(后端返回几张卡就是几部),
+         * 用它重建阶段表 —— 之前按戏路猜的那次可能不准。 */
+        status = ""
+        genStages = cssGenStages(partCount: cards.count, title: name)
+        genStage = 1
         Task {
             /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
              * 就地放弃 = 用户又回到猜, 那正是 Jing 要消灭的状态。 */
@@ -503,6 +510,8 @@ private struct ActorCastPanel: View {
             }
             await MainActor.run {
                 switch outcome {
+                /* W2321 — 失败【停在当前阶段】并把原因写进 status; 进度条会把这一行画成 ✕,
+                 * 前面已完成的阶段仍然打勾 —— 用户一眼看到"走到哪一步断的"。 */
                 case .needsTopUp:
                     status = tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
                     return
@@ -512,7 +521,9 @@ private struct ActorCastPanel: View {
                 case .ready:
                     break
                 }
-                status = tr("▶ Ready — opening “{title}”…", ["title": name])
+                // W2321 — 阶段③: 就绪开播。
+                status = ""
+                genStage = 2
                 /* W2320 — 多部作品要打开【根】, 不是第一部。
                  * 根是容器(没有自己的音频), 播放器拿到它才会按 children 1→2→3 连播;
                  * 打开第一部的话, 用户只会听到三部曲的三分之一。 */
@@ -540,7 +551,10 @@ private struct ActorCastPanel: View {
         default: break
         }
         if let civ = seed.civilization, !civ.isEmpty { prompt += " Civilization: \(civ)." }
-        generating = true; status = tr("✨ Casting locked — generating…")
+        generating = true; status = ""
+        // W2321 — 阶段①(部数先按戏路猜, 拿到 work_cards 后以真实部数重建)。
+        genStages = cssGenStages(partCount: format == "triptych" ? 3 : 1, title: seed.displayName)
+        genStage = 0
         Task {
             let r = await CSSBackend.castMV(prompt: prompt, cast: cast)
             await MainActor.run {

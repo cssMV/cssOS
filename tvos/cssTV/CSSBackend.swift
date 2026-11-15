@@ -539,8 +539,23 @@ enum CSSBackend {
         let title: String
         let rootWorkId: String      // 多部作品的根; 单曲为空
         let sequenceIndex: Int      // 分部序号(1,2,3…); 单曲为 0
+        /* CSSOS_WAVE_2323 — structure_role: root / act(幕) / scene(场) / part / episode…
+         * 歌剧是【三层树】: root → act → scene(实测库里 structure_role 就是这三种)。
+         * 不接住它会埋一个坑: 作曲要等的是【叶子】(场, 有歌词有音频),
+         * 而【幕只是容器、永远不会有音频】—— 把幕也算进去等, 必然一直等到超时。 */
+        let structureRole: String
+        /* CSSOS_WAVE_2324 — parent_work_id: 场归属于哪一幕。
+         *
+         * 【今天后端不返回这个字段】—— create_work 产出的是扁平结构
+         * (partParentId = rootId, 注释原文 "other flat multi-part types stay 'part'"),
+         * 所以歌剧此刻只有 N 个 part, 没有 act/scene 两层。
+         * 这里先把字段接住: 哪天后端真建出幕→场(另立一波), 客户端不用再改一次就能分组显示。
+         * 取不到时为空串, 下面的分组逻辑自然退回"只显示幕数"。 */
+        let parentWorkId: String
         /// 播放时该打开谁: 多部打开【根】(播放器按 children 顺序连播), 单曲打开自己。
         var playTargetId: String { rootWorkId.isEmpty ? workId : rootWorkId }
+        /// 容器(根/幕)不产出音频, 作曲与等待都要跳过它们。
+        var isContainer: Bool { structureRole == "root" || structureRole == "act" }
     }
     struct CastResult {
         let ok: Bool; let intent: String?; let ifilmId: String?; let reply: String?
@@ -574,7 +589,11 @@ enum CSSBackend {
                 let root = (c["root_work_id"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
                 return CastWorkCard(workId: wid, title: (c["title"] as? String) ?? "",
                                     rootWorkId: root,
-                                    sequenceIndex: (c["sequence_index"] as? Int) ?? 0)
+                                    sequenceIndex: (c["sequence_index"] as? Int) ?? 0,
+                                    structureRole: ((c["structure_role"] as? String) ?? "")
+                                        .trimmingCharacters(in: .whitespaces).lowercased(),
+                                    parentWorkId: ((c["parent_work_id"] as? String) ?? "")
+                                        .trimmingCharacters(in: .whitespaces))
             }
             /* W2320 — 按分部序号排序。后端是按序 push 的, 但顺序是【铁律】不是巧合
              * (1→2→3 连播), 不该依赖数组恰好有序 —— 我们要作曲和开播都认第一部。 */
@@ -668,6 +687,8 @@ enum CSSBackend {
      * 第一部多调一次 generateAudio 是有意的: 服务端若已经在作, 它会回 409
      * duplicate_in_flight(不会重复扣费), 我们照样转入等待; 服务端若因故没起,
      * 这一调就把它点着了。幂等 + 有锁, 两种情况都安全。 */
+    /* W2323 — 传进来的必须是【叶子】的 id(场/集/部), 不能含根与幕:
+     * 容器不产出音频, 等它等于必然超时。调用方用 CastWorkCard.isContainer 过滤。 */
     static func composeAndWait(workIds: [String],
                                maxWaitSeconds: Int = 1800,
                                onWaiting: @MainActor @escaping () -> Void) async -> ComposeOutcome {

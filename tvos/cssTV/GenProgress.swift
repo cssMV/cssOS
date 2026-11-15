@@ -27,6 +27,10 @@ struct CSSGenStage: Identifiable, Equatable {
     var title: String
     var eta: String = ""
     var detail: String = ""
+    /* CSSOS_WAVE_2324 — 子行: 歌剧「每一幕之下的场数」(Jing 明确要求)。
+     * 今天后端只给扁平的 part, 所以这里会是空数组 → 一行不画, 版面与现在完全一样;
+     * 哪天后端建出幕→场, 它自动变成「第一幕 · 4 场」这样的缩进列表, 客户端不用再改。 */
+    var subLines: [String] = []
 }
 
 /* CSSOS_WAVE_2322 — 六种戏路【共用】这一张阶段表。
@@ -44,14 +48,51 @@ struct CSSGenStage: Identifiable, Equatable {
  *
  * 单位也各随各的戏路(宪法原话: 三部曲 / 歌剧(幕·场) / 短剧(集)):
  *   triptych 部 · opera 幕·场 · shortplay/series 集 · film 场 */
+/* CSSOS_WAVE_2323 — 歌剧是【幕底下还有场】, 不能只说幕数(Jing 指出)。
+ *
+ * 实测库里的歌剧 structure_role 就是三层: root → act(幕) → scene(场)。
+ * 所以歌剧要同时说【几幕·几场】; 其余戏路是扁平的, 一个数就够。
+ * acts = 0 表示还不知道(后端未返回), 按宪法「幕数场数由 AI 推导」不编数。 */
 @MainActor
-func cssGenUnitLabel(_ workType: String, count n: Int) -> String {
+func cssGenUnitLabel(_ workType: String, count n: Int, acts: Int = 0, scenes: Int = 0) -> String {
     switch workType {
-    case "opera":     return n > 0 ? tr("{n} acts", ["n": String(n)]) : tr("multiple acts")
+    case "opera":
+        /* 幕与场是【两个独立的数】, 不能拿同一个数充当两者。
+         * 今天后端产出的歌剧是扁平的(顶层 N 部 = N 幕, 一场都没有), 若把 n 既当幕又当场,
+         * 屏幕上会出现"3 幕 · 3 场"这种凭空编出来的场数 —— 那正是本文件反复要避免的事。
+         * 所以: 有真实的场(scenes>0)才说场, 否则只说幕。 */
+        if acts > 0 && scenes > 0 { return tr("{a} acts · {n} scenes", ["a": String(acts), "n": String(scenes)]) }
+        if acts > 0 { return tr("{a} acts", ["a": String(acts)]) }
+        return tr("multiple acts and scenes")
     case "shortplay", "series":
-                      return n > 0 ? tr("{n} episodes", ["n": String(n)]) : tr("multiple episodes")
-    case "film":      return n > 0 ? tr("{n} scenes", ["n": String(n)]) : tr("multiple scenes")
-    default:          return n > 0 ? tr("{n} parts", ["n": String(n)]) : tr("multiple parts")
+        return n > 0 ? tr("{n} episodes", ["n": String(n)]) : tr("multiple episodes")
+    case "film":
+        return n > 0 ? tr("{n} scenes", ["n": String(n)]) : tr("multiple scenes")
+    default:
+        return n > 0 ? tr("{n} parts", ["n": String(n)]) : tr("multiple parts")
+    }
+}
+
+/* CSSOS_WAVE_2324 — 歌剧的「幕 → 每幕几场」明细。
+ *
+ * Jing:「歌剧名称-幕数-场数, 既要返回幕数, 还要在每一幕之下返回场数。」
+ *
+ * 数据【今天还不存在】: create_work 产出的是扁平 root + N×part, 没有 act/scene 两层
+ * (全库唯一一部带树的歌剧叫「树型验证·歌剧root」, 是测试件)。
+ * 所以这个函数今天会返回空数组 → 进度条上一行不多画, 与现在完全一样。
+ * 它存在的意义是【后端哪天真建出两层, 不用再改客户端一次】——
+ * 按 Jing 选的方案 C: 布局按两层设计好, 后端出什么就显示什么。
+ *
+ * 分组靠 parent_work_id(场 → 幕)。后端没给这个字段时, 分不了组, 也就不画。 */
+@MainActor
+func cssGenActBreakdown(_ cards: [CSSBackend.CastWorkCard]) -> [String] {
+    let acts = cards.filter { $0.structureRole == "act" }.sorted { $0.sequenceIndex < $1.sequenceIndex }
+    guard !acts.isEmpty else { return [] }
+    return acts.map { act in
+        let n = cards.filter { $0.structureRole == "scene" && $0.parentWorkId == act.workId }.count
+        let name = act.title.isEmpty ? tr("Act {i}", ["i": String(act.sequenceIndex)]) : act.title
+        return n > 0 ? tr("{act} · {n} scenes", ["act": name, "n": String(n)])
+                     : tr("{act} · scenes pending…", ["act": name])
     }
 }
 
@@ -67,9 +108,10 @@ func cssGenExpectedParts(_ workType: String) -> Int {
 /* 阶段表的【唯一真源】。两个创作入口、六种戏路共用同一份 ——
  * 文案与节奏对用户必须一致, 分两份写, 下次改必然只改一半。 */
 @MainActor
-func cssGenStages(workType: String, partCount n: Int, title: String) -> [CSSGenStage] {
+func cssGenStages(workType: String, partCount n: Int, title: String,
+                  actCount: Int = 0, sceneCount: Int = 0, actBreakdown: [String] = []) -> [CSSGenStage] {
     let single = (n == 1)                       // 只有【确知是 1 部】才算单曲排版
-    let unit = cssGenUnitLabel(workType, count: n)
+    let unit = cssGenUnitLabel(workType, count: n, acts: actCount, scenes: sceneCount)
     let name = title.isEmpty ? tr("your new work") : title
     return [
         CSSGenStage(
@@ -84,7 +126,8 @@ func cssGenStages(workType: String, partCount n: Int, title: String) -> [CSSGenS
                           : tr("Composing — {unit}…", ["unit": unit]),
             eta: "~2-5min",
             detail: single ? tr("music + visuals + subtitles")
-                           : tr("music + visuals + subtitles, for every one of {unit}", ["unit": unit])),
+                           : tr("music + visuals + subtitles, for every one of {unit}", ["unit": unit]),
+            subLines: actBreakdown),
         CSSGenStage(
             id: "play", icon: "▶",
             title: tr("Ready — opening “{title}”…", ["title": name]),
@@ -148,6 +191,13 @@ struct CSSGenProgress: View {
                     Text(st.detail)
                         .font(.system(size: 19))
                         .foregroundStyle(Color.white.opacity(done ? 0.28 : (active ? 0.62 : 0.22)))
+                }
+                // W2324 — 歌剧的幕·场明细(后端还没给出两层时为空, 一行不画)。
+                ForEach(Array(st.subLines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.system(size: 17))
+                        .foregroundStyle(Color.white.opacity(done ? 0.22 : (active ? 0.46 : 0.18)))
+                        .padding(.leading, 10)
                 }
             }
 

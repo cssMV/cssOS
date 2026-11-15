@@ -384,7 +384,14 @@ private struct ActorCastPanel: View {
     @State private var genStage = -1
     @State private var status = ""
 
-    private let fmts: [(id: String, name: String)] = [("single", tr("MV")), ("triptych", tr("Triptych")), ("opera", tr("Opera"))]
+    /* W2323 — 补齐六种戏路, 与导演台对齐(W1561「全戏路开放」)。
+     * 原来这里只有 MV/三部曲/歌剧, 从数字演员进去就点不了短剧/连续剧/电影 ——
+     * 同一个平台的两个创作入口给出不同的能力, 本身就是缺陷。
+     * 【计算属性】: tr() 是 @MainActor, 存储属性的初始化器在非隔离上下文里调不了它(W2251)。 */
+    private var fmts: [(id: String, name: String)] { [
+        ("single", tr("MV")), ("triptych", tr("Triptych")), ("opera", tr("Opera")),
+        ("shortplay", tr("Short Drama")), ("series", tr("Series")), ("film", tr("Movie")),
+    ] }
 
     var body: some View {
         ZStack {
@@ -500,12 +507,29 @@ private struct ActorCastPanel: View {
         /* W2321 — 阶段②。这时才知道【真实部数】(后端返回几张卡就是几部),
          * 用它重建阶段表 —— 之前按戏路猜的那次可能不准。 */
         status = ""
-        genStages = cssGenStages(workType: format, partCount: cards.count, title: name)
+        /* W2323 — 歌剧要说【几幕·几场】: 场是叶子(作曲的对象), 幕是容器。
+         * 其余戏路 acts 传 0, 文案自动退回单一个数。 */
+        let actCount = cards.filter { $0.structureRole == "act" }.count
+        let leafCount = cards.filter { !$0.isContainer }.count
+        /* W2324 — 歌剧:【幕数】用真实的幕, 没有两层时退回"顶层有几部"(歌剧的顶层部就是幕)。
+         * 场数(leafCount)与每幕明细由后端决定 —— 它今天只给扁平 part, 明细就是空的。 */
+        let operaActs = actCount > 0 ? actCount : (format == "opera" ? cards.count : 0)
+        genStages = cssGenStages(workType: format,
+                                 partCount: leafCount > 0 ? leafCount : cards.count,
+                                 title: name,
+                                 actCount: operaActs,
+                                 // 场数只认【真实的 scene 卡片】; 没有就是 0, 文案自动只说幕。
+                                 sceneCount: cards.filter { $0.structureRole == "scene" }.count,
+                                 actBreakdown: cssGenActBreakdown(cards))
         genStage = 1
         Task {
             /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
              * 就地放弃 = 用户又回到猜, 那正是 Jing 要消灭的状态。 */
-            let outcome = await CSSBackend.composeAndWait(workIds: cards.map { $0.workId }) {
+            /* W2323 — 只等【叶子】: 歌剧的"幕"是容器, 永远不会有音频, 等它必然超时。
+             * 万一一张叶子都没有(形状意外), 退回全部 —— 宁可多等也不要一个都不等。 */
+            let leaves = cards.filter { !$0.isContainer }
+            let waitIds = (leaves.isEmpty ? cards : leaves).map { $0.workId }
+            let outcome = await CSSBackend.composeAndWait(workIds: waitIds) {
                 status = tr("🎼 Still composing “{title}” — it will start playing by itself.", ["title": name])
             }
             await MainActor.run {

@@ -235,13 +235,21 @@ struct CreateView: View {
         let name = card.title.isEmpty ? tr("your new work") : card.title
         status = tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
         Task {
-            let a = await CSSBackend.generateAudio(workId: card.workId)
+            /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
+             * 就地放弃 = 用户又回到猜, 那正是 Jing 要消灭的状态。 */
+            let outcome = await CSSBackend.composeAndWait(workId: card.workId) {
+                status = tr("🎼 Still composing “{title}” — it will start playing by itself.", ["title": name])
+            }
             await MainActor.run {
-                guard a.ok else {
-                    status = a.code == 402
-                        ? tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
-                        : tr("Created ✅ — but the music step didn’t finish. You can find it in For You.")
+                switch outcome {
+                case .needsTopUp:
+                    status = tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
                     return
+                case .gaveUp:
+                    status = tr("Created ✅ — but the music step didn’t finish. You can find it in For You.")
+                    return
+                case .ready:
+                    break
                 }
                 status = tr("▶ Ready — opening “{title}”…", ["title": name])
                 dismiss()

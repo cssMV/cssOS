@@ -487,19 +487,26 @@ private struct ActorCastPanel: View {
      *     ① 创作(agent → create_work) → ② 作曲(generate-audio) → ③ 开播
      * 任何一步失败都【说清楚卡在哪一步】, 不再回那句没信息的「请重试」(W2310 的同一条教训)。 */
     private func playCreatedWork(_ card: CSSBackend.CastWorkCard) {
-        status = tr("🎼 Composing the music for “{title}” — this takes a few minutes…",
-                    ["title": card.title.isEmpty ? tr("your new work") : card.title])
+        let name = card.title.isEmpty ? tr("your new work") : card.title
+        status = tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
         Task {
-            let a = await CSSBackend.generateAudio(workId: card.workId)
+            /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
+             * 就地放弃 = 用户又回到猜, 那正是 Jing 要消灭的状态。 */
+            let outcome = await CSSBackend.composeAndWait(workId: card.workId) {
+                status = tr("🎼 Still composing “{title}” — it will start playing by itself.", ["title": name])
+            }
             await MainActor.run {
-                guard a.ok else {
-                    status = a.code == 402
-                        ? tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
-                        : tr("Created ✅ — but the music step didn’t finish. You can find it in For You.")
+                switch outcome {
+                case .needsTopUp:
+                    status = tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
                     return
+                case .gaveUp:
+                    status = tr("Created ✅ — but the music step didn’t finish. You can find it in For You.")
+                    return
+                case .ready:
+                    break
                 }
-                status = tr("▶ Ready — opening “{title}”…",
-                            ["title": card.title.isEmpty ? tr("your new work") : card.title])
+                status = tr("▶ Ready — opening “{title}”…", ["title": name])
                 /* W2233 的教训: 【先把作品取全再开播放器】。塞一个裸 id 进去的话,
                  * 播放器里显示 Untitled 且播不了, 必须退一步重播才好 —— 那条路已经栽过一次。
                  * 取不到就仍然按裸 id 开(不比以前差), 由 PlayerView 自己 hydrate。 */

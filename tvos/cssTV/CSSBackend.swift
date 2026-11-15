@@ -618,6 +618,45 @@ enum CSSBackend {
         }
     }
 
+    /* CSSOS_WAVE_2316 — Jing:「生成就播放, 不然用户还在猜是否生成了。」
+     *
+     * 光有 generateAudio 还不够: 作曲是【分钟级】的, 这期间连接很容易先断
+     * (客户端超时 / Wi-Fi 抖一下 / App 被系统回收一拍), 而服务端其实还在作。
+     * 这时候如果就地放弃并打印一句"没做完, 去 For You 找", 用户又回到了猜 ——
+     * 这正是 Jing 要消灭的那个状态。
+     *
+     * 所以第一棒失败【不等于结束】, 要分清两种失败:
+     *   · 402 钱包不够 —— 等下去也不会变好, 立刻说清楚;
+     *   · 409 duplicate_in_flight / 超时 / 传输错 / 5xx —— 服务端很可能【正在作】
+     *     (409 更是明确告诉我们"这首正在生成"), 那就盯着作品看, 音频一出现就开播。
+     *
+     * 盯的方式是查作品行而不是重按生成: generate-audio 虽然幂等, 但反复按会和
+     * 服务端那把 per-work in-flight 锁互相打架, 也看不出进度。查作品行是只读的。 */
+    enum ComposeOutcome {
+        case ready                 // 音频已就位 → 可以开播
+        case needsTopUp            // 402: 钱包不够
+        case gaveUp(String)        // 等到上限仍然没出来(作品仍在, 只是还没音乐)
+    }
+
+    /// 作曲 + 盯到音频出现为止。onWaiting 在"转入等待"时回调一次, 供界面换文案。
+    static func composeAndWait(workId: String,
+                               maxWaitSeconds: Int = 600,
+                               onWaiting: @MainActor @escaping () -> Void) async -> ComposeOutcome {
+        let a = await generateAudio(workId: workId)
+        if a.ok { return .ready }
+        if a.code == 402 { return .needsTopUp }
+
+        await onWaiting()
+        /* 轮询查作品行。10s 一次: 作曲是分钟级, 查太密只是白费流量。 */
+        let deadline = Date().addingTimeInterval(TimeInterval(maxWaitSeconds))
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if Task.isCancelled { return .gaveUp("cancelled") }
+            if let w = await fetchWorkById(workId), w.bestAudio != nil { return .ready }
+        }
+        return .gaveUp(a.error ?? "timeout")
+    }
+
     // MARK: - W1549 Slice 3 — 互动多线程电影(ifilm)客户端
     // 只读/公开(ifilm 端点无鉴权); /next 会触发生成(LLM 写 beat + TTS 声音 + seedance 视频备料),
     // 故播放屏用「▶ 开拍」显式起头, 用户按了才开始花钱(尊重「先不开拍」)。

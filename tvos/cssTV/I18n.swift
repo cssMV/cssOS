@@ -271,6 +271,7 @@ final class I18n: ObservableObject {
         "🎭 Cast (system-recommended, swap freely)",
         "🎭 Support",
         "🎼 Composing the music for “{title}” — this takes a few minutes…",
+        "🎼 Composing {n} parts for “{title}” — all of them must be ready before it plays…",
         "🎼 Still composing “{title}” — it will start playing by itself.",
         "👥 Extras",
         "😈 Villain",

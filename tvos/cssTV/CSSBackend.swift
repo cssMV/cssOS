@@ -528,7 +528,20 @@ enum CSSBackend {
      * 靠它渲染作品卡 + 「生成音乐」按钮。cssTV 以前整个丢掉了 —— 于是即便作品真建出来了,
      * 电视也不知道自己刚创作了什么, 当然也就无从播放。
      * 「生成成功就播放」的第一步, 是先知道【生成的是哪一首】。 */
-    struct CastWorkCard { let workId: String; let title: String }
+    /* CSSOS_WAVE_2320 — 多部作品(三部曲/歌剧/短剧…)的卡片带着【根】和【序号】。
+     *
+     * 后端 create_work 对多部作品返回的是【N 个分部卡片】, 每张带 root_work_id +
+     * sequence_index; 根作品本身不单独出卡(它是容器, 没有自己的歌词/音频)。
+     * 不接住这两个字段的后果很具体: 创作完只会打开【第一部】, 而不是整部三部曲 ——
+     * 直接违反「三部曲必须 1→2→3 连播, 中途不得插入别的作品」那条播放铁律。 */
+    struct CastWorkCard {
+        let workId: String
+        let title: String
+        let rootWorkId: String      // 多部作品的根; 单曲为空
+        let sequenceIndex: Int      // 分部序号(1,2,3…); 单曲为 0
+        /// 播放时该打开谁: 多部打开【根】(播放器按 children 顺序连播), 单曲打开自己。
+        var playTargetId: String { rootWorkId.isEmpty ? workId : rootWorkId }
+    }
     struct CastResult {
         let ok: Bool; let intent: String?; let ifilmId: String?; let reply: String?
         var failure: CastFailure = .none
@@ -558,8 +571,14 @@ enum CSSBackend {
             let cards: [CastWorkCard] = ((j?["work_cards"] as? [[String: Any]]) ?? []).compactMap { c in
                 let wid = String(describing: c["work_id"] ?? "").trimmingCharacters(in: .whitespaces)
                 guard !wid.isEmpty, wid != "<null>" else { return nil }
-                return CastWorkCard(workId: wid, title: (c["title"] as? String) ?? "")
+                let root = (c["root_work_id"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+                return CastWorkCard(workId: wid, title: (c["title"] as? String) ?? "",
+                                    rootWorkId: root,
+                                    sequenceIndex: (c["sequence_index"] as? Int) ?? 0)
             }
+            /* W2320 — 按分部序号排序。后端是按序 push 的, 但顺序是【铁律】不是巧合
+             * (1→2→3 连播), 不该依赖数组恰好有序 —— 我们要作曲和开播都认第一部。 */
+            .sorted { $0.sequenceIndex < $1.sequenceIndex }
             return CastResult(ok: ok,
                               intent: j?["intent"] as? String,
                               ifilmId: j?["ifilm_id"] as? String,
@@ -638,23 +657,40 @@ enum CSSBackend {
         case gaveUp(String)        // 等到上限仍然没出来(作品仍在, 只是还没音乐)
     }
 
-    /// 作曲 + 盯到音频出现为止。onWaiting 在"转入等待"时回调一次, 供界面换文案。
-    static func composeAndWait(workId: String,
-                               maxWaitSeconds: Int = 600,
+    /* 作曲 + 盯到音频出现为止。onWaiting 在"转入等待"时回调一次, 供界面换文案。
+     *
+     * CSSOS_WAVE_2320 — 收【一组】作品 id, 不是一个。
+     *
+     * 多部作品(三部曲/歌剧/短剧)的播放铁律是 1→2→3 连播, 中途不得插入别的作品。
+     * 只等第一部就开播, 用户会听完第一部然后【断在那里】—— 那不是一部三部曲。
+     * 服务端那条四轨链(W2319)本来就在给每一部作曲, 这里要做的只是【等齐】。
+     *
+     * 第一部多调一次 generateAudio 是有意的: 服务端若已经在作, 它会回 409
+     * duplicate_in_flight(不会重复扣费), 我们照样转入等待; 服务端若因故没起,
+     * 这一调就把它点着了。幂等 + 有锁, 两种情况都安全。 */
+    static func composeAndWait(workIds: [String],
+                               maxWaitSeconds: Int = 1800,
                                onWaiting: @MainActor @escaping () -> Void) async -> ComposeOutcome {
-        let a = await generateAudio(workId: workId)
-        if a.ok { return .ready }
+        guard let first = workIds.first else { return .gaveUp("no_work") }
+        let a = await generateAudio(workId: first)
         if a.code == 402 { return .needsTopUp }
+        // 单曲且一次就成 → 直接可播, 不必轮询。
+        if a.ok && workIds.count == 1 { return .ready }
 
         await onWaiting()
-        /* 轮询查作品行。10s 一次: 作曲是分钟级, 查太密只是白费流量。 */
+        /* 轮询查作品行。10s 一次: 作曲是分钟级, 查太密只是白费流量。
+         * 判据是【每一部都有音频】—— 少一部就不算这部三部曲做完了。 */
+        var pending = Set(workIds)
         let deadline = Date().addingTimeInterval(TimeInterval(maxWaitSeconds))
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             if Task.isCancelled { return .gaveUp("cancelled") }
-            if let w = await fetchWorkById(workId), w.bestAudio != nil { return .ready }
+            for wid in pending {
+                if let w = await fetchWorkById(wid), w.bestAudio != nil { pending.remove(wid) }
+            }
+            if pending.isEmpty { return .ready }
         }
-        return .gaveUp(a.error ?? "timeout")
+        return .gaveUp("还差 \(pending.count)/\(workIds.count) 部")
     }
 
     // MARK: - W1549 Slice 3 — 互动多线程电影(ifilm)客户端

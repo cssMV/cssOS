@@ -231,13 +231,19 @@ struct CreateView: View {
 
     /* W2315 — 作曲再开播。与 DigitalActorsView 那一份是同一套措辞和同一套失败分级,
      * 两个创作入口对用户必须是同一种体验。 */
-    private func composeThenPlay(_ card: CSSBackend.CastWorkCard) {
+    private func composeThenPlay(_ cards: [CSSBackend.CastWorkCard]) {
+        guard let card = cards.first else { return }
         let name = card.title.isEmpty ? tr("your new work") : card.title
-        status = tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
+        /* W2320 — 多部作品要把【共几部】说出来: 三部曲要作 3 首, 等待是单曲的三倍。
+         * 不说清楚, 用户会以为卡住了 —— 那又回到"猜"。 */
+        status = cards.count > 1
+            ? tr("🎼 Composing {n} parts for “{title}” — all of them must be ready before it plays…",
+                 ["n": String(cards.count), "title": name])
+            : tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
         Task {
             /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
              * 就地放弃 = 用户又回到猜, 那正是 Jing 要消灭的状态。 */
-            let outcome = await CSSBackend.composeAndWait(workId: card.workId) {
+            let outcome = await CSSBackend.composeAndWait(workIds: cards.map { $0.workId }) {
                 status = tr("🎼 Still composing “{title}” — it will start playing by itself.", ["title": name])
             }
             await MainActor.run {
@@ -252,8 +258,11 @@ struct CreateView: View {
                     break
                 }
                 status = tr("▶ Ready — opening “{title}”…", ["title": name])
+                /* W2320 — 多部作品要打开【根】, 不是第一部。
+                 * 根是容器(没有自己的音频), 播放器拿到它才会按 children 1→2→3 连播;
+                 * 打开第一部的话, 用户只会听到三部曲的三分之一。 */
                 dismiss()
-                onPlayWork(card.workId)
+                onPlayWork(card.playTargetId)
             }
         }
     }
@@ -296,11 +305,11 @@ struct CreateView: View {
                     /* W2315 — 「生成成功就播放」: 创作 → 作曲 → 开播。
                      * 拿不到 work_cards 就【不要谎称成功】—— 助理只回文字没真创作时,
                      * 原来那句「正在生成, 稍后出现在 For You」是假阳性(实测库里一行没有)。 */
-                    guard let card = result.workCards.first else {
+                    guard !result.workCards.isEmpty else {
                         status = tr("The assistant replied but didn’t create anything this time. Try rephrasing, or check For You.")
                         return
                     }
-                    composeThenPlay(card)
+                    composeThenPlay(result.workCards)
                     return
                 }
                 /* W2310 — 说出【为什么】, 不要只说「请重试」。

@@ -486,13 +486,19 @@ private struct ActorCastPanel: View {
      * 「生成音乐」按钮, 电视上没有)。所以这里把三步串起来:
      *     ① 创作(agent → create_work) → ② 作曲(generate-audio) → ③ 开播
      * 任何一步失败都【说清楚卡在哪一步】, 不再回那句没信息的「请重试」(W2310 的同一条教训)。 */
-    private func playCreatedWork(_ card: CSSBackend.CastWorkCard) {
+    private func playCreatedWork(_ cards: [CSSBackend.CastWorkCard]) {
+        guard let card = cards.first else { return }
         let name = card.title.isEmpty ? tr("your new work") : card.title
-        status = tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
+        /* W2320 — 多部作品要把【共几部】说出来: 三部曲要作 3 首, 等待是单曲的三倍。
+         * 不说清楚, 用户会以为卡住了 —— 那又回到"猜"。 */
+        status = cards.count > 1
+            ? tr("🎼 Composing {n} parts for “{title}” — all of them must be ready before it plays…",
+                 ["n": String(cards.count), "title": name])
+            : tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
         Task {
             /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
              * 就地放弃 = 用户又回到猜, 那正是 Jing 要消灭的状态。 */
-            let outcome = await CSSBackend.composeAndWait(workId: card.workId) {
+            let outcome = await CSSBackend.composeAndWait(workIds: cards.map { $0.workId }) {
                 status = tr("🎼 Still composing “{title}” — it will start playing by itself.", ["title": name])
             }
             await MainActor.run {
@@ -507,10 +513,13 @@ private struct ActorCastPanel: View {
                     break
                 }
                 status = tr("▶ Ready — opening “{title}”…", ["title": name])
+                /* W2320 — 多部作品要打开【根】, 不是第一部。
+                 * 根是容器(没有自己的音频), 播放器拿到它才会按 children 1→2→3 连播;
+                 * 打开第一部的话, 用户只会听到三部曲的三分之一。 */
                 /* W2233 的教训: 【先把作品取全再开播放器】。塞一个裸 id 进去的话,
                  * 播放器里显示 Untitled 且播不了, 必须退一步重播才好 —— 那条路已经栽过一次。
                  * 取不到就仍然按裸 id 开(不比以前差), 由 PlayerView 自己 hydrate。 */
-                onPlayWork(card.workId)
+                onPlayWork(card.playTargetId)
             }
         }
     }
@@ -555,11 +564,11 @@ private struct ActorCastPanel: View {
                 /* W2315 — 接住 work_cards 才谈得上"生成成功就播放"。
                  * 拿不到卡片(例如助理这一轮只回了文字没真创作)就【不要谎称成功】——
                  * 那正是 Jing 上一轮看到的假阳性:屏幕说 Generating, 库里一行没有。 */
-                guard let card = r.workCards.first else {
+                guard !r.workCards.isEmpty else {
                     status = tr("The assistant replied but didn’t create anything this time. Try rephrasing, or check For You.")
                     return
                 }
-                playCreatedWork(card)
+                playCreatedWork(r.workCards)
             }
         }
     }

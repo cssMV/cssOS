@@ -153,6 +153,24 @@ struct ContentView: View {
     // W1367 — tvOS 纯欣赏: 直接进影院(无创作、无 gating)。
     // W1523 — Jing「循环列表」: 不再只传单个作品, 而是把【该作品所在的整栏列表】+ 起始下标交给播放器,
     //   播放器循环整栏(hydrate 逐个在播放器内做)。无论从哪个作品进, 都循环那一整栏。
+    /* CSSOS_WAVE_2315 — 刚创作+作曲完的作品 → 直接开播(Jing:「生成成功就播放」)。
+     *
+     * 刻意与深链 csstv://work/<id> 走【同一条】路, 因为那条路已经为 W2233 付过学费:
+     * 塞一个裸 id 的空作品进队列就开播, 播放器里显示 Untitled 且播不了, 必须退一步重播 ——
+     * 根因是 hydrate 当时补不回来。所以这里也是【先 fetchWorkById 取全, 再开播放器】。
+     * 取不到才退回裸 id(不比以前差), 由 PlayerView 自己 hydrate。
+     *
+     * 新作品刚落库, feed(allWorks)里还没有它, 所以不走 choose() 那条"在已有栏目里找"的路。 */
+    private func openCreatedWork(_ workId: String) {
+        Task {
+            let w = await CSSBackend.fetchWorkById(workId)
+            await MainActor.run {
+                playRef = PlayRef(id: "\(workId)#created#\(Date().timeIntervalSince1970)",
+                                  queue: [w ?? CSSWork(id: workId)], start: 0)
+            }
+        }
+    }
+
     private func choose(_ w: CSSWork, in list: [CSSWork]) {
         guard !w.isComingSoon else { return }              // W1560 — 占位卡不可播放
         if w.isCreateCard {                                // W1561 — 尾卡 → 进导演台, 锁定该栏戏路(format 随 item 原子带入)
@@ -351,11 +369,17 @@ struct ContentView: View {
             CreateView(auth: auth, defaultFormat: ref.format, onIFilm: { fid in
                 // W1549 — 命中互动电影意图 → 关创作页, 稍后开播放屏(等 cover 收完再开, 免叠盖冲突)。
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ifilmRef = IFilmRef(id: fid) }
+            }, onPlayWork: { wid in
+                createRef = nil
+                openCreatedWork(wid)
             })
         }
         // W1560 — 数字演员目录(套用桌面端 /api/actors)。
         .fullScreenCover(isPresented: $showActors) {
-            DigitalActorsView(auth: auth)
+            DigitalActorsView(auth: auth, onPlayWork: { wid in
+                showActors = false
+                openCreatedWork(wid)
+            })
         }
         // W1549 — 互动多线程电影播放屏《时间帝国》。
         .fullScreenCover(item: $ifilmRef) { ref in

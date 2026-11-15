@@ -522,9 +522,17 @@ enum CSSBackend {
      * 「请重试」这种无信息的文案把一个可定位的故障变成了一个不可定位的故障, 这本身是缺陷。
      * 所以 failure 分三类, 文案也分三类: 超时 / 没登录 / 服务端拒绝。 */
     enum CastFailure { case none, timedOut, unauthorized, serverRefused(Int), transport(String) }
+    /* CSSOS_WAVE_2315 — work_cards 必须接住。
+     *
+     * 后端 /api/agent/chat 的响应里本来就有 work_cards(create_work 产出的作品), 网页端
+     * 靠它渲染作品卡 + 「生成音乐」按钮。cssTV 以前整个丢掉了 —— 于是即便作品真建出来了,
+     * 电视也不知道自己刚创作了什么, 当然也就无从播放。
+     * 「生成成功就播放」的第一步, 是先知道【生成的是哪一首】。 */
+    struct CastWorkCard { let workId: String; let title: String }
     struct CastResult {
         let ok: Bool; let intent: String?; let ifilmId: String?; let reply: String?
         var failure: CastFailure = .none
+        var workCards: [CastWorkCard] = []
     }
     static func castMV(prompt: String, cast: [[String: String]] = []) async -> CastResult {
         guard let url = URL(string: "\(baseURL)/api/agent/chat") else {
@@ -546,16 +554,67 @@ enum CSSBackend {
             let ok = (200...299).contains(code)
             let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             if !ok { print("[CSSBackend] castMV HTTP \(code):", String(data: data.prefix(300), encoding: .utf8) ?? "") }
+            // W2315 — work_cards: [{work_id,title,…}]。没有创作发生时后端给 []。
+            let cards: [CastWorkCard] = ((j?["work_cards"] as? [[String: Any]]) ?? []).compactMap { c in
+                let wid = String(describing: c["work_id"] ?? "").trimmingCharacters(in: .whitespaces)
+                guard !wid.isEmpty, wid != "<null>" else { return nil }
+                return CastWorkCard(workId: wid, title: (c["title"] as? String) ?? "")
+            }
             return CastResult(ok: ok,
                               intent: j?["intent"] as? String,
                               ifilmId: j?["ifilm_id"] as? String,
                               reply: j?["reply"] as? String,
-                              failure: ok ? .none : (code == 401 || code == 403 ? .unauthorized : .serverRefused(code)))
+                              failure: ok ? .none : (code == 401 || code == 403 ? .unauthorized : .serverRefused(code)),
+                              workCards: cards)
         } catch {
             print("[CSSBackend] castMV failed:", error)
             let timedOut = (error as NSError).code == NSURLErrorTimedOut
             return CastResult(ok: false, intent: nil, ifilmId: nil, reply: nil,
                               failure: timedOut ? .timedOut : .transport((error as NSError).localizedDescription))
+        }
+    }
+
+    /* CSSOS_WAVE_2315 — 给刚创作出来的作品作曲(Jing:「生成成功就播放」)。
+     *
+     * 为什么电视必须多走这一步: create_work 按平台设计【只出歌词+封面】, 音乐是后续一步 ——
+     * 网页端是作品卡上那个「生成音乐」按钮, 而电视上根本没有那个按钮。
+     * 所以从 cssTV 创作出来的作品一直是"有词有封面、听不了", 自然也就谈不上"生成成功就播放"。
+     *
+     * 不另造管线: 直接调网页端那个按钮调的同一个端点
+     * POST /api/agent/work/<id>/generate-audio —— 它自己校验归属、扣费、落 R2、
+     * 写回 user_works.preview_audio_url。两个现成的好性质:
+     *   · 幂等 —— 已经有音频就直接返回 {cached:true}, 重按不会重做也不会重扣;
+     *   · 服务端有 per-work in-flight 锁, 并发重复提交被 409 挡掉(W451 防双计费)。
+     *
+     * 超时给够: Suno 作一首歌是【分钟级】。URLSession 默认 60s 在这里毫无意义 ——
+     * 这正是 W2310 那一课, 不要再犯第二次。 */
+    struct AudioResult { let ok: Bool; let audioURL: String?; let cached: Bool; let code: Int; let error: String? }
+    static func generateAudio(workId: String) async -> AudioResult {
+        guard !workId.isEmpty,
+              let url = URL(string: "\(baseURL)/api/agent/work/\(workId)/generate-audio") else {
+            return AudioResult(ok: false, audioURL: nil, cached: false, code: 0, error: "bad_work_id")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 900          // 作曲是分钟级; nginx 那边 /api/ 是 900s
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data("{}".utf8)
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let ok = (200...299).contains(code) && (j?["ok"] as? Bool ?? false)
+            if !ok { print("[CSSBackend] generateAudio HTTP \(code):", String(data: data.prefix(240), encoding: .utf8) ?? "") }
+            return AudioResult(ok: ok,
+                               audioURL: j?["audio_url"] as? String,
+                               cached: (j?["cached"] as? Bool) ?? false,
+                               code: code,
+                               error: j?["error"] as? String)
+        } catch {
+            print("[CSSBackend] generateAudio failed:", error)
+            return AudioResult(ok: false, audioURL: nil, cached: false,
+                               code: (error as NSError).code == NSURLErrorTimedOut ? -1 : 0,
+                               error: (error as NSError).localizedDescription)
         }
     }
 

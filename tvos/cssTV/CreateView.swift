@@ -18,6 +18,8 @@ struct CreateView: View {
     var starringActorName: String = ""        // W1578 — 从数字演员进入: 该演员主演(照搬桌面端)
     var starringActorId: String = ""          // W1578 — 主角槽锁定该演员 id(修"不管点谁都是爱因斯坦")
     var onIFilm: (String) -> Void = { _ in }
+    /* W2315 — 创作+作曲完成后把作品交给 ContentView 开播放器(播放器的身份/队列规矩归它管)。 */
+    var onPlayWork: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
 
     @State private var format = "single"
@@ -227,6 +229,27 @@ struct CreateView: View {
         }
     }
 
+    /* W2315 — 作曲再开播。与 DigitalActorsView 那一份是同一套措辞和同一套失败分级,
+     * 两个创作入口对用户必须是同一种体验。 */
+    private func composeThenPlay(_ card: CSSBackend.CastWorkCard) {
+        let name = card.title.isEmpty ? tr("your new work") : card.title
+        status = tr("🎼 Composing the music for “{title}” — this takes a few minutes…", ["title": name])
+        Task {
+            let a = await CSSBackend.generateAudio(workId: card.workId)
+            await MainActor.run {
+                guard a.ok else {
+                    status = a.code == 402
+                        ? tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
+                        : tr("Created ✅ — but the music step didn’t finish. You can find it in For You.")
+                    return
+                }
+                status = tr("▶ Ready — opening “{title}”…", ["title": name])
+                dismiss()
+                onPlayWork(card.workId)
+            }
+        }
+    }
+
     private func cast() {
         guard auth.isSignedIn else { status = tr("Please sign in first (the ✨ badge, top-left) to create."); return }
         // 结构化字段 → 意念串。全空则交系统全自动(导演自动流)。
@@ -262,7 +285,14 @@ struct CreateView: View {
                 casting = false
                 if result.intent == "ifilm", let fid = result.ifilmId, !fid.isEmpty { dismiss(); onIFilm(fid); return }
                 if result.ok {
-                    status = tr("✨ Direction received! Your work is generating — it'll appear in For You when ready.")
+                    /* W2315 — 「生成成功就播放」: 创作 → 作曲 → 开播。
+                     * 拿不到 work_cards 就【不要谎称成功】—— 助理只回文字没真创作时,
+                     * 原来那句「正在生成, 稍后出现在 For You」是假阳性(实测库里一行没有)。 */
+                    guard let card = result.workCards.first else {
+                        status = tr("The assistant replied but didn’t create anything this time. Try rephrasing, or check For You.")
+                        return
+                    }
+                    composeThenPlay(card)
                     return
                 }
                 /* W2310 — 说出【为什么】, 不要只说「请重试」。

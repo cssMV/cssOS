@@ -13,6 +13,10 @@ struct DigitalActorsView: View {
      * 【不用 private】: 私有存储属性会把 memberwise init 降级, 带参构造的视图会编不过。*/
     @ObservedObject var i18n = I18n.shared
     @ObservedObject var auth: CSSAuth          // W1578 — 详情页「主演创作」需要传给导演台
+    /* W2315 — 创作+作曲完成后把作品交给 ContentView 去开播放器。
+     * 不在这里自己 present 播放器: 播放器的身份/队列规矩(PlayRef 每次新身份、
+     * 先 fetchWorkById 再开 —— W2233)都归 ContentView 管, 在子视图里再写一份必然走样。 */
+    var onPlayWork: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var actors: [CSSActor] = []
     @State private var loading = true
@@ -106,7 +110,7 @@ struct DigitalActorsView: View {
         .task { await reload() }
         .onExitCommand { dismiss() }
         // W1578 — 点击演员卡 → 进入详情(大肖像 + 名/文明/人设 + 价格)。
-        .fullScreenCover(item: $detailActor) { a in ActorDetailView(actor: a, auth: auth) }
+        .fullScreenCover(item: $detailActor) { a in ActorDetailView(actor: a, auth: auth, onPlayWork: onPlayWork) }
     }
 
     private var header: some View {
@@ -236,6 +240,7 @@ private struct ActorDetailView: View {
     @ObservedObject var i18n = I18n.shared
     let actor: CSSActor
     @ObservedObject var auth: CSSAuth          // W1578 — 传给导演台(主演创作)
+    var onPlayWork: (String) -> Void = { _ in }   // W2315 — 往下传给选角面板
     @Environment(\.dismiss) private var dismiss
     @State private var creating = false        // W1578 — 打开导演台(该演员主演)
     @State private var asking = false          // W2220 —《问道》与该演员第一人称对话
@@ -330,7 +335,7 @@ private struct ActorDetailView: View {
         .onExitCommand { dismiss() }
         // W1578 — 照搬桌面端: 点「主演创作」→ 开【选角面板】(该演员=主角, 按其文明荐反派), 而非通用导演台。
         .fullScreenCover(isPresented: $creating) {
-            ActorCastPanel(seed: actor, auth: auth)
+            ActorCastPanel(seed: actor, auth: auth, onPlayWork: onPlayWork)
         }
         // W2220 —《问道》屏。
         .fullScreenCover(isPresented: $asking) {
@@ -359,6 +364,11 @@ private struct ActorCastPanel: View {
     @ObservedObject var i18n = I18n.shared
     let seed: CSSActor
     @ObservedObject var auth: CSSAuth
+    /* W2315 — 创作+作曲完成后把作品一路交回 ContentView 去开播放器。
+     * 这条回调要从 DigitalActorsView → ActorDetailView → 这里一路传,
+     * 因为「播放器怎么开」的规矩(PlayRef 每次新身份 / 先 fetchWorkById 再开, W2233)
+     * 只有 ContentView 知道 —— 在子视图里再写一份必然走样。 */
+    var onPlayWork: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 
@@ -470,6 +480,34 @@ private struct ActorCastPanel: View {
         }
     }
 
+    /* CSSOS_WAVE_2315 — Jing:「能不能改进一下?生成成功就播放?」
+     *
+     * 创作完【不是终点】: create_work 只出歌词+封面, 音乐要再走一步(网页端是作品卡上的
+     * 「生成音乐」按钮, 电视上没有)。所以这里把三步串起来:
+     *     ① 创作(agent → create_work) → ② 作曲(generate-audio) → ③ 开播
+     * 任何一步失败都【说清楚卡在哪一步】, 不再回那句没信息的「请重试」(W2310 的同一条教训)。 */
+    private func playCreatedWork(_ card: CSSBackend.CastWorkCard) {
+        status = tr("🎼 Composing the music for “{title}” — this takes a few minutes…",
+                    ["title": card.title.isEmpty ? tr("your new work") : card.title])
+        Task {
+            let a = await CSSBackend.generateAudio(workId: card.workId)
+            await MainActor.run {
+                guard a.ok else {
+                    status = a.code == 402
+                        ? tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
+                        : tr("Created ✅ — but the music step didn’t finish. You can find it in For You.")
+                    return
+                }
+                status = tr("▶ Ready — opening “{title}”…",
+                            ["title": card.title.isEmpty ? tr("your new work") : card.title])
+                /* W2233 的教训: 【先把作品取全再开播放器】。塞一个裸 id 进去的话,
+                 * 播放器里显示 Untitled 且播不了, 必须退一步重播才好 —— 那条路已经栽过一次。
+                 * 取不到就仍然按裸 id 开(不比以前差), 由 PlayerView 自己 hydrate。 */
+                onPlayWork(card.workId)
+            }
+        }
+    }
+
     private func generate() {
         guard auth.isSignedIn else { status = tr("Please sign in first (top-left ✨) to create."); return }
         var cast: [[String: String]] = [["actor_id": seed.actor_id, "role": "protagonist"]]
@@ -491,7 +529,30 @@ private struct ActorCastPanel: View {
             let r = await CSSBackend.castMV(prompt: prompt, cast: cast)
             await MainActor.run {
                 generating = false
-                status = r.ok ? tr("✨ Generating — your work appears in For You when ready.") : tr("Couldn't start it just now. Please try again.")
+                guard r.ok else {
+                    // W2310 — 说出【为什么】, 不要只说「请重试」。
+                    switch r.failure {
+                    case .timedOut:
+                        status = tr("The magic mirror is taking longer than usual — it may still be working. Check For You in a few minutes.")
+                    case .unauthorized:
+                        status = tr("Your session expired. Sign in again with the ✨ badge, top-left.")
+                    case .serverRefused(let code):
+                        status = tr("The server turned it down (code {code}). Nothing was charged.", ["code": String(code)])
+                    case .transport(let msg):
+                        status = tr("Couldn't reach the server: {msg}", ["msg": msg])
+                    case .none:
+                        status = tr("Couldn't start it just now. Please try again.")
+                    }
+                    return
+                }
+                /* W2315 — 接住 work_cards 才谈得上"生成成功就播放"。
+                 * 拿不到卡片(例如助理这一轮只回了文字没真创作)就【不要谎称成功】——
+                 * 那正是 Jing 上一轮看到的假阳性:屏幕说 Generating, 库里一行没有。 */
+                guard let card = r.workCards.first else {
+                    status = tr("The assistant replied but didn’t create anything this time. Try rephrasing, or check For You.")
+                    return
+                }
+                playCreatedWork(card)
             }
         }
     }

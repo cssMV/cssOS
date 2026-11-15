@@ -11953,8 +11953,40 @@ function languageNameFromCodeShort(code: string): string {
   return "English";
 }
 
-function buildAgentSystemPrompt(uiLocale: string): string {
+/* CSSOS_WAVE_2314 20261115 — serverSideOnly: 没有浏览器管线的客户端(cssTV)必须走 create_work。
+ *
+ * 这是「cssTV 无法生成作品」真正的最后一环, 前面三轮(W2310 超时 / W2311 型号 / W2312-13 工具通道)
+ * 修的都是【它为什么报错】, 这一条修的是【它为什么不报错也没东西】。
+ *
+ * 根因是架构性的, 不是 bug: 默认路径下助理【不调 create_work】, 而是在回复正文里吐一个
+ * ```cssos-seed 块, 由【浏览器里的 JS 管线】globalThis.cssmvRunPipeline({seed}) 接手真正生成
+ * (见 public/app.agent-chat.js 的 renderSeedCard)。cssTV 是原生 Swift、没有 WebKit,
+ * 那条管线在电视上根本不存在 —— 于是接口回 200、屏幕显示「Generating…」, 而**什么都没发生**。
+ * 实测佐证: 会话记录里助理两次回「Creating this MV ▸ Echoes of Elyria…」+ seed 块,
+ * 而 user_works 全库最新一行停在一个月前。
+ *
+ * 为什么不是"让 cssTV 去解析 seed": 那等于在原生端重写一整条管线, 且与
+ * 「只留 UI Create 真走的那条 MV 管线」相悖。create_work 这个工具【本来就在】,
+ * 服务端独立跑完歌词+封面+落库 —— 平台已有的轮子, 直接用。
+ *
+ * 只对没有浏览器管线的客户端开: 网页端一个字节不变(它的 seed 路径是 Jing 要的
+ * "直接掉进影院看进度", 不能动)。将来 cssVision / cssWatch 接创作时再把它们加进来,
+ * 现在不预先推广 —— 它们还没有创作入口。
+ */
+function buildAgentSystemPrompt(uiLocale: string, opts?: { serverSideOnly?: boolean }): string {
   const lang = languageNameFromCodeShort(uiLocale);
+  const serverSideOnly = !!opts?.serverSideOnly;
+  const tail = serverSideOnly ? [
+    ``,
+    `⚠️⚠️ THIS CLIENT HAS NO BROWSER PIPELINE — OVERRIDES THE SEED PATH ABOVE:`,
+    `  This request comes from a native TV app that CANNOT run the browser MV pipeline.`,
+    `  A cssos-seed block would be silently discarded and the user would get NOTHING.`,
+    `  Therefore, for EVERY work type INCLUDING single:`,
+    `    • NEVER emit a cssos-seed block.`,
+    `    • ALWAYS call the create_work tool — it is the only thing that actually creates anything here.`,
+    `    • work_type="single" is fine for create_work; the multi-part keyword rules above still apply on top.`,
+    `  After the tool returns work_cards, wrap up in ONE short sentence and stop.`,
+  ] : [];
   return [
     `You are the cssOS Studio creative assistant. Your job is to help the user create a music video (MV) by guiding them through choosing a person, an optional landmark, a work type (single / triptych / opera / shortplay / series / film), and a musical/visual angle.`,
     ``,
@@ -12002,6 +12034,9 @@ function buildAgentSystemPrompt(uiLocale: string): string {
     `CREDIT GATE (W165): The create_work tool's debit is enforced atomically in the backend, which already exempts staff (role=admin, @cssstudio.app emails, jingdudc@gmail.com) — you do NOT need to verify the user's admin status yourself. Just call the tool. If the tool returns insufficient_credit, surface it ONCE with the top-up hint and stop — but do NOT pre-emptively refuse on subsequent turns: each call is independent, the user may have topped up, and the user may be exempt. When the user explicitly asks you to "skip credits" or claims admin status, ATTEMPT the call again — trust the backend's atomic check. Never claim "I can't bypass credits" without first re-attempting.`,
     ``,
     `CIVILIZATION → LYRIC LANGUAGE (W197): When you set "civilization" on create_work (e.g. "中华文明", "古埃及", "古希腊", "日本古典", "中土世界"), the backend automatically routes the lyric language to the persona's mother tongue (中华→zh, 古埃及→ar, 古希腊→el, 古罗马→la, 日本→ja, 莫卧儿→ur, 北欧神话→is, etc.) regardless of the user's UI language. You do NOT need to set "language" yourself unless the user explicitly overrides it ("write the Confucius opera in English"). Just pass a clean civilization label and the lyrics will land in the right language.`,
+    /* W2314 — 放在【最后】: 它要覆盖上面 SEED FORMAT 那段"单曲优先走 seed"的默认路径,
+     * 写在前面会被后面的规则盖回去。 */
+    ...tail,
   ].join("\n");
 }
 
@@ -12263,7 +12298,9 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
   let totalOutputTokens = 0;
   let stopReason = "";
   let geminiTurn = false;   // W2312 — 本次请求内的粘滞位: Claude 工具通道失败过就不再重试
-  const systemPrompt = buildAgentSystemPrompt(uiLocale);
+  /* W2314 — cssTV 没有浏览器 MV 管线 → 必须让助理直接调 create_work, 否则它吐的
+   * cssos-seed 块在电视上无人接手, 表现就是"回了 200、显示 Generating、什么都没有"。 */
+  const systemPrompt = buildAgentSystemPrompt(uiLocale, { serverSideOnly: source === "csstv" });
 
   try {
     for (let turn = 0; turn < AGENT_MAX_TURNS; turn++) {

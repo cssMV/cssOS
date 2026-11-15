@@ -29,32 +29,68 @@ struct CSSGenStage: Identifiable, Equatable {
     var detail: String = ""
 }
 
-/* 阶段表的【唯一真源】。两个创作入口共用同一份 —— 文案与节奏对用户必须一致,
- * 分两份写, 下次改必然只改一半。
- * partCount: 这一次要出几部(单曲 1, 三部曲 3)。 */
+/* CSSOS_WAVE_2322 — 六种戏路【共用】这一张阶段表。
+ *
+ * Jing:「现在单曲/三部曲都是同一个生成视图了, 歌剧/短剧/连续剧/电影是否也应该用同一个?」
+ * 答案是【本来就该, 而且本来就是】—— 这张表只认"几部", 不认戏路。
+ * 真正不对的是【按下按钮那一刻的部数猜测】: 原来写成 triptych?3:1,
+ * 于是歌剧/短剧/连续剧/电影全被当成 1 部。
+ *
+ * 为什么不能像三部曲那样给个数: 平台宪法写明【幕数场数由 AI 推导, 不预设】
+ * (Jing 本人放弃过"五幕歌剧之王"的 20 场上限)。所以这四种戏路在后端返回之前
+ * 【真的不知道几部】。不知道就不要编 —— 编一个"1 部"再跳成"7 幕", 比不说更糟。
+ *   partCount > 0 → 说出数(单曲 1 / 三部曲 3 / 拿到 work_cards 后的真实数)
+ *   partCount <= 0 → 不说数, 只说"多幕/多集", 等真实数到了再重建一次
+ *
+ * 单位也各随各的戏路(宪法原话: 三部曲 / 歌剧(幕·场) / 短剧(集)):
+ *   triptych 部 · opera 幕·场 · shortplay/series 集 · film 场 */
 @MainActor
-func cssGenStages(partCount n: Int, title: String) -> [CSSGenStage] {
-    let multi = n > 1
+func cssGenUnitLabel(_ workType: String, count n: Int) -> String {
+    switch workType {
+    case "opera":     return n > 0 ? tr("{n} acts", ["n": String(n)]) : tr("multiple acts")
+    case "shortplay", "series":
+                      return n > 0 ? tr("{n} episodes", ["n": String(n)]) : tr("multiple episodes")
+    case "film":      return n > 0 ? tr("{n} scenes", ["n": String(n)]) : tr("multiple scenes")
+    default:          return n > 0 ? tr("{n} parts", ["n": String(n)]) : tr("multiple parts")
+    }
+}
+
+/// 按下按钮时【能确定】的部数。确定不了返回 0 —— 由后端定, 不猜。
+func cssGenExpectedParts(_ workType: String) -> Int {
+    switch workType {
+    case "single":   return 1
+    case "triptych": return 3            // 三部曲按定义就是 3 部
+    default:         return 0            // 歌剧/短剧/连续剧/电影: 幕数场数由 AI 推导
+    }
+}
+
+/* 阶段表的【唯一真源】。两个创作入口、六种戏路共用同一份 ——
+ * 文案与节奏对用户必须一致, 分两份写, 下次改必然只改一半。 */
+@MainActor
+func cssGenStages(workType: String, partCount n: Int, title: String) -> [CSSGenStage] {
+    let single = (n == 1)                       // 只有【确知是 1 部】才算单曲排版
+    let unit = cssGenUnitLabel(workType, count: n)
     let name = title.isEmpty ? tr("your new work") : title
     return [
         CSSGenStage(
             id: "write", icon: "✨",
             title: tr("Casting locked — writing “{title}”…", ["title": name]),
             eta: "~90s",
-            detail: multi ? tr("lyrics + cover × {n} parts", ["n": String(n)])
-                          : tr("lyrics + cover")),
+            detail: single ? tr("lyrics + cover")
+                           : tr("lyrics + cover × {unit}", ["unit": unit])),
         CSSGenStage(
             id: "compose", icon: "🎼",
-            title: multi ? tr("Composing — {n} parts…", ["n": String(n)])
-                         : tr("Composing the music…"),
+            title: single ? tr("Composing the music…")
+                          : tr("Composing — {unit}…", ["unit": unit]),
             eta: "~2-5min",
-            detail: multi ? tr("music × {n} + visuals × {n} + subtitles × {n}", ["n": String(n)])
-                          : tr("music + visuals + subtitles")),
+            detail: single ? tr("music + visuals + subtitles")
+                           : tr("music + visuals + subtitles, for every one of {unit}", ["unit": unit])),
         CSSGenStage(
             id: "play", icon: "▶",
             title: tr("Ready — opening “{title}”…", ["title": name]),
             eta: "",
-            detail: multi ? tr("plays 1 → 2 → 3 back to back", ["n": String(n)]) : ""),
+            // 播放顺序是铁律(1→2→3 连播, 中途不插别的), 多部时说出来让用户知道会连播。
+            detail: single ? "" : tr("plays in order, back to back")),
     ]
 }
 

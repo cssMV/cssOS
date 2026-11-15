@@ -246,7 +246,7 @@ struct CreateView: View {
         /* W2321 — 阶段②。这时才知道【真实部数】(后端返回几张卡就是几部),
          * 用它重建阶段表 —— 之前按戏路猜的那次可能不准。 */
         status = ""
-        genStages = cssGenStages(partCount: cards.count, title: name)
+        genStages = cssGenStages(workType: format, partCount: cards.count, title: name)
         genStage = 1
         Task {
             /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
@@ -310,7 +310,7 @@ struct CreateView: View {
         casting = true; status = ""
         /* W2321 — 阶段①。部数这时还不知道(后端定), 先按戏路猜: 三部曲 3, 其余 1;
          * 拿到 work_cards 后会用【真实部数】重建一次, 以真实为准。 */
-        genStages = cssGenStages(partCount: format == "triptych" ? 3 : 1, title: title)
+        genStages = cssGenStages(workType: format, partCount: cssGenExpectedParts(format), title: title)
         genStage = 0
         Task {
             let result = await CSSBackend.castMV(prompt: full, cast: castPayload)

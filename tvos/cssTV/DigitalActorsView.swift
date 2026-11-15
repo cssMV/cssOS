@@ -500,7 +500,7 @@ private struct ActorCastPanel: View {
         /* W2321 — 阶段②。这时才知道【真实部数】(后端返回几张卡就是几部),
          * 用它重建阶段表 —— 之前按戏路猜的那次可能不准。 */
         status = ""
-        genStages = cssGenStages(partCount: cards.count, title: name)
+        genStages = cssGenStages(workType: format, partCount: cards.count, title: name)
         genStage = 1
         Task {
             /* W2316 — 第一棒失败不等于结束: 服务端很可能还在作曲, 盯到音频出现为止。
@@ -553,7 +553,7 @@ private struct ActorCastPanel: View {
         if let civ = seed.civilization, !civ.isEmpty { prompt += " Civilization: \(civ)." }
         generating = true; status = ""
         // W2321 — 阶段①(部数先按戏路猜, 拿到 work_cards 后以真实部数重建)。
-        genStages = cssGenStages(partCount: format == "triptych" ? 3 : 1, title: seed.displayName)
+        genStages = cssGenStages(workType: format, partCount: cssGenExpectedParts(format), title: seed.displayName)
         genStage = 0
         Task {
             let r = await CSSBackend.castMV(prompt: prompt, cast: cast)

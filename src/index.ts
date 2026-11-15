@@ -10108,31 +10108,66 @@ const AGENT_TURNS_PER_USER_PER_HOUR = 60;
  *
  * 后台跑, 不阻塞回复: 作曲是分钟级, 让 /api/agent/chat 干等等于必定超时。
  * 作品 id 已经在 work_cards 里回给客户端了, 客户端(或 For You)照着它等音频出现即可。 */
-async function cssosEnsureWorkAudioInBackground(workCards: any[], userId: string): Promise<void> {
+async function cssosCompleteWorkInBackground(workCards: any[], _userId: string): Promise<void> {
   for (const card of (Array.isArray(workCards) ? workCards : [])) {
     const workId = String(card?.work_id || "").trim();
     if (!/^[0-9a-f-]{36}$/i.test(workId)) continue;
-    if (card?.audio_url) continue;                     // 已经有音频就别重做(也别重花钱)
+    const short = workId.slice(0, 8);
     const lang = String(card?.language || "").trim() || "zh";
     const style = String(card?.style || "").trim();
     void (async () => {
+      /* CSSOS_WAVE_2319 20261115 — 四轨【显式】补齐: 歌词 ✓(create_work 已出)→ 音乐 → 画面 → 字幕。
+       *
+       * Jing:「请把源头补成显式四轨。」
+       *
+       * 为什么要显式: W2318 原来只写了【音乐 + 字幕】两步。实测那三首修完画面也有了,
+       * 但那是【字幕那一步的副产品】—— 平台的完整性不该押在一个副作用上:
+       * 字幕那步一旦失败/改实现, 画面就跟着没了, 而且没有任何地方会报出来。
+       * 四轨是平台的定义(「永不烧录·四轨分离」), 就该在代码里逐轨写明、逐轨记日志。
+       *
+       * 顺序不能换: ensureCanonicalMV 没有音频会直接 skip(no_audio),
+       * 所以画面必须排在音乐之后; 字幕要对齐真实歌声, 也必须在音乐之后。 */
+      const t0 = Date.now();
       try {
-        console.warn(`[W2318] 作品 ${workId.slice(0, 8)} 没有音频 → 后台作曲(lang=${lang})`);
-        const r = await cssosEpicRenderCore(workId, { lang, ...(style ? { style } : {}) });
-        if (!r?.ok) { console.warn(`[W2318] ${workId.slice(0, 8)} 作曲失败:`, (r as any)?.code || "?"); return; }
-        console.warn(`[W2318] ${workId.slice(0, 8)} 作曲完成 → 情绪字幕对齐`);
-        /* 字幕紧跟其后: 没有它, 作品能响但没有情绪字幕 —— 那是平台的招牌之一(W2217),
-         * 不该让它变成"再等一个按钮"。失败不影响音频可播, 所以只 warn 不抛。 */
-        const base = `http://127.0.0.1:${PORT}`;
-        const tok = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
-        if (tok) {
-          await fetch(`${base}/api/admin/resubtitle/${workId}`, {
-            method: "POST", headers: { "x-admin-token": tok },
-          }).then((x) => { if (!x.ok) console.warn("[W2318] resubtitle non-200:", x.status); })
-            .catch((e) => console.warn("[W2318] resubtitle failed:", (e as Error)?.message));
+        // ── ② 音乐 ───────────────────────────────────────────────────────────
+        if (card?.audio_url) {
+          console.warn(`[W2319] ${short} 已有音频, 跳过作曲`);
+        } else {
+          console.warn(`[W2319] ${short} ② 作曲(lang=${lang})`);
+          const r = await cssosEpicRenderCore(workId, { lang, ...(style ? { style } : {}) });
+          if (!r?.ok) {
+            /* 音乐没出来就【到此为止】: 画面要音频才能合成, 字幕要歌声才能对齐。
+             * 硬往下走只会得到两条必然失败的日志, 掩盖真正的失败点。 */
+            console.warn(`[W2319] ${short} ② 作曲失败:`, (r as any)?.code || "?", "—— 后两轨不再尝试");
+            return;
+          }
         }
+
+        // ── ③ 画面 ───────────────────────────────────────────────────────────
+        /* W1473 的源头统一渲染: 封面/幻灯帧 → 标准 2.39 MP4(Ken Burns)。
+         * 纯 CPU ffmpeg, 不烧 AI 钱; 幂等(canonical_mv 标记), 已有真视频会自己跳过。 */
+        try {
+          const v = await ensureCanonicalMV(workId);
+          console.warn(`[W2319] ${short} ③ 画面:`, v?.ok ? ((v as any).skipped || "已合成") : `失败 ${(v as any)?.error || (v as any)?.skipped || "?"}`);
+        } catch (e) {
+          console.warn(`[W2319] ${short} ③ 画面抛错:`, (e as Error)?.message);
+        }
+
+        // ── ④ 字幕 ───────────────────────────────────────────────────────────
+        /* 没有它, 作品能响但没有情绪字幕 —— 那是平台的招牌之一(W2217),
+         * 不该让它变成"再等一个按钮"。失败不影响前三轨, 所以只 warn 不抛。 */
+        const tok = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+        if (!tok) {
+          console.warn(`[W2319] ${short} ④ 字幕跳过: 没有 CSSOS_ADMIN_TOKEN`);
+        } else {
+          await fetch(`http://127.0.0.1:${PORT}/api/admin/resubtitle/${workId}`, {
+            method: "POST", headers: { "x-admin-token": tok },
+          }).then((x) => console.warn(`[W2319] ${short} ④ 字幕:`, x.ok ? "ok" : `HTTP ${x.status}`))
+            .catch((e) => console.warn(`[W2319] ${short} ④ 字幕失败:`, (e as Error)?.message));
+        }
+        console.warn(`[W2319] ${short} 四轨补齐完毕, 用时 ${Math.round((Date.now() - t0) / 1000)}s`);
       } catch (e) {
-        console.warn(`[W2318] ${workId.slice(0, 8)} 后台作曲抛错:`, (e as Error)?.message);
+        console.warn(`[W2319] ${short} 后台补轨抛错:`, (e as Error)?.message);
       }
     })();
   }
@@ -12637,7 +12672,7 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
    * 放在 res.json 【之前】起协程、不 await: 作曲是分钟级, 等它等于必定超时;
    * 而 work_cards 已经在这个回复里了, 客户端照着作品 id 等音频出现即可。 */
   if (source === "csstv" && work_cards.length) {
-    void cssosEnsureWorkAudioInBackground(work_cards, userId);
+    void cssosCompleteWorkInBackground(work_cards, userId);
   }
 
   return res.json({

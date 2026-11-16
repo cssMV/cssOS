@@ -12389,6 +12389,18 @@ function buildAgentSystemPrompt(uiLocale: string, opts?: { serverSideOnly?: bool
     `   The KEYWORD DECIDES — do NOT downgrade an opera/series/film into a single song just because one good song would suffice or the brief looks short. Example that MUST become an opera: info-pack "Confucius × Apricot Altar, opera" → call create_work(title="孔子杏坛…", work_type="opera"). The backend then builds all acts/scenes. Missing this keyword is a bug.`,
     `  ONLY use the create_work tool for multi-part work_types — triptych / opera / shortplay / series / film. For a genuinely SINGLE work (no multi-part keyword), prefer the SEED FORMAT path above so the user drops straight into the cinema-hero instead of waiting on a card. Parse title from quotes / 《》, infer work_type, pass any mandatory chorus lines into required_hooks verbatim. The tool returns work_cards which the frontend renders. Your wrap-up is one short sentence ("做好了 — 三部曲《朋友兄弟》已创作完成，点击任意封面进 MV 面板") then stop.`,
     `  ⚠️ STRUCTURE — ONE CALL PER WORK, NOT PER PART (W601): A trilogy/三部曲 (or opera/series/film) is ONE work made of N parts → call create_work EXACTLY ONCE with the ROOT title (e.g. title="朋友兄弟", work_type="triptych"). The backend itself generates the N movement-parts (e.g. 少年的火 / 风雨同舟 / 白发未忘) as children of that single root. NEVER call create_work once per movement, and NEVER pass a movement name (少年的火) as the title — that wrongly produces N separate root works instead of 1 root + N parts. The movement titles belong INSIDE the single work as parts, which the backend derives automatically. One trilogy = one create_work call = one root + N part children.`,
+    /* CSSOS_WAVE_2331 20261115 — Jing:「请禁止助理被拒后自己改做别的戏路。」
+     *
+     * 实测: 用户要一部日本歌剧, create_work 被生成权闸拒绝(need 21 / have 9),
+     * 助理没有停下来, 而是【自己改做了一部三部曲】并成功建出来。
+     * 它在文字里确实说了"歌剧做不了", 但屏幕上只看到三部曲建成了 ——
+     * 【用户要的东西没做出来, 看起来却像成功了】。那比明着失败更坏。
+     *
+     * 这一条只写在提示里是不够的(今晚"每幕 3-12 场"那句软约束就被无视成了 21 场),
+     * 所以同一波在工具派发处加了【代码闸】: 同一次请求里 create_work 失败之后,
+     * 换一个 work_type 再调会被确定性拦住。提示在这里写明, 是为了让助理
+     * 把原始失败【说清楚】, 而不是撞上那道闸才停。 */
+    `  ⛔ NEVER SUBSTITUTE A DIFFERENT WORK TYPE AFTER A FAILURE (W2331): if create_work returns ANY error (no_generation_rights / insufficient_credit / lyrics_generation_failed / work_insert_failed / …), you MUST report that exact error to the user and STOP. Do NOT retry with a different work_type, do NOT quietly make a triptych because the opera was refused, do NOT shrink the structure to fit. The user asked for a specific kind of work; delivering a different kind while the screen looks successful is worse than a clean failure. The backend enforces this too — a second create_work call with a different work_type in the same turn is refused outright.`,
     ``,
     `SAFETY: Never propose RAGE / hate / extremist content. Historical figures should be treated respectfully — risk_notes in the codex flag sensitive cases (e.g. modern political figures).`,
     ``,
@@ -12654,6 +12666,11 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
   // KIE Claude 通道的模型名(W774: claude-opus-4-5); 直连 Anthropic 时用 AGENT_MODEL。可被 env 覆盖。
   const agentModel = _useKie ? (process.env.KIE_AGENT_MODEL || KIE_CLAUDE_MODEL) : AGENT_MODEL;
   const toolCallsLog: { name: string; input: any; result_summary: string }[] = [];
+  /* CSSOS_WAVE_2331 — create_work 一旦失败, 记下【它当时要做的戏路】。
+   * 本次请求内再调 create_work 换一种戏路, 下面那道闸就拦住它。
+   * 不跨请求保存: 用户下一次重新开口是新的意图, 不该被上一次的失败绑住。 */
+  let _refusedCreateWorkType = "";
+  let _refusedCreateError = "";
   let finalText = "";
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -12768,6 +12785,36 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
         const toolName = String(tb.name || "");
         const toolInput = tb.input || {};
         let result: any;
+        /* CSSOS_WAVE_2331 — 【代码闸】create_work 失败之后, 不许换一种戏路再来一次。
+         *
+         * 实测: 用户要日本歌剧, 被生成权闸拒绝(need 21 / have 9), 助理【自己改做了三部曲】
+         * 并且成功建出来。它在文字里说了歌剧做不了, 但屏幕上只看到三部曲成功 ——
+         * 用户要的东西没做出来, 看起来却像成功了。那比明着失败更坏, 而且照样花钱。
+         *
+         * 为什么必须是代码而不是只写提示: 今晚"每幕 3-12 场"那句软约束被无视成了 21 场。
+         * 提示照样写(见 buildAgentSystemPrompt 的 W2331 那条), 但【保证】只能由代码做。
+         *
+         * 只拦【换戏路】, 不拦同戏路重试 —— 同一种再来一次是用户可能刚充了值,
+         * 而且闸现在排在花钱之前(W2327), 再被拒一次几乎不花钱。
+         * 作用域是【本次请求的这一轮对话】, 不跨请求: 下一次用户重新开口是新的意图。 */
+        if (toolName === "create_work" && _refusedCreateWorkType) {
+          const wantWt = String((toolInput as any)?.work_type || "single").trim().toLowerCase() || "single";
+          if (wantWt !== _refusedCreateWorkType) {
+            console.warn("[agent][W2331] 拦下换戏路重试: %s 被拒之后又要做 %s (user=%s)",
+              _refusedCreateWorkType, wantWt, userId);
+            result = {
+              error: "work_type_substitution_blocked",
+              refused_work_type: _refusedCreateWorkType,
+              attempted_work_type: wantWt,
+              original_error: _refusedCreateError,
+              hint: "The user asked for a " + _refusedCreateWorkType + " and it failed. Report that exact failure and STOP. Do not build a different kind of work instead.",
+            };
+            toolCallsLog.push({ name: toolName, input: toolInput,
+                                result_summary: JSON.stringify(result).slice(0, 240) } as any);
+            toolResults.push({ type: "tool_result", tool_use_id: tb.id, content: JSON.stringify(result) });
+            continue;
+          }
+        }
         try {
           result = await runAgentTool(toolName, toolInput, { userId, uiLocale,
             musicPrefer: userPreferredOrder(req as any, "music"),
@@ -12795,6 +12842,14 @@ app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) =>
         // full work_cards array hitches a ride on a separate field that
         // the response shaper at the end of this handler picks up.
         const fullResult = result && typeof result === "object" ? result : null;
+        /* CSSOS_WAVE_2331 — create_work 失败了就【记下它要做的是哪种戏路】。
+         * 任何错误都算(闸拒 / 歌词失败 / 建行失败…): 用户要的那种没做出来, 就不该换一种交差。 */
+        if (toolName === "create_work" && fullResult && fullResult.error && !_refusedCreateWorkType) {
+          _refusedCreateWorkType = String((toolInput as any)?.work_type || "single").trim().toLowerCase() || "single";
+          _refusedCreateError = String(fullResult.error);
+          console.warn("[agent][W2331] create_work(%s) 失败: %s —— 本轮内不再允许换戏路重做",
+            _refusedCreateWorkType, _refusedCreateError);
+        }
         toolCallsLog.push({
           name: toolName,
           input: toolInput,

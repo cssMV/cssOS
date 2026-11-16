@@ -28,8 +28,8 @@ struct CSSGenStage: Identifiable, Equatable {
     var eta: String = ""
     var detail: String = ""
     /* CSSOS_WAVE_2324 — 子行: 歌剧「每一幕之下的场数」(Jing 明确要求)。
-     * 今天后端只给扁平的 part, 所以这里会是空数组 → 一行不画, 版面与现在完全一样;
-     * 哪天后端建出幕→场, 它自动变成「第一幕 · 4 场」这样的缩进列表, 客户端不用再改。 */
+     * CSSOS_WAVE_2325 起后端真带两层回来了 → 这里是「第一幕 · 4 场」这样的缩进列表。
+     * 扁平戏路(三部曲/短剧/连续剧按集)仍是空数组 → 一行不画, 版面不变。 */
     var subLines: [String] = []
 }
 
@@ -58,9 +58,10 @@ func cssGenUnitLabel(_ workType: String, count n: Int, acts: Int = 0, scenes: In
     switch workType {
     case "opera":
         /* 幕与场是【两个独立的数】, 不能拿同一个数充当两者。
-         * 今天后端产出的歌剧是扁平的(顶层 N 部 = N 幕, 一场都没有), 若把 n 既当幕又当场,
-         * 屏幕上会出现"3 幕 · 3 场"这种凭空编出来的场数 —— 那正是本文件反复要避免的事。
-         * 所以: 有真实的场(scenes>0)才说场, 否则只说幕。 */
+         * 若把 n 既当幕又当场, 屏幕上会出现"3 幕 · 3 场"这种凭空编出来的场数
+         * —— 那正是本文件反复要避免的事(W2324 写这段时我自己差点栽进去)。
+         * 所以: 有真实的场(scenes>0)才说场, 否则只说幕。
+         * W2325 后端带两层回来时这两个数各有来源; 老响应/扁平歌剧仍只说幕。 */
         if acts > 0 && scenes > 0 { return tr("{a} acts · {n} scenes", ["a": String(acts), "n": String(scenes)]) }
         if acts > 0 { return tr("{a} acts", ["a": String(acts)]) }
         return tr("multiple acts and scenes")
@@ -77,19 +78,22 @@ func cssGenUnitLabel(_ workType: String, count n: Int, acts: Int = 0, scenes: In
  *
  * Jing:「歌剧名称-幕数-场数, 既要返回幕数, 还要在每一幕之下返回场数。」
  *
- * 数据【今天还不存在】: create_work 产出的是扁平 root + N×part, 没有 act/scene 两层
- * (全库唯一一部带树的歌剧叫「树型验证·歌剧root」, 是测试件)。
- * 所以这个函数今天会返回空数组 → 进度条上一行不多画, 与现在完全一样。
- * 它存在的意义是【后端哪天真建出两层, 不用再改客户端一次】——
- * 按 Jing 选的方案 C: 布局按两层设计好, 后端出什么就显示什么。
+ * CSSOS_WAVE_2325 — 这份数据【现在真的有了】。
+ * W2324 当时的注释说"后端产出的是扁平结构、所以这里返回空数组"——【那句是错的】:
+ * create_work 从 W175 起就真建了 root → act → scene 三层行(我上一轮只读了扁平那一支,
+ * 漏看了上面 250 行的树型那一支)。真正缺的是【把树带出响应】:
+ * 线上走的 multipart_cinema 那条路只回一个拉平的 parts_plan, 幕的归属在路上丢了。
+ * W2325 给每个场补了 parent_id、另给一份 acts_plan, 这个函数才有东西可分组。
  *
- * 分组靠 parent_work_id(场 → 幕)。后端没给这个字段时, 分不了组, 也就不画。 */
+ * 分组靠 parent_work_id(场 → 幕); 场数优先用【幕自己报的数】——
+ * 一幕的场若一张都没进响应, 数卡片会得到 0, 而库里其实有。 */
 @MainActor
 func cssGenActBreakdown(_ cards: [CSSBackend.CastWorkCard]) -> [String] {
     let acts = cards.filter { $0.structureRole == "act" }.sorted { $0.sequenceIndex < $1.sequenceIndex }
     guard !acts.isEmpty else { return [] }
     return acts.map { act in
-        let n = cards.filter { $0.structureRole == "scene" && $0.parentWorkId == act.workId }.count
+        let counted = cards.filter { $0.structureRole == "scene" && $0.parentWorkId == act.workId }.count
+        let n = act.declaredSceneCount > 0 ? act.declaredSceneCount : counted
         let name = act.title.isEmpty ? tr("Act {i}", ["i": String(act.sequenceIndex)]) : act.title
         return n > 0 ? tr("{act} · {n} scenes", ["act": name, "n": String(n)])
                      : tr("{act} · scenes pending…", ["act": name])

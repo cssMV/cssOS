@@ -552,6 +552,11 @@ enum CSSBackend {
          * 这里先把字段接住: 哪天后端真建出幕→场(另立一波), 客户端不用再改一次就能分组显示。
          * 取不到时为空串, 下面的分组逻辑自然退回"只显示幕数"。 */
         let parentWorkId: String
+        /* CSSOS_WAVE_2325 — 幕自己报的场数(acts_plan.scene_count)。
+         * 为什么不只数 scene 卡片: 一幕的场若一张都没进响应(截断/建行失败),
+         * 数出来是 0, 屏幕上那一幕就"没有场"——而库里其实有。幕自己的数是权威。
+         * 非幕卡片为 0。 */
+        var declaredSceneCount: Int = 0
         /// 播放时该打开谁: 多部打开【根】(播放器按 children 顺序连播), 单曲打开自己。
         var playTargetId: String { rootWorkId.isEmpty ? workId : rootWorkId }
         /// 容器(根/幕)不产出音频, 作曲与等待都要跳过它们。
@@ -561,6 +566,16 @@ enum CSSBackend {
         let ok: Bool; let intent: String?; let ifilmId: String?; let reply: String?
         var failure: CastFailure = .none
         var workCards: [CastWorkCard] = []
+        /* CSSOS_WAVE_2325 — 多部作品的【根标题】。
+         * 树型时 workCards.first 是【第一幕】, 拿它的 title 当作品名, 屏幕上会写成
+         * 「正在为《第一幕 · 吴宫春晓》作曲」—— 那是幕名不是作品名。 */
+        var rootTitle: String = ""
+        /* 后端引擎已经在作曲了(multipart_cinema 这条路会自己点火
+         * enqueueMultipartPartsGeneration)。客户端这时【绝不能再调 generate-audio】——
+         * 那是第二次下单, 会重复计费。只许盯着音频出现。 */
+        var backendDriven: Bool = false
+        /// 形状: true = 树(parts_plan 里是"场", 幕在 acts_plan)。按字段读, 不按戏路猜。
+        var isTree: Bool = false
     }
     static func castMV(prompt: String, cast: [[String: String]] = []) async -> CastResult {
         guard let url = URL(string: "\(baseURL)/api/agent/chat") else {
@@ -598,12 +613,84 @@ enum CSSBackend {
             /* W2320 — 按分部序号排序。后端是按序 push 的, 但顺序是【铁律】不是巧合
              * (1→2→3 连播), 不该依赖数组恰好有序 —— 我们要作曲和开播都认第一部。 */
             .sorted { $0.sequenceIndex < $1.sequenceIndex }
+
+            /* CSSOS_WAVE_2325 — multipart_cinema 必须接住, 否则【所有多部作品在电视上都等于没生成】。
+             *
+             * 这是今晚最实的一处: 线上 CSSOS_MULTIPART_CINEMA=1, 于是 create_work 对
+             * 三部曲/歌剧/短剧/连续剧/电影【根本不返回 work_cards】—— 它改走"后端引擎 + 前端订阅"
+             * 那条路, 响应是 { multipart_cinema: {…, parts_plan: […] } }, work_cards 是空数组。
+             * cssTV 只读 work_cards → 一张卡都没有 → 落到 W2315 那句
+             * 「助理只回了文字没真创作」。**作品其实已经建好了, 引擎也已经在作曲了。**
+             * 这正是 Jing 那部《西施三部曲》在屏幕上失败的样子。
+             *
+             * 两层(歌剧/连续剧/电影)在这里还原成 幕卡 + 场卡, 场挂到自己的幕上 ——
+             * 进度条的「第一幕 · 4 场」就是从这里来的。 */
+            var allCards = cards
+            var rootTitle = ""
+            var backendDriven = false
+            var isTree = false
+            if let mc = j?["multipart_cinema"] as? [String: Any] {
+                let root = (mc["root_work_id"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+                rootTitle = (mc["root_title"] as? String) ?? ""
+                backendDriven = true
+                isTree = (mc["tree"] as? Bool) ?? false
+                var tree: [CastWorkCard] = []
+                // 幕(容器, 永远没有音频)。acts_plan 为空 → 扁平多部, 这一段不产出任何卡。
+                for a in (mc["acts_plan"] as? [[String: Any]]) ?? [] {
+                    let aid = (a["id"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+                    guard !aid.isEmpty else { continue }
+                    tree.append(CastWorkCard(workId: aid, title: (a["title"] as? String) ?? "",
+                                             rootWorkId: root,
+                                             sequenceIndex: (a["sequence_index"] as? Int) ?? 0,
+                                             structureRole: "act", parentWorkId: root,
+                                             declaredSceneCount: (a["scene_count"] as? Int) ?? 0))
+                }
+                // 叶子: 树型是"场"(带 parent_id 指向幕), 扁平是"部"。role 由后端给, 不猜。
+                for p in (mc["parts_plan"] as? [[String: Any]]) ?? [] {
+                    let pid = (p["id"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+                    guard !pid.isEmpty else { continue }
+                    tree.append(CastWorkCard(workId: pid, title: (p["title"] as? String) ?? "",
+                                             rootWorkId: root,
+                                             sequenceIndex: (p["sequence_index"] as? Int) ?? 0,
+                                             structureRole: ((p["role"] as? String) ?? "part")
+                                                 .trimmingCharacters(in: .whitespaces).lowercased(),
+                                             parentWorkId: (p["parent_id"] as? String) ?? root))
+                }
+                /* 幕排在它自己的场【前面】: 幕 n 的 sequence_index 与场的全局序号不是同一把尺子
+                 * (幕 1..N, 场 1..M), 直接混在一起排会把幕插到别人的场中间。
+                 * 所以分两段排, 不要一次 sort —— 这种"两套序号混排"的坑栽过(W2320)。 */
+                allCards = tree.filter { $0.structureRole == "act" }.sorted { $0.sequenceIndex < $1.sequenceIndex }
+                    + tree.filter { $0.structureRole != "act" }.sorted { $0.sequenceIndex < $1.sequenceIndex }
+            } else if !cards.isEmpty {
+                /* 开关关掉时 create_work 走旧路: 返回 work_cards, 树型的幕卡带 children(场)。
+                 * 把 children 摊平 —— 不然歌剧只剩几张幕卡, 一个叶子都没有, 作曲无从等起。 */
+                var flat: [CastWorkCard] = []
+                for c in ((j?["work_cards"] as? [[String: Any]]) ?? []) {
+                    for ch in (c["children"] as? [[String: Any]]) ?? [] {
+                        let cid = (ch["work_id"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+                        guard !cid.isEmpty else { continue }
+                        flat.append(CastWorkCard(workId: cid, title: (ch["title"] as? String) ?? "",
+                                                 rootWorkId: (ch["root_work_id"] as? String) ?? "",
+                                                 sequenceIndex: (ch["sequence_index"] as? Int) ?? 0,
+                                                 structureRole: ((ch["structure_role"] as? String) ?? "scene")
+                                                     .trimmingCharacters(in: .whitespaces).lowercased(),
+                                                 parentWorkId: (c["work_id"] as? String) ?? ""))
+                    }
+                }
+                if !flat.isEmpty {
+                    isTree = true
+                    allCards = cards + flat.sorted { $0.sequenceIndex < $1.sequenceIndex }
+                }
+            }
             return CastResult(ok: ok,
                               intent: j?["intent"] as? String,
                               ifilmId: j?["ifilm_id"] as? String,
                               reply: j?["reply"] as? String,
                               failure: ok ? .none : (code == 401 || code == 403 ? .unauthorized : .serverRefused(code)),
-                              workCards: cards)
+                              workCards: allCards,
+                              rootTitle: rootTitle,
+                              backendDriven: backendDriven,
+                              isTree: isTree)
         } catch {
             print("[CSSBackend] castMV failed:", error)
             let timedOut = (error as NSError).code == NSURLErrorTimedOut
@@ -691,12 +778,22 @@ enum CSSBackend {
      * 容器不产出音频, 等它等于必然超时。调用方用 CastWorkCard.isContainer 过滤。 */
     static func composeAndWait(workIds: [String],
                                maxWaitSeconds: Int = 1800,
+                               kickFirst: Bool = true,
                                onWaiting: @MainActor @escaping () -> Void) async -> ComposeOutcome {
         guard let first = workIds.first else { return .gaveUp("no_work") }
-        let a = await generateAudio(workId: first)
-        if a.code == 402 { return .needsTopUp }
-        // 单曲且一次就成 → 直接可播, 不必轮询。
-        if a.ok && workIds.count == 1 { return .ready }
+        /* CSSOS_WAVE_2325 — kickFirst=false 时【一个字都不许下单】。
+         *
+         * 多部作品走 multipart_cinema 那条路时, 后端自己已经点火
+         * enqueueMultipartPartsGeneration(逐部作曲 + 幻灯 + 情绪字幕, 跑在服务进程里)。
+         * 客户端再调一次 generate-audio 就是【第二次下单】——
+         * 那个端点确实幂等于"已有音频就 cached", 但此刻音频还没出来, 它会真的再作一首,
+         * 也就真的再扣一次钱。所以这里只许【盯着音频出现】。 */
+        if kickFirst {
+            let a = await generateAudio(workId: first)
+            if a.code == 402 { return .needsTopUp }
+            // 单曲且一次就成 → 直接可播, 不必轮询。
+            if a.ok && workIds.count == 1 { return .ready }
+        }
 
         await onWaiting()
         /* 轮询查作品行。10s 一次: 作曲是分钟级, 查太密只是白费流量。

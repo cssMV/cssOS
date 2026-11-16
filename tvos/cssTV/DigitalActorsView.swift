@@ -501,9 +501,13 @@ private struct ActorCastPanel: View {
      * 「生成音乐」按钮, 电视上没有)。所以这里把三步串起来:
      *     ① 创作(agent → create_work) → ② 作曲(generate-audio) → ③ 开播
      * 任何一步失败都【说清楚卡在哪一步】, 不再回那句没信息的「请重试」(W2310 的同一条教训)。 */
-    private func playCreatedWork(_ cards: [CSSBackend.CastWorkCard]) {
+    private func playCreatedWork(_ r: CSSBackend.CastResult) {
+        let cards = r.workCards
         guard let card = cards.first else { return }
-        let name = card.title.isEmpty ? tr("your new work") : card.title
+        /* W2325 — 作品名优先用【根标题】。树型时 cards.first 是第一幕,
+         * 拿它当作品名会写成「正在为《第一幕 · 吴宫春晓》作曲」—— 那是幕名不是作品名。 */
+        let name = !r.rootTitle.isEmpty ? r.rootTitle
+                 : (card.title.isEmpty ? tr("your new work") : card.title)
         /* W2321 — 阶段②。这时才知道【真实部数】(后端返回几张卡就是几部),
          * 用它重建阶段表 —— 之前按戏路猜的那次可能不准。 */
         status = ""
@@ -512,7 +516,7 @@ private struct ActorCastPanel: View {
         let actCount = cards.filter { $0.structureRole == "act" }.count
         let leafCount = cards.filter { !$0.isContainer }.count
         /* W2324 — 歌剧:【幕数】用真实的幕, 没有两层时退回"顶层有几部"(歌剧的顶层部就是幕)。
-         * 场数(leafCount)与每幕明细由后端决定 —— 它今天只给扁平 part, 明细就是空的。 */
+         * 场数与每幕明细由后端决定(W2325 起真带两层)。 */
         let operaActs = actCount > 0 ? actCount : (format == "opera" ? cards.count : 0)
         genStages = cssGenStages(workType: format,
                                  partCount: leafCount > 0 ? leafCount : cards.count,
@@ -529,7 +533,9 @@ private struct ActorCastPanel: View {
              * 万一一张叶子都没有(形状意外), 退回全部 —— 宁可多等也不要一个都不等。 */
             let leaves = cards.filter { !$0.isContainer }
             let waitIds = (leaves.isEmpty ? cards : leaves).map { $0.workId }
-            let outcome = await CSSBackend.composeAndWait(workIds: waitIds) {
+            /* W2325 — 后端引擎已在作曲时【不再下单】, 只盯音频出现。再调一次就是重复计费。 */
+            let outcome = await CSSBackend.composeAndWait(workIds: waitIds,
+                                                          kickFirst: !r.backendDriven) {
                 status = tr("🎼 Still composing “{title}” — it will start playing by itself.", ["title": name])
             }
             await MainActor.run {
@@ -606,7 +612,7 @@ private struct ActorCastPanel: View {
                     status = tr("The assistant replied but didn’t create anything this time. Try rephrasing, or check For You.")
                     return
                 }
-                playCreatedWork(r.workCards)
+                playCreatedWork(r)
             }
         }
     }

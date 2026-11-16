@@ -11297,6 +11297,17 @@ async function runAgentTool(
         | { kind: "flat"; flat: SceneNode[] }
         | { kind: "nested"; acts: ActNode[] }
         | null {
+        /* CSSOS_WAVE_2325 20261115 — 第一幕/第一部【丢自己的名字】的真因。
+         *
+         * outerRe 要求 `[Act I — 名]` 前面有一个 \n, 但组装侧是 `out.join("\n").trim()` ——
+         * 于是第一个标记恰好落在字符串第 0 位, 【匹配不上】。后果不是"少一幕"(W1077 的
+         * 兜底会把它补成隐式 Act I, 幕数是对的), 而是那一幕的【副标题被当成正文丢掉】:
+         * 屏幕上是「Act I」而别的幕是「Act II · 会稽沉吟」, 看起来像后端漏填了第一幕的名字。
+         *
+         * 修法是补一个前导 \n 让第 0 位也能匹配, 不是放宽正则 —— 放宽成 `(^|\n)` 会让
+         * 正文里的 `[Act ...]` 也命中, 那是另一个坑。
+         * 补完 W1077 的兜底仍然有效: 真缺 [Act I] 标记时 leadBody 依旧非空。 */
+        text = text.startsWith("\n") ? text : "\n" + text;
         const outerRe = new RegExp(`\\n\\s*\\[\\s*${outer}\\s+([IVX0-9]+)\\s*[:\\-—]?\\s*([^\\]]*)\\]\\s*\\n`, "gi");
         const outerMatches: { tag: string; sub: string; index: number }[] = [];
         let m: RegExpExecArray | null;
@@ -11719,7 +11730,25 @@ async function runAgentTool(
         // CSSOS_WAVE_1456 — 树型(歌剧/连续剧/电影)叶子场景【全局序号】, 让引擎/播放器跨幕正确排序
         // (旧 si+1 每幕重启 → act2 场1 会排在 act1 场2 前)。同时收集 scene 叶子供 shell-only 点火引擎。
         let sceneSeqGlobal = 0;
-        const treeScenePlan: Array<{ id: string; title: string; role: string; sequence_index: number }> = [];
+        /* CSSOS_WAVE_2325 20261115 — Jing:「歌剧名称-幕数-场数, 既要返回幕数,
+         * 还要在每一幕之下返回场数。」
+         *
+         * 两层【早就建进库了】(W175: root → act → scene 三种 structure_role 都真写了行),
+         * 但 CSSOS_MULTIPART_CINEMA=1(线上就是 1)这条路返回的是 `parts_plan` ——
+         * 一个【把所有场拉平】的列表, 幕的归属在响应里【整个消失】。
+         * 于是客户端拿到的永远是"N 个叶子", 画不出「第一幕 · 4 场」。
+         *
+         * 所以要补的不是建树(已有), 是【把树带出去】:
+         *   · 每个场带上 parent_id / act_title / act_sequence —— 场知道自己是哪一幕的;
+         *   · 另给一份 acts_plan —— 幕自己的 id/名字/场数, 客户端不必自己 group by。
+         * 两份都给是有意的: 没有 acts_plan, 一幕的场【全没生成成功】时那一幕会凭空消失。 */
+        const treeScenePlan: Array<{
+          id: string; title: string; role: string; sequence_index: number;
+          parent_id: string; act_title: string; act_sequence: number;
+        }> = [];
+        const treeActPlan: Array<{
+          id: string; title: string; sequence_index: number; scene_count: number; scene_ids: string[];
+        }> = [];
         for (let ai = 0; ai < operaActs.length; ai += 1) {
           const act = operaActs[ai]!;
           const actId = crypto.randomUUID();
@@ -11800,7 +11829,10 @@ async function runAgentTool(
             } catch (errOuter) {
               return { error: "work_insert_failed", detail: "scene_insert:" + ((errOuter as Error)?.message || String(errOuter)) };
             }
-            treeScenePlan.push({ id: sceneId, title: scene.title, role: "scene", sequence_index: sceneSeqGlobal });
+            treeScenePlan.push({
+              id: sceneId, title: scene.title, role: "scene", sequence_index: sceneSeqGlobal,
+              parent_id: actId, act_title: act.title, act_sequence: ai + 1,
+            });
             sceneCards.push({
               work_id: sceneId,
               title: scene.title,
@@ -11815,6 +11847,13 @@ async function runAgentTool(
               video_url: null,
             });
           }
+          treeActPlan.push({
+            id: actId,
+            title: act.title,
+            sequence_index: ai + 1,
+            scene_count: sceneCards.length,
+            scene_ids: sceneCards.map((c: any) => String(c.work_id)),
+          });
           cards.push({
             work_id: actId,
             title: act.title,
@@ -11855,6 +11894,14 @@ async function runAgentTool(
             provider: lyricsProvider,
             parts_plan: treeScenePlan,
             count: treeScenePlan.length,
+            /* CSSOS_WAVE_2325 — 两层一起带出去。
+             * tree=true 是给客户端的【形状标志】: 有它就说明 parts_plan 里的叶子
+             * 是"场", 幕在 acts_plan 里; 没有它就是扁平多部(三部曲/短剧…)。
+             * 客户端不必按 work_type 去猜形状 —— 猜形状是上一轮栽过的那类坑。 */
+            tree: true,
+            acts_plan: treeActPlan,
+            act_count: treeActPlan.length,
+            scene_count: treeScenePlan.length,
           };
         }
         return {
@@ -11944,6 +11991,11 @@ async function runAgentTool(
           provider: lyricsProvider,
           parts_plan: partsPlan,
           count: partsPlan.length,
+          /* CSSOS_WAVE_2325 — 扁平多部【明说自己是扁平的】。
+           * 与树型那条路成一对: 客户端只读 tree 这一个字段就知道形状,
+           * 不用按 work_type 猜(「歌剧就一定有场」这种推断在今天的库里是错的)。 */
+          tree: false,
+          acts_plan: [],
           backend_driven: true,
         };
       }

@@ -31602,6 +31602,11 @@ async function enqueueKaraokeTranscription(workId: string): Promise<void> {
         ),
       );
       console.info("[karaoke] persisted", finalWords.length, "words for", workId, enriched ? "(+emotion)" : "");
+      /* CSSOS_WAVE_2334 — 词一落库就【顺手合成正规字幕】。
+       * 装在这里而不是各调用点: 这是 whisper_words 唯一的产出处, 装在必经之处才不会漏
+       * (平台的教训: 闸装在 setActive() 里等于没装)。
+       * 幂等 —— 已有字幕直接返回, 不覆盖; 失败不影响上面已经存好的时间轴。 */
+      void cssosSynthSubtitleFromWhisperWords(workId).catch(() => {});
     } catch (err) {
       console.warn("[karaoke] whisper failed", workId, (err as Error)?.message || err);
     }
@@ -31675,7 +31680,23 @@ async function tagWordsWithEmotion(words: WhisperWord[]): Promise<WhisperWordTag
       Authorization: `Bearer ${groqKey}`,
     },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      /* CSSOS_WAVE_2333 20261116 — llama-3.3-70b-versatile 已被 groq 下架。
+       *
+       * 后果不是"换个模型就行"这么轻: 这一棒 404 之后 tagWordsWithEmotion 返回 null,
+       * 上游【静默降级】成只存裸时间轴 —— whisper_words 的 has_emotion 落成 false。
+       * 实测《花の色は》第一场 595 词, has_emotion=false。
+       * 也就是说【情绪字幕里的"情绪"全平台已经没了】, 而且不报错、不中断, 只是没有。
+       * 这正是 Jing 立的那条「模型 ID 必须跟最新版, 不留过期下架版本」。
+       *
+       * 换成 qwen3.8-27b 不是按名气挑的, 是拿【真实提示词 + 真实解析正则】实测挑的:
+       *     qwen/qwen3.8-27b    29/28 行可解析   1278ms   ← 选它
+       *     openai/gpt-oss-120b  6/28 行可解析   2521ms
+       *     openai/gpt-oss-20b   0/28(content 空, 结果跑进 reasoning 字段)
+       * gpt-oss 系是推理型, 把答案放进 reasoning 字段 → 现有解析器一行都取不到。
+       * 换模型【必须按这份活实测】, 目录里有 ≠ 调得通 ≠ 格式对得上。
+       *
+       * 留 env 口子是为了下次下架时不必改代码就能救。 */
+      model: String(process.env.KARAOKE_EMOTION_MODEL || "qwen/qwen3.8-27b").trim(),
       messages: [{ role: "user", content: prompt }],
       temperature: 0.4,
       max_tokens: Math.min(8000, words.length * 18 + 200),
@@ -31715,6 +31736,155 @@ async function tagWordsWithEmotion(words: WhisperWord[]): Promise<WhisperWordTag
   });
   console.info("[karaoke-emotion] tagged", tagByIdx.size, "/", words.length, "words");
   return tagged;
+}
+
+/* CSSOS_WAVE_2334 20261116 — 用【已有的逐字时间轴】合成正规情绪字幕, 不另花一分钱。
+ *
+ * Jing:「不要缺失情绪字幕。」他选的是【复用已有时间轴合成】, 不是每部再跑一次 resubtitle
+ * (那会把 whisper 已经做过的活重做一遍, 一部 20 集的剧就是 20 次, 随规模线性涨)。
+ *
+ * 缺口是这样的: 多部作品的分部一直有 whisper_words(逐字时间轴, 实测歌剧 12/12),
+ * 但从来没有 subtitle-take1.json —— 而播放器(cssTV / 影院)读的是后者。
+ * 时间轴在、字幕没有, 中间就差这一个转换。
+ *
+ * 对齐策略(诚实说明它是什么、不是什么):
+ *   · 词级时间【是真的】—— 直接来自 whisper 的 onset/offset, 不是估算;
+ *   · 字级时间是在【那一个词的真实时长内】均分 —— 一个词很短, 这一级估算可接受;
+ *   · 词 → 行的归属按【字数累积配额】走: 歌词行有多少字, 就从词流里取多少字。
+ *     不按文本匹配, 因为 ASR 转写与书面歌词几乎必然有出入(尤其日文/古语),
+ *     硬做文本匹配一旦错位就整首崩; 字数配额错了也只影响相邻两行的边界。
+ *
+ * 为什么必须复用 parseLyricsToSections: 它已经带着今晚之前所有的方括号教训 ——
+ * 跨行方括号块折叠(W2302)、转义方括号解码(W2303)、整行强调剥离。
+ * 自己再写一遍切行, 等于把那些坑重新踩一遍(舞台说明会被唱出来那一类)。
+ *
+ * 绝不覆盖: 已经有字幕就直接返回(「完整的东西只增版本, 不覆盖」)。 */
+async function cssosSynthSubtitleFromWhisperWords(
+  workId: string,
+  /* force: 只用来【修正本函数自己产出的坏字幕】—— 它是半成品, 不是用户的成品,
+   * 所以不受「完整的东西只增版本」那条约束。绝不要拿它去压真正做好的字幕。 */
+  opts?: { force?: boolean },
+): Promise<string | null> {
+  type W = { text?: string; t_start?: number; t_end?: number; emotion?: string; weight?: number };
+  try {
+    const row = await withClient((c) => c.query<{
+      language: string | null; lyrics_preview: string | null; subtitle_take1_json_url: string | null;
+      audio_url: string | null; meta: { words?: W[] } | null; duration_secs: number | null;
+    }>(
+      `SELECT w.language, w.lyrics_preview, w.subtitle_take1_json_url,
+              ww.url AS audio_url, ww.meta AS meta,
+              (SELECT t.duration_secs FROM work_language_tracks t
+                WHERE t.work_id = w.id ORDER BY t.track_order LIMIT 1) AS duration_secs
+         FROM user_works w
+         LEFT JOIN work_assets ww ON ww.work_id = w.id AND ww.asset_type = 'whisper_words'
+        WHERE w.id = $1::uuid`,
+      [workId],
+    ));
+    const r = row.rows[0];
+    if (!r) return null;
+    if (!opts?.force && String(r.subtitle_take1_json_url || "").trim()) return null;   // 已有字幕 → 不覆盖
+    const lang = String(r.language || "").trim();
+    if (!lang) {
+      // 语言标签铁律: 标错 = 字幕整首哑掉。取不到就不写, 宁可没有也不要错的。
+      console.warn("[subtitle-synth][W2334] %s 没有 language 标签 → 不合成", workId);
+      return null;
+    }
+    const words = (r.meta && Array.isArray(r.meta.words) ? r.meta.words : [])
+      .map((w) => ({
+        text: String(w?.text ?? "").trim(),
+        s: Number(w?.t_start), e: Number(w?.t_end),
+        emotion: String(w?.emotion || ""), weight: Number(w?.weight) || 0,
+      }))
+      .filter((w) => w.text && Number.isFinite(w.s) && Number.isFinite(w.e) && w.e >= w.s);
+    if (!words.length) return null;
+    const lyricSections = parseLyricsToSections(String(r.lyrics_preview || ""));
+    if (!lyricSections.length) return null;
+
+    /* 时间上限: 有实测时长就按它夹, 没有就按最后一个词的 offset。
+     * W2306 的教训 —— 行级 t_end 也要夹, 不能只夹 token。 */
+    const lastWordEnd = words[words.length - 1]!.e;
+    const capSec = (Number(r.duration_secs) > 0 ? Number(r.duration_secs) : lastWordEnd);
+    const ms = (sec: number) => Math.max(0, Math.round(Math.min(sec, capSec) * 1000));
+    const sig = (s: string) => s.replace(/[\s\p{P}\p{S}]/gu, "");   // 计配额只数"有声"的字
+
+    /* 词流游标 + 当前词【还能承载几个字】。
+     *
+     * ⚠ 这里有一个我第一版写错、而且会直接显示在屏幕上的地方, 记下来别再犯:
+     * token 的【字】必须取自【歌词】, 时间才取自词流。
+     * 第一版把 leftover 写成了 ASR 词的字 —— 于是樱花诗的那一行, token 蹦出来的是
+     * 「銀座」(whisper 听岔的), 而行文本还是「小町の瞳に夜桜が燃える」。
+     * 逐字情绪字幕是【一个字一个字蹦出来】的, 字错了就是满屏错字。
+     * 正确的分工: 歌词给字(它是权威文本), whisper 给时间(它是权威时间)。 */
+    let wi = 0;
+    let wordLeft = 0;           // 当前词还能承载几个歌词字
+    let wordS = 0, wordPer = 0; // 当前词的起点 / 每字时长
+    const nextWord = (): boolean => {
+      while (wi < words.length) {
+        const w = words[wi++]!;
+        const n = (sig(w.text) || w.text).length;
+        if (!n) continue;
+        wordLeft = n;
+        wordS = w.s;
+        wordPer = Math.max(0, w.e - w.s) / n;
+        return true;
+      }
+      return false;
+    };
+    let lastEndSec = 0;         // 单调夹: whisper 的词边界本身会小幅重叠(实测 0.14s)
+    const outSections: SubSection[] = [];
+
+    for (const ls of lyricSections) {
+      const lyricLines = (ls.lines || []).map((x) => String(x)).filter((x) => x.trim());
+      if (!lyricLines.length) continue;
+      const outLines: SubLine[] = [];
+      for (const lineText of lyricLines) {
+        /* 字来自【歌词行本身】, 一个可见字一个 token。 */
+        const chars = [...lineText].filter((ch) => !/\s/u.test(ch));
+        if (!chars.length) continue;
+        const tokens: SubToken[] = [];
+        for (const ch of chars) {
+          if (wordLeft <= 0 && !nextWord()) break;   // 词流用尽 → 这一行到此为止
+          const cs = Math.max(wordS, lastEndSec);    // 单调夹(whisper 词边界会重叠)
+          const ce = Math.max(cs, wordS + wordPer);
+          tokens.push({
+            char: ch,
+            t_start: ms(cs), t_end: ms(ce),
+            beat: null, beat_strength: null, rhythm: null, volume: null, pitch_hz: null,
+            emotion: "", emotion_intensity: 0,
+          });
+          wordS += wordPer;
+          wordLeft -= 1;
+          lastEndSec = ce;
+        }
+        if (!tokens.length) continue;
+        outLines.push({
+          text: lineText,
+          t_start: tokens[0]!.t_start,
+          t_end: tokens[tokens.length - 1]!.t_end,
+          tokens,
+        });
+      }
+      if (!outLines.length) continue;
+      outSections.push({
+        tag: String(ls.tag || ""),
+        t_start: outLines[0]!.t_start,
+        t_end: outLines[outLines.length - 1]!.t_end,
+        emotion: "",
+        lines: outLines,
+      });
+    }
+    if (!outSections.length) return null;
+    const url = await upsertSubtitleJson(workId, lang, 1, outSections, null,
+      String(r.audio_url || "") || null);
+    console.info("[subtitle-synth][W2334] %s lang=%s → %d 节 / %d 行 (词 %d, 零额外成本)",
+      workId, lang, outSections.length,
+      outSections.reduce((a, s) => a + s.lines.length, 0), words.length);
+    return url;
+  } catch (e) {
+    console.warn("[subtitle-synth][W2334] %s 合成失败: %s", workId,
+      e instanceof Error ? e.message : String(e));
+    return null;
+  }
 }
 
 async function callWhisperEndpoint(opts: {
@@ -42741,6 +42911,46 @@ async function callKieJob(
     return { ok: false, error: String((e as Error)?.message || e), taskId };
   }
 }
+
+/* CSSOS_WAVE_2334 — admin: 用已有的 whisper_words 合成正规情绪字幕(零额外成本)。
+ *
+ * 两个用途: ① 在【一个场】上先验证合成结果再谈回填 —— 不先验就批量跑, 正是平台栽过的那类;
+ *          ② 给存量多部作品补字幕(它们有时间轴、没字幕)。
+ * 幂等且只补空缺: 已有字幕的作品直接跳过, 不覆盖。
+ *   curl -X POST "$API/api/admin/synth-subtitle/<workId>" -H "x-admin-token: $TOK"
+ *   # 整部多部作品: ?root=1 对该 root 下所有叶子逐个补(串行, 不并发)
+ */
+app.post("/api/admin/synth-subtitle/:workId", async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const workId = String(req.params.workId || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
+  const asRoot = String((req.query as any)?.root || "").trim() === "1";
+  // force 只为修正【本合成器自己产出的坏字幕】(半成品), 绝不是用来压真正做好的字幕。
+  const force = String((req.query as any)?.force || "").trim() === "1";
+  try {
+    let targets: string[] = [workId];
+    if (asRoot) {
+      const kids = await withClient((c) => c.query<{ id: string }>(
+        `SELECT id::text FROM user_works
+          WHERE root_work_id = $1::uuid
+            AND structure_role IN ('part','scene','episode','take2','theme_song','interlude','ending_song')
+          ORDER BY sequence_index, structure_role`, [workId]));
+      targets = kids.rows.map((k) => k.id);
+    }
+    const out: { work_id: string; url: string | null }[] = [];
+    // 串行 —— 铁律「不要几路并发」; 而且这里本来就不赶时间(纯本地计算 + 一次 R2 写)。
+    for (const id of targets) {
+      out.push({ work_id: id, url: await cssosSynthSubtitleFromWhisperWords(id, { force }) });
+    }
+    const made = out.filter((o) => o.url).length;
+    return res.json({ ok: true, root: asRoot, targets: targets.length, made, skipped: targets.length - made, results: out });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
 
 /* CSSOS_WAVE_658 — admin 测试端点: 任意 kie 模型一键真机验证(端到端跑通后再接进主管线)。
  *   curl -X POST "$API/api/admin/kie-test" -H "x-admin-token: $TOK" -H "Content-Type: application/json" \

@@ -42105,7 +42105,48 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          COALESCE(final_mv_asset.url, w.preview_video_url) AS final_mv_url,
          COALESCE(audio_track_1_asset.url, w.preview_audio_url) AS audio_track_1_url,
          audio_track_2_asset.url AS audio_track_2_url,
-         subtitle_asset.url AS subtitle_srt_url
+         subtitle_asset.url AS subtitle_srt_url,
+         /* CSSOS_WAVE_2336 20261116 — Jing:「画面都是有了, 就是一张封面图。」
+          *
+          * 根因不在生成侧 —— 幻灯帧【早就生成好并且已经付过钱了】(歌剧实测 12 叶 × 6 帧 = 71 帧),
+          * 是这条【子部查询】从来没把它们 SELECT 出来。
+          *
+          * 这个洞只对【多部作品的分部】发作, 而且只在原生端(cssTV/cssVision)看得见:
+          *   /api/works/market 主查询给 root 取了 cover_slides/visual_kind/visual_frames,
+          *   子部(幕/场/分部/take2)却走本函数补齐 —— 本函数只补了【能不能播】那几列
+          *   (W1346 当年补的 audio/mv URL), 没补【画面是什么】那几列。
+          *   于是每个场的 cover_slides 都是 undefined → cssTV 的 slideFrames 退回
+          *   [coverURL] 单张 → 整部歌剧从头到尾一张封面图。
+          *
+          * 与 W1346 是同一类漏法, 同一个 SELECT 列表 —— 当年补了"声音", 漏了"画面"。
+          *
+          * 表达式【逐字照抄主查询】(55030 起那一段), 不另写一份:
+          * 判据写着"绝不能用有没有 mp4 判断真视频", 两处判据分叉 = UI 上撒谎。 */
+         (SELECT array_agg(sf.url)
+            FROM (SELECT sf2.url FROM work_assets sf2
+                   WHERE sf2.work_id = w.id AND sf2.asset_type = 'slideshow_frame'
+                   ORDER BY random() LIMIT 15) sf) AS cover_slides,
+         CASE
+           WHEN w.is_real_video_mv
+                AND EXISTS (SELECT 1 FROM work_assets vk2 WHERE vk2.work_id = w.id AND vk2.asset_type = 'slideshow_frame')
+             THEN 'hybrid'
+           WHEN w.is_real_video_mv THEN 'video'
+           WHEN (COALESCE((SELECT (fa.meta->'engines'->>'video_cents')::int FROM work_assets fa
+                            WHERE fa.work_id = w.id AND fa.asset_type = 'final_mv' LIMIT 1), 0) > 0
+                 OR w.preview_video_url LIKE '%/te-trailer%'
+                 OR w.preview_video_url LIKE '%/film-%')
+                AND EXISTS (SELECT 1 FROM work_assets vk WHERE vk.work_id = w.id AND vk.asset_type = 'slideshow_frame')
+             THEN 'hybrid'
+           WHEN COALESCE((SELECT (fa2.meta->'engines'->>'video_cents')::int FROM work_assets fa2
+                            WHERE fa2.work_id = w.id AND fa2.asset_type = 'final_mv' LIMIT 1), 0) > 0
+                 OR w.preview_video_url LIKE '%/te-trailer%'
+                 OR w.preview_video_url LIKE '%/film-%'
+             THEN 'video'
+           ELSE 'slides'
+         END AS visual_kind,
+         (SELECT count(*) FROM work_assets vf
+           WHERE vf.work_id = w.id AND vf.asset_type = 'slideshow_frame') AS visual_frames,
+         w.is_real_video_mv
        FROM user_works w
        JOIN users u ON u.id = w.user_id
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id

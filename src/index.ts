@@ -10512,6 +10512,77 @@ async function clearAgentSession(userId: string, sessionId: string): Promise<voi
   }
 }
 
+/* CSSOS_WAVE_2327 20261115 — 把用户说死的【幕数 / 每幕场数】确定性地落到结构计划上。
+ *
+ * 为什么是一个【顶层具名函数】而不是写在 create_work 里面:
+ *   1) 它是本波的"保证"所在, 必须能被回归【真跑】—— 内联在那个几百行的分支里,
+ *      测试就只能去 grep 字符串, 而 grep 证明不了它算得对;
+ *   2) Jing:「从源头改, 确保下一次不需要再这样修改」—— 将来任何入口
+ *      (粘贴结构 /api/mv/lyrics/parse、导演台、cssTV)要守同一条约束, 调这一个函数即可,
+ *      不必各自再写一遍(各写一遍 = 各漏一遍)。
+ *
+ * 为什么必须是代码而不是提示词: 平台在"软约束"上栽过不止一次 ——
+ * 「只给上限会被读成'放一个'」「否定式约束无效」, 最惨一次 78% 的镜头违规;
+ * Jing 要 3 幕×2 场、规划器给 21 场, 又是一例。提示照样写, 但【保证】只能由代码做。
+ *
+ * 规则: 多了裁掉, 少了补齐。补出来的单元带 focus(主题), 后面逐场歌词会真写内容,
+ * 不是空壳 —— 这正是 W1446b 为三部曲做过的事, 这里泛化到六种戏路。 */
+type CssosStructOuter = {
+  title?: string; focus?: string; sceneCount?: number;
+  scenes?: Array<{ title?: string; focus?: string }>;
+};
+function cssosNormalizeStructurePlan(
+  plan: CssosStructOuter[],
+  words: { outer: string; inner: string | null },
+  reqOuter: number,
+  reqInner: number,
+  fallbackFocus: string,
+  limits?: { maxOuter?: number; maxInner?: number },
+): CssosStructOuter[] {
+  const maxOuter = Math.max(1, limits?.maxOuter ?? 5000);
+  const maxInner = Math.max(1, limits?.maxInner ?? 120);
+  const nested = !!words.inner;
+  const roman = (n: number) => ["I","II","III","IV","V","VI","VII","VIII","IX","X",
+    "XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX"][n] || String(n + 1);
+  let out = Array.isArray(plan) ? plan.slice() : [];
+  const wantOuter = Math.min(maxOuter, Math.max(0, Math.round(reqOuter) || 0));
+  const wantInner = nested ? Math.min(maxInner, Math.max(0, Math.round(reqInner) || 0)) : 0;
+  if (wantOuter) {
+    if (out.length > wantOuter) out = out.slice(0, wantOuter);
+    while (out.length < wantOuter) {
+      out.push({ title: `${words.outer} ${roman(out.length)}`, focus: fallbackFocus });
+    }
+  }
+  if (wantInner) {
+    out = out.map((o) => {
+      const next: CssosStructOuter = { ...o, sceneCount: wantInner };
+      /* scenes 数组若存在, 叶子展开会【优先用它】而无视 sceneCount ——
+       * 所以必须把它也裁/补到恰好 wantInner, 否则这道归一等于没做。 */
+      if (Array.isArray(o.scenes) && o.scenes.length) {
+        const s = o.scenes.slice(0, wantInner);
+        while (s.length < wantInner) {
+          s.push({ title: `${o.title || ""} · ${words.inner} ${s.length + 1}`.trim(),
+                   focus: String(o.focus || fallbackFocus) });
+        }
+        next.scenes = s;
+      }
+      return next;
+    });
+  }
+  return out;
+}
+
+/** W2327 — 一个结构计划展开后到底有几个叶子(= 要作曲几首 = 闸要按它判)。 */
+function cssosCountPlanLeaves(
+  plan: CssosStructOuter[], nested: boolean, maxInner = 120,
+): number {
+  if (!Array.isArray(plan)) return 0;
+  if (!nested) return plan.length;
+  return plan.reduce((a, o) => a + (Array.isArray(o.scenes) && o.scenes.length
+    ? o.scenes.length
+    : Math.max(1, Math.min(maxInner, Math.round(Number(o.sceneCount) || 1)))), 0);
+}
+
 /* Tool schema — fed verbatim into Anthropic API. Keep keys flat &
  * snake_case so Claude reliably matches. */
 const AGENT_TOOLS = [
@@ -10629,6 +10700,27 @@ const AGENT_TOOLS = [
             }
           },
           description: "Optional. For MULTI-part works (triptych/opera/shortplay/series/film): the user's own hand-written lyrics, ONE entry per part IN ORDER. Each entry's lyrics are used VERBATIM (skip AI generation) — NEVER rewrite them. Parts beyond this array, or with empty lyrics, are AI-generated as usual."
+        },
+        /* CSSOS_WAVE_2327 20261115 — Jing 要「3 幕, 每幕 2 场」的歌剧, 实得【21 场】,
+         * 被生成权闸拒绝(need 21 / have 9), 一部都没建出来。
+         *
+         * 根因不是没听他的话, 是【没有耳朵】: create_work 的入参里从来没有"幕数/场数"
+         * 这两个字段, 场数完全由规划 LLM 自己定, 提示里只写了一句软约束
+         * "typically 3-12" —— 于是用户说死的数字在结构上根本传不进来。
+         *
+         * 所以补的是【源头的表达能力】, 而且做成对六种戏路一视同仁的一对数:
+         *   outer = 顶层单位  Part(三部曲) / Act(歌剧) / Episode(短剧) / Season(连续剧) / Chapter(电影)
+         *   inner = 每个顶层单位【之下】的单位  Scene(歌剧/电影) / Episode(连续剧); 扁平戏路无内层
+         * 用 outer/inner 而不是按戏路各开一个字段, 是为了【加一种戏路不用再加一对参数】。
+         * 读取侧还认 acts / scenes_per_act 这类别名(见 _reqOuter/_reqInner), 免得模型
+         * 用了更自然的词就丢掉用户说死的数。 */
+        outer_count: {
+          type: "integer",
+          description: "Optional. EXACT number of top-level units the user asked for: Parts (triptych) / Acts (opera) / Episodes (shortplay) / Seasons (series) / Chapters (film). If the user names a count — '3 acts', 'a 5-episode short drama', '两季' — you MUST pass it here. Omit ONLY when the user gave no number, to let the planner decide."
+        },
+        inner_count: {
+          type: "integer",
+          description: "Optional. EXACT number of inner units inside EACH top-level unit: Scenes per Act (opera), Scenes per Chapter (film), Episodes per Season (series). For '3 acts with 2 scenes each' pass outer_count=3 AND inner_count=2. Ignored for flat types (triptych / shortplay, which have no inner level). Omit only when the user gave no number."
         },
       },
       required: ["title"],
@@ -11041,12 +11133,36 @@ async function runAgentTool(
           const MAX_SCENES_PER = 120; // 每幕场数上限(放宽; 仍防单幕失控)
           const roman = (n: number) => ["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX"][n] || String(n + 1);
           let outerPlan: Array<{ title?: string; focus?: string; sceneCount?: number; scenes?: Array<{ title?: string; focus?: string }> }> = [];
+          /* CSSOS_WAVE_2327 — 用户说死的【幕数 / 每幕场数】。
+           * 别名一起认: 模型用 acts / scenes_per_act / seasons / chapters / episodes
+           * 这些更自然的词时, 也不能把用户说死的数丢掉(丢掉一次 = 21 场 = 整部做不出来)。 */
+          const _firstPosInt = (...vals: any[]): number => {
+            for (const v of vals) {
+              const n = Math.round(Number(v));
+              if (Number.isFinite(n) && n > 0) return n;
+            }
+            return 0;
+          };
+          const _reqOuter = Math.min(MAX_STRUCT, _firstPosInt(
+            inp.outer_count, inp.acts, inp.seasons, inp.chapters, inp.episodes, inp.parts, inp.part_count));
+          const _reqInner = nested ? Math.min(MAX_SCENES_PER, _firstPosInt(
+            inp.inner_count, inp.scenes_per_act, inp.scenes, inp.episodes_per_season, inp.scene_count)) : 0;
+          if (_reqOuter || _reqInner) {
+            console.info("[create_work][W2327] 用户说死的结构: %s=%s %s=%s (wt=%s title=%s)",
+              _hw.outer, _reqOuter || "auto", _hw.inner || "-", _reqInner || "auto", wt, title);
+          }
           try {
-            const wantCount = wt === "triptych" ? "EXACTLY 3" : "the appropriate number of";
+            /* W2327 — 把数字【写进规划提示】。只是写进提示还不够(软约束会被无视,
+             * 21 场那次正是如此), 下面还有一道【确定性归一】兜住它。 */
+            const wantCount = _reqOuter ? `EXACTLY ${_reqOuter}`
+                            : wt === "triptych" ? "EXACTLY 3"
+                            : "the appropriate number of";
             // CSSOS_WAVE_614 — 分段规划: nested 类型(歌剧/连续剧/电影)只让 LLM 给【幕标题 + 每幕场数 sceneCount】
             // (紧凑, 一次能描述几十幕), 场节点由后端本地展开 → 突破单次规划的体量上限, 支撑大型作品。
             const shape = nested
-              ? `[{"title":"<${_hw.outer} title>","focus":"<act one-line>","sceneCount":<integer number of ${(_hw.inner as string).toLowerCase()}s in this ${_hw.outer.toLowerCase()}, typically 3-12>}]`
+              ? `[{"title":"<${_hw.outer} title>","focus":"<act one-line>","sceneCount":${
+                  _reqInner ? `EXACTLY ${_reqInner} (the user fixed this — every ${_hw.outer.toLowerCase()} has exactly ${_reqInner} ${(_hw.inner as string).toLowerCase()}s)`
+                            : `<integer number of ${(_hw.inner as string).toLowerCase()}s in this ${_hw.outer.toLowerCase()}, typically 3-12>`}}]`
               : `[{"title":"<${_hw.outer} title>","focus":"<one-line>"}]`;
             const planUser =
               `Plan the structure of a ${wt} titled 《${title}》. Overall theme: ${theme || title}. Civilization: ${civilization || "—"}. ` +
@@ -11068,6 +11184,16 @@ async function runAgentTool(
           if (wt === "triptych" && (!Array.isArray(outerPlan) || outerPlan.length < 3)) {
             outerPlan = Array.from({ length: 3 }, (_v, i) => ({ title: String(i + 1), focus: theme || title }));
           }
+          /* CSSOS_WAVE_2327 — 【确定性归一】: 用户说死了数, 就按那个数裁/补, 不看 LLM 给了几个。
+           * 规则只有一份, 在顶层的 cssosNormalizeStructurePlan() 里(那样回归能真跑它)。 */
+          if (Array.isArray(outerPlan) && outerPlan.length && (_reqOuter || _reqInner)) {
+            outerPlan = cssosNormalizeStructurePlan(
+              outerPlan, { outer: _hw.outer, inner: _hw.inner }, _reqOuter, _reqInner,
+              String(theme || title), { maxOuter: MAX_STRUCT, maxInner: MAX_SCENES_PER });
+            console.info("[create_work][W2327] 归一后: %d %s, 共 %d 叶子",
+              outerPlan.length, _hw.outer,
+              cssosCountPlanLeaves(outerPlan, nested, MAX_SCENES_PER));
+          }
           if (Array.isArray(outerPlan) && outerPlan.length) {
             type Leaf = { outerIdx: number; outerTitle: string; innerIdx: number; leafTitle: string; focus: string };
             const leaves: Leaf[] = [];
@@ -11088,6 +11214,36 @@ async function runAgentTool(
               }
             });
             const capped = leaves.slice(0, MAX_STRUCT);
+            /* CSSOS_WAVE_2327 — 【花钱闸】: 叶子数一数出来就查闸, 在逐场歌词与封面【之前】。
+             *
+             * 事故: Jing 要 3 幕×2 场的歌剧, 规划给了 21 场 → 先跑了 6 场歌词 + 6 张封面,
+             * 【然后】才被生成权闸拒绝(need 21 / have 9)。作品一行没建, 钱已经花了
+             * (扣了 create_work 的费, 还烧了 6 次 LLM + 6 次出图)。
+             *
+             * W2326 把闸挪到了 root 插入之前 —— 那治的是【别留孤儿根】; 这一道治的是
+             * 【别白花钱】。两道是同一个 helper、同一套判据, 分别守两件不同的东西:
+             *     这一道(早)   = 花钱守卫: 叶子数已知的最早时刻
+             *     W2326 那道(晚) = 建行守卫: 一行都还没插的最后时刻
+             * 不能只留一道: 早的那道在"逐部主路径抛异常、退回单次大调用"时不会跑,
+             * 晚的那道才是权威; 而晚的那道挡不住已经花掉的钱。
+             *
+             * 被拒就把 create_work 那笔预扣【退回去】—— 与 W142 对歌词失败的处理一致:
+             * 什么都没生成出来, 就不该收钱。 */
+            if (process.env.CSSOS_MULTIPART_CINEMA === "1" && capped.length > 1) {
+              const _geEarly = await checkGenerationGatesOrError(String(ctx.userId), capped.length);
+              if (_geEarly) {
+                try {
+                  if (!_backendMultipartBilling) {
+                    await creditUserBalance(ctx.userId, debitCost, "create_work_refund",
+                      { reason: "generation_gate_refused_before_spend", title, work_type: wt,
+                        leaves: capped.length });
+                  }
+                } catch { /* 退费失败不该把真正的拒绝理由吞掉 */ }
+                console.warn("[create_work][W2327] 闸在花钱之前拒绝: 需要 %d 叶子 (wt=%s title=%s) —— 未生成歌词/封面, 未建任何行",
+                  capped.length, wt, title);
+                return _geEarly;
+              }
+            }
             // CSSOS_WAVE_991 20260618 — Jing「用户自带歌词」: per-leaf BYO lyrics
             // by ORDER. BYO is used VERBATIM, is free + instant, and is therefore
             // NOT subject to the MAX_SYNC cap (that cap only limits AI calls/time).

@@ -314,8 +314,30 @@ struct CSSWork: Codable, Identifiable {
         //   · 叙事预告: 子项=空 act 节点(无视频无音频)→ 全筛掉 → 回退 root 整片。
         //   · 音乐三部曲: 子项只有音频(无视频)→ 保留 → 逐部连播(W1470 误判为只认视频→
         //     音频部全被筛→回退到无媒体的 root→"无法播放", 此为根因修复)。
-        if let ch = children?.filter({ $0.bestVideo != nil || $0.bestAudio != nil }), !ch.isEmpty { return ch }
-        return [self]
+        /* CSSOS_WAVE_2330 20261115 — 歌剧(三层树)要【再下一层】才拿得到能播的东西。
+         *
+         * 实测《花の色は》: root 的直接子节点是 3 个幕, 三个幕【都没有媒体】(幕是容器,
+         * 永远不作曲), 真正有音频的 6 个场在【孙节点】那一层。
+         * 于是上面那一行把三个幕全筛掉 → 回退 [self] → 根也没媒体 → 屏幕上"无法播放"。
+         * 六场音频其实都在, 只是播放器没下去取。
+         *
+         * 这是三层树(歌剧/连续剧/电影)独有的; 三部曲是两层, 从来碰不到, 所以藏到今天。
+         *
+         * 摊平顺序 = 幕1的场 → 幕2的场 → 幕3的场, 正是播放顺序铁律要的
+         * 「必须 1,2,3 连播」。不用 sort, 服务端给的就是这个序(客户端不要重排服务端顺序)。
+         *
+         * W1472 那条回退仍然成立: 幕既没媒体、孙节点也没有 → flat 为空 → 照旧回退 [self]。 */
+        guard let ch = children, !ch.isEmpty else { return [self] }
+        var flat: [CSSWork] = []
+        for c in ch {
+            if c.bestVideo != nil || c.bestAudio != nil {
+                flat.append(c)                       // 两层: 分部自己有媒体
+            } else if let g = c.children?.filter({ $0.bestVideo != nil || $0.bestAudio != nil }),
+                      !g.isEmpty {
+                flat.append(contentsOf: g)           // 三层: 幕是容器 → 把它的场按序摊进来
+            }
+        }
+        return flat.isEmpty ? [self] : flat
     }
 
     // W1326 — 多部作品(三部曲/歌剧/剧集/电影): 卡片显示为叠卡 + 类型徽章, 播放连续播整部。

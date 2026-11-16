@@ -32,6 +32,8 @@ struct CreateView: View {
      * genStage: -1 未开始 / 0 创作中 / 1 作曲中 / 2 就绪开播。 */
     @State private var genStages: [CSSGenStage] = []
     @State private var genStage = -1
+    /// W2329 — 开播只许一次: 盯库那条和 castMV 那条谁先到都可能开播。
+    @State private var didOpenPlayer = false
     @State private var casting = false
     @State private var drafting = false
     @State private var castSlots: [CSSBackend.CastSlot] = []
@@ -330,9 +332,26 @@ struct CreateView: View {
         genStages = cssGenStages(workType: format, partCount: cssGenExpectedParts(format), title: title)
         genStage = 0
         Task {
+            /* W2329 — 与选角面板一样: 不等这趟 HTTP 回来, 并行盯库, 第一首能放的就开播。
+             * 基线必须先记 —— 不记就会把上一部作品当成"刚生成的"直接开播。 */
+            let baseline = await CSSBackend.latestMultipartRoot()?.rootWorkId ?? ""
+            let watcher = Task {
+                if let rid = await CSSBackend.watchForNewPlayableRoot(baselineRootId: baseline) {
+                    await MainActor.run {
+                        guard !didOpenPlayer else { return }
+                        didOpenPlayer = true
+                        casting = false
+                        status = ""; genStage = 2
+                        dismiss()
+                        onPlayWork(rid)        // 边播边出: 其余分部继续在服务端生成
+                    }
+                }
+            }
             let result = await CSSBackend.castMV(prompt: full, cast: castPayload)
             await MainActor.run {
                 casting = false
+                // 盯库那条已经开播 → 这趟的结果不再开播, 也不要把失败文案盖上去。
+                if didOpenPlayer { watcher.cancel(); return }
                 if result.intent == "ifilm", let fid = result.ifilmId, !fid.isEmpty { dismiss(); onIFilm(fid); return }
                 if result.ok {
                     /* W2315 — 「生成成功就播放」: 创作 → 作曲 → 开播。

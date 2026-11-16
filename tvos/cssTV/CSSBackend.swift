@@ -706,6 +706,65 @@ enum CSSBackend {
         }
     }
 
+    /* CSSOS_WAVE_2329 20261115 — Jing:「我要求的是一边生成一边播放。」
+     *
+     * 我上一波(W2328)做错的地方: 把「等 castMV 这一趟 HTTP 返回, 再去等第一首音频」
+     * 当成了"生成就播放"。那两件事不是一件 ——
+     * 电视【必须等整趟 HTTP 回来才知道作品 id】, 在那之前它只能干等。
+     * 实测这一部歌剧: 服务端 02:43:31 就把 3 幕 6 场建好了, 第一场 02:44:13 就有音频,
+     * 而电视那会儿还在等 castMV。更糟的是我还把超时从 300s 提到 900s ——
+     * 等于让它【更耐心地干等】。Jing 看到的「没完整显示的提示」就是那段干等。
+     *
+     * 真正的边生成边播放: 不等那趟 HTTP。按下按钮之后【并行盯库】,
+     * 一旦出现一部"新的、已经有音频的"作品, 立刻开播; castMV 继续在后台跑完就好。
+     *
+     * 不另造端点 —— /api/works/my-latest-multipart 本来就是为这件事造的
+     * (返回最新的根 + has_audio + generating)。
+     *
+     * 关键的正确性细节是【基线】: 必须先记下按按钮之前的最新根 id, 只认与它不同的那个。
+     * 不记基线, 第一次轮询就会把上一部作品(《時代を売らない》)当成"刚生成的"直接开播。 */
+    struct LatestRoot {
+        let rootWorkId: String
+        let title: String
+        let total: Int
+        let generating: Bool
+        let hasAudio: Bool
+    }
+    static func latestMultipartRoot() async -> LatestRoot? {
+        guard let url = URL(string: "\(baseURL)/api/works/my-latest-multipart") else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 20
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let r = j["root"] as? [String: Any],
+                  let rid = (r["root_work_id"] as? String), !rid.isEmpty else { return nil }
+            return LatestRoot(rootWorkId: rid,
+                              title: (r["title"] as? String) ?? "",
+                              total: (r["total"] as? Int) ?? 0,
+                              generating: (r["generating"] as? Bool) ?? false,
+                              hasAudio: (r["has_audio"] as? Bool) ?? false)
+        } catch { return nil }
+    }
+
+    /* 并行盯库: 出现【新的且已有音频】的多部作品就回调它的 root id。
+     * 6 秒一次 —— 这不是厂商接口, 是我们自己的一条索引查询, 查密一点换来的是开播更早。
+     * baseline 为空也成立(用户第一次创作, 库里本来没有多部作品)。 */
+    static func watchForNewPlayableRoot(baselineRootId: String,
+                                        maxWaitSeconds: Int = 900) async -> String? {
+        let deadline = Date().addingTimeInterval(TimeInterval(maxWaitSeconds))
+        while Date() < deadline {
+            if Task.isCancelled { return nil }
+            if let r = await latestMultipartRoot(),
+               r.rootWorkId != baselineRootId,      // 必须是【新】的, 否则会播上一部
+               r.hasAudio {                          // 已经有一首能放了 —— 其余边播边出
+                return r.rootWorkId
+            }
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+        }
+        return nil
+    }
+
     /* CSSOS_WAVE_2315 — 给刚创作出来的作品作曲(Jing:「生成成功就播放」)。
      *
      * 为什么电视必须多走这一步: create_work 按平台设计【只出歌词+封面】, 音乐是后续一步 ——

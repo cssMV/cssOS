@@ -383,6 +383,8 @@ private struct ActorCastPanel: View {
     @State private var genStages: [CSSGenStage] = []
     @State private var genStage = -1
     @State private var status = ""
+    /// W2329 — 开播只许一次: 盯库那条和 castMV 那条谁先到都可能开播。
+    @State private var didOpenPlayer = false
 
     /* W2323 — 补齐六种戏路, 与导演台对齐(W1561「全戏路开放」)。
      * 原来这里只有 MV/三部曲/歌剧, 从数字演员进去就点不了短剧/连续剧/电影 ——
@@ -583,10 +585,29 @@ private struct ActorCastPanel: View {
         // W2321 — 阶段①(部数先按戏路猜, 拿到 work_cards 后以真实部数重建)。
         genStages = cssGenStages(workType: format, partCount: cssGenExpectedParts(format), title: seed.displayName)
         genStage = 0
+        /* W2329 — 真正的「边生成边播放」: 不等 castMV 这趟 HTTP 回来。
+         * 先记基线(按按钮之前的最新根), 然后并行盯库 —— 第一首能放的一出现就开播。
+         * 两条路谁先到谁开播, played 旗保证只开一次。 */
         Task {
+            let baseline = await CSSBackend.latestMultipartRoot()?.rootWorkId ?? ""
+            let watcher = Task {
+                if let rid = await CSSBackend.watchForNewPlayableRoot(baselineRootId: baseline) {
+                    await MainActor.run {
+                        guard !didOpenPlayer else { return }
+                        didOpenPlayer = true
+                        generating = false
+                        status = ""; genStage = 2
+                        onPlayWork(rid)            // 边播边出: 其余幕/场继续在服务端生成
+                    }
+                }
+            }
             let r = await CSSBackend.castMV(prompt: prompt, cast: cast)
             await MainActor.run {
                 generating = false
+                /* 盯库那条已经开播了 → 这趟 HTTP 的结果只用来收尾, 不再重复开播,
+                 * 更不要把它的失败文案盖到正在播放的画面上。
+                 * (读 @State 必须在主执行器上, 所以这个判断写在 MainActor.run 里面。) */
+                if didOpenPlayer { watcher.cancel(); return }
                 guard r.ok else {
                     // W2310 — 说出【为什么】, 不要只说「请重试」。
                     switch r.failure {

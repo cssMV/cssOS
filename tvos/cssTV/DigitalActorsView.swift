@@ -575,11 +575,9 @@ private struct ActorCastPanel: View {
         if !costars.isEmpty {
             prompt += " Co-starring " + costars.joined(separator: ", ") + ", plus auto-generated background extras. Weave every cast member into the story and lyrics, each true to their role."
         }
-        switch format {
-        case "triptych": prompt += " — make it a 3-part triptych"
-        case "opera":    prompt += " — make it a multi-act opera"
-        default: break
-        }
+        /* W2328 — 六种戏路共用同一份短语(cssGenFormatPhrase)。
+         * 这里原来只写了 triptych / opera 两个 case —— 短剧/连续剧/电影三个胶囊点了等于没点。 */
+        prompt += cssGenFormatPhrase(format)
         if let civ = seed.civilization, !civ.isEmpty { prompt += " Civilization: \(civ)." }
         generating = true; status = ""
         // W2321 — 阶段①(部数先按戏路猜, 拿到 work_cards 后以真实部数重建)。

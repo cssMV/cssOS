@@ -584,8 +584,15 @@ enum CSSBackend {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         /* W2310 — 300s, 与 ifilmNext 一致。这一趟是【起一部作品】: 后端要过 LLM 定戏路/写梗概/
-         * 排角色再落库。60s 默认根本不够 —— 线上 llm-router 的第一棒每次先挂死 45s。 */
-        req.timeoutInterval = 300
+         * 排角色再落库。60s 默认根本不够 —— 线上 llm-router 的第一棒每次先挂死 45s。
+         *
+         * CSSOS_WAVE_2328 — 300 → 900, 与服务端对齐(nginx 实测 /api/ 是 proxy_read_timeout 900s)。
+         * 为什么必须对齐: 300s 比服务端【短】, 于是大戏路(歌剧/连续剧/电影: 规划 + 逐场歌词
+         * + 逐场封面, 实测已经跑到 240s)会出现【电视放弃了、服务端还在建】——
+         * 屏幕上说"可能还在跑", 用户再按一次, 服务端就真的再建一部。
+         * 今晚实测就是这样同时冒出两部作品(nginx 日志里那条 499 是电视先断的证据)。
+         * 客户端的耐心不该比服务端短 —— 短了就等于鼓励用户重复下单。 */
+        req.timeoutInterval = 900
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // W1578 — 从数字演员选角进来时带上 cast → 后端 create_work 封面锁脸(演员本人形象)。空则不影响。
         var payload: [String: Any] = ["message": prompt, "source": "csstv"]
@@ -796,16 +803,36 @@ enum CSSBackend {
         }
 
         await onWaiting()
-        /* 轮询查作品行。10s 一次: 作曲是分钟级, 查太密只是白费流量。
-         * 判据是【每一部都有音频】—— 少一部就不算这部三部曲做完了。 */
+        /* CSSOS_WAVE_2328 — 判据从【每一部都有音频】改成【第一部有音频就开播】。
+         *
+         * Jing:「请确保, 从单曲到电影都要求生成就播放。」等齐所有叶子, 这件事对
+         * 大戏路【根本做不到】, 有两个硬原因:
+         *   ① MAX_SYNC=6: 超过 6 个叶子的作品, 其余叶子只落一行 "[seed]" 占位歌词,
+         *      而引擎【明确跳过 seed 叶子】(等 W612 词工先补词)。所以一部 20 集的连续剧
+         *      "等齐"就是等一个这一轮永远不会到的状态 → 必然超时 → 永远播不了。
+         *   ② 一部 20 集的剧等齐再播, 本身就不是用户要的 —— 第一集好了就该能看。
+         *
+         * 改成第一部就开播是安全的, 因为两件事同时成立:
+         *   · 生成快于播放(一首约 40s 出, 一首歌放 3 分钟), 播第一部的时间足够出第二部;
+         *   · gotoNext() 在 parts 用尽那一刻会【回头再问服务端】(W2328), 新的部出来了
+         *     就接着播本作品 —— 播放顺序铁律 1→2→3 不会被打断。
+         *     这两半缺一半都不能改: 只改这里会让三部曲播完第一部就跳走别的歌。
+         *
+         * 按【序号顺序】认第一部, 不是"任意一部先好就算" —— 铁律要的是从第一部开始。 */
+        let ordered = workIds
         var pending = Set(workIds)
-        let deadline = Date().addingTimeInterval(TimeInterval(maxWaitSeconds))
+        /* 等多久: 跟叶子数走, 不写死。第一部通常 1-2 分钟内就好, 但大作品的引擎是
+         * 串行的(铁律: 不并发), 第一部前面可能排着别的活。地板 10 分钟, 每叶 +2 分钟。 */
+        let budget = max(maxWaitSeconds, 600 + 120 * workIds.count)
+        let deadline = Date().addingTimeInterval(TimeInterval(budget))
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             if Task.isCancelled { return .gaveUp("cancelled") }
             for wid in pending {
                 if let w = await fetchWorkById(wid), w.bestAudio != nil { pending.remove(wid) }
             }
+            // 第一部(按序)好了就够 —— 其余的边播边出。
+            if let first = ordered.first, !pending.contains(first) { return .ready }
             if pending.isEmpty { return .ready }
         }
         return .gaveUp("还差 \(pending.count)/\(workIds.count) 部")

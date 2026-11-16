@@ -100,6 +100,33 @@ func cssGenActBreakdown(_ cards: [CSSBackend.CastWorkCard]) -> [String] {
     }
 }
 
+/* CSSOS_WAVE_2328 — 六种戏路的【提示词短语】: 两个创作入口共用这一份。
+ *
+ * 为什么必须共用: 选角面板原来只写了 triptych / opera 两个 case, 短剧/连续剧/电影
+ * 三个胶囊【点了等于没点】—— 提示里一个字都不加, 后端当单曲处理。
+ * (那是 W2323 我自己留下的半成品: 把六个胶囊加上了, 没把它们的提示接上。)
+ * 一份文案、两个入口各写一遍, 就一定会这样漏掉一半。
+ *
+ * 为什么要把【数字说死】: 今晚实测, 「多幕歌剧」这种不带数字的说法会让规划器给出
+ * 21 场 —— 直接被生成权闸拒绝(need 21 / have 9), 一部都建不出来, 当然也就无从播放。
+ * 所以这里给每种戏路一个【保守的默认结构】, 叶子数都压在 6 以内:
+ * 既付得起、出得快, 也就真的能"生成就播放"。
+ * 这只是【默认】—— 导演台里用户自己写明"5 幕 4 场"时, 用户的话优先
+ * (导演自动流铁律: 不选不填→系统推荐; 用户干预→系统让位)。
+ *
+ * 这几句是发给后端 LLM 的【指令】, 不是界面文案 —— 所以不走 tr()/data-i18n,
+ * 平台的源语言本来就是英文。 */
+func cssGenFormatPhrase(_ workType: String) -> String {
+    switch workType {
+    case "triptych":  return " — make it a triptych with exactly 3 parts"
+    case "opera":     return " — make it an opera with exactly 3 acts and exactly 2 scenes in each act"
+    case "shortplay": return " — make it a short drama with exactly 6 episodes"
+    case "series":    return " — make it an episodic series with exactly 1 season of exactly 3 episodes"
+    case "film":      return " — make it a feature film with exactly 3 chapters and exactly 2 scenes in each chapter"
+    default:          return ""
+    }
+}
+
 /// 按下按钮时【能确定】的部数。确定不了返回 0 —— 由后端定, 不猜。
 func cssGenExpectedParts(_ workType: String) -> Int {
     switch workType {

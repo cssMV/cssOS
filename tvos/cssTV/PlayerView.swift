@@ -459,8 +459,49 @@ struct PlayerView: View {
         videoPlayer?.seek(to: ct, toleranceBefore: .zero, toleranceAfter: .zero)
         withAnimation { showTitle = true }   // 短暂亮出标题/进度反馈
     }
+    /* CSSOS_WAVE_2328 20261115 — 「生成就播放」要对【单曲到电影】都成立, 第一道坎在这里。
+     *
+     * parts 来自 work.playbackParts, 而 playbackParts 只取【已经有可播媒体】的子部,
+     * 并且 work 在 hydrate 那一刻就定死了。于是一部【还在生成中】的多部作品被打开时,
+     * parts.count 可能只有 1 —— 第一部播完, 这一行就走 else 跳到【队列里的下一个作品】,
+     * 第二、三部永远不播了。
+     *
+     * 那正是播放顺序铁律明令禁止的事:「三部曲是一个整体, 不允许播放第一部之后乱插入
+     * 别的歌曲, 必须 1,2,3 连播」。所以在跳走之前【必须先回头问一次服务端】:
+     * 新的部出来了没有? 出来了就接着播本作品, 没有才允许离开。
+     *
+     * 为什么装在这里: 这是"翻页"的必经之路(gotoNext 与播完自动接续都走它)——
+     * 平台已经吃过一次教训:闸门装在 setActive() 里等于没装, 要装在每次翻页必经的那一处。
+     *
+     * 代价是多部作品播到最后一部时多一次 HTTP(只在 parts 用尽那一刻, 不是每首)。
+     * 生成速度本来就快于播放速度(一首约 40s 出, 一首歌放 3 分钟), 所以几乎总能接上。 */
     private func gotoNext() {
-        if partIndex + 1 < parts.count { loadPart(partIndex + 1) } else { playQueueItem(queueIndex + 1) }
+        if partIndex + 1 < parts.count { loadPart(partIndex + 1); return }
+        guard work.isMultiPart, !work.id.isEmpty else { playQueueItem(queueIndex + 1); return }
+        let known = parts.count
+        let wid = work.id
+        Task {
+            let fresh = await CSSBackend.fetchWorkById(wid)
+            await MainActor.run {
+                guard work.id == wid else { return }     // 期间用户已经切走 → 放弃
+                let old = parts.map { $0.id }
+                guard let f = fresh else { playQueueItem(queueIndex + 1); return }
+                let new = f.playbackParts
+                /* 必须是【前缀一致】才认。
+                 * playbackParts 只收【已经有可播媒体】的子部, 所以万一第二部还没好、
+                 * 第三部先好了, 新列表会是 [一, 三] —— 这时按下标取 known 拿到的是第三部,
+                 * 等于【跳过第二部】, 那同样违反 1,2,3 连播的铁律。
+                 * 引擎本来是按 sequence_index 串行生成的(不并发), 正常不会出现这种空洞;
+                 * 但"正常不会"不能当保证 —— 前缀不一致就宁可不接, 按老行为走队列。 */
+                let isPrefix = new.count > known && Array(new.prefix(known)).map { $0.id } == old
+                if isPrefix {
+                    work = f                              // 新的部真出来了, 且顺序没有空洞 → 接着播
+                    loadPart(known)
+                } else {
+                    playQueueItem(queueIndex + 1)         // 真的没有下一部(或顺序有洞), 才离开
+                }
+            }
+        }
     }
     private func gotoPrev() {
         let cur = audioPlayer?.currentTime().seconds ?? 0

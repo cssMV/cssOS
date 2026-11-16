@@ -313,15 +313,9 @@ struct CreateView: View {
         if !castNames.isEmpty { parts.append("Starring \(castNames.joined(separator: ", ")).") }
         var idea = parts.joined(separator: ". ")
         if idea.isEmpty { idea = "Surprise me — direct an original, shootable work from scratch." }
-        let fmtPhrase: String
-        switch format {
-        case "triptych":  fmtPhrase = " — make it a 3-part triptych"
-        case "opera":     fmtPhrase = " — make it a multi-act opera"
-        case "shortplay": fmtPhrase = " — make it a short drama"
-        case "series":    fmtPhrase = " — make it an episodic series"
-        case "film":      fmtPhrase = " — make it a feature film"
-        default:          fmtPhrase = ""
-        }
+        /* W2328 — 与选角面板共用同一份短语, 并且把【结构数字说死】。
+         * 「多幕歌剧」这种不带数字的说法实测会让规划器给出 21 场 → 被闸拒 → 一部都建不出来。 */
+        let fmtPhrase = cssGenFormatPhrase(format)
         let civPhrase = civ.isEmpty ? "" : " Civilization: \(civ)."
         let full = idea + fmtPhrase + civPhrase
 

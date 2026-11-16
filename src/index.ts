@@ -11675,6 +11675,31 @@ async function runAgentTool(
       const rootId = isMultiPart ? crypto.randomUUID() : null;
       const rootCoverUrl = (covers.find((u) => u) || null);
 
+      /* CSSOS_WAVE_2326 20261115 — 孤儿根(Jing:「请修复孤儿根」)。
+       *
+       * 现象: 公开库里挂着一个【没有任何子部的根】—— 库里那条 7504229f《西施问月》
+       * (11-15 01:15, triptych root, 零子部)就是。
+       *
+       * 真因是【顺序】: root 行先插, 双闸(生成权 ⊥ 钱包)后查。
+       * 闸一拦就 return, 而 root 已经落库、market profile 还是 visibility='public'
+       * → 一个点进去什么都没有的壳留在公开库里, 而且用户【什么都没生成成功】。
+       * W1456 当年把闸装在"建子行之前"是对的(避免建空场景行), 只是没往前再挪一步 ——
+       * root 本身也是"行", 它同样该在闸后面。
+       *
+       * 所以闸整个前移到【一行都还没插】的位置。条件与原来逐字等价:
+       *   原树型: MULTIPART_CINEMA=1 && isOperaTree && operaActs && rootId → 场数
+       *   原扁平: MULTIPART_CINEMA=1 && isMultiPart && !isOperaTree && rootId → 部数
+       * 而 isMultiPart === (isOperaTree || parts.length > 1), 两支合起来就是下面这一条。
+       * 开关关掉时仍然【不在这里查闸】(那条路的计费在别处, 见 _backendMultipartBilling)——
+       * 这次只改顺序, 不改"谁要查闸"。 */
+      const _gateLeafCount = isOperaTree && operaActs
+        ? operaActs.reduce((a, act) => a + ((act.scenes && act.scenes.length) || 0), 0)
+        : parts.length;
+      if (process.env.CSSOS_MULTIPART_CINEMA === "1" && isMultiPart && rootId) {
+        const _ge = await checkGenerationGatesOrError(String(ctx.userId), _gateLeafCount);
+        if (_ge) return _ge;   // 一行都没插 → 没有孤儿根可留
+      }
+
       if (isMultiPart && rootId) {
         try {
           await withClient(async (client) => {
@@ -11713,18 +11738,49 @@ async function runAgentTool(
         }
       }
 
+      /* CSSOS_WAVE_2326 — 闸之后【仍然】可能出事: act / scene / part 的 INSERT 各有
+       * 自己的失败出口, 任何一个 return 都会留下一个没有子部的根。前移闸门只治了
+       * 最常见的那一种(闸被拦), 治不了这几种。所以给 root 之后每一个失败出口配回滚。
+       *
+       * 这不违反「作品不删不覆盖」: 删掉的是【本次请求刚插进去、从未有过内容、
+       * 用户也从未见过】的空壳行 —— 铁律护的是作品, 不是失败留下的壳。
+       * 两道自保:
+       *   · 先查有没有子部, 有就一个字都不动(不是孤儿, 就不该碰);
+       *   · DELETE 带 structure_role='root' 条件, 绝不可能误伤一个叶子。 */
+      const dropOrphanRoot = async (): Promise<void> => {
+        if (!rootId) return;
+        try {
+          await withClient(async (c) => {
+            const kids = await c.query(
+              `SELECT 1 FROM user_works WHERE root_work_id = $1::uuid AND id <> $1::uuid LIMIT 1`,
+              [rootId],
+            );
+            if (kids.rowCount) return;   // 已有子部 → 不是孤儿, 不动
+            await c.query(`DELETE FROM work_market_profiles WHERE work_id = $1::uuid`, [rootId]);
+            await c.query(
+              `DELETE FROM user_works WHERE id = $1::uuid AND structure_role = 'root'`,
+              [rootId],
+            );
+            console.info("[create_work] rolled back empty root %s (no parts were created)", rootId);
+          });
+        } catch (e) {
+          // 清不掉不该把原本的错误吞掉 —— 只记一笔, 仍然把真正的失败返回给调用方。
+          console.warn("[create_work] orphan-root cleanup failed for %s: %s",
+            rootId, e instanceof Error ? e.message : String(e));
+        }
+      };
+
       // CSSOS_WAVE_175 — opera 3-level insert: root → acts → scenes.
       // Each act is a structure_role='act' row with empty lyrics; each
       // scene is structure_role='scene' under the act, carrying real
       // lyrics + its own cover. Scenes are the playable leaves.
       const cards: any[] = [];
       // CSSOS_WAVE_1456 — 树型(歌剧/连续剧/电影)开关开时, 建行前先双闸预检(避免被拦用户也建空场景行)。
+      // CSSOS_WAVE_2326 — 这道闸已【整个前移到 root 插入之前】(搜 _gateLeafCount)。
+      //   原来装在这里只挡住了"空场景行", 挡不住 root —— root 比它早插, 于是被拦的用户
+      //   反而在公开库里留下一个没有子部的壳。闸只保留【一处】, 别再在这里补第二道:
+      //   两处查闸, 下一个人必定只改对一处。
       const shellOnlyTreeCinema = process.env.CSSOS_MULTIPART_CINEMA === "1" && isOperaTree && !!operaActs && !!rootId;
-      if (shellOnlyTreeCinema && operaActs) {
-        const _leafCount = operaActs.reduce((a, act) => a + ((act.scenes && act.scenes.length) || 0), 0);
-        const _ge = await checkGenerationGatesOrError(String(ctx.userId), _leafCount);
-        if (_ge) return _ge;
-      }
       if (isOperaTree && operaActs && rootId) {
         let sceneCoverIdx = 0;
         // CSSOS_WAVE_1456 — 树型(歌剧/连续剧/电影)叶子场景【全局序号】, 让引擎/播放器跨幕正确排序
@@ -11786,6 +11842,7 @@ async function runAgentTool(
               } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
             });
           } catch (errOuter) {
+            await dropOrphanRoot();   // W2326 — 幕建不出来就不要留一个空根
             return { error: "work_insert_failed", detail: "act_insert:" + ((errOuter as Error)?.message || String(errOuter)) };
           }
           const sceneCards: any[] = [];
@@ -11827,6 +11884,10 @@ async function runAgentTool(
                 } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
               });
             } catch (errOuter) {
+              /* W2326 — 场建不出来时的回滚【只在这一幕是第一幕时真生效】:
+               * dropOrphanRoot 自己会先查"有没有子部", 前面的幕已经建成了就一个字不动。
+               * 那种情况留下的是【半部作品】, 不是空壳 —— 半部有内容, 归铁律管, 不许删。 */
+              await dropOrphanRoot();
               return { error: "work_insert_failed", detail: "scene_insert:" + ((errOuter as Error)?.message || String(errOuter)) };
             }
             treeScenePlan.push({
@@ -11929,7 +11990,8 @@ async function runAgentTool(
         // ②点火后端引擎 enqueueMultipartPartsGeneration(逐部 callMusicGen+幻灯帧池+情绪字幕,
         // 跑在 cssOS.service 进程, 与浏览器彻底解耦)③返回带 part id 的 plan 供前端纯订阅播放。
         // CSSOS_WAVE_1455/1456 — 点火前【双闸预检】(生成权 ⊥ 生成费用), 共用 helper。
-        { const _ge = await checkGenerationGatesOrError(String(ctx.userId), parts.length); if (_ge) return _ge; }
+        // CSSOS_WAVE_2326 — 同前: 这道闸已前移到 root 插入之前(搜 _gateLeafCount)。
+        //   《西施问月》那个空壳根正是在这里被拦下来的 —— 拦得对, 只是拦晚了一步。
         const partsPlan: Array<{ id: string; title: string; role: string; sequence_index: number }> = [];
         for (let i = 0; i < parts.length; i += 1) {
           const part = parts[i]!;
@@ -11969,6 +12031,7 @@ async function runAgentTool(
               } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
             });
           } catch (errOuter) {
+            await dropOrphanRoot();   // W2326 — 第一部就建失败 → 根也别留(已有部则自动不动)
             return { error: "work_insert_failed", detail: (errOuter as Error)?.message || String(errOuter) };
           }
           partsPlan.push({ id: workId, title: part.title, role: partRole, sequence_index: partSeq });
@@ -12047,6 +12110,7 @@ async function runAgentTool(
             } catch (errIn) { await client.query("ROLLBACK"); throw errIn; }
           });
         } catch (errOuter) {
+          await dropOrphanRoot();   // W2326 — 开关关掉的那条路同样会留空根
           return { error: "work_insert_failed", detail: (errOuter as Error)?.message || String(errOuter) };
         }
         cards.push({

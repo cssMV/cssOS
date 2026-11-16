@@ -28091,6 +28091,46 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
           void enqueueSlideshowPoolGeneration(part.id, 6).catch(() => {});
           // CSSOS_WAVE_1447b — 情绪字幕层: 触发逐字对齐(whisperX/groq)写 whisper_words。
           void enqueueKaraokeTranscription(part.id).catch(() => {});
+          /* CSSOS_WAVE_2332 20261115 — Jing:「不要缺失情绪字幕。」
+           *
+           * 实测: 多部作品(三部曲/歌剧/短剧/连续剧/电影)的分部, work_language_tracks
+           * 【一行都没有】—— 这条管线从来没写过这张表。连锁后果三个:
+           *   ① /api/admin/resubtitle 靠这张表找音轨 → 找不到 → 正规字幕永远产不出来;
+           *   ② cssTV 的 fetchSubtitles 先问 /language-tracks → 空 → 退到 CDN 路径 → 404
+           *      → 【整部作品全程没有情绪字幕】(不是晚到, 是从来没有);
+           *   ③ 多语言 / 多声线胶囊对每个分部也是空的。
+           * whisper_words 一直都写了(逐字时间轴在), 缺的是【把它变成正规字幕】的那张表。
+           *
+           * lang 取 user_works.language —— 它每一行(含每个场)都已经存好了真语言
+           * (歌剧实测全是 'ja')。这一点很要紧: 语言标签铁律写明【标错 = 字幕整首哑掉】,
+           * 所以绝不猜, 只用库里已有的那个值; 取不到就【不写】, 宁可没有也不要错的。
+           *
+           * 只新增、不覆盖: 已经有轨就一个字不动(「完整的东西只增版本, 不覆盖」)。
+           * alt_audio_url 用 COALESCE —— 一次没拿到 ♪2 不能把上次存好的抹掉。 */
+          void (async () => {
+            try {
+              const pr = await pool.query<{ language: string | null; lyrics_preview: string | null }>(
+                `SELECT language, lyrics_preview FROM user_works WHERE id = $1::uuid`, [part.id]);
+              const plang = String(pr.rows[0]?.language || "").trim();
+              if (!plang) {
+                console.warn("[multipart-gen][W2332] part %s 没有 language 标签 → 不写轨(宁可没有, 不要标错)", part.id);
+                return;
+              }
+              const existing = await pool.query(
+                `SELECT 1 FROM work_language_tracks WHERE work_id = $1::uuid LIMIT 1`, [part.id]);
+              if (existing.rowCount) return;        // 已有轨 → 不覆盖
+              await pool.query(
+                `INSERT INTO work_language_tracks
+                   (work_id, lang, track_order, audio_url, lyrics, is_default, alt_audio_url)
+                 VALUES ($1::uuid, $2, 0, $3, $4, true, NULLIF($5,''))
+                 ON CONFLICT DO NOTHING`,
+                [part.id, plang, stableAudio, pr.rows[0]?.lyrics_preview || "", ""]);
+              console.info("[multipart-gen][W2332] part %s 建轨 lang=%s → 可以做正规情绪字幕了", part.id, plang);
+            } catch (e) {
+              console.warn("[multipart-gen][W2332] 建轨失败 part %s: %s", part.id,
+                e instanceof Error ? e.message : String(e));
+            }
+          })();
           // CSSOS_WAVE_1450 — Take 2 兄弟: Suno 每次出两 take, 别丢(否则 N 部三部曲只 N 首,
           // 不是 2N)。建 take2 兄弟 work(structure_role='take2', 挂同 root/parent=本部, 同乐章名
           // → 影院按部计数仍 i/N、但播两首)。各自 audio_track_1 资产 + 幻灯 + 情绪字幕。

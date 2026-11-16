@@ -45,6 +45,17 @@ ok("换成了实测选出的 qwen3.8-27b, 且留 env 口子",
    /process\.env\.KARAOKE_EMOTION_MODEL \|\| "qwen\/qwen3\.8-27b"/.test(src),
    "选它是拿【真实提示词+真实解析正则】测的: qwen 29/28 行 · gpt-oss-120b 6/28 · gpt-oss-20b 0/28");
 
+/* W2335 — LLM 兜底链里那一格也指着同一个死模型, 整格 100% 空转。
+ * 判据限定在 PROVIDERS 表的 groq 那一行, 不扫全文件(注释里会提到这个名字)。 */
+const groqRow = (src.match(/^\s*groq:\s*\{[^\n]*$/m) || [""])[0];
+ok("LLM 路由的 groq 一档不再指向已下架模型",
+   !!groqRow && !/llama-3\.3-70b-versatile/.test(groqRow),
+   "下架的型号留在表里 = 兜底链每次白白空转一跳, 而日志只看得到最终落到了谁");
+ok("路由那一档选的是按【它自己的活】实测的 gpt-oss-120b(不是照搬情绪标注那档)",
+   /process\.env\.GROQ_MODEL \|\| "openai\/gpt-oss-120b"/.test(src),
+   "这一格服务《问道》实时对话, 判据是通用质量+低延迟(实测 782ms, 比旧的 1.4s 还快);"
+   + " 情绪标注那档选 qwen 是因为严格 JSON 格式 120b 只有 6/28。同厂两份活两个最佳");
+
 /* ── W2334 合成器 ── */
 ok("合成器存在", i0 > 0);
 ok("【字取歌词】—— token 的字来自行文本, 不是 ASR 词",

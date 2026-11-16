@@ -28555,7 +28555,23 @@ const LLM_PROVIDER_DEFAULTS = {
    * kie_gpt 走 Responses API, 需要下面的 kie_responses 分支。 */
   kie_gpt:     { url: "https://api.kie.ai/codex/v1/responses",                                         model: "gpt-5-6-sol",                                   keyEnv: "KIE_API_KEY",         dialect: "kie_responses" },
   kie_gemini:  { url: "https://api.kie.ai/gemini-3.1-pro/v1/chat/completions",                         model: "gemini-3-pro",                                  keyEnv: "KIE_API_KEY",         dialect: "openai" },
-  groq:        { url: "https://api.groq.com/openai/v1/chat/completions",                                model: "llama-3.3-70b-versatile",                       keyEnv: "GROQ_API_KEY",        dialect: "openai" },
+  /* CSSOS_WAVE_2335 20261116 — groq 下架了 llama-3.3-70b-versatile, 这一格【一直是死的】,
+   * 兜底链每次都白白空转一跳 —— 与 W1807 记的 gemini-2.0-flash 那次是同一种烂法,
+   * 也是 Jing 那条「模型 ID 必须跟最新版, 不留过期下架版本」第二次被同一个方式违反。
+   *
+   * 选 gpt-oss-120b 是按【这一格真正干的活】实测的, 不是照搬别处的结论。
+   * 这一格主要服务《问道》实时对话(见下面 W1807 注释: 43 秒 = 用户面前一片空白),
+   * 所以判据是【通用文本质量 + 低延迟】, 不是严格 JSON 格式。
+   * api-vm 实测同一条角色对话提示(2026-11-16):
+   *   openai/gpt-oss-120b   782ms  入戏, 日文 103 字   ← 选它(比旧的 1.4s 还快一倍)
+   *   qwen/qwen3.8-27b      543ms  入戏, 日文  89 字
+   *   openai/gpt-oss-20b    565ms  ❌ content 空(答案跑进 reasoning 字段)
+   * gpt-oss-20b 必须排除: 本格是 openai dialect, 只读 message.content, 读不到就等于空手而归。
+   *
+   * 注意它与 KARAOKE_EMOTION_MODEL 选的【不是同一个】(那边是 qwen): 那份活是严格
+   * JSON 格式, 120b 实测只有 6/28 行可解析。同一家厂商、两份活、两个最佳 ——
+   * 「每类都选最佳」要按活判, 不是按名气判, 更不是一个结论套到处。 */
+  groq:        { url: "https://api.groq.com/openai/v1/chat/completions",                                model: String(process.env.GROQ_MODEL || "openai/gpt-oss-120b"), keyEnv: "GROQ_API_KEY",        dialect: "openai" },
   cerebras:    { url: "https://api.cerebras.ai/v1/chat/completions",                                    model: "llama3.1-8b",                                   keyEnv: "CEREBRAS_API_KEY",    dialect: "openai" },
   // Gemini doesn't speak chat/completions — its endpoint is
   // /v1beta/models/<model>:generateContent and the schema differs.

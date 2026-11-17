@@ -27812,6 +27812,48 @@ async function videoShotCostCents(engineId: string): Promise<number> {
     return e ? Math.max(1, Math.round(e.usdOurs * 100)) : 0;
   } catch { return 0; }
 }
+/* CSSOS_WAVE_2337b — 【厂商侧余额】闸。必须单独有一道, 原因是:
+ *
+ * 上面那道 getCreditBalance 闸查的是 user_credits(我们的钱包, 单位: 分)。
+ * 而官方/staff 账号走 isCreditExempt 豁免 —— 于是【Jing 自己的作品那道闸直接跳过】。
+ * 对他本人来说真正的预算从来不是钱包, 是【KIE 账上的积分】: 两者是两件东西。
+ *
+ * 数字有多要紧: 4 镜 × 8s × 24.8 = 794 积分/场。一部新的三幕六场歌剧
+ * = 6 × 794 = 4,762 积分 —— 2026-11-16 他账上一共 4,855。
+ * 【一次生成就能把余额清空】, 而且清空之后连 Suno 和封面都点不动了。
+ * 所以这道闸不只看够不够付视频, 还留一笔 reserve 给词/曲/封面。
+ *
+ * 费率是实测核对过的(W1968/W2261): seedance-2 41 · 2-fast 24.8 · 2-mini 8.2 积分/秒;
+ * 1.5-pro 那个 3.5 已退役(createTask 410), 便宜得诱人但撞墙。
+ *
+ * 查余额那个端点免费(不计费), 缓存 60s —— 它只是用来决定"打不打", 不需要实时。
+ * 查不到就【当作不够】: 偏保守那一侧错, 代价是这一首降幻灯; 偏激进那一侧错,
+ * 代价是余额被清空。 */
+const REAL_MV_CREDITS_PER_SEC = 24.8;                   // seedance-2-fast, 实测
+const REAL_MV_KIE_RESERVE = Number(process.env.REAL_MV_KIE_RESERVE || 500); // 留给词/曲/封面
+let __kieCreditCache: { ts: number; credits: number } | null = null;
+async function kieCreditBalance(): Promise<number> {
+  if (__kieCreditCache && Date.now() - __kieCreditCache.ts < 60_000) return __kieCreditCache.credits;
+  const key = String(process.env.KIE_API_KEY || "").trim();
+  if (!key) return -1;                                   // 没 key → 调用方当作不够
+  try {
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 12_000);
+    try {
+      const r = await fetch("https://api.kie.ai/api/v1/chat/credit", {
+        headers: { Authorization: `Bearer ${key}` }, signal: ctrl.signal,
+      });
+      if (!r.ok) return -1;
+      const j = await r.json().catch(() => null) as any;
+      /* KIE 一律回 HTTP 200, 真状态在体里的 code —— 别只看 r.ok。 */
+      if (!j || Number(j.code) !== 200) return -1;
+      const c = Number(j.data?.credits ?? j.data ?? NaN);
+      if (!Number.isFinite(c)) return -1;
+      __kieCreditCache = { ts: Date.now(), credits: c };
+      return c;
+    } finally { clearTimeout(to); }
+  } catch { return -1; }
+}
+
 const _realMvInflight = new Set<string>();
 /* auto=true 是【对账器自动跑】那条路, 它多一道年龄闸(见下面 fresh)。
  * auto=false 是【显式指定某部】那条路(admin 端点), 不看年龄。 */
@@ -27866,6 +27908,17 @@ async function ensureRealVideoMV(
         console.info("[real-mv] %s 余额 %d¢ < 4 镜需 %d¢ → 降幻灯(Jing: 余额不够才降幻灯)",
           workId.slice(0, 8), bal, total);
         return { ok: false, skipped: "insufficient_credits" };
+      }
+    }
+    /* 厂商侧那一道 —— 豁免账号(官方/staff)跳过了上面的钱包闸, 对他们这才是真预算。
+     * 需要的积分 = 镜数 × 每镜秒数 × 费率, 再加一笔 reserve 留给词/曲/封面。 */
+    {
+      const needCredits = Math.ceil(REAL_MV_SHOTS * REAL_MV_SHOT_SECS * REAL_MV_CREDITS_PER_SEC);
+      const kie = await kieCreditBalance();
+      if (kie < 0 || kie < needCredits + REAL_MV_KIE_RESERVE) {
+        console.info("[real-mv] %s KIE 积分 %s < 需 %d + 留 %d → 降幻灯",
+          workId.slice(0, 8), kie < 0 ? "查不到" : String(kie), needCredits, REAL_MV_KIE_RESERVE);
+        return { ok: false, skipped: kie < 0 ? "kie_balance_unknown" : "insufficient_kie_credits" };
       }
     }
 
@@ -43271,11 +43324,19 @@ app.post("/api/admin/real-mv/:workId", async (req, res) => {
       targets = kids.rows.map((k) => k.id);
     }
     const perShot = await videoShotCostCents(REAL_MV_ENGINE);
+    /* 报价要连【厂商积分】一起给 —— 对豁免账号(官方/staff), 钱包那个数字恒等于不花钱,
+     * 真正会被花掉的是 KIE 账上的积分。只报 cents 等于报了个与他无关的数。 */
+    const kieNow = await kieCreditBalance();
+    const kieNeed = Math.ceil(REAL_MV_SHOTS * REAL_MV_SHOT_SECS * REAL_MV_CREDITS_PER_SEC) * targets.length;
     const quote = {
       engine: REAL_MV_ENGINE, shots_each: REAL_MV_SHOTS, shot_secs: REAL_MV_SHOT_SECS,
       per_shot_cents: perShot, targets: targets.length,
       worst_case_cents: perShot * REAL_MV_SHOTS * targets.length,
       worst_case_usd: fmtUsd(perShot * REAL_MV_SHOTS * targets.length),
+      kie_credits_needed: kieNeed,
+      kie_credits_now: kieNow < 0 ? null : kieNow,
+      kie_reserve: REAL_MV_KIE_RESERVE,
+      kie_affordable: kieNow >= 0 && kieNow >= kieNeed + REAL_MV_KIE_RESERVE,
     };
     // dry=1 只报价。先看一眼要花多少再决定, 比生成完了才知道好。
     if (dry) return res.json({ ok: true, dry: true, quote, target_ids: targets });

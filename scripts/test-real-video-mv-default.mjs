@@ -25,8 +25,11 @@ const ok = (n, c, h) => { if (c) { pass++; console.log("  ✅ " + n); }
 const src = read("src/index.ts");
 
 /* ── 渲染器本体 ──────────────────────────────────────────────── */
+/* 切到【下一个函数定义】为界, 不用写死字节数 —— 第一版写 9000, 后来往函数里又塞了
+ * 一道厂商余额闸, 窗口就够不到尾巴了, 于是最后一条判据在没改坏的代码上报红。 */
 const i0 = src.indexOf("async function ensureRealVideoMV");
-const seg = i0 > 0 ? src.slice(i0, i0 + 9000) : "";
+const iNext = src.indexOf("\nasync function ffprobeDurationSecs", i0);
+const seg = i0 > 0 && iNext > i0 ? src.slice(i0, iNext) : "";
 ok("真视频渲染器存在", i0 > 0,
    "改之前唱段这条路根本不碰 callVideoGen —— 画面只有 6 张静态图");
 
@@ -77,6 +80,25 @@ ok("价钱只在 video 段按 id 精确找, 找不到返回 0",
 ok("一镜落地才扣一镜的钱(没出来的镜头不收费)",
    /debitCredits\(w\.owner, perShot, "real_video_mv_shot"/.test(seg),
    "先检总额、再按镜实扣");
+
+/* ②b 厂商侧余额 —— 对【豁免账号】来说这才是唯一一道真闸 */
+ok("另有一道【KIE 厂商积分】闸, 不只看我们自己的钱包",
+   /kieCreditBalance\(\)/.test(seg) && /insufficient_kie_credits/.test(seg),
+   "官方/staff 走 isCreditExempt 跳过钱包闸 → 对 Jing 自己的作品, 钱包那道闸等于没装;"
+   + " 真预算是 KIE 账上的积分, 两者是两件东西");
+ok("按【镜数 × 秒 × 实测费率】算所需积分",
+   /REAL_MV_CREDITS_PER_SEC = 24\.8/.test(src)
+     && /REAL_MV_SHOTS \* REAL_MV_SHOT_SECS \* REAL_MV_CREDITS_PER_SEC/.test(seg),
+   "4 × 8 × 24.8 = 794 积分/场; 一部三幕六场 = 4,762 —— 2026-11-16 他账上一共 4,855");
+ok("留 reserve 给词/曲/封面, 不把余额清空",
+   /REAL_MV_KIE_RESERVE/.test(seg) && /needCredits \+ REAL_MV_KIE_RESERVE/.test(seg),
+   "清空之后连 Suno 和封面都点不动了 —— 那比画面是幻灯糟得多");
+ok("余额【查不到】当作不够(偏保守那侧错)",
+   /kie < 0 \|\| kie < needCredits/.test(seg) && /kie_balance_unknown/.test(seg),
+   "保守侧错的代价是这一首降幻灯; 激进侧错的代价是余额被清空");
+ok("认 KIE 体里的 code, 不只看 HTTP 200",
+   /Number\(j\.code\) !== 200/.test(src),
+   "KIE 一律回 200, 真状态在体里的 code(余额耗尽 = 200 + 402)");
 
 /* ③ 年龄闸 —— 自动路只碰新作品 */
 ok("自动路有年龄闸(24h), 显式路不看年龄",
@@ -130,6 +152,9 @@ ok("存量显式升级端点在", iEp > 0,
 ok("端点要 admin token", /ADMIN_TOKEN_REQUIRED/.test(ep));
 ok("?dry=1 只报价不生成(先看要花多少再决定)",
    /if \(dry\) return res\.json/.test(ep) && /worst_case_usd/.test(ep));
+ok("报价连【厂商积分】一起给(对豁免账号, cents 那个数与他无关)",
+   /kie_credits_needed/.test(ep) && /kie_credits_now/.test(ep) && /kie_affordable/.test(ep),
+   "只报 cents = 报了个恒等于 0 的数");
 ok("整部串行, 不并发", /for \(const id of targets\)/.test(ep),
    "铁律: 不要几路并发");
 ok("整部只取【有音频、没视频】的叶子",

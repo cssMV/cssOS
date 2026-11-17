@@ -27667,10 +27667,31 @@ async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Pro
       [workId],
     );
     if (Number(adminCheck.rows[0]?.n || 0) > 0) return;
+    /* CSSOS_WAVE_2338 20261117 — Jing:「画面都是有了, 就是一张封面图。」
+     *
+     * W2336 修的是【帧送不出去】。这一处修的是另一半: 送出去了也长得一样。
+     *
+     * 两个原因, 都在这条查询上:
+     *   ① civilization 从 2026-05-13(Wave 138)起被写成 `NULL::text` —— 那是当年的
+     *      编译期临时桩, 一留半年。于是【文明智能联动】这条"精神脊梁"根本到不了画面层:
+     *      一部日本歌剧的画面提示词里没有一个字提到日本。
+     *      (列是在的 —— loadMarketWorkDescendantsForRoot 和 take2 的 INSERT 都在生产里
+     *       正常读 w.civilization。这就是个忘了拆的桩。)
+     *   ② 提示词只用 title。歌剧六场的标题本来就相近, 再乘以同一句泛化描述,
+     *      六场拿到的就是【同一个标题的六个变体】—— 肉眼看过去跟一张封面图没差别。
+     *
+     * 所以这里补的是【内容】: 文明 + 曲风 + 本场自己的歌词。
+     * 没有碰那句美学描述 —— 构图/美学归 CINEMA_LANDSCAPE.framing(封面艺术氛围铁律),
+     * 不是这里该动的东西。
+     *
+     * 歌词要剥掉方括号行: 那些是曲风/配器/舞台说明, 不是画面。
+     * (与「多行方括号块会被唱出来」是同一类坑的另一面 —— 那边是被唱出来,
+     *  这边是被画出来。) */
     const workRow = await pool.query<{
-      title: string; civilization: string | null;
+      title: string; civilization: string | null; style: string | null; lyr: string | null;
     }>(
-      `SELECT title, NULL::text AS civilization FROM user_works WHERE id = $1 LIMIT 1`,
+      `SELECT title, civilization, style, lyrics_preview AS lyr
+         FROM user_works WHERE id = $1 LIMIT 1`,
       [workId],
     );
     const work = workRow.rows[0];
@@ -27679,9 +27700,20 @@ async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Pro
     const _cap = Number(cap) > 0 ? Math.floor(Number(cap)) : (SLIDESHOW_POOL_SIZE - have);
     const need = Math.max(0, Math.min(_cap, SLIDESHOW_POOL_SIZE - have));
     if (need <= 0) { _slideshowGenInflight.delete(workId); return; }
+    /* 本场自己的歌词 —— 这是六场画面能不能彼此不同的唯一来源。
+     * 剥掉方括号行(半角 [ 与全角 【 都有), 它们是曲风/配器/舞台说明, 不是画面。 */
+    const _sceneLines = String(work.lyr || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !/^[[\u3010]/.test(l) && !l.startsWith("[seed]"))
+      .slice(0, 6)
+      .join(" / ")
+      .slice(0, 260);
     const basePrompt = [
       work.title ? `Cinematic scene about "${work.title}"` : "Cinematic scene",
       work.civilization ? `set in the ${work.civilization} cultural frame` : "",
+      work.style ? `in the visual mood of ${work.style}` : "",
+      _sceneLines ? `depicting this moment: ${_sceneLines}` : "",
       "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, well-proportioned natural face, NO ugly or deformed or distorted faces, no extra limbs, no text, no watermark",
     ].filter(Boolean).join(", ");
     const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
@@ -28399,10 +28431,22 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               const existing = await pool.query(
                 `SELECT 1 FROM work_language_tracks WHERE work_id = $1::uuid LIMIT 1`, [part.id]);
               if (existing.rowCount) return;        // 已有轨 → 不覆盖
+              /* CSSOS_WAVE_2338 — status 必须显式写 'ready'。
+               *
+               * W2332 那一版漏了这一列(别处的 INSERT 都显式写 'pending', 做完再 UPDATE 成
+               * 'ready')。漏掉的后果是【一半功能看不见这条轨】:
+               *   · 看得见的(不过滤 status): /api/admin/resubtitle 与
+               *     GET /api/works/:id/language-tracks —— 所以 W2332「字幕能产出了」那条结论成立;
+               *   · 看不见的(过滤 status='ready'): available_langs(卡片语言徽标)、
+               *     多语言/多声线胶囊、以及几处"默认轨"权威查询(is_default=true AND status='ready')。
+               * 于是轨建了、字幕有了, 胶囊里却是空的 —— 最难查的那种半好半坏。
+               *
+               * 写 'ready' 是说实话: 插进来这一刻 audio_url 已经是落好的 R2 活链, 它本来就是 ready。
+               * (这不是把 pending 当 ready 用 —— 别处写 pending 是因为那时音频还没生成。) */
               await pool.query(
                 `INSERT INTO work_language_tracks
-                   (work_id, lang, track_order, audio_url, lyrics, is_default, alt_audio_url)
-                 VALUES ($1::uuid, $2, 0, $3, $4, true, NULLIF($5,''))
+                   (work_id, lang, track_order, audio_url, lyrics, is_default, alt_audio_url, status)
+                 VALUES ($1::uuid, $2, 0, $3, $4, true, NULLIF($5,''), 'ready')
                  ON CONFLICT DO NOTHING`,
                 [part.id, plang, stableAudio, pr.rows[0]?.lyrics_preview || "", ""]);
               console.info("[multipart-gen][W2332] part %s 建轨 lang=%s → 可以做正规情绪字幕了", part.id, plang);
@@ -42426,7 +42470,13 @@ async function loadMarketWorkDescendantsForRoot(rootId: string) {
          END AS visual_kind,
          (SELECT count(*) FROM work_assets vf
            WHERE vf.work_id = w.id AND vf.asset_type = 'slideshow_frame') AS visual_frames,
-         w.is_real_video_mv
+         w.is_real_video_mv,
+         /* CSSOS_WAVE_2338 — 子部也要带语言清单。W2336 补的是【画面】那几列,
+          * 这一列是同一个洞剩下的最后一个: 不带它, 多语言胶囊在每一个幕/场上都是空的,
+          * 而 root 那一行(主查询)有。表达式逐字照抄主查询 55495。 */
+         (SELECT array_agg(wlt.lang ORDER BY wlt.track_order)
+            FROM work_language_tracks wlt
+           WHERE wlt.work_id = w.id AND wlt.status = 'ready') AS available_langs
        FROM user_works w
        JOIN users u ON u.id = w.user_id
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id

@@ -28016,7 +28016,15 @@ async function ensureRealVideoMV(
     const listPath = path.join(dir, `rmv-${tag}.txt`); tmp.push(listPath);
     fs.writeFileSync(listPath, shots.map((f) => `file '${f}'`).join("\n"));
     const seqPath = path.join(dir, `rmv-${tag}-seq.mp4`); tmp.push(seqPath);
-    const VF = "scale=2520:1080:force_original_aspect_ratio=increase,crop=2520:1080,format=yuv420p";
+    /* 先裁成精确 21:9, 再把宽度【封顶】在 2520 —— 不往上拉。
+     *
+     * 写死 scale=2520:1080 会把厂商出的片强行放大到铁律那个尺寸:
+     * 放大【不增加任何细节】, 只增加字节和编码时间, 而 api-vm 不大、R2 要存、
+     * Apple TV 要串流。2520×1080 是【生成侧】的铁律尺寸, 不是交付必须上拉到的下限
+     * (平台既有的 canon 交付的是 1470×630)。
+     * min() 那两项保证无论源是什么尺寸, 裁出来都恰好 21:9; -2 让高度跟着宽度走且保持偶数
+     * (h264 要求偶数)。源本来就 ≤2520 宽时, scale 这一步什么也不做。 */
+    const VF = "crop='min(iw,ih*21/9)':'min(ih,iw*9/21)',scale='min(2520,iw)':-2,format=yuv420p";
     {
       const r = await spawnFfmpeg(["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", listPath,
         "-vf", VF, "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", seqPath]);

@@ -27770,6 +27770,233 @@ const _stitchInflight = new Set<string>();
  * preview_video_url。所有端(cssTV/cssWatch/visionOS/web)从此只播同一个 URL = 哑播放器,
  * 不再为"音乐 MV 无视频/原生不会生成幻灯"改原生代码。纯 CPU ffmpeg, 不烧 AI 钱。
  * 幂等(canonical_mv 标记); 已有真视频 → 跳过; 无音频(纯叙事)→ 跳过(走 stitch 那条)。 */
+/* CSSOS_WAVE_2337 20261116 — 唱段的【真视频】: 默认走它, 钱包不够才降幻灯。
+ *
+ * Jing 2026-11-16:「可以是真视频吗?」→ 选了【4 镜/场 @ seedance-2-fast】+
+ *                 【真视频做默认, 余额不够才降幻灯】。
+ *
+ * 为什么以前没有: 唱段(歌剧/三部曲/单曲)这条路的画面层只到 enqueueSlideshowPoolGeneration
+ * (6 张静态图), 全平台没有任何一处为唱段调过 callVideoGen。video_mode(none/slideshow/
+ * hybrid/full)只活在 /api/mv/estimate-total 的【报价】里 —— 能报价, 不能生成。
+ * 真视频一直只有 admin 手工 /api/admin/mv-shot + ffmpeg 那条路, 普通用户没有入口。
+ *
+ * 为什么长成 ensureCanonicalMV 的样子, 而不是另造一套:
+ *   ensureCanonicalMV 已经把【幂等 / 跳过已有真视频 / ffprobe 定长 / -an 不出声 /
+ *   内容哈希落 R2 / 回填 preview_video_url】这一整套做好了, 而且它自己第一句就是
+ *   「已有 preview_video_url → skipped:has_video」—— 所以本函数先跑、写进 preview_video_url
+ *   之后, 幻灯那条【自动让位】, 不需要任何新的协调逻辑。
+ *   (平台铁律: 不许重复造轮子; 先找再动。)
+ *
+ * 四轨分离: 成片【只有画面, 没有声音】(-an)。歌声仍是独立音轨, 播放端两轨对齐播。
+ * seedance 调用也显式 native_audio:false —— 让厂商出声等于音画分家(它不是我们的歌)。
+ *
+ * 一致性: 4 镜全部用【本作品的封面】当 image_url 锚点。W1968 实测记着 KIE 只确认了
+ * 2-fast 与标准版在【锁脸 / 多镜头一致】上一致(mini 未确认)—— 这正是选 2-fast 的理由,
+ * 不是因为它便宜。
+ *
+ * 花钱的闸: 先按【4 镜的总价】预检余额, 不够就一镜都不打、直接 skipped:insufficient_credits
+ * → 幻灯接手。绝不半途没钱(那会留下 2 镜的残片和已花的钱)。
+ * 取不到视频档真实价(目录里没有这个 id)时同样【不打】—— 宁可没有, 不要按错的价扣。
+ */
+const REAL_MV_SHOTS = 4;                                  // Jing 定: 4 镜/场
+const REAL_MV_SHOT_SECS = 8;                              // seedance 时长只能 4/6/8, 取最长
+const REAL_MV_ENGINE = "bytedance/seedance-2-fast";       // Jing 定: 2-fast(锁脸/多镜头一致已确认)
+/* 只在【video 段】按 id 精确找价。找不到返回 0 = 不知道价钱, 调用方必须放弃真视频。
+ * 不复用 generationCostCents: 它找不到时会回落到【音乐】默认引擎的价 —— 拿唱歌的价去
+ * 扣视频的钱, 账是错的, 而且错得很难发现。 */
+async function videoShotCostCents(engineId: string): Promise<number> {
+  try {
+    const cat = await fetchKieCatalog();
+    const vids = (cat?.stages?.video || []) as KieCatalogEntry[];
+    const e = vids.find((x) => x.id === engineId && (x.usdOurs || 0) > 0);
+    return e ? Math.max(1, Math.round(e.usdOurs * 100)) : 0;
+  } catch { return 0; }
+}
+const _realMvInflight = new Set<string>();
+/* auto=true 是【对账器自动跑】那条路, 它多一道年龄闸(见下面 fresh)。
+ * auto=false 是【显式指定某部】那条路(admin 端点), 不看年龄。 */
+async function ensureRealVideoMV(
+  workId: string,
+  opts: { auto?: boolean } = {},
+): Promise<{ ok: boolean; url?: string; skipped?: string; error?: string }> {
+  if (!workId || _realMvInflight.has(workId)) return { ok: false, skipped: "inflight" };
+  _realMvInflight.add(workId);
+  const tmp: string[] = [];
+  try {
+    const pool = getPool();
+    const wr = await pool.query<{
+      owner: string; audio: string | null; video: string | null; cover: string | null;
+      title: string; style: string | null; lyr: string | null; civ: string | null; fresh: boolean;
+    }>(
+      `SELECT user_id::text AS owner, preview_audio_url AS audio, preview_video_url AS video,
+              cover_image AS cover, title, style, lyrics_preview AS lyr, civilization AS civ,
+              (created_at > now() - interval '24 hours') AS fresh
+         FROM user_works WHERE id = $1::uuid`, [workId]);
+    const w = wr.rows[0];
+    if (!w) return { ok: false, error: "not_found" };
+    /* 【年龄闸】自动路只给【新作品】花钱。
+     *
+     * 为什么非要有这一道: 真视频做默认之后, 对账器的选取条件(有活音频 + 没视频)
+     * 在【整个存量库】上都成立 —— 它每 3 分钟取 3 条, 会一路把老作品也开始计费,
+     * 而 Jing 说的「默认」指的是【新生成的作品一次性完整】, 不是把历史全部重花一遍钱。
+     * 存量要升真视频, 走显式那条(POST /api/admin/real-mv/:workId), 一部一部地由他定。
+     * 这同时守住「重新生成前必须先问」—— 自动路永远只碰刚出生的东西。 */
+    if (opts.auto && !w.fresh) return { ok: false, skipped: "not_fresh" };
+    if (w.video) return { ok: true, url: w.video, skipped: "has_video" };   // 已有视频 → 一个字不动
+    if (!w.audio) return { ok: false, skipped: "no_audio" };                // 无歌声 → 不归这条
+    const mk = await pool.query<{ url: string }>(
+      `SELECT url FROM work_assets WHERE work_id=$1::uuid AND asset_type='real_video_mv' AND url IS NOT NULL LIMIT 1`,
+      [workId]);
+    if (mk.rows[0]?.url) {                                                   // 幂等: 渲过了, 回填指针即可
+      await pool.query(`UPDATE user_works SET preview_video_url=COALESCE(preview_video_url,$2) WHERE id=$1::uuid`,
+        [workId, mk.rows[0].url]);
+      return { ok: true, url: mk.rows[0].url, skipped: "exists" };
+    }
+
+    /* ── 闸: 先按 4 镜总价预检, 不够就一镜都不打 ───────────────────────── */
+    const perShot = await videoShotCostCents(REAL_MV_ENGINE);
+    if (perShot <= 0) {
+      console.warn("[real-mv] KIE 目录里找不到 %s 的视频档价 → 放弃真视频(宁可没有, 不按错价扣), 幻灯接手", REAL_MV_ENGINE);
+      return { ok: false, skipped: "no_price" };
+    }
+    const total = perShot * REAL_MV_SHOTS;
+    if (!(await isCreditExempt(w.owner))) {
+      const bal = await getCreditBalance(w.owner);
+      if (bal < total) {
+        console.info("[real-mv] %s 余额 %d¢ < 4 镜需 %d¢ → 降幻灯(Jing: 余额不够才降幻灯)",
+          workId.slice(0, 8), bal, total);
+        return { ok: false, skipped: "insufficient_credits" };
+      }
+    }
+
+    /* ── 画面时长 = 歌声时长(ffprobe 实测, 不读别处存的数) ──────────────── */
+    const dir = os.tmpdir(); const tag = crypto.randomBytes(5).toString("hex");
+    const aPath = path.join(dir, `rmv-${tag}.aud`); tmp.push(aPath);
+    { const r = await fetch(w.audio); if (!r.ok) return { ok: false, error: "audio_fetch_" + r.status };
+      fs.writeFileSync(aPath, Buffer.from(await r.arrayBuffer())); }
+    const durSecs = await ffprobeDurationSecs(aPath);
+    if (durSecs <= 0) return { ok: false, error: "no_duration" };
+
+    /* ── 4 镜。逐镜给【这一镜要什么】, 全是正面表述 ──────────────────────
+     * 平台教训(同一个错栽过四次): 只给上限会被读成"放一个"; 否定式("不要多人")无效。
+     * 所以每一镜写它自己该出现什么, 并且把"方圆几里没别人"写成正面的 UNINHABITED。 */
+    const beats = [
+      "wide establishing shot, the landscape empty and UNINHABITED, no other people anywhere within miles, slow push-in",
+      "medium shot of the single solitary figure, alone in frame, deliberate turn of the head, cloth moving in the wind",
+      "close shot on hands and sleeves in motion, shallow depth of field, dust and petals drifting through a shaft of light",
+      "slow lateral drift across the same location at a later hour, light lowered and lengthened, the figure small and still",
+    ];
+    const lyr = String(w.lyr || "").split("\n")
+      .filter((l) => l.trim() && !/^\s*[[【]/.test(l))   // 去掉方括号舞台说明/曲风
+      .slice(0, 8).join(" / ").slice(0, 320);
+    const shots: string[] = [];
+    for (let i = 0; i < REAL_MV_SHOTS; i++) {
+      const prompt = [
+        `Cinematic live-action footage for "${w.title}"`,
+        w.civ ? `set wholly inside the ${w.civ} civilization's own period world` : "",
+        w.style ? `visual mood: ${w.style}` : "",
+        lyr ? `the moment being sung: ${lyr}` : "",
+        beats[i],
+        "filmic grade, natural motion, NO on-screen text, NO captions, NO watermark, NO subtitles burned in",
+      ].filter(Boolean).join(", ");
+      const req: VideoGenRequest = {
+        prompt,
+        duration_secs: REAL_MV_SHOT_SECS,
+        aspect_ratio: "2.39:1",          // 画幅铁律 → 21:9(厂商原生上限)
+        native_audio: false,             // 四轨分离: 画面不带声, 歌声是独立轨
+        prefer: ["seedance"],
+        exclusive: true,                 // 不许掉成 16:9 的 veo
+        retries: 1,
+      };
+      if (w.cover) req.image_url = w.cover;   // 锁脸/锁世界: 4 镜共用同一个封面锚点
+      (req as unknown as { prefer_model?: Record<string, string> }).prefer_model = { seedance: REAL_MV_ENGINE };
+      const v = await callVideoGen(req);
+      if (!v?.ok || !v.video_url) {
+        console.warn("[real-mv] %s 第 %d 镜失败: %s", workId.slice(0, 8), i + 1, String(v?.error || "").slice(0, 120));
+        break;                            // 失败就停: 已成的镜头照样拼(2 镜也比一张图好), 没成的不扣钱
+      }
+      /* 一镜落地就扣一镜的钱 —— 先检总额、再按镜实扣, 既不半途没钱, 也不为没出来的镜头收费。 */
+      const dr = await debitCredits(w.owner, perShot, "real_video_mv_shot",
+        { work_id: workId, shot: i + 1, engine: REAL_MV_ENGINE, secs: REAL_MV_SHOT_SECS });
+      if (!dr.ok) { console.warn("[real-mv] %s 第 %d 镜扣费失败 → 停", workId.slice(0, 8), i + 1); break; }
+      const f = path.join(dir, `rmv-${tag}-${i}.mp4`); tmp.push(f);
+      const rr = await fetch(String(v.video_url));
+      if (!rr.ok) { console.warn("[real-mv] 第 %d 镜下载失败 %d", i + 1, rr.status); break; }
+      fs.writeFileSync(f, Buffer.from(await rr.arrayBuffer()));
+      shots.push(f);
+    }
+    if (!shots.length) return { ok: false, error: "no_shots" };
+
+    /* ── 拼 + 循环铺满歌声时长。硬切不做转场: 切看起来是故意的, 坏转场看起来是坏了。 ── */
+    const listPath = path.join(dir, `rmv-${tag}.txt`); tmp.push(listPath);
+    fs.writeFileSync(listPath, shots.map((f) => `file '${f}'`).join("\n"));
+    const seqPath = path.join(dir, `rmv-${tag}-seq.mp4`); tmp.push(seqPath);
+    const VF = "scale=2520:1080:force_original_aspect_ratio=increase,crop=2520:1080,format=yuv420p";
+    {
+      const r = await spawnFfmpeg(["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", listPath,
+        "-vf", VF, "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", seqPath]);
+      if (r.code !== 0 || !fs.existsSync(seqPath)) {
+        console.warn("[real-mv] concat 失败:", r.stderr.slice(0, 300)); return { ok: false, error: "ffmpeg_concat" };
+      }
+    }
+    const outPath = path.join(dir, `rmv-${tag}-out.mp4`); tmp.push(outPath);
+    {
+      /* -stream_loop -1 + -t durSecs: 把这 N 镜循环铺到歌声结束, 一秒不多一秒不少。
+       * 画面秒数 < 歌声秒数 是【设计】, 不是缺陷 —— 4 镜 32 秒覆盖 120 秒 = 循环 3.75 次。 */
+      const r = await spawnFfmpeg(["-y", "-loglevel", "error", "-stream_loop", "-1", "-i", seqPath,
+        "-t", String(durSecs), "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart", outPath]);
+      if (r.code !== 0 || !fs.existsSync(outPath)) {
+        console.warn("[real-mv] loop 失败:", r.stderr.slice(0, 300)); return { ok: false, error: "ffmpeg_loop" };
+      }
+    }
+    const buf = fs.readFileSync(outPath);
+    const sha = crypto.createHash("sha1").update(buf).digest("hex").slice(0, 24);
+    // 内容哈希命名铁律: 不同内容必然不同地址, 想覆盖也覆盖不了。
+    const url = await uploadBufferToR2(buf, `artifacts/mv/vid-${sha}.mp4`, "video/mp4").catch(() => null);
+    if (!url) return { ok: false, error: "r2" };
+    await pool.query(
+      `UPDATE user_works SET preview_video_url = COALESCE(preview_video_url, $2),
+              is_real_video_mv = true, updated_at = now()
+         WHERE id = $1::uuid`, [workId, url]);
+    /* is_real_video_mv 必须打 —— W1880 的判据是「有没有真的付过视频引擎的钱」, 我们真付了。
+     * 不打 = 多画面胶囊把真视频标成"幻灯", 那是在 UI 上撒谎(而 canon-/epic- 那些 ffmpeg
+     * 拼出来的片子不打这个标, 也正是因为它们没付过)。 */
+    await pool.query(
+      `INSERT INTO work_assets (work_id, asset_type, url, meta)
+         VALUES ($1::uuid, 'real_video_mv', $2, $3::jsonb)
+         ON CONFLICT (work_id, asset_type) WHERE asset_type <> 'slideshow_frame'
+         DO UPDATE SET url = EXCLUDED.url, meta = EXCLUDED.meta`,
+      [workId, url, JSON.stringify({
+        engine: REAL_MV_ENGINE, shots: shots.length, shot_secs: REAL_MV_SHOT_SECS,
+        covered_secs: durSecs, engines: { video_cents: perShot * shots.length },
+      })]).catch(() => {});
+    await pool.query(
+      `INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1::uuid,'final_mv',$2,'{}'::jsonb)
+         ON CONFLICT DO NOTHING`, [workId, url]).catch(() => {});
+    console.info("[real-mv] work=%s %d 镜 × %ds → 铺满 %ds → %s",
+      workId.slice(0, 8), shots.length, REAL_MV_SHOT_SECS, durSecs, url);
+    return { ok: true, url };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  finally { _realMvInflight.delete(workId); for (const f of tmp) { try { fs.unlinkSync(f); } catch { /* noop */ } } }
+}
+
+/* 解码量时长, 不读文件头 —— 平台教训: format/stream 读的是同一个会撒谎的头
+ * (实测有过头里写 514s、真身 383.6s 的文件)。错的尺子比不量更坏。 */
+async function ffprobeDurationSecs(filePath: string): Promise<number> {
+  try {
+    const out = await new Promise<string>((resolve) => {
+      const pp = spawn("/usr/bin/ffprobe", ["-v", "error", "-select_streams", "a:0",
+        "-count_packets", "-show_entries", "stream=duration,nb_read_packets",
+        "-of", "default=noprint_wrappers=1", filePath], { stdio: ["ignore", "pipe", "ignore"] });
+      let s = ""; pp.stdout.on("data", (c) => { s += String(c); });
+      pp.on("error", () => resolve("")); pp.on("close", () => resolve(s));
+    });
+    const m = /duration=([0-9.]+)/.exec(out);
+    return m ? Math.round(Number(m[1]) || 0) : 0;
+  } catch { return 0; }
+}
+
 const _canonInflight = new Set<string>();
 async function ensureCanonicalMV(workId: string): Promise<{ ok: boolean; url?: string; skipped?: string; error?: string }> {
   if (!workId || _canonInflight.has(workId)) return { ok: false, skipped: "inflight" };
@@ -43004,6 +43231,60 @@ app.post("/api/admin/synth-subtitle/:workId", async (req, res) => {
     }
     const made = out.filter((o) => o.url).length;
     return res.json({ ok: true, root: asRoot, targets: targets.length, made, skipped: targets.length - made, results: out });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+/* CSSOS_WAVE_2337 — 给【存量】作品显式升真视频。自动路只碰刚出生的作品(年龄闸),
+ * 老作品一律由 Jing 一部一部地点 —— 它花的是真钱, 而且一次就是 4 镜。
+ *
+ *   # 先在【一个场】上验, 看一眼再谈整部(平台栽过的就是"不先验就批量跑")
+ *   curl -X POST "$API/api/admin/real-mv/<一个场的 workId>" -H "x-admin-token: $TOK"
+ *   # 整部: ?root=1  逐叶串行(铁律「不要几路并发」)
+ *   # 只估价不生成: ?dry=1
+ *
+ * 幂等: 已有 preview_video_url 的直接 skipped:has_video, 不覆盖、不重复扣钱。
+ * take2 故意【不在】默认目标里 —— ♪2 与 ♪1 是同一场同一份词, 画面本就该共用;
+ * 给 take2 单独再买 4 镜等于为同一个画面付两次钱。要单给就显式点它自己的 id。
+ */
+app.post("/api/admin/real-mv/:workId", async (req, res) => {
+  noStore(res);
+  const expected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const provided = String(req.headers["x-admin-token"] || req.query.token || "").trim();
+  if (!expected || provided !== expected) return res.status(401).json({ ok: false, code: "ADMIN_TOKEN_REQUIRED" });
+  const workId = String(req.params.workId || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(workId)) return res.status(400).json({ ok: false, code: "BAD_WORK_ID" });
+  const asRoot = String((req.query as any)?.root || "").trim() === "1";
+  const dry = String((req.query as any)?.dry || "").trim() === "1";
+  try {
+    let targets: string[] = [workId];
+    if (asRoot) {
+      const kids = await withClient((c) => c.query<{ id: string }>(
+        `SELECT id::text FROM user_works
+          WHERE root_work_id = $1::uuid
+            AND structure_role IN ('part','scene','episode','theme_song','interlude','ending_song')
+            AND status <> 'deleted'
+            AND preview_audio_url IS NOT NULL
+            AND preview_video_url IS NULL
+          ORDER BY sequence_index, structure_role`, [workId]));
+      targets = kids.rows.map((k) => k.id);
+    }
+    const perShot = await videoShotCostCents(REAL_MV_ENGINE);
+    const quote = {
+      engine: REAL_MV_ENGINE, shots_each: REAL_MV_SHOTS, shot_secs: REAL_MV_SHOT_SECS,
+      per_shot_cents: perShot, targets: targets.length,
+      worst_case_cents: perShot * REAL_MV_SHOTS * targets.length,
+      worst_case_usd: fmtUsd(perShot * REAL_MV_SHOTS * targets.length),
+    };
+    // dry=1 只报价。先看一眼要花多少再决定, 比生成完了才知道好。
+    if (dry) return res.json({ ok: true, dry: true, quote, target_ids: targets });
+    const out: { work_id: string; ok: boolean; url?: string; skipped?: string; error?: string }[] = [];
+    for (const id of targets) {               // 串行
+      out.push({ work_id: id, ...(await ensureRealVideoMV(id)) });
+    }
+    const made = out.filter((o) => o.ok && !o.skipped).length;
+    return res.json({ ok: true, root: asRoot, quote, made, skipped: targets.length - made, results: out });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -68120,7 +68401,18 @@ async function start() {
     //   新作出生 3 分钟内自动有视频(前向防腐); 存量活媒体逐步回填; 死临时链作品天然跳过
     //   (只认 cdn.cssstudio.app 域)。所有端从此播同一个 preview_video_url = 哑播放器。
     try {
+      /* CSSOS_WAVE_2337 — 单飞闸。
+       *
+       * 这个对账器本来是【纯 CPU ffmpeg, 秒级完事】, 所以 3 分钟一跳从不重叠, 不需要闸。
+       * 接上真视频之后它变成【十几分钟】(4 镜 seedance 串行), 于是下一跳会在上一跳还没完时
+       * 开始, 各自再取 3 条 —— 一叠起来就是几路并发在烧视频引擎的钱, 正是铁律
+       * 「不要几路并发」要防的东西, 而且这次并发的代价是真钱。
+       *
+       * 跳过的那一跳什么都不做: 3 分钟后还会再来, 而选取条件(有活音频+没视频)是幂等的。 */
+      let _canonReconcileBusy = false;
       const canonReconcile = async () => {
+        if (_canonReconcileBusy) return;
+        _canonReconcileBusy = true;
         try {
           const pool = getPool();
           const due = await pool.query<{ id: string }>(
@@ -68131,10 +68423,35 @@ async function start() {
                  AND NOT EXISTS (SELECT 1 FROM work_assets wa WHERE wa.work_id = user_works.id AND wa.asset_type = 'canonical_mv')
                ORDER BY updated_at DESC LIMIT 3`);
           for (const row of (due.rows || [])) {
+            /* CSSOS_WAVE_2337 — Jing:「真视频做默认, 余额不够才降幻灯。」
+             *
+             * 顺序就是这句话本身: 先试真视频, 它自己拒了(余额不够 / 取不到视频档价 /
+             * 厂商失败)才让幻灯接手。
+             *
+             * 装在这个对账器里而不是各创作路径上, 是因为它的存在理由就是
+             * 「源头统一·单点兜住所有创作路径」—— 单曲 / 三部曲 / 歌剧 / 短剧 / 连续剧 /
+             * 电影, 不管从哪条路出生, 只要【有活音频 + 没有视频】都会走到这里。
+             * 装在各调用点必漏(平台教训: 闸要装在必经之处)。
+             *
+             * 真视频成功后 preview_video_url 有值 → 这条查询下一轮自然不再选中它,
+             * 而 ensureCanonicalMV 第一句也会 skipped:has_video —— 两重都让位, 不会重复花钱。
+             *
+             * 一个已知的取舍: 余额不够那一次降了幻灯之后, 这首【不会】因为后来充了钱而自动
+             * 升成真视频(它已经有 preview_video_url 了)。要升得显式来一趟, 这是故意的 ——
+             * 自动重做已经完整的画面会撞上「完整的东西只增版本, 不覆盖」。 */
+            const rv = await ensureRealVideoMV(row.id, { auto: true }).catch((e) => ({ ok: false, error: String(e) }));
+            if (rv && (rv as any).ok && !(rv as any).skipped) {
+              console.info(`[canon-reconcile] ${row.id.slice(0, 8)} -> 真视频`);
+              continue;
+            }
             const r = await ensureCanonicalMV(row.id).catch((e) => ({ ok: false, error: String(e) }));
-            if (r && (r as any).ok && !(r as any).skipped) console.info(`[canon-reconcile] ${row.id.slice(0, 8)} -> rendered`);
+            if (r && (r as any).ok && !(r as any).skipped) {
+              console.info(`[canon-reconcile] ${row.id.slice(0, 8)} -> 幻灯(真视频让位: ${
+                (rv as any)?.skipped || (rv as any)?.error || "?"})`);
+            }
           }
         } catch (e) { console.warn("[canon-reconcile] scan failed:", e instanceof Error ? e.message : String(e)); }
+        finally { _canonReconcileBusy = false; }
       };
       setTimeout(canonReconcile, 25_000);          // 开机 25s 后首跑
       setInterval(canonReconcile, 3 * 60 * 1000);  // 此后每 3 分钟

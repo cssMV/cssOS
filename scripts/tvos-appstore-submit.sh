@@ -26,13 +26,34 @@ set -a; . ./.env.local; set +a
 hr() { printf '\n── %s\n' "$1"; }
 FAIL=0
 
-# ── 闸 1: Apple 协议 ───────────────────────────────────────────────────────
-# 2026-11-19 实测: 每一个 ASC 端点(连 /v1/certificates)都回
-#   403 FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED
-# → 账号级, 不是 key 权限。连锁后果是整条路堵死:
-#   签不出 Apple Distribution 证书 → 导不出 App Store 包 → 上传不了 → 提交不了。
-# 本机 keychain 里当时只有 "Apple Development" 一张, 没有 Distribution。
-# 只有【Account Holder 本人】能在 ASC 签, 别人签不了。
+# ── 闸 1: Apple 协议(具体是 PLA · Program License Agreement)─────────────
+# 2026-11-19 实测, 两头都问过, 结论一致:
+#
+#   ① ASC API: 四个端点(apps / certificates / profiles / bundleIds)全回
+#      403 FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED → 账号级, 不是 key 权限。
+#   ② 直接跑 -exportArchive(不靠推断, 让 Apple 自己说), 它说得更准:
+#      "Unable to process request - PLA Update available
+#       You currently don't have access to this membership resource. To resolve this
+#       issue, your team's Account Holder, Jing Du, must agree to the latest
+#       Program License Agreement."
+#      "No 'iOS Distribution' signing certificate matching team ID QBG9PRVBYZ
+#       with a private key was found."
+#
+# 所以缺的是 **PLA**(不是税务/银行那几份), 而且 Apple 点名【Account Holder 本人】。
+#   https://developer.apple.com/account  → 首页 "Review Agreement" 横幅
+#
+# 关于证书, 2026-11-19 查清的事实(别再重复排查):
+#   · App Store 分发【描述文件】本机有, 有效期到 2027-05-12
+#     (tvOS Team Store Provisioning Profile: CSSStudio.cssTV / .TopShelf)
+#   · 它引用的证书 "Apple Distribution: Jing Du (QBG9PRVBYZ)" 也没过期
+#   · 但那张证书的**私钥不在这台机器上** —— 把证书从描述文件里抠出来导入 keychain,
+#     identity 数量仍然是 0。证书没私钥 = 不能签。
+#   · 要拿到能用的: 要么从当初造它的那台 Mac 导 .p12, 要么新签一张 ——
+#     而新签走的就是 /v1/certificates, 正是 403 的那个端点。
+#   · 归档(archive)不需要分发证书, 用开发证书就过了, 所以 ** ARCHIVE SUCCEEDED **
+#     不代表能发 —— 卡在下一步 export。
+#
+# PLA 一签, -allowProvisioningUpdates 会自己把分发证书签出来, 这条链就通了。
 hr "闸 1 · Apple 协议(ASC API 通不通)"
 ASC_CODE=$(node - <<'JS' 2>/dev/null
 import { readFileSync } from "node:fs";
@@ -57,11 +78,16 @@ echo "  $ASC_CODE"
 case "$ASC_CODE" in
   200*) echo "  ✅ 协议在效, ASC API 通" ;;
   *REQUIRED_AGREEMENTS*)
-    echo "  ❌ Apple 协议缺失/过期 —— 【整条路堵死, 不是这个脚本的问题】"
-    echo "     签不出 Distribution 证书 → 导不出 App Store 包 → 上传/提交都不可能。"
-    echo "     只有 Account Holder 本人能签: App Store Connect 首页的横幅,"
-    echo "     或 ASC → 商务(Business)→ 协议、税务和银行业务。"
-    echo "     (个人→组织转换之后, 开发者计划协议与付费应用协议常常要重新接受。)"
+    echo "  ❌ 缺的是 PLA(Program License Agreement)—— 【整条路堵死, 不是这个脚本的问题】"
+    echo "     Apple 自己的原话(实测 -exportArchive 时它吐出来的):"
+    echo "       \"your team's Account Holder, Jing Du, must agree to the latest"
+    echo "        Program License Agreement.\""
+    echo "     链条: PLA 没签 → 签不出 Apple Distribution 证书 → 导不出 App Store 包"
+    echo "            → 上传不了 → 提交不了。"
+    echo "     只有 Account Holder 本人能签, 别人代不了:"
+    echo "       https://developer.apple.com/account  → 首页 \"Review Agreement\" 横幅"
+    echo "     (个人→组织转换之后 PLA 常常要重新接受。)"
+    echo "     注: 归档不需要分发证书, 所以 ARCHIVE SUCCEEDED 不代表能发。"
     FAIL=1 ;;
   *) echo "  ⚠ ASC API 返回了别的东西 —— 当作【没查到】, 不是通过"; FAIL=1 ;;
 esac

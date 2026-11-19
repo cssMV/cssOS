@@ -103,7 +103,12 @@ if curl -s -o /dev/null -m 12 https://cssstudio.app/api/health; then
 else
   echo "  ❌ https://cssstudio.app 不通 —— 审核员会看到【首页只有一张卡、没有封面】"
   echo "     Guideline 2.1 App Completeness。这一趟十有八九被拒, 还要白等几天。"
-  echo "     先修 VM: GCP Console → Compute Engine → api-vm(34.122.162.77)"
+  echo "     停机真因(2026-11-19 查实): 【不是机器崩溃, 是项目计费被关】——"
+  echo "       This API method requires billing to be enabled on project #cssstudio-gpu"
+  echo "     去 Compute Engine 点开机只会再撞一次这个错。正确入口:"
+  echo "       https://console.cloud.google.com/billing/enable?project=cssstudio-gpu"
+  echo "     注: Cloud SQL 和 api-vm 在【同一个项目】, 计费一关两个一起停,"
+  echo "         备份的定时器也在这台 VM 上 —— 机器停着备份就不跑。"
   FAIL=1
 fi
 

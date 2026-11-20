@@ -5843,7 +5843,25 @@ async function svgToWebpFallbackUrl(
     // W2046: 镜像到 R2, 与同目录下其它产物一致(best-effort, 不阻塞返回)。
     optimizeAndUploadAsync(diskPath, "artifacts/mv-fallback");
   }
-  return `/artifacts/mv-fallback/${fname}`;
+  /* CSSOS_WAVE_2358 20261120 — 返回【绝对】URL。原来这里回的是相对路径 `/artifacts/...`,
+   * 而它会被当成作品封面存进 user_works.cover_image, 于是下游每一个【需要真 URL】的
+   * 消费者全部当场失败:
+   *     [W2319] c75f7f21 ③ 画面: 失败 Failed to parse URL from /artifacts/mv-fallback/cover-…webp
+   *     [real-mv] c75f7f21 第 1 镜失败: kie_fail: URL must be a valid HTTP or HTTPS URL
+   * 这不是小毛病 —— 它让【四轨里的画面那一轨必然缺失】: 合成 MV 要 fetch 这张图,
+   * 真视频要把它发给 KIE, 两边都只认 http(s)。2026-11-20 的端到端实测正是栽在这里
+   * (音乐 ✓ 封面 ✓ 字幕 ✓ 画面 ✗)。
+   *
+   * 同目录的两个兄弟早就是绝对的(:5762 persistBase64Cover、:40606), 本函数是漏网的那个。
+   * 实测 https://cssstudio.app/artifacts/mv-fallback/<name> → 200 image/webp, 地址本身是通的。
+   *
+   * 对老数据安全: 那三处把 URL 还原成磁盘路径的判断(:9448 / :9852 / :28816)写的是
+   * 「/uploads/ 或 /artifacts/ 开头 → 本地磁盘; http(s) → 下载到临时文件」——【两种都认】,
+   * 所以改成绝对只是走了另一条分支, 不会把已有的相对路径打坏。
+   *
+   * ⚠ 全库还有 170 个作品的 cover_image 是相对路径(其中 5 个是本函数产的), 这是存量,
+   *   改写器救不了它们 —— 回填是动数据, 单独问过 Jing 再做。 */
+  return `${publicArtifactsBase()}/artifacts/mv-fallback/${fname}`;
 }
 
 // CSSOS_PHASE2_COVER_FALLBACK 20260507 — Jing

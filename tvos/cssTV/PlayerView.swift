@@ -364,6 +364,31 @@ struct PlayerView: View {
              * 放在 ZStack 最后 = 盖在画面之上, 但它是透明的、也不挡胶囊(胶囊在它之后渲染?
              * 不 —— 胶囊在它【之前】, 所以这里用 allowsHitTesting 只收键不挡点)。 */
             if !showPills {
+              /* CSSOS_WAVE_2348 20261120 — 确认键【一次】就出胶囊。
+               *
+               * Jing:「那个必须按好几次才能呼出胶囊的按键问题解决了吗?让他每次按一次键
+               *        就容易呼出。」—— W2310 改过一轮, 但那一轮【没能验证】(当时这台机器的
+               * tvOS 模拟器起不来, 提交说明里写着"待真机确认"), 而它的修法本身留了个洞:
+               *
+               *     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { stageFocused = true }
+               *
+               * 这是【猜一个延迟, 只写一次, 不看结果】。它自己的注释已经点明了风险 ——
+               * "这一帧透明层还没进渲染树, 此刻写 @FocusState 等于写给一个不存在的视图,
+               * 静默失效" —— 然后用 50ms 去赌那一帧过去了。真机起播要建 AVPlayerLayer、
+               * 还要 hydrate 网络(playQueueItem 就在它前一行), 50ms 赌不赢的时候,
+               * 那一次写静默丢掉, 【之后再没有人重试】。于是又变回"要按好几次"。
+               *
+               * 两件事一起改, 缺一不可:
+               *   ① .defaultFocus —— 声明式初始焦点, 由 SwiftUI 在焦点系统就绪时自己施加,
+               *      根本没有"早写一帧"这回事。这不是我新造的办法: 平台在
+               *      ContentView.swift:939 已经栽过同一个坑并解决了 ——
+               *      「W1523 深嵌 prefersDefaultFocus 失效 → 用 defaultFocus 钉死」。
+               *   ② 这一层【自己的 onAppear】去抢焦点, 而且抢完【读回来核对】, 没到就重试。
+               *      绑在 onAppear 上才是绑在"视图真的出现了"这件事上, 而不是绑在一个猜的毫秒数上。
+               *
+               * 教训(和 W2310 同一句): 一次性的定时写入, 在它赌输的时候【没有任何迹象】。
+               * 要么做成声明式, 要么写完去读回来核对 —— 不要写完就当成功。 */
+              ZStack {
                 Color.black.opacity(0.0001)
                     .focusable(true)
                     .focused($stageFocused)
@@ -395,6 +420,12 @@ struct PlayerView: View {
                     .onTapGesture { revealPills() }
                     .onLongPressGesture(minimumDuration: 0.01) { revealPills() }
                     .ignoresSafeArea()
+              }
+              .defaultFocus($stageFocused, true)
+              .ignoresSafeArea()
+              /* 胶囊收起后这一层会重新出现 —— 那时也要把焦点抢回来, 否则下一次确认键
+               * 又得先挪焦点。所以挂在这一层的 onAppear 上, 它【每次出现都跑】。 */
+              .onAppear { claimStageFocus() }
             }
 
             // W1553 — 删掉左下角的「选枝胶囊(square.stack 1 2 3)」: 与标题栏里的「1 / 3」徽章重复。
@@ -454,7 +485,33 @@ struct PlayerView: View {
         pillHideToken &+= 1        // 作废在途的自动收起, 免得它把刚浮现的又关掉
         showPills = false
         // 焦点还给舞台, 否则 ←/→ ↑/↓ 全部失灵(SwiftUI 不会自己还)。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { stageFocused = true }
+        claimStageFocus()
+    }
+
+    /* CSSOS_WAVE_2348 — 抢舞台层焦点, 【写完读回来核对】, 没到就重试。
+     *
+     * 为什么不能"写一次就算":  @FocusState 的写入是一个【请求】。如果那一帧目标视图
+     * 还没进焦点系统, 这个请求被静默丢弃 —— 没有返回值、没有报错、没有任何迹象。
+     * W2310 就是写一次(延迟 50ms)然后当成功, 赌输的时候表现正是 Jing 说的"要按好几次"。
+     *
+     * 这里 stageFocused 是可以【读】的 —— 真焦点落上去它就是 true。所以这件事
+     * 本来就可以核对, 不必猜。tries 封顶, 免得胶囊展开 / 退出播放器后还在空转。 */
+    private func claimStageFocus(_ tries: Int = 6) {
+        guard !showPills else { return }   // 胶囊展开时焦点归胶囊, 不许来抢
+        if stageFocused {
+            // 到位了。第 6 次=第一发就中(.defaultFocus 自己搞定了), 更小的数说明重试救了场。
+            if tries < 6 { print("[probe][w2348] 舞台焦点到位, 用了 \(7 - tries) 次") }
+            return                         // 这就是"核对", 不是假设
+        }
+        stageFocused = true
+        guard tries > 1 else {
+            /* 探针: 走到这里 = 两道闸都没拿到焦点, 确认键还会要按好几次。
+             * 留这一行是为了让下一轮排查【有话可说】—— W2310 的修法赌输时没有任何迹象,
+             * 于是这个 bug 又活了一周。看到这行就不用再猜 .defaultFocus 有没有生效。 */
+            print("[probe][w2348] ⚠ 舞台焦点 6 次都没拿到 —— 确认键仍需多按, 焦点被谁占了?")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { claimStageFocus(tries - 1) }
     }
 
     /// 无操作自动收起。token 比对 = 每次操作都把上一个计时作废(去抖)。
@@ -554,8 +611,17 @@ struct PlayerView: View {
          * (每开一部作品就是一次全新的第一次)。
          *
          * 晚一拍再给: 这一帧透明层还没进渲染树, 此刻写 @FocusState 等于写给一个不存在的
-         * 视图, 静默失效 —— 与 revealPills() 里那条注释同一个坑。 */
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { stageFocused = true }
+         * 视图, 静默失效 —— 与 revealPills() 里那条注释同一个坑。
+         *
+         * ⚠ CSSOS_WAVE_2348 20261120 — 上面这段诊断是对的, 但那个修法【赌了一个毫秒数】:
+         * 延迟 50ms 写一次, 写完就当成功。playQueueItem() 就在它前一行(建 AVPlayerLayer
+         * + hydrate 网络), 真机上 50ms 常常不够, 那一次写就静默丢了, 而且【没有人重试】——
+         * 于是又变回"要按好几次", 这正是 Jing 2026-11-20 再次报回来的现象。
+         *
+         * 现在改成两道:(a) 那一层自己带 .defaultFocus(声明式, 不赌帧);
+         *              (b) 它自己的 onAppear 调 claimStageFocus(), 写完读回来核对、没到就重试。
+         * start() 这里不再需要写焦点 —— 焦点该绑在"那一层真的出现了"上, 不是绑在
+         * "播放开始后 50 毫秒"上。 */
     }
 
     // CSSOS_WAVE_1523 — 播放队列中第 qi 个作品(下标自动绕回, 实现"循环整栏")。

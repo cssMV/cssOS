@@ -116,6 +116,9 @@ struct PlayerView: View {
      * 收起后焦点【必须显式还给舞台】, 否则 SwiftUI 会把焦点甩到别处, 方向键当场失灵。 */
     @State private var showPills = false
     @FocusState private var stageFocused: Bool
+    /* W2355 — 「等媒体」轮询的代次守卫: 每次 loadPart 自增, 在途的旧轮凭它自废。
+     * 不加它, 用户切到下一部时上一轮会把【上一部】的媒体装到【当前部】上。 */
+    @State private var loadGen: Int = 0
     /// 浮现后 8 秒无操作自动收起 —— 电视上任何常驻浮层都是在挡画面。
     @State private var pillHideToken = 0
     /// W2243 — 当前展开的模式头。顺序与命名照电脑端那一组固定导航。
@@ -783,6 +786,46 @@ struct PlayerView: View {
         }
         videoPlayer?.play()
         audioPlayer?.play()
+        /* CSSOS_WAVE_2355 20261120 — 这一部还没有媒体 → 【在播放器里等, 等到就自己播】。
+         *
+         * Jing:「四轨链必须做到一边生成一边播放, 至少也必须做到生成完毕就播放,
+         *        而不是让用户到哪里去找, 必须是生成完整并自动播放。」
+         *
+         * 原来走到这里如果 bestAudio / bestVideo 都是空, 就只剩一个转圈 —— 永远转下去,
+         * 因为 loadPart 只在【切部】时跑一次, 没有人会再去看一眼音频出来了没有。
+         * 于是用户要么干等, 要么退出去自己找, 两样都是 Jing 要消灭的状态。
+         *
+         * 轮询而不是推送: 服务端那条四轨链是后台协程(W2319), 没有回调通道;
+         * hydrate 是只读的, 每 8s 问一次不花钱也不碰生成锁(对比 generate-audio:
+         * 反复按会和 per-work in-flight 锁打架, 所以绝不在这里重按生成)。
+         *
+         * 代次守卫 loadGen: 用户中途切部/退出时, 在途的那一轮必须作废 —— 否则它会
+         * 把【上一部】的媒体装到【当前部】上(平台记过的"身份在 fetch 之后才认"那一类串台)。 */
+        if part.bestAudio == nil && part.bestVideo == nil {
+            loadGen &+= 1
+            let mine = loadGen
+            let waitingId = part.id
+            let rootWork = work        // parts 是 work.playbackParts(只读)—— 要换就换整棵
+            Task {
+                for _ in 0..<225 {                                   // 225 × 8s = 30 分钟
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    if Task.isCancelled { return }
+                    if await MainActor.run(body: { loadGen != mine || partIndex != idx }) { return }
+                    /* 先用【叶子】探一下有没有媒体(便宜), 有了再重取整棵。
+                     * 不直接把叶子塞进 parts —— 那是 work.playbackParts 的派生值,
+                     * 单独替换一个叶子会把多部作品的 children 结构弄丢。 */
+                    guard let probe = await CSSBackend.fetchWorkById(waitingId) else { continue }
+                    if probe.bestAudio == nil && probe.bestVideo == nil { continue }
+                    let refreshed = await CSSBackend.hydrate(rootWork)
+                    await MainActor.run {
+                        guard loadGen == mine, partIndex == idx else { return }
+                        work = refreshed
+                        loadPart(idx)                                 // 媒体到位, 正常起播这一部
+                    }
+                    return
+                }
+            }
+        }
         // 每切一部短暂显标题(让观众知道进了下一部)。
         showTitle = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {

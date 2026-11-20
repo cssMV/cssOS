@@ -283,17 +283,27 @@ struct CreateView: View {
                 switch outcome {
                 /* W2321 — 失败【停在当前阶段】并把原因写进 status; 进度条会把这一行画成 ✕,
                  * 前面已完成的阶段仍然打勾 —— 用户一眼看到"走到哪一步断的"。 */
+                /* CSSOS_WAVE_2355 20261120 — 【不许再让用户自己去找】。
+                 *
+                 * Jing:「必须做到一边生成一边播放, 至少也必须做到生成完毕就播放,
+                 *        而不是让用户到哪里去找, 必须是生成完整并自动播放。」
+                 *
+                 * 原来这两支都是死路: 把作品留在后台, 甩一句"去 For You 找"。
+                 * 可是服务端那条四轨链【还在跑】—— 作品几分钟后就好了, 只是没有人回来看。
+                 * 现在一律【照常打开播放器】, 由播放器盯着这一部, 媒体一落地就自己起播
+                 * (PlayerView 的 W2355 等待轮询)。
+                 *
+                 * needsTopUp 仍然单独说一句: 钱包不够是等不出来的, 必须让用户知道原因;
+                 * 但【也照样进播放器】—— 充值后它自己就会播, 用户不必记得回来找。 */
                 case .needsTopUp:
-                    status = tr("The work was created, but the wallet is short for the music step. Top up and play it from For You.")
-                    return
+                    status = tr("Created ✅ — the music step needs more balance. Opening it now; it starts by itself once the music lands.")
                 case .gaveUp:
-                    status = tr("Created ✅ — but the music step didn’t finish. You can find it in For You.")
-                    return
+                    status = tr("Created ✅ — still composing. Opening it now; it starts playing by itself.")
                 case .ready:
-                    break
+                    status = ""
                 }
-                // W2321 — 阶段③: 就绪开播。
-                status = ""
+                // W2321 — 阶段③: 开播。(W2355: status 由上面的 switch 定, 这里不再清空 ——
+                //  清了就把"还在作曲, 马上自己播"那句话抹掉了。)
                 genStage = 2
                 /* W2320 — 多部作品要打开【根】, 不是第一部。
                  * 根是容器(没有自己的音频), 播放器拿到它才会按 children 1→2→3 连播;

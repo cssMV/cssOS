@@ -76,12 +76,13 @@
         '<div class="cssos-wec-row"><label id="cssos-wec-l-cover"></label><input id="cssos-wec-f-cover" type="text" placeholder="https://…"></div>' +
         '<div class="cssos-wec-2col">' +
           '<div class="cssos-wec-row"><label id="cssos-wec-l-aspect"></label><select id="cssos-wec-f-aspect">' +
-            /* 画幅铁律(Jing 2026-11-20): 新选的一律 21:9。2.39:1 这一项【保留但排在后面】——
-               库里已经有一批作品存的就是 2.39:1, 选项里没有它, 打开这些作品时下拉会
-               静默跳到别的值, 一保存就把它们的画幅改掉了。 */
-            '<option value="21:9">21:9 · Widescreen Cinema</option><option value="16:9">16:9</option>' +
-            '<option value="2.39:1">2.39:1 · Anamorphic (legacy)</option>' +
-            '<option value="1:1">1:1</option><option value="9:16">9:16</option></select></div>' +
+            /* 画幅铁律(Jing 2026-11-20):「只保留 21:9 比例。」—— 唯一一个选项。
+             *
+             * W2346 时这里还留着 2.39:1 / 16:9 / 1:1 / 9:16, 理由是【库里还有作品存着
+             * 这些值, 选项里没有它们, 打开这些作品下拉会静默跳到别的值, 一保存就把
+             * 画幅改掉】。W2347 把存量 2397 行全部归到 21:9 之后, 那个理由不存在了 ——
+             * 再留着这几项, 它们就只剩一个作用: 让用户亲手破掉铁律。 */
+            '<option value="21:9">21:9 · Widescreen Cinema</option></select></div>' +
           '<div class="cssos-wec-row"><label id="cssos-wec-l-orient"></label><select id="cssos-wec-f-orient">' +
             '<option value="ultra-wide">ultra-wide</option><option value="landscape">landscape</option>' +
             '<option value="square">square</option><option value="portrait">portrait</option></select></div>' +
@@ -124,8 +125,11 @@
     v("cssos-wec-f-style", work.style || "");
     v("cssos-wec-f-lyrics", work.lyrics_preview || work.lyrics_full || "");
     v("cssos-wec-f-cover", work.cover_image || "");
+    /* 画幅铁律: 只有一个值, 不必再从 work 里挑。
+     * (旧写法拿正则比对再回填 —— 正则漏了 21:9 时, 一个 21:9 的作品打开就被静默
+     *  改成 2.39:1, 那是 W2346 顺带查出来的旧 bug。现在根本不存在可挑的第二个值。) */
     const asp = document.getElementById("cssos-wec-f-aspect");
-    if (asp) asp.value = (work.aspect_ratio && /^(21:9|2\.39:1|16:9|1:1|9:16)$/.test(work.aspect_ratio)) ? work.aspect_ratio : "21:9";
+    if (asp) asp.value = "21:9";
     const ori = document.getElementById("cssos-wec-f-orient");
     if (ori) ori.value = ["ultra-wide", "landscape", "square", "portrait"].includes(work.orientation) ? work.orientation : "ultra-wide";
     v("cssos-wec-f-listen", work.suggested_listen_price_cents != null ? work.suggested_listen_price_cents : "");

@@ -8837,7 +8837,17 @@ app.post("/api/works/:id/edit", express.json({ limit: "16kb" }), async (req, res
     if (v && !/^[0-9]+(\.[0-9]+)?\s*[:x\/]\s*[0-9]+(\.[0-9]+)?$/i.test(v)) {
       return res.status(400).json({ ok: false, error: "invalid_aspect_ratio" });
     }
-    push("aspect_ratio", v || null);
+    /* 画幅铁律(Jing 2026-11-20):「只保留 21:9 比例。」存进库的一律 21:9。
+     *
+     * 为什么是【归一化】而不是【400 打回去】: 老客户端(以及任何还留着 2.39:1
+     * 选项的旧页面)送上来的是 2.39:1 / 16:9, 打回去等于一个用户面前的报错,
+     * 而他想做的事本来就该成功 —— 把值修对才是铁律要的结果。
+     * 同一个取舍也写在 migrations/129 里(刻意不加 CHECK 约束)。 */
+    if (v && v !== "21:9") {
+      console.warn("[画幅铁律] PATCH work %s 送来 aspect_ratio=%s, 已归一化为 21:9",
+        String((req.params as any)?.id || "?").slice(0, 8), v);
+    }
+    push("aspect_ratio", v ? "21:9" : null);
   }
   if (typeof body.orientation === "string") {
     const v = body.orientation.trim().toLowerCase();

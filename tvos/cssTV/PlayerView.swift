@@ -195,13 +195,28 @@ struct PlayerView: View {
                  * 与本文件无关, 一个字都没动。别把这两处混成一件事。
                  */
 
-                // W1348 — 取消静态绿光; 改为【边框进度条】(一字照搬桌面 app.watch-stage-bars.js):
-                //   沿 21:9 画框四周走一圈的描边, 长度 = 音频主时钟 currentTime/duration, 颜色 6 段流动 + 柔光。
-                if let ap = audioPlayer {
-                    BorderProgressBar(player: ap, width: geo.size.width, height: boxH)
-                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                        .allowsHitTesting(false)
-                }
+                /* CSSOS_WAVE_2351 20261120 — 边框进度条【已停用】。
+                 *
+                 * Jing:「播放器边框多了一条大大的红色描边, 请删除掉。」
+                 *
+                 * 这就是 W1348 的 BorderProgressBar(沿 21:9 画框走一圈, 长度=播放进度,
+                 * 6 段色相角向渐变 + 柔光)。实测截图确认: 四条边确实是彩虹渐变(左上绿→
+                 * 右侧粉→底部蓝), Jing 照片里看着是均匀珊瑚橙, 是投影 + 相机压平了色相。
+                 *
+                 * ⚠ 留档, 别照着 W1348 的注释把它加回来: W1348 当初正是 Jing 要的 ——
+                 * 「请取消媒体播放器的绿色边框, 让进度条来描绘就好了」。他现在改了主意。
+                 * 代价是【播放器边框不再显示进度】—— 这是他知情下的取舍, 不是遗漏。
+                 *
+                 * 停用方式是【注释掉调用点】而不是删 struct BorderProgressBar ——
+                 * 要恢复只需放开这几行(与平台对 cssosEnterPanelFullscreenGeneric 的处理同一套路)。
+                 * 那个 struct 现在无人引用, Swift 不会报警告。
+                 *
+                 * if let ap = audioPlayer {
+                 *     BorderProgressBar(player: ap, width: geo.size.width, height: boxH)
+                 *         .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                 *         .allowsHitTesting(false)
+                 * }
+                 */
 
                 // W1551 — 首次点进 hydrate + 起播前会有一小段空窗: 之前只剩黑底 + "Untitled" 像坏掉。
                 //   这里补一个绿色加载圈, 明确是"加载中"; 视频一就绪(videoPlayer 有值)立即消失。

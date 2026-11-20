@@ -343,8 +343,28 @@
 
 .watch-svg.glow {
   animation: svgGlow 6.5s ease-in-out infinite;
-  filter: drop-shadow(0 0 18px rgba(0, 245, 160, 0.55))
-    drop-shadow(0 0 42px rgba(0, 245, 160, 0.28));
+  /* CSSOS_WAVE_2345 20261120 — 同一圈绿光, 换一种画法: drop-shadow → box-shadow。
+   * Jing 已同意(「内存过载」那一轮)。
+   *
+   * 为什么这是【逐像素等价】而不是近似: drop-shadow 描的是元素的 alpha 轮廓,
+   * 而 .watch-svg 有 `background:#000` + `inset:0` + `object-fit:cover` ——
+   * 它永远是一个【完全不透明的矩形】。矩形的 alpha 轮廓就是它的盒子,
+   * 所以 box-shadow 画出来的是同一圈光。两者都被 .watch-screen 的
+   * overflow:hidden 以同样方式裁剪。
+   *
+   * 为什么要换: filter 会给元素分配【与包围盒等大的离屏面】, 而且 drop-shadow
+   * 这种要多块中间面。实测 1680×703 @dpr2 这一项就是 54MB, 还随屏幕面积涨。
+   * box-shadow 是直接画进当前层的, 不额外开面。
+   *
+   * ⚠ 不要"顺手"把它删掉。style.css:7375 的 W448 注释说「图已铺满全框,
+   * drop-shadow 根本看不见 → 纯负担」—— 那句话【今天已经不成立】:
+   * 21:9 铁律之后画面是 1680×703 装在 1680×1050 的框里, 上下留黑,
+   * 这圈绿光【看得见】。删了 Jing 会发现画面边缘的光没了。
+   * 它还紧挨着 W1983 锁死的媒体框光芒 —— 动它一律先问。 */
+  filter: none;
+  box-shadow:
+    0 0 18px rgba(0, 245, 160, 0.55),
+    0 0 42px rgba(0, 245, 160, 0.28);
 }
 
 @keyframes watchArtworkSoftFade {

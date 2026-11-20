@@ -219,10 +219,50 @@ html.cssos-app .cssmv-border-bar.is-viewport {
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
-  /* Drop-shadow glow — the seed hue is overwritten per-stage via a
-     CSS custom property so the glow tints with the active stage. */
-  filter: drop-shadow(0 0 8px hsl(var(--cssmv-bar-hue, 210), 92%, 62%));
+  /* CSSOS_WAVE_2345 20261120 — 光晕从 drop-shadow 换成【孪生描边】。Jing 已同意。
+   *
+   * 为什么非换不可: filter 的离屏面按【元素包围盒】算, 不按光晕半径。
+   * 这圈光只有 8px, 可这个 <rect> 是铺满整个面板的 —— 实测 1680×1050 @dpr2
+   * 要 80MB(drop-shadow 还要多块中间面), 是整个页面单块最大的一项,
+   * 而且随屏幕面积等比例涨。一圈细光付整屏的钱。
+   *
+   * 换法: 底下垫一条同样几何、但更宽更淡的 .cssmv-trail-glow 描边。
+   * SVG 描边是直接画进当前层的, 不开离屏面。观感是同一圈柔光。 */
+  filter: none;
   transition: stroke-dasharray ${TRAIL_TRANSITION_MS_RENDER}ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* W2345 — 孪生光晕描边。几何/颜色/进度全部由 .cssmv-trail 的 setAttribute 镜像过来
+   (闸门装在元素的 setAttribute 上, 见下面创建处), 所以这里【只管粗细与淡度】。 */
+.cssmv-trail-glow {
+  fill: none;
+  stroke-width: ${TRAIL_STROKE_PX + 12};
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  opacity: var(--cssmv-glow-a, 0.34);
+  pointer-events: none;
+  transition: stroke-dasharray ${TRAIL_TRANSITION_MS_RENDER}ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cssmv-border-bar.mode-playback .cssmv-trail-glow { transition: none; }
+.cssmv-border-bar.is-waiting .cssmv-trail-glow {
+  stroke-dasharray: 0 99999 !important;
+  opacity: 0 !important;
+}
+.cssmv-border-bar.is-done-static .cssmv-trail-glow {
+  transition: none !important;
+  --cssmv-glow-a: 0.26;          /* 对应原来 done 态更紧的 6px 光晕 */
+}
+.cssmv-border-bar.is-end-burst .cssmv-trail-glow {
+  animation: cssmvBorderEndBurstGlow 820ms cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
+  transition: none;
+}
+/* 终场闪光的光晕那一份 —— 只动 transform/opacity, 一块离屏面都不开。 */
+@keyframes cssmvBorderEndBurstGlow {
+  0%   { transform: scale(1);    opacity: 0.34; }
+  35%  { transform: scale(1.06); opacity: 0.85; }
+  70%  { transform: scale(1.10); opacity: 0.55; }
+  100% { transform: scale(1.12); opacity: 0; }
 }
 
 /* During playback the bar must stay pixel-synced with currentTime, so we
@@ -234,22 +274,22 @@ html.cssos-app .cssmv-border-bar.is-viewport {
 /* CSSOS_PHASE2_MV_END_BURST 20260420 — 820ms "flash-then-gone" finale. */
 @keyframes cssmvBorderEndBurst {
   0% {
-    filter: drop-shadow(0 0 8px hsl(var(--cssmv-bar-hue, 210), 92%, 62%)) brightness(1) saturate(1);
+    filter: brightness(1) saturate(1);   /* W2345 — drop-shadow 去掉, 光晕归 .cssmv-trail-glow */
     transform: scale(1);
     opacity: 1;
   }
   35% {
-    filter: drop-shadow(0 0 22px hsl(55, 100%, 72%)) brightness(2.4) saturate(1.6);
+    filter: brightness(2.4) saturate(1.6);   /* W2345 — drop-shadow 已去掉(整屏离屏面); 闪光本身留着 */
     transform: scale(1.06);
     opacity: 1;
   }
   70% {
-    filter: drop-shadow(0 0 16px hsl(300, 100%, 68%)) brightness(1.9) saturate(1.4);
+    filter: brightness(1.9) saturate(1.4);   /* W2345 — drop-shadow 已去掉(整屏离屏面); 闪光本身留着 */
     transform: scale(1.10);
     opacity: 0.85;
   }
   100% {
-    filter: drop-shadow(0 0 4px hsl(var(--cssmv-bar-hue, 210), 92%, 62%)) brightness(1) saturate(1);
+    filter: brightness(1) saturate(1);   /* W2345 — 同上 */
     transform: scale(1.12);
     opacity: 0;
   }
@@ -301,7 +341,9 @@ html.cssos-app .cssmv-border-bar.is-viewport {
    stage-seed HSL color (set from JS) and cancel any transition. */
 .cssmv-border-bar.is-done-static .cssmv-trail {
   transition: none !important;
-  filter: drop-shadow(0 0 6px hsl(var(--cssmv-bar-hue, 210), 82%, 58%));
+  /* W2345 — 这一条和基础那条一样是【常驻】的, 不是瞬态; 留着等于白改。
+     光晕改由 .cssmv-trail-glow 的 --cssmv-glow-a 表达(见上)。 */
+  filter: none;
 }
 /* CSSOS_WAVE_386 — desktop ⛶ true-fullscreen toggle (web only). */
 .cssmv-fs-btn {
@@ -421,12 +463,35 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     defs.appendChild(lg);
     svg.appendChild(defs);
 
+    /* CSSOS_WAVE_2345 20261120 — 孪生光晕描边, 先 append = 画在真描边【底下】。
+     * 它替掉了原来 .cssmv-trail 上的 drop-shadow: 那个滤镜的离屏面按元素包围盒算,
+     * 而这个 <rect> 铺满整个面板 → 实测 80MB, 页面单块最大, 还随屏幕面积涨。 */
+    const trailGlow = document.createElementNS(SVG_NS, "rect");
+    trailGlow.classList.add("cssmv-trail-glow");
+    trailGlow.setAttribute("fill", "none");
+    trailGlow.setAttribute("stroke", `url(#${gradientId})`);
+    trailGlow.setAttribute("stroke-dasharray", "0 99999");
+    svg.appendChild(trailGlow);
+
     const trail = document.createElementNS(SVG_NS, "rect");
     trail.classList.add("cssmv-trail");
     trail.setAttribute("fill", "none");
     trail.setAttribute("stroke", `url(#${gradientId})`);
     trail.setAttribute("stroke-dasharray", "0 99999");
     svg.appendChild(trail);
+
+    /* 闸门装在【setAttribute 本身】, 不去补调用点。
+     *
+     * 全文件有 11 处写 state.trail 的属性(几何 6 处 + dasharray 3 处 + stroke 2 处),
+     * 而且将来还会加。一个一个补必漏 —— 平台在"补调用点"上栽过不止一次。
+     * 改成在元素上拦一层: 以后不管谁、在哪儿写属性, 孪生那条自动跟上。
+     *
+     * 只镜像属性, 不镜像 stroke-width —— 粗细是 CSS 给的, 两条本来就不一样。 */
+    const _trailSetAttr = trail.setAttribute.bind(trail);
+    trail.setAttribute = function (name, value) {
+      _trailSetAttr(name, value);
+      try { trailGlow.setAttribute(name, value); } catch (_e) {}
+    };
 
     // CSSOS_PHASE2_BORDER_WAITING_DOT 20260420 — Jing: the pulsing-dot
     // waiting indicator. Placed at top-center of the ring (x = w/2,
@@ -439,6 +504,7 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     state.panel = panel;
     state.svg = svg;
     state.trail = trail;
+    state.trailGlow = trailGlow;     // W2345 — 只为调试/测试取得到; 写属性一律经 trail
     state.dot = dot;
     state.gradientId = gradientId;
     state.wired = true;

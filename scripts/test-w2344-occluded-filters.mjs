@@ -85,22 +85,53 @@ ok("index.html 的 style.css?v= 已 bump 到 w2344",
 ok("index.html 的 app.has-class-bridge.js?v= 已 bump 到 w2344",
    /app\.has-class-bridge\.js\?v=[^"']*w2344/.test(html));
 
-console.log("\n④ 没有顺手动那两块【看得见的】光晕(要动必须先问 Jing)");
+console.log("\n④ W2345 — 两圈【看得见的】光晕换了画法, 不许退回 filter");
 const watchCss = read("public/style.watch.css");
-ok("#watch-svg.glow 的双层 drop-shadow 原样还在",
-   /\.watch-svg\.glow \{[^}]*drop-shadow\(0 0 18px rgba\(0, 245, 160, 0\.55\)\)/s.test(watchCss),
-   "它在画面上下边缘【看得见】(21:9 画面 1680×703 装在 1680×1050 的框里, 不是铺满)。\n" +
-   "       而且紧挨着 W1983 锁死的媒体框光芒 —— 动它必须先拿 Jing 的 yes。");
-/* 这条判据改了两次, 两次都是【判据取材】错, 不是代码错 ——
- *   第一版: 以为 drop-shadow 挂在 .mode-playback 那条规则上, 其实那条只有
- *           transition:none, 光晕在上面的 .cssmv-trail 通用规则里。
- *   第二版: 用 /\.cssmv-trail \{[^}]*filter:/ 去框规则体, 可那段 CSS 是模板串,
- *           里面有 ${TRAIL_STROKE_PX} —— [^}]* 在那个 } 上就断了, 永远框不到 filter。
- * 两次都把【根本没动过的东西】报成了改动。所以现在直接认那一行声明本身。 */
-ok(".cssmv-trail 的 drop-shadow 原样还在",
-   /filter:\s*drop-shadow\(0 0 8px hsl\(var\(--cssmv-bar-hue, 210\), 92%, 62%\)\);/
-     .test(read("public/app.watch-stage-bars.js")),
-   "80MB 是单块最大的, 但它是播放进度那圈可见光晕。要改先问。");
+const bars = read("public/app.watch-stage-bars.js");
+
+/* ── #watch-svg.glow: drop-shadow → box-shadow ────────────────────────────
+ * 为什么这是逐像素等价而不是近似: .watch-svg 有 background:#000 + inset:0 +
+ * object-fit:cover, 永远是一个【完全不透明的矩形】。drop-shadow 描的是 alpha
+ * 轮廓, 矩形的 alpha 轮廓就是它的盒子 → 和 box-shadow 画出来的是同一圈光,
+ * 而且都被 .watch-screen 的 overflow:hidden 以同样方式裁剪。 */
+/* 这条第一版判错了, 而且错在平台记过两次的地方:
+ *   ① /\.watch-svg\.glow \{[\s\S]*?filter: drop-shadow/ 里的 [\s\S]*? 虽然是懒惰的,
+ *      但它【会跨过本规则的 }】去够后面别的规则里的 drop-shadow → 永远判失败。
+ *   ② 这条规则体里的【注释】本身就写着 drop-shadow 几个字。
+ * 所以: 先按 } 切出规则体, 再把注释剥掉, 再判。判据取材必须是代码, 不是散文。 */
+const glowBody = (ruleBody(watchCss, ".watch-svg.glow") || "").replace(/\/\*[\s\S]*?\*\//g, "");
+ok("#watch-svg.glow 已不再用 filter",
+   /filter:\s*none/.test(glowBody) && !/filter:\s*drop-shadow/.test(glowBody),
+   "filter 会按【元素包围盒】开离屏面, 实测这一项 1680×703 @dpr2 就是 54MB。");
+ok("两圈光原样保留(18px .55 + 42px .28), 只是改成 box-shadow",
+   /box-shadow:\s*\n?\s*0 0 18px rgba\(0, 245, 160, 0\.55\),\s*\n?\s*0 0 42px rgba\(0, 245, 160, 0\.28\)/.test(watchCss),
+   "数值一个都不许动 —— 这是【换画法】, 不是【改观感】。\n" +
+   "       它还紧挨着 W1983 锁死的媒体框光芒。");
+
+/* ── .cssmv-trail: drop-shadow → 孪生描边 ──────────────────────────────── */
+ok(".cssmv-trail 的基础规则已不再用 drop-shadow",
+   /\.cssmv-trail \{[\s\S]*?filter: none;/.test(bars),
+   "这个 <rect> 铺满整个面板, 一圈 8px 的光要付整屏 80MB —— 页面单块最大。");
+ok("孪生描边 .cssmv-trail-glow 存在且比真描边宽",
+   /\.cssmv-trail-glow \{[\s\S]*?stroke-width: \$\{TRAIL_STROKE_PX \+ 12\}/.test(bars) &&
+   /trailGlow\.classList\.add\("cssmv-trail-glow"\)/.test(bars),
+   "光晕是靠底下垫一条更宽更淡的描边做出来的。没有它 = 光没了。");
+ok("孪生先 append(画在真描边【底下】)",
+   bars.indexOf('svg.appendChild(trailGlow)') < bars.indexOf('svg.appendChild(trail)') &&
+   bars.indexOf('svg.appendChild(trailGlow)') > 0,
+   "append 顺序就是 SVG 的绘制顺序。顺序反了, 光晕会盖住真描边。");
+ok("闸门装在 trail.setAttribute 上, 不是逐个补调用点",
+   /const _trailSetAttr = trail\.setAttribute\.bind\(trail\);/.test(bars) &&
+   /trail\.setAttribute = function \(name, value\)/.test(bars) &&
+   /trailGlow\.setAttribute\(name, value\)/.test(bars),
+   "全文件 11 处写 trail 属性, 将来还会加。一个一个补必漏(平台记过)。\n" +
+   "       拦在 setAttribute 上, 以后谁写都自动跟上。");
+ok("常驻的 is-done-static 也不再用 drop-shadow",
+   /\.cssmv-border-bar\.is-done-static \.cssmv-trail \{[\s\S]*?filter: none;/.test(bars),
+   "它和基础那条一样是【常驻】的, 不是瞬态 —— 留着等于白改。");
+ok("终场闪光只剩 brightness/saturate(不再开模糊面)",
+   !/filter: drop-shadow\([^;]*\) brightness/.test(bars),
+   "820ms 的闪光本身留着, 但 drop-shadow 那部分要整屏多块中间面。");
 
 console.log(`\n${fail === 0 ? "✅ PASS" : "❌ FAIL"}  ${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

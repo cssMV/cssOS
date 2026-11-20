@@ -54,8 +54,14 @@ FAIL=0
 #     不代表能发 —— 卡在下一步 export。
 #
 # PLA 一签, -allowProvisioningUpdates 会自己把分发证书签出来, 这条链就通了。
+# ⚠ 2026-11-19: PLA 刚签完那段时间, 同一分钟内 200 与 403 **交替出现** ——
+#   Apple 的边缘节点传播不同步, 两个端点各自还有自己的进度(实测 /v1/apps 先通,
+#   /v1/certificates 晚两分钟)。所以【采一次样判不了】: 撞上 403 就把整条路停掉,
+#   而其实已经签好了。改成重试到出现一次 200 为止, 并把
+#   【没签】与【还在传播】分开说(平台教训: 轮询器不许把"我没查到"渲染成"还没到")。
 hr "闸 1 · Apple 协议(ASC API 通不通)"
-ASC_CODE=$(node - <<'JS' 2>/dev/null
+ASC_TRIES="${ASC_TRIES:-8}"
+asc_probe() { node - <<'JS' 2>/dev/null
 import { readFileSync } from "node:fs";
 import crypto from "node:crypto";
 const KID=process.env.APP_STORE_CONNECT_KEY_ID, ISS=process.env.APP_STORE_CONNECT_ISSUER_ID,
@@ -73,7 +79,18 @@ let code=""; const t=await res.text();
 try { code=(JSON.parse(t).errors||[{}])[0].code||""; } catch {}
 console.log(`${res.status} ${code}`);
 JS
-)
+}
+ASC_CODE=""
+for i in $(seq 1 "$ASC_TRIES"); do
+  ASC_CODE=$(asc_probe)
+  case "$ASC_CODE" in 200*) break ;; esac
+  if [ "$i" -lt "$ASC_TRIES" ]; then
+    echo "  第 $i/$ASC_TRIES 次: $ASC_CODE —— 等 45s 再试"
+    echo "     (刚签过协议就是这样: 边缘节点没同步完, 200/403 会交替。"
+    echo "      采一次样分不清【没签】和【还在传播】, 所以这里一定要重试。)"
+    sleep 45
+  fi
+done
 echo "  $ASC_CODE"
 case "$ASC_CODE" in
   200*) echo "  ✅ 协议在效, ASC API 通" ;;

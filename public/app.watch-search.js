@@ -33,7 +33,8 @@
   //   播放方式(cssosPlaylists 模式) / 播放范围(for-you·mine·epic 列表) / 播放规格(画幅)。
   var ASPECT_OPTS = [
     { id: "fit", label: tr("Fit", "适配"), ar: "" },
-    { id: "2.39x1", label: "2.39:1", ar: "2.39 / 1" },
+    // 画幅铁律(Jing 2026-11-20):「不再使用 2.39:1, 改为 21:9。」
+    { id: "21x9", label: "21:9", ar: "21 / 9" },
     { id: "16x9", label: "16:9", ar: "16 / 9" },
     { id: "1x1", label: "1:1", ar: "1 / 1" },
     { id: "9x16", label: "9:16", ar: "9 / 16" }

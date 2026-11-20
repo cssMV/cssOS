@@ -76,7 +76,11 @@
         '<div class="cssos-wec-row"><label id="cssos-wec-l-cover"></label><input id="cssos-wec-f-cover" type="text" placeholder="https://…"></div>' +
         '<div class="cssos-wec-2col">' +
           '<div class="cssos-wec-row"><label id="cssos-wec-l-aspect"></label><select id="cssos-wec-f-aspect">' +
-            '<option value="2.39:1">2.39:1 · Anamorphic</option><option value="16:9">16:9</option>' +
+            /* 画幅铁律(Jing 2026-11-20): 新选的一律 21:9。2.39:1 这一项【保留但排在后面】——
+               库里已经有一批作品存的就是 2.39:1, 选项里没有它, 打开这些作品时下拉会
+               静默跳到别的值, 一保存就把它们的画幅改掉了。 */
+            '<option value="21:9">21:9 · Widescreen Cinema</option><option value="16:9">16:9</option>' +
+            '<option value="2.39:1">2.39:1 · Anamorphic (legacy)</option>' +
             '<option value="1:1">1:1</option><option value="9:16">9:16</option></select></div>' +
           '<div class="cssos-wec-row"><label id="cssos-wec-l-orient"></label><select id="cssos-wec-f-orient">' +
             '<option value="ultra-wide">ultra-wide</option><option value="landscape">landscape</option>' +
@@ -121,7 +125,7 @@
     v("cssos-wec-f-lyrics", work.lyrics_preview || work.lyrics_full || "");
     v("cssos-wec-f-cover", work.cover_image || "");
     const asp = document.getElementById("cssos-wec-f-aspect");
-    if (asp) asp.value = (work.aspect_ratio && /^(2\.39:1|16:9|1:1|9:16)$/.test(work.aspect_ratio)) ? work.aspect_ratio : "2.39:1";
+    if (asp) asp.value = (work.aspect_ratio && /^(21:9|2\.39:1|16:9|1:1|9:16)$/.test(work.aspect_ratio)) ? work.aspect_ratio : "21:9";
     const ori = document.getElementById("cssos-wec-f-orient");
     if (ori) ori.value = ["ultra-wide", "landscape", "square", "portrait"].includes(work.orientation) ? work.orientation : "ultra-wide";
     v("cssos-wec-f-listen", work.suggested_listen_price_cents != null ? work.suggested_listen_price_cents : "");

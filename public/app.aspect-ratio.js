@@ -213,7 +213,11 @@ function normalizeAspectPresetKeyModule(key) {
     "landscape": "16:9", "horizontal": "16:9", "widescreen": "16:9", "16x9": "16:9",
     "portrait": "9:16", "vertical": "9:16", "9x16": "9:16",
     "square": "1:1", "1x1": "1:1",
-    "cinema": "2.39:1", "anamorphic": "2.39:1", "239": "2.39:1",
+    // 画幅铁律(Jing 2026-11-20):「不再使用 2.39:1, 改为 21:9。」
+    // 这三个别名原来指向 2.39:1; 现在一律落到 21:9 —— 与 ASPECT_SIZE_MAP
+    // 后端那边的重映射一致(那边把 2.39:1 也映射成 21:9 的尺寸)。
+    // "2.39:1" 这个键本身【保留】在目录里: 库里和老客户端还会送它进来。
+    "cinema": "21:9", "anamorphic": "21:9", "239": "21:9",
     "ultrawide": "32:9", "superwide": "32:9", "32x9": "32:9"
   };
   const lowered = trimmed.toLowerCase();
@@ -221,28 +225,29 @@ function normalizeAspectPresetKeyModule(key) {
 }
 
 // CSSOS_WAVE_189 20260516 — Jing: 手机端 (无论横竖) 默认 device-fit 真全屏;
-// 桌面端横屏默认电影风格 2.39:1，桌面端竖屏窗口默认 9:16 单曲短视频.
+// 桌面端横屏默认电影风格 21:9，桌面端竖屏窗口默认 9:16 单曲短视频.
+// (Jing 2026-11-20: 原为 2.39:1, 画幅铁律改为 21:9 —— 源输出就要 21:9。)
 //
 // 不再用固定 9:16 兜底手机. 用 device-fit 预设, 它会按用户当前手持的
 // 横竖屏状态实时输出对应分辨率的真全屏媒体.
 //
 // Detection: pointer:coarse OR small viewport → mobile/touch device.
 // Mobile → "9:19.5" (the device-fit preset; it adapts to current
-// orientation at resolve time). Desktop landscape → "2.39:1" cinema.
-// Desktop portrait window (rare) → "9:16". Server-rendered → 2.39:1.
+// orientation at resolve time). Desktop landscape → "21:9" cinema.
+// Desktop portrait window (rare) → "9:16". Server-rendered → 21:9.
 function defaultAspectByOrientationModule() {
   try {
-    if (typeof window === "undefined") return "2.39:1";
+    if (typeof window === "undefined") return "21:9";
     const isMobile = (typeof window.matchMedia === "function")
       && (window.matchMedia("(pointer: coarse)").matches
           || window.matchMedia("(max-width: 768px)").matches);
     if (isMobile) return "9:19.5";
     const w = Number(window.innerWidth || 0);
     const h = Number(window.innerHeight || 0);
-    if (!w || !h) return "2.39:1";
-    return w >= h ? "2.39:1" : "9:16";
+    if (!w || !h) return "21:9";
+    return w >= h ? "21:9" : "9:16";
   } catch (_e) {
-    return "2.39:1";
+    return "21:9";
   }
 }
 if (typeof globalThis !== "undefined") {

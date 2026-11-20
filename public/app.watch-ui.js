@@ -9265,13 +9265,15 @@ function applyStoredWorkAspectModule(work) {
 }
 globalThis.applyStoredWorkAspectModule = applyStoredWorkAspectModule;
 
-// CSSOS_WAVE_558 20260531 — Jing: 媒体规格 📐【点击循环】比例: 适配 → 2.39:1 → 16:9 → 1:1 → 9:16。
+// CSSOS_WAVE_558 20260531 — Jing: 媒体规格 📐【点击循环】比例: 适配 → 21:9 → 16:9 → 1:1 → 9:16。
+// (W2346 2026-11-20: 原来第二档是 2.39:1; 画幅铁律改为 21:9。)
 // 自包含全局(此前 __cssosCycleAspect 从未定义 → 📐 不出现/不工作)。设 watch-frame 的 aspect-ratio +
 // 标 userOverrodeAspect, 让 W544 的入库画幅还原让位用户手选。
 (function () {
   var CYCLE = [
     { id: "fit",   label: "Fit",     ar: "" },          // 适配设备(清除强制比例)
-    { id: "2.39x1",label: "2.39:1",  ar: "2.39 / 1" },
+    // 画幅铁律(Jing 2026-11-20):「不再使用 2.39:1, 改为 21:9。」
+    { id: "21x9", label: "21:9",    ar: "21 / 9" },
     { id: "16x9",  label: "16:9",    ar: "16 / 9" },
     { id: "1x1",   label: "1:1",     ar: "1 / 1" },
     { id: "9x16",  label: "9:16",    ar: "9 / 16" }

@@ -104,7 +104,7 @@ struct SearchView: View {
                     AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color.clear }
                 }
             }
-            .aspectRatio(2.39, contentMode: .fit)   // 画幅铁律 2.39 宽银幕
+            .aspectRatio(CSS_CINEMA_RATIO, contentMode: .fit)   // 画幅铁律 21:9 宽银幕
             .clipShape(RoundedRectangle(cornerRadius: 10))
             Text(w.title ?? tr("Untitled")).font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.white).lineLimit(1)

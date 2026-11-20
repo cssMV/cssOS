@@ -3791,7 +3791,7 @@ async function ensureBeatVideo(prompt: string): Promise<{ status: "ready" | "pen
   (async () => {
     try {
       const vr = await callVideoGen({ prompt: p + ", cinematic, 2.39 ultra-wide, atmospheric depth", duration_secs: 6,
-        aspect_ratio: "2.39:1", native_audio: false, prefer: ["seedance"], exclusive: true, retries: 2 });
+        aspect_ratio: "21:9", native_audio: false, prefer: ["seedance"], exclusive: true, retries: 2 });
       if (vr.ok && vr.video_url) {
         const dl = await fetch(vr.video_url);
         if (dl.ok) { await uploadBufferToR2(Buffer.from(await dl.arrayBuffer()), remote, "video/mp4").catch(() => null);
@@ -5973,7 +5973,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
     const __coverT0 = Date.now();
     try {
       const img = await callImageGen({
-        prompt: composedPrompt || "album cover, cinematic, ultra-wide anamorphic 2.39:1 cinematic composition",
+        prompt: composedPrompt || "album cover, cinematic, ultra-wide 21:9 cinemascope composition",
         size: fallbackSize,
       });
       clearInterval(heartbeat);
@@ -6077,7 +6077,7 @@ app.post("/api/mv/cover", express.json({ limit: "16kb" }), async (req, res) => {
   let img: Awaited<ReturnType<typeof callImageGen>> | null = null;
   let imgErr = "";
   try {
-    img = await callImageGen({ prompt: composedPrompt || "album cover, cinematic, ultra-wide anamorphic 2.39:1 cinematic composition", size: fallbackSize });
+    img = await callImageGen({ prompt: composedPrompt || "album cover, cinematic, ultra-wide 21:9 cinemascope composition", size: fallbackSize });
   } catch (err) {
     imgErr = err instanceof Error ? err.message : String(err);
     console.warn("[mv-cover] callImageGen threw:", imgErr);
@@ -13123,7 +13123,7 @@ app.post("/api/agent/work/:work_id/generate-video", async (req, res) => {
     const tier = await callVideoGen({
       prompt: [work.title, work.style, "cinematic, no text"].filter(Boolean).join(", "),
       duration_secs: 5,
-      aspect_ratio: "2.39:1", // WAVE_444 iron rule: never 16:9
+      aspect_ratio: "21:9", // 画幅铁律(Jing 2026-11-20): 直接发 21:9, 不再发 2.39:1
       image_url: work.cover_image || undefined,
     });
     if (!tier || !tier.ok || !tier.video_url) {
@@ -18675,12 +18675,14 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
     }
   }
   const prompt = (String((body as any).prompt || "").trim() + __actorVidSuffix + __vidStoryClause + __vidExtras).trim();
-  // WAVE_444: accept any valid ratio; default → cinema 2.39:1 (never 16:9)
-  const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "2.39:1").trim();
+  /* 接受任何合法画幅; 默认 → 21:9 宽银幕(绝不 16:9)。
+   * Jing 2026-11-20:「不再使用 2.39:1, 改为 21:9。」—— 我们自己【发出】的一律 21:9。
+   * 老客户端送进来的 "2.39:1" 照收(下面那个归一化还在), 只是我们不再主动产生它。 */
+  const aspectRaw = String((body as any).aspect_ratio || (body as any).ratio || "21:9").trim();
   // Normalise to a canonical key; portrait variants → "9:16" for provider compat
   const aspect = (aspectRaw === "9:16" || aspectRaw === "9:19.5") ? "9:16"
     : aspectRaw === "1:1" ? "1:1"
-    : "2.39:1";
+    : "21:9";
   const duration = Number((body as any).duration_secs || (body as any).duration || 5) || 5;
   let imageUrl = String((body as any).image_url || (body as any).cover_url || "").trim();
   // CSSOS_WAVE_861 — 空 prompt + 无封面图 绝不调付费视频引擎(同 W856)。
@@ -18703,7 +18705,7 @@ app.post("/api/mv/video", express.json({ limit: "64kb" }), async (req, res) => {
       if (refs.length >= 2) {
         const still = await generateReferenceLockedCover(
           refs,
-          `${prompt || "cinematic film still"}, ${aspect === "9:16" ? "vertical portrait" : "2.39:1 anamorphic"} multi-character shot, every face clearly locked and recognizable in the same frame`
+          `${prompt || "cinematic film still"}, ${aspect === "9:16" ? "vertical portrait" : "21:9 cinemascope widescreen"} multi-character shot, every face clearly locked and recognizable in the same frame`
         ).catch(() => null);
         if (still) { imageUrl = still; console.log(`[mv-video] P4a two-face still → i2v first frame (${refs.length} faces)`); }
       }
@@ -27987,7 +27989,7 @@ async function ensureRealVideoMV(
       const req: VideoGenRequest = {
         prompt,
         duration_secs: REAL_MV_SHOT_SECS,
-        aspect_ratio: "2.39:1",          // 画幅铁律 → 21:9(厂商原生上限)
+        aspect_ratio: "21:9",            // 画幅铁律: 源就要 21:9, 不靠事后裁
         native_audio: false,             // 四轨分离: 画面不带声, 歌声是独立轨
         prefer: ["seedance"],
         exclusive: true,                 // 不许掉成 16:9 的 veo
@@ -28008,6 +28010,33 @@ async function ensureRealVideoMV(
       const rr = await fetch(String(v.video_url));
       if (!rr.ok) { console.warn("[real-mv] 第 %d 镜下载失败 %d", i + 1, rr.status); break; }
       fs.writeFileSync(f, Buffer.from(await rr.arrayBuffer()));
+      /* 画幅铁律巡检(Jing 2026-11-20):「必须是源输出就是 21:9。」
+       *
+       * 我们向厂商要的是 21:9, 但【要了不等于给了】。下面那一步有 crop=,
+       * 它会把任何比例裁成 21:9 —— 也就是说厂商要是给了 16:9, 屏幕上照样是
+       * 21:9, 我们【永远不会知道】, 而裁掉的正是模型本来构图进去的两侧内容。
+       *
+       * 所以在裁之前先量一遍源, 不合规就吼出来。不 return 失败 ——
+       * 镜头已经付过钱了, 扔掉等于白烧; 但它必须留下痕迹, 否则就是静默违宪。 */
+      try {
+        const meta = await ffprobeVideo(f);
+        const vw = Number(meta?.width || 0), vh = Number(meta?.height || 0);
+        if (vw > 0 && vh > 0) {
+          const ar = vw / vh;
+          if (Math.abs(ar - 21 / 9) > 0.02) {
+            console.warn(
+              "[real-mv][画幅铁律] %s 第 %d 镜: 向 %s 要的是 21:9(2.3333), 拿回来的是 %dx%d(%s) —— " +
+              "下面的 crop 会把它裁成 21:9, 裁掉的是模型本来画进去的两侧。源不是 21:9 = 违宪, 要么换引擎, 要么找厂商。",
+              workId.slice(0, 8), i + 1, REAL_MV_ENGINE, vw, vh, ar.toFixed(4));
+          }
+        } else {
+          console.warn("[real-mv][画幅铁律] %s 第 %d 镜: 量不到宽高 —— 这是【没量到】, 不是【合规】。",
+            workId.slice(0, 8), i + 1);
+        }
+      } catch (e) {
+        console.warn("[real-mv][画幅铁律] %s 第 %d 镜 ffprobe 失败: %s —— 当【没量到】处理。",
+          workId.slice(0, 8), i + 1, String((e as Error)?.message || e).slice(0, 120));
+      }
       shots.push(f);
     }
     if (!shots.length) return { ok: false, error: "no_shots" };
@@ -28016,7 +28045,13 @@ async function ensureRealVideoMV(
     const listPath = path.join(dir, `rmv-${tag}.txt`); tmp.push(listPath);
     fs.writeFileSync(listPath, shots.map((f) => `file '${f}'`).join("\n"));
     const seqPath = path.join(dir, `rmv-${tag}-seq.mp4`); tmp.push(seqPath);
-    /* 先裁成精确 21:9, 再把宽度【封顶】在 2520 —— 不往上拉。
+    /* ⚠ 这里的 crop 是【最后一道安全网, 不是画幅的来源】。
+     * 画幅铁律(Jing 2026-11-20):「构图, 取景, 输出, 而不要用其他比例的来剪裁,
+     * 必须是源输出就是 21:9。」—— 所以正确状态是: 上面那一圈巡检一条警告都不打,
+     * 源本来就是 21:9, 这个 crop 什么也没裁(min() 两项在源已是 21:9 时是恒等变换)。
+     * 如果日志里出现 [画幅铁律] 警告, 那不是"这里会修好", 而是【源头错了, 去改源头】。
+     *
+     * 先裁成精确 21:9, 再把宽度【封顶】在 2520 —— 不往上拉。
      *
      * 写死 scale=2520:1080 会把厂商出的片强行放大到铁律那个尺寸:
      * 放大【不增加任何细节】, 只增加字节和编码时间, 而 api-vm 不大、R2 要存、
@@ -28304,7 +28339,7 @@ async function enqueueMultipartPartsGeneration(rootId: string, _userId: string):
               prompt: [part.title, part.style, lyr.slice(0, 500),
                 "cinematic narrative scene with natural dialogue, ambient sound and filmic score, no on-screen text"].filter(Boolean).join(", "),
               duration_secs: 8,
-              aspect_ratio: "2.39:1", // 画幅铁律 → 21:9 超宽屏
+              aspect_ratio: "21:9", // 画幅铁律: 源就要 21:9
               native_audio: true,     // CSSOS_WAVE_1466 — 叙事【有声有画】: 视频原生出对白/环境音
               // CSSOS_WAVE_1468 — 叙事强制 seedance(原生 21:9+有声): exclusive 不兜底别的引擎,
               //   超时只在 seedance 上重试(retries:2), 杜绝掉成 16:9 的 veo。
@@ -30859,7 +30894,13 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         // 2.39:1/16:9 → landscape; 9:19.5/9:16 → portrait; else landscape
         const aspect = (req.aspect_ratio === "9:16" || req.aspect_ratio === "9:19.5") ? "9:16"
           : req.aspect_ratio === "1:1" ? "1:1"
-          : "16:9"; // providers use 16:9 internally; output is composed to 2.39:1 by ffmpeg
+          /* 画幅铁律(Jing 2026-11-20):「构图, 取景, 输出, 而不要用其他比例的来剪裁,
+           * 必须是源输出就是 21:9。」这里原来是 `: "16:9"`, 注释还写着
+           * "output is composed to 2.39:1 by ffmpeg" —— 那就是【拿 16:9 的源裁出超宽】,
+           * 正是铁律禁止的事: 裁掉的是模型本来构图进去的两侧内容。
+           * 现在直接向厂商要 21:9。厂商若不认, 路由会落到下一个引擎并打日志,
+           * 那是【看得见的失败】, 比静默裁一刀好。 */
+          : "21:9";
         const dur = (req.duration_secs && req.duration_secs > 5) ? "9s" : "5s";
         const lumaModel = await resolveEngineModel("video", "luma", req, process.env.LUMA_MODEL, "ray-2");
         const body: Record<string, unknown> = {
@@ -30935,7 +30976,13 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         // 2.39:1/16:9 → landscape; 9:19.5/9:16 → portrait; else landscape
         const aspect = (req.aspect_ratio === "9:16" || req.aspect_ratio === "9:19.5") ? "9:16"
           : req.aspect_ratio === "1:1" ? "1:1"
-          : "16:9"; // providers use 16:9 internally; output is composed to 2.39:1 by ffmpeg
+          /* 画幅铁律(Jing 2026-11-20):「构图, 取景, 输出, 而不要用其他比例的来剪裁,
+           * 必须是源输出就是 21:9。」这里原来是 `: "16:9"`, 注释还写着
+           * "output is composed to 2.39:1 by ffmpeg" —— 那就是【拿 16:9 的源裁出超宽】,
+           * 正是铁律禁止的事: 裁掉的是模型本来构图进去的两侧内容。
+           * 现在直接向厂商要 21:9。厂商若不认, 路由会落到下一个引擎并打日志,
+           * 那是【看得见的失败】, 比静默裁一刀好。 */
+          : "21:9";
         const dur = (req.duration_secs && req.duration_secs > 5) ? "10" : "5";
         const klingModel = await resolveEngineModel("video", "kling", req, process.env.KLING_MODEL, "kling-v1");
         const body: Record<string, unknown> = {
@@ -31022,7 +31069,13 @@ async function callVideoGen(req: VideoGenRequest): Promise<VideoGenResponse> {
         // 2.39:1/16:9 → landscape; 9:19.5/9:16 → portrait; else landscape
         const aspect = (req.aspect_ratio === "9:16" || req.aspect_ratio === "9:19.5") ? "9:16"
           : req.aspect_ratio === "1:1" ? "1:1"
-          : "16:9"; // providers use 16:9 internally; output is composed to 2.39:1 by ffmpeg
+          /* 画幅铁律(Jing 2026-11-20):「构图, 取景, 输出, 而不要用其他比例的来剪裁,
+           * 必须是源输出就是 21:9。」这里原来是 `: "16:9"`, 注释还写着
+           * "output is composed to 2.39:1 by ffmpeg" —— 那就是【拿 16:9 的源裁出超宽】,
+           * 正是铁律禁止的事: 裁掉的是模型本来构图进去的两侧内容。
+           * 现在直接向厂商要 21:9。厂商若不认, 路由会落到下一个引擎并打日志,
+           * 那是【看得见的失败】, 比静默裁一刀好。 */
+          : "21:9";
         const dur = req.duration_secs && req.duration_secs > 5 ? 9 : 5;
         const input: Record<string, unknown> = {
           prompt: req.prompt,
@@ -35865,7 +35918,7 @@ async function backfillSystemWorkMedia(
           prompt: [work.title || "", work.style || "", "cinematic, no text"]
             .filter(Boolean).join(", "),
           duration_secs: 5,
-          aspect_ratio: "2.39:1", // WAVE_444 iron rule: never 16:9
+          aspect_ratio: "21:9", // 画幅铁律(Jing 2026-11-20): 直接发 21:9, 不再发 2.39:1
           image_url: coverUrl || work.cover_image || undefined,
         });
         if (v && v.ok && v.video_url) {
@@ -37242,7 +37295,7 @@ async function runAnniversaryGenerateForDate(adminUserId: string, runDate: Date)
                 aspect_ratio, orientation)
              VALUES ($1::uuid, $2::uuid, $3, $4, 'single', $5, 'published',
                        0, 0, 'system_anniversary', $6, $7, $8::timestamptz, $8::timestamptz,
-                       '2.39:1', 'ultra-wide')`,
+                       '21:9', 'ultra-wide')`,
             [workId, adminUserId, angleLabel, style, lyricsPreview,
              civToLanguageServer(m.civilization || ""),
              m.civilization || null,
@@ -44697,7 +44750,7 @@ async function cssosGenCivCover(prompt: string, ownerId: string): Promise<string
  * aiquickdraw 临时视频 → 下载 → uploadBufferToR2 落稳定 CDN(否则 24h 后 404). 失败返回 ""。 */
 async function cssosGenMvVideo(prompt: string, coverUrl: string, workId: string): Promise<string> {
   try {
-    const vreq: VideoGenRequest = { prompt, duration_secs: 5, aspect_ratio: "2.39:1", prefer: ["seedance"] };
+    const vreq: VideoGenRequest = { prompt, duration_secs: 5, aspect_ratio: "21:9", prefer: ["seedance"] };
     if (coverUrl) vreq.image_url = coverUrl;
     const v = await callVideoGen(vreq);
     if (!v?.ok || !v.video_url) return "";
@@ -46372,7 +46425,7 @@ app.post("/api/admin/engine/test", async (req, res) => {
       const videoReq: VideoGenRequest = {
         prompt: String(req.body?.prompt || "drifting clouds over mountains, cinematic, slow zoom"),
         duration_secs: 5,
-        aspect_ratio: "2.39:1", // WAVE_444 iron rule: never 16:9
+        aspect_ratio: "21:9", // 画幅铁律(Jing 2026-11-20): 直接发 21:9, 不再发 2.39:1
         prefer_model: userPreferredModelMap(req as any, "video"),
       };
       if (provider) videoReq.prefer = [provider];
@@ -50469,7 +50522,7 @@ app.post("/api/person-mv/dialogue", express.json({ limit: "4kb" }), async (req, 
           await client.query(
             `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image, duration_secs,
                 aspect_ratio, orientation)
-             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, $6, '2.39:1', 'ultra-wide')`,
+             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, $6, '21:9', 'ultra-wide')`,
             [workId, String(user.id), title, style, result.cover_url, result.duration_secs ? Math.round(result.duration_secs) : null],
           );
           if (result.mv_url) {
@@ -50889,7 +50942,7 @@ app.post("/api/admin/person-mv/groups/:group_id/generate-collective-mv", express
           await client.query(
             `INSERT INTO user_works (id, user_id, title, style, work_type, status, cover_image,
                 aspect_ratio, orientation)
-             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, '2.39:1', 'ultra-wide')`,
+             VALUES ($1::uuid, $2, $3, $4, 'mv', 'published', $5, '21:9', 'ultra-wide')`,
             [workId, systemUserId, title, style, result.cover_url],
           );
           if (result.mv_url) {
@@ -53054,13 +53107,13 @@ app.post("/api/admin/cast/twoface-video-test", express.json({ limit: "4kb" }), a
     if (ref) { refs.push(ref); names.push(a.name_en); }
   }
   if (refs.length < 2) return res.status(400).json({ ok: false, error: "actors missing face reference", got: refs.length });
-  const scene = String(req.body?.prompt || `a cinematic dramatic two-shot film still of ${names.join(" and ")} together in the same frame, facing each other, expressive lighting, 2.39:1 anamorphic`);
+  const scene = String(req.body?.prompt || `a cinematic dramatic two-shot film still of ${names.join(" and ")} together in the same frame, facing each other, expressive lighting, 21:9 cinemascope widescreen`);
   const dur = Math.min(Math.max(Number(req.body?.duration) || 5, 3), 10);
   // step1 — 双脸定帧(P3 已验证)
   const still = await generateReferenceLockedCover(refs, scene).catch(() => null);
   if (!still) return res.json({ ok: false, stage: "still", error: "twoface_still_failed", names });
   // step2 — 定帧作首帧 → image-to-video(两脸已锁在首帧)
-  const vid = await callVideoGen({ prompt: scene, image_url: still, duration_secs: dur, aspect_ratio: "2.39:1" }).catch((e) => ({ ok: false, provider: "", error: (e as Error)?.message } as VideoGenResponse));
+  const vid = await callVideoGen({ prompt: scene, image_url: still, duration_secs: dur, aspect_ratio: "21:9" }).catch((e) => ({ ok: false, provider: "", error: (e as Error)?.message } as VideoGenResponse));
   return res.json({ ok: !!vid?.ok, still, video_url: vid?.video_url || null, poll_url: vid?.poll_url || null, provider: vid?.provider, names, ref_count: refs.length });
 });
 
@@ -54859,7 +54912,7 @@ app.post("/api/admin/pipeline/dry-run", async (req, res) => {
     const vidReq: VideoGenRequest = {
       prompt,
       duration_secs: 5,
-      aspect_ratio: "2.39:1", // WAVE_444 iron rule: never 16:9
+      aspect_ratio: "21:9", // 画幅铁律(Jing 2026-11-20): 直接发 21:9, 不再发 2.39:1
       prefer: ["kling"],
     };
     if (img.ok && img.image_url) vidReq.image_url = img.image_url;
@@ -56124,8 +56177,8 @@ app.post("/api/works", async (req, res) => {
       return JSON.stringify(c.slice(0, 4).map((v: unknown) => String(v || "").trim()).filter(Boolean));
     })();
     // CSSOS_WAVE_544 20260531 — Jing「画幅信息必须入库, 否则回放退回 16:9 / App 拉伸」:
-    // 持久化 MV 管线的宽高比 / 分辨率 / 朝向 + mood/ambience。默认电影超宽 2.39:1。
-    const workAspectRatio = String(req.body?.aspect_ratio || req.body?.ratio || "2.39:1").trim() || null;
+    // 持久化 MV 管线的宽高比 / 分辨率 / 朝向 + mood/ambience。默认电影超宽 21:9(Jing 2026-11-20)。
+    const workAspectRatio = String(req.body?.aspect_ratio || req.body?.ratio || "21:9").trim() || null;
     const workFrameWidth = (() => {
       const n = Number(req.body?.frame_width || req.body?.width);
       return Number.isFinite(n) && n > 0 ? Math.min(8192, Math.round(n)) : null;

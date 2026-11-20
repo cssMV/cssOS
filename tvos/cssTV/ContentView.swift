@@ -1,6 +1,6 @@
 // CSSOS_WAVE_1172 / W1227 / W1231 / W1232 — 首页: HBO Max 风格。
 // 左侧 = 分类侧栏(Home/MV/歌剧/三部曲/短剧/电视剧/电影); 右侧主区:
-//   顶部 = featured hero(~5 部精选, 2.39 大幅, 方向键左右可切 + 6s 自动轮播 + 圆点);
+//   顶部 = featured hero(~5 部精选, 21:9 大幅, 方向键左右可切 + 6s 自动轮播 + 圆点);
 //   下面 = 多行 rails。选一首 → 进影院播放。
 
 import SwiftUI
@@ -246,10 +246,10 @@ struct ContentView: View {
             .coordinateSpace(name: "cssScroll")
             .focusSection()
             .ignoresSafeArea(.container, edges: .top)   // W1308 — Jing: 整个滚动内容顶到屏顶, 不留任何顶部安全区
-            // W1523 — 滚过 hero(≈2.39 高度的一半多) → 藏侧栏(不挡下方栏目); 回滚上来再显。
+            // W1523 — 滚过 hero(≈21:9 高度的一半多) → 藏侧栏(不挡下方栏目); 回滚上来再显。
             .onPreferenceChange(CSSScrollOffsetKey.self) { minY in
                 let scrolledDown = -minY
-                let heroH = UIScreen.main.bounds.width / 2.39
+                let heroH = UIScreen.main.bounds.width / CSS_CINEMA_RATIO
                 let show = scrolledDown < heroH * 0.55
                 if show != sidebarVisible {
                     withAnimation(.easeInOut(duration: 0.25)) { sidebarVisible = show }
@@ -818,7 +818,7 @@ struct SpinningImage: UIViewRepresentable {
 }
 
 /// CSSOS_WAVE_1231 / W1232 — HBO Max 顶部 featured hero。
-/// 2.39 大幅背景 + 渐变压暗 + 标题/▶Play/♪时长 + 圆点。方向键 ←→ 手动切, 6s 自动轮播。
+/// CSS_CINEMA_RATIO 大幅背景 + 渐变压暗 + 标题/▶Play/♪时长 + 圆点。方向键 ←→ 手动切, 6s 自动轮播。
 /// ▶Play 按钮为焦点目标: Select 即播当前; 在其上 ←→ 切精选, ↓ 进下面 rails。
 struct FeaturedHero: View {
     /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
@@ -970,7 +970,7 @@ struct FeaturedHero: View {
             : (waiting && !focused ? brandGreen.opacity(breathe ? 0.26 : 0.10) : Color.white.opacity(0.12))
         HStack(spacing: 8) {
             thumb(works[i].coverURL)
-                .frame(width: 56, height: 56 / 2.39)
+                .frame(width: 56, height: 56 / CSS_CINEMA_RATIO)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .background(
                     // W1310(重加 W1289): 激活(第一位)的小 emoji 特别向右、铺满整条轨道(像甩向最后一位的余晖); 其余常规。
@@ -1007,7 +1007,7 @@ struct FeaturedHero: View {
     @ViewBuilder
     private func thumb(_ cover: String?) -> some View {
         // W1562 — 胶囊缩略图按缩略尺寸降采样(原来每枚都解全尺寸位图 → 5 枚全尺寸=大内存浪费)。
-        CSSPosterImage(urlString: cover, targetSize: CGSize(width: 56, height: 56 / 2.39))
+        CSSPosterImage(urlString: cover, targetSize: CGSize(width: 56, height: 56 / CSS_CINEMA_RATIO))
     }
 
     // W1245 — For You 用 contentLeading(safe 基准); hero 满铺基准多补偿一个安全区(~92pt)落同一左缘。
@@ -1056,7 +1056,7 @@ struct FeaturedHero: View {
         .padding(.horizontal, 60)
         .padding(.top, 60)
         .padding(.bottom, 14)          // W1250 — Jing: 胶囊再下来一半(30→14), 更贴底
-        .frame(height: UIScreen.main.bounds.width / 2.39, alignment: .bottom)   // W1311 — 画幅铁律: 严格 2.39 超宽屏(满宽到顶)
+        .frame(height: UIScreen.main.bounds.width / CSS_CINEMA_RATIO, alignment: .bottom)   // W1311 — 画幅铁律: 严格 21:9 超宽屏(满宽到顶)
         .background(alignment: .bottomLeading) {
             ZStack {
                 GeometryReader { geo in
@@ -1282,9 +1282,9 @@ struct WorkCard: View {
     // CSSOS_WAVE_1523 — Jing「栏目激活跟随」: 聚焦哪张卡 → 它即"激活态"(品牌绿边框+绿光晕+标题绿),
     //   和 hero 激活胶囊同一套绿语言。Select 即播。@Environment(\.isFocused) 读本卡(=Button)是否聚焦。
     @Environment(\.isFocused) private var focused: Bool
-    // CSSOS_WAVE_1228 — 画幅铁律: 横屏一律 2.39:1 电影宽银幕, 绝不 16:9。卡片 480 宽 → 201 高。
+    // CSSOS_WAVE_1228 — 画幅铁律: 横屏一律 21:9 电影宽银幕, 绝不 16:9。卡片 480 宽 → 201 高。
     private let cardWidth: CGFloat = 480
-    private let cinemaRatio: CGFloat = 2.39
+    private let cinemaRatio: CGFloat = CSS_CINEMA_RATIO
 
     private let brandGreen = Color(red: 0.0, green: 0.96, blue: 0.63)
 

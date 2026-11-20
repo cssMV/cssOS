@@ -6,14 +6,35 @@ import AVKit
 import AVFoundation
 import UIKit   // W1266 — UIApplication.isIdleTimerDisabled(播放时禁屏保)
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_2346 20261120 — 画幅铁律的【唯一真源】(tvOS 端)
+ *
+ * Jing 2026-11-20:「21:9 铁律: 构图, 取景, 输出, 而不要用其他比例的来剪裁,
+ *                   必须是源输出就是 21:9。」「不再使用 2.39:1, 改为 21:9。」
+ *
+ * 在这之前 tvOS 这边有 20 多处写死的 `2.39` —— 而源头(src/index.ts 的
+ * CINEMA_LANDSCAPE)出的是 21:9(2520×1080 = 2.3333)。
+ * 用 2.39 的框去装 2.3333 的片, resizeAspectFill 会再切掉约 2.4% 的高度:
+ * 【源已经是对的, 却在播放端被裁了一刀】—— 那正是铁律禁止的事。
+ *
+ * 所以这里只留一个常量, 全端几何都指向它。要改画幅只改这一行, 并且必须与
+ * src/index.ts 的 CINEMA_LANDSCAPE 一起改 —— 两处分叉 = 播放端又开始裁。
+ * ═══════════════════════════════════════════════════════════════════════════ */
+let CSS_CINEMA_RATIO: CGFloat = 21.0 / 9.0   // = 2.3333…, 与后端 CINEMA_LANDSCAPE 一致
+
 /// 无控件、铺满全屏的视频层(AVPlayerLayer 包装, tvOS 不显示 transport)。
 struct VideoSurface: UIViewRepresentable {
     let player: AVPlayer
     func makeUIView(context: Context) -> PlayerLayerView {
         let v = PlayerLayerView()
         v.playerLayer.player = player
-        // W1319 — 画幅铁律(desktop 同款): 播放器统一锁定最终 2.39 影院标准。resizeAspectFill 填满外层 2.39 框,
-        //   裁掉源多余上下。源头 W1316 已出 21:9(新作几乎不裁); 老的 16:9 也呈现 2.39(裁上下)。
+        /* W1319 / W2346 — 画幅铁律(desktop 同款): 播放器锁定 21:9 影院标准,
+         * resizeAspectFill 填满外层 21:9 框。
+         *
+         * W2346 改的是框本身: 原来这个框是 2.39, 而源头出的是 21:9(2.3333)——
+         * 于是【源明明已经是对的, 还要在播放端再被裁掉约 2.4% 的高度】。
+         * 现在 框 = 源 = 21:9, 新作一帧不裁。
+         * 老的 16:9 片源仍会被裁上下 —— 它本来就不是 21:9, 那是存量, 不是新账。 */
         v.playerLayer.videoGravity = .resizeAspectFill
         return v
     }
@@ -122,9 +143,9 @@ struct PlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // W1319 — 强制 2.39 宽银幕框(满宽 × 宽/2.39, 垂直居中, 上下电影黑边); 内容 fill 裁满。
+            // W1319 — 强制 21:9 宽银幕框(满宽 × 宽/(21/9), 垂直居中, 上下电影黑边); 内容 fill 裁满。
             GeometryReader { geo in
-                let boxH = geo.size.width / 2.39
+                let boxH = geo.size.width / CSS_CINEMA_RATIO
                 /* CSSOS_WAVE_2250 — 画面层按【多画面胶囊】选中的形态渲染。
                  * 语义照桌面 applyForm():
                  *   video  = 只有视频, 幻灯层撤掉
@@ -165,7 +186,7 @@ struct PlayerView: View {
                  */
 
                 // W1348 — 取消静态绿光; 改为【边框进度条】(一字照搬桌面 app.watch-stage-bars.js):
-                //   沿 2.39 画框四周走一圈的描边, 长度 = 音频主时钟 currentTime/duration, 颜色 6 段流动 + 柔光。
+                //   沿 21:9 画框四周走一圈的描边, 长度 = 音频主时钟 currentTime/duration, 颜色 6 段流动 + 柔光。
                 if let ap = audioPlayer {
                     BorderProgressBar(player: ap, width: geo.size.width, height: boxH)
                         .position(x: geo.size.width / 2, y: geo.size.height / 2)
@@ -215,7 +236,7 @@ struct PlayerView: View {
             //   (黑边留给传统字幕, 免打架)。渐变也只铺在框内下部, 不进黑边。
             if showTitle {
                 GeometryReader { geo in
-                    let boxH = geo.size.width / 2.39
+                    let boxH = geo.size.width / CSS_CINEMA_RATIO
                     let blackBar = max(0, (geo.size.height - boxH) / 2)   // 下方黑边高度
                     ZStack(alignment: .bottom) {
                         // 可读性渐变: 只在视频框下半部, 不进黑边。
@@ -283,16 +304,16 @@ struct PlayerView: View {
              *  "模式头(Settings/Fine-tune/Languages/Voices/Visuals/Takes)是一组固定的导航"),
              * 不自己另起一套顺序或命名。
              *
-             * 位置仍守原铁律: 放在 2.39 画框【下边缘之下】那条黑边里, 不压画面、不进过扫描区。
+             * 位置仍守原铁律: 放在 21:9 画框【下边缘之下】那条黑边里, 不压画面、不进过扫描区。
              */
             if showPills {
-                /* 版式照电脑端那一条: 【压在画面底部的半透明轨】, 不是塞进 2.39 的黑边。
+                /* 版式照电脑端那一条: 【压在画面底部的半透明轨】, 不是塞进 21:9 的黑边。
                  * 第一版我按黑边算坐标, 结果面板中心落到 1027、132 高跨到 1093 —— 屏幕只有 1080,
                  * 下半截被切掉(实测截图里"日本語"那行只露出上沿)。根因是我写的
                  *     max(boxBottom + 20, min(boxBottom + 24, maxTop))
                  * 外层的 max 把过扫描上限 maxTop 直接盖掉了 —— 写了限位却没生效, 比没写更糟。
                  * 现在不算坐标了: 贴底 + 固定留白, 没有能算错的东西。 */
-                /* 位置: 【紧贴 2.39 媒体框的下沿】。
+                /* 位置: 【紧贴 21:9 媒体框的下沿】。
                  *
                  * Jing:「取消 10px 靠边规则, 因这不是电脑端, 这是 TV 端, 改为紧贴媒体框下方。」
                  * 这其实是回到 W1370 原本那条位置铁律 —— 胶囊放在画框下边缘之下那条黑边里,
@@ -303,7 +324,7 @@ struct PlayerView: View {
                  * 用"上面垫一个 Spacer"来定位, 不用 .position —— 后者要先知道自己的高度,
                  * 而这条 bar 的高度随模式行有无而变, 猜高度正是上一版落错位的原因。 */
                 GeometryReader { geo in
-                  let boxBottom = geo.size.height / 2 + (geo.size.width / 2.39) / 2
+                  let boxBottom = geo.size.height / 2 + (geo.size.width / CSS_CINEMA_RATIO) / 2
                   VStack(spacing: 0) {
                     // CSSPillBar 自带约 7pt 透明上边 —— 抵掉它, 让【看得见的胶囊】贴住画框下沿。
                     Spacer().frame(height: max(0, boxBottom - 7))
@@ -972,7 +993,7 @@ struct PlayerView: View {
 }
 
 /// W1348 — 边框进度条(照搬桌面 app.watch-stage-bars.js 的 .cssmv-border-bar)。
-///  · 沿 2.39 画框四周走一圈的圆角矩形描边, trim 长度 = 音频主时钟 currentTime/duration(0→1 绕一圈)。
+///  · 沿 21:9 画框四周走一圈的圆角矩形描边, trim 长度 = 音频主时钟 currentTime/duration(0→1 绕一圈)。
 ///  · 颜色: 6 段 seeded-hue 角向渐变缓慢流动(桌面"随机颜色波动"), 同色 drop-shadow 柔光向外散。
 ///  · 未播/无时长 → trim=0 不显示(安静)。播完 → 满圈。【音频主时钟】铁律, 不读视频时钟。
 struct BorderProgressBar: View {

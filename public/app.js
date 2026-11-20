@@ -6537,9 +6537,10 @@ const creationState = {
         typeof window !== "undefined" &&
         ((window.matchMedia && window.matchMedia("(orientation: portrait)").matches) ||
           (window.innerHeight && window.innerWidth && window.innerHeight > window.innerWidth));
-      return isPortrait ? "9:19.5" : "2.39:1"; // WAVE_444: phone → device-fit, never 9:16 stretch
+      // 画幅铁律(Jing 2026-11-20):「不再使用 2.39:1, 改为 21:9。」
+      return isPortrait ? "9:19.5" : "21:9"; // 手机 → device-fit, 绝不 9:16 拉伸
     } catch (_e) {
-      return "2.39:1";
+      return "21:9";
     }
   })(),
   customWidth: null,

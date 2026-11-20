@@ -38,7 +38,7 @@ struct IFilmPlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // 银幕: 当前 beat 的视频(静音, 2.39 铺满)。
+            // 银幕: 当前 beat 的视频(静音, 21:9 铺满)。
             if let vp = videoPlayer {
                 VideoSurface(player: vp).ignoresSafeArea()
             }

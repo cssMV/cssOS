@@ -1751,7 +1751,13 @@ body.longpress-guard * {
   border-radius: 16px;
   background: rgba(0, 0, 0, 0.7);
   border: 1px solid rgba(0, 245, 160, 0.25);
-  backdrop-filter: blur(14px);
+  /* CSSOS_WAVE_2344 — backdrop-filter 搬到【开着】那条规则里去了。
+   * 为什么: 这个弹窗是每个面板都有一个、而且【从不销毁】, 关着时只是 opacity:0。
+   * 可 opacity:0 不等于不合成 —— WebKit 照样为每一个 backdrop-filter 分配
+   * 一块与元素等大的离屏面, 并且每帧重新采样模糊它背后的内容。
+   * 影院态实测: 同时存在 14 个 .panel-settings, 全部 opacity:0, 合计约 32MB 合成面,
+   * 而且面板开得越多它越涨 —— 这是会无限长的那一半。
+   * 关着的时候一个像素都看不见, 所以去掉它【零视觉变化】。 */
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
   display: grid;
   gap: 12px;
@@ -1769,6 +1775,10 @@ body.longpress-guard * {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
+  /* W2344 — 只有真正打开的这一个才付模糊的钱。开的那一刻它还在 opacity 0→1 的
+   * 淡入里, 所以模糊"突然出现"是看不出来的。 */
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 .panel-settings .panel-settings-title {
@@ -14077,3 +14087,33 @@ html[data-theme="light"] .subscription-legal a { color: #0a66c2 !important; }
 /* CSSOS_WAVE_1959 — 先前 W1957 在这里另建了 .watch-media-ring 并关掉了
  * .watch-screen::before。那是重复造轮子(Jing 当场指出"绝对不是我们一直在用的那套")。
  * 整段撤掉 —— 现在改由上方 ::before 的 inset 变量实现同一个目的, 不新建任何元素。 */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CSSOS_WAVE_2344 20261120 — 被完全挡住的背景层不要再付合成的钱
+ *
+ * Jing:「正在播放媒体的播放面板 MV 面板突然退出, 提示内存过载。」
+ * 那是 Safari 的 "This webpage was reloaded because it was using significant
+ * memory" —— 不是 JS 堆爆了(实测堆一直在 24~49MB, 上限 4192MB, 切 6 首歌
+ * 节点数反而是负增长), 爆的是【进程内存】: 带滤镜的合成面。
+ *
+ * 实测 1680×1050 @dpr2 影院态, 滤镜层合计约 321MB, 其中:
+ *     .bg-blob × 3   blur(55px)             35MB × 3 = 105MB   ← 被黑面板全挡
+ *     #logo-panel    saturate(.8) blur(1px)            8MB     ← 被黑面板全挡
+ * 这 113MB 是为【一个像素都看不见的东西】付的, 而且随屏幕面积等比例涨。
+ *
+ * body.cssos-bg-occluded 由 app.has-class-bridge.js 【实测】维护:
+ * 有面板不透明且恰好盖满视口才打上, 还原/退出/resize 自动摘掉。
+ * 所以这两条规则在任何能看见背景的状态下都不生效 —— 零视觉变化。
+ *
+ * ⚠ 没有动的两块(它们是【看得见的】光晕, 按红线必须先问 Jing):
+ *     .cssmv-trail  drop-shadow(0 0 8px)  整幅 1680×1050 → 80MB
+ *     #watch-svg.glow 双层 drop-shadow                   → 54MB
+ * ═══════════════════════════════════════════════════════════════════════════ */
+body.cssos-bg-occluded .bg-blob {
+  visibility: hidden !important;   /* 不画 = 不合成。动画状态保留, 退出影院立刻原样回来 */
+  filter: none !important;         /* 双保险: 个别内核对 hidden 层仍会建滤镜面 */
+}
+body.cssos-bg-occluded #logo-panel {
+  /* 只摘滤镜, 不隐藏整个主界面 —— 它里面有魔镜视频等活物, 隐藏的副作用面太大。 */
+  filter: none !important;
+}

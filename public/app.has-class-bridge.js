@@ -40,6 +40,45 @@
       var panelMax = !!document.querySelector(".panel.maximized:not(#logo-panel):not(.logo-panel):not(#watch-panel)")
         || !!(wp && wp.classList.contains("cssmv-cinema"));
       body.classList.toggle("cssos-panel-max", panelMax);
+      /* CSSOS_WAVE_2344 20261120 — Jing「播放中 MV 面板突然退出, 提示内存过载」。
+       *
+       * 实测(1680×1050 @dpr2, 影院态): 带滤镜的合成面合计 ~321MB, 而其中最大的
+       * 三块【根本看不见】—— 三个 .bg-blob(blur 55px, 各 35MB)和 #logo-panel
+       * (saturate+blur, 8MB)整个被不透明的黑色 MV 面板盖住。合计 113MB,
+       * 还会随屏幕面积等比例涨(Jing 的屏幕比这大, 付得更多)。
+       * 浏览器【不会】因为一个层被挡住就跳过合成, 所以这笔钱一直在付。
+       *
+       * 为什么用【量】而不是【猜状态】: 本来想判 cssos-panel-max / cssmv-cinema,
+       * 但实测发现把 .maximized 摘掉之后面板仍然铺满视口(cssmv-cinema 还在)——
+       * 状态类和"到底盖没盖住"不是一回事。平台记过的教训正是这一条:
+       * 先量出真正生效的东西, 再下结论。所以这里直接量: 有没有一个面板
+       * 【不透明 + 恰好盖住整个视口】。resize / 还原 / 退出影院都会自动翻回来。
+       *
+       * 成本: 只量 .panel, 数量个位数, 而且本桥本来就是 rAF 合并的。 */
+      var occluded = false;
+      try {
+        var vw = window.innerWidth, vh = window.innerHeight;
+        var panels = document.querySelectorAll(".panel");
+        for (var i = 0; i < panels.length; i++) {
+          var el = panels[i];
+          if (el.classList.contains("hidden") || el.hasAttribute("hidden")) continue;
+          var r = el.getBoundingClientRect();
+          if (!(r.left <= 0 && r.top <= 0 && r.right >= vw && r.bottom >= vh)) continue;
+          var cs = window.getComputedStyle(el);
+          if (cs.visibility === "hidden" || cs.display === "none") continue;
+          if (Number(cs.opacity) < 1) continue;
+          // 背景必须是【完全不透明】的。rgb(...) 没有 alpha = 不透明;
+          // rgba(..., a) 只有 a === 1 才算。半透明面板后面是真看得见的, 不能关。
+          var bg = String(cs.backgroundColor || "");
+          var m = bg.match(/^rgba?\(([^)]+)\)$/);
+          if (!m) continue;
+          var parts = m[1].split(",");
+          if (parts.length > 3 && Number(parts[3]) < 1) continue;
+          occluded = true;
+          break;
+        }
+      } catch (_e2) { occluded = false; }   // 量不出来就当【没挡住】, 宁可多付钱也不能让画面少东西
+      body.classList.toggle("cssos-bg-occluded", occluded);
     } catch (_e) {}
   }
   function schedule() {

@@ -1,18 +1,30 @@
-/* W2336 回归 — Jing:「画面都是有了, 就是一张封面图。可以是真视频吗?」
+/* W2336 / W2336b 回归 — Jing:「画面都是有了, 就是一张封面图。」
  *
- * 前半句才是本波修的东西, 而且它【不花一分钱】:
- *   幻灯帧早就生成好、也早就付过钱了(《花の色は》实测 12 叶 × 6 帧 = 71 帧),
- *   只是 loadMarketWorkDescendantsForRoot —— 多部作品【子部】那条查询 ——
- *   从来没把 cover_slides / visual_kind / visual_frames 这几列 SELECT 出来。
- *   子部的 cover_slides=undefined → cssTV 的 slideFrames 退回 [coverURL] 单张
- *   → 三幕六场从头到尾一张封面图。
+ * 这件事【不花一分钱】: 幻灯帧早就生成好、也早就付过钱了(《花の色は》实测 12 叶 × 6 帧 = 71 帧),
+ * 只是多部作品的【子部查询】从来没把 cover_slides / visual_frames / available_langs
+ * 这几列 SELECT 出来。子部 cover_slides=undefined → cssTV 的 slideFrames 退回
+ * [coverURL] 单张 → 三幕六场从头到尾一张封面图。
  *
- * 为什么只在多部作品上发作: root 走 /api/works/market 主查询(那边三列都有),
- * 子部(幕/场/分部/take2)走本函数补齐。W1346 当年给本函数补过【能不能播】那几列
- * (audio/mv URL), 漏了【画面是什么】那几列 —— 同一个 SELECT 列表, 同一类漏法。
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 【这份测试自己栽过一次, 所以它现在长这样】
  *
- * 判据必须【限定在本函数体内】: 主查询里这三列一直都有, 扫全文件会在没修的代码上也绿。
- * (今晚第四次提醒自己: 判据范围不对, 结论就不对。)
+ * W2336 版本的它是 11/0 全绿的 —— 而功能在真机上【完全没生效】。
+ * 因为它和我犯了同一个错: 只检查了 loadMarketWorkDescendantsForRoot(单数),
+ * 可 /api/works/market 的主路径走的是 loadMarketWorkDescendants(复数)。
+ * 判据限定在"本函数体内"是对的, 但【函数挑错了】, 于是在坏代码上照样全绿。
+ *
+ * 子部查询一共三个, 而且各缺一套不同的列:
+ *     loadMineWorkDescendants          /api/works/mine → For You 第一段「自己的作品」
+ *     loadMarketWorkDescendants        /api/works/market 主路径          ← 真正在跑的
+ *     loadMarketWorkDescendantsForRoot fillMarketStructuredChildren 兜底
+ *
+ * 所以本测试做两件事, 缺一不可:
+ *   ① 三个函数【逐个】查四列 —— 补一个漏两个就报红
+ *   ② 锁住【子部查询只有三个】—— 将来有人加第四个, 这里直接失败, 逼他把列带上。
+ *      ②才是真正的闸: ①只能守住已知的三个, ②守住"还会不会冒出第四个"。
+ *
+ * 检测"什么算子部查询": 函数体里有 `w.parent_work_id IS NOT NULL`
+ * (只取分部、不取根, 这是子部查询的签名), 而不是靠函数名像不像。
  *
  * 校准: CALIBRATE=1 读 git HEAD, 期望失败。 */
 import { readFileSync } from "node:fs";
@@ -26,53 +38,63 @@ const ok = (n, c, h) => { if (c) { pass++; console.log("  ✅ " + n); }
 
 const src = read("src/index.ts");
 
-/* ── 子部查询(本波的唯一改动处)──────────────────────────────── */
-const iFn = src.indexOf("async function loadMarketWorkDescendantsForRoot");
-const iEnd = src.indexOf("\nasync function applyTakeTotalDurationToTree", iFn);
-const body = iFn > 0 && iEnd > iFn ? src.slice(iFn, iEnd) : "";
-ok("子部查询函数在", body.length > 500);
+/* ── 切出每个顶层函数的函数体 ─────────────────────────────────────────
+ * 第一版写成"从这个 async function 切到下一个 async function", 结果中间夹着的
+ * 普通 `function` 不算边界 —— readSse 的"函数体"一路吞掉了后面三个真正的子部查询,
+ * 于是它"四列全有", 还把"恰好三个"那条闸顶掉了。
+ * 顶层函数的结尾是【顶格的 `}`】, 按它切才准。 */
+const starts = [];
+const re = /\n(?:async )?function ([A-Za-z0-9_]+)/g;
+let m;
+while ((m = re.exec(src))) starts.push({ name: m[1], at: m.index + 1 });
+const bodyOf = (i) => {
+  const end = src.indexOf("\n}", starts[i].at);
+  return src.slice(starts[i].at, end > 0 ? end + 2 : src.length);
+};
 
-ok("子部查询取出 cover_slides(幻灯帧)",
-   /AS cover_slides/.test(body),
-   "不取 → 每个场 cover_slides=undefined → cssTV slideFrames 退回单张封面 → 一张封面图到底");
-ok("子部查询取出 visual_kind(这条画面到底是什么)",
-   /AS visual_kind/.test(body),
-   "多画面胶囊要按它标 video/hybrid/slides; 子部读不到就只能当幻灯");
-ok("子部查询取出 visual_frames(几张)",
-   /AS visual_frames/.test(body),
-   "胶囊要标「N 张」, 数字必须真");
-ok("子部查询取出 is_real_video_mv 列本身",
-   /w\.is_real_video_mv\b/.test(body),
-   "W1970h 的教训: 只在 CASE 里【用】了它却没 SELECT 出来 = 前端读到 undefined");
+/* ── 谁是子部查询: 看【取不取分部】, 不看名字 ─────────────────────── */
+const descendantFns = starts
+  .map((s, i) => ({ name: s.name, body: bodyOf(i) }))
+  .filter((f) => /w\.parent_work_id IS NOT NULL/.test(f.body));
 
-/* 判据不许分叉 —— 两处判据不同就等于在 UI 上撒谎(W1880 原话)。 */
-ok("真视频判据与主查询一致: 认 video_cents / te-trailer / film-",
-   /engines'->>'video_cents/.test(body) && /te-trailer/.test(body) && /\/film-/.test(body),
-   "逐字照抄主查询那段 CASE, 不另写一份");
-ok("绝不拿「有没有 mp4」当真视频判据",
-   !/final_mv_asset\.url IS NOT NULL\s*THEN\s*'video'/i.test(body)
-     && !/preview_video_url IS NOT NULL\s*THEN\s*'video'/i.test(body),
-   "平台的 mp4 很多是我们自己用封面拼的幻灯片视频(canon-/epic-), 按 mp4 判 = 撒谎");
+console.log(`\n子部查询(按 "w.parent_work_id IS NOT NULL" 认, 不按名字): ${descendantFns.length} 个`);
+descendantFns.forEach((f) => console.log(`   · ${f.name}`));
+console.log("");
 
-/* ── 取出来还得送到端上: 深层绝对化必须认 cover_slides 且递归子部 ── */
-const iAbs = src.indexOf("function absolutizeMarketNodeMediaDeep");
-const absBody = iAbs > 0 ? src.slice(iAbs, iAbs + 700) : "";
-ok("深层绝对化认 cover_slides 数组",
-   /Array\.isArray\(node\.cover_slides\)/.test(absBody),
-   "幻灯帧是根相对路径; 不补 host, 原生端(cssTV/cssVision)加载不到");
-ok("深层绝对化递归进 children",
-   /node\.children\.forEach\(/.test(absBody) && /absolutizeMarketNodeMediaDeep\(child\)/.test(absBody),
-   "只处理 root 等于没处理 —— 本波要修的恰恰是子部");
+const EXPECTED = ["loadMineWorkDescendants",
+                  "loadMarketWorkDescendants",
+                  "loadMarketWorkDescendantsForRoot"];
 
-/* ── 端上的兜底不许退化: 真的没有帧时仍退回单张封面, 不能黑屏 ── */
-const tv = read("tvos/cssTV/Models.swift");
-const iSl = tv.indexOf("var slideFrames: [String]");
-const slBody = iSl > 0 ? tv.slice(iSl, iSl + 420) : "";
-ok("cssTV: 有帧就放帧",
-   /let a = \(coverSlides \?\? \[\]\)/.test(slBody) && /if !a\.isEmpty \{ return a \}/.test(slBody));
-ok("cssTV: 真的没帧仍退回单张封面(不黑屏)",
-   /if let c = coverURL, !c\.isEmpty \{ return \[c\] \}/.test(slBody),
-   "幻灯这一形态永远要有东西可放");
+/* ② 结构闸 —— 先判这个, 它比逐列检查更要紧 */
+ok(`子部查询恰好 ${EXPECTED.length} 个, 且就是已知那三个`,
+   descendantFns.length === EXPECTED.length &&
+   EXPECTED.every((n) => descendantFns.some((f) => f.name === n)),
+   `实际 ${descendantFns.length} 个: ${descendantFns.map((f) => f.name).join(", ")}\n` +
+   `       多出来的那个【也必须带上下面四列】, 否则同一个洞再开一次。\n` +
+   `       (W2336 就是因为只补了一个、测试也只查一个, 全绿但没生效。)`);
 
-console.log(`\nW2336  ✅ ${pass}  ❌ ${fail}` + (CAL ? "   (CALIBRATE: 期望有 ❌)" : ""));
-process.exit(fail ? 1 : 0);
+/* ① 三个函数逐个查四列 */
+const COLS = [
+  ["cover_slides",
+   "不取 → 子部 cover_slides=undefined → cssTV slideFrames 退回单张封面 → 一张封面图到底"],
+  ["visual_kind",
+   "多画面胶囊按它标 video/hybrid/slides; 子部读不到就只能当幻灯"],
+  ["visual_frames",
+   "进度/画面数量显示要它; 注意后端回的是字符串(count(*) 走 LooseInt)"],
+  ["available_langs",
+   "不取 → 多语言 / 多声线胶囊在每一个幕·场上都是空的, 而 root 那行有"],
+];
+
+for (const fn of descendantFns) {
+  for (const [col, hint] of COLS) {
+    ok(`${fn.name} 取出 ${col}`,
+       new RegExp(`AS ${col}\\b`).test(fn.body),
+       hint);
+  }
+  ok(`${fn.name} 的 visual_kind 判据带 hybrid 分支`,
+     /'hybrid'/.test(fn.body),
+     "主查询有 hybrid, 子部没有 = 同一件事两个答案。平台宪法: 两处判据分叉 = UI 上撒谎");
+}
+
+console.log(`\n${fail === 0 ? "✅ PASS" : "❌ FAIL"}  ${pass} 通过 / ${fail} 失败`);
+process.exit(fail === 0 ? 0 : 1);

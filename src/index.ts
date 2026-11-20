@@ -42255,7 +42255,24 @@ async function loadMineWorkDescendants(rootIds: string[]) {
               END AS visual_kind,
               (SELECT count(*) FROM work_assets vf2
                 WHERE vf2.work_id = w.id AND vf2.asset_type = 'slideshow_frame') AS visual_frames,
-              w.is_real_video_mv
+              w.is_real_video_mv,
+              /* CSSOS_WAVE_2336b 20261119 — 第三个子部查询, 同一个洞的最后一处。
+               *
+               * 子部查询一共三个, 而且【各缺一套不同的列】, 所以一次只补一个必然漏:
+               *     Mine(本函数)      cover_slides ❌  visual_kind ✅  visual_frames ✅  available_langs ❌
+               *     Market 复数        四列都缺 → W2336b 补
+               *     MarketForRoot      W2336/W2338 补过
+               * 本函数服务 /api/works/mine, 也就是 For You 的第一段【自己的作品】——
+               * 不补它, 同一部歌剧从市场进有幻灯、从"我的作品"进还是一张封面图。
+               *
+               * visual_kind 本函数早就带 hybrid 分支(W1970d), 与主查询一致, 故不动它。 */
+              (SELECT array_agg(sf3.url)
+                 FROM (SELECT sf4.url FROM work_assets sf4
+                        WHERE sf4.work_id = w.id AND sf4.asset_type = 'slideshow_frame'
+                        ORDER BY random() LIMIT 15) sf3) AS cover_slides,
+              (SELECT array_agg(wlt2.lang ORDER BY wlt2.track_order)
+                 FROM work_language_tracks wlt2
+                WHERE wlt2.work_id = w.id AND wlt2.status = 'ready') AS available_langs
        FROM user_works w
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id
        LEFT JOIN work_access_products listen_product
@@ -42345,15 +42362,53 @@ async function loadMarketWorkDescendants(rootIds: string[]) {
           * 而市场/For You 用的是本函数 loadMarketWorkDescendants —— 补错了函数, 所以怎么刷新都不变。
           * 更关键的一点: 根节点(「李清照·声声慢三部曲」)是容器、没有媒体, normaliseItem 会把它
           * 整条丢掉; 真正进播放列表的是【分集】。所以标记只打在根上没用, 分集必须自己带。 */
+         /* CSSOS_WAVE_2336b 20261119 — W2336/W2338 只做了一半, 这里是另一半。
+          *
+          * 当时我把那几列加进了 loadMarketWorkDescendantsForRoot(单数),
+          * 可 /api/works/market 的主路径走的是【本函数】(复数) —— 单数那个只是
+          * fillMarketStructuredChildren 的兜底。于是部署完实测《花の色は》三幕六场:
+          *   visual_kind     6/6 个叶子有   ← 它三个函数里都有(上面 W1970i 当年补的)
+          *   cover_slides    0/6, 字段根本不存在
+          *   visual_frames   0/6, 字段根本不存在
+          *   available_langs 0/6, 字段根本不存在
+          * 在 cssTV 上仍然是一张封面图 —— 和改之前一模一样。
+          *
+          * 【这个坑上面那条 W1970i 注释已经写过一次了】: "补错了函数, 所以怎么刷新都不变"。
+          * 但它写在本函数里, 而我当时在编辑的是另一个函数, 根本看不到它。
+          * 教训: 子部查询有三个(Mine / Market复数 / MarketForRoot)。加列之前
+          * 先 grep 调用点确认【哪一个真在跑】, 别凭函数名像不像来挑。
+          *
+          * visual_kind 顺带对齐: 本函数原判据【没有 hybrid 分支】, 主查询和单数那份都有。
+          * 既然 cover_slides 现在真带出去了, 判据再分叉就会出现"明明有幻灯帧却标 video"。
+          * 平台宪法: 两处判据分叉 = UI 上撒谎。表达式逐字照抄主查询。 */
+         (SELECT array_agg(sf.url)
+            FROM (SELECT sf2.url FROM work_assets sf2
+                   WHERE sf2.work_id = w.id AND sf2.asset_type = 'slideshow_frame'
+                   ORDER BY random() LIMIT 15) sf) AS cover_slides,
          CASE
+           WHEN w.is_real_video_mv
+                AND EXISTS (SELECT 1 FROM work_assets vk2 WHERE vk2.work_id = w.id AND vk2.asset_type = 'slideshow_frame')
+             THEN 'hybrid'
            WHEN w.is_real_video_mv THEN 'video'
-           WHEN COALESCE((final_mv_asset.meta->'engines'->>'video_cents')::int, 0) > 0
-                OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/te-trailer%'
-                OR COALESCE(final_mv_asset.url, w.preview_video_url) LIKE '%/film-%'
+           WHEN (COALESCE((SELECT (fa.meta->'engines'->>'video_cents')::int FROM work_assets fa
+                            WHERE fa.work_id = w.id AND fa.asset_type = 'final_mv' LIMIT 1), 0) > 0
+                 OR w.preview_video_url LIKE '%/te-trailer%'
+                 OR w.preview_video_url LIKE '%/film-%')
+                AND EXISTS (SELECT 1 FROM work_assets vk WHERE vk.work_id = w.id AND vk.asset_type = 'slideshow_frame')
+             THEN 'hybrid'
+           WHEN COALESCE((SELECT (fa2.meta->'engines'->>'video_cents')::int FROM work_assets fa2
+                            WHERE fa2.work_id = w.id AND fa2.asset_type = 'final_mv' LIMIT 1), 0) > 0
+                 OR w.preview_video_url LIKE '%/te-trailer%'
+                 OR w.preview_video_url LIKE '%/film-%'
              THEN 'video'
            ELSE 'slides'
          END AS visual_kind,
-         w.is_real_video_mv
+         (SELECT count(*) FROM work_assets vf
+           WHERE vf.work_id = w.id AND vf.asset_type = 'slideshow_frame') AS visual_frames,
+         w.is_real_video_mv,
+         (SELECT array_agg(wlt.lang ORDER BY wlt.track_order)
+            FROM work_language_tracks wlt
+           WHERE wlt.work_id = w.id AND wlt.status = 'ready') AS available_langs
        FROM user_works w
        JOIN users u ON u.id = w.user_id
        LEFT JOIN work_market_profiles mp ON mp.work_id = w.id

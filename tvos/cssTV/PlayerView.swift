@@ -389,8 +389,34 @@ struct PlayerView: View {
                * 教训(和 W2310 同一句): 一次性的定时写入, 在它赌输的时候【没有任何迹象】。
                * 要么做成声明式, 要么写完去读回来核对 —— 不要写完就当成功。 */
               ZStack {
-                Color.black.opacity(0.0001)
-                    .focusable(true)
+                /* CSSOS_WAVE_2349 20261120 — 确认键改走 Button, 把那对手势整个拆掉。
+                 *
+                 * Jing 实测把 W2348 的诊断证伪了:「一次一次按【总是】不出来, 必须快速连按
+                 * 两次/三次才出来。」—— 如果是焦点没到位, 第一次按会把焦点挪过来,
+                 * 【第二次慢按就该成】。慢按永远不成、只有"快"管用 → 不是焦点, 是手势仲裁。
+                 *
+                 * 原来这一层同时挂着:
+                 *     .onTapGesture { revealPills() }
+                 *     .onLongPressGesture(minimumDuration: 0.01) { revealPills() }
+                 * 同一个视图上 tap + longPress = UIKit 手势仲裁: tap 必须等 longPress
+                 * 【失败】才能识别。而 longPress 带 maximumDistance —— 在 Siri Remote 的
+                 * 触控板上【手指一动就算超距】。慢而用力地按, 手指在板面上挪得多 →
+                 * longPress 判失败, 而 tap 早已被它压着 → 两条路一起落空, 屏幕上毫无反应。
+                 * 快速连点接触短、几乎不挪 → 偶尔有一条能过。这正是 Jing 描述的形状。
+                 *
+                 * W2246 当时已经点破这对手势有毒(「为了保险接两条路本身制造了新的失败模式」),
+                 * 但那一轮只把动作改成幂等 —— 【没有把危险本身拆掉】, 于是它换个形状又回来了。
+                 *
+                 * tvOS 上接「确认键」的标准原语是 Button: 它经焦点/按键系统直达,
+                 * 没有手势仲裁这一层, 也没有 maximumDistance 这种会被手指挪动否掉的条件。
+                 * Button 自带可聚焦, 所以 .focusable(true) 去掉(给 Button 再加一层反而会打架)。
+                 * .buttonStyle(.plain) 是必须的 —— tvOS 默认的 .card 样式会给这层透明层
+                 * 画出卡片背景和浮起效果。 */
+                Button(action: { revealPills() }) {
+                    Color.black.opacity(0.0001)
+                        .contentShape(Rectangle())   // 整层都可按, 不只不透明像素
+                }
+                    .buttonStyle(.plain)
                     .focused($stageFocused)
                     .onMoveCommand { dir in
                         switch dir {
@@ -416,9 +442,13 @@ struct PlayerView: View {
                      * 在胶囊展开时根本不渲染(W2244c), 确认键那时归胶囊, 不会打架。
                      *
                      * 教训: "为了保险接两条路"本身制造了新的失败模式。保险要做成【幂等】,
-                     * 不能做成【互相抵消】。 */
-                    .onTapGesture { revealPills() }
-                    .onLongPressGesture(minimumDuration: 0.01) { revealPills() }
+                     * 不能做成【互相抵消】。
+                     *
+                     * ⚠ W2349 补完这条教训: 做成幂等【只挡住了"开了又关"】, 没挡住
+                     * 【两条路一起落空】。两条路本身才是病根, 幂等只是让它换了个形状复发。
+                     *   「为了保险多接一条路」→ 正确的做法不是给它加保险, 是【只留一条对的路】。
+                     * 那两行 .onTapGesture / .onLongPressGesture 已删, 由上面的 Button 取代。
+                     * revealPills() 仍然保持幂等 —— 那条性质本身是对的, 留着不花钱。 */
                     .ignoresSafeArea()
               }
               .defaultFocus($stageFocused, true)
@@ -467,6 +497,10 @@ struct PlayerView: View {
     private func revealPills() {
         // 幂等: 已经开着就只把自动收起的计时重置, 不做任何切换(见上面 W2246 的注释)。
         if showPills { schedulePillHide(); return }
+        /* W2349 探针: 看到这行 = 确认键【确实走到了】。若 Jing 按了一次而日志里没有它,
+         * 说明按键根本没送达(焦点/按键层), 而不是后面的展开逻辑有问题 —— 两者的修法
+         * 完全不同, 分清楚才不会再修错一轮。 */
+        print("[probe][w2349] 确认键送达 → 展开胶囊")
         showPills = true
         /* 焦点【必须晚一拍再给】: 这一帧胶囊按钮还没进入渲染树, 此刻写 focusedPill
          * 等于写给一个不存在的视图, 静默失效 —— 表现就是"浮现了但方向键动不了"。 */

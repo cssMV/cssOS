@@ -170,13 +170,18 @@ xcrun altool --upload-app -f "$IPA" -t tvos \
   --apiKey "$APP_STORE_CONNECT_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
   || { echo "❌ 上传失败"; exit 1; }
 
-hr "上传完成 —— 到此为止, 【没有提交审核】"
+hr "上传完成"
 cat <<EOF
   build $BLD 已经躺在 App Store Connect 里(处理要几分钟到半小时)。
 
-  剩下两步是对外的、会在开发者记录上留结果的, 所以留给人:
-    1. 更新说明: tvos/WHATS-NEW-1.0.4.md 里 en-US / zh-Hans 两段直接粘
-    2. 选上这个 build → 提交审核
+  接着跑这一条就提交审核(等构建处理完 → 建版本 → 挂构建 → 写更新说明 →
+  写审核备注 → 建提交单 → 提交 → 读回来核对), 幂等, 中途失败直接重跑:
+
+      node scripts/tvos-submit-for-review.mjs
+
+  (CSSOS_WAVE_2354 — Jing:「全权授权给你了, 不要再需要我按任何提交按键。」
+   在那之前这里写的是"剩下两步留给人"。更新说明也归它写:
+   Jing 常驻授权 What's New 不必经他过目 —— 【只限这一项】, 社媒/邮件仍一条一问。)
 
   ASC: https://appstoreconnect.apple.com/apps/$ASC_APP_ID/distribution
 EOF

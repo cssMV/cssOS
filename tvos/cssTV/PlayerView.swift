@@ -836,14 +836,25 @@ struct PlayerView: View {
     // MARK: - W2243 多胶囊条
 
     /* 模式头 —— 顺序与命名照电脑端那一组固定导航, 不自己另起。
-     * 【只列 TV 端真接得上料的】: Languages / Voices / Takes 背后都有实数据,
-     * 按下去真的会换轨换版本。Settings / Fine-tune / Visuals 在 TV 端【还没有控件】——
-     * 与其摆两枚按下去什么也不发生的胶囊(那比不摆更糟, 用户会以为坏了), 不如先不摆,
-     * 等它们在 TV 上真有东西可调时再加回来。这一条我会明确告诉 Jing, 不当作"做完了"。 */
+     *
+     * CSSOS_WAVE_2357 20261120 — Settings / Fine-tune 两枚【已删】。
+     *
+     * Jing:「前边的两个胶囊 settings 和 fine-tune, 在 cssTV 端可能没啥用处, 不如删除掉,
+     *        保留 language 之后的胶囊就行。」—— 同意, 而且理由比"没用"更硬:
+     *   ① 它们按下去只显示 "Not available on TV"。【按了没反应比没有更糟】——
+     *      这正是本段原注释自己写过的话, 但当时还是把它们摆上去了。
+     *   ② 遥控器上每多一枚就多两次方向键。6 枚删到 4 枚, 到 Languages 少两步。
+     *   ③ 胶囊条的职责是【切轨】; Settings / Fine-tune 在桌面端是【面板入口】,
+     *      本来就不属于切轨器。
+     *
+     * Visuals 留着 —— W2250 之后它在 TV 上是真能用的, 而且它本身带信息
+     * (是幻灯还是真视频、几张 / 什么清晰度), 不只是"可选项"。
+     *
+     * 默认模式本来就是 "lang"(见 @State pillMode), 所以删这两枚不改变默认落点。
+     * 将来 TV 上真做出设置/微调面板, 把这两行加回来即可(case "settings","tune" 的
+     * 分支特意留着没删, 就是为了那一天)。 */
     private var pillModes: [CSSPillItem] {
         [
-            CSSPillItem(id: "settings", label: tr("Settings"),  icon: "gearshape"),
-            CSSPillItem(id: "tune",     label: tr("Fine-tune"), icon: "slider.horizontal.3"),
             CSSPillItem(id: "lang",     label: tr("Languages"), icon: "globe"),
             CSSPillItem(id: "voice",    label: tr("Voices"),    icon: "waveform"),
             CSSPillItem(id: "visual",   label: tr("Visuals"),   icon: "photo.on.rectangle"),
@@ -975,7 +986,11 @@ struct PlayerView: View {
                 itemPillBar(visualPillItems, selected: chosenVisual) { key in pickVisual(key) }
             }
         case "settings", "tune":
-            /* 【实话实说】这三格在 TV 端还没有控件 —— 桌面上它们各自连着一整套面板
+            /* ⚠ W2357 起这一支【走不到了】: 两枚模式头已从 pillModes 里删掉。
+             * 特意保留这个分支, 是为了将来 TV 上真做出设置/微调面板时, 加回两行
+             * CSSPillItem 就能用 —— 删了它, 下一个人还得重新想一遍文案和位置。
+             *
+             * 【实话实说】这三格在 TV 端还没有控件 —— 桌面上它们各自连着一整套面板
              * (设置 / 情绪字幕微调 / 多画面切换), 那些不是一行胶囊能搬过来的。
              * 与其摆几枚按下去什么也不发生的胶囊(那比不摆更糟: 用户会以为坏了),
              * 不如把话说清楚。哪一格 Jing 要先做, 我就先做哪一格。 */

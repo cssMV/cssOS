@@ -12464,7 +12464,26 @@ async function getAgentTurnsLastHour(userId: string): Promise<number> {
  *   }
  */
 app.post("/api/agent/chat", express.json({ limit: "12mb" }), async (req, res) => {
-  const userId = (req.session as any)?.user_id;
+  /* CSSOS_WAVE_2356 20261120 — admin token 可替代会话(Jing:「请用管理员身份直接打一次
+   * source=csstv 的创建来验」)。
+   *
+   * 为什么需要它: 这条端点认的是浏览器/电视的登录会话, 而「cssTV 一步到位出完整 MV」
+   * 这件事只能从这条路验 —— 我这边既没有会话, 也按不了遥控器。
+   *
+   * 照既有惯例, 不另造: /api/works/:id/voice-tracks 早就是「admin token 可替代会话」
+   * 这个写法(src/index.ts:5394)。身份落到 SYSTEM_ADMIN_USER_ID, 与平台
+   * 「新作品默认归属」那条一致, 不会凭空多出一个来历不明的作者。
+   *
+   * 不是提权: CSSOS_ADMIN_TOKEN 本来就是全权凭据, 持有它的人本来就能调所有
+   * /api/admin/* 花钱的路。这里只是让它也能走【用户那条】路, 以便验证用户看到的东西。 */
+  const _adminExpected = String(process.env.CSSOS_ADMIN_TOKEN || "").trim();
+  const _isAdminToken = !!_adminExpected
+    && String(req.headers["x-admin-token"] || "").trim() === _adminExpected;
+  /* 这个 uuid 在本文件里已经有三份同值的局部常量 SYSTEM_ADMIN_USER_ID
+   * (35411 / 35738 / 37446, 系统自动 MV 用的就是它)。这里不新增第四份模块级常量,
+   * 也不去动那三处 —— 改它们不在这次的范围里。 */
+  const _systemAdminUserId = "ff6d32ab-fc93-4971-9c28-9b9f8c195cbb";
+  const userId = (req.session as any)?.user_id || (_isAdminToken ? _systemAdminUserId : null);
   if (!userId) return res.status(401).json({ ok: false, error: "sign_in_required" });
   // CSSOS_WAVE_824 20260616 — Jing「不再直连 Anthropic, 一律走 kie.ai 统一引擎基座」: AI 助理的
   // LLM 也走 KIE 的 Claude 通道(W774 已建: https://api.kie.ai/claude/v1/messages, Bearer KIE_API_KEY,

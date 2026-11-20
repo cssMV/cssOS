@@ -52,13 +52,15 @@ struct VideoSurface: UIViewRepresentable {
     }
 }
 
-/* CSSOS_WAVE_2350 的 StageTapButtonStyle 已随 W2352 一并撤除。
+/* CSSOS_WAVE_2350 — 舞台层那个"隐形确认键"专用的按钮样式: 原样返回 label, 不叠任何装饰。
  *
- * 留档, 免得有人再走一遍: 它是为"全屏隐形 Button"写的空样式, 为的是压掉 tvOS 的
- * 焦点高亮。结果压掉了【填充】(白色蒙层), 压不掉【焦点环】(整圈单色边框) ——
- * `.focusEffectDisabled()` 也没压住。
- * 结论: 在 tvOS 上, 【全屏】的 Button 没法做成完全隐形, 它的系统装饰会按边界铺满整个画面。
- * 要一个"只收确认键、一个像素都不画"的全屏层, 用 Color + .focusable + 单独的 .onTapGesture。 */
+ * 为什么不能用 .plain: tvOS 的 .plain 去掉了卡片背景, 但【按下时仍会改 label 的透明度】,
+ * 而且不负责关焦点高亮。这个 Button 的 label 是铺满全屏的透明层, 任何一点装饰都会
+ * 变成"整个画面蒙了一层" —— 正是 Jing 报的白色层。
+ * 这里要的是一个【只收按键、一个像素都不画】的按钮。 */
+private struct StageTapButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { configuration.label }
+}
 
 struct PlayerView: View {
     /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
@@ -415,25 +417,31 @@ struct PlayerView: View {
                  * W2246 当时已经点破这对手势有毒(「为了保险接两条路本身制造了新的失败模式」),
                  * 但那一轮只把动作改成幂等 —— 【没有把危险本身拆掉】, 于是它换个形状又回来了。
                  *
-                 * ⚠ CSSOS_WAVE_2352 20261120 — 上面这段诊断【成立】, 但当时给的药(换成 Button)
-                 * 带了两样 tvOS 的系统装饰, 两轮都砸在画面上:
-                 *     W2350  整屏白色蒙层  ← Button 的焦点高亮, 铺在全屏 label 上
-                 *     W2352  整圈单色边框  ← Button 的系统焦点环, 画在 Button 的边界上
-                 * `.buttonStyle(自定义)` 只去掉了填充, `.focusEffectDisabled()` 也没能去掉那个环。
+                 * tvOS 上接「确认键」的标准原语是 Button: 它经焦点/按键系统直达,
+                 * 没有手势仲裁这一层, 也没有 maximumDistance 这种会被手指挪动否掉的条件。
+                 * Button 自带可聚焦, 所以 .focusable(true) 去掉(给 Button 再加一层反而会打架)。
+                 * .buttonStyle(.plain) 是必须的 —— tvOS 默认的 .card 样式会给这层透明层
+                 * 画出卡片背景和浮起效果。 */
+                /* CSSOS_WAVE_2350 20261120 — 白色蒙层是上一条的连锁反应, 必须一起治。
                  *
-                 * 关键是回头看 W2349 的诊断本身: 病根是【tap 必须等 longPress 失败】这对组合,
-                 * 【不是 tap 本身坏】。W2246 的注释是硬证据 —— 它抱怨的是"两个都触发了",
-                 * 说明 tap 在确认键上【本来就能触发】。
+                 * Jing:「现在一按键就呼出胶囊了, 但不呼出胶囊的时候, 画面被一层白色层遮住了。」
                  *
-                 * 所以不必换原语, 把那一半拆掉就够了:
-                 *     Color + .focusable(true)   ← 不带任何系统装饰(W2349 之前从没人报过白层/边框)
-                 *     只留 .onTapGesture         ← 没有 longPress 压着它, 就没有仲裁
-                 * Button 与 StageTapButtonStyle 已撤。
+                 * 根因: tvOS 会给【获得焦点的 Button】画焦点高亮。而这个 Button 的 label 是
+                 * 【铺满全屏的透明层】, 加上 W2348 特意保证它一直拿着焦点 —— 于是那层高亮
+                 * 也铺满全屏, 看起来就是"画面蒙了一层白"。
                  *
-                 * 教训: 换原语会把它【自带的一整套观感】一起换进来。为了修一个行为去换原语,
-                 * 要先问"它还会自己画什么" —— 这次连砸两轮画面, 代价是 Jing 的两次截图。 */
-                Color.black.opacity(0.0001)
-                    .focusable(true)
+                 * .buttonStyle(.plain) 去掉的只是【卡片背景】, 不是【焦点效果】—— 这是两件事,
+                 * 我上一轮把它们当成了一件。两道一起关:
+                 *   ① 自定义 ButtonStyle: makeBody 原样返回 label, 不叠任何装饰
+                 *      (.plain 在 tvOS 上仍会按下时改透明度)。
+                 *   ② .focusEffectDisabled() —— tvOS 17 起专门用来关系统焦点效果的 API,
+                 *      只关【观感】, 不动焦点本身(焦点仍然要在, 否则确认键又收不到)。 */
+                Button(action: { revealPills() }) {
+                    Color.black.opacity(0.0001)
+                        .contentShape(Rectangle())   // 整层都可按, 不只不透明像素
+                }
+                    .buttonStyle(StageTapButtonStyle())
+                    .focusEffectDisabled()
                     .focused($stageFocused)
                     .onMoveCommand { dir in
                         switch dir {
@@ -464,13 +472,8 @@ struct PlayerView: View {
                      * ⚠ W2349 补完这条教训: 做成幂等【只挡住了"开了又关"】, 没挡住
                      * 【两条路一起落空】。两条路本身才是病根, 幂等只是让它换了个形状复发。
                      *   「为了保险多接一条路」→ 正确的做法不是给它加保险, 是【只留一条对的路】。
-                     * revealPills() 仍然保持幂等 —— 那条性质本身是对的, 留着不花钱。
-                     *
-                     * ⚠ W2352: 留下的【唯一】一条路就是下面这行 tap。
-                     *   【绝对不要再把 .onLongPressGesture 加回来】—— 那正是 W2246→W2349
-                     *   折腾四轮的病根: 它一旦存在, tap 就必须等它失败, 而它在 Siri Remote
-                     *   触控板上会被手指挪动判失败, 于是两条一起落空 = 按了没反应。 */
-                    .onTapGesture { revealPills() }
+                     * 那两行 .onTapGesture / .onLongPressGesture 已删, 由上面的 Button 取代。
+                     * revealPills() 仍然保持幂等 —— 那条性质本身是对的, 留着不花钱。 */
                     .ignoresSafeArea()
               }
               .defaultFocus($stageFocused, true)

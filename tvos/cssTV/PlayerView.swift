@@ -52,6 +52,16 @@ struct VideoSurface: UIViewRepresentable {
     }
 }
 
+/* CSSOS_WAVE_2350 — 舞台层那个"隐形确认键"专用的按钮样式: 原样返回 label, 不叠任何装饰。
+ *
+ * 为什么不能用 .plain: tvOS 的 .plain 去掉了卡片背景, 但【按下时仍会改 label 的透明度】,
+ * 而且不负责关焦点高亮。这个 Button 的 label 是铺满全屏的透明层, 任何一点装饰都会
+ * 变成"整个画面蒙了一层" —— 正是 Jing 报的白色层。
+ * 这里要的是一个【只收按键、一个像素都不画】的按钮。 */
+private struct StageTapButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { configuration.label }
+}
+
 struct PlayerView: View {
     /* W2251 — i18n 订阅点。@ObservedObject 只要【声明】就订阅了 objectWillChange,
      * 不要求 body 里读到它(那是 @Observable 宏的规矩, 不是 ObservableObject 的)。
@@ -412,11 +422,26 @@ struct PlayerView: View {
                  * Button 自带可聚焦, 所以 .focusable(true) 去掉(给 Button 再加一层反而会打架)。
                  * .buttonStyle(.plain) 是必须的 —— tvOS 默认的 .card 样式会给这层透明层
                  * 画出卡片背景和浮起效果。 */
+                /* CSSOS_WAVE_2350 20261120 — 白色蒙层是上一条的连锁反应, 必须一起治。
+                 *
+                 * Jing:「现在一按键就呼出胶囊了, 但不呼出胶囊的时候, 画面被一层白色层遮住了。」
+                 *
+                 * 根因: tvOS 会给【获得焦点的 Button】画焦点高亮。而这个 Button 的 label 是
+                 * 【铺满全屏的透明层】, 加上 W2348 特意保证它一直拿着焦点 —— 于是那层高亮
+                 * 也铺满全屏, 看起来就是"画面蒙了一层白"。
+                 *
+                 * .buttonStyle(.plain) 去掉的只是【卡片背景】, 不是【焦点效果】—— 这是两件事,
+                 * 我上一轮把它们当成了一件。两道一起关:
+                 *   ① 自定义 ButtonStyle: makeBody 原样返回 label, 不叠任何装饰
+                 *      (.plain 在 tvOS 上仍会按下时改透明度)。
+                 *   ② .focusEffectDisabled() —— tvOS 17 起专门用来关系统焦点效果的 API,
+                 *      只关【观感】, 不动焦点本身(焦点仍然要在, 否则确认键又收不到)。 */
                 Button(action: { revealPills() }) {
                     Color.black.opacity(0.0001)
                         .contentShape(Rectangle())   // 整层都可按, 不只不透明像素
                 }
-                    .buttonStyle(.plain)
+                    .buttonStyle(StageTapButtonStyle())
+                    .focusEffectDisabled()
                     .focused($stageFocused)
                     .onMoveCommand { dir in
                         switch dir {

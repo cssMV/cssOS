@@ -5539,6 +5539,27 @@ function publicArtifactsBase(): string {
   return "https://cssstudio.app";
 }
 
+/* CSSOS_WAVE_2359 20261120 — 站内相对路径 → 绝对 URL。
+ *
+ * 为什么要在【读取侧】也补一道: W2358 修的是写入侧(兜底封面不再存相对路径),
+ * 可库里【已经有 170 个作品的 cover_image 是相对路径】, 改写器救不了它们。
+ * 而这些值一旦被喂给"需要真 URL"的地方就当场炸:
+ *     ensureCanonicalMV → fetch(cover)        → Failed to parse URL from /artifacts/…
+ *     ensureRealVideoMV → 把 cover 发给 KIE   → URL must be a valid HTTP or HTTPS URL
+ * 结果是【画面那一轨必然缺】, 而且 canonReconcile 每 3 分钟重试一次, 永远不会成。
+ *
+ * 在读到的那一刻补成绝对, 比回填数据更稳: 回填只覆盖此刻那 170 行,
+ * 而这一道对【将来任何又写进相对路径的路径】同样有效。两件事都做, 不是二选一。
+ *
+ * 只认站内前缀(/uploads/ 与 /artifacts/) —— 别的一律原样返回, 免得把
+ * data: URL、s3:// 之类好端端的东西改坏。 */
+function absolutizeSiteUrl(u: string | null | undefined): string {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  if (/^\/(uploads|artifacts)\//.test(s)) return `${publicArtifactsBase()}${s}`;
+  return s;
+}
+
 /* CSSOS_WAVE_2061 20260901 — Jing:「不要覆盖掉旧版本, 我偏爱旧版本…新旧版本同在。」
  *
  * 事故: 8/24 一次重生成(meta 里留下 {"source":"w1913_regen"})把
@@ -10156,10 +10177,13 @@ async function cssosCompleteWorkInBackground(workCards: any[], _userId: string):
        * 顺序不能换: ensureCanonicalMV 没有音频会直接 skip(no_audio),
        * 所以画面必须排在音乐之后; 字幕要对齐真实歌声, 也必须在音乐之后。 */
       const t0 = Date.now();
+      /* W2359 — 逐轨记结果, 收尾那一行照它说话(原来无条件打「完毕」, 画面失败也照打)。 */
+      const trackOk = { music: false, visual: false, subtitle: false };
       try {
         // ── ② 音乐 ───────────────────────────────────────────────────────────
         if (card?.audio_url) {
           console.warn(`[W2319] ${short} 已有音频, 跳过作曲`);
+          trackOk.music = true;
         } else {
           console.warn(`[W2319] ${short} ② 作曲(lang=${lang})`);
           const r = await cssosEpicRenderCore(workId, { lang, ...(style ? { style } : {}) });
@@ -10167,8 +10191,11 @@ async function cssosCompleteWorkInBackground(workCards: any[], _userId: string):
             /* 音乐没出来就【到此为止】: 画面要音频才能合成, 字幕要歌声才能对齐。
              * 硬往下走只会得到两条必然失败的日志, 掩盖真正的失败点。 */
             console.warn(`[W2319] ${short} ② 作曲失败:`, (r as any)?.code || "?", "—— 后两轨不再尝试");
+            // W2359 — 提前 return 也要留一行真话, 否则这条路【一个 summary 都没有】。
+            console.warn(`[W2319] ${short} 四轨 1/4 歌词✓ 音乐✗ 画面— 字幕—  ← 没齐`);
             return;
           }
+          trackOk.music = true;
         }
 
         // ── ③ 画面 ───────────────────────────────────────────────────────────
@@ -10176,6 +10203,7 @@ async function cssosCompleteWorkInBackground(workCards: any[], _userId: string):
          * 纯 CPU ffmpeg, 不烧 AI 钱; 幂等(canonical_mv 标记), 已有真视频会自己跳过。 */
         try {
           const v = await ensureCanonicalMV(workId);
+          trackOk.visual = !!(v as any)?.ok;
           console.warn(`[W2319] ${short} ③ 画面:`, v?.ok ? ((v as any).skipped || "已合成") : `失败 ${(v as any)?.error || (v as any)?.skipped || "?"}`);
         } catch (e) {
           console.warn(`[W2319] ${short} ③ 画面抛错:`, (e as Error)?.message);
@@ -10190,10 +10218,24 @@ async function cssosCompleteWorkInBackground(workCards: any[], _userId: string):
         } else {
           await fetch(`http://127.0.0.1:${PORT}/api/admin/resubtitle/${workId}`, {
             method: "POST", headers: { "x-admin-token": tok },
-          }).then((x) => console.warn(`[W2319] ${short} ④ 字幕:`, x.ok ? "ok" : `HTTP ${x.status}`))
+          }).then((x) => { trackOk.subtitle = x.ok; console.warn(`[W2319] ${short} ④ 字幕:`, x.ok ? "ok" : `HTTP ${x.status}`); })
             .catch((e) => console.warn(`[W2319] ${short} ④ 字幕失败:`, (e as Error)?.message));
         }
-        console.warn(`[W2319] ${short} 四轨补齐完毕, 用时 ${Math.round((Date.now() - t0) / 1000)}s`);
+        /* CSSOS_WAVE_2359 — 收尾这一行【不许说大话】。
+         *
+         * 原文无条件打「四轨补齐完毕」—— 2026-11-20 的端到端实测里, 画面那一轨
+         * 明明失败了(封面是相对路径), 它照样打了"完毕"。summary 说谎是最难查的一种:
+         * 上面逐轨的 warn 都在, 可人只会看最后这一行。
+         * 现在逐轨记结果, 有缺就报 3/4 并点名缺哪一轨。 */
+        const done = [
+          `歌词✓`,
+          `音乐${trackOk.music ? "✓" : "✗"}`,
+          `画面${trackOk.visual ? "✓" : "✗"}`,
+          `字幕${trackOk.subtitle ? "✓" : "✗"}`,
+        ];
+        const nOk = 1 + Number(trackOk.music) + Number(trackOk.visual) + Number(trackOk.subtitle);
+        console.warn(`[W2319] ${short} 四轨 ${nOk}/4 ${done.join(" ")}, 用时 ${
+          Math.round((Date.now() - t0) / 1000)}s${nOk === 4 ? "" : "  ← 没齐"}`);
       } catch (e) {
         console.warn(`[W2319] ${short} 后台补轨抛错:`, (e as Error)?.message);
       }
@@ -28042,7 +28084,10 @@ async function ensureRealVideoMV(
         exclusive: true,                 // 不许掉成 16:9 的 veo
         retries: 1,
       };
-      if (w.cover) req.image_url = w.cover;   // 锁脸/锁世界: 4 镜共用同一个封面锚点
+      /* W2359 — 必须补成绝对: 相对路径发给厂商 = "URL must be a valid HTTP or HTTPS URL",
+       * 四镜全废, 而且 canonReconcile 每 3 分钟还会再来一次。 */
+      const _coverAbs = absolutizeSiteUrl(w.cover);
+      if (_coverAbs) req.image_url = _coverAbs;   // 锁脸/锁世界: 4 镜共用同一个封面锚点
       (req as unknown as { prefer_model?: Record<string, string> }).prefer_model = { seedance: REAL_MV_ENGINE };
       const v = await callVideoGen(req);
       if (!v?.ok || !v.video_url) {
@@ -28194,7 +28239,8 @@ async function ensureCanonicalMV(workId: string): Promise<{ ok: boolean; url?: s
     const fr = await pool.query<{ url: string }>(
       `SELECT url FROM work_assets WHERE work_id=$1::uuid AND asset_type='slideshow_frame' AND url IS NOT NULL
          ORDER BY (meta->>'seq')::int NULLS LAST, created_at LIMIT 1`, [workId]).catch(() => ({ rows: [] as { url: string }[] }));
-    const imgUrl = fr.rows[0]?.url || w.cover;
+    /* W2359 — 同上: 这里下一步就是 fetch(imgUrl), 相对路径会抛 Failed to parse URL。 */
+    const imgUrl = absolutizeSiteUrl(fr.rows[0]?.url || w.cover);
     if (!imgUrl) return { ok: false, skipped: "no_image" };
     const dir = os.tmpdir(); const tag = crypto.randomBytes(5).toString("hex");
     const aPath = path.join(dir, `canon-${tag}.aud`); tmp.push(aPath);
@@ -68683,6 +68729,21 @@ async function start() {
        * 「不要几路并发」要防的东西, 而且这次并发的代价是真钱。
        *
        * 跳过的那一跳什么都不做: 3 分钟后还会再来, 而选取条件(有活音频+没视频)是幂等的。 */
+      /* CSSOS_WAVE_2359 20261120 — 同一个错不许每 3 分钟重打一次。
+       *
+       * 实测(作品 c75f7f21): 封面存成了相对路径 → 每一镜都回
+       * "URL must be a valid HTTP or HTTPS URL" → 永远做不出视频 → 这条查询
+       * 下一轮又选中它。19:15→19:36 连打 8 次, 全是同一个【确定性】错误。
+       * 重试一万次也不会成 —— 这和平台记过的「余额错绝不当限流重试」是同一个形状。
+       *
+       * 退避【按错误指纹】而不是按次数: 同一个错 → 间隔翻倍(3→6→12→…→封顶 1 小时);
+       * 错【变了】→ 立刻复位重试。这一点很要紧 —— 修好封面之后错会变(或消失),
+       * 那时就该马上再试, 而不是还在罚站。单纯的"失败 N 次就永久拉黑"做不到这件事。
+       *
+       * 存在进程内存里: 重启即清空。这是有意的取舍 —— 部署后值得再试一次,
+       * 而真正要挡的是"3 分钟一次、一整天几百次"那种空转。 */
+      const _canonFail = new Map<string, { sig: string; until: number; n: number }>();
+      const CANON_BACKOFF_MAX_MS = 60 * 60 * 1000;
       let _canonReconcileBusy = false;
       const canonReconcile = async () => {
         if (_canonReconcileBusy) return;
@@ -68697,6 +68758,9 @@ async function start() {
                  AND NOT EXISTS (SELECT 1 FROM work_assets wa WHERE wa.work_id = user_works.id AND wa.asset_type = 'canonical_mv')
                ORDER BY updated_at DESC LIMIT 3`);
           for (const row of (due.rows || [])) {
+            // W2359 — 还在退避期内就跳过(上一次是同一个确定性错误)。
+            const _bo = _canonFail.get(row.id);
+            if (_bo && Date.now() < _bo.until) continue;
             /* CSSOS_WAVE_2337 — Jing:「真视频做默认, 余额不够才降幻灯。」
              *
              * 顺序就是这句话本身: 先试真视频, 它自己拒了(余额不够 / 取不到视频档价 /
@@ -68716,13 +68780,27 @@ async function start() {
             const rv = await ensureRealVideoMV(row.id, { auto: true }).catch((e) => ({ ok: false, error: String(e) }));
             if (rv && (rv as any).ok && !(rv as any).skipped) {
               console.info(`[canon-reconcile] ${row.id.slice(0, 8)} -> 真视频`);
+              _canonFail.delete(row.id);
               continue;
             }
             const r = await ensureCanonicalMV(row.id).catch((e) => ({ ok: false, error: String(e) }));
             if (r && (r as any).ok && !(r as any).skipped) {
               console.info(`[canon-reconcile] ${row.id.slice(0, 8)} -> 幻灯(真视频让位: ${
                 (rv as any)?.skipped || (rv as any)?.error || "?"})`);
+              _canonFail.delete(row.id);
+              continue;
             }
+            /* W2359 — 两条路都没产出画面。按【错误指纹】退避。
+             * 指纹取两条路各自的 error/skipped 拼起来并截短 —— 错一样就翻倍,
+             * 错变了(比如封面修好了)就从头再来。 */
+            const sig = `${(rv as any)?.error || (rv as any)?.skipped || "?"}|${
+              (r as any)?.error || (r as any)?.skipped || "?"}`.slice(0, 160);
+            const prev = _canonFail.get(row.id);
+            const n = (prev && prev.sig === sig) ? prev.n + 1 : 1;
+            const wait = Math.min(CANON_BACKOFF_MAX_MS, 3 * 60 * 1000 * Math.pow(2, n - 1));
+            _canonFail.set(row.id, { sig, n, until: Date.now() + wait });
+            console.warn(`[canon-reconcile] ${row.id.slice(0, 8)} 第 ${n} 次同样失败, 退避 ${
+              Math.round(wait / 60000)} 分钟: ${sig}`);
           }
         } catch (e) { console.warn("[canon-reconcile] scan failed:", e instanceof Error ? e.message : String(e)); }
         finally { _canonReconcileBusy = false; }

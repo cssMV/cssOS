@@ -98,6 +98,36 @@
   } catch (_eR) {}
   // Bar stroke thickness. Jing earlier: "尺寸小一半" — halved from 10 → 5.
   const TRAIL_STROKE_PX = 5;
+  /* CSSOS_WAVE_2372 20261123 — 光晕改用【模糊】, 不再叠描边。
+   *
+   * Jing 看了 W2369/W2371 之后:「四层了? 绝对不对, 我要的是渐变式, 或者说散发式,
+   * 而不是一层套一层的。」并排给了两张图: 叠出来的同心硬环(不要) vs 媒体框那种柔光(要)。
+   *
+   * ## 我前三版都错在同一个地方
+   *
+   * W2345 孪生一条 → W2369 叠三条 → W2371 想叠十六条。**全是在叠描边。**
+   * 描边这个画法天生带一道干净的硬边缘 —— 叠 N 条就是 N 道同心硬边, 叠到十六条也还是
+   * 十六道, 只是细一点。Jing 一次比一次准地指出这件事, 而我一次比一次更用力地叠。
+   * **「散发」只有一种做法: 模糊。描边做不出来, 加多少条都做不出来。**
+   *
+   * ## 为什么现在敢用模糊了(W2345 那 80MB 不会回来)
+   *
+   * W2345 的实测结论是「filter 的离屏面按【元素包围盒】算」—— 当时被模糊的是一个
+   * **铺满整个面板**的 <rect>, 所以 1680×1050@dpr2 要 80MB。
+   * 包围盒大才是病根, 不是模糊本身。
+   * 换成贴着每条边的【细条】之后, 包围盒就只有那条边那么宽;
+   * 再进一步, 不透明矩形用 box-shadow **一块离屏面都不开**(逐像素算, 这是 W2345
+   * 当时记下的另一条便宜路子, 一直没用上)。
+   *
+   * 而 box-shadow 正是图2 媒体框那圈用的同一个机制 —— 所以这不是"做个像的",
+   * 是**把 W1983 那条声明原样拿过来用**。三层模糊互相重叠出来的是一条连续曲线,
+   * 和三条硬描边完全是两回事: 一个没有边, 一个有三道边。
+   *
+   * ## 数值 = W1983 逐字(CLAUDE.md 媒体框宪法, 锁死)
+   *     0 0 14px rgba(…,0.34)   0 0 38px rgba(…,0.22)   0 0 78px rgba(…,0.12)
+   * 颜色不写死成绿色: 进度条是流动的彩虹, 取它当前的色相。 */
+  const GLOW_BLUR_PX = [14, 38, 78];     // W1983 三层半径
+  const GLOW_BLUR_A  = [0.34, 0.22, 0.12]; // W1983 三层淡度
 
   // CSSOS_PHASE2_BORDER_NOTIF_WAVE 20260420 — copy the notifications panel
   // .notification-run-bar-fill gradient exactly. Six HSL stops centered on
@@ -258,36 +288,40 @@ html.cssos-app .cssmv-border-bar.is-viewport {
 
    成本不变: SVG 描边直接画进当前层, 三条也不开任何离屏面 —— W2345 治的那 80MB
    是 filter 的离屏面, 跟描边条数无关。 */
-.cssmv-trail-glow {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-  opacity: calc(var(--cssmv-glow-a, 0.34) * var(--cssmv-glow-k, 1));
+/* W2372 — 光晕不再是描边, 而是贴着四条边的【不透明细条 + box-shadow】。
+   细条本身不可见(被上面那条真描边盖住), 可见的只有它散出来的柔光。
+   box-shadow 不开离屏面, 所以这一层比 W2345 的孪生描边还便宜, 却是真模糊。 */
+.cssmv-glow-edges {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
-  transition: stroke-dasharray ${TRAIL_TRANSITION_MS_RENDER}ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: visible;
+  z-index: 2;                 /* 在真描边(z-index:3)之下 */
+  opacity: 0;
+  transition: opacity ${FADE_MS}ms ease-in-out;
 }
-.cssmv-trail-glow.g1 { stroke-width: ${TRAIL_STROKE_PX + 8};  --cssmv-glow-k: 1;    }
-.cssmv-trail-glow.g2 { stroke-width: ${TRAIL_STROKE_PX + 22}; --cssmv-glow-k: 0.65; }
-.cssmv-trail-glow.g3 { stroke-width: ${TRAIL_STROKE_PX + 46}; --cssmv-glow-k: 0.35; }
-.cssmv-border-bar.mode-playback .cssmv-trail-glow { transition: none; }
-.cssmv-border-bar.is-waiting .cssmv-trail-glow {
-  stroke-dasharray: 0 99999 !important;
-  opacity: 0 !important;
+.cssmv-glow-edges.is-active { opacity: 1; }
+.cssmv-glow-edges.is-fading { opacity: 0; }
+.cssmv-glow-edges.is-waiting { opacity: 0 !important; }
+.cssmv-glow-edges.is-done-static { opacity: 0.76; }   /* 原 done 态 0.26/0.34 = 0.76 */
+html.cssos-app .cssmv-glow-edges.is-viewport {
+  position: fixed;
+  inset: 0;
+  z-index: 10064;             /* 紧贴描边那层(10065)之下 */
 }
-.cssmv-border-bar.is-done-static .cssmv-trail-glow {
-  transition: none !important;
-  --cssmv-glow-a: 0.26;          /* 对应原来 done 态更紧的 6px 光晕 */
+.cssmv-glow-edge {
+  position: absolute;
+  display: none;
+  border-radius: 2px;
 }
-.cssmv-border-bar.is-end-burst .cssmv-trail-glow {
+.cssmv-glow-edges.is-end-burst {
   animation: cssmvBorderEndBurstGlow 820ms cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
-  transition: none;
 }
-/* 终场闪光的光晕那一份 —— 只动 transform/opacity, 一块离屏面都不开。 */
+/* 终场闪光 —— 只动 transform/opacity, 一块离屏面都不开(与 W2345 的约束一致)。 */
 @keyframes cssmvBorderEndBurstGlow {
-  0%   { transform: scale(1);    opacity: 0.34; }
-  35%  { transform: scale(1.06); opacity: 0.85; }
-  70%  { transform: scale(1.10); opacity: 0.55; }
+  0%   { transform: scale(1);    opacity: 1; }
+  35%  { transform: scale(1.06); opacity: 1; }
+  70%  { transform: scale(1.10); opacity: 0.65; }
   100% { transform: scale(1.12); opacity: 0; }
 }
 
@@ -497,16 +531,20 @@ html.cssos-app .cssmv-border-bar.is-viewport {
      * 三条都保留 .cssmv-trail-glow 这个类 —— 现成的 is-waiting / is-done-static /
      * is-end-burst 三条状态规则因此自动对三层都生效, 不用把它们复制三份
      * (复制出来的那两份迟早有人只改一份)。 */
-    const glowLayers = ["g3", "g2", "g1"].map(function (k) {
-      const g = document.createElementNS(SVG_NS, "rect");
-      g.classList.add("cssmv-trail-glow", k);
-      g.setAttribute("fill", "none");
-      g.setAttribute("stroke", `url(#${gradientId})`);
-      g.setAttribute("stroke-dasharray", "0 99999");
-      svg.appendChild(g);
-      return g;
+    /* W2372 — 光晕层: 四条贴边的细条, 各自带 W1983 那三层 box-shadow。
+     * 它是 svg 的【兄弟】而不是子节点 —— box-shadow 是 CSS 盒模型的东西,
+     * SVG 图形不吃它。位置靠和 .cssmv-border-bar 同一组 inset 规则对齐。 */
+    const glowHost = document.createElement("div");
+    glowHost.className = "cssmv-glow-edges";
+    glowHost.setAttribute("aria-hidden", "true");
+    const glowEdges = {};
+    ["t", "r", "b", "l"].forEach(function (k) {
+      const d = document.createElement("div");
+      d.className = "cssmv-glow-edge";
+      d.dataset.edge = k;
+      glowHost.appendChild(d);
+      glowEdges[k] = d;
     });
-    const trailGlow = glowLayers[glowLayers.length - 1];   // g1, 留作 state.trailGlow 的兼容值
 
     const trail = document.createElementNS(SVG_NS, "rect");
     trail.classList.add("cssmv-trail");
@@ -525,11 +563,13 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     const _trailSetAttr = trail.setAttribute.bind(trail);
     trail.setAttribute = function (name, value) {
       _trailSetAttr(name, value);
-      /* W2369 — 镜像到三层, 不是一层。闸门还是装在 setAttribute 上(W2345 的做法),
-       * 所以加层数不用回去补任何调用点。 */
-      for (var gi = 0; gi < glowLayers.length; gi++) {
-        try { glowLayers[gi].setAttribute(name, value); } catch (_e) {}
-      }
+      /* W2345 的做法保留: 闸门装在 setAttribute 本身, 不去补调用点。
+       * 全文件有 11 处写 trail 的属性, 将来还会加 —— 一个一个补必漏。
+       * W2372 把"镜像到孪生描边"换成"驱动四条边的光晕", 入口还是这一个。 */
+      try {
+        if (name === "stroke-dasharray") paintGlowEdges(parseFloat(String(value)) || 0);
+        else if (name === "stroke") setGlowColor(value);
+      } catch (_e) {}
     };
 
     // CSSOS_PHASE2_BORDER_WAITING_DOT 20260420 — Jing: the pulsing-dot
@@ -543,8 +583,7 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     state.panel = panel;
     state.svg = svg;
     state.trail = trail;
-    state.trailGlow = trailGlow;     // W2345 — 只为调试/测试取得到; 写属性一律经 trail
-    state.trailGlowLayers = glowLayers;   // W2369 — 三层(g3/g2/g1, 由外到内)
+    state.glowHost = glowHost;       // W2372 — 光晕层(四条边); 写属性一律经 trail
     state.dot = dot;
     state.gradientId = gradientId;
     state.wired = true;
@@ -600,6 +639,15 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     if (!state.svg) return;
     const vp = isViewportMode();
     state.viewport = vp;
+    /* W2372 — 光晕层必须和 svg 同宿主同模式, 否则两者坐标系不同 = 光跑到别处去。
+     * 插在 svg【前面】(= 画在它底下), 不是后面。 */
+    const gh = state.glowHost;
+    if (gh) {
+      gh.classList.toggle("is-viewport", vp);
+      setTimeout(function () {
+        try { if (gh.parentNode !== state.svg.parentNode || gh.nextSibling !== state.svg) state.svg.parentNode.insertBefore(gh, state.svg); } catch (_e) {}
+      }, 0);
+    }
     if (vp) {
       state.svg.classList.add("is-viewport");
       // In browser fullscreen ONLY the fullscreened element's subtree renders,
@@ -667,6 +715,9 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     // Update the glow hue via a CSS custom property so the drop-shadow
     // filter also tints per-stage.
     if (state.svg) state.svg.style.setProperty("--cssmv-bar-hue", String(seed));
+    /* W2372 — 色标刚被整组重写, 光晕的颜色缓存必须作废。
+     * 不作废的话光晕会停在上一个阶段的色相上 —— 只在"换阶段"那一刻才错, 最难查。 */
+    try { invalidateGlowColor(); } catch (_e) {}
   }
 
   // Compute rounded-rect geometry and perimeter for the stroke path.
@@ -685,6 +736,118 @@ html.cssos-app .cssmv-border-bar.is-viewport {
       return Math.max(0, Math.round(v));
     } catch (_e) { return 0; }
   }
+  /* ── W2372 光晕: 四条贴边的细条 + W1983 的三层 box-shadow ───────────────────
+   *
+   * 为什么是「四条边」而不是一条描边: box-shadow 是 CSS 盒模型的能力, 只认矩形,
+   * 但它给的是**真模糊**(连续衰减, 整圈没有一道边), 而且不开离屏面。
+   * 这正是媒体框那圈(.watch-screen::after)的做法 —— Jing 并排给的图2 就是它。
+   *
+   * 进度怎么映射到四条边: SVG <rect> 的描边从顶边左端起、顺时针走
+   * (顶 → 右 → 底(由右向左) → 左(由下向上))。这里照同一个顺序分配 visibleLen。
+   * 圆角不单独算: 影院/全屏态 border-radius 为 0 → rx = 0, 本来就是纯矩形, 精确;
+   * 桌面浮窗 rx≈14 时两者差 2·rx·(4-π) ≈ 24px / 五千多 px ≈ 0.5%,
+   * 在 78px 的模糊下看不出来 —— 不值得为它再写一套圆角走线。 */
+  var _glowColorCache = null;
+  function _hslaFrom(col, a) {
+    // "hsl(155, 92%, 62%)" → "hsla(155,92%,62%,a)"; 认不出来就退回品牌绿。
+    var m = /hsl\(\s*([\d.]+)[,\s]+([\d.]+)%[,\s]+([\d.]+)%/i.exec(String(col || ""));
+    if (m) return "hsla(" + m[1] + "," + m[2] + "%," + m[3] + "%," + a + ")";
+    return "rgba(0,245,160," + a + ")";
+  }
+  /* 返回三个颜色, 对应三层模糊。
+   * 单色不够: 这条进度条有 6 个色标(实测 hsl 36/72/126/216/306), 拿中间一个当光晕
+   * 会出现"品红的光晕配橙绿的条子"。三层各取一个色标 → 光晕自己也是彩的,
+   * 而且因为三层半径不同(14/38/78), 越往外越淡越混 —— 正是"散发"。
+   * 真描边是纯色时(render 模式 applyStageHue 直接给 hsl), 三层同色, 退化成单色柔光。 */
+  function _currentGlowColors() {
+    if (_glowColorCache) return _glowColorCache;
+    var cols = null;
+    try {
+      var st = state.trail && state.trail.getAttribute("stroke");
+      if (st && st.indexOf("url(") !== 0) {
+        cols = [st, st, st];
+      } else if (state.svg) {
+        var stops = [].slice.call(state.svg.querySelectorAll("stop"))
+          .map(function (n) { return n.getAttribute("stop-color"); })
+          .filter(Boolean);
+        if (stops.length) {
+          // 沿色标均匀取三个(首/中/尾偏内一点, 避开重复的收尾 stop)
+          var n = stops.length;
+          cols = [stops[Math.floor(n * 0.15)], stops[Math.floor(n * 0.45)], stops[Math.floor(n * 0.75)]];
+        }
+      }
+    } catch (_e) {}
+    _glowColorCache = cols || null;
+    return _glowColorCache;
+  }
+  function setGlowColor(stroke) {
+    _glowColorCache = (stroke && String(stroke).indexOf("url(") !== 0)
+      ? [String(stroke), String(stroke), String(stroke)] : null;
+    _glowShadowApplied = "__force__";
+    _applyGlowShadow();
+  }
+  /* applyStageHue 会重写全部 stop-color(换阶段 = 换色相)。缓存必须跟着作废,
+   * 否则光晕会一直停在上一个阶段的颜色上 —— 这种"只在换阶段时才错"的毛病最难查。 */
+  function invalidateGlowColor() { _glowColorCache = null; _glowShadowApplied = "__force__"; }
+  var _glowShadowApplied = null;
+  function _applyGlowShadow() {
+    if (!state.glowHost) return;
+    var cols = _currentGlowColors();
+    if (!cols) return;
+    var key = cols.join("|");
+    /* 颜色没变就一个字节都不写 —— 这一段每帧都会被走到(timeupdate 驱动),
+     * 每帧重算四条 box-shadow 字符串纯属白烧。 */
+    if (key === _glowShadowApplied) return;
+    _glowShadowApplied = key;
+    var sh = GLOW_BLUR_PX.map(function (r, i) {
+      return "0 0 " + r + "px " + _hslaFrom(cols[i], GLOW_BLUR_A[i]);
+    }).join(",");
+    var bg = _hslaFrom(cols[1], 0.9);
+    [].forEach.call(state.glowHost.children, function (d) {
+      d.style.boxShadow = sh;
+      d.style.background = bg;
+    });
+  }
+  function _syncGlowClasses() {
+    if (!state.glowHost || !state.svg) return;
+    ["is-active", "is-fading", "is-waiting", "is-done-static", "is-end-burst"].forEach(function (k) {
+      state.glowHost.classList.toggle(k, state.svg.classList.contains(k));
+    });
+  }
+  function paintGlowEdges(visibleLen) {
+    var host = state.glowHost, g = state.geo;
+    if (!host || !g) return;
+    _syncGlowClasses();
+    _applyGlowShadow();
+    var T = TRAIL_STROKE_PX, half = T / 2;
+    var rem = Math.max(0, Number(visibleLen) || 0);
+    var segs = [
+      { k: "t", cap: g.rw },
+      { k: "r", cap: g.rh },
+      { k: "b", cap: g.rw },
+      { k: "l", cap: g.rh },
+    ];
+    segs.forEach(function (sg) {
+      var d = host.querySelector('[data-edge="' + sg.k + '"]');
+      if (!d) return;
+      var len = Math.max(0, Math.min(rem, sg.cap));
+      rem -= sg.cap;
+      if (len < 1) { d.style.display = "none"; return; }
+      d.style.display = "block";
+      /* 逐属性设置, **绝不用 cssText +=** —— 那会每帧往同一个字符串后面接一截,
+       * 跑几分钟就是几万条重复声明, 正是"内存慢慢涨"的经典做法。 */
+      var box;
+      if (sg.k === "t")      box = [g.inset,                 g.top - half,        len, T];
+      else if (sg.k === "r") box = [g.inset + g.rw - half,    g.top,               T,   len];
+      else if (sg.k === "b") box = [g.inset + g.rw - len,     g.top + g.rh - half, len, T];
+      else                   box = [g.inset - half,           g.top + g.rh - len,  T,   len];
+      d.style.left   = box[0].toFixed(1) + "px";
+      d.style.top    = box[1].toFixed(1) + "px";
+      d.style.width  = box[2].toFixed(1) + "px";
+      d.style.height = box[3].toFixed(1) + "px";
+    });
+  }
+
   function computeGeometry() {
     // CSSOS_WAVE_372 — viewport mode (App fullscreen): trace the SCREEN edge,
     // not the panel (which may fall short at the bottom). Desktop: panel box.
@@ -714,6 +877,7 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     const g = computeGeometry();
     if (!g) return;
     state.perimeter = g.perimeter;
+    state.geo = g;                       // W2372 — 光晕边条按它算位置
     state.svg.setAttribute("viewBox", `0 0 ${g.w} ${g.h}`);
     state.trail.setAttribute("x", g.inset);
     state.trail.setAttribute("y", g.top);          // W378 — top edge below the notch

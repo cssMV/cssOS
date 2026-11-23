@@ -109,12 +109,21 @@ xcodebuild \
 
 # --- 5. Export .ipa --------------------------------------------------------
 say "xcodebuild exportArchive → ${IPA_DIR}"
+# CSSOS_WAVE_2365 20261122 — 补上 ASC 三件套。
+#   没有它们, -allowProvisioningUpdates 手上【没有凭据】, Apple 原话是
+#   「No Accounts / No signing certificate "iOS Distribution" found」——
+#   看起来像"证书没了", 其实是"没人登录"。补上这三个, xcodebuild 就能拿 .p8
+#   自己去 ASC 签发发行证书, 不必有人去 Xcode 里登账号。
+#   (tvos-appstore-submit.sh 一直是这么写的, 这里照抄, 不另造一套。)
 xcodebuild \
   -exportArchive \
   -archivePath "${ARCHIVE_PATH}" \
   -exportPath "${IPA_DIR}" \
   -exportOptionsPlist "${EXPORT_OPTIONS}" \
   -allowProvisioningUpdates \
+  -authenticationKeyPath "${APP_STORE_CONNECT_KEY_PATH}" \
+  -authenticationKeyID "${APP_STORE_CONNECT_KEY_ID}" \
+  -authenticationKeyIssuerID "${APP_STORE_CONNECT_ISSUER_ID}" \
   | (command -v xcpretty >/dev/null && xcpretty || cat) || die "xcodebuild exportArchive failed"
 
 IPA_FILE="$(find "${IPA_DIR}" -name '*.ipa' | head -1)"

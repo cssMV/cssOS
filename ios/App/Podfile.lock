@@ -33,7 +33,7 @@ SPEC CHECKSUMS:
   CapacitorApp: 449ffe26375e96f8aaaee625ac6e01e5c57c8650
   CapacitorBrowser: c987c73d09d8bd3b5ec13f06338b1e14d5d2be69
   CapacitorCordova: c07921bdcfec6f691bae22274446b4d606ebf6a4
-  CapgoNativePurchases: 0b78b5f8531112bc5a4cbf0f0ae8102d8618bde9
+  CapgoNativePurchases: 2309b9c07408ccd5fb51d37f0219e1ee7e8403d3
 
 PODFILE CHECKSUM: ed3030c7bceb52c749961f3fb38105c7d550a16b
 

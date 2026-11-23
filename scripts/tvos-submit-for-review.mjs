@@ -19,8 +19,18 @@
 import { readFileSync } from "node:fs";
 import crypto from "node:crypto";
 
+/* CSSOS_WAVE_2365 20261122 — 同一份脚本服务两个平台, 不另写一份(会分叉)。
+ * 不传任何 env = 老行为, 原样提交 cssTV。iOS 走:
+ *   ASC_PLATFORM=IOS ASC_APP_ID=6768848996 ASC_PBXPROJ=ios/App/App.xcodeproj/project.pbxproj
+ * APP_ID 与 PLATFORM 必须成对给 —— 只改其一会把 cssTV 的版本提交到 iOS 应用上。 */
 const APP_ID = process.env.ASC_APP_ID || "6784525214";          // cssTV
-const PLATFORM = "TV_OS";
+const PLATFORM = process.env.ASC_PLATFORM || "TV_OS";
+const PBXPROJ = process.env.ASC_PBXPROJ || "tvos/cssTV.xcodeproj/project.pbxproj";
+const APP_LABEL = PLATFORM === "IOS" ? "cssOS" : "cssTV";
+if ((!!process.env.ASC_APP_ID) !== (!!process.env.ASC_PLATFORM)) {
+  console.error("ASC_APP_ID 与 ASC_PLATFORM 必须同时给 —— 只给一个会提交到错的应用上");
+  process.exit(2);
+}
 const LOCALE = "en-US";
 
 const KID = process.env.APP_STORE_CONNECT_KEY_ID;
@@ -70,7 +80,7 @@ const log = (...a) => console.log(...a);
 const hr  = (t) => log(`\n── ${t} ${"─".repeat(Math.max(0, 56 - t.length))}`);
 
 /* 版本号/构建号的唯一真源是 pbxproj —— 不许在这里另写一份, 否则两处会分叉。 */
-const pbx = readFileSync("tvos/cssTV.xcodeproj/project.pbxproj", "utf8");
+const pbx = readFileSync(PBXPROJ, "utf8");
 const VER = pbx.match(/MARKETING_VERSION = ([0-9.]+);/)?.[1];
 const BLD = pbx.match(/CURRENT_PROJECT_VERSION = ([0-9]+);/)?.[1];
 if (!VER || !BLD) { console.error("从 pbxproj 读不出版本/构建号"); process.exit(2); }
@@ -87,7 +97,7 @@ const REVIEW_NOTES = process.env.REVIEW_NOTES ||
 This build fixes Apple TV remote handling in the player: a single press of the Select button now opens the capsule that switches language, voice, visuals and takes.`;
 
 (async () => {
-  hr(`要提交的是 cssTV ${VER} (build ${BLD})`);
+  hr(`要提交的是 ${APP_LABEL} ${VER} (build ${BLD}) · ${PLATFORM} · app ${APP_ID}`);
 
   /* ① 等构建处理完。分三种状态说三种话 —— 不许把"查不到"和"还没好"混成一句。 */
   hr("① 等 App Store Connect 处理构建");

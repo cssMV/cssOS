@@ -7077,8 +7077,11 @@ html.cssos-app #watch-search-box {
 html.cssos-app #watch-exit-cinema {
   top: calc(var(--cssos-notch-clear) + 2px) !important;
   /* W2215 20260926 — Jing:「统一规则, 都靠边 10px」: 原 12px(W326 为与头像 left:12 对称)。
-   * 现在左右两侧的锚都是 10 —— 返回键 left:10、Flagship left:10, 对称关系不变。 */
-  right: 10px !important;
+   * W2378 20261123 — Jing 改为参照苹果 Home 指示条: 10 → 8。
+   * 左右两侧的锚一起走 —— 返回键 left:8、Flagship left:8, 对称关系不变。
+   * ⚠ 这个值在两个地方: 这里(App 端)和 app.watch-search.js 的 JS 内联(网页端)。
+   *   只改一处 → 另一端实测仍是旧值(W2215 第一版就这么漏了)。 */
+  right: 8px !important;
 }
 /* CSSOS_WAVE_328 — Jing: 搜索框【始终居中、保持长】, 两侧只留头像/关闭键的空间即可
  * (不必很短). 桌面: 居中, 宽 = min(760px, 100% - 120px)(两侧各 ~60px 余量). */
@@ -9411,7 +9414,9 @@ html.cssos-watch-open { --cssos-dock-clear: 0px; }
  * 可用宽度一变, auto 居中的落点就跟着变 —— 而两侧那些按钮(头像/关闭/返回)本身是会
  * 出现和消失的(影院态、idle 隐藏、全屏 ✕…), 于是搜索框每次都停在不同的横向位置 = "左右摇摆"。
  * 改成两侧同值: 中心从此只由视口决定, 与旁边有没有按钮无关。取 60px(按较大的那侧, 保证不重叠)。 */
-#watch-search-box { left: 60px !important; right: 60px !important; }
+/* W2378 — 60 = 10边距 + 40按钮 + 10间隙; 边距改 8 后 = 8 + 40 + 10 = 58。
+ * 这【不是】贴边值, 是给返回键和三点让位用的, 所以跟着边距走而不是直接写 8。 */
+#watch-search-box { left: 58px !important; right: 58px !important; }
 
 /* CSSOS_WAVE_905 20260617 — Jing「英伟达: 网站要像功能完整的产品网站」: web 冷访客的产品一句话 + 导航。
  * 仅 web 显示; 原生 App(html.cssos-app)隐藏, 保持纯净 App 外观。主题感知配色, 两主题都清晰。 */

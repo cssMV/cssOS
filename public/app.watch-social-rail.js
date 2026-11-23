@@ -248,7 +248,7 @@
       // 原 right:14 / bottom:20。轨内那个 AI ＋(#cssos-rail-ai)是本轨的子节点,
       // 自动跟着走 —— 但用户拖过它之后 applyRailAiPos 会写死 left/top(W1776),
       // 那是用户自己的位置, 本波【不覆盖】(导演铁律: 用户干预 > 系统默认)。
-      "#cssos-watch-social-rail{position:absolute;right:10px;bottom:10px;" +
+      "#cssos-watch-social-rail{position:absolute;right:8px;bottom:8px;"   /* W2378 — 8 = Home 指示条离边距离 */ +
       "z-index:30;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none;}" +
       "#cssos-watch-social-rail>*{pointer-events:auto;}" +
       ".csr-item{display:flex;flex-direction:column;align-items:center;gap:1px;background:transparent;border:0;padding:0;cursor:pointer;}" +
@@ -291,7 +291,7 @@
       // CSSOS_WAVE_1265 — Jing「返回按钮太贴边, 要和右上 ⋯/关闭 一样留间距」。原 top:safe+2(桌面 safe=0 → 2px 贴顶)
       //   改 top:safe+14、left:14, 与右上按钮(top≈12/14)对称, 不再死贴左上角。
       // W2215 — 原 left:14px。顶边那一行已在 W2214 对齐到 10px, 左边距一并归 10。
-      "#cssos-watch-backbtn{position:absolute;left:10px;top:calc(env(safe-area-inset-top, 0px) + 14px);z-index:31;width:40px;height:40px;border-radius:50%;" +
+      "#cssos-watch-backbtn{position:absolute;left:8px;top:calc(env(safe-area-inset-top, 0px) + 14px);z-index:31;width:40px;height:40px;border-radius:50%;" +
       "background:rgba(20,16,12,0.55);border:0.5px solid rgba(255,255,255,0.18);color:#fff;font-size:22px;line-height:1;" +
       "display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;}" +
       "#cssos-watch-backbtn:active{transform:scale(0.92);}";

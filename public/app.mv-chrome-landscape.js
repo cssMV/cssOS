@@ -75,7 +75,14 @@
 (function () {
   "use strict";
 
-  var INSET = 10;                 /* W2215 — 平台统一贴边 10px, 这里沿用, 不另定一套 */
+  /* CSSOS_WAVE_2378 20261123 — Jing:「MV面板, 所有靠边的物件, 距离边框(屏幕边缘)
+   * 必须参照苹果底部 Home 指示条靠边的距离, 苹果 Home 指示条距离多远, 我们的物件
+   * 就要距离多远。」
+   * 这个数不是查来的, 是量出来的 —— 拿 Jing 自己那张 iPhone 截图(924×2000, 对应
+   * 390×844pt 机型)扫底部中轴亮度: 指示条占 y=1971..1981, 离底边 18px → 7.6pt;
+   * 指示条自身高 11px → 4.6pt, 与苹果公开的 5pt 吻合, 佐证换算没错。取 8。
+   * (原 W2215 是 10; 本条是 Jing 明确改的, 不是我顺手。) */
+  var INSET = 8;
   var STYLE_ID = "cssos-mv-chrome-landscape-css";
 
   /* 每个元素在【横幅画布】里怎么贴边。
@@ -104,10 +111,16 @@
      *     搜索框            42px 高, padY  9 → 占  9..51, 中心 30 ✓
      *     Flagship 徽章     20px 高, padY 10 → 占 10..30(行锚正是照它的下沿定的)✓
      * 这正是宪法红线想保住的东西, 所以搬而不是重排。 */
-    { id: "cssos-watch-backbtn",     ax: "left",   ay: "top",    padY: 10 },
-    { id: "cssos-mv-flagship-badge", ax: "left",   ay: "top",    padY: 10 },
-    { id: "watch-exit-cinema",       ax: "right",  ay: "top",    padY: 10 },
-    { id: "watch-search-box",        ax: "center", ay: "top",    padY:  9, fit: "width", fitInset: 60 },
+    /* W2378 — 这四个的 padY 是照【行锚】算出来的, 行锚 30 → 28 之后必须一起走:
+     *   返回/⋯ 40 高, padY 8 → 占 8..48, 中心 28 ✓
+     *   搜索框  42 高, padY 7 → 占 7..49, 中心 28 ✓
+     *   Flagship 20 高, padY 8 → 占 8..28(行锚正是照它的下沿定的)✓
+     * 只改 INSET 不改这四个 = 别的件贴边 8、这四件还停在 10, 差 2px 没人看得出来但就是不齐。
+     * fitInset 60 → 58 同理: 60 = 10边距+40按钮+10间隙, 边距改 8 后是 58。 */
+    { id: "cssos-watch-backbtn",     ax: "left",   ay: "top",    padY: 8 },
+    { id: "cssos-mv-flagship-badge", ax: "left",   ay: "top",    padY: 8 },
+    { id: "watch-exit-cinema",       ax: "right",  ay: "top",    padY: 8 },
+    { id: "watch-search-box",        ax: "center", ay: "top",    padY:  7, fit: "width", fitInset: 58 },
 
     /* CSSOS_WAVE_2370 — 情绪字幕的中央爆 + 飘字层。Jing:「情绪字幕还在以竖屏显示。请改进。」
      * 这两层是铺满画框的特效层, 所以用 fill(整块画布), 不是贴边。

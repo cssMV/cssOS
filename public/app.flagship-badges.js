@@ -33,7 +33,7 @@
       ".cssos-flagship-badge .fb-epic{background:rgba(255,150,40,0.26);color:#ffd9a8;border:1px solid rgba(255,150,40,0.5);}",
       /* MV 影院面板: 固定左上, 更淡 */
       // W2215 — 原 left:12px。top:10 不动(W2214 的顶栏行锚就是照着它定的)。
-      "#cssos-mv-flagship-badge{position:absolute;top:10px;left:10px;z-index:8;display:flex;gap:5px;pointer-events:none;opacity:0.82;}",
+      "#cssos-mv-flagship-badge{position:absolute;top:8px;left:8px;z-index:8;display:flex;gap:5px;pointer-events:none;opacity:0.82;}",
       "#cssos-mv-flagship-badge span{font:700 10px/1 -apple-system,system-ui,sans-serif;letter-spacing:.05em;padding:4px 8px;border-radius:999px;text-shadow:0 1px 3px rgba(0,0,0,.5);}",
       "#cssos-mv-flagship-badge .fb-flag{background:rgba(212,175,55,0.22);color:#ffeab0;border:1px solid rgba(212,175,55,0.45);}",
       "#cssos-mv-flagship-badge .fb-epic{background:rgba(255,150,40,0.20);color:#ffd9a8;border:1px solid rgba(255,150,40,0.4);}",

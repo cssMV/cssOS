@@ -193,7 +193,7 @@
       // CSSOS_WAVE_304 — Jing: 让位刘海(max(safe-area,50px)保底). 权威定位在
       // style.css(html.cssos-app), 这里写同值兜底.
       "position:absolute", "top:calc(env(safe-area-inset-top,0px) + 4px)",
-      "left:10px", "right:10px", "z-index:60", "display:flex",
+      "left:8px", "right:8px", "z-index:60", "display:flex",   /* W2378 */
       "flex-direction:column", "gap:8px", "pointer-events:none",
       "transform:translateY(-140%)", "opacity:0",
       "transition:transform .28s cubic-bezier(.4,0,.2,1), opacity .28s ease",
@@ -267,7 +267,7 @@
         // top 不在这里管 —— W2214 的顶栏行锚(style.watch.css 的
         // --cssos-mv-toprow-center)在影院态用 !important 盖掉它; 这里的 12px
         // 只是非影院态的兜底, 留着不动。
-        "position:absolute", "top:12px", "right:10px",
+        "position:absolute", "top:12px", "right:8px",   /* W2378 — 注意 App 端还有一份在 style.css, 两处必须同改(W2215 的坑) */
         "z-index:61", "width:40px", "height:40px", "border-radius:50%",
         "border:1px solid rgba(255,255,255,0.55)", "background:rgba(0,0,0,0.55)",
         "backdrop-filter:blur(8px)", "-webkit-backdrop-filter:blur(8px)",

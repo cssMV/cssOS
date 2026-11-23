@@ -2431,7 +2431,9 @@ body[data-theme="light"] .watch-style-menu-item.is-active {
  * 特指度: #watch-panel + .maximized + #id = 2 个 id + 1 个类, 压得过
  * html.cssos-app 那两条(1 id + 1 类 + 1 类型, 同样 !important), 两端都生效。 */
 #watch-panel.maximized {
-  --cssos-mv-toprow-center: 30px;
+  /* W2378 — 30 → 28。这个行锚当初就是照 Flagship 徽章的下沿定的(top:10 + 高20 = 30);
+   * 徽章按新铁律移到 top:8 之后, 下沿就是 28。不跟着走, W2214「和旗舰标志一样高」那条就破了。 */
+  --cssos-mv-toprow-center: 28px;
 }
 #watch-panel.maximized #cssos-watch-backbtn,
 #watch-panel.maximized #watch-exit-cinema {

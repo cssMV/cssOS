@@ -148,6 +148,20 @@
        * 判据用【容器】而不是 window: 画面真正渲染进去的是媒体框, 桌面上窗口是横的
        * 而媒体框可能是竖的, 比错对象就会转错(W1927 的教训)。 */
       var mismatch = (portrait && landscape);
+      /* CSSOS_WAVE_2368 20261123 — 把这个结论对外公布一次, 不要让别人再判一遍。
+       * Jing:「系统竖屏，媒体横屏时，功能键也横屏。」功能键那一层
+       * (app.mv-chrome-landscape.js)需要知道【画面到底转了没有】。
+       * 这里是画幅铁律的唯一真源, 所以由这里写标记、那边只读 —— 两套判据迟早分叉,
+       * 分叉的那天就是画面转了按钮没转(或反过来), 比现在难查得多。
+       * 写在 #watch-panel 上(不是 <video> 上), 因为功能键是面板级的, 挂面板才好用
+       * 后代选择器一次管住整层。 */
+      try {
+        var __panelForFlag = document.getElementById("watch-panel");
+        if (__panelForFlag) {
+          if (mismatch) __panelForFlag.setAttribute("data-media-rotated", "1");
+          else __panelForFlag.removeAttribute("data-media-rotated");
+        }
+      } catch (_pf) {}
       /* CSSOS_WAVE_1902 20260824 — 画幅铁律(CLAUDE.md「32:9 + 转屏不裁切」)的播放端落地。
        * Jing:「之前是要求剪裁 32:9 横图来适应屏幕, 现在起要求, 顺时针旋转 90 度来适应屏幕。」
        *

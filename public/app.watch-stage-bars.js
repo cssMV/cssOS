@@ -126,8 +126,26 @@
    * ## 数值 = W1983 逐字(CLAUDE.md 媒体框宪法, 锁死)
    *     0 0 14px rgba(…,0.34)   0 0 38px rgba(…,0.22)   0 0 78px rgba(…,0.12)
    * 颜色不写死成绿色: 进度条是流动的彩虹, 取它当前的色相。 */
-  const GLOW_BLUR_PX = [14, 38, 78];     // W1983 三层半径
-  const GLOW_BLUR_A  = [0.34, 0.22, 0.12]; // W1983 三层淡度
+  /* CSSOS_WAVE_2373 20261123 — W2372 的两个实现错误, Jing 放大截图一对比就露了。
+   *
+   * 错误①: 我给光晕条加了 `background: rgba(…,0.9)` —— 一条 90% 不透明的实心核。
+   *   真描边(5px, SVG)本来就画在那儿了, 我又在同一位置叠了一条实心的,
+   *   **屏幕上就成了一条上下两道硬边、通体一样亮的实心带** —— 柔光被它自己压住。
+   *   box-shadow 从 border-box 的形状投射, **根本不需要可见背景**。
+   *   → 背景改 transparent, 这一层只负责散光, 清晰的核交给真描边。
+   *
+   * 错误②: 三层淡度照搬 W1983 的 0.34/0.22/0.12, 但**发光源大小差了几十倍**。
+   *   那组数是给【整块媒体框】那么大的边配的; 同样的数放到一条 5px 细线上,
+   *   散出来弱到几乎看不见。
+   *   → 半径仍用 W1983 的 14/38/78(衰减形状是对的), 淡度按细线源上调。
+   *   这是「搬平台已有视觉」时的一个通则: **半径可以照搬, 淡度得按源的大小换算。**
+   */
+  const GLOW_BLUR_PX = [14, 38, 78];       // W1983 三层半径, 形状照搬
+  /* 淡度按 5px 细线源上调。怎么定的: 在真页面上把三层临时设成 1.0/0.9/0.7 的纯红
+   * 做对照实验 —— 那团光清清楚楚从顶边散进画面约 100px 再淡去, 证明【渲染链路通、
+   * 不是被遮挡】, 弱只是弱在数值。最终取对照值的 ~0.85 倍。
+   * W1983 原值(0.34/0.22/0.12)不能直接用: 那是给【整块媒体框】那么大的发光源配的。 */
+  const GLOW_BLUR_A  = [0.85, 0.58, 0.34];
 
   // CSSOS_PHASE2_BORDER_NOTIF_WAVE 20260420 — copy the notifications panel
   // .notification-run-bar-fill gradient exactly. Six HSL stops centered on
@@ -803,10 +821,12 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
     var sh = GLOW_BLUR_PX.map(function (r, i) {
       return "0 0 " + r + "px " + _hslaFrom(cols[i], GLOW_BLUR_A[i]);
     }).join(",");
-    var bg = _hslaFrom(cols[1], 0.9);
     [].forEach.call(state.glowHost.children, function (d) {
       d.style.boxShadow = sh;
-      d.style.background = bg;
+      /* W2373 — 背景必须是透明的。给它上色 = 在真描边旁边再画一条硬边实心带,
+       * 那正是 Jing 截图里「上下两道硬边、通体一样亮」的那条。
+       * box-shadow 从 border-box 形状投射, 不需要背景可见。 */
+      d.style.background = "transparent";
     });
   }
   function _syncGlowClasses() {

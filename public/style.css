@@ -343,8 +343,11 @@ html.cssos-app .bg-blob {
 
 .theme-switch {
   position: fixed;
-  top: calc(16px + env(safe-area-inset-top));
-  right: calc(16px + env(safe-area-inset-right));
+  /* CSSOS_WAVE_2386 20261123 — Jing:「右上角的主题按钮, 按照苹果 Home 指示条规格靠近边框。」
+   * 即 W2378 那条铁律的 8px(实测 Jing 的 iPhone 截图, Home 指示条离边 7.6pt → 取 8)。
+   * 原 16。safe-area 那两项原样保留 —— 它管刘海, 不是"贴边多少"(与 W2215/W2378 同一条纪律)。 */
+  top: calc(8px + env(safe-area-inset-top));
+  right: calc(8px + env(safe-area-inset-right));
   z-index: 10; /* panels start at z-index 11 and rise — always float above this */
   display: grid;
   justify-items: end;
@@ -12017,7 +12020,16 @@ html[data-theme="light"] .cssos-engine-bal-na { color: rgba(15, 58, 42, 0.5); }
 }
 /* CSSOS_WAVE_855 — App/窄屏: 价格条独占下行, AI 助理抬高一行(到传统字幕那行的右侧), 不盖住价格条
  * 最后的胶囊(Buyout)。桌面端屏宽, AI 在价格条右侧不会盖, 保持上面的 +5px。 */
-html.cssos-app #cssos-agent-fab,
+/* CSSOS_WAVE_2386 20261123 — Jing:「AI 助手, 请再往下一点, 贴近 Dock。」
+ *
+ * 根因: 上面那个 +54px 是 W855 为【影院态不盖住价格条最后那枚胶囊(Buyout)】加的,
+ * 但它挂在 html.cssos-app 上【无条件生效】—— 落地页根本没有价格条, FAB 却照样被
+ * 抬高一行。实测 Jing 的截图: FAB 底离屏幕底 ~181pt, 与 Dock 顶空了 ~104pt。
+ *
+ * 加上 .cssos-watch-open 限定: 只有 watch 真打开(才有价格条)时才抬。
+ * 没打开时自动回落到上面那条 W1737 已经调好的基准 —— 它算出来正好是
+ * 【Dock 顶上方约 8px】, 就是 Jing 要的"贴近 Dock"。**复用已经调好的值, 不另配新数。** */
+html.cssos-app.cssos-watch-open #cssos-agent-fab,
 html.cssos-watch-open[data-narrow="1"] #cssos-agent-fab {
   bottom: calc(var(--cssos-dock-clear, 0px) + env(safe-area-inset-bottom, 0px) + 54px) !important;
 }

@@ -88,14 +88,44 @@
   var ITEMS = [
     { id: "cssos-watch-social-rail", ax: "right",  ay: "center", fit: "height" },
     { id: "cssos-watch-bottomflow",  ax: "center", ay: "bottom", fit: "width"  },
-    { id: "cssmv-mv-title",          ax: "center", ay: "top",    fit: "width"  },
+    /* padY 47 = 竖屏下标题的 top 值, 原样搬过来 —— 它在竖屏就是落在顶栏那一行
+     * (9..51)下沿附近, 搬进画布后关系不变。给 10 的话会和顶栏撞上。 */
+    { id: "cssmv-mv-title",          ax: "center", ay: "top",    fit: "width", padY: 47 },
+
+    /* CSSOS_WAVE_2370 — 顶栏那一行。Jing 2026-11-23 明确:「顶栏那四件…转过来，以横屏显示。」
+     * 这四个是 W2214/W2215 锁着的, 之前一直没动就是在等这句话。
+     *
+     * 关键: **不另定一套数字, 把宪法的那组原样搬进横幅画布。**
+     * W2214 锁的是一组【关系】——
+     *     行锚 --cssos-mv-toprow-center: 30px, 三个控件各减自己的半高对齐中心;
+     *     贴边一律 10px(W2215); 搜索框 left/right 60px( = 10 边距 + 40 按钮 + 10 间隙)。
+     * 搬进画布后这组关系一个字没变, 只是「顶」从竖屏的顶变成了画面的顶:
+     *     返回 ‹ / 右上 ⋯  40px 高, padY 10 → 占 10..50, 中心 30 ✓
+     *     搜索框            42px 高, padY  9 → 占  9..51, 中心 30 ✓
+     *     Flagship 徽章     20px 高, padY 10 → 占 10..30(行锚正是照它的下沿定的)✓
+     * 这正是宪法红线想保住的东西, 所以搬而不是重排。 */
+    { id: "cssos-watch-backbtn",     ax: "left",   ay: "top",    padY: 10 },
+    { id: "cssos-mv-flagship-badge", ax: "left",   ay: "top",    padY: 10 },
+    { id: "watch-exit-cinema",       ax: "right",  ay: "top",    padY: 10 },
+    { id: "watch-search-box",        ax: "center", ay: "top",    padY:  9, fit: "width", fitInset: 60 },
+
+    /* CSSOS_WAVE_2370 — 情绪字幕的中央爆 + 飘字层。Jing:「情绪字幕还在以竖屏显示。请改进。」
+     * 这两层是铺满画框的特效层, 所以用 fill(整块画布), 不是贴边。
+     * 它们内部的字是按【百分比】定位的(_stagePos 返回 x%/y%), 百分比对的是本层的盒子
+     * —— 层变成横幅画布, 所有字自动按横幅重排, 一行坐标数学都不用改。
+     *
+     * #cssfx-flash-overlay(整屏闪白)【刻意不转】: 它是一层均匀色洗, 转成 100vh×100vw
+     * 之后反而盖不满竖屏视口, 上下会露边。转它没有收益, 只有破绽。
+     * #cssfx-confetti(彩纸)也没转 —— Jing 点的是「中央爆/飘字层」, 彩纸不在其中。 */
+    { id: "cssfx-center-burst",      fill: true },
+    { id: "cssfx-spark",             fill: true },
     /* padY 62 = 底栏(10 贴边 + 42 高) + 10 间隙 —— 弹幕块要浮在那条 bar 【上方】,
      * 不是压在它身上(竖屏下两者本来也是分开的: danmu bottom:120 / bar bottom:8)。 */
     { id: "cssos-watch-danmu",       ax: "left",   ay: "bottom", maxH: 200, padY: 62 }
   ];
 
   var ROT_PROPS = ["position", "left", "top", "right", "bottom",
-                   "transform", "transform-origin", "width", "max-height"];
+                   "transform", "transform-origin", "width", "height", "max-height"];
 
   function panel() { return document.getElementById("watch-panel"); }
 
@@ -138,7 +168,16 @@
 
   function placeOne(el, spec, Lw, Lh) {
     /* 先把尺寸定了再量 —— dx/dy 要用元素【转后画布里】的真实宽高算, 量错一步全错。 */
-    if (spec.fit === "width")  el.style.setProperty("width", (Lw - 2 * INSET) + "px", "important");
+    if (spec.fill) {
+      /* 铺满整块横幅画布 —— 与画面层逐字同几何(face-crop 第 161-162 行), 于是特效层
+       * 和画面严丝合缝。偏移为 0, 不贴边。 */
+      el.style.setProperty("width", Lw + "px", "important");
+      el.style.setProperty("height", Lh + "px", "important");
+    }
+    if (spec.fit === "width") {
+      var _wi = (spec.fitInset == null) ? INSET : spec.fitInset;
+      el.style.setProperty("width", (Lw - 2 * _wi) + "px", "important");
+    }
     if (spec.fit === "height") el.style.setProperty("max-height", (Lh - 2 * INSET) + "px", "important");
     if (spec.maxH)             el.style.setProperty("max-height", spec.maxH + "px", "important");
 

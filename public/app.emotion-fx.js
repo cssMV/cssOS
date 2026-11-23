@@ -433,7 +433,24 @@
         var _isApp = false, _portrait = false;
         try { _isApp = document.documentElement.classList.contains("cssos-app"); } catch (_e) {}
         try { _portrait = (window.innerHeight || 0) >= (window.innerWidth || 1); } catch (_e) {}
-        var _mustVert = _isApp || _portrait || !_isCJK0;   // 竖屏/App/拉丁 → 必竖排
+        /* CSSOS_WAVE_2370 20261123 — Jing:「情绪字幕还在以竖屏显示。请改进。」
+         *
+         * 画面按画幅铁律转了 90° 之后, 这一层也被转进了【横幅画布】
+         * (app.mv-chrome-landscape.js 给 #cssfx-center-burst 套了 100vh×100vw + rotate(90deg))。
+         * 于是上面那两个判据【比错了对象】—— 这正是 W1927 的老毛病:
+         *   _portrait 量的是浏览器窗口(仍是竖的), 可字真正落进去的是那块横幅画布;
+         *   _isApp 当初要强制竖排, 理由就是「App 永远竖屏」, 而现在画布已经是横的了。
+         * 两条的前提都没了, 继续按它们走就会在一块 932×430 的横幅里排竖列, 字必然挤成一团。
+         *
+         * 判据只读 face-crop 写的那一个标记, 不自己判方向(与 W2368 同一条纪律)。 */
+        var _mediaRot = false;
+        try {
+          var _wp0 = document.getElementById("watch-panel");
+          _mediaRot = !!(_wp0 && _wp0.getAttribute("data-media-rotated") === "1");
+        } catch (_e) {}
+        var _portraitEff = _mediaRot ? false : _portrait;
+        var _isAppEff    = _mediaRot ? false : _isApp;
+        var _mustVert = _isAppEff || _portraitEff || !_isCJK0;   // 竖屏/App/拉丁 → 必竖排
         var _vert = _mustVert ? true : (Math.random() < 0.4); // CJK横屏: 40%竖 / 60%横(共5种)
         _lineStage = {
           key: lineKey, els: [], spawned: {},

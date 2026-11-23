@@ -1207,6 +1207,36 @@ Jing 反复截图、反复解释、直到发火。**代价不在代码,在他的
 搜索框的 `left/right: 60px` **不是**贴边值,不要改成 10 —— 它 = `10 边距 + 40 按钮 + 10 间隙`,
 正好给返回键和三点让位。
 
+#### 补充 · W2370(2026-11-23)——【媒体转横屏时, 这一行跟着转】已获 Jing 明确同意
+
+Jing 2026-11-23:「顶栏那四件，情绪字幕的中央爆/飘字层，转过来，以横屏显示。」
+
+这是本条红线要求的那个 yes, 已拿到。于是当 `#watch-panel[data-media-rotated="1"]`
+(画面按画幅铁律转了 90°)时, 这四件 ——
+`#cssos-watch-backbtn` · `#watch-search-box` · `#watch-exit-cinema` ·
+`#cssos-mv-flagship-badge` —— 一并转进那块横幅画布
+(`app.mv-chrome-landscape.js`)。
+
+**本节那组数值一个都没有被改。** 搬的是【同一组关系】, 不是重排:
+
+| 本节锁的 | 搬进画布后 |
+|---|---|
+| 行锚 30px, 各减半高对齐中心 | 画布顶起 30px, 返回/⋯ padY 10(40 高→中心 30)· 搜索框 padY 9(42 高→中心 30) |
+| 贴边一律 10px | 画布内仍 10px |
+| 搜索框 left/right 60px | 画布内仍 60(= 10 + 40 + 10) |
+| Flagship `top:10px` 是行锚的依据 | padY 10 → 占 10..30, 关系不变 |
+
+竖屏(画面没转)时**这四件原样不动**, 本节描述的一切照旧 —— 判据只有
+`data-media-rotated` 一个, 由 `app.watch-face-crop.js` 写(画幅铁律的唯一真源),
+**不要在别处再判一次方向**。
+
+同批一起转的还有: 右侧栏 · `#cssos-watch-bottomflow`(传统字幕/价格行/胶囊条都在里面)·
+`#cssmv-mv-title` · 弹幕块 · 情绪字幕的 `#cssfx-center-burst` 与 `#cssfx-spark`。
+`#cssfx-flash-overlay`(整屏闪白)**刻意没转** —— 它是均匀色洗, 转成 100vh×100vw
+反而盖不满竖屏视口。
+
+还原: index.html 删掉 `app.mv-chrome-landscape.js` 那一行。
+
 ### 三、两件【刻意保留】的事 —— 不是待修的 bug
 
 **Jing 明确说过「不,请保留现状」。谁把它们当 bug 去修,就是违宪。**

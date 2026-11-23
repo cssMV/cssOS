@@ -27,28 +27,10 @@
   if (globalThis.__cssosOrientationLockWired) return;
   globalThis.__cssosOrientationLockWired = true;
 
-  /* ─────────────────────────────────────────────────────────────
-   * CSSOS_WAVE_2363 20261122 — 横屏试行开关(Jing:「请试一下, 如果效果不好看,
-   * 我们再还原。」)
-   *
-   * true  → 手机横屏放行, 交给 style.landscape.css 排版(本波试行)
-   * false → 完整恢复 W194 原状(竖屏锁 + 满屏「请转回竖屏」遮罩)
-   *
-   * 这一条反的是 Jing 自己 W194 的指令(「是否可以锁定竖屏, 禁止横屏。」),
-   * 所以做成一个布尔量而不是删代码 —— 还原只要改这一个字。
-   *
-   * ⚠ 这个开关管不到原生 App: ios/App/App/Info.plist 的
-   *   UISupportedInterfaceOrientations 只列 Portrait/PortraitUpsideDown,
-   *   iPhone 在系统层面就不会转。那一层要改 plist 并重新出包, 需另行征得同意。
-   *   iPad 的 ~ipad 键本来就含 Landscape, 不受影响。
-   * ───────────────────────────────────────────────────────────── */
-  var CSSOS_ALLOW_LANDSCAPE_ON_PHONE = true;
-
   // ───────────────────────────────────────────────────────────────
   // Layer 2: real lock when the browser supports it
   // ───────────────────────────────────────────────────────────────
   async function tryLockPortrait() {
-    if (CSSOS_ALLOW_LANDSCAPE_ON_PHONE) return false;   /* W2363 试行: 不再上锁 */
     try {
       const so = (typeof screen !== "undefined") ? screen.orientation : null;
       if (!so || typeof so.lock !== "function") return false;
@@ -164,13 +146,6 @@
   }
 
   function syncOverlay() {
-    /* W2363 试行: 放行横屏 → 既不建遮罩, 也把可能已经建出来的那块关掉
-     * (同一会话里开关被改、或遮罩早于本函数建成时的兜底)。 */
-    if (CSSOS_ALLOW_LANDSCAPE_ON_PHONE) {
-      const existing = document.getElementById("cssos-rotate-overlay");
-      if (existing) existing.style.display = "none";
-      return;
-    }
     if (!isPhoneFormFactor()) return;
     const overlay = ensureRotateOverlay();
     overlay.style.display = isLandscapeNow() ? "flex" : "none";

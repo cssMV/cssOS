@@ -149,9 +149,26 @@
    *     linear-gradient(往画面里, 实 → 半透 → 全透)
    * 长度仍然跟进度走(与描边同一套几何)。清晰的核仍由真描边负责(进度要读得准)。
    * 代价: 一个 linear-gradient 背景, 比 box-shadow 还便宜, 更不用说 filter。 */
-  const BAND_PX  = 46;      // 色带宽度(从屏幕边往画面里)。46 ≈ 媒体框那条绿带的观感宽度
-  const BAND_A0  = 0.72;    // 贴边那头的淡度 —— 带子要当主角, 不是给亮线做陪衬
-  const BAND_A1  = 0.26;    // 中段
+  /* CSSOS_WAVE_2375 20261123 — Jing 把要求说死了:
+   *「进度条是在从左向右移动, 颜色也在不断随机变化, 我要的是进度条的颜色是
+   *  从上到下(不要太长)由实渐虚的色带。」
+   *
+   * 也就是说: 左右走 + 颜色流动【保持不变】, 变的只有【垂直方向】——
+   * 从贴边那头的全实, 到画面那头的全透, 而且【不要太长】。
+   *
+   * 【实】贴边那头 1.0 —— 原来那条 5px 实心描边的角色, 现在由带子的实端承担,
+   *       所以那条描边不再画出来(见下面 .cssmv-trail 的 opacity:0)。
+   * 【虚】一路淡到 0, 中间压一站让"实"集中在靠边的一小段。
+   * 【不要太长】22px —— 原来试过 46, Jing 看了说太长。 */
+  const BAND_PX  = 22;      // 色带宽度(从屏幕边往画面里)
+  const BAND_A0  = 1.0;     // 贴边那头: 全实
+  const BAND_A1  = 0.34;    // 中段
+  /* ⚠ 这三个常量少一个就会【只画出一块实心彩虹】:
+   * 构造遮罩字符串时引用到未声明的常量会抛 ReferenceError, 而抛出点恰好在
+   * 写完 background-image 之后、写 mask 之前 —— 背景照常上色, 遮罩永远不上。
+   * W2375 第一版就是这么挂的(我用两次 replace 改同一行, 第一次把声明整行换成了注释)。
+   * 改这里之后, 一定要去真页面上读一次元素的 **内联 style 原文**,
+   * 看 mask-image 在不在 —— 只看 computed 的 "none" 分不清是"没写"还是"写了没生效"。 */
 
 
   // CSSOS_PHASE2_BORDER_NOTIF_WAVE 20260420 — copy the notifications panel
@@ -339,6 +356,17 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
   display: none;
   border-radius: 2px;
 }
+/* CSSOS_WAVE_2375 — 原来那条 5px 实心描边【不再画出来】。
+ * Jing:「原先的硬边进度条还在, 必须做到由实渐虚的色带。」
+ * 那条硬边就是它 —— 只要它还在, 带子再怎么渐变, 眼睛先看到的都是那条线。
+ *
+ * **元素不删, 只是不画。** 它还有两个不可替代的作用:
+ *   1. 进度的唯一真源 —— 全文件 11 处往它身上写 stroke-dasharray;
+ *   2. 闸门装在它的 setAttribute 上(W2345), 色带正是被它驱动的。
+ * 删元素 = 色带再也不会动。所以这里只能是"看不见", 不能是"不存在"。
+ * 用 opacity 而不是 display:none, 是因为 display:none 在部分浏览器上会让
+ * SVG 子树停止参与布局/动画, 而 is-end-burst 等状态仍挂在它身上。 */
+.cssmv-trail { opacity: 0 !important; }
 .cssmv-glow-edges.is-end-burst {
   animation: cssmvBorderEndBurstGlow 820ms cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
 }

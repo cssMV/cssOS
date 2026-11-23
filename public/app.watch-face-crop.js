@@ -155,12 +155,24 @@
        * 分叉的那天就是画面转了按钮没转(或反过来), 比现在难查得多。
        * 写在 #watch-panel 上(不是 <video> 上), 因为功能键是面板级的, 挂面板才好用
        * 后代选择器一次管住整层。 */
+      /* CSSOS_WAVE_2377 20261123 — 改成【三态】。
+       * Jing:「胶囊和搜索, 似乎是在检测到横屏媒体之后才匆匆忙忙转为横屏显示…
+       *        是否可以参照媒体, 在检测到是横屏媒体的时候, 先转到横屏显示状态再显示?」
+       *
+       * 功能键那层要做"先转好再露面"(媒体层的 W1930 幕布就是这么干的), 就必须能分清
+       *   【还没判定】 和 【判定了, 不转】
+       * 两种情况。原来两者都是"属性不存在", 分不开 —— 当成"还没判定"就会让纯音乐作品
+       * (视频永远没有元数据)的功能键永远不露面。
+       *
+       *   "1"  = 判定了, 要转
+       *   "0"  = 判定了, 不转
+       *   没有 = 还没判定(换源/换作品时由下面的 clearRotFlag 清掉)
+       *
+       * 注意 markSourceOrientation 在尺寸拿不到时是 early-return 的, 所以"没有"这个
+       * 状态天然就是"还没拿到真实尺寸", 不需要另设标志。 */
       try {
         var __panelForFlag = document.getElementById("watch-panel");
-        if (__panelForFlag) {
-          if (mismatch) __panelForFlag.setAttribute("data-media-rotated", "1");
-          else __panelForFlag.removeAttribute("data-media-rotated");
-        }
+        if (__panelForFlag) __panelForFlag.setAttribute("data-media-rotated", mismatch ? "1" : "0");
       } catch (_pf) {}
       /* CSSOS_WAVE_1902 20260824 — 画幅铁律(CLAUDE.md「32:9 + 转屏不裁切」)的播放端落地。
        * Jing:「之前是要求剪裁 32:9 横图来适应屏幕, 现在起要求, 顺时针旋转 90 度来适应屏幕。」
@@ -367,6 +379,24 @@
     });
   }
   globalThis.cssosVisualCurtain = { arm: armCurtain, drop: dropCurtain };
+
+  /* W2377 — 换源/换作品 = 方向重新未知。必须清掉旗标, 否则功能键会拿【上一首】的
+   * 方向先摆好位再露面 —— 上一首是横的、这一首是竖的时, 就是反过来闪一下。
+   * 挂的是和媒体幕布同一组事件(work-id-changed / emptied / loadstart), 不另立一套节拍。 */
+  function clearRotFlag() {
+    try {
+      var p = document.getElementById("watch-panel");
+      if (p) p.removeAttribute("data-media-rotated");
+    } catch (_e) {}
+  }
+  globalThis.cssosClearMediaRotFlag = clearRotFlag;
+  try { window.addEventListener("cssos:work-id-changed", clearRotFlag, { passive: true }); } catch (_e) {}
+  try {
+    var __vf = document.getElementById("watch-video");
+    if (__vf) ["emptied", "loadstart"].forEach(function (ev) {
+      try { __vf.addEventListener(ev, clearRotFlag, { passive: true }); } catch (_e) {}
+    });
+  } catch (_e) {}
 
   /* 换歌 / 换源 → 立刻拉幕(赶在任何一帧被画出来之前) */
   try { window.addEventListener("cssos:work-id-changed", armCurtain, { passive: true }); } catch (_e) {}

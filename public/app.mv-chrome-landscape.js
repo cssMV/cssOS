@@ -129,10 +129,54 @@
 
   function panel() { return document.getElementById("watch-panel"); }
 
-  /* 唯一判据 —— app.watch-face-crop.js 写的。这里只读, 不自己判方向。 */
-  function rotated() {
+  /* 唯一判据 —— app.watch-face-crop.js 写的。这里只读, 不自己判方向。
+   * W2377 起是三态: "1"=要转 / "0"=不转 / null=还没判定。 */
+  function rotFlag() {
     var p = panel();
-    return !!(p && p.getAttribute("data-media-rotated") === "1");
+    return p ? p.getAttribute("data-media-rotated") : null;
+  }
+
+  /* ── W2377 幕布: 先转好再露面 ──────────────────────────────────────────────
+   *
+   * Jing:「胶囊和搜索, 似乎是在检测到横屏媒体之后才匆匆忙忙转为横屏显示, 所以每次都要
+   *        先显示为竖屏状态才匆忙转为横屏显示状态, 是否可以参照媒体, 在检测到是横屏媒体
+   *        的时候, 先转到横屏显示状态再显示?」
+   *
+   * 他说的"参照媒体"正中要害: 媒体层早就有这套东西 —— W1930 的
+   * armCurtain/dropCurtain(app.watch-face-crop.js),「方向已判定且 transform 已落好
+   * → 才揭幕」。**功能键这一层从来没进过幕布**, 所以它们按竖屏先画出来, 等方向判定了
+   * 才被我翻过去 —— 屏幕上就是匆忙一转。
+   *
+   * 照搬那套做法, 不另造: 未判定就不露面, 判定了(无论转不转)、位置摆好了才露面。
+   *
+   * 用 visibility 而不是 opacity: 顶栏那几件的 opacity 归影院态 10s 空闲淡出管
+   * (W2214 第三节写明【刻意保留】), 两者抢同一个属性必然打架。visibility 与它正交。
+   * 揭幕时是 removeProperty 而不是设成 visible —— 设死了会把别人对 visibility 的控制也夺走。
+   *
+   * 硬超时是必须的, 不是保险: 纯音乐 / 纯封面作品的 <video> 可能【永远】拿不到元数据,
+   * 旗标就永远停在 null。没有超时 = 那类作品的功能键永远不露面。
+   * (face-crop 的幕布同样有 CURTAIN_MS 硬超时, 注释写着「绝不黑屏」—— 同一条纪律。) */
+  var CURTAIN_MAX_MS = 900;
+  var curtainTimer = null;
+  function armCurtain() {
+    ITEMS.forEach(function (spec) {
+      var el = document.getElementById(spec.id);
+      if (!el || el.__cssosChromeCurtained) return;
+      el.__cssosChromeCurtained = true;
+      try { el.style.setProperty("visibility", "hidden", "important"); } catch (_e) {}
+    });
+    try { clearTimeout(curtainTimer); } catch (_e) {}
+    curtainTimer = setTimeout(dropCurtain, CURTAIN_MAX_MS);
+  }
+  function dropCurtain() {
+    try { clearTimeout(curtainTimer); } catch (_e) {}
+    curtainTimer = null;
+    ITEMS.forEach(function (spec) {
+      var el = document.getElementById(spec.id);
+      if (!el || !el.__cssosChromeCurtained) return;
+      el.__cssosChromeCurtained = false;
+      try { el.style.removeProperty("visibility"); } catch (_e) {}
+    });
   }
 
   /* 右轨瘦身。
@@ -217,7 +261,10 @@
     var p = panel();
     if (!p) return;
     injectStyle();
-    var on = rotated();
+    var flag = rotFlag();
+    /* 还没判定 → 不摆位、也不露面。等 face-crop 拿到真实尺寸写下 "1"/"0" 再说。 */
+    if (flag === null) { armCurtain(); return; }
+    var on = (flag === "1");
     /* 横幅画布 = 100vh 宽 × 100vw 高, 与画面层逐字一致(face-crop 第 161-162 行)。 */
     var Lw = window.innerHeight || 0;
     var Lh = window.innerWidth || 0;
@@ -229,6 +276,8 @@
         else clearOne(el);
       } catch (_e) {}
     });
+    /* 位置已经摆好 → 这一刻才揭幕。顺序反了就等于没装幕布。 */
+    dropCurtain();
   }
 
   globalThis.cssosSyncMvChromeLandscape = sync;
@@ -263,6 +312,9 @@
   ["resize", "orientationchange"].forEach(function (ev) {
     try { window.addEventListener(ev, sync, { passive: true }); } catch (_e) {}
   });
+  /* 换作品 = 方向重新未知 → 立刻拉幕, 别让上一首的方向先露一眼。
+   * face-crop 在同一个事件上清旗标, 两边同一拍。 */
+  try { window.addEventListener("cssos:work-id-changed", function () { armCurtain(); sync(); }, { passive: true }); } catch (_e) {}
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () { sync(); start(); }, { once: true });

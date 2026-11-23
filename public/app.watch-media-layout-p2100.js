@@ -550,7 +550,8 @@ body > .cssmv-info-popover-fixed { margin-bottom: 12px !important; }
  * width. Font-size auto-fit is handled by the JS fitSubtitleFont() below. */
 @media (orientation: portrait), (max-width: 540px) {
   #watch-panel #watch-subtitle {
-    max-width: calc(100vw - 48px) !important;
+    /* W2379 — 同胶囊条: 转横屏后字幕也在 100vh 宽的画布里, 按 100vw 封顶会被掐短。 */
+    max-width: calc(var(--cssos-stage-w, 100vw) - 48px) !important;
     /* left is 32px (style.css anchor); right clearance 16px */
     font-size: clamp(11px, 3.8vw, 16px) !important;
   }

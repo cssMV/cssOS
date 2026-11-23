@@ -172,18 +172,20 @@
   var CURTAIN_MAX_MS = 900;
   var curtainTimer = null;
   function armCurtain() {
-    ITEMS.forEach(function (spec) {
-      var el = document.getElementById(spec.id);
-      if (!el || el.__cssosChromeCurtained) return;
-      el.__cssosChromeCurtained = true;
-      try { el.style.setProperty("visibility", "hidden", "important"); } catch (_e) {}
-    });
+    var p = panel();
+    if (p) p.classList.remove("cssos-chrome-ready");
     try { clearTimeout(curtainTimer); } catch (_e) {}
+    /* 硬超时不是保险, 是必需: 纯音乐/纯封面作品的 <video> 可能【永远】拿不到元数据,
+     * 旗标就永远停在 null。没有它 = 那类作品的功能键永远不露面。
+     * (face-crop 的媒体幕布同样有 CURTAIN_MS 硬超时, 注释写着「绝不黑屏」—— 同一条纪律。) */
     curtainTimer = setTimeout(dropCurtain, CURTAIN_MAX_MS);
   }
   function dropCurtain() {
     try { clearTimeout(curtainTimer); } catch (_e) {}
     curtainTimer = null;
+    var p = panel();
+    if (p) p.classList.add("cssos-chrome-ready");
+    /* W2377 留下的逐元素内联残留(升级前已经被打上的)一并清掉, 免得它们永远藏着。 */
     ITEMS.forEach(function (spec) {
       var el = document.getElementById(spec.id);
       if (!el || !el.__cssosChromeCurtained) return;
@@ -192,18 +194,36 @@
     });
   }
 
-  /* 右轨瘦身。
-   * 为什么非瘦不可(实测数): 竖屏下右轨是 46 × 515(8 项 × ~58 + 7 × 9 间距)。
-   * 转进横幅画布后, 它的"长"方向吃的是画布高度 = 竖屏视口的【宽】= 430,
-   * 去掉两头 10px 只剩 410 —— 515 塞不进去, 头尾会被切掉。
-   * 实测 iPhone 14 Pro 宽度下: 图标 38 + 数值 ~9 + 内间距 1 = 48/项, 8 项 = 384 ≤ 410。
-   * 48 ≥ 苹果 44px 最小点击目标, 没有把按钮缩到难点中。
-   * 这一组只在 [data-media-rotated="1"] 下生效, 竖屏原样不动。 */
   function injectStyle() {
     if (document.getElementById(STYLE_ID)) return;
     var s = document.createElement("style");
     s.id = STYLE_ID;
     s.textContent =
+      /* CSSOS_WAVE_2380 20261123 — 幕布改成【CSS 规则】, 不再逐元素打内联。
+       * Jing:「所有物件, 必须在显示之前, 像媒体本身一样, 先调好横屏显示状态再显示。」
+       * W2377 那版是逐元素写 inline visibility 的, 漏在这里: 右轨每轮渲染都
+       * `rail.textContent=""` 重建子节点, 搜索框/⋯ 也是按需创建的 ——
+       * **拉幕那一刻还不存在的元素自然没被盖住**, 照样先按竖屏露一眼。
+       * 换成按【祖先状态】匹配的规则, 元素什么时候生出来都自动被管住。
+       * 条件 = 面板上既没有 data-media-rotated(方向未判定), 也没有 .cssos-chrome-ready
+       * (硬超时还没到)。纯音乐作品永远判不定, 靠的就是后者。 */
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-social-rail,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-bottomflow,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssmv-mv-title,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-danmu,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-backbtn,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-mv-flagship-badge,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #watch-exit-cinema,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #watch-search-box,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssfx-center-burst,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssfx-spark' +
+      '{visibility:hidden !important;}' +
+      /* CSSOS_WAVE_2379 — 「舞台宽度」变量。胶囊条和传统字幕原本用 calc(100vw - N) 封顶,
+       * 而 100vw 是【设备视口】的宽, 它们真正落进去的却是那块 100vh 宽的横幅画布
+       * —— 916 宽的容器里被按 430 掐成 346(实测)。这是 W1927「比错对象」的第三次。
+       * 没转时变量就是 100vw, 竖屏逐字等价。 */
+      ':root{--cssos-stage-w:100vw;}' +
+      '#watch-panel[data-media-rotated="1"]{--cssos-stage-w:100vh;}' +
       '#watch-panel[data-media-rotated="1"] #cssos-watch-social-rail{gap:0 !important;}' +
       '#watch-panel[data-media-rotated="1"] #cssos-watch-social-rail .csr-item{gap:1px !important;}' +
       '#watch-panel[data-media-rotated="1"] #cssos-watch-social-rail .csr-ic{' +
@@ -217,7 +237,6 @@
         'width:14px !important;height:14px !important;font-size:10px !important;}';
     (document.head || document.documentElement).appendChild(s);
   }
-
   function clearOne(el) {
     ROT_PROPS.forEach(function (k) { try { el.style.removeProperty(k); } catch (_e) {} });
     try { el.removeAttribute("data-mv-chrome-rot"); } catch (_e) {}

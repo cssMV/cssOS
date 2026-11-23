@@ -316,7 +316,10 @@
           ["left", "right", "top", "bottom"].forEach(function (p) { _bar.style.setProperty(p, "auto", "important"); });
           _bar.style.setProperty("transform", "none", "important");
           _bar.style.setProperty("margin", "0", "important");
-          _bar.style.setProperty("max-width", "calc(100vw - 84px)", "important");   // 414→330; 右缘≤8+330=338 < 右轨353
+          /* W2379 — 100vw → var(--cssos-stage-w): 媒体转横屏后这条轨落在 100vh 宽的
+           * 画布里, 再按设备视口的 430 封顶就只能用到 346 / 916。
+           * 竖屏时变量就是 100vw, 与改动前逐字等价。84px 仍是给右轨让的位, 没动。 */
+          _bar.style.setProperty("max-width", "calc(var(--cssos-stage-w, 100vw) - 84px)", "important");   // 竖屏 414→330; 右缘≤8+330=338 < 右轨353
         }
       }
     }

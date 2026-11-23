@@ -233,17 +233,43 @@ html.cssos-app .cssmv-border-bar.is-viewport {
 }
 
 /* W2345 — 孪生光晕描边。几何/颜色/进度全部由 .cssmv-trail 的 setAttribute 镜像过来
-   (闸门装在元素的 setAttribute 上, 见下面创建处), 所以这里【只管粗细与淡度】。 */
+   (闸门装在元素的 setAttribute 上, 见下面创建处), 所以这里【只管粗细与淡度】。
+
+   CSSOS_WAVE_2369 20261123 — Jing:「我要的不是这种平整的散发光芒, 而是媒体框
+   (注意不是面板边框)的那种渐变式的散发光芒。」
+
+   W2345 当初从 drop-shadow 换成孪生描边, 换对了(省掉 80MB 离屏面), 但只垫了【一条】:
+   一条等宽 + 通体等淡的描边, 画出来就是一条边缘齐齐的光带 —— 这就是「平整」。
+   真正的「散发」靠的是【衰减】: 越往外越宽、越往外越淡。
+
+   不自己配比例, 直接搬 W1983 媒体框那圈已经定稿的三层(CLAUDE.md 媒体框宪法):
+       0 0 14px rgba(0,245,160,0.34)
+       0 0 38px rgba(0,245,160,0.22)
+       0 0 78px rgba(11,247,255,0.12)
+   半径比 14 : 38 : 78 = 1 : 2.71 : 5.57   淡度比 0.34 : 0.22 : 0.12 = 1 : 0.65 : 0.35
+   这里取 +8 / +22 / +46 (= 1 : 2.75 : 5.75) 与 k = 1 / 0.65 / 0.35, 比例一致。
+
+   两处与 W1983 不同, 是有意的:
+   1. 没有那层青色(rgba(11,247,255,...))。媒体框那圈本身是单色绿, 青色给它添层次;
+      这条进度条本来就是流动的彩虹渐变, 再压一层青会把它染脏。
+   2. 淡度写成【倍数】k 而不是绝对值 —— 因为 .is-done-static 那条规则会把
+      --cssmv-glow-a 整个压成 0.26(优先级比这里高)。写绝对值的话, 一进 done 态
+      三层会被拉平成同一个淡度, 「渐变」当场消失; 写倍数则三层按比例一起变淡。
+
+   成本不变: SVG 描边直接画进当前层, 三条也不开任何离屏面 —— W2345 治的那 80MB
+   是 filter 的离屏面, 跟描边条数无关。 */
 .cssmv-trail-glow {
   fill: none;
-  stroke-width: ${TRAIL_STROKE_PX + 12};
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
-  opacity: var(--cssmv-glow-a, 0.34);
+  opacity: calc(var(--cssmv-glow-a, 0.34) * var(--cssmv-glow-k, 1));
   pointer-events: none;
   transition: stroke-dasharray ${TRAIL_TRANSITION_MS_RENDER}ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+.cssmv-trail-glow.g1 { stroke-width: ${TRAIL_STROKE_PX + 8};  --cssmv-glow-k: 1;    }
+.cssmv-trail-glow.g2 { stroke-width: ${TRAIL_STROKE_PX + 22}; --cssmv-glow-k: 0.65; }
+.cssmv-trail-glow.g3 { stroke-width: ${TRAIL_STROKE_PX + 46}; --cssmv-glow-k: 0.35; }
 .cssmv-border-bar.mode-playback .cssmv-trail-glow { transition: none; }
 .cssmv-border-bar.is-waiting .cssmv-trail-glow {
   stroke-dasharray: 0 99999 !important;
@@ -466,12 +492,21 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     /* CSSOS_WAVE_2345 20261120 — 孪生光晕描边, 先 append = 画在真描边【底下】。
      * 它替掉了原来 .cssmv-trail 上的 drop-shadow: 那个滤镜的离屏面按元素包围盒算,
      * 而这个 <rect> 铺满整个面板 → 实测 80MB, 页面单块最大, 还随屏幕面积涨。 */
-    const trailGlow = document.createElementNS(SVG_NS, "rect");
-    trailGlow.classList.add("cssmv-trail-glow");
-    trailGlow.setAttribute("fill", "none");
-    trailGlow.setAttribute("stroke", `url(#${gradientId})`);
-    trailGlow.setAttribute("stroke-dasharray", "0 99999");
-    svg.appendChild(trailGlow);
+    /* CSSOS_WAVE_2369 — 一条变三条: 最宽最淡的先 append(画在最底), 最窄最亮的最后。
+     * 顺序错了就是亮的压住淡的, 看不出衰减。
+     * 三条都保留 .cssmv-trail-glow 这个类 —— 现成的 is-waiting / is-done-static /
+     * is-end-burst 三条状态规则因此自动对三层都生效, 不用把它们复制三份
+     * (复制出来的那两份迟早有人只改一份)。 */
+    const glowLayers = ["g3", "g2", "g1"].map(function (k) {
+      const g = document.createElementNS(SVG_NS, "rect");
+      g.classList.add("cssmv-trail-glow", k);
+      g.setAttribute("fill", "none");
+      g.setAttribute("stroke", `url(#${gradientId})`);
+      g.setAttribute("stroke-dasharray", "0 99999");
+      svg.appendChild(g);
+      return g;
+    });
+    const trailGlow = glowLayers[glowLayers.length - 1];   // g1, 留作 state.trailGlow 的兼容值
 
     const trail = document.createElementNS(SVG_NS, "rect");
     trail.classList.add("cssmv-trail");
@@ -490,7 +525,11 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     const _trailSetAttr = trail.setAttribute.bind(trail);
     trail.setAttribute = function (name, value) {
       _trailSetAttr(name, value);
-      try { trailGlow.setAttribute(name, value); } catch (_e) {}
+      /* W2369 — 镜像到三层, 不是一层。闸门还是装在 setAttribute 上(W2345 的做法),
+       * 所以加层数不用回去补任何调用点。 */
+      for (var gi = 0; gi < glowLayers.length; gi++) {
+        try { glowLayers[gi].setAttribute(name, value); } catch (_e) {}
+      }
     };
 
     // CSSOS_PHASE2_BORDER_WAITING_DOT 20260420 — Jing: the pulsing-dot
@@ -505,6 +544,7 @@ html.cssos-app .cssmv-border-bar.is-viewport {
     state.svg = svg;
     state.trail = trail;
     state.trailGlow = trailGlow;     // W2345 — 只为调试/测试取得到; 写属性一律经 trail
+    state.trailGlowLayers = glowLayers;   // W2369 — 三层(g3/g2/g1, 由外到内)
     state.dot = dot;
     state.gradientId = gradientId;
     state.wired = true;

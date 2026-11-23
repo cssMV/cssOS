@@ -169,6 +169,18 @@
    * 硬超时是必须的, 不是保险: 纯音乐 / 纯封面作品的 <video> 可能【永远】拿不到元数据,
    * 旗标就永远停在 null。没有超时 = 那类作品的功能键永远不露面。
    * (face-crop 的幕布同样有 CURTAIN_MS 硬超时, 注释写着「绝不黑屏」—— 同一条纪律。) */
+  /* CSSOS_WAVE_2384 20261123 — 幕布【整体停用】。
+   *
+   * Jing:「一直等待在 logo 呼吸那里, 无法进入平台。」——线上事故, 先恢复服务再查原因。
+   *
+   * 为什么直接停整个幕布, 而不是继续在里面修:
+   * 幕布是今天唯一一处【会把东西藏起来】的机制, 而 Jing 连着两次报的都是"看不见/进不去"。
+   * 在一个会致盲的机制里继续猜着改, 等于拿他的时间做二分查找。
+   * 停掉 = 回到"先按竖屏显示、再转过去"的旧观感(有一下闪), 但**一定看得见**。
+   * 闪一下, 和进不去, 不是一个量级的问题。
+   *
+   * 代码全部保留、一个字没删, 只用这一个开关短路 —— 查清真因后把它改回 true 即可。 */
+  var CURTAIN_ENABLED = false;
   var CURTAIN_MAX_MS = 900;
   var curtainTimer = null;
   var curtainReleased = false;
@@ -188,6 +200,7 @@
    *   2. 揭过幕就不再重新拉上(curtainReleased), 否则超时揭幕后下一个 tick 又拉上,
    *      变成每 900ms 闪一次。只有换作品才复位。 */
   function armCurtain(force) {
+    if (!CURTAIN_ENABLED) return;        // W2384 — 停用
     if (!force) {
       if (curtainReleased) return;   // 这一首已经揭过幕了, 别再拉
       if (curtainTimer) return;      // 正在计时, **绝不重置** —— 重置就是 W2380 的那个死局
@@ -229,17 +242,8 @@
        * 换成按【祖先状态】匹配的规则, 元素什么时候生出来都自动被管住。
        * 条件 = 面板上既没有 data-media-rotated(方向未判定), 也没有 .cssos-chrome-ready
        * (硬超时还没到)。纯音乐作品永远判不定, 靠的就是后者。 */
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-social-rail,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-bottomflow,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssmv-mv-title,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-danmu,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-backbtn,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-mv-flagship-badge,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #watch-exit-cinema,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #watch-search-box,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssfx-center-burst,' +
-      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssfx-spark' +
-      '{visibility:hidden !important;}' +
+      /* W2384 — 这十条致盲规则已整体移除(幕布停用)。恢复时连同 CURTAIN_ENABLED 一起放回。 */
+      '' +
       /* CSSOS_WAVE_2379 — 「舞台宽度」变量。胶囊条和传统字幕原本用 calc(100vw - N) 封顶,
        * 而 100vw 是【设备视口】的宽, 它们真正落进去的却是那块 100vh 宽的横幅画布
        * —— 916 宽的容器里被按 430 掐成 346(实测)。这是 W1927「比错对象」的第三次。
@@ -317,6 +321,16 @@
     injectStyle();
     var flag = rotFlag();
     /* 还没判定 → 不摆位、也不露面。等 face-crop 拿到真实尺寸写下 "1"/"0" 再说。 */
+    if (flag === null && !CURTAIN_ENABLED) {
+      /* W2384 — 幕布停用: 方向还没判定就先按【不转】处理并揭幕。
+       * 宁可先按竖屏露一下再转过去(旧观感), 也绝不把东西扣在幕布后面。 */
+      dropCurtain();
+      ITEMS.forEach(function (spec) {
+        var el = document.getElementById(spec.id);
+        if (el) try { clearOne(el); el.style.removeProperty("visibility"); } catch (_e) {}
+      });
+      return;
+    }
     if (flag === null) {
       armCurtain();
       /* W2382 第二道闸: 不依赖 setTimeout 的兜底。
@@ -362,9 +376,44 @@
   function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
   try {
-    var mo = new MutationObserver(function () {
+    /* CSSOS_WAVE_2385 20261123 — 观察器必须 rAF 合并, 而且不要监听整篇文档。
+     *
+     * 原来的写法是「文档里任何一处 class 变动 → 【同步】跑一次 sync()」。
+     * 而 sync() → placeOne() 要读 offsetWidth/offsetHeight = **强制同步布局**,
+     * 中间还夹着写内联样式 → 读-写-读-写, 典型的布局抖动。
+     * 启动和 For-You 渲染那几秒 class 变动每秒几百次, 手机上足以把页面卡死在启动画面
+     * (Jing:「一直等待在 logo 呼吸那里, 无法进入平台。」)。
+     *
+     * **平台早就为同一件事付过一次学费**: app.has-class-bridge.js 的注释写着
+     * W490k —— 文档级 :has() 每次 DOM 变动全文档重算, 把 iOS 渲染进程拖崩,
+     * 修法就是 rAF 合并(「每帧最多 3 次 querySelector」)。我写这个观察器时没复用那条教训。
+     *
+     * 两处收紧:
+     *   1. rAF 合并 —— 一帧最多跑一次, 照搬 has-class-bridge 的做法;
+     *   2. 只盯 #watch-panel 自己的 class / data-media-rotated, 不再 subtree 全文档。
+     *      面板还没生出来时才临时盯文档, 一旦拿到就立刻收窄。 */
+    var moRaf = 0;
+    function moTick() {
+      moRaf = 0;
       var p = panel();
       if (p && !p.classList.contains("hidden")) start(); else { stop(); sync(); }
+    }
+    function moSchedule() {
+      if (moRaf) return;
+      try { moRaf = requestAnimationFrame(moTick); }
+      catch (_e) { moRaf = setTimeout(moTick, 16); }
+    }
+    var mo = new MutationObserver(function () {
+      moSchedule();
+      /* 面板一出现就把观察范围从「整篇文档」收窄到「面板自己」。 */
+      var p = panel();
+      if (p && !mo.__narrowed) {
+        mo.__narrowed = true;
+        try {
+          mo.disconnect();
+          mo.observe(p, { attributes: true, attributeFilter: ["class", "data-media-rotated"] });
+        } catch (_e) {}
+      }
     });
     mo.observe(document.documentElement, {
       attributes: true, subtree: true,

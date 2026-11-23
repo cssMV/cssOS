@@ -126,26 +126,33 @@
    * ## 数值 = W1983 逐字(CLAUDE.md 媒体框宪法, 锁死)
    *     0 0 14px rgba(…,0.34)   0 0 38px rgba(…,0.22)   0 0 78px rgba(…,0.12)
    * 颜色不写死成绿色: 进度条是流动的彩虹, 取它当前的色相。 */
-  /* CSSOS_WAVE_2373 20261123 — W2372 的两个实现错误, Jing 放大截图一对比就露了。
+  /* CSSOS_WAVE_2374 20261123 — 不再「发光」, 改成真·渐变色带。
    *
-   * 错误①: 我给光晕条加了 `background: rgba(…,0.9)` —— 一条 90% 不透明的实心核。
-   *   真描边(5px, SVG)本来就画在那儿了, 我又在同一位置叠了一条实心的,
-   *   **屏幕上就成了一条上下两道硬边、通体一样亮的实心带** —— 柔光被它自己压住。
-   *   box-shadow 从 border-box 的形状投射, **根本不需要可见背景**。
-   *   → 背景改 transparent, 这一层只负责散光, 清晰的核交给真描边。
+   * Jing 把想要的(媒体框)和我做的(进度条)放大并排:
+   *「看是有区别的…不要代码是可以做到的, 但是实际肉眼效果无法达到。」
    *
-   * 错误②: 三层淡度照搬 W1983 的 0.34/0.22/0.12, 但**发光源大小差了几十倍**。
-   *   那组数是给【整块媒体框】那么大的边配的; 同样的数放到一条 5px 细线上,
-   *   散出来弱到几乎看不见。
-   *   → 半径仍用 W1983 的 14/38/78(衰减形状是对的), 淡度按细线源上调。
-   *   这是「搬平台已有视觉」时的一个通则: **半径可以照搬, 淡度得按源的大小换算。**
-   */
-  const GLOW_BLUR_PX = [14, 38, 78];       // W1983 三层半径, 形状照搬
-  /* 淡度按 5px 细线源上调。怎么定的: 在真页面上把三层临时设成 1.0/0.9/0.7 的纯红
-   * 做对照实验 —— 那团光清清楚楚从顶边散进画面约 100px 再淡去, 证明【渲染链路通、
-   * 不是被遮挡】, 弱只是弱在数值。最终取对照值的 ~0.85 倍。
-   * W1983 原值(0.34/0.22/0.12)不能直接用: 那是给【整块媒体框】那么大的发光源配的。 */
-  const GLOW_BLUR_A  = [0.85, 0.58, 0.34];
+   * ## 差别一眼就看出来了: 他那张图里【根本没有亮线】
+   *
+   * 媒体框那条就是一条【由实渐虚的色带】—— 贴边一侧有色, 往画面里一路淡到透明, 完。
+   * 而我做的, 主角是一条又亮又艳的 5px 细线, 光只是它旁边一团脏兮兮的晕。
+   * 我一直在给那条线"加光", 而他要的是把那条线变成一条带子。
+   *
+   * ## 我还把「渐变」这个词理解窄了
+   *
+   * 「渐变式」在 CSS 里就是 linear-gradient —— 一头有色、一头透明, 天生连续,
+   * 没有层、没有边、不开离屏面、不用模糊。我前四版(孪生描边 / 三条 / 十六环 /
+   * box-shadow)全在"发光"这条路上绕, **从没用过最直接的那个工具。**
+   *
+   * ## 现在的做法
+   *
+   * 每条边 = 一条 BAND_PX 宽的带子, 贴着屏幕边, 背景是
+   *     linear-gradient(往画面里, 实 → 半透 → 全透)
+   * 长度仍然跟进度走(与描边同一套几何)。清晰的核仍由真描边负责(进度要读得准)。
+   * 代价: 一个 linear-gradient 背景, 比 box-shadow 还便宜, 更不用说 filter。 */
+  const BAND_PX  = 46;      // 色带宽度(从屏幕边往画面里)。46 ≈ 媒体框那条绿带的观感宽度
+  const BAND_A0  = 0.72;    // 贴边那头的淡度 —— 带子要当主角, 不是给亮线做陪衬
+  const BAND_A1  = 0.26;    // 中段
+
 
   // CSSOS_PHASE2_BORDER_NOTIF_WAVE 20260420 — copy the notifications panel
   // .notification-run-bar-fill gradient exactly. Six HSL stops centered on
@@ -809,25 +816,44 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
    * 否则光晕会一直停在上一个阶段的颜色上 —— 这种"只在换阶段时才错"的毛病最难查。 */
   function invalidateGlowColor() { _glowColorCache = null; _glowShadowApplied = "__force__"; }
   var _glowShadowApplied = null;
+  var DIR  = { t: "to bottom", r: "to left",  b: "to top",   l: "to right" };
+  var LONG = { t: "90deg",     r: "180deg",    b: "90deg",    l: "180deg"   };
   function _applyGlowShadow() {
     if (!state.glowHost) return;
     var cols = _currentGlowColors();
     if (!cols) return;
-    var key = cols.join("|");
-    /* 颜色没变就一个字节都不写 —— 这一段每帧都会被走到(timeupdate 驱动),
-     * 每帧重算四条 box-shadow 字符串纯属白烧。 */
+    var all = _allStopColors();
+    var key = cols.join("|") + "#" + all.join("|");
+    /* 颜色没变就一个字节都不写 —— 这段每帧都会被 timeupdate 走到。 */
     if (key === _glowShadowApplied) return;
     _glowShadowApplied = key;
-    var sh = GLOW_BLUR_PX.map(function (r, i) {
-      return "0 0 " + r + "px " + _hslaFrom(cols[i], GLOW_BLUR_A[i]);
-    }).join(",");
     [].forEach.call(state.glowHost.children, function (d) {
-      d.style.boxShadow = sh;
-      /* W2373 — 背景必须是透明的。给它上色 = 在真描边旁边再画一条硬边实心带,
-       * 那正是 Jing 截图里「上下两道硬边、通体一样亮」的那条。
-       * box-shadow 从 border-box 形状投射, 不需要背景可见。 */
-      d.style.background = "transparent";
+      var k = d.dataset.edge;
+      /* W2374b — 带子【沿长度】走条子自己的彩虹, 【垂直方向】用 mask 渐隐。
+       * 之前带子是单色、线是彩虹, 两者打架; 媒体框那条之所以好看, 正因为整条
+       * 是一个颜色一个物件。现在线和带同色同源, 合成一件东西。
+       *
+       * 为什么用 mask 而不是把 alpha 写进背景: 背景只能沿一个方向渐变,
+       * 这里要两个方向(长度=颜色, 垂直=透明度), 只有 mask 能把两件事分开。
+       * mask 的合成面按元素算, 而这条带子只有 34px 宽 —— 不是 W2345 那个
+       * 铺满面板的 80px 离屏面, 两回事。 */
+      d.style.backgroundImage =
+        "linear-gradient(" + (LONG[k] || "90deg") + "," + all.join(",") + ")";
+      var m = "linear-gradient(" + (DIR[k] || "to bottom") +
+              ",rgba(0,0,0," + BAND_A0 + ") 0%,rgba(0,0,0," + BAND_A1 + ") 38%,rgba(0,0,0,0) 100%)";
+      d.style.webkitMaskImage = m;
+      d.style.maskImage = m;
+      d.style.boxShadow = "none";
     });
+  }
+  function _allStopColors() {
+    try {
+      var st = state.trail && state.trail.getAttribute("stroke");
+      if (st && st.indexOf("url(") !== 0) return [st, st];
+      var a = [].slice.call(state.svg.querySelectorAll("stop"))
+        .map(function (n) { return n.getAttribute("stop-color"); }).filter(Boolean);
+      return a.length ? a : ["#00f5a0", "#00f5a0"];
+    } catch (_e) { return ["#00f5a0", "#00f5a0"]; }
   }
   function _syncGlowClasses() {
     if (!state.glowHost || !state.svg) return;
@@ -840,7 +866,6 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
     if (!host || !g) return;
     _syncGlowClasses();
     _applyGlowShadow();
-    var T = TRAIL_STROKE_PX, half = T / 2;
     var rem = Math.max(0, Number(visibleLen) || 0);
     var segs = [
       { k: "t", cap: g.rw },
@@ -856,12 +881,15 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
       if (len < 1) { d.style.display = "none"; return; }
       d.style.display = "block";
       /* 逐属性设置, **绝不用 cssText +=** —— 那会每帧往同一个字符串后面接一截,
-       * 跑几分钟就是几万条重复声明, 正是"内存慢慢涨"的经典做法。 */
+       * 跑几分钟就是几万条重复声明, 正是"内存慢慢涨"的经典做法。
+       *
+       * W2374 — 色带贴【屏幕边】起算, 不是贴描边中心:
+       * 媒体框那条也是从边缘开始往里淡的, 边缘那一头必须是实的, 中间不能有缝。 */
       var box;
-      if (sg.k === "t")      box = [g.inset,                 g.top - half,        len, T];
-      else if (sg.k === "r") box = [g.inset + g.rw - half,    g.top,               T,   len];
-      else if (sg.k === "b") box = [g.inset + g.rw - len,     g.top + g.rh - half, len, T];
-      else                   box = [g.inset - half,           g.top + g.rh - len,  T,   len];
+      if (sg.k === "t")      box = [g.inset,             0,                 len,     BAND_PX];
+      else if (sg.k === "r") box = [g.w - BAND_PX,       g.top,             BAND_PX, len];
+      else if (sg.k === "b") box = [g.inset + g.rw - len, g.h - BAND_PX,    len,     BAND_PX];
+      else                   box = [0,                   g.top + g.rh - len, BAND_PX, len];
       d.style.left   = box[0].toFixed(1) + "px";
       d.style.top    = box[1].toFixed(1) + "px";
       d.style.width  = box[2].toFixed(1) + "px";

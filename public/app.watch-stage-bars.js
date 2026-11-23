@@ -334,7 +334,7 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
 /* CSSOS_PHASE2_MV_END_BURST 20260420 — 820ms "flash-then-gone" finale. */
 @keyframes cssmvBorderEndBurst {
   0% {
-    filter: brightness(1) saturate(1);   /* W2345 — drop-shadow 去掉, 光晕归 .cssmv-trail-glow */
+    filter: brightness(1) saturate(1);   /* W2345/W2372 — drop-shadow 去掉; 光晕归 .cssmv-glow-edges */
     transform: scale(1);
     opacity: 1;
   }
@@ -402,7 +402,7 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
 .cssmv-border-bar.is-done-static .cssmv-trail {
   transition: none !important;
   /* W2345 — 这一条和基础那条一样是【常驻】的, 不是瞬态; 留着等于白改。
-     光晕改由 .cssmv-trail-glow 的 --cssmv-glow-a 表达(见上)。 */
+     光晕改由 .cssmv-glow-edges 的 box-shadow 表达(W2372)。 */
   filter: none;
 }
 /* CSSOS_WAVE_386 — desktop ⛶ true-fullscreen toggle (web only). */
@@ -528,7 +528,8 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
      * 而这个 <rect> 铺满整个面板 → 实测 80MB, 页面单块最大, 还随屏幕面积涨。 */
     /* CSSOS_WAVE_2369 — 一条变三条: 最宽最淡的先 append(画在最底), 最窄最亮的最后。
      * 顺序错了就是亮的压住淡的, 看不出衰减。
-     * 三条都保留 .cssmv-trail-glow 这个类 —— 现成的 is-waiting / is-done-static /
+     * (W2372 作废: 已无描边环。状态类现由 _syncGlowClasses 同步到 .cssmv-glow-edges)
+     * 旧文: 三条都保留 .cssmv-trail-glow 这个类 —— 现成的 is-waiting / is-done-static /
      * is-end-burst 三条状态规则因此自动对三层都生效, 不用把它们复制三份
      * (复制出来的那两份迟早有人只改一份)。 */
     /* W2372 — 光晕层: 四条贴边的细条, 各自带 W1983 那三层 box-shadow。

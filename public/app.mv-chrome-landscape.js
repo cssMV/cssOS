@@ -264,6 +264,19 @@
     (document.head || document.documentElement).appendChild(s);
   }
   function clearOne(el) {
+    /* CSSOS_WAVE_2387 20261123 — 只清【我自己设过的】, 别人的内联一个字都不许碰。
+     *
+     * Jing:「图1, iPad 端, 胶囊跑到上面去和搜索框在一起了, 应该在底部, 居中。」
+     *
+     * 这是我造成的回归。#cssos-watch-bottomflow 在样式表里【没有任何定位规则】——
+     * 它的 position:absolute / left / bottom 全是 app.watch-bottom-stack.js 写的内联。
+     * 而原来的 clearOne 是【无条件】剥 ROT_PROPS 的: iPad 永远不旋转, 于是 sync 每 500ms
+     * 就把别人的 position:absolute 剥掉一次 → 底栏退回文档流 → 跑到面板顶上, 和搜索框挤在一起。
+     *
+     * 判据用我自己打的 data-mv-chrome-rot 标记: 没有这个标记 = 这一轮不是我摆的,
+     * 它身上的内联是别人的财产, 直接返回。
+     * **通则: 清理内联样式前先问「这是不是我写的」—— 共享 DOM 上, 删比写危险。** */
+    if (!el || el.getAttribute("data-mv-chrome-rot") !== "1") return;
     ROT_PROPS.forEach(function (k) { try { el.style.removeProperty(k); } catch (_e) {} });
     try { el.removeAttribute("data-mv-chrome-rot"); } catch (_e) {}
   }

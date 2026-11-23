@@ -308,6 +308,18 @@
         _lf.style.setProperty("transform", "none", "important");
         _lf.style.setProperty("margin", "0", "important");
         _lf.style.setProperty("max-width", "calc(100% - 2px)", "important");   // 容器已 right:64 让位右轨 → 居左即不压
+        /* CSSOS_WAVE_2387 20261123 — Jing:「胶囊应该和搜索框一样, 底部居中。」
+         *
+         * 居左(flex-start)是【竖屏】才对的: 那时容器 right:64 为右轨让了位, 居左才不压它。
+         * 媒体转横屏之后容器是整条横幅画布(实测 916 宽)、右轨也不在这一行上,
+         * 再居左就成了贴着画面最左边的一长条 —— 而搜索框是居中的, 两者对不上。
+         * 判据只读 face-crop 写的那一个标记, 不自己判方向(与 W2368 同一条纪律)。 */
+        var _rotNow = false;
+        try {
+          var _wp = document.getElementById("watch-panel");
+          _rotNow = !!(_wp && _wp.getAttribute("data-media-rotated") === "1");
+        } catch (_e) {}
+        _lf.style.setProperty("align-self", _rotNow ? "center" : "flex-start", "important");
         // CSSOS_WAVE_1262b — 真凶: 探针实测里面的 #watch-language-pill 轨道【绝对定位 + max-width:96vw≈397px】
         //   逃出外壳、又长又压右轨(外壳因此塌成宽0)。这里【每轮强制】把轨道本身 static + 封顶宽度清右轨。
         var _bar = document.getElementById("watch-language-pill");

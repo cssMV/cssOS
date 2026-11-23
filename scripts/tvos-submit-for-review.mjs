@@ -123,6 +123,27 @@ This build fixes Apple TV remote handling in the player: a single press of the S
     ?.data?.find((v) => v.attributes?.versionString === VER && v.attributes?.platform === PLATFORM);
   if (ver) {
     log(`   已存在 ${VER} (${ver.attributes.appStoreState}) —— 复用, 不新建`);
+    /* CSSOS_WAVE_2366 20261122 — 复用的草稿要把发布方式拉齐到 AFTER_APPROVAL。
+     *
+     * 下面新建分支一直写着 AFTER_APPROVAL, 但【复用分支原样沿用草稿自带的设置】。
+     * iOS 1.0.1 就是这么出事的: 那个草稿是 2026-07-28 手工建的, releaseType=MANUAL,
+     * 于是过审后会停在"待发布"等人按一下 —— 而脚本的全部意义就是不用人按。
+     * 不是"顺手统一", 是把脚本已经声明过的行为补齐: 两条分支必须给出同一个结果。
+     * (Jing 2026-11-22 对这一版的拍板: 「请改成过审即自动上架」。)
+     *
+     * 只在确实不是 AFTER_APPROVAL 时才 PATCH, 省一次无谓写入; 失败只告警不中断 ——
+     * 发布方式拉不齐不该挡住提交本身, 但必须说出来, 不许默默吞掉。 */
+    if (ver.attributes?.releaseType !== "AFTER_APPROVAL") {
+      try {
+        await api("PATCH", `/v1/appStoreVersions/${ver.id}`, {
+          data: { type: "appStoreVersions", id: ver.id,
+                  attributes: { releaseType: "AFTER_APPROVAL" } },
+        });
+        log(`   发布方式 ${ver.attributes?.releaseType} → AFTER_APPROVAL(过审即上架, 不用人按)`);
+      } catch (e) {
+        log(`   ⚠ 发布方式没能改成 AFTER_APPROVAL(${e.message}) —— 过审后需要有人手工点发布`);
+      }
+    }
   } else {
     ver = (await api("POST", "/v1/appStoreVersions", {
       data: {

@@ -171,18 +171,40 @@
    * (face-crop 的幕布同样有 CURTAIN_MS 硬超时, 注释写着「绝不黑屏」—— 同一条纪律。) */
   var CURTAIN_MAX_MS = 900;
   var curtainTimer = null;
-  function armCurtain() {
+  var curtainReleased = false;
+  var curtainArmedAt = 0;
+  /* CSSOS_WAVE_2382 20261123 — 修 W2380 的致命错: 幕布永远不揭, 功能键永久不显示。
+   *
+   * 错在哪: sync() 每 500ms 跑一次, 方向未判定时就调 armCurtain(),
+   * 而它每次都 clearTimeout + 重新 setTimeout(900)。**500 < 900 → 那个硬超时永远等不到。**
+   * 于是「判不定」的情况(纯音乐作品 / 刚换作品那一瞬)直接变成「永远不显示」。
+   *
+   * 硬超时写了、注释也写了「绝不黑屏」, 却因为被反复重置而从来没真的响过 ——
+   * **「写了一个兜底」和「那个兜底真的会触发」是两件事。**
+   * 下次再写这种 setTimeout 兜底, 必须问一句: 它会不会被比它更快的循环一直重置?
+   *
+   * 两处修正:
+   *   1. 已经在计时中就不要重置(除非 force) —— 计时器从此一定会走到头;
+   *   2. 揭过幕就不再重新拉上(curtainReleased), 否则超时揭幕后下一个 tick 又拉上,
+   *      变成每 900ms 闪一次。只有换作品才复位。 */
+  function armCurtain(force) {
+    if (!force) {
+      if (curtainReleased) return;   // 这一首已经揭过幕了, 别再拉
+      if (curtainTimer) return;      // 正在计时, **绝不重置** —— 重置就是 W2380 的那个死局
+    }
     var p = panel();
     if (p) p.classList.remove("cssos-chrome-ready");
     try { clearTimeout(curtainTimer); } catch (_e) {}
     /* 硬超时不是保险, 是必需: 纯音乐/纯封面作品的 <video> 可能【永远】拿不到元数据,
      * 旗标就永远停在 null。没有它 = 那类作品的功能键永远不露面。
      * (face-crop 的媒体幕布同样有 CURTAIN_MS 硬超时, 注释写着「绝不黑屏」—— 同一条纪律。) */
+    curtainArmedAt = Date.now();
     curtainTimer = setTimeout(dropCurtain, CURTAIN_MAX_MS);
   }
   function dropCurtain() {
     try { clearTimeout(curtainTimer); } catch (_e) {}
     curtainTimer = null;
+    curtainReleased = true;          // W2382 — 揭过就不再拉, 直到换作品
     var p = panel();
     if (p) p.classList.add("cssos-chrome-ready");
     /* W2377 留下的逐元素内联残留(升级前已经被打上的)一并清掉, 免得它们永远藏着。 */
@@ -295,7 +317,16 @@
     injectStyle();
     var flag = rotFlag();
     /* 还没判定 → 不摆位、也不露面。等 face-crop 拿到真实尺寸写下 "1"/"0" 再说。 */
-    if (flag === null) { armCurtain(); return; }
+    if (flag === null) {
+      armCurtain();
+      /* W2382 第二道闸: 不依赖 setTimeout 的兜底。
+       * 这一波的教训是【写了兜底 ≠ 兜底真的会响】—— 上一版那个 900ms 超时
+       * 被 500ms 的 sync 循环一直重置, 写在那里却从来没触发过, 结果就是永久不显示。
+       * 这里直接拿时间戳算: 不管计时器有没有被谁重置/清掉, 超过 CURTAIN_MAX_MS 就揭幕。
+       * 两道闸互不依赖 —— 这才叫兜底。 */
+      if (curtainArmedAt && Date.now() - curtainArmedAt > CURTAIN_MAX_MS) dropCurtain();
+      return;
+    }
     var on = (flag === "1");
     /* 横幅画布 = 100vh 宽 × 100vw 高, 与画面层逐字一致(face-crop 第 161-162 行)。 */
     var Lw = window.innerHeight || 0;
@@ -346,7 +377,15 @@
   });
   /* 换作品 = 方向重新未知 → 立刻拉幕, 别让上一首的方向先露一眼。
    * face-crop 在同一个事件上清旗标, 两边同一拍。 */
-  try { window.addEventListener("cssos:work-id-changed", function () { armCurtain(); sync(); }, { passive: true }); } catch (_e) {}
+  /* 换作品 = 方向重新未知 → 强制重新拉幕(force), 并复位"已揭过"。
+   * 这是唯一允许重新拉幕的入口 —— 别处再拉就会闪。 */
+  try {
+    window.addEventListener("cssos:work-id-changed", function () {
+      curtainReleased = false;
+      armCurtain(true);
+      sync();
+    }, { passive: true });
+  } catch (_e) {}
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () { sync(); start(); }, { once: true });

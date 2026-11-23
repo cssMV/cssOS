@@ -9624,9 +9624,18 @@ body.cssos-nonlogo-front #logo-panel * {
    * mirror layer every single frame (Safari is lazier, so it only showed on
    * Chrome = the residual main-interface flicker). Drop the filter pulse; keep
    * only the GPU-composited transform:scale breath (no repaint, identical feel). */
+  /* CSSOS_WAVE_2383 20261123 — Jing:「现在的启动 logo 似乎有点大, 应该是从呼到吸、
+   * 从大到小变化的过程中的中间, logo 大小和进入平台后的 logo 大小一样大。」
+   *
+   * 他说的是【摆幅要居中】。原来是 1 → 1.04 → 1, 整个摆幅都在静止尺寸【之上】,
+   * 中点是 1.02 —— 比进平台后那个大 2%, 所以一眼看过去就是"有点大"。
+   * 落地页和平台内用的是同一个 .mirror / 同一个 --mirror-size, 所以 scale(1)
+   * 就是"进平台后的大小"; 要让中点等于它, 把摆幅对称到 1 两侧即可。
+   *
+   * 摆幅仍是 4%(0.98↔1.02), 呼吸感一点不减, 只是不再整体偏大。 */
   0%,
-  100% { transform: scale(1); }
-  50% { transform: scale(1.04); }
+  100% { transform: scale(0.98); }
+  50% { transform: scale(1.02); }
 }
 
 @keyframes mirrorSpellcastBreath {

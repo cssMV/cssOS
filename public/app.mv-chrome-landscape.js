@@ -180,7 +180,14 @@
    * 闪一下, 和进不去, 不是一个量级的问题。
    *
    * 代码全部保留、一个字没删, 只用这一个开关短路 —— 查清真因后把它改回 true 即可。 */
-  var CURTAIN_ENABLED = false;
+  /* CSSOS_WAVE_2389 20261123 — 幕布重新启用。两个真因都已修掉, 不是"再试一次":
+   *   W2382  硬超时被 500ms 的 sync 循环一直重置 → 永远不揭幕 → 永久不显示。
+   *          已加: 计时中绝不重置 + 揭过不再拉 + 一条不依赖计时器的时间戳兜底。
+   *   W2385  观察器监听整篇文档且不合并, 而 sync 里有强制同步布局 → 布局抖动 → 卡死启动页。
+   *          已改: rAF 合并 + 只盯 #watch-panel 自己(照搬 app.has-class-bridge.js 的做法)。
+   *   W2387  clearOne 无条件剥别人的内联(iPad 底栏跑到顶上)。已加"是不是我写的"守卫。
+   * 出事就把这一行改回 false —— 十条致盲规则和整套逻辑都挂在它身上。 */
+  var CURTAIN_ENABLED = true;
   var CURTAIN_MAX_MS = 900;
   var curtainTimer = null;
   var curtainReleased = false;
@@ -242,8 +249,21 @@
        * 换成按【祖先状态】匹配的规则, 元素什么时候生出来都自动被管住。
        * 条件 = 面板上既没有 data-media-rotated(方向未判定), 也没有 .cssos-chrome-ready
        * (硬超时还没到)。纯音乐作品永远判不定, 靠的就是后者。 */
-      /* W2384 — 这十条致盲规则已整体移除(幕布停用)。恢复时连同 CURTAIN_ENABLED 一起放回。 */
-      '' +
+      /* 幕布: 方向未判定(没有 data-media-rotated)且硬超时未到(没有 .cssos-chrome-ready)时,
+       * 这十个先不露面 —— 「先转好再露面」, 与媒体层 W1930 的幕布同一条纪律。
+       * 用 CSS 规则而不是逐元素内联: 右轨每轮渲染重建子节点、搜索框按需创建,
+       * 拉幕那一刻还不存在的元素, 内联盖不住(W2380 的教训)。 */
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-social-rail,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-bottomflow,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssmv-mv-title,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-danmu,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-watch-backbtn,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssos-mv-flagship-badge,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #watch-exit-cinema,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #watch-search-box,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssfx-center-burst,' +
+      '#watch-panel:not([data-media-rotated]):not(.cssos-chrome-ready) #cssfx-spark' +
+      '{visibility:hidden !important;}' +
       /* CSSOS_WAVE_2379 — 「舞台宽度」变量。胶囊条和传统字幕原本用 calc(100vw - N) 封顶,
        * 而 100vw 是【设备视口】的宽, 它们真正落进去的却是那块 100vh 宽的横幅画布
        * —— 916 宽的容器里被按 430 掐成 346(实测)。这是 W1927「比错对象」的第三次。

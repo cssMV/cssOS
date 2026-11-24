@@ -1204,8 +1204,30 @@ struct BorderProgressBar: View {
     let width: CGFloat
     let height: CGFloat
 
-    // 桌面同款 6 段色相偏移(app.watch-stage-bars.js HUE_OFFSETS)。
+    /* CSSOS_WAVE_2388 20261123 — 照搬网页端【进度条宪法 W2376】: 由实渐虚的色带。
+     *
+     * Jing:「转到 cssTV 平台, 使用同样的新版进度条。」
+     *
+     * 旧版(= 网页端 W2369 那一版, 已被否)是「5px 实心描边 + 两层 shadow 光晕」。
+     * Jing 在网页端连否了四版才定稿, 原话:「我要的是渐变式, 或者说散发式,
+     * 而不是一层套一层的」「原先的硬边进度条还在, 必须做到由实渐虚的色带」。
+     *
+     * 定稿形态(CLAUDE.md 进度条宪法, 已锁):
+     *   · **没有那条硬描边** —— 只要它还在, 眼睛先看到的就是硬边;
+     *   · 一条 11pt 宽的色带, 贴边那头全实(α 1.0), 往画面里 38% 处降到 α 0.34, 到头全透;
+     *   · 沿长度走条子自己的彩虹(左右流动), 只有【垂直方向】由实渐虚;
+     *   · 进度 = 沿周长顺时针走: 顶 → 右 → 底(由右向左) → 左(由下向上)。
+     *
+     * SwiftUI 的实现对应关系:
+     *   网页 background: linear-gradient(沿长度)   → .fill(LinearGradient 沿长度)
+     *   网页 mask-image: linear-gradient(往画面里) → .mask(LinearGradient 垂直)
+     * 两个方向两件事, 所以这里也必须是 fill + mask 两层, 不能合成一个渐变。
+     */
+    private static let bandPt: CGFloat = 11      // 宪法 BAND_PX
+    private static let a0: Double = 1.0          // 宪法 BAND_A0 — 贴边那头: 全实
+    private static let a1: Double = 0.34         // 宪法 BAND_A1 — 38% 处
     private static let hueOffsets: [Double] = [0, 36, 90, 180, 270, 360]
+
     private func flowingColors(_ phase: Double) -> [Color] {
         let seed = (phase * 18).truncatingRemainder(dividingBy: 360)   // 缓慢转色(~20s 一圈)
         return Self.hueOffsets.map { off in
@@ -1214,23 +1236,67 @@ struct BorderProgressBar: View {
         }
     }
 
+    /// 垂直方向的「由实渐虚」遮罩。inward 指向画面内侧。
+    private func fadeMask(_ inward: Edge) -> LinearGradient {
+        let stops: [Gradient.Stop] = [
+            .init(color: .black.opacity(Self.a0), location: 0.0),
+            .init(color: .black.opacity(Self.a1), location: 0.38),
+            .init(color: .clear,                  location: 1.0),
+        ]
+        switch inward {
+        case .bottom: return LinearGradient(stops: stops, startPoint: .top,      endPoint: .bottom)
+        case .top:    return LinearGradient(stops: stops, startPoint: .bottom,   endPoint: .top)
+        case .leading:return LinearGradient(stops: stops, startPoint: .trailing, endPoint: .leading)
+        case .trailing:return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
+        }
+    }
+
+    private func band(_ cols: [Color], horizontal: Bool, inward: Edge,
+                      w: CGFloat, h: CGFloat, x: CGFloat, y: CGFloat) -> some View {
+        Rectangle()
+            .fill(LinearGradient(gradient: Gradient(colors: cols),
+                                 startPoint: horizontal ? .leading : .top,
+                                 endPoint:   horizontal ? .trailing : .bottom))
+            .mask(fadeMask(inward))
+            .frame(width: max(0, w), height: max(0, h))
+            .position(x: x + max(0, w) / 2, y: y + max(0, h) / 2)
+    }
+
+    /// 顺时针走周长, 返回四条边各自点亮的长度: 顶 → 右 → 底(由右向左) → 左(由下向上)。
+    /// 与网页端 paintGlowEdges 同序。**放在 ViewBuilder 外面** —— ViewBuilder 里不能跑
+    /// `var` + 连续赋值这种命令式代码(实测报 "generic parameter 'Content' could not be inferred",
+    /// 错误还指在 ZStack 那一行, 很容易误以为是 ZStack 写错了)。
+    private func walk(_ prog: CGFloat) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
+        var rem = prog * 2 * (width + height)
+        let lenT = max(0, min(rem, width));  rem -= width
+        let lenR = max(0, min(rem, height)); rem -= height
+        let lenB = max(0, min(rem, width));  rem -= width
+        let lenL = max(0, min(rem, height))
+        return (lenT, lenR, lenB, lenL)
+    }
+
     var body: some View {
         TimelineView(.animation) { tl in
             let phase = tl.date.timeIntervalSinceReferenceDate
             let d = player.currentItem?.duration.seconds ?? 0
             let t = player.currentTime().seconds
             let prog = (d > 1 && t.isFinite && t >= 0) ? max(0, min(1, t / d)) : 0
-            let seedHue = (phase * 18).truncatingRemainder(dividingBy: 360) / 360
-            let glow = Color(hue: seedHue, saturation: 0.92, brightness: 0.62)
-            Rectangle()
-                .trim(from: 0, to: prog)
-                .stroke(
-                    AngularGradient(gradient: Gradient(colors: flowingColors(phase)), center: .center),
-                    style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
-                )
-                .frame(width: width, height: height)
-                .shadow(color: glow.opacity(0.85), radius: 9)    // 内层柔光
-                .shadow(color: glow.opacity(0.5), radius: 22)     // 外层散光(向外发)
+            let cols = flowingColors(phase)
+            let B = Self.bandPt
+            let seg = walk(CGFloat(prog))
+
+            ZStack(alignment: .topLeading) {
+                if seg.0 > 0.5 { band(cols, horizontal: true,  inward: .bottom,
+                                      w: seg.0, h: B, x: 0, y: 0) }
+                if seg.1 > 0.5 { band(cols, horizontal: false, inward: .leading,
+                                      w: B, h: seg.1, x: width - B, y: 0) }
+                if seg.2 > 0.5 { band(cols, horizontal: true,  inward: .top,
+                                      w: seg.2, h: B, x: width - seg.2, y: height - B) }
+                if seg.3 > 0.5 { band(cols, horizontal: false, inward: .trailing,
+                                      w: B, h: seg.3, x: 0, y: height - seg.3) }
+            }
+            .frame(width: width, height: height, alignment: .topLeading)
+            .allowsHitTesting(false)
         }
     }
 }

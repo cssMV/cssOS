@@ -397,11 +397,32 @@
       if (navType === "reload" && prev && typeof prev === "object") {
         // 没盖章 = pagehide 从未触发 = 页面被外力终止。
         // 盖了章但隔得久 = 进后台之后才被回收。
+        //
+        /* CSSOS_WAVE_2392b 20261127 — 修我自己的死代码(Codex 审阅指出, 核实属实)。
+         * 原来判的是 `prev.clean_gap_s > 60`, 而那个值在 pagehide 时被【写死成 0】
+         * 之后再没人更新过 —— 于是 `background_kill` 这一支永远不可能触发,
+         * 整条「进后台后被回收」的识别等于没有。
+         *
+         * 时间差只能在【读回来的这一刻】算, 不能在写入时算: 写的时候页面还活着,
+         * 根本不知道自己会隔多久才被回收。
+         * 真源优先用 clean_at(盖章那一刻的墙钟); 没有就退回 gapS —— 两者本该一致,
+         * 因为 fdrWrite 每次都写 `at: Date.now()`, 盖章那次的 at 就是 pagehide 时刻。
+         * 留 fallback 是为了老版本快照(v2 之前没有 clean_at)读回来也不至于误判。 */
+        const cleanGapS = Number(prev.clean_at)
+          ? Math.round((Date.now() - Number(prev.clean_at)) / 1000)
+          : gapS;
         const verdict = !prev.clean
           ? "unclean_kill"
-          : (Number(prev.clean_gap_s || 0) > 60 ? "background_kill" : null);
+          : (cleanGapS > 60 ? "background_kill" : null);
         if (verdict) {
-          postMortem = { verdict, nav_type: navType, gap_s: gapS, prev };
+          // gap_s 一律报【解释这个判决的那个间隔】: 被外力终止 → 距最后一次 tick 多久;
+          // 进后台被回收 → 盖章之后又隔了多久。报错了的尺子比不量更坏。
+          postMortem = {
+            verdict,
+            nav_type: navType,
+            gap_s: verdict === "background_kill" ? cleanGapS : gapS,
+            prev,
+          };
           crashRecovered = true;
           if (!crashSource) crashSource = verdict;
         }
@@ -515,7 +536,10 @@
    * 【用户刷新(秒级)】和【进后台后被系统回收(分钟级)】。 */
   globalThis.addEventListener("pagehide", function () {
     try {
-      fdrWrite(lastSnap || snapshot(), { clean: true, clean_gap_s: 0, clean_at: Date.now() });
+      /* W2392b — 不再写 clean_gap_s: 这里算不出它(页面还活着, 不知道会隔多久被回收),
+       * 写个 0 占位反而让读回侧误以为"有这个数"→ background_kill 永远判不出来。
+       * 只留 clean_at(盖章时刻), 时间差在读回来那一刻算。 */
+      fdrWrite(lastSnap || snapshot(), { clean: true, clean_at: Date.now() });
     } catch (_) {}
   });
 

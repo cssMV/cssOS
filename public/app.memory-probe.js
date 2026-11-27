@@ -239,6 +239,8 @@
       hidden_mb: 0,           // 其中【看不见却照样付钱】的部分
       backdrop_layers: 0,     // backdrop-filter: 每帧重采样, 最贵
       backdrop_mb: 0,
+      opacity_layers: 0,      // W2392c: 只靠 opacity<1 入账的媒体层(video/canvas/iframe)
+      opacity_mb: 0,          //         单独记账, 便于复校下面 150/300 的阈值
       blur_px_max: 0,         // 最大模糊半径 (drop-shadow/blur 按包围盒放大算面)
       panels_total: 0,
       panels_laid_out: 0,     // "关着"却仍 display!==none —— 仍在付合成费
@@ -275,7 +277,32 @@
         const hasBack = !!back && back !== "none";
         const wc = cs.willChange && cs.willChange !== "auto" ? cs.willChange : "";
         const tf = cs.transform && cs.transform !== "none" ? cs.transform : "";
-        if (!filt && !hasBack && !wc && !tf) continue;
+        /* CSSOS_WAVE_2392c 20261127 — 【只靠 opacity 的层】以前在量尺寸之前就被扔掉了。
+         *
+         * 这是本文件自己跟自己打架: 上面 out 的注释写着 panels_zero_opacity =
+         * 「只靠 opacity:0 藏起来的(最典型的白付钱)」, 下面 paidButUnseen 也明确
+         * 把 `opacity===0` 算作付钱不露脸 —— 可是只靠 opacity 的元素【永远走不到
+         * 那两行】, 因为这一行先 continue 了。于是 surface_mb / hidden_mb 双双少算。
+         * style.watch.css:307 我也亲手写着「opacity < 1 单独也会逼出一个独立层」。
+         * 最典型的漏网者正是 .watch-video.cssos-video-swapping(切歌时 opacity:0,
+         * 带 0.26s 过渡 → 过渡期间是分数透明度), 而那恰恰是一个 <video>: 硬解码面
+         * 本来就常驻, 再按分数 alpha 混合就要多一遍离屏。
+         *
+         * ⚠ 为什么只给【媒体元素】开这个口子, 不是见到 opacity<1 就算:
+         * 纯文字/div 的分数透明度, 引擎多数时候直接带 alpha 画, 不单独开 GPU 面。
+         * 见谁算谁会把页面上几十个淡显文字全算进来 → surface_mb 虚高 →
+         * 把下面按实测定的 150/300 阈值整个带偏, 变成另一个「100% 命中的检测器」
+         * (那正是本段注释一开始要治的毛病)。所以范围收在 video/canvas/iframe:
+         * 它们在 Safari 里本来就各自持有合成面, 判断确定, 不靠猜。
+         *
+         * 单独记 opacity_layers / opacity_mb, 是为了让这条规则的贡献【看得见】——
+         * 哪天阈值要复校, 能一眼知道有多少 MB 是这条带进来的。 */
+        const _op = Number(cs.opacity);
+        const _tag = (el.tagName || "").toUpperCase();
+        const opacityOnlySurface =
+          Number.isFinite(_op) && _op < 1 &&
+          (_tag === "VIDEO" || _tag === "CANVAS" || _tag === "IFRAME");
+        if (!filt && !hasBack && !wc && !tf && !opacityOnlySurface) continue;
         let w = el.offsetWidth || 0, h = el.offsetHeight || 0;
         if (!w || !h) { try { const r = el.getBoundingClientRect(); w = r.width; h = r.height; } catch (_) {} }
         if (!w || !h) continue;
@@ -294,6 +321,11 @@
         out.layers++;
         out.surface_mb += mb;
         if (hasBack) { out.backdrop_layers++; out.backdrop_mb += mb; }
+        /* 只在【这一层是靠 opacity 才入账的】时候记 —— 已经有 filter/transform 的
+         * 媒体元素本来就算进来了, 不该重复记在这一笔上(那会让复校读到假数)。 */
+        if (opacityOnlySurface && !filt && !hasBack && !wc && !tf) {
+          out.opacity_layers++; out.opacity_mb += mb;
+        }
         // "看不见却付钱": opacity 0 / 完全移出视口 / 被祖先透明化
         let paidButUnseen = Number(cs.opacity) === 0 || cs.visibility === "hidden";
         if (!paidButUnseen) {
@@ -307,6 +339,7 @@
       out.surface_mb   = Math.round(out.surface_mb);
       out.hidden_mb    = Math.round(out.hidden_mb);
       out.backdrop_mb  = Math.round(out.backdrop_mb);
+      out.opacity_mb   = Math.round(out.opacity_mb);
       out.blur_px_max  = Math.round(out.blur_px_max);
       out.cost_ms      = (performance && performance.now) ? Math.round(performance.now() - t0) : null;
       return out;

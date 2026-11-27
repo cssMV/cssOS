@@ -85,13 +85,37 @@
       if (v.muted && !v.paused) { v.pause(); v.dataset[W2392_MARK] = "1"; }
     } catch (_e) {}
   }
+  /* CSSOS_WAVE_2392c 20261127 — 恢复之前先问【现在到底该不该在播】。
+   *
+   * 上面那句「用户自己按的暂停绝不能被我替他播回去」, 光靠 data 标记只挡住了
+   * 【藏之前】就暂停的那一种: 那时 v.paused 已经是 true, hideVideoHard 不会打标记。
+   * 漏掉的是【藏之后】用户才按暂停 —— 视频早被我停了, 没有任何东西会去清这个标记,
+   * 于是一露脸就 play(), 把用户刚按下的暂停顶掉, 画面和播放条一起自己动起来。
+   *
+   * 而且这一刀没人兜: app.playback-authority.js 的 `a.paused && !v.paused → v.pause()`
+   * 只在 isFullVideo()(视频与音频时长相差 < 10%)成立时才跑。短视频垫底那种
+   * (5s 垫在 355s 歌下面)直接 early-return, 所以它会一路播下去。
+   *
+   * 判据取【音频】: 音频是时间的唯一真源(W1922 第一条)。它停着就别替用户播。
+   * 没有音频源时仍然恢复 —— 那时没有别人能说话, 而我们接手之前它确实在播;
+   * 留着不播就会变成 W1976 那个「画面卡成一张静止图」, 那是本就被治过的 bug。 */
+  function playbackIsLive() {
+    try {
+      var a = document.getElementById("watch-audio-preview");
+      var hasAudio = !!(a && String(a.currentSrc || a.src || "").trim());
+      if (!hasAudio) return true;          // 没有音频 → 没有别人能说话, 恢复原样
+      return !a.paused && !a.ended;        // 有音频 → 听它的
+    } catch (_e) { return true; }
+  }
   function showVideoAgain(v) {
     if (!v) return;
     try { v.style.removeProperty("opacity"); v.style.removeProperty("visibility"); } catch (_e) {}
     try {
       if (v.dataset[W2392_MARK] === "1") {
         delete v.dataset[W2392_MARK];
-        if (String(v.currentSrc || v.src || "").trim()) v.play?.().catch(function () {});
+        if (String(v.currentSrc || v.src || "").trim() && playbackIsLive()) {
+          v.play?.().catch(function () {});
+        }
       }
     } catch (_e) {}
   }

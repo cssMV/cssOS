@@ -15018,6 +15018,10 @@ app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, re
               hidden_mb: safeInt(b.surface.hidden_mb, 1000000),
               backdrop_layers: safeInt(b.surface.backdrop_layers, 100000),
               backdrop_mb: safeInt(b.surface.backdrop_mb, 1000000),
+              /* W2392c — 新字段【必须在这里补一行】, 否则逐字段白名单会把它静默丢掉。
+               * 这是「子部查询漏列」那个坑的另一种形状: 白名单不报错, 只是没有。 */
+              opacity_layers: safeInt(b.surface.opacity_layers, 100000),
+              opacity_mb: safeInt(b.surface.opacity_mb, 1000000),
               blur_px_max: safeInt(b.surface.blur_px_max, 10000),
               panels_total: safeInt(b.surface.panels_total, 10000),
               panels_laid_out: safeInt(b.surface.panels_laid_out, 10000),
@@ -15057,6 +15061,7 @@ app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, re
                     surface_mb: safeInt(pvSurf.surface_mb, 1000000),
                     hidden_mb: safeInt(pvSurf.hidden_mb, 1000000),
                     backdrop_mb: safeInt(pvSurf.backdrop_mb, 1000000),
+                    opacity_mb: safeInt(pvSurf.opacity_mb, 1000000),
                     panels_laid_out: safeInt(pvSurf.panels_laid_out, 10000),
                   } : null,
                 },
@@ -15104,6 +15109,10 @@ app.get("/api/telemetry/memory/dashboard", async (req, res) => {
         MAX((surface->>'surface_mb')::int)::int AS max_surface_mb,
         MAX((surface->>'hidden_mb')::int)::int  AS max_hidden_mb,
         MAX((surface->>'layers')::int)::int     AS max_layers,
+        /* W2392c — 只靠 opacity 入账的那部分单独出一列。上面 150/300 的 pressure
+         * 阈值是按「加这条规则之前」的实测定的, 想复校就得知道这条带进来多少 MB。
+         * 不单独列, 它就只能混在 surface_mb 里, 阈值再也没法验。 */
+        MAX((surface->>'opacity_mb')::int)::int AS max_opacity_mb,
         COUNT(*) FILTER (WHERE surface IS NOT NULL)::int AS with_surface,
         COUNT(*) FILTER (WHERE post_mortem IS NOT NULL)::int AS post_mortems
       FROM telemetry_memory_samples

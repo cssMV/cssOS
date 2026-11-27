@@ -739,6 +739,63 @@ const PHONE_FULLSCREEN = Object.freeze({
            "subject centred head-to-torso, face clearly visible, no half-face crop",
   label:   "Phone Fullscreen (device-fit)",
 });
+
+/* CSSOS_WAVE_2391 20261125 — 反文字 / 反畸形约束的【唯一正面措辞】。Jing 授权。
+ *
+ * 为什么要收成一处: 同一串否定式 `NO ugly or deformed or distorted faces … no text,
+ * no watermark` 当时散在【七个】调用点, 各写各的。W1800 在演员端点把它改成正面描述并
+ * 验证有效, 但那次只改了一处, 另外六处原样留到今天 —— 这正是"靠纪律"必然漏的形状。
+ * 收成常量后, 想找还有谁没用上, grep 一次就够。
+ *
+ * 为什么必须是正面描述: ImageGenRequest(本文件 ~31514)【只有 prompt, 没有 negative
+ * prompt 字段】, 所以这一串是当作【要画的东西】送进去的 ——「no text」本身就是 text。
+ * 实测 11-16 那批日本歌剧的幻灯里, OCR 读出了 `NO uply or or deformed or adist orrem
+ * faces`、`At age 24 …`, 还有整幅被画成 iPhone 截图(外壳 + 状态栏 + 分享/关闭图标)。
+ * W1800 的结论原话:「扩散模型对否定词不可靠 ——"不要狐耳"往往等于把"狐耳"喂进去」。
+ *
+ * 为什么措辞里【不提 photograph】: CINEMA_LANDSCAPE.framing 的艺术指导是
+ * "painterly cinematic still", 多数作品的 style 又是绘卷/动画/油画。本波第一版我写了
+ * "a straight photograph of a real place", 那是【和平台自己的艺术指导打架】, 会把所有
+ * 幻灯拽向照相写实、盖掉用户选的画风。改成 full-bleed 的说法: 介质中立(照片/绘画/绘卷
+ * 都成立), 而"画面溢出四边"在结构上就容不下手机外壳和标题栏 —— 治的是同一个病, 不挑画风。
+ *
+ * 同理这里【不写】"no device bezel / no status bar / no app chrome" —— 那是又犯一遍
+ * 本波要修的毛病, 等于把 bezel / status bar / app chrome 三个词喂进去。
+ * 量化判据: 改完数一遍否定词个数, 必须降; 不降就是写法没对。
+ *
+ * 【不要写 "margins … are bare"】—— 这是实测踩出来的。W1800 的原句是
+ * "its margins, corners and background are bare, smooth and completely unmarked",
+ * 那句服务的是【画布上的一张肖像】, 留白本来就是要的。照搬到满幅电影画面上,
+ * 模型会把"bare margins"当成【要画的东西】, 给整幅加一圈黑色衬边(实测第二张测试图
+ * 四边都镶了黑框)。正面描述也会被照字面执行 —— 提到什么, 就可能画出什么。
+ * 现在的写法一个字都不提 margin/background, 只说【每一处都是画面本身】。 */
+const CLEAN_FRAME_POSITIVE =
+  "every part of the image is the scene itself: the corners and the outermost edges carry only more " +
+  "of the same scene, which runs full-bleed and continues past all four edges of the frame; " +
+  "the surface is untitled and unmarked, with nothing written, printed, captioned, stamped or drawn " +
+  "anywhere upon it (no text, no watermark)";
+const NATURAL_FACE_POSITIVE =
+  "any person is shown with the whole face in frame, anatomy correct and natural: one well-formed face, " +
+  "hands and limbs in their natural number and proportion";
+
+/* CSSOS_WAVE_2391 — 【肖像】专用, 与 CLEAN_FRAME_POSITIVE 二选一, 别用混了。
+ *
+ * 字符串逐字来自 W1800 的 antiGrid(本文件 ~53067), 一个字符都没改 —— 它在演员头像那条路上
+ * 已经验证过。这里只是把它从【函数内的局部 const】提到模块级, 让本该共用它的地方真的能用上:
+ * `53367` 那个 UGC 演员头像端点的注释白纸黑字写着「与 regen-portraits 同 prompt」,
+ * 但 W1800 当年只改了 regen-portraits, 这一个就留着老否定串到今天。同一个坑, 第二次。
+ *
+ * 【什么时候用哪个】——
+ *   肖像 / 头像(画布上一个人, 背景本来就该留白) → SINGLE_PORTRAIT_POSITIVE
+ *   满幅场景(幻灯 / 封面 / MV 画面)              → CLEAN_FRAME_POSITIVE
+ * 用反了是会出事的: 本波实测, 把这句 "margins … are bare" 用在满幅电影画面上,
+ * 模型会把"空白边距"当成要画的东西, 给整幅镶一圈黑衬边。 */
+const SINGLE_PORTRAIT_POSITIVE =
+  "A single unframed portrait of one person, filling the canvas. " +
+  "The surface is a clean untitled painting: its margins, corners and background are bare, smooth and completely unmarked — " +
+  "an unsigned work with nothing written, printed, stamped or drawn upon it anywhere. " +
+  "(one face only; no grid, collage or split panels)";
+
 // Master aspect-ratio → pixel-size map used by every endpoint.
 // "16:9" and "9:16" entries are kept for backward compat with older
 // clients but redirect to the correct cinema/phone sizes.
@@ -7211,6 +7268,12 @@ app.post("/api/mv/plate", express.json({ limit: "16kb" }), async (req, res) => {
     : [String(body.actor_id || "").trim()]).filter(Boolean).slice(0, 3);
 
   const plates: string[] = [];
+  /* CSSOS_WAVE_2391c 20261126 — 与 plates 平行的【每张自己的模型名】。
+   * 为什么不把 plates 改成对象数组: 它直接出现在本端点的响应里(plates / plates[0]),
+   * 改形状等于改 API, 会波及调用方。平行数组是这里唯一不破接口的写法。
+   * 为什么不直接用下面那个 `model` 变量: 它是【循环累加的最后一次】, 多张图可能来自
+   * 不同模型(链条会回落), 拿它盖所有张 = 记了个假的, 比不记更坏。 */
+  const plateModels: string[] = [];
   let provider = "", model = "", spentCents = 0;
 
   for (let i = 0; i < count; i++) {
@@ -7275,6 +7338,7 @@ app.post("/api/mv/plate", express.json({ limit: "16kb" }), async (req, res) => {
       url = up;
     }
     plates.push(url);
+    plateModels.push(model || "unknown");   // W2391c — 这一张是哪个模型出的
   }
 
   /* W2023 挂载语义: 每张都进 slideshow_frame(幻灯素材, 可以有很多张);
@@ -7283,11 +7347,15 @@ app.post("/api/mv/plate", express.json({ limit: "16kb" }), async (req, res) => {
   let attached: string | null = null;
   if (/^[0-9a-f-]{36}$/i.test(workId) && plates.length) {
     try {
-      for (const u of plates) {
+      // CSSOS_WAVE_2391c — 原来 meta 只有 derived_from, 连 provider 都没有:
+      // 这条路出的幻灯【完全无法追溯是哪个引擎画的】。按张记上 model。
+      for (let pi = 0; pi < plates.length; pi++) {
         await withClient((c) => c.query(
           `INSERT INTO work_assets (work_id, asset_type, url, meta)
-           VALUES ($1::uuid, 'slideshow_frame', $2, '{"derived_from":"mv_plate"}'::jsonb)`,
-          [workId, u]));
+           VALUES ($1::uuid, 'slideshow_frame', $2, $3::jsonb)`,
+          [workId, plates[pi], JSON.stringify({
+            derived_from: "mv_plate", provider: provider || "unknown", model: plateModels[pi] || "unknown",
+          })]));
       }
       const r = await withClient((c) => c.query(
         `UPDATE user_works SET cover_image = $2, preview_image_url = $2, updated_at = now()
@@ -11800,8 +11868,10 @@ async function runAgentTool(
         // W1578 — 有选角参考图 → 锁脸生成(演员本人形象); 空则原文本生成(零改动)。
         if (__castRefUrls.length) {
           try {
+            // CSSOS_WAVE_2391 — 否定式 → 正面描述。与下面那条普通生成分支【同一个函数的两半】,
+            // 当时只改了下面一半就是半转换状态, 这次一起收口(见 CLEAN_FRAME_POSITIVE, 本文件 ~772)。
             const __scene = [label, style, theme, civilization, civVisualHint(civilization), coverSpec.framing,
-              "cinematic premium, well-proportioned natural faces, no text, no watermark"].filter(Boolean).join(" — ");
+              "cinematic premium", NATURAL_FACE_POSITIVE, CLEAN_FRAME_POSITIVE].filter(Boolean).join(" — ");
             const __locked = await generateReferenceLockedCover(__castRefUrls, __scene);
             if (__locked) return __locked;
           } catch { /* 锁脸失败 → 回退下面普通生成 */ }
@@ -11813,9 +11883,10 @@ async function runAgentTool(
             callImageGen({
               // CSSOS_WAVE_620/998 — Jing: 按视口画幅出图(横→2.39:1 超宽, 竖→9:19.5 全幅);
               // 杜绝丑陋/畸形脸, 按规格构图。
+              // CSSOS_WAVE_2391 — 否定式 → 正面描述(见 CLEAN_FRAME_POSITIVE, 本文件 ~772)。
               prompt: [label, style, theme, civilization, civVisualHint(civilization),
                 coverPosterHint, coverSpec.framing,
-                "beautiful tasteful premium, well-proportioned natural faces, NO ugly or deformed or distorted faces, no text, no watermark"]
+                "beautiful tasteful premium", NATURAL_FACE_POSITIVE, CLEAN_FRAME_POSITIVE]
                 .filter(Boolean).join(" — "),
               size: coverSpec.size,
             }),
@@ -27730,6 +27801,63 @@ async function persistRemoteVideoToStable(url: string): Promise<string> {
   return u;
 }
 
+/* CSSOS_WAVE_2391b 20261126 — 画面提示词的【去文字化】。Jing:「②根治。」
+ *
+ * 判据只有一条, 而且是机械的: **提示词里不许出现 CJK 字符**。
+ * 不是"尽量少写文字"这种自觉, 是一道能自动判真假的闸门 —— 纪律会松, 判据不会。
+ * 根因见 enqueueSlideshowPoolGeneration 里的说明(ideogram / imagen4-fast 会把 CJK 写成书法)。 */
+const _CJK_RE = /[　-〿぀-ヿ㐀-䶿一-鿿豈-﫿＀-￯가-힯]/;
+function hasCjk(s: string): boolean { return _CJK_RE.test(String(s || "")); }
+/** 剥掉 CJK 片段, 只留下 ASCII 可用部分(fail-safe 兜底用, 绝不把原文放行)。 */
+function stripCjkForPrompt(s: string): string {
+  return String(s || "")
+    .split(/[,/·、，]/)
+    .map((p) => p.trim())
+    .filter((p) => p && !hasCjk(p))
+    .join(", ")
+    .slice(0, 200);
+}
+/* 把【标题 + 曲风 + 文明 + 本场歌词】交给 LLM, 换回一段**纯视觉英文描述**。
+ * 原文一个字都不进出图提示词。走 KIE(架构铁律: 第三方只走 kie)。
+ * 返回 "" 表示失败 —— 调用方必须 fail-safe 兜底, 不许退回拼原文。 */
+const _visualBriefCache = new Map<string, string>();
+async function deriveVisualBrief(
+  title: string | null, style: string | null, civ: string | null, sceneLines: string,
+): Promise<string> {
+  const key = `${title}|${style}|${civ}|${sceneLines}`.slice(0, 600);
+  const hit = _visualBriefCache.get(key);
+  if (hit !== undefined) return hit;
+  const sys =
+    "You turn a song/scene description into ONE English sentence describing ONLY what is visible in a single " +
+    "cinematic frame: the people, their clothing and posture, the place, the time of day, the weather and the light. " +
+    "Hard rules: reply with the sentence and nothing else; write only in English with no CJK characters at all; " +
+    "never transliterate or quote any title, act name, scene number or lyric; never mention text, captions, " +
+    "signs, titles, letters, writing or a screen; describe the moment, not the song.";
+  const usr = [
+    title ? `Work title: ${title}` : "", style ? `Musical style: ${style}` : "",
+    civ ? `Civilization: ${civ}` : "", sceneLines ? `Lyrics of this scene: ${sceneLines}` : "",
+  ].filter(Boolean).join("\n");
+  let out = "";
+  try {
+    const llm = await callLlm({
+      messages: [{ role: "system", content: sys }, { role: "user", content: usr }],
+      temperature: 0.7, max_tokens: 220,
+      prefer: CAPABLE_TEXT_PREFER, prefer_model: CAPABLE_TEXT_MODELS, timeout_ms: CAPABLE_TEXT_TIMEOUT_MS,
+    });
+    const txt = String(llm?.content || "").trim().replace(/^["'“”]+|["'“”]+$/g, "").slice(0, 600);
+    /* 三道校验, 任何一道不过就当失败 —— 宁可退到泛化提示词, 也不让 CJK 漏进出图链。 */
+    if (llm?.ok && txt.length >= 20 && !hasCjk(txt)) {
+      out = txt;
+      // 留一条可查的证据: 出了问题能直接看到【真正送去出图的是哪句话】, 不用猜。
+      console.info("[visual-brief] ok:", txt.slice(0, 160));
+    } else if (llm?.ok) console.warn("[visual-brief] rejected (cjk or too short):", txt.slice(0, 80));
+  } catch (e) {
+    console.warn("[visual-brief] failed:", (e as Error)?.message || e);
+  }
+  _visualBriefCache.set(key, out);
+  return out;
+}
+
 const _slideshowGenInflight = new Set<string>();
 async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Promise<void> {
   if (!workId) return;
@@ -27800,12 +27928,52 @@ async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Pro
       .slice(0, 6)
       .join(" / ")
       .slice(0, 260);
+    /* CSSOS_WAVE_2391b 20261126 — Jing:「②根治。」
+     *
+     * 【为什么去掉引号还不够】: W2391 第一版只把 `about "${title}"` 的引号拿掉。
+     * 但真正的病灶不是引号, 是【标题和歌词原文本身在提示词里】。实测同一条提示词:
+     * ideogram/v3 和 google/imagen4-fast 都会把那几行日文写成书法/竖排字画进画面。
+     * 对这类模型来说, 给它一段 CJK, 它就认为你要它写出来 —— 加多少"不要文字"都没用。
+     * (那两家已在本波从 KIE_IMAGE_GEN_MODELS 里踢出 = 止血; 这里是根治。)
+     *
+     * 做法: 先让 LLM 把【标题+曲风+文明+本场歌词】提炼成一段**纯视觉英文描述**,
+     * 拿它去出图, 原文一个字都不进提示词。
+     *
+     * 【曲风/文明也必须走这一道】: `work.style` 本身就是 CJK
+     * (如「能楽・雅楽オペラ / 箏 / 琵琶 / 平安絵巻シネマティック」), 单独拼在后面
+     * 等于前门赶走后门放进来。所以 brief 要把曲风与文明一并吸收成英文, 原字段不再直拼。
+     *
+     * 【失败时一律 fail-safe, 不 fail-open】: LLM 挂了 / 返回里仍含 CJK, 就退到
+     * 【剥掉 CJK 之后】的最简提示词, **绝不退回拼原文** —— 那等于把病放回去。
+     * 画面可能泛一点, 但不会再把歌词印在脸上。 */
+    const visualBrief = await deriveVisualBrief(work.title, work.style, work.civilization, _sceneLines);
     const basePrompt = [
-      work.title ? `Cinematic scene about "${work.title}"` : "Cinematic scene",
-      work.civilization ? `set in the ${work.civilization} cultural frame` : "",
-      work.style ? `in the visual mood of ${work.style}` : "",
-      _sceneLines ? `depicting this moment: ${_sceneLines}` : "",
-      "vivid colors, dramatic lighting, beautiful character with full face visible (no half-face crops unless intentional closeup), centered composition, well-proportioned natural face, NO ugly or deformed or distorted faces, no extra limbs, no text, no watermark",
+      visualBrief || stripCjkForPrompt(
+        [work.civilization ? `set in the ${work.civilization} cultural frame` : "",
+         work.style ? `in the visual mood of ${work.style}` : ""].filter(Boolean).join(", "),
+      ) || "Cinematic scene",
+      /* CSSOS_WAVE_2391 — 否定式 → 正面描述。
+       *
+       * 原文是一长串否定: `NO ugly or deformed or distorted faces, no extra limbs,
+       * no text, no watermark`。ImageGenRequest(本文件 ~31514)【只有 prompt,
+       * 没有 negative prompt 字段】, 所以这一串是当作【要画的东西】送进去的 ——
+       * 「no text」本身就是 text, 自相矛盾, 模型照着画。实测 OCR 从成品画面里
+       * 读出了 `NO uply or or deformed or adist orrem faces`, 一字不差来自这里。
+       *
+       * 打法照抄本文件 ~52971 已经验证过的 W1800(antiGrid): 描述【画面应该是什么样】,
+       * 只留极短一句否定兜底。W1800 当时的结论原话:「扩散模型对否定词不可靠 ——
+       * "不要狐耳" 往往等于把 "狐耳" 喂进去」。那一波只改了人像端点, 这条幻灯提示词
+       * 一直没跟上, 这次补齐。
+       *
+       * 措辞收在 CLEAN_FRAME_POSITIVE / NATURAL_FACE_POSITIVE 两个常量里(见本文件 ~742),
+       * 七个调用点共用一份 —— 当初正是"七处各写各的"才让 W1800 的修法漏了六处。
+       *
+       * 本波第一版我在这里写死过 "a straight photograph of a real place", 那句【和平台自己的
+       * 艺术指导打架】(CINEMA_LANDSCAPE.framing 要的是 painterly cinematic still), 会把绘卷/
+       * 动画风的作品一律拽成照相写实。已换成介质中立的 full-bleed 说法。 */
+      "vivid colors, dramatic lighting, centered composition",
+      NATURAL_FACE_POSITIVE,
+      CLEAN_FRAME_POSITIVE,
     ].filter(Boolean).join(", ");
     const STYLE_SEEDS = SLIDESHOW_LIFE_ARC_SEEDS;
     // CSSOS_WAVE_127 20260514 — Jing: "桌面端电影超宽屏幕，手机端 9:16,
@@ -27854,9 +28022,17 @@ async function enqueueSlideshowPoolGeneration(workId: string, cap?: number): Pro
                ON CONFLICT DO NOTHING`,
               // CSSOS_WAVE_125 — stamp provider (engine tally).
               // CSSOS_WAVE_127 — stamp orientation (device-correct serve).
+              /* CSSOS_WAVE_2391c 20261126 — Jing:「记 model 不记 provider 查不出来!」
+               *
+               * `provider` 只是【路由名】("nanobanana"), 它底下是 KIE_IMAGE_GEN_MODELS
+               * 一整条模型链。W2391 查「哪个模型把歌词画成了书法」「哪个模型吐了方图」时,
+               * 库里 108 张全写着 provider=nanobanana —— 等于什么都没记,
+               * 只能靠逐个模型重新跑一遍去反推。
+               * provider 保留(47642 的引擎统计和 67356 还在读它), 另加 model。 */
               [workId, url, JSON.stringify({
                 pool_index: poolIdx, seed, auto: true,
                 provider: img.provider || "unknown",
+                model: img.model || "unknown",
                 orientation: orient.orientation,
               })],
             );
@@ -28693,7 +28869,8 @@ async function generateThemedFramePool(workId: string, addCount: number): Promis
       const slice: Promise<void>[] = [];
       for (let j = i; j < Math.min(i + BATCH, addCount); j++) {
         const orient = ORIENT(j);
-        const prompt = `${theme}. ${angles[j % angles.length]}. ${orient.framing}. cinematic on-theme scene faithful to the subject, beautiful tasteful premium, well-proportioned natural face if any person, NO ugly or deformed or distorted faces, no text, no watermark.`;
+        // CSSOS_WAVE_2391 — 否定式 → 正面描述(见 CLEAN_FRAME_POSITIVE, 本文件 ~772)。
+        const prompt = `${theme}. ${angles[j % angles.length]}. ${orient.framing}. cinematic on-theme scene faithful to the subject, beautiful tasteful premium. ${NATURAL_FACE_POSITIVE}. ${CLEAN_FRAME_POSITIVE}.`;
         slice.push((async () => {
           try {
             const img = await callImageGen({ prompt, size: orient.size, output_format: "webp",
@@ -28705,7 +28882,8 @@ async function generateThemedFramePool(workId: string, addCount: number): Promis
             if (!url) return;
             await pool.query(
               `INSERT INTO work_assets (work_id, asset_type, url, meta) VALUES ($1,'slideshow_frame',$2,$3::jsonb) ON CONFLICT DO NOTHING`,
-              [workId, url, JSON.stringify({ source: "admin-theme-pool", themed: true, orientation: orient.orientation, provider: img.provider || "unknown" })]);
+              // CSSOS_WAVE_2391c — 同上: provider 是路由名, 真正要查的是 model(见 ~28016 说明)。
+              [workId, url, JSON.stringify({ source: "admin-theme-pool", themed: true, orientation: orient.orientation, provider: img.provider || "unknown", model: img.model || "unknown" })]);
             added++;
           } catch (_) { /* per-frame non-fatal */ }
         })());
@@ -29159,6 +29337,10 @@ const KIE_MODELS: KieModelSpec[] = [
   { id: "veo3.1",                    kind: "video", tier: "premium", label: "Veo 3.1 Quality",                  quality: 90 },
   // 图像(各档)
   { id: "google/nano-banana",        kind: "image", tier: "cheap",   label: "Nano Banana",                       quality: 80 },
+  // CSSOS_WAVE_2391 — 生成链的末档已换成 nano-banana-2-1, 目录必须跟上:
+  // 本表的 id【必须等于生成时传给 callKieJob 的 model】(见 deriveKieSlug 上方说明),
+  // 否则 billing 反查与 🔥 人气计数都对不上这一档。老 id 保留 —— 锁脸参考图生成还在用它。
+  { id: "nano-banana-2-1",           kind: "image", tier: "cheap",   label: "Nano Banana 2.1",                   quality: 86 },
   // W1826: flux-kontext-max → flux1-kontext(前者 createTask 拒绝; 后者是目录里在售的 kontext slug)
   { id: "flux1-kontext",             kind: "image", tier: "premium", label: "Flux.1 Kontext",                    quality: 88 },
   // W1826: gpt-4o-image → gpt-image-2-text-to-image(前者已下架; 后者 $0.03/1k 在售)
@@ -31325,7 +31507,8 @@ function buildProvidersSnapshot() {
         : id === "together" ? "FLUX.1-schnell-Free"
         : id === "replicate" ? "black-forest-labs/flux-schnell"
         : id === "huggingface" ? "FLUX.1-schnell"
-        : id === "nanobanana" ? "google/nano-banana"
+        // CSSOS_WAVE_2391 — 跟着 KIE_IMAGE_GEN_MODELS 的末档一起换代; 老 id 已不在链里, 留着就是假信息。
+        : id === "nanobanana" ? "nano-banana-2-1"
         : "gpt-image-1",
       // W1827: 同上摘掉 huggingface(402); fal 也不再是免费档(账户欠费锁定, 403 TOP_UP),
       // 但 fal 的免费额度是可以再充回来的, 故只把已确定性失效的 huggingface 摘掉。
@@ -31461,7 +31644,9 @@ const IMAGE_PROVIDERS = ["fal", "huggingface", "pollinations", "fireworks", "dee
  *   2) Google  imagen4-fast  —— 三强之一, 吃 aspect
  *   3) Ideogram v3           —— 小兵, 吃 aspect(文字渲染强)
  *   4) Grok                  —— 小兵, 吃 aspect
- *   5) nano-banana           —— 末位兜底; 前四家全挂了才用, 宁可画幅不准也别没有图
+ *   5) nano-banana-2-1       —— 末位兜底(W2391 由 google/nano-banana 换代而来)。
+ *                               换代前这一档【不吃画幅】, 回落到它就必定出方图 = 必定违宪;
+ *                               2-1 实测吃 aspect_ratio:"21:9", 兜底不再以破铁律为代价。
  * (Anthropic 没有图像生成模型 —— 图像类的"三强"只能是 OpenAI + Google 两家, 不编第三个。)
  *
  * nano-banana 仍是锁脸参考图生成(callKieJob("google/nano-banana", {image_urls}))的
@@ -31480,11 +31665,37 @@ const IMAGE_PROVIDERS = ["fal", "huggingface", "pollinations", "fireworks", "dee
  * 只有 gpt-image-2 实测吃 21:9(产出 1915×821 = 2.333); 其余先按 16:9(通用安全值),
  * 等各家逐个验过再往上抬 —— 宁可稳出 16:9, 不要再跌回方图。 */
 const KIE_IMAGE_GEN_MODELS: { model: string; aspect: boolean; widest?: string }[] = [
+  /* CSSOS_WAVE_2391b 20261126 — 踢掉【两个文字渲染型模型】。Jing:「①立刻止血。」
+   *
+   * 实测(同一条带标题+歌词的提示词, 三家各跑一张):
+   *   ideogram/v3        → 把歌词写成书法画在水面上(「桜の宴に 杯を回す」「殿上人の袖月に濡れて」)
+   *   google/imagen4-fast → 把歌词写成竖排日文画在右侧
+   *   grok-imagine        → 干净, 而且是三张里最好的宴会场景
+   *
+   * 这是【选型反了】: 我们要的是画面里绝不出现文字, 链里却放着两个以文字渲染见长的模型 ——
+   * 代码原注释自己都写着 ideogram「文字渲染强」。再怎么改提示词也压不住一个专门写字的模型。
+   *
+   * 这两家是 W2391 那批「画面里印出 Act I Scene 1 / 京の灰 / 雨乞い」的直接产出方。
+   * 【将来要加回来, 必须先证明它在带 CJK 文本的提示词下不写字 —— 不是凭它别的本事好。】 */
   { model: "gpt-image-2-text-to-image",   aspect: true,  widest: "21:9" },  // OpenAI, 实测吃 21:9
-  { model: "google/imagen4-fast",         aspect: true,  widest: "16:9" },  // 实测拒 21:9
-  { model: "ideogram/v3-text-to-image",   aspect: true,  widest: "16:9" },
-  { model: "grok-imagine/text-to-image",  aspect: true,  widest: "16:9" },  // 实测拒 21:9
-  { model: "google/nano-banana",          aspect: false },                  // 末位兜底: 不吃 aspect → 方图
+  { model: "grok-imagine/text-to-image",  aspect: true,  widest: "16:9" },  // 实测拒 21:9; 实测不写字
+  /* CSSOS_WAVE_2391 20261125 — 末档换代。Jing:「只把末档换成 2-1。」
+   *
+   * 原末档是 `google/nano-banana`, `aspect: false` —— 它【根本不接受画幅参数】,
+   * 一旦链条回落到它, 产出必然是方图, **结构上必然违反画幅铁律**。
+   * 换句话说这个兜底"兜住"的是一张铁定不合格的图。
+   *
+   * `nano-banana-2-1` 是 KIE 上 nano-banana 家族的最新代, 且更便宜
+   * (2K 6 积分 $0.030, 而 nano-banana-2 的 2K 要 12 积分 $0.060)。
+   * 实测(2026-11-25): 吃 `aspect_ratio:"21:9"` → 产出 1584×672 = 2.357、1493×640 = 2.333,
+   * 正中铁律。**注意它不吃 `image_size`** —— 传 image_size 会被静默忽略并退回 1024×1024 方图,
+   * 这一点是真金白银试出来的, 校验接口不会报错。
+   *
+   * 链首仍是 gpt-image-2(超宽请求从它开始), 本次【没有动】首选引擎。
+   *
+   * 查型号存亡只能靠 createTask 探测, 目录里的 modelDescription 不是调用用的 id:
+   * 实测 `google/nano-banana-2-1` 不被支持, 正确 id 是不带前缀的 `nano-banana-2-1`。 */
+  { model: "nano-banana-2-1",             aspect: true,  widest: "21:9" },  // 末档: 最新代, 实测吃 21:9
 ];
 let __kieImageRotor = 0;
 function kieAspectRatio(w: number, h: number): string {
@@ -31638,7 +31849,11 @@ export async function callImageGen(req: ImageGenRequest): Promise<ImageGenRespon
         // CSSOS_WAVE_1496 — kie 图像多模型轮换链(W660 起单 nano-banana → 现全家桶)。每次换头(风格多样),
         // 失败自动跳下一个(备胎); aiquickdraw 临时 URL(24h)→ 上游 rehost 入库(WAVE_339)。
         const locked = String(process.env.NANOBANANA_MODEL || "").trim();
-        const chain = locked ? [{ model: locked, aspect: !/nano-banana/.test(locked) }] : KIE_IMAGE_GEN_MODELS;
+        /* CSSOS_WAVE_2391 — 判据收紧: 原来是 `!/nano-banana/.test(locked)`, 只要型号名里含
+         * "nano-banana" 就当成【不吃画幅】。这在只有 `google/nano-banana` 一个的时候是对的,
+         * 但 `nano-banana-2-1` 恰恰是吃 aspect_ratio 的 —— 旧判据会把它也标成不吃,
+         * 于是用 NANOBANANA_MODEL 锁定它时反而拿到方图。只有那个老型号是真的不吃。 */
+        const chain = locked ? [{ model: locked, aspect: !/^google\/nano-banana$/.test(locked) }] : KIE_IMAGE_GEN_MODELS;
         const ar = kieAspectRatio(w, h);
         /* CSSOS_WAVE_1964c — 要【超宽画幅】时不再随机轮换起点。
          * 轮换的目的是风格多样(W1496), 但画幅铁律优先于风格多样:
@@ -45405,10 +45620,13 @@ app.post("/api/admin/mv-plate", express.json({ limit: "16kb" }), async (req, res
     const workId = String((req.body as Record<string, unknown>)?.work_id || "").trim();
     if (/^[0-9a-f-]{36}$/i.test(workId)) {
       try {
+        // CSSOS_WAVE_2391c — 同上: 记下真正出图的 model, 否则这张图事后无从追溯。
         await withClient((c) => c.query(
           `INSERT INTO work_assets (work_id, asset_type, url, meta)
-           VALUES ($1::uuid, 'slideshow_frame', $2, '{"derived_from":"mv_plate"}'::jsonb)`,
-          [workId, url]));
+           VALUES ($1::uuid, 'slideshow_frame', $2, $3::jsonb)`,
+          [workId, url, JSON.stringify({
+            derived_from: "mv_plate", provider: img.provider || "unknown", model: img.model || "unknown",
+          })]));
         const r = await withClient((c) => c.query(
           `UPDATE user_works SET cover_image = $2, preview_image_url = $2, updated_at = now()
             WHERE id = $1::uuid AND COALESCE(NULLIF(cover_image,''), '') = ''
@@ -45437,7 +45655,9 @@ app.post("/api/admin/regen-cover/:workId", express.json({ limit: "8kb" }), async
     const w = wr.rows[0];
     if (!w) return res.status(404).json({ ok: false, code: "NOT_FOUND" });
     const prompt = String((req.body as any)?.prompt || "").trim()
-      || `${w.title || ""}, ${w.civilization || ""} ancient civilization, epic cinematic album cover art, dramatic mythic lighting, ornate authentic motifs, highly detailed, no text, no watermark`;
+      // CSSOS_WAVE_2391 — 否定式 → 正面描述(见 CLEAN_FRAME_POSITIVE, 本文件 ~772)。
+      // 这一条是【画出来的专辑封面】, 不是照片 —— 常量刻意不提 photograph, 故可直接复用。
+      || `${w.title || ""}, ${w.civilization || ""} ancient civilization, epic cinematic album cover art, dramatic mythic lighting, ornate authentic motifs, highly detailed. ${CLEAN_FRAME_POSITIVE}`;
     const cover = await cssosGenCivCover(prompt, String(w.user_id));
     if (!cover) return res.status(503).json({ ok: false, code: "IMAGE_UNAVAILABLE" });
     await withClient((c) => c.query(`UPDATE user_works SET cover_image=$2, updated_at=now() WHERE id=$1::uuid`, [workId, cover]));
@@ -45735,7 +45955,9 @@ app.post("/api/admin/create-civ-flagship", express.json({ limit: "16kb" }), asyn
     const lyrics = String(llm?.content || "").trim();
     if (!llm?.ok || lyrics.length < 30) return res.status(503).json({ ok: false, code: "LYRICS_FAILED", detail: llm?.error || "" });
     // 2) civ 风封面(无文字)。失败不致命。
-    const cover = await cssosGenCivCover(`${theme || title}, ${civ} ancient civilization, epic cinematic album cover art, dramatic mythic lighting, ornate authentic motifs, highly detailed, no text, no watermark`, owner);
+    // CSSOS_WAVE_2391 — 否定式 → 正面描述。与上面那个 regen-cover 端点【曾是逐字相同的字符串】,
+    // 只改一处就会再次分叉, 故一起收口(见 CLEAN_FRAME_POSITIVE, 本文件 ~772)。
+    const cover = await cssosGenCivCover(`${theme || title}, ${civ} ancient civilization, epic cinematic album cover art, dramatic mythic lighting, ornate authentic motifs, highly detailed. ${CLEAN_FRAME_POSITIVE}`, owner);
     // 3) 落库 + market profile(public) + 立即置顶。
     const workId = crypto.randomUUID();
     await withClient(async (c) => {
@@ -49376,7 +49598,8 @@ async function runHeadlessPipeline(
     (_civVis ? ` · ${_civVis}` : "") +
     // CSSOS_WAVE_620 — Jing: 不要 16:9, 用 2.39:1 电影超宽; 杜绝丑陋/畸形脸, 按规格构图。
     ` · cinematic music video poster, dramatic lighting, ${CINEMA_LANDSCAPE.framing}` +
-    ` · beautiful tasteful premium portrait, well-proportioned natural face, NO ugly or deformed or distorted faces, no extra limbs, no text, no watermark`;
+    // CSSOS_WAVE_2391 — 否定式 → 正面描述(见 CLEAN_FRAME_POSITIVE, 本文件 ~772)。
+    ` · beautiful tasteful premium portrait · ${NATURAL_FACE_POSITIVE} · ${CLEAN_FRAME_POSITIVE}`;
 
   // 1) Cover
   const coverUrl = await stage("cover", async () => {
@@ -52968,10 +53191,10 @@ app.post("/api/admin/actors/regen-portraits", express.json({ limit: "8kb" }), as
      * 重跑后红色钤印反而铺满 7 张(连巴西人马查多的画上都盖了中式印章), 玉藻前的狐耳
      * 一只没少。扩散模型对否定词不可靠 —— "不要狐耳" 往往等于把 "狐耳" 喂进去。
      * 正确做法: 描述【画面应该是什么样】, 而不是罗列不要什么。保留极短的一句否定兜底。 */
-    const antiGrid = "A single unframed portrait of one person, filling the canvas. " +
-      "The surface is a clean untitled painting: its margins, corners and background are bare, smooth and completely unmarked — " +
-      "an unsigned work with nothing written, printed, stamped or drawn upon it anywhere. " +
-      "(one face only; no grid, collage or split panels)";
+    /* CSSOS_WAVE_2391 — 这段字符串已提到模块级 SINGLE_PORTRAIT_POSITIVE(本文件 ~793),
+     * 逐字未改, 本端点行为完全不变。提出去是因为 `53367` 那个 UGC 头像端点的注释写着
+     * 「与 regen-portraits 同 prompt」却没真共用, W1800 当年漏改了它。共用一份就不会再分叉。 */
+    const antiGrid = SINGLE_PORTRAIT_POSITIVE;
     const tail = artistic
       // W1731 — 超知名神话/历史人物(奥丁/托尔…)会诱使模型【复制真实古典名画】(Rosen 的奥丁、Winge 的托尔油画),
       //   出多人物大场面或黑白版画。硬约束成【原创单人角色画像, 绝不复制任何名画】。
@@ -53293,7 +53516,10 @@ app.post("/api/actors", express.json({ limit: "8kb" }), async (req, res) => {
     try {
       // CSSOS_WAVE_1525 — 根因修复: 方图 + 泛泛"headshot" 会让部分模型吐【多角度人脸宫格】→
       // cover 变多头像。改竖图 + 明确"单人单脸、禁止宫格/拼贴/多脸"(与 regen-portraits 同prompt)。
-      const img = await callImageGen({ prompt: `${facePrompt}, professional character headshot portrait, head and shoulders, front view, one person only, a single centered human face, clean neutral studio background, cinematic soft lighting, photorealistic, highly detailed. STRICTLY one face — absolutely no grid, no collage, no contact sheet, no multiple faces, no split panels, no text, no watermark.`, size: "896x1152" });
+      // CSSOS_WAVE_2391 — 否定式 → 正面描述。上一行注释说的「与 regen-portraits 同 prompt」
+      // 现在才真的成立: 两处共用 SINGLE_PORTRAIT_POSITIVE(本文件 ~793)。
+      // 这里【不能用 CLEAN_FRAME_POSITIVE】—— 那是满幅场景用的, 头像要的恰恰是干净留白背景。
+      const img = await callImageGen({ prompt: `${facePrompt}, professional character headshot portrait, head and shoulders, front view, one person only, a single centered human face, clean neutral studio background, cinematic soft lighting, photorealistic, highly detailed. ${SINGLE_PORTRAIT_POSITIVE}`, size: "896x1152" });
       if (img?.ok) {
         coverUrl = img.image_url ? await persistRemoteImageToStable(img.image_url) : (img.image_b64 ? persistBase64Cover(img.image_b64, "ugc-actor") : "");
         if (coverUrl) {

@@ -99,3 +99,4 @@ screenshots-appstore/
 !visionos/**/*.jpg
 !ios/**/*.png
 !ios/**/*.jpg
+appstore-assets/

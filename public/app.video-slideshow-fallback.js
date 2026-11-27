@@ -57,16 +57,43 @@
    * 结论: 【藏画面靠 visibility, 不靠 opacity】。两个都写(opacity 属于锦上添花,
    * 哪天那个循环停了它也能生效), 但真正干活的是 visibility。
    * poll 每 2.5s 在降级态下补写一次, 万一被谁抹掉也能自愈。 */
+  /* CSSOS_WAVE_2392 20261126 — Jing 已同意: 藏起来的时候【把解码也停掉】, 露出来再恢复。
+   *
+   * 为什么要停: 实测稳定态 `paused:false / readyState:4 / buffered:287s(全片 307s) /
+   * 1470×630`, 而它的 visibility 是 hidden —— 屏幕上放的是幻灯。让位的本意就是
+   * 「这画面不该被看见」, 却仍在满速解码并把整部片子缓冲进内存。这是「凡是播放到
+   * 媒体的地方都吃大量内存」的另一半。
+   *
+   * ⚠ 闸门是 `v.muted`, 不是无条件 pause —— 这是避免【音画分家】的关键:
+   *   · W2190(每版封面让位)/ 平台常态: 主视频按四轨分离一律 muted=true
+   *     (W587c:「保留可自动播放, 又不放出烧录原声」), 声音在 <audio> 里 →
+   *     停它一声不响, 纯赚。
+   *   · 本模块原本兜的那个场景(纯视频被浏览器拦, 音轨【烧在视频里】)视频是
+   *     唯一的声源 → 一旦 pause 就是【彻底没声音】。那种情况视频本来就播不动,
+   *     压根没在解码, 停它一点好处都没有, 风险却是全部。
+   *   所以: 只停【确定不出声的那一个】。muted 的视频无论如何都不可能是声源。
+   *
+   * 恢复只恢复【我停的那一个】(打 data 标记)—— 用户自己按的暂停绝不能被我替他播回去。 */
+  var W2392_MARK = "cssosW2392Paused";
   function hideVideoHard(v) {
     if (!v) return;
     try {
       v.style.setProperty("opacity", "0", "important");
       v.style.setProperty("visibility", "hidden", "important");
     } catch (_e) {}
+    try {
+      if (v.muted && !v.paused) { v.pause(); v.dataset[W2392_MARK] = "1"; }
+    } catch (_e) {}
   }
   function showVideoAgain(v) {
     if (!v) return;
     try { v.style.removeProperty("opacity"); v.style.removeProperty("visibility"); } catch (_e) {}
+    try {
+      if (v.dataset[W2392_MARK] === "1") {
+        delete v.dataset[W2392_MARK];
+        if (String(v.currentSrc || v.src || "").trim()) v.play?.().catch(function () {});
+      }
+    } catch (_e) {}
   }
   globalThis.__cssosFallbackShowVideo = showVideoAgain;
   /* CSSOS_WAVE_2190 20260925 — 藏视频这一份也对外暴露。

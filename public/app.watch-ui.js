@@ -10857,7 +10857,28 @@ function handleWatchVideoError() {
 
 function syncWatchPlaybackIndicator(indicator, clickTarget) {
   if (!indicator || !watchVideo) return;
-  if (watchVideo.paused) {
+  /* CSSOS_WAVE_2392 20261126 — 这是 W2204 那条原则漏掉的第二处:
+   * 【一条藏起来的视频不该替用户回答"我正在看"】。
+   *
+   * 视频被藏起来时(W2190 每版封面让位 / 降级到幻灯), 画面是幻灯、声音在 <audio>,
+   * 那这个指示器的状态就该问 <audio>, 不该问那条看不见的视频。
+   * 不装这个闸, W2392 一停掉隐藏视频的解码就会触发 pause 事件 →
+   * `.watch-screen.is-paused` → `.watch-overlay-play { opacity: 1 }` →
+   * 【那个大播放按钮会永久浮在画面上】, 而声音照放。
+   *
+   * 不能简单写成「藏起来就当在播」—— 藏起来且音频也没播时, 用户需要那个播放按钮。
+   * 所以是【换真源】, 不是【跳过判断】。 */
+  const _hiddenVideo = (function () {
+    try { return getComputedStyle(watchVideo).visibility === "hidden"; }
+    catch (_e) { return false; }
+  })();
+  const _audioCarryingPlayback = !!(
+    watchAudioPreview &&
+    !watchAudioPreview.paused &&
+    !watchAudioPreview.ended &&
+    String(watchAudioPreview.currentSrc || watchAudioPreview.src || "").trim()
+  );
+  if (_hiddenVideo ? !_audioCarryingPlayback : watchVideo.paused) {
     const audioPlaying = !!(
       watchAudioPreview &&
       !watchAudioPreview.paused &&

@@ -14922,6 +14922,21 @@ async function ensureTelemetryMemorySchema(): Promise<void> {
     
       ALTER TABLE telemetry_memory_samples ADD COLUMN IF NOT EXISTS dom_hotspot JSONB NULL;
       ALTER TABLE telemetry_memory_samples ADD COLUMN IF NOT EXISTS raf_sites   JSONB NULL;
+      /* CSSOS_WAVE_2392 20261126 — 现场记录里【少了致命的那个数】。
+       * 库里 683 条 crash_recovered, 每一条的 dom_nodes≈3000 / images≈19 /
+       * videos=3 / audios=2 —— 跟一个健康页面量出来的完全一样, 等于什么都没记到。
+       * 因为 Safari 的 "using significant memory" 杀的是【合成面】(filter /
+       * backdrop-filter / 被提升的层, 按 w×h×dpr²×4 常驻, 被挡住也照付),
+       * 而这张表里一列都没有。surface 就是补这一列。
+       *
+       * post_mortem 补的是另一半: crash_recovered 只有 App 壳(Capacitor)会置位,
+       * 它来自 Swift 的 webViewWebContentProcessDidTerminate 钩子。实测印证 ——
+       * 683 条全是 platform=capacitor, 最后一条停在 2026-08-29。而网页版 Safari
+       * 那句 "reloaded because it was using significant memory" 是浏览器自己干的,
+       * 没有原生钩子, 于是三个月一条没记上。前端改用 sessionStorage 黑匣子认出
+       * 「上一页死于非命」, 结果落在这一列。 */
+      ALTER TABLE telemetry_memory_samples ADD COLUMN IF NOT EXISTS surface     JSONB NULL;
+      ALTER TABLE telemetry_memory_samples ADD COLUMN IF NOT EXISTS post_mortem JSONB NULL;
     `));
     __telemetryMemorySchemaEnsured = true;
   } catch (e) {
@@ -14946,7 +14961,7 @@ app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, re
         blob_urls, inflight_fetch, active_intervals, module_globals,
         script_tags_eager, script_tags_lazy,
         open_panels, open_panel_count, visibility, ua,
-        dom_hotspot, raf_sites
+        dom_hotspot, raf_sites, surface, post_mortem
       ) VALUES (
         $1::uuid, $2, $3, $4, $5, $6,
         $7, $8, $9,
@@ -14954,7 +14969,7 @@ app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, re
         $14, $15, $16, $17,
         $18, $19,
         $20::jsonb, $21, $22, $23,
-        $24::jsonb, $25::jsonb
+        $24::jsonb, $25::jsonb, $26::jsonb, $27::jsonb
       )`,
       [
         userId, safeStr(b.platform, 32), safeStr(b.pressure, 16),
@@ -14992,6 +15007,62 @@ app.post("/api/telemetry/memory", express.json({ limit: "8kb" }), async (req, re
         Array.isArray(b.raf_sites)
           ? JSON.stringify(b.raf_sites.slice(0, 5).map((x: any) => String(x).slice(0, 200)))
           : null,
+        /* W2392 — 只收【我们自己定义的那几个键】, 不原样转存客户端 JSON:
+         * 这个端点无需登录(匿名 iOS 样本正是最该收的), 来的东西一律当不可信数据,
+         * 逐字段取、逐字段钳上限。 */
+        (b.surface && typeof b.surface === "object")
+          ? JSON.stringify({
+              dpr: Math.min(8, Math.max(1, Number(b.surface.dpr) || 1)),
+              layers: safeInt(b.surface.layers, 100000),
+              surface_mb: safeInt(b.surface.surface_mb, 1000000),
+              hidden_mb: safeInt(b.surface.hidden_mb, 1000000),
+              backdrop_layers: safeInt(b.surface.backdrop_layers, 100000),
+              backdrop_mb: safeInt(b.surface.backdrop_mb, 1000000),
+              blur_px_max: safeInt(b.surface.blur_px_max, 10000),
+              panels_total: safeInt(b.surface.panels_total, 10000),
+              panels_laid_out: safeInt(b.surface.panels_laid_out, 10000),
+              panels_zero_opacity: safeInt(b.surface.panels_zero_opacity, 10000),
+              scanned: safeInt(b.surface.scanned, 1000000),
+              truncated: !!b.surface.truncated,
+              cost_ms: safeInt(b.surface.cost_ms, 100000),
+            })
+          : null,
+        (b.post_mortem && typeof b.post_mortem === "object")
+          ? JSON.stringify((() => {
+              const pm: any = b.post_mortem;
+              const pv: any = (pm.prev && typeof pm.prev === "object") ? pm.prev : {};
+              const pvSurf: any = (pv.surface && typeof pv.surface === "object") ? pv.surface : null;
+              return {
+                verdict: safeStr(pm.verdict, 32),
+                nav_type: safeStr(pm.nav_type, 32),
+                gap_s: safeInt(pm.gap_s, 1000000),
+                prev: {
+                  uptime_s: safeInt(pv.uptime_s, 10000000),
+                  pressure: safeStr(pv.pressure, 16),
+                  dom_nodes: safeInt(pv.dom_nodes),
+                  images: safeInt(pv.images, 1000000),
+                  videos: safeInt(pv.videos, 10000),
+                  audios: safeInt(pv.audios, 10000),
+                  blob_urls: safeInt(pv.blob_urls, 1000000),
+                  active_intervals: safeInt(pv.active_intervals, 1000000),
+                  plays: safeInt(pv.plays, 1000000),
+                  url: safeStr(pv.url, 160),
+                  visibility: safeStr(pv.visibility, 16),
+                  open_panels: Array.isArray(pv.open_panels)
+                    ? pv.open_panels.slice(0, 20).map((x: any) => safeStr(x, 48)) : [],
+                  interval_sites: Array.isArray(pv.interval_sites)
+                    ? pv.interval_sites.slice(0, 5).map((x: any) => safeStr(x, 120)) : [],
+                  surface: pvSurf ? {
+                    layers: safeInt(pvSurf.layers, 100000),
+                    surface_mb: safeInt(pvSurf.surface_mb, 1000000),
+                    hidden_mb: safeInt(pvSurf.hidden_mb, 1000000),
+                    backdrop_mb: safeInt(pvSurf.backdrop_mb, 1000000),
+                    panels_laid_out: safeInt(pvSurf.panels_laid_out, 10000),
+                  } : null,
+                },
+              };
+            })())
+          : null,
       ],
     ));
     return res.json({ ok: true, stored: true });
@@ -15026,12 +15097,33 @@ app.get("/api/telemetry/memory/dashboard", async (req, res) => {
         AVG(videos)::numeric(10,2) AS avg_videos,
         MAX(videos)::int AS max_videos,
         AVG(open_panel_count)::numeric(10,2) AS avg_open_panels,
-        MAX(open_panel_count)::int AS max_open_panels
+        MAX(open_panel_count)::int AS max_open_panels,
+        /* W2392 — 合成面: Safari "using significant memory" 真正盯的那个数。
+         * 堆/节点/图片数在现场记录里跟健康页面一模一样, 这一列才分得出差别。 */
+        AVG((surface->>'surface_mb')::int)::int AS avg_surface_mb,
+        MAX((surface->>'surface_mb')::int)::int AS max_surface_mb,
+        MAX((surface->>'hidden_mb')::int)::int  AS max_hidden_mb,
+        MAX((surface->>'layers')::int)::int     AS max_layers,
+        COUNT(*) FILTER (WHERE surface IS NOT NULL)::int AS with_surface,
+        COUNT(*) FILTER (WHERE post_mortem IS NOT NULL)::int AS post_mortems
       FROM telemetry_memory_samples
       WHERE created_at >= now() - interval '24 hours'
       GROUP BY platform
       ORDER BY samples DESC`));
-    return res.json({ ok: true, window: "24h", rows: r.rows });
+    /* W2392 — 死亡现场单独列出来: 聚合会把这几条稀有样本平均掉, 而它们才是要看的。
+     * verdict=unclean_kill  → pagehide 从未触发 = 被浏览器/系统直接终止
+     * verdict=background_kill→ 进后台之后才被回收(盖过 clean 章, 但隔了很久) */
+    const pm = await withClient((c) => c.query(`
+      SELECT created_at, platform, ua,
+             post_mortem->>'verdict'  AS verdict,
+             post_mortem->>'nav_type' AS nav_type,
+             (post_mortem->>'gap_s')::int AS gap_s,
+             post_mortem->'prev'      AS prev
+        FROM telemetry_memory_samples
+       WHERE post_mortem IS NOT NULL
+       ORDER BY created_at DESC
+       LIMIT 40`));
+    return res.json({ ok: true, window: "24h", rows: r.rows, post_mortems: pm.rows });
   } catch (e) {
     return res.json({ ok: false, error: (e as Error)?.message || "dashboard_failed" });
   }

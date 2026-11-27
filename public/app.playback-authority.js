@@ -154,6 +154,30 @@
     function sync(force) {
       var v = el("watch-video"), a = el("watch-audio-preview");
       if (!v || !a || !isFullVideo(v, a)) return;
+      /* CSSOS_WAVE_2392 20261126 — 视频被藏起来时【没有画面要对齐】, 不要把它接回去。
+       *
+       * 这不是推翻上面那条规矩, 是补它的前提: W1976 要同步, 是因为「用户看到的就是
+       * 还是图片」—— 目的是【用户看到的那个画面】。视频 visibility:hidden 时
+       * (W2190 每版封面让位 / 降级到幻灯), 屏幕上放的是幻灯, 没有任何画面在等着对齐,
+       * 而它仍在满速解码并缓冲整部片子(实测 8 秒吃进 302s/全片 307s)。
+       *
+       * 闸门必须装在这里。实测: 只在 app.video-slideshow-fallback.js 的 hideVideoHard
+       * 里 pause【完全无效】—— 下面那行 `if (!a.paused && v.paused) v.play()` 每秒跑一次,
+       * 2.5 秒内就把它播回去了(给 v.play 装探针拍到的调用栈正是本函数 sync())。
+       * 这与「闸门要装在每次翻页必经的 step()」是同一个道理。
+       *
+       * 还回来时不会接在旧位置: 变回可见后本函数照常跑, 上面那段漂移修正会把
+       * currentTime 拉回 a.currentTime 再 play —— 比今天更准, 不是更差。
+       *
+       * ⚠ 条件是 `v.muted`, 和 hideVideoHard 里那个是【同一条规则, 两处实现】:
+       * 只停【确定不出声的那一个】。视频没静音时它就是唯一声源(纯视频被拦那种场景),
+       * 停它 = 彻底没声音。改这里必须同时改那里。 */
+      try {
+        if (getComputedStyle(v).visibility === "hidden") {
+          if (v.muted && !v.paused) v.pause();
+          return;
+        }
+      } catch (_e) {}
       try {
         if (Math.abs(v.currentTime - a.currentTime) > (force ? 0.05 : THRESH)) {
           v.currentTime = a.currentTime;

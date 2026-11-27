@@ -125,13 +125,13 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=20261123-w2386-fab-theme" />
+    <link rel="stylesheet" href="style.css?v=20261126-w2392-novideofilter" />
     <!-- CSSOS_WAVE_588 线4 — 极简未来感视觉内核: 设计令牌 + 复用表面/对话框/空态。 -->
     <link rel="stylesheet" href="app.core-ui.css?v=20260602-w588r-core" />
     <!-- CSSOS_WAVE_714 — 真凶: style.watch.css(承载全部字幕/卡拉OK/情绪爆样式, 38 条 .watch-karaoke-word
          规则)此前【从未被任何页面加载】→ 字幕词无颜色规则、继承父淡绿白 = Jing 的"还绿"; 随机色/稳定/
          中央爆/[Music...] 一整轮 CSS 全部失效。在 style.css 之后加载它, 让 watch 面板按设计生效。 -->
-    <link rel="stylesheet" href="style.watch.css?v=20261123-w2378-edge8" />
+    <link rel="stylesheet" href="style.watch.css?v=20261126-w2392-novideofilter" />
     <!-- CSSOS_WAVE_525 — style.mv-pipeline.css 已移除: 改由 cssosLoadPanel("mv-pipeline") 启动面板时动态注入(见 app.panel-manifest.js CSSOS_PANEL_CSS). -->
 
     <!-- CSSOS_WAVE_1836 — Meta Pixel 补装到主应用页。
@@ -2243,7 +2243,7 @@
          引用 → 5/18 起没有任何样本, OOM 排查完全失明, 尤其 iOS 一条样本都没有).
          每 30s + pagehide/visibility sendBeacon 到 /api/telemetry/memory, 极轻量.
          恢复后才能"边改边看遥测的 dom_nodes/images", 据此决定 OOM 第二刀砍哪里. -->
-    <script src="app.memory-probe.js?v=20260820-w1838-top3"></script>
+    <script src="app.memory-probe.js?v=20261126-w2392-surface"></script>
     <script src="app.track-leak-ledger.js?v=20260821-w1845b-src"></script>
     <script src="app.media-decoder-cap.js?v=20260818-w1836b"></script>
     <script src="app.panel-memory-monitor.js?v=20260604-w636-basebreakdown"></script>
@@ -2372,7 +2372,7 @@
     <script src="app.engine-picker.js?v=20260507-real-models"></script>
     <script defer src="app.engine-picker-tabs.js?v=20260913-w2092-4caps"></script>
     <script defer src="app.flagship-badges.js?v=20261123-w2378-edge8"></script>
-    <script defer src="app.video-slideshow-fallback.js?v=20260925-w2190e-clearonsongchange"></script>
+    <script defer src="app.video-slideshow-fallback.js?v=20261126-w2392-pausehidden"></script>
     <script src="app.karaoke-active-word.js?v=20260507-emotion"></script>
     <script src="app.emotion-subtitle-engine.js?v=20260922-w2138-subct"></script>
     <script src="app.karaoke-settings-ui.js?v=20260507-fs-panel"></script>
@@ -2422,7 +2422,7 @@
     <script src="app.emotion-fx-panel.js?v=20260720-w1765-tune-tooltip-t"></script>
     <script src="app.subtitle-tune.js?v=20260618-w995"></script>
     <script src="app.subtitle-wave-editor.js?v=20260720-w1766-tune-hub"></script>
-    <script src="app.watch-ui.js?v=20261120-w2346-aspect-21x9"></script>
+    <script src="app.watch-ui.js?v=20261126-w2392-hiddenvideo-indicator"></script>
     <script src="app.audio-diag.js?v=20260604-w630-cleanup"></script>
     <script src="app.watch-control-capsule.js?v=20260602-w588g-nostretch"></script>
     <!-- CSSOS_WAVE_561 20260531 — Jing — 底部信息互相礼让堆叠 + 多语言国旗胶囊. -->
@@ -2660,7 +2660,7 @@
     <script src="app.delivery-governance-inspector.js?v=20260505c-end"></script>
     <script src="app.final-audio-artifacts.js?v=20260505c-end"></script>
     <script src="app.solo-player.js?v=20260824-w1932"></script>
-    <script src="app.playback-authority.js?v=20260826-w1976-avsync"></script>
+    <script src="app.playback-authority.js?v=20261126-w2392-skiphidden"></script>
     <script src="app.single-audio-enforcer.js?v=20260824-w1920"></script>
     <script src="app.watch-audio-authority.js?v=20260922-w2138-crosstalk"></script>
     <script src="app.song-creation-payload.js?v=20260505c-end"></script>

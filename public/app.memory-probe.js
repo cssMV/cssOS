@@ -212,16 +212,208 @@
                 (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const isCapacitor = !!(globalThis.Capacitor && globalThis.Capacitor.isNativePlatform && globalThis.Capacitor.isNativePlatform());
 
+  // ─── CSSOS_WAVE_2392 · 合成面积(WebKit OOM 的真正自变量)───────────
+  // 为什么要加这一项: 库里 683 条 crash_recovered 现场, 每一条的 dom_nodes≈3000 /
+  // images≈19 / videos=3 / audios=2 —— 和一个【健康页面】量出来的一模一样
+  // (2026-11-26 实测: 堆 22.9↔26.3MB 波动无泄漏, 节点 3055 平稳)。
+  // 也就是说现场记录【是存在的, 但里面没有致命的那个数】。
+  // Safari 的 "reloaded because it was using significant memory" 吃掉的不是 JS 堆,
+  // 是【合成面】: 每一层 filter / backdrop-filter / 被提升的层都按
+  //   宽 × 高 × devicePixelRatio² × 4 字节
+  // 常驻占用, 而且【被挡住、opacity:0 的层照样全额收费】。这一项就是把那个数记下来。
+  //
+  // 开销自限(别让看门狗自己变成病灶):
+  //   · 只在后台不可见时完全跳过;
+  //   · 25ms 时间预算, 每 200 个元素查一次表, 超预算立即收手并把 truncated 记进结果
+  //     (宁可报"我只量了一部分", 也不许静默少算 —— 见 audit-must-report-its-own-gaps);
+  //   · 60s 一次 + 每次 beacon 前一次, 不跟 2s 的 tick 走。
+  const _SURF_BUDGET_MS = 25;
+  const _SURF_MAX_EL = 4000;
+  function compositingSurface() {
+    const t0 = (performance && performance.now) ? performance.now() : 0;
+    const dpr = Math.max(1, Number(globalThis.devicePixelRatio) || 1);
+    const out = {
+      dpr: Math.round(dpr * 100) / 100,
+      layers: 0,              // 带 filter/backdrop/will-change/transform 的层数
+      surface_mb: 0,          // 全部这些层的字节估算 (w*h*dpr²*4)
+      hidden_mb: 0,           // 其中【看不见却照样付钱】的部分
+      backdrop_layers: 0,     // backdrop-filter: 每帧重采样, 最贵
+      backdrop_mb: 0,
+      blur_px_max: 0,         // 最大模糊半径 (drop-shadow/blur 按包围盒放大算面)
+      panels_total: 0,
+      panels_laid_out: 0,     // "关着"却仍 display!==none —— 仍在付合成费
+      panels_zero_opacity: 0, // 只靠 opacity:0 藏起来的(最典型的白付钱)
+      scanned: 0,
+      truncated: false,
+    };
+    try {
+      if (document.visibilityState === "hidden") return null;
+      const vw = Math.max(1, globalThis.innerWidth || 1);
+      const vh = Math.max(1, globalThis.innerHeight || 1);
+      const all = document.getElementsByTagName("*");
+      const n = Math.min(all.length, _SURF_MAX_EL);
+      for (let i = 0; i < n; i++) {
+        if ((i % 200) === 0 && performance && performance.now &&
+            (performance.now() - t0) > _SURF_BUDGET_MS) { out.truncated = true; break; }
+        const el = all[i];
+        out.scanned++;
+        let cs;
+        try { cs = getComputedStyle(el); } catch (_) { continue; }
+        if (!cs) continue;
+        const disp = cs.display;
+        const isPanel = el.classList && el.classList.contains("panel");
+        if (isPanel) {
+          out.panels_total++;
+          if (disp !== "none") {
+            out.panels_laid_out++;
+            if (Number(cs.opacity) === 0) out.panels_zero_opacity++;
+          }
+        }
+        if (disp === "none") continue;   // display:none 真的不画, 不收费
+        const filt = cs.filter && cs.filter !== "none" ? cs.filter : "";
+        const back = cs.backdropFilter || cs.webkitBackdropFilter || "";
+        const hasBack = !!back && back !== "none";
+        const wc = cs.willChange && cs.willChange !== "auto" ? cs.willChange : "";
+        const tf = cs.transform && cs.transform !== "none" ? cs.transform : "";
+        if (!filt && !hasBack && !wc && !tf) continue;
+        let w = el.offsetWidth || 0, h = el.offsetHeight || 0;
+        if (!w || !h) { try { const r = el.getBoundingClientRect(); w = r.width; h = r.height; } catch (_) {} }
+        if (!w || !h) continue;
+        // 模糊/投影按【包围盒放大】算面: 8px 光晕要为整圈多付一圈像素。
+        let grow = 0;
+        const bm = (filt + " " + back).match(/(?:blur|drop-shadow)\([^)]*?([\d.]+)px/g);
+        if (bm) {
+          for (const seg of bm) {
+            const v = parseFloat((seg.match(/([\d.]+)px/) || [])[1] || "0");
+            if (v > grow) grow = v;
+          }
+          if (grow > out.blur_px_max) out.blur_px_max = grow;
+        }
+        const aw = w + grow * 4, ah = h + grow * 4;   // 四周各放大 2× 半径
+        const mb = (aw * ah * dpr * dpr * 4) / 1048576;
+        out.layers++;
+        out.surface_mb += mb;
+        if (hasBack) { out.backdrop_layers++; out.backdrop_mb += mb; }
+        // "看不见却付钱": opacity 0 / 完全移出视口 / 被祖先透明化
+        let paidButUnseen = Number(cs.opacity) === 0 || cs.visibility === "hidden";
+        if (!paidButUnseen) {
+          try {
+            const r = el.getBoundingClientRect();
+            if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) paidButUnseen = true;
+          } catch (_) {}
+        }
+        if (paidButUnseen) out.hidden_mb += mb;
+      }
+      out.surface_mb   = Math.round(out.surface_mb);
+      out.hidden_mb    = Math.round(out.hidden_mb);
+      out.backdrop_mb  = Math.round(out.backdrop_mb);
+      out.blur_px_max  = Math.round(out.blur_px_max);
+      out.cost_ms      = (performance && performance.now) ? Math.round(performance.now() - t0) : null;
+      return out;
+    } catch (_) { return null; }
+  }
+  let _surfCache = null, _surfAt = 0;
+  function surfaceCached(force) {
+    const now = Date.now();
+    if (force || !_surfCache || (now - _surfAt) > 60000) {
+      const s = compositingSurface();
+      if (s) { _surfCache = s; _surfAt = now; }
+    }
+    return _surfCache;
+  }
+
   // ─── Crash-recovery flag ──────────────────────────────────────────
   // The native side (Swift webViewWebContentProcessDidTerminate hook)
   // sets a localStorage key just before forcing reload. We read it on
   // boot, beacon it, then clear it.
   let crashRecovered = false;
+  let crashSource = "";
   try {
     if (localStorage.getItem("cssos.crashRecovered") === "1") {
       crashRecovered = true;
+      crashSource = "native_hook";
       localStorage.removeItem("cssos.crashRecovered");
     }
+  } catch (_) {}
+
+  // ─── CSSOS_WAVE_2392 · 黑匣子(飞行记录器)─────────────────────────
+  // 上面那个 flag 只有【App 壳(Capacitor)】会被置位 —— 它来自 Swift 的
+  // webViewWebContentProcessDidTerminate 钩子。库里实测印证了这一点:
+  // 683 条 crash_recovered 全是 platform=capacitor, 最后一条是 2026-08-29。
+  // 而 Jing 截图里那句 "This webpage was reloaded because it was using
+  // significant memory" 是【Safari 网页版自己】干的 —— 没有原生钩子, 于是
+  // 三个月来一条都没记上。
+  //
+  // 纯 JS 怎么认出"上一页是被杀掉的":
+  //   · sessionStorage 跟标签页同生死, 【能活过这种重载】;
+  //   · 每个 tick 覆写一份压缩快照(一个键, 不增长);
+  //   · pagehide 时盖一个 clean 章(用户自己刷新/离开 → 有章);
+  //   · 被杀时 pagehide 不触发 → 【没有章】。
+  // 开机读回: 有快照 + 没盖章 + 本次导航是 reload ⇒ 上一页死于非命,
+  // 把【死前最后那一份】当现场补报上去。
+  //
+  // clean 章带时间戳, 而不是"有章就丢掉":后台被系统回收时 pagehide 是
+  // 会触发的(iOS 切后台), 但那一章和重载之间会隔很久 —— 留着时间差才分得清
+  // 【用户自己刷新】和【进后台后被回收】。扔掉信息比记错更难查。
+  const FDR_KEY = "cssos.mem.fdr";
+  function fdrWrite(snap, extra) {
+    try {
+      if (!snap) return;
+      sessionStorage.setItem(FDR_KEY, JSON.stringify({
+        v: 2,
+        at: Date.now(),
+        uptime_s: snap.uptime_s,
+        pressure: snap.pressure,
+        heap: snap.heap || null,
+        dom_nodes: snap.dom_nodes,
+        images: snap.images,
+        videos: snap.videos,
+        audios: snap.audios,
+        blob_urls: snap.blob_urls,
+        active_intervals: snap.active_intervals,
+        interval_sites: snap.interval_sites || [],
+        open_panels: snap.open_panels || [],
+        surface: snap.surface || null,
+        visibility: snap.visibility,
+        url: String(location.pathname + location.search).slice(0, 160),
+        plays: _playCount,
+        ...(extra || {}),
+      }));
+    } catch (_) { /* 隐身模式 / 配额满 — 看门狗绝不能因此抛错 */ }
+  }
+  let postMortem = null;
+  try {
+    const raw = sessionStorage.getItem(FDR_KEY);
+    if (raw) {
+      const prev = JSON.parse(raw);
+      sessionStorage.removeItem(FDR_KEY);          // 只报一次
+      let navType = "";
+      try {
+        const nav = (performance.getEntriesByType &&
+                     performance.getEntriesByType("navigation") || [])[0];
+        navType = nav ? String(nav.type || "") : "";
+      } catch (_) {}
+      const gapS = Math.round((Date.now() - Number(prev.at || 0)) / 1000);
+      if (navType === "reload" && prev && typeof prev === "object") {
+        // 没盖章 = pagehide 从未触发 = 页面被外力终止。
+        // 盖了章但隔得久 = 进后台之后才被回收。
+        const verdict = !prev.clean
+          ? "unclean_kill"
+          : (Number(prev.clean_gap_s || 0) > 60 ? "background_kill" : null);
+        if (verdict) {
+          postMortem = { verdict, nav_type: navType, gap_s: gapS, prev };
+          crashRecovered = true;
+          if (!crashSource) crashSource = verdict;
+        }
+      }
+    }
+  } catch (_) {}
+
+  // play 次数 —— 一个被动监听, 几乎零成本。Jing 的毛病总在"听了很久"之后出现,
+  // 没有这个数, 现场记录就答不上"切过多少首"。
+  let _playCount = 0;
+  try {
+    document.addEventListener("play", function () { _playCount++; }, true);
   } catch (_) {}
 
   // ─── Snapshot ─────────────────────────────────────────────────────
@@ -238,6 +430,7 @@
     const videos = document.querySelectorAll("video").length;
     const audios = document.querySelectorAll("audio").length;
     const nodes = document.getElementsByTagName("*").length;
+    const snapSurface = surfaceCached(false);   // W2392 — 合成面(60s 缓存, 预算自限)
 
     // Heuristic: count globals matching app.*.js module hooks. Many
     // modules add globalThis.cssmv* / cssos* / __cssos* keys.
@@ -256,10 +449,22 @@
       if (r > 0.75) pressure = "red";
       else if (r > 0.5) pressure = "yellow";
     } else {
-      // Safari fallback: DOM + blob URLs + videos as proxy.
-      const score = nodes / 1000 + blobRegistry.size * 5 + videos * 20 + imgs / 100;
-      if (score > 50) pressure = "red";
-      else if (score > 25) pressure = "yellow";
+      /* CSSOS_WAVE_2392 — 旧的 Safari 兜底判据【永远为真】, 等于没有判据:
+       *   score = nodes/1000 + blobs*5 + videos*20 + imgs/100
+       * 本平台常驻就有 3 个 <video> → 光这一项已是 60 > 50 阈值 → 恒 red。
+       * 实测印证: 库里 ios-safari 49058 条【全部 red】, capacitor 33953 条
+       * 【全部 red】, 而 yellow 一条都没有 —— 分数直接跳过了黄区。
+       * 一个 100% 命中的检测器既抓不到异常, 也让 red 这个字段失去意义。
+       *
+       * 换成【合成面】: Safari 的 "using significant memory" 杀的是合成面,
+       * 不是 JS 堆(见 safari-oom-is-compositing-not-heap)。surface_mb 是
+       * 唯一跟那件事同量纲的数, 所以判据必须建在它上面。
+       * 阈值按实测定: 一个 1024×768 的窗口静态常驻约 69MB(其中 35MB 是
+       * 看不见却照付的), 所以 150 / 300 留了足够余量, 不会天天喊狼来了。 */
+      const surf = snapSurface ? snapSurface.surface_mb : 0;
+      if (surf > 300) pressure = "red";
+      else if (surf > 150) pressure = "yellow";
+      else if (nodes > 20000 || blobRegistry.size > 60) pressure = "yellow";
     }
 
     return {
@@ -280,7 +485,10 @@
       module_globals: moduleGlobals,
       script_tags_eager: document.querySelectorAll('script[src*="app."]:not([type="cssos-lazy"])').length,
       script_tags_lazy: document.querySelectorAll('script[type="cssos-lazy"]').length,
+      surface: snapSurface,                  // W2392 — 致命的那个数, 以前整个缺席
+      plays: _playCount,                     // W2392 — "切过多少首"
       crash_recovered: crashRecovered,
+      crash_source: crashSource || null,
       platform: isCapacitor ? "capacitor" : (isIOS ? "ios-safari" : "web"),
       visibility: document.visibilityState || "unknown",
       ua: navigator.userAgent.slice(0, 200),
@@ -295,11 +503,21 @@
   function tick() {
     try {
       lastSnap = snapshot();
+      fdrWrite(lastSnap);                 // W2392 — 黑匣子: 每 tick 覆写一份(一个键, 不增长)
       subscribers.forEach((fn) => { try { fn(lastSnap); } catch (_) {} });
     } catch (_) {}
   }
   origSetInterval(tick, SAMPLE_MS);
   setTimeout(tick, 100); // first sample fast
+
+  /* W2392 — pagehide 盖「clean」章。有章 = 用户自己刷新/离开; 无章 = 被外力终止。
+   * 章里带时间戳, 下一次启动算得出"盖章到重载隔了多久" → 分得清
+   * 【用户刷新(秒级)】和【进后台后被系统回收(分钟级)】。 */
+  globalThis.addEventListener("pagehide", function () {
+    try {
+      fdrWrite(lastSnap || snapshot(), { clean: true, clean_gap_s: 0, clean_at: Date.now() });
+    } catch (_) {}
+  });
 
   // ─── Beacon ───────────────────────────────────────────────────────
   let lastBeaconTs = 0;
@@ -311,7 +529,13 @@
       try { dom_hotspot = domHotspot(); } catch (_) {}
       try { raf_sites = rafTopSites(3); } catch (_) {}
       rafWindow = Object.create(null);   // 清窗口 → 下次 beacon 反映新速率
-      const body = JSON.stringify({ ...snap, dom_hotspot, raf_sites, reason });
+      // W2392 — beacon 时强制重量一次合成面(tick 用的是 60s 缓存)。
+      let surface = snap.surface;
+      try { const f = surfaceCached(true); if (f) surface = f; } catch (_) {}
+      const body = JSON.stringify({
+        ...snap, surface, dom_hotspot, raf_sites, reason,
+        post_mortem: (reason === "post_mortem" ? postMortem : null),
+      });
       // Use sendBeacon when available — fire-and-forget, survives unload.
       if (navigator.sendBeacon) {
         const blob = new Blob([body], { type: "application/json" });
@@ -329,7 +553,8 @@
     } catch (_) {}
   }
   origSetInterval(() => beacon("interval"), BEACON_MS);
-  if (crashRecovered) setTimeout(() => beacon("crash_recovered"), 1500);
+  if (postMortem) setTimeout(() => beacon("post_mortem"), 1200);
+  else if (crashRecovered) setTimeout(() => beacon("crash_recovered"), 1500);
   globalThis.addEventListener("pagehide",       () => beacon("pagehide"));
   globalThis.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") beacon("hidden");
@@ -346,6 +571,8 @@
     intervalSites: intervalTopSites,   // W1078 — 泄漏定时器创建源
     rafSites: rafTopSites,             // W1078 — 泄漏 rAF 源
     domHotspot,                        // W1078 — 膨胀的 DOM 容器
+    surface: () => surfaceCached(true), // W2392 — 合成面(WebKit OOM 的真自变量)
+    postMortem: () => postMortem,       // W2392 — 上一页死前的最后一份快照
     isIOS, isCapacitor,
   };
 

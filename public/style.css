@@ -7348,8 +7348,14 @@ body.cssos-cinema-mode [class*=" bg-blob"] {
    * 不透明黑 = 破坏该设计 = 全局黑屏。改为透明: 空/缓冲中的 video 透出下方封面(海报效果),
    * 视频真有帧时 object-fit:cover 自然铺满盖住封面 —— 正是设计本意。 */
   background: transparent;
-  opacity: 0.95;
-  filter: saturate(1.1) brightness(1.05);
+  /* CSSOS_WAVE_2392 20261126 — 与 style.watch.css 的那条【是一对孪生声明】, 必须一起删。
+   * Jing 已同意去掉 `opacity: 0.95` + `filter: saturate(1.1) brightness(1.05)`:
+   * 给 <video> 加 filter 会废掉硬件合成快路, 每帧多一块按 w×h×dpr²×4 常驻的中间面。
+   * 理由全文见 style.watch.css 同一处。
+   *
+   * ⚠ 实测踩过: 只删 style.watch.css 那条【屏幕上纹丝不动】—— 这一条立刻顶上来,
+   * computed 仍是 saturate(1.1) brightness(1.05)。同一个值写在两个文件里, 下一个人
+   * 必定只改一处。要再动这两条, 两处一起改, 改完 getComputedStyle 量一次再说"好了"。 */
   position: absolute;
   inset: 0;
   z-index: 0;

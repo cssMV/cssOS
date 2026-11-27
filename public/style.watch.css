@@ -297,8 +297,21 @@
    * 背后的 watch-screen-backdrop 和 watch-svg 封面可以透出; 有视频时视频画面
    * 本身覆盖(无需黑色兜底). 黑底只在真正播视频时才需要(浏览器默认已是黑底). */
   background: transparent;
-  opacity: 0.95;
-  filter: saturate(1.1) brightness(1.05);
+  /* CSSOS_WAVE_2392 20261126 — Jing 已同意: 去掉 `opacity: 0.95` 与
+   * `filter: saturate(1.1) brightness(1.05)`。
+   *
+   * 这两条是「凡是播放到媒体的地方都吃大量内存」的一半根因。给 <video> 加 filter
+   * 会【废掉硬件合成的快路】: 每一帧解码出来都不能直接交给合成器, 必须先画进一块
+   * 中间面、过一遍滤镜、再合成 —— 按 w×h×dpr²×4 常驻, 1024×428 的小窗就 6.7MB,
+   * 随窗口面积等比涨, 影院态更大, 而且是【每帧】。`opacity < 1` 单独也会逼出一个
+   * 独立层, 两条各自都够。参见本文件末尾与 safari-oom 那条: 这台机器上爆的从来
+   * 不是 JS 堆, 是合成面。
+   *
+   * 代价是画面饱和度/亮度各差 5%~10%(Jing 已权衡过)。
+   * 不要「顺手」把它们加回来, 也不要换成 backdrop-filter —— 那个更贵(每帧重采样)。
+   *
+   * 下面 W543 的 opacity 过渡【照常工作】: 基础值现在是 1, 切歌时
+   * .cssos-video-swapping 仍然 1 → 0 → 1, 一帧不差。 */
   position: absolute;
   inset: 0;
   z-index: 0;

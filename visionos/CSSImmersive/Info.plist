@@ -23,13 +23,13 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSHandsTrackingUsageDescription</key>
-	<string>用于在空中以手势创作 MV。</string>
+	<string>cssVision uses hand tracking so you can reach out and work with the magic mirror and the gate directly with your hands.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>用于语音说出想听的作品或创作咒语。</string>
+	<string>cssVision uses the microphone so you can say the name of a work you want to watch, or speak a prompt to create one, without typing in mid-air.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>用于把你说的话转成创作/搜索指令。</string>
+	<string>cssVision turns what you say into a search or a creation prompt, so you never have to type in mid-air.</string>
 	<key>NSWorldSensingUsageDescription</key>
-	<string>用于让 MV 银幕随你的视线环绕摆放、转头切换语言版本。</string>
+	<string>cssVision uses your head position so the cinema screen can sit around you, so turning your head switches to the screen you are facing, and so emotion subtitles can appear beside you as a line is sung.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

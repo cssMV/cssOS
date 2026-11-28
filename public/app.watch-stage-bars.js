@@ -242,6 +242,10 @@
     // Rotation (render-mode only).
     rotationIndex: 0,          // index into STAGES; which stage owns the ring
     rotationTimer: 0,          // setInterval id
+    // W2377 — 换阶段时色相补间(见 tweenStageHue)。liveHue 是【当前真正画出来的】
+    // 种子色相, 不是目标值 —— 补间途中被打断要从这里接着走, 否则会往回跳一下。
+    liveHue: null,             // number | null(还没画过)
+    hueTweenRaf: 0,            // requestAnimationFrame id, 0 = 没在补间
   };
 
   STAGES.forEach((k) => {
@@ -758,7 +762,9 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
   // rotation tick (render mode) and pre-wired for cover on init.
   function applyStageHue(seedHue) {
     if (!state.gradientStops.length) return;
-    const seed = ((Number(seedHue) || 0) % 360 + 360) % 360;
+    /* 取一位小数: 补间会传进浮点, 不收敛的话每帧写出 15 位小数的字符串 ——
+     * 既白白造垃圾, 又让 _applyGlowShadow 的去重 key 永远不相等。 */
+    const seed = Math.round(((Number(seedHue) || 0) % 360 + 360) % 360 * 10) / 10;
     for (let i = 0; i < state.gradientStops.length; i += 1) {
       const hue = (seed + HUE_OFFSETS[i]) % 360;
       state.gradientStops[i].setAttribute(
@@ -768,10 +774,64 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
     }
     // Update the glow hue via a CSS custom property so the drop-shadow
     // filter also tints per-stage.
+    state.liveHue = seed;
     if (state.svg) state.svg.style.setProperty("--cssmv-bar-hue", String(seed));
     /* W2372 — 色标刚被整组重写, 光晕的颜色缓存必须作废。
      * 不作废的话光晕会停在上一个阶段的色相上 —— 只在"换阶段"那一刻才错, 最难查。 */
     try { invalidateGlowColor(); } catch (_e) {}
+  }
+
+  /* W2377 — 换阶段不再瞬间跳色, 沿色相环【最短弧】渐变过去。
+   *
+   * 为什么要改: 阶段每 ROTATION_MS(5s) 换一次, 而各阶段种子隔得很远
+   * (320→145→210→290→36→0), applyStageHue 是整组瞬时重写 → 整条带子的基色
+   * 每 5 秒硬跳 100~180 度。Jing:「突然变另一种颜色, 有点唐突。」
+   *
+   * 为什么只改这里: 眼睛看到的色带是 _applyGlowShadow 每个 tick 读 stop 颜色
+   * 重画出来的, 所以种子一动, 带子自然跟着走 —— 下游一行都不用改。
+   * 宪法锁的五条(一条带无线 / 垂直由实渐虚 / BAND_PX=11 / 左右走+颜色流动 /
+   * 零 filter 零离屏面)全部原样不动: 这里只改【种子怎么从 A 走到 B】。
+   *
+   * 内存: 不新增元素/图层/滤镜/离屏面, 写的还是原来那 6 个 stop-color 和
+   * 4 个 backgroundImage, 只是值不同 → 合成面的数量与尺寸一个字节没变。
+   * 唯一代价是补间期间每帧多写几个字符串(短命垃圾, 非常驻), 所以节流到
+   * TWEEN_FPS_MS —— 慢速渐变人眼分不出, 写入次数降到约三分之一。 */
+  const HUE_TWEEN_MS = 900;   // Jing 定: 先按 900ms 看效果
+  const TWEEN_FPS_MS = 50;    // ≈20fps 节流
+
+  function cancelHueTween() {
+    if (state.hueTweenRaf) {
+      try { cancelAnimationFrame(state.hueTweenRaf); } catch (_e) {}
+      state.hueTweenRaf = 0;
+    }
+  }
+
+  function tweenStageHue(targetSeed, ms) {
+    const to = ((Number(targetSeed) || 0) % 360 + 360) % 360;
+    // 还没画过第一帧 → 没有"从哪来", 直接落位(开场不该有一段渐变)。
+    if (state.liveHue == null) { applyStageHue(to); return; }
+    cancelHueTween();
+    const from = state.liveHue;
+    // 最短弧: 落在 (-180, 180]。不这样走, 36→0 会绕 324 度把整条彩虹扫一遍。
+    const delta = (((to - from) % 360) + 540) % 360 - 180;
+    if (Math.abs(delta) < 0.5) { applyStageHue(to); return; }
+    const dur = Math.max(1, Number(ms) || HUE_TWEEN_MS);
+    const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    let lastPaint = -1e9;
+    const step = () => {
+      state.hueTweenRaf = 0;
+      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+      const t = Math.min(1, (now - t0) / dur);
+      // easeInOutSine — 两头慢中间快, 比线性更像"渐渐地"变过去。
+      const e = 0.5 - Math.cos(Math.PI * t) / 2;
+      if (t >= 1) { applyStageHue(to); return; }
+      if (now - lastPaint >= TWEEN_FPS_MS) {
+        lastPaint = now;
+        applyStageHue(from + delta * e);
+      }
+      state.hueTweenRaf = requestAnimationFrame(step);
+    };
+    state.hueTweenRaf = requestAnimationFrame(step);
   }
 
   // Compute rounded-rect geometry and perimeter for the stroke path.
@@ -1038,7 +1098,8 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
   function advanceRotation() {
     state.rotationIndex = (state.rotationIndex + 1) % STAGES.length;
     const key = STAGES[state.rotationIndex];
-    applyStageHue(STAGE_HUE[key]);
+    // W2377 — 这里是唯一的"换阶段"入口, 所以渐变闸只装这一处。
+    tweenStageHue(STAGE_HUE[key], HUE_TWEEN_MS);
     render();
   }
 
@@ -1057,6 +1118,9 @@ html.cssos-app .cssmv-glow-edges.is-viewport {
       clearInterval(state.rotationTimer);
       state.rotationTimer = 0;
     }
+    /* W2377 — 补间也要停。铁律「顺畅完毕立即销毁内存」: 留一个自己续命的
+     * rAF 在后台跑, 就是下一个内存账单。 */
+    cancelHueTween();
   }
 
   // ---------- playback loop -----------------------------------------------

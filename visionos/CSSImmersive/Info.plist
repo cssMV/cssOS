@@ -22,8 +22,6 @@
 	<string>7</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>NSHandsTrackingUsageDescription</key>
-	<string>cssVision uses hand tracking so you can reach out and work with the magic mirror and the gate directly with your hands.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>cssVision uses the microphone so you can say the name of a work you want to watch, or speak a prompt to create one, without typing in mid-air.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
